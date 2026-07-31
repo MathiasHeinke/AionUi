@@ -8,8 +8,11 @@
  * EVE Inference picker core — the STUFEN (level) model + the two required
  * behaviors:
  *
- *  (0) STUFEN shape: EVE exposes FIVE levels — Standard, Hoch, Sehr hoch,
- *      Maximum and Ultra. Standard is free-eligible; the other levels are metered.
+ *  (0) STUFEN shape: EVE OFFERS four levels — Standard, Hoch, Sehr hoch and
+ *      Maximum. Standard is free-eligible; the others are metered. The retired
+ *      eve-ultra rung stays in the registry so a persisted selection can still
+ *      be recognised and migrated, but the server refuses its wire tier, so it
+ *      is never offered.
  *
  *  (1) Free-tier greying: when the entitlement is trialing (CEVE.v2
  *      trial_ends_at present), metered levels are disabled unless the user has
@@ -36,6 +39,8 @@ import {
   EVE_INFERENCE_DEFAULT_TIER_ID,
   EVE_INFERENCE_GROUP_TITLE,
   EVE_INFERENCE_TIERS,
+  EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS,
+  isServerAllowedWireTier,
   eveTierValue,
   filterEvePickerGroups,
   isByokDisabledForEntitlement,
@@ -86,14 +91,14 @@ describe('eveInferenceCore — trial detection', () => {
 });
 
 describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
-  it('exposes EXACTLY the five EVE levels in order: Standard, Hoch, Sehr hoch, Maximum, Ultra', () => {
+  it('exposes EXACTLY the four OFFERED EVE levels in order: Standard, Hoch, Sehr hoch, Maximum', () => {
     const groups = buildEvePickerGroups(PAID_NULL);
     const eve = groups.find((g) => g.kind === 'eve')!;
     // Founder mandate: picker rows expose the strength ladder, never raw models.
-    expect(eve.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum', 'Ultra']);
+    expect(eve.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
   });
 
-  it('Standard is the free-eligible default; Hoch through Ultra are paid', () => {
+  it('Standard is the free-eligible default; every higher registry rung is paid', () => {
     const mittel = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-standard')!;
     const hoch = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-high')!;
     const max = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-max')!;
@@ -117,35 +122,33 @@ describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
     expect(hoch.costBadge).toBeUndefined();
   });
 
-  it('EVE Maximum is the stable max-reasoning lane; Ultra alone carries the experimental high-cost marker', () => {
+  it('EVE Maximum is the stable max-reasoning lane and the highest one offered', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
     const max = byLabel(items, 'eve', 'Maximum')!;
-    const ultra = byLabel(items, 'eve', 'Ultra')!;
     expect(max.consumesCredits).toBe(true);
     expect(max.gated).toBe(false);
     expect(max.sublabel).toBe('starkes Agenten-Reasoning');
     expect(max.costBadge).toBeUndefined();
-    expect(ultra.consumesCredits).toBe(true);
-    expect(ultra.gated).toBe(true);
-    expect(ultra.sublabel).toBe('maximale Agenten-Power · experimentell');
-    expect(ultra.costBadge).toBe('Ultra-Kosten');
+    // The experimental rung above it is retired from the picker; nothing the
+    // server refuses may be offered.
+    expect(byLabel(items, 'eve', 'Ultra')).toBeUndefined();
   });
 
-  it('keeps routine EVE rows quiet and marks only experimental Ultra cost', () => {
+  it('keeps every offered EVE row quiet: no cost badges once the gated rung is retired', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
     const eve = items.filter((i) => i.group === 'eve');
-    expect(eve.filter((i) => i.label !== 'Ultra').every((i) => i.costBadge === undefined)).toBe(true);
-    expect(byLabel(items, 'eve', 'Ultra')!.costBadge).toBe('Ultra-Kosten');
+    expect(eve.every((i) => i.costBadge === undefined)).toBe(true);
+    expect(eve.every((i) => i.gated !== true)).toBe(true);
     expect(byLabel(items, 'eve', 'Standard')!.consumesCredits).toBe(false);
   });
 });
 
 describe('eveInferenceCore — scalable picker presentation', () => {
   it('keeps only matching rows while preserving their group navigation', () => {
-    const filtered = filterEvePickerGroups(buildEvePickerGroups(PAID_NULL), 'Ultra');
+    const filtered = filterEvePickerGroups(buildEvePickerGroups(PAID_NULL), 'Maximum');
 
     expect(filtered.map((group) => group.kind)).toEqual(['eve']);
-    expect(filtered[0].items.map((item) => item.label)).toEqual(['Ultra']);
+    expect(filtered[0].items.map((item) => item.label)).toEqual(['Maximum']);
   });
 
   it('keeps the full group when its heading matches the search', () => {
@@ -242,29 +245,26 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
   it('renders EXACTLY two groups and nothing else', () => {
     const groups = buildEvePickerGroups(TRIAL);
     expect(groups.map((g) => g.kind)).toEqual(['local', 'eve']);
-    // Local: Standard + Hoch only (no 31B pro tier). EVE: all five STUFEN.
+    // Local: Standard + Hoch only (no 31B pro tier). EVE: the four offered STUFEN.
     expect(groups[0].items.map((i) => i.label)).toEqual(['Standard', 'Hoch']);
-    expect(groups[1].items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum', 'Ultra']);
+    expect(groups[1].items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
   });
 
-  it('greys every paid Pro rung through Ultra while trialing; EVE Standard + locals stay selectable', () => {
+  it('greys every offered paid Pro rung while trialing; EVE Standard + locals stay selectable', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
 
     // The paid Pro rungs are disabled with the paid hint.
     const hoch = byLabel(items, 'eve', 'Hoch')!;
     const max = byLabel(items, 'eve', 'Maximum')!;
-    const ultra = byLabel(items, 'eve', 'Ultra')!;
     expect(hoch.disabled).toBe(true);
     expect(hoch.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
     expect(max.disabled).toBe(true);
     expect(max.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
-    expect(ultra.disabled).toBe(true);
-    expect(ultra.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
 
-    // Routine tiers stay quiet. Experimental Ultra keeps its explicit cost warning.
+    // Every offered tier stays quiet: the only rung that carried a cost warning
+    // was the experimental one, and it is no longer offered.
     expect(hoch.costBadge).toBeUndefined();
     expect(max.costBadge).toBeUndefined();
-    expect(ultra.costBadge).toBe('Ultra-Kosten');
 
     // EVE Standard (the free model) selectable on a trial.
     expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
@@ -278,13 +278,12 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
     expect(byLabel(items, 'local', 'Hoch')!.sublabel).toBe('Gemma 4 12B Heretic');
   });
 
-  it('leaves ALL EVE levels selectable when paid (trial_ends_at null/absent)', () => {
+  it('leaves every OFFERED EVE level selectable when paid (trial_ends_at null/absent)', () => {
     for (const ent of [PAID_NULL, PAID_ABSENT]) {
       const items = flat(buildEvePickerGroups(ent));
       expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
       expect(byLabel(items, 'eve', 'Hoch')!.disabled).toBe(false);
       expect(byLabel(items, 'eve', 'Maximum')!.disabled).toBe(false);
-      expect(byLabel(items, 'eve', 'Ultra')!.disabled).toBe(false);
     }
   });
 
@@ -396,7 +395,6 @@ describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
     expect(byLabel(items, 'eve', 'Standard')!.sublabel).toBe('großer Kontext');
     expect(byLabel(items, 'eve', 'Hoch')!.sublabel).toBe('intelligenter');
     expect(byLabel(items, 'eve', 'Maximum')!.sublabel).toBe('starkes Agenten-Reasoning');
-    expect(byLabel(items, 'eve', 'Ultra')!.sublabel).toBe('maximale Agenten-Power · experimentell');
   });
 
   it('cloud heading marks EVE as Cloud; rows show CAPABILITY, never a concrete model name', () => {
@@ -472,10 +470,12 @@ describe('eveInferenceCore — EVE Standard routing (requirement 2)', () => {
     // Each level sends its registry level name; the backend resolves the model.
     expect(buildEveInferenceProvider({ tierId: 'eve-high', licenseWire: FAKE_WIRE }).use_model).toBe('high');
     expect(buildEveInferenceProvider({ tierId: 'eve-max', licenseWire: FAKE_WIRE }).use_model).toBe('max');
-    expect(buildEveInferenceProvider({ tierId: 'eve-ultra', licenseWire: FAKE_WIRE }).use_model).toBe('ultra');
+    // Defence in depth: a caller still holding the retired id — a stale route, a
+    // cached value — cannot build a provider whose use_model the server refuses.
+    expect(buildEveInferenceProvider({ tierId: 'eve-ultra', licenseWire: FAKE_WIRE }).use_model).toBe('max');
   });
 
-  it('the wire values are exactly the registry-accepted five-level set', () => {
+  it('the registry keeps five ids for migration; only four are server-accepted', () => {
     const wires = EVE_INFERENCE_TIERS.map((t) => t.tier);
     expect(wires).toEqual(['standard', 'high', 'xhigh', 'max', 'ultra']);
     // The desktop never sends "DeepSeek V4 Pro" / "GLM 5.2" on the wire — only
@@ -611,8 +611,27 @@ describe('eveInferenceCore — HONEST tier routing (resolveWireTierFromSelection
     expect(resolveWireTierFromSelection(eveTierValue('eve-max'))).toBe('max');
   });
 
-  it('maps eve-ultra → wire tier "ultra"', () => {
-    expect(resolveWireTierFromSelection(eveTierValue('eve-ultra'))).toBe('ultra');
+  it('migrates a persisted eve-ultra to the strongest tier the SERVER accepts', () => {
+    // This test used to assert `→ 'ultra'`, and that assertion was the defect
+    // written down. The Edge Function answers 403 tier_not_allowed with
+    // allowed_tiers standard|high|xhigh|max, so a seat holding Ultra lost EVERY
+    // turn, not just media ones — proven live on 2026-07-31 at 19:57, twice,
+    // both dying before media routing with no debit taken.
+    expect(resolveWireTierFromSelection(eveTierValue('eve-ultra'))).toBe('max');
+  });
+
+  it('never puts a tier on the wire that the server refuses', () => {
+    for (const tier of EVE_INFERENCE_TIERS) {
+      const wire = resolveWireTierFromSelection(eveTierValue(tier.id));
+      if (wire === undefined) continue;
+      expect(EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS).toContain(wire);
+    }
+  });
+
+  it('the selection itself becomes max, so the visible label cannot disagree', () => {
+    // Normalising at parse level rather than only outbound: the picker must not
+    // read "Ultra" while `max` is sent. Same thing everywhere or nowhere.
+    expect(parseEveTierIdFromSelection(eveTierValue('eve-ultra'))).toBe('eve-max');
   });
 
   it('maps eve-high → wire tier "high" (DeepSeek V4 Pro lane)', () => {
@@ -623,8 +642,11 @@ describe('eveInferenceCore — HONEST tier routing (resolveWireTierFromSelection
     expect(resolveWireTierFromSelection(eveTierValue('eve-standard'))).toBe('standard');
   });
 
-  it('returns the registry value VERBATIM for every defined EVE tier (no shift/bridge)', () => {
+  it('returns the registry value VERBATIM for every SERVER-ACCEPTED EVE tier (no shift/bridge)', () => {
+    // Verbatim still holds for every rung the server honours. The one rung it
+    // does not — ultra — is migrated, not shifted: see the migration test above.
     for (const tier of EVE_INFERENCE_TIERS) {
+      if (!isServerAllowedWireTier(tier.tier)) continue;
       expect(resolveWireTierFromSelection(eveTierValue(tier.id))).toBe(tier.tier);
     }
   });
@@ -639,8 +661,8 @@ describe('eveInferenceCore — HONEST tier routing (resolveWireTierFromSelection
     current = eveTierValue('eve-max'); // user switches to EVE Max mid-session
     expect(resolveWireTierFromSelection(current)).toBe('max');
 
-    current = eveTierValue('eve-ultra');
-    expect(resolveWireTierFromSelection(current)).toBe('ultra');
+    current = eveTierValue('eve-ultra'); // a legacy selection still on disk
+    expect(resolveWireTierFromSelection(current)).toBe('max');
 
     current = eveTierValue('eve-high'); // user switches down to EVE High
     expect(resolveWireTierFromSelection(current)).toBe('high');
@@ -658,6 +680,23 @@ describe('eveInferenceCore — HONEST tier routing (resolveWireTierFromSelection
     // A retired/unknown EVE tier id resolves to no tier (not a silent 'standard').
     expect(resolveWireTierFromSelection('command-eve-inference:eve-maximum')).toBeUndefined();
     expect(resolveWireTierFromSelection('command-eve-inference:eve-bogus')).toBeUndefined();
+  });
+
+  it('a tier the server refuses can never become a metered call', () => {
+    // The no-debit invariant, at the only layer this module can actually prove
+    // it: a wire tier is the input to the metered request, so if a refused tier
+    // can never BE a wire tier, it can never start one — and a request that is
+    // never started cannot take credits. A retired rung reaching the wire would
+    // 403 on every turn, which is why it must be stopped here rather than there.
+    for (const wire of ['ultra', 'gigantic', '', 'MAX'] as const) {
+      expect(isServerAllowedWireTier(wire)).toBe(false);
+    }
+    for (const wire of EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS) {
+      expect(isServerAllowedWireTier(wire)).toBe(true);
+    }
+    // And the one legacy value resolves to something billable and allowed,
+    // rather than to nothing at all — a migrated seat keeps working.
+    expect(resolveWireTierFromSelection(eveTierValue('eve-ultra'))).toBe('max');
   });
 });
 
@@ -699,11 +738,16 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
     expect(en.toLowerCase()).not.toContain('local');
   });
 
-  it('describes Ultra as proactive worker orchestration without exposing Kimi', () => {
+  it('describes a persisted Ultra selection as the Maximum lane it will actually get', () => {
+    // This test used to assert "Ultra-Stufe", and after the migration that
+    // sentence would have been a lie: the server refuses `ultra`, so the turn
+    // runs on Maximum. Describing the lane the user WILL be served — rather
+    // than the one they once picked — is the whole point of migrating at parse
+    // level instead of only on the wire.
     const de = describeCommandEveActiveLane(eveTierValue('eve-ultra'), 'de-DE');
     const en = describeCommandEveActiveLane(eveTierValue('eve-ultra'), 'en-US');
-    expect(de).toBe('EVE Cloud, Ultra-Stufe (maximales Reasoning, proaktive Worker-Orchestrierung)');
-    expect(en).toBe('EVE Cloud, Ultra tier (maximum reasoning, proactive worker orchestration)');
+    expect(de).toBe('EVE Cloud, Maximum-Stufe (maximales Reasoning, starke Agentenarbeit)');
+    expect(en).toBe('EVE Cloud, Maximum tier (maximum reasoning, strong agent work)');
     expect(`${de} ${en}`).not.toMatch(/kimi|moonshot|openrouter/i);
   });
 

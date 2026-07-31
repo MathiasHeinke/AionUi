@@ -111,7 +111,7 @@ describe('useEveInferenceSelection', () => {
     const { result } = renderHook(() => useEveInferenceSelection());
     expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
     expect(result.current.selectedItem?.group).toBe('eve');
-    // Cloud picker rows read "Standard / Hoch / Sehr hoch / Maximum / Ultra".
+    // Cloud picker rows read "Standard / Hoch / Sehr hoch / Maximum".
     expect(result.current.selectedItem?.label).toBe('Standard');
   });
 
@@ -152,7 +152,7 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.selection).toBe(eveStandard);
   });
 
-  it('greys the paid Pro rungs through Ultra while trialing and refuses to commit them', () => {
+  it('greys the offered paid Pro rungs while trialing and refuses to commit them', () => {
     entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z'; // trialing
     creditsStatus.tier = 'free';
     const { result } = renderHook(() => useEveInferenceSelection());
@@ -183,7 +183,6 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.isSelectable(eveTierValue('eve-high'))).toBe(true);
     expect(result.current.isSelectable(eveTierValue('eve-xhigh'))).toBe(true);
     expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
-    expect(result.current.isSelectable(eveTierValue('eve-ultra'))).toBe(true);
   });
 
   it('auto-resets a previously-stored paid level (Max) to the default (Standard) when trialing', async () => {
@@ -212,7 +211,7 @@ describe('useEveInferenceSelection', () => {
     rerender();
 
     const cloudItems = result.current.groups.find((group) => group.kind === 'eve')?.items ?? [];
-    expect(cloudItems.map((item) => item.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum', 'Ultra']);
+    expect(cloudItems.map((item) => item.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
     expect(cloudItems.find((item) => item.value === eveMax)?.disabled).toBe(true);
     expect(result.current.selection).toBe(eveMax);
     expect(configService.set).not.toHaveBeenCalledWith(
@@ -288,13 +287,89 @@ describe('useEveInferenceSelection', () => {
     expect(configService.set).not.toHaveBeenCalled();
   });
 
-  it('keeps the paid Pro rungs through Ultra selectable when paid (trial_ends_at null)', () => {
+  // -------------------------------------------------------------------------
+  // Retired-rung migration.
+  //
+  // Reading through a migration is not the same as migrating: the stored string
+  // and the picker's active row both come from the RAW persisted value, so
+  // without a write-back the config keeps a tier the server refuses and the
+  // picker keeps presenting it as chosen. These pin the write, not just the read.
+  // -------------------------------------------------------------------------
+
+  it('migrates a persisted retired rung and writes the replacement back', async () => {
+    store.set('commandEve.inferenceSelection', eveTierValue('eve-ultra'));
+    entitlement.trial_ends_at = null; // paid, so nothing else can retire it
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    await waitFor(() => expect(result.current.selection).toBe(eveTierValue('eve-max')));
+    expect(store.get('commandEve.inferenceSelection')).toBe(eveTierValue('eve-max'));
+    expect(configService.set).toHaveBeenCalledWith('commandEve.inferenceSelection', eveTierValue('eve-max'));
+  });
+
+  it('shows Maximum as the active picker item after migrating', async () => {
+    store.set('commandEve.inferenceSelection', eveTierValue('eve-ultra'));
+    entitlement.trial_ends_at = null;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    await waitFor(() => expect(result.current.selectedItem?.value).toBe(eveTierValue('eve-max')));
+    expect(result.current.selectedItem?.label).toBe('Maximum');
+  });
+
+  it('migrates a retired rung arriving through the subscription', async () => {
+    entitlement.trial_ends_at = null;
+    const { result } = renderHook(() => useEveInferenceSelection());
+    await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
+    vi.clearAllMocks();
+
+    // Through configService.set, not store.set: only the former notifies
+    // subscribers, so writing the backing store directly would test nothing and
+    // look like a product defect.
+    act(() => {
+      configService.set('commandEve.inferenceSelection', eveTierValue('eve-ultra'));
+    });
+
+    await waitFor(() => expect(result.current.selection).toBe(eveTierValue('eve-max')));
+    expect(store.get('commandEve.inferenceSelection')).toBe(eveTierValue('eve-max'));
+    expect(configService.set).toHaveBeenLastCalledWith('commandEve.inferenceSelection', eveTierValue('eve-max'));
+  });
+
+  it('leaves every accepted rung untouched and writes nothing', async () => {
+    for (const tierId of ['eve-standard', 'eve-high', 'eve-xhigh', 'eve-max'] as const) {
+      vi.clearAllMocks();
+      store.set('commandEve.inferenceSelection', eveTierValue(tierId));
+      entitlement.trial_ends_at = null;
+
+      const { result, unmount } = renderHook(() => useEveInferenceSelection());
+      await waitFor(() => expect(result.current.selection).toBe(eveTierValue(tierId)));
+      expect(store.get('commandEve.inferenceSelection')).toBe(eveTierValue(tierId));
+      expect(configService.set).not.toHaveBeenCalled();
+      unmount();
+    }
+  });
+
+  it('keeps the paid Pro rungs selectable when paid (trial_ends_at null)', () => {
     const { result } = renderHook(() => useEveInferenceSelection());
     expect(result.current.isSelectable(eveTierValue('eve-high'))).toBe(true);
     expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
-    expect(result.current.isSelectable(eveTierValue('eve-ultra'))).toBe(true);
-    act(() => result.current.commit(eveTierValue('eve-ultra')));
-    expect(result.current.selection).toBe(eveTierValue('eve-ultra'));
+    act(() => result.current.commit(eveTierValue('eve-max')));
+    expect(result.current.selection).toBe(eveTierValue('eve-max'));
+  });
+
+  it('does not offer the retired rung anywhere a user could reach it', () => {
+    entitlement.trial_ends_at = null; // paid: nothing else could be hiding it
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    const values = result.current.items.map((item) => item.value);
+    expect(values).not.toContain(eveTierValue('eve-ultra'));
+    expect(result.current.isSelectable(eveTierValue('eve-ultra'))).toBe(false);
+    for (const group of result.current.groups) {
+      expect(group.items.map((item) => item.value)).not.toContain(eveTierValue('eve-ultra'));
+    }
+    // And Maximum is still there exactly once — retiring a rung must not
+    // duplicate the one it migrates into.
+    expect(values.filter((value) => value === eveTierValue('eve-max'))).toHaveLength(1);
   });
 
   it('never auto-resets a persisted paid tier for a confirmed non-trial user', async () => {

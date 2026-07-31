@@ -344,7 +344,7 @@ describe('Command EVE assistant bootstrap core', () => {
       expect(context).toContain('Self-description:');
     });
 
-    it('Ultra selection explicitly teaches proactive worker orchestration while preserving boundaries', () => {
+    it('a persisted retired selection lands on Maximum and still teaches proactive worker orchestration', () => {
       const de = buildCommandEveAssistantFirstRunContext(
         {
           appVersion: '1.8.14',
@@ -362,15 +362,15 @@ describe('Command EVE assistant bootstrap core', () => {
         'en-US'
       );
 
-      expect(de).toContain('Aktive Inferenz-Lane: EVE Cloud, Ultra-Stufe');
+      expect(de).toContain('Aktive Inferenz-Lane: EVE Cloud, Maximum-Stufe');
       expect(de).toContain('proaktive Worker-Orchestrierung');
       expect(de).toContain('Datenschutz- und Freigabegrenzen');
-      expect(en).toContain('Active inference lane: EVE Cloud, Ultra tier');
+      expect(en).toContain('Active inference lane: EVE Cloud, Maximum tier');
       expect(en).toContain('proactive worker orchestration');
       expect(en).toContain('privacy, and approval boundaries');
     });
 
-    it('Maximum does not claim the Ultra worker profile', () => {
+    it('Maximum CARRIES the worker profile — it is the highest rung the server accepts', () => {
       const context = buildCommandEveAssistantFirstRunContext(
         {
           appVersion: '1.8.14',
@@ -379,7 +379,9 @@ describe('Command EVE assistant bootstrap core', () => {
         },
         'en-US'
       );
-      expect(context).not.toContain('Ultra execution profile');
+      // The profile moved here from the retired rung: the capability was real,
+      // the level it hung on was not.
+      expect(context).toContain('Maximum execution profile');
     });
 
     it('LOCAL selection → honestly names the local model (DE)', () => {

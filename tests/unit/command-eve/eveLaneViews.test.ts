@@ -16,7 +16,7 @@ import {
 const byLane = (views: PickerLaneView[]) => Object.fromEntries(views.map((v) => [v.lane, v]));
 
 describe('buildEveLaneViews — lane axis (Lokal · EVE Free · EVE Pro)', () => {
-  it('TRIAL/free user: Lokal + EVE Free selectable, EVE Pro LOCKED (all five greyed)', () => {
+  it('TRIAL/free user: Lokal + EVE Free selectable, EVE Pro LOCKED (every offered rung greyed)', () => {
     const v = byLane(buildEveLaneViews({ trial_ends_at: '2026-12-31T00:00:00Z' }));
     expect(v.local.state).toBe('available');
     expect(v.local.items.every((i) => !i.disabled)).toBe(true);
@@ -29,19 +29,19 @@ describe('buildEveLaneViews — lane axis (Lokal · EVE Free · EVE Pro)', () =>
     expect(v.free.items[0].sublabel).toContain('100/Tag');
 
     expect(v.pro.state).toBe('locked');
-    // EVE Pro = Standard · Hoch · Sehr hoch · Maximum · Ultra (five rungs), all
+    // EVE Pro = Standard · Hoch · Sehr hoch · Maximum (four offered rungs), all
     // greyed on a trial.
-    expect(v.pro.items).toHaveLength(5);
+    expect(v.pro.items).toHaveLength(4);
     expect(v.pro.items.every((i) => i.disabled && i.disabledReasonCode === 'PAID_TIER_REQUIRED')).toBe(true);
-    expect(v.pro.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum', 'Ultra']);
+    expect(v.pro.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
   });
 
-  it('PAYING user (no trial_ends_at): EVE Free HIDDEN, EVE Pro = five rungs selectable', () => {
+  it('PAYING user (no trial_ends_at): EVE Free HIDDEN, EVE Pro = every offered rung selectable', () => {
     const v = byLane(buildEveLaneViews({}));
     expect(v.local.state).toBe('available');
     expect(v.free.state).toBe('hidden');
     expect(v.pro.state).toBe('available');
-    expect(v.pro.items).toHaveLength(5);
+    expect(v.pro.items).toHaveLength(4);
     expect(v.pro.items.every((i) => !i.disabled)).toBe(true);
     // Increasing credit cost is surfaced as a badge on every Pro rung.
     expect(v.pro.items.every((i) => typeof i.costBadge === 'string')).toBe(true);
@@ -59,7 +59,8 @@ describe('buildEveLaneViews — lane axis (Lokal · EVE Free · EVE Pro)', () =>
     // EVE Free carries the eve-standard selection verbatim (router contract intact).
     expect(v.free.items.some((i) => i.value === eveTierValue('eve-standard'))).toBe(true);
     expect(v.pro.items.some((i) => i.value === eveTierValue('eve-max'))).toBe(true);
-    expect(v.pro.items.some((i) => i.value === eveTierValue('eve-ultra'))).toBe(true);
+    // The retired rung is never offered as a lane item.
+    expect(v.pro.items.some((i) => i.value === eveTierValue('eve-ultra'))).toBe(false);
     expect(v.local.items.some((i) => i.value === localTierValue('local-standard'))).toBe(true);
   });
 });

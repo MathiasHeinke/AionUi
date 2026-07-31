@@ -505,7 +505,9 @@ export function buildCommandEveAssistantFirstRunContext(
   const connectors = capabilityPack?.connectors || [];
   const failedStages = (receipt?.stages || []).filter((stage) => ['blocked', 'failed'].includes(stage.status));
   const activeLane = resolveCommandEveActiveLane(context.inferenceSelection);
-  const ultraProfileActive = activeLane.kind === 'eve' && activeLane.wireTier === 'ultra';
+  // The orchestration profile now rides on Maximum — the highest rung the server
+  // accepts — rather than on a level it refuses.
+  const maximumProfileActive = activeLane.kind === 'eve' && activeLane.wireTier === 'max';
 
   if (locale === 'de-DE') {
     const seatLinesDe = usingSeat
@@ -540,9 +542,9 @@ export function buildCommandEveAssistantFirstRunContext(
         context.inferenceSelection,
         'de-DE'
       )}`,
-      ...(ultraProfileActive
+      ...(maximumProfileActive
         ? [
-            '- Ultra-Arbeitsprofil: proaktive Worker-Orchestrierung fuer komplexe Aufgaben innerhalb der vorhandenen Hardware-, Datenschutz- und Freigabegrenzen.',
+            '- Maximum-Arbeitsprofil: proaktive Worker-Orchestrierung fuer komplexe Aufgaben innerhalb der vorhandenen Hardware-, Datenschutz- und Freigabegrenzen.',
           ]
         : []),
       // The local runtime receipt below describes ONLY the bundled local Ollama
@@ -608,9 +610,9 @@ export function buildCommandEveAssistantFirstRunContext(
       context.inferenceSelection,
       'en-US'
     )}`,
-    ...(ultraProfileActive
+    ...(maximumProfileActive
       ? [
-          '- Ultra execution profile: proactive worker orchestration for complex tasks within the available hardware, privacy, and approval boundaries.',
+          '- Maximum execution profile: proactive worker orchestration for complex tasks within the available hardware, privacy, and approval boundaries.',
         ]
       : []),
     // The local runtime receipt below describes ONLY the bundled local Ollama

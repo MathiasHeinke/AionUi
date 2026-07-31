@@ -1045,7 +1045,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(fnSeen.body?.tool_choice).toBe('auto');
   });
 
-  it('injects the bounded Ultra worker profile only for the Ultra wire tier', async () => {
+  it('injects the bounded worker profile on the Maximum wire tier', async () => {
     const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
     const fnSeen: EveFnSeen = {};
     const fnUrl = await startFakeEveFunction(fnSeen);
@@ -1053,7 +1053,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,
       ollamaBaseUrl,
-      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'ultra' }),
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'max' }),
     });
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
@@ -1069,11 +1069,42 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(response.status).toBe(200);
     const messages = fnSeen.body?.messages as Array<{ role?: string; content?: string }>;
     expect(messages[0].role).toBe('system');
-    expect(messages[0].content).toContain('EVE Ultra execution profile');
+    expect(messages[0].content).toContain('EVE Maximum execution profile');
     expect(messages[0].content).toContain('delegate_task');
     expect(messages[0].content).toContain('worker slots');
     expect(messages[0].content).toContain('Existing human gates remain binding');
     expect(messages[1]).toEqual({ role: 'user', content: 'audit and repair this complex project' });
+  });
+
+  it('refuses a server-rejected wire tier BEFORE any upstream request', async () => {
+    // The real no-request proxy for "no debit": a tier the Edge Function refuses
+    // must be stopped locally, so nothing is ever sent and nothing can be
+    // metered. Asserting a core predicate would not have shown this — only
+    // counting the calls that were never made does.
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'ultra' }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'hallo' }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    // The evidence is that the fake Edge Function never saw a body: the request
+    // was refused locally, so nothing travelled and nothing could be metered.
+    expect(fnSeen.body).toBeUndefined();
   });
 
   it('omits tools on a tool-less EVE cloud turn (byte-clean, no empty array)', async () => {

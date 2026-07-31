@@ -21,7 +21,7 @@
  *     high-cost warning. Concrete cloud models remain server-owned.
  *
  * When the entitlement is trialing/free (entitlementCore CEVE.v2
- * `trial_ends_at` present), every paid rung from EVE Hoch through Ultra is GREYED OUT with
+ * `trial_ends_at` present), every offered paid rung from EVE Hoch upward is GREYED OUT with
  * a subtle "im Paid-Tarif" hint. Only EVE Standard + the two local tiers stay
  * selectable. The picker model + gating come from the pure `eveInferenceCore`.
  *

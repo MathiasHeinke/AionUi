@@ -145,6 +145,16 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     await expect(readInferenceSelectionFromBackend()).resolves.toBeUndefined();
   });
 
+  it('routes a persisted RETIRED rung all the way to wire tier "max"', async () => {
+    // Full chain, not a core assertion: a seat that still holds
+    // "command-eve-inference:eve-ultra" on the backend must come out of the
+    // route resolver as `max`. The server refuses `ultra`, so anything else
+    // here would cost that seat every turn.
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null));
+    const route = await resolveRouteFromBackend();
+    expect(route?.tier).toBe('max');
+  });
+
   it('readInferenceSelectionFromBackend returns the raw persisted picker value', async () => {
     httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null));
     const raw = await readInferenceSelectionFromBackend();

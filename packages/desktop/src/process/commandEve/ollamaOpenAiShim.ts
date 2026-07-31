@@ -18,7 +18,7 @@ import {
 import { isLegacySeatId, sanitizeSeatId } from './seatContextCore';
 import { isCommandEveShimPublicError } from './shimPublicError';
 import { evaluateWorkerDispatch, type EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
-import { EVE_INFERENCE_TIERS } from '../../common/config/eveInferenceCore';
+import { EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS } from '../../common/config/eveInferenceCore';
 import { buildCommandEveContextPolicy, type CommandEveContextPolicy } from '../../common/config/eveContextPolicyCore';
 import {
   COMMAND_EVE_BONSAI_ACP_MODEL_ID,
@@ -31,12 +31,17 @@ import { stripCommandEveManagedVisualTurnMarkers } from '../../common/config/eve
 import { executeCommandEveManagedImageGeneration } from './managedImageGenerationService';
 
 /**
- * The known EVE wire tiers (registry SSOT) — derived from EVE_INFERENCE_TIERS so
- * a new tier in eveInferenceCore is automatically valid here. The shim uses this
- * to REFUSE an active EVE route whose tier is missing/unknown rather than
- * silently downgrade it to the cheapest model (HONEST TIER ROUTING, 1.2.19).
+ * The wire tiers this shim will forward — the SERVER's allow-list, not the whole
+ * registry.
+ *
+ * Deriving it from EVE_INFERENCE_TIERS made every registry rung valid here,
+ * including ones the Edge Function refuses. Such a tier passed this check, went
+ * upstream, and came back 403 — after the request had already been made. Gating
+ * on what the server accepts turns that into a local refusal BEFORE any call, so
+ * a tier the server would reject can never reach it (HONEST TIER ROUTING,
+ * 1.2.19).
  */
-const KNOWN_EVE_WIRE_TIERS: ReadonlySet<string> = new Set(EVE_INFERENCE_TIERS.map((t) => t.tier));
+const KNOWN_EVE_WIRE_TIERS: ReadonlySet<string> = new Set(EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS);
 
 const DEFAULT_SHIM_PORT = 25811;
 const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
@@ -1158,7 +1163,7 @@ async function handleEveCloudCompletions(
   // selection, forwarded VERBATIM — NO silent fall-through to 'standard'. The
   // routing resolver derives this from the live selection via
   // resolveWireTierFromSelection (eve-standard→'standard', eve-high→'high',
-  // eve-max→'max', eve-ultra→'ultra'). If an ACTIVE EVE route arrives without a known wire tier the
+  // eve-max→'max' (retired eve-ultra migrates to 'max')). If an ACTIVE EVE route arrives without a known wire tier the
   // selection→tier chain is broken; we FAIL LOUD (500) instead of metering the
   // cheapest model — the previous `: 'standard'` fallback was exactly the bug
   // that made a paid EVE-Max user silently bill DeepSeek V4 Flash (OpenRouter
@@ -1182,9 +1187,10 @@ async function handleEveCloudCompletions(
   }
   // HONEST TIER ROUTING (1.2.19): refuse an active EVE route with a missing or
   // unknown wire tier rather than silently downgrading to the cheapest model.
-  // A correct route always carries one of the registry tiers
-  // (standard/high/xhigh/max/ultra);
-  // a missing/unknown value means the selection→tier resolution broke upstream.
+  // A correct route always carries one of the SERVER-ACCEPTED tiers
+  // (standard/high/xhigh/max); a missing, unknown or retired value means the
+  // selection→tier resolution broke upstream, or the rung is one the server
+  // refuses — either way it must not travel.
   if (!KNOWN_EVE_WIRE_TIERS.has(tier)) {
     jsonResponse(response, 500, {
       error: {
@@ -1274,19 +1280,23 @@ async function handleEveCloudCompletions(
     outboundMessages = outboundMessages.map((message) => redactMessageContent(message, messageRedactThreshold));
   }
 
-  // ULTRA EXECUTION PROFILE. This is injected at the trusted Main-process
-  // boundary on EVERY Ultra request, so it also takes effect when the user
+  // MAXIMUM EXECUTION PROFILE. This is injected at the trusted Main-process
+  // boundary on EVERY Maximum request, so it also takes effect when the user
   // switches lanes mid-session. It asks Hermes to use the worker slots already
   // available under the live hardware cap for genuinely complex work; it does
   // not increase that cap and explicitly preserves all privacy, permission,
   // spend, publish and deploy gates. Simple work remains direct to avoid costly
   // delegation theatre.
-  if (tier === 'ultra') {
+  // Bound to `max`, the highest rung the server accepts. The profile used to
+  // hang off a rung the Edge Function refuses, so it could never actually run —
+  // the capability was real, the route to it was not. Moving it here keeps the
+  // behaviour and drops only the unusable level.
+  if (tier === 'max') {
     outboundMessages = [
       {
         role: 'system',
         content:
-          '## EVE Ultra execution profile\n' +
+          '## EVE Maximum execution profile\n' +
           'For genuinely complex tasks, proactively use delegate_task and all worker slots already available under the current Hermes hardware cap. Parallelize independent read-only or reversible research, review, and implementation work; synthesize and verify the results before answering. Never invent unavailable workers, never bypass privacy, permission, or credit limits, and never self-approve sending, spending, publishing, purchasing, or deploying. Existing human gates remain binding. For simple tasks, answer directly instead of spawning workers.',
       },
       ...outboundMessages,

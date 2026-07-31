@@ -32,6 +32,7 @@ import {
   EVE_INFERENCE_DEFAULT_TIER_ID,
   eveTierValue,
   isEveInferenceSelection,
+  migrateLegacyEveSelection,
   type EvePickerGroup,
   type EvePickerItem,
 } from '@/common/config/eveInferenceCore';
@@ -92,10 +93,48 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     };
   }, [creditsStatus, status]);
 
-  const [selection, setSelection] = useState<string>(() => {
+  const [selection, expose] = useState<string>(() => {
     // Default to EVE Standard (cloud) for a fresh user; local Gemma is opt-in.
-    return configService.get('commandEve.inferenceSelection') || EVE_DEFAULT_INFERENCE_SELECTION;
+    const stored = configService.get('commandEve.inferenceSelection') || EVE_DEFAULT_INFERENCE_SELECTION;
+    return migrateLegacyEveSelection(stored) ?? stored;
   });
+
+  /**
+   * Adopt a selection, migrating a retired one on the way in AND persisting the
+   * replacement.
+   *
+   * Reading through a migration is not enough on its own: the stored string and
+   * the picker's active row both come from the raw value, so without this write
+   * the config would keep a tier the server refuses and the picker would keep
+   * showing it as chosen. State and config move together here so the two can
+   * never disagree.
+   *
+   * The write is guarded on an ACTUAL change, so re-adopting an already-migrated
+   * value neither writes nor re-enters through the subscription — no loop, no
+   * duplicate onChange.
+   */
+  const setSelection = useCallback((next: string) => {
+    const migrated = migrateLegacyEveSelection(next);
+    if (migrated === undefined) {
+      expose(next);
+      return;
+    }
+    expose(migrated);
+    if (configService.get('commandEve.inferenceSelection') !== migrated) {
+      configService.set('commandEve.inferenceSelection', migrated);
+    }
+  }, []);
+
+  // A selection already on disk when this mounts never passes through the
+  // subscription, so it is migrated (and written back) once here.
+  useEffect(() => {
+    const stored = configService.get('commandEve.inferenceSelection');
+    const migrated = migrateLegacyEveSelection(stored);
+    if (migrated !== undefined && migrated !== stored) {
+      expose(migrated);
+      configService.set('commandEve.inferenceSelection', migrated);
+    }
+  }, []);
 
   // Keep local state in sync with config changes from any other surface
   // (header ↔ sheet ↔ GuidPicker all read the same key).
@@ -104,7 +143,7 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
       if (typeof value === 'string' && value.length > 0) setSelection(value);
     });
     return unsubscribe;
-  }, []);
+  }, [setSelection]);
 
   // Bearer presence for the EVE (cloud) lane. The header chip + picker must tell
   // the truth: without a license wire, showing "EVE Cloud · Hoch" would lie.
