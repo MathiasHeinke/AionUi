@@ -1,7 +1,7 @@
 interface:
   display_name: 'PLAUD Aufnahmen verarbeiten'
-  short_description: 'PLAUD Audio lokal importieren und auswerten'
-  default_prompt: 'Nutze $plaud-recording-ingest, um meine neueste PLAUD Aufnahme lokal zu importieren, zu transkribieren und zusammenzufassen.'
+  short_description: 'PLAUD Audio lokal mit MLX verarbeiten und Projekten zuordnen'
+  default_prompt: 'Nutze $plaud-recording-ingest, um meine neueste PLAUD Aufnahme sicher zu importieren, lokal mit MLX Whisper zu transkribieren und freigegebene Ergebnisse in das aktive Projekt zu legen.'
 
 policy:
   allow_implicit_invocation: true

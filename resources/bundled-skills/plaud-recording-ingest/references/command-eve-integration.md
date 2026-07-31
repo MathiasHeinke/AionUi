@@ -1,83 +1,184 @@
 # Command EVE Built-in Integration Contract
 
-This file defines the minimum product behavior required before Command EVE claims native PLAUD recording support.
+Use this contract before Command EVE claims native PLAUD support.
 
 ## Product shape
 
-Implement a general conversation inbox. PLAUD is the first source adapter; local transcription, speaker processing, synthesis, search, and action proposals remain reusable processors. Do not build a separate PLAUD desktop application.
-
-The default path is:
+Build a project-aware conversation inbox. PLAUD is one official source
+adapter. Download, local transcription, optional speaker processing,
+synthesis, project projection, search, and action proposals remain reusable
+processors.
 
 ```text
-PLAUD cloud sync
-  -> official OAuth source adapter
+Official PLAUD MCP or CLI
+  -> native content firewall
   -> private audio staging
-  -> local speech-to-text
-  -> optional local speaker assignment
+  -> asynchronous local MLX speech processing
+  -> optional local speaker processing
   -> local or explicitly approved synthesis
-  -> Command EVE conversation artifacts
+  -> active project conversation artifacts
+  -> HumanGate action proposals
 ```
 
-Direct iPhone attachment or direct device transport is not required for the first version. A future official embedded SDK may add a device-local adapter behind the same source interface.
+Do not build a separate PLAUD desktop clone. Direct iPhone attachment is not
+required for the first product version.
 
-## Security and privacy invariants
+## Managed official adapters
 
-- Use the official PLAUD CLI or official SDK. Do not ship a reverse-engineered API client.
-- Pin and verify the managed official CLI version. Disable its telemetry with `PLAUD_TELEMETRY_DISABLED=1` and `DO_NOT_TRACK=1` for every non-login subprocess.
-- Keep OAuth user-controlled. Never bundle PLAUD tokens, model provider keys, or signed audio URLs in the application artifact.
-- Never surface the output of `plaud audio` in renderer logs, diagnostics, telemetry, crash reports, or chat history.
+- Manage and pin `@plaud-ai/mcp` and `@plaud-ai/cli`; do not use `@latest` in
+  a shipped runtime.
+- Use the MCP for OAuth, account state, browse, search, and selection.
+- Use the CLI downloader or an equivalent native boundary for audio so signed
+  URLs never enter renderer, agent, telemetry, diagnostics, or crash logs.
+- Do not expose raw MCP `get_file`, `get_note`, or `get_transcript` to an online
+  chat model on the default path.
+- Do not ship the official broad export or follow-up skills without an
+  independent safety review. EVE's local-first skill controls the workflow.
+- Treat MCP and CLI authentication as separate capabilities. Keep OAuth
+  user-controlled and never bundle tokens.
+- Set `PLAUD_TELEMETRY_DISABLED=1` and `DO_NOT_TRACK=1` on every non-login CLI
+  subprocess.
+
+## Privacy and filesystem invariants
+
 - Keep source audio and transcripts local by default.
-- Require an explicit route decision before any cloud model receives audio or transcript content.
-- Keep the connector, download, local speech-to-text, diarization, and local synthesis behind a native content firewall. If EVE's active chat model is online, its tool result may contain only redacted status, hashes, counts, and approved artifact references until the user grants a recording-specific route approval.
-- Keep raw `plaud me`, `plaud files`, and `plaud file` output out of renderer logs, telemetry, crash reports, and cloud-model context. Render selection metadata through the private local UI.
-- Store every recording directory as `0700` and every audio, transcript, manifest, summary, action, and receipt file as `0600`; use exclusive atomic writes and reject symlink targets.
-- Treat consent as a visible human gate for recordings containing other people.
-- Never call PLAUD transcript or summary endpoints automatically.
+- Require a recording specific route decision before any cloud model receives
+  audio or transcript content.
+- Return only redacted status, hashes, counts, and approved artifact references
+  through the content firewall.
+- Keep every recording and project conversation directory `0700`; keep every
+  file `0600`; use exclusive atomic writes and reject symlink targets.
+- Use PLAUD file ID plus SHA-256 for idempotency.
+- Treat consent as a visible HumanGate for recordings containing other people.
+- Never invoke PLAUD transcript or summary automatically.
 - Never delete a source recording automatically.
 
-## Runtime behavior
+## Audio readiness
 
-Expose these states in the UI and runtime receipt:
+Do not rely on one metadata flag. The safe audio downloader is authoritative.
+The verified field observation on 2026-07-29 was that `plaud file` could report
+audio unavailable while Web playback and `plaud audio` both succeeded.
 
-- connect PLAUD
-- recording discovered
-- waiting for audio synchronization
-- downloading privately
-- transcribing locally
-- assigning speakers, optional
-- summarizing locally or through an approved route
-- ready
-- blocked with a concrete recovery action
+Expose these states:
 
-Use PLAUD file ID plus SHA-256 for idempotency. A retry must not create duplicate recordings or duplicate proposed actions.
+- connect PLAUD;
+- recording discovered;
+- waiting for verified audio;
+- downloading privately;
+- transcribing locally;
+- assigning speakers, optional;
+- synthesizing locally or through an approved route;
+- publishing into a selected project;
+- waiting for action approval;
+- ready;
+- blocked with a concrete recovery action.
 
-Use Command EVE's native local speech-to-text bridge rather than adding a second transcription stack. Extend that bridge to retain segments and timestamps where needed. Speaker assignment must be feature-detected and may remain explicitly unavailable in the first build.
+## MLX Whisper runtime
+
+Use the native asynchronous speech bridge and prefer MLX Whisper on Apple
+Silicon with `mlx-community/whisper-large-v3-turbo`. Persist progress across
+navigation and restart. Preserve segments and timestamps. Never silently fall
+back to CPU PyTorch Whisper.
+
+The current Command EVE baseline uses `faster-whisper` for short local speech
+and does not return timestamp segments. It is not equivalent to this long-form
+contract. Until a main-process MLX bridge meets the contract, invoke the
+bundled standalone wrapper behind the content firewall and report the managed
+runtime capability honestly.
+
+Feature-detect speaker processing. A transcript without reliable speaker
+mapping is valid when the limitation is explicit.
+
+## Project integration
+
+Resolve the active seat and active project before projection. The main process
+must derive and immediately revalidate the seat-scoped project root from the
+trusted project runtime snapshot. Never accept a model-selected root or an
+unattested renderer path. Pass only that trusted root to the publisher. Default
+to:
+
+```text
+<project-root>/docs/conversations/<date>/<plaud-file-id>/
+```
+
+Render the project artifacts in EVE's ordinary project surface:
+
+- recording identity and provenance;
+- summary;
+- decisions;
+- open questions;
+- action proposals;
+- optional transcript.
+
+Keep audio in application storage and connector receipts under
+`.command-eve/receipts`. Never add a parallel `.eve` project namespace. A retry
+must not duplicate project files or actions. Project selection may be proposed
+locally but must not be guessed from private content by an online model.
+
+## Connector integration
+
+Treat `actions.json` as a proposal queue. Resolve capabilities through the
+normal connector registry and HumanGate policy.
+
+For Gmail:
+
+1. produce a local evidence-grounded email artifact;
+2. confirm recipients, subject, and body;
+3. create a Gmail draft only after explicit approval;
+4. send only after a separate explicit send instruction;
+5. record a redacted connector receipt in the project.
+
+The current Command EVE Google Workspace capability covers Calendar and Drive,
+not Gmail. Until Gmail is actually registered and preflighted, retain the local
+mail artifact and return `blocked_connector`; do not claim that a Gmail draft
+was created.
+
+Apply the same separation to tasks, calendar, CRM, Slack, Notion, and custom
+webhooks. Missing connectors produce `blocked_connector`, not a data-route
+fallback.
 
 ## Built-in skill packaging
 
-- Bundle `plaud-recording-ingest` in the default skill catalog.
-- The portable source follows the standard Agent Skills frontmatter. In the Company.OS authoring copy, add EVE's package-specific `linked_files` entries for both references and the downloader, or extend the EVE hygiene parser to read equivalent metadata; packaging must fail closed if any of the three files is missing.
-- Make it discoverable from German and English requests about PLAUD recordings, meeting transcription, conversation summaries, speaker labels, and action extraction.
-- Preserve this skill's safe download wrapper or implement an equivalent native process boundary that never logs the signed URL.
-- Resolve bundled scripts from the installed skill directory. Never depend on the current working directory or the developer-global skill path.
-- Pass a fixed Command EVE application-data root to the downloader. The model must never choose an arbitrary filesystem root.
-- Treat the official CLI as a managed or first-use dependency with a clear authentication state. Do not assume the developer's global installation exists on a clean customer machine.
-- Keep user data outside the signed application bundle and set private filesystem permissions.
-- Include the skill and its references in clean-install packaging tests, not only development mode.
+- Bundle the complete `plaud-recording-ingest` tree in the default catalog.
+- Preserve standard Agent Skills frontmatter with only `name` and
+  `description`. Inject EVE specific invocation metadata only into the staged
+  bundled copy. Keep required file checks in packager metadata and fail closed
+  when any referenced file is absent.
+- Resolve scripts from the installed skill directory, never the developer
+  global path or current working directory.
+- Pass a fixed Command EVE application data root to private processors.
+- Keep user data outside the signed application bundle.
+- Maintain a catalog-owned required-file list for the four references and four
+  production scripts. Do not put non-standard `linked_files` frontmatter into
+  the portable skill.
+- Include the skill, references, scripts, managed dependency versions, and
+  project projection in clean-install packaging tests.
 
 ## Acceptance checks
 
-1. A clean install discovers and can invoke the built-in skill.
-2. An unauthenticated user receives a bounded connect flow without secret prompts or token logging.
-3. An audio-ready fixture downloads through a redacted process boundary and records SHA-256.
-4. An audio-pending fixture remains retryable and does not start PLAUD AI processing.
-5. A repeated import is idempotent.
-6. Local speech-to-text produces a timestamped artifact or a truthful capability blocker.
-7. Speaker assignment is truthful: local labels when supported, an explicit limitation when not.
-8. Cloud routing is denied by default and requires an explicit approved policy.
-9. No signed URL, OAuth token, or provider key appears in renderer logs, telemetry, receipts, or the packaged application.
-10. The completion receipt reports PLAUD AI minutes consumed; the default path reports `0`.
-11. With an online chat model active, audio and transcript can be processed locally without any content entering model context before explicit route approval.
-12. PLAUD CLI subprocesses prove telemetry opt-out and receive a sanitized environment rather than the application's complete secret-bearing environment.
+1. A clean install discovers and invokes the built-in skill.
+2. Official MCP browse and login work through a scoped adapter.
+3. Unauthenticated states recover without secret prompts or token logging.
+4. An audio-ready fixture downloads through a redacted boundary and records
+   SHA-256.
+5. A false-negative metadata fixture still downloads when `plaud audio`
+   succeeds.
+6. An audio-pending fixture remains retryable without PLAUD AI processing.
+7. Repeated imports are idempotent.
+8. Apple Silicon uses MLX Whisper and creates timestamped artifacts.
+9. Silence, noise-only, music, clean speech, and distant multi-speaker fixtures
+   produce claim-correct outcomes.
+10. Speaker status is truthful and never invents names.
+11. Online chat models receive no content before explicit route approval.
+12. The active project receives approved summary, decision, question, and
+    action artifacts without source audio duplication.
+13. A second project cannot read the first project's recording artifacts.
+14. Gmail integration creates no draft without approval and never sends
+    without a separate send instruction.
+15. No signed URL, token, serial number, transcript, or recording content
+    appears in logs, telemetry, receipts, Linear, or the package.
+16. The completion receipt reports PLAUD AI minutes consumed; default is `0`.
 
-Do not call the feature shipped merely because the skill files exist. The release claim requires packaging proof plus a clean-install smoke run.
+Do not call the feature shipped merely because skill files exist. Require
+packaging proof, clean-install smoke, real local transcription evidence,
+project isolation evidence, and connector HumanGate evidence.

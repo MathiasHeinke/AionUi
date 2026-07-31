@@ -56,6 +56,17 @@ import { fileURLToPath } from 'node:url';
 // `bundle: true` changes the verify rule: a single skill must land its own
 // <id>/SKILL.md; a bundle must land at least one NESTED **/SKILL.md (Hermes'
 // os.walk discovers every nested SKILL.md — FACT wheel agent/skill_utils.py:632-645).
+export const PLAUD_REQUIRED_FILES = Object.freeze([
+  'references/processing-contract.md',
+  'references/command-eve-integration.md',
+  'references/official-plaud-adapters.md',
+  'references/project-and-tool-routing.md',
+  'scripts/plaud-download-audio.mjs',
+  'scripts/plaud-ingest-guard.mjs',
+  'scripts/plaud-local-transcribe.mjs',
+  'scripts/plaud-project-publish.mjs',
+]);
+
 export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'eve-doctrine' },
   { id: 'plan-system' },
@@ -139,7 +150,7 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   // PLAUD is the first adapter in EVE's general conversation-ingest lane. The
   // bundled tree includes the official-CLI download boundary, local-first data
   // route contract and a fail-closed capability/auth guard.
-  { id: 'plaud-recording-ingest' },
+  { id: 'plaud-recording-ingest', requiredFiles: PLAUD_REQUIRED_FILES },
 ]);
 
 /** Just the ids, for callers that want the flat allowlist. */
@@ -283,16 +294,11 @@ export const SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION = Object.freeze([
   'legal-enforcement-dach',
   'human-design-profile',
   'local-vision-qa',
-  'plaud-recording-ingest',
   'skill-authoring',
   'voice-first-run',
 ]);
 
-export const SKILL_IDS_REQUIRING_LINKED_FILES = Object.freeze([
-  'content-machine',
-  'blog-writer',
-  'plaud-recording-ingest',
-]);
+export const SKILL_IDS_REQUIRING_LINKED_FILES = Object.freeze(['content-machine', 'blog-writer']);
 
 export const SKILL_IDS_REQUIRING_RUNTIME_INVISIBILITY = Object.freeze([
   'eve-doctrine',
@@ -675,6 +681,18 @@ export function stageBundledSkills({ srcRoot, snapshotRoot, skills = EVE_STRATEG
     if (!verify.ok) {
       failures.push(`bundled_skill_invalid:${skill.id}`);
       log(`INVALID ${skill.id} — ${verify.reason}`);
+    }
+
+    for (const requiredFile of skill.requiredFiles ?? []) {
+      if (!isSafeRelativeSkillLink(requiredFile)) {
+        failures.push(`bundled_skill_required_file_invalid:${skill.id}:${requiredFile}`);
+        log(`REQUIRED FILE INVALID ${skill.id} — ${requiredFile}`);
+        continue;
+      }
+      if (!isNonEmptyFile(path.join(destDir, requiredFile))) {
+        failures.push(`bundled_skill_required_file_missing:${skill.id}:${requiredFile}`);
+        log(`REQUIRED FILE MISSING ${skill.id} — ${requiredFile}`);
+      }
     }
 
     // FAIL-CLOSED content gate: no landed SKILL.md may teach the permission rubber-stamp.

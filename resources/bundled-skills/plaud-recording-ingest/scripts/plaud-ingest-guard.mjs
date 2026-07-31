@@ -5,7 +5,8 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 export const PLAUD_OFFICIAL_PACKAGE = '@plaud-ai/cli';
-export const PLAUD_PINNED_CLI_VERSION = '0.3.4';
+export const PLAUD_PINNED_CLI_VERSION = '0.3.6';
+export const PLAUD_PINNED_MCP_VERSION = '0.3.7';
 export const PLAUD_AI_COMMANDS = Object.freeze(['transcript', 'summary']);
 
 const PROCESSING_STATES = new Set([
@@ -15,9 +16,12 @@ const PROCESSING_STATES = new Set([
   'transcribed',
   'speaker_partial',
   'synthesized',
+  'projected',
+  'actions_proposed',
   'complete',
   'blocked_auth',
   'blocked_capability',
+  'blocked_connector',
   'failed',
 ]);
 
@@ -66,9 +70,18 @@ export function redactPlaudSensitiveText(value) {
     .replace(/(Audio Download URL:\s*)(?:\r?\n)?[^\r\n]*/giu, '$1[REDACTED_URL]');
 }
 
-export function classifyPlaudAudioState({ recordingFound, audioReady }) {
+export function classifyPlaudAudioState({
+  recordingFound,
+  audioReady,
+  metadataAudioReady,
+  downloaderSucceeded,
+  webPlaybackSucceeded,
+  officialReadySignal,
+} = {}) {
   if (!recordingFound) return 'failed';
-  return audioReady ? 'discovered' : 'audio_pending';
+  if (downloaderSucceeded) return 'downloaded';
+  if (audioReady || metadataAudioReady || webPlaybackSucceeded || officialReadySignal) return 'discovered';
+  return 'audio_pending';
 }
 
 export function decidePlaudDedupe(existing, candidate) {
@@ -159,6 +172,7 @@ export function probePlaudCapability({ plaudCli = 'plaud', spawn = spawnSync, en
       state: 'blocked_capability',
       official_package: PLAUD_OFFICIAL_PACKAGE,
       required_cli_version: PLAUD_PINNED_CLI_VERSION,
+      required_mcp_version: PLAUD_PINNED_MCP_VERSION,
       observed_cli_version: observedVersion || null,
       authenticated: false,
       raw_output_included: false,
@@ -175,6 +189,7 @@ export function probePlaudCapability({ plaudCli = 'plaud', spawn = spawnSync, en
       state: 'blocked_auth',
       official_package: PLAUD_OFFICIAL_PACKAGE,
       required_cli_version: PLAUD_PINNED_CLI_VERSION,
+      required_mcp_version: PLAUD_PINNED_MCP_VERSION,
       observed_cli_version: observedVersion,
       authenticated: false,
       raw_output_included: false,
@@ -189,6 +204,7 @@ export function probePlaudCapability({ plaudCli = 'plaud', spawn = spawnSync, en
     state: 'ready',
     official_package: PLAUD_OFFICIAL_PACKAGE,
     required_cli_version: PLAUD_PINNED_CLI_VERSION,
+    required_mcp_version: PLAUD_PINNED_MCP_VERSION,
     observed_cli_version: observedVersion,
     authenticated: true,
     raw_output_included: false,

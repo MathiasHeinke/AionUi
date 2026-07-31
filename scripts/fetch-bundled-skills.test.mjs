@@ -10,6 +10,7 @@ import {
   AUTHOR_PRODUCTION_EXPECTED_FILE_COUNT,
   EVE_STRATEGY_SKILLS,
   EVE_STRATEGY_SKILL_IDS,
+  PLAUD_REQUIRED_FILES,
   findForbiddenUserFacingJsonContent,
   findSkillHygieneFailures,
   decideSkillSource,
@@ -182,6 +183,14 @@ function makeFixtureSrc(root, { omit = [] } = {}) {
         fs.writeFileSync(path.join(dir, 'references', '01_concept_and_positioning.md'), '# Positioning\n');
         fs.writeFileSync(path.join(dir, 'references', 'templates', 'build_ebook.sh'), '#!/bin/sh\n');
       }
+      for (const requiredFile of skill.requiredFiles ?? []) {
+        const requiredPath = path.join(dir, requiredFile);
+        fs.mkdirSync(path.dirname(requiredPath), { recursive: true });
+        fs.writeFileSync(
+          requiredPath,
+          requiredFile.endsWith('.mjs') ? '#!/usr/bin/env node\n' : `# ${skill.id} required file\n`
+        );
+      }
     }
   }
   return srcRoot;
@@ -335,6 +344,39 @@ test('stageBundledSkills fails when a linked_files entry does not resolve inside
     const snapshotRoot = path.join(root, 'snapshot');
     const failures = stageBundledSkills({ srcRoot, snapshotRoot });
     assert.ok(failures.includes('bundled_skill_linked_file_missing:content-machine:references/detail.md'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('PLAUD uses catalog-owned required files and standard portable frontmatter', () => {
+  assert.deepEqual(PLAUD_REQUIRED_FILES, [
+    'references/processing-contract.md',
+    'references/command-eve-integration.md',
+    'references/official-plaud-adapters.md',
+    'references/project-and-tool-routing.md',
+    'scripts/plaud-download-audio.mjs',
+    'scripts/plaud-ingest-guard.mjs',
+    'scripts/plaud-local-transcribe.mjs',
+    'scripts/plaud-project-publish.mjs',
+  ]);
+  const skill = EVE_STRATEGY_SKILLS.find(({ id }) => id === 'plaud-recording-ingest');
+  assert.equal(skill?.requiredFiles, PLAUD_REQUIRED_FILES);
+  const text = fs.readFileSync(path.resolve('resources/bundled-skills/plaud-recording-ingest/SKILL.md'), 'utf8');
+  const frontmatter = parseYaml(text.match(/^---\n([\s\S]*?)\n---(?:\n|$)/)?.[1] ?? '');
+  assert.deepEqual(Object.keys(frontmatter).toSorted(), ['description', 'name']);
+});
+
+test('stageBundledSkills fails closed when a catalog-required PLAUD file is absent', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-plaud-required-test-'));
+  try {
+    const srcRoot = makeFixtureSrc(root);
+    fs.rmSync(path.join(srcRoot, 'plaud-recording-ingest', 'scripts', 'plaud-local-transcribe.mjs'));
+    const snapshotRoot = path.join(root, 'snapshot');
+    const failures = stageBundledSkills({ srcRoot, snapshotRoot });
+    assert.ok(
+      failures.includes('bundled_skill_required_file_missing:plaud-recording-ingest:scripts/plaud-local-transcribe.mjs')
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

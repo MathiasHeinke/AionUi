@@ -1,141 +1,220 @@
 ---
 name: plaud-recording-ingest
-description: Import and process PLAUD recordings through the official PLAUD CLI with local-first transcription, optional speaker assignment, summaries, and action extraction. Use when a user asks to find, download, transcribe, diarize, summarize, archive, or extract tasks from a PLAUD Note recording, especially when they want to avoid consuming PLAUD AI transcription or summary minutes. German triggers include "PLAUD Aufnahme", "PLAUD Note Pro", "Gespräch transkribieren", "Sprecher zuweisen", and "Aufnahme zusammenfassen".
-linked_files:
-  - references/processing-contract.md
-  - references/command-eve-integration.md
-  - scripts/plaud-download-audio.mjs
-  - scripts/plaud-ingest-guard.mjs
-disable_model_invocation: true
+description: Import PLAUD recordings through the official PLAUD MCP or CLI, download audio through a redacted process boundary, transcribe locally with MLX Whisper, create summaries, decisions and action proposals, and publish approved artifacts into a selected project. Use for PLAUD Note or Note Pro recordings, meeting transcripts, conversation summaries, speaker labels, project notes, follow-up drafts, Gmail draft proposals, and requests to avoid PLAUD AI minutes. German triggers include "PLAUD Aufnahme", "PLAUD Note Pro", "Gespräch transkribieren", "Aufnahme zusammenfassen", "ins Projekt ablegen", and "Mail daraus entwerfen".
 ---
 
 # PLAUD Recording Ingest
 
-## Purpose
+## Outcome
 
-Turn a PLAUD recording into inspectable local artifacts while using PLAUD only as the recording source. Default to local speech processing and do not consume PLAUD AI transcription or summary minutes unless the user explicitly requests those services.
+Turn a PLAUD recording into a private, inspectable conversation record:
 
-Use the official PLAUD CLI or a future official PLAUD SDK. Do not reverse engineer private endpoints, scrape app storage, or claim direct hardware access that has not been proven.
+```text
+PLAUD account
+  -> official MCP metadata or official CLI
+  -> private audio download
+  -> local MLX Whisper transcript
+  -> approved local or cloud synthesis
+  -> selected project artifacts
+  -> proposed connector actions
+```
 
-## Non-negotiable boundaries
+Treat PLAUD as the recording source, not as the mandatory transcription or
+summary provider. Consume `0` PLAUD AI minutes on the default path.
 
-- Treat recording consent as a human gate. Before processing conversations with other people, confirm that recording and processing are permitted for the intended context.
-- Never print, quote, persist in logs, or send OAuth tokens, authorization headers, signed audio URLs, or CLI token files.
-- Disable PLAUD CLI telemetry for every non-login subprocess with both `PLAUD_TELEMETRY_DISABLED=1` and `DO_NOT_TRACK=1`.
-- Never invoke `plaud transcript` or `plaud summary` implicitly. Those commands may consume the user's PLAUD allowance.
-- Default transcription, speaker processing, summarization, and action extraction to a local process boundary. When the active chat model is online, do not return audio, transcript, summary, or action content into its context without an explicit data-route approval for that recording.
-- Route audio or transcripts to an online model only after explicit approval for that recording or an already active user policy that clearly permits it.
-- Do not delete the PLAUD source recording. Do not send messages, create calendar events, update memory, or write task systems without a separate explicit instruction.
-- Do not infer real speaker names from voice alone. Use neutral labels until the user maps them.
+## Hard boundaries
+
+- Confirm that recording and processing are permitted before processing a
+  conversation with other people.
+- Use only the official PLAUD MCP, CLI, or SDK. Never reverse engineer private
+  endpoints, scrape application storage, or inspect token files.
+- Never print or return OAuth tokens, authorization headers, signed audio URLs,
+  device serial numbers, or raw private CLI output.
+- Never invoke `plaud transcript`, `plaud summary`, MCP `get_transcript`, or MCP
+  `get_note` on the default path. Use them only after explicit approval to use
+  existing PLAUD generated content.
+- Never call MCP `get_file` directly from an online chat model. It returns a
+  signed URL plus recording content. Obtain audio through the bundled downloader.
+- Keep audio, transcript, speaker processing, synthesis, and project routing
+  local by default. Return only redacted receipts to an online chat model until
+  the user approves a recording specific content route.
+- Never infer real speaker names from voice alone. Keep neutral labels until
+  the user maps them.
+- Never delete the PLAUD source. Never send mail, publish, create calendar
+  events, or write task systems without a separate explicit instruction.
 
 ## Workflow
 
-### 1. Resolve the requested recording
+### 1. Preflight the official adapters
 
-Clarify only when selection is genuinely ambiguous. Phrases such as "die neueste Aufnahme" or a unique title are sufficient.
+Read [references/official-plaud-adapters.md](references/official-plaud-adapters.md).
+Run the bundled guard before source access:
 
-1. Run the bundled guard before any source command:
+```bash
+node "<absolute-skill-root>/scripts/plaud-ingest-guard.mjs" status
+```
 
-   ```bash
-   node "<absolute-skill-root>/scripts/plaud-ingest-guard.mjs" status
-   ```
+Use these adapter roles:
 
-   `blocked_capability` means the pinned official CLI is unavailable; `blocked_auth` means the user must complete `plaud login`. Never request or handle their password.
+- official MCP: OAuth, account check, recording browse, search, and selection;
+- official CLI: redacted audio acquisition through the bundled downloader;
+- PLAUD transcript and note tools: explicit opt-in only, never the local-first
+  default.
 
-2. Verify authentication only through the guard's captured subprocess. Do not run `plaud me` in a visible agent tool call because it prints user fields.
-3. List candidates only through Command EVE's private local source adapter. Raw `plaud files`, `plaud recent`, `plaud search`, `plaud file`, and `plaud me` output must never enter a model tool result. If that adapter is unavailable, report `blocked_capability` instead of running the raw command through chat.
-4. Show recording metadata only in the private local UI; do not put the raw CLI table into cloud-model context or telemetry.
-5. Record the immutable PLAUD file ID, title, capture time, and duration inside the private recording manifest.
+If the MCP is absent, continue through the captured CLI adapter. If both are
+unavailable, report `blocked_capability`. If authentication is missing, ask the
+user to complete the official browser login; never request credentials.
 
-The iPhone does not need to be attached when the recording has already synchronized to the user's PLAUD account. If it has not synchronized, report that state instead of guessing at direct iPhone access.
+### 2. Resolve the recording and project
 
-### 2. Check audio readiness
+Treat a unique name, immutable file ID, or phrase such as "the two newest" as
+sufficient selection. Avoid repeated confirmation.
 
-Inspect the selected item with a captured local `plaud file <file_id>` subprocess. Its raw output contains private recording metadata and must remain outside telemetry and cloud-model context.
+Capture only the minimum selection metadata in the redacted receipt:
 
-- If audio is ready, continue.
-- If the recording exists but audio is not ready, classify it as `audio_pending`. Ask the user to let the PLAUD app finish synchronization or retry later.
-- Do not treat `audio_pending` as a missing or corrupt recording.
-- Do not trigger PLAUD's transcription service as a workaround.
+- immutable PLAUD file ID;
+- user-visible name;
+- capture time;
+- duration.
 
-### 3. Download without exposing the signed URL
+Resolve the destination independently from recording content:
 
-Never run `plaud audio <file_id>` directly in a visible tool call because its output is a signed download URL.
+1. Use the active Command EVE project when one is already selected.
+2. Otherwise use an existing saved project mapping.
+3. If no mapping exists, ask the user to select an existing project or choose
+   local inbox only.
 
-Use the bundled safe wrapper:
+Do not guess a project from private conversation content with an online model.
+Read [references/project-and-tool-routing.md](references/project-and-tool-routing.md)
+before publishing project artifacts or proposing connector actions.
+
+### 3. Download audio through the safe boundary
+
+Treat `plaud file <id>` and MCP availability flags as hints, not authoritative
+proof. A recording is audio-ready when the Web player works or the safe
+`plaud audio` wrapper returns and verifies a file. This avoids the observed case
+where `plaud file` reported audio unavailable while `plaud audio` succeeded.
+
+Never run `plaud audio <id>` directly in a visible tool call. Run:
 
 ```bash
 node "<absolute-skill-root>/scripts/plaud-download-audio.mjs" \
-  --file-id "<file_id>" \
-  --data-root "<absolute-existing-private-data-root>"
+  --file-id "<file-id>" \
+  --data-root "<fixed-private-data-root>"
 ```
 
-Resolve the script path relative to this `SKILL.md`; do not assume the current working directory is the skill directory. Create the trusted data root through the local application storage API before invocation and set it to `0700`. The wrapper rejects a symlink root, creates contained private recording directories, derives the filename only from the validated PLAUD file ID, reuses an existing verified artifact idempotently, writes atomically as `0600`, disables CLI telemetry, pins each public HTTPS request to the DNS address it validated, checks audio magic bytes, returns only redacted metadata, and never prints the signed URL.
+Require the application or local runtime to provide the existing `0700` data
+root. The model must not invent an arbitrary root. Preserve the returned byte
+count, SHA-256, detected format, and dedupe result.
 
-After download:
+Classify `audio_pending` only when the safe downloader cannot obtain audio and
+neither Web playback nor another official readiness signal succeeds. Do not use
+PLAUD transcription as a workaround.
 
-1. Verify the byte count is nonzero.
-2. Preserve the returned SHA-256 digest.
-3. Detect the real media type with `ffprobe` or `file`; do not trust the extension.
-4. Dedupe by PLAUD file ID plus SHA-256 before processing again.
+### 4. Transcribe locally with MLX Whisper
 
-### 4. Transcribe locally
+On Apple Silicon outside Command EVE, run the bundled wrapper:
 
-In Command EVE, use its native local speech-to-text bridge behind the content firewall. Outside Command EVE, use the installed local `faster-whisper` or Whisper runtime.
+```bash
+node "<absolute-skill-root>/scripts/plaud-local-transcribe.mjs" \
+  --file-id "<file-id>" \
+  --data-root "<fixed-private-data-root>" \
+  --language de
+```
 
-- Select the configured long-form quality profile. Do not silently fall back to a tiny model when accuracy matters.
-- Preserve segment timestamps and detected language whenever the runtime exposes them.
-- Keep the raw model transcript separate from corrected or formatted text.
-- If no local runtime is available, report the missing capability and ask before using an online service. Do not read the transcript into an online agent merely to ask that question.
-- If transcription fails, preserve the verified audio and set a failure state. Never fabricate transcript text.
+The wrapper uses `mlx-community/whisper-large-v3-turbo`, produces timestamped
+JSON, TXT, SRT, TSV, and VTT artifacts, and returns only a redacted receipt.
+It prefers an offline cached package and model. Use `--allow-model-download`
+only after the user approves the first local model download.
 
-### 5. Assign speakers only when supported
+In Command EVE, prefer the native local speech bridge when it provides equal
+or stronger privacy, timestamps, idempotency, and honesty receipts. The bridge
+may use the same MLX backend. Never silently fall back to CPU PyTorch Whisper.
 
-Speaker assignment is optional and must remain evidence-based.
+Preserve the raw transcript separately from corrected text. Treat diarization
+as optional. Silence, noise, music, or uncertain speech must never become a
+fabricated transcript claim.
 
-- Prefer a local diarization runtime when available.
-- Otherwise keep `SPEAKER_00`, `SPEAKER_01`, and similar neutral labels.
-- Ask the user to map labels to names when useful.
-- Keep uncertain or overlapping segments marked as uncertain.
-- A transcript without reliable speaker assignment is still a valid result; state the limitation plainly.
+### 5. Create derived artifacts through an approved content route
 
-### 6. Produce derived artifacts
+Read [references/processing-contract.md](references/processing-contract.md)
+before writing transcript, summary, decision, question, or action artifacts.
 
-Read [references/processing-contract.md](references/processing-contract.md) before writing artifacts.
+Choose exactly one route for each recording:
 
-Produce only the artifacts requested by the user. Supported outputs include:
+- `local`: Command EVE local model or another approved local runtime;
+- `cloud_approved`: the user explicitly approves the minimum necessary
+  transcript text for a named online model and destination;
+- `receipt_only`: create no semantic artifact until a content route is chosen.
 
-- timestamped raw transcript
-- cleaned transcript
-- speaker-labelled transcript
-- concise summary
-- decisions and open questions
-- proposed actions with owner and due date only when evidenced
-- searchable recording manifest
+Create only requested outputs:
 
-Use a local model by default. When the user permits cloud inference, record the exact approved artifact and destination, then send the minimum necessary text rather than raw audio whenever possible.
+- `summary.md` with timestamp references;
+- `decisions.md` with evidence and confidence;
+- `open-questions.md`;
+- `actions.json` containing proposals, not executed actions;
+- optional cleaned or speaker-labelled transcript.
 
-### 7. Finalize safely
+Do not infer owners, recipients, deadlines, or commitments that the recording
+did not establish.
 
-1. Write the processing manifest and model provenance.
-2. Confirm which steps were local and which, if any, used a cloud service.
-3. Report whether any PLAUD AI minutes were consumed.
-4. Remove partial files and signed URL material from temporary state.
-5. Retain or remove the local raw audio according to the user's retention policy; never delete the PLAUD source.
-6. Offer proposed next actions without executing external side effects.
+### 6. Publish into the selected project
 
-## Command EVE product integration
+After synthesis, publish only approved artifacts:
 
-When packaging this capability as a built-in Command EVE skill, read [references/command-eve-integration.md](references/command-eve-integration.md). The user-facing abstraction is a conversation inbox with PLAUD as one source adapter, not a separate PLAUD clone.
+```bash
+node "<absolute-skill-root>/scripts/plaud-project-publish.mjs" \
+  --file-id "<file-id>" \
+  --data-root "<fixed-private-data-root>" \
+  --project-root "<resolved-project-root>" \
+  --captured-at "<ISO-8601>"
+```
 
-## Completion report
+The default project location is `docs/conversations/<date>/<file-id>/`. It is
+inside the selected project and makes approved conversation knowledge visible
+through the existing project documentation surface. Command EVE stores its
+machine receipts under `.command-eve/receipts`; never introduce a parallel
+`.eve` namespace. Use `--relative-dir` only for an existing user-approved
+project convention. Use `--include-transcript` only when the user wants the
+transcript copied into the project; private source audio remains in application
+storage.
 
-Return a compact report containing:
+Publish idempotently by PLAUD file ID plus artifact SHA-256. A retry must not
+duplicate project notes or action proposals.
 
-- selected recording and PLAUD file ID
-- audio readiness and local artifact paths
-- transcript, speaker, summary, and action status
-- local and online models used
-- SHA-256 and dedupe result
-- PLAUD AI minutes consumed, normally `0`
-- unresolved limitations or explicit next approval needed
+### 7. Route follow-up tools through proposals and HumanGates
+
+Treat `actions.json` as a proposal queue. Examples include:
+
+- `task.create` for a project task;
+- `gmail.draft` for a proposed email draft;
+- `calendar.draft` for a proposed event;
+- `project.note` for another project artifact.
+
+Use a connected tool only after the user requests that action. For Gmail,
+create a draft first, show recipient, subject, and body for approval, and never
+send implicitly. Pass only the minimum approved artifact to the connector.
+
+### 8. Finish with a redacted receipt
+
+Report:
+
+- selected recording and immutable file ID;
+- audio readiness, bytes, SHA-256, and dedupe result;
+- transcription provider, model, language, segment count, and artifact paths;
+- speaker status;
+- synthesis route and produced project artifacts;
+- proposed connector actions and their approval state;
+- PLAUD AI minutes consumed, normally `0`;
+- explicit blockers or next approval.
+
+Never include transcript or summary content in the completion receipt unless
+the selected content route authorizes it.
+
+## Command EVE packaging
+
+Read [references/command-eve-integration.md](references/command-eve-integration.md)
+before claiming native product support. Package the complete skill tree and
+fail closed when a catalog-required file is absent. A source adapter alone is
+not the product: the product is a project-aware conversation inbox with local
+processing and gated follow-up actions.

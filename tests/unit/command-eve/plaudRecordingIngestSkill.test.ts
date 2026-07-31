@@ -8,11 +8,19 @@ import { DEFAULT_COMMAND_EVE_CAPABILITY_PACK } from '@/process/commandEve/runtim
 const skillRoot = path.resolve(process.cwd(), 'resources/bundled-skills/plaud-recording-ingest');
 const guardPath = path.join(skillRoot, 'scripts', 'plaud-ingest-guard.mjs');
 const downloaderPath = path.join(skillRoot, 'scripts', 'plaud-download-audio.mjs');
+const transcriberPath = path.join(skillRoot, 'scripts', 'plaud-local-transcribe.mjs');
+const publisherPath = path.join(skillRoot, 'scripts', 'plaud-project-publish.mjs');
 
 const guard = (await import(pathToFileURL(guardPath).href)) as {
   assertPlaudCommandAllowed(command: string): string;
   buildPlaudRedactedReceipt(input: Record<string, unknown>): Record<string, unknown>;
-  classifyPlaudAudioState(input: { recordingFound: boolean; audioReady: boolean }): string;
+  classifyPlaudAudioState(input: {
+    recordingFound: boolean;
+    audioReady?: boolean;
+    metadataAudioReady?: boolean;
+    downloaderSucceeded?: boolean;
+    webPlaybackSucceeded?: boolean;
+  }): string;
   decidePlaudContentRoute(input?: {
     requestedRoute?: string;
     onlineChatModel?: boolean;
@@ -42,26 +50,40 @@ describe('PLAUD recording ingest built-in', () => {
     expect(published?.default_state).toBe('gated');
   });
 
-  it('packages every linked security contract and the fixed-root downloader', () => {
+  it('packages every catalog-required contract and private processor without custom frontmatter', () => {
     const skill = fs.readFileSync(path.join(skillRoot, 'SKILL.md'), 'utf8');
-    for (const linkedFile of [
+    for (const requiredFile of [
       'references/processing-contract.md',
       'references/command-eve-integration.md',
+      'references/official-plaud-adapters.md',
+      'references/project-and-tool-routing.md',
       'scripts/plaud-download-audio.mjs',
       'scripts/plaud-ingest-guard.mjs',
+      'scripts/plaud-local-transcribe.mjs',
+      'scripts/plaud-project-publish.mjs',
     ]) {
-      expect(skill).toContain(`  - ${linkedFile}`);
-      expect(fs.statSync(path.join(skillRoot, linkedFile)).size).toBeGreaterThan(0);
+      expect(fs.statSync(path.join(skillRoot, requiredFile)).size).toBeGreaterThan(0);
     }
+    expect(skill).not.toContain('linked_files:');
+    expect(skill).not.toContain('disable_model_invocation:');
 
     const downloader = fs.readFileSync(downloaderPath, 'utf8');
     expect(downloader).toContain('--data-root');
     expect(downloader).not.toContain('--output-dir');
+    expect(fs.readFileSync(transcriberPath, 'utf8')).toContain('mlx-community/whisper-large-v3-turbo');
+    expect(fs.readFileSync(publisherPath, 'utf8')).toContain('docs/conversations');
   });
 
   it('keeps a synchronized recording retryable while its audio is pending', () => {
     expect(guard.classifyPlaudAudioState({ recordingFound: true, audioReady: false })).toBe('audio_pending');
     expect(guard.classifyPlaudAudioState({ recordingFound: true, audioReady: true })).toBe('discovered');
+    expect(
+      guard.classifyPlaudAudioState({
+        recordingFound: true,
+        metadataAudioReady: false,
+        downloaderSucceeded: true,
+      })
+    ).toBe('downloaded');
   });
 
   it('removes signed URLs and bearer values before any status reaches chat', () => {
@@ -130,7 +152,7 @@ describe('PLAUD recording ingest built-in', () => {
     const spawn = vi.fn((_command: string, args: string[], options: Record<string, unknown>) => {
       calls.push({ args, options });
       return args[0] === 'version'
-        ? { status: 0, stdout: 'plaud 0.3.4\n' }
+        ? { status: 0, stdout: 'plaud 0.3.6\n' }
         : { status: 0, stdout: 'private account metadata\n' };
     });
 
@@ -139,7 +161,8 @@ describe('PLAUD recording ingest built-in', () => {
     ).toMatchObject({
       state: 'ready',
       official_package: '@plaud-ai/cli',
-      required_cli_version: '0.3.4',
+      required_cli_version: '0.3.6',
+      required_mcp_version: '0.3.7',
       authenticated: true,
       raw_output_included: false,
       plaud_ai_minutes_consumed: 0,
@@ -161,7 +184,7 @@ describe('PLAUD recording ingest built-in', () => {
     });
 
     const expired = (_command: string, args: string[]) =>
-      args[0] === 'version' ? { status: 0, stdout: 'plaud 0.3.4\n' } : { status: 1, stdout: 'private profile' };
+      args[0] === 'version' ? { status: 0, stdout: 'plaud 0.3.6\n' } : { status: 1, stdout: 'private profile' };
     expect(guard.probePlaudCapability({ spawn: expired })).toMatchObject({
       state: 'blocked_auth',
       raw_output_included: false,
