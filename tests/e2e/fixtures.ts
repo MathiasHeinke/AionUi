@@ -20,6 +20,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { resolveAioncoreBinary } from './helpers/aioncoreBinary';
+import { resolveDefaultCommandEveArtifactPythonSiteDir } from './helpers/commandEveArtifactPythonSite';
 
 type Fixtures = {
   electronApp: ElectronApplication;
@@ -187,6 +188,16 @@ async function launchApp(): Promise<ElectronApplication> {
     XDG_CACHE_HOME: path.join(e2eHomeDir, '.cache'),
     AIONUI_EXTENSIONS_PATH: process.env.AIONUI_EXTENSIONS_PATH || path.join(projectRoot, 'examples'),
     AIONUI_EXTENSION_STATES_FILE: process.env.AIONUI_EXTENSION_STATES_FILE || e2eStateFile,
+    // Instrumented ("dev") launches never resolve resourcesPath to a real
+    // packaged Contents/Resources dir, so the desktop's own artifact-site
+    // lookup never finds the signed lxml/Pillow tree and document-artifact
+    // tasks (PPTX/DOCX/...) break with ModuleNotFoundError: No module named
+    // 'lxml'. Default to the build-staged, hash-verified site so instrumented
+    // specs exercise the real signed runtime; an explicit override always wins,
+    // and packaged-mode launches keep their own resourcesPath-based lookup.
+    COMMAND_EVE_ARTIFACT_PYTHON_SITE_DIR:
+      process.env.COMMAND_EVE_ARTIFACT_PYTHON_SITE_DIR ||
+      (usePackaged ? '' : resolveDefaultCommandEveArtifactPythonSiteDir({ cwd: projectRoot })),
     AIONUI_DISABLE_AUTO_UPDATE: '1',
     AIONUI_DISABLE_DEVTOOLS: '1',
     AIONUI_E2E_TEST: '1',
