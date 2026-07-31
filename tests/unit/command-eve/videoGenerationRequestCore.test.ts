@@ -83,6 +83,24 @@ describe('describeVideoRefusal — the cause survives to the user', () => {
     expect(capped.retryable).toBe(false);
   });
 
+  it('claims neither a finished video nor a final charge on a replay', () => {
+    // 'already' from command_eve_commit_debit proves exactly one thing: a
+    // kind='debit' ledger row with this external_ref exists. Two overclaims are
+    // therefore both wrong, in opposite directions:
+    //   * "wurde bereits erstellt" — the live 480p test hit this refusal with no
+    //     artifact and no file anywhere;
+    //   * "wurde bereits abgerechnet" — command_eve_reverse_debit adds a separate
+    //     kind='reversal' row and leaves the debit row standing, so a fully
+    //     refunded attempt still answers 'already'.
+    const described = describeVideoRefusal('request-replayed');
+    expect(described.message).not.toMatch(/erstellt|erzeugt wurde|fertig/);
+    expect(described.message).not.toMatch(/abgerechnet|belastet|bezahlt/);
+    // What is provable: the identical request already ran under this key.
+    expect(described.message).toMatch(/identische Anfrage|bereits verarbeitet/);
+    // And it has to name the way out, since retrying verbatim never works.
+    expect(described.message).toMatch(/Ändere|ändern/);
+  });
+
   it('does not invite a retry for something structurally impossible', () => {
     // Telling someone to retry a 1080p text prompt makes them wrong twice.
     expect(describeVideoRefusal('video-tier-unavailable').retryable).toBe(false);

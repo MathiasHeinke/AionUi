@@ -130,7 +130,26 @@ export function describeVideoRefusal(
         retryable: false,
       };
     case 'request-replayed':
-      return { message: 'Dieses Video wurde bereits erstellt.', retryable: false };
+      // What this code proves is narrow, and the sentence must not exceed it.
+      // command_eve_commit_debit returns 'already' purely because a ledger row
+      // with kind='debit' and this external_ref exists. It says nothing about
+      // two things people assume:
+      //
+      //   * that a video exists — the live 480p test hit this refusal with no
+      //     artifact and no file anywhere, so "Dieses Video wurde bereits
+      //     erstellt." sent the user hunting for something that was not there;
+      //   * that the credits are finally gone — command_eve_reverse_debit adds
+      //     a SEPARATE kind='reversal' row and leaves the debit row standing,
+      //     so a fully refunded attempt still answers 'already'. "Bereits
+      //     abgerechnet" would be the same mistake in the other direction.
+      //
+      // Provable: an identical request already ran under this key, and this key
+      // cannot start it again. Say that, plus the way out.
+      return {
+        message:
+          'Eine identische Anfrage wurde bereits verarbeitet und lässt sich mit demselben Anfrage-Schlüssel nicht erneut starten. Ändere den Text oder die Länge, um ein neues Video zu erzeugen.',
+        retryable: false,
+      };
     case 'video-daily-cap':
       return { message: 'Das Tageslimit für Videos ist erreicht.', retryable: false };
     case 'entitlement-not-drawable':
