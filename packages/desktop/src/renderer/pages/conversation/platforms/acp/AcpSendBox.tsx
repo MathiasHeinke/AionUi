@@ -103,7 +103,7 @@ import {
   type VideoQualityTier,
 } from '@/common/config/videoCostCore';
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
-import { isImageFile } from '@/common/chat/imageGenCore';
+import { isImageFile } from '@/renderer/pages/conversation/Preview/fileUtils';
 import { addressesVideoMarketer } from '@/common/config/eveTeamRoster';
 
 const useAcpSendBoxDraft = getSendBoxDraftHook('acp', {
