@@ -88,9 +88,10 @@ async function assertRegularContainedFile(path, trustedRoot) {
   return canonical;
 }
 
-async function ensurePrivatePath(root, segments) {
+async function ensurePrivatePath(root, segments, { privateFromIndex = 0 } = {}) {
   let current = root;
-  for (const segment of segments) {
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
     const candidate = resolve(current, segment);
     if (!isWithinRoot(root, candidate)) throw new Error('The project destination escaped the selected project.');
     await mkdir(candidate, { mode: 0o700 }).catch((error) => {
@@ -100,7 +101,7 @@ async function ensurePrivatePath(root, segments) {
     if (candidateStat.isSymbolicLink() || !candidateStat.isDirectory()) {
       throw new Error('A project conversation path is not a real directory.');
     }
-    if ((candidateStat.mode & 0o077) !== 0) {
+    if (index >= privateFromIndex && (candidateStat.mode & 0o077) !== 0) {
       throw new Error('Every project conversation directory must be private with mode 0700.');
     }
     const canonical = await realpath(candidate);
@@ -204,11 +205,11 @@ export async function publishPlaudProjectArtifacts({
     throw new Error('The private recording directory escaped the data root.');
   }
 
-  const destination = await ensurePrivatePath(trustedProjectRoot, [
-    ...relativeSegments,
-    capture.date,
-    checkedFileId,
-  ]);
+  const destination = await ensurePrivatePath(
+    trustedProjectRoot,
+    [...relativeSegments, capture.date, checkedFileId],
+    { privateFromIndex: Math.max(0, relativeSegments.length - 1) }
+  );
   const published = {};
   for (const name of PROJECT_ARTIFACTS) {
     const sourcePath = await findSourceArtifact(canonicalRecordingDirectory, trustedDataRoot, name);

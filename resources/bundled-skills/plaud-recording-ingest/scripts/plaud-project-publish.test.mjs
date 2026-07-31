@@ -38,6 +38,7 @@ test('publishes approved artifacts idempotently and never copies source audio', 
   const recordingRoot = await privateDirectory(plaudRoot, fileId);
   const transcriptionRoot = await privateDirectory(recordingRoot, 'transcription');
   const projectRoot = await privateDirectory(fixture, 'project');
+  await mkdir(path.join(projectRoot, 'docs'), { mode: 0o755 });
   await privateFile(path.join(recordingRoot, 'summary.md'), '# Summary\n\nVerified.\n');
   await privateFile(path.join(recordingRoot, 'actions.json'), '{"schema_version":1,"proposals":[]}\n');
   await privateFile(path.join(recordingRoot, `${fileId}.audio`), Buffer.from('ID3private-audio'));
@@ -57,6 +58,8 @@ test('publishes approved artifacts idempotently and never copies source audio', 
   await assert.rejects(() => stat(path.join(destination, `${fileId}.audio`)), { code: 'ENOENT' });
   await assert.rejects(() => stat(path.join(destination, 'transcript.txt')), { code: 'ENOENT' });
   assert.equal((await stat(destination)).mode & 0o777, 0o700);
+  assert.equal((await stat(path.join(projectRoot, 'docs'))).mode & 0o777, 0o755);
+  assert.equal((await stat(path.join(projectRoot, 'docs', 'conversations'))).mode & 0o777, 0o700);
   assert.equal((await stat(path.join(destination, 'summary.md'))).mode & 0o777, 0o600);
 
   const second = await publishPlaudProjectArtifacts({
