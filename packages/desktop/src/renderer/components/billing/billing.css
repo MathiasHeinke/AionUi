@@ -229,9 +229,7 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--border-secondary, #e5e7eb);
-  border-radius: 999px;
+  padding: 0 2px;
   font-size: 12px;
   color: var(--text-secondary, #4b5563);
 }

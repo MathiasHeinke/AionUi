@@ -25,7 +25,9 @@ vi.mock('@process/utils/utils', () => ({ getDataPath: () => '/tmp/eve-data' }));
 import type { CommandEveVideoBridgeDeps } from '@/process/bridge/commandEveVideoBridge';
 import {
   handleCommandEveVideoArtifactsList,
+  handleCommandEveVideoArtifactsListBridge,
   handleCommandEveVideoGenerate,
+  handleCommandEveVideoGenerateBridge,
 } from '@/process/bridge/commandEveVideoBridge';
 
 const deps = (
@@ -65,6 +67,15 @@ beforeEach(() => {
 });
 
 describe('handleCommandEveVideoGenerate', () => {
+  it('wraps raw outcomes in the renderer IPC response envelope', async () => {
+    const response = await handleCommandEveVideoGenerateBridge();
+
+    expect(response.success).toBe(true);
+    expect(response.data.ok).toBe(false);
+    if (response.data.ok) return;
+    expect(response.data.reasonCode).toBe('video-request-invalid');
+  });
+
   it('sends the bearer and the tier, and returns the resolved artifact', async () => {
     let sentAuth = '';
     let sentBody: Record<string, unknown> = {};
@@ -345,6 +356,12 @@ describe('handleCommandEveVideoGenerate', () => {
 });
 
 describe('handleCommandEveVideoArtifactsList', () => {
+  it('wraps the durable list in the renderer IPC response envelope', async () => {
+    const response = await handleCommandEveVideoArtifactsListBridge();
+
+    expect(response).toEqual({ success: true, data: [] });
+  });
+
   it('returns nothing for a missing conversation id', async () => {
     const listArtifactRecordsMock = vi.fn(() => [
       {

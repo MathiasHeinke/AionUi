@@ -242,6 +242,22 @@ export async function handleCommandEveVideoGenerate(
   }
 }
 
+/**
+ * IPC-facing envelope for the raw video outcome.
+ *
+ * `@office-ai/platform` forwards provider return values verbatim. The renderer's
+ * bridge contract expects `{ success, data }`, so registering the raw handler
+ * directly makes every refusal — and even a saved success — look like an empty
+ * transport failure. Keep the raw handler independently testable and wrap only
+ * at the IPC boundary.
+ */
+export async function handleCommandEveVideoGenerateBridge(
+  request?: CommandEveVideoGenerateRequest,
+  deps: CommandEveVideoBridgeDeps = productionDeps
+): Promise<{ success: true; data: CommandEveVideoGenerateResult }> {
+  return { success: true, data: await handleCommandEveVideoGenerate(request, deps) };
+}
+
 export interface CommandEveVideoArtifactsListDeps {
   getDataPath: typeof getDataPath;
   listArtifactRecords: typeof listVideoArtifactRecords;
@@ -265,4 +281,12 @@ export async function handleCommandEveVideoArtifactsList(
 ): Promise<CommandEveVideoConversationArtifact[]> {
   if (!request || typeof request.conversationId !== 'string' || request.conversationId.length === 0) return [];
   return deps.listArtifactRecords(deps.getDataPath(), request.conversationId);
+}
+
+/** IPC-facing envelope matching `ipcBridge.commandEve.videoArtifactsList`. */
+export async function handleCommandEveVideoArtifactsListBridge(
+  request?: { conversationId?: string },
+  deps: CommandEveVideoArtifactsListDeps = productionListDeps
+): Promise<{ success: true; data: CommandEveVideoConversationArtifact[] }> {
+  return { success: true, data: await handleCommandEveVideoArtifactsList(request, deps) };
 }
