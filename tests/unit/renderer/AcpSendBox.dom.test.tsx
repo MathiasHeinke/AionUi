@@ -1960,6 +1960,55 @@ describe('AcpSendBox', () => {
     expect(videoGenerateInvokeMock.mock.calls[1][0]).toMatchObject({ tierId: 'fast' });
   });
 
+  it('keeps the cheaper pick standing when the send was REFUSED', async () => {
+    // Found live, not in a test: a 480p request was refused, the draft came
+    // back, and the picker read 720p. The obvious next action — send the
+    // restored draft again — would then have cost 700 credits instead of 500,
+    // with nothing on screen saying the price had changed. Resetting to the
+    // default is only ever cheaper when the user picked HD.
+    videoGenerateInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: false,
+        reasonCode: 'request-replayed',
+        message: 'Dieses Video wurde bereits erstellt.',
+        retryable: false,
+      },
+    });
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    act(() => {
+      screen.getByTestId('video-quality-option-sd').click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'sd' });
+    await waitFor(() => expect(messageErrorMock).toHaveBeenCalled());
+
+    // The choice the user made moments ago is still the choice.
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'sd');
+
+    // And a resend stays at the price the picker is showing.
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(2));
+    expect(videoGenerateInvokeMock.mock.calls[1][0]).toMatchObject({ tierId: 'sd' });
+  });
+
   it('calls the REAL video endpoint, not just a prompt stamp', async () => {
     // The defect this closes: the lane used to stamp "[EVE:VIDEO ...]" into the
     // text and stop. The deployed gateway had no video branch at all, so the

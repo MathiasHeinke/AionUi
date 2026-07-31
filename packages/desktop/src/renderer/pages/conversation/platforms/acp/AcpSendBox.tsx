@@ -997,6 +997,11 @@ Please check your local CLI tool authentication status`,
                     artifact: outcome.conversationArtifact,
                   });
                 }
+                // The tier is per REQUEST, not per conversation: "default stays
+                // Fast/Standard" has to be true for the NEXT video, so a made
+                // video ends its own tier here. Only here — see the failure
+                // paths above, which deliberately leave the choice standing.
+                setVideoTierId(DEFAULT_VIDEO_TIER_ID);
               })
               .catch(() => {
                 Message.error({
@@ -1008,17 +1013,14 @@ Please check your local CLI tool authentication status`,
                 controls.restoreDraftAndFiles();
               });
 
-            // The tier is per REQUEST, not per conversation: "default stays
-            // Fast/Standard" has to be true for the next video too. Without this
-            // an HD pick outlives its own send and silently prices a later one.
-            //
-            // DELIBERATE, do not "fix": this resets even on a later failure, so
-            // the user gets their text back with the tier at Fast. Re-arming an
-            // expensive choice across an error boundary is the "quietly did
-            // something else" class twice over. The state stays legible — the
-            // restored draft still routes to video, so the picker is visible and
-            // reads Fast, one click from HD.
-            setVideoTierId(DEFAULT_VIDEO_TIER_ID);
+            // The reset used to happen HERE, synchronously, before the outcome
+            // was known — and an earlier comment defended that as deliberate.
+            // A live 480p test proved it backwards: the request was refused,
+            // the draft came back, and the picker read 720p. Resetting to the
+            // default is only cheaper when the user picked HD; from 480p the
+            // same line silently RAISES the price of the obvious next action,
+            // which is to send the restored draft again. The reset now lives in
+            // the success path, where the video it belonged to actually exists.
           },
           () => {
             controls.restoreDraftAndFiles();
