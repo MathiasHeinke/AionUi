@@ -1281,7 +1281,37 @@ const SendBox: React.FC<{
     setReplyQuote(null);
 
     onSend(finalMessage)
-      .catch(() => {})
+      .catch((error: unknown) => {
+        // This was `.catch(() => {})`. Every rejection the send path could
+        // produce — video, chat, document preparation — was discarded right
+        // here, which made a send that DIED indistinguishable from one that
+        // never started: the button flickered disabled, `finally` put the
+        // composer back to idle, and nothing anywhere said why.
+        //
+        // On 2026-07-31 the founder and Codex independently reproduced exactly
+        // that on 1.820.1 and neither could name the cause, with real keyboard
+        // events and with a changed prompt. They could not, because this line
+        // had already thrown the reason away. A swallowed rejection does not
+        // just hide one bug; it hides whichever bug comes next.
+        //
+        // Not a modal — the founder's standing rule is that image and video
+        // must never raise an extra dialog, and this must not become one by
+        // the back door. It is the same toast lane the video refusals already
+        // use, with `duration: 0` so it STAYS until dismissed: a failure the
+        // user scrolled past is a failure they will simply repeat.
+        const reason = error instanceof Error ? error.message : String(error ?? '');
+        console.error('[sendbox]', { event: 'send-failed', reason });
+        message.error({
+          content: reason
+            ? t('messages.sendFailedWithReason', {
+                defaultValue: 'Senden fehlgeschlagen: {{reason}}',
+                reason,
+              })
+            : t('messages.sendFailed', { defaultValue: 'Senden fehlgeschlagen.' }),
+          duration: 0,
+          closable: true,
+        });
+      })
       .finally(() => {
         setIsLoading(false);
       });
