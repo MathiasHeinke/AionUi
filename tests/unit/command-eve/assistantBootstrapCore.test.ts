@@ -309,7 +309,7 @@ describe('Command EVE assistant bootstrap core', () => {
       next_action: 'Runtime ready for EVE first session.',
     };
 
-    it('EVE Cloud Max selection → describes the active CLOUD tier, never the shim model (DE)', () => {
+    it('EVE Cloud MAX selection → describes the active CLOUD tier, never the shim model (DE)', () => {
       const context = buildCommandEveAssistantFirstRunContext(
         {
           appVersion: '1.2.20',
@@ -319,7 +319,7 @@ describe('Command EVE assistant bootstrap core', () => {
         'de-DE'
       );
 
-      expect(context).toContain('Aktive Inferenz-Lane: EVE Cloud, Maximum-Stufe');
+      expect(context).toContain('Aktive Inferenz-Lane: EVE Cloud, MAX-Stufe');
       expect(context).toContain('maximales Reasoning, starke Agentenarbeit');
       expect(context).not.toContain(`Aktive Inferenz-Lane: ${SHIM}`);
       // The local warm-up line is explicitly framed as the fallback, not "the model".
@@ -328,7 +328,7 @@ describe('Command EVE assistant bootstrap core', () => {
       expect(context).toContain('Selbstbeschreibung:');
     });
 
-    it('EVE Cloud Max selection → describes the active CLOUD tier (EN)', () => {
+    it('EVE Cloud MAX selection → describes the active CLOUD tier (EN)', () => {
       const context = buildCommandEveAssistantFirstRunContext(
         {
           appVersion: '1.2.20',
@@ -338,13 +338,13 @@ describe('Command EVE assistant bootstrap core', () => {
         'en-US'
       );
 
-      expect(context).toContain('Active inference lane: EVE Cloud, Maximum tier');
+      expect(context).toContain('Active inference lane: EVE Cloud, MAX tier');
       expect(context).toContain('maximum reasoning, strong agent work');
       expect(context).not.toContain(`Active inference lane: ${SHIM}`);
       expect(context).toContain('Self-description:');
     });
 
-    it('a persisted retired selection lands on Maximum and still teaches proactive worker orchestration', () => {
+    it('a persisted retired selection lands on MAX and still teaches proactive worker orchestration', () => {
       const de = buildCommandEveAssistantFirstRunContext(
         {
           appVersion: '1.8.14',
@@ -362,10 +362,10 @@ describe('Command EVE assistant bootstrap core', () => {
         'en-US'
       );
 
-      expect(de).toContain('Aktive Inferenz-Lane: EVE Cloud, Maximum-Stufe');
+      expect(de).toContain('Aktive Inferenz-Lane: EVE Cloud, MAX-Stufe');
       expect(de).toContain('proaktive Worker-Orchestrierung');
       expect(de).toContain('Datenschutz- und Freigabegrenzen');
-      expect(en).toContain('Active inference lane: EVE Cloud, Maximum tier');
+      expect(en).toContain('Active inference lane: EVE Cloud, MAX tier');
       expect(en).toContain('proactive worker orchestration');
       expect(en).toContain('privacy, and approval boundaries');
     });

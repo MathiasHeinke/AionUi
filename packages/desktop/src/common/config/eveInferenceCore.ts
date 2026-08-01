@@ -8,44 +8,47 @@
  * Command EVE inference picker — pure core (STUFEN / level model).
  *
  * The founder mandate is "nothing confusing": a user picks a STUFE (level), NOT
- * a raw model id. The active product exposes exactly the two verified groups
- * below. The presentation model can append explicitly supplied connected-user
- * provider groups later, but it never discovers or exposes raw CLI agents:
+ * a raw model id. No upstream model name, vendor or slug is ever surfaced from
+ * this module — the server owns the registry that turns a level into a model.
  *
- *   - Privat (lokal):   Standard = Gemma 4 E4B, Hoch = Gemma 4 12B
- *                       (the bundled local tiers from commandEveShell.ts).
- *   - EVE Inference:    Standard, Hoch, Sehr hoch, Maximum
- *                       (cloud, OpenAI-compatible Edge fn).
- *                       The user sees a level; the backend resolves the concrete
- *                       model from that level via a registry. Both lanes share
- *                       the entry word "Standard" (founder choice 2026-06-27).
+ *   - Privat (lokal):   Standard / Hoch — the bundled local tiers from
+ *                       commandEveShell.ts. These ARE named, because they run
+ *                       openly on the user's own machine.
+ *   - EVE Inference:    the CLOUD lane, reached through the OpenAI-compatible
+ *                       Edge Function. Levels only; no model names.
  *
- * THE SELECTABLE EVE LEVELS (STUFEN):
- *   - Standard  — FREE. DeepSeek V4 Flash. The default for a fresh chat.
- *   - Hoch      — PAID. DeepSeek V4 Pro. Consumes credits ("mehr Credits").
- *   - Sehr hoch — PAID. GLM 5.2 with high reasoning.
- *   - Maximum   — PAID. Kimi K2.6 with maximum reasoning. The highest level.
+ * THE OFFERED SURFACE IS EXACTLY TWO CHOICES (MAT-1749):
+ *   - Standard — the unnamed default. Free-eligible; the default for a fresh chat.
+ *   - MAX      — the strong lane. Paid: it unlocks on a qualifying paid plan or on
+ *                REAL purchased credits. Promotional/allowance credits do NOT
+ *                unlock it (see {@link hasEveMaxAccess}).
  *
- * RETIRED: `eve-ultra`. It stays in {@link EVE_INFERENCE_TIERS} so a persisted
- * selection can still be RECOGNISED and migrated to Maximum, but it is absent
- * from {@link EVE_INFERENCE_SELECTABLE_TIERS} and therefore from the picker.
- * The Edge Function does not accept its wire tier, so offering it would hand a
- * user a level that fails every turn.
+ * The intermediate rungs are no longer OFFERED. They are NOT deleted from
+ * {@link EVE_INFERENCE_TIERS}: the managed-visual / media turn contract
+ * (eveManagedVisualTurnCore.ts) is a separate wallet consumer that still keys on
+ * the `high` / `xhigh` / `ultra` wire tiers, so the wire substrate must survive.
+ * What collapses is the OFFER, not the substrate — a persisted selection on a
+ * retired rung is MIGRATED (see {@link normalizeLegacyEveTierId}) rather than
+ * stranded.
+ *
+ * The offer is DERIVED (see {@link EVE_INFERENCE_OFFERED_WIRE_TIERS}) from the
+ * server allow-list rather than hand-listed, so a rung the Edge Function refuses
+ * cannot become offerable by construction — not merely by a rule someone has to
+ * remember.
  *
  * FREE-TIER RULES (entitlement trialing/free per entitlementCore):
- *   - EVE Hoch + Sehr hoch + Maximum are disabled unless a paid seat,
- *     active top-up, or spendable metered credit balance exists.
+ *   - MAX is disabled unless a paid seat, a paid plan, an active top-up, or a
+ *     REAL purchased-credit balance exists.
  *   - BYOK is GREYED OUT in settings (handled at the settings surface using
  *     {@link isByokDisabledForEntitlement} from this module).
- *   - Only EVE Standard + the two local tiers are selectable.
+ *   - EVE Standard + the two local tiers always stay selectable.
  *
  * BACKEND LEVEL REGISTRY (no tier→level shift): the eve-inference Edge Function
  * resolves the concrete upstream model from a user-facing LEVEL via a registry
  * (accepted levels: standard, high, xhigh, max). The wire `tier` this module
- * sends IS the registry level verbatim — there is NO tier→level bridge/shift any
- * more: Standard→`standard`, Hoch→`high`, Sehr hoch→`xhigh`, Maximum→`max`. The
- * function looks the value up in the registry directly. A persisted `ultra` is
- * migrated to `max` before it can travel.
+ * sends IS the registry level verbatim — there is NO tier→level bridge/shift:
+ * Standard→`standard`, MAX→`max`. The function looks the value up in the
+ * registry directly. A persisted retired rung is migrated before it can travel.
  *
  * EVE ROUTING (all levels): every EVE Inference level routes through the
  * Command EVE backend Edge Function as an OpenAI-compatible client. We model an
@@ -106,18 +109,21 @@ export const EVE_INFERENCE_TIER_SUBLABEL = 'EVE Cloud';
  *   - `consumesCredits` — show a "verbraucht Credits" marker on the row.
  *   - `gated`           — experimental/highest-cost marker; access still keys on
  *                         paid inference entitlement, never this cosmetic flag.
- *   - `costBadge`       — short, non-secret UI badge text (e.g. "~5× Kosten").
+ *   - `costBadge`       — short, non-secret UI badge text. It is emitted for any
+ *                         OFFERED rung that declares one (today: MAX). It used to
+ *                         be emitted only when `gated` was true, which — once the
+ *                         gated rung was retired — made it dead affordance code.
  *
- * The two FREE levels (Standard + Hoch) carry NO cost badge; the user can pick
- * them on a trial with no card.
+ * The free level (Standard) carries NO cost badge; the user can pick it on a
+ * trial with no card.
  */
 export const EVE_INFERENCE_TIERS = [
   {
     id: 'eve-standard',
-    // STUFE: Standard — the entry rung. Same model as the FREE lane (DeepSeek V4
-    // Flash): on a trial it is EVE Free (100/Tag, €0); for a paying user it is
-    // EVE Pro's cheapest, metered rung. The wire `tier` is `standard` either way;
-    // the SERVER decides free-cap vs credit-meter by the entitlement.
+    // STUFE: Standard — the OFFERED entry rung, and the unnamed default. On a
+    // trial it is EVE Free (100/Tag, €0); for a paying user it is the cheapest
+    // metered rung. The wire `tier` is `standard` either way; the SERVER decides
+    // free-cap vs credit-meter by the entitlement.
     label: 'Standard',
     tier: 'standard',
     /** Free-tier-eligible: selectable on a trial (capped, not metered). The Pro
@@ -131,7 +137,12 @@ export const EVE_INFERENCE_TIERS = [
   },
   {
     id: 'eve-high',
-    // STUFE: Hoch — DeepSeek V4 Pro, paid, more credits than Standard.
+    // RETIRED FROM THE OFFER (MAT-1749) — still a valid WIRE tier.
+    //
+    // Not deleted: the managed-visual / media turn contract keys on `high`, and a
+    // persisted selection has to be recognisable in order to be migrated (this
+    // one migrates DOWN to Standard — see normalizeLegacyEveTierId). It is absent
+    // from EVE_INFERENCE_SELECTABLE_TIERS, so it never reaches the picker.
     label: 'Hoch',
     // The wire `high` IS the registry level (no tier→level bridge/shift); the
     // backend looks `high` up directly. The German label "Hoch" is UI-only.
@@ -144,7 +155,9 @@ export const EVE_INFERENCE_TIERS = [
   },
   {
     id: 'eve-xhigh',
-    // STUFE: Sehr hoch — GLM 5.2 at HIGH reasoning effort.
+    // RETIRED FROM THE OFFER (MAT-1749) — still a valid WIRE tier for the
+    // managed-visual / media turn contract. A persisted selection migrates UP to
+    // MAX, because that is the lane the user was reaching for.
     label: 'Sehr hoch',
     tier: 'xhigh',
     paidOnly: true,
@@ -155,9 +168,10 @@ export const EVE_INFERENCE_TIERS = [
   },
   {
     id: 'eve-max',
-    // STUFE: Maximum / "härteste Aufgabe" — stable Kimi K2.6 at MAX reasoning.
-    // This remains the strongest predictable, cost-bounded frontier lane.
-    label: 'Maximum',
+    // STUFE: MAX — the strong lane, and the only user-visible name for it. This
+    // is one of the exactly two OFFERED rungs. Everything about which upstream
+    // model serves it is server-owned and never surfaced here.
+    label: 'MAX',
     tier: 'max',
     paidOnly: true,
     consumesCredits: true,
@@ -170,15 +184,10 @@ export const EVE_INFERENCE_TIERS = [
     // RETIRED COMPATIBILITY METADATA — not an offered level.
     //
     // Kept ONLY so a persisted `command-eve-inference:eve-ultra` can still be
-    // recognised and migrated to Maximum; it is excluded from
+    // recognised and migrated to MAX; it is excluded from
     // EVE_INFERENCE_SELECTABLE_TIERS, so it never reaches the picker, and its
-    // wire tier is not one the Edge Function accepts. The bounded worker profile
-    // this rung used to carry now rides on Maximum.
-    //
-    // Historical note: experimental Kimi K3 at MAX reasoning. The Main-process
-    // uses the worker slots already available under the current hardware cap for
-    // genuinely complex tasks. Existing privacy, side-effect and human gates
-    // remained binding; it was more execution power, never fewer safeguards.
+    // wire tier is not one the Edge Function accepts on the CHAT path. The
+    // bounded worker profile this rung used to carry now rides on MAX.
     label: 'Ultra',
     tier: 'ultra',
     paidOnly: true,
@@ -194,11 +203,10 @@ export type EveInferenceTierId = EveInferenceTier['id'];
 export type EveInferenceWireTier = EveInferenceTier['tier'];
 
 /**
- * User-facing cloud-row labels: the 5-STUFEN ladder reads
- * "Standard / Hoch / Sehr hoch / Maximum" in the picker (the group header "EVE
- * Inference (Cloud)" already conveys the lane, so the rows drop the "EVE" prefix).
- * Sehr hoch = GLM 5.2 @ high reasoning, Maximum = Kimi K2.6 @ max reasoning,
- * The retired Ultra rung is not listed: it is never rendered.
+ * User-facing cloud-row labels. The OFFERED surface reads "Standard · MAX"; the
+ * remaining entries exist only so a non-offered wire tier can still be named in
+ * a diagnostic/self-description context without falling back to a raw id.
+ *
  * This map is presentation-only and does NOT change any selection value or wire
  * `tier`.
  */
@@ -206,11 +214,16 @@ export const EVE_INFERENCE_TIER_DISPLAY_LABELS: Record<EveInferenceWireTier, str
   standard: 'Standard',
   high: 'Hoch',
   xhigh: 'Sehr hoch',
-  max: 'Maximum',
+  max: 'MAX',
   ultra: 'Ultra',
 };
 
 export const EVE_INFERENCE_DEFAULT_TIER_ID: EveInferenceTierId = EVE_INFERENCE_TIERS[0].id;
+
+/** The Standard rung — the unnamed default half of the two-choice offer. */
+export const EVE_INFERENCE_STANDARD_TIER_ID: EveInferenceTierId = 'eve-standard';
+/** The MAX rung — the strong half of the two-choice offer. */
+export const EVE_INFERENCE_MAX_TIER_ID: EveInferenceTierId = 'eve-max';
 
 // ---------------------------------------------------------------------------
 // Local (privat) tiers — exactly the two the founder spec lists. We REUSE the
@@ -418,29 +431,101 @@ export type ServerAllowedWireTier = (typeof EVE_INFERENCE_SERVER_ALLOWED_WIRE_TI
 export const EVE_INFERENCE_LEGACY_ULTRA_FALLBACK_TIER_ID: EveInferenceTierId = 'eve-max';
 
 /**
- * The rungs a user may actually pick.
+ * The tier ids the product OFFERS. Exactly two: the unnamed default and MAX.
  *
- * Derived from the server allow-list rather than hand-maintained: a rung the
- * function refuses must not be offerable, and deriving it makes that structural
- * instead of a rule someone has to remember. {@link EVE_INFERENCE_TIERS} keeps
- * every rung — including retired ones — because a persisted selection still has
- * to be recognised in order to be migrated.
+ * Kept as ids (not wire tiers) because that is what a persisted selection holds
+ * and what a migration has to produce.
  */
-export const EVE_INFERENCE_SELECTABLE_TIERS = EVE_INFERENCE_TIERS.filter((tier) => isServerAllowedWireTier(tier.tier));
+const EVE_INFERENCE_OFFERED_TIER_IDS = Object.freeze([
+  EVE_INFERENCE_STANDARD_TIER_ID,
+  EVE_INFERENCE_MAX_TIER_ID,
+] as const);
+
+/** An id on the offered surface. */
+export type OfferedEveTierId = (typeof EVE_INFERENCE_OFFERED_TIER_IDS)[number];
+
+/** Whether a tier id is one of the two the picker offers. */
+export function isOfferedEveTierId(tierId: string | undefined): tierId is OfferedEveTierId {
+  return typeof tierId === 'string' && (EVE_INFERENCE_OFFERED_TIER_IDS as readonly string[]).includes(tierId);
+}
 
 /**
- * Migrate a retired tier id to the strongest one the server still honours.
+ * The wire tiers the OFFERED surface may travel on.
+ *
+ * DERIVED by filtering the server allow-list — not hand-written next to it. That
+ * ordering matters: an offered rung the Edge Function refuses is impossible by
+ * CONSTRUCTION, because a tier that is not in
+ * {@link EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS} can never survive this filter,
+ * no matter what someone later adds to the offered-id list.
+ */
+export const EVE_INFERENCE_OFFERED_WIRE_TIERS = Object.freeze(
+  EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS.filter((wire) =>
+    EVE_INFERENCE_TIERS.some((tier) => tier.tier === wire && isOfferedEveTierId(tier.id))
+  )
+);
+
+/**
+ * A wire tier the product currently OFFERS.
+ *
+ * Strictly narrower than {@link ServerAllowedWireTier} at the TYPE level too, not
+ * only at runtime: the server still accepts rungs the picker no longer presents
+ * (the managed-visual / media contract uses them), so a single loose union would
+ * let a non-offered rung type-check as offerable. The `& ServerAllowedWireTier`
+ * intersection is the compile-time half of the same guarantee the runtime filter
+ * above enforces — offering a rung the server refuses collapses to `never`.
+ */
+export type OfferedWireTier = Extract<EveInferenceTier, { id: OfferedEveTierId }>['tier'] & ServerAllowedWireTier;
+
+/** Whether this wire tier is part of the two-choice offer the picker presents. */
+export function isOfferedWireTier(tier: string): tier is OfferedWireTier {
+  return (EVE_INFERENCE_OFFERED_WIRE_TIERS as readonly string[]).includes(tier);
+}
+
+/**
+ * The rungs a user may actually pick.
+ *
+ * Derived from {@link EVE_INFERENCE_OFFERED_WIRE_TIERS}, which is itself derived
+ * from the server allow-list — so an unofferable rung cannot leak into the picker
+ * through either door. {@link EVE_INFERENCE_TIERS} keeps every rung — including
+ * retired ones — because a persisted selection still has to be recognised in
+ * order to be migrated, and because the media contract still uses those wire
+ * values.
+ */
+export const EVE_INFERENCE_SELECTABLE_TIERS = EVE_INFERENCE_TIERS.filter((tier) => isOfferedWireTier(tier.tier));
+
+/**
+ * Where each retired rung lands when the offer collapsed to Standard + MAX.
+ *
+ * Direction is a product decision, not a mechanical one:
+ *   - `eve-high`  → Standard. It was the cheap step above Standard; a user on it
+ *                   was not paying for the strong lane, so silently promoting
+ *                   them to MAX would start metering them harder than they chose.
+ *   - `eve-xhigh` → MAX. It was the deep-reasoning rung; MAX is what that user
+ *                   was reaching for.
+ *   - `eve-ultra` → MAX. Already the pre-existing behaviour; the server refuses
+ *                   `ultra` on the chat path, so anything else costs every turn.
+ */
+const EVE_INFERENCE_TIER_ID_MIGRATIONS: Readonly<Partial<Record<EveInferenceTierId, EveInferenceTierId>>> =
+  Object.freeze({
+    'eve-high': EVE_INFERENCE_STANDARD_TIER_ID,
+    'eve-xhigh': EVE_INFERENCE_MAX_TIER_ID,
+    'eve-ultra': EVE_INFERENCE_MAX_TIER_ID,
+  });
+
+/**
+ * Migrate a no-longer-offered tier id onto the offered surface.
  *
  * Applied at PARSE level, not only on the wire, so the selection genuinely
  * BECOMES the migrated tier — labels included. Migrating only outbound would
  * leave the picker naming one tier while another is sent.
  *
- * Only the known retired value is mapped. Anything else unrecognised stays
+ * Only KNOWN retired ids are mapped. Anything else unrecognised stays
  * unrecognised so the caller fails loud; a value that cannot be named is not a
  * value to silently reinterpret.
  */
 export function normalizeLegacyEveTierId(tierId: EveInferenceTierId | undefined): EveInferenceTierId | undefined {
-  return tierId === 'eve-ultra' ? EVE_INFERENCE_LEGACY_ULTRA_FALLBACK_TIER_ID : tierId;
+  if (tierId === undefined) return undefined;
+  return EVE_INFERENCE_TIER_ID_MIGRATIONS[tierId] ?? tierId;
 }
 
 /**
@@ -452,12 +537,22 @@ export function normalizeLegacyEveTierId(tierId: EveInferenceTierId | undefined)
  * "rewritten" and write back only in the second case. Parsing alone changes
  * neither what is on disk nor what the picker shows as active; that needs this
  * plus a write.
+ *
+ * A LOCAL selection is never touched — the local lane is a separate offer.
+ * An EVE selection naming NO known rung resolves to Standard rather than staying
+ * stranded: an unrecognisable cloud rung cannot be sent, and a seat must always
+ * be able to send.
  */
 export function migrateLegacyEveSelection(selection: string | null | undefined): string | undefined {
   if (!isEveInferenceSelection(selection)) return undefined;
   const rawTierId = (selection as string).slice(EVE_SELECTION_PREFIX.length);
-  if (rawTierId !== 'eve-ultra') return undefined;
-  return eveTierValue(EVE_INFERENCE_LEGACY_ULTRA_FALLBACK_TIER_ID);
+  const known = findEveInferenceTier(rawTierId);
+  const migrated = known ? normalizeLegacyEveTierId(known.id) : undefined;
+  // Fail-safe: anything that does not land on the OFFERED surface becomes the
+  // default rather than a selection nobody can act on.
+  const targetId = isOfferedEveTierId(migrated) ? migrated : EVE_INFERENCE_DEFAULT_TIER_ID;
+  const replacement = eveTierValue(targetId);
+  return replacement === selection ? undefined : replacement;
 }
 
 /**
@@ -479,18 +574,21 @@ export function parseEveTierIdFromSelection(value: string | null | undefined): E
  * Resolve the WIRE TIER an EVE picker selection POSTs to the eve-inference Edge
  * Function (HONEST TIER ROUTING, 1.2.19). Maps a selection value to the registry
  * wire value via `parseEveTierIdFromSelection → findEveInferenceTier → .tier`,
- * VERBATIM for every rung the server accepts:
+ * VERBATIM for both OFFERED rungs:
  *
  *   command-eve-inference:eve-standard → 'standard'
- *   command-eve-inference:eve-high     → 'high'
  *   command-eve-inference:eve-max      → 'max'
  *
- * A RETIRED rung is the one exception to verbatim: it is migrated to the
- * strongest accepted rung rather than sent, because the server would refuse it
- * and cost the user the whole turn:
+ * A rung that is no longer OFFERED is the one exception to verbatim: it is
+ * migrated onto the offered surface rather than sent as-is, so the tier that
+ * travels is the tier the picker names:
  *
- *   command-eve-inference:eve-ultra    → 'max'   (migrated, see
- *                                                 normalizeLegacyEveTierId)
+ *   command-eve-inference:eve-high     → 'standard'  (migrated)
+ *   command-eve-inference:eve-xhigh    → 'max'       (migrated)
+ *   command-eve-inference:eve-ultra    → 'max'       (migrated; the server also
+ *                                                     refuses `ultra` outright)
+ *
+ * See normalizeLegacyEveTierId for why each retired rung lands where it does.
  *
  * Returns `undefined` for a LOCAL selection, any value that does not resolve to
  * a known EVE tier, AND any tier outside
@@ -522,6 +620,41 @@ export function resolveWireTierFromSelection(selection: string | null | undefine
 /** Whether the eve-inference Edge Function accepts this wire tier today. */
 export function isServerAllowedWireTier(tier: string): tier is ServerAllowedWireTier {
   return (EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS as readonly string[]).includes(tier);
+}
+
+/**
+ * What the seat is allowed to send, as opposed to what it PICKED.
+ *
+ * `maxEntitled` is deliberately three-state:
+ *   - `true`      — proven entitled: MAX travels.
+ *   - `false`     — proven NOT entitled: MAX is clamped to `standard`.
+ *   - `undefined` — unknown (a read that failed, a surface with no entitlement
+ *                   truth): do NOT clamp. Guessing "not entitled" from an
+ *                   unreadable status would silently downgrade a paying seat,
+ *                   which is exactly the class of bug this module exists to
+ *                   prevent. The server remains the binding gate and answers an
+ *                   unfunded MAX with its upsell, not with a served turn.
+ */
+export type EveSeatWireEntitlement = { maxEntitled?: boolean };
+
+/**
+ * THE NON-BRICK CLAMP.
+ *
+ * A seat that selected MAX and then lost (or never had) MAX entitlement must
+ * still be able to send. Rather than rewriting the user's persisted intent — it
+ * has to light up again the moment they buy — the EFFECTIVE wire tier falls back
+ * to `standard` while the entitlement is provably absent.
+ *
+ * Standard is never clamped; it is the floor. A LOCAL or unresolvable selection
+ * still returns `undefined` so the caller fails loud exactly as before.
+ */
+export function resolveEffectiveWireTierFromSelection(
+  selection: string | null | undefined,
+  seat: EveSeatWireEntitlement = {}
+): EveInferenceWireTier | undefined {
+  const tier = resolveWireTierFromSelection(selection);
+  if (tier !== 'max') return tier;
+  return seat.maxEntitled === false ? 'standard' : 'max';
 }
 
 /**
@@ -759,6 +892,22 @@ export interface EveEntitlementView {
   has_metered_credits?: boolean;
   /** Distinguishes an authoritative zero-credit response from an unavailable response. */
   metered_credit_access_known?: boolean;
+  /**
+   * A qualifying PAID PLAN (the client mirror of the backend's `entitlement.kind
+   * === 'paid'`). Distinct from `has_paid_seat`, which is the narrower paid
+   * CLIENT-SEAT signal the BYOK gate keys on — widening that one would loosen
+   * BYOK as a side effect, which is not what the MAX gate is asking for.
+   */
+  has_paid_plan?: boolean;
+  /**
+   * REAL purchased / topped-up credits remain (`purchased_credits_remaining > 0`).
+   *
+   * Deliberately NOT the same thing as {@link EveEntitlementView.has_metered_credits},
+   * which is true for INCLUDED ALLOWANCE credits too. A promotional grant lands
+   * in the allowance bucket, and a promotion must not unlock the strong lane —
+   * that separation is the whole enforcement seam for the MAX gate.
+   */
+  has_purchased_credits?: boolean;
 }
 
 /**
@@ -834,30 +983,57 @@ export function shouldDisableModelByok(
 }
 
 /**
+ * THE MAX MONEY GATE. MAX unlocks on a REAL purchase and nothing else:
+ *
+ *   (a) a qualifying paid plan / paid client seat, OR
+ *   (b) an active recurring top-up subscription, OR
+ *   (c) a REAL purchased-credit balance (`purchased_credits_remaining > 0`).
+ *
+ * Promotional / trial / included-allowance credits do NOT unlock MAX. This is
+ * the client mirror of the server-side rule; the server stays the binding gate
+ * and answers an unfunded MAX with its 402 upsell. Mirroring it here is what
+ * lets the picker render an honest LOCKED state with an upsell affordance
+ * instead of offering a lane that will be refused.
+ *
+ * Fail-CLOSED on purpose: every unlock signal must be present-and-true. An
+ * absent or unreadable credits status therefore locks MAX rather than opening
+ * it — and the non-brick clamp keeps that seat able to send on Standard.
+ */
+export function hasEveMaxAccess(entitlement: EveEntitlementView | null | undefined): boolean {
+  return (
+    entitlement?.has_paid_seat === true ||
+    entitlement?.has_paid_plan === true ||
+    entitlement?.has_active_topup === true ||
+    entitlement?.has_purchased_credits === true
+  );
+}
+
+/**
  * Whether a given EVE tier is selectable for the entitlement. Standard is
- * always selectable; metered levels require paid inference access.
+ * always selectable; MAX keys on the stricter purchase gate above; any other
+ * metered level keeps the wider metered-credit rule (the media/managed-visual
+ * consumers still resolve through it).
  */
 export function isEveTierSelectable(
-  tier: Pick<EveInferenceTier, 'paidOnly'>,
+  tier: Pick<EveInferenceTier, 'paidOnly'> & Partial<Pick<EveInferenceTier, 'tier'>>,
   entitlement: EveEntitlementView | null | undefined
 ): boolean {
+  if (tier.tier === 'max') return hasEveMaxAccess(entitlement);
   if (!tier.paidOnly) return true;
   return hasEvePaidInferenceAccess(entitlement);
 }
 
 /**
  * Build the full two-group picker model (STUFEN) for the current entitlement.
- * Local tiers are never gated. EVE Standard is always selectable; Hoch, Sehr
- * hoch and Maximum require a paid seat, active top-up, or spendable metered
- * credits. Cloud rows expose capability descriptors rather than concrete model
- * names because the server owns provider and model routing.
+ * Local tiers are never gated. The cloud group offers exactly Standard and MAX:
+ * Standard is always selectable, MAX keys on {@link hasEveMaxAccess}. Cloud rows
+ * expose capability descriptors rather than concrete model names because the
+ * server owns provider and model routing.
  */
 export function buildEvePickerGroups(
   entitlement: EveEntitlementView | null | undefined,
   connectedProviderGroups: readonly EveConnectedProviderGroup[] = []
 ): EvePickerGroup[] {
-  const paidInferenceAccess = hasEvePaidInferenceAccess(entitlement);
-
   const localGroup: EvePickerGroup = {
     kind: 'local',
     title: 'Privat (lokal)',
@@ -876,20 +1052,22 @@ export function buildEvePickerGroups(
     // for the private/local lane.
     title: EVE_INFERENCE_GROUP_TITLE,
     items: EVE_INFERENCE_SELECTABLE_TIERS.map((tier) => {
-      const disabled = tier.paidOnly && !paidInferenceAccess;
+      const disabled = !isEveTierSelectable(tier, entitlement);
       const consumesCredits = tier.consumesCredits === true;
       const gated = tier.gated === true;
       // Cloud rows expose capability labels; concrete model routing remains
       // server-owned and may change without a desktop release.
       const modelLabel = 'modelLabel' in tier ? (tier.modelLabel as string) : undefined;
       const sublabel = modelLabel ?? EVE_INFERENCE_TIER_SUBLABEL;
-      const costBadge = gated && 'costBadge' in tier ? (tier.costBadge as string) : undefined;
+      // Emitted for any OFFERED rung that declares one (today: MAX only).
+      // Keying it on `gated` made it dead code the moment the gated rung was
+      // retired, and dead affordance code is worse than no affordance.
+      const costBadge = 'costBadge' in tier ? (tier.costBadge as string) : undefined;
       return {
         value: eveTierValue(tier.id),
         group: 'eve' as const,
-        // The group header already conveys the EVE cloud lane. Founder mandate:
-        // Every offered row stays quiet: the only rung that carried an explicit
-        // high-cost warning was the retired one, which is no longer offered.
+        // The group header already conveys the EVE cloud lane, so the rows carry
+        // the STUFE only. MAX is the single user-visible name for the strong lane.
         label: EVE_INFERENCE_TIER_DISPLAY_LABELS[tier.tier],
         sublabel,
         disabled,
@@ -966,13 +1144,19 @@ function eveTierToProItem(tier: EveInferenceTier, forceDisabled: boolean): EvePi
 }
 
 /**
- * The EVE Free lane = the single free-eligible model (DeepSeek V4 Flash), rendered
- * as FREE (capped 100/Tag, no credit/cost badge). It is the SAME model as EVE Pro's
- * cheapest rung ("Standard") — only the billing differs (free-cap vs credit-meter),
- * which the server decides by entitlement.
+ * The EVE Free lane = the single free-eligible rung, rendered as FREE (capped
+ * 100/Tag, no credit/cost badge). It is the SAME lane as EVE Pro's cheapest rung
+ * ("Standard") — only the billing differs (free-cap vs credit-meter), which the
+ * server decides by entitlement.
+ *
+ * LATENT DEFECT CLOSED (MAT-1749): this used to filter the FULL registry by
+ * `!paidOnly`, bypassing the derived offer entirely. Any future free-eligible
+ * rung the server had not been taught would have appeared here — offerable,
+ * selectable, and refused on every turn. It now routes through the SAME derived
+ * list the picker uses, so both surfaces can only ever show an offerable rung.
  */
 function buildFreeLaneItems(): EvePickerItem[] {
-  return EVE_INFERENCE_TIERS.filter((tier) => !tier.paidOnly).map((tier) => {
+  return EVE_INFERENCE_SELECTABLE_TIERS.filter((tier) => !tier.paidOnly).map((tier) => {
     const modelLabel = 'modelLabel' in tier ? (tier.modelLabel as string) : undefined;
     return {
       value: eveTierValue(tier.id),
@@ -990,8 +1174,8 @@ function buildFreeLaneItems(): EvePickerItem[] {
  * privacy lane, downloadable models); a TRIAL/free user gets Lokal + EVE Free
  * selectable and EVE Pro LOCKED (every offered rung shown greyed, with an upgrade
  * affordance); a PAYING user no longer sees EVE Free (hidden) and EVE Pro becomes
- * selectable. EVE Pro = Standard · Hoch · Sehr hoch · Maximum with increasing
- * reasoning/cost; the server owns the concrete model registry and metering.
+ * selectable. EVE Pro = the OFFERED rungs (Standard · MAX); the server owns the
+ * concrete model registry and metering.
  */
 export function buildEveLaneViews(entitlement: EveEntitlementView | null | undefined): PickerLaneView[] {
   const paidInferenceAccess = hasEvePaidInferenceAccess(entitlement);
@@ -1016,10 +1200,16 @@ export function buildEveLaneViews(entitlement: EveEntitlementView | null | undef
       title: 'EVE Pro',
       accent: 'gold',
       // Trial/free: every OFFERED rung SHOWN but greyed + upgrade. Paid: selectable.
-      // EVE Pro includes the Standard rung (same model as Free) so the full
-      // intelligence ladder lives in one lane.
+      // EVE Pro includes the Standard rung (same lane as Free) so the whole offer
+      // lives in one place.
       state: paidInferenceAccess ? 'available' : 'locked',
-      items: EVE_INFERENCE_SELECTABLE_TIERS.map((tier) => eveTierToProItem(tier, !paidInferenceAccess)),
+      // Lane-wide lock AND per-rung gating. The lane lock is unchanged (a trial
+      // greys the whole Pro lane, Standard-as-metered included); the per-rung
+      // check adds the stricter MAX purchase gate on top, so a seat with only
+      // promotional credits sees Pro open and MAX still locked.
+      items: EVE_INFERENCE_SELECTABLE_TIERS.map((tier) =>
+        eveTierToProItem(tier, !paidInferenceAccess || !isEveTierSelectable(tier, entitlement))
+      ),
     },
   ];
 }

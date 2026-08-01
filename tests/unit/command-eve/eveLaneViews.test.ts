@@ -29,22 +29,52 @@ describe('buildEveLaneViews — lane axis (Lokal · EVE Free · EVE Pro)', () =>
     expect(v.free.items[0].sublabel).toContain('100/Tag');
 
     expect(v.pro.state).toBe('locked');
-    // EVE Pro = Standard · Hoch · Sehr hoch · Maximum (four offered rungs), all
-    // greyed on a trial.
-    expect(v.pro.items).toHaveLength(4);
+    // EVE Pro = the OFFERED rungs only (Standard · MAX), both greyed on a trial.
+    expect(v.pro.items).toHaveLength(2);
     expect(v.pro.items.every((i) => i.disabled && i.disabledReasonCode === 'PAID_TIER_REQUIRED')).toBe(true);
-    expect(v.pro.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
+    expect(v.pro.items.map((i) => i.label)).toEqual(['Standard', 'MAX']);
   });
 
-  it('PAYING user (no trial_ends_at): EVE Free HIDDEN, EVE Pro = every offered rung selectable', () => {
-    const v = byLane(buildEveLaneViews({}));
+  it('the FREE lane is derived from the OFFER, not from a raw registry scan (latent defect closed)', () => {
+    // It used to filter the FULL registry by `!paidOnly`, so any future
+    // free-eligible rung the server had not been taught would have been offered
+    // here and refused on every turn. It now shares the picker's derived list.
+    const v = byLane(buildEveLaneViews({ trial_ends_at: '2026-12-31T00:00:00Z' }));
+    const offeredValues = v.pro.items.map((i) => i.value);
+    for (const item of v.free.items) {
+      expect(offeredValues).toContain(item.value);
+    }
+    expect(v.free.items.map((i) => i.value)).toEqual([eveTierValue('eve-standard')]);
+  });
+
+  it('PURCHASED seat: EVE Free HIDDEN, both offered rungs selectable', () => {
+    const v = byLane(buildEveLaneViews({ trial_ends_at: null, has_paid_seat: true }));
     expect(v.local.state).toBe('available');
     expect(v.free.state).toBe('hidden');
     expect(v.pro.state).toBe('available');
-    expect(v.pro.items).toHaveLength(4);
+    expect(v.pro.items).toHaveLength(2);
     expect(v.pro.items.every((i) => !i.disabled)).toBe(true);
-    // Increasing credit cost is surfaced as a badge on every Pro rung.
+    // Relative cost is surfaced as a badge on every Pro rung.
     expect(v.pro.items.every((i) => typeof i.costBadge === 'string')).toBe(true);
+  });
+
+  it('per-rung gating: a promotional-credit seat gets Pro open but MAX still LOCKED', () => {
+    // The lane state is not one flag any more — MAX keys on the stricter
+    // purchase gate, so an allowance-funded seat sees the cheap rung open and
+    // the strong lane greyed with the upsell reason.
+    const v = byLane(
+      buildEveLaneViews({
+        trial_ends_at: null,
+        has_metered_credits: true,
+        metered_credit_access_known: true,
+        has_purchased_credits: false,
+      })
+    );
+    expect(v.pro.state).toBe('available');
+    const byValue = Object.fromEntries(v.pro.items.map((i) => [i.value, i]));
+    expect(byValue[eveTierValue('eve-standard')].disabled).toBe(false);
+    expect(byValue[eveTierValue('eve-max')].disabled).toBe(true);
+    expect(byValue[eveTierValue('eve-max')].disabledReasonCode).toBe('PAID_TIER_REQUIRED');
   });
 
   it('accents are stable per lane (grey/blue/gold)', () => {
@@ -68,11 +98,14 @@ describe('buildEveLaneViews — lane axis (Lokal · EVE Free · EVE Pro)', () =>
 describe('laneOfSelection', () => {
   it('maps a selection value back to its lane', () => {
     expect(laneOfSelection(localTierValue('local-standard'))).toBe('local');
-    // eve-standard is the free-eligible model (the Free lane + Pro "Standard").
+    // eve-standard is the free-eligible rung (the Free lane + Pro "Standard").
     expect(laneOfSelection(eveTierValue('eve-standard'))).toBe('free');
-    // eve-high / eve-max / eve-ultra are paid → Pro.
-    expect(laneOfSelection(eveTierValue('eve-high'))).toBe('pro');
+    // MAX is paid → Pro.
     expect(laneOfSelection(eveTierValue('eve-max'))).toBe('pro');
+    // A legacy rung reports the lane it MIGRATES to, not the one it used to be:
+    // eve-high lands on Standard (free), eve-xhigh/eve-ultra land on MAX (pro).
+    expect(laneOfSelection(eveTierValue('eve-high'))).toBe('free');
+    expect(laneOfSelection(eveTierValue('eve-xhigh'))).toBe('pro');
     expect(laneOfSelection(eveTierValue('eve-ultra'))).toBe('pro');
   });
 });

@@ -16,11 +16,13 @@
  * The bar arranges the controls so both surfaces read identically:
  *
  *   left:  [ + file ]
- *   right: [ EVE control · mic · send ]
+ *   right: [ MAX · EVE control · mic · send ]
  *
  * Every piece is passed in as a slot, so the EXISTING components are reused:
- * EVE combines inference, privacy, permission/tools and context into one
- * progressive-disclosure control. Non-EVE surfaces retain their direct slots.
+ * the consolidated EVE control keeps PRIVACY, TOOLS and CONTEXT behind one
+ * progressive-disclosure popover. It no longer presents cloud intelligence
+ * tiers — that ladder is gone (MAT-1749) and MAX is the composer's only
+ * cloud-intelligence affordance. Non-EVE surfaces retain their direct slots.
  *   - micSlot         → SpeechInputButton (mounted for BOTH surfaces)
  *   - busyModeSlot    → queue/correction mode while EVE is already working
  *   - permissionSlot  → AgentModeSelector (compact, Shield, 'Berechtigung' prefix)
@@ -59,8 +61,25 @@ export interface UnifiedSendBarProps {
    * inline center control a surface wants between the left and right clusters.
    */
   centerSlot?: React.ReactNode;
-  /** Model / inference picker (EveInferencePicker for EVE, Acp/Guid selector otherwise). */
+  /**
+   * Model picker for NON-EVE backends (Acp/Guid selector).
+   *
+   * An EVE surface passes NOTHING here: per the Founder contract the EVE
+   * composer shows no cloud intelligence ladder at all — the routine lane is
+   * unnamed and MAX is the only cloud affordance. The consolidated EVE popover
+   * then renders "Automatisch" for this row, which is the honest description of
+   * an unnamed default.
+   */
   modelSlot?: React.ReactNode;
+  /**
+   * The MAX lane toggle. Passed only by surfaces that KNOW they are an EVE
+   * composer, so a non-EVE conversation can never grow a MAX control (and can
+   * never repaint its composer for a lane it is not on).
+   *
+   * It sits OUTSIDE the consolidated EVE popover on purpose: MAX is a one-tap
+   * lane switch, not a setting to go looking for.
+   */
+  maxSlot?: React.ReactNode;
   /** Microphone — the shared SpeechInputButton, mounted for BOTH surfaces. */
   micSlot?: React.ReactNode;
   /** Queue/correction mode shown only while the current turn is running. */
@@ -227,6 +246,7 @@ const UnifiedSendBar: React.FC<UnifiedSendBarProps> = ({
   leftSlot,
   centerSlot,
   modelSlot,
+  maxSlot,
   micSlot,
   busyModeSlot,
   permissionSlot,
@@ -250,6 +270,7 @@ const UnifiedSendBar: React.FC<UnifiedSendBarProps> = ({
           row, never wraps under the send button. */}
       <div className='unified-send-bar__right flex items-center gap-6px flex-shrink-0 min-w-0 ml-auto'>
         {busyModeSlot ? <div className='unified-send-bar__busy-slot'>{busyModeSlot}</div> : null}
+        {maxSlot}
         {eveControl ? (
           <EveComposerControl config={eveControl} modelSlot={modelSlot} permissionSlot={permissionSlot} />
         ) : (

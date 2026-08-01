@@ -111,8 +111,10 @@ describe('useEveInferenceSelection', () => {
     const { result } = renderHook(() => useEveInferenceSelection());
     expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
     expect(result.current.selectedItem?.group).toBe('eve');
-    // Cloud picker rows read "Standard / Hoch / Sehr hoch / Maximum".
+    // The cloud offer reads exactly "Standard · MAX".
     expect(result.current.selectedItem?.label).toBe('Standard');
+    const cloud = result.current.groups.find((g) => g.kind === 'eve')!;
+    expect(cloud.items.map((i) => i.label)).toEqual(['Standard', 'MAX']);
   });
 
   it('commit() persists the choice to commandEve.inferenceSelection (next-turn pickup)', () => {
@@ -152,7 +154,7 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.selection).toBe(eveStandard);
   });
 
-  it('greys the offered paid Pro rungs while trialing and refuses to commit them', () => {
+  it('greys MAX while trialing and refuses to commit it (no legacy rung is even offered)', () => {
     entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z'; // trialing
     creditsStatus.tier = 'free';
     const { result } = renderHook(() => useEveInferenceSelection());
@@ -165,14 +167,14 @@ describe('useEveInferenceSelection', () => {
     act(() => result.current.commit(eveHoch));
     act(() => result.current.commit(eveMax));
     act(() => result.current.commit(eveUltra));
-    // commit is a no-op for a disabled level — selection stays at the default (Standard).
+    // commit is a no-op for a disabled/unknown level — selection stays at Standard.
     expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
     expect(configService.set).not.toHaveBeenCalledWith('commandEve.inferenceSelection', eveHoch);
     expect(configService.set).not.toHaveBeenCalledWith('commandEve.inferenceSelection', eveMax);
     expect(configService.set).not.toHaveBeenCalledWith('commandEve.inferenceSelection', eveUltra);
   });
 
-  it('keeps all metered cloud levels available when a trial-marked account owns purchased credits', () => {
+  it('MAX unlocks when a trial-marked account owns PURCHASED credits', () => {
     entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z';
     creditsStatus.ok = true;
     creditsStatus.tier = 'free';
@@ -180,18 +182,34 @@ describe('useEveInferenceSelection', () => {
 
     const { result } = renderHook(() => useEveInferenceSelection());
 
-    expect(result.current.isSelectable(eveTierValue('eve-high'))).toBe(true);
-    expect(result.current.isSelectable(eveTierValue('eve-xhigh'))).toBe(true);
+    expect(result.current.isSelectable(eveTierValue('eve-standard'))).toBe(true);
     expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
+    expect(result.current.maxAvailable).toBe(true);
+    expect(result.current.maxLocked).toBe(false);
   });
 
-  it('auto-resets a previously-stored paid level (Max) to the default (Standard) when trialing', async () => {
+  it('preserves a stored MAX intent while unfunded, and clamps the WIRE tier instead', async () => {
+    // The non-brick clamp: erasing the selection would throw away the user's
+    // stated intent and force a re-pick after every lapse. The clamp keeps the
+    // seat sending on Standard while the intent survives on disk.
     store.set('commandEve.inferenceSelection', eveTierValue('eve-max'));
     entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z'; // trialing
     creditsStatus.ok = true;
     const { result } = renderHook(() => useEveInferenceSelection());
-    await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
-    expect(store.get('commandEve.inferenceSelection')).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+
+    await waitFor(() => expect(result.current.maxLocked).toBe(true));
+    expect(result.current.selection).toBe(eveTierValue('eve-max'));
+    expect(store.get('commandEve.inferenceSelection')).toBe(eveTierValue('eve-max'));
+    expect(configService.set).not.toHaveBeenCalledWith(
+      'commandEve.inferenceSelection',
+      EVE_DEFAULT_INFERENCE_SELECTION
+    );
+    // ...and the seat can still send: the effective wire tier is the floor rung.
+    expect(result.current.effectiveWireTier).toBe('standard');
+    // The chip can still NAME the choice even though it is not selectable.
+    expect(result.current.selectedItem).toBeUndefined();
+    expect(result.current.activeItem?.label).toBe('MAX');
+    expect(result.current.activeItem?.disabled).toBe(true);
   });
 
   it('preserves a funded paid tier when stale trial truth arrives before purchased credits', async () => {
@@ -211,7 +229,7 @@ describe('useEveInferenceSelection', () => {
     rerender();
 
     const cloudItems = result.current.groups.find((group) => group.kind === 'eve')?.items ?? [];
-    expect(cloudItems.map((item) => item.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
+    expect(cloudItems.map((item) => item.label)).toEqual(['Standard', 'MAX']);
     expect(cloudItems.find((item) => item.value === eveMax)?.disabled).toBe(true);
     expect(result.current.selection).toBe(eveMax);
     expect(configService.set).not.toHaveBeenCalledWith(
@@ -234,7 +252,10 @@ describe('useEveInferenceSelection', () => {
     );
   });
 
-  it('persists a paid-tier fallback only after both reads confirm no funded access', async () => {
+  it('NEVER persists a fallback over a stored MAX, even once both reads confirm no funded access', async () => {
+    // This used to reset to Standard. Under the clamp it must not: the seat is
+    // already able to send, so overwriting the choice buys nothing and loses the
+    // intent that should re-engage on purchase.
     const eveMax = eveTierValue('eve-max');
     store.set('commandEve.inferenceSelection', eveMax);
     entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z';
@@ -250,18 +271,41 @@ describe('useEveInferenceSelection', () => {
     creditsHookState.status = creditsStatus;
     rerender();
     expect(result.current.selection).toBe(eveMax);
-    expect(configService.set).not.toHaveBeenCalledWith(
-      'commandEve.inferenceSelection',
-      EVE_DEFAULT_INFERENCE_SELECTION
-    );
 
     entitlementHookState.loading = false;
     entitlementHookState.status = entitlement;
     rerender();
 
-    await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
-    expect(store.get('commandEve.inferenceSelection')).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
-    expect(configService.set).toHaveBeenCalledWith('commandEve.inferenceSelection', EVE_DEFAULT_INFERENCE_SELECTION);
+    await waitFor(() => expect(result.current.maxLocked).toBe(true));
+    expect(result.current.selection).toBe(eveMax);
+    expect(store.get('commandEve.inferenceSelection')).toBe(eveMax);
+    expect(configService.set).not.toHaveBeenCalledWith(
+      'commandEve.inferenceSelection',
+      EVE_DEFAULT_INFERENCE_SELECTION
+    );
+    expect(result.current.effectiveWireTier).toBe('standard');
+  });
+
+  it('lights MAX back up on purchase WITHOUT the user re-picking it', async () => {
+    const eveMax = eveTierValue('eve-max');
+    store.set('commandEve.inferenceSelection', eveMax);
+    entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z';
+    creditsStatus.ok = true;
+
+    const { result, rerender } = renderHook(() => useEveInferenceSelection());
+    await waitFor(() => expect(result.current.maxLocked).toBe(true));
+    expect(result.current.effectiveWireTier).toBe('standard');
+
+    // The seat buys credits.
+    creditsStatus.purchased_credits_remaining = 120_000;
+    creditsHookState.status = { ...creditsStatus };
+    rerender();
+
+    await waitFor(() => expect(result.current.maxAvailable).toBe(true));
+    expect(result.current.maxEngaged).toBe(true);
+    expect(result.current.maxState).toBe('engaged');
+    expect(result.current.effectiveWireTier).toBe('max');
+    expect(result.current.selection).toBe(eveMax);
   });
 
   it('auto-resets a now-removed tier (the retired eve-maximum) to the default', async () => {
@@ -296,25 +340,76 @@ describe('useEveInferenceSelection', () => {
   // picker keeps presenting it as chosen. These pin the write, not just the read.
   // -------------------------------------------------------------------------
 
-  it('migrates a persisted retired rung and writes the replacement back', async () => {
-    store.set('commandEve.inferenceSelection', eveTierValue('eve-ultra'));
-    entitlement.trial_ends_at = null; // paid, so nothing else can retire it
+  // With no visible "Standard" label any more, the user-facing outcome of a
+  // migration is a BOOLEAN: MAX off (EVE's normal unnamed behaviour) or MAX on.
+  it.each([
+    ['eve-standard', false],
+    ['eve-high', false],
+    ['eve-xhigh', true],
+    ['eve-max', true],
+    ['eve-ultra', true],
+  ])('MIGRATION ROW: a persisted %s lands on MAX=%s', async (from, maxOn) => {
+    store.set('commandEve.inferenceSelection', eveTierValue(from as 'eve-high'));
+    entitlement.trial_ends_at = null;
+    entitlement.has_paid_seat = true; // entitled, so "MAX on" is not clamped
 
     const { result } = renderHook(() => useEveInferenceSelection());
 
-    await waitFor(() => expect(result.current.selection).toBe(eveTierValue('eve-max')));
-    expect(store.get('commandEve.inferenceSelection')).toBe(eveTierValue('eve-max'));
-    expect(configService.set).toHaveBeenCalledWith('commandEve.inferenceSelection', eveTierValue('eve-max'));
+    await waitFor(() => expect(result.current.maxEngaged).toBe(maxOn));
+    expect(result.current.effectiveWireTier).toBe(maxOn ? 'max' : 'standard');
   });
 
-  it('shows Maximum as the active picker item after migrating', async () => {
-    store.set('commandEve.inferenceSelection', eveTierValue('eve-ultra'));
+  it.each([
+    ['eve-high', 'eve-standard'],
+    ['eve-xhigh', 'eve-max'],
+    ['eve-ultra', 'eve-max'],
+  ])('MIGRATION ROW: a persisted %s is rewritten to %s on disk (write-back)', async (from, to) => {
+    store.set('commandEve.inferenceSelection', eveTierValue(from as 'eve-high'));
     entitlement.trial_ends_at = null;
 
     const { result } = renderHook(() => useEveInferenceSelection());
 
+    await waitFor(() => expect(result.current.selection).toBe(eveTierValue(to as 'eve-max')));
+    expect(store.get('commandEve.inferenceSelection')).toBe(eveTierValue(to as 'eve-max'));
+    expect(configService.set).toHaveBeenCalledWith('commandEve.inferenceSelection', eveTierValue(to as 'eve-max'));
+  });
+
+  it('MIGRATION ROW: a legacy MAX-bound seat that is UNENTITLED shows locked and clamps, without losing the intent', async () => {
+    store.set('commandEve.inferenceSelection', eveTierValue('eve-ultra'));
+    entitlement.trial_ends_at = null;
+    entitlement.has_paid_seat = false;
+    creditsStatus.ok = true;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    await waitFor(() => expect(result.current.selection).toBe(eveTierValue('eve-max')));
+    expect(result.current.maxEngaged).toBe(true);
+    expect(result.current.maxLocked).toBe(true);
+    expect(result.current.maxState).toBe('locked');
+    // Still sendable — clamped to the floor rung, intent preserved on disk.
+    expect(result.current.effectiveWireTier).toBe('standard');
+    expect(store.get('commandEve.inferenceSelection')).toBe(eveTierValue('eve-max'));
+  });
+
+  it('MIGRATION ROW: an UNKNOWN eve value becomes Standard and is written back', async () => {
+    store.set('commandEve.inferenceSelection', 'command-eve-inference:eve-maximum');
+    entitlement.trial_ends_at = null;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
+    expect(store.get('commandEve.inferenceSelection')).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+  });
+
+  it('shows MAX as the active picker item after migrating (on a purchased seat)', async () => {
+    store.set('commandEve.inferenceSelection', eveTierValue('eve-ultra'));
+    entitlement.trial_ends_at = null;
+    entitlement.has_paid_seat = true;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
     await waitFor(() => expect(result.current.selectedItem?.value).toBe(eveTierValue('eve-max')));
-    expect(result.current.selectedItem?.label).toBe('Maximum');
+    expect(result.current.selectedItem?.label).toBe('MAX');
   });
 
   it('migrates a retired rung arriving through the subscription', async () => {
@@ -335,11 +430,12 @@ describe('useEveInferenceSelection', () => {
     expect(configService.set).toHaveBeenLastCalledWith('commandEve.inferenceSelection', eveTierValue('eve-max'));
   });
 
-  it('leaves every accepted rung untouched and writes nothing', async () => {
-    for (const tierId of ['eve-standard', 'eve-high', 'eve-xhigh', 'eve-max'] as const) {
+  it('leaves every OFFERED rung untouched and writes nothing', async () => {
+    for (const tierId of ['eve-standard', 'eve-max'] as const) {
       vi.clearAllMocks();
       store.set('commandEve.inferenceSelection', eveTierValue(tierId));
       entitlement.trial_ends_at = null;
+      entitlement.has_paid_seat = true;
 
       const { result, unmount } = renderHook(() => useEveInferenceSelection());
       await waitFor(() => expect(result.current.selection).toBe(eveTierValue(tierId)));
@@ -349,33 +445,52 @@ describe('useEveInferenceSelection', () => {
     }
   });
 
-  it('keeps the paid Pro rungs selectable when paid (trial_ends_at null)', () => {
+  it('MIGRATION ROW: a LOCAL selection is left completely alone', async () => {
+    for (const localId of ['local-standard', 'local-high'] as const) {
+      vi.clearAllMocks();
+      store.set('commandEve.inferenceSelection', localTierValue(localId));
+      entitlement.trial_ends_at = null;
+
+      const { result, unmount } = renderHook(() => useEveInferenceSelection());
+      await waitFor(() => expect(result.current.selection).toBe(localTierValue(localId)));
+      expect(store.get('commandEve.inferenceSelection')).toBe(localTierValue(localId));
+      expect(configService.set).not.toHaveBeenCalled();
+      // A local lane engages no cloud tier, so it can debit no cloud credits.
+      expect(result.current.effectiveWireTier).toBeUndefined();
+      expect(result.current.selectedItem?.group).toBe('local');
+      unmount();
+    }
+  });
+
+  it('keeps MAX selectable on a purchased seat', () => {
+    entitlement.has_paid_seat = true;
     const { result } = renderHook(() => useEveInferenceSelection());
-    expect(result.current.isSelectable(eveTierValue('eve-high'))).toBe(true);
     expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
     act(() => result.current.commit(eveTierValue('eve-max')));
     expect(result.current.selection).toBe(eveTierValue('eve-max'));
+    expect(result.current.effectiveWireTier).toBe('max');
   });
 
-  it('does not offer the retired rung anywhere a user could reach it', () => {
-    entitlement.trial_ends_at = null; // paid: nothing else could be hiding it
+  it('does not offer any non-offered rung anywhere a user could reach it', () => {
+    entitlement.trial_ends_at = null;
+    entitlement.has_paid_seat = true;
     const { result } = renderHook(() => useEveInferenceSelection());
 
     const values = result.current.items.map((item) => item.value);
-    expect(values).not.toContain(eveTierValue('eve-ultra'));
-    expect(result.current.isSelectable(eveTierValue('eve-ultra'))).toBe(false);
-    for (const group of result.current.groups) {
-      expect(group.items.map((item) => item.value)).not.toContain(eveTierValue('eve-ultra'));
+    for (const retired of ['eve-high', 'eve-xhigh', 'eve-ultra'] as const) {
+      expect(values).not.toContain(eveTierValue(retired));
+      expect(result.current.isSelectable(eveTierValue(retired))).toBe(false);
     }
-    // And Maximum is still there exactly once — retiring a rung must not
-    // duplicate the one it migrates into.
+    // And MAX is there exactly once — collapsing the ladder must not duplicate
+    // the rung everything migrates into.
     expect(values.filter((value) => value === eveTierValue('eve-max'))).toHaveLength(1);
   });
 
-  it('never auto-resets a persisted paid tier for a confirmed non-trial user', async () => {
+  it('never auto-resets a persisted MAX for a confirmed purchased seat', async () => {
     const max = eveTierValue('eve-max');
     store.set('commandEve.inferenceSelection', max);
     entitlement.trial_ends_at = null;
+    entitlement.has_paid_seat = true;
 
     const { result } = renderHook(() => useEveInferenceSelection());
 
@@ -385,5 +500,85 @@ describe('useEveInferenceSelection', () => {
       'commandEve.inferenceSelection',
       EVE_DEFAULT_INFERENCE_SELECTION
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // The MAX control contract (spec 2.6): available / locked / engaged.
+  // -------------------------------------------------------------------------
+
+  it('MAX is LOCKED on promotional/allowance credits only — a promotion is not a purchase', () => {
+    entitlement.trial_ends_at = null;
+    entitlement.has_paid_seat = false;
+    creditsStatus.ok = true;
+    creditsStatus.tier = 'free';
+    creditsStatus.purchased_credits_remaining = 0;
+    creditsStatus.included_allowance_credits_remaining = 100; // the promo grant
+    creditsStatus.has_active_topup = false;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    expect(result.current.maxAvailable).toBe(false);
+    expect(result.current.maxLocked).toBe(true);
+    expect(result.current.maxState).toBe('locked');
+    expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(false);
+    // ...while the promotional seat keeps the entry rung it was granted.
+    expect(result.current.isSelectable(eveTierValue('eve-standard'))).toBe(true);
+  });
+
+  it('MAX is AVAILABLE on a paid seat, on an active top-up, and on purchased credits', () => {
+    const cases: Array<() => void> = [
+      () => {
+        entitlement.has_paid_seat = true;
+      },
+      () => {
+        creditsStatus.ok = true;
+        creditsStatus.has_active_topup = true;
+      },
+      () => {
+        creditsStatus.ok = true;
+        creditsStatus.purchased_credits_remaining = 5_000;
+      },
+    ];
+    for (const applyCase of cases) {
+      entitlement.has_paid_seat = false;
+      creditsStatus.ok = false;
+      creditsStatus.tier = 'free';
+      creditsStatus.has_active_topup = false;
+      creditsStatus.purchased_credits_remaining = 0;
+      applyCase();
+
+      const { result, unmount } = renderHook(() => useEveInferenceSelection());
+      expect(result.current.maxAvailable).toBe(true);
+      expect(result.current.maxState).toBe('available');
+      unmount();
+    }
+  });
+
+  it('setMaxEngaged engages and disengages MAX, and refuses to engage while locked', () => {
+    entitlement.has_paid_seat = true;
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    act(() => result.current.setMaxEngaged(true));
+    expect(result.current.selection).toBe(eveTierValue('eve-max'));
+    expect(result.current.maxEngaged).toBe(true);
+    expect(result.current.maxState).toBe('engaged');
+
+    act(() => result.current.setMaxEngaged(false));
+    expect(result.current.selection).toBe(eveTierValue('eve-standard'));
+    expect(result.current.maxEngaged).toBe(false);
+  });
+
+  it('setMaxEngaged(true) is a no-op for a locked seat — no write, no lane the server would refuse', () => {
+    entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z';
+    entitlement.has_paid_seat = false;
+    creditsStatus.ok = true;
+    const { result } = renderHook(() => useEveInferenceSelection());
+    vi.clearAllMocks();
+
+    act(() => result.current.setMaxEngaged(true));
+
+    expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+    expect(result.current.maxEngaged).toBe(false);
+    expect(configService.set).not.toHaveBeenCalled();
   });
 });

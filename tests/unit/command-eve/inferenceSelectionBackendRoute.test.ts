@@ -58,12 +58,18 @@ function settingsBagWithSelection(selectionValue: string, seatId: string | null)
   return { [seatScopedKey(SELECTION_KEY, seatId)]: selectionValue };
 }
 
-/** The full live chain: backend read → resolved EVE cloud route. */
-async function resolveRouteFromBackend() {
+/**
+ * The full live chain: backend read → resolved EVE cloud route.
+ *
+ * `maxEntitled` is the three-state clamp input the shim passes per request:
+ * omitted ⇒ unknown ⇒ no clamp (the server stays the binding gate).
+ */
+async function resolveRouteFromBackend(maxEntitled?: boolean) {
   return resolveEveCloudRouteFromBackend({
     readSelection: readInferenceSelectionFromBackendStrict,
     readLicense: () => FAKE_LICENSE,
     functionUrl: 'https://example.supabase.co/functions/v1/eve-inference',
+    ...(maxEntitled === undefined ? {} : { readMaxEntitled: () => maxEntitled }),
   });
 }
 
@@ -88,11 +94,18 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     expect(route?.license).toBe(FAKE_LICENSE);
   });
 
-  it('routes EVE High to wire tier "high"', async () => {
+  it('routes a persisted legacy High down to wire tier "standard" (the migration row, end to end)', async () => {
     httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-high'), null));
     const route = await resolveRouteFromBackend();
     expect(route?.active).toBe(true);
-    expect(route?.tier).toBe('high');
+    expect(route?.tier).toBe('standard');
+  });
+
+  it('routes a persisted legacy Sehr-hoch up to wire tier "max"', async () => {
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-xhigh'), null));
+    const route = await resolveRouteFromBackend();
+    expect(route?.active).toBe(true);
+    expect(route?.tier).toBe('max');
   });
 
   it('routes EVE Standard to wire tier "standard"', async () => {
@@ -161,5 +174,90 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     expect(raw).toBe('command-eve-inference:eve-max');
     // Sanity: it queried the backend settings endpoint.
     expect(httpRequestMock).toHaveBeenCalledWith('GET', '/api/settings/client');
+  });
+
+  // -------------------------------------------------------------------------
+  // BOOT ORDER (the critic's open question).
+  //
+  // Three main-process consumers read the stored selection BEFORE the renderer
+  // hook mounts and can migrate it. So the migration cannot live only in the
+  // hook: the FIRST outbound tier of a cold boot has to already be correct.
+  // These tests run the main-process chain with NOTHING else initialised — the
+  // renderer hook never mounts here — which is exactly the cold-boot window.
+  // -------------------------------------------------------------------------
+
+  it('BOOT ORDER: a seeded legacy `eve-ultra` posts "max" on the FIRST outbound turn, not a silent "standard"', async () => {
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null));
+
+    const route = await resolveRouteFromBackend();
+
+    expect(route?.active).toBe(true);
+    // The whole point: no renderer has run, nothing has been rewritten on disk,
+    // and the first request already carries the migrated tier.
+    expect(route?.tier).toBe('max');
+    expect(route?.tier).not.toBe('standard');
+  });
+
+  it('BOOT ORDER: the seeded value is NOT rewritten by the read path — migration on the wire, persistence elsewhere', async () => {
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null));
+
+    await resolveRouteFromBackend();
+
+    // Only the GET happened. A main-process write here would race the renderer's
+    // own write-back and could clobber a fresher choice.
+    expect(httpRequestMock).toHaveBeenCalledTimes(1);
+    expect(httpRequestMock).toHaveBeenCalledWith('GET', '/api/settings/client');
+  });
+
+  it('BOOT ORDER: a seeded `eve-ultra` under a REAL seat also posts "max" on the first turn', async () => {
+    const seatId = 'seat-acme-gmbh';
+    setActiveSeatId(seatId);
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), seatId));
+
+    const route = await resolveRouteFromBackend();
+
+    expect(route?.tier).toBe('max');
+  });
+
+  // -------------------------------------------------------------------------
+  // The non-brick clamp, on the LIVE chain rather than in isolation.
+  // -------------------------------------------------------------------------
+
+  it('CLAMP: a persisted MAX on a PROVEN unentitled seat still sends, on wire tier "standard"', async () => {
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null));
+
+    const route = await resolveRouteFromBackend(false);
+
+    // Active — the seat is NOT bricked — but metered on the floor rung.
+    expect(route?.active).toBe(true);
+    expect(route?.tier).toBe('standard');
+    expect(route?.license).toBe(FAKE_LICENSE);
+  });
+
+  it('CLAMP: an entitled seat keeps MAX, and an UNKNOWN entitlement does not downgrade it', async () => {
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null));
+    expect((await resolveRouteFromBackend(true))?.tier).toBe('max');
+
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null));
+    // No readMaxEntitled at all ⇒ unknown ⇒ the server stays the binding gate.
+    expect((await resolveRouteFromBackend())?.tier).toBe('max');
+  });
+
+  it('CLAMP: a seeded legacy `eve-ultra` on an unentitled seat lands on "standard", never on nothing', async () => {
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null));
+    const route = await resolveRouteFromBackend(false);
+    expect(route?.active).toBe(true);
+    expect(route?.tier).toBe('standard');
+  });
+
+  it('CLAMP: a LOCAL selection is unaffected and still debits no cloud lane', async () => {
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(localTierValue('local-high'), null));
+    for (const entitled of [true, false, undefined]) {
+      httpRequestMock.mockResolvedValue(settingsBagWithSelection(localTierValue('local-high'), null));
+      const route = await resolveRouteFromBackend(entitled);
+      expect(route?.active).toBe(false);
+      expect(route?.tier).toBeUndefined();
+      expect(route?.license).toBeUndefined();
+    }
   });
 });

@@ -241,11 +241,12 @@ vi.mock('@/renderer/components/chat/UnifiedSendBar', () => ({
 }));
 
 vi.mock('@/renderer/components/agent/AgentModeSelector', () => ({ default: () => null }));
-// The in-chat model/inference picker now lives in the bottom bar's modelSlot
-// (founder mandate: moved out of the chat header). Stub both pickers so this
-// test stays focused on the send/reset path, mirroring the AgentModeSelector stub.
+// The non-EVE model picker lives in the bottom bar's modelSlot. An EVE composer
+// has NO cloud intelligence picker at all (MAT-1749) — only the MAX toggle, which
+// is stubbed here so this test stays focused on the send/reset path, mirroring
+// the AgentModeSelector stub.
 vi.mock('@/renderer/components/agent/AcpModelSelector', () => ({ default: () => null }));
-vi.mock('@/renderer/components/agent/EveInferencePicker', () => ({ default: () => null }));
+vi.mock('@/renderer/components/agent/EveMaxToggle', () => ({ default: () => null }));
 vi.mock('@/renderer/components/chat/SpeechInputButton', async () => {
   const ReactActual = await vi.importActual<typeof import('react')>('react');
   return {

@@ -5,24 +5,23 @@
  */
 
 /**
- * EVE Inference picker core — the STUFEN (level) model + the two required
- * behaviors:
+ * EVE Inference picker core — the STUFEN (level) model + the required behaviors:
  *
- *  (0) STUFEN shape: EVE OFFERS four levels — Standard, Hoch, Sehr hoch and
- *      Maximum. Standard is free-eligible; the others are metered. The retired
- *      eve-ultra rung stays in the registry so a persisted selection can still
- *      be recognised and migrated, but the server refuses its wire tier, so it
- *      is never offered.
+ *  (0) STUFEN shape: the OFFERED surface is EXACTLY TWO rungs — Standard (the
+ *      unnamed default, free-eligible) and MAX (the strong lane). The
+ *      intermediate/retired rungs stay in the REGISTRY — the managed-visual /
+ *      media contract still uses their wire tiers and a persisted selection has
+ *      to be recognisable to be migrated — but none of them is offerable.
  *
- *  (1) Free-tier greying: when the entitlement is trialing (CEVE.v2
- *      trial_ends_at present), metered levels are disabled unless the user has
- *      a paid seat, active top-up, or spendable credits. BYOK remains separate.
+ *  (1) Gating: MAX unlocks ONLY on a real purchase (paid plan/seat, active
+ *      top-up, or bought credits). Promotional / included-allowance credits do
+ *      NOT unlock it. BYOK remains a separate, stricter gate.
  *
  *  (2) EVE routing: buildEveInferenceProvider targets the eve-inference Edge
  *      Function URL with the CEVE license WIRE STRING as the bearer api_key
- *      (NOT an OpenRouter key), via the OpenAI-compatible platform so
+ *      (NOT a provider key), via the OpenAI-compatible platform so
  *      ClientFactory keeps the egress boundary. The wire value sent is the
- *      level/legacy-tier string the backend registry understands.
+ *      level string the backend registry understands.
  *
  * All tokens here are SYNTHETIC — never a real license.
  */
@@ -38,8 +37,14 @@ import {
   EVE_INFERENCE_FUNCTION_URL,
   EVE_INFERENCE_DEFAULT_TIER_ID,
   EVE_INFERENCE_GROUP_TITLE,
+  EVE_INFERENCE_MAX_TIER_ID,
+  EVE_INFERENCE_OFFERED_WIRE_TIERS,
+  EVE_INFERENCE_STANDARD_TIER_ID,
   EVE_INFERENCE_TIERS,
+  EVE_INFERENCE_SELECTABLE_TIERS,
   EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS,
+  hasEveMaxAccess,
+  isOfferedWireTier,
   isServerAllowedWireTier,
   eveTierValue,
   filterEvePickerGroups,
@@ -50,12 +55,15 @@ import {
   hasEvePaidInferenceAccess,
   isTrialingEntitlement,
   localTierValue,
+  migrateLegacyEveSelection,
+  normalizeLegacyEveTierId,
   parseEveTierIdFromSelection,
   parseLocalTierFromSelection,
   resolveCommandEveActiveLane,
   describeCommandEveActiveLane,
   resolveCommandEveWarmupLane,
   resolveEffectiveInferenceSelection,
+  resolveEffectiveWireTierFromSelection,
   resolveEvePickerItemAvailability,
   resolveWireTierFromSelection,
   shouldDisableModelByok,
@@ -69,6 +77,18 @@ const FAKE_WIRE = 'CEVE.v2.FAKE-payload-TESTONLY.FAKE-sig-TESTONLY';
 const TRIAL = { trial_ends_at: '2026-07-01T00:00:00.000Z' };
 const PAID_NULL = { trial_ends_at: null };
 const PAID_ABSENT = {};
+/** A seat that actually BOUGHT something — the only thing that unlocks MAX. */
+const PURCHASED = { trial_ends_at: null, has_paid_seat: true };
+/** A promotional grant: allowance credits only, nothing purchased. */
+const PROMOTIONAL_ONLY = {
+  trial_ends_at: '2099-01-01T00:00:00.000Z',
+  has_metered_credits: true,
+  metered_credit_access_known: true,
+  has_paid_seat: false,
+  has_paid_plan: false,
+  has_active_topup: false,
+  has_purchased_credits: false,
+};
 
 function flat(groups: ReturnType<typeof buildEvePickerGroups>): EvePickerItem[] {
   return groups.flatMap((g) => g.items);
@@ -90,65 +110,82 @@ describe('eveInferenceCore — trial detection', () => {
   });
 });
 
-describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
-  it('exposes EXACTLY the four OFFERED EVE levels in order: Standard, Hoch, Sehr hoch, Maximum', () => {
-    const groups = buildEvePickerGroups(PAID_NULL);
+describe('eveInferenceCore — collapsed offer: exactly Standard + MAX (spec 2.2)', () => {
+  it('offers EXACTLY two cloud rungs — Standard and MAX — and no four-rung ladder', () => {
+    const groups = buildEvePickerGroups(PURCHASED);
     const eve = groups.find((g) => g.kind === 'eve')!;
-    // Founder mandate: picker rows expose the strength ladder, never raw models.
-    expect(eve.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
+    expect(eve.items.map((i) => i.label)).toEqual(['Standard', 'MAX']);
+    // The retired middle rungs are gone from the OFFER...
+    expect(eve.items.map((i) => i.label)).not.toContain('Hoch');
+    expect(eve.items.map((i) => i.label)).not.toContain('Sehr hoch');
+    expect(eve.items.map((i) => i.label)).not.toContain('Ultra');
+    // ...and no offered row carries a legacy value either.
+    expect(eve.items.map((i) => i.value)).toEqual([
+      eveTierValue(EVE_INFERENCE_STANDARD_TIER_ID),
+      eveTierValue(EVE_INFERENCE_MAX_TIER_ID),
+    ]);
   });
 
-  it('Standard is the free-eligible default; every higher registry rung is paid', () => {
-    const mittel = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-standard')!;
-    const hoch = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-high')!;
+  it('keeps every tier id in the REGISTRY — the media contract depends on the wire substrate', () => {
+    // Deleting these would break CommandEveManagedVisualTurnTier /
+    // bridgePolicy's ['high','xhigh','max','ultra'] validation. Collapse the
+    // OFFER, never the substrate.
+    const ids = EVE_INFERENCE_TIERS.map((t) => t.id);
+    expect(ids).toEqual(['eve-standard', 'eve-high', 'eve-xhigh', 'eve-max', 'eve-ultra']);
+    const wires = EVE_INFERENCE_TIERS.map((t) => t.tier);
+    expect(wires).toEqual(['standard', 'high', 'xhigh', 'max', 'ultra']);
+  });
+
+  it('DERIVES the offer from the server allow-list, so an unofferable rung is impossible by construction', () => {
+    // Every offered wire tier must also be server-accepted — not by review, by
+    // construction: EVE_INFERENCE_OFFERED_WIRE_TIERS is a FILTER over the
+    // allow-list, so a refused rung cannot survive it.
+    expect([...EVE_INFERENCE_OFFERED_WIRE_TIERS]).toEqual(['standard', 'max']);
+    for (const wire of EVE_INFERENCE_OFFERED_WIRE_TIERS) {
+      expect(isServerAllowedWireTier(wire)).toBe(true);
+    }
+    // The offer is strictly narrower than the allow-list.
+    expect(isServerAllowedWireTier('high')).toBe(true);
+    expect(isOfferedWireTier('high')).toBe(false);
+    expect(isOfferedWireTier('xhigh')).toBe(false);
+    expect(isOfferedWireTier('ultra')).toBe(false);
+    // And the selectable list is exactly the offered one.
+    expect(EVE_INFERENCE_SELECTABLE_TIERS.map((t) => t.tier)).toEqual(['standard', 'max']);
+  });
+
+  it('Standard is the free-eligible default; MAX is the paid strong lane', () => {
+    const standard = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-standard')!;
     const max = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-max')!;
-    const ultra = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-ultra')!;
-    expect(mittel.paidOnly).toBe(false);
-    expect(mittel.label).toBe('Standard');
-    expect(mittel.modelLabel).toBe('großer Kontext');
-    expect(hoch.paidOnly).toBe(true);
+    expect(standard.paidOnly).toBe(false);
+    expect(standard.label).toBe('Standard');
+    expect(standard.modelLabel).toBe('großer Kontext');
     expect(max.paidOnly).toBe(true);
-    expect(ultra.paidOnly).toBe(true);
+    expect(max.label).toBe('MAX');
     expect(EVE_INFERENCE_DEFAULT_TIER_ID).toBe('eve-standard');
   });
 
-  it('EVE High is paid + consumes credits (DeepSeek V4 Pro), NOT gated; cost badge suppressed in picker', () => {
-    const items = flat(buildEvePickerGroups(PAID_NULL));
-    const hoch = byLabel(items, 'eve', 'Hoch')!;
-    expect(hoch.consumesCredits).toBe(true);
-    expect(hoch.gated).toBe(false);
-    expect(hoch.sublabel).toBe('intelligenter');
-    // Founder mandate 1.2.13: cost/upsell labels are NOT surfaced in the picker.
-    expect(hoch.costBadge).toBeUndefined();
-  });
-
-  it('EVE Maximum is the stable max-reasoning lane and the highest one offered', () => {
-    const items = flat(buildEvePickerGroups(PAID_NULL));
-    const max = byLabel(items, 'eve', 'Maximum')!;
+  it('the MAX row wires its cost badge instead of leaving dead affordance code', () => {
+    // The badge used to be emitted only when `gated` was true, and every offered
+    // rung is gated:false — so it was dead. Either wire it or delete it.
+    const items = flat(buildEvePickerGroups(PURCHASED));
+    const max = byLabel(items, 'eve', 'MAX')!;
     expect(max.consumesCredits).toBe(true);
     expect(max.gated).toBe(false);
     expect(max.sublabel).toBe('starkes Agenten-Reasoning');
-    expect(max.costBadge).toBeUndefined();
-    // The experimental rung above it is retired from the picker; nothing the
-    // server refuses may be offered.
-    expect(byLabel(items, 'eve', 'Ultra')).toBeUndefined();
-  });
-
-  it('keeps every offered EVE row quiet: no cost badges once the gated rung is retired', () => {
-    const items = flat(buildEvePickerGroups(PAID_NULL));
-    const eve = items.filter((i) => i.group === 'eve');
-    expect(eve.every((i) => i.costBadge === undefined)).toBe(true);
-    expect(eve.every((i) => i.gated !== true)).toBe(true);
-    expect(byLabel(items, 'eve', 'Standard')!.consumesCredits).toBe(false);
+    expect(max.costBadge).toBe('sehr hohe Kosten');
+    // The free rung stays quiet.
+    const standard = byLabel(items, 'eve', 'Standard')!;
+    expect(standard.consumesCredits).toBe(false);
+    expect(standard.costBadge).toBeUndefined();
   });
 });
 
 describe('eveInferenceCore — scalable picker presentation', () => {
   it('keeps only matching rows while preserving their group navigation', () => {
-    const filtered = filterEvePickerGroups(buildEvePickerGroups(PAID_NULL), 'Maximum');
+    const filtered = filterEvePickerGroups(buildEvePickerGroups(PURCHASED), 'MAX');
 
     expect(filtered.map((group) => group.kind)).toEqual(['eve']);
-    expect(filtered[0].items.map((item) => item.label)).toEqual(['Maximum']);
+    expect(filtered[0].items.map((item) => item.label)).toEqual(['MAX']);
   });
 
   it('keeps the full group when its heading matches the search', () => {
@@ -245,28 +282,19 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
   it('renders EXACTLY two groups and nothing else', () => {
     const groups = buildEvePickerGroups(TRIAL);
     expect(groups.map((g) => g.kind)).toEqual(['local', 'eve']);
-    // Local: Standard + Hoch only (no 31B pro tier). EVE: the four offered STUFEN.
+    // Local: Standard + Hoch only (no 31B pro tier). EVE: the two-choice offer.
     expect(groups[0].items.map((i) => i.label)).toEqual(['Standard', 'Hoch']);
-    expect(groups[1].items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
+    expect(groups[1].items.map((i) => i.label)).toEqual(['Standard', 'MAX']);
   });
 
-  it('greys every offered paid Pro rung while trialing; EVE Standard + locals stay selectable', () => {
+  it('greys MAX while trialing; EVE Standard + locals stay selectable', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
 
-    // The paid Pro rungs are disabled with the paid hint.
-    const hoch = byLabel(items, 'eve', 'Hoch')!;
-    const max = byLabel(items, 'eve', 'Maximum')!;
-    expect(hoch.disabled).toBe(true);
-    expect(hoch.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
+    const max = byLabel(items, 'eve', 'MAX')!;
     expect(max.disabled).toBe(true);
     expect(max.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
 
-    // Every offered tier stays quiet: the only rung that carried a cost warning
-    // was the experimental one, and it is no longer offered.
-    expect(hoch.costBadge).toBeUndefined();
-    expect(max.costBadge).toBeUndefined();
-
-    // EVE Standard (the free model) selectable on a trial.
+    // EVE Standard (the free rung) selectable on a trial.
     expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
 
     // The entry-level local tiers remain selectable.
@@ -278,19 +306,25 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
     expect(byLabel(items, 'local', 'Hoch')!.sublabel).toBe('Gemma 4 12B Heretic');
   });
 
-  it('leaves every OFFERED EVE level selectable when paid (trial_ends_at null/absent)', () => {
+  it('MAX needs a PURCHASE, not merely a non-trial entitlement', () => {
+    // trial_ends_at null alone is NOT a purchase — the free permanent seat also
+    // has it null. MAX is fail-closed on the money gate.
     for (const ent of [PAID_NULL, PAID_ABSENT]) {
       const items = flat(buildEvePickerGroups(ent));
       expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
-      expect(byLabel(items, 'eve', 'Hoch')!.disabled).toBe(false);
-      expect(byLabel(items, 'eve', 'Maximum')!.disabled).toBe(false);
+      expect(byLabel(items, 'eve', 'MAX')!.disabled).toBe(true);
     }
+    const purchased = flat(buildEvePickerGroups(PURCHASED));
+    expect(byLabel(purchased, 'eve', 'MAX')!.disabled).toBe(false);
   });
 
   it('isEveTierSelectable gates paid-only levels on trial, never the free ones', () => {
     expect(isEveTierSelectable({ paidOnly: false }, TRIAL)).toBe(true);
     expect(isEveTierSelectable({ paidOnly: true }, TRIAL)).toBe(false);
     expect(isEveTierSelectable({ paidOnly: true }, PAID_NULL)).toBe(true);
+    // ...and MAX routes through the stricter purchase gate instead.
+    expect(isEveTierSelectable({ paidOnly: true, tier: 'max' }, PAID_NULL)).toBe(false);
+    expect(isEveTierSelectable({ paidOnly: true, tier: 'max' }, PURCHASED)).toBe(true);
   });
 
   it('keeps bought credits spendable even when a stale trial flag is present', () => {
@@ -393,8 +427,21 @@ describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
   it('each EVE level exposes a capability sublabel without leaking the concrete cloud model', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
     expect(byLabel(items, 'eve', 'Standard')!.sublabel).toBe('großer Kontext');
-    expect(byLabel(items, 'eve', 'Hoch')!.sublabel).toBe('intelligenter');
-    expect(byLabel(items, 'eve', 'Maximum')!.sublabel).toBe('starkes Agenten-Reasoning');
+    expect(byLabel(items, 'eve', 'MAX')!.sublabel).toBe('starkes Agenten-Reasoning');
+  });
+
+  it('MAX is the ONLY user-visible name for the strong lane — no vendor slug anywhere', () => {
+    // A vendor/model id in this registry is always a `vendor/model` slug, so a
+    // slash in ANY user-facing string is the tell. Asserting the exact label set
+    // as well makes this exhaustive rather than a blacklist someone can outgrow.
+    const items = flat(buildEvePickerGroups(PURCHASED));
+    const eve = items.filter((i) => i.group === 'eve');
+    expect(eve.map((i) => i.label)).toEqual(['Standard', 'MAX']);
+    for (const item of eve) {
+      for (const text of [item.label, item.sublabel ?? '', item.costBadge ?? '']) {
+        expect(text).not.toContain('/');
+      }
+    }
   });
 
   it('cloud heading marks EVE as Cloud; rows show CAPABILITY, never a concrete model name', () => {
@@ -441,7 +488,7 @@ describe('commandEveActiveModeLabel — honest lane self-description (cloud abst
     const de = commandEveActiveModeLabel(eveTierValue('eve-max'), 'de-DE');
     const en = commandEveActiveModeLabel(eveTierValue('eve-standard'), 'en-US');
     expect(de).toMatch(/EVE-Cloud/);
-    expect(de).toContain('Max'); // the STUFE label, not the model
+    expect(de).toContain('MAX'); // the STUFE label, not the model
     expect(en).toMatch(/EVE Cloud/);
     expect(de).not.toMatch(NO_MODEL);
     expect(en).not.toMatch(NO_MODEL);
@@ -468,20 +515,22 @@ describe('eveInferenceCore — EVE Standard routing (requirement 2)', () => {
 
   it('maps every level to the wire string the backend registry understands', () => {
     // Each level sends its registry level name; the backend resolves the model.
-    expect(buildEveInferenceProvider({ tierId: 'eve-high', licenseWire: FAKE_WIRE }).use_model).toBe('high');
     expect(buildEveInferenceProvider({ tierId: 'eve-max', licenseWire: FAKE_WIRE }).use_model).toBe('max');
-    // Defence in depth: a caller still holding the retired id — a stale route, a
-    // cached value — cannot build a provider whose use_model the server refuses.
+    // Defence in depth: a caller still holding a no-longer-offered id — a stale
+    // route, a cached value — cannot build a provider on a rung the picker no
+    // longer names. It is migrated to the same place persistence migrates it.
+    expect(buildEveInferenceProvider({ tierId: 'eve-high', licenseWire: FAKE_WIRE }).use_model).toBe('standard');
+    expect(buildEveInferenceProvider({ tierId: 'eve-xhigh', licenseWire: FAKE_WIRE }).use_model).toBe('max');
     expect(buildEveInferenceProvider({ tierId: 'eve-ultra', licenseWire: FAKE_WIRE }).use_model).toBe('max');
   });
 
-  it('the registry keeps five ids for migration; only four are server-accepted', () => {
+  it('the registry keeps five ids for migration + the media contract; only four are server-accepted', () => {
     const wires = EVE_INFERENCE_TIERS.map((t) => t.tier);
     expect(wires).toEqual(['standard', 'high', 'xhigh', 'max', 'ultra']);
-    // The desktop never sends "DeepSeek V4 Pro" / "GLM 5.2" on the wire — only
-    // the level; the backend resolves the model.
+    // The desktop never sends a provider slug on the wire — only the level; the
+    // backend resolves the model. A slug always carries a '/'.
     for (const w of wires) {
-      expect(w).not.toMatch(/DeepSeek|GLM/i);
+      expect(w).not.toContain('/');
     }
   });
 
@@ -582,7 +631,12 @@ describe('eveInferenceCore — default-flip to EVE Standard (cloud)', () => {
 describe('eveInferenceCore — startup warm-up lane selection', () => {
   it('warms the EVE cloud lane (with wire tier) for an EVE selection', () => {
     expect(resolveCommandEveWarmupLane(eveTierValue('eve-standard'))).toEqual({ lane: 'eve', tier: 'standard' });
-    expect(resolveCommandEveWarmupLane(eveTierValue('eve-high'))).toEqual({ lane: 'eve', tier: 'high' });
+    expect(resolveCommandEveWarmupLane(eveTierValue('eve-max'))).toEqual({ lane: 'eve', tier: 'max' });
+    // A persisted legacy rung warms the lane it will MIGRATE onto, not the one
+    // it used to name — otherwise the warm-up preflights a tier that never runs.
+    expect(resolveCommandEveWarmupLane(eveTierValue('eve-high'))).toEqual({ lane: 'eve', tier: 'standard' });
+    expect(resolveCommandEveWarmupLane(eveTierValue('eve-xhigh'))).toEqual({ lane: 'eve', tier: 'max' });
+    expect(resolveCommandEveWarmupLane(eveTierValue('eve-ultra'))).toEqual({ lane: 'eve', tier: 'max' });
   });
 
   it('warms the EVE cloud lane for the DEFAULT (absent/empty) selection — never the inactive local model', () => {
@@ -607,65 +661,93 @@ describe('eveInferenceCore — HONEST tier routing (resolveWireTierFromSelection
   // OpenRouter logs showed 100% Flash because the selection→wire-tier mapping
   // was an unasserted inline expression that fell back to 'standard'.)
 
-  it('maps eve-max → wire tier "max"', () => {
+  it('carries the wire tier VERBATIM for BOTH offered rungs (the silent-Flash-downgrade guard)', () => {
+    // RISK 1, and it already happened once: an absent/empty tier defaults to
+    // `standard` server-side, so a mapping that quietly produced Standard was
+    // invisible in the logs (100% Flash, nothing else ever called). Verbatim for
+    // every OFFERED rung is the pin that makes that impossible again.
+    for (const tier of EVE_INFERENCE_SELECTABLE_TIERS) {
+      expect(resolveWireTierFromSelection(eveTierValue(tier.id))).toBe(tier.tier);
+    }
+    expect(resolveWireTierFromSelection(eveTierValue('eve-standard'))).toBe('standard');
     expect(resolveWireTierFromSelection(eveTierValue('eve-max'))).toBe('max');
   });
 
-  it('migrates a persisted eve-ultra to the strongest tier the SERVER accepts', () => {
-    // This test used to assert `→ 'ultra'`, and that assertion was the defect
-    // written down. The Edge Function answers 403 tier_not_allowed with
-    // allowed_tiers standard|high|xhigh|max, so a seat holding Ultra lost EVERY
-    // turn, not just media ones — proven live on 2026-07-31 at 19:57, twice,
-    // both dying before media routing with no debit taken.
-    expect(resolveWireTierFromSelection(eveTierValue('eve-ultra'))).toBe('max');
+  it('MIGRATION ROW: eve-high → standard (a cheap-rung user is not silently metered harder)', () => {
+    expect(normalizeLegacyEveTierId('eve-high')).toBe('eve-standard');
+    expect(parseEveTierIdFromSelection(eveTierValue('eve-high'))).toBe('eve-standard');
+    expect(resolveWireTierFromSelection(eveTierValue('eve-high'))).toBe('standard');
+    expect(migrateLegacyEveSelection(eveTierValue('eve-high'))).toBe(eveTierValue('eve-standard'));
   });
 
-  it('never puts a tier on the wire that the server refuses', () => {
+  it('MIGRATION ROW: eve-xhigh → MAX (that user was reaching for the deep-reasoning lane)', () => {
+    expect(normalizeLegacyEveTierId('eve-xhigh')).toBe('eve-max');
+    expect(parseEveTierIdFromSelection(eveTierValue('eve-xhigh'))).toBe('eve-max');
+    expect(resolveWireTierFromSelection(eveTierValue('eve-xhigh'))).toBe('max');
+    expect(migrateLegacyEveSelection(eveTierValue('eve-xhigh'))).toBe(eveTierValue('eve-max'));
+  });
+
+  it('MIGRATION ROW: eve-ultra → MAX (the server refuses `ultra`; anything else costs every turn)', () => {
+    expect(normalizeLegacyEveTierId('eve-ultra')).toBe('eve-max');
+    expect(parseEveTierIdFromSelection(eveTierValue('eve-ultra'))).toBe('eve-max');
+    expect(resolveWireTierFromSelection(eveTierValue('eve-ultra'))).toBe('max');
+    expect(migrateLegacyEveSelection(eveTierValue('eve-ultra'))).toBe(eveTierValue('eve-max'));
+  });
+
+  it('MIGRATION ROW: eve-standard → Standard and eve-max → MAX write nothing back', () => {
+    // `undefined` means "already current", which is what lets the caller write
+    // back ONLY on an actual change instead of looping through its own write.
+    expect(migrateLegacyEveSelection(eveTierValue('eve-standard'))).toBeUndefined();
+    expect(migrateLegacyEveSelection(eveTierValue('eve-max'))).toBeUndefined();
+  });
+
+  it('MIGRATION ROW: a LOCAL selection is never touched (local stays a separate offer)', () => {
+    expect(migrateLegacyEveSelection(localTierValue('local-standard'))).toBeUndefined();
+    expect(migrateLegacyEveSelection(localTierValue('local-high'))).toBeUndefined();
+    expect(migrateLegacyEveSelection('command-eve-local:future-local')).toBeUndefined();
+  });
+
+  it('MIGRATION ROW: unknown / empty → Standard (never a selection nobody can act on)', () => {
+    expect(migrateLegacyEveSelection('command-eve-inference:eve-bogus')).toBe(eveTierValue('eve-standard'));
+    expect(migrateLegacyEveSelection('command-eve-inference:eve-maximum')).toBe(eveTierValue('eve-standard'));
+    expect(migrateLegacyEveSelection('command-eve-inference:')).toBe(eveTierValue('eve-standard'));
+    // Empty/absent are handled by resolveEffectiveInferenceSelection, which also
+    // lands on Standard — so every row of the table ends somewhere sendable.
+    expect(migrateLegacyEveSelection(undefined)).toBeUndefined();
+    expect(resolveEffectiveInferenceSelection(undefined)).toBe(eveTierValue('eve-standard'));
+    expect(resolveEffectiveInferenceSelection('')).toBe(eveTierValue('eve-standard'));
+  });
+
+  it('never puts a tier on the wire that the server refuses, and only ever an OFFERED one', () => {
     for (const tier of EVE_INFERENCE_TIERS) {
       const wire = resolveWireTierFromSelection(eveTierValue(tier.id));
       if (wire === undefined) continue;
       expect(EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS).toContain(wire);
+      expect(isOfferedWireTier(wire)).toBe(true);
     }
   });
 
-  it('the selection itself becomes max, so the visible label cannot disagree', () => {
+  it('the selection ITSELF becomes the migrated tier, so the visible label cannot disagree', () => {
     // Normalising at parse level rather than only outbound: the picker must not
-    // read "Ultra" while `max` is sent. Same thing everywhere or nowhere.
+    // read one rung while another is sent. Same thing everywhere or nowhere.
     expect(parseEveTierIdFromSelection(eveTierValue('eve-ultra'))).toBe('eve-max');
-  });
-
-  it('maps eve-high → wire tier "high" (DeepSeek V4 Pro lane)', () => {
-    expect(resolveWireTierFromSelection(eveTierValue('eve-high'))).toBe('high');
-  });
-
-  it('maps eve-standard → wire tier "standard" (DeepSeek V4 Flash lane)', () => {
-    expect(resolveWireTierFromSelection(eveTierValue('eve-standard'))).toBe('standard');
-  });
-
-  it('returns the registry value VERBATIM for every SERVER-ACCEPTED EVE tier (no shift/bridge)', () => {
-    // Verbatim still holds for every rung the server honours. The one rung it
-    // does not — ultra — is migrated, not shifted: see the migration test above.
-    for (const tier of EVE_INFERENCE_TIERS) {
-      if (!isServerAllowedWireTier(tier.tier)) continue;
-      expect(resolveWireTierFromSelection(eveTierValue(tier.id))).toBe(tier.tier);
-    }
+    expect(parseEveTierIdFromSelection(eveTierValue('eve-high'))).toBe('eve-standard');
   });
 
   it('models an in-session switch: re-resolving the new selection changes the wire tier', () => {
     // The picker persists a NEW selection on an in-session switch; the send path
-    // re-resolves the CURRENT selection per request. So switching Standard → Max
-    // → Ultra → High must yield the current wire tier every time.
+    // re-resolves the CURRENT selection per request.
     let current = eveTierValue('eve-standard');
     expect(resolveWireTierFromSelection(current)).toBe('standard');
 
-    current = eveTierValue('eve-max'); // user switches to EVE Max mid-session
+    current = eveTierValue('eve-max'); // user engages MAX mid-session
     expect(resolveWireTierFromSelection(current)).toBe('max');
 
     current = eveTierValue('eve-ultra'); // a legacy selection still on disk
     expect(resolveWireTierFromSelection(current)).toBe('max');
 
-    current = eveTierValue('eve-high'); // user switches down to EVE High
-    expect(resolveWireTierFromSelection(current)).toBe('high');
+    current = eveTierValue('eve-standard'); // user switches back down
+    expect(resolveWireTierFromSelection(current)).toBe('standard');
   });
 
   it('returns undefined for a LOCAL selection (so the cloud lane is never engaged)', () => {
@@ -673,11 +755,11 @@ describe('eveInferenceCore — HONEST tier routing (resolveWireTierFromSelection
     expect(resolveWireTierFromSelection(localTierValue('local-high'))).toBeUndefined();
   });
 
-  it('returns undefined for an absent/empty/unknown selection (caller fails loud, never silently meters Flash)', () => {
+  it('returns undefined for an absent/empty/unknown selection (caller fails loud, never silently meters the cheapest lane)', () => {
     expect(resolveWireTierFromSelection(undefined)).toBeUndefined();
     expect(resolveWireTierFromSelection(null)).toBeUndefined();
     expect(resolveWireTierFromSelection('')).toBeUndefined();
-    // A retired/unknown EVE tier id resolves to no tier (not a silent 'standard').
+    // An unknown EVE tier id resolves to no tier (not a silent 'standard').
     expect(resolveWireTierFromSelection('command-eve-inference:eve-maximum')).toBeUndefined();
     expect(resolveWireTierFromSelection('command-eve-inference:eve-bogus')).toBeUndefined();
   });
@@ -700,6 +782,93 @@ describe('eveInferenceCore — HONEST tier routing (resolveWireTierFromSelection
   });
 });
 
+describe('eveInferenceCore — MAX money gate (spec 2.6 / server 1.4 mirror)', () => {
+  it('unlocks MAX on a paid seat, a paid plan, an active top-up, or PURCHASED credits', () => {
+    expect(hasEveMaxAccess({ trial_ends_at: null, has_paid_seat: true })).toBe(true);
+    expect(hasEveMaxAccess({ trial_ends_at: null, has_paid_plan: true })).toBe(true);
+    expect(hasEveMaxAccess({ trial_ends_at: null, has_active_topup: true })).toBe(true);
+    expect(hasEveMaxAccess({ trial_ends_at: null, has_purchased_credits: true })).toBe(true);
+  });
+
+  it('LOCKS MAX on promotional/allowance-only credits — a promotion is not a purchase', () => {
+    // THE test. `has_metered_credits` is true (allowance credits fund the cheap
+    // lane), yet nothing was bought — so MAX must stay locked and the row must
+    // carry the upsell reason, not an auth error.
+    expect(hasEvePaidInferenceAccess(PROMOTIONAL_ONLY)).toBe(true);
+    expect(hasEveMaxAccess(PROMOTIONAL_ONLY)).toBe(false);
+
+    const items = flat(buildEvePickerGroups(PROMOTIONAL_ONLY));
+    const max = byLabel(items, 'eve', 'MAX')!;
+    expect(max.disabled).toBe(true);
+    expect(max.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
+    // ...and the promotional seat can still use the entry rung it was granted.
+    expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
+  });
+
+  it('a purchased-credit seat unlocks MAX even while a stale trial flag lingers', () => {
+    const boughtCreditsOnTrialMarker = {
+      trial_ends_at: '2099-01-01T00:00:00.000Z',
+      has_purchased_credits: true,
+      metered_credit_access_known: true,
+    };
+    expect(hasEveMaxAccess(boughtCreditsOnTrialMarker)).toBe(true);
+    expect(byLabel(flat(buildEvePickerGroups(boughtCreditsOnTrialMarker)), 'eve', 'MAX')!.disabled).toBe(false);
+  });
+
+  it('fails CLOSED: absent/null/unknown entitlement locks MAX', () => {
+    expect(hasEveMaxAccess(null)).toBe(false);
+    expect(hasEveMaxAccess(undefined)).toBe(false);
+    expect(hasEveMaxAccess({})).toBe(false);
+    expect(hasEveMaxAccess(TRIAL)).toBe(false);
+    expect(hasEveMaxAccess(PAID_NULL)).toBe(false);
+  });
+});
+
+describe('eveInferenceCore — the non-brick clamp (spec 2.3)', () => {
+  it('clamps a MAX selection to `standard` when the seat is PROVEN unentitled — the chat still sends', () => {
+    const max = eveTierValue('eve-max');
+    expect(resolveWireTierFromSelection(max)).toBe('max');
+    expect(resolveEffectiveWireTierFromSelection(max, { maxEntitled: false })).toBe('standard');
+    // Sendable, not undefined: an unfunded seat must never be unable to send.
+    expect(resolveEffectiveWireTierFromSelection(max, { maxEntitled: false })).not.toBeUndefined();
+  });
+
+  it('does NOT clamp when entitlement is unknown — guessing would re-open the silent-downgrade bug', () => {
+    const max = eveTierValue('eve-max');
+    expect(resolveEffectiveWireTierFromSelection(max, {})).toBe('max');
+    expect(resolveEffectiveWireTierFromSelection(max, { maxEntitled: undefined })).toBe('max');
+    expect(resolveEffectiveWireTierFromSelection(max)).toBe('max');
+  });
+
+  it('lets MAX travel for an entitled seat, and never clamps the Standard floor', () => {
+    expect(resolveEffectiveWireTierFromSelection(eveTierValue('eve-max'), { maxEntitled: true })).toBe('max');
+    for (const entitled of [true, false, undefined]) {
+      expect(resolveEffectiveWireTierFromSelection(eveTierValue('eve-standard'), { maxEntitled: entitled })).toBe(
+        'standard'
+      );
+    }
+  });
+
+  it('a persisted legacy rung is clamped AFTER migration, not instead of it', () => {
+    // eve-ultra migrates to MAX first; only then does the clamp apply. Asserting
+    // both together is what proves the order — a clamp that ran first would make
+    // every legacy seat look like Standard forever.
+    expect(resolveEffectiveWireTierFromSelection(eveTierValue('eve-ultra'), { maxEntitled: true })).toBe('max');
+    expect(resolveEffectiveWireTierFromSelection(eveTierValue('eve-ultra'), { maxEntitled: false })).toBe('standard');
+  });
+
+  it('a LOCAL selection stays undefined under every clamp state (the cloud lane is never engaged)', () => {
+    for (const entitled of [true, false, undefined]) {
+      expect(
+        resolveEffectiveWireTierFromSelection(localTierValue('local-standard'), { maxEntitled: entitled })
+      ).toBeUndefined();
+      expect(
+        resolveEffectiveWireTierFromSelection(localTierValue('local-high'), { maxEntitled: entitled })
+      ).toBeUndefined();
+    }
+  });
+});
+
 describe('eveInferenceCore — honest active-lane self-description (Task #50 port)', () => {
   const SHIM = 'command-eve-gemma4-e4b-64k';
 
@@ -707,7 +876,7 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
     expect(resolveCommandEveActiveLane(eveTierValue('eve-max'))).toEqual({
       kind: 'eve',
       tierId: 'eve-max',
-      tierLabel: 'Maximum',
+      tierLabel: 'MAX',
       wireTier: 'max',
     });
   });
@@ -725,30 +894,34 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
     expect(resolveCommandEveActiveLane('').kind).toBe('eve');
   });
 
-  it('describes EVE Cloud Maximum as the stable max-reasoning tier, never the shim model (DE + EN)', () => {
+  it('describes EVE Cloud MAX by its STUFE, never the shim model (DE + EN)', () => {
     const de = describeCommandEveActiveLane(eveTierValue('eve-max'), 'de-DE');
-    expect(de).toBe('EVE Cloud, Maximum-Stufe (maximales Reasoning, starke Agentenarbeit)');
+    expect(de).toBe('EVE Cloud, MAX-Stufe (maximales Reasoning, starke Agentenarbeit)');
     expect(de).not.toContain(SHIM);
     expect(de.toLowerCase()).not.toContain('ollama');
     expect(de.toLowerCase()).not.toContain('lokal');
 
     const en = describeCommandEveActiveLane(eveTierValue('eve-max'), 'en-US');
-    expect(en).toBe('EVE Cloud, Maximum tier (maximum reasoning, strong agent work)');
+    expect(en).toBe('EVE Cloud, MAX tier (maximum reasoning, strong agent work)');
     expect(en).not.toContain(SHIM);
     expect(en.toLowerCase()).not.toContain('local');
   });
 
-  it('describes a persisted Ultra selection as the Maximum lane it will actually get', () => {
-    // This test used to assert "Ultra-Stufe", and after the migration that
-    // sentence would have been a lie: the server refuses `ultra`, so the turn
-    // runs on Maximum. Describing the lane the user WILL be served — rather
-    // than the one they once picked — is the whole point of migrating at parse
-    // level instead of only on the wire.
-    const de = describeCommandEveActiveLane(eveTierValue('eve-ultra'), 'de-DE');
-    const en = describeCommandEveActiveLane(eveTierValue('eve-ultra'), 'en-US');
-    expect(de).toBe('EVE Cloud, Maximum-Stufe (maximales Reasoning, starke Agentenarbeit)');
-    expect(en).toBe('EVE Cloud, Maximum tier (maximum reasoning, strong agent work)');
-    expect(`${de} ${en}`).not.toMatch(/kimi|moonshot|openrouter/i);
+  it('describes a persisted legacy selection as the lane it will ACTUALLY get', () => {
+    // Describing the lane the user WILL be served — rather than the one they once
+    // picked — is the whole point of migrating at parse level instead of only on
+    // the wire. Anything else is a sentence that lies about the next turn.
+    for (const legacy of ['eve-ultra', 'eve-xhigh'] as const) {
+      expect(describeCommandEveActiveLane(eveTierValue(legacy), 'de-DE')).toBe(
+        'EVE Cloud, MAX-Stufe (maximales Reasoning, starke Agentenarbeit)'
+      );
+      expect(describeCommandEveActiveLane(eveTierValue(legacy), 'en-US')).toBe(
+        'EVE Cloud, MAX tier (maximum reasoning, strong agent work)'
+      );
+    }
+    expect(describeCommandEveActiveLane(eveTierValue('eve-high'), 'de-DE')).toContain('Standard-Stufe');
+    // No provider slug in any of it.
+    expect(describeCommandEveActiveLane(eveTierValue('eve-ultra'), 'de-DE')).not.toContain('/');
   });
 
   it('describes a local lane by its honest model name', () => {

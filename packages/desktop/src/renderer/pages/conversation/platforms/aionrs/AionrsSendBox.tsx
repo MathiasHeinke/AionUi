@@ -5,6 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
+import { EVE_DEFAULT_INFERENCE_SELECTION, isEveInferenceSelection } from '@/common/config/eveInferenceCore';
 import { userVisibleConversationMcpStatuses } from '@/common/config/eveManagedMcpCore';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
 import CommandQueuePanel from '@/renderer/components/chat/CommandQueuePanel';
@@ -631,34 +632,41 @@ const AionrsSendBox: React.FC<{
       modeOptions.find((opt) => opt.active)?.label ?? t('agentMode.default', { defaultValue: 'Default' });
     const currentModelLabel = modelSelection.current_model?.use_model || t('conversation.welcome.selectModel');
 
+    // FOUNDER CONTRACT (MAT-1749): no cloud intelligence ladder in a composer
+    // affordance. This entry is the LANE choice only — EVE Cloud (the unnamed
+    // default) vs the private local lane — with no tier nomenclature anywhere.
     const eveInferenceEntry: MobileActionSheetEntry = (() => {
-      const eveOptions: MobileActionSheetOption[] = eveInference.groups.flatMap((group) =>
-        group.items.map((item) => ({
+      const cloudLaneLabel = t('conversation.eveInference.cloudLane', { defaultValue: 'EVE Cloud' });
+      const localLabel = t('common.localModel', { defaultValue: 'Lokal' });
+      const localItems = eveInference.groups.find((group) => group.kind === 'local')?.items ?? [];
+      const laneOptions: MobileActionSheetOption[] = [
+        {
+          key: EVE_DEFAULT_INFERENCE_SELECTION,
+          label: cloudLaneLabel,
+          description: t('conversation.eveInference.cloudLaneDescription', {
+            defaultValue: 'EVE arbeitet in der Cloud.',
+          }),
+          active: isEveInferenceSelection(eveInference.selection),
+        },
+        ...localItems.map((item) => ({
           key: item.value,
-          label:
-            group.kind === 'eve'
-              ? `EVE · ${item.label}`
-              : `${t('common.localModel', { defaultValue: 'Lokal' })} · ${item.label}`,
-          // Paid STUFEN (Max/Maximum) append their cost badge so the credit /
-          // ~5× cost is visible in-chat, not only in the pre-chat picker.
-          description: item.costBadge ? `${item.sublabel} · ${item.costBadge}` : item.sublabel,
+          label: `${localLabel} · ${item.label}`,
+          description: item.sublabel,
           active: item.value === eveInference.selection && !item.disabled,
           disabled: item.disabled,
-        }))
-      );
-      const currentEveLabel = eveInference.selectedItem
-        ? eveInference.selectedItem.group === 'eve'
-          ? `EVE · ${eveInference.selectedItem.label}`
-          : `${t('common.localModel', { defaultValue: 'Lokal' })} · ${eveInference.selectedItem.label}`
-        : t('conversation.eveInference.pick', { defaultValue: 'Modell wählen' });
+        })),
+      ];
+      const currentLaneLabel = isEveInferenceSelection(eveInference.selection)
+        ? cloudLaneLabel
+        : `${localLabel} · ${eveInference.activeItem?.label ?? ''}`.trim();
       return {
         key: 'eve-inference',
         icon: <Brain theme='outline' size='16' />,
-        label: t('conversation.eveInference.title', { defaultValue: 'EVE Inference' }),
-        meta: currentEveLabel,
+        label: t('conversation.eveInference.lane', { defaultValue: 'Verarbeitung' }),
+        meta: currentLaneLabel,
         submenu: {
-          title: t('conversation.eveInference.title', { defaultValue: 'EVE Inference' }),
-          options: eveOptions,
+          title: t('conversation.eveInference.lane', { defaultValue: 'Verarbeitung' }),
+          options: laneOptions,
           onSelect: (value) => eveInference.commit(value),
         },
       };

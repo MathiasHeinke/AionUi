@@ -614,7 +614,17 @@
   "eveInference": {
     "offlineUnavailable": "EVE Cloud needs an internet connection.",
     "activationUnavailable": "EVE Cloud is available after activation.",
-    "needsActivation": "Activation required"
+    "needsActivation": "Activation required",
+    "lane": "Processing",
+    "cloudLane": "EVE Cloud",
+    "cloudLaneDescription": "EVE works in the cloud."
+  },
+  "eveMax": {
+    "label": "MAX",
+    "availableHint": "Turn MAX on — full thinking power for hard tasks.",
+    "engagedHint": "MAX is on — EVE is working at full thinking power.",
+    "lockedHint": "MAX is available on a paid plan or with purchased credits.",
+    "upgrade": "Unlock MAX"
   },
   "eveControl": {
     "open": "Open EVE controls",

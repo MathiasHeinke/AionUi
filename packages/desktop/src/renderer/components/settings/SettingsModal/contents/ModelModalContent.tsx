@@ -27,7 +27,13 @@ import { useSettingsViewMode } from '../settingsViewContext';
 import { consumePendingDeepLink } from '@/renderer/hooks/system/useDeepLink';
 import { useEntitlementGate } from '@/renderer/hooks/useEntitlementGate';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
-import { shouldDisableModelByok } from '@/common/config/eveInferenceCore';
+import {
+  EVE_DEFAULT_INFERENCE_SELECTION,
+  EVE_LOCAL_PICKER_TIERS,
+  isLocalSelection,
+  localTierValue,
+  shouldDisableModelByok,
+} from '@/common/config/eveInferenceCore';
 import { bridge as platformBridge } from '@office-ai/platform';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 import { EVE_SETTINGS_TAG_COLOR } from '@/renderer/components/settings/settingsSemantics';
@@ -224,11 +230,50 @@ const ModelModalContent: React.FC = () => {
       });
   };
 
+  // ── MAT-1749: the LOCAL LANE lives HERE, not in the composer.
+  //
+  // The composer lost its cloud intelligence ladder (the routine lane is unnamed
+  // and MAX is the only cloud affordance there), so choosing the private local
+  // lane has to be a deliberate SETTINGS decision. This switch owns exactly that
+  // one bit — cloud vs local — and nothing about tiers.
+  const [localLaneActive, setLocalLaneActive] = useState<boolean>(() =>
+    isLocalSelection(configService.get('commandEve.inferenceSelection'))
+  );
+  useEffect(() => {
+    return configService.subscribe('commandEve.inferenceSelection', (value) => {
+      setLocalLaneActive(isLocalSelection(typeof value === 'string' ? value : undefined));
+    });
+  }, []);
+
+  /** The picker-side local id that corresponds to the chosen bundled tier. */
+  const localSelectionValue = useMemo(() => {
+    const match = EVE_LOCAL_PICKER_TIERS.find((tier) => tier.localTierId === selectedLocalModelTierId);
+    return localTierValue((match ?? EVE_LOCAL_PICKER_TIERS[0]).id);
+  }, [selectedLocalModelTierId]);
+
+  /**
+   * Turn the private local lane on/off. OFF returns to the UNNAMED cloud default
+   * — never to a named cloud rung — so a lane switch can never silently re-meter
+   * a seat onto the strong lane. Re-engaging MAX stays the MAX toggle's job.
+   */
+  const setCommandEveLocalLane = (useLocal: boolean): void => {
+    const next = useLocal ? localSelectionValue : EVE_DEFAULT_INFERENCE_SELECTION;
+    setLocalLaneActive(useLocal);
+    void configService.set('commandEve.inferenceSelection', next);
+  };
+
   const selectCommandEveLocalModelTier = async (tierId: string): Promise<boolean> => {
     const normalizedTierId = normalizeCommandEveLocalModelTierId(tierId);
     setSelectedLocalModelTierId(normalizedTierId);
     try {
       await configService.set('commandEve.localModelTierId', normalizedTierId);
+      // If the private lane is already active, picking a different bundled tier
+      // must actually move the lane — otherwise the card says one thing and the
+      // next turn runs another.
+      if (localLaneActive) {
+        const match = EVE_LOCAL_PICKER_TIERS.find((tier) => tier.localTierId === normalizedTierId);
+        if (match) await configService.set('commandEve.inferenceSelection', localTierValue(match.id));
+      }
       message.success(t('settings.commandEveLocalRuntimeSelected'));
       return true;
     } catch (error) {
@@ -544,7 +589,20 @@ const ModelModalContent: React.FC = () => {
             testId='command-eve-local-runtime-section'
             title={t('settings.commandEveLocalRuntime')}
             description={t('settings.commandEveLocalRuntimeRestartNote')}
-            action={<Tag color='arcoblue'>{t('settings.commandEveLocalRuntimeBackend')}</Tag>}
+            action={
+              <span className='flex items-center gap-8px'>
+                <Tooltip content={t('settings.commandEveLocalLaneHint')}>
+                  <span className='text-12px opacity-70'>{t('settings.commandEveLocalLane')}</span>
+                </Tooltip>
+                <Switch
+                  checked={localLaneActive}
+                  onChange={setCommandEveLocalLane}
+                  data-testid='command-eve-local-lane-switch'
+                  aria-label={t('settings.commandEveLocalLane')}
+                />
+                <Tag color='arcoblue'>{t('settings.commandEveLocalRuntimeBackend')}</Tag>
+              </span>
+            }
             bodyClassName='eve-model-tier-list'
           >
             {COMMAND_EVE_LOCAL_MODEL_TIERS.map((tier) => {

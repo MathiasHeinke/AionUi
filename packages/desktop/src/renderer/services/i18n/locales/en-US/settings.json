@@ -1170,6 +1170,8 @@
   "commandEveLocalRuntime": "Command EVE Local Runtime",
   "commandEveLocalRuntimeDesc": "EVE can process selected work directly on this Mac. Required local components are checked or prepared on first use.",
   "commandEveLocalRuntimeBackend": "Local processing",
+  "commandEveLocalLane": "Process locally",
+  "commandEveLocalLaneHint": "EVE runs entirely on this Mac. No cloud credits are used.",
   "commandEveLocalRuntimeMeta": "{{context}} context · min. {{memory}} GB RAM · {{disk}} GB disk",
   "commandEveLocalRuntimeCurrent": "Active",
   "commandEveLocalRuntimeSelect": "Select",

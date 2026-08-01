@@ -6,10 +6,18 @@
 
 /**
  * useEveInferenceSelection — the single source of truth for the Command EVE
- * inference tier selection across every surface that lets the user pick it:
+ * inference lane selection across every surface that can change it:
  *
- *   - Pre-chat:  GuidPage (via {@link EveInferencePicker}).
- *   - In-chat:   the conversation header (desktop) and the mobile action sheet.
+ *   - The composer's MAX toggle (the ONLY cloud-intelligence affordance there;
+ *     off = EVE's normal unnamed behaviour, on = the MAX state).
+ *   - The mobile action sheet's LANE entry (EVE Cloud vs the private local lane
+ *     — no tier nomenclature).
+ *   - Settings → Modell, where the private local lane is chosen deliberately.
+ *
+ * There is deliberately NO cloud intelligence ladder anywhere in the UI any
+ * more (MAT-1749, Founder contract). The registry still carries every wire tier
+ * because the managed-visual / media turn contract consumes them, but the user
+ * never sees a cloud tier name.
  *
  * It owns exactly the behaviour the founder mandate requires and nothing else:
  *   - read/persist the choice from/to `commandEve.inferenceSelection`
@@ -18,7 +26,10 @@
  *   - build the two-group picker model gated by live entitlement and credit
  *     truth (all metered levels remain available while bought credits exist);
  *   - expose the current display label + a `commit`, and reset a now-disabled
- *     paid tier only after funding truth is authoritative.
+ *     paid tier only after funding truth is authoritative;
+ *   - own the MAX lane control state (available / locked / engaged) plus the
+ *     non-brick clamp, so every surface that can engage MAX agrees on when it
+ *     is purchasable-backed and what actually goes on the wire.
  *
  * Keeping this in ONE hook means the desktop component, the header injection and
  * both mobile sheets cannot drift apart.
@@ -30,9 +41,14 @@ import {
   buildEvePickerGroups,
   EVE_DEFAULT_INFERENCE_SELECTION,
   EVE_INFERENCE_DEFAULT_TIER_ID,
+  EVE_INFERENCE_MAX_TIER_ID,
+  EVE_INFERENCE_STANDARD_TIER_ID,
   eveTierValue,
+  hasEveMaxAccess,
   isEveInferenceSelection,
   migrateLegacyEveSelection,
+  resolveEffectiveWireTierFromSelection,
+  type EveInferenceWireTier,
   type EvePickerGroup,
   type EvePickerItem,
 } from '@/common/config/eveInferenceCore';
@@ -40,6 +56,20 @@ import { useEntitlementGate } from '@renderer/hooks/useEntitlementGate';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+
+/**
+ * The MAX control contract (all three states must be reachable and renderable):
+ *   - `available` — a real purchase backs it; the toggle is operable.
+ *   - `locked`    — trial/free or promotional-credit-only; the toggle renders
+ *                   locked with an upsell affordance. Promotional credits never
+ *                   unlock MAX.
+ *   - `engaged`   — MAX is the active selection; the composer wears the MAX state.
+ *
+ * `engaged` is deliberately independent of `available`: a seat that bought MAX,
+ * engaged it, and then lapsed keeps its persisted intent (so it lights up again
+ * on renewal) while the effective wire tier clamps to Standard.
+ */
+export type EveMaxControlState = 'available' | 'locked' | 'engaged';
 
 export interface UseEveInferenceSelectionResult {
   /** Persisted selection; unknown local/connected values stay verbatim until their source loads. */
@@ -50,10 +80,36 @@ export interface UseEveInferenceSelectionResult {
   items: EvePickerItem[];
   /** The currently-selected, still-selectable item (undefined if none). */
   selectedItem: EvePickerItem | undefined;
+  /**
+   * The picker row the persisted selection points at, EVEN IF it is currently
+   * locked. `selectedItem` intentionally hides a locked row (nothing may act on
+   * it); this one exists so a surface can still NAME the user's choice instead of
+   * regressing to "pick a model" the moment a subscription lapses.
+   */
+  activeItem: EvePickerItem | undefined;
   /** Persist a new selection. No-op for an unknown/disabled value. */
   commit: (value: string) => void;
   /** True iff `value` is a known, selectable item. */
   isSelectable: (value: string) => boolean;
+  /** MAX is backed by a real purchase (paid plan/seat, top-up, or bought credits). */
+  maxAvailable: boolean;
+  /** MAX is the persisted selection (independent of whether it is still funded). */
+  maxEngaged: boolean;
+  /** MAX is wanted or shown but not purchasable-backed — render the upsell. */
+  maxLocked: boolean;
+  /** Rolled-up control state for the toggle surface. */
+  maxState: EveMaxControlState;
+  /**
+   * Engage/disengage MAX. Disengaging always works. Engaging is refused when MAX
+   * is locked, so the control can never persist a lane the server would refuse.
+   */
+  setMaxEngaged: (next: boolean) => void;
+  /**
+   * The wire tier this seat would actually POST right now — MAX clamped to
+   * `standard` while unentitled, so a lapsed seat can still send. `undefined`
+   * for a local/unresolvable selection, exactly like the unclamped resolver.
+   */
+  effectiveWireTier: EveInferenceWireTier | undefined;
   /**
    * Whether the EVE Inference (cloud) lane has a usable license bearer at rest.
    * `true` = activated, cloud routes; `false` = no usable cloud bearer, so the
@@ -90,6 +146,14 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
       has_active_topup: creditsStatus?.has_active_topup === true,
       has_metered_credits: hasMeteredCredits,
       metered_credit_access_known: creditsAreAuthoritative,
+      // The MAX gate needs the two signals the wider metered-credit rule blurs
+      // together. `has_paid_plan` is a real plan; `has_purchased_credits` is a
+      // REAL top-up. Included-allowance credits — where a promotional grant
+      // lands — deliberately feed NEITHER, which is what keeps a promotion from
+      // unlocking the strong lane. Both require an authoritative credits read:
+      // an unreadable status must not be able to open a paid lane.
+      has_paid_plan: creditsAreAuthoritative && creditsStatus?.tier !== 'free',
+      has_purchased_credits: creditsAreAuthoritative && purchasedCredits > 0,
     };
   }, [creditsStatus, status]);
 
@@ -190,6 +254,30 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   const selectedRaw = useMemo(() => items.find((i) => i.value === selection), [items, selection]);
   const selectedItem = selectedRaw && !selectedRaw.disabled ? selectedRaw : undefined;
 
+  // --- MAX lane -------------------------------------------------------------
+  const maxSelectionValue = eveTierValue(EVE_INFERENCE_MAX_TIER_ID);
+  const maxAvailable = hasEveMaxAccess(pickerEntitlement);
+  const maxEngaged = selection === maxSelectionValue;
+  const maxLocked = !maxAvailable;
+  const maxState: EveMaxControlState = maxEngaged && maxAvailable ? 'engaged' : maxAvailable ? 'available' : 'locked';
+  // The clamp: a persisted MAX on an unfunded seat still SENDS, on Standard.
+  // Intent stays on disk so it re-engages the moment the seat buys.
+  const effectiveWireTier = resolveEffectiveWireTierFromSelection(selection, { maxEntitled: maxAvailable });
+
+  const setMaxEngaged = useCallback(
+    (next: boolean) => {
+      const value = next ? maxSelectionValue : eveTierValue(EVE_INFERENCE_STANDARD_TIER_ID);
+      // Engaging a locked MAX would persist a lane the server refuses; the
+      // upsell affordance is the answer there, not a write.
+      if (next && !maxAvailable) return;
+      if (value === selection) return;
+      setSelection(value);
+      configService.set('commandEve.inferenceSelection', value);
+      onChange?.(value);
+    },
+    [maxAvailable, maxSelectionValue, onChange, selection, setSelection]
+  );
+
   const isSelectable = useCallback(
     (value: string) => {
       const item = items.find((i) => i.value === value);
@@ -214,21 +302,44 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   // longer usable, so no surface shows a stranded value as "active":
   //  - a metered EVE tier after both entitlement and credit truth confirm that it
   //    is no longer funded, OR
-  //  - a now-UNKNOWN EVE selection (e.g. the retired `eve-maximum` id) that
-  //    resolves to no picker item.
+  //  - a now-UNKNOWN EVE selection that resolves to no picker item.
+  //
+  // MAX IS THE ONE EXCEPTION, and it is deliberate. An unfunded MAX is not a
+  // stranded selection: the clamp above already makes it SEND on Standard, so
+  // nothing is broken by keeping it — while erasing it would throw away the
+  // user's stated intent and force them to re-pick after every lapse or transient
+  // credits blip. Intent is preserved; entitlement decides what travels.
+  //
   // Unknown local/connected values remain untouched because their provider model
   // may not have loaded yet; an absent picker row is not proof they were retired.
   useEffect(() => {
     const fallback = eveTierValue(EVE_INFERENCE_DEFAULT_TIER_ID);
     const isUnknownEve = isEveInferenceSelection(selection) && !items.some((item) => item.value === selection);
-    const isConfirmedUnfundedTier = selectedRaw?.group === 'eve' && selectedRaw.disabled && paidTierAccessKnown;
+    const isConfirmedUnfundedTier =
+      selectedRaw?.group === 'eve' && selectedRaw.disabled && paidTierAccessKnown && selection !== maxSelectionValue;
     if ((isConfirmedUnfundedTier || isUnknownEve) && selection !== fallback) {
       setSelection(fallback);
       configService.set('commandEve.inferenceSelection', fallback);
     }
-  }, [selectedRaw, items, paidTierAccessKnown, selection]);
+  }, [selectedRaw, items, paidTierAccessKnown, selection, maxSelectionValue]);
 
-  return { selection, groups, items, selectedItem, commit, isSelectable, cloudBearerAvailable, refreshBearer };
+  return {
+    selection,
+    groups,
+    items,
+    selectedItem,
+    activeItem: selectedRaw,
+    commit,
+    isSelectable,
+    maxAvailable,
+    maxEngaged,
+    maxLocked,
+    maxState,
+    setMaxEngaged,
+    effectiveWireTier,
+    cloudBearerAvailable,
+    refreshBearer,
+  };
 }
 
 export default useEveInferenceSelection;

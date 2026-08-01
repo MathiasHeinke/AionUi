@@ -7,6 +7,7 @@
 import { ipcBridge } from '@/common';
 import type { IMcpServer } from '@/common/config/storage';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
+import EveMaxToggle from '@/renderer/components/agent/EveMaxToggle';
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
 import {
   SKILL_CAPABILITY_MENU_POPUP_STYLE,
@@ -380,6 +381,9 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
         }
         centerSlot={presetTagSlot}
         modelSlot={modelSlot}
+        // Start screen: the MAX lane control only exists in the EVE shell, so the
+        // same one-tap switch is reachable before the first message as in-chat.
+        maxSlot={COMMAND_EVE_SHELL_ENABLED ? <EveMaxToggle disabled={loading} /> : null}
         permissionSlot={permissionSlot}
         contextSlot={COMMAND_EVE_SHELL_ENABLED ? null : contextIndicatorNode}
         eveControl={COMMAND_EVE_SHELL_ENABLED ? { tokenUsage: null, disabled: loading } : undefined}

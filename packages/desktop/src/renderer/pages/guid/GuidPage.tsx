@@ -8,7 +8,6 @@ import { ipcBridge } from '@/common';
 import type { IMcpServer } from '@/common/config/storage';
 import { resolveLocaleKey } from '@/common/utils';
 import { COMMAND_EVE_ASSISTANT_AVATAR, COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
-import EveInferencePicker from '@/renderer/components/agent/EveInferencePicker';
 import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
 import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
 import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
@@ -610,10 +609,13 @@ const GuidPage: React.FC = () => {
   }, [navigate]);
   const showAssistantSelectionArea = !COMMAND_EVE_SHELL_ENABLED;
 
-  // Build the model selector node
-  const modelSelectorNode = isCommandEveAssistant ? (
-    <EveInferencePicker />
-  ) : (
+  // Build the model selector node.
+  //
+  // FOUNDER CONTRACT (MAT-1749): the EVE start screen shows NO cloud
+  // intelligence ladder. The routine lane is unnamed — it is simply EVE working
+  // — and the only cloud-intelligence affordance is the additive MAX toggle in
+  // the action row. The LOCAL lane is chosen deliberately in Settings → Modell.
+  const modelSelectorNode = isCommandEveAssistant ? null : (
     <GuidModelSelector
       isGeminiMode={isGeminiMode}
       modelList={modelSelection.modelList}

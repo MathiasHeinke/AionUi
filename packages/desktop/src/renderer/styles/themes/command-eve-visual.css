@@ -108,6 +108,23 @@
   --eve-spotlight-opacity-dark: 0.68;
   --eve-spotlight-max: var(--eve-spotlight-opacity-light);
 
+  /* MAX lane. Values only — the composer keeps ONE visual language and simply
+     re-points its existing variables when the strong lane is engaged. Derived
+     from the token layer (no literals), so both themes and any future brand
+     change follow automatically.
+
+     The fallback is `--primary` and NOT `--color-primary-6`: the latter is
+     declared nowhere in this codebase, so it is a dead fallback. That matters
+     more than it looks — if the accent chain ever resolved to nothing, then
+     `border: 1px solid var(--eve-composer-border)` becomes an INVALID shorthand
+     and the composer border disappears entirely (measured: 1px -> 0px in dark).
+     `--primary` is what --eve-accent itself resolves to (:17) and is declared
+     for both themes in themes/default-color-scheme.css, so the fallback is real
+     and theme-correct. */
+  --eve-max-accent: var(--eve-accent, var(--primary));
+  --eve-max-composer-border: color-mix(in srgb, var(--eve-max-accent) 38%, var(--border-base));
+  --eve-max-spotlight-ceiling: 0.62;
+
   /* Local background-image readability */
   --eve-bg-image-intensity: 100%;
   --eve-bg-image-blur: 0px;
@@ -216,6 +233,12 @@
   --eve-composer-border: color-mix(in srgb, #ffffff 13%, transparent);
   --eve-spotlight-max: var(--eve-spotlight-opacity-dark);
   --eve-bg-image-scrim: color-mix(in srgb, #101214 68%, transparent);
+
+  /* MAX lane, dark: the accent token already re-resolves per theme; the border
+     mix is re-stated because the dark composer border is a white-alpha edge
+     rather than the light theme's --border-base. */
+  --eve-max-composer-border: color-mix(in srgb, var(--eve-max-accent) 46%, var(--eve-composer-border));
+  --eve-max-spotlight-ceiling: 0.78;
 }
 
 .eve-message-surface,
@@ -1960,6 +1983,42 @@
   }
 }
 
+/* MAX lane engaged.
+ *
+ * NO new element, NO new class, NO added border thickness, no neon and no model
+ * label. Both composer pseudo-elements are already occupied (::before is the
+ * spotlight hairline, ::after the ambient ring + glow) and both already read
+ * --eve-spotlight-color — so the whole composer shifts together the moment that
+ * variable is re-pointed here.
+ *
+ * Re-pointing the VARIABLE rather than declaring border-color is also the only
+ * thing that survives `.sendbox-panel.eve-composer-surface { border-color: …
+ * !important }` in sendbox.css: a competing single-class rule would silently
+ * lose that specificity war, while the !important declaration itself reads this
+ * variable and therefore follows it.
+ */
+.eve-composer-surface[data-eve-max='true'] {
+  --eve-spotlight-color: var(--eve-max-accent);
+  --eve-composer-border: var(--eve-max-composer-border);
+  --eve-spotlight-max: var(--eve-max-spotlight-ceiling);
+}
+
+/* Calm engage: ONE ease, no infinite pulsing. The base surface already
+   transitions box-shadow/border-color inline; this covers the resting hairline
+   so the lane change reads as a settle rather than a flash. */
+.eve-composer-surface[data-eve-max='true']::before,
+.eve-composer-surface[data-eve-max='true']::after {
+  transition:
+    opacity 260ms ease,
+    box-shadow 260ms ease;
+}
+
+/* The MAX hairline stays legible at rest, not only on hover/focus — the lane is
+   a state the user must be able to SEE they are in. */
+.eve-composer-surface[data-eve-max='true']::before {
+  opacity: 0.34;
+}
+
 .eve-composer-surface[data-keyboard-focus='true'],
 .eve-composer-surface:focus-within,
 .eve-composer-surface:has(:focus-visible) {
@@ -2187,6 +2246,20 @@
   opacity: 0;
   transform: none;
   transition: none;
+}
+
+/* Reduced effects + MAX: drop the MOTION, keep the STATE. The colour and border
+   still come from the re-pointed variables above (this block deliberately does
+   not unset them), so a user who reduces effects can still see which lane they
+   are in — they simply do not get the transition. */
+:root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true']::before,
+:root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true']::after {
+  animation: none;
+  transition: none;
+}
+
+:root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true']::before {
+  opacity: 0.34;
 }
 
 @media (hover: none), (pointer: coarse) {
@@ -2555,6 +2628,19 @@
     --eve-spotlight-position: 50% 0%;
     opacity: 0.3;
     transition: none;
+  }
+
+  /* Same contract as the reduced-effects block: the MAX state stays VISIBLE
+     (colour + border keep coming from the re-pointed variables), only the
+     motion stops. Never remove the state itself. */
+  .eve-composer-surface[data-eve-max='true']::before,
+  .eve-composer-surface[data-eve-max='true']::after {
+    animation: none;
+    transition: none;
+  }
+
+  .eve-composer-surface[data-eve-max='true']::before {
+    opacity: 0.34;
   }
 
   .company-brain-settings__disclosure-icon {

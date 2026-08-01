@@ -5,7 +5,7 @@ import { isSideQuestionSupported } from '@/common/chat/sideQuestion';
 import { parseError, uuid } from '@/common/utils';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
 import AcpModelSelector from '@/renderer/components/agent/AcpModelSelector';
-import EveInferencePicker from '@/renderer/components/agent/EveInferencePicker';
+import EveMaxToggle from '@/renderer/components/agent/EveMaxToggle';
 import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
 import { WorkspaceContextControl } from '@/renderer/components/workspace';
@@ -31,7 +31,11 @@ import {
   isCommandEveModeExpansion,
 } from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
-import { isEveInferenceSelection, resolveWireTierFromSelection } from '@/common/config/eveInferenceCore';
+import {
+  EVE_DEFAULT_INFERENCE_SELECTION,
+  isEveInferenceSelection,
+  resolveWireTierFromSelection,
+} from '@/common/config/eveInferenceCore';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import {
   markConversationGenerating,
@@ -1394,35 +1398,42 @@ Please check your local CLI tool authentication status`,
     const entries: MobileActionSheetEntry[] = [];
 
     if (isEveConversation) {
-      // EVE Inference STUFE entry (Standard/Hoch free · Max · Maximum + Private).
-      // Max/Maximum stay greyed (disabled) while trialing via the shared core
-      // gating; the paid levels carry a visible cost badge in the description so
-      // the credit / ~5× cost is obvious in-chat, not only in the pre-chat picker.
-      const eveOptions: MobileActionSheetOption[] = eveInference.groups.flatMap((group) =>
-        group.items.map((item) => ({
+      // FOUNDER CONTRACT (MAT-1749): no cloud intelligence ladder on mobile
+      // either. This entry is now the LANE choice — EVE Cloud (the unnamed
+      // default) vs the private local lane — and carries NO tier nomenclature.
+      // MAX is reached through the composer's MAX toggle, nowhere else.
+      const cloudLaneLabel = t('conversation.eveInference.cloudLane', { defaultValue: 'EVE Cloud' });
+      const localItems = eveInference.groups.find((group) => group.kind === 'local')?.items ?? [];
+      const laneOptions: MobileActionSheetOption[] = [
+        {
+          key: EVE_DEFAULT_INFERENCE_SELECTION,
+          label: cloudLaneLabel,
+          description: t('conversation.eveInference.cloudLaneDescription', {
+            defaultValue: 'EVE arbeitet in der Cloud.',
+          }),
+          active: isEveInferenceSelection(eveInference.selection),
+        },
+        ...localItems.map((item) => ({
           key: item.value,
-          label:
-            group.kind === 'eve'
-              ? `EVE Cloud · ${item.label}`
-              : `${t('common.localModel', { defaultValue: 'Lokal' })} · ${item.label}`,
-          description: item.costBadge ? `${item.sublabel} · ${item.costBadge}` : item.sublabel,
+          label: `${t('common.localModel', { defaultValue: 'Lokal' })} · ${item.label}`,
+          description: item.sublabel,
           active: item.value === eveInference.selection && !item.disabled,
           disabled: item.disabled,
-        }))
-      );
-      const currentEveLabel = eveInference.selectedItem
-        ? eveInference.selectedItem.group === 'eve'
-          ? `EVE Cloud · ${eveInference.selectedItem.label}`
-          : `${t('common.localModel', { defaultValue: 'Lokal' })} · ${eveInference.selectedItem.label}`
-        : t('conversation.eveInference.pick', { defaultValue: 'Modell wählen' });
+        })),
+      ];
+      const currentLaneLabel = isEveInferenceSelection(eveInference.selection)
+        ? cloudLaneLabel
+        : `${t('common.localModel', { defaultValue: 'Lokal' })} · ${eveInference.activeItem?.label ?? ''}`.trim();
       entries.push({
         key: 'eve-inference',
         icon: <Brain theme='outline' size='16' />,
-        label: t('conversation.eveInference.title', { defaultValue: 'EVE Inference' }),
-        meta: currentEveLabel,
+        label: t('conversation.eveInference.lane', { defaultValue: 'Verarbeitung' }),
+        meta: currentLaneLabel,
         submenu: {
-          title: t('conversation.eveInference.title', { defaultValue: 'EVE Inference' }),
-          options: eveOptions,
+          title: t('conversation.eveInference.lane', { defaultValue: 'Verarbeitung' }),
+          options: laneOptions,
+          // The cloud row commits the UNNAMED default. Re-engaging MAX is the
+          // MAX toggle's job — a lane switch must never silently re-meter.
           onSelect: (value) => eveInference.commit(value),
         },
       });
@@ -1663,14 +1674,16 @@ Please check your local CLI tool authentication status`,
         hideSpeechButton
         rightTools={
           // The ONE Claude-Code-style control cluster (STEP 4), shared with the
-          // start screen. Founder mandate: the in-chat model/inference picker now
-          // lives HERE in the bottom bar's modelSlot (like Claude Code), NOT in the
-          // chat header — so the start screen and the in-chat surface read
-          // identically. EVE conversations get the EveInferencePicker (tier/Stufe);
-          // every other ACP backend gets the existing AcpModelSelector. On mobile
-          // the picker stays in the `+` action sheet (sheetEntries), so the bar's
-          // modelSlot is left empty there to avoid a duplicate.
-          // Order: [model · permission · context+credits · mic]. SendBox owns send.
+          // start screen.
+          //
+          // FOUNDER CONTRACT (MAT-1749): an EVE composer shows NO cloud
+          // intelligence ladder at all. The routine lane is UNNAMED — it is
+          // simply EVE working — and the only cloud-intelligence affordance is
+          // the additive MAX toggle. So `modelSlot` is empty for EVE; every
+          // other ACP backend keeps its existing AcpModelSelector. Choosing the
+          // LOCAL lane is a deliberate Settings → Modell decision, not a
+          // composer control.
+          // Order: [MAX · EVE control · mic · send]. SendBox owns send.
           <UnifiedSendBar
             busyModeSlot={
               isMobile ? null : (
@@ -1682,12 +1695,15 @@ Please check your local CLI tool authentication status`,
               )
             }
             modelSlot={
-              isMobile ? null : isEveConversation ? (
-                <EveInferencePicker disabled={isBusy} />
-              ) : (
+              isMobile || isEveConversation ? null : (
                 <AcpModelSelector conversation_id={conversation_id} backend={backend} waitForWarmup />
               )
             }
+            // Only an EVE conversation gets the MAX lane control — and therefore
+            // only an EVE composer can ever wear the MAX visual state. This is
+            // the composer's ONE cloud-intelligence affordance: off = EVE's
+            // normal unnamed behaviour, on = the MAX state.
+            maxSlot={isEveConversation ? <EveMaxToggle disabled={isBusy} /> : null}
             permissionSlot={
               showModeSelector ? (
                 <AgentModeSelector

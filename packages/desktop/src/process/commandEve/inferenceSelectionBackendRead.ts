@@ -50,7 +50,7 @@ import {
   EVE_INFERENCE_FUNCTION_URL,
   isEveInferenceSelection,
   resolveEffectiveInferenceSelection,
-  resolveWireTierFromSelection,
+  resolveEffectiveWireTierFromSelection,
 } from '@/common/config/eveInferenceCore';
 import { buildEveCloudRoute, type CommandEveEveCloudRoute } from './ollamaOpenAiShim';
 import { getActiveSeatId } from './seatContextCore';
@@ -128,12 +128,21 @@ export async function readInferenceSelectionFromBackendStrict(): Promise<string 
  *
  * Chain (exactly what the shim's per-request routing resolver runs):
  *   readSelection() [backend store] → resolveEffectiveInferenceSelection
- *     → isEveInferenceSelection? → resolveWireTierFromSelection → buildEveCloudRoute
+ *     → isEveInferenceSelection? → resolveEffectiveWireTierFromSelection
+ *     → buildEveCloudRoute
  *
  * A LOCAL selection returns `{ active: false }`. An EVE selection returns an
- * active route carrying the wire tier (standard/high/xhigh/max/ultra) + license. A rejected
- * `readSelection` deliberately propagates: unreadable state is not equivalent to
- * an absent setting and must never become an implicit Standard or local route.
+ * active route carrying the wire tier + license. A rejected `readSelection`
+ * deliberately propagates: unreadable state is not equivalent to an absent
+ * setting and must never become an implicit Standard or local route.
+ *
+ * THE NON-BRICK CLAMP: `readMaxEntitled` is OPTIONAL and three-state. When it
+ * proves the seat is NOT MAX-entitled, a persisted MAX selection resolves to
+ * `standard` for THIS request only — the stored intent is never rewritten here,
+ * so it lights up again the moment the seat buys. When it is absent or returns
+ * `undefined` the tier travels unchanged and the server stays the binding gate;
+ * inferring "unentitled" from an unreadable status would silently downgrade a
+ * paying seat, which is the exact failure class this module was written to close.
  */
 export async function resolveEveCloudRouteFromBackend(deps: {
   /** Read the raw persisted picker selection (backend store). */
@@ -142,12 +151,14 @@ export async function resolveEveCloudRouteFromBackend(deps: {
   readLicense: () => string | undefined;
   /** Edge Function URL (overridable in tests). */
   functionUrl?: string;
+  /** Proven MAX entitlement, or `undefined` when unknown (see the clamp note). */
+  readMaxEntitled?: () => boolean | undefined;
 }): Promise<CommandEveEveCloudRoute | undefined> {
   const selection = resolveEffectiveInferenceSelection(await deps.readSelection());
   if (!isEveInferenceSelection(selection)) {
     return { active: false };
   }
-  const tier = resolveWireTierFromSelection(selection);
+  const tier = resolveEffectiveWireTierFromSelection(selection, { maxEntitled: deps.readMaxEntitled?.() });
   const license = deps.readLicense();
   return buildEveCloudRoute({
     isEveSelection: true,

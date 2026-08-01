@@ -327,6 +327,8 @@
   "commandEveLocalRuntime": "Command EVE Local Runtime",
   "commandEveLocalRuntimeDesc": "EVE kann ausgewählte Aufgaben direkt auf diesem Mac verarbeiten. Benötigte lokale Komponenten werden beim ersten Einsatz geprüft oder vorbereitet.",
   "commandEveLocalRuntimeBackend": "Lokale Verarbeitung",
+  "commandEveLocalLane": "Lokal verarbeiten",
+  "commandEveLocalLaneHint": "EVE arbeitet vollstaendig auf diesem Mac. Es werden keine Cloud-Credits verbraucht.",
   "commandEveLocalRuntimeMeta": "{{context}} Kontext · min. {{memory}} GB RAM · {{disk}} GB Speicher",
   "commandEveLocalRuntimeCurrent": "Aktiv",
   "commandEveLocalRuntimeSelect": "Auswählen",
