@@ -30,6 +30,8 @@ export const RENDERER_PROVIDER_KEYS = [
   'auto-update.get-status',
   'auto-update.quit-and-install',
   'command-eve.active-seat',
+  'command-eve.artifact-context-envelope',
+  'command-eve.artifact-turn-steer',
   'command-eve.auth-logout',
   'command-eve.auth-password-login',
   'command-eve.auth-web-login',
@@ -119,6 +121,7 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.telemetry-consent-get',
   'command-eve.telemetry-consent-set',
   'command-eve.video-artifacts-list',
+  'command-eve.video-edit',
   'command-eve.video-generate',
   'command-eve.warm-local-model',
   'is-dev-tools-opened',
@@ -206,6 +209,10 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'auto-update.get-status': 'void',
   'auto-update.quit-and-install': 'void',
   'command-eve.active-seat': 'void',
+  'command-eve.artifact-context-envelope': 'record',
+  // conversationId + the correction text AS DELIVERED to the runtime (trimmed by
+  // the send box, not raw keystrokes). Revokes only; it can grant nothing.
+  'command-eve.artifact-turn-steer': 'record',
   'command-eve.auth-logout': 'void',
   'command-eve.auth-password-login': 'record',
   'command-eve.auth-web-login': 'record',
@@ -296,6 +303,7 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'command-eve.telemetry-consent-set': 'record',
   // conversationId only — reads MAIN's own local durable video-artifact store.
   'command-eve.video-artifacts-list': 'record',
+  'command-eve.video-edit': 'record',
   // Prompt, tier, duration, conversationId and an optional grant-verified image
   // PATH. Main re-reads that path and computes the base64/SHA-256 itself.
   'command-eve.video-generate': 'record',

@@ -11,6 +11,8 @@
  * These pin the scrub that closes that path.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   SCRUBBED_MODEL_PLACEHOLDER,
@@ -110,5 +112,54 @@ describe('scrubUpstreamErrorBody — the shim passthrough', () => {
 
   it('is a no-op on empty text', () => {
     expect(scrubUpstreamErrorBody('', false)).toBe('');
+  });
+});
+
+/**
+ * THE SCRUB IS ONLY WORTH ITS TESTS IF PRODUCTION CALLS IT.
+ *
+ * The block above proves the function. It does not prove that the four renderer
+ * sites which render UPSTREAM error text still route through it — and that gap
+ * was found by sabotage: deleting `scrubModelIdentifiers(...)` from the ACP
+ * PDF-failure toast left the whole focused suite green, so the toast would have
+ * shipped a provider/model id straight into the composer with nothing red.
+ *
+ * These are source-text pins, deliberately, and the limitation is stated rather
+ * than hidden: they catch a DELETION at a named site, not a semantically
+ * equivalent rewrite. They exist because a deletion is what actually happens.
+ */
+describe('the scrub is WIRED at every renderer site that renders upstream error text', () => {
+  const ROOT = path.resolve(__dirname, '../../../');
+  const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+  /** Strip comments so a prose mention of the scrub cannot satisfy a code pin. */
+  const code = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  const ACP = code(read('packages/desktop/src/renderer/pages/conversation/platforms/acp/AcpSendBox.tsx'));
+  const AIONRS = code(read('packages/desktop/src/renderer/pages/conversation/platforms/aionrs/AionrsSendBox.tsx'));
+  const SENDBOX = code(read('packages/desktop/src/renderer/components/chat/SendBox/index.tsx'));
+
+  it('the ACP PDF-preparation failure toast scrubs the upstream message', () => {
+    expect(ACP).toMatch(/scrubModelIdentifiers\(\s*initialFailure\.message,\s*CLOUD_MODEL_IDENTIFIERS\s*\)/);
+  });
+
+  it('the shared send bar scrubs the send-failure reason (the toast pinned at duration 0)', () => {
+    expect(SENDBOX).toMatch(/scrubModelIdentifiers\(\s*rawReason,\s*CLOUD_MODEL_IDENTIFIERS\s*\)/);
+    // The RAW text may still reach the console — that is the debugging half and
+    // must not be mistaken for the user-facing one.
+    expect(SENDBOX).toMatch(/content:\s*reason/);
+  });
+
+  it('BOTH aionrs error paths scrub — the send failure and the correction failure', () => {
+    expect((AIONRS.match(/scrubErrorText\(\s*error,\s*CLOUD_MODEL_IDENTIFIERS\s*\)/g) ?? []).length).toBe(2);
+  });
+
+  it('every site passes the concrete deny-list, not just the shape scrub', () => {
+    for (const [name, src] of [
+      ['AcpSendBox', ACP],
+      ['AionrsSendBox', AIONRS],
+      ['SendBox', SENDBOX],
+    ] as const) {
+      expect(src, `${name} must import the cloud model deny-list`).toMatch(/CLOUD_MODEL_IDENTIFIERS/);
+    }
   });
 });

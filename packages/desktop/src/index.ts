@@ -65,6 +65,10 @@ import { applyLauncherWiring, clearHermesDelegateTransportEnv } from './process/
 import { resolveDispatchAgentId } from './process/commandEve/eveAgentTaskRegistry';
 import { resolveTeamManageBearer, teamManageProposeHandler } from './process/commandEve/eveTeamManageMain';
 import {
+  artifactCapabilityCallHandler,
+  resolveArtifactCapabilityBearer,
+} from './process/commandEve/artifactCapabilityLoopback';
+import {
   kanbanAcpProposeHandler,
   readKanbanAcpBoard,
   resolveKanbanAcpBearer,
@@ -1174,6 +1178,11 @@ function registerCommandEveRuntimeBridge(): void {
             kanbanAcpBearer: resolveKanbanAcpBearer,
             kanbanAcpPropose: kanbanAcpProposeHandler,
             kanbanAcpRead: readKanbanAcpBoard,
+            // MAT-1747: the app-owned artifact capability. Injected at EVERY shim
+            // start site — the bearer is per-boot, so a site that forgets it would
+            // 404 the route for the whole session with no other symptom.
+            artifactCapabilityBearer: resolveArtifactCapabilityBearer,
+            artifactCapabilityCall: artifactCapabilityCallHandler,
           }))
       );
       let warmupReceipt: CommandEveModelWarmupReceipt | undefined;
@@ -1244,6 +1253,11 @@ function registerCommandEveRuntimeBridge(): void {
             kanbanAcpBearer: resolveKanbanAcpBearer,
             kanbanAcpPropose: kanbanAcpProposeHandler,
             kanbanAcpRead: readKanbanAcpBoard,
+            // MAT-1747: the app-owned artifact capability. Injected at EVERY shim
+            // start site — the bearer is per-boot, so a site that forgets it would
+            // 404 the route for the whole session with no other symptom.
+            artifactCapabilityBearer: resolveArtifactCapabilityBearer,
+            artifactCapabilityCall: artifactCapabilityCallHandler,
           }))
       );
       let warmupReceipt: CommandEveModelWarmupReceipt | undefined;
@@ -1816,6 +1830,8 @@ const handleAppReady = async (): Promise<void> => {
         kanbanAcpBearer: resolveKanbanAcpBearer,
         kanbanAcpPropose: kanbanAcpProposeHandler,
         kanbanAcpRead: readKanbanAcpBoard,
+        artifactCapabilityBearer: resolveArtifactCapabilityBearer,
+        artifactCapabilityCall: artifactCapabilityCallHandler,
       })
     );
     commandEveOllamaShimStartFailure = undefined;

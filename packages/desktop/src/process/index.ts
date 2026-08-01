@@ -26,4 +26,31 @@ export const initializeProcess = async () => {
 
   await initStorage();
   mark('initStorage');
+
+  // MAT-1747 round 5 — invalidate every live paid-video-edit authority left by a
+  // previous process: permit records, active-turn pointers, in-flight locks.
+  // Completed receipts are kept, because they are what stops a legitimate retry
+  // becoming a second charge.
+  //
+  // AFTER initStorage, because it needs the data path; imported dynamically so
+  // this entry file does not pull the video store into every consumer of
+  // `initializeProcess`.
+  //
+  // THIS CALL IS NOT THE GUARANTEE — the guarantee is that the paid handler
+  // refuses until some sweep has proven the store, and the mint path runs the
+  // same sweep on the next ordinary send. This is the proactive half, so a
+  // remembered permit arriving over the Hermes loopback before any user send
+  // finds nothing left to spend. Both halves live in
+  // `videoEditSpendPermitStore`; neither is allowed to be the only one.
+  try {
+    const [{ reinitializeVideoEditSpendStore }, { getDataPath }] = await Promise.all([
+      import('@process/commandEve/videoEditSpendPermitStore'),
+      import('@process/utils/utils'),
+    ]);
+    mark(`videoEditSpendStore ${reinitializeVideoEditSpendStore(getDataPath())}`);
+  } catch (error) {
+    // A failure here leaves the store UNPROVEN, which is already the refusing
+    // state — nothing to compensate for, only something to say out loud.
+    console.error('[CommandEVE:process] video-edit spend store reinitialization failed:', error);
+  }
 };

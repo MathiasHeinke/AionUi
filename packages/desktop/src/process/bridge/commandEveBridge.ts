@@ -158,7 +158,10 @@ import { parseCloudOcrMarkdownPages } from '@process/commandEve/document/pdfInte
 import { readCommandEveLimitedResponseText } from '@process/commandEve/limitedFetchResponse';
 import { handleCommandEveImagePrepare } from '@process/bridge/commandEveImageBridge';
 import {
+  handleCommandEveArtifactContextEnvelopeBridge,
+  handleCommandEveArtifactTurnSteerBridge,
   handleCommandEveVideoArtifactsListBridge,
+  handleCommandEveVideoEditBridge,
   handleCommandEveVideoGenerateBridge,
 } from '@process/bridge/commandEveVideoBridge';
 import { handleCommandEvePresentationPrepare } from '@process/bridge/commandEvePresentationBridge';
@@ -2147,6 +2150,16 @@ export function initCommandEveBridge(): void {
   bridge.buildProvider('command-eve.image-prepare').provider(handleCommandEveImagePrepare);
   bridge.buildProvider('command-eve.video-generate').provider(handleCommandEveVideoGenerateBridge);
   bridge.buildProvider('command-eve.video-artifacts-list').provider(handleCommandEveVideoArtifactsListBridge);
+  // MAT-1747. The envelope rides the turn the user was already sending, so this
+  // is a READ with no side effect on the transcript; the edit below is the only
+  // spending path and it accepts a capability handle, never an id.
+  bridge
+    .buildProvider('command-eve.artifact-context-envelope')
+    .provider(handleCommandEveArtifactContextEnvelopeBridge);
+  // A steer never builds an envelope, so this is the only place the outstanding
+  // spend permit can be retired when the person corrects a run in flight.
+  bridge.buildProvider('command-eve.artifact-turn-steer').provider(handleCommandEveArtifactTurnSteerBridge);
+  bridge.buildProvider('command-eve.video-edit').provider(handleCommandEveVideoEditBridge);
 
   bridge.buildProvider('command-eve.cloud-visual-policy-read').provider(async () => {
     const policy = await readCommandEveCloudVisualPolicy();

@@ -33,6 +33,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { CommandEveVideoConversationArtifact } from '@/common/config/videoGenerationRequestCore';
+import { hydrateVideoArtifactPayload } from '@/common/config/videoGenerationRequestCore';
 
 const VIDEO_ARTIFACT_MANIFEST_DIR = 'command-eve-video-artifacts';
 const VIDEO_DOWNLOADS_SUBDIR = 'Command EVE Videos';
@@ -107,7 +108,13 @@ function parseArtifactRecord(value: unknown): CommandEveVideoConversationArtifac
   ) {
     return undefined;
   }
-  return record as unknown as CommandEveVideoConversationArtifact;
+  const artifact = record as unknown as CommandEveVideoConversationArtifact;
+  // Hydrate on the way OUT, not at the call sites. Records written before the
+  // registry fields existed are still on disk, and every caller from here on is
+  // entitled to a record whose declared fields are actually present. Recovering
+  // it once, here, is the difference between a type that describes the data and
+  // one that only describes the newest data.
+  return { ...artifact, payload: hydrateVideoArtifactPayload(artifact.payload) };
 }
 
 /** List every locally-durable video artifact for this conversation, oldest first. */

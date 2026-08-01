@@ -37,6 +37,14 @@ async function main() {
       entryPoints: [path.join(ROOT, 'packages/desktop/src/process/resources/builtinMcp/imageGenServer.ts')],
       outfile: path.join(ROOT, 'out/main/builtin-mcp-image-gen.js'),
     }),
+    // MAT-1747 — the app-owned artifact capability. Bundled the same way and for
+    // the same reason: this runs under an EXTERNAL node, where ASAR require()
+    // patching does not exist, so it has to be self-contained.
+    esbuild.build({
+      ...SHARED_OPTIONS,
+      entryPoints: [path.join(ROOT, 'packages/desktop/src/process/resources/builtinMcp/eveArtifactContextServer.ts')],
+      outfile: path.join(ROOT, 'out/main/builtin-mcp-eve-artifacts.js'),
+    }),
   ]);
 }
 

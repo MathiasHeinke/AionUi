@@ -75,10 +75,8 @@ import { buildDisplayMessage } from '@/renderer/utils/file/messageFiles';
 import { isCommandEvePdfPath, mergeCommandEvePreparedPdfFiles } from '@/common/config/evePdfIntelligenceCore';
 import { isCommandEvePresentationPath } from '@/common/config/evePresentationIntelligenceCore';
 import { isCommandEveImagePath } from '@/common/config/eveImageIntelligenceCore';
-import {
-  buildCommandEvePreparedAgentInput,
-  composeCommandEvePreparedContext,
-} from '@/common/config/evePreparedContextCore';
+import { composeCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
+import { buildCommandEveAgentTurnInput } from '@/common/config/eveArtifactContextEnvelopeCore';
 import {
   extractCommandEveManagedVisualTurnToken,
   resolveCommandEveManagedVisualPreferredTier,
@@ -513,7 +511,48 @@ const AcpSendBox: React.FC<{
           dispatchPreparedContext = `${authorization.data.marker}\n${dispatchPreparedContext}`;
         }
 
-        const agentInput = buildCommandEvePreparedAgentInput(input, dispatchPreparedContext);
+        // MAT-1747 C1. The artifact registry rides THIS turn instead of costing
+        // an extra inference turn to announce itself. It is wrapped in the same
+        // `[[COMMAND_EVE_PREPARED_CONTEXT]]` delimiters MessageText already
+        // strips, so what the user sees is byte-identical to what it would be
+        // WITHOUT the envelope. (Not "to what they typed": that stripper has
+        // always trimmed leading whitespace off every message it renders, with
+        // or without this feature.)
+        //
+        // Everything here is best-effort by design: a conversation with no
+        // artifacts gets `''` and the turn is unchanged, and a failed lookup
+        // must never stop a message from being sent. That is why this is a
+        // separate try/catch — the enclosing one turns a throw into a failed
+        // send, and a missing registry is not a failed send.
+        let artifactEnvelope = '';
+        try {
+          const envelopeResult = await ipcBridge.commandEve.artifactContextEnvelope.invoke({
+            conversationId: conversation_id,
+            // The raw turn, so Main can bind THIS send's single-use spend permit
+            // to it. Main hashes it and keeps no copy of the TEXT — the digest
+            // is persisted, because that is the binding; the sentence is not. No
+            // permit is minted for a turn that carries no text.
+            //
+            // RAW HERE MEANS RAW, and this is the one path that claim covers.
+            // `input` goes to the mint UNTOUCHED and to `buildCommandEveAgentTurnInput`
+            // below UNTOUCHED, so on an ordinary turn the bytes the permit is
+            // bound to and the bytes the agent reads are the same bytes,
+            // whitespace included. The correction path in `dispatchSteer` is a
+            // different rule and says so at its own call site.
+            userTurnText: input,
+          });
+          if (envelopeResult?.success && typeof envelopeResult.data?.envelope === 'string') {
+            artifactEnvelope = envelopeResult.data.envelope;
+          }
+        } catch {
+          artifactEnvelope = '';
+        }
+
+        const agentInput = buildCommandEveAgentTurnInput({
+          userInput: input,
+          preparedContext: dispatchPreparedContext,
+          artifactEnvelope,
+        });
         const displayMessage = buildDisplayMessage(agentInput, displayFiles ?? files, workspacePath || '');
 
         runtimeView.markSendStarted();
@@ -712,12 +751,86 @@ Please check your local CLI tool authentication status`,
 
       const stableRequestId = requestId ?? steerRetryRequestIdsRef.current.get(inFlightKey) ?? uuid();
       if (!requestId) steerRetryRequestIdsRef.current.set(inFlightKey, stableRequestId);
-      const pendingRequest = ipcBridge.acpConversation.steer.invoke({
-        input: normalizedInput,
-        conversation_id,
-        turn_id: turnId,
-        request_id: stableRequestId,
-      });
+
+      // MAT-1747. A correction is a real user turn, and it is the ONLY kind of
+      // real user turn that never builds a context envelope — it goes straight
+      // to the runtime over HTTP. So this is the one place that can retire the
+      // spend permit minted for the turn the user is now correcting; without it,
+      // that permit stayed live right across the person saying something else.
+      //
+      // BEFORE the correction reaches the run, not after: the other order leaves
+      // a window in which the model holds both the new instruction and the old
+      // permit.
+      //
+      // A FAILURE HERE IS NOT SWALLOWED — it is answered in main. Round 3 caught
+      // this rejection and let the permit live on, and that was fail-open on
+      // spending: local storage misbehaves and the app quietly keeps the ability
+      // to charge the user against an instruction they have already superseded.
+      //
+      // The rule is now split instead of traded. The CORRECTION is still never
+      // blocked by the permit store — that is what this catch protects, and it is
+      // the whole of what it protects. The PAID EDIT AUTHORITY fails closed
+      // elsewhere: `handleCommandEveArtifactTurnSteer` puts the conversation into
+      // a retired state whenever a permit store exists for it, which is every
+      // case in which a live permit could exist, and does that whether the
+      // revoke worked or threw. `handleCommandEveVideoEdit` then reads that
+      // state before it fetches or debits anything.
+      //
+      // WHAT THIS CATCH STILL CANNOT COVER, stated because the two calls below
+      // do not share a transport: the retire is a renderer->main IPC provider,
+      // while `acpConversation.steer` is an HTTP POST from the renderer straight
+      // to the runtime. So an IPC layer that is down takes the retire with it and
+      // leaves the correction working — main never learns, and nothing here can
+      // tell it. That residual is in the decision record and is not closed.
+      //
+      // WRAPPED, so the in-flight entry below is still registered SYNCHRONOUSLY.
+      // Awaiting the retire out here instead would put an await between the
+      // duplicate check and the `set` that answers it, and two rapid promotions
+      // of the same command would both send a correction.
+      const pendingRequest = (async () => {
+        try {
+          await ipcBridge.commandEve.artifactTurnSteer.invoke({
+            conversationId: conversation_id,
+            // `normalizedInput`, NOT `input`, and that is the contract rather
+            // than an oversight. A correction MINTS NOTHING; it retires
+            // authority. The right thing for a retirement to name is what the
+            // run was actually told, which is the very string handed to
+            // `acpConversation.steer` four lines below — so the recorded turn
+            // and the turn the agent read are the same bytes by construction.
+            //
+            // It is therefore NOT the raw-keystroke binding used when a permit
+            // is MINTED (see `userTurnText` on the send path above). Saying
+            // "raw bytes" of both was an overclaim; the two paths carry two
+            // different invariants on purpose.
+            //
+            // AND THERE IS NO RAW VALUE HERE TO BIND EVEN IF WE WANTED ONE. Both
+            // callers reach `dispatchSteer` through
+            // `buildConversationBusyControlCommand`, which does not pass the
+            // user's text along — it REBUILDS it as `/steer <trimmed args>`. So
+            // by the time `input` arrives it is already a command string the
+            // person never typed, with the padding gone. `input.trim()` above is
+            // defensive, not the place the whitespace is lost. Proved by
+            // sabotage: replacing this value with `input` leaves the suite green
+            // (the two are equal here), while decoupling it from the string sent
+            // to the runtime turns four tests red.
+            //
+            // Consequence, stated: a correction that differs from the minting
+            // turn only in leading or trailing whitespace leaves this pointer
+            // where it was. The revoke and the unconditional deny in Main both
+            // still fire, which is why the pointer is the backstop here and not
+            // the defence.
+            steerText: normalizedInput,
+          });
+        } catch {
+          /* see above: a correction is never blocked by the permit store */
+        }
+        return ipcBridge.acpConversation.steer.invoke({
+          input: normalizedInput,
+          conversation_id,
+          turn_id: turnId,
+          request_id: stableRequestId,
+        });
+      })();
       activeSteerRequestsRef.current.set(inFlightKey, pendingRequest);
 
       const clearActiveRequest = () => {

@@ -19,7 +19,7 @@
  *      any state mutates; an admin→client and admin→Founder-home succeed).
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Capture real providers.
 const registered = new Map<string, (req?: unknown) => Promise<unknown>>();
@@ -40,7 +40,22 @@ vi.mock('@process/utils/initStorage', () => ({
   getSkillsDir: () => '/tmp/skills',
   getCronSkillsDir: () => '/tmp/cron-skills',
 }));
-vi.mock('@process/utils/utils', () => ({ getDataPath: () => '/tmp/ce-rail-data' }));
+// TEST ISOLATION (no production change): this file SEEDS seat runtime files and then
+// `rm -rf`s its whole data root in beforeEach/afterEach. A FIXED, machine-global root
+// ('/tmp/ce-rail-data') is shared by every AionUi worktree on this machine, so two
+// suites running at the same time seed and delete EACH OTHER's files: the observed
+// failure was the H4 fail-closed case, where the other run's afterEach removed the
+// shared root mid-test, so even the ROLLBACK target (SEAT_A) lost its valid files and
+// the rollback re-spawn never ran ("expected vi.fn() to be called 1 times, but got 0").
+// A unique per-run root via mkdtemp makes the fixture private to this process; the
+// assertions below are untouched.
+const { DATA_PATH } = vi.hoisted(() => {
+  const nodeFs = require('node:fs') as typeof import('node:fs');
+  const nodeOs = require('node:os') as typeof import('node:os');
+  const nodePath = require('node:path') as typeof import('node:path');
+  return { DATA_PATH: nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'ce-rail-data-')) };
+});
+vi.mock('@process/utils/utils', () => ({ getDataPath: () => DATA_PATH }));
 
 // Control ONLY the network wire read; the parse + access classification stay REAL.
 let wirePayload: unknown = null;
@@ -67,7 +82,7 @@ import { setActiveSeatId, __resetActiveSeatForTests, resolveSeatHermesHome } fro
 const SEAT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const SEAT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const LEGACY = 'seat-1';
-const DATA_PATH = '/tmp/ce-rail-data';
+// DATA_PATH is the hoisted per-run mkdtemp root declared above the vi.mock factory.
 
 // H4 precondition: the switch now FAILS-CLOSED unless the target seat home already
 // holds a valid config.yaml + SOUL.md (never boot a seat on wheel defaults). These
@@ -122,6 +137,11 @@ beforeEach(() => {
 afterEach(() => {
   __resetActiveSeatForTests();
   vi.clearAllMocks();
+  fs.rmSync(DATA_PATH, { recursive: true, force: true });
+});
+// The per-run mkdtemp root is this process's alone — remove it once at the end so no
+// temp directory survives the run (afterEach already clears its contents).
+afterAll(() => {
   fs.rmSync(DATA_PATH, { recursive: true, force: true });
 });
 

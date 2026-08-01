@@ -65,6 +65,13 @@ const main = {
   /** What MAIN would answer if it were asked RIGHT NOW. */
   maxActive: false,
   laneDecisionCalls: 0,
+  /**
+   * The CURRENT seat-context revision, answered on the SEPARATE `seatContext`
+   * channel. Defaults to the revision the RECEIPT carries, so every other case
+   * in this file behaves exactly as before. A test that sets it to a different
+   * value is simulating the seat being re-bound between the two reads.
+   */
+  seatContextRevision: REVISION as number,
 };
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
@@ -85,7 +92,7 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
       }),
     },
     seatContext: {
-      invoke: vi.fn(async () => ({ success: true, data: { seatContextRevision: REVISION } })),
+      invoke: vi.fn(async () => ({ success: true, data: { seatContextRevision: main.seatContextRevision } })),
     },
     activeSeat: {
       invoke: vi.fn(async () => ({ success: true, data: { ok: true, seat_id: SEAT } })),
@@ -126,6 +133,7 @@ beforeEach(() => {
   events.length = 0;
   main.maxActive = false;
   main.laneDecisionCalls = 0;
+  main.seatContextRevision = REVISION;
   put.gate = null;
   put.failWith = null;
   configService.reset();
@@ -526,5 +534,46 @@ describe('the startup theme migration cannot refresh the authority', () => {
     const keys = Object.keys(migrateThemeConfig({}));
     expect(keys.toSorted()).toEqual(['theme.activeId', 'theme.userThemes']);
     expect(keys).not.toContain(SELECTION_KEY);
+  });
+});
+
+/**
+ * THE STALENESS GUARD, DRIVEN THROUGH THE REAL HOOK.
+ *
+ * WHY THIS EXISTS (added during the video<->MAX merge proof). The pure core
+ * `shouldPaintMaxSurface` is well covered, and `eveMaxAuthority.test.ts` pins the
+ * literal call expression `shouldPaintMaxSurface(state, activeSeatId,
+ * currentRevision)` by reading the hook's source text. But a source-text pin is
+ * satisfied by any file that contains that string. Feeding the RECEIPT'S OWN
+ * revision in as `currentRevision` — comparing a receipt against itself, which is
+ * not a staleness check at all — was caught ONLY by that regex; no test asserted
+ * the resulting BEHAVIOUR. These two do, through the real hook and the real two
+ * IPC reads, so a semantically-equivalent rewrite cannot slip past.
+ */
+describe('the MAX visual refuses a receipt whose seat was re-bound underneath it', () => {
+  it('a CURRENT revision that differs from the receipt never paints', async () => {
+    main.maxActive = true;
+    // Main decided `max` at revision 11; the independent seat-context read then
+    // answers 12 — the same seat id, re-bound between the two reads.
+    main.seatContextRevision = REVISION + 1;
+
+    const view = await mountAuthority();
+    await letEverythingSettle();
+
+    // The receipt itself is positive and ready — the refusal is the guard, not
+    // a missing answer.
+    expect(view.result.current.state.status).toBe('ready');
+    expect(view.result.current.state.status === 'ready' && view.result.current.state.receipt.maxActive).toBe(true);
+    expect(view.result.current.maxActive).toBe(false);
+  });
+
+  it('POSITIVE CONTROL: the same receipt at the CURRENT revision does paint', async () => {
+    main.maxActive = true;
+    main.seatContextRevision = REVISION;
+
+    const view = await mountAuthority();
+    await letEverythingSettle();
+
+    expect(view.result.current.maxActive).toBe(true);
   });
 });

@@ -43,6 +43,8 @@ import { provisionKanbanAcpBearerFile } from './kanbanAcpMain';
 import { commandEveShimAuthTokenFilePath, provisionCommandEveShimAuthTokenFile } from './ollamaOpenAiShim';
 import { getBuiltinMcpScriptPath } from '../utils/builtinMcpPath';
 import { honchoMcpServerForSeat } from './honchoMcpServerCore';
+import { provisionArtifactCapabilityBearerFile } from './artifactCapabilityLoopback';
+import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG, isAgentVideoEditEnabled } from './agentVideoEditFlag';
 import {
   eveHonchoMemoryDirective,
   resolveHonchoRenderForSeat,
@@ -1736,6 +1738,59 @@ export function buildCommandEveManagedImageHermesMcpServer(input: {
 }
 
 /**
+ * MAT-1747 — the artifact capability server, built on the SAME doctrine as the
+ * image generator directly above: an app-owned capability goes into Hermes'
+ * private 0600 config, not through the external-connector vault flag. This path
+ * therefore does NOT touch `COMMAND_EVE_MCP_VAULT_ENABLED`, which gates
+ * `resolveVettedMcpServersForBootstrap` and nothing here.
+ *
+ * The loopback bearer never enters config.yaml — only the PATH to the 0600 file
+ * does, and the child reads it itself. Every input is validated to an absolute
+ * path or a loopback URL, and anything else yields `undefined` rather than a
+ * half-configured server that would fail at first use.
+ */
+export function buildCommandEveArtifactContextHermesMcpServer(input: {
+  nodeExecutable: string;
+  scriptPath: string;
+  shimBaseUrl: string;
+  bearerFile: string;
+  /**
+   * POLICY F — whether THIS seat may be told about the paid edit tool.
+   *
+   * Emitted into the child's env only when true, so the default config is
+   * byte-identical to the one that shipped and a closed seat publishes a tool
+   * list with no spending capability in it at all.
+   *
+   * Omitting the key rather than writing `0` is safe because the reader
+   * (`isAgentVideoEditEnabled`) demands exactly `'1'`: an absent key and a `'0'`
+   * produce the same answer, so the shorter config says the same thing. The
+   * asymmetry is on the other side — an ENABLED seat must state it explicitly,
+   * because Hermes spawns this child and nothing here is entitled to assume our
+   * environment reaches it.
+   */
+  videoEditEnabled?: boolean;
+}): CommandEveHermesMcpServer | undefined {
+  const nodeExecutable = input.nodeExecutable.trim();
+  const scriptPath = input.scriptPath.trim();
+  const bearerFile = input.bearerFile.trim();
+  if (!path.isAbsolute(nodeExecutable) || !path.isAbsolute(scriptPath) || !path.isAbsolute(bearerFile)) {
+    return undefined;
+  }
+  if (!isLoopbackHttpUrl(input.shimBaseUrl)) return undefined;
+
+  return {
+    id: 'aionui-eve-artifacts',
+    command: nodeExecutable,
+    args: [scriptPath],
+    env: {
+      AIONUI_EVE_ARTIFACT_BASE_URL: new URL(input.shimBaseUrl).origin,
+      AIONUI_EVE_ARTIFACT_BEARER_FILE: bearerFile,
+      ...(input.videoEditEnabled === true ? { [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' } : {}),
+    },
+  };
+}
+
+/**
  * Render the Hermes `mcp_servers:` config block from vetted connectors. An empty
  * list renders the inline empty map `mcp_servers: {}` — IDENTICAL to the prior
  * hardcoded literal, so first-run output is unchanged until v1.4 populates the
@@ -2802,10 +2857,26 @@ function writeCommandEveManagedSkills(
 export const COMMAND_EVE_CLI_PLATFORM_TOOLSETS: readonly string[] = Object.freeze(['hermes-cli']);
 export const COMMAND_EVE_ACP_PLATFORM_TOOLSETS: readonly string[] = Object.freeze(['hermes-acp']);
 
-function buildCommandEveRuntimeReconciliation(
+/**
+ * Exported for MAT-1747 so the `mcp_servers` half of the receipt can be tested
+ * directly. It could not be before, and that is part of why it went on
+ * under-reporting: the only way to reach it was through a full runtime render,
+ * which in a test emits no servers at all — so the wrong value looked right.
+ */
+export function buildCommandEveRuntimeReconciliation(
   paths: RuntimeBootstrapPaths,
   capabilityPack: CommandEveCapabilityPack,
-  executableSkillIds: string[]
+  executableSkillIds: string[],
+  /**
+   * The ids ACTUALLY emitted into `mcp_servers:` for this seat.
+   *
+   * This was a hardcoded `[]` and had been under-reporting since the managed
+   * image server landed. Defaulted rather than required so the second caller —
+   * `ensureCommandEveManagedSkillsReconciliation`, which reconciles skills only
+   * and never renders a config — keeps its existing meaning instead of claiming
+   * a server set it did not compute.
+   */
+  emittedMcpServerIds: readonly string[] = []
 ): CommandEveRuntimeReconciliation {
   const executable = new Set(executableSkillIds);
   return {
@@ -2820,7 +2891,7 @@ function buildCommandEveRuntimeReconciliation(
       .map((skill) => skill.id),
     connector_ids: capabilityPack.connectors.map((connector) => connector.id),
     hermes_config: {
-      mcp_servers: [],
+      mcp_servers: [...emittedMcpServerIds],
       skills_external_dirs: [`\${HERMES_HOME}/${COMMAND_EVE_MANAGED_SKILLS_DIR}`],
       disabled_skills: COMMAND_EVE_HERMES_DISABLED_SKILLS,
       platform_toolsets: { cli: [...COMMAND_EVE_CLI_PLATFORM_TOOLSETS], acp: [...COMMAND_EVE_ACP_PLATFORM_TOOLSETS] },
@@ -2839,9 +2910,15 @@ function buildCommandEveRuntimeReconciliation(
 function writeCommandEveRuntimeReconciliation(
   paths: RuntimeBootstrapPaths,
   capabilityPack: CommandEveCapabilityPack,
-  executableSkillIds: string[]
+  executableSkillIds: string[],
+  emittedMcpServerIds: readonly string[] = []
 ): void {
-  const reconciliation = buildCommandEveRuntimeReconciliation(paths, capabilityPack, executableSkillIds);
+  const reconciliation = buildCommandEveRuntimeReconciliation(
+    paths,
+    capabilityPack,
+    executableSkillIds,
+    emittedMcpServerIds
+  );
   writeJsonAtomic(paths.runtimeReconciliation, reconciliation);
   writeJsonAtomic(path.join(paths.hermesHome, COMMAND_EVE_RUNTIME_RECONCILIATION_FILE), reconciliation);
 }
@@ -5235,7 +5312,12 @@ function writeHermesRuntimeFiles(
     capabilityPack,
     bundledSkillsDir
   );
-  writeCommandEveRuntimeReconciliation(paths, capabilityPack, executableSkillIds);
+  // The reconciliation used to be written HERE, before the MCP servers were
+  // resolved, which is why it hardcoded `mcp_servers: []` and under-reported
+  // every server the config actually emitted. A receipt that names an empty list
+  // while the config names three is not a receipt, it is a second source of
+  // truth that is always wrong. It now runs AFTER the server set is known (see
+  // `emittedMcpServers` below) and reports what was actually emitted.
   const hermesBaseUrl = ollamaOpenAiCompatibleBaseUrl(manifest.local_runtime.egress_proxy_url);
   const contextLength = tierContextLength(tier);
   const ollamaNumCtx = tierOllamaNumCtx(tier);
@@ -5263,11 +5345,46 @@ function writeHermesRuntimeFiles(
           authTokenFile: managedImageTokenFile,
         })
       : undefined;
+  // MAT-1747 — the app-owned artifact capability. Same three preconditions as
+  // the image server (a managed node, a built script, a provisioned 0600 bearer)
+  // so a dev tree without the bundled node emits nothing rather than a server
+  // Hermes would fail to spawn. The bearer file is provisioned here, next to the
+  // config that names it, so a seat switch cannot leave a config pointing at a
+  // file this boot never wrote.
+  const artifactCapabilityScriptPath = getBuiltinMcpScriptPath('builtin-mcp-eve-artifacts');
+  const artifactCapabilityBearerFile = provisionArtifactCapabilityBearerFile(paths.userDataPath);
+  const artifactContextMcpServer =
+    managedImageNodeExecutable && fs.existsSync(artifactCapabilityScriptPath) && artifactCapabilityBearerFile
+      ? buildCommandEveArtifactContextHermesMcpServer({
+          nodeExecutable: managedImageNodeExecutable,
+          scriptPath: artifactCapabilityScriptPath,
+          shimBaseUrl: manifest.local_runtime.egress_proxy_url,
+          bearerFile: artifactCapabilityBearerFile,
+          // POLICY F — one flag, both surfaces. The child publishes the paid
+          // tool only when the same check the paid handler makes says this seat
+          // may spend. Default off, so the emitted config is unchanged.
+          videoEditEnabled: isAgentVideoEditEnabled(),
+        })
+      : undefined;
   // COMPA-624 Inc.3 — the per-seat Honcho MCP server, or undefined when Honcho is
   // not fresh-ready / has no venv launcher (the builder is fully fail-safe). When
   // present it is prepended to the vetted set for THIS seat (the render input was
   // resolved with the target seatId, so no active-seat drift).
   const honchoMcpServer = honchoMcpServerForSeat(honcho.cfg, honcho.ready, honcho.launcher);
+  // ONE list, used by BOTH the emitted config and the reconciliation receipt, so
+  // the two cannot disagree about what this seat is running.
+  const emittedMcpServers = [
+    managedImageMcpServer,
+    artifactContextMcpServer,
+    honchoMcpServer,
+    ...vettedMcpServers,
+  ].filter((server): server is CommandEveHermesMcpServer => Boolean(server));
+  writeCommandEveRuntimeReconciliation(
+    paths,
+    capabilityPack,
+    executableSkillIds,
+    emittedMcpServers.map((server) => server.id)
+  );
   // T4 YOU-ARE-HERE: build the environment_hint from PROCESS-LOCAL seat context for
   // THIS seat's home (paths.hermesHome already resolves to the active/target seat).
   // All sources are process-local (no network, no env) so the emitted file — which
@@ -5425,11 +5542,7 @@ function writeHermesRuntimeFiles(
     // boundary intact rather than force-wiring credentials at first run.
     // Connector emitter (v1.1.0 line): render the vetted EXTERNAL MCP servers
     // (catalog + guided preflight / HumanGate) instead of a hardcoded empty map.
-    ...renderHermesMcpServersYaml(
-      [managedImageMcpServer, honchoMcpServer, ...vettedMcpServers].filter(
-        (server): server is CommandEveHermesMcpServer => Boolean(server)
-      )
-    ),
+    ...renderHermesMcpServersYaml(emittedMcpServers),
     // The remember + self-optimize halves of the soul. Both default OFF in code
     // (FACT agent/agent_init.py:1076-1077 memory_enabled/user_profile_enabled
     // default False) so they MUST be emitted explicitly or MEMORY.md/USER.md

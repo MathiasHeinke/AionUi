@@ -5,12 +5,17 @@
  */
 
 import { act, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { BackendHttpError } from '@/common/adapter/httpBridge';
 import AcpSendBox from '@/renderer/pages/conversation/platforms/acp/AcpSendBox';
 import type { UseAcpMessageReturn } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
 import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
+import { stripCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
 
 const {
   sendMessageInvokeMock,
@@ -56,6 +61,8 @@ const {
   configSetMock,
   initialMessageParamsMock,
   buildDisplayMessageMock,
+  artifactContextEnvelopeInvokeMock,
+  artifactTurnSteerInvokeMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
   steerInvokeMock: vi.fn(),
@@ -125,6 +132,8 @@ const {
     current: null as { sendInitialMessage?: (input: string, files: string[]) => Promise<boolean> } | null,
   },
   buildDisplayMessageMock: vi.fn((input: string) => input),
+  artifactContextEnvelopeInvokeMock: vi.fn(),
+  artifactTurnSteerInvokeMock: vi.fn(),
 }));
 
 function createDeferred<T>() {
@@ -175,6 +184,12 @@ vi.mock('@/common', () => ({
       videoGenerate: {
         invoke: videoGenerateInvokeMock,
       },
+      artifactContextEnvelope: {
+        invoke: artifactContextEnvelopeInvokeMock,
+      },
+      artifactTurnSteer: {
+        invoke: artifactTurnSteerInvokeMock,
+      },
     },
     pptPreview: {
       start: {
@@ -194,6 +209,22 @@ vi.mock('@/common/config/configService', () => ({
     subscribe: vi.fn(() => vi.fn()),
   },
 }));
+
+// MAT-1747 round 5 — the PRODUCTION-ROUTE suite at the bottom of this file runs
+// the REAL main-process handlers behind the bridge mock above, so that the
+// renderer seam a correction actually travels is proven end to end instead of
+// asserted against a spy.
+//
+// Two seams have to be stubbed for a main handler to run inside a renderer test,
+// and neither is on the path under test: Main reads the CEVE licence wire from
+// disk (there is no account here), and it resolves the seat data directory from
+// Electron. The data path used by the assertions is INJECTED per call instead,
+// so nothing in these tests depends on this stub returning anything real.
+// Nothing under `packages/desktop/src/renderer` imports either module.
+vi.mock('@/common/config/licenseWireAtRest', () => ({
+  readLicenseWire: () => ({ ok: true, wire: 'ceve-wire-token' }),
+}));
+vi.mock('@process/utils/utils', () => ({ getDataPath: () => '/tmp/eve-data-unused' }));
 
 vi.mock('@/renderer/components/chat/SendBox', () => ({
   default: (props: {
@@ -560,6 +591,15 @@ describe('AcpSendBox', () => {
       },
     });
     steerInvokeMock.mockReset();
+    // MAT-1747: the default is an EMPTY envelope, which is what a conversation
+    // with no artifacts produces. Every pre-existing assertion in this file
+    // therefore keeps asserting the byte-identical message it always did.
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({ success: true, data: { envelope: '' } });
+    // MAT-1747: a steer retires the outstanding spend permit. Default is "there
+    // was nothing to retire", which is what every seat with the default-off paid
+    // path reports, so no pre-existing assertion in this file changes meaning.
+    artifactTurnSteerInvokeMock.mockReset();
+    artifactTurnSteerInvokeMock.mockResolvedValue({ success: true, data: { revoked: 0 } });
     buildDisplayMessageMock.mockImplementation((input: string) => input);
     queueRemoveMock.mockResolvedValue(undefined);
     queueRestoreMock.mockResolvedValue(undefined);
@@ -771,6 +811,183 @@ describe('AcpSendBox', () => {
       })
     );
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('MAT-1747: folds the artifact registry into the turn while the sent text stays byte-identical', async () => {
+    // ACCEPTANCE 1 + 2 at the real call site. The registry rides the turn the
+    // user was already sending — there is no second sendMessage, so no extra
+    // inference turn — and the user's words survive verbatim once the prepared
+    // context block is stripped, which is exactly what MessageText does when it
+    // renders the message back to them.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({
+      success: true,
+      data: { envelope: '- artifact_id=video-aubergine kind=video editable=true edit_handle=evecap_' + 'a'.repeat(64) },
+    });
+    sendMessageInvokeMock.mockResolvedValue({
+      turn_id: 'turn-1',
+      msg_id: 'message-1',
+      runtime: {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    // The RAW user turn goes with the request, byte-identical to the text that
+    // is displayed: Main hashes exactly these bytes into this send's single-use
+    // spend permit. It does NOT prove a human pressed send — Main cannot observe
+    // an active turn on the pinned AionCore — it proves the permit is bound to
+    // the same bytes the user sees.
+    expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith({
+      conversationId: 'conv-1',
+      userTurnText: 'Hello',
+    });
+    const sent = String(sendMessageInvokeMock.mock.calls[0][0].input);
+    expect(sent).toContain('artifact_id=video-aubergine');
+    expect(stripCommandEvePreparedContext(sent)).toBe('Hello');
+    // Exactly ONE turn. A hidden announcement turn would show up here as a
+    // second call, which is the whole reason this assertion exists.
+    expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('MAT-1747: a REJECTED envelope lookup never costs the user their message', async () => {
+    // THE ACP SEND LIFECYCLE, and the reason the envelope call has a try/catch of
+    // its own rather than living under the enclosing one. The enclosing catch
+    // turns a throw into a FAILED SEND — so without the inner catch, any hiccup
+    // in a local artifact registry (an unwritable store, a busy disk, an IPC
+    // blip) would stop the person's message from reaching the model at all.
+    //
+    // A registry that cannot be read is not a failed send. It is a send without
+    // a registry, which is exactly what this app did before MAT-1747 existed.
+    //
+    // Nothing exercised this: every other test in this file resolves the mock.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+    artifactContextEnvelopeInvokeMock.mockRejectedValue(new Error('artifact store unreadable'));
+    sendMessageInvokeMock.mockResolvedValue({
+      turn_id: 'turn-1',
+      msg_id: 'message-1',
+      runtime: {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledTimes(1);
+    // The turn is byte-identical to what it would be with no artifacts at all —
+    // no half-written block, no delimiter left open.
+    const sent = String(sendMessageInvokeMock.mock.calls[0][0].input);
+    expect(sent).toBe('Hello');
+    expect(sent).not.toContain('COMMAND_EVE_PREPARED_CONTEXT');
+  });
+
+  it('MAT-1747: an UNSUCCESSFUL envelope response is treated as no envelope, not as a failure', async () => {
+    // The other shape a bridge can answer with. `success: false` is a normal
+    // outcome (Main declines to build one), and it must read as "nothing to
+    // add", never as a reason to withhold the message.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({ success: false, msg: 'no store' });
+    sendMessageInvokeMock.mockResolvedValue({
+      turn_id: 'turn-1',
+      msg_id: 'message-1',
+      runtime: {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(String(sendMessageInvokeMock.mock.calls[0][0].input)).toBe('Hello');
+  });
+
+  it('MAT-1747: a non-string envelope is ignored rather than stringified into the turn', async () => {
+    // `typeof … === 'string'` is the guard. Without it an object would arrive in
+    // the prompt as `[object Object]` — inside prepared-context delimiters, so
+    // the user would never see it and the model would read it as context.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({ success: true, data: { envelope: { entries: [] } } });
+    sendMessageInvokeMock.mockResolvedValue({
+      turn_id: 'turn-1',
+      msg_id: 'message-1',
+      runtime: {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const sent = String(sendMessageInvokeMock.mock.calls[0][0].input);
+    expect(sent).toBe('Hello');
+    expect(sent).not.toContain('object Object');
   });
 
   it('surfaces a PDF preparation failure without starting a model turn', async () => {
@@ -1422,7 +1639,13 @@ describe('AcpSendBox', () => {
     await duplicate;
 
     expect(queueRemoveMock).toHaveBeenCalledTimes(1);
-    expect(steerInvokeMock).toHaveBeenCalledTimes(1);
+    // `waitFor`, not a bare assertion: the duplicate is refused SYNCHRONOUSLY by
+    // the promotion guard, so awaiting it says nothing about how far the first
+    // one has got. Counting the sends after they have had a chance to happen is
+    // the claim this test is actually making — that two rapid promotions produce
+    // ONE correction — and it does not weaken with the number of awaits the
+    // dispatch path happens to contain today.
+    await waitFor(() => expect(steerInvokeMock).toHaveBeenCalledTimes(1));
 
     send.resolve({});
     await act(async () => {
@@ -1463,6 +1686,99 @@ describe('AcpSendBox', () => {
       request_id: expect.any(String),
     });
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('MAT-1747: retires the outstanding spend permit BEFORE the correction reaches the run', async () => {
+    // THE round-2 hole, at the only call site that can close it. A steer never
+    // builds a context envelope — it is an HTTP call straight to the runtime —
+    // so the permit minted for the previous turn stayed live right across the
+    // user saying something else. Nothing else in this app can notice a steer.
+    //
+    // The ORDER is the assertion that matters: retire first, then correct. The
+    // other way round leaves a window in which the model has both the new
+    // instruction and the old permit.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '/steer Correct the active run' };
+    sendBoxMessageMock.current = '/steer Correct the active run';
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = 'turn-1';
+    steerInvokeMock.mockResolvedValue({
+      msg_id: 'correction-1',
+      turn_id: 'turn-1',
+      accepted: true,
+      runtime: null,
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    expect(artifactTurnSteerInvokeMock).toHaveBeenCalledWith({
+      conversationId: 'conv-1',
+      // The bytes that actually reach the run, so the recorded turn is the turn
+      // the agent was given and not a prettier version of it.
+      steerText: '/steer Correct the active run',
+    });
+    expect(steerInvokeMock).toHaveBeenCalledTimes(1);
+    expect(artifactTurnSteerInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      steerInvokeMock.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('MAT-1747: a failed retire never blocks the correction itself', async () => {
+    // HALF ONE of the round-4 split, at the renderer boundary. Retiring the
+    // permit is a local file operation, and a user correcting a running model
+    // must not be refused because it failed — so the rejection is caught here
+    // and the correction still goes.
+    //
+    // What this does NOT mean any more is that the failure is free. Round 3 paid
+    // for this with a permit that outlived the steer; round 4 pays for it in
+    // main instead, where the handler retires the conversation's spend authority
+    // on every path that could not prove the permit gone. That half is pinned by
+    // `videoEditSpendDeny.test.ts` — a renderer test cannot see it, and saying
+    // so here is the point.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '/steer Correct the active run' };
+    sendBoxMessageMock.current = '/steer Correct the active run';
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = 'turn-1';
+    artifactTurnSteerInvokeMock.mockRejectedValue(new Error('permit store unavailable'));
+    steerInvokeMock.mockResolvedValue({
+      msg_id: 'correction-1',
+      turn_id: 'turn-1',
+      accepted: true,
+      runtime: null,
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    expect(steerInvokeMock).toHaveBeenCalledTimes(1);
+    expect(messageErrorMock).not.toHaveBeenCalled();
+    // Still awaited first even when it rejects, so main always gets its chance
+    // to retire the conversation before the correction reaches the run.
+    expect(artifactTurnSteerInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      steerInvokeMock.mock.invocationCallOrder[0]
+    );
   });
 
   it('reuses the same correction request id after a transport failure', async () => {
@@ -2199,5 +2515,506 @@ describe('AcpSendBox', () => {
         }),
       })
     );
+  });
+});
+
+/**
+ * MAT-1747 round 5 — THE PRODUCTION ROUTE OF A CORRECTION, END TO END.
+ *
+ * WHY THIS SUITE EXISTS. An earlier round recorded a substrate gap that read, in
+ * effect, "`artifactTurnSteer` is a Main bridge provider while
+ * `acpConversation.steer` is an httpPost straight from the renderer to the
+ * backend" — and the honest reading of that sentence is a question nobody had
+ * answered: does the retirement run in production at all, or is it security
+ * logic on a path a real correction never takes? Dead logic that is counted as
+ * coverage is worse than no logic.
+ *
+ * THE ANSWER, established by reading the real call sites and pinned here:
+ *
+ *   BOTH legs are production, and they are two different transports.
+ *
+ *   leg 1  AcpSendBox `dispatchSteer` -> `ipcBridge.commandEve.artifactTurnSteer`
+ *          -> `@office-ai/platform` bridge -> `electronAPI.emit`
+ *          (`preload/main.ts`) -> `ipcRenderer.invoke('office-ai-bridge-adapter')`
+ *          -> `ipcMain.handle` (`common/adapter/main.ts:127`) -> the provider
+ *          registered at `process/bridge/commandEveBridge.ts:2155` ->
+ *          `handleCommandEveArtifactTurnSteerBridge`. MAIN observes the
+ *          correction.
+ *
+ *   leg 2  the same `dispatchSteer` -> `ipcBridge.acpConversation.steer` ->
+ *          `httpPost` -> `http://127.0.0.1:<port>/api/conversations/<id>/steer`
+ *          -> the aioncore BINARY (`process/backend/binaryResolver.ts`). A
+ *          separate process; Main never sees this one.
+ *
+ * So the tests below drive the renderer seam a user's correction really goes
+ * through — the send box, with the same busy-mode promotion a real user gets —
+ * and put the REAL Main handler behind the bridge mock, which is exactly what
+ * the IPC transport does. Nothing is hand-called.
+ *
+ * The assertions are on the fetch spy and the debit spy DIRECTLY. A refusal that
+ * had already called the provider would satisfy `ok === false` and still cost
+ * money.
+ *
+ * SABOTAGE-CHECKED: deleting the `artifactTurnSteer.invoke` call from
+ * `dispatchSteer` turns the first test red. The wiring is load-bearing, not
+ * decorative.
+ */
+describe('MAT-1747 round 5 — the production route of a correction, renderer seam to Main', () => {
+  type StoreModule = typeof import('@/process/commandEve/videoEditSpendPermitStore');
+  type BridgeModule = typeof import('@/process/bridge/commandEveVideoBridge');
+  type HandleStoreModule = typeof import('@/process/commandEve/artifactCapabilityHandleStore');
+  type ArtifactStoreModule = typeof import('@/process/commandEve/videoArtifactStore');
+
+  const SOURCE_BYTES = Buffer.from('the founders five second aubergine clip');
+  const SOURCE_SHA = crypto.createHash('sha256').update(SOURCE_BYTES).digest('hex');
+  const editedBody = {
+    ok: true,
+    artifact: { mime_type: 'video/mp4', data_base64: 'QUJD', bytes: 3, sha256: 'e'.repeat(64) },
+    video_edit: {
+      model: 'grok-imagine-video',
+      tier: 'sd',
+      source_duration_seconds: 5,
+      source_sha256: SOURCE_SHA,
+      prompt_sha256: 'd'.repeat(64),
+      estimated_credits: 1000,
+    },
+  };
+
+  let dataRoot: string;
+  let videoRoot: string;
+  let store: StoreModule;
+  let bridge: BridgeModule;
+  let handleStore: HandleStoreModule;
+  let artifactStore: ArtifactStoreModule;
+
+  /** Everything main-side is loaded here so the rest of this file's graph is untouched. */
+  async function bootMain() {
+    store = await import('@/process/commandEve/videoEditSpendPermitStore');
+    bridge = await import('@/process/bridge/commandEveVideoBridge');
+    handleStore = await import('@/process/commandEve/artifactCapabilityHandleStore');
+    artifactStore = await import('@/process/commandEve/videoArtifactStore');
+  }
+
+  async function seedSource(conversationId: string, id: string) {
+    const { buildVideoConversationArtifact } = await import('@/common/config/videoGenerationRequestCore');
+    const clipPath = path.join(videoRoot, `${id}.mp4`);
+    fs.writeFileSync(clipPath, SOURCE_BYTES);
+    const artifact = buildVideoConversationArtifact({
+      id,
+      conversationId,
+      createdAtMs: 1_754_000_000_000,
+      path: clipPath,
+      artifact: {
+        mimeType: 'video/mp4',
+        sha256: SOURCE_SHA,
+        bytes: SOURCE_BYTES.byteLength,
+        durationSeconds: 5,
+        resolution: '480p',
+        estimatedCredits: 500,
+        model: 'grok-imagine-video',
+        dataBase64: '',
+        tierId: 'sd',
+      } as never,
+    });
+    artifactStore.saveVideoArtifactRecord(dataRoot, artifact);
+    return artifact;
+  }
+
+  /** The ordinary send that mints the permit, through the real envelope handler. */
+  async function armConversation(conversationId: string, turn: string) {
+    const source = await seedSource(conversationId, `video-${conversationId}`);
+    const handle = handleStore.ensureVideoEditCapabilityHandle(dataRoot, source)!;
+    const { envelope } = await bridge.handleCommandEveArtifactContextEnvelope(
+      { conversationId, userTurnText: turn },
+      {
+        getDataPath: () => dataRoot,
+        buildEntries: handleStore.buildConversationArtifactEnvelopeEntries,
+        isVideoEditEnabled: () => true,
+      }
+    );
+    const permit = /evespend_[0-9a-f]{64}/.exec(envelope)?.[0];
+    expect(permit).toBeTruthy();
+    return { handle, permit: permit! };
+  }
+
+  /** One edit attempt with the two spies the requirement names. */
+  async function attemptEdit(input: { handle: string; permit: string; instruction: string }) {
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(JSON.stringify(editedBody), { status: 200, headers: { 'content-type': 'application/json' } })
+    );
+    // Wraps the REAL atomic consume rather than replacing it, so a green result
+    // still went through the same one-shot claim production uses.
+    const debitSpy = vi.fn((...args: Parameters<StoreModule['consumeVideoEditSpendPermit']>) =>
+      store.consumeVideoEditSpendPermit(...args)
+    );
+    const result = await bridge.handleCommandEveVideoEdit(
+      { handle: input.handle, permit: input.permit, instruction: input.instruction },
+      {
+        getDataPath: () => dataRoot,
+        fetch: fetchSpy as unknown as typeof fetch,
+        newRequestId: () => 'req-fixed',
+        newArtifactId: () => 'video-edited',
+        getActiveSeatId: () => 'seat-1',
+        areFileSelectionPathsGranted: () => true,
+        readImageSource: () => ({ bytes: new Uint8Array([1, 2, 3, 4]) }),
+        saveVideoFile: (saveInput) => {
+          const savedPath = path.join(videoRoot, `${saveInput.artifactId}.mp4`);
+          fs.writeFileSync(savedPath, Buffer.from(saveInput.dataBase64, 'base64'));
+          return savedPath;
+        },
+        saveArtifactRecord: artifactStore.saveVideoArtifactRecord,
+        isVideoEditEnabled: () => true,
+        consumeSpendPermit: debitSpy,
+      }
+    );
+    return { result, fetchSpy, debitSpy };
+  }
+
+  /** Type the correction into the send box and press send, exactly as a user does. */
+  async function sendCorrectionThroughTheSendBox(conversationId: string, correction: string) {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: correction };
+    sendBoxMessageMock.current = correction;
+    // The busy state is what promotes a plain message into a correction.
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = 'turn-1';
+
+    render(
+      <AcpSendBox
+        conversation_id={conversationId}
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+  }
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-route-'));
+    videoRoot = path.join(dataRoot, 'videos');
+    fs.mkdirSync(videoRoot, { recursive: true });
+
+    sendBoxPropsMock.current = null;
+    queuePanelPropsMock.current = null;
+    queueOnExecuteMock.current = null;
+    mobileActionSheetPropsMock.current = null;
+    initialMessageParamsMock.current = null;
+    queueItemsMock.current = [];
+    queueEnqueueMock.mockReturnValue({ id: 'queued', input: 'queued', files: [], created_at: 1 });
+    shouldEnqueueMock.mockReturnValue(false);
+    runtimeViewMock.hydrated = true;
+    runtimeViewMock.isProcessing = false;
+    runtimeViewMock.canSendMessage = true;
+    runtimeViewMock.activeTurnId = null;
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+    sendBoxMessageMock.current = 'Hello';
+    layoutIsMobileMock.current = false;
+    agentModesMock.current = [];
+    getModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: true });
+    setModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: true });
+    configGetMock.mockImplementation((key: string) =>
+      key === 'acp.config' ? { hermes: { preferredMode: 'default' } } : undefined
+    );
+    configSetMock.mockResolvedValue(undefined);
+    buildDisplayMessageMock.mockImplementation((input: string) => input);
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({ success: true, data: { envelope: '' } });
+    steerInvokeMock.mockReset();
+    steerInvokeMock.mockResolvedValue({ msg_id: 'correction-1', turn_id: 'turn-1', accepted: true, runtime: null });
+
+    await bootMain();
+
+    // THE WIRING UNDER TEST. This is what the Electron IPC transport does: it
+    // carries the renderer's `invoke` payload to the provider main registered at
+    // `commandEveBridge.ts:2155`. Only the serialization hop is stood in for;
+    // the handler, the store and the disk are the real ones.
+    artifactTurnSteerInvokeMock.mockReset();
+    artifactTurnSteerInvokeMock.mockImplementation((request: { conversationId: string; steerText?: string }) =>
+      bridge.handleCommandEveArtifactTurnSteerBridge(request, { getDataPath: () => dataRoot })
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  });
+
+  // The `/steer ` prefix is what promotes a message typed during a run into a
+  // correction, and the bytes that reach the runtime keep it — so these are the
+  // bytes Main is given too.
+  const MINTING_TURN = '/steer gib der Aubergine ein Gesicht';
+
+  it('a correction typed in the send box leaves the old permit with ZERO provider fetch and ZERO debit', async () => {
+    const armed = await armConversation('conv-1', MINTING_TURN);
+
+    // The correction is BYTE-IDENTICAL to the minting turn on purpose: the
+    // turn-pointer defence must not be able to mask the result, so the only
+    // thing left standing between the model and a charge is what the correction
+    // did in Main.
+    await sendCorrectionThroughTheSendBox('conv-1', MINTING_TURN);
+
+    // The renderer really did take the correction path — leg 2, to aioncore.
+    expect(steerInvokeMock).toHaveBeenCalledTimes(1);
+
+    const attempt = await attemptEdit({
+      handle: armed.handle,
+      permit: armed.permit,
+      instruction: 'gib der Aubergine ein Gesicht',
+    });
+    expect(attempt.fetchSpy).not.toHaveBeenCalled();
+    expect(attempt.debitSpy).not.toHaveBeenCalled();
+    expect(attempt.result.ok).toBe(false);
+  });
+
+  it('POSITIVE CONTROL: without the correction the very same permit reaches the provider and the debit exactly once', async () => {
+    // Without this, a permanently broken harness would satisfy the test above.
+    const armed = await armConversation('conv-1', MINTING_TURN);
+
+    const attempt = await attemptEdit({
+      handle: armed.handle,
+      permit: armed.permit,
+      instruction: 'gib der Aubergine ein Gesicht',
+    });
+    expect(attempt.result.ok).toBe(true);
+    expect(attempt.fetchSpy).toHaveBeenCalledTimes(1);
+    expect(attempt.debitSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('the correction reaches Main BEFORE it reaches the runtime, and Main really wrote the retirement', async () => {
+    // Order, because the other way round leaves a window in which the model
+    // holds the new instruction and the old permit at the same time.
+    await armConversation('conv-1', MINTING_TURN);
+
+    const correction = '/steer warte, mach lieber den Hintergrund blau';
+    await sendCorrectionThroughTheSendBox('conv-1', correction);
+
+    expect(artifactTurnSteerInvokeMock).toHaveBeenCalledWith({
+      conversationId: 'conv-1',
+      steerText: correction,
+    });
+    expect(artifactTurnSteerInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      steerInvokeMock.mock.invocationCallOrder[0]
+    );
+    // Not a status string: the state Main actually left on disk.
+    expect(store.readVideoEditSpendDenyState(dataRoot, 'conv-1').durable).toBe(true);
+    expect(store.readActiveUserTurn(dataRoot, 'conv-1')?.user_turn_sha256).toBe(
+      crypto.createHash('sha256').update(correction).digest('hex')
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // MAT-1747 round 8 — WHAT EACH BINDING ACTUALLY BINDS, measured at the seam
+  // -------------------------------------------------------------------------
+  //
+  // An audit rejected a blanket "every binding is the exact raw user bytes"
+  // claim, and it was right: `dispatchSteer` sends `normalizedInput`. Rather
+  // than argue, the claim is now SCOPED, and these tests are what makes the
+  // scoped version checkable instead of merely written down.
+  //
+  // TWO invariants, not one:
+  //
+  //   ORDINARY TURN (the only path that MINTS) — the permit binds the EXACT RAW
+  //   bytes of the user's turn, at mint AND at redeem. Leading and trailing
+  //   whitespace is load-bearing and survives end to end.
+  //
+  //   CORRECTION (the path that RETIRES) — nothing is minted, and the turn
+  //   pointer binds the bytes ACTUALLY DELIVERED TO THE RUNTIME. Those are
+  //   trimmed, and for a plain message typed during a run they are not even
+  //   text the user typed: the busy-mode promotion prepends `/steer `. A
+  //   raw-keystroke binding is therefore not merely unimplemented on this path,
+  //   it is not the right rule for it — the correct thing for a retirement to
+  //   name is what superseded the instruction IN THE RUN.
+  //
+  // These drive the real send box, the real bridge payload, the real Main
+  // handlers and the real store. Nothing hand-calls a hashing helper.
+
+  /** The ORDINARY send, through the send box, with the REAL Main envelope handler behind the IPC. */
+  async function sendOrdinaryThroughTheSendBox(conversationId: string, text: string) {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: text };
+    sendBoxMessageMock.current = text;
+    runtimeViewMock.isProcessing = false;
+    runtimeViewMock.canSendMessage = true;
+    runtimeViewMock.activeTurnId = null;
+
+    // Same wiring idea as the steer leg above: only the serialization hop is
+    // stood in for. The handler, the store and the disk are the real ones, so
+    // the digest under assertion is the one production would write.
+    artifactContextEnvelopeInvokeMock.mockImplementation((request: { conversationId: string; userTurnText?: string }) =>
+      bridge.handleCommandEveArtifactContextEnvelopeBridge(request, {
+        getDataPath: () => dataRoot,
+        buildEntries: handleStore.buildConversationArtifactEnvelopeEntries,
+        isVideoEditEnabled: () => true,
+      })
+    );
+    sendMessageInvokeMock.mockResolvedValue({
+      turn_id: 'turn-1',
+      msg_id: 'message-1',
+      runtime: {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id={conversationId}
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    return String(sendMessageInvokeMock.mock.calls[0][0].input);
+  }
+
+  const sha256 = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
+
+  // Padded on BOTH ends, and the padding is the whole point of the fixture.
+  const PADDED_TURN = '   Hello   ';
+
+  it('ORDINARY TURN: the padded raw bytes reach the mint AND the runtime, and the pointer is those bytes', async () => {
+    const source = await seedSource('conv-raw', 'video-conv-raw');
+    handleStore.ensureVideoEditCapabilityHandle(dataRoot, source);
+
+    const sent = await sendOrdinaryThroughTheSendBox('conv-raw', PADDED_TURN);
+
+    // 1. THE MINT was handed the padded bytes, untouched.
+    expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith({
+      conversationId: 'conv-raw',
+      userTurnText: PADDED_TURN,
+    });
+    // 2. THE RUNTIME was handed the same padded bytes. `endsWith` rather than
+    //    equality because the envelope block rides in front of them — which is
+    //    exactly the thing that could have eaten the whitespace and did not.
+    expect(sent.endsWith(PADDED_TURN)).toBe(true);
+    // 3. THE POINTER Main wrote is the digest of the padded bytes, and provably
+    //    NOT the digest of the trimmed ones.
+    expect(store.readActiveUserTurn(dataRoot, 'conv-raw')?.user_turn_sha256).toBe(sha256(PADDED_TURN));
+    expect(store.readActiveUserTurn(dataRoot, 'conv-raw')?.user_turn_sha256).not.toBe(sha256(PADDED_TURN.trim()));
+  });
+
+  it('ORDINARY TURN: the permit minted for the padded turn spends exactly once — POSITIVE CONTROL', async () => {
+    // Without this, the refusal in the next test could be a broken fixture
+    // rather than the whitespace mattering.
+    const source = await seedSource('conv-raw', 'video-conv-raw');
+    const handle = handleStore.ensureVideoEditCapabilityHandle(dataRoot, source)!;
+    const sent = await sendOrdinaryThroughTheSendBox('conv-raw', PADDED_TURN);
+
+    // The permit is read out of the bytes the MODEL received, not out of a
+    // handler return value — this is the credential the model actually holds.
+    const permit = /evespend_[0-9a-f]{64}/.exec(sent)?.[0];
+    expect(permit).toBeTruthy();
+
+    const attempt = await attemptEdit({ handle, permit: permit!, instruction: 'mach es kuerzer' });
+    expect(attempt.result.ok).toBe(true);
+    expect(attempt.fetchSpy).toHaveBeenCalledTimes(1);
+    expect(attempt.debitSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('ORDINARY TURN: REDEEM is byte-exact too — a pointer moved to the TRIMMED turn refuses the spend', async () => {
+    // The invariant is "at BOTH mint and redeem". The mint half is above; this
+    // is the redeem half. Whitespace is the only difference between the two
+    // digests, and it is enough to close the paid path.
+    const source = await seedSource('conv-raw', 'video-conv-raw');
+    const handle = handleStore.ensureVideoEditCapabilityHandle(dataRoot, source)!;
+    const sent = await sendOrdinaryThroughTheSendBox('conv-raw', PADDED_TURN);
+    const permit = /evespend_[0-9a-f]{64}/.exec(sent)?.[0];
+    expect(permit).toBeTruthy();
+
+    store.recordActiveUserTurn(dataRoot, 'conv-raw', sha256(PADDED_TURN.trim()));
+
+    const attempt = await attemptEdit({ handle, permit: permit!, instruction: 'mach es kuerzer' });
+    expect(attempt.result.ok).toBe(false);
+    expect(attempt.fetchSpy).not.toHaveBeenCalled();
+    expect(attempt.debitSpy).not.toHaveBeenCalled();
+  });
+
+  it('CORRECTION: the retire and the runtime get the SAME bytes, and they are the trimmed ones', async () => {
+    await armConversation('conv-1', MINTING_TURN);
+
+    const typedWithPadding = '  /steer mach den Hintergrund blau   ';
+    const delivered = '/steer mach den Hintergrund blau';
+    await sendCorrectionThroughTheSendBox('conv-1', typedWithPadding);
+
+    // Leg 1 (Main) and leg 2 (the runtime) carry ONE value between them. That
+    // identity is the invariant a retirement needs; being raw is not.
+    expect(artifactTurnSteerInvokeMock).toHaveBeenCalledWith({ conversationId: 'conv-1', steerText: delivered });
+    expect(String(steerInvokeMock.mock.calls[0][0].input)).toBe(delivered);
+    expect(String(steerInvokeMock.mock.calls[0][0].input)).not.toBe(typedWithPadding);
+
+    // And the pointer on disk is the DELIVERED digest, not the padded one.
+    expect(store.readActiveUserTurn(dataRoot, 'conv-1')?.user_turn_sha256).toBe(sha256(delivered));
+    expect(store.readActiveUserTurn(dataRoot, 'conv-1')?.user_turn_sha256).not.toBe(sha256(typedWithPadding));
+  });
+
+  it('CORRECTION: a promoted queued command is REWRITTEN, so no raw-keystroke binding exists to have', async () => {
+    // The reason the two paths cannot share one rule, on the other production
+    // route into `dispatchSteer`: promoting a queued message into the running
+    // turn. What the runtime receives is `/steer …` — a command string the
+    // person never typed, built by `buildConversationBusyControlCommand`.
+    // Binding the pointer to raw keystrokes would bind it to text the agent
+    // never saw, which is not a stricter rule, just a wrong one.
+    await armConversation('conv-2', MINTING_TURN);
+
+    const queuedItem = { id: 'queued-1', input: '   mach den Hintergrund blau   ', files: [], created_at: 1 };
+    const delivered = '/steer mach den Hintergrund blau';
+    queueItemsMock.current = [queuedItem];
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = 'turn-1';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-2'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    const onPromote = queuePanelPropsMock.current?.onPromote as
+      | ((item: typeof queuedItem) => Promise<void>)
+      | undefined;
+    expect(onPromote).toBeTypeOf('function');
+    await act(async () => {
+      await onPromote?.(queuedItem);
+    });
+
+    expect(artifactTurnSteerInvokeMock).toHaveBeenCalledWith({ conversationId: 'conv-2', steerText: delivered });
+    expect(String(steerInvokeMock.mock.calls[0][0].input)).toBe(delivered);
+    expect(String(steerInvokeMock.mock.calls[0][0].input)).not.toBe(queuedItem.input);
+    expect(store.readActiveUserTurn(dataRoot, 'conv-2')?.user_turn_sha256).toBe(sha256(delivered));
+    expect(store.readActiveUserTurn(dataRoot, 'conv-2')?.user_turn_sha256).not.toBe(sha256(queuedItem.input));
+  });
+
+  it('CORRECTION: whitespace never buys a spend back — the retirement still refuses with ZERO fetch and ZERO debit', async () => {
+    // The scoping is a documentation fix, not a weakening. The load-bearing
+    // defence on this path is the revoke plus the unconditional deny, and
+    // neither depends on which bytes the pointer holds.
+    const armed = await armConversation('conv-1', MINTING_TURN);
+
+    await sendCorrectionThroughTheSendBox('conv-1', `  ${MINTING_TURN}  `);
+
+    expect(store.readVideoEditSpendDenyState(dataRoot, 'conv-1').durable).toBe(true);
+    const attempt = await attemptEdit({
+      handle: armed.handle,
+      permit: armed.permit,
+      instruction: 'gib der Aubergine ein Gesicht',
+    });
+    expect(attempt.fetchSpy).not.toHaveBeenCalled();
+    expect(attempt.debitSpy).not.toHaveBeenCalled();
+    expect(attempt.result.ok).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 import type { TMessage } from '@/common/chat/chatLib';
 import type { TChatConversation } from '@/common/config/storage';
-import { stripCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
+import { redactCommandEveCapabilitySecrets, stripCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
 
 const INVALID_FILENAME_CHARS_RE = /[<>:"/\\|?*]/g;
 const padTimestampPart = (value: number): string => String(value).padStart(2, '0');
@@ -50,10 +50,14 @@ export const readMessageContent = (message: TMessage): string => {
     return stripCommandEvePreparedContext(content.content);
   }
 
+  // MAT-1747: the structured fallback bypasses `stripCommandEvePreparedContext`
+  // entirely, so it also bypassed its redaction. A capability handle or a
+  // single-use spend permit written into an exported file is a credential that
+  // outlives the conversation it belonged to.
   try {
-    return JSON.stringify(content ?? {}, null, 2);
+    return redactCommandEveCapabilitySecrets(JSON.stringify(content ?? {}, null, 2));
   } catch {
-    return String(content ?? '');
+    return redactCommandEveCapabilitySecrets(String(content ?? ''));
   }
 };
 

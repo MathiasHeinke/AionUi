@@ -398,6 +398,19 @@ export type CommandEveOllamaShimOptions = {
    * shim is byte-identical to before until Honcho is provisioned for the seat.
    */
   honchoDeriverRoute?: CommandEveHonchoDeriverRouteResolver;
+  /**
+   * MAT-1747 — the app-owned artifact capability surface the built-in MCP child
+   * loops back to. `artifactCapabilityBearer` mirrors the kanban/team pattern
+   * exactly (empty ⇒ the route 404s, so it is inert until main provisions it),
+   * and `artifactCapabilityCall` is the single bounded entry point behind it:
+   * one route, one JSON body naming an operation and the credentials for it.
+   *
+   * The MCP child gets NO credential of its own: it reads the 0600 bearer file
+   * and calls back here, where the CEVE licence lives. Provider keys, credit
+   * authority and idempotency stay on this side of the loopback.
+   */
+  artifactCapabilityBearer?: CommandEveTeamManageBearerResolver;
+  artifactCapabilityCall?: CommandEveTeamManageProposeHandler;
 };
 
 export function commandEveCacheScope(sessionId: unknown, seatId: unknown): string | undefined {
@@ -2073,6 +2086,94 @@ async function handleKanbanAcpRead(
   jsonResponse(response, 200, options.kanbanAcpRead());
 }
 
+/**
+ * The artifact capability route carries an operation name, two opaque
+ * credentials and an instruction of at most 2000 characters. 64 KB is generous
+ * by two orders of magnitude and still refuses a body that could only be an
+ * attempt to push bytes through a local port that was never meant to carry them.
+ * The shim's general `readBody` bound is 25 MB, which is right for an inference
+ * request and wrong for this.
+ */
+const ARTIFACT_CAPABILITY_MAX_BODY_BYTES = 64 * 1024;
+
+/**
+ * Read a bounded JSON body.
+ *
+ * The cap is enforced WHILE reading rather than after: a 25 MB body checked at
+ * the end has already been in memory. The distinct error lets the route answer
+ * 413 rather than a misleading "invalid JSON".
+ */
+function readBoundedJsonBody(request: IncomingMessage, maxBytes: number): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    let aborted = false;
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => {
+      if (aborted) return;
+      raw += chunk;
+      if (raw.length > maxBytes) {
+        aborted = true;
+        reject(new Error('ARTIFACT_CAPABILITY_BODY_TOO_LARGE'));
+        // Consume rather than destroy: destroying mid-flight makes the client
+        // see a transport error instead of the 413 we are about to send, which
+        // turns a clear refusal into an unexplained failure.
+        request.resume();
+      }
+    });
+    request.on('end', () => {
+      if (aborted) return;
+      try {
+        resolve(raw ? (JSON.parse(raw) as Record<string, unknown>) : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+    request.on('error', reject);
+  });
+}
+
+/**
+ * MAT-1747 — `POST /eve/artifact/call`. Bearer-gated exactly like the kanban
+ * routes, so it is a 404 on an unprovisioned seat rather than an open endpoint.
+ *
+ * ONE route rather than one per operation: the surface an MCP child can reach
+ * should be as small as the thing it needs to do, and every capability here is
+ * "present a handle, name an operation". Routing by operation INSIDE main keeps
+ * the authority decision in one place instead of spread across a handler per
+ * operation that could drift apart. Two operations exist today
+ * (`artifact_get`, `video_edit`) and anything else is a 400.
+ */
+async function handleArtifactCapabilityCall(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: Required<CommandEveOllamaShimOptions>
+): Promise<void> {
+  const expected = options.artifactCapabilityBearer();
+  const authHeader = headerToken(request.headers['authorization']);
+  const match = authHeader ? /^bearer\s+(.+)$/i.exec(authHeader) : null;
+  const token = match ? match[1].trim() : authHeader;
+  if (!expected || !token || !constantTimeEquals(token, expected)) {
+    jsonResponse(response, 404, {
+      error: { message: 'Unsupported Command EVE Ollama shim path: /eve/artifact/call' },
+    });
+    return;
+  }
+  let body: Record<string, unknown>;
+  try {
+    body = await readBoundedJsonBody(request, ARTIFACT_CAPABILITY_MAX_BODY_BYTES);
+  } catch (error) {
+    const tooLarge = error instanceof Error && error.message === 'ARTIFACT_CAPABILITY_BODY_TOO_LARGE';
+    jsonResponse(
+      response,
+      tooLarge ? 413 : 400,
+      { error: { message: tooLarge ? 'Request body too large.' : 'Invalid JSON body.' } }
+    );
+    return;
+  }
+  const result = await options.artifactCapabilityCall(body);
+  jsonResponse(response, result.status, result.payload);
+}
+
 export function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOllamaShimOptions = {}): Promise<string> {
   if (server?.listening) return Promise.resolve(serverUrl || `http://127.0.0.1:${DEFAULT_SHIM_PORT}`);
   if (serverStartInFlight) return serverStartInFlight;
@@ -2155,6 +2256,16 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
     // COMPA-624: default is an INERT deriver lane (503) until main injects the
     // free-tier route on a seat where Honcho is provisioned — purely additive.
     honchoDeriverRoute: shimOptions.honchoDeriverRoute || ((): CommandEveHonchoDeriverRoute => ({ active: false })),
+    // MAT-1747: default is UNPROVISIONED — empty bearer + inert handler, so
+    // `/eve/artifact/call` is a 404 until main injects it. Byte-identical shim
+    // behaviour for every seat that has not enabled the capability.
+    artifactCapabilityBearer: shimOptions.artifactCapabilityBearer || ((): string => ''),
+    artifactCapabilityCall:
+      shimOptions.artifactCapabilityCall ||
+      (async (): Promise<{ status: number; payload: unknown }> => ({
+        status: 404,
+        payload: { error: { message: 'artifact capabilities are not available on this seat.' } },
+      })),
   };
   const nextServer = http.createServer((request, response) => {
     void (async () => {
@@ -2201,6 +2312,10 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
       }
       if (request.method === 'GET' && requestPath === '/eve/kanban/read') {
         await handleKanbanAcpRead(request, response, options);
+        return;
+      }
+      if (request.method === 'POST' && requestPath === '/eve/artifact/call') {
+        await handleArtifactCapabilityCall(request, response, options);
         return;
       }
       jsonResponse(response, 404, { error: { message: `Unsupported Command EVE Ollama shim path: ${requestPath}` } });

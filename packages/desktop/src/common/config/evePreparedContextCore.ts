@@ -25,7 +25,14 @@ const cleanSourceName = (value: string): string =>
     .trim()
     .slice(0, 180) || 'document';
 
-const neutralizeContextBoundaries = (value: string): string =>
+/**
+ * Exported for MAT-1747: the artifact context envelope rides the SAME delimiters
+ * as prepared evidence, so it needs the same defence. Any value that reaches the
+ * envelope came from a filename, a title or a model-produced description, and
+ * one of those could otherwise close the block early and have the rest of itself
+ * read as instructions.
+ */
+export const neutralizeContextBoundaries = (value: string): string =>
   value
     .replaceAll(COMMAND_EVE_PREPARED_CONTEXT_START, '[[COMMAND EVE PREPARED CONTEXT]]')
     .replaceAll(COMMAND_EVE_PREPARED_CONTEXT_END, '[[/COMMAND EVE PREPARED CONTEXT]]')
@@ -86,6 +93,47 @@ export function buildCommandEvePreparedAgentInput(userInput: string, preparedCon
   ].join('\n');
 }
 
+/**
+ * MAT-1747 — the artifact capability handle and the single-use spend permit,
+ * as they appear when something has gone wrong.
+ *
+ * NOT A HIDE-FROM-THE-MODEL DEFENCE. Both tokens are deliberately model-visible
+ * capabilities; the model receives them by design and is meant to quote them
+ * back. What this keeps them out of is the USER-FACING ARTEFACT — the rendered
+ * transcript, an exported file, an auto-generated title — because those outlive
+ * the turn that bounded the token and travel to other people.
+ *
+ * Both live inside the prepared-context block, which is stripped below, so in
+ * the normal case neither is ever displayed. This pattern catches the abnormal
+ * case: an unterminated block, a model that quoted its own context back, a
+ * partially-copied message.
+ *
+ * Redaction runs on the way OUT of every strip, so it is one change rather than
+ * several that could drift apart. TWO call sites reach it directly —
+ * `MessageText.tsx` (what the user is shown) and `conversationExport.ts`
+ * (`readMessageContent`, what an export writes to a file) — and the auto-title
+ * lane inherits it, because `autoTitle.ts` reads every message through that same
+ * `readMessageContent`. Named precisely because an earlier version of this
+ * comment counted three direct callers and there are two.
+ *
+ * A GENERIC prefix class rather than the two literal prefixes on purpose: a
+ * third credential added later is redacted the day it is introduced, not the day
+ * someone remembers to update this line. The bound is 2 to 12 lowercase letters,
+ * which covers `evecap_` and `evespend_` with room to spare and still cannot
+ * swallow an unrelated 64-hex digest that has no prefix at all.
+ */
+const COMMAND_EVE_CAPABILITY_SECRET_RE = /\b([a-z]{2,12}_)[0-9a-f]{64}\b/g;
+
+/**
+ * Replace any capability handle or spend permit with a shape-preserving stub.
+ *
+ * The prefix survives so a support conversation can still say "it emitted a
+ * permit"; the 64 hex characters that are the actual secret do not.
+ */
+export function redactCommandEveCapabilitySecrets(value: string): string {
+  return value.replace(COMMAND_EVE_CAPABILITY_SECRET_RE, '$1[redacted]');
+}
+
 export function stripCommandEvePreparedContext(value: string): string {
   let output = value;
   let startIndex = output.indexOf(COMMAND_EVE_PREPARED_CONTEXT_START);
@@ -100,5 +148,5 @@ export function stripCommandEvePreparedContext(value: string): string {
       output.slice(endIndex + COMMAND_EVE_PREPARED_CONTEXT_END.length).replace(/^\s+/, '');
     startIndex = output.indexOf(COMMAND_EVE_PREPARED_CONTEXT_START);
   }
-  return output.trimStart();
+  return redactCommandEveCapabilitySecrets(output.trimStart());
 }

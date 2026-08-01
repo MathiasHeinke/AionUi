@@ -73,6 +73,7 @@ import type {
   CommandEveVideoGenerateRequest,
   CommandEveVideoGenerateResult,
 } from '../config/videoGenerationRequestCore';
+import type { CommandEveVideoEditRequest, CommandEveVideoEditResult } from '../config/videoEditRequestCore';
 import type {
   CommandEveManagedVisualTurnAuthorizationRequest,
   CommandEveManagedVisualTurnAuthorizationResult,
@@ -1893,6 +1894,46 @@ export const commandEve = {
     IBridgeResponse<CommandEveVideoConversationArtifact[]>,
     { conversationId: string }
   >('command-eve.video-artifacts-list'),
+  // MAT-1747 — the sanitized artifact registry the send-path folds into the
+  // prepared-context envelope of the turn the user was already sending. No extra
+  // inference turn is created; the displayed message stays byte-identical to
+  // what it would be WITHOUT the envelope, because
+  // `stripCommandEvePreparedContext` removes the block at render time.
+  // Returns `''` when the conversation has produced nothing, so an ordinary
+  // conversation costs exactly what it costs today.
+  // `userTurnText` is the raw message the user is about to send. Main hashes it
+  // into the single-use spend permit for this turn and keeps no copy of the TEXT
+  // — the digest is persisted (that is the binding), the sentence is not.
+  artifactContextEnvelope: bridge.buildProvider<
+    IBridgeResponse<{ envelope: string }>,
+    { conversationId: string; selectedArtifactIds?: string[]; userTurnText?: string }
+  >('command-eve.artifact-context-envelope'),
+  // MAT-1747 — a STEER is a real user turn, and this is where it is treated as
+  // one. A correction typed while the model is working never builds an envelope
+  // (it goes straight to the runtime over HTTP), so nothing on that path could
+  // retire the previous turn's spend permit. This retires it. It can only ever
+  // CLOSE a seat: there is no mint behind it, and a steer leaves the
+  // conversation with no spend authority until the next ordinary send.
+  //
+  // `denied` reports that the conversation was put into the retired state, which
+  // is what happens when the retirement above could not be proven — including
+  // when the store itself is unwritable. It is a REPORT: the renderer does not
+  // act on it and nothing downstream reads it. The enforcement is the state in
+  // main, checked independently by the edit handler.
+  artifactTurnSteer: bridge.buildProvider<
+    IBridgeResponse<{ revoked: number; denied: boolean }>,
+    { conversationId: string; steerText?: string }
+  >('command-eve.artifact-turn-steer'),
+  // MAT-1747 — edit an existing clip. Accepts two opaque credentials (the
+  // capability handle that says WHICH clip, the single-use spend permit that
+  // says the user just asked), an instruction, and an optional conversation id
+  // used only as a fence. What it does NOT accept is the point: no artifact id,
+  // no path and no tier, so a model cannot name its way to a source it was never
+  // granted, and cannot choose what the edit costs. The result is a NEW artifact
+  // beside the source; the source is never overwritten.
+  videoEdit: bridge.buildProvider<IBridgeResponse<CommandEveVideoEditResult>, CommandEveVideoEditRequest>(
+    'command-eve.video-edit'
+  ),
   // Main-authoritative per-seat visual policy. Renderer supplies no target seat
   // for reads/receipt issuance; expectedSeatId on mutation is only a stale fence.
   cloudVisualPolicyRead: bridge.buildProvider<IBridgeResponse<CommandEveCloudVisualPolicyState>, void>(

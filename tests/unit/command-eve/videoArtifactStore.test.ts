@@ -104,7 +104,19 @@ describe('saveVideoArtifactRecord + listVideoArtifactRecords — survives a relo
     // must find the same artifact without anything still in memory.
     const listed = listVideoArtifactRecords(tmpRoot, 'conv-1');
     expect(listed).toHaveLength(1);
-    expect(listed[0]).toEqual(artifact);
+    // Identity and the stored payload survive verbatim...
+    expect(listed[0].id).toBe(artifact.id);
+    expect(listed[0].conversation_id).toBe(artifact.conversation_id);
+    expect(listed[0].created_at).toBe(artifact.created_at);
+    expect(listed[0].payload.path).toBe(artifact.payload.path);
+    expect(listed[0].payload.hash).toBe(artifact.payload.hash);
+    // ...and the read HYDRATES the MAT-1748 registry fields, so a record written
+    // before they existed still answers the questions an edit has to ask. This
+    // is deliberately not `toEqual(artifact)` any more: the fixture here is the
+    // legacy shape, and demanding it back byte-identical would be demanding that
+    // old clips stay unusable.
+    expect(listed[0].payload.duration_seconds).toBe(5);
+    expect(listed[0].payload.origin_capability).toBe('video_generation');
   });
 
   it('never leaks another conversation’s artifacts', () => {
