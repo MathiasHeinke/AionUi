@@ -11,7 +11,10 @@
  *   (2) DEFAULT tier = Fast/720p (cheaper); 1080p is the explicit upgrade.
  *   (3) the submit GATE invariant: video NEVER requires a confirmation — asking
  *       for a video is the authorisation for it.
- *   (4) capability matrix: 1080p needs an image input AND grok-imagine-video-1.5.
+ *   (4) capability matrix: 1080p needs grok-imagine-video-1.5 — from a TEXT
+ *       prompt too (MAT-1753 corrected the "image-to-video only" belief).
+ *   (5) the four modes are mutually exclusive BY CONSTRUCTION, and the price is
+ *       keyed by (model, resolution) rather than by tier.
  *
  * No Electron/fs/network — same pattern as creditsCore.test.ts.
  */
@@ -31,9 +34,27 @@ import {
   listAvailableVideoTiers,
   deriveVideoCreditsPerSecond,
   requestRoutesToVideoLane,
+  buildVideoRequestMode,
+  resolveVideoPlan,
+  videoModelFor,
+  MAX_REFERENCE_VIDEO_SECONDS,
+  MAX_VIDEO_REFERENCE_IMAGES,
   VIDEO_LANE_AGENT_ID,
+  VIDEO_MODEL_USD_PER_SECOND,
   VIDEO_TIERS,
+  type VideoModeKind,
+  type VideoQualityTier,
 } from '@/common/config/videoCostCore';
+
+/** A seat with grok-imagine-video-1.5 proven available. */
+const HD15 = { hd15Available: true } as const;
+
+/** The resolved plan, or a hard failure — a test must never assert on a refusal it did not expect. */
+function plan(modeKind: VideoModeKind, tierId: VideoQualityTier, durationSeconds = 5) {
+  const resolved = resolveVideoPlan({ modeKind, tierId, durationSeconds, capabilities: HD15 });
+  if (resolved.ok !== true) throw new Error(`expected a plan, got refusal ${resolved.reason}`);
+  return resolved.plan;
+}
 
 // ---------------------------------------------------------------------------
 // (2) default tier — Fast/720p is the cheaper resting default
@@ -57,25 +78,34 @@ describe('VIDEO_TIERS — default + upgrade shape', () => {
   });
 
   it('prices the upgrade strictly above the default per second', () => {
-    const fast = getVideoTier('fast');
-    const hd = getVideoTier('hd');
-    expect(hd.creditsPerSecond).toBeGreaterThan(fast.creditsPerSecond);
+    expect(plan('text', 'hd').creditsPerSecond).toBeGreaterThan(plan('text', 'fast').creditsPerSecond);
   });
 
   // The per-second credit rate MUST equal the derivation from the OFFICIAL xAI
   // model profile. These three tests previously pinned SEEDANCE figures (24/68
   // cr/s) for a lane that routes to xAI — they were guards protecting the wrong
   // number, so a correction would have looked like a regression.
-  it('pins per-second credits to the real xAI model profile', () => {
-    expect(getVideoTier('sd').creditsPerSecond).toBe(100); // 480p  $0.05/s
-    expect(getVideoTier('fast').creditsPerSecond).toBe(140); // 720p  $0.07/s
-    expect(getVideoTier('hd').creditsPerSecond).toBe(500); // 1080p $0.25/s
+  it('pins per-second credits to the real xAI model profile, per MODEL', () => {
+    // RE-VERIFIED against the profile (MAT-1753 item E) rather than trusted. The
+    // rate is a function of (model, resolution): the same 720p costs 140 cr/s on
+    // the base model and 280 cr/s on 1.5, which is why it cannot live on a tier.
+    expect(VIDEO_MODEL_USD_PER_SECOND['grok-imagine-video']).toEqual({ '480p': 0.05, '720p': 0.07 });
+    expect(VIDEO_MODEL_USD_PER_SECOND['grok-imagine-video-1.5']).toEqual({
+      '480p': 0.08,
+      '720p': 0.14,
+      '1080p': 0.25,
+    });
+    expect(plan('text', 'sd').creditsPerSecond).toBe(100);
+    expect(plan('text', 'fast').creditsPerSecond).toBe(140);
+    expect(plan('text', 'hd').creditsPerSecond).toBe(500);
+    expect(plan('reference', 'fast').creditsPerSecond).toBe(280);
   });
 
-  it('each tier names the model that can actually produce it', () => {
-    expect(getVideoTier('sd').model).toBe('grok-imagine-video');
-    expect(getVideoTier('fast').model).toBe('grok-imagine-video');
-    expect(getVideoTier('hd').model).toBe('grok-imagine-video-1.5');
+  it('the MODE names the model that will actually produce it', () => {
+    expect(plan('text', 'sd').model).toBe('grok-imagine-video');
+    expect(plan('text', 'fast').model).toBe('grok-imagine-video');
+    expect(plan('text', 'hd').model).toBe('grok-imagine-video-1.5');
+    expect(plan('reference', 'fast').model).toBe('grok-imagine-video-1.5');
   });
 
   it('getVideoTier falls back to the default tier for an unknown id', () => {
@@ -92,10 +122,10 @@ describe('VIDEO_TIERS — default + upgrade shape', () => {
   // preview and debit speak the same unit and there is nothing left to reconcile.
   it('prices through the internal conversion, not a private 1cr=1ct unit', () => {
     // x2 metered floor, then 10 credits per EUR cent — the credits-core ratio.
-    expect(getVideoTier('fast').creditsPerSecond).toBe(7 * 2 * 10);
-    expect(getVideoTier('hd').creditsPerSecond).toBe(25 * 2 * 10);
+    expect(plan('text', 'fast').creditsPerSecond).toBe(7 * 2 * 10);
+    expect(plan('text', 'hd').creditsPerSecond).toBe(25 * 2 * 10);
     // The old private unit would have produced the raw USD cents as credits.
-    expect(getVideoTier('fast').creditsPerSecond).not.toBe(7);
+    expect(plan('text', 'fast').creditsPerSecond).not.toBe(7);
   });
 });
 
@@ -105,31 +135,35 @@ describe('VIDEO_TIERS — default + upgrade shape', () => {
 
 describe('estimateVideoCost — preview math', () => {
   it('defaults to the typical clip length + Fast/720p tier', () => {
-    const preview = estimateVideoCost({});
-    expect(preview.durationSeconds).toBe(DEFAULT_VIDEO_DURATION_SECONDS);
-    expect(preview.tier.id).toBe('fast');
-    expect(preview.isUpgrade).toBe(false);
+    const preview = estimateVideoCost({ modeKind: 'text' });
+    expect(preview?.durationSeconds).toBe(DEFAULT_VIDEO_DURATION_SECONDS);
+    expect(preview?.tier.id).toBe('fast');
+    expect(preview?.isUpgrade).toBe(false);
     // 5s x 140 credits/s = 700 (720p on grok-imagine-video, derived from $0.07/s).
-    expect(preview.estimatedCredits).toBe(700);
+    expect(preview?.estimatedCredits).toBe(700);
   });
 
   it('rounds the estimate UP so the preview never under-states', () => {
     // 3.2s -> ceil(duration) 4s x 140 credits/s = 560 (duration ceil first).
-    const preview = estimateVideoCost({ durationSeconds: 3.2 });
-    expect(preview.durationSeconds).toBe(4);
-    expect(preview.estimatedCredits).toBe(560);
+    const preview = estimateVideoCost({ modeKind: 'text', durationSeconds: 3.2 });
+    expect(preview?.durationSeconds).toBe(4);
+    expect(preview?.estimatedCredits).toBe(560);
   });
 
   it('floors a degenerate (0/negative) duration to the default clip length', () => {
-    expect(estimateVideoCost({ durationSeconds: 0 }).durationSeconds).toBe(DEFAULT_VIDEO_DURATION_SECONDS);
-    expect(estimateVideoCost({ durationSeconds: -5 }).durationSeconds).toBe(DEFAULT_VIDEO_DURATION_SECONDS);
+    expect(estimateVideoCost({ modeKind: 'text', durationSeconds: 0 })?.durationSeconds).toBe(
+      DEFAULT_VIDEO_DURATION_SECONDS
+    );
+    expect(estimateVideoCost({ modeKind: 'text', durationSeconds: -5 })?.durationSeconds).toBe(
+      DEFAULT_VIDEO_DURATION_SECONDS
+    );
   });
 
   it('costs MORE for the 1080p upgrade at the same duration', () => {
-    const fast = estimateVideoCost({ durationSeconds: 5, tierId: 'fast' });
-    const hd = estimateVideoCost({ durationSeconds: 5, tierId: 'hd' });
-    expect(hd.estimatedCredits).toBeGreaterThan(fast.estimatedCredits);
-    expect(hd.isUpgrade).toBe(true);
+    const fast = estimateVideoCost({ modeKind: 'text', durationSeconds: 5, tierId: 'fast', capabilities: HD15 });
+    const hd = estimateVideoCost({ modeKind: 'text', durationSeconds: 5, tierId: 'hd', capabilities: HD15 });
+    expect(hd!.estimatedCredits).toBeGreaterThan(fast!.estimatedCredits);
+    expect(hd?.isUpgrade).toBe(true);
   });
 });
 
@@ -164,10 +198,10 @@ describe('buildVideoSubmitGate — no per-generation confirmation', () => {
   // put in front of the operator.
   it('keeps a usable estimate for the default tier so the cost stays visible', () => {
     const gate = buildVideoSubmitGate();
-    const preview = estimateVideoCost({ tierId: gate.defaultTierId, durationSeconds: undefined });
-    expect(preview.tier.id).toBe('fast');
-    expect(preview.estimatedCredits).toBeGreaterThan(0);
-    expect(preview.isUpgrade).toBe(false);
+    const preview = estimateVideoCost({ modeKind: 'text', tierId: gate.defaultTierId });
+    expect(preview?.tier.id).toBe('fast');
+    expect(preview!.estimatedCredits).toBeGreaterThan(0);
+    expect(preview?.isUpgrade).toBe(false);
   });
 });
 
@@ -415,45 +449,174 @@ describe('buildResolvedVideoMessage — confirm carries the resolved tier/resolu
 // ---------------------------------------------------------------------------
 
 describe('video capability matrix (official xAI model profiles)', () => {
-  it('offers a text prompt only 480p and 720p — never 1080p', () => {
-    const tiers = listAvailableVideoTiers({ inputMode: 'text' });
+  it('offers a text prompt 480p and 720p when 1.5 is not proven', () => {
+    const tiers = listAvailableVideoTiers({ modeKind: 'text' });
     expect(tiers.map((t) => t.resolution)).toEqual(['480p', '720p']);
-    expect(tiers.every((t) => t.model === 'grok-imagine-video')).toBe(true);
   });
 
-  it('text + 1080p is IMPOSSIBLE — 1.5 is image-to-video only', () => {
-    // The negative case that drove this correction. grok-imagine-video (the only
-    // text-to-video model) tops out at 720p; grok-imagine-video-1.5 reaches 1080p
-    // but cannot take a bare prompt. Offering HD for text was a promise the
-    // provider cannot keep, no matter what the entitlement says.
-    expect(isVideoTierAvailable('hd', { inputMode: 'text' })).toBe(false);
-    expect(isVideoTierAvailable('hd', { inputMode: 'text', hd15Available: true })).toBe(false);
+  // INVERTED, MAT-1753. This assertion used to read "text + 1080p is IMPOSSIBLE —
+  // 1.5 is image-to-video only", and it was wrong about the provider: 1.5 does
+  // text-to-video at native 1080p. Kept as an assertion rather than deleted,
+  // because this exact combination is the one the product refused, and it keeps
+  // the half that IS still true — no 1.5 proven, no 1080p.
+  it('text + 1080p SUCCEEDS once 1.5 is available, and only then', () => {
+    expect(isVideoTierAvailable('hd', { modeKind: 'text' })).toBe(false);
+    expect(isVideoTierAvailable('hd', { modeKind: 'text', capabilities: HD15 })).toBe(true);
+    const hd = plan('text', 'hd');
+    expect(hd.model).toBe('grok-imagine-video-1.5');
+    expect(hd.resolution).toBe('1080p');
   });
 
   it('image + 1080p requires 1.5 to be genuinely available', () => {
-    expect(isVideoTierAvailable('hd', { inputMode: 'image' })).toBe(false);
-    expect(isVideoTierAvailable('hd', { inputMode: 'image', hd15Available: true })).toBe(true);
+    expect(isVideoTierAvailable('hd', { modeKind: 'image' })).toBe(false);
+    expect(isVideoTierAvailable('hd', { modeKind: 'image', capabilities: HD15 })).toBe(true);
   });
 
   it('1080p resolves to grok-imagine-video-1.5, nothing else', () => {
-    const hd = listAvailableVideoTiers({ inputMode: 'image', hd15Available: true }).find(
-      (t) => t.resolution === '1080p'
-    );
-    expect(hd?.model).toBe('grok-imagine-video-1.5');
-    expect(hd?.requiresImageInput).toBe(true);
+    expect(videoModelFor('text', '1080p')).toBe('grok-imagine-video-1.5');
+    expect(videoModelFor('image', '1080p')).toBe('grok-imagine-video-1.5');
+    // The base model has NO 1080p rate at all — absent, not zero.
+    expect(VIDEO_MODEL_USD_PER_SECOND['grok-imagine-video']['1080p']).toBeUndefined();
   });
 
   it('text + 720p resolves to grok-imagine-video', () => {
-    const fast = listAvailableVideoTiers({ inputMode: 'text' }).find((t) => t.resolution === '720p');
-    expect(fast?.model).toBe('grok-imagine-video');
+    const fast = listAvailableVideoTiers({ modeKind: 'text' }).find((t) => t.resolution === '720p');
     expect(fast?.id).toBe('fast');
     expect(fast?.isDefault).toBe(true);
+    expect(plan('text', 'fast').model).toBe('grok-imagine-video');
   });
 
   it('480p and 720p stay on the cheaper base model even with an image', () => {
-    const tiers = listAvailableVideoTiers({ inputMode: 'image', hd15Available: true });
-    expect(tiers.find((t) => t.resolution === '480p')?.model).toBe('grok-imagine-video');
-    expect(tiers.find((t) => t.resolution === '720p')?.model).toBe('grok-imagine-video');
+    expect(plan('image', 'sd').model).toBe('grok-imagine-video');
+    expect(plan('image', 'fast').model).toBe('grok-imagine-video');
+  });
+});
+
+describe('the four modes are mutually exclusive BY CONSTRUCTION', () => {
+  it('refuses an image AND reference images in the same request', () => {
+    const built = buildVideoRequestMode<string>({ image: '/a.png', referenceImages: ['/b.png', '/c.png'] });
+    expect(built.ok).toBe(false);
+    expect(built.ok === false && built.reason).toBe('video-mode-ambiguous');
+  });
+
+  it('refuses reference images AND an edit source in the same request', () => {
+    const built = buildVideoRequestMode<string>({ editSource: '/clip.mp4', referenceImages: ['/b.png'] });
+    expect(built.ok).toBe(false);
+    expect(built.ok === false && built.reason).toBe('video-mode-ambiguous');
+  });
+
+  it('refuses a voice outside reference mode rather than dropping it', () => {
+    const built = buildVideoRequestMode<string>({ image: '/a.png', presetVoiceIds: ['v1'] });
+    expect(built.ok).toBe(false);
+    expect(built.ok === false && built.reason).toBe('video-mode-ambiguous');
+  });
+
+  it('accepts up to 7 reference images and refuses an 8th', () => {
+    const seven = buildVideoRequestMode<string>({
+      referenceImages: Array.from({ length: MAX_VIDEO_REFERENCE_IMAGES }, (_, i) => `/ref-${i}.png`),
+    });
+    expect(seven.ok).toBe(true);
+    expect(seven.ok === true && seven.mode.kind).toBe('reference');
+    const eight = buildVideoRequestMode<string>({
+      referenceImages: Array.from({ length: MAX_VIDEO_REFERENCE_IMAGES + 1 }, (_, i) => `/ref-${i}.png`),
+    });
+    expect(eight.ok).toBe(false);
+    expect(eight.ok === false && eight.reason).toBe('reference-images-too-many');
+  });
+
+  it('accepts up to 3 preset voices and refuses a 4th', () => {
+    const three = buildVideoRequestMode<string>({
+      referenceImages: ['/a.png'],
+      presetVoiceIds: ['v1', 'v2', 'v3'],
+      capabilities: { presetVoicesAvailable: true },
+    });
+    expect(three.ok).toBe(true);
+    const four = buildVideoRequestMode<string>({
+      referenceImages: ['/a.png'],
+      presetVoiceIds: ['v1', 'v2', 'v3', 'v4'],
+      capabilities: { presetVoicesAvailable: true },
+    });
+    expect(four.ok).toBe(false);
+    expect(four.ok === false && four.reason).toBe('reference-voices-too-many');
+  });
+
+  it('a seat without the preset-voice entitlement cannot reach preset voices', () => {
+    const denied = buildVideoRequestMode<string>({ referenceImages: ['/a.png'], presetVoiceIds: ['v1'] });
+    expect(denied.ok).toBe(false);
+    expect(denied.ok === false && denied.reason).toBe('reference-voices-not-entitled');
+    // The SAME request on an entitled seat goes through — so the refusal above is
+    // the entitlement and not some other malformation.
+    const allowed = buildVideoRequestMode<string>({
+      referenceImages: ['/a.png'],
+      presetVoiceIds: ['v1'],
+      capabilities: { presetVoicesAvailable: true },
+    });
+    expect(allowed.ok).toBe(true);
+  });
+
+  it('has no shape that can carry two input families at once', () => {
+    // The type-level claim, exercised at runtime: whatever the constructor
+    // returns has exactly ONE branch, and the branch names the only fields there
+    // are. There is no `mode.image` on a reference mode to be read by mistake.
+    const built = buildVideoRequestMode<string>({ referenceImages: ['/a.png', '/b.png'] });
+    expect(built.ok).toBe(true);
+    if (built.ok !== true) throw new Error('unreachable');
+    expect(Object.keys(built.mode).sort()).toEqual(['kind', 'presetVoiceIds', 'referenceImages']);
+  });
+});
+
+describe('reference-to-video clamps rather than promising', () => {
+  it('clamps a 1080p reference request to 720p and 15s, and prices the CLAMP', () => {
+    const clamped = plan('reference', 'hd', 60);
+    expect(clamped.resolution).toBe('720p');
+    expect(clamped.durationSeconds).toBe(15);
+    expect(clamped.maxDurationSeconds).toBe(MAX_REFERENCE_VIDEO_SECONDS);
+    expect(clamped.clampedFromTierId).toBe('hd');
+    // THE money property: the quoted price is the clamped 720p-on-1.5 rate, never
+    // the 1080p rate that was asked for.
+    expect(clamped.creditsPerSecond).toBe(280);
+    expect(clamped.estimatedCredits).toBe(15 * 280);
+  });
+
+  it('never OFFERS 1080p in reference mode, so the clamp is a backstop', () => {
+    expect(isVideoTierAvailable('hd', { modeKind: 'reference', capabilities: HD15 })).toBe(false);
+  });
+
+  it('refuses reference mode outright when 1.5 is not available', () => {
+    const refused = resolveVideoPlan({ modeKind: 'reference', tierId: 'fast' });
+    expect(refused.ok).toBe(false);
+    expect(refused.ok === false && refused.reason).toBe('reference-model-unavailable');
+    expect(listAvailableVideoTiers({ modeKind: 'reference' })).toEqual([]);
+  });
+
+  it('the edit 720 refusal STILL holds — an edit refuses, it does not clamp', () => {
+    const refused = resolveVideoPlan({ modeKind: 'edit', tierId: 'hd', capabilities: HD15 });
+    expect(refused.ok).toBe(false);
+    expect(refused.ok === false && refused.reason).toBe('video-edit-resolution-refused');
+  });
+});
+
+describe('the quoted price matches the mode actually selected', () => {
+  it('quotes base pricing for a base-model render and 1.5 pricing for a 1.5 render', () => {
+    const text720 = estimateVideoCost({ modeKind: 'text', tierId: 'fast', durationSeconds: 5, capabilities: HD15 });
+    const ref720 = estimateVideoCost({
+      modeKind: 'reference',
+      tierId: 'fast',
+      durationSeconds: 5,
+      capabilities: HD15,
+    });
+    // Same tier, same resolution, DIFFERENT model — and therefore different money.
+    expect(text720?.tier.id).toBe(ref720?.tier.id);
+    expect(text720?.plan.model).toBe('grok-imagine-video');
+    expect(ref720?.plan.model).toBe('grok-imagine-video-1.5');
+    expect(text720?.estimatedCredits).toBe(700);
+    expect(ref720?.estimatedCredits).toBe(1400);
+  });
+
+  it('refuses to quote a price for a render that cannot happen', () => {
+    // `undefined`, not a number: a price for an impossible render is a promise.
+    expect(estimateVideoCost({ modeKind: 'reference', tierId: 'fast' })).toBeUndefined();
+    expect(estimateVideoCost({ modeKind: 'text', tierId: 'hd' })).toBeUndefined();
   });
 });
 
@@ -464,22 +627,26 @@ describe('credits derive from the real model profile, not from Seedance', () => 
     expect(deriveVideoCreditsPerSecond(0.25)).toBe(500);
   });
 
-  it('every tier constant EQUALS its own derivation — no hand-tuned numbers', () => {
-    for (const tier of VIDEO_TIERS) {
-      expect(tier.creditsPerSecond).toBe(deriveVideoCreditsPerSecond(tier.usdPerSecond));
+  it('every (model, resolution) rate EQUALS its own derivation — no hand-tuned numbers', () => {
+    for (const rates of Object.values(VIDEO_MODEL_USD_PER_SECOND)) {
+      for (const usd of Object.values(rates)) {
+        expect(deriveVideoCreditsPerSecond(usd as number)).toBe(Math.round((usd as number) * 100) * 2 * 10);
+      }
     }
   });
 
   it('the Seedance constants are GONE', () => {
     // 24 and 68 cr/s priced a Seedance lane that this product does not call. A 5s
     // 720p clip previewed 120 credits against a real ~700 — understated ~6x.
-    const rates = VIDEO_TIERS.map((t) => t.creditsPerSecond);
+    const rates = Object.values(VIDEO_MODEL_USD_PER_SECOND).flatMap((byRes) =>
+      Object.values(byRes).map((usd) => deriveVideoCreditsPerSecond(usd as number))
+    );
     expect(rates).not.toContain(24);
     expect(rates).not.toContain(68);
-    expect(VIDEO_TIERS.every((t) => t.model.startsWith('grok-imagine-video'))).toBe(true);
+    expect(Object.keys(VIDEO_MODEL_USD_PER_SECOND).every((m) => m.startsWith('grok-imagine-video'))).toBe(true);
   });
 
   it('prices a 5s 720p clip at the real rate', () => {
-    expect(estimateVideoCost({ durationSeconds: 5, tierId: 'fast' }).estimatedCredits).toBe(700);
+    expect(estimateVideoCost({ modeKind: 'text', durationSeconds: 5, tierId: 'fast' })?.estimatedCredits).toBe(700);
   });
 });

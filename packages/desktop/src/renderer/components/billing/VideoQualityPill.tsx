@@ -29,8 +29,11 @@ import { useTranslation } from 'react-i18next';
 import {
   estimateVideoCost,
   listAvailableVideoTiers,
-  type VideoInputMode,
+  MAX_VIDEO_REFERENCE_AUDIOS,
+  type VideoModeKind,
+  type VideoPresetVoice,
   type VideoQualityTier,
+  type VideoSeatCapabilities,
 } from '@/common/config/videoCostCore';
 import './billing.css';
 
@@ -44,13 +47,22 @@ export interface VideoQualityPillProps {
   /** Hide the control entirely (the draft does not route to video). */
   visible: boolean;
   /**
-   * Whether the pending request carries an image. This is not cosmetic: 1080p is
-   * only reachable from an image, because the model that produces it does not do
-   * text-to-video at all.
+   * Which of the four mutually exclusive modes this send will use. Not cosmetic:
+   * the mode picks the MODEL, and the model is half of the price. A reference
+   * render runs on 1.5 at double the base 720p rate, so a pill that did not know
+   * the mode would quote the wrong number with total confidence.
    */
-  inputMode: VideoInputMode;
-  /** Whether grok-imagine-video-1.5 is genuinely available. Unproven => no 1080p. */
-  hd15Available?: boolean;
+  modeKind: VideoModeKind;
+  /**
+   * What the SEAT may reach, as answered by Main. Absent means "nothing proven",
+   * which is the fail-closed reading: no 1080p, no reference mode, no voices.
+   */
+  capabilities?: VideoSeatCapabilities;
+  /** The preset voices this seat may pick from. Rendered only when entitled. */
+  presetVoices?: readonly VideoPresetVoice[];
+  /** The currently selected preset voice ids (at most MAX_VIDEO_REFERENCE_AUDIOS). */
+  selectedVoiceIds?: readonly string[];
+  onVoiceToggle?: (voiceId: string) => void;
 }
 
 const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
@@ -58,22 +70,54 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
   onChange,
   durationSeconds,
   visible,
-  inputMode,
-  hd15Available,
+  modeKind,
+  capabilities,
+  presetVoices,
+  selectedVoiceIds,
+  onVoiceToggle,
 }) => {
   const { t } = useTranslation();
 
   if (!visible) return null;
 
-  // Only what this request can ACTUALLY produce. A text prompt gets two options,
-  // not three with one that would fail on submit.
-  const tiers = listAvailableVideoTiers({ inputMode, hd15Available });
+  // Only what this request can ACTUALLY produce. A text prompt on a seat without
+  // 1.5 gets two options; with 1.5 proven it gets three, because 1.5 does
+  // text-to-video at 1080p. Reference mode gets none at all without 1.5.
+  const tiers = listAvailableVideoTiers({
+    modeKind,
+    ...(capabilities === undefined ? {} : { capabilities }),
+  });
   if (tiers.length === 0) return null;
 
-  const preview = estimateVideoCost({ durationSeconds, tierId: value });
+  // ONE resolution of mode + tier + capability, shared with the send path. The
+  // pill does not recompute a price of its own — a second derivation is a second
+  // answer, and the one the user reads must be the one the request carries.
+  const preview = estimateVideoCost({
+    modeKind,
+    tierId: value,
+    ...(durationSeconds === undefined ? {} : { durationSeconds }),
+    ...(capabilities === undefined ? {} : { capabilities }),
+  });
+  if (preview === undefined) return null;
+
+  // THE CAPABILITY GATE. Preset voices are US trusted-partner only, so an
+  // unentitled seat must not see the control at all — a rendered control is a
+  // promise, and refusing after the click is the failure this avoids. Note there
+  // is no custom-audio control here and no prop that could carry one: custom
+  // uploads are unsupported upstream, so nothing in this component can expose
+  // them.
+  const voices = presetVoices ?? [];
+  const showVoices = modeKind === 'reference' && capabilities?.presetVoicesAvailable === true && voices.length > 0;
+  const chosenVoiceIds = selectedVoiceIds ?? [];
 
   return (
-    <div className='video-quality-pill' data-testid='video-quality-pill' data-selected-tier={value}>
+    <div
+      className='video-quality-pill'
+      data-testid='video-quality-pill'
+      data-selected-tier={value}
+      data-mode={modeKind}
+      data-model={preview.plan.model}
+    >
       <span className='video-quality-pill__label'>{t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}</span>
 
       <div
@@ -99,7 +143,38 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
         })}
       </div>
 
-      {/* Price of the CURRENT choice. Informational — this line never gates. */}
+      {showVoices && (
+        <div
+          className='video-quality-pill__options'
+          role='group'
+          data-testid='video-preset-voices'
+          aria-label={t('credits.video.voiceLabel', { defaultValue: 'Stimme' })}
+        >
+          {voices.map((voice) => {
+            const selected = chosenVoiceIds.includes(voice.id);
+            // The ceiling is enforced in the core too; disabling here is so the
+            // user is not invited to make a choice that would be refused.
+            const atCeiling = !selected && chosenVoiceIds.length >= MAX_VIDEO_REFERENCE_AUDIOS;
+            return (
+              <button
+                key={voice.id}
+                type='button'
+                role='checkbox'
+                aria-checked={selected}
+                disabled={atCeiling}
+                className={`video-quality-pill__option${selected ? ' is-selected' : ''}`}
+                data-testid={`video-preset-voice-${voice.id}`}
+                onClick={() => onVoiceToggle?.(voice.id)}
+              >
+                {voice.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Price of the CURRENT choice, for the model it will ACTUALLY use.
+          Informational — this line never gates. */}
       <span className='video-quality-pill__estimate' data-testid='video-quality-pill-estimate'>
         {t('credits.video.inlineEstimate', {
           defaultValue: 'ca. {{credits}} Credits / {{sec}}s',

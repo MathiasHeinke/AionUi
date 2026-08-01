@@ -51,8 +51,11 @@ import {
   revokeVideoEditSpendOnUserSteer,
 } from '@process/commandEve/videoEditSpendPermitStore';
 import { hasVisibleCharacters } from '@/common/config/eveOpaqueTokenCore';
-import { isAgentVideoEditEnabled } from '@process/commandEve/agentVideoEditFlag';
-import { buildEveArtifactContextEnvelope } from '@/common/config/eveArtifactContextEnvelopeCore';
+import { isAgentVideoEditEnabled, readVideoSeatCapabilities } from '@process/commandEve/agentVideoEditFlag';
+import {
+  buildEveArtifactContextEnvelope,
+  type EveArtifactEnvelopeEntry,
+} from '@/common/config/eveArtifactContextEnvelopeCore';
 import { describeSpendPermitRefusal } from '@/common/config/eveVideoEditSpendPermitCore';
 import { getVideoTier } from '@/common/config/videoCostCore';
 import { describeArtifactCapabilityRefusal } from '@/common/config/eveArtifactCapabilityHandleCore';
@@ -71,12 +74,20 @@ import {
   hydrateVideoArtifactPayload,
   isVideoArtifactEditable,
   parseVideoGenerationResponse,
-  refuseVideoTierWithoutImage,
+  refuseUnproducibleVideoRequest,
   resolveVideoArtifactTier,
   type CommandEveVideoConversationArtifact,
   type CommandEveVideoGenerateRequest,
   type CommandEveVideoGenerateResult,
+  type VideoAssetPayload,
 } from '@/common/config/videoGenerationRequestCore';
+import {
+  buildVideoRequestMode,
+  describeVideoModeRefusal,
+  MAX_VIDEO_REFERENCE_IMAGES,
+  type VideoRequestMode,
+  type VideoSeatCapabilities,
+} from '@/common/config/videoCostCore';
 
 export type { CommandEveVideoGenerateRequest };
 
@@ -93,6 +104,12 @@ export interface CommandEveVideoBridgeDeps {
   readImageSource: (filePath: string) => { bytes: Uint8Array };
   saveVideoFile: typeof saveGeneratedVideoFile;
   saveArtifactRecord: typeof saveVideoArtifactRecord;
+  /**
+   * The seat's video model capabilities (MAT-1753). Optional for the same reason
+   * every MAT-1747 member is: an existing test literal must stay valid. Absent
+   * means the default-OFF flags are read, which is the fail-closed answer.
+   */
+  getVideoSeatCapabilities?: () => VideoSeatCapabilities;
   /**
    * MAT-1747. EVERY member below is OPTIONAL, and that is a hard requirement of
    * this interface rather than a style choice: `CommandEveVideoBridgeDeps` has
@@ -144,6 +161,7 @@ const productionDeps: CommandEveVideoBridgeDeps = {
   readImageSource: (filePath: string) => readBoundedImageSource(filePath),
   saveVideoFile: saveGeneratedVideoFile,
   saveArtifactRecord: saveVideoArtifactRecord,
+  getVideoSeatCapabilities: () => readVideoSeatCapabilities(),
   ensureCapabilityHandle: ensureVideoEditCapabilityHandle,
   listArtifactRecords: listVideoArtifactRecords,
   readCapabilityGrant: readArtifactCapabilityGrant,
@@ -214,11 +232,40 @@ export async function handleCommandEveVideoGenerate(
     };
   }
 
-  // Cheap, local, BEFORE the license/network round trip: 1080p (`hd`) is
-  // grok-imagine-video-1.5, which is image->video ONLY. A request claiming it
-  // without an attached image is refused here — never silently downgraded and
-  // never forwarded to spend a round trip finding out.
-  const tierGateRefusal = refuseVideoTierWithoutImage(request.tierId, typeof request.imagePath === 'string');
+  // THE MODE IS DECIDED ONCE, HERE, AND IT IS DECIDED BY CONSTRUCTION.
+  //
+  // IPC carries plain JSON, so the renderer's request record has an `imagePath`
+  // field AND a `referenceImagePaths` field and nothing about the wire can stop
+  // both arriving. This is the boundary at which that stops being possible: from
+  // the line below onward the request holds a `VideoRequestMode`, which has no
+  // shape that carries two input families, so nothing downstream re-checks it
+  // and nothing downstream can get it wrong.
+  const capabilities = (deps.getVideoSeatCapabilities ?? readVideoSeatCapabilities)();
+  const modeResult = buildVideoRequestMode<string>({
+    image: typeof request.imagePath === 'string' ? request.imagePath : null,
+    referenceImages: Array.isArray(request.referenceImagePaths) ? request.referenceImagePaths : null,
+    presetVoiceIds: Array.isArray(request.presetVoiceIds) ? request.presetVoiceIds : null,
+    capabilities,
+  });
+  if (modeResult.ok === false) {
+    return {
+      ok: false,
+      reasonCode: modeResult.reason,
+      message: describeVideoModeRefusal(modeResult.reason),
+      retryable: false,
+    };
+  }
+  const pathMode = modeResult.mode;
+
+  // Cheap, local, BEFORE the license/network round trip: a spec this seat and
+  // this mode cannot produce is refused here — never silently downgraded and
+  // never forwarded to spend a round trip finding out. It asks the same plan
+  // resolver the picker asked, so the two cannot disagree.
+  const tierGateRefusal = refuseUnproducibleVideoRequest({
+    tierId: request.tierId,
+    modeKind: pathMode.kind,
+    capabilities,
+  });
   if (tierGateRefusal) return tierGateRefusal;
 
   const wireResult = readLicenseWire(deps.getDataPath());
@@ -231,9 +278,15 @@ export async function handleCommandEveVideoGenerate(
     };
   }
 
-  let imageBase64: string | undefined;
-  let imageSha256: string | undefined;
-  if (typeof request.imagePath === 'string') {
+  // Every attached path — the single image->video source and each of the up-to-7
+  // reference images — goes through the SAME grant check and the SAME bounded
+  // read. Reference images are not a lighter class of attachment: they are user
+  // files leaving the machine, so they get the identical boundary rather than a
+  // second, more permissive one written next to it.
+  const imagePaths =
+    pathMode.kind === 'image' ? [pathMode.image] : pathMode.kind === 'reference' ? [...pathMode.referenceImages] : [];
+  const assets: VideoAssetPayload[] = [];
+  if (imagePaths.length > 0) {
     let seatId: string;
     try {
       seatId = deps.getActiveSeatId();
@@ -245,7 +298,7 @@ export async function handleCommandEveVideoGenerate(
         retryable: false,
       };
     }
-    if (!deps.areFileSelectionPathsGranted({ filePaths: [request.imagePath], seatId, purpose: 'read' })) {
+    if (!deps.areFileSelectionPathsGranted({ filePaths: imagePaths, seatId, purpose: 'read' })) {
       return {
         ok: false,
         reasonCode: 'video-image-not-granted',
@@ -253,25 +306,39 @@ export async function handleCommandEveVideoGenerate(
         retryable: false,
       };
     }
-    try {
-      const source = deps.readImageSource(request.imagePath);
-      imageBase64 = Buffer.from(source.bytes).toString('base64');
-      imageSha256 = crypto.createHash('sha256').update(source.bytes).digest('hex');
-    } catch {
-      return {
-        ok: false,
-        reasonCode: 'video-image-unreadable',
-        message: 'Das angehängte Bild konnte nicht gelesen werden. Wähle es erneut aus.',
-        retryable: false,
-      };
+    for (const imagePath of imagePaths) {
+      try {
+        const source = deps.readImageSource(imagePath);
+        assets.push({
+          base64: Buffer.from(source.bytes).toString('base64'),
+          sha256: crypto.createHash('sha256').update(source.bytes).digest('hex'),
+        });
+      } catch {
+        return {
+          ok: false,
+          reasonCode: 'video-image-unreadable',
+          message: 'Das angehängte Bild konnte nicht gelesen werden. Wähle es erneut aus.',
+          retryable: false,
+        };
+      }
     }
   }
+
+  // The mode is re-expressed over the BYTES, never rebuilt from the loose fields:
+  // the branch is carried across, so the exclusivity decided above is the
+  // exclusivity that reaches the wire.
+  const wireMode: VideoRequestMode<VideoAssetPayload> =
+    pathMode.kind === 'image'
+      ? { kind: 'image', image: assets[0]! }
+      : pathMode.kind === 'reference'
+        ? { kind: 'reference', referenceImages: assets, presetVoiceIds: pathMode.presetVoiceIds }
+        : { kind: 'text' };
 
   const body = buildVideoGenerationBody({
     prompt: request.prompt.trim(),
     tierId: request.tierId,
     durationSeconds: request.durationSeconds,
-    ...(imageBase64 === undefined ? {} : { imageBase64, imageSha256 }),
+    mode: wireMode,
     requestId: deps.newRequestId(),
   });
 
@@ -456,6 +523,15 @@ export interface CommandEveArtifactContextEnvelopeDeps {
   denySpend?: typeof denyVideoEditSpend;
   /** Whether the PAID path is enabled for this seat. Default-off, deliberately. */
   isVideoEditEnabled?: () => boolean;
+  /**
+   * MAT-1753. Turns the reference images pending on the DRAFT into envelope
+   * entries. Grant-verified and hashed here, in Main, exactly as the render path
+   * does — the renderer supplies paths and never bytes, and no path reaches the
+   * envelope.
+   */
+  getActiveSeatId?: typeof getActiveSeatId;
+  areFileSelectionPathsGranted?: typeof areCommandEveFileSelectionPathsGranted;
+  readImageSource?: (filePath: string) => { bytes: Uint8Array };
 }
 
 const productionEnvelopeDeps: CommandEveArtifactContextEnvelopeDeps = {
@@ -465,11 +541,23 @@ const productionEnvelopeDeps: CommandEveArtifactContextEnvelopeDeps = {
   recordActiveTurn: recordActiveUserTurn,
   denySpend: denyVideoEditSpend,
   isVideoEditEnabled: () => isAgentVideoEditEnabled(),
+  getActiveSeatId,
+  areFileSelectionPathsGranted: areCommandEveFileSelectionPathsGranted,
+  readImageSource: (filePath: string) => readBoundedImageSource(filePath),
 };
 
 export interface CommandEveArtifactContextEnvelopeRequest {
   conversationId?: string;
   selectedArtifactIds?: string[];
+  /**
+   * The reference images pending on the DRAFT (MAT-1753 item C).
+   *
+   * PATHS, and they stop here: Main grant-verifies and hashes them, and what
+   * reaches the envelope is an ordinal id plus a mime type. The envelope's
+   * no-path rule is absolute and this does not bend it — a path in a transcript
+   * is a path the model can quote back and a filename shipped to a third party.
+   */
+  referenceImagePaths?: string[];
   /**
    * The RAW text of the ORDINARY TURN the user is sending — the exact bytes,
    * verbatim.
@@ -568,11 +656,18 @@ export async function handleCommandEveArtifactContextEnvelope(
       if (!turnStateEstablished) (deps.denySpend ?? denyVideoEditSpend)(dataPath, conversationId);
     }
 
-    const entries = deps.buildEntries(
+    const storedEntries = deps.buildEntries(
       dataPath,
       conversationId,
       request?.selectedArtifactIds === undefined ? {} : { selectedArtifactIds: request.selectedArtifactIds }
     );
+    // MAT-1753 item C. The reference images pending on the draft ride the SAME
+    // envelope, ahead of the stored clips, because they are what the user is
+    // looking at right now. Their PATHS never leave this function: what the model
+    // sees is an ordinal id, and the SHA-256 travels only in the non-rendered
+    // field the spend permit binds.
+    const referenceEntries = buildReferenceImageEnvelopeEntries(request?.referenceImagePaths, deps);
+    const entries = [...referenceEntries, ...storedEntries];
     const editable = entries.filter((entry) => entry.editable);
     const allowedCapabilities = paidEnabled && editable.length > 0 ? ['eve_video_edit'] : [];
 
@@ -587,7 +682,12 @@ export async function handleCommandEveArtifactContextEnvelope(
       spendPermit = issue(dataPath, {
         conversationId,
         userTurnSha256,
-        allowedArtifactSha256: editable
+        // MAT-1753 item F. Reference images are bound by the SAME single-use,
+        // byte-bound permit as the editable clips — one permit per turn, one
+        // store, one TTL, one turn binding. There is deliberately no second
+        // spend authority for reference work and no second popup: a new
+        // mechanism is exactly what "no second spend authority" forbids.
+        allowedArtifactSha256: [...referenceEntries, ...editable]
           .map((entry) => entry.artifactSha256)
           .filter((sha): sha is string => typeof sha === 'string'),
       });
@@ -712,6 +812,72 @@ export async function handleCommandEveArtifactTurnSteerBridge(
   deps: CommandEveArtifactTurnSteerDeps = productionSteerDeps
 ): Promise<{ success: true; data: { revoked: number; denied: boolean } }> {
   return { success: true, data: await handleCommandEveArtifactTurnSteer(request, deps) };
+}
+
+/**
+ * Turn the draft's pending reference images into envelope entries.
+ *
+ * THREE rules, and each one is a boundary rather than a nicety:
+ *
+ *   - the paths are GRANT-VERIFIED, once, as a set — the same check and the same
+ *     bounded read the render path uses. A reference image is not a lighter class
+ *     of file because it happens to be describing something;
+ *   - NO PATH is emitted. The model sees `reference_image_1`, `reference_image_2`
+ *     …, in the order the user attached them, so "the second one" resolves;
+ *   - anything unreadable or ungranted yields NO entries at all rather than a
+ *     partial list. A short list would tell the model the user attached fewer
+ *     images than they did, which is worse than telling it nothing.
+ */
+function buildReferenceImageEnvelopeEntries(
+  paths: readonly string[] | undefined,
+  deps: CommandEveArtifactContextEnvelopeDeps
+): EveArtifactEnvelopeEntry[] {
+  if (!Array.isArray(paths) || paths.length === 0) return [];
+  if (paths.length > MAX_VIDEO_REFERENCE_IMAGES) return [];
+  const granted = deps.areFileSelectionPathsGranted;
+  const readImage = deps.readImageSource;
+  const seat = deps.getActiveSeatId;
+  if (!granted || !readImage || !seat) return [];
+  try {
+    if (!granted({ filePaths: [...paths], seatId: seat(), purpose: 'read' })) return [];
+    return paths.map((filePath, index) => ({
+      artifactId: `reference_image_${index + 1}`,
+      kind: 'reference_image' as const,
+      mimeType: 'image/*',
+      durationSeconds: 0,
+      // A pending input is never editable: there is nothing produced to edit, so
+      // no handle is minted and none is rendered.
+      editable: false,
+      artifactSha256: crypto.createHash('sha256').update(readImage(filePath).bytes).digest('hex'),
+      selected: true,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * MAT-1753 — what this seat's video lane may actually offer.
+ *
+ * The renderer must never answer this for itself. A picker that decides its own
+ * capabilities is a picker that can promise a render nobody is entitled to, and
+ * the refusal then arrives after the wait instead of before the click. Main reads
+ * the default-OFF flags and the renderer displays the answer; the gateway decides
+ * again on every request, because a client-side capability is a display, never a
+ * grant.
+ */
+export async function handleCommandEveVideoCapabilitiesBridge(
+  _request?: unknown,
+  deps: CommandEveVideoBridgeDeps = productionDeps
+): Promise<{ success: true; data: VideoSeatCapabilities }> {
+  const capabilities = (deps.getVideoSeatCapabilities ?? readVideoSeatCapabilities)();
+  return {
+    success: true,
+    data: {
+      hd15Available: capabilities.hd15Available === true,
+      presetVoicesAvailable: capabilities.presetVoicesAvailable === true,
+    },
+  };
 }
 
 /** IPC-facing envelope matching `ipcBridge.commandEve.artifactContextEnvelope`. */

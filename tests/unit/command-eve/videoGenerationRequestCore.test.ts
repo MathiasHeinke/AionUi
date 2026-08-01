@@ -20,7 +20,7 @@ import {
   describeVideoRefusal,
   buildVideoArtifactPayload,
   parseVideoGenerationResponse,
-  refuseVideoTierWithoutImage,
+  refuseUnproducibleVideoRequest,
 } from '@/common/config/videoGenerationRequestCore';
 
 describe('buildVideoGenerationBody', () => {
@@ -29,6 +29,7 @@ describe('buildVideoGenerationBody', () => {
       prompt: 'ein Produktclip',
       tierId: 'fast',
       durationSeconds: 5,
+      mode: { kind: 'text' },
       requestId: 'req-1',
     });
     const video = body.video_generation as Record<string, unknown>;
@@ -46,6 +47,7 @@ describe('buildVideoGenerationBody', () => {
       prompt: 'p',
       tierId: 'fast',
       durationSeconds: 5,
+      mode: { kind: 'text' },
       requestId: 'r',
     });
     expect((text.video_generation as Record<string, unknown>).image_base64).toBeUndefined();
@@ -54,9 +56,8 @@ describe('buildVideoGenerationBody', () => {
       prompt: 'p',
       tierId: 'hd',
       durationSeconds: 5,
+      mode: { kind: 'image', image: { base64: 'AAAA', sha256: 'a'.repeat(64) } },
       requestId: 'r',
-      imageBase64: 'AAAA',
-      imageSha256: 'a'.repeat(64),
     });
     const video = image.video_generation as Record<string, unknown>;
     expect(video.image_base64).toBe('AAAA');
@@ -68,9 +69,66 @@ describe('buildVideoGenerationBody', () => {
       prompt: 'p',
       tierId: 'fast',
       durationSeconds: 5,
+      mode: { kind: 'text' },
       requestId: 'r',
     });
     expect(body.directProviderKeyPresentInDesktop).toBe(false);
+  });
+
+  it('carries reference images and preset voice NAMES, and nothing else', () => {
+    const body = buildVideoGenerationBody({
+      prompt: 'p',
+      tierId: 'fast',
+      durationSeconds: 15,
+      mode: {
+        kind: 'reference',
+        referenceImages: [
+          { base64: 'AAAA', sha256: 'a'.repeat(64) },
+          { base64: 'BBBB', sha256: 'b'.repeat(64) },
+        ],
+        presetVoiceIds: ['preset-1'],
+      },
+      requestId: 'r',
+    });
+    const video = body.video_generation as Record<string, unknown>;
+    expect(video.mode).toBe('reference');
+    expect(video.reference_images).toEqual([
+      { image_base64: 'AAAA', image_sha256: 'a'.repeat(64) },
+      { image_base64: 'BBBB', image_sha256: 'b'.repeat(64) },
+    ]);
+    expect(video.reference_audios).toEqual(['preset-1']);
+    // A reference body carries NO image->video source: the modes are exclusive.
+    expect(video.image_base64).toBeUndefined();
+  });
+
+  it('NO custom-audio field can reach the gateway body', () => {
+    // The input is polluted with every shape a custom upload could take. The
+    // builder reads only the union's own branches, so none of them has a path
+    // into the body — a STRUCTURAL guarantee, and this is what keeps it one.
+    const polluted = {
+      prompt: 'p',
+      tierId: 'fast' as const,
+      durationSeconds: 5,
+      requestId: 'r',
+      audio_base64: 'SMUGGLED',
+      custom_audio_url: 'https://example.test/voice.wav',
+      mode: {
+        kind: 'reference' as const,
+        referenceImages: [{ base64: 'AAAA', sha256: 'a'.repeat(64) }],
+        presetVoiceIds: ['preset-1'],
+        audio_base64: 'SMUGGLED',
+        customAudio: { url: 'https://example.test/voice.wav' },
+      },
+    };
+    const body = buildVideoGenerationBody(polluted as unknown as Parameters<typeof buildVideoGenerationBody>[0]);
+    const serialised = JSON.stringify(body);
+    expect(serialised).not.toContain('SMUGGLED');
+    const video = body.video_generation as Record<string, unknown>;
+    for (const key of Object.keys(video)) {
+      if (key === 'reference_audios') continue;
+      expect(/audio/i.test(key)).toBe(false);
+    }
+    expect(video.reference_audios).toEqual(['preset-1']);
   });
 });
 
@@ -227,21 +285,42 @@ describe('buildVideoArtifactPayload — what the user sees is what was produced'
   });
 });
 
-describe('refuseVideoTierWithoutImage — 1080p is unreachable without a validated image', () => {
-  it('refuses hd (1080p) when no image made it through', () => {
-    const refusal = refuseVideoTierWithoutImage('hd', false);
+// INVERTED, MAT-1753. This block used to be
+// "refuseVideoTierWithoutImage — 1080p is unreachable without a validated image",
+// and it asserted that `hd` without an image is refused and `hd` with an image is
+// allowed. Both halves encoded the false "1.5 is image-to-video only" belief. The
+// case keeps an assertion because the guard still exists and still matters — it
+// is simply repointed at the specs that are ACTUALLY impossible.
+describe('refuseUnproducibleVideoRequest — the local gate, repointed at real impossibilities', () => {
+  const HD15 = { hd15Available: true } as const;
+
+  it('allows hd (1080p) from a bare TEXT prompt once 1.5 is available', () => {
+    expect(refuseUnproducibleVideoRequest({ tierId: 'hd', modeKind: 'text', capabilities: HD15 })).toBeNull();
+  });
+
+  it('still refuses hd when 1.5 is not available to the seat', () => {
+    const refusal = refuseUnproducibleVideoRequest({ tierId: 'hd', modeKind: 'text' });
     expect(refusal).not.toBeNull();
     expect(refusal?.reasonCode).toBe('video-tier-unavailable');
     expect(refusal?.retryable).toBe(false);
   });
 
-  it('allows hd once a validated image is present', () => {
-    expect(refuseVideoTierWithoutImage('hd', true)).toBeNull();
+  it('refuses reference mode when 1.5 is not available, with its own sentence', () => {
+    const refusal = refuseUnproducibleVideoRequest({ tierId: 'fast', modeKind: 'reference' });
+    expect(refusal).not.toBeNull();
+    expect(refusal?.message).toContain('Referenzbildern');
   });
 
-  it('never gates a tier that does not need an image', () => {
-    expect(refuseVideoTierWithoutImage('fast', false)).toBeNull();
-    expect(refuseVideoTierWithoutImage('sd', false)).toBeNull();
+  it('refuses a 1080p EDIT rather than clamping it', () => {
+    const refusal = refuseUnproducibleVideoRequest({ tierId: 'hd', modeKind: 'edit', capabilities: HD15 });
+    expect(refusal).not.toBeNull();
+    expect(refusal?.reasonCode).toBe('video-tier-unavailable');
+  });
+
+  it('never gates the tiers the base model always produces', () => {
+    expect(refuseUnproducibleVideoRequest({ tierId: 'fast', modeKind: 'text' })).toBeNull();
+    expect(refuseUnproducibleVideoRequest({ tierId: 'sd', modeKind: 'text' })).toBeNull();
+    expect(refuseUnproducibleVideoRequest({ tierId: 'fast', modeKind: 'image' })).toBeNull();
   });
 });
 

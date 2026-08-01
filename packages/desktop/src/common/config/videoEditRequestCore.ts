@@ -27,7 +27,7 @@
  */
 
 import { hasAsciiPrefix } from './eveOpaqueTokenCore';
-import { getVideoTier, type VideoQualityTier } from './videoCostCore';
+import { getVideoTier, resolveVideoPlan, type VideoQualityTier } from './videoCostCore';
 import {
   describeVideoRefusal,
   MAX_VIDEO_EDIT_SOURCE_SECONDS,
@@ -172,7 +172,17 @@ export function buildVideoEditBody(request: VideoEditGatewayRequest, requestId: 
  * preview that is higher than the charge is as dishonest as one that is lower.
  */
 export function estimateVideoEditCredits(tierId: VideoQualityTier, sourceDurationSeconds: number): number {
-  const perSecond = VIDEO_EDIT_INPUT_CREDITS_PER_SECOND + getVideoTier(tierId).creditsPerSecond;
+  // The output rate comes from the (model, resolution) matrix through the EDIT
+  // mode, not from the tier record — the tier no longer carries a price, because
+  // one resolution can be served by two models at two different rates. Editing is
+  // capped at 720p and therefore always the base model, so this is the same
+  // number it has always been; it now arrives by the route that stays correct.
+  const resolved = resolveVideoPlan({ modeKind: 'edit', tierId, capabilities: { hd15Available: true } });
+  // An ineligible tier (1080p) has no edit output rate at all. Returning 0 would
+  // preview a free edit; callers gate on `isVideoEditEligibleTier` first, and an
+  // infinite estimate keeps the arithmetic honest for the one that forgets.
+  if (resolved.ok === false) return Number.POSITIVE_INFINITY;
+  const perSecond = VIDEO_EDIT_INPUT_CREDITS_PER_SECOND + resolved.plan.creditsPerSecond;
   return Math.ceil(sourceDurationSeconds * perSecond);
 }
 

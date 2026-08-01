@@ -99,8 +99,11 @@ import {
   DEFAULT_VIDEO_DURATION_SECONDS,
   DEFAULT_VIDEO_TIER_ID,
   isVideoTierAvailable,
-  type VideoInputMode,
+  MAX_VIDEO_REFERENCE_AUDIOS,
+  VIDEO_PRESET_VOICES,
+  type VideoModeKind,
   type VideoQualityTier,
+  type VideoSeatCapabilities,
 } from '@/common/config/videoCostCore';
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
 import { isImageFile } from '@/renderer/pages/conversation/Preview/fileUtils';
@@ -467,6 +470,13 @@ const AcpSendBox: React.FC<{
       ConversationCommandQueueItem,
       'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount'
     >) => {
+      // The images travelling with THIS turn, in the order the user attached
+      // them. They are what a reference-to-video render would use, and naming
+      // them in the envelope is what stops a follow-up from asking the user to
+      // choose them again. Over the ceiling Main emits NOTHING rather than a
+      // short list — under-reporting what is attached is worse than silence.
+      const referenceImagePathsForTurn = (files ?? []).filter((filePath) => isImageFile(filePath));
+
       try {
         let dispatchPreparedContext = preparedContext;
         if (managedVisualSourceCount !== undefined) {
@@ -540,6 +550,14 @@ const AcpSendBox: React.FC<{
             // whitespace included. The correction path in `dispatchSteer` is a
             // different rule and says so at its own call site.
             userTurnText: input,
+            // MAT-1753 item C. The reference images pending on the draft, as
+            // PATHS — Main grant-verifies and hashes them and emits neither. They
+            // ride this envelope rather than a surface of their own, so the agent
+            // sees exactly the files the user is looking at and there is no
+            // second picker that could show something else.
+            ...(referenceImagePathsForTurn.length === 0
+              ? {}
+              : { referenceImagePaths: referenceImagePathsForTurn }),
           });
           if (envelopeResult?.success && typeof envelopeResult.data?.envelope === 'string') {
             artifactEnvelope = envelopeResult.data.envelope;
@@ -717,21 +735,66 @@ Please check your local CLI tool authentication status`,
     [content, isEveConversation]
   );
 
-  // 1080p exists only as image->video: grok-imagine-video-1.5 reaches it but does
-  // not accept a bare prompt, and grok-imagine-video (which does) stops at 720p.
+  // WHAT THE SEAT MAY OFFER. Asked of MAIN, never decided here: a renderer that
+  // answered this for itself could render a 1080p option, or a voice control, for
+  // an entitlement the seat does not hold — and the refusal would then arrive
+  // after the wait instead of before the click. An absent or failed answer stays
+  // fail-closed (both flags false), which is exactly today's behaviour.
+  const [videoCapabilities, setVideoCapabilities] = useState<VideoSeatCapabilities>({
+    hd15Available: false,
+    presetVoicesAvailable: false,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    void ipcBridge.commandEve.videoCapabilities
+      .invoke()
+      .then((response) => {
+        if (cancelled || !response?.success || !response.data) return;
+        setVideoCapabilities({
+          hd15Available: response.data.hd15Available === true,
+          presetVoicesAvailable: response.data.presetVoicesAvailable === true,
+        });
+      })
+      .catch(() => {
+        /* fail closed: the initial all-false state stands */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // WHICH OF THE FOUR MODES this send is. Derived from the attachments the user
+  // can already see, which is the whole of item C: reference images ARE the files
+  // already on the draft, so there is no second picker that could disagree with
+  // what the user is looking at.
   //
-  // This was briefly fixed at 'text', because the request built below sent
-  // prompt, tier and duration and NEVER the image bytes — a picker that widened
-  // on an attachment was a promise the send could not keep. That gap is now
-  // closed: the send below forwards the attached image's PATH, and MAIN (not
-  // this renderer) re-reads that grant-verified file and computes its hash
-  // before anything reaches the gateway. So deriving the mode from the actual
-  // attachment is honest again — the request really does carry what the picker
-  // shows.
-  const videoInputMode: VideoInputMode = useMemo(
-    () => (uploadFile.some((path) => isImageFile(path)) ? 'image' : 'text'),
-    [uploadFile]
+  //   0 images     -> text-to-video (1.5 reaches 1080p from a bare prompt)
+  //   1 image      -> image-to-video
+  //   2..7 images  -> reference-to-video (1.5, clamped to 720p and 15s)
+  //   8+ images    -> still 'reference' here, and refused BY NAME in Main rather
+  //                   than silently truncated to seven.
+  //
+  // An earlier comment on this binding said 1080p "exists only as image->video".
+  // It was wrong about the provider, and it is gone.
+  const videoImagePaths = useMemo(() => uploadFile.filter((path) => isImageFile(path)), [uploadFile]);
+  const videoModeKind: VideoModeKind = useMemo(
+    () => (videoImagePaths.length === 0 ? 'text' : videoImagePaths.length === 1 ? 'image' : 'reference'),
+    [videoImagePaths]
   );
+
+  // Preset voices, when the seat is entitled and the mode can carry them. The
+  // ceiling is re-enforced in the core; capping here only avoids inviting a
+  // choice that would be refused.
+  const [videoVoiceIds, setVideoVoiceIds] = useState<readonly string[]>([]);
+  const toggleVideoVoice = useCallback((voiceId: string) => {
+    setVideoVoiceIds((current) =>
+      current.includes(voiceId)
+        ? current.filter((id) => id !== voiceId)
+        : current.length >= MAX_VIDEO_REFERENCE_AUDIOS
+          ? current
+          : [...current, voiceId]
+    );
+  }, []);
 
   const dispatchSteer = useCallback(
     async (input: string, requestId?: string) => {
@@ -1049,15 +1112,15 @@ Please check your local CLI tool authentication status`,
         });
 
       if (routesToVideo) {
-        // Only a single supported image source travels with a video request —
-        // the exact file `videoInputMode` already looked at. Its PATH is
-        // forwarded as-is; MAIN re-reads it through the grant-verified, bounded
+        // The image sources that travel with a video request — the exact files
+        // `videoModeKind` already looked at, no more and no fewer. Their PATHS are
+        // forwarded as-is; MAIN re-reads each through the grant-verified, bounded
         // local-image boundary and computes the base64/SHA-256 that actually
         // reaches the gateway. This never calls prepareImageFiles /
-        // preparePresentationFiles, so the existing file-selection grant for
-        // that image is left untouched for MAIN — no cloud vision call, no
-        // sidecar, no visual-policy receipt for a video request.
-        const attachedImagePath = allFiles.find((filePath) => isImageFile(filePath));
+        // preparePresentationFiles, so the existing file-selection grants are
+        // left untouched for MAIN — no cloud vision call, no sidecar, no
+        // visual-policy receipt for a video request.
+        const attachedImagePaths = allFiles.filter((filePath) => isImageFile(filePath));
         controls.clearSelection();
 
         // A selection only counts if the user could SEE it. On the divergence
@@ -1066,15 +1129,20 @@ Please check your local CLI tool authentication status`,
         // user cannot connect to this send. Structural, not documented: the
         // expensive direction is unreachable instead of merely discouraged.
         // Two guards, in order. A tier the user could not SEE does not count
-        // (below), and a tier the provider cannot PRODUCE is refused rather than
-        // silently downgraded — a downgrade would bill 720p for a 1080p promise.
+        // (below), and a tier the provider cannot PRODUCE for THIS MODE AND THIS
+        // SEAT falls back to the default rather than being sent to fail.
+        const sendModeKind: VideoModeKind =
+          attachedImagePaths.length === 0 ? 'text' : attachedImagePaths.length === 1 ? 'image' : 'reference';
         const selectedTier = draftRoutesToVideo ? videoTierId : DEFAULT_VIDEO_TIER_ID;
-        const producibleTier = isVideoTierAvailable(selectedTier, { inputMode: videoInputMode })
+        const producibleTier = isVideoTierAvailable(selectedTier, {
+          modeKind: sendModeKind,
+          capabilities: videoCapabilities,
+        })
           ? selectedTier
           : DEFAULT_VIDEO_TIER_ID;
 
         videoCostWall.requestVideo(
-          { tierId: producibleTier },
+          { tierId: producibleTier, modeKind: sendModeKind, capabilities: videoCapabilities },
           (resolved) => {
             // The ONLY provider job this send starts. An earlier revision ALSO
             // dispatched a `[EVE:VIDEO ...]`-stamped message into the normal ACP
@@ -1086,9 +1154,21 @@ Please check your local CLI tool authentication status`,
               .invoke({
                 prompt: message,
                 tierId: resolved.tierId,
-                durationSeconds: DEFAULT_VIDEO_DURATION_SECONDS,
+                // The PLAN's duration, not the raw default: reference mode is
+                // capped at 15s and the plan already applied that ceiling, so the
+                // length that was priced is the length that is requested.
+                durationSeconds: resolved.plan.durationSeconds ?? DEFAULT_VIDEO_DURATION_SECONDS,
                 conversationId: conversation_id,
-                ...(attachedImagePath ? { imagePath: attachedImagePath } : {}),
+                // Exactly one input family travels, chosen by the mode the price
+                // was quoted for. Main rebuilds the mode from these fields and
+                // refuses `video-mode-ambiguous` if both ever arrive.
+                ...(sendModeKind === 'image' ? { imagePath: attachedImagePaths[0] } : {}),
+                ...(sendModeKind === 'reference'
+                  ? {
+                      referenceImagePaths: attachedImagePaths,
+                      ...(videoVoiceIds.length === 0 ? {} : { presetVoiceIds: [...videoVoiceIds] }),
+                    }
+                  : {}),
               })
               .then((response) => {
                 const outcome = response?.data;
@@ -1341,7 +1421,8 @@ Please check your local CLI tool authentication status`,
       videoCostWall.requestVideo,
       videoTierId,
       draftRoutesToVideo,
-      videoInputMode,
+      videoCapabilities,
+      videoVoiceIds,
     ]
   );
 
@@ -1851,7 +1932,11 @@ Please check your local CLI tool authentication status`,
               visible={draftRoutesToVideo}
               value={videoTierId}
               onChange={setVideoTierId}
-              inputMode={videoInputMode}
+              modeKind={videoModeKind}
+              capabilities={videoCapabilities}
+              presetVoices={VIDEO_PRESET_VOICES}
+              selectedVoiceIds={videoVoiceIds}
+              onVoiceToggle={toggleVideoVoice}
             />
             {uploadFile.length > 0 && (
               <HorizontalFileList>

@@ -62,6 +62,7 @@ const {
   initialMessageParamsMock,
   buildDisplayMessageMock,
   artifactContextEnvelopeInvokeMock,
+  videoCapabilitiesInvokeMock,
   artifactTurnSteerInvokeMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
@@ -133,6 +134,7 @@ const {
   },
   buildDisplayMessageMock: vi.fn((input: string) => input),
   artifactContextEnvelopeInvokeMock: vi.fn(),
+  videoCapabilitiesInvokeMock: vi.fn(),
   artifactTurnSteerInvokeMock: vi.fn(),
 }));
 
@@ -186,6 +188,9 @@ vi.mock('@/common', () => ({
       },
       artifactContextEnvelope: {
         invoke: artifactContextEnvelopeInvokeMock,
+      },
+      videoCapabilities: {
+        invoke: videoCapabilitiesInvokeMock,
       },
       artifactTurnSteer: {
         invoke: artifactTurnSteerInvokeMock,
@@ -595,6 +600,14 @@ describe('AcpSendBox', () => {
     // with no artifacts produces. Every pre-existing assertion in this file
     // therefore keeps asserting the byte-identical message it always did.
     artifactContextEnvelopeInvokeMock.mockResolvedValue({ success: true, data: { envelope: '' } });
+    // MAT-1753: the DEFAULT seat has neither capability, which is the fail-closed
+    // production default (both env flags off). Every pre-existing assertion in
+    // this file therefore keeps the tier options and prices it always had; the
+    // entitled cases opt in explicitly.
+    videoCapabilitiesInvokeMock.mockResolvedValue({
+      success: true,
+      data: { hd15Available: false, presetVoicesAvailable: false },
+    });
     // MAT-1747: a steer retires the outstanding spend permit. Default is "there
     // was nothing to retire", which is what every seat with the default-off paid
     // path reports, so no pre-existing assertion in this file changes meaning.
@@ -2183,9 +2196,11 @@ describe('AcpSendBox', () => {
       />
     );
 
-    // There is no 1080p option at all for a text draft: grok-imagine-video stops
-    // at 720p and grok-imagine-video-1.5, which reaches 1080p, cannot take a bare
-    // prompt. The picker therefore never renders it.
+    // MAT-1753: the reason there is no 1080p option here is the ENTITLEMENT, not
+    // the input mode. This seat has no grok-imagine-video-1.5 (the default mock),
+    // and 1.5 is the only model that reaches 1080p. An earlier version of this
+    // comment said 1.5 "cannot take a bare prompt", which was false — see the
+    // test below, where the same bare prompt reaches 1080p on an entitled seat.
     expect(screen.queryByTestId('video-quality-option-hd')).toBeNull();
 
     await act(async () => {
@@ -2197,6 +2212,87 @@ describe('AcpSendBox', () => {
     expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'fast' });
     expect(modalConfirmMock).not.toHaveBeenCalled();
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('MAT-1753: a bare TEXT prompt reaches 1080p once the seat has 1.5', async () => {
+    videoCapabilitiesInvokeMock.mockResolvedValue({
+      success: true,
+      data: { hd15Available: true, presetVoicesAvailable: false },
+    });
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    // The option renders for a TEXT draft with NO attachment at all.
+    await waitFor(() => expect(screen.getByTestId('video-quality-option-hd')).toBeTruthy());
+    await act(async () => {
+      screen.getByTestId('video-quality-option-hd').click();
+    });
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    const sent = videoGenerateInvokeMock.mock.calls[0][0];
+    expect(sent).toMatchObject({ tierId: 'hd' });
+    // No image travelled — the whole point of the correction.
+    expect(sent.imagePath).toBeUndefined();
+    expect(sent.referenceImagePaths).toBeUndefined();
+  });
+
+  it('MAT-1753: several attached images become ONE reference request, with no second picker', async () => {
+    videoCapabilitiesInvokeMock.mockResolvedValue({
+      success: true,
+      data: { hd15Available: true, presetVoicesAvailable: false },
+    });
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: ['/tmp/a.png', '/tmp/b.png', '/tmp/c.png'],
+      content: 'erstelle ein Video über unser Produkt',
+    };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    // The reference images are the files ALREADY on the draft: no second picker
+    // renders, and none is needed.
+    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-mode', 'reference');
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-model', 'grok-imagine-video-1.5');
+    // 1080p is not offered in reference mode — it clamps to 720p.
+    expect(screen.queryByTestId('video-quality-option-hd')).toBeNull();
+    // The PRICE follows the model: `data-model` above is the 1.5 the plan chose,
+    // so the estimate rendered here is 1.5's 720p rate. (The number itself is
+    // asserted in VideoQualityPill.dom.test.tsx — this file's i18n double does not
+    // interpolate, so asserting the digits here would assert the double.)
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    const sent = videoGenerateInvokeMock.mock.calls[0][0];
+    expect(sent.referenceImagePaths).toEqual(['/tmp/a.png', '/tmp/b.png', '/tmp/c.png']);
+    // EXCLUSIVE: a reference send carries no image->video source.
+    expect(sent.imagePath).toBeUndefined();
+    // No preset voices for an unentitled seat, so the field never appears.
+    expect(sent.presetVoiceIds).toBeUndefined();
   });
   it('ignores a tier the user never saw: no visible picker means the cheap default', async () => {
     // CAO's divergence case, made structural. SendBox enriches the draft before

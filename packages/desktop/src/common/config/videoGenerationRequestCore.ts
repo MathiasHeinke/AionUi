@@ -17,7 +17,15 @@
  * PURE: no fetch, no Electron. The bridge owns the socket; this owns the meaning.
  */
 
-import { getVideoTier, type VideoQualityTier, type VideoResolution } from './videoCostCore';
+import {
+  getVideoTier,
+  resolveVideoPlan,
+  type VideoModeKind,
+  type VideoQualityTier,
+  type VideoRequestMode,
+  type VideoResolution,
+  type VideoSeatCapabilities,
+} from './videoCostCore';
 
 /** The multimodal gateway endpoint, shared with the image/vision/TTS lanes. */
 export const VIDEO_GENERATION_CAPABILITY = 'video_generation' as const;
@@ -46,17 +54,43 @@ export interface CommandEveVideoGenerateRequest {
    * as one.
    */
   conversationId?: string;
-  /** The attached, grant-verified image path for image->video (see above). */
+  /**
+   * The attached, grant-verified image path for image->video (see above).
+   *
+   * MUTUALLY EXCLUSIVE with `referenceImagePaths` — and not by convention. Both
+   * fields exist on this IPC record because IPC carries plain JSON, so the union
+   * cannot survive the boundary; the FIRST thing Main does with them is hand them
+   * to `buildVideoRequestMode`, which refuses `video-mode-ambiguous` if both
+   * arrived. From that call onward the impossible combination has no
+   * representation at all.
+   */
   imagePath?: string;
+  /** Up to 7 grant-verified reference image paths for reference-to-video. */
+  referenceImagePaths?: string[];
+  /**
+   * Up to 3 PRESET voice ids. There is no sibling field for a custom audio
+   * upload, here or anywhere downstream: custom audio is unsupported, so the way
+   * it stays unexposed is that no field can carry it.
+   */
+  presetVoiceIds?: string[];
+}
+
+/** A source asset as the gateway needs it: the bytes plus their receipt. */
+export interface VideoAssetPayload {
+  base64: string;
+  sha256: string;
 }
 
 export interface VideoGenerationRequest {
   prompt: string;
   tierId: VideoQualityTier;
   durationSeconds: number;
-  /** Base64 source image for image->video, with its SHA-256 receipt. */
-  imageBase64?: string;
-  imageSha256?: string;
+  /**
+   * The resolved input mode. One value, four alternatives, no combination — the
+   * request cannot be built carrying an image AND reference images because there
+   * is no shape for that.
+   */
+  mode: VideoRequestMode<VideoAssetPayload>;
   requestId: string;
 }
 
@@ -64,8 +98,30 @@ export interface VideoGenerationRequest {
  * Build the gateway body. The tier travels as an id, not as a resolution string:
  * the SERVER owns the mapping from tier to model and resolution, so a desktop that
  * is one release behind cannot talk a newer gateway into a wrong model.
+ *
+ * The `video_generation` key set is EXHAUSTIVE and mode-derived. That is what
+ * makes "custom audio cannot reach the provider" a structural claim rather than a
+ * promise: this function reads nothing off the request except the union's own
+ * branches, so a field nobody declared has no path into the body even if a caller
+ * attaches one to the object.
  */
 export function buildVideoGenerationBody(request: VideoGenerationRequest): Record<string, unknown> {
+  const mode = request.mode;
+  const modeFields: Record<string, unknown> =
+    mode.kind === 'image'
+      ? { image_base64: mode.image.base64, image_sha256: mode.image.sha256 }
+      : mode.kind === 'reference'
+        ? {
+            reference_images: mode.referenceImages.map((asset) => ({
+              image_base64: asset.base64,
+              image_sha256: asset.sha256,
+            })),
+            // Preset ids only. `reference_audios` is a list of NAMES the provider
+            // already holds — never bytes, never a url, never an upload.
+            ...(mode.presetVoiceIds.length === 0 ? {} : { reference_audios: [...mode.presetVoiceIds] }),
+          }
+        : {};
+
   return {
     provider: 'xai',
     capability: VIDEO_GENERATION_CAPABILITY,
@@ -76,9 +132,8 @@ export function buildVideoGenerationBody(request: VideoGenerationRequest): Recor
       prompt: request.prompt,
       tier: request.tierId,
       duration_seconds: request.durationSeconds,
-      ...(request.imageBase64 === undefined
-        ? {}
-        : { image_base64: request.imageBase64, image_sha256: request.imageSha256 }),
+      mode: mode.kind,
+      ...modeFields,
     },
   };
 }
@@ -496,26 +551,48 @@ export function buildVideoConversationArtifact(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Image->video safety: 1080p is unreachable without a validated image
+// Producibility: refuse what this seat and this MODE cannot render
 // ---------------------------------------------------------------------------
 
 /**
- * `hd` (1080p) is `grok-imagine-video-1.5`, which is IMAGE->VIDEO ONLY (see
- * `videoCostCore`). The renderer already hides the picker option, but a picker
- * is UI, not a boundary — this is the fail-closed check that refuses the tier
- * server-request-side when no validated image made it through, so a stale
- * client, a replayed request, or a future regression cannot buy a 1080p promise
- * the provider cannot keep.
+ * WHAT THIS USED TO BE, and why it was wrong.
+ *
+ * This function was `refuseVideoTierWithoutImage`, and its comment read: "`hd`
+ * (1080p) is `grok-imagine-video-1.5`, which is IMAGE->VIDEO ONLY … this is the
+ * fail-closed check that refuses the tier when no validated image made it
+ * through". Both the guard and the sentence were wrong about the provider: 1.5
+ * does text-to-video, at native 1080p. So the fail-closed check was closing a
+ * door the provider holds open, and a bare prompt could never buy HD however the
+ * seat was entitled.
+ *
+ * The check is not deleted, because the class of defect it guarded is real: a
+ * stale client, a replayed request or a future regression must not buy a spec the
+ * provider will not produce. It is REPOINTED at the specs that are actually
+ * impossible, and it asks {@link resolveVideoPlan} rather than re-deriving them —
+ * one source for "can this be rendered", never two that can drift.
  */
-export function refuseVideoTierWithoutImage(
-  tierId: VideoQualityTier,
-  hasImage: boolean
-): { ok: false; reasonCode: 'video-tier-unavailable'; message: string; retryable: false } | null {
-  if (!getVideoTier(tierId).requiresImageInput || hasImage) return null;
+export function refuseUnproducibleVideoRequest(input: {
+  tierId: VideoQualityTier;
+  modeKind: VideoModeKind;
+  capabilities?: VideoSeatCapabilities;
+}): { ok: false; reasonCode: 'video-tier-unavailable'; message: string; retryable: false } | null {
+  const resolved = resolveVideoPlan({
+    modeKind: input.modeKind,
+    tierId: input.tierId,
+    ...(input.capabilities === undefined ? {} : { capabilities: input.capabilities }),
+  });
+  // `=== true`, not truthiness: this project compiles without strictNullChecks,
+  // and a boolean-literal discriminant only narrows under an explicit comparison.
+  if (resolved.ok === true) return null;
   return {
     ok: false,
     reasonCode: 'video-tier-unavailable',
-    message: 'Diese Videoqualität benötigt ein angehängtes Bild (Bild-zu-Video).',
+    message:
+      resolved.reason === 'reference-model-unavailable'
+        ? 'Videos aus Referenzbildern sind für dieses Konto nicht freigeschaltet.'
+        : resolved.reason === 'video-edit-resolution-refused'
+          ? 'Videobearbeitungen gibt es nicht in 1080p.'
+          : 'Diese Videoqualität ist für diese Anfrage nicht verfügbar.',
     retryable: false,
   };
 }

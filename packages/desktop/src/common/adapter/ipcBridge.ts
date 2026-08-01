@@ -1904,6 +1904,15 @@ export const commandEve = {
   // `userTurnText` is the raw message the user is about to send. Main hashes it
   // into the single-use spend permit for this turn and keeps no copy of the TEXT
   // — the digest is persisted (that is the binding), the sentence is not.
+  // MAT-1753 — what this seat's video lane may OFFER. Read-only, no side effect,
+  // and deliberately answered by Main from default-OFF flags: a renderer that
+  // decided its own capabilities could render a control for an entitlement the
+  // seat does not have, and the user would learn that only after the wait. The
+  // gateway re-decides on every request; this exists so the UI does not lie.
+  videoCapabilities: bridge.buildProvider<
+    IBridgeResponse<{ hd15Available: boolean; presetVoicesAvailable: boolean }>,
+    void
+  >('command-eve.video-capabilities'),
   artifactContextEnvelope: bridge.buildProvider<
     IBridgeResponse<{ envelope: string }>,
     { conversationId: string; selectedArtifactIds?: string[]; userTurnText?: string }

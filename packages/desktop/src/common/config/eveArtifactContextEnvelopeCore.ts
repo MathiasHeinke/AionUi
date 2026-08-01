@@ -97,7 +97,15 @@ export const ARTIFACT_ENVELOPE_HEADING = 'Command EVE artifact registry for this
 /** One artifact as the model may see it. Every field is here because a follow-up needs it. */
 export interface EveArtifactEnvelopeEntry {
   artifactId: string;
-  kind: 'video';
+  /**
+   * `reference_image` (MAT-1753) is a file the user attached to THIS message —
+   * a pending input, not a produced artifact, and the exact thing a
+   * reference-to-video render would use. It rides this envelope rather than a
+   * surface of its own for the reason item C names: those files ARE what the
+   * user is looking at, so the agent must see exactly them, and no second picker
+   * may exist to disagree.
+   */
+  kind: 'video' | 'reference_image';
   mimeType: string;
   durationSeconds: number;
   editable: boolean;
@@ -188,7 +196,10 @@ export function buildEveArtifactContextEnvelope(input: EveArtifactContextEnvelop
   const header = [
     ARTIFACT_ENVELOPE_HEADING,
     'These artifacts already exist. They were produced by the app, not by you, and they are real.',
-    'To act on one, pass its `edit_handle` verbatim to the matching tool. The handle names WHICH clip:',
+    'Entries with kind=reference_image are files the user attached to THIS message. They are',
+    'inputs — usable as reference images for a video — not clips that exist yet: there is nothing to',
+    'play and no handle to pass. Do not ask the user to pick them again; they are already chosen.',
+    'To act on a clip, pass its `edit_handle` verbatim to the matching tool. The handle names WHICH clip:',
     'never substitute an artifact_id, a filename, a conversation id or a guess for it.',
     'An artifact without an `edit_handle` cannot be edited; say so rather than attempting it.',
     capabilities.length > 0

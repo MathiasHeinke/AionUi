@@ -161,6 +161,7 @@ import {
   handleCommandEveArtifactContextEnvelopeBridge,
   handleCommandEveArtifactTurnSteerBridge,
   handleCommandEveVideoArtifactsListBridge,
+  handleCommandEveVideoCapabilitiesBridge,
   handleCommandEveVideoEditBridge,
   handleCommandEveVideoGenerateBridge,
 } from '@process/bridge/commandEveVideoBridge';
@@ -2150,6 +2151,8 @@ export function initCommandEveBridge(): void {
   bridge.buildProvider('command-eve.image-prepare').provider(handleCommandEveImagePrepare);
   bridge.buildProvider('command-eve.video-generate').provider(handleCommandEveVideoGenerateBridge);
   bridge.buildProvider('command-eve.video-artifacts-list').provider(handleCommandEveVideoArtifactsListBridge);
+  // MAT-1753. The renderer asks what the seat may offer; it never decides.
+  bridge.buildProvider('command-eve.video-capabilities').provider(handleCommandEveVideoCapabilitiesBridge);
   // MAT-1747. The envelope rides the turn the user was already sending, so this
   // is a READ with no side effect on the transcript; the edit below is the only
   // spending path and it accepts a capability handle, never an id.

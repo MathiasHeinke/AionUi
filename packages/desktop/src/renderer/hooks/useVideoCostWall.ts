@@ -32,10 +32,26 @@
  */
 
 import { useCallback } from 'react';
-import { buildVideoSubmitGate, estimateVideoCost, type VideoQualityTier } from '@/common/config/videoCostCore';
+import {
+  buildVideoSubmitGate,
+  estimateVideoCost,
+  type VideoModeKind,
+  type VideoPlan,
+  type VideoQualityTier,
+  type VideoSeatCapabilities,
+} from '@/common/config/videoCostCore';
 
-/** What the caller's submit receives: the resolved tier + estimated credits. */
-export type VideoConfirmResolved = { tierId: VideoQualityTier; estimatedCredits: number };
+/**
+ * What the caller's submit receives: the resolved tier, the estimate — and the
+ * PLAN both came from.
+ *
+ * The plan travels rather than being re-derived downstream. The tier alone was
+ * enough while one model served each resolution; it stopped being enough the
+ * moment reference-to-video put a second model on 720p at double the price, and a
+ * submit path that re-derived from the tier would send a request the preview did
+ * not describe.
+ */
+export type VideoConfirmResolved = { tierId: VideoQualityTier; estimatedCredits: number; plan: VideoPlan };
 
 /** The function the caller wants to run for the real submit. */
 export type VideoRun = (resolved: VideoConfirmResolved) => void | Promise<void>;
@@ -51,7 +67,12 @@ export interface VideoCostWallState {
    * not invoked while the gate allows the request.
    */
   requestVideo: (
-    request: { durationSeconds?: number; tierId?: VideoQualityTier },
+    request: {
+      durationSeconds?: number;
+      tierId?: VideoQualityTier;
+      modeKind: VideoModeKind;
+      capabilities?: VideoSeatCapabilities;
+    },
     run: VideoRun,
     onCancel?: VideoCancel
   ) => void;
@@ -59,26 +80,38 @@ export interface VideoCostWallState {
 
 export function useVideoCostWall(): VideoCostWallState {
   const requestVideo = useCallback(
-    (request: { durationSeconds?: number; tierId?: VideoQualityTier }, run: VideoRun, onCancel?: VideoCancel) => {
+    (
+      request: {
+        durationSeconds?: number;
+        tierId?: VideoQualityTier;
+        modeKind: VideoModeKind;
+        capabilities?: VideoSeatCapabilities;
+      },
+      run: VideoRun,
+      onCancel?: VideoCancel
+    ) => {
       const gate = buildVideoSubmitGate();
       // An explicit inline selection wins; absent one, the cheaper default. Note
       // `??`, not `||`: the tier is a string union, but a falsy-coalescing bug
       // here would silently downgrade a paid HD request, which is exactly the
       // class of "quietly did something else" this slice exists to remove.
       const preview = estimateVideoCost({
+        modeKind: request.modeKind,
         tierId: request.tierId ?? gate.defaultTierId,
-        durationSeconds: request.durationSeconds,
+        ...(request.durationSeconds === undefined ? {} : { durationSeconds: request.durationSeconds }),
+        ...(request.capabilities === undefined ? {} : { capabilities: request.capabilities }),
       });
 
-      // Fail-closed on anything the gate refuses. Today the gate always allows —
-      // the real refusal lives server-side — but a caller that loses its draft
-      // silently would be the worse failure, so the restore path stays wired.
-      if (!gate.allowed) {
+      // Fail-closed on anything the gate refuses, and on a request with no
+      // producible plan at all. Today the gate always allows — the real refusal
+      // lives server-side — but a caller that loses its draft silently would be
+      // the worse failure, so the restore path stays wired.
+      if (!gate.allowed || preview === undefined) {
         onCancel?.();
         return;
       }
 
-      void run({ tierId: preview.tier.id, estimatedCredits: preview.estimatedCredits });
+      void run({ tierId: preview.tier.id, estimatedCredits: preview.estimatedCredits, plan: preview.plan });
     },
     []
   );

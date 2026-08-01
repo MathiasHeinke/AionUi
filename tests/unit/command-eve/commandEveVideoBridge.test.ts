@@ -43,6 +43,11 @@ const deps = (
   readImageSource: () => ({ bytes: new Uint8Array([1, 2, 3, 4]) }),
   saveVideoFile: () => '/tmp/Downloads/Command EVE Videos/conv-1/artifact-fixed.mp4',
   saveArtifactRecord: () => {},
+  // MAT-1753. A seat with grok-imagine-video-1.5 proven, so the tests below
+  // exercise the ENTITLED path; the unentitled refusal has its own test. Injected
+  // rather than left to the default so the production default (both flags OFF)
+  // stays fail-closed and is not quietly relaxed by the suite.
+  getVideoSeatCapabilities: () => ({ hd15Available: true, presetVoicesAvailable: true }),
   ...overrides,
 });
 
@@ -198,7 +203,12 @@ describe('handleCommandEveVideoGenerate', () => {
   // Image->video: the renderer sends a PATH, Main re-reads and re-hashes it
   // ---------------------------------------------------------------------
 
-  it('refuses a 1080p (hd) request before touching the network when no image is attached', async () => {
+  // INVERTED, MAT-1753. This assertion used to read "refuses a 1080p (hd) request
+  // before touching the network when no image is attached", which was the bridge
+  // half of the false "1.5 is image-to-video only" belief. A bare prompt at 1080p
+  // now reaches the gateway on an entitled seat; the case that is STILL refused —
+  // 1080p without 1.5 proven — has its own assertion below.
+  it('lets a 1080p (hd) TEXT request through to the gateway on an entitled seat', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
 
     const result = await handleCommandEveVideoGenerate(
@@ -206,11 +216,8 @@ describe('handleCommandEveVideoGenerate', () => {
       deps(fetchMock as unknown as typeof fetch)
     );
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reasonCode).toBe('video-tier-unavailable');
-    expect(result.retryable).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
   });
 
   it('re-reads the granted image path and sends the ACTUAL bytes and their SHA-256, never a renderer-supplied claim', async () => {
@@ -242,6 +249,138 @@ describe('handleCommandEveVideoGenerate', () => {
     expect(sentVideo.image_base64).toBe(Buffer.from(imageBytes).toString('base64'));
     expect(sentVideo.image_sha256).toBe(expectedSha256);
     expect(result.ok).toBe(true);
+  });
+
+  it('refuses hd (1080p) when 1.5 is NOT available to the seat, before reading anything', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
+    const readImageSourceMock = vi.fn(() => ({ bytes: new Uint8Array([1]) }));
+    const result = await handleCommandEveVideoGenerate(
+      { prompt: 'p', tierId: 'hd', durationSeconds: 5 },
+      deps(fetchMock as unknown as typeof fetch, {
+        getVideoSeatCapabilities: () => ({ hd15Available: false, presetVoicesAvailable: false }),
+        readImageSource: readImageSourceMock,
+      })
+    );
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reasonCode).toBe('video-tier-unavailable');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(readImageSourceMock).not.toHaveBeenCalled();
+  });
+
+  it('sends a TEXT prompt at 1080p on the 1.5 model once the seat is entitled', async () => {
+    // The MAT-1753 migration, end to end at the bridge: no image, tier hd, and
+    // the request reaches the gateway instead of being refused locally.
+    let sentBody: Record<string, unknown> = {};
+    const fetchMock = vi.fn(async (_url: unknown, init: unknown) => {
+      sentBody = JSON.parse((init as { body: string }).body);
+      return jsonResponse(200, okBody);
+    });
+    const readImageSourceMock = vi.fn(() => ({ bytes: new Uint8Array([1]) }));
+    const result = await handleCommandEveVideoGenerate(
+      { prompt: 'p', tierId: 'hd', durationSeconds: 5 },
+      deps(fetchMock as unknown as typeof fetch, { readImageSource: readImageSourceMock })
+    );
+    expect(result.ok).toBe(true);
+    const sentVideo = sentBody.video_generation as Record<string, unknown>;
+    expect(sentVideo.tier).toBe('hd');
+    expect(sentVideo.mode).toBe('text');
+    expect(sentVideo.image_base64).toBeUndefined();
+    expect(readImageSourceMock).not.toHaveBeenCalled();
+  });
+
+  it('grant-verifies EVERY reference image and forwards all of them', async () => {
+    let sentBody: Record<string, unknown> = {};
+    const fetchMock = vi.fn(async (_url: unknown, init: unknown) => {
+      sentBody = JSON.parse((init as { body: string }).body);
+      return jsonResponse(200, okBody);
+    });
+    const grantedMock = vi.fn(() => true);
+    const result = await handleCommandEveVideoGenerate(
+      {
+        prompt: 'p',
+        tierId: 'fast',
+        durationSeconds: 15,
+        referenceImagePaths: ['/tmp/a.png', '/tmp/b.png', '/tmp/c.png'],
+      },
+      deps(fetchMock as unknown as typeof fetch, { areFileSelectionPathsGranted: grantedMock })
+    );
+    expect(result.ok).toBe(true);
+    // ONE grant check, naming EVERY path. A reference image is not a lighter
+    // class of attachment than an image->video source.
+    expect(grantedMock).toHaveBeenCalledWith({
+      filePaths: ['/tmp/a.png', '/tmp/b.png', '/tmp/c.png'],
+      seatId: 'seat-1',
+      purpose: 'read',
+    });
+    const sentVideo = sentBody.video_generation as Record<string, unknown>;
+    expect(sentVideo.mode).toBe('reference');
+    expect((sentVideo.reference_images as unknown[]).length).toBe(3);
+    expect(sentVideo.image_base64).toBeUndefined();
+  });
+
+  it('refuses an 8th reference image by name, before any read or fetch', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
+    const readImageSourceMock = vi.fn(() => ({ bytes: new Uint8Array([1]) }));
+    const result = await handleCommandEveVideoGenerate(
+      {
+        prompt: 'p',
+        tierId: 'fast',
+        durationSeconds: 5,
+        referenceImagePaths: Array.from({ length: 8 }, (_, i) => `/tmp/ref-${i}.png`),
+      },
+      deps(fetchMock as unknown as typeof fetch, { readImageSource: readImageSourceMock })
+    );
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reasonCode).toBe('reference-images-too-many');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(readImageSourceMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses an image AND reference images arriving together over IPC', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
+    const result = await handleCommandEveVideoGenerate(
+      {
+        prompt: 'p',
+        tierId: 'fast',
+        durationSeconds: 5,
+        imagePath: '/tmp/a.png',
+        referenceImagePaths: ['/tmp/b.png'],
+      },
+      deps(fetchMock as unknown as typeof fetch)
+    );
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reasonCode).toBe('video-mode-ambiguous');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a 4th preset voice, and refuses ANY voice on an unentitled seat', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
+    const tooMany = await handleCommandEveVideoGenerate(
+      {
+        prompt: 'p',
+        tierId: 'fast',
+        durationSeconds: 5,
+        referenceImagePaths: ['/tmp/a.png'],
+        presetVoiceIds: ['v1', 'v2', 'v3', 'v4'],
+      },
+      deps(fetchMock as unknown as typeof fetch)
+    );
+    expect(tooMany.ok === false && tooMany.reasonCode).toBe('reference-voices-too-many');
+
+    const unentitled = await handleCommandEveVideoGenerate(
+      {
+        prompt: 'p',
+        tierId: 'fast',
+        durationSeconds: 5,
+        referenceImagePaths: ['/tmp/a.png'],
+        presetVoiceIds: ['v1'],
+      },
+      deps(fetchMock as unknown as typeof fetch, {
+        getVideoSeatCapabilities: () => ({ hd15Available: true, presetVoicesAvailable: false }),
+      })
+    );
+    expect(unentitled.ok === false && unentitled.reasonCode).toBe('reference-voices-not-entitled');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('refuses when the attached image path was not grant-verified, without reading it', async () => {

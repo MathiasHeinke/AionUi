@@ -33,3 +33,45 @@ export const COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG = 'COMMAND_EVE_ENABLE_AGENT_VIDEO
 export function isAgentVideoEditEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return (env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] || '').trim() === '1';
 }
+
+// ---------------------------------------------------------------------------
+// MAT-1753 — the seat's VIDEO MODEL capabilities
+// ---------------------------------------------------------------------------
+//
+// Same module for the same reason as above: both lanes that can start a paid
+// video (the renderer IPC bridge and the picker that renders in front of it)
+// must ask ONE thing, and neither may answer for itself.
+//
+// WHAT THESE FLAGS ARE AND ARE NOT. They are the DESKTOP MIRROR of two
+// server-side gates; they are not the authority. `eve-multimodal` decides for
+// real (`EVE_MULTIMODAL_ENABLE_XAI_VIDEO_HD15`, and the preset-voice
+// entitlement), and it decides again on every request regardless of what the
+// desktop believed. What these buy is honesty in the UI: a control that renders
+// is a promise, so an unentitled seat must not be shown one and then refused.
+// Both default OFF, matching the server's own default-off posture — a capability
+// we cannot prove is a capability we do not advertise.
+
+/** Makes grok-imagine-video-1.5 (and therefore 1080p, and reference mode) offerable. */
+export const COMMAND_EVE_VIDEO_HD15_FLAG = 'COMMAND_EVE_ENABLE_VIDEO_HD15';
+
+/**
+ * Makes PRESET reference voices offerable.
+ *
+ * xAI gates these to US trusted partners. There is deliberately no flag for
+ * CUSTOM audio upload: that capability does not exist upstream, so the product
+ * has no field, no control and no flag that could ever expose it.
+ */
+export const COMMAND_EVE_VIDEO_PRESET_VOICES_FLAG = 'COMMAND_EVE_ENABLE_VIDEO_PRESET_VOICES';
+
+export interface VideoSeatCapabilityFlags {
+  hd15Available: boolean;
+  presetVoicesAvailable: boolean;
+}
+
+/** Exactly `'1'`, for the same reason as the spending flag above. */
+export function readVideoSeatCapabilities(env: NodeJS.ProcessEnv = process.env): VideoSeatCapabilityFlags {
+  return {
+    hd15Available: (env[COMMAND_EVE_VIDEO_HD15_FLAG] || '').trim() === '1',
+    presetVoicesAvailable: (env[COMMAND_EVE_VIDEO_PRESET_VOICES_FLAG] || '').trim() === '1',
+  };
+}
