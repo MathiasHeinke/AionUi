@@ -8,9 +8,15 @@
  * Live credit meter badge (Lane 3, spec §3) — sits in the titlebar toolbar.
  *
  * Shows "X of allowance used / cap" + remaining purchased credits, refreshing
- * from the credits-status bridge via `useCreditsStatus`. On the free tier it
- * shows "N / cap actions". Quiet (renders nothing) before the first read, in
- * non-desktop builds, or when the status read fails — never breaks the chrome.
+ * from the credits-status bridge via `useCreditsStatus`. Quiet (renders nothing)
+ * before the first read, in non-desktop builds, or when the status read fails —
+ * never breaks the chrome.
+ *
+ * There is ONE meter and it is the credit tank. The line that used to stand here
+ * — "On the free tier it shows 'N / cap actions'" — documented a second, parallel
+ * free-action meter that was deleted with the free lane; the component has not
+ * rendered it for a while, but a comment describing a deleted branch is how the
+ * branch comes back.
  *
  * Clicking the badge opens the billing settings tab (spend cap + pricing).
  */

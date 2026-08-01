@@ -18,7 +18,10 @@
  *                       Edge Function. Levels only; no model names.
  *
  * THE OFFERED SURFACE IS EXACTLY TWO CHOICES (MAT-1749):
- *   - Standard — the unnamed default. Free-eligible; the default for a fresh chat.
+ *   - Standard — the unnamed default for a fresh chat. SELECTABLE without a
+ *                purchase, and METERED like everything else: "free-eligible", the
+ *                word that stood here, described a lane that no longer exists and
+ *                invited every later reader to keep one alive.
  *   - MAX      — the strong lane. Paid: it unlocks on a qualifying paid plan or on
  *                REAL purchased credits. Promotional/allowance credits do NOT
  *                unlock it (see {@link hasEveMaxAccess}).
@@ -36,14 +39,17 @@
  * cannot become offerable by construction — not merely by a rule someone has to
  * remember.
  *
- * FREE-TIER RULES (entitlement trialing/free per entitlementCore):
+ * SELECTABILITY RULES for a trialing / free-seat entitlement (entitlementCore).
+ * These govern what may be CHOSEN. They are not a free lane and never were —
+ * this block used to be headed "FREE-TIER RULES", which read as an entitlement:
  *   - MAX is disabled unless a paid seat/plan OR a REAL purchased-credit balance
  *     exists. An active top-up is NOT in that list: it is a BYOK signal only, and
  *     a subscription that has been fully spent has no purchased balance — treating
  *     it as a MAX unlock made the client offer a lane the server answers with 402.
  *   - BYOK is GREYED OUT in settings (handled at the settings surface using
  *     {@link isByokDisabledForEntitlement} from this module).
- *   - EVE Standard + the two local tiers always stay selectable.
+ *   - EVE Standard + the two local tiers always stay selectable. Selectable is not
+ *     free: a cloud turn on Standard is debited exactly like one on MAX.
  *
  * BACKEND LEVEL REGISTRY (no tier→level shift): the eve-inference Edge Function
  * resolves the concrete upstream model from a user-facing LEVEL via a registry
@@ -116,9 +122,32 @@ export const EVE_INFERENCE_TIER_SUBLABEL = 'EVE Cloud';
  *                         be emitted only when `gated` was true, which — once the
  *                         gated rung was retired — made it dead affordance code.
  *
- * The free level (Standard) carries NO cost badge; the user can pick it on a
- * trial with no card.
+ * Standard carries NO cost badge, because it is the unnamed default rather than
+ * an upsell — not because it is free. It is metered (see its `consumesCredits`
+ * below, seven lines down, which this sentence used to contradict in the same
+ * comment block). A trial seat can pick it with no card because the trial's
+ * promotional ALLOWANCE funds the turns, not because the turns are free.
  */
+/**
+ * Does a cloud turn on this wire tier cost credits? Reads {@link EVE_INFERENCE_TIERS}
+ * — the ONE place a rung's cost is declared — so no surface has to restate it.
+ *
+ * WHY THIS EXISTS: the team panel used to carry its own hand-typed
+ * `{ standard: false, high: false, ... }` table and told users that Standard and
+ * High cost nothing, while this module said `consumesCredits: true` for both.
+ * Deleting the `true` here reddened nothing over there, because the two were only
+ * connected by someone remembering. Now they are connected by a call.
+ *
+ * UNKNOWN TIERS RETURN TRUE. A rung we cannot find is assumed to COST, never
+ * assumed free: guessing "free" is how a user is told a metered turn is a gift.
+ * That also covers tier names used by non-inference surfaces (e.g. the team
+ * roster's `maximum`), which are cloud turns like any other.
+ */
+export function wireTierConsumesCredits(tier: string): boolean {
+  const row = EVE_INFERENCE_TIERS.find((t) => t.tier === tier);
+  return row ? row.consumesCredits === true : true;
+}
+
 export const EVE_INFERENCE_TIERS = [
   {
     id: 'eve-standard',
@@ -791,7 +820,7 @@ export function resolveEveWireLaneDecision(
  * OPEN defect the picker gate already refuses ({@link hasEveMaxAccess} locks MAX
  * on an absent/null/unknown entitlement).
  *
- * SINCE 1.820.2 THIS AGREES WITH THE SEND PATH ON UNKNOWN, and the agreement is
+ * SINCE 1.820.1 THIS AGREES WITH THE SEND PATH ON UNKNOWN, and the agreement is
  * the fix. The two used to disagree on purpose — paint Standard, send MAX — which
  * is precisely how hidden MAX spend could leave an unverified seat while the
  * surface showed the routine lane. {@link resolveEveWireLaneDecision} now HOLDS on

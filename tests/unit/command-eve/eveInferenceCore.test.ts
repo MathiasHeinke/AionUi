@@ -8,7 +8,8 @@
  * EVE Inference picker core — the STUFEN (level) model + the required behaviors:
  *
  *  (0) STUFEN shape: the OFFERED surface is EXACTLY TWO rungs — Standard (the
- *      unnamed default, free-eligible) and MAX (the strong lane). The
+ *      unnamed default, selectable without a purchase and METERED like every
+ *      other cloud turn) and MAX (the strong lane). The
  *      intermediate/retired rungs stay in the REGISTRY — the managed-visual /
  *      media contract still uses their wire tiers and a persisted selection has
  *      to be recognisable to be migrated — but none of them is offerable.
@@ -160,15 +161,30 @@ describe('eveInferenceCore — collapsed offer: exactly Standard + MAX (spec 2.2
     expect(EVE_INFERENCE_SELECTABLE_TIERS.map((t) => t.tier)).toEqual(['standard', 'max']);
   });
 
-  it('Standard is the free-eligible default; MAX is the paid strong lane', () => {
+  it('Standard is the default a seat can SELECT without buying — and it is still metered', () => {
+    // RETITLED (1.820.1). The old name called Standard "the free-eligible default".
+    // `paidOnly: false` is a SELECTABILITY fact; it says nothing about cost, and
+    // reading it as "free" is the free-lane ghost this repo keeps having to
+    // re-kill. The assertion below pins both halves so the two cannot be conflated
+    // again: selectable without a purchase AND debited on every turn.
     const standard = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-standard')!;
     const max = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-max')!;
     expect(standard.paidOnly).toBe(false);
+    expect(standard.consumesCredits, 'there is no un-metered cloud lane').toBe(true);
     expect(standard.label).toBe('Standard');
     expect(standard.modelLabel).toBe('großer Kontext');
     expect(max.paidOnly).toBe(true);
+    expect(max.consumesCredits).toBe(true);
     expect(max.label).toBe('MAX');
     expect(EVE_INFERENCE_DEFAULT_TIER_ID).toBe('eve-standard');
+  });
+
+  it('EVERY cloud tier consumes credits — no row may declare a free lane', () => {
+    // The general form of the rule, so a NEW rung cannot be added with
+    // `consumesCredits: false` and quietly reopen what 1.820.1 closed.
+    for (const tier of EVE_INFERENCE_TIERS) {
+      expect(tier.consumesCredits, `${tier.id} must be metered — there is no free cloud lane`).toBe(true);
+    }
   });
 
   it('the MAX row wires its cost badge instead of leaving dead affordance code', () => {

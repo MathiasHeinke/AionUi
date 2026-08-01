@@ -168,7 +168,17 @@ const EveMaxToggle: React.FC<{
           data-testid='eve-max-toggle'
           data-engaged={maxEngaged ? 'true' : 'false'}
           data-active={effectivelyOn ? 'true' : 'false'}
-          data-locked={maxLocked ? 'true' : 'false'}
+          // CHECKING IS NOT LOCKED, and now the attribute says so.
+          //
+          // This read `maxLocked ? 'true' : 'false'`, and `maxLocked` is true
+          // whenever MAX is not available — which includes the unverified state.
+          // So the neutral "checking" pill was stamped `data-locked='true'` and
+          // picked up the locked style (the 64%-muted label at UnifiedSendBar.css
+          // `[data-locked='true']`), i.e. it wore the not-entitled answer while the
+          // comment below insisted the two were separate. The comment was right
+          // about the intent and wrong about the code; the code is what moved.
+          // Same condition the icon already used at the padlock below.
+          data-locked={maxLocked && !entitlementPending ? 'true' : 'false'}
           // Separate from `data-locked` on purpose: locked is an ANSWER (not
           // entitled, here is the upsell), checking is the absence of one.
           data-checking={entitlementPending ? 'true' : 'false'}

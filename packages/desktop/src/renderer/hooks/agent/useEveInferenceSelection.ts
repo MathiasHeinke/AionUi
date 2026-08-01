@@ -206,6 +206,19 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     };
   }, [creditsStatus, status]);
 
+  // AUTHORITATIVE FUNDING TRUTH — hoisted above every writer on purpose (R4).
+  //
+  // It used to be computed further down, AFTER `setSelection` and after the mount
+  // migration effect, which is precisely why those two could persist a lane while
+  // the entitlement was still unknown. A guard that is declared after the code it
+  // is supposed to guard cannot guard it.
+  const paidTierAccessKnown =
+    !entitlementLoading &&
+    status?.ok === true &&
+    status.state === 'entitled' &&
+    !creditsLoading &&
+    creditsStatus?.ok === true;
+
   const [selection, expose] = useState<string>(() => {
     // Default to EVE Standard (cloud) for a fresh user; local Gemma is opt-in.
     const stored = configService.get('commandEve.inferenceSelection') || EVE_DEFAULT_INFERENCE_SELECTION;
@@ -224,29 +237,56 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
    * The write is guarded on an ACTUAL change, so re-adopting an already-migrated
    * value neither writes nor re-enters through the subscription — no loop, no
    * duplicate onChange.
+   *
+   * `origin` IS THE R4 GATE, and it is the whole point of this parameter:
+   *   - `'user'`  — the person in front of the app picked this. Always persisted;
+   *                 refusing to record a deliberate choice would be its own bug.
+   *   - `'auto'`  — the APP decided: a legacy-value migration, an unknown-lane
+   *                 fallback, a value arriving over the subscription. These are
+   *                 REFUSED while entitlement is unknown. UNKNOWN fails closed in
+   *                 both directions, and rewriting the persisted key is the
+   *                 direction that loses the user's paid intent: a stored
+   *                 `eve-ultra` was being silently migrated to `eve-max` (or a
+   *                 stored MAX reset to Standard) before anyone knew whether the
+   *                 seat was entitled, and the write is not undone when the answer
+   *                 arrives. In-memory state still updates so the UI stays
+   *                 coherent; only the DISK write waits for an answer.
    */
-  const setSelection = useCallback((next: string) => {
-    const migrated = migrateLegacyEveSelection(next);
-    if (migrated === undefined) {
-      expose(next);
-      return;
-    }
-    expose(migrated);
-    if (configService.get('commandEve.inferenceSelection') !== migrated) {
-      configService.set('commandEve.inferenceSelection', migrated);
-    }
-  }, []);
+  const setSelection = useCallback(
+    (next: string, origin: 'user' | 'auto' = 'user') => {
+      const migrated = migrateLegacyEveSelection(next);
+      if (migrated === undefined) {
+        expose(next);
+        return;
+      }
+      expose(migrated);
+      if (origin === 'auto' && !paidTierAccessKnown) return;
+      if (configService.get('commandEve.inferenceSelection') !== migrated) {
+        configService.set('commandEve.inferenceSelection', migrated);
+      }
+    },
+    [paidTierAccessKnown]
+  );
 
   // A selection already on disk when this mounts never passes through the
-  // subscription, so it is migrated (and written back) once here.
+  // subscription, so it is migrated (and written back) once funding truth is
+  // AUTHORITATIVE.
+  //
+  // The `paidTierAccessKnown` gate is the fix for the R4 hole this effect was:
+  // it ran on mount with an empty dep array, i.e. at the exact moment entitlement
+  // is least likely to be known, and rewrote the persisted key anyway. A seat
+  // whose stored lane was the retired `eve-ultra` had it replaced with `eve-max`
+  // before anything knew whether that seat may have MAX. The in-memory adoption
+  // still happens immediately (the UI must not show a dead lane); only the write
+  // waits. Re-runs when the answer lands, so nothing is stranded.
   useEffect(() => {
     const stored = configService.get('commandEve.inferenceSelection');
     const migrated = migrateLegacyEveSelection(stored);
-    if (migrated !== undefined && migrated !== stored) {
-      expose(migrated);
-      configService.set('commandEve.inferenceSelection', migrated);
-    }
-  }, []);
+    if (migrated === undefined || migrated === stored) return;
+    expose(migrated);
+    if (!paidTierAccessKnown) return;
+    configService.set('commandEve.inferenceSelection', migrated);
+  }, [paidTierAccessKnown]);
 
   // Keep local state in sync with writes from the other surface. Since MAT-1749
   // there are exactly two writers of this key — the composer's MAX toggle (via
@@ -255,7 +295,7 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   // reach an open composer without a reload.
   useEffect(() => {
     const unsubscribe = configService.subscribe('commandEve.inferenceSelection', (value) => {
-      if (typeof value === 'string' && value.length > 0) setSelection(value);
+      if (typeof value === 'string' && value.length > 0) setSelection(value, 'auto');
     });
     return unsubscribe;
   }, [setSelection]);
@@ -294,14 +334,9 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   const items = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 
   // A destructive fallback is only justified once both independent funding
-  // sources have finished with authoritative truth. In particular, a stale
-  // trial marker can arrive before purchased-credit status during startup.
-  const paidTierAccessKnown =
-    !entitlementLoading &&
-    status?.ok === true &&
-    status.state === 'entitled' &&
-    !creditsLoading &&
-    creditsStatus?.ok === true;
+  // sources have finished with authoritative truth (`paidTierAccessKnown`, hoisted
+  // above the writers). In particular, a stale trial marker can arrive before
+  // purchased-credit status during startup.
 
   const selectedRaw = useMemo(() => items.find((i) => i.value === selection), [items, selection]);
   const selectedItem = selectedRaw && !selectedRaw.disabled ? selectedRaw : undefined;
@@ -390,12 +425,19 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     const fallback = eveTierValue(EVE_INFERENCE_DEFAULT_TIER_ID);
     const isUnknownEve = isEveInferenceSelection(selection) && !items.some((item) => item.value === selection);
     const isConfirmedUnfundedTier =
-      selectedRaw?.group === 'eve' && selectedRaw.disabled && paidTierAccessKnown && selection !== maxSelectionValue;
+      selectedRaw?.group === 'eve' && selectedRaw.disabled && selection !== maxSelectionValue;
+    // ONE gate for BOTH arms. `isConfirmedUnfundedTier` carried its own
+    // `paidTierAccessKnown` term; `isUnknownEve` did not, so an EVE selection that
+    // simply had not resolved to a lane yet was reset to Standard and WRITTEN TO
+    // DISK while entitlement was unknown — a silent downgrade of exactly the kind
+    // R4 forbids, and unrecoverable once the answer arrives. Hoisting the gate to
+    // cover the whole effect means no arm can be added later without it.
+    if (!paidTierAccessKnown) return;
     if ((isConfirmedUnfundedTier || isUnknownEve) && selection !== fallback) {
-      setSelection(fallback);
+      setSelection(fallback, 'auto');
       configService.set('commandEve.inferenceSelection', fallback);
     }
-  }, [selectedRaw, items, paidTierAccessKnown, selection, maxSelectionValue]);
+  }, [selectedRaw, items, paidTierAccessKnown, selection, maxSelectionValue, setSelection]);
 
   return {
     selection,

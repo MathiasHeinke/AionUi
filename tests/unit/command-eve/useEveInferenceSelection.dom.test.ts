@@ -47,7 +47,9 @@ vi.mock('@/common/config/configService', () => {
 });
 
 // Controllable entitlement status. `trial_ends_at` non-null ⇒ trialing (greys the
-// paid Pro rungs Hoch/Max; only Standard stays free). Default: paid (all selectable).
+// paid Pro rungs Hoch/Max; only Standard stays SELECTABLE — selectable, never
+// free: a Standard turn is credit-metered like every other cloud turn).
+// Default: paid (all selectable).
 const entitlement = {
   ok: true,
   state: 'entitled',
@@ -112,7 +114,7 @@ describe('useEveInferenceSelection', () => {
     vi.clearAllMocks();
   });
 
-  it('defaults a fresh user to EVE Standard (cloud, the free-eligible rung)', () => {
+  it('defaults a fresh user to EVE Standard (cloud, the unnamed default rung)', () => {
     const { result } = renderHook(() => useEveInferenceSelection());
     expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
     expect(result.current.selectedItem?.group).toBe('eve');
@@ -149,7 +151,7 @@ describe('useEveInferenceSelection', () => {
     await waitFor(() => expect(result.current.selection).toBe(localStandard));
   });
 
-  it('keeps EVE Standard (free-eligible) selectable while trialing', () => {
+  it('keeps EVE Standard SELECTABLE while trialing — selectable, not free', () => {
     entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z'; // trialing
     const { result } = renderHook(() => useEveInferenceSelection());
     const eveStandard = eveTierValue('eve-standard');
@@ -340,6 +342,16 @@ describe('useEveInferenceSelection', () => {
   // without a write-back the config keeps a tier the server refuses and the
   // picker keeps presenting it as chosen. These pin the write, not just the read.
   // -------------------------------------------------------------------------
+  //
+  // EVERY WRITE-BACK ROW BELOW ESTABLISHES AUTHORITATIVE FUNDING TRUTH FIRST
+  // (`creditsStatus.ok = true`), and that is not fixture noise — it is the
+  // contract. The write-back is gated on `paidTierAccessKnown`: while entitlement
+  // is UNKNOWN the hook adopts the migrated value in memory but must NOT touch
+  // disk, because a rewrite performed before anyone knows whether the seat is
+  // entitled is not undone when the answer arrives (R4). These rows used to run
+  // with `creditsStatus.ok = false` — i.e. UNKNOWN — and asserted the write
+  // happened anyway, which made the defect the contract. The held case has its own
+  // file: eveInferenceSelectionUnknownWrite.dom.test.tsx.
 
   // With no visible "Standard" label any more, the user-facing outcome of a
   // migration is a BOOLEAN INTENT: MAX off (EVE's normal unnamed behaviour) or on.
@@ -371,6 +383,7 @@ describe('useEveInferenceSelection', () => {
   ])('MIGRATION ROW: a persisted %s is rewritten to %s on disk (write-back)', async (from, to) => {
     store.set('commandEve.inferenceSelection', eveTierValue(from as 'eve-high'));
     entitlement.trial_ends_at = null;
+    creditsStatus.ok = true; // funding truth is AUTHORITATIVE — the write is allowed
 
     const { result } = renderHook(() => useEveInferenceSelection());
 
@@ -398,11 +411,30 @@ describe('useEveInferenceSelection', () => {
   it('MIGRATION ROW: an UNKNOWN eve value becomes Standard and is written back', async () => {
     store.set('commandEve.inferenceSelection', 'command-eve-inference:eve-maximum');
     entitlement.trial_ends_at = null;
+    creditsStatus.ok = true; // authoritative: the reset may be persisted
 
     const { result } = renderHook(() => useEveInferenceSelection());
 
     await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
     expect(store.get('commandEve.inferenceSelection')).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+  });
+
+  it('MIGRATION ROW: the SAME unknown value is NOT written back while entitlement is unknown', async () => {
+    // The paired negative. Identical setup minus the authoritative credit read, so
+    // the only thing that changed is the answer to "may we write?". Without this
+    // pairing the row above would pass just as happily with the guard deleted.
+    store.set('commandEve.inferenceSelection', 'command-eve-inference:eve-maximum');
+    entitlement.trial_ends_at = null;
+    creditsStatus.ok = false; // funding truth NOT authoritative ⇒ UNKNOWN
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
+    expect(store.get('commandEve.inferenceSelection')).toBe('command-eve-inference:eve-maximum');
+    expect(configService.set).not.toHaveBeenCalledWith(
+      'commandEve.inferenceSelection',
+      EVE_DEFAULT_INFERENCE_SELECTION
+    );
   });
 
   it('shows MAX as the active picker item after migrating (on a purchased seat)', async () => {
@@ -418,6 +450,7 @@ describe('useEveInferenceSelection', () => {
 
   it('migrates a retired rung arriving through the subscription', async () => {
     entitlement.trial_ends_at = null;
+    creditsStatus.ok = true; // authoritative — a subscription-borne migration may persist
     const { result } = renderHook(() => useEveInferenceSelection());
     await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
     vi.clearAllMocks();

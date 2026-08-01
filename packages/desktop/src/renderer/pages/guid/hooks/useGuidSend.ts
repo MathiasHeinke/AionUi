@@ -166,6 +166,18 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
   const guidDisabledBuiltinSkills = skillSelectionReady ? skillCatalog.selection.excludedAutoInjectSkills : undefined;
 
   const handleSend = useCallback(async () => {
+    // THE HOLD LIVES HERE, on the function that actually starts the turn.
+    //
+    // It used to live only in `sendMessageHandler` below, which wraps this one —
+    // but `handleSend` is RETURNED from this hook and is therefore directly
+    // callable by anything holding the result, wrapper or no wrapper. A guard on
+    // the wrapper protects the wrapper's callers, not the exported entry point,
+    // and the committed tests demonstrate the gap rather than close it: five of
+    // them call `handleSend()` directly and every one of them would have started a
+    // turn on a held lane. The wrapper keeps its own early return (it must not
+    // flip loading state for a turn that will not run); this is the one that
+    // decides whether a held turn can begin at all.
+    if (eveSendHeld) return false;
     let commandEveRuntimeModel: TProviderWithModel | undefined;
     let commandEveRuntimeModelId: string | undefined;
     let commandEveAssistantReadiness: ICommandEveAssistantReadiness | undefined;
@@ -608,6 +620,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     guidEnabledSkills,
     navigate,
     t,
+    eveSendHeld,
   ]);
 
   const sendMessageHandler = useCallback(() => {

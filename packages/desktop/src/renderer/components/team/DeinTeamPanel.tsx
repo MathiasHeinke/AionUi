@@ -32,7 +32,8 @@
  * worker actually stops it being used on the cloud lane — not just a label.
  */
 
-import { EVE_TEAM_ROSTER, type EveTeamRole, type EveTeamRoleTier } from '@/common/config/eveTeamRoster';
+import { EVE_TEAM_ROSTER, type EveTeamRole } from '@/common/config/eveTeamRoster';
+import { wireTierConsumesCredits } from '@/common/config/eveInferenceCore';
 import {
   applyControlAction,
   controlKindForRole,
@@ -52,14 +53,6 @@ import { Button, Message, Popconfirm, Tag } from '@arco-design/web-react';
 import { Pause, PlayOne, Power, UserPositioning } from '@icon-park/react';
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-
-/** Paid levels carry a subtle credit marker (mirrors the inference picker). */
-const TIER_CONSUMES_CREDITS: Record<EveTeamRoleTier, boolean> = {
-  standard: false,
-  high: false,
-  max: true,
-  maximum: true,
-};
 
 const STATUS_COLOR: Record<EveTeamWorkerStatus, string> = {
   active: 'green',
@@ -193,7 +186,12 @@ interface RoleCardProps {
 
 const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, onAction }) => {
   const { t } = useTranslation();
-  const consumesCredits = TIER_CONSUMES_CREDITS[role.tier];
+  // DERIVED, never restated. This was a local
+  // `{ standard: false, high: false, max: true, maximum: true }` table that told
+  // the user Standard and High cost nothing, while eveInferenceCore declared both
+  // `consumesCredits: true`. Two hand-maintained copies of a money fact is one
+  // copy too many, and the wrong one was the one on screen.
+  const consumesCredits = wireTierConsumesCredits(role.tier);
   const status = statusForRole(role, statuses);
   const isFloor = isFreeFloorWorker(role);
   const roleName = t(`deinTeam.roles.${role.agent_id}.name`, { defaultValue: role.displayName });

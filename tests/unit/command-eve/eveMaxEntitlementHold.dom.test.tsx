@@ -283,6 +283,14 @@ describe('(a) UNKNOWN — neutral paint, held submission, MAX never claimed', ()
     expect(anchor().getAttribute('data-eve-max-state')).not.toBe('locked');
     expect(anchor().getAttribute('data-eve-max-state')).not.toBe('available');
     expect(button().getAttribute('data-checking')).toBe('true');
+
+    // ...and it is not wearing the LOCKED attribute either. This is the one the
+    // stylesheet actually keys on: `UnifiedSendBar.css` mutes
+    // `[data-locked='true']` to 64% to mark the not-entitled answer. While the
+    // attribute was stamped from `maxLocked` alone it was true during checking, so
+    // the neutral pill silently wore the locked treatment — the separation the
+    // component comment claims was asserted in prose and implemented nowhere.
+    expect(button().getAttribute('data-locked'), 'checking must not wear the locked style').toBe('false');
   });
 
   it('shows the NEUTRAL copy — the shipped de-DE string, not an invented one', async () => {
@@ -325,6 +333,29 @@ describe('(a) UNKNOWN — neutral paint, held submission, MAX never claimed', ()
     view.result.current.sendMessageHandler();
     expect(deps.setLoading, 'a held composer must not start a turn').not.toHaveBeenCalled();
   });
+
+  it('HOLDS the EXPORTED handleSend too, not merely its wrapper', async () => {
+    // `sendMessageHandler` is a WRAPPER. `handleSend` is returned from the hook and
+    // is therefore directly callable by anything holding the result — and several
+    // committed tests in tests/unit/renderer/useGuidSend.dom.test.ts do exactly
+    // that. A guard that lives only in the wrapper protects the wrapper's callers,
+    // not the exported entry point, so the hold has to be on the function that
+    // actually starts the turn.
+    const { view, deps } = await mountSendFunnel();
+
+    expect(view.result.current.eveSendHeld).toBe(true);
+    const sent = await view.result.current.handleSend();
+
+    expect(sent, 'a held handleSend must report that nothing was sent').toBe(false);
+    expect(deps.setLoading).not.toHaveBeenCalled();
+    // And it must not have taken a single step of the send path: the very first
+    // thing an unheld turn does is ask main for a gate decision.
+    const { ipcBridge } = await import('@/common');
+    expect(
+      vi.mocked(ipcBridge.commandEve.evaluateGateDecision.invoke),
+      'a held turn must not even open the gate'
+    ).not.toHaveBeenCalled();
+  });
 });
 
 describe('(b) UNKNOWN → TRUE — paints MAX and submission runs', () => {
@@ -354,6 +385,17 @@ describe('(b) UNKNOWN → TRUE — paints MAX and submission runs', () => {
     view.result.current.sendMessageHandler();
     await waitFor(() => expect(deps.setLoading).toHaveBeenCalledWith(true));
   });
+
+  it('the EXPORTED handleSend runs again — the guard is a hold, not an off switch', async () => {
+    // The other half of the guard on `handleSend`: proving it refuses is only half
+    // an answer if it refuses everything.
+    mainSays('entitled');
+    const { view } = await mountSendFunnel();
+    const { ipcBridge } = await import('@/common');
+
+    await view.result.current.handleSend();
+    expect(vi.mocked(ipcBridge.commandEve.evaluateGateDecision.invoke)).toHaveBeenCalled();
+  });
 });
 
 describe('(c) UNKNOWN → FALSE — Standard, with copy that says why and names no provider', () => {
@@ -371,6 +413,9 @@ describe('(c) UNKNOWN → FALSE — Standard, with copy that says why and names 
     expect(button().getAttribute('data-active')).toBe('false');
     expect(button().getAttribute('data-checking')).toBe('false');
     expect(anchor().getAttribute('data-eve-max-state')).toBe('locked');
+    // The other half: a KNOWN "not entitled" still carries the locked attribute,
+    // so the muted upsell styling still applies where it is honest.
+    expect(button().getAttribute('data-locked')).toBe('true');
 
     // The copy says WHY, and keeps the user's intent visible.
     const why = lookup(DE, 'conversation.eveMax.lockedEngagedHint') as string;
@@ -397,18 +442,29 @@ describe('(c) UNKNOWN → FALSE — Standard, with copy that says why and names 
   });
 });
 
-describe('(d) the persisted MAX selection survives the whole sequence', () => {
-  it('is never rewritten while the lane is held, painted or restored', async () => {
-    const { configService } = await import('@/common/config/configService');
-
-    // Each step tears its render down before the next mounts, so these run in
-    // sequence rather than in a loop.
+describe('(d) the persisted MAX intent stays visible through the whole sequence', () => {
+  it('the control keeps showing what the user chose, in every entitlement state', async () => {
+    // WHAT THIS ASSERTS, AND WHAT IT DELIBERATELY NO LONGER CLAIMS.
+    //
+    // This block used to be titled "the persisted MAX selection survives" and
+    // ended by asserting that nothing ever called
+    // `configService.set('commandEve.inferenceSelection', …)`. It could not
+    // honestly assert that: `useEveInferenceSelection` — the hook that owns EVERY
+    // write to that key — is replaced by `vi.mock` at the top of this file, so the
+    // production writers never ran. The assertion was true of a mock, and deleting
+    // the real guard could not turn it red. It was a green gate over a path the
+    // product does not take.
+    //
+    // The persistence property now lives in
+    // `eveInferenceSelectionUnknownWrite.dom.test.tsx`, which renders the REAL
+    // hook and observes the REAL config writes. What is left here is the thing
+    // this file can actually see: the PAINT. Intent stays legible on the control
+    // the user pressed, in all three states.
     const intentSurvives = async (state: Parameters<typeof mainSays>[0]) => {
       mainSays(state);
       main.calls = 0;
       const view = await renderToggle();
-      // Intent is what the user chose; it stays legible on the control they pressed.
-      expect(view.button().getAttribute('data-engaged')).toBe('true');
+      expect(view.button().getAttribute('data-engaged'), `intent lost in state: ${state}`).toBe('true');
       view.unmount();
     };
 
@@ -416,13 +472,6 @@ describe('(d) the persisted MAX selection survives the whole sequence', () => {
     await intentSurvives('entitled');
     await intentSurvives('unentitled');
     await intentSurvives('unknown');
-
-    // NOTHING wrote the selection key — not the hold, not the resolution, not the
-    // fallback. Erasing it would force the user to re-pick MAX after every blip.
-    for (const call of vi.mocked(configService.set).mock.calls) {
-      expect(call[0]).not.toBe('commandEve.inferenceSelection');
-    }
-    expect(configGetMock('commandEve.inferenceSelection')).toBe(MAX_SELECTION);
   });
 });
 

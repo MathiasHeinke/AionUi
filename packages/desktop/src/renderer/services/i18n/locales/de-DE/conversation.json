@@ -132,7 +132,7 @@
   "noModelConfigured": "Kein Modell konfiguriert. Bitte konfiguriere es in den Einstellungen.",
   "pdf": {
     "cloudOcrTitle": "Cloud-OCR für dieses PDF erlauben?",
-    "cloudOcrDescription": "EVE hat in {{files}} lokal zu wenig verlässlichen Text gefunden. Mit deiner Bestätigung wird das PDF einmalig über das serverseitige OpenRouter-Gateway von Command EVE verarbeitet: Zero Data Retention, kein Training und kein Anbieter-Key in der App. Abbrechen lässt Entwurf und Datei lokal und ungesendet.",
+    "cloudOcrDescription": "EVE hat in {{files}} lokal zu wenig verlässlichen Text gefunden. Mit deiner Bestätigung wird das PDF einmalig über das serverseitige Cloud-Gateway von Command EVE verarbeitet: Zero Data Retention, kein Training und kein Anbieter-Key in der App. Abbrechen lässt Entwurf und Datei lokal und ungesendet.",
     "cloudOcrConfirm": "OCR einmal erlauben",
     "selectedDocuments": "den ausgewählten Dokumenten",
     "prepareFailed": "EVE konnte dieses PDF nicht sicher lesen. Die Nachricht wurde nicht gesendet.",

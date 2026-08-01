@@ -51,7 +51,7 @@
     "test:gate-null": "vitest run tests/unit/command-eve/gateNull*.test.ts",
     "test:integration": "vitest run tests/integration",
     "test:packaged:i18n": "vitest run tests/integration/i18n-packaged.test.ts",
-    "test:release:gates": "node --test scripts/release/*.test.mjs",
+    "test:release:gates": "node --test scripts/release/*.test.mjs scripts/fetch-bundled-skills.test.mjs",
     "release:verify:first-run": "node scripts/release/verify-command-eve-first-run-bundle.mjs",
     "bench": "vitest bench",
     "bench:db": "bun test ./tests/bench/database.bench.bun.ts",

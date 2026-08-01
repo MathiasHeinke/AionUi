@@ -215,7 +215,7 @@ export async function readInferenceSelectionFromBackendStrict(): Promise<string 
  *             stored intent is never rewritten here, so it lights up again the
  *             moment the seat buys.
  *   UNKNOWN → THE LANE IS HELD. No route is built and no request is made, so no
- *             MAX spend can leave an unverified seat. This is the 1.820.2
+ *             MAX spend can leave an unverified seat. This is the 1.820.1
  *             correction: unknown used to let `max` travel on the reasoning that
  *             the server is the binding gate — but "upstream will refuse it" is
  *             not a spend control the client may lean on, and the surface was

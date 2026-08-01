@@ -105,7 +105,7 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
 
   it('routes EVE Max (legacy seat) all the way to wire tier "max"', async () => {
     // The picker commits eveTierValue('eve-max') = "command-eve-inference:eve-max".
-    // The entitlement is stated (`true`) because since 1.820.2 an UNSTATED one is a
+    // The entitlement is stated (`true`) because since 1.820.1 an UNSTATED one is a
     // HOLD, not a permissive "let it travel" — see the hold suite. These routing
     // cases are about the tier MAPPING, so they supply a proven seat.
     httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null, true));
@@ -303,7 +303,7 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null, true));
     expect((await resolveRouteFromBackend())?.tier).toBe('max');
 
-    // No entitlement key at all ⇒ UNKNOWN ⇒ the lane is HELD (1.820.2). This case
+    // No entitlement key at all ⇒ UNKNOWN ⇒ the lane is HELD (1.820.1). This case
     // used to expect 'max' on the reasoning that the server is the binding gate.
     // It is not one the client may lean on: letting `max` travel here is paid
     // inference on a seat nobody verified. Substituting 'standard' would be the

@@ -133,7 +133,7 @@
   "noModelConfigured": "No model configured. Please configure in settings.",
   "pdf": {
     "cloudOcrTitle": "Allow cloud OCR for this PDF?",
-    "cloudOcrDescription": "EVE found too little reliable local text in {{files}}. With your confirmation, the PDF is sent once through Command EVE's server-side OpenRouter gateway using Zero Data Retention and no-training routing. No provider key is stored in the app. Cancel keeps the draft local and unsent.",
+    "cloudOcrDescription": "EVE found too little reliable local text in {{files}}. With your confirmation, the PDF is sent once through Command EVE's server-side cloud gateway using Zero Data Retention and no-training routing. No provider key is stored in the app. Cancel keeps the draft local and unsent.",
     "cloudOcrConfirm": "Allow OCR once",
     "selectedDocuments": "the selected documents",
     "prepareFailed": "EVE could not read this PDF safely. The message was not sent.",
