@@ -1783,8 +1783,10 @@
   background: var(--eve-row-hover-bg);
 }
 
-.billing-settings__pack-bonus {
-  color: var(--eve-status-completed);
+/* Face-value credits per pack (1.820.1) — the retired "+20 % bonus" badge used
+   the success colour; a plain statement of what the pack grants does not. */
+.billing-settings__pack-credits {
+  color: var(--eve-shell-text-secondary);
   font-size: 11px;
   line-height: 17px;
 }

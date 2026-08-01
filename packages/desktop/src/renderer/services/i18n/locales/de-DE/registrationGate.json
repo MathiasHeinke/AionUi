@@ -95,12 +95,12 @@
   },
   "curtain": {
     "title": "Willkommen zurück",
-    "lede": "Deine alte Testphase ist beendet — aber dein eigener Seat ist jetzt kostenlos, für immer. Melde dich an und mach genau dort weiter, wo du aufgehört hast. Kunden-Seats gibt es ab 99 €.",
+    "lede": "Deine Testphase ist beendet — abgebucht wurde nichts. Wie es weitergeht, entscheidest du jetzt: Melde dich an und mach genau dort weiter, wo du aufgehört hast.",
     "preservedTitle": "Deine Einrichtung bleibt erhalten",
     "preservedBody": "Dein Company OS, dein Gedächtnis, deine Verbindungen und deine SOPs sind weiterhin gespeichert und warten auf dich. Es wird nichts gelöscht oder zurückgesetzt.",
-    "price": "Dein eigener Seat: 0 € — für immer",
+    "price": "Standard: 99 €/Monat — inkl. 100.000 Credits und allen Seats (Team, Projekte, Kunden) ohne Aufpreis.",
     "continue": "Anmelden und weitermachen",
-    "hint": "Der Button öffnet dein Konto im Browser. Melde dich an, um deinen kostenlosen eigenen Seat zu reaktivieren; Kunden-Seats fügst du hinzu, wann immer du bereit bist."
+    "hint": "Der Button öffnet dein Konto im Browser — kein Kauf passiert hier in der App und nichts wird automatisch verlängert. Dort schließt du Standard ab, wenn du weitermachen willst."
   },
   "unconfigured": {
     "title": "Aktivierung nicht verfügbar",

@@ -42,11 +42,21 @@
 export const CREDITS_STATUS_FUNCTION_URL = 'https://unvbeothoimlzlolxucl.supabase.co/functions/v1/credits-status';
 
 /**
- * The credits tiers the credits-status contract can report. `free` is the Gen-B
- * 0€-forever own seat; `starter` maps to a paid CLIENT seat's allowance. `solo`
- * is a LEGACY tier the server may still report for a grandfathered 49€ sub — the
- * desktop keeps it in the union so an old status parses, but no Gen-B surface
- * SELLS it (the legacy 79€/49€ plan UI was removed).
+ * The credits tiers the credits-status contract can report.
+ *
+ * 1.820.1 (Founder ruling) collapsed the SALES side to ONE plan, so these names
+ * are now WIRE values, not a price ladder:
+ *   - `trial`  — the 14-day, 100,000-credit trial. It ends in an EXPLICIT
+ *                upgrade decision; nothing converts to paid on its own.
+ *   - `starter`— the wire name the server still reports for the ONE sold
+ *                subscription ("Standard", {@link STANDARD_PLAN_EUR_PER_MONTH}
+ *                €/month incl. {@link STANDARD_PLAN_INCLUDED_CREDITS} credits).
+ *                Renaming the wire value is a SERVER change, not a desktop one.
+ *   - `solo`   — LEGACY, never sold again: a grandfathered subscription the
+ *                server may still report. The union keeps it so an old status
+ *                parses; no surface prices or advertises it.
+ *   - `free`   — a seat with no subscription. A STATE, not a price promise:
+ *                its cloud turns are still credit-metered like everyone else's.
  */
 export type CreditsTier = 'free' | 'trial' | 'solo' | 'starter';
 
@@ -193,7 +203,10 @@ export function isPaidPlanForSeat(tier: string | null | undefined, edition: stri
  */
 export interface CreditsStatus {
   tier: CreditsTier;
-  /** Remaining credits from the monthly bundled allowance (Starter 60,000 cr, Solo 38,000 cr). */
+  /**
+   * Remaining credits from the monthly bundled allowance (Standard 100,000 cr;
+   * the 14-day trial's promotional grant is also 100,000; legacy `solo` 38,000).
+   */
   included_allowance_credits_remaining: number;
   /** Remaining credits the user bought as packs (carry over; consumed after allowance). */
   purchased_credits_remaining: number;
@@ -218,7 +231,7 @@ export interface CreditsStatus {
   period_start: string;
   /**
    * v1.5 M7: an ACTIVE credit subscription (recurring top-up, from 25 €/month)
-   * that unlocks Pro features (BYOK / add-own-model) WITHOUT a paid client seat.
+   * that unlocks Pro features (BYOK / add-own-model) WITHOUT a Standard plan.
    * Additive — an absent field ⇒ false ⇒ today's behavior. Cancelling the
    * subscription flips this off on the next status read (re-locks for free).
    */
@@ -227,16 +240,22 @@ export interface CreditsStatus {
 
 /** A single buyable credit pack as advertised in the 402 body (Lane-2 contract). */
 export interface CreditPack {
-  /** Pack price in EUR (whole euros, per spec pack table 25/50/100/250). */
+  /** Pack price in EUR (whole euros, per the 1.820.1 pack table 25/50/100/200). */
   eur: number;
   /** Base credits the pack is worth at our calibration constant. */
   credits: number;
   /**
-   * Bonus credits granted on top of the face-value `credits`. Gen-B RECURRING
-   * top-ups grant +20% (server `TOP_UP_BONUS_FACTOR = 1.2`), so the resting
-   * catalog carries a 20% bonus per pack (see DEFAULT_CREDIT_PACKS). A one-time
-   * pack would be 0; the desktop only advertises the recurring +20% packs. The
-   * server is authoritative on the actual grant — the 402 body may override.
+   * Bonus credits granted on top of the face-value `credits`.
+   *
+   * THE SHIPPED CATALOG CARRIES NONE (1.820.1). Top-ups are sold at FACE VALUE —
+   * 1 € = {@link CREDITS_PER_EUR} credits, no purchase-time bonus — so every entry
+   * in {@link DEFAULT_CREDIT_PACKS} has `bonus: 0`. Margin is taken at CONSUMPTION
+   * via the per-tier factors, which is the only place it was ever real.
+   *
+   * The FIELD survives because the 402 body is the server's to write and the
+   * server stays authoritative on the actual grant: if it ever advertises a bonus
+   * (a promo, a migration credit), the wall must be able to render what the buyer
+   * will actually receive rather than silently under-report it.
    */
   bonus: number;
 }
@@ -272,43 +291,61 @@ export const CREDIT_UNIT_EUR = 0.001;
 /** Credits delivered per euro at the credit unit (1 / CREDIT_UNIT_EUR = 1000). */
 export const CREDITS_PER_EUR = 1000;
 
-/**
- * The recurring top-up bonus the SERVER grants on a RECURRING credit pack. This
- * mirrors the backend `TOP_UP_BONUS_FACTOR = 1.2` (a recurring top-up delivers
- * +20% credits over face value). One-time packs get NO bonus server-side, so the
- * desktop advertises ONLY the recurring 20% packs to stay consistent with the
- * Gen-B website (command-eve.com/account) AND the server code. This is a DISPLAY
- * constant; the server is authoritative on every actual grant.
- */
-export const RECURRING_TOP_UP_BONUS_FACTOR = 0.2;
+// `RECURRING_TOP_UP_BONUS_FACTOR` IS GONE, DELIBERATELY (Founder ruling 1.820.1).
+// It encoded a +20% PURCHASE-TIME bonus on every advertised pack. Top-ups are now
+// sold at FACE VALUE (1 € = CREDITS_PER_EUR credits), so a resting constant whose
+// only job is to inflate the advertised grant is a price claim the checkout will
+// not honour. It is DELETED rather than set to 0: a zero-valued bonus factor is a
+// dormant multiplier that the next "let's run a promo" commit switches back on
+// catalog-wide, and the pack table would silently start over-promising again.
+// A promotional grant belongs in the SERVER's 402 body (CreditPack.bonus), which
+// is authoritative and per-pack — not in a client-side catalog multiplier.
 
 /**
  * Default catalog the pricing UI shows when offline / before the first 402.
- * GEN-B ALIGNMENT: these mirror the RECURRING credit packs sold on the Gen-B
- * website (25/50/100/250 €/month) which the server grants at +20% (recurring
- * `TOP_UP_BONUS_FACTOR = 1.2`). So each pack's `bonus` is 20% of the face-value
- * credits: 25€ → 25,000 + 5,000 = 30,000 cr, etc. (1 credit = 0.1 ct). One-time
- * packs (server: 0% bonus) are deliberately NOT advertised here — advertising a
- * bonus the server would not honour on a one-time buy would be dishonest. The
- * LIVE numbers always come from the 402 body; this is only the resting UI.
+ *
+ * FACE VALUE, NO BONUS (Founder ruling 1.820.1): 25/50/100/200 € map 1:1000 to
+ * 25,000 / 50,000 / 100,000 / 200,000 credits. The 250 € pack and the +20%
+ * purchase-time bonus are both RETIRED — what the buyer sees here is exactly what
+ * the checkout grants. The LIVE numbers always come from the 402 body; this is
+ * only the resting UI.
  */
 export const DEFAULT_CREDIT_PACKS: readonly CreditPack[] = [
-  { eur: 25, credits: 25_000, bonus: 5_000 },
-  { eur: 50, credits: 50_000, bonus: 10_000 },
-  { eur: 100, credits: 100_000, bonus: 20_000 },
-  { eur: 250, credits: 250_000, bonus: 50_000 },
+  { eur: 25, credits: 25_000, bonus: 0 },
+  { eur: 50, credits: 50_000, bonus: 0 },
+  { eur: 100, credits: 100_000, bonus: 0 },
+  { eur: 200, credits: 200_000, bonus: 0 },
 ] as const;
 
 /**
- * The Gen-B CLIENT-SEAT floor. The operator's OWN seat is 0 € forever (EVE Solo);
- * a paid CLIENT seat (the reseller expansion) starts at 99 €/month and ships a
- * 60,000-credit monthly allowance. The legacy 79€ Starter / hidden 49€ Solo plans
- * (and `buildPricingPlans`) were removed with the Gen-B pricing switch — the
- * desktop no longer sells a "plan"; it sells the free own-seat + paid client-seats.
+ * THE ONE SUBSCRIPTION PRICE (Founder ruling 1.820.1): "Standard", 99 €/month.
+ *
+ * WHY THE NAME CHANGED AND THE NUMBER DID NOT. This constant used to be
+ * `CLIENT_SEAT_FROM_EUR` and meant "a paid CLIENT seat starts at 99 €/month" —
+ * the agency seat ladder, where growth meant buying more seats at 99 € each. That
+ * CONTRACT IS DELETED. The 99 that survives is a different claim wearing the same
+ * digits: the price of the single Standard subscription, which includes
+ * {@link STANDARD_PLAN_INCLUDED_CREDITS} credits and EVERY seat
+ * ({@link ADDITIONAL_SEAT_EUR}). Anything that still reads "from 99 € per seat" is
+ * the retired ladder, not this.
  */
-export const CLIENT_SEAT_FROM_EUR = 99;
-/** The always-free own-seat price (Gen-B: EVE Solo is 0 € for ever). */
-export const OWN_SEAT_EUR = 0;
+export const STANDARD_PLAN_EUR_PER_MONTH = 99;
+
+/** Credits the Standard subscription includes every month. */
+export const STANDARD_PLAN_INCLUDED_CREDITS = 100_000;
+
+/**
+ * What an ADDITIONAL seat costs on Standard: nothing. Multiseat is INCLUDED —
+ * extra team / project / client seats carry no per-seat charge. This is a
+ * positive claim the money surfaces state, not merely a price that was deleted.
+ */
+export const ADDITIONAL_SEAT_EUR = 0;
+
+/** Length of the trial in days. It ends with an explicit decision, never a charge. */
+export const TRIAL_LENGTH_DAYS = 14;
+
+/** Credits the 14-day trial grants (promotional; never renews, never auto-converts). */
+export const TRIAL_INCLUDED_CREDITS = 100_000;
 
 /**
  * Effective €/credit a buyer actually pays for a pack: total price divided by
@@ -324,8 +361,10 @@ export function packEffectiveCostPerCredit(pack: CreditPack): number {
 /**
  * Spec §2 margin invariant (non-negotiable): the effective €/credit charged
  * ALWAYS exceeds our raw inference cost. With 1 credit calibrated to
- * `rawEurPerCredit` of inference at cost, the +40% markup means the effective
- * price must be ≥ rawEurPerCredit. Returns true iff the pack honours it.
+ * `rawEurPerCredit` of inference at cost, the effective price must be
+ * > rawEurPerCredit. Returns true iff the pack honours it. Face-value packs make
+ * this trivially true at purchase (1 € = CREDITS_PER_EUR); the guard exists for
+ * the case a SERVER-advertised pack carries a bonus large enough to break it.
  *
  * This is a desktop-side GUARD on whatever the server advertised — if a 402
  * body ever carried a margin-negative pack, the wall must NOT default-select it.
@@ -362,20 +401,26 @@ export interface CreditMeterModel {
 
 /**
  * Allowance constants in CREDITS (NEW server billing model: 1 credit = 0.1 ct).
- * A full Starter seat ships a 60,000-credit monthly allowance (= 60€ face value);
- * Solo ≈ 38,000. We compute the "used" fraction from the period grant minus what
- * remains; the grant is derived from the tier (the server is authoritative, but
- * the meter is a read-only display and only needs the resting full-grant size).
+ * We compute the "used" fraction from the period grant minus what remains; the
+ * grant is derived from the tier (the server is authoritative, but the meter is a
+ * read-only display and only needs the resting full-grant size).
  */
 export const TIER_ALLOWANCE_CREDITS: Record<CreditsTier, number> = {
   free: 0,
-  // A trial's allowance is the EUR 100 / 100,000-credit PROMOTIONAL grant. It is
-  // not a plan allowance and it never renews — but the meter still needs a
-  // resting full-grant size to draw a fill against, and 0 would render a trial
-  // seat's real balance as an overflowing bar.
-  trial: 100_000,
+  // A trial's allowance is the 100,000-credit PROMOTIONAL grant. It is not a plan
+  // allowance and it never renews — but the meter still needs a resting
+  // full-grant size to draw a fill against, and 0 would render a trial seat's
+  // real balance as an overflowing bar.
+  trial: TRIAL_INCLUDED_CREDITS,
+  // LEGACY, never sold again: the grandfathered subscription's grant. Kept ONLY
+  // so a grandfathered seat's bar is drawn against the allowance it actually got.
+  // Not a price, not an offer — nothing markets this number.
   solo: 38_000,
-  starter: 60_000,
+  // `starter` is the WIRE name for the ONE sold subscription (Standard). Its
+  // grant IS the plan's included allowance — 1.820.1 raised it from 60,000 to
+  // 100,000, and it is sourced from the plan constant so the meter can never
+  // disagree with what the money surfaces promise.
+  starter: STANDARD_PLAN_INCLUDED_CREDITS,
 };
 
 /**
@@ -589,7 +634,7 @@ export interface WallPack extends CreditPack {
   jobsLikeThis: number;
   /** Effective €/credit (transparent-math + margin guard). */
   effectiveCostPerCredit: number;
-  /** True for the pack the wall default-selects (the 100€, else 250€, else largest). */
+  /** True for the pack the wall default-selects (the 100€, else 200€, else largest). */
   isDefaultSelected: boolean;
 }
 
@@ -603,10 +648,13 @@ export interface WallModel {
 }
 
 /**
- * Pick the default-select pack index (spec §3: "default-select the 100/250
- * pack"). Preference order: the 100€ pack, else the 250€ pack, else the largest
- * pack by total credits. A pack that fails the margin invariant (when a raw cost
- * is supplied) is never default-selected.
+ * Pick the default-select pack index. Preference order: the 100€ pack, else the
+ * 200€ pack, else the largest pack by total credits. A pack that fails the margin
+ * invariant (when a raw cost is supplied) is never default-selected.
+ *
+ * 1.820.1: the second preference was the 250€ pack, which is no longer sold. A
+ * 250 the server still advertises can still WIN — but only through the generic
+ * "largest" branch, never as a named preference the client keeps steering to.
  */
 export function selectDefaultPackIndex(packs: CreditPack[], rawEurPerCredit?: number): number {
   if (packs.length === 0) return -1;
@@ -616,8 +664,8 @@ export function selectDefaultPackIndex(packs: CreditPack[], rawEurPerCredit?: nu
   const find = (eur: number): number => packs.findIndex((p, i) => p.eur === eur && eligible(i));
   const hundred = find(100);
   if (hundred >= 0) return hundred;
-  const twoFifty = find(250);
-  if (twoFifty >= 0) return twoFifty;
+  const twoHundred = find(200);
+  if (twoHundred >= 0) return twoHundred;
 
   // Fall back to the largest eligible pack by total credits.
   let best = -1;
@@ -778,30 +826,46 @@ export function shouldForceDayZeroOnboarding(args: {
 }
 
 // ---------------------------------------------------------------------------
-// Gen-B seat-pricing model (0€-forever own seat + client-seat expansion)
+// The ONE-PLAN billing model (Founder ruling 1.820.1)
 // ---------------------------------------------------------------------------
 
-/** The desktop billing-status view a Gen-B money surface renders. */
+/** The desktop billing-status view a money surface renders. */
 export interface SeatBillingStatus {
-  /** True for the free own-seat (EVE Solo, 0 € for ever). */
-  isFreeOwnSeat: boolean;
-  /** The own-seat monthly price in € (0 for the free own seat). */
-  ownSeatEur: number;
-  /** The price a NEW client seat starts at (the +99€/seat expansion). */
-  clientSeatFromEur: number;
+  /** True iff this seat is on the paid Standard subscription. */
+  isStandardSubscriber: boolean;
+  /** True iff this seat is inside the 14-day trial (no card, no auto-conversion). */
+  isTrial: boolean;
+  /** The ONE subscription price in €/month. There is no other plan to sell. */
+  standardPlanEur: number;
+  /** Credits the Standard subscription includes every month. */
+  standardIncludedCredits: number;
+  /** What an ADDITIONAL seat costs: 0 €. Multiseat is included in Standard. */
+  additionalSeatEur: number;
 }
 
 /**
- * Build the Gen-B billing status the desktop money surfaces render. Replaces the
- * legacy `buildPricingPlans` (79€ Starter + hidden 49€ Solo) which sold a "plan".
- * Gen-B sells the operator's OWN seat FREE for ever and CLIENT seats from 99 €;
- * `isFreeOwnSeat` is true when the current tier is the free own seat.
+ * Build the billing status the desktop money surfaces render.
+ *
+ * WHAT THIS USED TO SAY, AND WHY IT CHANGED. It answered "is this the 0 €-forever
+ * OWN seat, and what does the next CLIENT seat cost?" — the agency seat ladder,
+ * where the whole growth story was buying more 99 € seats. The Founder ruling
+ * 1.820.1 deletes that ladder: after a 14-day / 100,000-credit trial there is ONE
+ * Standard subscription at {@link STANDARD_PLAN_EUR_PER_MONTH} €/month including
+ * {@link STANDARD_PLAN_INCLUDED_CREDITS} credits, and EVERY further seat is
+ * included at {@link ADDITIONAL_SEAT_EUR}. So the question this answers is now
+ * "which side of the ONE decision is this seat on?", and the seat price it
+ * reports is zero by contract rather than a floor to grow past.
+ *
+ * `isStandardSubscriber` uses {@link isPaidCreditsTier} — the same allowlist the
+ * money gates use — so a trial can never read as a subscriber here.
  */
 export function buildSeatBillingStatus(args: { tier: CreditsTier }): SeatBillingStatus {
   return {
-    isFreeOwnSeat: args.tier === 'free',
-    ownSeatEur: OWN_SEAT_EUR,
-    clientSeatFromEur: CLIENT_SEAT_FROM_EUR,
+    isStandardSubscriber: isPaidCreditsTier(args.tier),
+    isTrial: args.tier === 'trial',
+    standardPlanEur: STANDARD_PLAN_EUR_PER_MONTH,
+    standardIncludedCredits: STANDARD_PLAN_INCLUDED_CREDITS,
+    additionalSeatEur: ADDITIONAL_SEAT_EUR,
   };
 }
 

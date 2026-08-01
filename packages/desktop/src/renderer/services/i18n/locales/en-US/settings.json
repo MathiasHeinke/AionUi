@@ -69,7 +69,7 @@
   "runtime": "Diagnostics",
   "connectors": "Connectors",
   "billing": "Billing",
-  "byokPaidSeatOnly": "Unlocked with a client seat OR a credit subscription (from €25/month)",
+  "byokPaidSeatOnly": "Your own models / API keys are included in the Standard subscription (not unlocked during the trial)",
   "skillState": {
     "all": "All",
     "executable": "Executable",

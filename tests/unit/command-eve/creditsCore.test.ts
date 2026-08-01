@@ -9,47 +9,60 @@
  *
  *   (1) credit-math DISPLAY: meter model (%, free vs paid), value-receipt €/hours.
  *   (2) the WALL: 402 parse/detect, transparent math, DEFAULT-PACK selection
- *       (100 → 250 → largest), margin-invariant guard.
+ *       (100 → 200 → largest), margin-invariant guard.
  *   (3) IDLE-SUPPRESSION: the wall surfaces only when a job is in-flight.
  *   (4) SPEND-CAP validation/normalization.
- *   (+) Day-0 onboarding gate, pricing rows (hidden Solo on churn).
+ *   (+) Day-0 onboarding gate, the ONE-PLAN billing status.
+ *
+ * THE PRICE CONTRACT THESE TESTS ENCODE (Founder ruling 1.820.1). Not the code —
+ * the ruling. A 14-day / 100,000-credit trial that ends in an EXPLICIT decision;
+ * then ONE subscription, "Standard", at 99 €/month including 100,000 credits and
+ * EVERY seat at no per-seat charge; optional monthly top-ups at 25/50/100/200 €
+ * sold at FACE VALUE. Deleted and guarded against here: the 99 €-per-CLIENT-SEAT
+ * ladder, the +20 % purchase-time bonus, the 250 € pack, the 0 €-forever own-seat
+ * promise, and the 79 € Starter / 49 € Solo plans.
  *
  * No Electron/fs/network — exactly the pattern of eveInferenceCore.test.ts.
  */
 
 import { describe, expect, it } from 'vitest';
 import {
+  ADDITIONAL_SEAT_EUR,
   buildCreditMeterModel,
   buildSeatBillingStatus,
   buildValueReceiptModel,
   buildWallModel,
-  CLIENT_SEAT_FROM_EUR,
+  CREDITS_PER_EUR,
   detectQuotaExhausted,
   detectDailyCapReached,
   DEFAULT_CREDIT_PACKS,
   isClientSeedSatisfied,
   isNearAllowanceWall,
   marginInvariantHolds,
-  OWN_SEAT_EUR,
   packEffectiveCostPerCredit,
   parseQuotaExhaustedBody,
-  RECURRING_TOP_UP_BONUS_FACTOR,
   selectDefaultPackIndex,
   shouldForceDayZeroOnboarding,
   shouldSurfaceQuotaWall,
+  STANDARD_PLAN_EUR_PER_MONTH,
+  STANDARD_PLAN_INCLUDED_CREDITS,
+  TIER_ALLOWANCE_CREDITS,
+  TRIAL_INCLUDED_CREDITS,
+  TRIAL_LENGTH_DAYS,
   validateSpendCapEur,
   type CreditPack,
   type CreditsStatus,
 } from '@/common/config/creditsCore';
 import * as creditsCoreModule from '@/common/config/creditsCore';
 
-// NEW server billing model: the Starter grant is 60,000 credits (1 credit = 0.1 ct).
-const STARTER_GRANT = 60_000;
+// The ONE sold subscription's monthly grant (1 credit = 0.1 ct). `starter` is the
+// WIRE name the server still reports for it; 1.820.1 raised the grant to 100,000.
+const STANDARD_GRANT = 100_000;
 
 function status(overrides: Partial<CreditsStatus> = {}): CreditsStatus {
   return {
     tier: 'starter',
-    included_allowance_credits_remaining: STARTER_GRANT / 2, // half-used by default
+    included_allowance_credits_remaining: STANDARD_GRANT / 2, // half-used by default
     purchased_credits_remaining: 0,
     spend_cap_eur_cents: 0,
     free_actions_used_this_period: 0,
@@ -64,17 +77,17 @@ function status(overrides: Partial<CreditsStatus> = {}): CreditsStatus {
 // ---------------------------------------------------------------------------
 
 describe('buildCreditMeterModel — allowance used fraction', () => {
-  it('computes used fraction from grant minus remaining (Starter 60,000 grant)', () => {
-    const remaining = STARTER_GRANT / 2;
+  it('computes used fraction from grant minus remaining (Standard 100,000 grant)', () => {
+    const remaining = STANDARD_GRANT / 2;
     const m = buildCreditMeterModel(status({ tier: 'starter', included_allowance_credits_remaining: remaining }));
-    // 60,000 grant, 30,000 left ⇒ 30,000 used ⇒ 0.5
+    // 100,000 grant, 50,000 left ⇒ 50,000 used ⇒ 0.5
     expect(m.allowanceUsedFraction).toBeCloseTo(0.5, 5);
     expect(m.isFree).toBe(false);
     expect(m.allowanceRemaining).toBe(remaining);
   });
 
   it('clamps used fraction to [0,1] when remaining exceeds the grant (top-up drift)', () => {
-    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: STARTER_GRANT + 99_999 }));
+    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: STANDARD_GRANT + 99_999 }));
     expect(m.allowanceUsedFraction).toBe(0);
   });
 
@@ -128,14 +141,14 @@ describe('buildCreditMeterModel — allowance used fraction', () => {
 
 describe('isNearAllowanceWall — the ~85% trigger', () => {
   it('is true at/over 85% used (paid)', () => {
-    // 9,000 of 60,000 remaining ⇒ 51,000 used ⇒ 0.85
-    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: 9_000 }));
+    // 15,000 of 100,000 remaining ⇒ 85,000 used ⇒ 0.85
+    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: 15_000 }));
     expect(m.allowanceUsedFraction).toBeGreaterThanOrEqual(0.85);
     expect(isNearAllowanceWall(m)).toBe(true);
   });
 
   it('is false well under threshold', () => {
-    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: 50_000 }));
+    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: 80_000 }));
     expect(isNearAllowanceWall(m)).toBe(false);
   });
 
@@ -247,25 +260,38 @@ describe('detectQuotaExhausted — from a thrown inference error', () => {
 // (2) the WALL — default-pack selection
 // ---------------------------------------------------------------------------
 
-describe('selectDefaultPackIndex — 100 → 250 → largest', () => {
+describe('selectDefaultPackIndex — 100 → 200 → largest', () => {
   const packs: CreditPack[] = [
     { eur: 25, credits: 25, bonus: 0 },
     { eur: 50, credits: 50, bonus: 0 },
     { eur: 100, credits: 100, bonus: 8 },
-    { eur: 250, credits: 250, bonus: 38 },
+    { eur: 200, credits: 200, bonus: 38 },
   ];
 
   it('defaults to the 100€ pack when present', () => {
     expect(selectDefaultPackIndex(packs)).toBe(2);
   });
 
-  it('falls back to the 250€ pack when no 100€ pack', () => {
+  it('falls back to the 200€ pack when no 100€ pack', () => {
     const noHundred = packs.filter((p) => p.eur !== 100);
     const idx = selectDefaultPackIndex(noHundred);
-    expect(noHundred[idx].eur).toBe(250);
+    expect(noHundred[idx].eur).toBe(200);
   });
 
-  it('falls back to the largest pack by total credits when neither 100 nor 250', () => {
+  it('does NOT steer to the retired 250€ pack over a shipped 200€ one (1.820.1)', () => {
+    // The retired second preference. A 250 the server still advertises may still
+    // win — but only by being the LARGEST, never because the client keeps naming
+    // it. Here 200 and 250 are both present and 200 has to win on the named rule.
+    const withRetired: CreditPack[] = [
+      { eur: 25, credits: 25_000, bonus: 0 },
+      { eur: 200, credits: 200_000, bonus: 0 },
+      { eur: 250, credits: 250_000, bonus: 0 },
+    ];
+    const idx = selectDefaultPackIndex(withRetired);
+    expect(withRetired[idx].eur).toBe(200);
+  });
+
+  it('falls back to the largest pack by total credits when neither 100 nor 200', () => {
     const small: CreditPack[] = [
       { eur: 25, credits: 25, bonus: 0 },
       { eur: 50, credits: 50, bonus: 0 },
@@ -280,10 +306,10 @@ describe('selectDefaultPackIndex — 100 → 250 → largest', () => {
 
   it('skips a margin-negative pack when a raw cost is supplied', () => {
     // raw cost 0.9 €/credit; a 100-pack giving 200 credits = 0.5 €/credit is BELOW raw
-    // (margin-negative) and must NOT be default-selected; the 250 pack at 0.87 holds.
+    // (margin-negative) and must NOT be default-selected; the 200 pack at 0.84 fails too.
     const risky: CreditPack[] = [
       { eur: 100, credits: 180, bonus: 20 }, // 0.5 €/credit — below raw 0.9 ⇒ ineligible
-      { eur: 250, credits: 250, bonus: 38 }, // 0.868 €/credit — below 0.9 too here
+      { eur: 200, credits: 200, bonus: 38 }, // 0.840 €/credit — below 0.9 too here
       { eur: 50, credits: 50, bonus: 0 }, // 1.0 €/credit — ABOVE raw ⇒ the only eligible
     ];
     const idx = selectDefaultPackIndex(risky, 0.9);
@@ -334,32 +360,44 @@ describe('marginInvariant — effective €/credit must exceed raw cost', () => 
     expect(marginInvariantHolds({ eur: 100, credits: 100, bonus: 200 }, 0.5)).toBe(false);
   });
 
-  it('the default catalog holds the margin invariant at the recurring +20% bonus', () => {
-    // GEN-B: recurring top-ups grant +20% (server TOP_UP_BONUS_FACTOR=1.2), so each
-    // pack delivers N×1000 face + 20% bonus. Effective €/credit = eur/(1.2 × N×1000)
-    // = 0.001/1.2 ≈ 0.000833. The raw at-cost per credit is sub-cent (margin is
-    // taken at CONSUMPTION via the tier factors), so any raw below ~0.000833 clears
-    // the invariant even WITH the bonus.
-    const rawSubCent = 0.0005; // below the bonus-effective 0.000833 €/credit
+  it('the default catalog holds the margin invariant at FACE VALUE', () => {
+    // Face-value packs deliver exactly N×1000 credits for N €, so the effective
+    // price is exactly CREDIT_UNIT_EUR (0.001 €/credit) — the highest it can be,
+    // because no bonus dilutes it. The raw at-cost per credit is sub-cent (margin
+    // is taken at CONSUMPTION via the tier factors), so the invariant clears.
+    const rawSubCent = 0.0005;
     for (const pack of DEFAULT_CREDIT_PACKS) {
-      expect(packEffectiveCostPerCredit(pack)).toBeCloseTo(0.001 / 1.2, 6);
-      expect(pack.bonus).toBeGreaterThan(0);
+      expect(packEffectiveCostPerCredit(pack)).toBeCloseTo(0.001, 6);
       expect(marginInvariantHolds(pack, rawSubCent)).toBe(true);
     }
   });
 
-  it('the default catalog ships the RECURRING packs: N€ → N×1000 credits + 20% bonus', () => {
-    expect(RECURRING_TOP_UP_BONUS_FACTOR).toBe(0.2);
+  it('the shipped catalog is 25/50/100/200 € at FACE VALUE, with NO purchase-time bonus', () => {
+    // THE CONTRACT (Founder ruling 1.820.1), not the code: 1 € = 1,000 credits and
+    // what the chip advertises is what the checkout grants. The retired table was
+    // [[25,25k,+5k],[50,50k,+10k],[100,100k,+20k],[250,250k,+50k]] — a 250 € pack
+    // that is no longer sold and a +20 % bonus that is no longer given.
     expect(DEFAULT_CREDIT_PACKS.map((p) => [p.eur, p.credits, p.bonus])).toEqual([
-      [25, 25_000, 5_000],
-      [50, 50_000, 10_000],
-      [100, 100_000, 20_000],
-      [250, 250_000, 50_000],
+      [25, 25_000, 0],
+      [50, 50_000, 0],
+      [100, 100_000, 0],
+      [200, 200_000, 0],
     ]);
-    // Each bonus is exactly 20% of the face-value credits.
     for (const pack of DEFAULT_CREDIT_PACKS) {
-      expect(pack.bonus).toBe(pack.credits * RECURRING_TOP_UP_BONUS_FACTOR);
+      expect(pack.credits, `${pack.eur}€ must be face value`).toBe(pack.eur * CREDITS_PER_EUR);
+      expect(pack.bonus, `${pack.eur}€ must carry no purchase-time bonus`).toBe(0);
     }
+    // The two retired prices, named so a re-introduction fails HERE and loudly.
+    expect(DEFAULT_CREDIT_PACKS.some((p) => p.eur === 250)).toBe(false);
+    expect(DEFAULT_CREDIT_PACKS.some((p) => p.bonus > 0)).toBe(false);
+  });
+
+  it('no purchase-time bonus FACTOR is exported any more — the catalog cannot be inflated by import', () => {
+    // A structural assertion on the MODULE, mirroring the showsFreeActionMeter
+    // guard below. `RECURRING_TOP_UP_BONUS_FACTOR = 0.2` multiplied every
+    // advertised pack; re-exporting it is how "+20 %" would silently return to a
+    // catalog that is contractually face value.
+    expect(Object.keys(creditsCoreModule)).not.toContain('RECURRING_TOP_UP_BONUS_FACTOR');
   });
 });
 
@@ -441,22 +479,71 @@ describe('Day-0 onboarding gate', () => {
 // (+) Gen-B seat billing — free own seat + client-seat expansion
 // ---------------------------------------------------------------------------
 
-describe('buildSeatBillingStatus — Gen-B 0€-forever own seat + client-seat from 99€', () => {
-  it('the free tier is the 0€-forever own seat', () => {
-    const s = buildSeatBillingStatus({ tier: 'free' });
-    expect(s.isFreeOwnSeat).toBe(true);
-    expect(s.ownSeatEur).toBe(OWN_SEAT_EUR);
-    expect(s.ownSeatEur).toBe(0);
-    expect(s.clientSeatFromEur).toBe(CLIENT_SEAT_FROM_EUR);
-    expect(s.clientSeatFromEur).toBe(99);
-  });
-
-  it('a paid tier (starter/solo) is NOT the free own seat but still shows the 99€ client floor', () => {
+describe('buildSeatBillingStatus — the ONE Standard subscription (1.820.1)', () => {
+  // THIS BLOCK USED TO ASSERT THE SEAT LADDER: `isFreeOwnSeat` plus a
+  // `clientSeatFromEur` of 99 — "your own seat is 0 € forever, the NEXT CLIENT seat
+  // costs 99 €". The Founder ruling deletes that contract: there are no paid seats.
+  // After the 14-day trial there is ONE subscription at 99 €/month including 100,000
+  // credits, and EVERY further seat is included at no charge. The 99 survives, but it
+  // means something else now — the plan, not a seat — so the field it lives on changed
+  // with it rather than being quietly re-pointed.
+  it('a paid tier is a Standard subscriber; the plan is 99 €/month incl. 100,000 credits', () => {
     for (const tier of ['starter', 'solo'] as const) {
       const s = buildSeatBillingStatus({ tier });
-      expect(s.isFreeOwnSeat).toBe(false);
-      expect(s.clientSeatFromEur).toBe(99);
+      expect(s.isStandardSubscriber).toBe(true);
+      expect(s.isTrial).toBe(false);
+      expect(s.standardPlanEur).toBe(STANDARD_PLAN_EUR_PER_MONTH);
+      expect(s.standardPlanEur).toBe(99);
+      expect(s.standardIncludedCredits).toBe(STANDARD_PLAN_INCLUDED_CREDITS);
+      expect(s.standardIncludedCredits).toBe(100_000);
     }
+  });
+
+  it('free and trial tiers are NOT subscribers', () => {
+    expect(buildSeatBillingStatus({ tier: 'free' }).isStandardSubscriber).toBe(false);
+    const t = buildSeatBillingStatus({ tier: 'trial' });
+    expect(t.isStandardSubscriber).toBe(false);
+    expect(t.isTrial).toBe(true);
+  });
+
+  // MULTISEAT INCLUDED, asserted as a positive claim — not merely an absent price.
+  it('every additional seat is included at 0 €, on every tier', () => {
+    for (const tier of ['free', 'trial', 'starter', 'solo'] as const) {
+      const s = buildSeatBillingStatus({ tier });
+      expect(s.additionalSeatEur).toBe(ADDITIONAL_SEAT_EUR);
+      expect(s.additionalSeatEur).toBe(0);
+    }
+  });
+
+  // The retired seat ladder must not come back on this shape.
+  it('exposes NO per-seat price and NO seat-ladder field', () => {
+    const s = buildSeatBillingStatus({ tier: 'starter' }) as Record<string, unknown>;
+    for (const gone of ['clientSeatFromEur', 'isFreeOwnSeat', 'ownSeatEur', 'seatLadder']) {
+      expect(s[gone]).toBeUndefined();
+    }
+    // …and no exported number on the status is a retired seat price.
+    for (const v of Object.values(s)) {
+      expect([129, 149, 249, 599, 792, 990]).not.toContain(v);
+    }
+  });
+});
+
+describe('the 1.820.1 trial + allowance contract', () => {
+  // The trial the ruling names: 14 days, 100,000 credits, then an EXPLICIT upgrade.
+  it('the trial is 14 days with 100,000 credits', () => {
+    expect(TRIAL_LENGTH_DAYS).toBe(14);
+    expect(TRIAL_INCLUDED_CREDITS).toBe(100_000);
+  });
+
+  // The paid subscription grants what the page advertises. This is the client-side
+  // half of the flat-allowance contract: the trial and the plan both land on 100,000,
+  // and the retired 60,000 per-seat allowance is gone.
+  it('the paid tier and the trial both allow 100,000 credits — never the retired 60,000', () => {
+    expect(TIER_ALLOWANCE_CREDITS.starter).toBe(STANDARD_PLAN_INCLUDED_CREDITS);
+    expect(TIER_ALLOWANCE_CREDITS.starter).toBe(100_000);
+    expect(TIER_ALLOWANCE_CREDITS.trial).toBe(TRIAL_INCLUDED_CREDITS);
+    expect(TIER_ALLOWANCE_CREDITS.starter).not.toBe(60_000);
+    expect(TIER_ALLOWANCE_CREDITS.free).toBe(0);
   });
 });
 

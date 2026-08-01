@@ -95,12 +95,12 @@
   },
   "curtain": {
     "title": "Welcome back",
-    "lede": "Your old trial has ended — but your own seat is now free, forever. Sign in and pick up right where you left off. Client seats are available from 99 €.",
+    "lede": "Your trial has ended — and nothing was charged. What happens next is your call: sign in and pick up right where you left off.",
     "preservedTitle": "Your setup is preserved",
     "preservedBody": "Your Company OS, memory, connections and SOPs are still saved and waiting for you. Nothing is deleted or reset.",
-    "price": "Your own seat: 0 € — forever",
+    "price": "Standard: 99 €/month — incl. 100,000 credits and every seat (team, projects, clients) at no extra charge.",
     "continue": "Sign in and continue",
-    "hint": "This opens your account in your browser. Sign in to reactivate your free own seat; add paid client seats whenever you're ready."
+    "hint": "This opens your account in your browser — nothing is purchased inside the app and nothing renews on its own. Subscribe to Standard there if you want to carry on."
   },
   "unconfigured": {
     "title": "Activation unavailable",

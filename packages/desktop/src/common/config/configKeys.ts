@@ -190,11 +190,12 @@ export type ConfigKeyMap = {
    * your work"). Founder-overridable; defaults to DEFAULT_VALUE_RECEIPT_HOURLY_EUR.
    */
   'commandEve.valueReceiptHourlyEur': number | undefined;
-  /**
-   * Whether a churn signal has surfaced — gates the hidden Solo-49 plan into the
-   * pricing list / save-offer (spec §1, §6). Default absent ⇒ Solo stays hidden.
-   */
-  'commandEve.churnSignal': boolean | undefined;
+  // `commandEve.churnSignal` IS GONE (Founder ruling 1.820.1). Its only documented
+  // purpose was to reveal a hidden 49 € "Solo" plan as a save-offer when a user
+  // looked like churning. That plan is deleted, nothing ever read the flag, and a
+  // dormant key that gates a retired price is exactly the thing a later refactor
+  // re-animates. Deleted rather than left inert — including from the per-seat
+  // allowlist in seatConfigKeyCore.ts, which was namespacing state nobody wrote.
   /**
    * Per-OPERATOR report brand (RPT-1 / RPT-3). Intentionally INSTALL-GLOBAL, NOT
    * seat-scoped: the brand is the operator's own (their agency), seat-independent,

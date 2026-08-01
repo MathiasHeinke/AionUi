@@ -8,9 +8,14 @@
  * ISO-8 — THE GATE-NULL cross-seat isolation harness (the keystone CI).
  * ====================================================================
  *
- * This is the ONE end-to-end proof the founder relies on to switch on the
- * +99€-per-additional-seat SKU (doctrine 1.2: the per-client-seat price is
- * GATE-NULL until a green cross-client-isolation CI runs on real state).
+ * This is the ONE end-to-end proof the founder relies on to ship MULTISEAT at all
+ * (doctrine 1.2: multi-client operation stays GATE-NULL until a green
+ * cross-client-isolation CI runs on real state).
+ *
+ * 1.820.1 raised the stakes rather than retiring them: additional seats are no
+ * longer a +99 €-per-seat SKU, they are INCLUDED in the one Standard
+ * subscription. Nothing prices an operator out of running many clients side by
+ * side any more, so this harness is the only thing standing between them.
  *
  * It CONSOLIDATES the six per-dimension fence tests (ISO-1…ISO-6) into a single
  * coherent two-seat scenario: for two DISTINCT real seats A and B, seat A can

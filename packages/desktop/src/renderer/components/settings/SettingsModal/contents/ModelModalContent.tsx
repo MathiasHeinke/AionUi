@@ -793,10 +793,17 @@ const ModelModalContent: React.FC = () => {
               <Button size='small' icon={<Refresh size={15} />} onClick={clearAllHealthData}>
                 {t('settings.clearStatus')}
               </Button>
+              {/* This tooltip renders ONLY while BYOK is LOCKED, so it is the
+                  "how do I unlock this" message. It names the ONE sanctioned route
+                  (Standard) and deliberately does NOT advertise the recurring
+                  credit top-up as an alternative: top-ups are an add-on to
+                  Standard, not a second plan to buy instead of it (1.820.1). The
+                  fallback must stay byte-identical to EditModeModal's and to the
+                  de-DE value for this key. */}
               <Tooltip
                 content={t(
                   'settings.byokPaidSeatOnly',
-                  'Freigeschaltet mit Kunden-Seat ODER Credit-Abo (ab 25 €/Monat)'
+                  'Eigene Modelle / API-Keys sind im Standard-Abo enthalten (in der Testphase nicht freigeschaltet)'
                 )}
                 disabled={!byokDisabled}
               >

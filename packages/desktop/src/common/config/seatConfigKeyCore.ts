@@ -12,8 +12,11 @@
  * flat global settings bag via GET/PUT /api/settings/client. So after a seat
  * switch, seat B reads seat A's `commandEve.clientSeeded` ("seeded ✓" for a
  * never-seeded client), plus other per-seat-meaningful flags. That is a
- * cross-seat CONFIG-STATE leak — the worst failure class for the reseller
- * +99€/seat SKU (DSGVO + trust).
+ * cross-seat CONFIG-STATE leak — the worst failure class for a reseller running
+ * several clients out of one install (DSGVO + trust). Since 1.820.1 those extra
+ * seats are INCLUDED in Standard rather than sold at +99 € each, which makes the
+ * isolation MORE load-bearing, not less: nothing rations how many clients an
+ * operator puts side by side in here.
  *
  * THE SEAM. This module is a PURE, RENDERER-IMPORTABLE key-namespacing core. It
  * lives under `common/` (NOT under `process/`) precisely so the renderer bundle
@@ -83,7 +86,9 @@ export const SEAT_SCOPED_CONFIG_KEYS: ReadonlySet<string> = new Set<string>([
   // paid plan must never leak MAX entitlement to a client seat that has none.
   // Main reads the seat-physical key, exactly as it does for the selection.
   'commandEve.maxEntitled',
-  'commandEve.churnSignal',
+  // `commandEve.churnSignal` was removed here with the key itself (1.820.1): it
+  // gated a hidden 49 € save-offer plan that no longer exists and that nothing
+  // ever read.
   'commandEve.valueReceiptHourlyEur',
   // S11: the PII/DSGVO egress redaction switch is PER-SEAT — the operator turns it
   // off in HIS own seat (e.g. writing a brief with real contact data) while every

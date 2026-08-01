@@ -5,17 +5,23 @@
  */
 
 /**
- * Billing settings tab (Lane 3, Gen-B money surface).
+ * Billing settings tab (Lane 3, money surface).
  *
  * - Live credit meter (full readout).
  * - User SPEND-CAP setting (writes spend_cap_eur_cents via the bridge).
- * - GEN-B pricing: the operator's OWN seat is 0 € for ever (EVE Solo); CLIENT
- *   seats start at 99 €/mo (inkl. 60.000 Credits) and are added on the web
- *   (/account?intent=add_seat); recurring credit packs (+20 %) deep-link to
- *   /account?pack_eur=<n>. The legacy 79€ Starter / hidden 49€ Solo "plan" UI was
- *   removed with the Gen-B pricing switch (the desktop no longer sells a plan).
+ * - PRICING, per the Founder ruling 1.820.1 — ONE plan and one only: a 14-day /
+ *   100,000-credit trial that ends in an EXPLICIT decision (no card at entry, no
+ *   automatic conversion), then "Standard" at 99 €/month INCLUDING 100,000
+ *   credits and EVERY seat (team / project / client) at no per-seat charge.
+ *   Optional monthly top-ups at 25/50/100/200 € are sold at FACE VALUE
+ *   (1 € = 1.000 credits, no purchase-time bonus) and deep-link to
+ *   /account?pack_eur=<n>; seats are added on /account?intent=add_seat.
+ * - WHAT IS GONE, AND MUST NOT COME BACK: the 99 €-per-CLIENT-SEAT ladder, the
+ *   "your own seat is 0 € forever" promise, the +20 % pack bonus, the 250 € pack,
+ *   and the legacy 79 € Starter / 49 € Solo plan UI. Growth is credits, never a
+ *   bigger plan and never more paid seats.
  *
- * The euro/credit MATH + the seat-status decision live in the PURE `creditsCore`
+ * The euro/credit MATH + the plan-status decision live in the PURE `creditsCore`
  * (unit-tested); this component is the settings presentation + the bridge wiring.
  */
 
@@ -30,26 +36,39 @@ import { useSeatUsage } from '@renderer/hooks/useSeatUsage';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
 import { isLegacySeatId } from '@process/commandEve/seatSwitchCore';
 import {
+  ADDITIONAL_SEAT_EUR,
   buildSeatBillingStatus,
-  CLIENT_SEAT_FROM_EUR,
   CREDIT_UNIT_EUR,
+  CREDITS_PER_EUR,
   DEFAULT_CREDIT_PACKS,
+  STANDARD_PLAN_EUR_PER_MONTH,
+  STANDARD_PLAN_INCLUDED_CREDITS,
+  TRIAL_INCLUDED_CREDITS,
+  TRIAL_LENGTH_DAYS,
   validateSpendCapEur,
 } from '@/common/config/creditsCore';
 import { buildSeatUsageCardRows, currentUsageMonth, priorUsageMonth } from '@/common/config/seatUsageCore';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 
-// The Gen-B web money surface. The desktop holds no card; it opens the web account
-// where the free own-seat lives and client seats / credit packs are bought. The
-// ?intent=add_seat and ?pack_eur=<n> consumers are LIVE on command-eve.com/account
+// The web money surface. The desktop holds no card; it opens the web account where
+// the Standard subscription is managed, seats are added (at no charge) and credit
+// top-ups are bought. The ?intent=add_seat and ?pack_eur=<n> consumers are LIVE on
+// command-eve.com/account
 // (Gen B: scroll + highlight the relevant section). We open these via openAccountWeb
 // (MAIN attaches the desktop session so the browser lands LOGGED IN → checkout can
 // start); paths are RELATIVE — openAccountWeb pins the command-eve.com origin.
 const ADD_SEAT_PATH = '/account?intent=add_seat';
 
 const BillingModalContent: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { meter, status, setSpendCap } = useCreditsStatus();
+
+  // Credit figures are five-digit; ungrouped they read as noise. Group them in the
+  // ACTIVE UI language so "100,000" / "100.000" matches the sentence around it.
+  const formatCredits = useMemo(() => {
+    const nf = new Intl.NumberFormat(i18n?.language || 'de-DE');
+    return (n: number): string => nf.format(n);
+  }, [i18n?.language]);
 
   // v1.5 A3 — per-seat usage attribution. The LABEL join is renderer-only (the
   // server sends opaque ids — H3): join seat_id → access.seats[].name from the
@@ -77,9 +96,9 @@ const BillingModalContent: React.FC = () => {
   const currentMonth = currentUsageMonth();
   const isPriorMonth = usageMonth !== currentMonth;
 
-  // Gen-B seat status: is this the free own seat (0 € for ever) or a paid seat?
-  // Drives the status line + the client-seat CTA copy. Defaults to the free own
-  // seat until a status is read (the honest resting state for a fresh install).
+  // Which side of the ONE decision is this seat on — trial, Standard subscriber,
+  // or neither? Drives the plan status line. Null until a status is read, which
+  // renders the honest "not verifiable right now" instead of guessing a plan.
   const seatBilling = useMemo(() => (meter ? buildSeatBillingStatus({ tier: meter.tier }) : null), [meter]);
 
   // Spend-cap form state (euros). Seeded from the current status.
@@ -188,10 +207,11 @@ const BillingModalContent: React.FC = () => {
                 n: meter.purchasedRemaining,
               })}
             </div>
-            {/* v1.6 Slice 3 — the "Was ist ein Credit?" explainer: the PACK
-                  price maps 1000:1 (model usage varies by tier factor ⇒ "≈"). */}
+            {/* v1.6 Slice 3 — the "Was ist ein Credit?" explainer. Since 1.820.1
+                  packs are FACE VALUE, so the pack price maps exactly 1000:1 and the
+                  hedging "≈" would understate a promise we now actually keep. */}
             <div className='billing-settings__meter-detail' data-testid='billing-credit-explainer'>
-              {t('credits.settings.explainer', { defaultValue: '1.000 Credits ≈ 1 € (Pack-Preis)' })}
+              {t('credits.settings.explainer', { defaultValue: '1.000 Credits = 1 € (Pack-Preis)' })}
             </div>
           </div>
         ) : (
@@ -294,44 +314,62 @@ const BillingModalContent: React.FC = () => {
         </div>
       </SettingsSection>
 
-      {/* Gen-B seat status + client-seat expansion CTA. No "plan" is sold here:
-          the operator's OWN seat is 0 € for ever; growth = paid CLIENT seats. */}
+      {/* THE ONE PLAN (1.820.1). There is no ladder to climb and no seat to buy:
+          Standard includes every seat. The CTA still opens /account?intent=add_seat
+          because adding a seat is a real action — it just costs nothing. */}
       <SettingsSection
         className='billing-settings__plans'
-        title={t('credits.settings.seatTitle', { defaultValue: 'Your seat' })}
-        description={t('credits.settings.clientSeatHint', {
+        title={t('credits.settings.planTitle', { defaultValue: 'Your plan' })}
+        description={t('credits.settings.standardPlanHint', {
           defaultValue:
-            'Grow by adding CLIENT seats — from {{eur}} €/month, incl. 60,000 credits each. Your own seat always stays free.',
-          eur: CLIENT_SEAT_FROM_EUR,
+            'One plan: Standard — {{eur}} €/month, incl. {{credits}} credits. Every further seat (team, project, client) is included at no extra charge.',
+          eur: STANDARD_PLAN_EUR_PER_MONTH,
+          credits: formatCredits(STANDARD_PLAN_INCLUDED_CREDITS),
         })}
       >
-        <div className='billing-settings__plan-row' data-testid='billing-own-seat'>
+        <div className='billing-settings__plan-row' data-testid='billing-plan-status'>
           <span className='billing-settings__plan-name'>
             {!seatBilling
               ? t('credits.settings.seatStatusUnknown', {
                   defaultValue: 'Seat status is not verifiable right now.',
                 })
-              : seatBilling.isFreeOwnSeat
-                ? t('credits.settings.ownSeatFree', { defaultValue: 'Your own seat: 0 € — forever' })
-                : t('credits.settings.ownSeatPaid', { defaultValue: 'Your seat is active (paid client seat)' })}
+              : seatBilling.isStandardSubscriber
+                ? t('credits.settings.planStandardActive', {
+                    defaultValue: 'Standard is active — {{eur}} €/month, incl. {{credits}} credits, all seats included',
+                    eur: seatBilling.standardPlanEur,
+                    credits: formatCredits(seatBilling.standardIncludedCredits),
+                  })
+                : seatBilling.isTrial
+                  ? t('credits.settings.planTrial', {
+                      defaultValue:
+                        'Trial — {{days}} days with {{credits}} credits. It ends with your decision; nothing is charged automatically.',
+                      days: TRIAL_LENGTH_DAYS,
+                      credits: formatCredits(TRIAL_INCLUDED_CREDITS),
+                    })
+                  : t('credits.settings.planNone', {
+                      defaultValue: 'No active subscription — Standard costs {{eur}} €/month.',
+                      eur: seatBilling.standardPlanEur,
+                    })}
           </span>
         </div>
         <Button type='primary' onClick={openAddSeat} data-testid='billing-add-seat'>
-          {t('credits.settings.addClientSeat', {
-            defaultValue: 'Add a client seat — from {{eur}} €/month',
-            eur: CLIENT_SEAT_FROM_EUR,
+          {t('credits.settings.addSeatIncluded', {
+            defaultValue: 'Add a seat — {{eur}} € extra, included in Standard',
+            eur: ADDITIONAL_SEAT_EUR,
           })}
         </Button>
       </SettingsSection>
 
-      {/* Credit packs — the RECURRING top-up packs (+20 % each), matching the
-          Gen-B website and the server TOP_UP_BONUS_FACTOR=1.2. */}
+      {/* Credit top-ups at FACE VALUE (1.820.1): 1 € = 1.000 credits, no
+          purchase-time bonus. The chip states the credits the pack actually
+          grants — the number the checkout will honour, not a padded one. */}
       <SettingsSection
         className='billing-settings__packs'
         title={t('credits.settings.packsTitle', { defaultValue: 'Credit packs' })}
         description={t('credits.settings.packsHint', {
           defaultValue:
-            'Out of allowance? Recurring top-ups add +20 % credits. Going big = a bigger pack, never a higher plan.',
+            'Out of credits? Monthly top-ups at face value — 1 € = {{perEur}} credits. More usage = a bigger pack, never a higher plan.',
+          perEur: formatCredits(CREDITS_PER_EUR),
         })}
       >
         <div className='billing-settings__pack-grid'>
@@ -343,11 +381,12 @@ const BillingModalContent: React.FC = () => {
               data-testid={`billing-pack-${pack.eur}`}
             >
               <span className='billing-settings__pack-price'>{pack.eur}€</span>
-              {pack.bonus > 0 && (
-                <span className='billing-settings__pack-bonus'>
-                  {t('credits.settings.packBonus', { defaultValue: '+{{n}} bonus', n: pack.bonus })}
-                </span>
-              )}
+              <span className='billing-settings__pack-credits'>
+                {t('credits.settings.packCredits', {
+                  defaultValue: '{{n}} credits',
+                  n: formatCredits(pack.credits + pack.bonus),
+                })}
+              </span>
             </Button>
           ))}
         </div>

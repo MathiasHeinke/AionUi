@@ -69,7 +69,7 @@
   "runtime": "Diagnose",
   "connectors": "Connectoren",
   "billing": "Abrechnung",
-  "byokPaidSeatOnly": "Freigeschaltet mit Kunden-Seat ODER Credit-Abo (ab 25 €/Monat)",
+  "byokPaidSeatOnly": "Eigene Modelle / API-Keys sind im Standard-Abo enthalten (in der Testphase nicht freigeschaltet)",
   "skillState": {
     "all": "Alle",
     "executable": "Ausführbar",

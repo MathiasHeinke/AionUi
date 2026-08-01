@@ -80,7 +80,7 @@ describe('(b) cross-seat fence — two seats → two distinct keys', () => {
 });
 
 describe('(c) the allowlist is explicit + auditable', () => {
-  it('exposes exactly the 11 per-seat keys', () => {
+  it('exposes exactly the 10 per-seat keys', () => {
     // Pinned on purpose: adding or removing a key here has to be a decision
     // somebody made, not a diff nobody noticed. 1.820 adds the approval grant —
     // a command one client approved must never be pre-approved inside another
@@ -91,10 +91,13 @@ describe('(c) the allowlist is explicit + auditable', () => {
     // without a network read on the per-turn hot path. It is seat-scoped for the
     // same reason the selection is — a founder seat with a paid plan must never
     // leak MAX entitlement into a client seat that has none.
+    //
+    // 1.820.1 REMOVES `commandEve.churnSignal` (11 → 10). It existed to reveal a
+    // hidden 49 € "Solo" save-offer plan; that plan is deleted by Founder ruling
+    // and nothing ever read the flag.
     expect([...SEAT_SCOPED_CONFIG_KEYS].toSorted()).toEqual(
       [
         'commandEve.authority',
-        'commandEve.churnSignal',
         'commandEve.clientSeedDismissed',
         'commandEve.cloudVisualAnalysisEnabled',
         'commandEve.clientSeeded',
@@ -106,6 +109,15 @@ describe('(c) the allowlist is explicit + auditable', () => {
         'commandEve.valueReceiptHourlyEur',
       ].toSorted()
     );
+  });
+
+  it('the retired 49 € save-offer flag cannot come back by allowlist (1.820.1)', () => {
+    // A structural assertion, not a behaviour one: `commandEve.churnSignal` gated a
+    // hidden Solo-49 plan into the pricing list. Re-adding the key here is how the
+    // dead plan would quietly get seat-scoped storage again before anyone noticed
+    // the price copy came with it.
+    expect(SEAT_SCOPED_CONFIG_KEYS.has('commandEve.churnSignal')).toBe(false);
+    expect(isSeatScopedConfigKey('commandEve.churnSignal')).toBe(false);
   });
 
   it('install-global keys are NOT seat-scoped', () => {

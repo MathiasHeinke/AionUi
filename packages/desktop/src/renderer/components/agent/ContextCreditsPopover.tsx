@@ -85,7 +85,7 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
   // ── (b) Credits ─────────────────────────────────────────────────────────
   // PAID: total spendable balance (allowance + purchased); the bar shows how much
   // of the tier's monthly grant is still in the tank, plus the honest € face
-  // value (pack price maps 1000:1 — model usage varies by tier factor, hence "≈").
+  // value (packs are face value since 1.820.1, so the pack price maps 1000:1).
   // ONE METER, FOR EVERY SEAT (1.820.1). There used to be a second branch here
   // that rendered "X / Y Gratis-Aktionen heute" plus a "morgen geht es kostenlos
   // weiter" reassurance for a credit-less seat. Both were promises the product
@@ -208,7 +208,7 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
             there is no second, action-counting meter it could fail to apply to. */}
         {credits && (
           <div className='mt-6px text-11px text-t-tertiary' data-testid='context-credits-explainer'>
-            {t('credits.context.explainer', { defaultValue: '1.000 Credits ≈ 1 € (Pack-Preis)' })}
+            {t('credits.context.explainer', { defaultValue: '1.000 Credits = 1 € (Pack-Preis)' })}
           </div>
         )}
       </section>

@@ -131,17 +131,35 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('BillingModalContent — Gen-B seat status', () => {
-  it('shows the 0€-forever own-seat status on the free tier', () => {
+  // THESE TWO USED TO ASSERT THE SEAT LADDER: "0 € — forever" for your own seat and
+  // "paid client seat" for a paid one. The Founder ruling 1.820.1 removes paid seats
+  // entirely — there is ONE subscription and every seat is included — so the status row
+  // now reports which side of that single decision the user is on.
+  it('a non-subscriber is told Standard is not active and what it costs', () => {
     stubStatus('free');
     render(<BillingModalContent />);
-    expect(screen.getByTestId('billing-own-seat').textContent).toContain('0 € — forever');
+    const text = screen.getByTestId('billing-plan-status').textContent ?? '';
+    expect(text).toContain('No active subscription');
+    expect(text).toContain('99');
   });
 
-  it('shows the paid-seat status on a paid tier', () => {
+  it('a subscriber is told Standard is active, with the included credits and seats', () => {
     stubStatus('starter');
     render(<BillingModalContent />);
-    expect(screen.getByTestId('billing-own-seat').textContent).toContain('paid client seat');
-    expect(screen.getByTestId('billing-own-seat').textContent).not.toContain('0 € — forever');
+    const text = screen.getByTestId('billing-plan-status').textContent ?? '';
+    expect(text).toContain('Standard is active');
+    expect(text).toContain('99');
+    expect(text).toContain('all seats included');
+    expect(text).not.toContain('client seat');
+  });
+
+  it('the trial is stated as ending on a DECISION, never on an automatic charge', () => {
+    stubStatus('trial');
+    render(<BillingModalContent />);
+    const text = screen.getByTestId('billing-plan-status').textContent ?? '';
+    expect(text).toContain('Trial');
+    expect(text).toContain('14');
+    expect(text).toContain('nothing is charged automatically');
   });
 });
 
@@ -154,10 +172,16 @@ describe('BillingModalContent — client-seat CTA + pack deep-links (Gen-B consu
     expect(openAccountWebMock).toHaveBeenCalledWith('/account?intent=add_seat');
   });
 
-  it('the client-seat CTA advertises the 99€ floor', () => {
+  // WAS: 'the client-seat CTA advertises the 99€ floor'. There is no seat floor any
+  // more — a seat costs 0 € and is included in Standard. A "99" on this button would
+  // now be a per-seat price, which is exactly the retired contract.
+  it('the add-seat CTA says a seat costs nothing and is included in Standard', () => {
     stubStatus('free');
     render(<BillingModalContent />);
-    expect(screen.getByTestId('billing-add-seat').textContent).toContain('99');
+    const text = screen.getByTestId('billing-add-seat').textContent ?? '';
+    expect(text).toContain('0 €');
+    expect(text).toContain('included in Standard');
+    expect(text).not.toContain('99');
   });
 
   it('a credit pack deep-links to /account?pack_eur=<n>', async () => {
@@ -168,11 +192,16 @@ describe('BillingModalContent — client-seat CTA + pack deep-links (Gen-B consu
     expect(openAccountWebMock).toHaveBeenCalledWith('/account?pack_eur=100');
   });
 
-  it('a credit pack shows the +20% recurring bonus badge (fires because bonus > 0)', () => {
+  // WAS: 'a credit pack shows the +20% recurring bonus badge'. Top-ups are FACE VALUE
+  // under the ruling (1 € = 1,000 credits), so a 100 € pack grants exactly 100,000 —
+  // no bonus badge, and a bonus quantity here would advertise credits nothing grants.
+  it('a credit pack shows FACE-VALUE credits and no bonus badge', () => {
     stubStatus('free');
     render(<BillingModalContent />);
-    // 100€ pack: +20,000 bonus credits ⇒ the "+{{n}} bonus" badge renders.
-    expect(screen.getByTestId('billing-pack-100').textContent).toContain('20000');
+    const text = screen.getByTestId('billing-pack-100').textContent ?? '';
+    expect(text).toContain('100.000');
+    expect(text).not.toContain('20000');
+    expect(text.toLowerCase()).not.toContain('bonus');
   });
 });
 
@@ -186,6 +215,29 @@ describe('BillingModalContent — no legacy plan copy survives (Gen-B)', () => {
     const body = document.body.textContent ?? '';
     expect(body).not.toContain('79€');
     expect(body).not.toContain('49€');
+  });
+
+  // 1.820.1 — the retired contract must not reappear on this surface either. This is
+  // the mixed-state guard: it fires even when the correct new 99 €/month copy IS
+  // present, because a page showing both advertises two contradictory contracts.
+  it('renders no retired price or retired seat/bundle/Team/MAX-plan framing', () => {
+    for (const tier of ['free', 'trial', 'starter'] as const) {
+      cleanup();
+      stubStatus(tier);
+      render(<BillingModalContent />);
+      const body = document.body.textContent ?? '';
+      for (const retired of ['129', '149', '249', '599', '792', '990']) {
+        expect(body).not.toContain(retired);
+      }
+      for (const framing of [
+        /\d+\s?€\s?(?:\/|pro |per )\s?(?:Kunden-?)?[Ss]eat/,
+        /10er-Bundle/i,
+        /Team-(?:Plan|Paket|Tarif)/i,
+        /\bMAX[- ](?:Plan|Abo|Tarif|subscription)\b/i,
+      ]) {
+        expect(body).not.toMatch(framing);
+      }
+    }
   });
 });
 

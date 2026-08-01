@@ -172,8 +172,15 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
               field={'api_key'}
               extra={
                 <div className='text-11px text-t-secondary mt-2'>
+                  {/* The fallback MUST stay byte-identical to the one in
+                      ModelModalContent and to the de-DE locale value for this key.
+                      It used to read "nur im Pro-Tarif (99€/Monat)" — a plan that
+                      never existed under that name, priced off the retired
+                      per-client-seat ladder, and contradicting the canonical
+                      translation of the SAME key. Two fallbacks for one key means
+                      whichever surface loads first wins the price claim. */}
                   {props.disabled
-                    ? `🔒 ${t('settings.byokPaidSeatOnly', 'Eigene Modelle/API-Keys nur im Pro-Tarif (99€/Monat)')}`
+                    ? `🔒 ${t('settings.byokPaidSeatOnly', 'Eigene Modelle / API-Keys sind im Standard-Abo enthalten (in der Testphase nicht freigeschaltet)')}`
                     : `💡 ${t('settings.multiApiKeyEditTip')}`}
                 </div>
               }

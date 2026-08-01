@@ -199,9 +199,12 @@
   height: auto;
   padding: 10px;
 }
-.billing-settings__pack-bonus {
+/* Face-value credits per pack (1.820.1). Deliberately NOT the success/green
+   treatment the retired "+20 % bonus" badge carried: it states what the pack
+   grants, it does not advertise a windfall. */
+.billing-settings__pack-credits {
   font-size: 11px;
-  color: var(--color-success-6, #16a34a);
+  color: var(--text-secondary, #4b5563);
 }
 
 /* ---- company brain settings (fix #4) ---- */

@@ -103,13 +103,13 @@ export function useSeatAccess(): SeatAccessState {
     void refresh();
   }, [refresh]);
 
-  // M4 — pick up a seat bought on the web WITHOUT an app restart. A new client
-  // seat (the +99€/seat expansion, added on command-eve.com/account) only lands
-  // in this hook's `access.seats` when the my-seats contract is re-read. Re-read
-  // on window FOCUS (the operator tabs back from the browser after buying) and on
-  // a slow BACKSTOP poll (a long-lived window that never blurs), mirroring
-  // useEntitlementGate's off-band reconcile. Desktop only; refresh() is
-  // fail-closed and idempotent.
+  // M4 — pick up a seat created on the web WITHOUT an app restart. A new client
+  // seat (added on command-eve.com/account; included in Standard at no per-seat
+  // charge since 1.820.1) only lands in this hook's `access.seats` when the
+  // my-seats contract is re-read. Re-read on window FOCUS (the operator tabs back
+  // from the browser after creating it) and on a slow BACKSTOP poll (a long-lived
+  // window that never blurs), mirroring useEntitlementGate's off-band reconcile.
+  // Desktop only; refresh() is fail-closed and idempotent.
   //
   // Race-guard: a switch is a real backend STOP + RE-SPAWN whose terminal seat
   // only MAIN knows; the switch flow drives its OWN authoritative refresh() at

@@ -12,7 +12,9 @@
  * clicking another seat switches the whole app to it (same authoritative path as the
  * SeatSwitcher: useSeatAccess.switchTo drives the main-process stop + re-spawn under
  * the new HERMES_HOME). The "+" (pinned to the bottom) routes to the web account
- * where seats are added (the +99€/seat expansion).
+ * where seats are added — which since the Founder ruling 1.820.1 costs NOTHING:
+ * multiseat is included in the one Standard subscription, so this rail grows with
+ * no per-seat charge behind it (the retired +99€/seat ladder is gone).
  *
  * SECURITY / VISIBILITY: renders ONLY for an admin. useSeatAccess is fail-closed — a
  * delegate, a single-seat legacy install, no bridge, or any failed my-seats read all
@@ -101,9 +103,10 @@ export function seatInitials(name: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-// The "+" chip adds a CLIENT seat (the +99€/seat expansion). Deep-link to the LIVE
-// Gen-B consumer on /account (?intent=add_seat scrolls + highlights the add-seat
-// section) so the click lands the operator exactly where they buy a seat. RELATIVE
+// The "+" chip adds a CLIENT seat — included in Standard at no per-seat charge
+// (1.820.1). Deep-link to the LIVE consumer on /account (?intent=add_seat scrolls +
+// highlights the add-seat section) so the click lands the operator exactly where the
+// seat is created. RELATIVE
 // path: openAccountWeb pins the command-eve.com origin AND carries the desktop
 // session so the operator lands LOGGED IN (checkout can start).
 const ADD_SEAT_PATH = '/account?intent=add_seat';
@@ -228,7 +231,8 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
 
       {/* Only the seat LIST scrolls. The toggle (above) and "+" (below) sit OUTSIDE
           this region so the "add client" affordance stays bottom-pinned even when an
-          operator owns more clients than fit the viewport (the +99€/seat success case). */}
+          operator owns more clients than fit the viewport — the success case, and one
+          that costs the operator nothing per seat since 1.820.1. */}
       <div className='seat-rail__seats'>
         {access.seats.map((seat) => {
           const active = seat.seat_id === access.activeSeatId;

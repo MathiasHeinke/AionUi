@@ -49,11 +49,14 @@ import gateLoopPoster from './assets/gate-loop-poster.jpg';
 type GateStep = 'auth' | 'registration' | 'license';
 
 /**
- * The trial-conversion curtain destination (reached ONLY by a legacy trial
- * license). Gen-B: the operator's OWN seat is 0 € for ever, so the curtain no
- * longer sells a plan — it routes OUT to the web `/account` surface where the
- * user signs in for their free own seat (and can add paid client seats from
- * 99 €). The desktop never holds a card or a checkout form.
+ * The trial-conversion curtain destination — the day-14 moment itself.
+ *
+ * Founder ruling 1.820.1: the 14-day / 100,000-credit trial ends in an EXPLICIT
+ * decision. NOTHING converts on its own and no card was taken at entry, so this
+ * screen is the ASK, not a receipt. It routes OUT to the web `/account` surface
+ * where the ONE plan is subscribed to — Standard, 99 €/month including 100,000
+ * credits and every further seat at no extra charge. The desktop never holds a
+ * card or a checkout form, and pressing the button charges nothing by itself.
  */
 // RELATIVE path: openAccountWeb pins the command-eve.com origin AND carries the
 // desktop session (refresh token, attached in MAIN) so the operator lands LOGGED
@@ -522,15 +525,19 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
   );
 
   // ---- Day-14 trial-conversion CURTAIN -----------------------------------
-  // A warm "welcome back, continue" conversion screen that REPLACES the gate
-  // flow when a trial has expired. It is intentionally distinct from the hard
-  // license-error states: it leads with the value the user already built (their
-  // Company OS, memory, connections, SOPs are PRESERVED and waiting) and offers a
-  // single primary CTA out to the web /account (free own seat; client seats from
-  // 99 €). It wipes nothing and
-  // cannot itself unlock the app — the structural route guard keeps every main
-  // surface blocked until the entitlement flips to `entitled` (after the user
-  // converts on the web and re-activates / the gate re-reads).
+  // A warm "welcome back, continue" screen that REPLACES the gate flow when the
+  // trial has expired. It is intentionally distinct from the hard license-error
+  // states: it leads with the value the user already built (their Company OS,
+  // memory, connections, SOPs are PRESERVED and waiting) and offers a single
+  // primary CTA out to the web /account, where the ONE plan (Standard, 99 €/month
+  // incl. 100,000 credits, every seat included) is subscribed to.
+  //
+  // THIS IS THE EXPLICIT DECISION (Founder ruling 1.820.1). Reaching it means the
+  // trial ended WITHOUT charging anyone: no card was taken at entry and nothing
+  // auto-converted, which is exactly why a curtain has to exist at all. It wipes
+  // nothing and cannot itself unlock the app — the structural route guard keeps
+  // every main surface blocked until the entitlement flips to `entitled` (after
+  // the user subscribes on the web and re-activates / the gate re-reads).
   if (trialExpired) {
     return (
       <div className='registration-gate' data-testid='registration-gate'>
