@@ -28,6 +28,8 @@
  * backend store says the user picked EVE Max.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the backend HTTP read so we can simulate the picker's persisted value
@@ -39,7 +41,6 @@ vi.mock('@/common/adapter/httpBridge', () => ({
 }));
 
 import {
-  readInferenceLaneStateFromBackendStrict,
   readInferenceSelectionFromBackend,
   resolveEveCloudRouteFromBackend,
 } from '@process/commandEve/inferenceSelectionBackendRead';
@@ -71,17 +72,22 @@ function settingsBagWithSelection(
 }
 
 /**
- * The full live chain, wired EXACTLY as `index.ts` wires it.
+ * THE PRODUCTION SEAM ITSELF — not a re-implementation of it.
  *
- * NOTE what is NOT here: no injected entitlement callback. The earlier version of
- * this helper passed a `readMaxEntitled` dep that the production call site never
- * supplied, so every clamp test passed while the clamp was dead code in the
- * product. The only inputs now are the settings bag and the license — the same
- * two things production has.
+ * The only argument is the license read, which needs Electron's data path. The
+ * lane-state reader is NOT injectable any more: `resolveEveCloudRouteFromBackend`
+ * owns it, so calling this necessarily runs the REAL
+ * `readInferenceLaneStateFromBackendStrict`, and the only thing mocked underneath
+ * is `httpRequest` — a genuine external transport.
+ *
+ * WHY THIS SHAPE. Earlier versions passed their own `readLaneState`. That made the
+ * suite structurally blind: production could be unwired and every test stayed
+ * green, which is exactly how the clamp shipped dead and how the same defect
+ * recurred five times. A test that supplies something production does not is not
+ * a gate on production.
  */
 async function resolveRouteFromBackend() {
   return resolveEveCloudRouteFromBackend({
-    readLaneState: readInferenceLaneStateFromBackendStrict,
     readLicense: () => FAKE_LICENSE,
     functionUrl: 'https://example.supabase.co/functions/v1/eve-inference',
   });
@@ -341,5 +347,57 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     expect((await resolveRouteFromBackend())?.tier).toBe('standard');
     httpRequestMock.mockResolvedValue(settingsBagWithSelection(localTierValue('local-standard'), null));
     expect((await resolveRouteFromBackend())?.active).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE RECURRENCE GATE ITSELF.
+//
+// This defect class has now recurred five times on this ticket: a test that
+// passes its own copy of a production dependency, so breaking production leaves
+// the suite green. These assertions are about the SHAPE of the wiring, because
+// the shape is what kept failing.
+// ---------------------------------------------------------------------------
+describe('the production wiring cannot be orphaned again', () => {
+  const routeModule = fs.readFileSync(
+    path.resolve(__dirname, '../../../packages/desktop/src/process/commandEve/inferenceSelectionBackendRead.ts'),
+    'utf-8'
+  );
+  const indexSource = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf-8');
+
+  it('resolveEveCloudRouteFromBackend accepts NO lane-state/entitlement dependency', () => {
+    // If this becomes injectable again, a test can supply it and the suite goes
+    // blind to production exactly as before.
+    const signature = routeModule.slice(
+      routeModule.indexOf('export async function resolveEveCloudRouteFromBackend'),
+      routeModule.indexOf('): Promise<CommandEveEveCloudRoute | undefined> {')
+    );
+    expect(signature).not.toMatch(/readLaneState/);
+    expect(signature).not.toMatch(/readMaxEntitled/);
+    expect(signature).not.toMatch(/maxEntitled/);
+    // It calls the real reader directly.
+    expect(routeModule).toMatch(/const laneState = await readInferenceLaneStateFromBackendStrict\(\)/);
+  });
+
+  it('index.ts still calls the resolver, and passes no lane-state reader', () => {
+    // Deleting the call is the one thing left that could unwire this, so it is
+    // asserted rather than assumed.
+    expect(indexSource).toMatch(/return resolveEveCloudRouteFromBackend\(\{/);
+    const call = indexSource.slice(
+      indexSource.indexOf('return resolveEveCloudRouteFromBackend({'),
+      indexSource.indexOf('return resolveEveCloudRouteFromBackend({') + 600
+    );
+    expect(call).not.toMatch(/readLaneState/);
+    expect(call).toMatch(/readLicense/);
+  });
+
+  it('the clamp runs through the REAL reader — mocking only the HTTP transport', async () => {
+    // The end-to-end proof: nothing of ours is stubbed. The settings bag goes in
+    // through the transport, the real reader parses it, and the clamp fires.
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null, false));
+    expect((await resolveRouteFromBackend())?.tier).toBe('standard');
+
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null, true));
+    expect((await resolveRouteFromBackend())?.tier).toBe('max');
   });
 });

@@ -37,6 +37,7 @@
 
 import { commandEve } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
+import { isPaidCreditsTier } from '@/common/config/creditsCore';
 import {
   buildEvePickerGroups,
   EVE_DEFAULT_INFERENCE_SELECTION,
@@ -142,6 +143,10 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     const creditsAreAuthoritative = creditsStatus?.ok === true;
     const purchasedCredits = Number(creditsStatus?.purchased_credits_remaining ?? 0);
     const includedCredits = Number(creditsStatus?.included_allowance_credits_remaining ?? 0);
+    // NOTE the deliberate asymmetry with the MAX gate below. `!== 'free'` is
+    // CORRECT here: this governs the metered/Standard lane, which a TRIAL seat is
+    // meant to reach on its promotional allowance. Only the MAX gate must treat
+    // trial as unpaid, and that one uses the explicit allowlist.
     const hasMeteredCredits =
       creditsAreAuthoritative &&
       (creditsStatus?.has_active_topup === true ||
@@ -160,7 +165,14 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
       // lands — deliberately feed NEITHER, which is what keeps a promotion from
       // unlocking the strong lane. Both require an authoritative credits read:
       // an unreadable status must not be able to open a paid lane.
-      has_paid_plan: creditsAreAuthoritative && creditsStatus?.tier !== 'free',
+      //
+      // ALLOWLIST, NOT `!== 'free'`. The negative form classified the server's
+      // `trial` tier as PAID and unlocked MAX for every trial seat — the exact
+      // thing the Founder rule forbids. It also defaulted every future tier to
+      // paid. isPaidCreditsTier names the paid tiers explicitly, so anything new
+      // is unpaid until someone decides otherwise, which is the only safe
+      // direction for a money gate.
+      has_paid_plan: creditsAreAuthoritative && isPaidCreditsTier(creditsStatus?.tier),
       has_purchased_credits: creditsAreAuthoritative && purchasedCredits > 0,
     };
   }, [creditsStatus, status]);

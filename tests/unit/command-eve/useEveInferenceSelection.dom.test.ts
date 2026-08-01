@@ -525,6 +525,77 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.isSelectable(eveTierValue('eve-standard'))).toBe(true);
   });
 
+  // -------------------------------------------------------------------------
+  // TRIAL IS NOT PAID (CAO finding 2).
+  //
+  // The server has always reported `trial` as its own tier. The desktop union did
+  // not model it and the MAX gate asked "is it not free?", so a trial seat
+  // answered "paid" and unlocked MAX — the exact thing the Founder rule forbids.
+  // It only failed to bite because the credits BRIDGE happened to fold every
+  // unrecognised tier into `free`; carrying the true value through, which honesty
+  // requires, would have armed it immediately.
+  // -------------------------------------------------------------------------
+
+  it('TRIAL + promotional allowance -> MAX LOCKED (a trial is not a purchase)', () => {
+    entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z';
+    entitlement.has_paid_seat = false;
+    creditsStatus.ok = true;
+    creditsStatus.tier = 'trial';
+    creditsStatus.included_allowance_credits_remaining = 100_000; // EUR 100 promo grant
+    creditsStatus.purchased_credits_remaining = 0;
+    creditsStatus.has_active_topup = false;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    expect(result.current.maxAvailable).toBe(false);
+    expect(result.current.maxLocked).toBe(true);
+    expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(false);
+    // ...and the promotional allowance still funds the routine lane, as intended.
+    expect(result.current.isSelectable(eveTierValue('eve-standard'))).toBe(true);
+  });
+
+  it('TRIAL + PURCHASED credits -> MAX UNLOCKED (buying is what unlocks it)', () => {
+    entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z';
+    entitlement.has_paid_seat = false;
+    creditsStatus.ok = true;
+    creditsStatus.tier = 'trial';
+    creditsStatus.included_allowance_credits_remaining = 100_000;
+    creditsStatus.purchased_credits_remaining = 5_000;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    expect(result.current.maxAvailable).toBe(true);
+    expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
+  });
+
+  it.each([['starter'], ['solo']])('a REAL paid plan (%s) -> MAX UNLOCKED', (tier) => {
+    entitlement.trial_ends_at = null;
+    entitlement.has_paid_seat = false; // the PLAN alone must be enough
+    creditsStatus.ok = true;
+    creditsStatus.tier = tier;
+    creditsStatus.purchased_credits_remaining = 0;
+    creditsStatus.has_active_topup = false;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    expect(result.current.maxAvailable).toBe(true);
+    expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
+  });
+
+  it('an UNKNOWN future tier defaults to UNPAID — the allowlist fails in the safe direction', () => {
+    // With `!== 'free'` every tier the server invents later would unlock MAX by
+    // default. The allowlist inverts that.
+    entitlement.trial_ends_at = null;
+    entitlement.has_paid_seat = false;
+    creditsStatus.ok = true;
+    creditsStatus.tier = 'some-future-tier';
+    creditsStatus.purchased_credits_remaining = 0;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    expect(result.current.maxAvailable).toBe(false);
+  });
+
   it('MAX is AVAILABLE on a paid seat, on an active top-up, and on purchased credits', () => {
     const cases: Array<() => void> = [
       () => {

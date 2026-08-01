@@ -428,6 +428,33 @@
   background: color-mix(in srgb, var(--eve-max-accent) 24%, transparent) !important;
 }
 
+/* ── KEYBOARD FOCUS (WCAG 2.4.7) ───────────────────────────────────────────
+ * DECLARATION ORDER IS THE FIX, and it is deliberate: this block MUST stay below
+ * the [data-active] rules above.
+ *
+ * THE DEFECT, verified by inspection and not merely inferred: the hover/focus rule
+ * higher up and the [data-active='true'] rule are BOTH (0,4,0) — two classes plus
+ * two attributes/pseudo-classes — and both carry !important. Equal specificity, so
+ * source order decides, and [data-active] came later. Result: tabbing onto an
+ * ENGAGED MAX pill changed nothing at all. Arco also resets outline-style to none,
+ * so there was no UA fallback either: a keyboard user had no indication of focus.
+ *
+ * The ring is box-shadow because the base rule sets `box-shadow: none !important`
+ * and neither state rule touches it — so this is a property the state rules do not
+ * contest, on top of an order that wins outright. Both mechanisms, not one.
+ *
+ * 80%, not the 34% first proposed: at 34% the ring measured 1.75:1 against the
+ * composer, failing WCAG 1.4.11's 3:1 for non-text indicators — a focus ring that
+ * technically exists and cannot be seen is the same class of defect as the one
+ * being fixed. 80% measures 4.52:1 worst case across all eight shipped
+ * accent/theme combinations. Attribute hooks only (R4: Arco relocates className
+ * off the disabled button). */
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle']:focus-visible,
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-active='true']:focus-visible,
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-locked='true']:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--eve-max-accent) 80%, transparent) !important;
+}
+
 /* LOCKED: readable, not shouty, and never invisible.
    64%, NOT 46%. At 46% the label measured 2.99:1 in light — well under AA. This
    is an ENABLED control (it renders, it focuses, it carries the upsell), so it

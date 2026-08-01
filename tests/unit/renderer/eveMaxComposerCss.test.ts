@@ -47,10 +47,64 @@ const defaultSchemeCss = fs.readFileSync(DEFAULT_SCHEME_CSS, 'utf-8');
 /** Every stylesheet that is loaded alongside the composer at runtime. */
 const loadedCss = `${defaultSchemeCss}\n${css}\n${sendboxCss}`;
 
+/** CSS comments legitimately mention selector names; only real rules count. */
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
 /** Custom properties DECLARED anywhere in the loaded stylesheets. */
 function declaredCustomProperties(source: string): Set<string> {
   return new Set((source.match(/(^|[;{\s])(--[a-z0-9-]+)\s*:/gi) ?? []).map((m) => m.match(/--[a-z0-9-]+/i)![0]));
 }
+
+// ── SHARED COLOUR MODEL ─────────────────────────────────────────────────────
+// Module scope on purpose: the contrast suite and the focus-ring suite must use
+// the SAME model. Two private copies would be free to drift, and a drifted model
+// is how the flat-token version stayed green while the screen failed.
+
+type Rgb = [number, number, number];
+const parse = (hex: string): Rgb => {
+  const h = hex.replace('#', '');
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as Rgb;
+};
+const channel = (c: number): number => {
+  const s = c / 255;
+  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+};
+const luminance = (rgb: Rgb | readonly number[]): number =>
+  0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2]);
+const contrast = (a: Rgb | readonly number[], b: Rgb | readonly number[]): number => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+const mix = (a: Rgb, b: Rgb, share: number): Rgb => a.map((v, i) => Math.round(v * share + b[i] * (1 - share))) as Rgb;
+/** Composite a translucent colour over an opaque background (what the GPU does). */
+const over = (fg: Rgb, alpha: number, bg: readonly number[]): Rgb =>
+  fg.map((v, i) => v * alpha + bg[i] * (1 - alpha)) as Rgb;
+
+const LIGHT_ACCENT_SHARE = 0.7;
+const DARK_ACCENT_SHARE = 0.44;
+const SHELL_TEXT_LIGHT = '#111827';
+const STATIC_WHITE = '#ffffff';
+
+/** Effective COMPOSITED composer backgrounds (Electron measurement, see the suite). */
+const COMPOSER_BACKGROUND = {
+  light: [250, 250, 251] as const,
+  dark: [41, 41, 41] as const,
+};
+
+function maxAccentFor(accentHex: string, theme: 'light' | 'dark'): Rgb {
+  const accent = parse(accentHex);
+  return theme === 'light'
+    ? mix(accent, parse(SHELL_TEXT_LIGHT), LIGHT_ACCENT_SHARE)
+    : mix(accent, parse(STATIC_WHITE), DARK_ACCENT_SHARE);
+}
+
+/** Every accent the product actually ships, read from the source of truth. */
+const shippedAccents = Object.entries(EVE_ACCENTS).flatMap(([name, pair]) => [
+  { name: `${name}/light`, base: pair.light.base, theme: 'light' as const },
+  { name: `${name}/dark`, base: pair.dark.base, theme: 'dark' as const },
+]);
 
 /** The declaration body of the first rule whose selector matches exactly. */
 function ruleBody(source: string, selector: string): string {
@@ -235,36 +289,7 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
    * and the pill background is color-mix(maxAccent 16%, transparent) composited
    * over the composer surface — i.e. 0.16*accent + 0.84*surface.
    */
-  const LIGHT_ACCENT_SHARE = 0.7;
-  const DARK_ACCENT_SHARE = 0.44;
   const PILL_TINT = 0.16;
-  const SHELL_TEXT_LIGHT = '#111827';
-  const STATIC_WHITE = '#ffffff';
-
-  /**
-   * THE BACKGROUND THE LABEL ACTUALLY SITS ON — and the reason this model was
-   * wrong once already.
-   *
-   * The first version contrasted the label against the FLAT `--eve-shell-surface`
-   * token (#171a1e dark). But `.eve-composer-surface` paints
-   * `--glass-composer-bg` = `color-mix(--eve-shell-surface 57.55%, transparent)`
-   * — TRANSLUCENT GLASS over the app backdrop, which carries a background image
-   * by default. The real surface behind the pill is therefore much lighter than
-   * the token: measured ~grey 41 where the token stack predicts ~grey 22. For a
-   * LIGHT label on dark, a lighter background costs contrast — so the flat-token
-   * model was optimistic by ~1.1 and reported 4.73:1 for something that measured
-   * 4.33:1.
-   *
-   * These are the EFFECTIVE composited composer backgrounds, taken from the
-   * independent Electron measurement on 2b61b77e rather than derived from tokens
-   * the compositor does not honour on its own. Validated: this model reproduces
-   * the measured blue/dark 4.33 (model 4.34) and blue/light 5.85 (model 5.71,
-   * i.e. erring pessimistic, which is the safe direction).
-   */
-  const COMPOSER_BACKGROUND = {
-    light: [250, 250, 251] as const,
-    dark: [41, 41, 41] as const,
-  };
 
   /**
    * THE BAR (Founder, clarified): AA 4.5:1 is the FLOOR for normal enabled text,
@@ -301,19 +326,6 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
   /** Composite a translucent colour over an opaque background (what the GPU does). */
   const over = (fg: Rgb, alpha: number, bg: readonly number[]): Rgb =>
     fg.map((v, i) => v * alpha + bg[i] * (1 - alpha)) as Rgb;
-
-  /** Every accent the product actually ships, read from the source of truth. */
-  const shippedAccents = Object.entries(EVE_ACCENTS).flatMap(([name, pair]) => [
-    { name: `${name}/light`, base: pair.light.base, theme: 'light' as const },
-    { name: `${name}/dark`, base: pair.dark.base, theme: 'dark' as const },
-  ]);
-
-  function maxAccentFor(accentHex: string, theme: 'light' | 'dark'): Rgb {
-    const accent = parse(accentHex);
-    return theme === 'light'
-      ? mix(accent, parse(SHELL_TEXT_LIGHT), LIGHT_ACCENT_SHARE)
-      : mix(accent, parse(STATIC_WHITE), DARK_ACCENT_SHARE);
-  }
 
   /**
    * The real stack: label colour vs the 16% accent TINT COMPOSITED OVER the
@@ -492,6 +504,110 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
           .join('');
       expect(order([...adjusted]), `${accent.name} hue order changed`).toBe(order([...base]));
     }
+  });
+});
+
+describe('MAX pill keyboard focus — WCAG 2.4.7 (D1)', () => {
+  const sendBarCss = fs.readFileSync(
+    path.resolve(__dirname, '../../../packages/desktop/src/renderer/components/chat/UnifiedSendBar.css'),
+    'utf-8'
+  );
+
+  /** CSS specificity (ids, classes+attrs+pseudo-classes, elements) for a simple selector. */
+  function specificity(selector: string): [number, number, number] {
+    const cleaned = selector.replace(/::[a-z-]+/g, '');
+    const ids = (cleaned.match(/#[\w-]+/g) ?? []).length;
+    const classes = (cleaned.match(/\.[\w-]+/g) ?? []).length;
+    const attrs = (cleaned.match(/\[[^\]]+\]/g) ?? []).length;
+    const pseudos = (cleaned.match(/:(?!:)[a-z-]+(\([^)]*\))?/g) ?? []).length;
+    return [ids, classes + attrs + pseudos, 0];
+  }
+  const cmp = (a: [number, number, number], b: [number, number, number]): number =>
+    a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+
+  /** Rules (selector + body + source position) whose selector mentions the MAX pill. */
+  const rules = [...stripCssComments(sendBarCss).matchAll(/([^{}@]*eve-max-toggle[^{}]*)\{([^}]*)\}/g)].map((m) => ({
+    selectors: m[1]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    body: m[2],
+    index: m.index ?? 0,
+  }));
+
+  it('a focus-visible rule exists AND declares a visible indicator', () => {
+    const focusRules = rules.filter((r) => r.selectors.some((s) => s.includes(':focus-visible')));
+    expect(focusRules.length).toBeGreaterThan(0);
+    const ringRule = focusRules.find((r) => /box-shadow:\s*0 0 0 2px/.test(r.body));
+    expect(ringRule, 'no focus RING is declared').toBeDefined();
+    // Not `none`, not a no-op.
+    expect(ringRule!.body).not.toMatch(/box-shadow:\s*none/);
+  });
+
+  it.each([
+    ["data-active='true'", "[data-active='true']"],
+    ["data-active='false'", ''],
+  ])('the focus ring actually WINS over the %s state rule (order + specificity)', (_label, stateAttr) => {
+    // THE POINT: a rule that exists but loses is invisible, which is exactly how this
+    // shipped. Existence is not enough — it has to beat whatever paints that state.
+    const ringRule = rules.find((r) => /box-shadow:\s*0 0 0 2px/.test(r.body))!;
+    const ringSelector = ringRule.selectors.find((s) =>
+      stateAttr ? s.includes(stateAttr) && s.includes(':focus-visible') : s.includes(':focus-visible')
+    );
+    expect(ringSelector, `no focus selector covers ${_label}`).toBeDefined();
+
+    // Every rule that paints this state and could contest box-shadow.
+    const contenders = rules.filter(
+      (r) =>
+        r !== ringRule &&
+        r.selectors.some((s) => (stateAttr ? s.includes(stateAttr) : true) && !s.includes(':focus-visible')) &&
+        /box-shadow:/.test(r.body)
+    );
+
+    for (const rival of contenders) {
+      const rivalSelector = rival.selectors.find((s) => (stateAttr ? s.includes(stateAttr) : true))!;
+      const ringSpec = specificity(ringSelector!);
+      const rivalSpec = specificity(rivalSelector);
+      const ringWins = cmp(ringSpec, rivalSpec) > 0 || (cmp(ringSpec, rivalSpec) === 0 && ringRule.index > rival.index);
+      expect(
+        ringWins,
+        `focus ring [${ringSpec}] @${ringRule.index} loses to "${rivalSelector}" [${rivalSpec}] @${rival.index}`
+      ).toBe(true);
+    }
+  });
+
+  it('REGRESSION: the equal-specificity ordering that caused D1 is pinned', () => {
+    // The measured cause: the hover/focus rule and the [data-active] rule are BOTH
+    // (0,4,0) with !important, and [data-active] was declared later, so focus lost.
+    // If the ring is ever moved ABOVE the state rules, this turns red.
+    const ringRule = rules.find((r) => /box-shadow:\s*0 0 0 2px/.test(r.body))!;
+    const activeRule = rules.find(
+      (r) =>
+        r.selectors.some((s) => s.includes("[data-active='true']") && !s.includes(':')) && /background:/.test(r.body)
+    )!;
+    expect(activeRule).toBeDefined();
+    expect(ringRule.index).toBeGreaterThan(activeRule.index);
+  });
+
+  it('the focus ring clears WCAG 1.4.11 (3:1 non-text) in EVERY shipped accent/theme', () => {
+    // The first proposed value was 34%, which measured 1.75:1 — a focus ring that
+    // exists and cannot be seen is the same defect wearing a different hat.
+    const RING_ALPHA = 0.8;
+    expect(sendBarCss).toContain(
+      `box-shadow: 0 0 0 2px color-mix(in srgb, var(--eve-max-accent) ${RING_ALPHA * 100}%, transparent)`
+    );
+    const failures: string[] = [];
+    for (const accent of shippedAccents) {
+      const ring = over(maxAccentFor(accent.base, accent.theme), RING_ALPHA, COMPOSER_BACKGROUND[accent.theme]);
+      const ratio = contrast(ring, [...COMPOSER_BACKGROUND[accent.theme]] as Rgb);
+      if (ratio < 3.0) failures.push(`${accent.name} ring ${ratio.toFixed(2)}:1`);
+    }
+    expect(failures, 'focus rings under the 3:1 non-text floor').toEqual([]);
+  });
+
+  it('REGRESSION: the 34% ring first proposed would FAIL the non-text floor', () => {
+    const ring = over(maxAccentFor(EVE_ACCENTS.blue.light.base, 'light'), 0.34, COMPOSER_BACKGROUND.light);
+    expect(contrast(ring, [...COMPOSER_BACKGROUND.light] as Rgb)).toBeLessThan(3.0);
   });
 });
 

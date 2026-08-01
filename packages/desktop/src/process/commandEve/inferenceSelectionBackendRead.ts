@@ -197,14 +197,25 @@ export async function readInferenceSelectionFromBackendStrict(): Promise<string 
  * has ever mounted to rewrite the stored string.
  */
 export async function resolveEveCloudRouteFromBackend(deps: {
-  /** Read the persisted lane state (selection + MAX entitlement) in ONE fetch. */
-  readLaneState: () => Promise<CommandEveInferenceLaneState>;
   /** Read the CEVE license wire (or undefined when absent). */
   readLicense: () => string | undefined;
   /** Edge Function URL (overridable in tests). */
   functionUrl?: string;
 }): Promise<CommandEveEveCloudRoute | undefined> {
-  const laneState = await deps.readLaneState();
+  // THE LANE-STATE READER IS NOT A PARAMETER, AND THAT IS THE POINT.
+  //
+  // It used to be injected. index.ts — the ONLY production call site — passed the
+  // real reader, and every test passed its own. So the tests could not tell
+  // whether production was wired at all: breaking index.ts left the suite green,
+  // which is exactly how the clamp shipped as dead code and how the same defect
+  // recurred five times on this ticket.
+  //
+  // Making it a hard dependency of THIS module removes the seam. There is no
+  // longer a wiring in index.ts that can be wrong, and a test exercising this
+  // function necessarily exercises the real reader — the only thing it can mock
+  // is the backend transport underneath it, which is a genuine external
+  // dependency rather than a stand-in for our own code.
+  const laneState = await readInferenceLaneStateFromBackendStrict();
   const { selection } = repairInferenceSelection(laneState.selection);
   if (!isEveInferenceSelection(selection)) {
     return { active: false };

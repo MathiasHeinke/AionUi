@@ -48,7 +48,32 @@ export const CREDITS_STATUS_FUNCTION_URL = 'https://unvbeothoimlzlolxucl.supabas
  * desktop keeps it in the union so an old status parses, but no Gen-B surface
  * SELLS it (the legacy 79€/49€ plan UI was removed).
  */
-export type CreditsTier = 'free' | 'solo' | 'starter';
+export type CreditsTier = 'free' | 'trial' | 'solo' | 'starter';
+
+/**
+ * THE PAID ALLOWLIST. A tier counts as paid ONLY by being named here.
+ *
+ * WHY AN ALLOWLIST AND NOT `tier !== 'free'`. The server has always reported
+ * `trial` as its own tier (credits-billing-core resolveTier), but the desktop
+ * union did not model it and the MAX gate asked "is it not free?" — so a TRIAL
+ * seat answered "paid" and unlocked MAX, which the Founder rule forbids
+ * (promotional/trial allowance may fund Standard, never MAX). It only failed to
+ * bite because a DIFFERENT file, the credits bridge, happened to collapse every
+ * unrecognised tier to `free`. Carrying the real value through — which honesty
+ * requires — would have armed it instantly.
+ *
+ * A negative definition is unsafe by construction: every tier the server adds
+ * later defaults to PAID until someone remembers to exclude it. This list
+ * defaults new tiers to UNPAID, which is the direction a money gate must fail.
+ */
+export const PAID_CREDITS_TIERS = Object.freeze(['solo', 'starter'] as const);
+
+export type PaidCreditsTier = (typeof PAID_CREDITS_TIERS)[number];
+
+/** True iff this tier is an actual paid plan. `trial` and `free` are NOT. */
+export function isPaidCreditsTier(tier: string | null | undefined): tier is PaidCreditsTier {
+  return typeof tier === 'string' && (PAID_CREDITS_TIERS as readonly string[]).includes(tier);
+}
 
 /**
  * The credits-status response (Lane-1 contract). All credit counts are in
@@ -221,6 +246,11 @@ export interface CreditMeterModel {
  */
 export const TIER_ALLOWANCE_CREDITS: Record<CreditsTier, number> = {
   free: 0,
+  // A trial's allowance is the EUR 100 / 100,000-credit PROMOTIONAL grant. It is
+  // not a plan allowance and it never renews — but the meter still needs a
+  // resting full-grant size to draw a fill against, and 0 would render a trial
+  // seat's real balance as an overflowing bar.
+  trial: 100_000,
   solo: 38_000,
   starter: 60_000,
 };

@@ -106,7 +106,12 @@ import {
   readColibriInstallStatus,
 } from '@process/commandEve/localInference/colibriProvisioner';
 import { resolveColibriPaths } from '@process/commandEve/localInference/colibriManifest';
-import { CREDITS_STATUS_FUNCTION_URL, type ClientSeedInput, type CreditsTier } from '@/common/config/creditsCore';
+import {
+  CREDITS_STATUS_FUNCTION_URL,
+  isPaidCreditsTier,
+  type ClientSeedInput,
+  type CreditsTier,
+} from '@/common/config/creditsCore';
 import {
   prepareCommandEveCloudTitleText,
   EVE_TITLE_FUNCTION_URL,
@@ -4215,8 +4220,16 @@ export function initCommandEveBridge(): void {
       }
 
       const purchasedCredits = finiteCreditNumber(raw.purchased_credits_remaining);
-      const rawTier = raw.tier === 'solo' || raw.tier === 'starter' ? raw.tier : 'free';
-      const tier = (rawTier === 'free' && purchasedCredits > 0 ? 'starter' : rawTier) as CreditsTier;
+      // CARRY THE REAL TIER (MAT-1749). This used to fold `trial` — a tier the
+      // server has always reported — into `free`, which discarded the one signal
+      // the MAX gate needs to tell a promotional trial from a paid plan. The
+      // renderer's gate is now an explicit paid ALLOWLIST, so passing the true
+      // value through is both honest and safe; folding it was masking a defect,
+      // not preventing one.
+      const rawTier = raw.tier === 'solo' || raw.tier === 'starter' || raw.tier === 'trial' ? raw.tier : 'free';
+      // Purchased credits outrank the reported tier: a seat that BOUGHT credits is
+      // never surfaced as credit-less, and buying is exactly what unlocks MAX.
+      const tier = (!isPaidCreditsTier(rawTier) && purchasedCredits > 0 ? 'starter' : rawTier) as CreditsTier;
       // The user-set local cap takes precedence when present; otherwise honour
       // whatever the server reports.
       const serverCap = finiteCreditNumber(raw.spend_cap_eur_cents, 0);

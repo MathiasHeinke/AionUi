@@ -84,7 +84,6 @@ import { shouldRestartWindowsBackendAfterRuntimeBootstrap } from './process/comm
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatContextRevision, getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
-  readInferenceLaneStateFromBackendStrict,
   readInferenceSelectionFromBackendStrict,
   resolveEveCloudRouteFromBackend,
 } from './process/commandEve/inferenceSelectionBackendRead';
@@ -551,16 +550,14 @@ function buildCommandEveShimRoutingResolver(): (
       };
     }
 
+    // The lane-state read (picker selection + proven MAX entitlement, one fetch)
+    // is OWNED by resolveEveCloudRouteFromBackend and is deliberately NOT passed
+    // in from here. It used to be injected, which meant this call site was the
+    // only place the real reader was ever wired — and no test could tell whether
+    // it still was. Removing the seam is what makes the clamp impossible to
+    // orphan again. Only the license read, which needs Electron's data path,
+    // stays a dependency.
     return resolveEveCloudRouteFromBackend({
-      // HONEST TIER ROUTING (1.2.19 + backend-store fix): read the only store the
-      // renderer writes and reject on transport failure. A valid absent value may
-      // default to Standard; an unreadable value may not.
-      //
-      // MAT-1749: this reads the LANE STATE (selection + proven MAX entitlement)
-      // in ONE fetch, so the non-brick clamp actually runs in production. It used
-      // to take a selection-only reader, which left the clamp reachable only from
-      // tests that injected a dependency this call site never supplied.
-      readLaneState: readInferenceLaneStateFromBackendStrict,
       readLicense: () => {
         const wireResult = readLicenseWire(getDataPath());
         return wireResult.ok ? wireResult.wire : undefined;
