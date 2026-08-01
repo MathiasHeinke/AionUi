@@ -428,9 +428,14 @@
   background: color-mix(in srgb, var(--eve-max-accent) 24%, transparent) !important;
 }
 
-/* LOCKED: readable, not shouty, and never invisible. */
+/* LOCKED: readable, not shouty, and never invisible.
+   64%, NOT 46%. At 46% the label measured 2.99:1 in light — well under AA. This
+   is an ENABLED control (it renders, it focuses, it carries the upsell), so it
+   is normal enabled text and owes the full 4.5:1 floor. Now 5.25:1 light /
+   6.52:1 dark, and still visibly quieter than the neutral `available` label
+   (6.01 / 7.15) so the hierarchy reads correctly. */
 .unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-locked='true'] {
-  color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 46%, transparent) !important;
+  color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 64%, transparent) !important;
 }
 
 /* DISABLED (busy) — THE state R4 is about. Reached via [disabled] and via Arco's
@@ -438,14 +443,19 @@
    after the className has been moved off the button. */
 .unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][disabled],
 .unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'].arco-btn-disabled {
-  color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 62%, transparent) !important;
+  color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 68%, transparent) !important;
   background: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 5%, transparent) !important;
   border-color: transparent !important;
   opacity: 1 !important;
 }
 
-/* Busy but ACTIVE keeps the accent (dimmed by the shared disabled background),
-   so going busy never makes the engaged lane unreadable or ambiguous. */
+/* Busy but ACTIVE keeps the FULL accent label. Subordination is carried by the
+   BORDER and the TINT, not by dimming the text: the disabled rule above already
+   removes the border and this weakens the tint (12% vs the active 16%), so a
+   sending composer reads as "engaged, working" without ever reading louder than
+   the interactive state — and without paying for that hierarchy in legibility.
+   Dimming the label instead was measured at 4.88:1 light, i.e. buying hierarchy
+   by moving text toward the AA floor, which is the wrong trade. */
 .unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-active='true'][disabled],
 .unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-active='true'].arco-btn-disabled {
   color: var(--eve-max-accent) !important;

@@ -266,8 +266,20 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
     dark: [41, 41, 41] as const,
   };
 
-  /** Founder target: clear AA with real margin rather than sitting on the line. */
-  const MIN_CONTRAST = 5.0;
+  /**
+   * THE BAR (Founder, clarified): AA 4.5:1 is the FLOOR for normal enabled text,
+   * measured in the real composited surface. ~5:1 is the AIM where the existing
+   * palette permits it. AAA 7:1 is explicitly NOT a mandate — we report it so the
+   * trade-off is visible, and we do not redesign to force it.
+   */
+  const AA_FLOOR = 4.5;
+  const COMFORT_AIM = 5.0;
+  const AAA_REFERENCE = 7.0;
+
+  /** Neutral-label alphas, kept in lockstep with UnifiedSendBar.css. */
+  const NEUTRAL_ALPHA = { available: 0.68, locked: 0.64, busyInactive: 0.68 };
+  /** Background tints. */
+  const TINT = { active: 0.16, busyActive: 0.12, busyNeutral: 0.05 };
 
   type Rgb = [number, number, number];
   const parse = (hex: string): Rgb => {
@@ -331,12 +343,100 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
   });
 
   it.each(shippedAccents.map((a) => [a.name, a] as const))(
-    `%s: the MAX label clears ${MIN_CONTRAST}:1 on the engaged pill`,
+    `%s: the ACTIVE MAX label clears the ${COMFORT_AIM}:1 aim`,
     (_name, accent) => {
       const ratio = labelContrast(accent.base, accent.theme);
-      expect(ratio, `${accent.name} label contrast ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(MIN_CONTRAST);
+      expect(ratio, `${accent.name} label contrast ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(COMFORT_AIM);
     }
   );
+
+  /**
+   * EVERY state, not just the active one. Restricting the model to `active` is
+   * how a 2.99:1 locked label shipped: the state nobody measured was the state
+   * that failed. `locked` and `available` are ENABLED controls and owe the full
+   * AA floor; the busy/disabled states must stay legible too.
+   */
+  function stateContrasts(accentHex: string, theme: 'light' | 'dark'): Record<string, number> {
+    const label = maxAccentFor(accentHex, theme);
+    const neutral = parse(theme === 'light' ? SHELL_TEXT_LIGHT : '#f7f8fa');
+    const composer = COMPOSER_BACKGROUND[theme];
+    const busyNeutralBg = over(neutral, TINT.busyNeutral, composer);
+    return {
+      active: contrast(label, over(label, TINT.active, composer)),
+      'active+busy': contrast(label, over(label, TINT.busyActive, composer)),
+      available: contrast(over(neutral, NEUTRAL_ALPHA.available, composer), composer),
+      locked: contrast(over(neutral, NEUTRAL_ALPHA.locked, composer), composer),
+      'busy (inactive)': contrast(over(neutral, NEUTRAL_ALPHA.busyInactive, busyNeutralBg), busyNeutralBg),
+    };
+  }
+
+  it('EVERY pill state clears the AA floor in EVERY shipped accent/theme', () => {
+    const failures: string[] = [];
+    for (const accent of shippedAccents) {
+      for (const [state, ratio] of Object.entries(stateContrasts(accent.base, accent.theme))) {
+        if (ratio < AA_FLOOR) failures.push(`${accent.name} ${state} = ${ratio.toFixed(2)}:1`);
+      }
+    }
+    expect(failures, `states under AA ${AA_FLOOR}:1`).toEqual([]);
+  });
+
+  it('REGRESSION: the 46% locked label that shipped would FAIL the AA floor', () => {
+    // The state that was never modelled. Pins the fix so it cannot silently
+    // revert, and proves the suite above is not passing for a trivial reason.
+    const neutral = parse(SHELL_TEXT_LIGHT);
+    const old = contrast(over(neutral, 0.46, COMPOSER_BACKGROUND.light), COMPOSER_BACKGROUND.light);
+    expect(old).toBeLessThan(AA_FLOOR);
+    const fixed = contrast(over(neutral, NEUTRAL_ALPHA.locked, COMPOSER_BACKGROUND.light), COMPOSER_BACKGROUND.light);
+    expect(fixed).toBeGreaterThanOrEqual(COMFORT_AIM);
+  });
+
+  it('the neutral alphas match UnifiedSendBar.css — the model cannot drift from what ships', () => {
+    const sendBar = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/renderer/components/chat/UnifiedSendBar.css'),
+      'utf-8'
+    );
+    expect(sendBar).toContain(
+      `[data-locked='true'] {\n  color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) ${NEUTRAL_ALPHA.locked * 100}%, transparent) !important;`
+    );
+    expect(sendBar).toContain(
+      `color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) ${NEUTRAL_ALPHA.busyInactive * 100}%, transparent) !important`
+    );
+    expect(sendBar).toContain(`color-mix(in srgb, var(--eve-max-accent) ${TINT.busyActive * 100}%, transparent)`);
+  });
+
+  it('DISABLED/BUSY stays subordinate WITHOUT paying for it in legibility', () => {
+    // The tension the Founder named: a disabled control that is too vivid reads
+    // as engaged. Subordination is carried by the BORDER and the TINT — the
+    // disabled rule drops the border and weakens the tint — so the label can keep
+    // full contrast. Dimming the label instead measured 4.88:1, i.e. buying
+    // hierarchy by moving text toward the floor.
+    const sendBar = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/renderer/components/chat/UnifiedSendBar.css'),
+      'utf-8'
+    );
+    // Active has a visible border; the disabled state removes it.
+    expect(sendBar).toMatch(/\[data-active='true'\]\s*\{[^}]*border-color:\s*color-mix/s);
+    expect(sendBar).toMatch(/\[disabled\][^{]*\{[^}]*border-color:\s*transparent/s);
+    // And the busy tint is strictly weaker than the active tint.
+    expect(TINT.busyActive).toBeLessThan(TINT.active);
+
+    // A busy+INACTIVE control must carry NO accent at all — that is the one that
+    // would be lying if it looked engaged.
+    for (const accent of shippedAccents) {
+      const s = stateContrasts(accent.base, accent.theme);
+      expect(s['busy (inactive)']).toBeGreaterThanOrEqual(AA_FLOOR);
+    }
+  });
+
+  it('reports AAA (7:1) for the record WITHOUT gating on it', () => {
+    // AAA is explicitly not the mandate. This records where we land so the
+    // trade-off is visible instead of an AA pass being presented as AAA.
+    const aaaPassing = shippedAccents.filter((a) => labelContrast(a.base, a.theme) >= AAA_REFERENCE);
+    // Documented reality: only the lowest-chroma accent reaches AAA on the
+    // active pill. Forcing the rest there would bleach the accent.
+    expect(aaaPassing.length).toBeLessThan(shippedAccents.length);
+    expect(AAA_REFERENCE).toBe(7.0);
+  });
 
   it('the model REPRODUCES the independent Electron measurement (it is calibrated, not assumed)', () => {
     // A contrast model that cannot reproduce a real measurement is a guess. The
@@ -360,8 +460,8 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
     // reason, because the value they replaced is genuinely below the bar.
     const oldDarkLabel = mix(parse(EVE_ACCENTS.blue.dark.base), parse(STATIC_WHITE), 0.6);
     const oldRatio = contrast(oldDarkLabel, over(oldDarkLabel, PILL_TINT, COMPOSER_BACKGROUND.dark));
-    expect(oldRatio).toBeLessThan(MIN_CONTRAST);
-    expect(labelContrast(EVE_ACCENTS.blue.dark.base, 'dark')).toBeGreaterThanOrEqual(MIN_CONTRAST);
+    expect(oldRatio).toBeLessThan(COMFORT_AIM);
+    expect(labelContrast(EVE_ACCENTS.blue.dark.base, 'dark')).toBeGreaterThanOrEqual(COMFORT_AIM);
   });
 
   it('the pill background is modelled as a COMPOSITE, never as a flat token', () => {
