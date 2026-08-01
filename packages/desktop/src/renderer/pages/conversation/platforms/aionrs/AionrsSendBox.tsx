@@ -5,8 +5,6 @@
  */
 
 import { ipcBridge } from '@/common';
-import { EVE_DEFAULT_INFERENCE_SELECTION, isEveInferenceSelection } from '@/common/config/eveInferenceCore';
-import EveMaxToggle from '@/renderer/components/agent/EveMaxToggle';
 import { scrubErrorText } from '@/common/config/modelIdentifierScrub';
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import { userVisibleConversationMcpStatuses } from '@/common/config/eveManagedMcpCore';
@@ -60,7 +58,6 @@ import {
   mergeWithCapabilities,
   type AgentModeOption,
 } from '@/renderer/utils/model/agentModes';
-import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import { Message, Tag } from '@arco-design/web-react';
@@ -133,7 +130,6 @@ const AionrsSendBox: React.FC<{
   // picker instead of the raw provider/model list (same persistence key as the
   // desktop header + GuidPage picker). aionrs conversations are filtered out of
   // the EVE shell, so this is a defensive parity path that stays dormant there.
-  const eveInference = useEveInferenceSelection();
   const conversationContext = useConversationContextSafe();
   const loadedSkills = conversationContext?.loadedSkills ?? [];
   const loadedMcpStatuses = userVisibleConversationMcpStatuses(
@@ -636,46 +632,10 @@ const AionrsSendBox: React.FC<{
       modeOptions.find((opt) => opt.active)?.label ?? t('agentMode.default', { defaultValue: 'Default' });
     const currentModelLabel = modelSelection.current_model?.use_model || t('conversation.welcome.selectModel');
 
-    // FOUNDER CONTRACT (MAT-1749): no cloud intelligence ladder in a composer
-    // affordance. This entry is the LANE choice only — EVE Cloud (the unnamed
-    // default) vs the private local lane — with no tier nomenclature anywhere.
-    const eveInferenceEntry: MobileActionSheetEntry = (() => {
-      const cloudLaneLabel = t('conversation.eveInference.cloudLane', { defaultValue: 'EVE Cloud' });
-      const localLabel = t('common.localModel', { defaultValue: 'Lokal' });
-      const localItems = eveInference.groups.find((group) => group.kind === 'local')?.items ?? [];
-      const laneOptions: MobileActionSheetOption[] = [
-        {
-          key: EVE_DEFAULT_INFERENCE_SELECTION,
-          label: cloudLaneLabel,
-          description: t('conversation.eveInference.cloudLaneDescription', {
-            defaultValue: 'EVE arbeitet in der Cloud.',
-          }),
-          active: isEveInferenceSelection(eveInference.selection),
-        },
-        ...localItems.map((item) => ({
-          key: item.value,
-          label: `${localLabel} · ${item.label}`,
-          description: item.sublabel,
-          active: item.value === eveInference.selection && !item.disabled,
-          disabled: item.disabled,
-        })),
-      ];
-      const currentLaneLabel = isEveInferenceSelection(eveInference.selection)
-        ? cloudLaneLabel
-        : `${localLabel} · ${eveInference.activeItem?.label ?? ''}`.trim();
-      return {
-        key: 'eve-inference',
-        icon: <Brain theme='outline' size='16' />,
-        label: t('conversation.eveInference.lane', { defaultValue: 'Verarbeitung' }),
-        meta: currentLaneLabel,
-        submenu: {
-          title: t('conversation.eveInference.lane', { defaultValue: 'Verarbeitung' }),
-          options: laneOptions,
-          onSelect: (value) => eveInference.commit(value),
-        },
-      };
-    })();
-
+    // THE LANE ENTRY IS GONE. It offered `Verarbeitung -> EVE Cloud / Lokal`,
+    // which is a composer intelligence affordance — exactly what this release
+    // removes. Local inference is selectable ONLY in Settings → Modell now, as a
+    // deliberate opt-in, and the composer says nothing about processing at all.
     const modelEntry: MobileActionSheetEntry = {
       key: 'model',
       icon: <Brain theme='outline' size='16' />,
@@ -692,7 +652,7 @@ const AionrsSendBox: React.FC<{
     const entries: MobileActionSheetEntry[] = [
       // Founder mandate: EVE shell surfaces the EVE Inference tier picker; the
       // raw provider/model list is replaced (not shown alongside).
-      COMMAND_EVE_SHELL_ENABLED ? eveInferenceEntry : modelEntry,
+      modelEntry,
       {
         key: 'permission',
         icon: <Shield theme='outline' size='16' />,
@@ -795,7 +755,6 @@ const AionrsSendBox: React.FC<{
     busySendMode,
     currentMode,
     dynamicModes,
-    eveInference,
     handleSheetModeChange,
     handleSheetModelSelect,
     isMobile,
@@ -894,11 +853,12 @@ const AionrsSendBox: React.FC<{
         }
         rightTools={
           <div className='flex items-center gap-6px'>
-            {/* The MAX control, driven by the MAIN-process authority exactly as the
-                ACP composer's is. Mounted here so the two composers cannot disagree
-                with each other: a half-migrated authority would be worse than the
-                duplicate it replaced. */}
-            {COMMAND_EVE_SHELL_ENABLED ? <EveMaxToggle disabled={runtimeView.isProcessing} /> : null}
+            {/* NO MAX CONTROL HERE, deliberately. MAX is scoped to an actual EVE
+                conversation (AcpSendBox, gated on isCommandEveAcpConversation) and
+                the EVE start screen. An aionrs conversation is a different backend,
+                so mounting MAX on the mere fact that the EVE SHELL is enabled put a
+                cloud-intelligence affordance on conversations it does not govern.
+                Shell-enabled is not conversation-is-EVE. */}
             {!isMobile && (
               <ConversationBusyModeControl
                 visible={runtimeView.isProcessing}

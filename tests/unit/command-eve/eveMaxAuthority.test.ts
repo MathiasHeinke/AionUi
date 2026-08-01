@@ -72,12 +72,15 @@ describe('MAX authority — the renderer receives, it does not decide', () => {
     expect(shouldPaintMaxSurface(ready({ receipt: { seatId: SEAT, maxActive: true } }), SEAT, 7)).toBe(false);
   });
 
-  it('an absent revision may skip that check but can never GRANT paint on its own', () => {
-    // Without an observed revision the seat-id binding still applies.
-    expect(shouldPaintMaxSurface(ready(), SEAT)).toBe(true);
-    expect(shouldPaintMaxSurface(ready(), 'seat-other')).toBe(false);
+  it('an ABSENT revision never paints — an optional guard is an absent guard', () => {
+    // This is the finding: the parameter used to be optional and production called
+    // without it, so the branch never ran. `null` means "we could not establish the
+    // current revision", and an unestablished guard must refuse.
+    expect(shouldPaintMaxSurface(ready(), SEAT, null)).toBe(false);
+    expect(shouldPaintMaxSurface(ready(), SEAT, 7)).toBe(true);
+    expect(shouldPaintMaxSurface(ready(), 'seat-other', 7)).toBe(false);
     expect(
-      shouldPaintMaxSurface(ready({ receipt: { seatId: SEAT, seatContextRevision: 7, maxActive: false } }), SEAT)
+      shouldPaintMaxSurface(ready({ receipt: { seatId: SEAT, seatContextRevision: 7, maxActive: false } }), SEAT, 7)
     ).toBe(false);
   });
 });
@@ -126,21 +129,81 @@ describe('MAX authority — the production wiring, not an injected copy', () => 
     expect(destructure).not.toMatch(/maxActive/);
   });
 
-  it('BOTH composers mount the authority-driven control, and no third surface decides', () => {
-    const ACP = read('packages/desktop/src/renderer/pages/conversation/platforms/acp/AcpSendBox.tsx');
-    const AIONRS = read('packages/desktop/src/renderer/pages/conversation/platforms/aionrs/AionrsSendBox.tsx');
-    const GUID = read('packages/desktop/src/renderer/pages/guid/components/GuidActionRow.tsx');
+  it('the EVE surfaces mount the authority-driven control — and ONLY the EVE surfaces', () => {
+    // CORRECTED (CAO round 9): a previous version asserted AionrsSendBox mounts it
+    // too. That was over-correction — "both surfaces" meant both EVE surfaces, not
+    // every conversation type. Mounting MAX on mere shell-enablement put a
+    // cloud-intelligence affordance on aionrs conversations it does not govern.
+    const ACP_SRC = read('packages/desktop/src/renderer/pages/conversation/platforms/acp/AcpSendBox.tsx');
+    const AIONRS_SRC = read('packages/desktop/src/renderer/pages/conversation/platforms/aionrs/AionrsSendBox.tsx');
+    const GUID_SRC = read('packages/desktop/src/renderer/pages/guid/components/GuidActionRow.tsx');
+
+    // EVE conversation + EVE start screen: mounted.
+    expect(strip(ACP_SRC)).toMatch(/<EveMaxToggle/);
+    expect(strip(GUID_SRC)).toMatch(/<EveMaxToggle/);
+    // ...and the ACP mount is gated on the conversation BEING EVE, not on the shell.
+    expect(strip(ACP_SRC)).toMatch(/isEveConversation \? <EveMaxToggle/);
+
+    // A non-EVE backend: not mounted, and holding no selection state at all.
+    expect(strip(AIONRS_SRC)).not.toMatch(/EveMaxToggle/);
+
+    // No surface computes its own wire tier.
     for (const [name, src] of [
-      ['AcpSendBox', ACP],
-      ['AionrsSendBox', AIONRS],
-      ['GuidActionRow', GUID],
+      ['AcpSendBox', ACP_SRC],
+      ['AionrsSendBox', AIONRS_SRC],
+      ['GuidActionRow', GUID_SRC],
     ] as const) {
-      expect(strip(src), `${name} must mount EveMaxToggle`).toMatch(/<EveMaxToggle/);
-      // A half-migrated authority is worse than the duplicate: no composer may
-      // compute its own answer.
       expect(strip(src), `${name} must not compute its own wire tier`).not.toMatch(
         /resolveEffectiveWireTierFromSelection/
       );
     }
+  });
+});
+
+describe('MAX authority — REAL-SEAM wiring (deleting any of these turns this file RED)', () => {
+  const read = (rel: string) => fs.readFileSync(path.resolve(__dirname, '../../../', rel), 'utf-8');
+  const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const HOOK = strip(read('packages/desktop/src/renderer/hooks/agent/useEveMaxAuthority.ts'));
+  const BRIDGE = strip(read('packages/desktop/src/process/bridge/commandEveBridge.ts'));
+  const IPC = strip(read('packages/desktop/src/common/adapter/ipcBridge.ts'));
+  const CORE = strip(read('packages/desktop/src/common/config/eveMaxAuthorityCore.ts'));
+  const AIONRS = strip(read('packages/desktop/src/renderer/pages/conversation/platforms/aionrs/AionrsSendBox.tsx'));
+  const ACP = strip(read('packages/desktop/src/renderer/pages/conversation/platforms/acp/AcpSendBox.tsx'));
+
+  it('SEAM 1 — the PRODUCTION REFRESH after intent is persisted', () => {
+    // Not a call wired into one component: a subscription to the persisted key, so
+    // every surface that writes the selection triggers a re-ask.
+    expect(HOOK).toMatch(/configService\.subscribe\(\s*'commandEve\.inferenceSelection'/);
+    // ...and the subscriber must actually refresh.
+    const sub = HOOK.slice(HOOK.indexOf("configService.subscribe('commandEve.inferenceSelection'"));
+    expect(sub.slice(0, 200)).toMatch(/refresh\(\)/);
+  });
+
+  it('SEAM 2 — the INDEPENDENT revision source, and it is REQUIRED', () => {
+    // A separate channel, separately invoked — not a field of the receipt.
+    expect(IPC).toMatch(/seatContext:\s*bridge\.buildProvider/);
+    expect(BRIDGE).toMatch(/bridge\.buildProvider\('command-eve\.seat-context'\)\.provider/);
+    expect(HOOK).toMatch(/commandEve\.seatContext\.invoke\(\)/);
+    // The parameter is required (no `?`), so production cannot silently skip it.
+    expect(CORE).toMatch(/currentRevision:\s*number\s*\|\s*null/);
+    expect(CORE).not.toMatch(/currentRevision\?:/);
+    // And it is actually passed at the call site.
+    expect(HOOK).toMatch(/shouldPaintMaxSurface\(state,\s*activeSeatId,\s*currentRevision\)/);
+  });
+
+  it('SEAM 3 — the lane-decision IPC provider and its resolver', () => {
+    expect(BRIDGE).toMatch(/bridge\.buildProvider\('command-eve\.inference-lane-decision'\)\.provider/);
+    expect(BRIDGE).toMatch(/resolveEveCloudRouteFromBackend\(/);
+    expect(HOOK).toMatch(/commandEve\.inferenceLaneDecision\.invoke\(\)/);
+  });
+
+  it('SEAM 4 — MAX is SCOPED to EVE conversations, never mounted shell-wide', () => {
+    // AcpSendBox mounts it gated on the conversation actually being EVE.
+    expect(ACP).toMatch(/isEveConversation \? <EveMaxToggle/);
+    // Aionrs is a different backend: no MAX control, and no composer lane
+    // affordance either.
+    expect(AIONRS).not.toMatch(/EveMaxToggle/);
+    expect(AIONRS).not.toMatch(/useEveInferenceSelection/);
+    expect(AIONRS).not.toMatch(/eveInference\./);
   });
 });

@@ -3266,6 +3266,28 @@ export function initCommandEveBridge(): void {
   // Any failure returns success:false with maxActive:false — the renderer fails
   // visually closed to the unnamed default. Not painting is always safe.
   // -------------------------------------------------------------------------
+  // THE INDEPENDENT CURRENT SEAT CONTEXT.
+  //
+  // Deliberately a SEPARATE channel from the lane decision. The renderer needs a
+  // CURRENT revision to compare the receipt's revision against, and taking both
+  // from one payload would be comparing a value to itself — which is what the
+  // previous "staleness check" actually did. Two reads, taken at different
+  // moments, are what make the comparison mean something.
+  bridge.buildProvider('command-eve.seat-context').provider(async () => {
+    try {
+      return {
+        success: true,
+        data: { seatId: getActiveSeatId(), seatContextRevision: getActiveSeatContextRevision() },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE seat-context read failed.',
+        data: { seatId: '', seatContextRevision: -1 },
+      };
+    }
+  });
+
   bridge.buildProvider('command-eve.inference-lane-decision').provider(async () => {
     const seatId = (() => {
       try {

@@ -57,14 +57,19 @@ export type EveMaxAuthorityState =
  * seat the renderer believes is active, and returns false for every case that is
  * not a positive, current, seat-matched `maxActive: true`.
  *
- * `currentRevision` is optional because the renderer may not always observe it;
- * when it IS observed, a mismatch is treated as stale. An absent revision cannot
- * be used to *grant* paint — it only skips that one extra check.
+ * `currentRevision` is REQUIRED, and that is the whole point. It was optional
+ * once; production then called this WITHOUT it, so the revision branch never ran
+ * and the "stale seat" guard did nothing at all. An optional guard is an absent
+ * guard. It must be supplied from an INDEPENDENT main-authoritative read of the
+ * CURRENT seat context — never from the receipt itself, because comparing a
+ * receipt's revision to its own is not a staleness check.
+ *
+ * Pass `null` when that read is unavailable (loading/error). Null never paints.
  */
 export function shouldPaintMaxSurface(
   state: EveMaxAuthorityState | null | undefined,
   currentSeatId: string | null | undefined,
-  currentRevision?: number
+  currentRevision: number | null
 ): boolean {
   if (!state || state.status !== 'ready') return false;
 
@@ -78,11 +83,13 @@ export function shouldPaintMaxSurface(
   if (typeof currentSeatId !== 'string' || currentSeatId.length === 0) return false;
   if (receipt.seatId !== currentSeatId) return false;
 
-  // SEAT REVISION. Catches a re-bind of the same seat id underneath us.
-  if (typeof currentRevision === 'number') {
-    if (typeof receipt.seatContextRevision !== 'number') return false;
-    if (receipt.seatContextRevision !== currentRevision) return false;
-  }
+  // SEAT REVISION — an EXACT match against an INDEPENDENTLY-read CURRENT value.
+  // Catches a re-bind of the same seat id underneath us, which the seat id alone
+  // cannot see. Absent (null) means we could not establish the current revision,
+  // and an unestablished guard must refuse rather than wave the receipt through.
+  if (typeof currentRevision !== 'number') return false;
+  if (typeof receipt.seatContextRevision !== 'number') return false;
+  if (receipt.seatContextRevision !== currentRevision) return false;
 
   return true;
 }

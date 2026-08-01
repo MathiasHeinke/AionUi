@@ -24,6 +24,7 @@
  */
 
 import { commandEve } from '@/common/adapter/ipcBridge';
+import { configService } from '@/common/config/configService';
 import { shouldPaintMaxSurface, type EveMaxAuthorityState } from '@/common/config/eveMaxAuthorityCore';
 import { useActiveSeatId } from '@renderer/hooks/useActiveSeatId';
 import { isElectronDesktop } from '@renderer/utils/platform';
@@ -44,6 +45,9 @@ export interface UseEveMaxAuthorityResult {
 export function useEveMaxAuthority(): UseEveMaxAuthorityResult {
   const activeSeatId = useActiveSeatId();
   const [state, setState] = useState<EveMaxAuthorityState>({ status: 'loading' });
+  // The CURRENT seat-context revision, read from main INDEPENDENTLY of the
+  // decision receipt. `null` = not established → never paints.
+  const [currentRevision, setCurrentRevision] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     if (!isElectronDesktop()) {
@@ -52,14 +56,27 @@ export function useEveMaxAuthority(): UseEveMaxAuthorityResult {
       return;
     }
     try {
+      // TWO INDEPENDENT READS. The decision first, then the current seat context —
+      // separately, and in that order, so the revision we compare against is read
+      // AFTER the decision was made. A seat switch in between shows up as a
+      // mismatch rather than being invisible.
       const response = await commandEve.inferenceLaneDecision.invoke();
       const receipt = response?.data;
+
+      const seatContext = await commandEve.seatContext.invoke();
+      const revision =
+        seatContext?.success === true && typeof seatContext.data?.seatContextRevision === 'number'
+          ? seatContext.data.seatContextRevision
+          : null;
+      setCurrentRevision(revision);
+
       if (response?.success !== true || !receipt) {
         setState({ status: 'error' });
         return;
       }
       setState({ status: 'ready', receipt });
     } catch {
+      setCurrentRevision(null);
       setState({ status: 'error' });
     }
   }, []);
@@ -71,6 +88,19 @@ export function useEveMaxAuthority(): UseEveMaxAuthorityResult {
     setState({ status: 'loading' });
     void refresh();
   }, [refresh, activeSeatId]);
+
+  // RE-ASK AFTER INTENT IS PERSISTED. This is the production event, not a call
+  // wired into one component: ANY surface that writes the selection — the MAX
+  // toggle, the mobile sheet, Settings — goes through configService, so
+  // subscribing here covers all of them and cannot be bypassed by adding a
+  // fourth caller. Without it the user toggles MAX, the next request genuinely
+  // goes out as MAX, and the composer still says otherwise: the stale-surface
+  // bug relocated into the refresh path.
+  useEffect(() => {
+    return configService.subscribe('commandEve.inferenceSelection', () => {
+      void refresh();
+    });
+  }, [refresh]);
 
   // A purchase or a lane switch changes the answer; window focus is the cheap,
   // already-established refresh trigger in this codebase.
@@ -84,7 +114,7 @@ export function useEveMaxAuthority(): UseEveMaxAuthorityResult {
   return {
     // Validation lives in the shared pure core so main-side tests and
     // renderer-side tests cannot drift on what "trustworthy" means.
-    maxActive: shouldPaintMaxSurface(state, activeSeatId),
+    maxActive: shouldPaintMaxSurface(state, activeSeatId, currentRevision),
     state,
     refresh,
   };

@@ -2004,6 +2004,11 @@ export const commandEve = {
   // request; the renderer only receives that decision. The receipt is seat-bound
   // (id + context revision) so a seat transition cannot reuse a prior answer.
   // The renderer must never recompute this — a second answer is the whole bug.
+  // The CURRENT seat context, read independently of the lane decision so the
+  // renderer can detect a stale receipt. Separate channel on purpose.
+  seatContext: bridge.buildProvider<IBridgeResponse<{ seatId: string; seatContextRevision: number }>, void>(
+    'command-eve.seat-context'
+  ),
   inferenceLaneDecision: bridge.buildProvider<IBridgeResponse<EveMaxAuthorityReceipt>, void>(
     'command-eve.inference-lane-decision'
   ),
