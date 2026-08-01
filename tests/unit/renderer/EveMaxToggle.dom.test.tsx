@@ -29,6 +29,10 @@ const mocks = vi.hoisted(() => ({
   setMaxEngaged: vi.fn(),
   hookState: {
     maxEngaged: false,
+    // `maxActive` is what the wire will actually serve; the composer surface
+    // keys on THIS, never on `maxEngaged`. setState() below keeps it consistent
+    // so a stale mock cannot make a broken component look correct.
+    maxActive: false,
     maxAvailable: true,
     maxLocked: false,
     maxState: 'available' as 'available' | 'locked' | 'engaged',
@@ -63,8 +67,15 @@ function renderInComposer(props: { disabled?: boolean } = {}) {
   return { ...utils, composer: () => utils.getByTestId('composer') };
 }
 
+/**
+ * Apply a state patch, then DERIVE `maxActive` the same way the hook does
+ * (`selected && entitled`). Letting a test set an impossible combination — e.g.
+ * active while unentitled — would let the component pass against a state the
+ * product can never be in.
+ */
 function setState(next: Partial<typeof mocks.hookState>): void {
   Object.assign(mocks.hookState, next);
+  mocks.hookState.maxActive = mocks.hookState.maxEngaged && mocks.hookState.maxAvailable;
 }
 
 describe('EveMaxToggle — composer MAX state', () => {

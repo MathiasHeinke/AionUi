@@ -32,15 +32,21 @@
  *   - offline            — handled upstream by runtime truth; MAX stays as-is so
  *                          nothing silently re-lanes the user.
  *
- * THE COMPOSER SEAM. Engaging MAX must repaint the WHOLE composer, and the
- * composer is fully CSS-variable driven (`--eve-spotlight-color`,
- * `--eve-composer-border`, `--eve-spotlight-max`). So instead of introducing a
- * new element or a competing class — which would lose the specificity war against
+ * THE COMPOSER SEAM. MAX repaints the WHOLE composer, and the composer is fully
+ * CSS-variable driven (`--eve-spotlight-color`, `--eve-composer-border`,
+ * `--eve-spotlight-max`). So instead of introducing a new element or a competing
+ * class — which would lose the specificity war against
  * `.sendbox-panel.eve-composer-surface { border-color: … !important }` — this
  * component stamps `data-eve-max` on the nearest `.eve-composer-surface`
  * ancestor and lets the stylesheet RE-POINT those variables. A variable wins
  * regardless of `!important`, because the `!important` declaration is what reads
  * the variable.
+ *
+ * WHAT DRIVES THAT STAMP IS THE POINT: `maxActive` (what the wire will serve),
+ * never `maxEngaged` (what the user once chose). The composer glow means "the
+ * strong lane is running THIS turn". Two states must therefore NOT paint it:
+ * a lapsed seat whose intent is remembered but clamped, and a seat whose
+ * entitlement is not yet known. Intent stays visible on the pill instead.
  */
 
 import { useEveInferenceSelection } from '@renderer/hooks/agent/useEveInferenceSelection';
@@ -78,10 +84,21 @@ const EveMaxToggle: React.FC<{
   disabled?: boolean;
 }> = ({ disabled }) => {
   const { t } = useTranslation();
-  const { maxEngaged, maxAvailable, maxLocked, maxState, setMaxEngaged } = useEveInferenceSelection();
+  const { maxEngaged, maxActive, maxAvailable, maxLocked, maxState, setMaxEngaged } = useEveInferenceSelection();
   const anchorRef = useRef<HTMLSpanElement>(null);
 
-  useComposerMaxState(anchorRef, maxEngaged);
+  // THE SURFACE FOLLOWS `maxActive`, NEVER `maxEngaged`.
+  //
+  // The composer glow depicts EFFECTIVE ACTIVE INFERENCE, not a stored
+  // preference. Painting it from intent meant a lapsed seat wore the full MAX
+  // treatment while the wire clamped that same turn to the routine lane — the
+  // surface asserting a state the system was not in. `maxActive` is derived from
+  // the effective wire tier, so surface and request cannot disagree; it is also
+  // false while entitlement is UNKNOWN, because unknown is not active.
+  //
+  // The PILL keeps showing intent (`data-engaged` + its locked styling), so a
+  // remembered choice stays visible on the control the user pressed.
+  useComposerMaxState(anchorRef, maxActive);
 
   const onToggle = useCallback(() => {
     if (disabled || !maxAvailable) return;
@@ -92,9 +109,8 @@ const EveMaxToggle: React.FC<{
   // "level", not a renamed equivalent. The routine lane has no name; MAX is the
   // only word this control is allowed to say about intelligence.
   const label = t('conversation.eveMax.label', 'MAX');
-  // MAX is only truly ON when the seat can actually run it. A lapsed seat keeps
-  // its intent but the wire clamps, so the control must not claim "on".
-  const effectivelyOn = maxEngaged && maxAvailable;
+  // MAX is only truly ON when the wire will actually serve it.
+  const effectivelyOn = maxActive;
   const hint = maxLocked
     ? maxEngaged
       ? t(
