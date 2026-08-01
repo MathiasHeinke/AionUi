@@ -100,24 +100,37 @@ function renderInComposer(props: { disabled?: boolean } = {}) {
 /**
  * Apply a state patch, then derive `maxActive` FROM THE REAL PRODUCT SOURCE.
  *
- * This used to compute `maxEngaged && maxAvailable` inline — a PARALLEL model of
- * the product's logic, which is the sixth instance of that shape on this ticket.
- * A parallel model can agree with a broken component: if the real rule changed,
- * the mock would keep feeding the old answer and the component would keep passing.
+ * This used to compute `maxEngaged && maxAvailable` inline while IMPORTING
+ * `resolveEffectiveWireTierFromSelection` and never calling it — a PARALLEL model
+ * of the product's rule wearing the real function's name in a comment. That is
+ * the failure this ticket keeps hitting: the mock and the component computed the
+ * SAME expression from the SAME two inputs, so a component that ignored the
+ * main-process authority entirely and derived `maxEngaged && maxAvailable`
+ * itself would have passed every test in this file. The authority was asserted,
+ * never exercised.
  *
- * So the mock now calls `resolveEffectiveWireTierFromSelection` — the same core
- * function the hook uses to compute `maxActive` — over the same two inputs. There
- * is no second implementation of the rule anywhere in this file, and breaking the
- * real resolver turns these tests red (mutation-proved).
+ * So the default authority answer now goes through the REAL resolver — the same
+ * core the main-side decision uses — over a REAL selection value built by
+ * `eveTierValue`. And because agreeing-by-default still cannot prove the
+ * component READS the authority, the DIVERGENCE block at the bottom of this file
+ * makes the two inputs disagree on purpose. Deleting the `useEveMaxAuthority`
+ * wiring from the component turns that block red (mutation-proved).
  */
+function authorityAnswerFor(hookState: typeof mocks.hookState): boolean {
+  // What MAIN is asked: "would the wire serve `max` for this seat right now?"
+  // Intent becomes a selection value; entitlement becomes the seat's wire
+  // entitlement. No second implementation of the rule lives in this file.
+  const selection = eveTierValue(hookState.maxEngaged ? EVE_INFERENCE_MAX_TIER_ID : EVE_INFERENCE_STANDARD_TIER_ID);
+  return resolveEffectiveWireTierFromSelection(selection, { maxEntitled: hookState.maxAvailable }) === 'max';
+}
+
 function setState(next: Partial<typeof mocks.hookState> & { authorityMaxActive?: boolean }): void {
   const { authorityMaxActive, ...hookPatch } = next;
   Object.assign(mocks.hookState, hookPatch);
   // The MAIN process decides this. When a test does not say otherwise, the
-  // authority agrees with the entitled+engaged case — but it is an INPUT here,
-  // never something this file recomputes.
-  mocks.authority.maxActive =
-    authorityMaxActive ?? (mocks.hookState.maxEngaged === true && mocks.hookState.maxAvailable === true);
+  // authority answers with the real resolver — but it is an INPUT here, never
+  // something this file recomputes, and a test may override it to disagree.
+  mocks.authority.maxActive = authorityMaxActive ?? authorityAnswerFor(mocks.hookState);
 }
 
 describe('EveMaxToggle — composer MAX state', () => {
@@ -343,6 +356,72 @@ describe('EveMaxToggle — control states (spec 2.6)', () => {
       unmount();
     }
     expect([...seen].sort()).toEqual(['available', 'engaged', 'locked']);
+  });
+});
+
+describe('EveMaxToggle — the surface follows the MAIN-PROCESS AUTHORITY, not the local state', () => {
+  /**
+   * THE MUTATION THESE EXIST FOR, stated so nobody deletes them as redundant.
+   *
+   * Replace the component's `const { maxActive } = useEveMaxAuthority()` with a
+   * renderer-local `maxEngaged && maxAvailable` and EVERY other test in this file
+   * stays green — because everywhere else the two agree by construction. Only a
+   * DISAGREEMENT can tell an authority-driven surface from one that recomputes
+   * the answer, so these make the two inputs disagree, once in each direction.
+   * That is the whole content of the claim "independent main-process authority".
+   */
+  beforeEach(() => {
+    mocks.setMaxEngaged.mockReset();
+    setState({
+      maxEngaged: false,
+      maxAvailable: true,
+      maxLocked: false,
+      maxState: 'available',
+      setMaxEngaged: mocks.setMaxEngaged,
+    });
+  });
+
+  it('AUTHORITY SAYS NO while intent AND entitlement both say yes: nothing paints', () => {
+    setState({
+      maxEngaged: true,
+      maxAvailable: true,
+      maxLocked: false,
+      maxState: 'engaged',
+      authorityMaxActive: false,
+    });
+    const { composer } = renderInComposer();
+    const button = screen.getByTestId('eve-max-toggle');
+    expect(composer().hasAttribute(EVE_MAX_COMPOSER_ATTRIBUTE)).toBe(false);
+    expect(button.getAttribute('data-active')).toBe('false');
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    // Intent is still the user's, and still visible on the pill.
+    expect(button.getAttribute('data-engaged')).toBe('true');
+  });
+
+  it('AUTHORITY SAYS YES while the local intent says no: the surface still follows MAIN', () => {
+    setState({
+      maxEngaged: false,
+      maxAvailable: true,
+      maxLocked: false,
+      maxState: 'available',
+      authorityMaxActive: true,
+    });
+    const { composer } = renderInComposer();
+    const button = screen.getByTestId('eve-max-toggle');
+    expect(composer().getAttribute(EVE_MAX_COMPOSER_ATTRIBUTE)).toBe('true');
+    expect(button.getAttribute('data-active')).toBe('true');
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.getAttribute('data-engaged')).toBe('false');
+  });
+
+  it('the DEFAULT answer is produced by the REAL resolver, not by a boolean written here', () => {
+    // Drives `eveTierValue` + `resolveEffectiveWireTierFromSelection` — the same
+    // core the main-side decision uses. If the product's clamp rule changed, this
+    // file's default answer changes with it, instead of a hand-written
+    // `maxEngaged && maxAvailable` quietly keeping the old one.
+    expect(authorityAnswerFor({ ...mocks.hookState, maxEngaged: true, maxAvailable: true })).toBe(true);
+    expect(authorityAnswerFor({ ...mocks.hookState, maxEngaged: true, maxAvailable: false })).toBe(false);
+    expect(authorityAnswerFor({ ...mocks.hookState, maxEngaged: false, maxAvailable: true })).toBe(false);
   });
 });
 

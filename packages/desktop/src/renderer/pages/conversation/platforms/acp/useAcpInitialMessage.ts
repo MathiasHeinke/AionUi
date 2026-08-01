@@ -5,7 +5,9 @@
  */
 
 import type { TMessage } from '@/common/chat/chatLib';
+import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
 import { parseError, uuid } from '@/common/utils';
+import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConversationRuntimeWorkspaceErrorMessage } from '../../utils/conversationCreateError';
@@ -51,8 +53,15 @@ export const useAcpInitialMessage = ({
         // queue, runtime, and recovery path as an in-chat send.
         await sendInitialMessage(input, files);
       } catch (error) {
-        const errorMessageText =
-          getConversationRuntimeWorkspaceErrorMessage(error, t) || parseError(error) || t('common.unknownError');
+        // SCRUBBED (MAT-1749) AT THE BINDING: this sentence is rendered into the
+        // chat as a `tips` message and handed to `buildSendFailureError`, and it
+        // originates upstream, so it can carry a provider/model id. The console
+        // lines below keep the RAW `error` object for debugging — that is the
+        // debugging half and must not be confused with the user-facing one.
+        const errorMessageText = scrubModelIdentifiers(
+          getConversationRuntimeWorkspaceErrorMessage(error, t) || parseError(error) || t('common.unknownError'),
+          CLOUD_MODEL_IDENTIFIERS
+        );
         console.error('[useAcpInitialMessage] Error sending initial message:', error);
         console.error('[useAcpInitialMessage] Error details:', {
           name: (error as Error)?.name,

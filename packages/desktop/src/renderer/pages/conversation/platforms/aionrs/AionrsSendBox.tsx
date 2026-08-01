@@ -5,7 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
-import { scrubErrorText } from '@/common/config/modelIdentifierScrub';
+import { scrubErrorText, scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import { userVisibleConversationMcpStatuses } from '@/common/config/eveManagedMcpCore';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
@@ -192,7 +192,11 @@ const AionrsSendBox: React.FC<{
         setAgentWarmed(true);
       })
       .catch((error) => {
-        Message.error(getConversationRuntimeWorkspaceErrorMessage(error, t));
+        // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream
+        // string, so every rendered use of it has to go through the scrub.
+        Message.error(
+          scrubModelIdentifiers(getConversationRuntimeWorkspaceErrorMessage(error, t), CLOUD_MODEL_IDENTIFIERS)
+        );
       });
   }, [conversation_id, prepareRuntimeSync, t]);
 
@@ -267,8 +271,17 @@ const AionrsSendBox: React.FC<{
       } catch (error) {
         // SCRUBBED (MAT-1749): an upstream error body can carry a provider/model
         // id; the chat must never render one.
-        const errorMessage =
-          getConversationRuntimeWorkspaceErrorMessage(error, t) || scrubErrorText(error, CLOUD_MODEL_IDENTIFIERS);
+        //
+        // THE SCRUB IS ON THE RENDERED VALUE, and that is the fix (1.820.1).
+        // This used to read `builder(...) || scrubErrorText(...)`. The builder
+        // ends in `t('common.unknownError')`, so it is effectively ALWAYS truthy
+        // — the right-hand side never evaluated, and the scrub this comment
+        // claimed was dead code while the raw upstream sentence went to the
+        // toast. Scrub whatever the expression actually produced.
+        const errorMessage = scrubModelIdentifiers(
+          getConversationRuntimeWorkspaceErrorMessage(error, t),
+          CLOUD_MODEL_IDENTIFIERS
+        );
         runtimeView.markSendFailed(errorMessage);
         clearConversationGenerating(conversation_id);
         Message.error(errorMessage);
@@ -414,7 +427,8 @@ const AionrsSendBox: React.FC<{
           Message.success(t('conversation.commandEveLocalMarketingIntent.createdUnchecked', { title: intent.title }));
         }
       } catch (intentError) {
-        const detail = intentError instanceof Error ? intentError.message : String(intentError);
+        // SCRUBBED (MAT-1749): an in-process failure can still wrap an upstream cause.
+        const detail = scrubErrorText(intentError, CLOUD_MODEL_IDENTIFIERS);
         Message.error(`${t('conversation.commandEveLocalMarketingIntent.failed')}: ${detail}`);
       }
       return true;

@@ -22,6 +22,8 @@ import { repairCronJobTimeZone } from '@renderer/pages/cron/repairCronJobTimeZon
 import { getActivityTime } from '@/renderer/utils/chat/timeline';
 import { mutate } from 'swr';
 import { getConversationRuntimeWorkspaceErrorMessage } from '@renderer/pages/conversation/utils/conversationCreateError';
+import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
+import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 
 const TaskDetailPage: React.FC = () => {
   const { t } = useTranslation();
@@ -80,7 +82,10 @@ const TaskDetailPage: React.FC = () => {
       Message.success(job.enabled ? t('cron.pauseSuccess') : t('cron.resumeSuccess'));
       await fetchJob();
     } catch (err) {
-      Message.error(String(err));
+      // SCRUBBED (MAT-1749): a scheduled task runs on the SAME cloud lane as the
+      // chat, so its failures carry the same upstream text. The mandate is about
+      // the user-facing product, not one route into it.
+      Message.error(scrubModelIdentifiers(String(err), CLOUD_MODEL_IDENTIFIERS));
     }
   }, [job, fetchJob, t]);
 
@@ -138,7 +143,12 @@ const TaskDetailPage: React.FC = () => {
         navigate(`/conversation/${result.conversation_id}`);
       }
     } catch (err) {
-      Message.error(getConversationRuntimeWorkspaceErrorMessage(err, t));
+      // SCRUBBED (MAT-1749): "run now" is the path that actually dispatches a
+      // turn, so this is the toast most likely to carry a provider/model id —
+      // and the builder's own fallback is the RAW upstream string.
+      Message.error(
+        scrubModelIdentifiers(getConversationRuntimeWorkspaceErrorMessage(err, t), CLOUD_MODEL_IDENTIFIERS)
+      );
     } finally {
       setRunningNow(false);
     }
@@ -151,7 +161,8 @@ const TaskDetailPage: React.FC = () => {
       Message.success(t('cron.deleteSuccess'));
       navigate('/scheduled');
     } catch (err) {
-      Message.error(String(err));
+      // SCRUBBED (MAT-1749), same reason as the toggle toast above.
+      Message.error(scrubModelIdentifiers(String(err), CLOUD_MODEL_IDENTIFIERS));
     }
   }, [job, navigate, t]);
 

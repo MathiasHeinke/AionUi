@@ -14,7 +14,9 @@ import {
 } from '@/common/config/evePresentationIntelligenceCore';
 import { isCommandEveImagePath, mergeCommandEvePreparedImageFiles } from '@/common/config/eveImageIntelligenceCore';
 import type { CommandEveCloudVisualPolicyReceipt } from '@/common/config/visual/cloudVisualPolicyCore';
+import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
 import { getConversationRuntimeWorkspaceErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
+import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import type { CommandEvePreparedContextInput } from '@/common/config/evePreparedContextCore';
 import type { AcpDocumentPreparationState } from './AcpDocumentPreparationStatus';
 
@@ -115,7 +117,9 @@ export function useCommandEveVisualPreparation(input: {
             };
           }
           input.setDocumentPreparation({ phase: 'presentation_error', fileCount: presentationFiles.length, startedAt });
-          Message.error({ content: failure?.message || t('conversation.presentation.prepareFailed'), duration: 6000 });
+          // SCRUBBED (MAT-1749) AT THE READ, like the ACP PDF toasts.
+          const failureText = scrubModelIdentifiers(failure?.message ?? '', CLOUD_MODEL_IDENTIFIERS);
+          Message.error({ content: failureText || t('conversation.presentation.prepareFailed'), duration: 6000 });
           return null;
         }
 
@@ -132,9 +136,13 @@ export function useCommandEveVisualPreparation(input: {
       } catch (error) {
         console.error('[AcpSendBox] Presentation preparation failed:', error);
         input.setDocumentPreparation({ phase: 'presentation_error', fileCount: presentationFiles.length, startedAt });
+        // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream string.
+        const presentationFailureText = scrubModelIdentifiers(
+          getConversationRuntimeWorkspaceErrorMessage(error, t),
+          CLOUD_MODEL_IDENTIFIERS
+        );
         Message.error({
-          content:
-            getConversationRuntimeWorkspaceErrorMessage(error, t) || t('conversation.presentation.prepareFailed'),
+          content: presentationFailureText || t('conversation.presentation.prepareFailed'),
           duration: 6000,
         });
         return null;
@@ -185,7 +193,9 @@ export function useCommandEveVisualPreparation(input: {
             };
           }
           input.setDocumentPreparation({ phase: 'image_error', fileCount: imageFiles.length, startedAt });
-          Message.error({ content: failure?.message || t('conversation.image.prepareFailed'), duration: 6000 });
+          // SCRUBBED (MAT-1749) AT THE READ, like the ACP PDF toasts.
+          const failureText = scrubModelIdentifiers(failure?.message ?? '', CLOUD_MODEL_IDENTIFIERS);
+          Message.error({ content: failureText || t('conversation.image.prepareFailed'), duration: 6000 });
           return null;
         }
 
@@ -202,8 +212,13 @@ export function useCommandEveVisualPreparation(input: {
       } catch (error) {
         console.error('[AcpSendBox] Image preparation failed:', error);
         input.setDocumentPreparation({ phase: 'image_error', fileCount: imageFiles.length, startedAt });
+        // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream string.
+        const imageFailureText = scrubModelIdentifiers(
+          getConversationRuntimeWorkspaceErrorMessage(error, t),
+          CLOUD_MODEL_IDENTIFIERS
+        );
         Message.error({
-          content: getConversationRuntimeWorkspaceErrorMessage(error, t) || t('conversation.image.prepareFailed'),
+          content: imageFailureText || t('conversation.image.prepareFailed'),
           duration: 6000,
         });
         return null;

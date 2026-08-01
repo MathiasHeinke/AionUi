@@ -386,7 +386,11 @@ const AcpSendBox: React.FC<{
         fetchSlashCommands();
       })
       .catch((error) => {
-        Message.error(getConversationRuntimeWorkspaceErrorMessage(error, t));
+        // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream
+        // string, so every rendered use of it has to go through the scrub.
+        Message.error(
+          scrubModelIdentifiers(getConversationRuntimeWorkspaceErrorMessage(error, t), CLOUD_MODEL_IDENTIFIERS)
+        );
       });
   }, [teamPermission, conversation_id, fetchSlashCommands, t]);
 
@@ -591,8 +595,16 @@ const AcpSendBox: React.FC<{
         runtimeView.markSendAccepted(result.turn_id, result.runtime, result.msg_id);
         emitter.emit('chat.history.refresh');
       } catch (error: unknown) {
-        const errorMsg =
-          getConversationRuntimeWorkspaceErrorMessage(error, t) || parseError(error) || t('common.unknownError');
+        // SCRUBBED (MAT-1749) AT THE BINDING, not at one of its four sinks. This
+        // sentence is rendered into the chat as a `tips` message, into the ACP
+        // auth-failure stream message, into the archived-conversation toast, and
+        // into `buildSendFailureError`. It originates upstream and can carry a
+        // provider/model id; scrubbing one sink and not the others is how the
+        // raw one shipped. Scrub once, here, and every consumer is covered.
+        const errorMsg = scrubModelIdentifiers(
+          getConversationRuntimeWorkspaceErrorMessage(error, t) || parseError(error) || t('common.unknownError'),
+          CLOUD_MODEL_IDENTIFIERS
+        );
         runtimeView.markSendFailed(errorMsg);
         // 1.7.3: the send never became a running turn — clear the guard flag (the
         // non-error failure path emits no terminal stream event to clear it).
@@ -603,7 +615,9 @@ const AcpSendBox: React.FC<{
         // not by substring matching.
         if (isBackendHttpError(error) && error.code === 'CONVERSATION_ARCHIVED') {
           Message.error({
-            content: error.backendMessage || errorMsg,
+            // `backendMessage` is upstream text that never passed through the
+            // binding above, so it gets its own scrub.
+            content: scrubModelIdentifiers(error.backendMessage || errorMsg, CLOUD_MODEL_IDENTIFIERS),
             duration: 6000,
           });
           setAiProcessing(false);
@@ -942,9 +956,11 @@ Please check your local CLI tool authentication status`,
           emitter.emit('chat.history.refresh');
           return true;
         } catch (error) {
+          // SCRUBBED (MAT-1749): a steer dispatch failure can carry upstream text.
+          const steerFailureText = scrubModelIdentifiers(parseError(error), CLOUD_MODEL_IDENTIFIERS);
           Message.error({
             content:
-              parseError(error) ||
+              steerFailureText ||
               t('conversation.commandQueue.promoteFailed', {
                 defaultValue: 'The correction could not be pushed into the current run.',
               }),
@@ -1014,12 +1030,12 @@ Please check your local CLI tool authentication status`,
         const initialFailure = response.data?.ok === false ? response.data : undefined;
         if (initialFailure?.requires_cloud_ocr_consent !== true) {
           setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
+          // SCRUBBED (MAT-1749) AT THE READ: `initialFailure.message` originates
+          // upstream and may carry a provider/model id. Bound before the toast so
+          // no raw read of it survives anywhere in a rendered position.
+          const initialFailureText = scrubModelIdentifiers(initialFailure?.message ?? '', CLOUD_MODEL_IDENTIFIERS);
           Message.error({
-            // SCRUBBED (MAT-1749): `initialFailure.message` originates upstream
-            // and may carry a provider/model id.
-            content: initialFailure?.message
-              ? scrubModelIdentifiers(initialFailure.message, CLOUD_MODEL_IDENTIFIERS)
-              : t('conversation.pdf.prepareFailed'),
+            content: initialFailureText || t('conversation.pdf.prepareFailed'),
             duration: 6000,
           });
           return null;
@@ -1050,15 +1066,14 @@ Please check your local CLI tool authentication status`,
         if (!response.success || !response.data?.ok) {
           setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
           const cloudFailure = response.data?.ok === false ? response.data : undefined;
+          // SCRUBBED (MAT-1749), exactly like the initialFailure toast above.
+          // This is the CLOUD RETRY — the one attempt that actually reached a
+          // provider, so it is the MORE likely of the two to carry a
+          // provider/model id, and it shipped raw for ten lines' distance from
+          // its scrubbed sibling. Pinned in modelIdentifierScrub.test.ts.
+          const cloudFailureText = scrubModelIdentifiers(cloudFailure?.message ?? '', CLOUD_MODEL_IDENTIFIERS);
           Message.error({
-            // SCRUBBED (MAT-1749), exactly like the initialFailure toast above.
-            // This is the CLOUD RETRY — the one attempt that actually reached a
-            // provider, so it is the MORE likely of the two to carry a
-            // provider/model id, and it shipped raw for ten lines' distance from
-            // its scrubbed sibling. Pinned by name in modelIdentifierScrub.test.ts.
-            content: cloudFailure?.message
-              ? scrubModelIdentifiers(cloudFailure.message, CLOUD_MODEL_IDENTIFIERS)
-              : t('conversation.pdf.cloudOcrFailed'),
+            content: cloudFailureText || t('conversation.pdf.cloudOcrFailed'),
             duration: 6000,
           });
           return null;
@@ -1067,8 +1082,13 @@ Please check your local CLI tool authentication status`,
         return mergeCommandEvePreparedPdfFiles(files, response.data.documents);
       } catch (error) {
         setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
+        // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream string.
+        const prepareFailureText = scrubModelIdentifiers(
+          getConversationRuntimeWorkspaceErrorMessage(error, t),
+          CLOUD_MODEL_IDENTIFIERS
+        );
         Message.error({
-          content: getConversationRuntimeWorkspaceErrorMessage(error, t) || t('conversation.pdf.prepareFailed'),
+          content: prepareFailureText || t('conversation.pdf.prepareFailed'),
           duration: 6000,
         });
         return null;
@@ -1194,7 +1214,12 @@ Please check your local CLI tool authentication status`,
                   // "out of credits" from "1080p needs an image" is the whole
                   // point of the gateway returning six different refusals. No
                   // artifact is emitted on a refusal — there is nothing to show.
-                  Message.error({ content: outcome.message, duration: 8000 });
+                  // SCRUBBED (MAT-1749): the refusal sentence is authored outside
+                  // the renderer and can quote an upstream failure verbatim.
+                  Message.error({
+                    content: scrubModelIdentifiers(outcome.message, CLOUD_MODEL_IDENTIFIERS),
+                    duration: 8000,
+                  });
                   controls.restoreDraftAndFiles();
                   return;
                 }
@@ -1304,9 +1329,14 @@ Please check your local CLI tool authentication status`,
           return { flowId, visualPolicyReceipt: receiptResult.data.receipt };
         } catch (error) {
           setDocumentPreparation({ phase: 'presentation_error', fileCount: visualSourceCount, startedAt: Date.now() });
+          // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream string.
+          const visualFailureText = scrubModelIdentifiers(
+            getConversationRuntimeWorkspaceErrorMessage(error, t),
+            CLOUD_MODEL_IDENTIFIERS
+          );
           Message.error({
             content:
-              getConversationRuntimeWorkspaceErrorMessage(error, t) ||
+              visualFailureText ||
               t('conversation.visual.managedCloudFailed', {
                 defaultValue: 'Cloud visual analysis is disabled or unavailable for this seat.',
               }),
@@ -1541,9 +1571,11 @@ Please check your local CLI tool authentication status`,
         emitter.emit('chat.history.refresh');
       } catch (error) {
         await restore(item);
+        // SCRUBBED (MAT-1749): a steer dispatch failure can carry upstream text.
+        const promoteFailureText = scrubModelIdentifiers(parseError(error), CLOUD_MODEL_IDENTIFIERS);
         Message.error({
           content:
-            parseError(error) ||
+            promoteFailureText ||
             t('conversation.commandQueue.promoteFailed', {
               defaultValue: 'The correction could not be pushed into the current run.',
             }),

@@ -7,6 +7,43 @@
 import { COMMAND_EVE_OPERATIONAL_CONTEXT_LIMIT } from '@/common/config/eveContextPolicyCore';
 
 /**
+ * ── Command EVE cloud lane (eve-inference → OpenRouter) ────────────────────
+ *
+ * Split out of {@link MODEL_CONTEXT_LIMITS} (which spreads it back in, so every
+ * key still resolves exactly as before) for ONE reason: it is also the source of
+ * {@link CLOUD_MODEL_IDENTIFIERS}, the deny-list that keeps a provider/model id
+ * out of user-facing error text. Deriving that list from a NAMED block means a
+ * model added to EVE's cloud lane is denied automatically; deriving it from the
+ * whole table would drag in BYOK ids the user picked themselves.
+ *
+ * Provider-advertised context windows. Command EVE still clamps every cloud lane
+ * to the operational 256K contract below. Keyed by BOTH the model slug AND the
+ * bare model name, because a request_trace / upstream error may carry either —
+ * which is exactly why the deny-list has to cover both forms too.
+ */
+const EVE_CLOUD_MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  'z-ai/glm-5.2': 1_048_576,
+  'glm-5.2': 1_048_576,
+  'deepseek/deepseek-v4-pro': 1_048_576,
+  'deepseek/deepseek-v4-flash': 1_048_576,
+  'deepseek-v4-pro': 1_048_576,
+  'deepseek-v4-flash': 1_048_576,
+  'deepseek-v4': 1_048_576,
+  'moonshotai/kimi-k2.6': 262_144,
+  'kimi-k2.6': 262_144,
+  'moonshotai/kimi-k3': 1_048_576,
+  'kimi-k3': 1_048_576,
+  'command-eve-inference': 1_048_576, // any EVE cloud tier
+};
+
+/**
+ * EVE's OWN lane vocabulary, not a provider identifier. The product renders these
+ * deliberately (the lane name is EVE's, and says nothing about who serves it), so
+ * they are excluded from the deny-list rather than redacted out of EVE's own copy.
+ */
+const EVE_INTERNAL_LANE_PREFIX = 'command-eve-';
+
+/**
  * 已知模型的 context window 大小配置
  */
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
@@ -58,24 +95,11 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'claude-3-opus': 200_000,
   'claude-3-haiku': 200_000,
 
-  // ── Command EVE cloud lane (eve-inference → OpenRouter) ──────────────────
-  // Provider-advertised context windows. Command EVE still clamps every cloud
-  // lane to the operational 256K contract below. Keyed by BOTH the model slug
-  // AND the EVE selection prefix so request-trace ids resolve truthfully.
-  // selection prefix, so the fuzzy fallback resolves whichever id the request_trace
-  // carries — the founder's point: GLM must NOT read as 64k like a local model.
-  'z-ai/glm-5.2': 1_048_576,
-  'glm-5.2': 1_048_576,
-  'deepseek/deepseek-v4-pro': 1_048_576,
-  'deepseek/deepseek-v4-flash': 1_048_576,
-  'deepseek-v4-pro': 1_048_576,
-  'deepseek-v4-flash': 1_048_576,
-  'deepseek-v4': 1_048_576,
-  'moonshotai/kimi-k2.6': 262_144,
-  'kimi-k2.6': 262_144,
-  'moonshotai/kimi-k3': 1_048_576,
-  'kimi-k3': 1_048_576,
-  'command-eve-inference': 1_048_576, // any EVE cloud tier
+  // ── Command EVE cloud lane ───────────────────────────────────────────────
+  // Declared above so the deny-list can be derived from it; spread in here so
+  // the fuzzy fallback still resolves whichever id the request_trace carries —
+  // the founder's point: GLM must NOT read as 64k like a local model.
+  ...EVE_CLOUD_MODEL_CONTEXT_LIMITS,
 
   // ── Command EVE local lane (bundled Gemma via Ollama) ────────────────────
   // FALLBACK ONLY — the live `acp_context_usage` frame reports the real runtime
@@ -88,17 +112,38 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 };
 
 /**
- * Every concrete cloud model identifier this build knows about, derived from the
- * table above rather than re-listed.
+ * Every concrete cloud model identifier this build knows about, derived from
+ * {@link EVE_CLOUD_MODEL_CONTEXT_LIMITS} rather than re-listed.
  *
  * Used ONLY as a deny-list for {@link scrubModelIdentifiers} on user-facing error
  * text: the founder mandate is that the chat never renders a model id, and an
  * upstream error body is the one path that can carry one through. Deriving it
  * here means a model swapped in the table is scrubbed automatically instead of
  * needing a second list somebody forgets.
+ *
+ * BOTH FORMS, and that is the fix (1.820.1). This used to be
+ * `keys.filter(id => id.includes('/'))` — SLUGS ONLY. The shape scrub already
+ * catches a `vendor/model` slug on its own, so the slug-only list added nothing,
+ * while the form it did NOT cover — the BARE model name (`kimi-k3`,
+ * `deepseek-v4-flash`), which is what an upstream body carries when it names the
+ * model without its vendor prefix — passed through unscrubbed. So every slug now
+ * contributes its bare segment too.
+ *
+ * PROSE GUARD. Deny-list entries are matched as case-insensitive SUBSTRINGS with
+ * no word boundary, so a bare word here would mangle ordinary sentences. Every
+ * entry must therefore contain a digit — true of every model name, false of every
+ * vendor word ("deepseek", "moonshotai") and of any ordinary word. Vendor
+ * segments are deliberately NOT added for that reason; the shape scrub covers
+ * them wherever they appear attached to a model.
  */
 export const CLOUD_MODEL_IDENTIFIERS: readonly string[] = Object.freeze(
-  Object.keys(MODEL_CONTEXT_LIMITS).filter((id) => id.includes('/'))
+  Array.from(
+    new Set(
+      Object.keys(EVE_CLOUD_MODEL_CONTEXT_LIMITS)
+        .filter((id) => !id.startsWith(EVE_INTERNAL_LANE_PREFIX))
+        .flatMap((id) => (id.includes('/') ? [id, id.slice(id.indexOf('/') + 1)] : [id]))
+    )
+  ).filter((id) => /[0-9]/.test(id))
 );
 
 /**

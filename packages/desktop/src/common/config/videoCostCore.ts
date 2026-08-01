@@ -709,9 +709,17 @@ export function isVideoGenerationRequest(message: string | null | undefined): bo
 export const VIDEO_LANE_AGENT_ID = 'video-marketer';
 
 /**
- * Hermes skills that mark a worker as the heavy GPU video lane. If a request is
- * routed to a worker that owns ANY of these, the cost-wall MUST fire — regardless
- * of what the prompt text said. Mirrors the `video-marketer` role's `skills`.
+ * Hermes skills that mark a worker as the heavy GPU video lane. Mirrors the
+ * `video-marketer` role's `skills`.
+ *
+ * WHAT THIS ACTUALLY DOES TODAY, corrected (1.820.1). This used to claim the
+ * cost-wall "MUST fire" whenever a request is routed to a worker owning one of
+ * these skills. The gate below does honour `resolvedSkills` — but NO send path
+ * supplies it: both call sites in AcpSendBox pass only `message` and
+ * `resolvedAgentId`, so in the shipped product this branch is never taken and
+ * the wall fires on the addressed agent id or the NL classifier. That is a
+ * capability the send path has not wired yet, not a guarantee it keeps; a
+ * comment asserting the guarantee made the gap invisible.
  */
 const VIDEO_LANE_SKILLS: ReadonlySet<string> = new Set(['video-script', 'storyboard', 'social-video']);
 
@@ -744,6 +752,11 @@ export interface VideoLaneRouting {
  * point: it removes the regex as the SOLE gate. The wall over-firing (a false
  * positive) is cheap and recoverable (the user cancels); a false-negative silently
  * spends on the most expensive lane, which is the failure we refuse.
+ *
+ * HONEST STATUS of those four signals: the send path supplies (1) and (4). (2)
+ * and (3) are accepted here and covered by unit tests, but no production caller
+ * passes `resolvedSkills` or `resolvedVideoCapability` yet — so today the regex
+ * is still the sole gate for a request that is not addressed to the videomarketer.
  */
 export function requestRoutesToVideoLane(routing: VideoLaneRouting): boolean {
   if (routing.resolvedVideoCapability === true) return true;
