@@ -34,6 +34,12 @@
  * deterministic race into an intermittent one, and a timer-based test would
  * happily pass against a timer-based "fix".
  *
+ * IT ALSO PINS THE TWO INVARIANTS THE NEW CHANNEL INTRODUCES:
+ *   A — a throwing/rejecting listener must not corrupt the write, and must not
+ *       starve the listeners after it;
+ *   B — the startup theme migration now routes through the same funnel, so it
+ *       must be proven that it cannot re-ask the authority mid-init.
+ *
  * NAMING: `.dom.test.ts` — the `node` vitest project excludes `*.dom.test.ts`
  * and the `dom` project includes ONLY `*.dom.test.ts(x)`. A plain `.test.tsx`
  * would match NEITHER project and "pass" by never running.
@@ -300,5 +306,225 @@ describe('MAX refresh ordering — the signal waits on the durable write', () =>
     expect(seen).toEqual(['signal', 'signal']);
 
     unsubscribe();
+  });
+});
+
+/**
+ * INVARIANT A — a listener bug is a listener bug, not a persistence failure.
+ *
+ * The emit now happens AFTER the durable write has succeeded. That creates a new
+ * way to be wrong: if a callback throws, the exception unwinds through
+ * `persist()` and out of `set()`, so the caller is told the write FAILED when it
+ * actually landed — and every subscriber registered after the thrower is
+ * skipped, which here means the MAX authority silently never refreshes because
+ * something unrelated blew up first.
+ *
+ * These drive the REAL configService with REAL throwing listeners. Nothing is
+ * simulated: the exception is thrown from inside the production dispatch path.
+ */
+describe('a persisted-subscriber cannot corrupt the write it observes', () => {
+  let consoleError: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    consoleError.mockRestore();
+  });
+
+  it('a THROWING subscriber still leaves the write successful AND persisted', async () => {
+    const boom = new Error('listener exploded');
+    const unsubscribe = configService.subscribePersisted(SELECTION_KEY, () => {
+      throw boom;
+    });
+
+    // The write must RESOLVE. If the throw escaped, this rejects.
+    await expect(configService.set(SELECTION_KEY, MAX_SELECTION)).resolves.toBeUndefined();
+    // ...and the value really is the persisted one, not rolled back.
+    expect(events).toContain('put:resolved');
+    expect(configService.get(SELECTION_KEY)).toBe(MAX_SELECTION);
+
+    unsubscribe();
+  });
+
+  it('a THROWING subscriber does not starve the ones registered after it', async () => {
+    // Registration order matters and is the point: the thrower goes FIRST.
+    const fired: string[] = [];
+    const un1 = configService.subscribePersisted(SELECTION_KEY, () => {
+      fired.push('first');
+      throw new Error('first exploded');
+    });
+    const un2 = configService.subscribePersisted(SELECTION_KEY, () => fired.push('second'));
+    const un3 = configService.subscribePersisted(SELECTION_KEY, () => fired.push('third'));
+
+    await configService.set(SELECTION_KEY, MAX_SELECTION);
+
+    expect(fired).toEqual(['first', 'second', 'third']);
+
+    un1();
+    un2();
+    un3();
+  });
+
+  it('an ASYNC subscriber that REJECTS gets the same two guarantees, with no unhandled rejection', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (event: PromiseRejectionEvent): void => {
+      unhandled.push(event.reason);
+    };
+    window.addEventListener('unhandledrejection', onUnhandled);
+    const nodeUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', nodeUnhandled);
+
+    const fired: string[] = [];
+    const un1 = configService.subscribePersisted(SELECTION_KEY, async () => {
+      fired.push('async-first');
+      throw new Error('async listener exploded');
+    });
+    const un2 = configService.subscribePersisted(SELECTION_KEY, () => fired.push('second'));
+
+    await expect(configService.set(SELECTION_KEY, MAX_SELECTION)).resolves.toBeUndefined();
+    expect(fired).toEqual(['async-first', 'second']);
+    expect(configService.get(SELECTION_KEY)).toBe(MAX_SELECTION);
+
+    // Give the adopted promise a full turn to settle before checking.
+    await letEverythingSettle();
+    expect(unhandled, 'a rejected listener promise was left unhandled').toEqual([]);
+    // The rejection was REPORTED, not merely absorbed.
+    expect(consoleError).toHaveBeenCalled();
+    expect(String(consoleError.mock.calls.at(-1)?.[0])).toContain('persisted-subscriber');
+
+    un1();
+    un2();
+    window.removeEventListener('unhandledrejection', onUnhandled);
+    process.off('unhandledRejection', nodeUnhandled);
+  });
+
+  it('the error is OBSERVABLE — reported with its key and the original error', async () => {
+    const boom = new Error('listener exploded');
+    const unsubscribe = configService.subscribePersisted(SELECTION_KEY, () => {
+      throw boom;
+    });
+
+    await configService.set(SELECTION_KEY, MAX_SELECTION);
+
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    const [message, reported] = consoleError.mock.calls[0] as [string, unknown];
+    expect(message).toContain('[configService]');
+    expect(message).toContain(SELECTION_KEY);
+    expect(message).toContain('SUCCESSFUL write');
+    // The ORIGINAL error object, not a stringified husk.
+    expect(reported).toBe(boom);
+
+    unsubscribe();
+  });
+
+  it('a throwing MAX-authority listener does not stop the surface from being re-asked', async () => {
+    // The concrete consequence, end to end: an unrelated subscriber registered
+    // BEFORE the authority hook throws, and the authority must still refresh.
+    const un = configService.subscribePersisted(SELECTION_KEY, () => {
+      throw new Error('unrelated subscriber exploded');
+    });
+    const view = await mountAuthority();
+    main.laneDecisionCalls = 0;
+    main.maxActive = true;
+
+    await act(async () => {
+      await configService.set(SELECTION_KEY, MAX_SELECTION);
+    });
+
+    await waitFor(() => expect(main.laneDecisionCalls).toBe(1));
+    await waitFor(() => expect(view.result.current.maxActive).toBe(true));
+
+    un();
+  });
+});
+
+/**
+ * INVARIANT B — the startup theme migration must not re-ask the authority.
+ *
+ * The migration now goes through the same `persist()` funnel, so it DOES emit a
+ * persisted signal during `initialize()`. The question the auditor raised is
+ * whether that can reach the MAX authority before init completes.
+ *
+ * It cannot, for two INDEPENDENT reasons, and this block proves both instead of
+ * asserting either:
+ *   1. the signal is KEY-SCOPED, and migrateThemeConfig writes only
+ *      `theme.activeId` / `theme.userThemes` — disjoint from the selection key;
+ *   2. the migration call is `void`ed, so it yields at persist()'s first await
+ *      and `initialized = true` runs before the PUT can possibly resolve.
+ *
+ * No suppression code was added, because none is earned. Reason 1 is enforced by
+ * the key-set assertion below: extend the migration to touch the selection key
+ * and this block goes red.
+ */
+describe('the startup theme migration cannot refresh the authority', () => {
+  it('sanity: the migration really does run and really does persist', async () => {
+    // Without this, every assertion below could pass on a migration that never
+    // happened — the classic vacuous green.
+    const themeSignals: string[] = [];
+    const un = configService.subscribePersisted('theme.activeId', () => themeSignals.push('theme'));
+
+    await configService.initialize();
+    await letEverythingSettle();
+
+    expect(events).toContain('put:resolved');
+    expect(themeSignals).toEqual(['theme']);
+    expect(configService.get('theme.activeId')).toBeTruthy();
+
+    un();
+  });
+
+  it('the migration signals its OWN keys only — the selection key is never touched', async () => {
+    const selectionSignals: string[] = [];
+    const un = configService.subscribePersisted(SELECTION_KEY, () => selectionSignals.push('selection'));
+
+    await configService.initialize();
+    await letEverythingSettle();
+
+    expect(events).toContain('put:resolved');
+    expect(selectionSignals).toEqual([]);
+
+    un();
+  });
+
+  it('a mounted authority is NOT re-asked across a migrating init', async () => {
+    const view = await mountAuthority();
+    main.laneDecisionCalls = 0;
+    main.maxActive = true; // if it were asked, it would flip — so it must not be
+
+    await act(async () => {
+      await configService.initialize();
+    });
+    await letEverythingSettle();
+
+    expect(events, 'the migration PUT must have happened for this to prove anything').toContain('put:resolved');
+    expect(main.laneDecisionCalls, 'the migration re-asked main mid-init').toBe(0);
+    expect(view.result.current.maxActive).toBe(false);
+  });
+
+  it('when the migration signal fires, init has ALREADY completed', async () => {
+    // The second, independent reason. Even for the keys it DOES notify, the emit
+    // is strictly after `initialized = true` — so no consumer can ever observe a
+    // persisted signal against a half-initialised service.
+    const observed: boolean[] = [];
+    const un = configService.subscribePersisted('theme.activeId', () => {
+      observed.push(configService.isInitialized());
+    });
+
+    await configService.initialize();
+    await letEverythingSettle();
+
+    expect(observed).toEqual([true]);
+
+    un();
+  });
+
+  it('the migration KEY SET is disjoint from the selection key — enforced, not assumed', async () => {
+    const { migrateThemeConfig } = await import('@/common/theme/migrateThemeConfig');
+    const keys = Object.keys(migrateThemeConfig({}));
+    expect(keys.toSorted()).toEqual(['theme.activeId', 'theme.userThemes']);
+    expect(keys).not.toContain(SELECTION_KEY);
   });
 });

@@ -29,9 +29,21 @@ type Subscriber = (value: unknown) => void;
  * issues the durable PUT, and it emits this after — and only after — that PUT
  * resolves.
  */
-type PersistSubscriber = (value: unknown) => void;
+type PersistSubscriber = (value: unknown) => void | Promise<void>;
 /** Fired with the NEW active seat id after the config cache re-homes (rebindSeat). */
 type SeatSubscriber = (seatId: string) => void;
+
+/**
+ * A persisted-subscriber blew up. The write ITSELF succeeded — this is a bug in
+ * a LISTENER, and the two must never be confused, so it is reported here rather
+ * than propagated to the writer.
+ *
+ * Reported, not swallowed. A silently-eaten listener error is how "the MAX
+ * surface just never refreshes" becomes a defect no one can find.
+ */
+function reportPersistSubscriberError(key: string, error: unknown): void {
+  console.error(`[configService] persisted-subscriber for "${key}" threw after a SUCCESSFUL write:`, error);
+}
 
 declare global {
   interface Window {
@@ -266,6 +278,16 @@ class ConfigServiceImpl {
         // Persist asynchronously; ignore failure (will re-run next launch).
         // Routed through persist() like every other durable write, so this stays
         // the migration it is and never becomes a second, unsignalled PUT path.
+        //
+        // IT CANNOT RE-ASK ANOTHER CONSUMER MID-INIT, for two independent
+        // reasons, both proven in eveMaxAuthorityRefreshOrdering.dom.test.ts
+        // rather than asserted here:
+        //   1. the signal is KEY-SCOPED and migrateThemeConfig writes only
+        //      `theme.activeId` / `theme.userThemes` — disjoint from every key a
+        //      startup-sensitive consumer subscribes to;
+        //   2. this call is `void`ed, so it yields at persist()'s first await and
+        //      `initialized = true` below runs BEFORE the PUT can resolve. The
+        //      emit is therefore always strictly after init completes.
         void this.persist(migrated, Object.entries(migrated) as Array<[ConfigKey, unknown]>).catch(() => {});
       }
       this.initialized = true;
@@ -294,10 +316,14 @@ class ConfigServiceImpl {
    * path that forgets to signal.
    *
    * ORDERING IS THE WHOLE POINT. `await` first, emit second. A rejected PUT
-   * throws out of the await and the loop below is never reached — so a failed
+   * throws out of the await and the emit below is never reached — so a failed
    * persistence produces NO signal, and a consumer that re-reads main on this
    * signal can never be triggered by a write that did not land. No timer is
    * involved anywhere: the emit waits on the write, not on the clock.
+   *
+   * The emit CANNOT fail this call. notifyPersisted isolates every callback, so
+   * the promise this returns reflects the WRITE and nothing else: a listener bug
+   * never becomes a false rejected write.
    */
   private async persist(wire: Record<string, unknown>, persisted: Array<[ConfigKey, unknown]>): Promise<void> {
     await fetchJson<void>('PUT', '/api/settings/client', wire);
@@ -362,7 +388,12 @@ class ConfigServiceImpl {
    * Guarantees:
    *   - fires only after the PUT for that key RESOLVED;
    *   - never fires for a REJECTED PUT;
-   *   - never fires for `setLocal` (nothing was persisted).
+   *   - never fires for `setLocal` (nothing was persisted);
+   *   - is KEY-SCOPED: a write to any other key never reaches this callback.
+   *     That is what keeps the startup theme migration — which persists
+   *     `theme.*` — from re-asking an unrelated consumer mid-init;
+   *   - throwing (or returning a rejecting promise) is contained: it is reported
+   *     and neither fails the writer's promise nor starves later subscribers.
    */
   subscribePersisted(key: ConfigKey, callback: PersistSubscriber): () => void {
     if (!this.persistSubscribers.has(key)) {
@@ -412,12 +443,40 @@ class ConfigServiceImpl {
     }
   }
 
-  /** Reachable ONLY from persist(), i.e. only after a resolved durable write. */
+  /**
+   * Reachable ONLY from persist(), i.e. only after a resolved durable write.
+   *
+   * EVERY CALLBACK IS ISOLATED, and that is a correctness requirement, not
+   * politeness. By the time this runs the durable write has ALREADY succeeded,
+   * so:
+   *
+   *   (a) a listener's exception must NOT surface as a rejected `set`/`remove`/
+   *       `setBatch`. Reporting a listener bug as a persistence failure would
+   *       make callers roll back or retry a write that actually landed;
+   *   (b) one bad listener must NOT starve the ones registered after it. An
+   *       unrelated subscriber throwing first would otherwise mean the MAX
+   *       authority silently never refreshes — the exact stale-surface defect,
+   *       relocated once more.
+   *
+   * Async listeners are covered too: a returned promise is adopted so a REJECTED
+   * one is reported rather than left as an unhandled rejection.
+   *
+   * Iterates the Set directly, exactly as `notify` does, so the two channels
+   * behave identically for a callback that subscribes/unsubscribes during
+   * dispatch. Deliberately NOT a copy: diverging here would make the persisted
+   * channel subtly different from the optimistic one for no stated reason.
+   */
   private notifyPersisted(key: ConfigKey, value: unknown): void {
     const subs = this.persistSubscribers.get(key);
-    if (subs) {
-      for (const cb of subs) {
-        cb(value);
+    if (!subs) return;
+    for (const cb of subs) {
+      try {
+        const result: unknown = cb(value);
+        if (typeof (result as PromiseLike<unknown> | undefined)?.then === 'function') {
+          void Promise.resolve(result).catch((error: unknown) => reportPersistSubscriberError(key, error));
+        }
+      } catch (error) {
+        reportPersistSubscriberError(key, error);
       }
     }
   }
