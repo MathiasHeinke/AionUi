@@ -401,14 +401,21 @@ describe('(d) the persisted MAX selection survives the whole sequence', () => {
   it('is never rewritten while the lane is held, painted or restored', async () => {
     const { configService } = await import('@/common/config/configService');
 
-    for (const state of ['unknown', 'entitled', 'unentitled', 'unknown'] as const) {
+    // Each step tears its render down before the next mounts, so these run in
+    // sequence rather than in a loop.
+    const intentSurvives = async (state: Parameters<typeof mainSays>[0]) => {
       mainSays(state);
       main.calls = 0;
       const view = await renderToggle();
       // Intent is what the user chose; it stays legible on the control they pressed.
       expect(view.button().getAttribute('data-engaged')).toBe('true');
       view.unmount();
-    }
+    };
+
+    await intentSurvives('unknown');
+    await intentSurvives('entitled');
+    await intentSurvives('unentitled');
+    await intentSurvives('unknown');
 
     // NOTHING wrote the selection key — not the hold, not the resolution, not the
     // fallback. Erasing it would force the user to re-pick MAX after every blip.
