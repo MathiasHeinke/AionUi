@@ -236,12 +236,38 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
    * over the composer surface — i.e. 0.16*accent + 0.84*surface.
    */
   const LIGHT_ACCENT_SHARE = 0.7;
-  const DARK_ACCENT_SHARE = 0.6;
+  const DARK_ACCENT_SHARE = 0.44;
   const PILL_TINT = 0.16;
   const SHELL_TEXT_LIGHT = '#111827';
   const STATIC_WHITE = '#ffffff';
-  const SURFACE_LIGHT = '#ffffff';
-  const SURFACE_DARK = '#171a1e';
+
+  /**
+   * THE BACKGROUND THE LABEL ACTUALLY SITS ON — and the reason this model was
+   * wrong once already.
+   *
+   * The first version contrasted the label against the FLAT `--eve-shell-surface`
+   * token (#171a1e dark). But `.eve-composer-surface` paints
+   * `--glass-composer-bg` = `color-mix(--eve-shell-surface 57.55%, transparent)`
+   * — TRANSLUCENT GLASS over the app backdrop, which carries a background image
+   * by default. The real surface behind the pill is therefore much lighter than
+   * the token: measured ~grey 41 where the token stack predicts ~grey 22. For a
+   * LIGHT label on dark, a lighter background costs contrast — so the flat-token
+   * model was optimistic by ~1.1 and reported 4.73:1 for something that measured
+   * 4.33:1.
+   *
+   * These are the EFFECTIVE composited composer backgrounds, taken from the
+   * independent Electron measurement on 2b61b77e rather than derived from tokens
+   * the compositor does not honour on its own. Validated: this model reproduces
+   * the measured blue/dark 4.33 (model 4.34) and blue/light 5.85 (model 5.71,
+   * i.e. erring pessimistic, which is the safe direction).
+   */
+  const COMPOSER_BACKGROUND = {
+    light: [250, 250, 251] as const,
+    dark: [41, 41, 41] as const,
+  };
+
+  /** Founder target: clear AA with real margin rather than sitting on the line. */
+  const MIN_CONTRAST = 5.0;
 
   type Rgb = [number, number, number];
   const parse = (hex: string): Rgb => {
@@ -260,6 +286,9 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
   };
   const mix = (a: Rgb, b: Rgb, share: number): Rgb =>
     a.map((v, i) => Math.round(v * share + b[i] * (1 - share))) as Rgb;
+  /** Composite a translucent colour over an opaque background (what the GPU does). */
+  const over = (fg: Rgb, alpha: number, bg: readonly number[]): Rgb =>
+    fg.map((v, i) => v * alpha + bg[i] * (1 - alpha)) as Rgb;
 
   /** Every accent the product actually ships, read from the source of truth. */
   const shippedAccents = Object.entries(EVE_ACCENTS).flatMap(([name, pair]) => [
@@ -267,15 +296,21 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
     { name: `${name}/dark`, base: pair.dark.base, theme: 'dark' as const },
   ]);
 
-  function labelContrast(accentHex: string, theme: 'light' | 'dark'): number {
+  function maxAccentFor(accentHex: string, theme: 'light' | 'dark'): Rgb {
     const accent = parse(accentHex);
-    const maxAccent =
-      theme === 'light'
-        ? mix(accent, parse(SHELL_TEXT_LIGHT), LIGHT_ACCENT_SHARE)
-        : mix(accent, parse(STATIC_WHITE), DARK_ACCENT_SHARE);
-    const surface = parse(theme === 'light' ? SURFACE_LIGHT : SURFACE_DARK);
-    const pillBackground = mix(maxAccent, surface, PILL_TINT);
-    return contrast(maxAccent, pillBackground);
+    return theme === 'light'
+      ? mix(accent, parse(SHELL_TEXT_LIGHT), LIGHT_ACCENT_SHARE)
+      : mix(accent, parse(STATIC_WHITE), DARK_ACCENT_SHARE);
+  }
+
+  /**
+   * The real stack: label colour vs the 16% accent TINT COMPOSITED OVER the
+   * effective (translucent) composer background — not over a flat token.
+   */
+  function labelContrast(accentHex: string, theme: 'light' | 'dark'): number {
+    const label = maxAccentFor(accentHex, theme);
+    const pillBackground = over(label, PILL_TINT, COMPOSER_BACKGROUND[theme]);
+    return contrast(label, pillBackground);
   }
 
   it('the CSS uses exactly the lightness mixes this contrast model assumes', () => {
@@ -296,35 +331,57 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
   });
 
   it.each(shippedAccents.map((a) => [a.name, a] as const))(
-    '%s: the MAX label clears WCAG AA (4.5:1) on the engaged pill',
+    `%s: the MAX label clears ${MIN_CONTRAST}:1 on the engaged pill`,
     (_name, accent) => {
       const ratio = labelContrast(accent.base, accent.theme);
-      expect(ratio, `${accent.name} label contrast ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+      expect(ratio, `${accent.name} label contrast ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(MIN_CONTRAST);
     }
   );
 
-  it('REGRESSION: using the raw accent (the shipped defect) would FAIL in dark', () => {
-    // Guards the fix itself. Before the lightness adjustment the label used the
-    // accent verbatim; this reproduces that and asserts it is genuinely below AA,
-    // so the assertions above cannot pass for a trivial reason.
-    const rawDark = (() => {
-      const accent = parse(EVE_ACCENTS.blue.dark.base);
-      const pill = mix(accent, parse(SURFACE_DARK), PILL_TINT);
-      return contrast(accent, pill);
-    })();
-    expect(rawDark).toBeLessThan(4.5);
-    // ...and the adjusted value clears it.
-    expect(labelContrast(EVE_ACCENTS.blue.dark.base, 'dark')).toBeGreaterThanOrEqual(4.5);
+  it('the model REPRODUCES the independent Electron measurement (it is calibrated, not assumed)', () => {
+    // A contrast model that cannot reproduce a real measurement is a guess. The
+    // previous flat-token model predicted 4.73 where Electron measured 4.33; this
+    // one lands on 4.34 for the SAME inputs (blue/dark at the old 60% share),
+    // which is what earns it the right to gate the new value.
+    const oldDarkLabel = mix(parse(EVE_ACCENTS.blue.dark.base), parse(STATIC_WHITE), 0.6);
+    const oldDarkRatio = contrast(oldDarkLabel, over(oldDarkLabel, PILL_TINT, COMPOSER_BACKGROUND.dark));
+    expect(oldDarkRatio).toBeGreaterThan(4.2);
+    expect(oldDarkRatio).toBeLessThan(4.5); // measured 4.33 — below AA, as reported
+
+    // And light, where the measurement was 5.85: the model must be in range and
+    // must NOT be optimistic.
+    const lightRatio = labelContrast(EVE_ACCENTS.blue.light.base, 'light');
+    expect(lightRatio).toBeGreaterThan(5.0);
+    expect(lightRatio).toBeLessThanOrEqual(5.9);
+  });
+
+  it('REGRESSION: the previous 60% dark share would FAIL this gate', () => {
+    // Guards the fix itself: the assertions above cannot be passing for a trivial
+    // reason, because the value they replaced is genuinely below the bar.
+    const oldDarkLabel = mix(parse(EVE_ACCENTS.blue.dark.base), parse(STATIC_WHITE), 0.6);
+    const oldRatio = contrast(oldDarkLabel, over(oldDarkLabel, PILL_TINT, COMPOSER_BACKGROUND.dark));
+    expect(oldRatio).toBeLessThan(MIN_CONTRAST);
+    expect(labelContrast(EVE_ACCENTS.blue.dark.base, 'dark')).toBeGreaterThanOrEqual(MIN_CONTRAST);
+  });
+
+  it('the pill background is modelled as a COMPOSITE, never as a flat token', () => {
+    // The specific modelling error, pinned. Compositing 16% of a LIGHT label over
+    // a dark composer must yield a LIGHTER background than the composer alone —
+    // if this ever equals the flat token again, the model has regressed to the
+    // optimistic version.
+    const label = maxAccentFor(EVE_ACCENTS.blue.dark.base, 'dark');
+    const composited = over(label, PILL_TINT, COMPOSER_BACKGROUND.dark);
+    expect(luminance(composited)).toBeGreaterThan(luminance([...COMPOSER_BACKGROUND.dark] as Rgb));
+    // ...and the effective dark composer is lighter than the raw surface token,
+    // which is the fact the flat model missed.
+    expect(luminance([...COMPOSER_BACKGROUND.dark] as Rgb)).toBeGreaterThan(luminance(parse('#171a1e')));
   });
 
   it('the accent stays the SAME COLOUR FAMILY — a lightness change, not a new hue', () => {
     // A "fix" that swapped hue would pass contrast and fail the brief.
     for (const accent of shippedAccents) {
       const base = parse(accent.base);
-      const adjusted =
-        accent.theme === 'light'
-          ? mix(base, parse(SHELL_TEXT_LIGHT), LIGHT_ACCENT_SHARE)
-          : mix(base, parse(STATIC_WHITE), DARK_ACCENT_SHARE);
+      const adjusted = maxAccentFor(accent.base, accent.theme);
       // Channel ORDER (which component dominates) is preserved by a mix toward
       // a neutral, so the hue family survives.
       const order = (rgb: number[]): string =>

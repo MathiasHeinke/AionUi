@@ -249,10 +249,20 @@
   /* MAX lane, dark. The accent does NOT re-resolve per theme on its own — the
      runtime writes one literal for both — so the lightness adjustment is the
      thing that makes it theme-aware: lighten toward white so the pill label
-     clears AA on a dark composer (worst shipped accent 4.73:1). The border mix
-     is re-stated because the dark composer border is a white-alpha edge rather
-     than the light theme's --border-base. */
-  --eve-max-accent: color-mix(in srgb, var(--eve-accent, var(--primary)) 60%, var(--eve-static-white));
+     clears AA on a dark composer. The border mix is re-stated because the dark
+     composer border is a white-alpha edge rather than the light theme's
+     --border-base.
+
+     44%, NOT 60%. The first attempt used 60% and modelled the label against the
+     flat `--eve-shell-surface` token; independent Electron measurement returned
+     4.33:1, below AA. The composer is TRANSLUCENT GLASS over the app backdrop
+     (which carries a background image by default), so the real surface behind
+     the pill is far lighter than the token — measured ~grey 41 against a
+     token-predicted ~grey 22. A lighter backdrop costs a LIGHT label contrast,
+     which is exactly the direction the optimistic model hid.
+     Worst shipped accent is now 5.33:1 (was 4.30:1), computed against the real
+     composited stack in eveMaxComposerCss.test.ts. */
+  --eve-max-accent: color-mix(in srgb, var(--eve-accent, var(--primary)) 44%, var(--eve-static-white));
   --eve-max-composer-border: color-mix(in srgb, var(--eve-max-accent) 46%, var(--eve-composer-border));
   --eve-max-spotlight-ceiling: 0.78;
 }
