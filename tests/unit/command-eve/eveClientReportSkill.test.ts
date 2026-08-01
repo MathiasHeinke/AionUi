@@ -36,9 +36,10 @@ describe('RPT-2 client-report skill: bundled into the allowlist', () => {
     expect(EVE_STRATEGY_SKILL_IDS as readonly string[]).toContain('client-report');
   });
 
-  it('makes the bundled allowlist 38, including the chief-of-staff loop and production skills', () => {
-    // 37 -> 38 with eve-chief-of-staff-orchestration (MAT-1751).
-    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(38);
+  it('makes the bundled allowlist 39, including the chief-of-staff loop and production skills', () => {
+    // 37 -> 38 with eve-chief-of-staff-orchestration (MAT-1751); 38 -> 39 with the
+    // vendored third-party `copywriting` skill (1.820.1).
+    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(39);
     expect(EVE_STRATEGY_SKILL_IDS as readonly string[]).toContain('eve-chief-of-staff-orchestration');
   });
 

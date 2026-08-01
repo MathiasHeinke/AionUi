@@ -141,6 +141,13 @@
       "default_state": "active"
     },
     {
+      "id": "copywriting",
+      "name": "Conversion copywriting",
+      "tier": "department",
+      "source": "Corey Haines marketing skills (MIT, vendored unchanged)",
+      "default_state": "active"
+    },
+    {
       "id": "human-design-profile",
       "name": "Human Design profile (optional reflection lens)",
       "tier": "gated_department",

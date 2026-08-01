@@ -67,6 +67,41 @@ export const PLAUD_REQUIRED_FILES = Object.freeze([
   'scripts/plaud-project-publish.mjs',
 ]);
 
+// ---------------------------------------------------------------------------
+// copywriting — the first VENDORED third-party skill in the bundle.
+// ---------------------------------------------------------------------------
+// Unlike every other allowlisted id, this tree is NOT authored in Company.OS: it is
+// a byte-identical copy of an upstream MIT skill, pinned to one commit. So "the
+// file is present" is not a strong enough gate — the whole value of a vendored
+// dependency is that it is the reviewed bytes and NOT a local edit that drifted in
+// unreviewed. `pinnedSha256` therefore fails closed on ALTERED as well as MISSING,
+// which plain `requiredFiles` (existence only) cannot do.
+//
+// Provenance is duplicated in the shipped PROVENANCE.md next to the files; the two
+// must agree, and copywritingSkillSnapshot.test.ts asserts that they do.
+export const COPYWRITING_UPSTREAM = Object.freeze({
+  registry_slug: 'coreyhaines31/marketingskills@copywriting',
+  github_repo: 'coreyhaines31/marketingskills',
+  commit: '7868cb9251fad80a73d26e488a5ad5f6c4a9f335',
+  version: '2.0.1',
+  license: 'MIT',
+  retrieved: '2026-08-01',
+});
+
+/** sha256 of every vendored upstream file, at COPYWRITING_UPSTREAM.commit. */
+export const COPYWRITING_PINNED_SHA256 = Object.freeze({
+  'SKILL.md': 'ecdaabca28863d1472f79ba637842fdf4ac2fd9acc92b215ab7f152e757b2a33',
+  'references/natural-transitions.md': '4ff23f8943af2f65b072f26f1c53ce55f19cc26d7be211c11cae8e34b43e859f',
+  'references/copy-frameworks.md': 'f387b6ed4b510efa9f0d3c459f4898971c8b0176e8c34185040cb264eca50186',
+  'evals/evals.json': '1cd7c27538b91d46c2b2cd007f2064922a4874ece1f2851b4bd844fe6f78a3e6',
+  LICENSE: 'b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591',
+});
+
+// Every pinned upstream file plus the repo-authored provenance record. PROVENANCE.md
+// is required but NOT digest-pinned: it is ours to update on a version bump, and
+// pinning it would only pin it to itself.
+export const COPYWRITING_REQUIRED_FILES = Object.freeze([...Object.keys(COPYWRITING_PINNED_SHA256), 'PROVENANCE.md']);
+
 export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'eve-doctrine' },
   // eve-chief-of-staff-orchestration (MAT-1751): the standing HG-3.5 Chief-of-Staff
@@ -160,6 +195,15 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   // bundled tree includes the official-CLI download boundary, local-first data
   // route contract and a fail-closed capability/auth guard.
   { id: 'plaud-recording-ingest', requiredFiles: PLAUD_REQUIRED_FILES },
+  // copywriting (1.820.1): vendored third-party conversion-copywriting method,
+  // MIT, pinned to one upstream commit and shipped UNCHANGED — see
+  // COPYWRITING_UPSTREAM above and the shipped PROVENANCE.md. Text only: no
+  // scripts, no executables, no network calls, no product/billing logic.
+  {
+    id: 'copywriting',
+    requiredFiles: COPYWRITING_REQUIRED_FILES,
+    pinnedSha256: COPYWRITING_PINNED_SHA256,
+  },
 ]);
 
 /** Just the ids, for callers that want the flat allowlist. */
@@ -580,6 +624,35 @@ export function scanForbiddenLocaleContent(localeRoot) {
   return failures;
 }
 
+/**
+ * Fail-closed integrity check for a VENDORED skill: every pinned path must exist
+ * AND hash to the pinned sha256. `requiredFiles` only proves presence, which lets an
+ * altered vendored file ship silently — the exact failure a pinned third-party
+ * dependency exists to prevent. Pure-ish (reads `root`); returns reason strings.
+ *
+ *   bundled_skill_pinned_file_missing:<id>:<relPath>
+ *   bundled_skill_pinned_file_altered:<id>:<relPath>
+ */
+export function verifyPinnedSkillFiles({ skillId, root, pinnedSha256 }) {
+  const failures = [];
+  for (const [relativePath, expected] of Object.entries(pinnedSha256 ?? {})) {
+    if (!isSafeRelativeSkillLink(relativePath)) {
+      failures.push(`bundled_skill_pinned_file_invalid:${skillId}:${relativePath}`);
+      continue;
+    }
+    const fullPath = path.join(root, relativePath);
+    if (!isNonEmptyFile(fullPath)) {
+      failures.push(`bundled_skill_pinned_file_missing:${skillId}:${relativePath}`);
+      continue;
+    }
+    const actual = createHash('sha256').update(fs.readFileSync(fullPath)).digest('hex');
+    if (actual !== expected) {
+      failures.push(`bundled_skill_pinned_file_altered:${skillId}:${relativePath}`);
+    }
+  }
+  return failures;
+}
+
 /** Synchronize a directory tree without making the live snapshot disappear. */
 function copyTree(srcDir, destDir) {
   fs.mkdirSync(destDir, { recursive: true });
@@ -702,6 +775,18 @@ export function stageBundledSkills({ srcRoot, snapshotRoot, skills = EVE_STRATEG
         failures.push(`bundled_skill_required_file_missing:${skill.id}:${requiredFile}`);
         log(`REQUIRED FILE MISSING ${skill.id} — ${requiredFile}`);
       }
+    }
+
+    // FAIL-CLOSED integrity gate for VENDORED skills: missing OR altered both fail.
+    for (const failure of verifyPinnedSkillFiles({
+      skillId: skill.id,
+      root: destDir,
+      pinnedSha256: skill.pinnedSha256,
+    })) {
+      failures.push(failure);
+      log(
+        `PINNED FILE ${failure.startsWith('bundled_skill_pinned_file_altered') ? 'ALTERED' : 'MISSING/INVALID'} ${failure}`
+      );
     }
 
     // FAIL-CLOSED content gate: no landed SKILL.md may teach the permission rubber-stamp.

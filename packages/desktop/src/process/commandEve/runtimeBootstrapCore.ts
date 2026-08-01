@@ -240,6 +240,13 @@ export const EVE_STRATEGY_SKILL_IDS = [
   // First conversation-ingest adapter. Its bundled scripts keep PLAUD source
   // metadata and recording content behind the local content firewall.
   'plaud-recording-ingest',
+  // copywriting (1.820.1): the first VENDORED third-party skill in the bundle —
+  // an MIT conversion-copywriting method shipped byte-identical to its pinned
+  // upstream commit (7868cb92…), never edited here. Provenance + per-file sha256
+  // live in resources/bundled-skills/copywriting/PROVENANCE.md, and the build
+  // gate fails closed on an ALTERED file, not just a missing one
+  // (COPYWRITING_PINNED_SHA256 in scripts/fetch-bundled-skills.mjs).
+  'copywriting',
 ] as const;
 // Generated-runtime cleanup list. These ids previously landed in the app-owned
 // managed skill directory but are no longer approved for Hermes discovery.
@@ -1054,6 +1061,13 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'Landing page copy',
       tier: 'department',
       source: 'Command EVE writing toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'copywriting',
+      name: 'Conversion copywriting',
+      tier: 'department',
+      source: 'Corey Haines marketing skills (MIT, vendored unchanged)',
       default_state: 'active',
     },
     {
@@ -2488,7 +2502,7 @@ function commandEveManagedSkillMarkdown(skill: CommandEveCapabilityPack['skills'
 }
 
 // The APP-OWNED config-awareness onboarding skill (Guided Onboarding SLICE S1).
-// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 38) and
+// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 39) and
 // NOT in command-eve-capabilities.json — it is
 // a separate app-owned managed skill written directly into managedSkillsRoot, which
 // is already on skills.external_dirs, so the running Hermes agent discovers it like

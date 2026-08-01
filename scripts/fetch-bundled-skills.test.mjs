@@ -8,6 +8,9 @@ import { parse as parseYaml } from 'yaml';
 import {
   AUTHOR_PRODUCTION_EXPECTED_AGGREGATE_SHA256,
   AUTHOR_PRODUCTION_EXPECTED_FILE_COUNT,
+  COPYWRITING_PINNED_SHA256,
+  COPYWRITING_REQUIRED_FILES,
+  COPYWRITING_UPSTREAM,
   EVE_STRATEGY_SKILLS,
   EVE_STRATEGY_SKILL_IDS,
   PLAUD_REQUIRED_FILES,
@@ -21,12 +24,13 @@ import {
   resolveSkillStageSource,
   stageBundledSkills,
   verifyAuthorProductionSkillManifest,
+  verifyPinnedSkillFiles,
 } from './fetch-bundled-skills.mjs';
 
 // --- allowlist shape -------------------------------------------------------
 
-test('the allowlist is exactly 38 and includes curated production skills', () => {
-  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 38);
+test('the allowlist is exactly 39 and includes curated production skills', () => {
+  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 39);
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-doctrine'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-chief-of-staff-orchestration'));
   assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('marketing-outbound'));
@@ -50,6 +54,7 @@ test('the allowlist is exactly 38 and includes curated production skills', () =>
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('essay-writer'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('book-publishing'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('premium-website-builder'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('copywriting'));
   // gitnexus and other dev/IDE skills must NEVER be in the allowlist.
   assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('gitnexus'));
 });
@@ -156,6 +161,12 @@ function makeFixtureSrc(root, { omit = [] } = {}) {
     if (omitSet.has(skill.id)) continue;
     const dir = path.join(srcRoot, skill.id);
     fs.mkdirSync(dir, { recursive: true });
+    // A digest-pinned (VENDORED) skill cannot be synthesized: the whole point of the
+    // pin is that only the reviewed upstream bytes pass. Copy the committed snapshot.
+    if (skill.pinnedSha256) {
+      fs.cpSync(path.resolve('resources/bundled-skills', skill.id), dir, { recursive: true });
+      continue;
+    }
     if (skill.bundle) {
       fs.writeFileSync(path.join(dir, 'README.md'), '# bundle\n');
       const sub = path.join(dir, 'icp-definer');
@@ -197,7 +208,7 @@ function makeFixtureSrc(root, { omit = [] } = {}) {
   return srcRoot;
 }
 
-test('stageBundledSkills refreshes from source and verifies all 38 including nested production assets', () => {
+test('stageBundledSkills refreshes from source and verifies all 39 including nested production assets', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-test-'));
   try {
     const srcRoot = makeFixtureSrc(root);
@@ -381,6 +392,85 @@ test('stageBundledSkills fails closed when a catalog-required PLAUD file is abse
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+// --- copywriting: the VENDORED third-party skill (missing OR altered fails) ---
+
+test('copywriting is allowlisted as a digest-pinned vendored skill', () => {
+  const skill = EVE_STRATEGY_SKILLS.find(({ id }) => id === 'copywriting');
+  assert.ok(skill, 'copywriting must be in the build allowlist');
+  assert.equal(skill.pinnedSha256, COPYWRITING_PINNED_SHA256);
+  assert.equal(skill.requiredFiles, COPYWRITING_REQUIRED_FILES);
+  // requiredFiles proves PRESENCE; pinnedSha256 proves the BYTES. Every pinned
+  // path must also be required, so a deleted file fails on both gates.
+  for (const relativePath of Object.keys(COPYWRITING_PINNED_SHA256)) {
+    assert.ok(COPYWRITING_REQUIRED_FILES.includes(relativePath), relativePath);
+  }
+  assert.ok(COPYWRITING_REQUIRED_FILES.includes('PROVENANCE.md'));
+  // No executable / script surface may creep into a vendored text skill.
+  assert.deepEqual(
+    COPYWRITING_REQUIRED_FILES.filter((f) => /\.(mjs|js|cjs|sh|py|bash|zsh)$/.test(f)),
+    []
+  );
+  assert.equal(COPYWRITING_UPSTREAM.commit, '7868cb9251fad80a73d26e488a5ad5f6c4a9f335');
+  assert.equal(COPYWRITING_UPSTREAM.version, '2.0.1');
+  assert.equal(COPYWRITING_UPSTREAM.license, 'MIT');
+});
+
+test('the committed copywriting snapshot hashes to the pinned upstream digests', () => {
+  assert.deepEqual(
+    verifyPinnedSkillFiles({
+      skillId: 'copywriting',
+      root: path.resolve('resources/bundled-skills/copywriting'),
+      pinnedSha256: COPYWRITING_PINNED_SHA256,
+    }),
+    []
+  );
+});
+
+test('stageBundledSkills fails closed when a pinned copywriting file is ALTERED', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-copywriting-altered-'));
+  try {
+    const srcRoot = makeFixtureSrc(root);
+    // One appended byte — present, non-empty, still a valid SKILL.md. Existence
+    // checks cannot see this; only the digest pin can.
+    fs.appendFileSync(path.join(srcRoot, 'copywriting', 'SKILL.md'), '\n<!-- unreviewed local edit -->\n');
+    const snapshotRoot = path.join(root, 'snapshot');
+    const failures = stageBundledSkills({ srcRoot, snapshotRoot });
+    assert.ok(failures.includes('bundled_skill_pinned_file_altered:copywriting:SKILL.md'), failures.join(','));
+    assert.ok(!failures.includes('bundled_skill_required_file_missing:copywriting:SKILL.md'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('stageBundledSkills fails closed when a pinned copywriting file is MISSING', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-copywriting-missing-'));
+  try {
+    const srcRoot = makeFixtureSrc(root);
+    fs.rmSync(path.join(srcRoot, 'copywriting', 'references', 'copy-frameworks.md'));
+    const snapshotRoot = path.join(root, 'snapshot');
+    const failures = stageBundledSkills({ srcRoot, snapshotRoot });
+    assert.ok(
+      failures.includes('bundled_skill_required_file_missing:copywriting:references/copy-frameworks.md'),
+      failures.join(',')
+    );
+    assert.ok(
+      failures.includes('bundled_skill_pinned_file_missing:copywriting:references/copy-frameworks.md'),
+      failures.join(',')
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('verifyPinnedSkillFiles rejects a path-traversing pin instead of reading outside the skill', () => {
+  const failures = verifyPinnedSkillFiles({
+    skillId: 'synthetic',
+    root: path.resolve('resources/bundled-skills/copywriting'),
+    pinnedSha256: { '../../../package.json': 'deadbeef' },
+  });
+  assert.deepEqual(failures, ['bundled_skill_pinned_file_invalid:synthetic:../../../package.json']);
 });
 
 test('stageBundledSkills keeps the committed snapshot when source is absent', () => {

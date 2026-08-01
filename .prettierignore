@@ -1,1 +1,8 @@
 mobile/
+
+# VENDORED third-party skill — shipped byte-identical to a pinned upstream commit.
+# oxfmt reads this file (--ignore-path defaults to .gitignore + .prettierignore), and
+# without this entry `bun run format` rewrites the upstream markdown, which breaks the
+# sha256 pins in scripts/fetch-bundled-skills.mjs and fails the build gate. The bytes
+# are the contract here — the formatter must not have an opinion about them.
+resources/bundled-skills/copywriting/
