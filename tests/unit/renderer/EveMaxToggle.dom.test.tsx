@@ -241,8 +241,22 @@ describe('EveMaxToggle — control states (spec 2.6)', () => {
   it('LOCKED + ENGAGED (the fifth state): announces NOT pressed, because the wire clamps', () => {
     // A lapsed seat keeps its persisted MAX intent, but MAX is not running — the
     // wire clamps to the routine lane. Announcing aria-pressed=true would tell a
-    // screen-reader user the strong lane is active when it is not. The raw intent
-    // still rides on data-engaged for styling and for the composer state.
+    // screen-reader user the strong lane is active when it is not.
+    //
+    // WHICH ATTRIBUTE MEANS WHAT — the distinction this whole surface-honesty fix
+    // exists for, so no one blurs it back:
+    //   data-engaged = INTENT ONLY. What the user last chose. It survives a lapse
+    //                  and it is NOT a statement about what is running.
+    //   data-active  = STATE. Derived from production `maxActive`, i.e. the
+    //                  EFFECTIVE WIRE TIER === 'max'. This is what is actually
+    //                  being served this turn.
+    //
+    // The COMPOSER SURFACE must follow data-active / maxActive and must NEVER
+    // follow data-engaged. Painting from intent is precisely the defect that
+    // shipped: a lapsed seat wore the full MAX glow while the wire was clamping
+    // that same turn to the routine lane — the surface asserting a state the
+    // system was not in. data-engaged is for the PILL (so a remembered choice
+    // stays visible on the control the user pressed), never for the surface.
     setState({ maxEngaged: true, maxAvailable: false, maxLocked: true, maxState: 'locked' });
     renderInComposer();
     const button = screen.getByTestId('eve-max-toggle');
