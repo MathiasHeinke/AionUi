@@ -25,9 +25,10 @@ import {
 
 // --- allowlist shape -------------------------------------------------------
 
-test('the allowlist is exactly 37 and includes curated production skills', () => {
-  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 37);
+test('the allowlist is exactly 38 and includes curated production skills', () => {
+  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 38);
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-doctrine'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-chief-of-staff-orchestration'));
   assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('marketing-outbound'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('blog-writer'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('founder-voice'));
@@ -196,7 +197,7 @@ function makeFixtureSrc(root, { omit = [] } = {}) {
   return srcRoot;
 }
 
-test('stageBundledSkills refreshes from source and verifies all 37 including nested production assets', () => {
+test('stageBundledSkills refreshes from source and verifies all 38 including nested production assets', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-test-'));
   try {
     const srcRoot = makeFixtureSrc(root);

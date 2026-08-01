@@ -69,6 +69,15 @@ export const PLAUD_REQUIRED_FILES = Object.freeze([
 
 export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'eve-doctrine' },
+  // eve-chief-of-staff-orchestration (MAT-1751): the standing HG-3.5 Chief-of-Staff
+  // operating loop that sits beside eve-doctrine — intent translation, CEO lane
+  // selection (authenticated CLI by capability, else a budgeted router CEO),
+  // ONE named resumable session, the two-phase state proof, governed worker
+  // coordination, the Fable-5/gpt-5.6-sol audit policy, the BLOCKED_AUTH /
+  // BLOCKED_CAPABILITY / RUNTIME_ERROR taxonomy, and a single decision card back to
+  // the founder. Deliberately NOT in SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION
+  // below: the seat is permanent, not explicit-invocation-only.
+  { id: 'eve-chief-of-staff-orchestration' },
   { id: 'plan-system' },
   { id: 'pre-mortem' },
   { id: 'business-diagnostic' },

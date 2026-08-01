@@ -50,6 +50,13 @@
       "default_state": "active"
     },
     {
+      "id": "eve-chief-of-staff-orchestration",
+      "name": "Chief-of-Staff orchestration",
+      "tier": "core",
+      "source": "Company.OS orchestration doctrine",
+      "default_state": "active"
+    },
+    {
       "id": "plan-system",
       "name": "Goal and plan system",
       "tier": "autonomy_core",
