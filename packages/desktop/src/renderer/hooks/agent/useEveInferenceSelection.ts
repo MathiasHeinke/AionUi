@@ -49,6 +49,7 @@ import { commandEve } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
 import { isPaidPlanForSeat } from '@/common/config/creditsCore';
 import {
+  buildEveEntitlementView,
   buildEvePickerGroups,
   EVE_DEFAULT_INFERENCE_SELECTION,
   EVE_INFERENCE_MAX_TIER_ID,
@@ -249,50 +250,14 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   const { loading: entitlementLoading, status } = useEntitlementGate();
   const { loading: creditsLoading, status: creditsStatus } = useCreditsStatus();
 
-  const pickerEntitlement = useMemo(() => {
-    const creditsAreAuthoritative = creditsStatus?.ok === true;
-    const purchasedCredits = Number(creditsStatus?.purchased_credits_remaining ?? 0);
-    const includedCredits = Number(creditsStatus?.included_allowance_credits_remaining ?? 0);
-    // NOTE the deliberate asymmetry with the MAX gate below. `!== 'free'` is
-    // CORRECT here: this governs the metered/Standard lane, which a TRIAL seat is
-    // meant to reach on its promotional allowance. Only the MAX gate must treat
-    // trial as unpaid, and that one uses the explicit allowlist.
-    const hasMeteredCredits =
-      creditsAreAuthoritative &&
-      (creditsStatus?.has_active_topup === true ||
-        creditsStatus?.tier !== 'free' ||
-        purchasedCredits > 0 ||
-        includedCredits > 0);
-
-    return {
-      ...status,
-      has_active_topup: creditsStatus?.has_active_topup === true,
-      has_metered_credits: hasMeteredCredits,
-      metered_credit_access_known: creditsAreAuthoritative,
-      // The MAX gate needs the two signals the wider metered-credit rule blurs
-      // together. `has_paid_plan` is a real plan; `has_purchased_credits` is a
-      // REAL top-up. Included-allowance credits — where a promotional grant
-      // lands — deliberately feed NEITHER, which is what keeps a promotion from
-      // unlocking the strong lane. Both require an authoritative credits read:
-      // an unreadable status must not be able to open a paid lane.
-      //
-      // TWO ALLOWLISTS, NOT `!== 'free'`. The negative form classified the
-      // server's `trial` tier as PAID and unlocked MAX for every trial seat —
-      // the exact thing the Founder rule forbids — and defaulted every future
-      // tier to paid. `isPaidPlanForSeat` names the paid TIERS and the paid
-      // seat EDITIONS explicitly, so anything new is unpaid until someone
-      // decides otherwise, which is the only safe direction for a money gate.
-      //
-      // THE EDITION IS PART OF IT, and that is not belt-and-braces. The tier is
-      // DERIVED server-side from the granted allowance, and an ALOIS100 0 €
-      // `pilot` seat is seeded the STARTER allowance — so it reports
-      // `tier: 'starter'` and the tier allowlist ALONE would unlock MAX for the
-      // one seat the Founder rule names. The signed edition is what can tell a
-      // comped allowance from a bought subscription.
-      has_paid_plan: creditsAreAuthoritative && isPaidPlanForSeat(creditsStatus?.tier, status?.edition),
-      has_purchased_credits: creditsAreAuthoritative && purchasedCredits > 0,
-    };
-  }, [creditsStatus, status]);
+  // THE VIEW EVERY GATE BELOW IS ASKED ABOUT — built by the shared, node-testable
+  // constructor rather than inline here, so a test can produce a
+  // PRODUCTION-COMPLETE view instead of a hand-typed partial that quietly lands in
+  // a compatibility branch. See buildEveEntitlementView for why that mattered.
+  const pickerEntitlement = useMemo(
+    () => buildEveEntitlementView(status, creditsStatus, isPaidPlanForSeat),
+    [creditsStatus, status]
+  );
 
   // THE WRITE GATE — hoisted above every writer on purpose (R4).
   //

@@ -32,6 +32,14 @@
  *   - offline            — handled upstream by runtime truth; MAX stays as-is so
  *                          nothing silently re-lanes the user.
  *
+ * EVERY CLICK GETS AN ANSWER, AND THE ANSWER IS RENDERED. The control passes the
+ * click to the hook in every state except BUSY; the hook decides. The two answers
+ * that are not "MAX is now on/off" — a click held because entitlement is UNKNOWN,
+ * and a click REFUSED because the answer was no — used to resolve into nothing a
+ * user could see (`intentPending` / `intentRefused` had no rendered consumer at
+ * all). They now render as a calm, non-modal live region attached to the pill; see
+ * `notice` below and `.eve-max-notice` in UnifiedSendBar.css.
+ *
  * THE COMPOSER SEAM. MAX repaints the WHOLE composer, and the composer is fully
  * CSS-variable driven (`--eve-spotlight-color`, `--eve-composer-border`,
  * `--eve-spotlight-max`). So instead of introducing a new element or a competing
@@ -53,6 +61,7 @@
 
 import { useEveInferenceSelection } from '@renderer/hooks/agent/useEveInferenceSelection';
 import { useEveMaxAuthority } from '@renderer/hooks/agent/useEveMaxAuthority';
+import { openAccountWeb } from '@renderer/utils/platform';
 import { Button, Tooltip } from '@arco-design/web-react';
 import { Lightning, Lock } from '@icon-park/react';
 import React, { useCallback, useEffect, useRef } from 'react';
@@ -61,6 +70,8 @@ import { useTranslation } from 'react-i18next';
 /** The attribute the composer stylesheet keys the MAX visual state on. */
 export const EVE_MAX_COMPOSER_ATTRIBUTE = 'data-eve-max';
 const EVE_COMPOSER_SURFACE_SELECTOR = '.eve-composer-surface';
+/** Ties the pill to its live region, so the answer is reachable from the control. */
+const NOTICE_ID = 'eve-max-intent-notice';
 
 /**
  * Stamp / clear `data-eve-max` on the composer surface that CONTAINS this
@@ -87,7 +98,12 @@ const EveMaxToggle: React.FC<{
   disabled?: boolean;
 }> = ({ disabled }) => {
   const { t } = useTranslation();
-  const { maxEngaged, maxAvailable, maxLocked, maxState, setMaxEngaged } = useEveInferenceSelection();
+  // `maxAvailable` is deliberately NOT read here any more. Deciding whether a click
+  // may engage MAX is the hook's job — it owns the money gate — and reading the same
+  // boolean on this side is exactly how the surface grew a second authority that
+  // silently disagreed with it. See `onToggle` below.
+  const { maxEngaged, maxLocked, maxState, setMaxEngaged, intentPending, intentRefused, acknowledgeIntentRefused } =
+    useEveInferenceSelection();
   // THE SURFACE'S ONLY INPUT. Comes from MAIN, seat-bound, fails closed. The
   // selection hook deliberately no longer exposes a `maxActive` — it is not an
   // authority on what the wire sends.
@@ -107,10 +123,29 @@ const EveMaxToggle: React.FC<{
   // remembered choice stays visible on the control the user pressed.
   useComposerMaxState(anchorRef, maxActive);
 
+  // THE CLICK REACHES THE HOOK IN EVERY STATE BUT "BUSY", AND THAT IS THE FIX.
+  //
+  // This used to `return` on `!maxAvailable`, and `maxAvailable` is false for BOTH
+  // answers the control can be waiting on: an authoritative NO *and* the UNKNOWN
+  // window. So the pending-intent feature the hook implements was unreachable from
+  // the surface that is supposed to feed it — a click during UNKNOWN never became a
+  // held intent, and a click on a LOCKED pill never raised the refusal the hook
+  // exposes. Two dead ends dressed as a guard.
+  //
+  // It was also a SECOND authority on the same question. The hook already refuses
+  // to persist a MAX it may not have (`next && !maxAvailable` → `intentRefused`)
+  // and already holds a click made during UNKNOWN in memory. Re-deciding that here
+  // is the duplicate-authority pattern this component's own doc-comment warns
+  // about. Only `disabled` (the composer is SENDING) stays here, because that is a
+  // fact about this surface and about nothing else.
   const onToggle = useCallback(() => {
-    if (disabled || !maxAvailable) return;
+    if (disabled) return;
     setMaxEngaged(!maxEngaged);
-  }, [disabled, maxAvailable, maxEngaged, setMaxEngaged]);
+  }, [disabled, maxEngaged, setMaxEngaged]);
+
+  const onUnlock = useCallback(() => {
+    void openAccountWeb('/account?tab=credits');
+  }, []);
 
   // NOTE: no cloud-tier nomenclature in ANY of these strings — not "Stufe", not
   // "level", not a renamed equivalent. The routine lane has no name; MAX is the
@@ -137,6 +172,25 @@ const EveMaxToggle: React.FC<{
       : effectivelyOn
         ? t('conversation.eveMax.engagedHint', 'MAX ist aktiv — EVE arbeitet mit voller Denkkraft.')
         : t('conversation.eveMax.availableHint', 'MAX einschalten — volle Denkkraft für harte Aufgaben.');
+
+  // THE VISIBLE RESOLUTION OF A CLICK, in the only two shapes the hook can hand
+  // back. REFUSED wins over HELD: they cannot both be true, but if a future edit
+  // ever makes them overlap, the refusal is the one the user must read.
+  //
+  // The HELD sentence deliberately does not name MAX. A click during the unknown
+  // window can be either direction (engage OR disengage), and painting "MAX is
+  // queued" for a disengage would be the same lie the composer glow used to tell.
+  const notice = intentRefused
+    ? t(
+        'conversation.eveMax.intentRefusedNotice',
+        'MAX bleibt gesperrt — er läuft im bezahlten Tarif oder mit gekauften Credits.'
+      )
+    : intentPending
+      ? t(
+          'conversation.eveMax.intentHeldNotice',
+          'Deine Auswahl ist gemerkt und wird übernommen, sobald die Berechtigung geprüft ist.'
+        )
+      : undefined;
 
   return (
     <span
@@ -184,8 +238,13 @@ const EveMaxToggle: React.FC<{
           data-checking={entitlementPending ? 'true' : 'false'}
           // Coherent ARIA: "pressed" means the strong lane is ACTUALLY running.
           aria-pressed={effectivelyOn}
-          aria-disabled={maxLocked || disabled === true}
+          // CHECKING IS NOT DISABLED EITHER. `maxLocked` is true during the
+          // unverified window too, so this announced "disabled" for a control that
+          // DOES accept the click (it becomes a held intent). Same split the
+          // `data-locked` attribute above already makes.
+          aria-disabled={(maxLocked && !entitlementPending) || disabled === true}
           aria-label={`${label} — ${hint}`}
+          aria-describedby={notice ? NOTICE_ID : undefined}
         >
           <span className='eve-max-toggle__content flex items-center gap-4px leading-none'>
             {/* CHECKING WEARS NEITHER ICON'S CLAIM. A padlock says "we know you
@@ -201,6 +260,35 @@ const EveMaxToggle: React.FC<{
           </span>
         </Button>
       </Tooltip>
+      {/* THE ANSWER TO THE CLICK, RENDERED. Not a modal, not a toast that leaves
+          before it is read, not a hover-only tooltip: a live region attached to the
+          control the user pressed, in the same two shapes the hook can produce.
+          `intentRefused` and `intentPending` had NO rendered consumer at all, so an
+          impermissible MAX intent was silently dropped — the surface's answer to a
+          click was nothing. The pill itself keeps its styling; this only adds the
+          sentence. */}
+      {notice ? (
+        <span
+          id={NOTICE_ID}
+          className='eve-max-notice'
+          role='status'
+          aria-live='polite'
+          data-testid='eve-max-intent-notice'
+          data-kind={intentRefused ? 'refused' : 'held'}
+        >
+          <span className='eve-max-notice__text'>{notice}</span>
+          {intentRefused ? (
+            <span className='eve-max-notice__actions'>
+              <Button className='eve-max-notice__action' size='mini' type='text' onClick={onUnlock}>
+                {t('conversation.eveMax.upgrade', 'MAX freischalten')}
+              </Button>
+              <Button className='eve-max-notice__action' size='mini' type='text' onClick={acknowledgeIntentRefused}>
+                {t('conversation.eveMax.noticeDismiss', 'Verstanden')}
+              </Button>
+            </span>
+          ) : null}
+        </span>
+      ) : null}
     </span>
   );
 };

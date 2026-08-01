@@ -35,12 +35,26 @@
  * broke it has to bring back a reset that is gated on `authorityResolved`.
  * Deleting an assertion here is not a fix.
  *
+ * ROUND-4 RE-EVALUATION (with the fixtures repaired — see ENTITLEMENTS below).
+ * The round-3 "unreachable" verdict was reached with fixtures that could not have
+ * disproved it, so it was re-run against PRODUCTION-COMPLETE views spanning both
+ * credit answers, a trialing seat and the comped pilot edition. The verdict HOLDS,
+ * and for a structural reason rather than a lucky fixture: `eve-standard` declares
+ * `paidOnly: false`, and `isEveTierSelectable` returns TRUE for a non-paidOnly rung
+ * before it ever consults the entitlement — so no entitlement, however poor, can
+ * disable it. The offered set is exactly {standard, max}, so "disabled and not MAX"
+ * still has no inhabitant, and the deleted effect stays deleted. What changed is
+ * that the two sabotages below now genuinely redden this file (2/4 and 1/4), where
+ * before they reddened nothing.
+ *
  * NAMING: `.test.ts` — the vitest `node` project takes `tests/unit/**\/*.test.ts`.
  * No DOM is needed; both invariants are pure data.
  */
 
 import { describe, expect, it } from 'vitest';
+import { isPaidPlanForSeat } from '@/common/config/creditsCore';
 import {
+  buildEveEntitlementView,
   buildEvePickerGroups,
   EVE_INFERENCE_MAX_TIER_ID,
   EVE_INFERENCE_TIERS,
@@ -50,14 +64,69 @@ import {
   type EveEntitlementView,
 } from '@/common/config/eveInferenceCore';
 
-/** Every entitlement shape the hook can hand the model, poorest to richest. */
-const ENTITLEMENTS: Array<{ name: string; view: EveEntitlementView }> = [
-  { name: 'nothing known (the UNKNOWN window)', view: {} },
-  { name: 'authoritatively unentitled', view: { has_paid_seat: false, has_paid_plan: false } },
-  { name: 'purchased credits', view: { has_purchased_credits: true } },
-  { name: 'paid seat', view: { has_paid_seat: true } },
-  { name: 'paid plan', view: { has_paid_plan: true } },
-];
+/**
+ * THE FIXTURES ARE PRODUCTION-BUILT, AND THAT REPAIR IS THE POINT OF THIS ROUND.
+ *
+ * They used to be hand-typed partials — `{}`, `{ has_purchased_credits: true }` —
+ * which omitted `metered_credit_access_known`, a field the hook ALWAYS supplies
+ * (it is `creditsStatus?.ok === true`, never absent). With it missing, every
+ * fixture fell into `hasEvePaidInferenceAccess`'s compatibility branch for an
+ * unavailable credits endpoint and read FUNDED. So both sabotages this file
+ * advertises — making Standard `paidOnly`, and adding a paid-only offered rung —
+ * changed NOTHING: the file passed sabotaged and unsabotaged alike, which is the
+ * defect class this remediation exists to end.
+ *
+ * So the views are now built by the SAME constructor the hook calls, from the two
+ * real transports (entitlement status + credits status). A signal the product adds
+ * tomorrow lands in these fixtures with no edit here, and a fixture can no longer
+ * be a view of a program that does not ship.
+ */
+const ENTITLEMENTS: Array<{ name: string; view: EveEntitlementView }> = (
+  [
+    // The UNKNOWN window: entitled, but the credits read is NOT authoritative.
+    // This is the ONLY shape in which `metered_credit_access_known` is false.
+    {
+      name: 'nothing known (the UNKNOWN window)',
+      status: { ok: true, state: 'entitled' },
+      credits: { ok: false, tier: 'free' },
+    },
+    // Every shape below is ANSWERED (`credits.ok === true`), poorest to richest.
+    {
+      name: 'authoritatively unentitled',
+      status: { ok: true, state: 'entitled', has_paid_seat: false },
+      credits: { ok: true, tier: 'free' },
+    },
+    {
+      name: 'trialing on a promotional allowance',
+      status: { ok: true, state: 'entitled', trial_ends_at: '2099-01-01T00:00:00Z' },
+      credits: { ok: true, tier: 'trial', included_allowance_credits_remaining: 12_000 },
+    },
+    {
+      name: 'purchased credits',
+      status: { ok: true, state: 'entitled' },
+      credits: { ok: true, tier: 'free', purchased_credits_remaining: 5_000 },
+    },
+    {
+      name: 'paid seat',
+      status: { ok: true, state: 'entitled', has_paid_seat: true },
+      credits: { ok: true, tier: 'free' },
+    },
+    {
+      name: 'paid plan',
+      status: { ok: true, state: 'entitled', edition: 'standard' },
+      credits: { ok: true, tier: 'starter' },
+    },
+    // The comped ALOIS100 pilot: a starter ALLOWANCE without a bought plan.
+    {
+      name: 'comped pilot seat (starter allowance, pilot edition)',
+      status: { ok: true, state: 'entitled', edition: 'pilot' },
+      credits: { ok: true, tier: 'starter' },
+    },
+  ] as const
+).map((row) => ({ name: row.name, view: buildEveEntitlementView(row.status, row.credits, isPaidPlanForSeat) }));
+
+/** The fixture set must actually EXERCISE both answers, or the sweep proves nothing. */
+const ANSWER_STATES = new Set(ENTITLEMENTS.map((e) => e.view.metered_credit_access_known));
 
 /** Selections a real install can hold: every registry rung, plus junk on the same prefix. */
 const EVE_SELECTIONS: string[] = [
@@ -72,6 +141,26 @@ const eveItems = (view: EveEntitlementView) =>
   buildEvePickerGroups(view).find((group) => group.kind === 'eve')?.items ?? [];
 
 describe('an EVE selection can never be stranded (so no ungated reset is needed)', () => {
+  it('INVARIANT 0: the fixtures are PRODUCTION-COMPLETE and cover BOTH credit answers', () => {
+    // The guard on the repair itself. If a future edit drops back to hand-typed
+    // partials, or the fixture set stops covering the authoritative answer, the
+    // two invariants below go inert again — silently — exactly as they were.
+    expect(ANSWER_STATES, 'fixtures must span the unknown AND the answered credits read').toEqual(
+      new Set([false, true])
+    );
+    for (const { name, view } of ENTITLEMENTS) {
+      for (const field of [
+        'has_active_topup',
+        'has_metered_credits',
+        'metered_credit_access_known',
+        'has_paid_plan',
+        'has_purchased_credits',
+      ] as const) {
+        expect(typeof view[field], `${name} is missing the always-supplied ${field}`).toBe('boolean');
+      }
+    }
+  });
+
   it('INVARIANT 1: normalisation is TOTAL over the EVE prefix — every value lands in the model', () => {
     for (const { name, view } of ENTITLEMENTS) {
       const values = eveItems(view).map((item) => item.value);

@@ -304,7 +304,7 @@ describe('EveMaxToggle — control states (spec 2.6)', () => {
     }
   });
 
-  it('LOCKED: still RENDERED with an upsell hint, announced disabled, and click is a no-op', () => {
+  it('LOCKED: still RENDERED with an upsell hint, and the click REACHES the hook to be refused', () => {
     setState({ maxAvailable: false, maxLocked: true, maxState: 'locked' });
     renderInComposer();
     const button = screen.getByTestId('eve-max-toggle');
@@ -316,8 +316,17 @@ describe('EveMaxToggle — control states (spec 2.6)', () => {
     // fallback), not a bare "unavailable".
     expect(button.getAttribute('aria-label')).toContain('bezahlten Tarif');
     expect(button.getAttribute('aria-label')).toContain('Credits');
+    // THIS ASSERTION FLIPPED, AND THE OLD ONE WAS PART OF THE DEFECT.
+    //
+    // It used to require `setMaxEngaged` NOT to be called — i.e. it PINNED the
+    // component swallowing the click. That is precisely what made the hook's
+    // `intentRefused` unreachable and left an impermissible intent resolving into
+    // nothing a user could see. The money gate has ONE owner (the hook), which
+    // RAISES the refusal instead of writing; this surface's job is to deliver the
+    // click and render the answer. The rendered half is proved end-to-end in
+    // tests/unit/command-eve/eveMaxIntentVisibleResolution.dom.test.tsx.
     fireEvent.click(button);
-    expect(mocks.setMaxEngaged).not.toHaveBeenCalled();
+    expect(mocks.setMaxEngaged).toHaveBeenCalledWith(true);
   });
 
   it('DISABLED (busy/loading): greyed and inert without changing which lane is engaged', () => {

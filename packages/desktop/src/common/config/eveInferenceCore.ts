@@ -1142,6 +1142,92 @@ export interface EveEntitlementView {
   has_purchased_credits?: boolean;
 }
 
+/** The credits-status fields the entitlement view is derived from. */
+export interface EveCreditsViewInput {
+  /** The credits read is AUTHORITATIVE. Absent/false ⇒ nothing below may unlock. */
+  ok?: boolean;
+  tier?: string | null;
+  purchased_credits_remaining?: number | null;
+  included_allowance_credits_remaining?: number | null;
+  has_active_topup?: boolean | null;
+}
+
+/** The entitlement-status fields that ride along into the view (plus the signed edition). */
+export type EveEntitlementStatusInput = EveEntitlementView & { edition?: string | null };
+
+/**
+ * BUILD THE ENTITLEMENT VIEW EVERY GATE IN THIS MODULE IS ASKED ABOUT.
+ *
+ * This is the shape `useEveInferenceSelection` hands to `buildEvePickerGroups`,
+ * `hasEveMaxAccess` and `hasEvePaidInferenceAccess` on every render — extracted
+ * from the hook so a NODE test can build a PRODUCTION-COMPLETE view instead of
+ * hand-typing one.
+ *
+ * THAT IS NOT A CONVENIENCE, IT IS THE FIX FOR A WHOLE CLASS OF INERT TEST. The
+ * stranding-invariant fixtures used to be hand-written partials that omitted
+ * `metered_credit_access_known` — a field production ALWAYS supplies. Every one of
+ * them therefore fell into `hasEvePaidInferenceAccess`'s compatibility branch and
+ * read FUNDED, so the two sabotages that file promised (a paid-only Standard, a
+ * third paid-only offered rung) changed nothing and the file passed either way.
+ * A fixture that is missing a field the product always sets is not a weaker test,
+ * it is a test of a different program.
+ *
+ * Built here, the view cannot drift: a signal added to the product appears in the
+ * fixtures the same day.
+ */
+export function buildEveEntitlementView(
+  status: EveEntitlementStatusInput | null | undefined,
+  creditsStatus: EveCreditsViewInput | null | undefined,
+  isPaidPlan: (tier: string | null | undefined, edition: string | null | undefined) => boolean
+): EveEntitlementView {
+  const creditsAreAuthoritative = creditsStatus?.ok === true;
+  const purchasedCredits = Number(creditsStatus?.purchased_credits_remaining ?? 0);
+  const includedCredits = Number(creditsStatus?.included_allowance_credits_remaining ?? 0);
+  // NOTE the deliberate asymmetry with the MAX gate below. `!== 'free'` is
+  // CORRECT here: this governs the metered/Standard lane, which a TRIAL seat is
+  // meant to reach on its promotional allowance. Only the MAX gate must treat
+  // trial as unpaid, and that one uses the explicit allowlist.
+  const hasMeteredCredits =
+    creditsAreAuthoritative &&
+    (creditsStatus?.has_active_topup === true ||
+      creditsStatus?.tier !== 'free' ||
+      purchasedCredits > 0 ||
+      includedCredits > 0);
+
+  return {
+    ...status,
+    has_active_topup: creditsStatus?.has_active_topup === true,
+    has_metered_credits: hasMeteredCredits,
+    metered_credit_access_known: creditsAreAuthoritative,
+    // The MAX gate needs the two signals the wider metered-credit rule blurs
+    // together. `has_paid_plan` is a real plan; `has_purchased_credits` is a
+    // REAL top-up. Included-allowance credits — where a promotional grant
+    // lands — deliberately feed NEITHER, which is what keeps a promotion from
+    // unlocking the strong lane. Both require an authoritative credits read:
+    // an unreadable status must not be able to open a paid lane.
+    //
+    // TWO ALLOWLISTS, NOT `!== 'free'`. The negative form classified the
+    // server's `trial` tier as PAID and unlocked MAX for every trial seat —
+    // the exact thing the Founder rule forbids — and defaulted every future
+    // tier to paid. `isPaidPlanForSeat` names the paid TIERS and the paid
+    // seat EDITIONS explicitly, so anything new is unpaid until someone
+    // decides otherwise, which is the only safe direction for a money gate.
+    //
+    // THE EDITION IS PART OF IT, and that is not belt-and-braces. The tier is
+    // DERIVED server-side from the granted allowance, and an ALOIS100 0 €
+    // `pilot` seat is seeded the STARTER allowance — so it reports
+    // `tier: 'starter'` and the tier allowlist ALONE would unlock MAX for the
+    // one seat the Founder rule names. The signed edition is what can tell a
+    // comped allowance from a bought subscription.
+    //
+    // `isPaidPlan` is INJECTED rather than imported so this module keeps its
+    // current dependency set (storage + commandEveShell) and the caller keeps
+    // supplying the one predicate that lives in creditsCore.
+    has_paid_plan: creditsAreAuthoritative && isPaidPlan(creditsStatus?.tier, status?.edition),
+    has_purchased_credits: creditsAreAuthoritative && purchasedCredits > 0,
+  };
+}
+
 /**
  * True iff the entitlement is a free/trial tier. Conservative & explicit: only
  * a NON-NULL `trial_ends_at` counts as trialing. Absent/null ⇒ treat as paid

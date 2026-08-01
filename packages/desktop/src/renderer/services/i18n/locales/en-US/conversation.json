@@ -623,7 +623,10 @@
     "lockedHint": "MAX is available on a paid plan or with purchased credits.",
     "lockedEngagedHint": "MAX stays remembered for you, but it runs again only on a paid plan or with purchased credits.",
     "checkingHint": "Checking your entitlement",
-    "upgrade": "Unlock MAX"
+    "upgrade": "Unlock MAX",
+    "intentHeldNotice": "Your choice is remembered and will be applied as soon as your entitlement is confirmed.",
+    "intentRefusedNotice": "MAX stays locked — it runs on a paid plan or with purchased credits.",
+    "noticeDismiss": "Got it"
   },
   "eveControl": {
     "open": "Open EVE controls",

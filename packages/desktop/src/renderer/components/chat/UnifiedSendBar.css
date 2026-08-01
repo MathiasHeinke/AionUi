@@ -370,6 +370,7 @@
  *      overrode away to nothing.
  * ------------------------------------------------------------------------ */
 .unified-send-bar .eve-max-toggle-anchor {
+  position: relative; /* the containing block for the intent notice at the bottom */
   height: var(--eve-composer-control-size);
   flex: 0 0 auto;
 }
@@ -500,4 +501,77 @@
   .unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'] {
     transition: none !important;
   }
+
+  /* The intent notice never animates in the first place; this states it so a later
+     edit cannot add motion to a live region without deleting a rule on purpose. */
+  .unified-send-bar .eve-max-notice {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * THE INTENT NOTICE — the rendered answer to a click the hook could not obey.
+ *
+ * WHY IT EXISTS: `intentRefused` / `intentPending` had no rendered consumer, so a
+ * MAX click on an unentitled seat resolved to NOTHING the user could see. This is
+ * that answer, and it is deliberately the quietest shape that still counts as one:
+ *   - NOT a modal (it interrupts nothing and steals no focus),
+ *   - NOT a toast (it does not leave before it is read),
+ *   - NOT the tooltip (that needs hover, which a click does not imply).
+ *
+ * NEUTRAL, NOT ALARMING. It uses the popup surface plus the primary text token,
+ * i.e. the theme's highest-contrast text pair (Arco text-1 on bg-popup is far past
+ * the 7:1 AAA floor for normal text in both themes) — no accent wash, no red, no
+ * glow, and no animation at all, so there is nothing for prefers-reduced-motion to
+ * have to switch off.
+ *
+ * OUT OF FLOW ON PURPOSE. It is absolutely positioned above the pill, so a send
+ * bar that grows a sentence does not reflow the composer's single row. The anchor
+ * carries `position: relative` for it.
+ *
+ * NAMING: the class deliberately does NOT contain `eve-max-toggle`. That substring
+ * is what EveMaxToggle.dom.test.tsx's R4 sweep collects in order to require every
+ * MAX pill rule to match a rendered DISABLED button — and a rule for a
+ * conditionally-rendered sibling would fail that sweep for the wrong reason.
+ * ------------------------------------------------------------------------ */
+.unified-send-bar .eve-max-notice {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 4;
+  display: flex;
+  max-width: 280px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-2);
+  border-radius: 10px;
+  background: var(--color-bg-popup);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 14%);
+  color: var(--color-text-1);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+}
+
+.unified-send-bar .eve-max-notice__text {
+  color: var(--color-text-1);
+}
+
+.unified-send-bar .eve-max-notice__actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+/* The two actions are Arco text buttons; only their metrics are re-stated so they
+   sit inside a 12px note instead of inheriting the send bar's pill sizing. */
+.unified-send-bar .eve-max-notice__action {
+  height: auto !important;
+  padding: 2px 6px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
 }

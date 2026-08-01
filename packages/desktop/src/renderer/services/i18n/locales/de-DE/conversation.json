@@ -599,7 +599,10 @@
     "lockedHint": "MAX ist im bezahlten Tarif oder mit gekauften Credits verfügbar.",
     "lockedEngagedHint": "MAX bleibt für dich gemerkt, läuft aber erst wieder mit bezahltem Tarif oder gekauften Credits.",
     "checkingHint": "Berechtigung wird geprüft",
-    "upgrade": "MAX freischalten"
+    "upgrade": "MAX freischalten",
+    "intentHeldNotice": "Deine Auswahl ist gemerkt und wird übernommen, sobald die Berechtigung geprüft ist.",
+    "intentRefusedNotice": "MAX bleibt gesperrt — er läuft im bezahlten Tarif oder mit gekauften Credits.",
+    "noticeDismiss": "Verstanden"
   },
   "eveControl": {
     "open": "EVE-Steuerung öffnen",
