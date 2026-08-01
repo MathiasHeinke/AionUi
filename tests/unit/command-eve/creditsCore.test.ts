@@ -37,11 +37,11 @@ import {
   selectDefaultPackIndex,
   shouldForceDayZeroOnboarding,
   shouldSurfaceQuotaWall,
-  showsFreeActionMeter,
   validateSpendCapEur,
   type CreditPack,
   type CreditsStatus,
 } from '@/common/config/creditsCore';
+import * as creditsCoreModule from '@/common/config/creditsCore';
 
 // NEW server billing model: the Starter grant is 60,000 credits (1 credit = 0.1 ct).
 const STARTER_GRANT = 60_000;
@@ -83,9 +83,12 @@ describe('buildCreditMeterModel — allowance used fraction', () => {
     expect(m.allowanceUsedFraction).toBe(1);
   });
 
-  it('free tier meters ACTIONS against the free cap, not credits', () => {
-    // 1.6.2: the action metering owns the CREDIT-LESS free seat (a free seat
-    // holding a balance is tank-referenced now) — zero the balances explicitly.
+  it('INVERTED: a credit-less seat reads as an EMPTY TANK, never as free actions used', () => {
+    // This case used to assert `allowanceUsedFraction === 34/40` — the daily
+    // ACTION counter driving the credit bar. That number is what let the UI say
+    // "34 / 40 Gratis-Aktionen heute": a free allowance the product does not sell.
+    // Every cloud turn is credit-metered (R1), so a seat with nothing left is at
+    // 100% of what it had, and the anti-abuse counters do not enter the meter.
     const m = buildCreditMeterModel(
       status({
         tier: 'free',
@@ -96,7 +99,23 @@ describe('buildCreditMeterModel — allowance used fraction', () => {
       })
     );
     expect(m.isFree).toBe(true);
-    expect(m.allowanceUsedFraction).toBeCloseTo(34 / 40, 5);
+    expect(m.allowanceUsedFraction).toBe(1);
+    // The counters are NOT on the view-model at all — a value the view cannot see
+    // is a promise it cannot make.
+    expect(m).not.toHaveProperty('freeActionsUsed');
+    expect(m).not.toHaveProperty('freeCap');
+    // ...and the fraction is INDEPENDENT of them: moving the counter must not move
+    // the bar, which is the property the deleted branch violated.
+    const other = buildCreditMeterModel(
+      status({
+        tier: 'free',
+        included_allowance_credits_remaining: 0,
+        purchased_credits_remaining: 0,
+        free_actions_used_this_period: 0,
+        free_cap: 40,
+      })
+    );
+    expect(other.allowanceUsedFraction).toBe(m.allowanceUsedFraction);
   });
 
   it('totalRemaining sums allowance + purchased', () => {
@@ -120,17 +139,22 @@ describe('isNearAllowanceWall — the ~85% trigger', () => {
     expect(isNearAllowanceWall(m)).toBe(false);
   });
 
-  it('respects the free-tier action cap', () => {
-    const near = buildCreditMeterModel(
-      status({
-        tier: 'free',
-        included_allowance_credits_remaining: 0,
-        purchased_credits_remaining: 0,
-        free_actions_used_this_period: 38,
-        free_cap: 40,
-      })
-    );
-    expect(isNearAllowanceWall(near)).toBe(true);
+  it('warns a credit-less seat on the EMPTY TANK, not on an action cap', () => {
+    // Same seat, same verdict — reached honestly. The wall used to have a second
+    // rule that compared `free_actions_used / free_cap`; there is no free action
+    // budget to be near the end of.
+    for (const used of [0, 38, 40]) {
+      const near = buildCreditMeterModel(
+        status({
+          tier: 'free',
+          included_allowance_credits_remaining: 0,
+          purchased_credits_remaining: 0,
+          free_actions_used_this_period: used,
+          free_cap: 40,
+        })
+      );
+      expect(isNearAllowanceWall(near), `action counter ${used} must not move the wall`).toBe(true);
+    }
   });
 });
 
@@ -459,11 +483,16 @@ describe('detectDailyCapReached — the free 429 daily-cap wall (v1.6.x)', () =>
 });
 
 // ---------------------------------------------------------------------------
-// 1.6.2 — showsFreeActionMeter: free WITH balance renders the TANK
+// THERE IS ONE METER (1.820.1). `showsFreeActionMeter` — the switch that routed a
+// credit-less seat onto a second, action-counting view — is DELETED, not made to
+// return false: a dormant free-lane branch is a live one after the next refactor.
 // ---------------------------------------------------------------------------
 
-describe('1.6.2 — showsFreeActionMeter (free seat with a balance shows the tank)', () => {
-  it('genuinely credit-less free seat → free action view', () => {
+describe('one meter for every seat — the free-action view is gone', () => {
+  it('the credit-less seat is still IDENTIFIABLE, it just has no second view to route to', () => {
+    // `isFree` survives because "this tank is empty and this seat has no plan" is
+    // a true fact a surface may need (the 429 wall gates on it). What is gone is
+    // the parallel meter it used to select.
     const m = buildCreditMeterModel(
       status({
         tier: 'free',
@@ -474,23 +503,27 @@ describe('1.6.2 — showsFreeActionMeter (free seat with a balance shows the tan
       })
     );
     expect(m.isFree).toBe(true);
-    expect(showsFreeActionMeter(m)).toBe(true);
+    expect(m.totalRemaining).toBe(0);
+    expect(m.allowanceUsedFraction).toBe(1);
   });
 
-  it('free seat HOLDING purchased credits (M6 pack / manual grant) → non-free tank view, never the action meter', () => {
+  it('free seat HOLDING purchased credits (M6 pack / manual grant) → the tank, unchanged', () => {
     // The live incident 2026-07-03: tier resolved 'free' while 35k purchased
-    // credits were on the balance — every surface hid the paid-for tank.
+    // credits were on the balance — every surface hid the paid-for tank. That
+    // behaviour is preserved: this seat is NOT `isFree` and reads its real tank.
     const m = buildCreditMeterModel(
       status({ tier: 'free', included_allowance_credits_remaining: 0, purchased_credits_remaining: 35_516 })
     );
     expect(m.tier).toBe('starter');
     expect(m.isFree).toBe(false);
-    expect(showsFreeActionMeter(m)).toBe(false);
+    expect(m.totalRemaining).toBe(35_516);
   });
 
-  it('paid tiers never show the free action view', () => {
-    const m = buildCreditMeterModel(status({ tier: 'starter' }));
-    expect(showsFreeActionMeter(m)).toBe(false);
+  it('the free-action predicate is not exported any more — the branch cannot come back by import', () => {
+    // A structural assertion on the MODULE, not on a value: if someone reinstates
+    // the switch, this names the reason rather than leaving a behaviour test to
+    // fail obscurely somewhere downstream.
+    expect(Object.keys(creditsCoreModule)).not.toContain('showsFreeActionMeter');
   });
 });
 
@@ -511,7 +544,9 @@ describe('1.6.2 — tank-referenced fraction + wall for free WITH balance (revie
     expect(isNearAllowanceWall(m)).toBe(false);
   });
 
-  it('credit-less free seat keeps the action-based fraction + wall', () => {
+  it('INVERTED: a credit-less seat is at 1, not at its action ratio', () => {
+    // Was `toBeCloseTo(0.9)` — 90 of 100 daily actions. The bar now reports the
+    // only thing that is true: the tank is empty.
     const m = buildCreditMeterModel(
       status({
         tier: 'free',
@@ -521,7 +556,7 @@ describe('1.6.2 — tank-referenced fraction + wall for free WITH balance (revie
         free_cap: 100,
       })
     );
-    expect(m.allowanceUsedFraction).toBeCloseTo(0.9, 5);
+    expect(m.allowanceUsedFraction).toBe(1);
     expect(isNearAllowanceWall(m)).toBe(true);
   });
 

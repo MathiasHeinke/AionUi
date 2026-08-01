@@ -532,10 +532,12 @@ describe('commandEveActiveModeLabel — honest lane self-description (cloud abst
     // "Stufe"/"level"/"tier", no rung names, and no unverifiable capability
     // claim about context size (the server owns the model and its window).
     const LADDER = /Stufe|level|tier|Standard|Sehr hoch|Maximum|Ultra|Kontext|context/i;
-    const deMax = commandEveActiveModeLabel(eveTierValue('eve-max'), 'de-DE');
-    const enMax = commandEveActiveModeLabel(eveTierValue('eve-max'), 'en-US');
-    const deRoutine = commandEveActiveModeLabel(eveTierValue('eve-standard'), 'de-DE');
-    const enRoutine = commandEveActiveModeLabel(eveTierValue('eve-standard'), 'en-US');
+    // ENTITLED, and said so explicitly: "MAX aktiv" is a money claim, so it is
+    // only painted for a seat whose entitlement is positively KNOWN (1.820.1).
+    const deMax = commandEveActiveModeLabel(eveTierValue('eve-max'), 'de-DE', { maxEntitled: true });
+    const enMax = commandEveActiveModeLabel(eveTierValue('eve-max'), 'en-US', { maxEntitled: true });
+    const deRoutine = commandEveActiveModeLabel(eveTierValue('eve-standard'), 'de-DE', { maxEntitled: true });
+    const enRoutine = commandEveActiveModeLabel(eveTierValue('eve-standard'), 'en-US', { maxEntitled: true });
 
     expect(deMax).toBe('EVE-Cloud, MAX aktiv');
     expect(enMax).toBe('EVE Cloud, MAX on');
@@ -551,10 +553,30 @@ describe('commandEveActiveModeLabel — honest lane self-description (cloud abst
   });
 
   it('a legacy rung self-describes as the lane it will ACTUALLY run on', () => {
-    expect(commandEveActiveModeLabel(eveTierValue('eve-ultra'), 'de-DE')).toBe('EVE-Cloud, MAX aktiv');
-    expect(commandEveActiveModeLabel(eveTierValue('eve-xhigh'), 'en-US')).toBe('EVE Cloud, MAX on');
+    const ENTITLED = { maxEntitled: true };
+    expect(commandEveActiveModeLabel(eveTierValue('eve-ultra'), 'de-DE', ENTITLED)).toBe('EVE-Cloud, MAX aktiv');
+    expect(commandEveActiveModeLabel(eveTierValue('eve-xhigh'), 'en-US', ENTITLED)).toBe('EVE Cloud, MAX on');
     // eve-high migrates DOWN, so it must not claim MAX.
-    expect(commandEveActiveModeLabel(eveTierValue('eve-high'), 'de-DE')).toBe('EVE-Cloud');
+    expect(commandEveActiveModeLabel(eveTierValue('eve-high'), 'de-DE', ENTITLED)).toBe('EVE-Cloud');
+  });
+
+  it('NEVER says "MAX aktiv" on unknown or refused authority — this string is EVE s own mouth', () => {
+    // THE PAINT HALF of the 1.820.1 split. This label goes into EVE's SYSTEM
+    // PROMPT, so a wrong "MAX aktiv" is EVE telling the user, unprompted, that
+    // they are on a lane nobody proved they bought. Only a POSITIVE, KNOWN
+    // entitlement licenses the claim; unknown and refused both say only "cloud".
+    for (const unproven of [{}, { maxEntitled: undefined }, { maxEntitled: false }, undefined]) {
+      expect(commandEveActiveModeLabel(eveTierValue('eve-max'), 'de-DE', unproven)).toBe('EVE-Cloud');
+      expect(commandEveActiveModeLabel(eveTierValue('eve-max'), 'en-US', unproven)).toBe('EVE Cloud');
+      // ...and a legacy rung that MIGRATES to MAX may not sneak the claim in.
+      expect(commandEveActiveModeLabel(eveTierValue('eve-ultra'), 'de-DE', unproven)).toBe('EVE-Cloud');
+    }
+    // A FORGOTTEN argument must under-claim, not over-claim: the default is unknown.
+    expect(commandEveActiveModeLabel(eveTierValue('eve-max'), 'de-DE')).toBe('EVE-Cloud');
+    // Still not SHUT: proven entitlement paints it.
+    expect(commandEveActiveModeLabel(eveTierValue('eve-max'), 'de-DE', { maxEntitled: true })).toBe(
+      'EVE-Cloud, MAX aktiv'
+    );
   });
 
   it('falls back to "nicht verifiziert" / "not verified" for an unknown/absent selection', () => {
@@ -960,11 +982,28 @@ describe('eveInferenceCore — the non-brick clamp (spec 2.3)', () => {
     expect(resolveEffectiveWireTierFromSelection(max, { maxEntitled: false })).not.toBeUndefined();
   });
 
-  it('does NOT clamp when entitlement is unknown — guessing would re-open the silent-downgrade bug', () => {
+  it('unknown entitlement still SENDS max — and, INVERTED, never PAINTS it', () => {
+    // THIS CASE USED TO ENCODE HALF A CONTRACT AND CALL IT THE WHOLE ONE. It
+    // asserted `maxEntitled: undefined -> 'max'` and stopped there, while eleven
+    // describes away a sibling test asserted the exact opposite ("fails CLOSED:
+    // absent/null/unknown entitlement locks MAX"). Both halves shipped. The
+    // resolution is not to pick a winner — it is that SEND and PAINT are
+    // different questions:
+    //
+    //   SEND  stays permissive. The server is the binding gate and answers an
+    //         unfunded MAX with its upsell; guessing "unentitled" from a flag we
+    //         never read would silently downgrade a PAYING seat.
+    //   PAINT fails closed. Showing "MAX" is a money claim to the user's face and
+    //         needs POSITIVE, KNOWN authority — the same rule hasEveMaxAccess
+    //         already applies to the picker row.
     const max = eveTierValue('eve-max');
-    expect(resolveEffectiveWireTierFromSelection(max, {})).toBe('max');
-    expect(resolveEffectiveWireTierFromSelection(max, { maxEntitled: undefined })).toBe('max');
+    for (const unknown of [{}, { maxEntitled: undefined }]) {
+      expect(resolveEffectiveWireTierFromSelection(max, unknown), 'SEND: unknown must not downgrade').toBe('max');
+      expect(resolveCommandEveActiveLane(max, unknown).wireTier, 'PAINT: unknown must not claim MAX').toBe('standard');
+      expect(commandEveActiveModeLabel(max, 'de-DE', unknown)).toBe('EVE-Cloud');
+    }
     expect(resolveEffectiveWireTierFromSelection(max)).toBe('max');
+    expect(resolveCommandEveActiveLane(max).wireTier).toBe('standard');
   });
 
   it('lets MAX travel for an entitled seat, and never clamps the Standard floor', () => {
@@ -999,13 +1038,47 @@ describe('eveInferenceCore — the non-brick clamp (spec 2.3)', () => {
 describe('eveInferenceCore — honest active-lane self-description (Task #50 port)', () => {
   const SHIM = 'command-eve-gemma4-e4b-64k';
 
-  it('resolves an EVE cloud selection to its tier (shim-free)', () => {
-    expect(resolveCommandEveActiveLane(eveTierValue('eve-max'))).toEqual({
+  it('resolves an EVE cloud selection to its tier (shim-free) for a PROVEN-entitled seat', () => {
+    expect(resolveCommandEveActiveLane(eveTierValue('eve-max'), { maxEntitled: true })).toEqual({
       kind: 'eve',
       tierId: 'eve-max',
       tierLabel: 'MAX',
       wireTier: 'max',
     });
+  });
+
+  it('PAINT FAILS CLOSED: an unproven seat resolves a persisted MAX to Standard', () => {
+    // THE 1.820.1 BLOCKER. The persisted selection is INTENT; it is not proof the
+    // seat is funded. This resolver feeds every descriptive surface (the lane
+    // line, the Betriebsmodus line, and the "Maximum-Arbeitsprofil" capability
+    // paragraph), so an unproven MAX here becomes EVE asserting the strong lane to
+    // the user's face while the picker — reading the SAME unknown — locks it.
+    for (const unproven of [{}, { maxEntitled: undefined }, { maxEntitled: false }, undefined]) {
+      const lane = resolveCommandEveActiveLane(eveTierValue('eve-max'), unproven);
+      expect(lane).toEqual({ kind: 'eve', tierId: 'eve-standard', tierLabel: 'Standard', wireTier: 'standard' });
+      // Legacy rungs migrate to MAX first, so they must be clamped too — otherwise
+      // the fail-closed rule has a hole shaped like an old persisted value.
+      expect(resolveCommandEveActiveLane(eveTierValue('eve-ultra'), unproven).wireTier).toBe('standard');
+      expect(resolveCommandEveActiveLane(eveTierValue('eve-xhigh'), unproven).wireTier).toBe('standard');
+    }
+    // A FORGOTTEN argument under-claims rather than over-claims — the default is unknown.
+    expect(resolveCommandEveActiveLane(eveTierValue('eve-max')).wireTier).toBe('standard');
+  });
+
+  it('THE PAINT/SEND SPLIT, stated in one place: unknown may SEND max and may NOT PAINT it', () => {
+    // These two are the SAME input answered deliberately differently, and asserting
+    // them together is what keeps a future "consistency" cleanup from collapsing
+    // them into one rule and re-opening whichever half it drops.
+    const max = eveTierValue('eve-max');
+    for (const unknown of [{}, { maxEntitled: undefined }]) {
+      expect(resolveEffectiveWireTierFromSelection(max, unknown), 'SEND: the server stays the gate').toBe('max');
+      expect(resolveCommandEveActiveLane(max, unknown).wireTier, 'PAINT: needs positive authority').toBe('standard');
+    }
+    // PROVEN entitled: both say max. PROVEN unentitled: both say standard.
+    expect(resolveEffectiveWireTierFromSelection(max, { maxEntitled: true })).toBe('max');
+    expect(resolveCommandEveActiveLane(max, { maxEntitled: true }).wireTier).toBe('max');
+    expect(resolveEffectiveWireTierFromSelection(max, { maxEntitled: false })).toBe('standard');
+    expect(resolveCommandEveActiveLane(max, { maxEntitled: false }).wireTier).toBe('standard');
   });
 
   it('resolves a local selection to the real local model label', () => {
@@ -1022,13 +1095,13 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
   });
 
   it('describes EVE Cloud MAX by its STUFE, never the shim model (DE + EN)', () => {
-    const de = describeCommandEveActiveLane(eveTierValue('eve-max'), 'de-DE');
+    const de = describeCommandEveActiveLane(eveTierValue('eve-max'), 'de-DE', { maxEntitled: true });
     expect(de).toBe('EVE Cloud, MAX-Stufe (maximales Reasoning, starke Agentenarbeit)');
     expect(de).not.toContain(SHIM);
     expect(de.toLowerCase()).not.toContain('ollama');
     expect(de.toLowerCase()).not.toContain('lokal');
 
-    const en = describeCommandEveActiveLane(eveTierValue('eve-max'), 'en-US');
+    const en = describeCommandEveActiveLane(eveTierValue('eve-max'), 'en-US', { maxEntitled: true });
     expect(en).toBe('EVE Cloud, MAX tier (maximum reasoning, strong agent work)');
     expect(en).not.toContain(SHIM);
     expect(en.toLowerCase()).not.toContain('local');
@@ -1038,17 +1111,20 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
     // Describing the lane the user WILL be served — rather than the one they once
     // picked — is the whole point of migrating at parse level instead of only on
     // the wire. Anything else is a sentence that lies about the next turn.
+    const ENTITLED = { maxEntitled: true };
     for (const legacy of ['eve-ultra', 'eve-xhigh'] as const) {
-      expect(describeCommandEveActiveLane(eveTierValue(legacy), 'de-DE')).toBe(
+      expect(describeCommandEveActiveLane(eveTierValue(legacy), 'de-DE', ENTITLED)).toBe(
         'EVE Cloud, MAX-Stufe (maximales Reasoning, starke Agentenarbeit)'
       );
-      expect(describeCommandEveActiveLane(eveTierValue(legacy), 'en-US')).toBe(
+      expect(describeCommandEveActiveLane(eveTierValue(legacy), 'en-US', ENTITLED)).toBe(
         'EVE Cloud, MAX tier (maximum reasoning, strong agent work)'
       );
+      // ...and on an UNPROVEN seat the very same legacy value describes Standard.
+      expect(describeCommandEveActiveLane(eveTierValue(legacy), 'de-DE')).toContain('Standard-Stufe');
     }
-    expect(describeCommandEveActiveLane(eveTierValue('eve-high'), 'de-DE')).toContain('Standard-Stufe');
+    expect(describeCommandEveActiveLane(eveTierValue('eve-high'), 'de-DE', ENTITLED)).toContain('Standard-Stufe');
     // No provider slug in any of it.
-    expect(describeCommandEveActiveLane(eveTierValue('eve-ultra'), 'de-DE')).not.toContain('/');
+    expect(describeCommandEveActiveLane(eveTierValue('eve-ultra'), 'de-DE', ENTITLED)).not.toContain('/');
   });
 
   it('describes a local lane by its honest model name', () => {
@@ -1063,10 +1139,14 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
   it('NEVER surfaces the shim model id on ANY EVE cloud tier', () => {
     for (const tier of ['eve-standard', 'eve-high', 'eve-xhigh', 'eve-max', 'eve-ultra'] as const) {
       for (const locale of ['de-DE', 'en-US'] as const) {
-        const desc = describeCommandEveActiveLane(eveTierValue(tier), locale);
-        expect(desc).not.toContain(SHIM);
-        expect(desc.toLowerCase()).not.toContain('ollama');
-        expect(desc).toContain('EVE Cloud');
+        // BOTH paint authorities: the fail-closed clamp must not become a way to
+        // leak the shim id through the Standard branch it falls back to.
+        for (const seat of [{ maxEntitled: true }, { maxEntitled: false }, {}]) {
+          const desc = describeCommandEveActiveLane(eveTierValue(tier), locale, seat);
+          expect(desc).not.toContain(SHIM);
+          expect(desc.toLowerCase()).not.toContain('ollama');
+          expect(desc).toContain('EVE Cloud');
+        }
       }
     }
   });
@@ -1185,6 +1265,38 @@ describe('MAX unlock — SERVER/CLIENT PARITY (CAO round 2, finding 1)', () => {
     expect(isPaidCreditsTier('starter')).toBe(true);
     expect(isPaidPlanForSeat('starter', 'pilot')).toBe(false);
     expect(isPaidPlanForSeat('starter', 'standard')).toBe(true);
+  });
+
+  it('an ABSENT signed edition is NOT a paid plan — the guard used to skip itself entirely', () => {
+    // THE BLOCKER: the edition guard only ran for a NON-EMPTY string
+    //   `typeof edition === 'string' && edition.length > 0 && !isPaidSeatEditionName(edition)`
+    // so undefined / null / '' fell straight through to the TIER allowlist and the
+    // derived tier decided a money question alone. A seat with NO signed licence
+    // reporting tier 'starter' (which is what a comped allowance derives to) then
+    // unlocked MAX in the picker while the server — which judges the LICENCE —
+    // answers 402. The same hole the edition closed, reached by omission (R4).
+    for (const missing of [undefined, null, '']) {
+      expect(isPaidPlanForSeat('starter', missing), 'an unsigned claim is no authority').toBe(false);
+      // ...asserted through the surface the user actually sees, not the predicate
+      // alone: the picker row is where the false promise would be visible.
+      const unsigned = {
+        trial_ends_at: null,
+        has_paid_seat: false,
+        has_paid_plan: isPaidPlanForSeat('starter', missing),
+        has_purchased_credits: false,
+        has_metered_credits: true,
+        metered_credit_access_known: true,
+      };
+      const items = buildEvePickerGroups(unsigned).find((group) => group.kind === 'eve')?.items ?? [];
+      const max = items.find((item) => item.value === eveTierValue(EVE_INFERENCE_MAX_TIER_ID));
+      const standard = items.find((item) => item.value === eveTierValue(EVE_INFERENCE_DEFAULT_TIER_ID));
+      expect(max?.disabled, 'MAX must stay LOCKED without a signed paid edition').toBe(true);
+      expect(standard?.disabled, 'and Standard must still work — R1/R2: never bricked').toBe(false);
+    }
+    // Fails CLOSED, not SHUT: a KNOWN paid edition on a paid tier still unlocks, and
+    // a purchase still unlocks through its own disjunct with no edition at all.
+    expect(isPaidPlanForSeat('starter', 'standard')).toBe(true);
+    expect(hasEveMaxAccess({ trial_ends_at: null, has_purchased_credits: true })).toBe(true);
   });
 
   it('an ACTIVE but SPENT top-up locks MAX — the regression this finding is about', () => {

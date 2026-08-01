@@ -20,6 +20,7 @@ import { isCommandEveShimPublicError } from './shimPublicError';
 import { evaluateWorkerDispatch, type EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
 import { EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS } from '../../common/config/eveInferenceCore';
 import { scrubModelIdentifiers } from '../../common/config/modelIdentifierScrub';
+import { EVE_SERVED_MODEL_IDENTIFIERS } from '@/common/config/cloudModelIdentifiers';
 import { buildCommandEveContextPolicy, type CommandEveContextPolicy } from '../../common/config/eveContextPolicyCore';
 import {
   COMMAND_EVE_BONSAI_ACP_MODEL_ID,
@@ -493,19 +494,28 @@ export type CommandEvePromptProof = {
  * model output would corrupt the user's own content. Only the error path, whose
  * text this product did not author and cannot vouch for, is rewritten. A body
  * that is not JSON-shaped is scrubbed as plain text rather than trusted.
+ *
+ * IT WAS SHAPE-ONLY, AND THAT WAS HALF A SCRUB (1.820.1). Both calls below used to
+ * be `scrubModelIdentifiers(text)` with no deny-list, so the shape rule caught
+ * `moonshotai/kimi-k3` while the BARE `kimi-k3` — the form an upstream body uses
+ * when it names the model without its vendor prefix — went through untouched, on
+ * the single path in the product that carries the most upstream text. The
+ * renderer's list could not be imported here (main must never import renderer), so
+ * the contract moved to `common/config/cloudModelIdentifiers.ts` and both sides
+ * import it from there.
  */
 export function scrubUpstreamErrorBody(text: string, upstreamOk: boolean): string {
   if (upstreamOk || typeof text !== 'string' || text.length === 0) return text;
   try {
     const parsed = JSON.parse(text) as { error?: { message?: unknown } };
     if (parsed && typeof parsed === 'object' && typeof parsed.error?.message === 'string') {
-      parsed.error.message = scrubModelIdentifiers(parsed.error.message);
+      parsed.error.message = scrubModelIdentifiers(parsed.error.message, EVE_SERVED_MODEL_IDENTIFIERS);
       return JSON.stringify(parsed);
     }
   } catch {
     // Not JSON — fall through to the plain-text scrub below.
   }
-  return scrubModelIdentifiers(text);
+  return scrubModelIdentifiers(text, EVE_SERVED_MODEL_IDENTIFIERS);
 }
 
 export function buildEveCloudRoute(args: {
@@ -1506,11 +1516,19 @@ async function handleEveCloudCompletions(
 
     // Friendly daily-cap (429): the raw upstream body is a terse
     // "rate_limit"/"daily cap reached" JSON that surfaces in chat as a cold
-    // error. Rewrite it to a warm, operator-facing message that names WHY (the
-    // free tier's daily fair-use budget) and the way forward, WITHOUT inventing a
-    // cap number — if the function reported a concrete reset/limit we keep its
-    // text, otherwise a generic friendly line. Stays OpenAI-error-shaped so the
-    // chat renders message verbatim.
+    // error. Rewrite it to a warm, operator-facing message that names WHY and the
+    // way forward, WITHOUT inventing a cap number — if the function reported a
+    // concrete reset/limit we keep its text, otherwise a generic friendly line.
+    // Stays OpenAI-error-shaped so the chat renders message verbatim.
+    //
+    // IT IS A FAIR-USE CAP, NOT A FREE QUOTA (1.820.1). This line used to read
+    // "EVE hat ihr kostenloses Tageskontingent für heute erreicht … morgen läuft
+    // es automatisch wieder — oder du schaltest mehr Kontingent über die Credits
+    // frei." Three false claims in one sentence: there is no free quota (every
+    // cloud turn is credit-metered), tomorrow is not free, and buying credits does
+    // not lift a fair-use cap. The server's own comment on the cap it returns says
+    // it plainly: "Not a free allowance: every turn it lets through is still
+    // metered." The copy now says what is true and promises nothing.
     if (upstream.status === 429) {
       let upstreamMessage = '';
       try {
@@ -1521,10 +1539,12 @@ async function handleEveCloudCompletions(
       }
       // Scrubbed: the quoted upstream sentence is the exact place a provider
       // slug reaches the chat on a daily-cap turn.
-      const safeUpstreamMessage = scrubModelIdentifiers(upstreamMessage);
+      // Same deny-list as the body scrub — this quoted sentence is echoed into the
+      // chat verbatim, so shape-only would leak a bare model name here too.
+      const safeUpstreamMessage = scrubModelIdentifiers(upstreamMessage, EVE_SERVED_MODEL_IDENTIFIERS);
       const friendly =
-        'EVE hat ihr kostenloses Tageskontingent für heute erreicht. ' +
-        'Morgen läuft es automatisch wieder — oder du schaltest mehr Kontingent über die Credits frei.' +
+        'EVE hat für heute das Tageslimit dieses Zugangs erreicht (Fair-Use-Schutz). ' +
+        'Versuch es später noch einmal — Anfragen laufen wie immer über deine Credits.' +
         (safeUpstreamMessage ? ` (${safeUpstreamMessage})` : '');
       response.writeHead(429, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ error: { message: friendly, type: 'eve_daily_cap', code: 429 } }));
@@ -1560,7 +1580,7 @@ async function handleEveCloudCompletions(
  *
  *  - PICKER-INDEPENDENT: it NEVER calls options.eveRouting(), so it does not
  *    matter what tier the operator picked for their chat — the deriver always
- *    reaches the free lane (a local-tier picker would otherwise strand it).
+ *    reaches the metered cloud lane (a local-tier picker would otherwise strand it).
  *  - FREE-TIER FORCED: the wire tier is the literal HONCHO_DERIVER_FORCED_TIER
  *    ('standard'), set HERE, never read from a selection. An operator on eve-max
  *    can never make EVE's memory-derivation bill a paid tier (the money invariant).
@@ -2163,11 +2183,9 @@ async function handleArtifactCapabilityCall(
     body = await readBoundedJsonBody(request, ARTIFACT_CAPABILITY_MAX_BODY_BYTES);
   } catch (error) {
     const tooLarge = error instanceof Error && error.message === 'ARTIFACT_CAPABILITY_BODY_TOO_LARGE';
-    jsonResponse(
-      response,
-      tooLarge ? 413 : 400,
-      { error: { message: tooLarge ? 'Request body too large.' : 'Invalid JSON body.' } }
-    );
+    jsonResponse(response, tooLarge ? 413 : 400, {
+      error: { message: tooLarge ? 'Request body too large.' : 'Invalid JSON body.' },
+    });
     return;
   }
   const result = await options.artifactCapabilityCall(body);

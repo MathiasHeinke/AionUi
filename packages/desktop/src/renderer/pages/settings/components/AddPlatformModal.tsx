@@ -23,6 +23,8 @@ import {
   type PlatformConfig,
 } from '@/renderer/utils/model/modelPlatforms';
 import type { DeepLinkAddProviderDetail } from '@/renderer/hooks/system/useDeepLink';
+import { scrubErrorText, scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
+import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 
 /**
  * Protocol icon configurations
@@ -597,11 +599,12 @@ const AddPlatformModal = ModalHOC<{
             rules={[{ required: true }]}
             validateStatus={!isFullUrl && modelListState.error ? 'error' : 'success'}
             help={
-              !isFullUrl && modelListState.error instanceof Error
-                ? modelListState.error.message
-                : !isFullUrl && modelListState.error
-                  ? String(modelListState.error)
-                  : undefined
+              // The form's inline `help` is a RENDER SINK just as much as a toast:
+              // it puts the raw provider error under the field, verbatim. Scrubbed
+              // at the binding so the deny-listed slugs cannot reach it either way.
+              !isFullUrl && modelListState.error
+                ? scrubErrorText(modelListState.error, CLOUD_MODEL_IDENTIFIERS)
+                : undefined
             }
           >
             <Select
@@ -665,7 +668,11 @@ const AddPlatformModal = ModalHOC<{
                           // Update the model list state manually
                           void modelListState.mutate({ models }, false);
                         } catch (error: any) {
-                          message.error(error.message || 'Failed to fetch models');
+                          // Scrubbed AT THE BINDING: a model-list fetch failure is
+                          // exactly where the upstream names its own model.
+                          message.error(
+                            scrubModelIdentifiers(error.message || 'Failed to fetch models', CLOUD_MODEL_IDENTIFIERS)
+                          );
                         }
                         return;
                       }

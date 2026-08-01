@@ -130,8 +130,9 @@ export function isPaidSeatEditionName(edition: string | null | undefined): editi
  * later to UNLOCKED. Naming the editions keeps a future edition locked until
  * someone decides otherwise — the same direction the paid list fails in.
  *
- * `free` is deliberately ABSENT: the permanent free seat is explicitly limited to
- * the free lane with NO BYOK / local models / client seats (founder model
+ * `free` is deliberately ABSENT: the permanent free SEAT (a zero-euro seat, not a
+ * free LANE — its cloud turns are metered like everyone else's) carries NO BYOK /
+ * local models / client seats (founder model
  * 2026-06-30; mirrored server-side as FREE_SEAT_EXCLUDES in
  * `supabase/functions/_shared/client-seat-pricing-core.ts`).
  */
@@ -158,12 +159,29 @@ export function isByokSeatEditionName(edition: string | null | undefined): editi
  * 402. The tier cannot tell a comped allowance from a bought subscription; the
  * signed edition can, so when it is known it decides.
  *
- * BOTH halves are allowlists. An edition we do not recognise is NOT paid; an
- * ABSENT edition (gate flag off, or a status carrying no licence) falls back to
- * the tier allowlist rather than hard-locking a real subscriber.
+ * BOTH halves are allowlists AND BOTH must be satisfied. An edition we do not
+ * recognise is NOT paid, and — the 1.820.1 correction — an ABSENT edition is NOT
+ * paid either.
+ *
+ * WHY ABSENT USED TO PASS, AND WHY THAT WAS THE BUG. The guard previously only
+ * ran for a NON-EMPTY edition string, so `undefined` / `null` / `''` skipped it
+ * entirely and fell through to the tier allowlist alone. That is the same hole
+ * the edition was added to close, just reachable by omission instead of by a
+ * comped edition name: a seat carrying no signed licence but reporting a derived
+ * `starter` tier read as PAID here and unlocked MAX in the picker, while the
+ * server — which judges the LICENCE, never the derived tier — answers 402. An
+ * unsigned claim is not a weaker claim, it is NO authority (R4), and a money gate
+ * with no authority must fail CLOSED.
+ *
+ * THE COST, NAMED. A genuine subscriber whose status momentarily carries no
+ * edition now reads as unpaid HERE. That costs them the MAX row until the
+ * licence is readable — not the product: Standard is never gated, purchased
+ * credits unlock MAX through their own disjunct, and the non-brick clamp keeps
+ * an already-picked MAX sendable. Under-claiming for one read is recoverable;
+ * offering a lane the server refuses is not.
  */
 export function isPaidPlanForSeat(tier: string | null | undefined, edition: string | null | undefined): boolean {
-  if (typeof edition === 'string' && edition.length > 0 && !isPaidSeatEditionName(edition)) return false;
+  if (!isPaidSeatEditionName(edition)) return false;
   return isPaidCreditsTier(tier);
 }
 
@@ -181,9 +199,20 @@ export interface CreditsStatus {
   purchased_credits_remaining: number;
   /** User's hard spend cap in EUR cents (0/absent ⇒ no cap). */
   spend_cap_eur_cents: number;
-  /** Free-tier action counter this period (free models, no debit). */
+  /**
+   * ANTI-ABUSE COUNTERS — NOT A FREE ALLOWANCE, AND NEVER RENDERED AS ONE.
+   *
+   * The server still sends both fields, so the wire type still names them. What
+   * changed in 1.820.1 is that NOTHING in this app may present them as an
+   * entitlement: there is no free lane and no free daily quota. Every cloud turn
+   * is credit-metered — the server says so about its own counter
+   * (eve-inference-core: "Per-user daily ABUSE CAP … Not a free allowance: every
+   * turn it lets through is still metered").
+   *
+   * They are deliberately NOT copied into {@link CreditMeterModel}: a value the
+   * view-model cannot see is a promise the UI cannot accidentally make.
+   */
   free_actions_used_this_period: number;
-  /** Free-tier hard cap (anti-abuse; spec §2). */
   free_cap: number;
   /** ISO start of the current billing/allowance period. */
   period_start: string;
@@ -312,7 +341,12 @@ export function marginInvariantHolds(pack: CreditPack, rawEurPerCredit: number):
 
 export interface CreditMeterModel {
   tier: CreditsTier;
-  /** Free-tier path: show actions used / cap instead of credit allowance. */
+  /**
+   * A credit-LESS seat on the free tier. It is a statement about the TANK (there
+   * is nothing in it), not a lane: there is no free lane to route such a seat
+   * onto, and no daily free-action budget to render instead. It exists so a
+   * surface can say "empty" honestly rather than drawing a paid bar at 0.
+   */
   isFree: boolean;
   /** Allowance credits remaining (paid tiers). */
   allowanceRemaining: number;
@@ -322,9 +356,6 @@ export interface CreditMeterModel {
   totalRemaining: number;
   /** Fraction of the allowance ALREADY USED, in [0,1]. Drives the bar fill. */
   allowanceUsedFraction: number;
-  /** Free-tier actions used / cap (only meaningful when isFree). */
-  freeActionsUsed: number;
-  freeCap: number;
   /** The user's spend cap in EUR cents (0 ⇒ uncapped). */
   spendCapEurCents: number;
 }
@@ -373,9 +404,11 @@ export function buildCreditMeterModel(status: CreditsStatus): CreditMeterModel {
     const reference = TIER_ALLOWANCE_CREDITS.starter;
     allowanceUsedFraction = clamp01((reference - totalRemaining) / reference);
   } else if (isFree) {
-    // Free tier meters ACTIONS against the free cap, not credits.
-    const cap = status.free_cap > 0 ? status.free_cap : 1;
-    allowanceUsedFraction = clamp01(status.free_actions_used_this_period / cap);
+    // A credit-LESS seat has spent everything it has, so the bar is FULL — the
+    // honest reading of an empty tank. It used to meter free ACTIONS against
+    // `free_cap` here, which is how "X / Y Gratis-Aktionen heute" got a number to
+    // render; there is no such allowance, so there is no such fraction.
+    allowanceUsedFraction = 1;
   } else if (grant <= 0) {
     allowanceUsedFraction = 0;
   } else {
@@ -390,36 +423,25 @@ export function buildCreditMeterModel(status: CreditsStatus): CreditMeterModel {
     purchasedRemaining,
     totalRemaining,
     allowanceUsedFraction,
-    freeActionsUsed: Math.max(0, status.free_actions_used_this_period),
-    freeCap: Math.max(0, status.free_cap),
     spendCapEurCents: Math.max(0, status.spend_cap_eur_cents),
   };
 }
 
-/**
- * Whether a meter surface should render the FREE daily-action view. A free-tier
- * seat that HOLDS a credit balance (a recurring pack without a client seat — the
- * M6 free-seat ladder — or a manual grant) must render the credit TANK instead:
- * hiding a paid-for balance behind the action meter made it invisible on every
- * surface at once (live incident 2026-07-03, founder account). The free view
- * belongs only to the genuinely credit-less seat.
- */
-export function showsFreeActionMeter(model: CreditMeterModel): boolean {
-  return model.isFree && model.totalRemaining <= 0;
-}
+// `showsFreeActionMeter` IS GONE, DELIBERATELY (1.820.1). It was the switch that
+// routed a credit-less seat onto a second, parallel meter reading
+// "X / Y Gratis-Aktionen heute" — an entitlement the product does not sell.
+// Every cloud turn is credit-metered, so there is exactly ONE meter: the tank.
+// Deleting the predicate rather than making it return false removes the branch
+// its callers were shaped around; a dormant free-lane branch is a live one after
+// the next refactor.
 
 /** Spec §3 wall trigger: the allowance has crossed ~85% used. */
 export const WALL_THRESHOLD_FRACTION = 0.85;
 
 /** True iff the balance has crossed the ~85% wall threshold (display hint). */
 export function isNearAllowanceWall(model: CreditMeterModel): boolean {
-  // 1.6.2: the free ACTION wall only owns the credit-less free seat — a free seat
-  // rendering the tank (balance > 0) must warn on the TANK fraction, or a spent
-  // daily allowance would flag "Tank fast leer" beside a full tank.
-  if (showsFreeActionMeter(model)) {
-    if (model.freeCap <= 0) return false;
-    return model.freeActionsUsed / model.freeCap >= WALL_THRESHOLD_FRACTION;
-  }
+  // ONE rule for every seat. The free branch that used to live here measured
+  // daily ACTIONS against `free_cap`; there is no such allowance to be near.
   return model.allowanceUsedFraction >= WALL_THRESHOLD_FRACTION;
 }
 
@@ -508,16 +530,23 @@ export function detectQuotaExhausted(error: unknown): QuotaExhaustedBody | null 
 }
 
 // ---------------------------------------------------------------------------
-// The 429 free-DAILY-cap wall (v1.6.x). NOT the 402 credits wall: the free tier
-// has no credit tank — it has a per-day action allowance. When it is spent, the
-// shim rewrites the upstream 429 into a friendly chat error (type
-// 'eve_daily_cap'). Today that lands as a COLD chat bubble; this detector lets
-// the renderer surface a WARM wall instead. Founder doctrine (free tier): NEVER
-// a buy link — the allowance simply resets tomorrow.
+// The 429 DAILY-CAP wall. NOT the 402 credits wall, and — the 1.820.1 correction
+// — NOT a free allowance either.
+//
+// WHAT IT ACTUALLY IS. The server applies a per-user FAIR-USE cap and says in its
+// own source what that means: "Per-user daily ABUSE CAP (best-effort). Not a free
+// allowance: every turn it lets through is still metered." So the 429 means "this
+// access is paused until the cap rolls over", never "your free actions are used
+// up, come back tomorrow and they are free again". There is no free lane.
+//
+// The shim rewrites the upstream 429 into a friendly chat error (type
+// 'eve_daily_cap'); this detector lets the renderer surface a WARM wall instead of
+// a COLD bubble. NEVER a buy link — buying credits does not lift a fair-use cap,
+// so a purchase CTA here would take money for a thing it cannot deliver.
 // ---------------------------------------------------------------------------
 
 /**
- * Detect the free-tier daily-cap signal from a thrown/relayed inference error.
+ * Detect the fair-use daily-cap signal from a thrown/relayed inference error.
  * Prefers the structured `type: 'eve_daily_cap'` the shim sets; falls back to a
  * string sniff (the ACP layers can flatten the structured error to a string).
  * Returns null for anything else (a 402 credits-exhaust is handled by
@@ -544,6 +573,10 @@ export function detectDailyCapReached(error: unknown): { reached: true } | null 
   const message = typeof e.message === 'string' ? e.message : typeof error === 'string' ? error : '';
   if (/eve_daily_cap/i.test(message)) return { reached: true };
   const looks429 = status === 429 || /\b429\b/.test(message);
+  // `tageskontingent` is gone from the emitted copy (it claimed a free quota that
+  // does not exist) but stays in the sniff: an in-flight turn from an older build,
+  // or a flattened relayed string, must still land on the wall rather than a cold
+  // bubble. The sniff RECOGNISES old text; nothing in this app EMITS it.
   const looksCap = /tageskontingent|tageslimit|daily (cap|limit|allowance)/i.test(message);
   if (looks429 && looksCap) return { reached: true };
   return null;

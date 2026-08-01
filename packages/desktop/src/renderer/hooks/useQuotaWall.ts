@@ -20,12 +20,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import {
-  detectDailyCapReached,
-  detectQuotaExhausted,
-  showsFreeActionMeter,
-  type QuotaExhaustedBody,
-} from '@/common/config/creditsCore';
+import { detectDailyCapReached, detectQuotaExhausted, type QuotaExhaustedBody } from '@/common/config/creditsCore';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 
 export interface QuotaWallState {
@@ -36,14 +31,16 @@ export interface QuotaWallState {
   /** The persisted auto-reload preference (passed to the wall toggle). */
   autoReload: boolean;
   /**
-   * True when the FREE daily allowance was just spent (429 → 'eve_daily_cap').
-   * Distinct from `body` (402 credits): the free cap resets tomorrow, so its
-   * wall never sells anything — it just reassures. Surfaces only when in-flight.
+   * True when the fair-use DAILY CAP was hit (429 → 'eve_daily_cap'). It is an
+   * abuse ceiling, not a free allowance — the server's own note on the counter
+   * says "every turn it lets through is still metered".
+   * Distinct from `body` (402 credits): the cap rolls over on its own, and buying
+   * credits does not lift it, so its wall never sells anything. Surfaces only when in-flight.
    */
   dailyCapReached: boolean;
   /**
    * Feed a caught inference error. If it is a 402 quota_exhausted, the wall body
-   * is set; else if it is the free daily cap, the warm cap wall is set;
+   * is set; else if it is the fair-use daily cap, the warm cap wall is set;
    * otherwise it is a no-op so non-quota errors fall through. Returns true iff a
    * quota/cap signal was recognized (so the caller can suppress its own toast).
    */
@@ -59,39 +56,41 @@ export function useQuotaWall(): QuotaWallState {
   const [jobInFlight, setJobInFlight] = useState(false);
   const [dailyCapReached, setDailyCapReached] = useState(false);
   const [autoReload, setAutoReloadState] = useState<boolean>(false);
-  // The shim rewrites EVERY upstream 429 into the free-tier `eve_daily_cap`
-  // signal — tier-blind by design (it cannot see the server entitlement). So the
-  // free-cap WALL must only surface for a CONFIRMED free user; a paid user who
-  // hits a transient provider 429 must fall through to the normal error path,
-  // never a "your free daily quota is spent, come back tomorrow" modal.
-  // 1.6.2: "confirmed free" means the CREDIT-LESS free seat (showsFreeActionMeter),
-  // not tier==='free' — a free seat holding a purchased balance renders the tank
-  // on every meter surface and consumes credits server-side, so a 429 reaching it
-  // is a transient throttle, not the daily cap.
+  // The shim rewrites EVERY upstream 429 into the `eve_daily_cap` signal — it is
+  // tier-blind by design (it cannot see the server entitlement). So the WALL must
+  // only surface for a seat whose tank is genuinely empty; a seat with credits
+  // that hits a transient provider 429 must fall through to the normal error path
+  // rather than be told its day is over.
+  //
+  // `meter.isFree` IS that test, and is what `showsFreeActionMeter` computed: the
+  // model sets it only for a free-tier seat with NO credit balance
+  // (`effectiveTier === 'free' && !hasCreditTank`), so the deleted predicate was
+  // this flag with extra steps. Same seats, same behaviour, no free-lane
+  // vocabulary — there is no free daily quota for the wall to be about.
   const { meter } = useCreditsStatus();
-  const isFree = meter ? showsFreeActionMeter(meter) : false;
+  const emptyTank = meter ? meter.isFree : false;
 
   const reportInferenceError = useCallback(
     (error: unknown, opts: { jobInFlight: boolean }): boolean => {
-      // 402 credits-exhaust wins (it is the paid path); only if it is NOT that do
-      // we check the free daily cap.
+      // 402 credits-exhaust wins (it is the money path); only if it is NOT that do
+      // we check the fair-use daily cap.
       const parsed = detectQuotaExhausted(error);
       if (parsed) {
         setBody(parsed);
         setJobInFlight(opts.jobInFlight);
         return true;
       }
-      // Only honor the free daily-cap for a confirmed free user. For a paid /
-      // unknown tier, a rewritten `eve_daily_cap` 429 is a transient throttle —
-      // let it fall through to the normal error handling (cold bubble / retry).
-      if (isFree && detectDailyCapReached(error)) {
+      // Only honor the daily cap for a seat with nothing left in the tank. For a
+      // funded / unknown seat a rewritten `eve_daily_cap` 429 is a transient
+      // throttle — let it fall through to normal error handling (bubble / retry).
+      if (emptyTank && detectDailyCapReached(error)) {
         setDailyCapReached(true);
         setJobInFlight(opts.jobInFlight);
         return true;
       }
       return false;
     },
-    [isFree]
+    [emptyTank]
   );
 
   const closeWall = useCallback(() => {

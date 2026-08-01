@@ -315,6 +315,8 @@ describe('Command EVE assistant bootstrap core', () => {
           appVersion: '1.2.20',
           receipt: ollamaReceipt,
           inferenceSelection: 'command-eve-inference:eve-max',
+          // PROVEN entitled — the seed may only SAY "MAX" on positive authority.
+          maxEntitled: true,
         },
         'de-DE'
       );
@@ -334,6 +336,7 @@ describe('Command EVE assistant bootstrap core', () => {
           appVersion: '1.2.20',
           receipt: ollamaReceipt,
           inferenceSelection: 'command-eve-inference:eve-max',
+          maxEntitled: true,
         },
         'en-US'
       );
@@ -350,6 +353,7 @@ describe('Command EVE assistant bootstrap core', () => {
           appVersion: '1.8.14',
           receipt: ollamaReceipt,
           inferenceSelection: 'command-eve-inference:eve-ultra',
+          maxEntitled: true,
         },
         'de-DE'
       );
@@ -358,6 +362,7 @@ describe('Command EVE assistant bootstrap core', () => {
           appVersion: '1.8.14',
           receipt: ollamaReceipt,
           inferenceSelection: 'command-eve-inference:eve-ultra',
+          maxEntitled: true,
         },
         'en-US'
       );
@@ -376,12 +381,54 @@ describe('Command EVE assistant bootstrap core', () => {
           appVersion: '1.8.14',
           receipt: ollamaReceipt,
           inferenceSelection: 'command-eve-inference:eve-max',
+          maxEntitled: true,
         },
         'en-US'
       );
       // The profile moved here from the retired rung: the capability was real,
       // the level it hung on was not.
       expect(context).toContain('Maximum execution profile');
+    });
+
+    it('UNPROVEN funding: the seed never says MAX and never teaches the Maximum profile', () => {
+      // THE PAINT HALF OF THE 1.820.1 BLOCKER, at the surface it actually reaches.
+      // This context IS EVE's system prompt. A persisted MAX with the entitlement
+      // UNKNOWN used to produce all three MAX claims here — the lane line, the
+      // Betriebsmodus line, and the "Maximum-Arbeitsprofil" capability paragraph —
+      // while the picker, reading the same unknown, correctly locked the row.
+      //
+      // Three surfaces, one authority, asserted through the REAL prompt builder.
+      for (const unproven of [{}, { maxEntitled: undefined }, { maxEntitled: false }]) {
+        const de = buildCommandEveAssistantFirstRunContext(
+          {
+            appVersion: '1.8.14',
+            receipt: ollamaReceipt,
+            inferenceSelection: 'command-eve-inference:eve-max',
+            ...unproven,
+          },
+          'de-DE'
+        );
+        const en = buildCommandEveAssistantFirstRunContext(
+          {
+            appVersion: '1.8.14',
+            receipt: ollamaReceipt,
+            // A legacy rung migrates to MAX, so it must be clamped too.
+            inferenceSelection: 'command-eve-inference:eve-ultra',
+            ...unproven,
+          },
+          'en-US'
+        );
+
+        expect(de).not.toContain('MAX-Stufe');
+        expect(de).not.toContain('MAX aktiv');
+        expect(de).not.toContain('Maximum-Arbeitsprofil');
+        expect(de).toContain('Aktive Inferenz-Lane: EVE Cloud, Standard-Stufe');
+
+        expect(en).not.toContain('MAX tier');
+        expect(en).not.toContain('MAX on');
+        expect(en).not.toContain('Maximum execution profile');
+        expect(en).toContain('Active inference lane: EVE Cloud, Standard tier');
+      }
     });
 
     it('LOCAL selection → honestly names the local model (DE)', () => {

@@ -159,8 +159,10 @@ const AcpChat: React.FC<{
             onAutoReloadChange={messageState.quotaWall.setAutoReload}
             onClose={messageState.quotaWall.closeWall}
           />
-          {/* v1.6.x — the free-tier DAILY-cap wall (429 → 'eve_daily_cap'). Same
-              idle-suppression, but it never sells: the allowance resets tomorrow. */}
+          {/* The fair-use DAILY-cap wall (429 → 'eve_daily_cap'). Same
+              idle-suppression, and it never sells — not out of politeness, but
+              because buying credits does not lift a fair-use cap. It is an abuse
+              ceiling, NOT a free allowance: every turn it lets through is metered. */}
           <DailyCapWall
             reached={messageState.quotaWall.dailyCapReached}
             jobInFlight={messageState.quotaWall.jobInFlight}

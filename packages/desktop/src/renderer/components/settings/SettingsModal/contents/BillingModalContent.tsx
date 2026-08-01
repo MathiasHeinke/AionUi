@@ -34,7 +34,6 @@ import {
   CLIENT_SEAT_FROM_EUR,
   CREDIT_UNIT_EUR,
   DEFAULT_CREDIT_PACKS,
-  showsFreeActionMeter,
   validateSpendCapEur,
 } from '@/common/config/creditsCore';
 import { buildSeatUsageCardRows, currentUsageMonth, priorUsageMonth } from '@/common/config/seatUsageCore';
@@ -172,45 +171,28 @@ const BillingModalContent: React.FC = () => {
       >
         {meter ? (
           <div className='billing-settings__meter' data-testid='billing-settings-meter'>
-            {/* 1.6.2: free WITH balance renders the tank (showsFreeActionMeter). */}
-            {showsFreeActionMeter(meter) ? (
-              <>
-                <div className='billing-settings__meter-label'>
-                  {t('credits.settings.freeActions', {
-                    defaultValue: '{{used}} / {{cap}} free actions used',
-                    used: meter.freeActionsUsed,
-                    cap: meter.freeCap,
-                  })}
-                </div>
-                <Progress
-                  percent={meter.freeCap > 0 ? Math.round((meter.freeActionsUsed / meter.freeCap) * 100) : 0}
-                  showText={false}
-                />
-              </>
-            ) : (
-              <>
-                <div className='billing-settings__meter-label'>
-                  {t('credits.settings.allowanceUsedEur', {
-                    defaultValue: '{{pct}}% of allowance used · {{rem}} credits left (≈ {{eur}} €)',
-                    pct: Math.round(meter.allowanceUsedFraction * 100),
-                    rem: meter.totalRemaining,
-                    eur: (meter.totalRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
-                  })}
-                </div>
-                <Progress percent={Math.round(meter.allowanceUsedFraction * 100)} showText={false} />
-                <div className='billing-settings__meter-detail'>
-                  {t('credits.settings.purchasedRemaining', {
-                    defaultValue: '{{n}} purchased credits',
-                    n: meter.purchasedRemaining,
-                  })}
-                </div>
-                {/* v1.6 Slice 3 — the "Was ist ein Credit?" explainer: the PACK
+            {/* ONE meter for every seat (1.820.1): the free-ACTION view that used
+                to branch here promised a daily allowance that does not exist. */}
+            <div className='billing-settings__meter-label'>
+              {t('credits.settings.allowanceUsedEur', {
+                defaultValue: '{{pct}}% of allowance used · {{rem}} credits left (≈ {{eur}} €)',
+                pct: Math.round(meter.allowanceUsedFraction * 100),
+                rem: meter.totalRemaining,
+                eur: (meter.totalRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
+              })}
+            </div>
+            <Progress percent={Math.round(meter.allowanceUsedFraction * 100)} showText={false} />
+            <div className='billing-settings__meter-detail'>
+              {t('credits.settings.purchasedRemaining', {
+                defaultValue: '{{n}} purchased credits',
+                n: meter.purchasedRemaining,
+              })}
+            </div>
+            {/* v1.6 Slice 3 — the "Was ist ein Credit?" explainer: the PACK
                   price maps 1000:1 (model usage varies by tier factor ⇒ "≈"). */}
-                <div className='billing-settings__meter-detail' data-testid='billing-credit-explainer'>
-                  {t('credits.settings.explainer', { defaultValue: '1.000 Credits ≈ 1 € (Pack-Preis)' })}
-                </div>
-              </>
-            )}
+            <div className='billing-settings__meter-detail' data-testid='billing-credit-explainer'>
+              {t('credits.settings.explainer', { defaultValue: '1.000 Credits ≈ 1 € (Pack-Preis)' })}
+            </div>
           </div>
         ) : (
           <div className='eve-settings-notice eve-settings-inline-notice'>

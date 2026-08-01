@@ -8,6 +8,8 @@ import { LinkCloud } from '@icon-park/react';
 import { ipcBridge } from '@/common';
 import useModeModeList from '@renderer/hooks/agent/useModeModeList';
 import { getProviderLogo } from '@/renderer/utils/model/modelPlatforms';
+import { scrubErrorText, scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
+import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 
 /**
  * 供应商 Logo 组件
@@ -256,11 +258,12 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
               rules={[{ required: true }]}
               validateStatus={!isFullUrl && modelListState.error ? 'error' : undefined}
               help={
-                !isFullUrl && modelListState.error instanceof Error
-                  ? modelListState.error.message
-                  : !isFullUrl && modelListState.error
-                    ? String(modelListState.error)
-                    : undefined
+                // The inline `help` is a RENDER SINK just as much as a toast: it
+                // puts the raw provider error under the field, verbatim. Scrubbed
+                // at the binding so a deny-listed slug cannot reach it either way.
+                !isFullUrl && modelListState.error
+                  ? scrubErrorText(modelListState.error, CLOUD_MODEL_IDENTIFIERS)
+                  : undefined
               }
             >
               <Select
@@ -318,7 +321,11 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
                       // Update the model list state manually
                       void modelListState.mutate({ models }, false);
                     } catch (error: any) {
-                      message.error(error.message || 'Failed to fetch models');
+                      // Scrubbed AT THE BINDING: a model-list fetch failure is
+                      // exactly where the upstream names its own model.
+                      message.error(
+                        scrubModelIdentifiers(error.message || 'Failed to fetch models', CLOUD_MODEL_IDENTIFIERS)
+                      );
                     }
                     return;
                   }

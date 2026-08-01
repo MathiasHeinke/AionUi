@@ -21,6 +21,11 @@ import {
 } from '@/common/config/modelIdentifierScrub';
 import { scrubUpstreamErrorBody } from '@process/commandEve/ollamaOpenAiShim';
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
+import {
+  deriveCloudModelIdentifiers,
+  EVE_SERVED_MODEL_IDENTIFIERS,
+  EVE_SERVED_MODEL_IDS,
+} from '@/common/config/cloudModelIdentifiers';
 
 /**
  * Synthetic slugs in the SHAPE upstream uses. Deliberately not the real vendor
@@ -171,17 +176,68 @@ const GUARDED_FILES = [
   'packages/desktop/src/renderer/pages/conversation/platforms/acp/useCommandEveVisualPreparation.ts',
   'packages/desktop/src/renderer/pages/conversation/platforms/acp/useAcpInitialMessage.ts',
   'packages/desktop/src/renderer/pages/cron/ScheduledTasksPage/TaskDetailPage.tsx',
+  // 1.820.1 additions. EACH was verified to be RED before its fix and to be
+  // recognised by this analyzer with the file's OWN idioms — see the un-scrub
+  // probe below, which is what makes that claim a gate rather than a promise.
+  'packages/desktop/src/renderer/pages/settings/components/AddPlatformModal.tsx',
+  'packages/desktop/src/renderer/pages/settings/components/EditModeModal.tsx',
+  'packages/desktop/src/renderer/pages/guid/hooks/useGuidSend.ts',
 ] as const;
 
-/** The scrub wrappers. Text inside one of these calls is, by definition, safe. */
-const SCRUB_CALL = /\bscrub(?:ModelIdentifiers|ErrorText)\s*\(/g;
+// `conversationCreateError.ts` is DELIBERATELY NOT on that list, and the reason is
+// the anti-vacuity rule itself: it contains zero render sinks — it is the helper
+// nine callers render — so this analyzer would score sinkCount 0 and could only
+// ever pass vacuously. It is the CHOKE POINT (AgentSetupCard, TeamCreateModal, the
+// four useGuidSend catches, CreateTaskDialog, ChatConversation), so it is scrubbed
+// INSIDE and gated by a behavioural test below that feeds it a real leaking error
+// and reads the returned string. A text scan of a file with nothing to scan is not
+// a gate; running the function is.
+
+/**
+ * Files whose leak is a RENDER, not a CALL. The analyzer's sink list is call-shaped
+ * (`Message.error(`, `markSendFailed(` …), so a value rendered into a JSX attribute
+ * — `help={modelListState.error.message}` — was invisible to it. Both model modals
+ * leaked exactly that way ALONGSIDE their toast, and fixing only the toast would
+ * have turned them green with the form-`help` leak still standing: a vacuous pass
+ * bought by fixing the half the scanner could see.
+ */
+const JSX_ATTRIBUTE_SINK = /\b(?:help|content|description|title|tooltip|placeholder|errorMessage)\s*=\s*\{/g;
+
+/**
+ * The scrub wrappers. Text inside one of these calls is, by definition, safe.
+ *
+ * The two conversation-error helpers joined this set in 1.820.1 because they now
+ * scrub AT THEIR OWN CHOKE POINT rather than relying on nine callers to remember.
+ * That is a promotion from "raw producer" to "scrub boundary", and it is only
+ * honest while they really do scrub — which is why `conversationCreateError.ts`
+ * carries its own behavioural test at the bottom of this file. If someone removes
+ * the scrub inside the helper, that test reddens; if they were left in the
+ * producer list instead, every correct call site would read as a violation and the
+ * fix would be punished.
+ */
+const SCRUB_CALL =
+  /\b(?:scrub(?:ModelIdentifiers|ErrorText)|getConversationCreateErrorMessage|getConversationRuntimeWorkspaceErrorMessage)\s*\(/g;
+
+/**
+ * The subset of scrub calls that must ALSO carry the concrete deny-list. Only the
+ * DIRECT wrappers: they take the list as an argument, so omitting it is half a
+ * scrub (the shape rule catches `vendor/model`, the bare model name needs the
+ * list). The choke-point helpers take no such argument — they hold the list
+ * INSIDE — so demanding it at their call sites would fail every correct caller.
+ */
+const DENY_LIST_REQUIRED_SCRUB = /\bscrub(?:ModelIdentifiers|ErrorText)\s*\(/g;
 
 /** Every way these files obtain RAW upstream error text. */
 const RAW_PRODUCERS: readonly RegExp[] = [
-  /\bgetConversationRuntimeWorkspaceErrorMessage\s*\(/g,
   /\bparseError\s*\(/g,
   /\.\s*backendMessage\b/g,
   /\.\s*message\b/g,
+  // The BACKEND envelope's own field names. useGuidSend renders `ensureResult?.msg`
+  // and `warmedStatus?.model_warmup?.error` and `?.next_action` into a toast via i18n
+  // interpolation — raw backend text under three names the list did not know.
+  /\.\s*msg\b/g,
+  /\.\s*next_action\b/g,
+  /\bmodel_warmup\s*(?:\?\.|\.)\s*error\b/g,
   // `String(err)` as well as `String(error)` / `String(intentError)`: the cron
   // page names its caught value `err`, and a producer pattern that only knew the
   // longer spelling would have scanned that file and found nothing to guard.
@@ -190,11 +246,14 @@ const RAW_PRODUCERS: readonly RegExp[] = [
 
 /** Every call that puts text in front of the user (or into the chat log). */
 const RENDER_SINKS: readonly RegExp[] = [
-  /\b[Mm]essage\s*\.\s*(?:error|warning|info|success)\s*\(/g,
+  // `[A-Za-z_$]*` and not `\b`: a hook-bound toast (`mcpMessage.error(`) has no
+  // word boundary before the capital M, so `\b[Mm]essage` silently skipped it.
+  /[A-Za-z_$]*[Mm]essage\s*\.\s*(?:error|warning|info|success)\s*\(/g,
   /\bmarkSendFailed\s*\(/g,
   /\bbuildSendFailureError\s*\(/g,
   /\baddOrUpdateMessage(?:Ref\s*\.\s*current)?\s*\(/g,
   /\bresponseStream\s*\.\s*emit\s*\(/g,
+  JSX_ATTRIBUTE_SINK,
 ];
 
 /**
@@ -360,7 +419,9 @@ function analyseRenderSites(source: string): Analysis {
     rawBindings: [...raw],
     sinkCount: sinks.length,
     producerCount: producers.length,
-    scrubsWithoutDenyList: scrubs.filter((s) => !code.slice(s.start, s.end).includes('CLOUD_MODEL_IDENTIFIERS')).length,
+    scrubsWithoutDenyList: callSpans(code, DENY_LIST_REQUIRED_SCRUB).filter(
+      (s) => !code.slice(s.start, s.end).includes('CLOUD_MODEL_IDENTIFIERS')
+    ).length,
   };
 }
 
@@ -391,6 +452,29 @@ describe('the scrub is WIRED at every renderer site that renders upstream error 
     expect(analysis.findings, `unscrubbed render sites in ${rel}`).toEqual([]);
   });
 
+  it.each(GUARDED_FILES)('%s: DELETING its scrub turns it RED — the analyzer sees THIS file s idioms', (rel) => {
+    // THE ANTI-VACUITY GATE THAT ACTUALLY BINDS, and the reason it exists:
+    // `producerCount > 0` below is satisfied by ANY `.message` anywhere in the
+    // file — including a benign `suggestion.message` — so a file whose REAL leak
+    // uses a shape no pattern knows can score green on an unrelated match. Both
+    // model modals were one such file (their form-`help` render is a JSX
+    // attribute, not a call) and AionrsSendBox was another (`createResponse.msg`,
+    // invisible until `.msg` joined the producers, in a file already GUARDED and
+    // already GREEN).
+    //
+    // So instead of asking "did the scanner find SOMETHING", sabotage the file's
+    // OWN wiring and require the scanner to notice: strip the scrub wrappers from
+    // the real source and re-run. If un-scrubbing a guarded file produces NO
+    // findings, then the scrub it contains is not one this analyzer can see, and
+    // its green says nothing. A test that cannot fail when the wiring is deleted
+    // is not a gate.
+    const sabotaged = sources.get(rel)!.replace(/\bscrub(?:ModelIdentifiers|ErrorText)\s*\(/g, '__unscrubbedProbe(');
+    expect(
+      analyseRenderSites(sabotaged).findings.length,
+      `un-scrubbing ${rel} produced no findings: this analyzer cannot see the leak it is supposed to be guarding`
+    ).toBeGreaterThan(0);
+  });
+
   it.each(GUARDED_FILES)('%s is actually being scanned (the contract is not vacuous)', (rel) => {
     // A green scan of nothing is the failure mode this whole block exists to
     // avoid: if the sinks or the producers stop being recognised — a rename, a
@@ -419,6 +503,28 @@ describe('the scrub is WIRED at every renderer site that renders upstream error 
     // The shape scrub alone catches `vendor/model`. The BARE model name only goes
     // through CLOUD_MODEL_IDENTIFIERS, so a scrub call without it is half a scrub.
     expect(analyseRenderSites(sources.get(rel)!).scrubsWithoutDenyList).toBe(0);
+  });
+
+  it('THE CHOKE POINT: both conversation-error helpers scrub what they return', async () => {
+    // Not a text scan — the FUNCTION, run on a leaking error. These two are on the
+    // scrub-wrapper list above, which is only honest while this holds; nine call
+    // sites render their return value straight into a toast, so if the scrub
+    // inside them ever goes away, this is what says so.
+    const { getConversationCreateErrorMessage, getConversationRuntimeWorkspaceErrorMessage } =
+      await import('@/renderer/pages/conversation/utils/conversationCreateError');
+    const t = ((key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key) as never;
+
+    for (const helper of [getConversationCreateErrorMessage, getConversationRuntimeWorkspaceErrorMessage]) {
+      // (a) a thrown Error naming a provider/model pair, and (b) a backend
+      // envelope naming a BARE model — the two shapes the two halves of the scrub
+      // exist for. The bare name is the one the shape rule alone cannot catch.
+      const thrown = helper(new Error('upstream refused: deepseek/deepseek-v4-flash is over quota'), t);
+      expect(thrown).not.toContain('deepseek/deepseek-v4-flash');
+      expect(thrown).toContain(SCRUBBED_MODEL_PLACEHOLDER);
+
+      const fromBackend = helper({ backendMessage: 'model glm-5.2 unavailable', name: 'BackendHttpError' }, t);
+      expect(fromBackend.toLowerCase()).not.toContain('glm-5.2');
+    }
   });
 
   it('the shared send bar keeps the RAW reason for the CONSOLE and the scrubbed one for the toast', () => {
@@ -472,6 +578,98 @@ describe('CLOUD_MODEL_IDENTIFIERS — both the slug and the BARE model name', ()
       'Die Anfrage konnte nicht zugestellt werden.',
     ]) {
       expect(scrubModelIdentifiers(sentence, CLOUD_MODEL_IDENTIFIERS)).toBe(sentence);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// H + I — the COMMON-LAYER identifier contract.
+// ---------------------------------------------------------------------------
+
+describe('the process-side shim scrubs BARE model names, without importing renderer code', () => {
+  it('H: an upstream error naming the model WITHOUT its vendor prefix is scrubbed', () => {
+    // THE HOLE: `scrubUpstreamErrorBody` passed no deny-list, so the shape rule
+    // caught `moonshotai/kimi-k3` and the bare `kimi-k3` — the form an upstream
+    // body uses when it drops the vendor prefix — went through on the path that
+    // carries more upstream text than any other in the product.
+    for (const bare of ['kimi-k3', 'glm-5.2', 'deepseek-v4-pro', 'deepseek-v4-flash-0731']) {
+      const json = scrubUpstreamErrorBody(JSON.stringify({ error: { message: `${bare} is over capacity` } }), false);
+      expect(json, `bare ${bare} survived the JSON path`).not.toContain(bare);
+      const plain = scrubUpstreamErrorBody(`upstream said: ${bare} is over capacity`, false);
+      expect(plain, `bare ${bare} survived the plain-text path`).not.toContain(bare);
+      expect(plain).toContain('over capacity');
+    }
+  });
+
+  it('H: a 200 body is still passed through byte-identically — the scrub did not grow into content', () => {
+    const completion = JSON.stringify({ choices: [{ message: { content: 'I used kimi-k3 for this' } }] });
+    expect(scrubUpstreamErrorBody(completion, true)).toBe(completion);
+  });
+
+  it('H: the contract is reachable from the MAIN PROCESS without a renderer import', () => {
+    // The architecture rule (AGENTS.md): main must not import renderer. If closing
+    // this finding required that, it would not be closed — it would be traded for
+    // a worse defect. A source-shape assertion because that is what the rule is
+    // about: which module the process is allowed to depend on.
+    const shim = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/process/commandEve/ollamaOpenAiShim.ts'),
+      'utf-8'
+    );
+    expect(shim).toContain("from '@/common/config/cloudModelIdentifiers'");
+    for (const forbidden of ['@renderer/', "'@/renderer/", '../renderer/', 'modelContextLimits']) {
+      expect(shim, `the process shim must not import ${forbidden}`).not.toContain(forbidden);
+    }
+    // ...and the common module itself must stay import-clean, or the boundary is
+    // only moved one file along.
+    const contract = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/common/config/cloudModelIdentifiers.ts'),
+      'utf-8'
+    );
+    for (const forbidden of ['@renderer/', '@/renderer/', '@process/', 'electron']) {
+      expect(contract, `the common contract must not import ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  it('I: the DATED PINS the server actually routes are on the deny-list, with no residue', () => {
+    // The gap: the renderer list was derived from a context-window catalog that
+    // only knew the FLOATING alias `deepseek/deepseek-v4-flash`, while the Edge
+    // Function pins `-0731`. Substring matching then replaced the known prefix and
+    // left the date fragment behind — a dangling piece of the exact string that
+    // must never reach a user.
+    const dated = 'deepseek/deepseek-v4-flash-0731';
+    for (const list of [CLOUD_MODEL_IDENTIFIERS, EVE_SERVED_MODEL_IDENTIFIERS]) {
+      expect(list, 'the dated slug must be an entry').toContain(dated);
+      expect(list, 'and so must its bare form').toContain('deepseek-v4-flash-0731');
+      const scrubbed = scrubModelIdentifiers(`Upstream refused ${dated} (retry later).`, list);
+      // NO RESIDUE: not the id, and not the date fragment the old ordering left.
+      expect(scrubbed).not.toContain('0731');
+      expect(scrubbed).not.toContain('deepseek');
+      expect(scrubbed).toContain('retry later');
+    }
+  });
+
+  it('I: every wire tier the server routes has its model on the list — the mirror is complete', () => {
+    // Named individually rather than counted: a count would stay green while an
+    // entry was swapped for a duplicate.
+    for (const slug of [
+      'deepseek/deepseek-v4-flash-0731',
+      'deepseek/deepseek-v4-pro',
+      'z-ai/glm-5.2',
+      'moonshotai/kimi-k3',
+    ]) {
+      expect(EVE_SERVED_MODEL_IDS, `MODEL_BY_TIER slug ${slug} is not mirrored`).toContain(slug);
+      expect(CLOUD_MODEL_IDENTIFIERS, `${slug} must reach the renderer list too`).toContain(slug);
+    }
+  });
+
+  it('I: the shared derivation keeps its prose guard — no entry can match ordinary text', () => {
+    for (const id of EVE_SERVED_MODEL_IDENTIFIERS) {
+      expect(id, `${id} could match ordinary prose`).toMatch(/[0-9]/);
+    }
+    // A vendor word alone must NOT become an entry (it would rewrite real sentences).
+    expect(deriveCloudModelIdentifiers(['acme/model-without-digits', 'plainword'])).toEqual([]);
+    for (const sentence of ['The connection was lost. Please try again.', 'Rate limit reached: 20 requests/min.']) {
+      expect(scrubUpstreamErrorBody(sentence, false)).toBe(sentence);
     }
   });
 });

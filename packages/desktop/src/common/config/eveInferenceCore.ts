@@ -740,6 +740,35 @@ export function resolveEffectiveWireTierFromSelection(
 }
 
 /**
+ * MAY WE *SHOW* THE USER THAT MAX IS ACTIVE? — deliberately the OPPOSITE polarity
+ * to {@link resolveEffectiveWireTierFromSelection}, and the 1.820.1 correction.
+ *
+ * SENDING and PAINTING are different questions, and unknown authority answers
+ * them differently:
+ *
+ *   SEND  — unknown lets `max` travel. The SERVER is the binding gate; inferring
+ *           "unentitled" from a flag we never read would silently downgrade a
+ *           paying seat, the exact bug class this module exists to close.
+ *   PAINT — unknown shows STANDARD. A painted "MAX aktiv" is a MONEY CLAIM made
+ *           to the user's face, and making it on an entitlement nobody proved is
+ *           the unknown-authority-fails-OPEN defect the picker gate already
+ *           refuses: {@link hasEveMaxAccess} locks MAX on an absent/null/unknown
+ *           entitlement. Both halves of that contract lived in this codebase and
+ *           said opposite things — this is the half that was wrong.
+ *
+ * Painting MAX therefore requires a POSITIVE, KNOWN entitlement: `maxEntitled ===
+ * true` and nothing else. `undefined` (never written, unreadable, or a surface
+ * that holds no entitlement truth) paints Standard, and so does `false`.
+ *
+ * NOTE THE DEFAULT. `seat` defaults to `{}` = unknown = do-not-paint-MAX, so a
+ * call site that FORGETS the entitlement under-claims rather than over-claims.
+ * That polarity is the point: an omission has to fail closed.
+ */
+export function mayPaintEveMax(seat: EveSeatWireEntitlement = {}): boolean {
+  return seat.maxEntitled === true;
+}
+
+/**
  * Parse a local picker tier out of a selection value (e.g.
  * "command-eve-local:local-standard" → its EveLocalPickerTier). Returns
  * undefined when the value is not a known local selection.
@@ -870,11 +899,23 @@ export type CommandEveActiveLane =
  * default the renderer + router apply), so a fresh user is described as the
  * cloud lane they actually hit, not the unused local model.
  */
-export function resolveCommandEveActiveLane(persisted: string | null | undefined): CommandEveActiveLane {
+export function resolveCommandEveActiveLane(
+  persisted: string | null | undefined,
+  seat: EveSeatWireEntitlement = {}
+): CommandEveActiveLane {
   const selection = resolveEffectiveInferenceSelection(persisted);
 
   if (isEveInferenceSelection(selection)) {
-    const tierId = parseEveTierIdFromSelection(selection) ?? EVE_INFERENCE_DEFAULT_TIER_ID;
+    const parsed = parseEveTierIdFromSelection(selection) ?? EVE_INFERENCE_DEFAULT_TIER_ID;
+    // PAINT AUTHORITY (1.820.1). The persisted selection is INTENT, not proof of
+    // funding. A stored MAX may only be DESCRIBED as MAX on a positively-known
+    // entitlement — see {@link mayPaintEveMax} for why this is the opposite
+    // polarity to the send-path clamp. Clamping AFTER the parse (which already
+    // migrated eve-ultra/eve-xhigh to MAX) keeps the order the send path uses:
+    // migrate first, then judge — a clamp that ran first would make every legacy
+    // seat look like Standard forever.
+    const tierId =
+      findEveInferenceTier(parsed)?.tier === 'max' && !mayPaintEveMax(seat) ? EVE_INFERENCE_STANDARD_TIER_ID : parsed;
     const tier = findEveInferenceTier(tierId) ?? EVE_INFERENCE_TIERS[0];
     return { kind: 'eve', tierId: tier.id, tierLabel: tier.label, wireTier: tier.tier };
   }
@@ -926,8 +967,12 @@ const EVE_CLOUD_TIER_BLURB: Record<EveInferenceTierId, { de: string; en: string 
  * LOCAL: the real local model name (e.g. "Lokal · Gemma 4 E4B (privat, auf
  * deinem Mac)") — honest about running locally.
  */
-export function describeCommandEveActiveLane(persisted: string | null | undefined, locale: 'de-DE' | 'en-US'): string {
-  const lane = resolveCommandEveActiveLane(persisted);
+export function describeCommandEveActiveLane(
+  persisted: string | null | undefined,
+  locale: 'de-DE' | 'en-US',
+  seat: EveSeatWireEntitlement = {}
+): string {
+  const lane = resolveCommandEveActiveLane(persisted, seat);
   const de = locale === 'de-DE';
 
   if (lane.kind === 'eve') {
@@ -1201,142 +1246,22 @@ export function buildEvePickerGroups(
 }
 
 // ---------------------------------------------------------------------------
-// Lane axis (presentation-only) — the founder's "pick a lane, then a strength"
-// model: Lokal · EVE Free · EVE Pro. This is a VIEW over the existing tiers; it
-// changes NO wire `tier`, NO selection value, and NOT the router contract
-// (tier === backend registry level). It only regroups + gates for display.
-// ---------------------------------------------------------------------------
-
-export type PickerLane = 'local' | 'free' | 'pro';
-
-export interface PickerLaneView {
-  lane: PickerLane;
-  /** Lane heading, e.g. "Lokal" | "EVE Free" | "EVE Pro". */
-  title: string;
-  /** UI accent for the lane chip/pill. */
-  accent: 'grey' | 'blue' | 'gold';
-  /**
-   * available — selectable now.
-   * locked    — shown (strengths render greyed) but not selectable; carries an
-   *             upgrade affordance (the visible-but-not-pushy upsell).
-   * hidden    — not offered at all (the EVE Free lane for a paying user).
-   */
-  state: 'available' | 'locked' | 'hidden';
-  /** The strengths in this lane (reuses the EvePickerItem shape). */
-  items: EvePickerItem[];
-}
-
-/** The local strengths as picker items (never gated). */
-function buildLocalLaneItems(): EvePickerItem[] {
-  return EVE_LOCAL_PICKER_TIERS.map((tier) => ({
-    value: localTierValue(tier.id),
-    group: 'local' as const,
-    label: tier.label,
-    sublabel: tier.modelLabel,
-    disabled: false,
-  }));
-}
-
-/**
- * One EVE-cloud tier as a Pro-lane item (model label + relative-cost badge). EVERY
- * Pro rung is metered; the free-eligible rung (Standard) carries no tier badge — it
- * is the cheapest METERED rung here, so we surface a "günstigste" marker. The paid
- * rungs use their own ascending badge ("mehr Credits" / "höchste Kosten").
- */
-function eveTierToProItem(tier: EveInferenceTier, forceDisabled: boolean): EvePickerItem {
-  const modelLabel = 'modelLabel' in tier ? (tier.modelLabel as string) : undefined;
-  const costBadge = tier.paidOnly ? ('costBadge' in tier ? (tier.costBadge as string) : undefined) : 'günstigste';
-  return {
-    value: eveTierValue(tier.id),
-    group: 'eve' as const,
-    label: tier.label,
-    sublabel: modelLabel ?? EVE_INFERENCE_TIER_SUBLABEL,
-    disabled: forceDisabled,
-    ...(forceDisabled ? { disabledReasonCode: 'PAID_TIER_REQUIRED' as const } : {}),
-    consumesCredits: true,
-    gated: tier.gated === true,
-    ...(costBadge ? { costBadge } : {}),
-  };
-}
-
-/**
- * The EVE Free lane = the single free-eligible rung, rendered as FREE (capped
- * 100/Tag, no credit/cost badge). It is the SAME lane as EVE Pro's cheapest rung
- * ("Standard") — only the billing differs (free-cap vs credit-meter), which the
- * server decides by entitlement.
- *
- * LATENT DEFECT CLOSED (MAT-1749): this used to filter the FULL registry by
- * `!paidOnly`, bypassing the derived offer entirely. Any future free-eligible
- * rung the server had not been taught would have appeared here — offerable,
- * selectable, and refused on every turn. It now routes through the SAME derived
- * list the picker uses, so both surfaces can only ever show an offerable rung.
- */
-function buildFreeLaneItems(): EvePickerItem[] {
-  return EVE_INFERENCE_SELECTABLE_TIERS.filter((tier) => !tier.paidOnly).map((tier) => {
-    const modelLabel = 'modelLabel' in tier ? (tier.modelLabel as string) : undefined;
-    return {
-      value: eveTierValue(tier.id),
-      group: 'eve' as const,
-      label: tier.label,
-      sublabel: modelLabel ? `${modelLabel} · 100/Tag` : EVE_INFERENCE_TIER_SUBLABEL,
-      disabled: false,
-    };
-  });
-}
-
-/**
- * Build the three-lane picker view (Lokal · EVE Free · EVE Pro) for the current
- * entitlement. Founder rules (2026-06-27): Lokal is offered to EVERYONE (the
- * privacy lane, downloadable models); a TRIAL/free user gets Lokal + EVE Free
- * selectable and EVE Pro LOCKED (every offered rung shown greyed, with an upgrade
- * affordance); a PAYING user no longer sees EVE Free (hidden) and EVE Pro becomes
- * selectable. EVE Pro = the OFFERED rungs (Standard · MAX); the server owns the
- * concrete model registry and metering.
- */
-export function buildEveLaneViews(entitlement: EveEntitlementView | null | undefined): PickerLaneView[] {
-  const paidInferenceAccess = hasEvePaidInferenceAccess(entitlement);
-  return [
-    {
-      lane: 'local',
-      title: 'Lokal',
-      accent: 'grey',
-      state: 'available',
-      items: buildLocalLaneItems(),
-    },
-    {
-      lane: 'free',
-      title: 'EVE Free',
-      accent: 'blue',
-      // Paying (non-trial) users no longer see the Free lane.
-      state: paidInferenceAccess ? 'hidden' : 'available',
-      items: buildFreeLaneItems(),
-    },
-    {
-      lane: 'pro',
-      title: 'EVE Pro',
-      accent: 'gold',
-      // Trial/free: every OFFERED rung SHOWN but greyed + upgrade. Paid: selectable.
-      // EVE Pro includes the Standard rung (same lane as Free) so the whole offer
-      // lives in one place.
-      state: paidInferenceAccess ? 'available' : 'locked',
-      // Lane-wide lock AND per-rung gating. The lane lock is unchanged (a trial
-      // greys the whole Pro lane, Standard-as-metered included); the per-rung
-      // check adds the stricter MAX purchase gate on top, so a seat with only
-      // promotional credits sees Pro open and MAX still locked.
-      items: EVE_INFERENCE_SELECTABLE_TIERS.map((tier) =>
-        eveTierToProItem(tier, !paidInferenceAccess || !isEveTierSelectable(tier, entitlement))
-      ),
-    },
-  ];
-}
-
-/** The lane a selection value belongs to (for the active-pill accent + open-to-lane). */
-export function laneOfSelection(value: string | null | undefined): PickerLane {
-  if (isLocalSelection(value)) return 'local';
-  const tierId = parseEveTierIdFromSelection(value);
-  const tier = tierId ? findEveInferenceTier(tierId) : undefined;
-  return tier?.paidOnly ? 'pro' : 'free';
-}
+// THERE IS NO FREE LANE, SO THERE IS NO FREE LANE MODEL (1.820.1).
+//
+// A three-lane picker model lived here — `PickerLane = 'local' | 'free' | 'pro'`,
+// `buildEveLaneViews`, `buildFreeLaneItems`, `laneOfSelection` — presenting
+// "Lokal · EVE Free · EVE Pro", with the EVE Free lane advertising a rung as
+// "· 100/Tag" and `laneOfSelection` classifying the Standard cloud rung as
+// `'free'`. Every cloud turn is credit-metered; Standard is INCLUDED, not free.
+//
+// IT WAS DELETED RATHER THAN RELABELLED, for two reasons. It was already DEAD —
+// the rendered picker is `buildEvePickerGroups`, and nothing outside its own test
+// file imported any of it — so relabelling would have preserved a free-lane
+// vocabulary that no user could ever see, waiting to be picked up by the next
+// surface that needed a picker. And a lane axis whose middle rung does not exist
+// is not a model that can be corrected into truth; the honest correction is that
+// it has no middle rung. Its test file is replaced by a guard asserting exactly
+// that (tests/unit/command-eve/eveLaneViews.test.ts).
 
 /**
  * Honest, MODEL-FREE self-description of the active inference lane for EVE's own
@@ -1348,7 +1273,11 @@ export function laneOfSelection(value: string | null | undefined): PickerLane {
  * EFFECTIVE selection (resolveEffectiveInferenceSelection) so an absent value
  * resolves to the EVE Cloud default rather than "not verified".
  */
-export function commandEveActiveModeLabel(selection: string | null | undefined, locale: 'de-DE' | 'en-US'): string {
+export function commandEveActiveModeLabel(
+  selection: string | null | undefined,
+  locale: 'de-DE' | 'en-US',
+  seat: EveSeatWireEntitlement = {}
+): string {
   const de = locale === 'de-DE';
   if (isLocalSelection(selection)) {
     // Offline/local models ARE named (founder 2026-06-28) — they run openly on the
@@ -1373,7 +1302,11 @@ export function commandEveActiveModeLabel(selection: string | null | undefined, 
     // The old text also hardcoded a context claim ("grosser Kontext") for EVERY
     // cloud rung, which was a capability assertion this module cannot verify —
     // the server owns the model and may change its window without a release.
-    const maxEngaged = parseEveTierIdFromSelection(selection) === EVE_INFERENCE_MAX_TIER_ID;
+    //
+    // PAINT AUTHORITY (1.820.1): "MAX aktiv" is a money claim about the user's
+    // seat, spoken by EVE in its own system prompt. It requires a positively-KNOWN
+    // entitlement — unknown says nothing rather than claiming the strong lane.
+    const maxEngaged = parseEveTierIdFromSelection(selection) === EVE_INFERENCE_MAX_TIER_ID && mayPaintEveMax(seat);
     if (de) {
       return maxEngaged ? 'EVE-Cloud, MAX aktiv' : 'EVE-Cloud';
     }

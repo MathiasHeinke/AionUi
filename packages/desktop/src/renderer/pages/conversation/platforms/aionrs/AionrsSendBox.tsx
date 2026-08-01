@@ -391,9 +391,16 @@ const AionrsSendBox: React.FC<{
         const cardResult = createResponse.data ?? null;
         if (!createResponse.success || !cardResult?.ok || !cardResult.card_id) {
           Message.warning(
-            cardResult?.reason_code ||
-              createResponse.msg ||
-              t('conversation.commandEveLocalMarketingIntent.createFailed')
+            // `createResponse.msg` is RAW BACKEND text. It was invisible to the
+            // scrub contract until `.msg` joined the producer list (1.820.1) —
+            // this file was GUARDED and GREEN with the leak standing, because the
+            // scanner only knew `.message`.
+            scrubModelIdentifiers(
+              cardResult?.reason_code ||
+                createResponse.msg ||
+                t('conversation.commandEveLocalMarketingIntent.createFailed'),
+              CLOUD_MODEL_IDENTIFIERS
+            )
           );
           return true;
         }

@@ -20,7 +20,7 @@ import {
 import { app } from 'electron';
 import { COMMAND_EVE_ASSISTANT_ID, isCommandEveFounderBuildAllowed } from '@/common/config/commandEveShell';
 import { resolveEffectiveInferenceSelection } from '@/common/config/eveInferenceCore';
-import { readInferenceSelectionFromBackend } from './inferenceSelectionBackendRead';
+import { readInferenceLaneStateFromBackendBestEffort } from './inferenceSelectionBackendRead';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -247,7 +247,11 @@ function buildCommandEveAssistantSkillForSeat(
   locale: 'de-DE' | 'en-US',
   load: CommandEveFirstRunLoad | undefined,
   isFounderBuild: boolean,
-  inferenceSelection?: string
+  inferenceSelection?: string,
+  // Travels WITH the selection, never separately: the selection is what the seat
+  // PICKED and this is whether we may say so. Splitting them is how the seed came
+  // to paint MAX on unproven funding (1.820.1).
+  maxEntitled?: boolean
 ): string {
   if (!load) return buildCommandEveAssistantSkill(locale, undefined, isFounderBuild);
   const seatIdentity = load.realSeatActive
@@ -255,7 +259,7 @@ function buildCommandEveAssistantSkillForSeat(
     : undefined;
   return buildCommandEveAssistantSkill(
     locale,
-    { ...load.baseContext, seatIdentity, inferenceSelection },
+    { ...load.baseContext, seatIdentity, inferenceSelection, maxEntitled },
     isFounderBuild
   );
 }
@@ -532,7 +536,11 @@ export async function ensureCommandEveAssistant(
   // "Standard" regardless of the picked level. Best-effort: undefined → the line
   // reads "nicht verifiziert" and the standing model-identity rule still forbids
   // naming a model.
-  const activeInferenceSelection = resolveEffectiveInferenceSelection(await readInferenceSelectionFromBackend());
+  // The entitlement rides along in the SAME read (1.820.1). It is NOT optional
+  // decoration: `maxEntitled` is what licenses the seed to SAY "MAX", and an
+  // unknown one paints Standard rather than claiming the strong lane.
+  const activeLaneState = await readInferenceLaneStateFromBackendBestEffort();
+  const activeInferenceSelection = resolveEffectiveInferenceSelection(activeLaneState.selection);
   const existingAssistant = await loadCommandEveAssistant(backendPort);
   const method = existingAssistant ? 'PUT' : 'POST';
   const path = method === 'PUT' ? `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` : '/api/assistants';
@@ -619,7 +627,13 @@ export async function ensureCommandEveAssistant(
       'assistant-skill',
       'de-DE',
       withSeatBlock(
-        buildCommandEveAssistantSkillForSeat('de-DE', firstRunLoad, isFounderBuild, activeInferenceSelection),
+        buildCommandEveAssistantSkillForSeat(
+          'de-DE',
+          firstRunLoad,
+          isFounderBuild,
+          activeInferenceSelection,
+          activeLaneState.maxEntitled
+        ),
         seatBlockDe
       )
     ),
@@ -628,7 +642,13 @@ export async function ensureCommandEveAssistant(
       'assistant-skill',
       'en-US',
       withSeatBlock(
-        buildCommandEveAssistantSkillForSeat('en-US', firstRunLoad, isFounderBuild, activeInferenceSelection),
+        buildCommandEveAssistantSkillForSeat(
+          'en-US',
+          firstRunLoad,
+          isFounderBuild,
+          activeInferenceSelection,
+          activeLaneState.maxEntitled
+        ),
         seatBlockEn
       )
     ),

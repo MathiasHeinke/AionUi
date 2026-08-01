@@ -7,6 +7,8 @@
 import { isBackendHttpError } from '@/common/adapter/httpBridge';
 import { parseError } from '@/common/utils';
 import type { TFunction } from 'i18next';
+import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
+import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 
 export type WorkspacePathErrorCode = 'WORKSPACE_PATH_UNAVAILABLE' | 'WORKSPACE_PATH_RUNTIME_UNAVAILABLE';
 
@@ -142,7 +144,17 @@ export const getConversationCreateErrorMessage = (error: unknown, t: TFunction):
   const normalizedCode = normalizeConversationCreateErrorCode(error);
   const payload = getWorkspacePathErrorPayload(error);
   const workspacePath = getWorkspacePathFromErrorDetails(error);
-  const rawMessage = payload?.error || parseError(error) || t('conversation.createFailed');
+  // SCRUBBED AT THE CHOKE POINT, NOT AT NINE CALL SITES. `payload?.error` is raw
+  // BACKEND text and `parseError` is the raw thrown message; both routinely carry
+  // the upstream provider/model slug the user never picked and must never see.
+  // Every consumer of this helper renders its return value straight into
+  // Message.error, so scrubbing here covers all of them at once — and a tenth
+  // call site added later is covered before it exists. The sibling
+  // getConversationRuntimeWorkspaceErrorMessage does the same, one function down.
+  const rawMessage = scrubModelIdentifiers(
+    payload?.error || parseError(error) || t('conversation.createFailed'),
+    CLOUD_MODEL_IDENTIFIERS
+  );
 
   if (normalizedCode && workspacePath) {
     return t(`conversation.createError.pathVariants.${normalizedCode}`, {
@@ -158,7 +170,11 @@ export const getConversationRuntimeWorkspaceErrorMessage = (error: unknown, t: T
   const normalizedCode = normalizeConversationRuntimeWorkspaceErrorCode(error);
   const payload = getWorkspacePathErrorPayload(error);
   const workspacePath = getWorkspacePathFromErrorDetails(error);
-  const rawMessage = payload?.error || parseError(error) || t('common.unknownError');
+  // Same choke point, same reason — see the note on getConversationCreateErrorMessage.
+  const rawMessage = scrubModelIdentifiers(
+    payload?.error || parseError(error) || t('common.unknownError'),
+    CLOUD_MODEL_IDENTIFIERS
+  );
 
   if (normalizedCode) {
     if (workspacePath) {

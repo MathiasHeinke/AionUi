@@ -3,7 +3,6 @@
     "pageDescription": "Keep track of credits, spending, seats, and report branding.",
     "balanceTitle": "Credits",
     "balanceDescription": "Your current usage and available credit balance.",
-    "freeActions": "{{used}} / {{cap}} free actions today",
     "allowanceUsed": "{{pct}}% of allowance used · {{rem}} credits left",
     "purchasedRemaining": "{{n}} purchased credits",
     "noStatus": "Credit status will appear once you are signed in.",
@@ -98,7 +97,6 @@
     }
   },
   "meter": {
-    "freeActions": "{{used}} / {{cap}} free actions today",
     "freeForever": "0 € — forever",
     "allowanceUsed": "{{pct}}% of allowance used",
     "allowanceRemaining": "Allowance: {{n}} credits left",
@@ -122,16 +120,14 @@
     "creditsTitle": "Credits",
     "remaining": "{{n}} remaining",
     "remainingEur": "{{n}} remaining (≈ €{{eur}})",
-    "freeToday": "{{used}} / {{cap}} free actions today",
-    "freeNearCap": "Daily limit almost reached — continues free tomorrow",
     "noStatus": "after sign-in",
     "tankLow": "Tank almost empty",
     "topUp": "Top up",
     "explainer": "1,000 credits ≈ €1 (pack price)"
   },
   "dailyCap": {
-    "title": "Free daily limit reached",
-    "body": "Your free daily allowance is used up for today — it resets for free tomorrow. You can use the local AI any time.",
+    "title": "Daily limit reached",
+    "body": "This access has hit its fair-use daily limit for today. It resets tomorrow; requests are still billed from your credits. You can use the local AI any time.",
     "close": "Got it"
   },
   "video": {

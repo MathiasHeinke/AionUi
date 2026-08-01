@@ -3,7 +3,6 @@
     "pageDescription": "Behalte Guthaben, Ausgaben, Seats und das Branding deiner Reports im Blick.",
     "balanceTitle": "Guthaben",
     "balanceDescription": "Dein aktueller Verbrauch und das verfügbare Guthaben.",
-    "freeActions": "{{used}} / {{cap}} Gratis-Aktionen heute",
     "allowanceUsed": "{{pct}}% des Guthabens genutzt · {{rem}} Credits übrig",
     "purchasedRemaining": "{{n}} gekaufte Credits",
     "noStatus": "Dein Credit-Status erscheint, sobald du angemeldet bist.",
@@ -98,7 +97,6 @@
     }
   },
   "meter": {
-    "freeActions": "{{used}} / {{cap}} Gratis-Aktionen heute",
     "freeForever": "0 € — für immer",
     "allowanceUsed": "{{pct}}% des Guthabens genutzt",
     "allowanceRemaining": "Guthaben: {{n}} Credits übrig",
@@ -122,16 +120,14 @@
     "creditsTitle": "Credits",
     "remaining": "{{n}} verbleibend",
     "remainingEur": "{{n}} verbleibend (≈ {{eur}} €)",
-    "freeToday": "{{used}} / {{cap}} Gratis-Aktionen heute",
-    "freeNearCap": "Tageslimit fast erreicht — morgen geht es kostenlos weiter",
     "noStatus": "nach Anmeldung",
     "tankLow": "Tank fast leer",
     "topUp": "Nachkaufen",
     "explainer": "1.000 Credits ≈ 1 € (Pack-Preis)"
   },
   "dailyCap": {
-    "title": "Kostenloses Tageskontingent erreicht",
-    "body": "Dein kostenloses Tageskontingent ist für heute aufgebraucht — morgen geht es kostenlos weiter. Du kannst jederzeit die lokale KI nutzen.",
+    "title": "Tageslimit erreicht",
+    "body": "Für heute ist das Fair-Use-Tageslimit dieses Zugangs erreicht. Es setzt sich morgen zurück; Anfragen laufen weiterhin über deine Credits. Die lokale KI kannst du jederzeit nutzen.",
     "close": "Alles klar"
   },
   "video": {

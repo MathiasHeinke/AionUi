@@ -36,12 +36,17 @@
  * the value the renderer actually wrote for the active seat.
  *
  * Two read contracts intentionally coexist:
- *   - `readInferenceSelectionFromBackend` is best-effort for descriptive seed
- *     generation where an absent/unreadable value may be rendered as unknown.
+ *   - `readInferenceLaneStateFromBackendBestEffort` is best-effort for descriptive
+ *     seed generation where an absent/unreadable value may be rendered as unknown.
  *   - `readInferenceSelectionFromBackendStrict` is mandatory for routing and
  *     warm-up. A backend error must never look like an absent setting because
  *     absence legitimately defaults to EVE Standard while unreadable state must
  *     fail loud instead of silently changing the user's selected lane.
+ *
+ * BOTH carry `maxEntitled`, and neither may drop it. SEND and PAINT read the same
+ * lane state and then disagree ON PURPOSE about unknown: the router lets `max`
+ * travel (the server is the binding gate) while every descriptive surface refuses
+ * to SAY "MAX" without a positively-known entitlement. See `mayPaintEveMax`.
  */
 
 import { httpRequest } from '@/common/adapter/httpBridge';
@@ -124,14 +129,31 @@ async function fetchInferenceLaneStateFromBackend(): Promise<CommandEveInference
 }
 
 /**
- * Best-effort read for non-routing metadata. An unreadable backend is represented
- * as unknown; callers must not use this contract to choose an inference lane.
+ * Best-effort read for non-routing metadata (the DESCRIPTIVE / paint surfaces). An
+ * unreadable backend is represented as unknown; callers must not use this contract
+ * to choose an inference lane.
+ *
+ * IT RETURNS THE WHOLE LANE STATE, AND THAT IS THE 1.820.1 FIX. This used to be
+ * `readInferenceSelectionFromBackend(): Promise<string | undefined>` — it fetched
+ * `maxEntitled` in the same GET and then dropped it on the floor. The one caller
+ * (the assistant-bootstrap seed) therefore painted "EVE Cloud, MAX aktiv" from a
+ * persisted selection alone, with the funding authority UNKNOWN — while the
+ * renderer's picker, reading the same unknown, correctly LOCKED MAX. Same
+ * codebase, opposite answers.
+ *
+ * The selection-only accessor is deliberately GONE rather than deprecated: a
+ * reader that hands back intent without the authority to describe it is the seam
+ * the defect lived in, and a seam left standing gets used again.
+ *
+ * An unreadable backend yields `{}` — selection unknown AND entitlement unknown.
+ * Unknown entitlement paints Standard (see `mayPaintEveMax`), so a failed read
+ * under-claims instead of over-claiming.
  */
-export async function readInferenceSelectionFromBackend(): Promise<string | undefined> {
+export async function readInferenceLaneStateFromBackendBestEffort(): Promise<CommandEveInferenceLaneState> {
   try {
-    return (await fetchInferenceLaneStateFromBackend()).selection;
+    return await fetchInferenceLaneStateFromBackend();
   } catch {
-    return undefined;
+    return {};
   }
 }
 

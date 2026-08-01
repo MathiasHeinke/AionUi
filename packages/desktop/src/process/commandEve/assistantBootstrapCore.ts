@@ -140,6 +140,18 @@ export type CommandEveAssistantFirstRunContext = {
    * "Modell-Identitaet" rule is the hard guarantee that EVE never names a model.
    */
   inferenceSelection?: string;
+  /**
+   * WHETHER WE MAY SAY "MAX" — read in the SAME backend GET as the selection
+   * above (1.820.1). Three-state on purpose: `true` = proven entitled, `false` =
+   * proven not, `undefined` = UNKNOWN (never written, or an unreadable read).
+   *
+   * The selection is INTENT; this is AUTHORITY. Every line below that names MAX
+   * is a money claim about the user's seat, spoken in EVE's own system prompt, so
+   * it requires the positive form: unknown paints Standard. That is deliberately
+   * the OPPOSITE of the send path, where unknown lets `max` travel and the server
+   * decides — see `mayPaintEveMax` for the full split.
+   */
+  maxEntitled?: boolean;
 };
 
 export const COMMAND_EVE_DISABLED_BUILTIN_SKILLS = [
@@ -504,7 +516,8 @@ export function buildCommandEveAssistantFirstRunContext(
   const skills = capabilityPack?.skills || [];
   const connectors = capabilityPack?.connectors || [];
   const failedStages = (receipt?.stages || []).filter((stage) => ['blocked', 'failed'].includes(stage.status));
-  const activeLane = resolveCommandEveActiveLane(context.inferenceSelection);
+  const paintSeat = { maxEntitled: context.maxEntitled };
+  const activeLane = resolveCommandEveActiveLane(context.inferenceSelection, paintSeat);
   // The orchestration profile now rides on Maximum — the highest rung the server
   // accepts — rather than on a level it refuses.
   const maximumProfileActive = activeLane.kind === 'eve' && activeLane.wireTier === 'max';
@@ -537,10 +550,11 @@ export function buildCommandEveAssistantFirstRunContext(
       // NOT the local Ollama warm-up receipt. On an EVE cloud lane this reads
       // "EVE Cloud, <Stufe>-Stufe …" and never leaks the local shim model id
       // (command-eve-gemma4-e4b-64k) or claims a local model.
-      `- Aktive Inferenz-Lane: ${describeCommandEveActiveLane(context.inferenceSelection, 'de-DE')}`,
+      `- Aktive Inferenz-Lane: ${describeCommandEveActiveLane(context.inferenceSelection, 'de-DE', paintSeat)}`,
       `- Runtime: ${receipt?.status || 'unbekannt'}; Betriebsmodus: ${commandEveActiveModeLabel(
         context.inferenceSelection,
-        'de-DE'
+        'de-DE',
+        paintSeat
       )}`,
       ...(maximumProfileActive
         ? [
@@ -605,10 +619,11 @@ export function buildCommandEveAssistantFirstRunContext(
     // NOT the local Ollama warm-up receipt. On an EVE cloud lane this reads
     // "EVE Cloud, <Tier> tier …" and never leaks the local shim model id
     // (command-eve-gemma4-e4b-64k) or claims a local model.
-    `- Active inference lane: ${describeCommandEveActiveLane(context.inferenceSelection, 'en-US')}`,
+    `- Active inference lane: ${describeCommandEveActiveLane(context.inferenceSelection, 'en-US', paintSeat)}`,
     `- Runtime: ${receipt?.status || 'unknown'}; Operating mode: ${commandEveActiveModeLabel(
       context.inferenceSelection,
-      'en-US'
+      'en-US',
+      paintSeat
     )}`,
     ...(maximumProfileActive
       ? [

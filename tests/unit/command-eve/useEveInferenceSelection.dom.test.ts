@@ -53,6 +53,10 @@ const entitlement = {
   state: 'entitled',
   trial_ends_at: null as string | null,
   has_paid_seat: false,
+  // The SIGNED licence edition, exactly as the entitlement status carries it.
+  // `undefined` means NO signed licence, which is not a weaker claim than a
+  // comped one — it is no authority at all, and `isPaidPlanForSeat` refuses it.
+  edition: undefined as string | undefined,
 };
 const entitlementHookState: { loading: boolean; status: typeof entitlement | null } = {
   loading: false,
@@ -93,6 +97,7 @@ describe('useEveInferenceSelection', () => {
     subscribers.clear();
     entitlement.trial_ends_at = null; // paid by default
     entitlement.has_paid_seat = false;
+    entitlement.edition = undefined; // no signed licence unless a case sets one
     entitlementHookState.loading = false;
     entitlementHookState.status = entitlement;
     // No authoritative credit receipt by default: existing entitlement-only
@@ -565,9 +570,10 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
   });
 
-  it.each([['starter'], ['solo']])('a REAL paid plan (%s) -> MAX UNLOCKED', (tier) => {
+  it.each([['starter'], ['solo']])('a REAL paid plan (%s) on a SIGNED seat -> MAX UNLOCKED', (tier) => {
     entitlement.trial_ends_at = null;
-    entitlement.has_paid_seat = false; // the PLAN alone must be enough
+    entitlement.has_paid_seat = false; // the PLAN alone must be enough...
+    entitlement.edition = 'standard'; // ...but a real plan comes on a signed seat.
     creditsStatus.ok = true;
     creditsStatus.tier = tier;
     creditsStatus.purchased_credits_remaining = 0;
@@ -577,6 +583,28 @@ describe('useEveInferenceSelection', () => {
 
     expect(result.current.maxAvailable).toBe(true);
     expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
+  });
+
+  it.each([['starter'], ['solo']])('INVERTED: the same paid TIER (%s) with NO signed edition -> MAX LOCKED', (tier) => {
+    // This case used to expect UNLOCKED, and that assertion WAS the defect. The
+    // reported tier is DERIVED from whatever allowance was granted, so it cannot
+    // tell a bought subscription from a comped one; only the signed licence can.
+    // With the edition ABSENT the client was unlocking a lane the server — which
+    // judges the LICENCE — answers 402 on. Unknown authority fails CLOSED (R4).
+    entitlement.trial_ends_at = null;
+    entitlement.has_paid_seat = false;
+    entitlement.edition = undefined;
+    creditsStatus.ok = true;
+    creditsStatus.tier = tier;
+    creditsStatus.purchased_credits_remaining = 0;
+    creditsStatus.has_active_topup = false;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    expect(result.current.maxAvailable).toBe(false);
+    expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(false);
+    // NOT BRICKED: Standard is still selectable — R1/R2 hold.
+    expect(result.current.isSelectable(eveTierValue('eve-standard'))).toBe(true);
   });
 
   it('an UNKNOWN future tier defaults to UNPAID — the allowlist fails in the safe direction', () => {

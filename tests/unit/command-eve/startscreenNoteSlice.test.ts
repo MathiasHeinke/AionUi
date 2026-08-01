@@ -214,10 +214,17 @@ describe('v1.6 Beat 2 — Session-1-Artefakt-Skill (D6-Merge)', () => {
     expect(md).toContain('Never audit, quote, or describe content you did not actually read');
     // Fixed audit template.
     expect(md).toContain('3 Stärken · 3 Schwächen · 3 konkrete nächste Schritte');
-    // Budget honesty: verified 100/day, bounded range, never their exact count.
-    expect(md).toContain('100 actions per day');
-    expect(md).toContain('grob 3–8 deiner 100 Gratis-Aktionen heute');
-    expect(md).toContain('Never claim their exact remaining count');
+    // Budget honesty. INVERTED (1.820.1): this used to require the skill to teach
+    // EVE that "the free day allowance is 100 actions per day" and to quote costs
+    // in "deiner 100 Gratis-Aktionen heute". There is no free allowance — every
+    // cloud turn is credit-metered — so the skill must price work in CREDITS and
+    // must not offer a free budget in EVE's own voice.
+    expect(md).toContain('there is no free daily allowance');
+    expect(md).toContain('kostet dich grob ein paar hundert Credits');
+    expect(md).toContain('Never claim their exact remaining balance');
+    for (const promise of ['Gratis-Aktionen', 'free day allowance', 'continues free tomorrow']) {
+      expect(md, `the skill must not promise: ${promise}`).not.toContain(promise);
+    }
     // No capability over-claim.
     expect(md).toContain('not a capability claim');
   });

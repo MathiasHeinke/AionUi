@@ -975,7 +975,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(forwarded).not.toContain('/Users/mathias/private.png');
   });
 
-  it('rewrites a 429 daily-cap into a friendly German message, not a cold rate-limit error', async () => {
+  it('rewrites a 429 fair-use cap into a friendly German message that promises nothing free', async () => {
     // UX: the raw upstream 429 surfaced in chat as a terse "rate_limit" error.
     // The shim must rewrite it to a warm, operator-facing line (named cause +
     // way forward) while staying OpenAI-error-shaped so the chat renders it.
@@ -1002,8 +1002,17 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     expect(response.status).toBe(429);
     expect(json.error?.type).toBe('eve_daily_cap');
-    expect(json.error?.message).toMatch(/Tageskontingent/);
-    expect(json.error?.message).toMatch(/Morgen/);
+    // INVERTED (1.820.1). This used to require /Tageskontingent/ and /Morgen/ —
+    // it asserted, as a contract, the exact free-quota promise the product does
+    // not keep ("kostenloses Tageskontingent … morgen läuft es automatisch
+    // wieder"). The 429 is a FAIR-USE cap; every turn it lets through is still
+    // credit-metered, so the copy must name the cap and promise nothing free.
+    expect(json.error?.message).toMatch(/Tageslimit/);
+    expect(json.error?.message).toMatch(/Fair-Use/);
+    expect(json.error?.message).toMatch(/Credits/);
+    for (const promise of [/kostenlos/i, /gratis/i, /Tageskontingent/i, /frei\b/i]) {
+      expect(json.error?.message, `429 copy must not promise: ${promise}`).not.toMatch(promise);
+    }
   });
 
   it('forwards the function-calling fields (tools/tool_choice) on the EVE cloud lane — the tool-use tripwire', async () => {

@@ -19,12 +19,7 @@ import React, { useMemo } from 'react';
 import { Progress, Tooltip } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
-import {
-  CREDIT_UNIT_EUR,
-  isNearAllowanceWall,
-  showsFreeActionMeter,
-  type CreditMeterModel,
-} from '@/common/config/creditsCore';
+import { CREDIT_UNIT_EUR, isNearAllowanceWall, type CreditMeterModel } from '@/common/config/creditsCore';
 import './billing.css';
 
 export interface CreditMeterBadgeProps {
@@ -34,14 +29,10 @@ export interface CreditMeterBadgeProps {
 
 /** Human-readable label for the meter, derived from the pure meter model. */
 function meterLabel(meter: CreditMeterModel, t: (k: string, o?: Record<string, unknown>) => string): string {
-  // 1.6.2: free WITH balance reads as a tank (showsFreeActionMeter, creditsCore).
-  if (showsFreeActionMeter(meter)) {
-    return t('credits.meter.freeActions', {
-      defaultValue: '{{used}} / {{cap}} actions',
-      used: meter.freeActionsUsed,
-      cap: meter.freeCap,
-    });
-  }
+  // ONE label for every seat (1.820.1). The "{{used}} / {{cap}} actions" branch
+  // that used to live here advertised a free daily allowance the product does not
+  // sell; a seat with an empty tank now reads as 100% of its allowance used, which
+  // is what actually happened.
   const usedPct = Math.round(meter.allowanceUsedFraction * 100);
   return t('credits.meter.allowanceUsed', {
     defaultValue: '{{pct}}% of allowance used',
@@ -58,33 +49,25 @@ const CreditMeterBadge: React.FC<CreditMeterBadgeProps> = ({ onOpenBilling }) =>
   // Quiet by default: no status yet / non-desktop / read failed.
   if (!meter) return null;
 
-  const percent = showsFreeActionMeter(meter)
-    ? meter.freeCap > 0
-      ? Math.round((meter.freeActionsUsed / meter.freeCap) * 100)
-      : 0
-    : Math.round(meter.allowanceUsedFraction * 100);
+  const percent = Math.round(meter.allowanceUsedFraction * 100);
 
   const tooltipContent = (
     <div className='credit-meter-badge__tooltip'>
       <div>{meterLabel(meter, t)}</div>
-      {!showsFreeActionMeter(meter) && (
-        <>
-          <div>
-            {t('credits.meter.allowanceRemainingEur', {
-              defaultValue: 'Allowance: {{n}} credits left (≈ {{eur}} €)',
-              n: meter.allowanceRemaining,
-              eur: (meter.allowanceRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
-            })}
-          </div>
-          <div>
-            {t('credits.meter.purchasedRemainingEur', {
-              defaultValue: 'Purchased: {{n}} credits left (≈ {{eur}} €)',
-              n: meter.purchasedRemaining,
-              eur: (meter.purchasedRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
-            })}
-          </div>
-        </>
-      )}
+      <div>
+        {t('credits.meter.allowanceRemainingEur', {
+          defaultValue: 'Allowance: {{n}} credits left (≈ {{eur}} €)',
+          n: meter.allowanceRemaining,
+          eur: (meter.allowanceRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
+        })}
+      </div>
+      <div>
+        {t('credits.meter.purchasedRemainingEur', {
+          defaultValue: 'Purchased: {{n}} credits left (≈ {{eur}} €)',
+          n: meter.purchasedRemaining,
+          eur: (meter.purchasedRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
+        })}
+      </div>
       {meter.spendCapEurCents > 0 && (
         <div>
           {t('credits.meter.spendCap', {

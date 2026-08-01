@@ -5,6 +5,7 @@
  */
 
 import { COMMAND_EVE_OPERATIONAL_CONTEXT_LIMIT } from '@/common/config/eveContextPolicyCore';
+import { deriveCloudModelIdentifiers, EVE_SERVED_MODEL_IDS } from '@/common/config/cloudModelIdentifiers';
 
 /**
  * ── Command EVE cloud lane (eve-inference → OpenRouter) ────────────────────
@@ -121,7 +122,12 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
  * here means a model swapped in the table is scrubbed automatically instead of
  * needing a second list somebody forgets.
  *
- * BOTH FORMS, and that is the fix (1.820.1). This used to be
+ * THE DERIVATION RULE LIVES IN `common/` (1.820.1) so the MAIN PROCESS shim can
+ * apply the same one without importing renderer code. This list is the UNION of
+ * the BYOK catalog above and the models EVE itself serves; the process side uses
+ * the served list alone, which is complete for the one upstream it proxies.
+ *
+ * BOTH FORMS, and that is the other half of the fix. This used to be
  * `keys.filter(id => id.includes('/'))` — SLUGS ONLY. The shape scrub already
  * catches a `vendor/model` slug on its own, so the slug-only list added nothing,
  * while the form it did NOT cover — the BARE model name (`kimi-k3`,
@@ -136,15 +142,16 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
  * segments are deliberately NOT added for that reason; the shape scrub covers
  * them wherever they appear attached to a model.
  */
-export const CLOUD_MODEL_IDENTIFIERS: readonly string[] = Object.freeze(
-  Array.from(
-    new Set(
-      Object.keys(EVE_CLOUD_MODEL_CONTEXT_LIMITS)
-        .filter((id) => !id.startsWith(EVE_INTERNAL_LANE_PREFIX))
-        .flatMap((id) => (id.includes('/') ? [id, id.slice(id.indexOf('/') + 1)] : [id]))
-    )
-  ).filter((id) => /[0-9]/.test(id))
-);
+export const CLOUD_MODEL_IDENTIFIERS: readonly string[] = deriveCloudModelIdentifiers([
+  ...Object.keys(EVE_CLOUD_MODEL_CONTEXT_LIMITS).filter((id) => !id.startsWith(EVE_INTERNAL_LANE_PREFIX)),
+  // THE MODELS EVE ITSELF SERVES, including the server's DATED PINS (1.820.1).
+  // This table is a context-window catalog, so it only ever knew the FLOATING
+  // alias `deepseek/deepseek-v4-flash`; the Edge Function routes the pinned
+  // `-0731` snapshot. Deriving from the table alone therefore left the id the
+  // server actually sends off the list, and substring matching turned that into a
+  // dangling "…-0731" residue in the user's error text rather than a scrub.
+  ...EVE_SERVED_MODEL_IDS,
+]);
 
 /**
  * 默认 context limit（当无法确定模型时使用）

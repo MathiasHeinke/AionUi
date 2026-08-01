@@ -29,6 +29,8 @@ import { useCallback, useRef } from 'react';
 import { type TFunction } from 'i18next';
 import type { NavigateFunction } from 'react-router-dom';
 import type { AcpModelInfo, AvailableAgent, EffectiveAgentInfo } from '../types';
+import { scrubErrorText, scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
+import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 
 export type GuidSendDeps = {
   // Input state
@@ -231,11 +233,17 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
           if (!warmedReady) {
             Message.error(
               t('conversation.commandEveRuntimeNotReady', {
-                reason:
+                // `msg` / `model_warmup.error` / `next_action` are RAW BACKEND
+                // text interpolated straight into a toast. A warm-up failure is
+                // one of the likeliest places for a provider/model slug to appear,
+                // and i18n interpolation does not launder it.
+                reason: scrubModelIdentifiers(
                   ensureResult?.msg ||
-                  warmedStatus?.model_warmup?.error ||
-                  warmedStatus?.next_action ||
-                  'runtime not ready',
+                    warmedStatus?.model_warmup?.error ||
+                    warmedStatus?.next_action ||
+                    'runtime not ready',
+                  CLOUD_MODEL_IDENTIFIERS
+                ),
               })
             );
             return false;
@@ -252,7 +260,10 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         if (!resolvedLocal?.success || !resolvedLocal.data?.provider) {
           Message.error(
             t('conversation.commandEveRuntimeNotReady', {
-              reason: resolvedLocal?.msg || 'local provider security reconciliation failed',
+              reason: scrubModelIdentifiers(
+                resolvedLocal?.msg || 'local provider security reconciliation failed',
+                CLOUD_MODEL_IDENTIFIERS
+              ),
             })
           );
           return false;

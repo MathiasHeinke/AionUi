@@ -18,7 +18,7 @@
  *
  * This test exercises the WHOLE chain the shim runs per request:
  *   picker commit value (backend store)
- *     → readInferenceSelectionFromBackend  [seat-physical key, /api/settings/client]
+ *     → readInferenceLaneStateFromBackendBestEffort  [seat-physical key, /api/settings/client]
  *     → resolveEffectiveInferenceSelection
  *     → isEveInferenceSelection → resolveWireTierFromSelection
  *     → buildEveCloudRoute → route.tier
@@ -41,7 +41,7 @@ vi.mock('@/common/adapter/httpBridge', () => ({
 }));
 
 import {
-  readInferenceSelectionFromBackend,
+  readInferenceLaneStateFromBackendBestEffort,
   resolveEveCloudRouteFromBackend,
 } from '@process/commandEve/inferenceSelectionBackendRead';
 import { EVE_MAX_ENTITLED_SETTINGS_KEY, eveTierValue, localTierValue } from '@/common/config/eveInferenceCore';
@@ -173,9 +173,11 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     );
   });
 
-  it('the descriptive best-effort reader still maps a backend error to unknown', async () => {
+  it('the descriptive best-effort reader maps a backend error to unknown on BOTH fields', async () => {
     httpRequestMock.mockRejectedValue(new Error('ECONNREFUSED'));
-    await expect(readInferenceSelectionFromBackend()).resolves.toBeUndefined();
+    // Unknown entitlement is what makes the PAINT surfaces fall back to Standard,
+    // so an unreadable backend must not leave `maxEntitled` set to anything.
+    await expect(readInferenceLaneStateFromBackendBestEffort()).resolves.toEqual({});
   });
 
   it('routes a persisted RETIRED rung all the way to wire tier "max"', async () => {
@@ -188,12 +190,32 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     expect(route?.tier).toBe('max');
   });
 
-  it('readInferenceSelectionFromBackend returns the raw persisted picker value', async () => {
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null));
-    const raw = await readInferenceSelectionFromBackend();
-    expect(raw).toBe('command-eve-inference:eve-max');
-    // Sanity: it queried the backend settings endpoint.
+  it('the best-effort reader returns the raw picker value AND the entitlement, from ONE GET', async () => {
+    // THE PAINT WIRING (1.820.1). This reader used to return the selection string
+    // ALONE while fetching `maxEntitled` in the same response and discarding it —
+    // which is precisely how the assistant seed came to paint MAX on funding
+    // authority it had already read and thrown away. Both fields, one request.
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null, true));
+    expect(await readInferenceLaneStateFromBackendBestEffort()).toEqual({
+      selection: 'command-eve-inference:eve-max',
+      maxEntitled: true,
+    });
+    // Sanity: it queried the backend settings endpoint, ONCE.
     expect(httpRequestMock).toHaveBeenCalledWith('GET', '/api/settings/client');
+    expect(httpRequestMock).toHaveBeenCalledTimes(1);
+
+    // A store that never wrote the flag stays UNKNOWN — not `false`. Unknown is
+    // what the paint path fails closed on and the send path lets travel.
+    httpRequestMock.mockClear();
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null));
+    expect(await readInferenceLaneStateFromBackendBestEffort()).toEqual({
+      selection: 'command-eve-inference:eve-max',
+      maxEntitled: undefined,
+    });
+
+    // And a PROVEN-unentitled seat reports false, not unknown.
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null, false));
+    expect((await readInferenceLaneStateFromBackendBestEffort()).maxEntitled).toBe(false);
   });
 
   // -------------------------------------------------------------------------

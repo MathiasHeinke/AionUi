@@ -2704,7 +2704,7 @@ export function commandEveArtifactMenuSkillMarkdown(): string {
     ``,
     `## Budget honesty`,
     ``,
-    `The free day allowance is 100 actions per day. BEFORE starting, state a bounded rough cost in their units ("kostet dich grob 3–8 deiner 100 Gratis-Aktionen heute"). Never claim their exact remaining count — you cannot see it; the app shows it to them. Keep one artifact to a handful of steps: no loops, no retries without asking. If they hit their daily limit mid-artifact, stop cleanly, keep what exists, and say it continues free tomorrow.`,
+    `Every cloud turn costs credits — there is no free daily allowance, so never offer one. BEFORE starting, state a bounded rough cost in their units ("kostet dich grob ein paar hundert Credits"). Never claim their exact remaining balance — you cannot see it; the app shows it to them. Keep one artifact to a handful of steps: no loops, no retries without asking. If they run out mid-artifact, stop cleanly, keep what exists, and say what it would take to finish.`,
     ``,
     `## Honesty for this lane`,
     ``,

@@ -82,7 +82,10 @@ export const COMMAND_EVE_SUPPORTED_WIRE_VERSIONS = [
 //   * 'free'     — the PERMANENT FREE operator seat (founder model 2026-06-30): the
 //                  pilot trial converts to this when the 7-day window lapses. It is
 //                  entitled FOREVER (expires_at null, trial_ends_at null) but limited
-//                  to the free lane + 100/day, NO BYOK / local models / client seats.
+//                  to a 0-euro SEAT with NO BYOK / local models / client seats. It is
+//                  not a free LANE: its cloud turns are credit-metered like every
+//                  other seat's, and the 100/day figure is an anti-abuse ceiling,
+//                  not an allowance it may spend.
 //                  It is its OWN state — distinct from 'expired' (locked out) AND from
 //                  paid. has_paid_seat MUST be FALSE for it (see getEntitlementStatus):
 //                  the edition is the discriminant, NOT trial_ends_at alone (a free
