@@ -47,16 +47,21 @@
 import { httpRequest } from '@/common/adapter/httpBridge';
 import { seatScopedKey } from '@/common/config/seatConfigKeyCore';
 import {
+  EVE_DEFAULT_INFERENCE_SELECTION,
   EVE_INFERENCE_FUNCTION_URL,
+  EVE_MAX_ENTITLED_SETTINGS_KEY,
   isEveInferenceSelection,
-  resolveEffectiveInferenceSelection,
+  repairInferenceSelection,
   resolveEffectiveWireTierFromSelection,
+  resolveWireTierFromSelection,
 } from '@/common/config/eveInferenceCore';
 import { buildEveCloudRoute, type CommandEveEveCloudRoute } from './ollamaOpenAiShim';
 import { getActiveSeatId } from './seatContextCore';
 import { CommandEveShimPublicError } from './shimPublicError';
 
 const INFERENCE_SELECTION_KEY = 'commandEve.inferenceSelection';
+/** The documented default selection, used as the last-resort sendable fallback. */
+const EVE_DEFAULT_INFERENCE_SELECTION_FALLBACK = EVE_DEFAULT_INFERENCE_SELECTION;
 
 /**
  * Read the persisted EVE inference picker selection from the backend settings
@@ -67,14 +72,35 @@ const INFERENCE_SELECTION_KEY = 'commandEve.inferenceSelection';
  * at the call site so an absent value maps to the EVE-Standard default exactly as
  * the renderer's send path does.
  */
-async function fetchInferenceSelectionFromBackend(): Promise<string | undefined> {
-  let physicalKey = INFERENCE_SELECTION_KEY;
+/**
+ * The lane state the routing decision needs, read from ONE settings fetch.
+ *
+ * `maxEntitled` rides along in the SAME GET the selection already required, so
+ * making the clamp real costs no extra request on the per-turn hot path. It is
+ * three-state on purpose: `undefined` means the renderer has never written it
+ * (fresh install, or a boot before the first renderer mount), and an unknown
+ * entitlement must NOT be read as "unentitled" — guessing that would silently
+ * downgrade a paying seat, which is the exact bug class this file exists to
+ * close. Unknown therefore lets the tier travel and leaves the server as the
+ * binding gate.
+ */
+export type CommandEveInferenceLaneState = {
+  selection?: string;
+  maxEntitled?: boolean;
+};
+
+function physicalSettingsKey(logicalKey: string): string {
   try {
-    physicalKey = seatScopedKey(INFERENCE_SELECTION_KEY, getActiveSeatId());
+    return seatScopedKey(logicalKey, getActiveSeatId());
   } catch {
     // Seat context not resolvable yet → fall back to the un-prefixed (legacy) key.
-    physicalKey = INFERENCE_SELECTION_KEY;
+    return logicalKey;
   }
+}
+
+async function fetchInferenceLaneStateFromBackend(): Promise<CommandEveInferenceLaneState> {
+  const physicalKey = physicalSettingsKey(INFERENCE_SELECTION_KEY);
+  const maxEntitledKey = physicalSettingsKey(EVE_MAX_ENTITLED_SETTINGS_KEY);
 
   const settings = await httpRequest<Record<string, unknown>>('GET', '/api/settings/client');
   // Read the seat-physical key ONLY — do NOT fall back to the un-prefixed key on a
@@ -88,7 +114,13 @@ async function fetchInferenceSelectionFromBackend(): Promise<string | undefined>
   // legacy seat physicalKey === INFERENCE_SELECTION_KEY (un-prefixed), so this
   // still reads the founder's own value there; ditto for an unresolvable seat.
   const raw = settings?.[physicalKey];
-  return typeof raw === 'string' && raw.trim().length > 0 ? raw : undefined;
+  const rawMaxEntitled = settings?.[maxEntitledKey];
+  return {
+    selection: typeof raw === 'string' && raw.trim().length > 0 ? raw : undefined,
+    // ONLY an explicit boolean counts. A missing key, a string, or anything else
+    // stays `undefined` = unknown, never `false`.
+    maxEntitled: typeof rawMaxEntitled === 'boolean' ? rawMaxEntitled : undefined,
+  };
 }
 
 /**
@@ -97,20 +129,34 @@ async function fetchInferenceSelectionFromBackend(): Promise<string | undefined>
  */
 export async function readInferenceSelectionFromBackend(): Promise<string | undefined> {
   try {
-    return await fetchInferenceSelectionFromBackend();
+    return (await fetchInferenceLaneStateFromBackend()).selection;
   } catch {
     return undefined;
   }
 }
 
 /**
- * Fail-loud read for routing and warm-up. A valid but absent setting still returns
- * `undefined` (fresh-user EVE Standard); transport/backend failures reject with a
- * stable public error so the shim returns 500 instead of silently changing lanes.
+ * Fail-loud read of the FULL lane state for routing and warm-up. A valid but
+ * absent setting still yields `undefined` (fresh-user EVE Standard);
+ * transport/backend failures reject with a stable public error so the shim
+ * returns 500 instead of silently changing lanes.
+ */
+export async function readInferenceLaneStateFromBackendStrict(): Promise<CommandEveInferenceLaneState> {
+  try {
+    return await fetchInferenceLaneStateFromBackend();
+  } catch {
+    // Deliberately user-facing (fail-closed lane guard), same contract as the
+    // selection-only reader below.
+    throw new CommandEveShimPublicError('Command EVE cloud route unavailable: inference selection could not be read.');
+  }
+}
+
+/**
+ * Fail-loud read for callers that only need the selection string (warm-up).
  */
 export async function readInferenceSelectionFromBackendStrict(): Promise<string | undefined> {
   try {
-    return await fetchInferenceSelectionFromBackend();
+    return (await fetchInferenceLaneStateFromBackend()).selection;
   } catch {
     // Deliberately user-facing (fail-closed lane guard): constructed as a
     // CommandEveShimPublicError so the shim may echo this exact message while
@@ -127,38 +173,50 @@ export async function readInferenceSelectionFromBackendStrict(): Promise<string 
  * selection was read from the wrong store).
  *
  * Chain (exactly what the shim's per-request routing resolver runs):
- *   readSelection() [backend store] → resolveEffectiveInferenceSelection
- *     → isEveInferenceSelection? → resolveEffectiveWireTierFromSelection
+ *   readLaneState() [ONE backend GET] → repairInferenceSelection
+ *     → isEveInferenceSelection? → resolveEffectiveWireTierFromSelection(clamp)
  *     → buildEveCloudRoute
  *
  * A LOCAL selection returns `{ active: false }`. An EVE selection returns an
- * active route carrying the wire tier + license. A rejected `readSelection`
+ * active route carrying the wire tier + license. A rejected `readLaneState`
  * deliberately propagates: unreadable state is not equivalent to an absent
  * setting and must never become an implicit Standard or local route.
  *
- * THE NON-BRICK CLAMP: `readMaxEntitled` is OPTIONAL and three-state. When it
- * proves the seat is NOT MAX-entitled, a persisted MAX selection resolves to
- * `standard` for THIS request only — the stored intent is never rewritten here,
- * so it lights up again the moment the seat buys. When it is absent or returns
- * `undefined` the tier travels unchanged and the server stays the binding gate;
- * inferring "unentitled" from an unreadable status would silently downgrade a
- * paying seat, which is the exact failure class this module was written to close.
+ * THE NON-BRICK CLAMP IS WIRED HERE, NOT INJECTED. `maxEntitled` comes from the
+ * SAME settings fetch the selection already needed, so the production path
+ * exercises it on every turn. When it proves the seat is NOT MAX-entitled, a
+ * persisted MAX selection resolves to `standard` for THIS request only — the
+ * stored intent is never rewritten here, so it lights up again the moment the
+ * seat buys. When it is unknown the tier travels unchanged and the server stays
+ * the binding gate; inferring "unentitled" from a missing flag would silently
+ * downgrade a paying seat, the exact failure class this module exists to close.
+ *
+ * REPAIR: an EVE-prefixed value that resolves to NO tier previously reached the
+ * shim as "no tier" and was answered 500 on every turn. It is repaired here, at
+ * the wire, so the seat can always send regardless of whether the renderer hook
+ * has ever mounted to rewrite the stored string.
  */
 export async function resolveEveCloudRouteFromBackend(deps: {
-  /** Read the raw persisted picker selection (backend store). */
-  readSelection: () => Promise<string | undefined>;
+  /** Read the persisted lane state (selection + MAX entitlement) in ONE fetch. */
+  readLaneState: () => Promise<CommandEveInferenceLaneState>;
   /** Read the CEVE license wire (or undefined when absent). */
   readLicense: () => string | undefined;
   /** Edge Function URL (overridable in tests). */
   functionUrl?: string;
-  /** Proven MAX entitlement, or `undefined` when unknown (see the clamp note). */
-  readMaxEntitled?: () => boolean | undefined;
 }): Promise<CommandEveEveCloudRoute | undefined> {
-  const selection = resolveEffectiveInferenceSelection(await deps.readSelection());
+  const laneState = await deps.readLaneState();
+  const { selection } = repairInferenceSelection(laneState.selection);
   if (!isEveInferenceSelection(selection)) {
     return { active: false };
   }
-  const tier = resolveEffectiveWireTierFromSelection(selection, { maxEntitled: deps.readMaxEntitled?.() });
+  // Belt and braces: repairInferenceSelection already guarantees a resolvable
+  // EVE selection, so this fallback should be unreachable. It is here because
+  // "should be unreachable" is exactly what the 500-every-turn bug believed
+  // about itself — an unresolvable cloud selection must degrade to a sendable
+  // tier, never to `undefined`.
+  const tier =
+    resolveEffectiveWireTierFromSelection(selection, { maxEntitled: laneState.maxEntitled }) ??
+    resolveWireTierFromSelection(EVE_DEFAULT_INFERENCE_SELECTION_FALLBACK);
   const license = deps.readLicense();
   return buildEveCloudRoute({
     isEveSelection: true,

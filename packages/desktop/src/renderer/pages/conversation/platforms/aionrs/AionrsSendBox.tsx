@@ -6,6 +6,8 @@
 
 import { ipcBridge } from '@/common';
 import { EVE_DEFAULT_INFERENCE_SELECTION, isEveInferenceSelection } from '@/common/config/eveInferenceCore';
+import { scrubErrorText } from '@/common/config/modelIdentifierScrub';
+import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import { userVisibleConversationMcpStatuses } from '@/common/config/eveManagedMcpCore';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
 import CommandQueuePanel from '@/renderer/components/chat/CommandQueuePanel';
@@ -265,9 +267,10 @@ const AionrsSendBox: React.FC<{
           emitter.emit('aionrs.workspace.refresh');
         }
       } catch (error) {
+        // SCRUBBED (MAT-1749): an upstream error body can carry a provider/model
+        // id; the chat must never render one.
         const errorMessage =
-          getConversationRuntimeWorkspaceErrorMessage(error, t) ||
-          (error instanceof Error ? error.message : String(error));
+          getConversationRuntimeWorkspaceErrorMessage(error, t) || scrubErrorText(error, CLOUD_MODEL_IDENTIFIERS);
         runtimeView.markSendFailed(errorMessage);
         clearConversationGenerating(conversation_id);
         Message.error(errorMessage);
@@ -474,7 +477,7 @@ const AionrsSendBox: React.FC<{
         restoreDraftAndFiles();
         Message.error(
           error instanceof Error
-            ? error.message
+            ? scrubErrorText(error, CLOUD_MODEL_IDENTIFIERS)
             : t('conversation.commandQueue.promoteFailed', {
                 defaultValue: 'The correction could not be pushed into the current run.',
               })

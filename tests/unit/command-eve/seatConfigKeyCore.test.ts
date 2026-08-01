@@ -80,11 +80,17 @@ describe('(b) cross-seat fence — two seats → two distinct keys', () => {
 });
 
 describe('(c) the allowlist is explicit + auditable', () => {
-  it('exposes exactly the 10 per-seat keys', () => {
+  it('exposes exactly the 11 per-seat keys', () => {
     // Pinned on purpose: adding or removing a key here has to be a decision
     // somebody made, not a diff nobody noticed. 1.820 adds the approval grant —
     // a command one client approved must never be pre-approved inside another
     // client's seat.
+    //
+    // MAT-1749 adds `commandEve.maxEntitled`: the renderer publishes the seat's
+    // proven MAX entitlement so the MAIN process can apply the non-brick clamp
+    // without a network read on the per-turn hot path. It is seat-scoped for the
+    // same reason the selection is — a founder seat with a paid plan must never
+    // leak MAX entitlement into a client seat that has none.
     expect([...SEAT_SCOPED_CONFIG_KEYS].toSorted()).toEqual(
       [
         'commandEve.authority',
@@ -95,6 +101,7 @@ describe('(c) the allowlist is explicit + auditable', () => {
         'commandEve.egressRedactionMode',
         'commandEve.executionMode',
         'commandEve.inferenceSelection',
+        'commandEve.maxEntitled',
         'commandEve.teamWorkerStatus',
         'commandEve.valueReceiptHourlyEur',
       ].toSorted()

@@ -88,6 +88,20 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 };
 
 /**
+ * Every concrete cloud model identifier this build knows about, derived from the
+ * table above rather than re-listed.
+ *
+ * Used ONLY as a deny-list for {@link scrubModelIdentifiers} on user-facing error
+ * text: the founder mandate is that the chat never renders a model id, and an
+ * upstream error body is the one path that can carry one through. Deriving it
+ * here means a model swapped in the table is scrubbed automatically instead of
+ * needing a second list somebody forgets.
+ */
+export const CLOUD_MODEL_IDENTIFIERS: readonly string[] = Object.freeze(
+  Object.keys(MODEL_CONTEXT_LIMITS).filter((id) => id.includes('/'))
+);
+
+/**
  * 默认 context limit（当无法确定模型时使用）
  */
 export const DEFAULT_CONTEXT_LIMIT = COMMAND_EVE_OPERATIONAL_CONTEXT_LIMIT;

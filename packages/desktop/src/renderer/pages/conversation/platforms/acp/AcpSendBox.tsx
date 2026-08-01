@@ -36,6 +36,8 @@ import {
   isEveInferenceSelection,
   resolveWireTierFromSelection,
 } from '@/common/config/eveInferenceCore';
+import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
+import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import {
   markConversationGenerating,
@@ -834,7 +836,11 @@ Please check your local CLI tool authentication status`,
         if (initialFailure?.requires_cloud_ocr_consent !== true) {
           setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
           Message.error({
-            content: initialFailure?.message || t('conversation.pdf.prepareFailed'),
+            // SCRUBBED (MAT-1749): `initialFailure.message` originates upstream
+            // and may carry a provider/model id.
+            content: initialFailure?.message
+              ? scrubModelIdentifiers(initialFailure.message, CLOUD_MODEL_IDENTIFIERS)
+              : t('conversation.pdf.prepareFailed'),
             duration: 6000,
           });
           return null;

@@ -5,6 +5,8 @@
  */
 
 import { ipcBridge } from '@/common';
+import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
+import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import AtFileMenu from '@/renderer/components/chat/AtFileMenu';
 import BtwOverlay from '@/renderer/components/chat/BtwOverlay';
 import SlashCommandMenu, { type SlashCommandMenuItem } from '@/renderer/components/chat/SlashCommandMenu';
@@ -1299,8 +1301,13 @@ const SendBox: React.FC<{
         // the back door. It is the same toast lane the video refusals already
         // use, with `duration: 0` so it STAYS until dismissed: a failure the
         // user scrolled past is a failure they will simply repeat.
-        const reason = error instanceof Error ? error.message : String(error ?? '');
-        console.error('[sendbox]', { event: 'send-failed', reason });
+        // SCRUBBED (MAT-1749): this toast is pinned (`duration: 0`) and renders
+        // the upstream string VERBATIM, so any provider/model id in an upstream
+        // error lands in the chat and stays there. The console keeps the raw
+        // text for debugging; only the user-facing copy is scrubbed.
+        const rawReason = error instanceof Error ? error.message : String(error ?? '');
+        const reason = scrubModelIdentifiers(rawReason, CLOUD_MODEL_IDENTIFIERS);
+        console.error('[sendbox]', { event: 'send-failed', reason: rawReason });
         message.error({
           content: reason
             ? t('messages.sendFailedWithReason', {

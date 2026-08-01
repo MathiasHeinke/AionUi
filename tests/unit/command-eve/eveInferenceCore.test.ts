@@ -57,6 +57,7 @@ import {
   localTierValue,
   migrateLegacyEveSelection,
   normalizeLegacyEveTierId,
+  repairInferenceSelection,
   parseEveTierIdFromSelection,
   parseLocalTierFromSelection,
   resolveCommandEveActiveLane,
@@ -484,14 +485,34 @@ describe('commandEveActiveModeLabel — honest lane self-description (cloud abst
     expect(en).not.toMatch(NO_CLOUD_MODEL);
   });
 
-  it('describes a CLOUD tier as EVE-Cloud + Stufe, never the model (DE + EN)', () => {
-    const de = commandEveActiveModeLabel(eveTierValue('eve-max'), 'de-DE');
-    const en = commandEveActiveModeLabel(eveTierValue('eve-standard'), 'en-US');
-    expect(de).toMatch(/EVE-Cloud/);
-    expect(de).toContain('MAX'); // the STUFE label, not the model
-    expect(en).toMatch(/EVE Cloud/);
-    expect(de).not.toMatch(NO_MODEL);
-    expect(en).not.toMatch(NO_MODEL);
+  it('describes a CLOUD lane WITHOUT tier vocabulary — this string is EVE s system prompt', () => {
+    // The ladder must not come back through the assistant's own mouth. No
+    // "Stufe"/"level"/"tier", no rung names, and no unverifiable capability
+    // claim about context size (the server owns the model and its window).
+    const LADDER = /Stufe|level|tier|Standard|Sehr hoch|Maximum|Ultra|Kontext|context/i;
+    const deMax = commandEveActiveModeLabel(eveTierValue('eve-max'), 'de-DE');
+    const enMax = commandEveActiveModeLabel(eveTierValue('eve-max'), 'en-US');
+    const deRoutine = commandEveActiveModeLabel(eveTierValue('eve-standard'), 'de-DE');
+    const enRoutine = commandEveActiveModeLabel(eveTierValue('eve-standard'), 'en-US');
+
+    expect(deMax).toBe('EVE-Cloud, MAX aktiv');
+    expect(enMax).toBe('EVE Cloud, MAX on');
+    // The routine lane is UNNAMED — it says only that it is the cloud lane.
+    expect(deRoutine).toBe('EVE-Cloud');
+    expect(enRoutine).toBe('EVE Cloud');
+
+    for (const value of [deMax, enMax, deRoutine, enRoutine]) {
+      expect(value).not.toMatch(NO_MODEL);
+      expect(value).not.toMatch(LADDER);
+      expect(value).not.toContain('/');
+    }
+  });
+
+  it('a legacy rung self-describes as the lane it will ACTUALLY run on', () => {
+    expect(commandEveActiveModeLabel(eveTierValue('eve-ultra'), 'de-DE')).toBe('EVE-Cloud, MAX aktiv');
+    expect(commandEveActiveModeLabel(eveTierValue('eve-xhigh'), 'en-US')).toBe('EVE Cloud, MAX on');
+    // eve-high migrates DOWN, so it must not claim MAX.
+    expect(commandEveActiveModeLabel(eveTierValue('eve-high'), 'de-DE')).toBe('EVE-Cloud');
   });
 
   it('falls back to "nicht verifiziert" / "not verified" for an unknown/absent selection', () => {
@@ -821,6 +842,66 @@ describe('eveInferenceCore — MAX money gate (spec 2.6 / server 1.4 mirror)', (
     expect(hasEveMaxAccess({})).toBe(false);
     expect(hasEveMaxAccess(TRIAL)).toBe(false);
     expect(hasEveMaxAccess(PAID_NULL)).toBe(false);
+  });
+});
+
+describe('eveInferenceCore — repairInferenceSelection (survivability at the WIRE)', () => {
+  it('repairs a corrupt EVE-prefixed value to the default and flags the rewrite', () => {
+    for (const corrupt of ['command-eve-inference:eve-bogus', 'command-eve-inference:eve-maximum']) {
+      const repair = repairInferenceSelection(corrupt);
+      expect(repair.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+      expect(repair.repaired).toBe(true);
+      // The repaired value must actually resolve to a sendable tier — "not
+      // undefined" is not enough, the shim refuses anything outside the
+      // server allow-list.
+      expect(resolveWireTierFromSelection(repair.selection)).toBe('standard');
+    }
+  });
+
+  it('repairs a corrupt NON-prefixed value instead of stranding the seat on the local lane', () => {
+    // isEveInferenceSelection() is false for these, so before the repair they
+    // silently pinned the seat to local FOREVER with no path back.
+    for (const corrupt of ['totally-corrupt', 'openrouter:something', '???']) {
+      const repair = repairInferenceSelection(corrupt);
+      expect(repair.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+      expect(repair.repaired).toBe(true);
+    }
+  });
+
+  it('migrates a legacy rung and reports it as a rewrite', () => {
+    expect(repairInferenceSelection(eveTierValue('eve-ultra'))).toEqual({
+      selection: eveTierValue('eve-max'),
+      repaired: true,
+    });
+    expect(repairInferenceSelection(eveTierValue('eve-high'))).toEqual({
+      selection: eveTierValue('eve-standard'),
+      repaired: true,
+    });
+  });
+
+  it('leaves an OFFERED rung and a KNOWN local tier completely alone', () => {
+    for (const value of [
+      eveTierValue('eve-standard'),
+      eveTierValue('eve-max'),
+      localTierValue('local-standard'),
+      localTierValue('local-high'),
+    ]) {
+      expect(repairInferenceSelection(value)).toEqual({ selection: value, repaired: false });
+    }
+  });
+
+  it('does NOT convert an unknown LOCAL id into a metered cloud turn', () => {
+    // The local picker list can legitimately grow, and the local lane never
+    // egresses — silently re-laning it to cloud would start charging a seat that
+    // deliberately chose privacy.
+    const future = 'command-eve-local:future-local';
+    expect(repairInferenceSelection(future)).toEqual({ selection: future, repaired: false });
+  });
+
+  it('an absent/empty value resolves to the default without being reported as a repair', () => {
+    for (const empty of [undefined, null, '', '   ']) {
+      expect(repairInferenceSelection(empty).selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+    }
   });
 });
 

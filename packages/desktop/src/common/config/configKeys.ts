@@ -119,6 +119,17 @@ export type ConfigKeyMap = {
    * Absent ⇒ fall back to the local default tier.
    */
   'commandEve.inferenceSelection': string | undefined;
+  /**
+   * The seat's PROVEN MAX entitlement, published by the renderer (which owns the
+   * authoritative entitlement + credits reads) so the MAIN process can apply the
+   * non-brick clamp without putting a network call on the per-turn hot path.
+   *
+   * Three-state by absence: `undefined` = never established (fresh install, or a
+   * boot before the first renderer mount) and MUST NOT be read as `false` — an
+   * unknown entitlement that clamped would silently downgrade a paying seat.
+   * Written only once funding truth is authoritative. Seat-scoped.
+   */
+  'commandEve.maxEntitled': boolean | undefined;
   'commandEve.executionMode': 'observed' | 'delegated' | 'autonomous' | undefined;
   /**
    * THE approval record. One graduated grant, read identically by the start

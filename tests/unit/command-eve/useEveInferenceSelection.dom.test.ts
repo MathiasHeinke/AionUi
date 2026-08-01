@@ -568,6 +568,60 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.maxEngaged).toBe(false);
   });
 
+  // -------------------------------------------------------------------------
+  // PUBLISHING the entitlement fact the MAIN process clamps on.
+  //
+  // Without this write the clamp in inferenceSelectionBackendRead has no input,
+  // `maxEntitled` is always unknown, and a lapsed MAX seat eats the server's
+  // upsell on every turn. This is the renderer half of that contract.
+  // -------------------------------------------------------------------------
+
+  it('publishes commandEve.maxEntitled=false once funding truth is AUTHORITATIVE', async () => {
+    entitlement.trial_ends_at = null;
+    entitlement.has_paid_seat = false;
+    creditsStatus.ok = true;
+
+    renderHook(() => useEveInferenceSelection());
+
+    await waitFor(() => expect(store.get('commandEve.maxEntitled')).toBe(false));
+  });
+
+  it('publishes commandEve.maxEntitled=true for a purchased seat', async () => {
+    entitlement.has_paid_seat = true;
+    creditsStatus.ok = true;
+
+    renderHook(() => useEveInferenceSelection());
+
+    await waitFor(() => expect(store.get('commandEve.maxEntitled')).toBe(true));
+  });
+
+  it('publishes NOTHING while funding truth is still loading — an unknown must never clamp a paying seat', async () => {
+    entitlementHookState.loading = true;
+    entitlementHookState.status = null;
+    creditsHookState.loading = true;
+    creditsHookState.status = null;
+
+    const { rerender } = renderHook(() => useEveInferenceSelection());
+    rerender();
+
+    // Absent, NOT false. `false` here would downgrade a seat we simply cannot
+    // see yet.
+    expect(store.has('commandEve.maxEntitled')).toBe(false);
+    expect(configService.set).not.toHaveBeenCalledWith('commandEve.maxEntitled', false);
+  });
+
+  it('does not rewrite an unchanged entitlement flag (no write loop)', async () => {
+    entitlement.has_paid_seat = true;
+    creditsStatus.ok = true;
+    store.set('commandEve.maxEntitled', true);
+
+    const { rerender } = renderHook(() => useEveInferenceSelection());
+    rerender();
+    rerender();
+
+    expect(configService.set).not.toHaveBeenCalledWith('commandEve.maxEntitled', true);
+  });
+
   it('setMaxEngaged(true) is a no-op for a locked seat — no write, no lane the server would refuse', () => {
     entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z';
     entitlement.has_paid_seat = false;

@@ -958,6 +958,7 @@ export type I18nKey =
   | 'conversation.eveMax.availableHint'
   | 'conversation.eveMax.engagedHint'
   | 'conversation.eveMax.label'
+  | 'conversation.eveMax.lockedEngagedHint'
   | 'conversation.eveMax.lockedHint'
   | 'conversation.eveMax.upgrade'
   | 'conversation.history.archive'

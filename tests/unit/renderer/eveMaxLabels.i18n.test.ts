@@ -29,6 +29,8 @@ const MAX_KEYS = [
   'conversation.eveMax.availableHint',
   'conversation.eveMax.engagedHint',
   'conversation.eveMax.lockedHint',
+  // The fifth state: a lapsed seat that still holds a persisted MAX intent.
+  'conversation.eveMax.lockedEngagedHint',
   'conversation.eveMax.upgrade',
 ] as const;
 
@@ -122,6 +124,19 @@ describe('MAX lane labels resolve through i18n', () => {
       expect(inst.exists('settings.commandEveLocalLaneHint')).toBe(true);
       expect(inst.t('settings.commandEveLocalLaneHint')).toMatch(/Credits/i);
     }
+  });
+
+  it('the LAPSED-INTENT sentence says the intent is kept AND that it needs a plan', () => {
+    // This is the fifth state's whole job: not "unavailable" (which reads as an
+    // error) and not "on" (which would be a lie) — kept, and purchasable.
+    inst.changeLanguage('de-DE');
+    const de = inst.t('conversation.eveMax.lockedEngagedHint');
+    expect(de).toContain('gemerkt');
+    expect(de).toMatch(/Tarif|Credits/);
+    inst.changeLanguage('en-US');
+    const en = inst.t('conversation.eveMax.lockedEngagedHint');
+    expect(en).toMatch(/remember/i);
+    expect(en).toMatch(/paid plan|credits/i);
   });
 
   it('the pre-existing eveInference keys still resolve (no bundle was clobbered)', () => {

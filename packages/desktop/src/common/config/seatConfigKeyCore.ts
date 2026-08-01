@@ -79,6 +79,10 @@ export const SEAT_SCOPED_CONFIG_KEYS: ReadonlySet<string> = new Set<string>([
   'commandEve.teamWorkerStatus',
   'commandEve.executionMode',
   'commandEve.inferenceSelection',
+  // Entitlement is a property of the SEAT, not the install: a founder seat with a
+  // paid plan must never leak MAX entitlement to a client seat that has none.
+  // Main reads the seat-physical key, exactly as it does for the selection.
+  'commandEve.maxEntitled',
   'commandEve.churnSignal',
   'commandEve.valueReceiptHourlyEur',
   // S11: the PII/DSGVO egress redaction switch is PER-SEAT — the operator turns it

@@ -600,6 +600,7 @@
     "availableHint": "MAX einschalten — volle Denkkraft für harte Aufgaben.",
     "engagedHint": "MAX ist aktiv — EVE arbeitet mit voller Denkkraft.",
     "lockedHint": "MAX ist im bezahlten Tarif oder mit gekauften Credits verfügbar.",
+    "lockedEngagedHint": "MAX bleibt für dich gemerkt, läuft aber erst wieder mit bezahltem Tarif oder gekauften Credits.",
     "upgrade": "MAX freischalten"
   },
   "eveControl": {

@@ -10,17 +10,27 @@
  * MAX is the ONLY user-visible name for that lane. No model id, vendor or slug
  * is rendered here or anywhere downstream; the server owns which model serves it.
  *
- * STATES (all reachable, all accessible):
- *   - available — a real purchase backs MAX; the toggle is operable.
- *   - locked    — trial/free or promotional-credit-only. The control still
- *                 RENDERS (never hidden), announces `aria-disabled`, and carries
- *                 an upsell tooltip. Promotional credits do not unlock MAX.
- *   - engaged   — MAX is the active selection; the toggle reads pressed and the
- *                 composer wears the MAX state.
- *   - disabled / loading — the surface is busy (sending); the control greys out
- *                 without changing which lane is engaged.
- *   - offline   — handled upstream by the picker's runtime truth; MAX itself
- *                 stays engaged so nothing silently re-lanes the user.
+ * STATES. Engagement and entitlement are INDEPENDENT axes, not one enum — a seat
+ * can hold a persisted MAX intent and simultaneously have lost entitlement:
+ *
+ *   - available          — purchase-backed, MAX off. Operable.
+ *   - engaged            — purchase-backed, MAX on. Reads pressed.
+ *   - locked             — not purchase-backed, MAX off. Rendered (never hidden),
+ *                          announced disabled, upsell tooltip.
+ *   - locked + engaged   — THE FIFTH STATE, and the one that used to produce
+ *                          contradictory ARIA: a lapsed seat whose persisted
+ *                          intent is still MAX. It is NOT "on": the wire clamps
+ *                          to the routine lane, so announcing `aria-pressed=true`
+ *                          would tell a screen-reader user the strong lane is
+ *                          active when it is not. We therefore announce
+ *                          `aria-pressed=false` + `aria-disabled=true` and say
+ *                          the truth in the label ("intent kept, needs a plan"),
+ *                          while `data-engaged` still carries the raw intent for
+ *                          styling and tests.
+ *   - disabled / loading — the surface is busy (sending); greys out without
+ *                          changing which lane is engaged.
+ *   - offline            — handled upstream by runtime truth; MAX stays as-is so
+ *                          nothing silently re-lanes the user.
  *
  * THE COMPOSER SEAM. Engaging MAX must repaint the WHOLE composer, and the
  * composer is fully CSS-variable driven (`--eve-spotlight-color`,
@@ -82,9 +92,17 @@ const EveMaxToggle: React.FC<{
   // "level", not a renamed equivalent. The routine lane has no name; MAX is the
   // only word this control is allowed to say about intelligence.
   const label = t('conversation.eveMax.label', 'MAX');
+  // MAX is only truly ON when the seat can actually run it. A lapsed seat keeps
+  // its intent but the wire clamps, so the control must not claim "on".
+  const effectivelyOn = maxEngaged && maxAvailable;
   const hint = maxLocked
-    ? t('conversation.eveMax.lockedHint', 'MAX ist im bezahlten Tarif oder mit gekauften Credits verfügbar.')
-    : maxEngaged
+    ? maxEngaged
+      ? t(
+          'conversation.eveMax.lockedEngagedHint',
+          'MAX bleibt für dich gemerkt, läuft aber erst wieder mit bezahltem Tarif oder gekauften Credits.'
+        )
+      : t('conversation.eveMax.lockedHint', 'MAX ist im bezahlten Tarif oder mit gekauften Credits verfügbar.')
+    : effectivelyOn
       ? t('conversation.eveMax.engagedHint', 'MAX ist aktiv — EVE arbeitet mit voller Denkkraft.')
       : t('conversation.eveMax.availableHint', 'MAX einschalten — volle Denkkraft für harte Aufgaben.');
 
@@ -92,26 +110,39 @@ const EveMaxToggle: React.FC<{
     <span ref={anchorRef} className='eve-max-toggle-anchor inline-flex items-center' data-eve-max-state={maxState}>
       <Tooltip content={hint} position='top'>
         <Button
-          className='eve-max-toggle agent-mode-compact-pill'
+          // Deliberately NOT `agent-mode-compact-pill`: inside .unified-send-bar
+          // that class clamps every control to a 32x32 ICON footprint and hides
+          // its text. MAX is the only pill with a word in it, so it got a 32px
+          // layout box around ~52px of rendered content — overflowing ~10px each
+          // side, which made the label overlap the neighbouring control's hit
+          // target. This control owns its own sizing instead.
+          //
+          // Also deliberately NOT `type='primary'`: inside the send bar the
+          // primary styling is overridden away (so it gave no feedback at all),
+          // and in LIGHT theme + disabled it resolved to white-on-near-white —
+          // the wordmark disappeared completely. Engagement is expressed by
+          // `data-engaged` in CSS we control.
+          className='eve-max-toggle'
           shape='round'
           size='small'
-          type={maxEngaged ? 'primary' : 'default'}
           disabled={disabled}
           onClick={onToggle}
           data-testid='eve-max-toggle'
           data-engaged={maxEngaged ? 'true' : 'false'}
+          data-active={effectivelyOn ? 'true' : 'false'}
           data-locked={maxLocked ? 'true' : 'false'}
-          aria-pressed={maxEngaged}
+          // Coherent ARIA: "pressed" means the strong lane is ACTUALLY running.
+          aria-pressed={effectivelyOn}
           aria-disabled={maxLocked || disabled === true}
           aria-label={`${label} — ${hint}`}
         >
-          <span className='flex items-center gap-4px leading-none'>
+          <span className='eve-max-toggle__content flex items-center gap-4px leading-none'>
             {maxLocked ? (
               <Lock theme='outline' size='13' aria-hidden='true' />
             ) : (
-              <Lightning theme={maxEngaged ? 'filled' : 'outline'} size='13' aria-hidden='true' />
+              <Lightning theme={effectivelyOn ? 'filled' : 'outline'} size='13' aria-hidden='true' />
             )}
-            <span>{label}</span>
+            <span className='eve-max-toggle__label'>{label}</span>
           </span>
         </Button>
       </Tooltip>

@@ -220,6 +220,23 @@ export const EVE_INFERENCE_TIER_DISPLAY_LABELS: Record<EveInferenceWireTier, str
 
 export const EVE_INFERENCE_DEFAULT_TIER_ID: EveInferenceTierId = EVE_INFERENCE_TIERS[0].id;
 
+/**
+ * Where the renderer publishes the seat's proven MAX entitlement so the MAIN
+ * process can apply the non-brick clamp.
+ *
+ * The main process has no cheap authoritative entitlement read: the credits
+ * status is a network call behind an IPC handler, and putting that on the
+ * per-turn hot path would add both latency and a new failure mode to every
+ * message. The renderer already computes this authoritatively, and it already
+ * writes {@link EVE_INFERENCE_PROVIDER_ID_PREFIX}-scoped settings to the same
+ * backend store the routing resolver reads — so publishing one boolean there
+ * makes the clamp real at ZERO extra cost per turn (it rides the GET that was
+ * already happening).
+ *
+ * Seat-scoped exactly like the selection. Absent ⇒ unknown ⇒ no clamp.
+ */
+export const EVE_MAX_ENTITLED_SETTINGS_KEY = 'commandEve.maxEntitled';
+
 /** The Standard rung — the unnamed default half of the two-choice offer. */
 export const EVE_INFERENCE_STANDARD_TIER_ID: EveInferenceTierId = 'eve-standard';
 /** The MAX rung — the strong half of the two-choice offer. */
@@ -529,6 +546,60 @@ export function normalizeLegacyEveTierId(tierId: EveInferenceTierId | undefined)
 }
 
 /**
+ * REPAIR a persisted selection into something that can ALWAYS be acted on.
+ *
+ * WHY THIS IS NOT THE SAME AS {@link migrateLegacyEveSelection}: migration is
+ * about intent (a rung the user picked that no longer exists as an offer).
+ * Repair is about SURVIVAL — a value nobody can parse. Those were previously
+ * handled only in the renderer hook, which meant:
+ *
+ *   - a corrupt EVE-prefixed value (`command-eve-inference:eve-bogus`) reached
+ *     the wire as "no tier" and the shim answered 500 on EVERY turn until the
+ *     renderer happened to have mounted and rewritten it — a boot-order race,
+ *     and absent entirely on paths where the hook never mounts;
+ *   - a corrupt NON-prefixed value silently dropped the seat onto the LOCAL lane
+ *     forever, because it matched neither prefix and nothing ever repaired it.
+ *
+ * So this lives in the pure core and is applied at the WIRE as well as in the
+ * renderer. `repaired: true` means the stored string is not what it claims and a
+ * caller holding a writable store SHOULD rewrite it.
+ *
+ * Note the deliberate asymmetry with the 1.2.19 fail-loud rule: a RECOGNISED
+ * rung is never silently downgraded (that bug cost a paid seat its lane). This
+ * only ever touches values that cannot be named at all — for which there is no
+ * intent to preserve, and where the alternative is a seat that cannot send.
+ */
+export type EveInferenceSelectionRepair = {
+  /** A selection every consumer can resolve. */
+  selection: string;
+  /** True iff `selection` differs from what was stored. */
+  repaired: boolean;
+};
+
+export function repairInferenceSelection(persisted: string | null | undefined): EveInferenceSelectionRepair {
+  const effective = resolveEffectiveInferenceSelection(persisted);
+
+  if (isEveInferenceSelection(effective)) {
+    const migrated = migrateLegacyEveSelection(effective);
+    const selection = migrated ?? effective;
+    return { selection, repaired: selection !== persisted };
+  }
+
+  if (isLocalSelection(effective)) {
+    // A known local tier is honoured verbatim. An UNKNOWN local id is left alone
+    // too: the local picker list can legitimately grow, and the local lane never
+    // egresses, so an unrecognised local value costs nothing and must not be
+    // silently converted into a metered cloud turn.
+    return { selection: effective, repaired: false };
+  }
+
+  // Neither prefix: a corrupt/foreign value. Left alone it would pin the seat to
+  // the local lane forever (isEveInferenceSelection === false), so repair it to
+  // the documented default rather than leaving it stranded.
+  return { selection: EVE_DEFAULT_INFERENCE_SELECTION, repaired: true };
+}
+
+/**
  * Migrate a persisted SELECTION STRING, for callers holding the raw stored value
  * rather than a parsed tier id.
  *
@@ -540,8 +611,13 @@ export function normalizeLegacyEveTierId(tierId: EveInferenceTierId | undefined)
  *
  * A LOCAL selection is never touched — the local lane is a separate offer.
  * An EVE selection naming NO known rung resolves to Standard rather than staying
- * stranded: an unrecognisable cloud rung cannot be sent, and a seat must always
- * be able to send.
+ * stranded.
+ *
+ * SCOPE, precisely: this function only produces a REPLACEMENT STRING. On its own
+ * it guarantees nothing about what the wire does — that guarantee comes from
+ * {@link repairInferenceSelection} being applied at the wire path too. Before
+ * that existed, this repair lived only in the renderer hook, so a corrupt value
+ * still 500'd every turn until (and unless) the hook happened to mount.
  */
 export function migrateLegacyEveSelection(selection: string | null | undefined): string | undefined {
   if (!isEveInferenceSelection(selection)) return undefined;
@@ -1249,12 +1325,19 @@ export function commandEveActiveModeLabel(selection: string | null | undefined, 
       : 'local & private (runs fully on the user device, nothing leaves the machine)';
   }
   if (isEveInferenceSelection(selection)) {
-    const tierId = parseEveTierIdFromSelection(selection);
-    const stufe = tierId ? findEveInferenceTier(tierId)?.label : undefined;
+    // NO TIER VOCABULARY. This string goes into EVE's own SYSTEM PROMPT, so it is
+    // exactly how the ladder would sneak back into the product through the
+    // assistant's mouth after being abolished in the UI. The routine lane has no
+    // name; the only thing worth stating is whether MAX is engaged.
+    //
+    // The old text also hardcoded a context claim ("grosser Kontext") for EVERY
+    // cloud rung, which was a capability assertion this module cannot verify —
+    // the server owns the model and may change its window without a release.
+    const maxEngaged = parseEveTierIdFromSelection(selection) === EVE_INFERENCE_MAX_TIER_ID;
     if (de) {
-      return stufe ? `EVE-Cloud, Stufe ${stufe} (grosser Kontext)` : 'EVE-Cloud (grosser Kontext)';
+      return maxEngaged ? 'EVE-Cloud, MAX aktiv' : 'EVE-Cloud';
     }
-    return stufe ? `EVE Cloud, level ${stufe} (large context)` : 'EVE Cloud (large context)';
+    return maxEngaged ? 'EVE Cloud, MAX on' : 'EVE Cloud';
   }
   return de ? 'nicht verifiziert' : 'not verified';
 }
@@ -1327,6 +1410,14 @@ export function buildEveInferenceProvider(args: BuildEveInferenceProviderArgs): 
   const tier = findEveInferenceTier(normalizeLegacyEveTierId(args.tierId) ?? args.tierId);
   if (!tier) {
     throw new Error(`buildEveInferenceProvider: unknown EVE tier "${args.tierId}"`);
+  }
+  // The comment above used to CLAIM the server allow-list was enforced here; it
+  // was not. It happened to hold only because every id the migration produces is
+  // currently allowed — safe by coincidence, which is not safe. Enforce it.
+  if (!isServerAllowedWireTier(tier.tier)) {
+    throw new Error(
+      `buildEveInferenceProvider: wire tier "${tier.tier}" is not accepted by the eve-inference function`
+    );
   }
   const wire = typeof args.licenseWire === 'string' ? args.licenseWire.trim() : '';
   if (wire.length === 0) {

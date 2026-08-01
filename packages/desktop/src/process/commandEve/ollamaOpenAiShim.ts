@@ -19,6 +19,7 @@ import { isLegacySeatId, sanitizeSeatId } from './seatContextCore';
 import { isCommandEveShimPublicError } from './shimPublicError';
 import { evaluateWorkerDispatch, type EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
 import { EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS } from '../../common/config/eveInferenceCore';
+import { scrubModelIdentifiers } from '../../common/config/modelIdentifierScrub';
 import { buildCommandEveContextPolicy, type CommandEveContextPolicy } from '../../common/config/eveContextPolicyCore';
 import {
   COMMAND_EVE_BONSAI_ACP_MODEL_ID,
@@ -471,6 +472,29 @@ export type CommandEvePromptProof = {
  * Returns `{ active: false }` for any non-EVE (local) selection, so the shim
  * falls through to the local Ollama lane.
  */
+/**
+ * Scrub provider/model identifiers out of a NON-OK upstream body before it is
+ * forwarded to the chat.
+ *
+ * A 200 body is a completion and is passed through byte-identically — scrubbing
+ * model output would corrupt the user's own content. Only the error path, whose
+ * text this product did not author and cannot vouch for, is rewritten. A body
+ * that is not JSON-shaped is scrubbed as plain text rather than trusted.
+ */
+export function scrubUpstreamErrorBody(text: string, upstreamOk: boolean): string {
+  if (upstreamOk || typeof text !== 'string' || text.length === 0) return text;
+  try {
+    const parsed = JSON.parse(text) as { error?: { message?: unknown } };
+    if (parsed && typeof parsed === 'object' && typeof parsed.error?.message === 'string') {
+      parsed.error.message = scrubModelIdentifiers(parsed.error.message);
+      return JSON.stringify(parsed);
+    }
+  } catch {
+    // Not JSON — fall through to the plain-text scrub below.
+  }
+  return scrubModelIdentifiers(text);
+}
+
 export function buildEveCloudRoute(args: {
   /** True iff the active picker selection is an EVE Inference (cloud) tier. */
   isEveSelection: boolean;
@@ -1159,15 +1183,19 @@ async function handleEveCloudCompletions(
 ): Promise<void> {
   const functionUrl = typeof route.functionUrl === 'string' ? route.functionUrl.trim() : '';
   const license = typeof route.license === 'string' ? route.license.trim() : '';
-  // HONEST TIER ROUTING (1.2.19): the wire tier is the user's ACTUAL picker
-  // selection, forwarded VERBATIM — NO silent fall-through to 'standard'. The
-  // routing resolver derives this from the live selection via
-  // resolveWireTierFromSelection (eve-standard→'standard', eve-high→'high',
-  // eve-max→'max' (retired eve-ultra migrates to 'max')). If an ACTIVE EVE route arrives without a known wire tier the
-  // selection→tier chain is broken; we FAIL LOUD (500) instead of metering the
-  // cheapest model — the previous `: 'standard'` fallback was exactly the bug
-  // that made a paid EVE-Max user silently bill DeepSeek V4 Flash (OpenRouter
-  // logs: 100% Flash, GLM 5.2 + V4 Pro never called).
+  // HONEST TIER ROUTING (1.2.19): the wire tier is the user's ACTUAL selection,
+  // forwarded VERBATIM for both OFFERED rungs — NO silent fall-through. The
+  // routing resolver derives it from the live selection: eve-standard→'standard',
+  // eve-max→'max'; a no-longer-offered rung is MIGRATED first (eve-high→
+  // 'standard', eve-xhigh/eve-ultra→'max'), so what travels is what the UI names.
+  //
+  // If an ACTIVE EVE route still arrives without a known wire tier the chain is
+  // broken and we FAIL LOUD (500) rather than metering the cheapest model — the
+  // old `: 'standard'` fallback was exactly the bug that silently billed a paid
+  // seat the cheapest lane (upstream logs: 100% cheapest tier, nothing else ever
+  // called). MAT-1749 note: resolveEveCloudRouteFromBackend now REPAIRS an
+  // unresolvable selection upstream of here, so this 500 is a genuine
+  // last-resort invariant rather than the everyday outcome for a corrupt value.
   const tier = typeof route.tier === 'string' ? route.tier.trim() : '';
   const stream = Boolean(body.stream);
 
@@ -1446,9 +1474,16 @@ async function handleEveCloudCompletions(
       return;
     }
 
-    // Non-streaming (or upstream error): passthrough the JSON verbatim. The
-    // function returns OpenAI-compatible completions on 200 and sanitized error
-    // bodies otherwise.
+    // Non-streaming (or upstream error): passthrough the JSON. On 200 the
+    // function returns OpenAI-compatible completions.
+    //
+    // On a NON-OK status the body is an error we do not control. The previous
+    // comment here called those bodies "sanitized" — that was a guarantee about
+    // code in another repo, asserted from this one, i.e. trust dressed as a
+    // property. An upstream error can name the concrete model as a
+    // `vendor/model` slug, and this passthrough puts it straight into the chat,
+    // which the founder mandate forbids. We therefore scrub the user-facing
+    // message ourselves rather than assuming someone else did.
     const text = await upstream.text();
     upstreamScope.markActivity();
     // F-14 (Kimi 1.819 audit): a non-OK upstream status is an upstream error in
@@ -1471,10 +1506,13 @@ async function handleEveCloudCompletions(
       } catch {
         upstreamMessage = '';
       }
+      // Scrubbed: the quoted upstream sentence is the exact place a provider
+      // slug reaches the chat on a daily-cap turn.
+      const safeUpstreamMessage = scrubModelIdentifiers(upstreamMessage);
       const friendly =
         'EVE hat ihr kostenloses Tageskontingent für heute erreicht. ' +
         'Morgen läuft es automatisch wieder — oder du schaltest mehr Kontingent über die Credits frei.' +
-        (upstreamMessage ? ` (${upstreamMessage})` : '');
+        (safeUpstreamMessage ? ` (${safeUpstreamMessage})` : '');
       response.writeHead(429, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ error: { message: friendly, type: 'eve_daily_cap', code: 429 } }));
       return;
@@ -1483,7 +1521,10 @@ async function handleEveCloudCompletions(
     response.writeHead(upstream.status || 502, {
       'content-type': upstream.headers.get('content-type') || 'application/json',
     });
-    response.end(text || JSON.stringify({ error: { message: `EVE Inference request failed (${upstream.status}).` } }));
+    response.end(
+      scrubUpstreamErrorBody(text, upstream.ok) ||
+        JSON.stringify({ error: { message: `EVE Inference request failed (${upstream.status}).` } })
+    );
   } catch {
     const abortReason = upstreamScope.reason();
     if (abortReason) {

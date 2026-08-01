@@ -179,13 +179,48 @@ describe('EveMaxToggle — control states (spec 2.6)', () => {
     expect(mocks.setMaxEngaged).toHaveBeenCalledWith(true);
   });
 
-  it('ENGAGED: reads pressed, and a click disengages back to Standard', () => {
+  it('ENGAGED: reads pressed, and a click disengages back to the routine lane', () => {
     setState({ maxEngaged: true, maxState: 'engaged' });
     renderInComposer();
     const button = screen.getByTestId('eve-max-toggle');
     expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.getAttribute('data-active')).toBe('true');
     fireEvent.click(button);
     expect(mocks.setMaxEngaged).toHaveBeenCalledWith(false);
+  });
+
+  it('LOCKED + ENGAGED (the fifth state): announces NOT pressed, because the wire clamps', () => {
+    // A lapsed seat keeps its persisted MAX intent, but MAX is not running — the
+    // wire clamps to the routine lane. Announcing aria-pressed=true would tell a
+    // screen-reader user the strong lane is active when it is not. The raw intent
+    // still rides on data-engaged for styling and for the composer state.
+    setState({ maxEngaged: true, maxAvailable: false, maxLocked: true, maxState: 'locked' });
+    renderInComposer();
+    const button = screen.getByTestId('eve-max-toggle');
+
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.getAttribute('data-engaged')).toBe('true');
+    expect(button.getAttribute('data-active')).toBe('false');
+    // ...and the label says the honest thing: intent kept, needs a plan.
+    expect(button.getAttribute('aria-label')).toContain('gemerkt');
+  });
+
+  it('ARIA is never self-contradictory: pressed implies operable in EVERY state', () => {
+    for (const state of [
+      { maxEngaged: false, maxAvailable: true, maxLocked: false, maxState: 'available' as const },
+      { maxEngaged: true, maxAvailable: true, maxLocked: false, maxState: 'engaged' as const },
+      { maxEngaged: false, maxAvailable: false, maxLocked: true, maxState: 'locked' as const },
+      { maxEngaged: true, maxAvailable: false, maxLocked: true, maxState: 'locked' as const },
+    ]) {
+      setState(state);
+      const { unmount } = renderInComposer();
+      const button = screen.getByTestId('eve-max-toggle');
+      const pressed = button.getAttribute('aria-pressed') === 'true';
+      const ariaDisabled = button.getAttribute('aria-disabled') === 'true';
+      expect(pressed && ariaDisabled, `contradictory ARIA for ${state.maxState}`).toBe(false);
+      unmount();
+    }
   });
 
   it('LOCKED: still RENDERED with an upsell hint, announced disabled, and click is a no-op', () => {
@@ -332,6 +367,47 @@ describe('EveMaxToggle — NO cloud tier nomenclature in the composer (Founder c
         }
       }
     }
+  });
+
+  it('does NOT borrow the 32x32 compact-pill class that clamped its label (R2 hit-target)', () => {
+    // `.agent-mode-compact-pill` inside .unified-send-bar forces a 32x32 icon
+    // footprint AND hides the label. MAX is the only pill with a word in it, so
+    // borrowing that class gave it a 32px box around ~52px of content, and the
+    // overflow overlapped the NEIGHBOURING control's hit target.
+    setState({ maxEngaged: false, maxState: 'available' });
+    renderInComposer();
+    const button = screen.getByTestId('eve-max-toggle');
+    expect(button.className).toContain('eve-max-toggle');
+    expect(button.className).not.toContain('agent-mode-compact-pill');
+    expect(button.className).not.toContain('sendbox-model-btn');
+  });
+
+  it('does NOT use Arco type=primary, whose disabled styling made the wordmark invisible (R1)', () => {
+    // In LIGHT theme, primary + Arco's two-class disabled rule beat the send
+    // bar's `:where()`-written colour rule (which contributes zero specificity),
+    // rendering white text on a near-white composer. Engagement is expressed by
+    // data-active in CSS this repo owns instead.
+    for (const state of [
+      { maxEngaged: true, maxAvailable: true, maxLocked: false, maxState: 'engaged' as const },
+      { maxEngaged: false, maxAvailable: true, maxLocked: false, maxState: 'available' as const },
+    ]) {
+      setState(state);
+      const { unmount } = renderInComposer({ disabled: true });
+      const button = screen.getByTestId('eve-max-toggle');
+      expect(button.className).not.toContain('arco-btn-primary');
+      unmount();
+    }
+  });
+
+  it('gives real feedback on engage: data-active flips on the pill itself (R3)', () => {
+    setState({ maxEngaged: false, maxAvailable: true, maxLocked: false, maxState: 'available' });
+    const off = renderInComposer();
+    expect(screen.getByTestId('eve-max-toggle').getAttribute('data-active')).toBe('false');
+    off.unmount();
+
+    setState({ maxEngaged: true, maxAvailable: true, maxLocked: false, maxState: 'engaged' });
+    renderInComposer();
+    expect(screen.getByTestId('eve-max-toggle').getAttribute('data-active')).toBe('true');
   });
 
   it('the composer exposes EXACTLY ONE cloud-intelligence affordance', () => {

@@ -43,6 +43,7 @@ import {
   EVE_INFERENCE_DEFAULT_TIER_ID,
   EVE_INFERENCE_MAX_TIER_ID,
   EVE_INFERENCE_STANDARD_TIER_ID,
+  EVE_MAX_ENTITLED_SETTINGS_KEY,
   eveTierValue,
   hasEveMaxAccess,
   isEveInferenceSelection,
@@ -260,9 +261,28 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   const maxEngaged = selection === maxSelectionValue;
   const maxLocked = !maxAvailable;
   const maxState: EveMaxControlState = maxEngaged && maxAvailable ? 'engaged' : maxAvailable ? 'available' : 'locked';
-  // The clamp: a persisted MAX on an unfunded seat still SENDS, on Standard.
-  // Intent stays on disk so it re-engages the moment the seat buys.
+  /**
+   * What THIS RENDERER would put on the wire. Read carefully: the renderer does
+   * NOT own the send path — the main-process shim resolves the tier per request
+   * from the backend store. So this value is a VIEW for renderer surfaces, and
+   * the clamp that actually protects a lapsed seat is the one in
+   * `inferenceSelectionBackendRead.ts`, fed by the `commandEve.maxEntitled` flag
+   * published just below. Both apply the same pure rule, so they agree.
+   */
   const effectiveWireTier = resolveEffectiveWireTierFromSelection(selection, { maxEntitled: maxAvailable });
+
+  // PUBLISH the entitlement fact the MAIN process needs to apply the clamp.
+  //
+  // The main process reads this from the same settings bag it already fetches
+  // for the selection, so the clamp costs nothing extra per turn. Only publish
+  // once the funding truth is AUTHORITATIVE: writing `false` from a loading or
+  // unreadable state would clamp a paying seat down to Standard, which is worse
+  // than not clamping at all. Guarded on an actual change so this never loops.
+  useEffect(() => {
+    if (!paidTierAccessKnown) return;
+    if (configService.get(EVE_MAX_ENTITLED_SETTINGS_KEY) === maxAvailable) return;
+    configService.set(EVE_MAX_ENTITLED_SETTINGS_KEY, maxAvailable);
+  }, [maxAvailable, paidTierAccessKnown]);
 
   const setMaxEngaged = useCallback(
     (next: boolean) => {

@@ -153,6 +153,76 @@ describe('MAX composer state — the CSS-variable seam', () => {
   });
 });
 
+describe('MAX toggle pill — the three real-app visual defects (R1/R2/R3)', () => {
+  const sendBarCss = fs.readFileSync(
+    path.resolve(__dirname, '../../../packages/desktop/src/renderer/components/chat/UnifiedSendBar.css'),
+    'utf-8'
+  );
+
+  it('R2: the toggle OPTS OUT of the 32x32 compact-pill footprint and sizes itself', () => {
+    // The shared rule clamps width/min-width to the control size. MAX is the one
+    // pill carrying a word, so it must declare auto width or its label overflows
+    // the layout box and steals the neighbour's hit target.
+    expect(sendBarCss).toMatch(/\.unified-send-bar \.eve-max-toggle\.arco-btn[^{]*\{[^}]*width:\s*auto\s*!important/s);
+    expect(sendBarCss).toMatch(
+      /\.unified-send-bar \.eve-max-toggle\.arco-btn[^{]*\{[^}]*min-width:\s*auto\s*!important/s
+    );
+    // ...and it restores a real content box, since the shared rule collapses
+    // .arco-btn-content to the icon size and hides labels.
+    expect(sendBarCss).toMatch(/\.unified-send-bar \.eve-max-toggle \.arco-btn-content\s*\{[^}]*width:\s*auto/s);
+    expect(sendBarCss).toMatch(
+      /\.unified-send-bar \.eve-max-toggle \.eve-max-toggle__label\s*\{[^}]*display:\s*inline\s*!important/s
+    );
+  });
+
+  it('R1: the toggle declares its own colour on its OWN class — never through :where()', () => {
+    // `:where()` contributes ZERO specificity, which is exactly how the bar's
+    // colour rule lost to Arco's two-class disabled rule and left white text on
+    // a near-white composer. Every MAX colour rule must be written on real
+    // classes so it wins on its own merits.
+    const maxRules = sendBarCss.match(/\.unified-send-bar[^{]*\.eve-max-toggle[^{]*\{[^}]*\}/gs) ?? [];
+    expect(maxRules.length).toBeGreaterThan(0);
+    for (const rule of maxRules) {
+      const selector = rule.slice(0, rule.indexOf('{'));
+      expect(selector, 'MAX colour must not route through :where()').not.toContain(':where(');
+    }
+    // The DISABLED state explicitly re-declares a legible colour rather than
+    // inheriting whatever Arco's primary-disabled rule produces.
+    expect(sendBarCss).toMatch(/\.eve-max-toggle\.arco-btn\.arco-btn-disabled/);
+    expect(sendBarCss).toMatch(/\.eve-max-toggle\.arco-btn\[disabled\]/);
+  });
+
+  it('R1: no hardcoded colour in the MAX pill layer — disabled/locked stay theme-aware', () => {
+    const maxRules = (sendBarCss.match(/\.unified-send-bar[^{]*\.eve-max-toggle[^{]*\{[^}]*\}/gs) ?? []).join('\n');
+    expect(maxRules).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    expect(maxRules).not.toMatch(/\brgba?\(/i);
+  });
+
+  it('R3: engaging MAX actually changes the pill, keyed on data-active', () => {
+    // data-ACTIVE, not data-engaged: a lapsed seat keeps the intent but the wire
+    // clamps, so the pill must not light up for a lane that is not running.
+    expect(sendBarCss).toMatch(/\.eve-max-toggle\.arco-btn\[data-active='true'\]/);
+    const activeRule = sendBarCss.match(/\.eve-max-toggle\.arco-btn\[data-active='true'\][^{]*\{[^}]*\}/s);
+    expect(activeRule).not.toBeNull();
+    expect(activeRule![0]).toMatch(/background:/);
+    expect(activeRule![0]).toMatch(/color:/);
+    // Shares the composer's MAX accent so pill and surface read as ONE state.
+    expect(activeRule![0]).toContain('--eve-max-accent');
+  });
+
+  it('every custom property the MAX PILL references is declared somewhere', () => {
+    const declared = declaredCustomProperties(`${loadedCss}\n${sendBarCss}`);
+    const maxRules = (sendBarCss.match(/\.unified-send-bar[^{]*\.eve-max-toggle[^{]*\{[^}]*\}/gs) ?? []).join('\n');
+    const referenced = new Set(
+      (maxRules.match(/var\(\s*(--[a-z0-9-]+)/gi) ?? []).map((m) => m.match(/--[a-z0-9-]+/i)![0])
+    );
+    expect(referenced.size).toBeGreaterThan(0);
+    for (const name of referenced) {
+      expect(declared.has(name), `${name} is referenced by the MAX pill but declared nowhere`).toBe(true);
+    }
+  });
+});
+
 describe('MAX composer state — reduced motion keeps the state, drops the motion', () => {
   const REDUCED_EFFECTS_SELECTOR = ":root[data-eve-reduced-effects='true']";
 

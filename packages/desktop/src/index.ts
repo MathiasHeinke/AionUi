@@ -84,6 +84,7 @@ import { shouldRestartWindowsBackendAfterRuntimeBootstrap } from './process/comm
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatContextRevision, getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
+  readInferenceLaneStateFromBackendStrict,
   readInferenceSelectionFromBackendStrict,
   resolveEveCloudRouteFromBackend,
 } from './process/commandEve/inferenceSelectionBackendRead';
@@ -554,7 +555,12 @@ function buildCommandEveShimRoutingResolver(): (
       // HONEST TIER ROUTING (1.2.19 + backend-store fix): read the only store the
       // renderer writes and reject on transport failure. A valid absent value may
       // default to Standard; an unreadable value may not.
-      readSelection: readInferenceSelectionFromBackendStrict,
+      //
+      // MAT-1749: this reads the LANE STATE (selection + proven MAX entitlement)
+      // in ONE fetch, so the non-brick clamp actually runs in production. It used
+      // to take a selection-only reader, which left the clamp reachable only from
+      // tests that injected a dependency this call site never supplied.
+      readLaneState: readInferenceLaneStateFromBackendStrict,
       readLicense: () => {
         const wireResult = readLicenseWire(getDataPath());
         return wireResult.ok ? wireResult.wire : undefined;

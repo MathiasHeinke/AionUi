@@ -39,11 +39,11 @@ vi.mock('@/common/adapter/httpBridge', () => ({
 }));
 
 import {
+  readInferenceLaneStateFromBackendStrict,
   readInferenceSelectionFromBackend,
-  readInferenceSelectionFromBackendStrict,
   resolveEveCloudRouteFromBackend,
 } from '@process/commandEve/inferenceSelectionBackendRead';
-import { eveTierValue, localTierValue } from '@/common/config/eveInferenceCore';
+import { EVE_MAX_ENTITLED_SETTINGS_KEY, eveTierValue, localTierValue } from '@/common/config/eveInferenceCore';
 import { __resetActiveSeatForTests, setActiveSeatId } from '@process/commandEve/seatContextCore';
 import { seatScopedKey } from '@/common/config/seatConfigKeyCore';
 
@@ -53,23 +53,37 @@ const FAKE_LICENSE = 'CEVE.v2.fake.payload.sig';
 /**
  * Build a settings bag the way the renderer's configService persists it for the
  * active seat: the key is seat-physical (un-prefixed for the legacy seat).
+ *
+ * `maxEntitled` is written to the SAME bag under its own seat-physical key,
+ * because that is literally how the renderer publishes it — which is what makes
+ * the clamp assertions below exercise the production path instead of a dependency
+ * the product never supplies.
  */
-function settingsBagWithSelection(selectionValue: string, seatId: string | null): Record<string, unknown> {
-  return { [seatScopedKey(SELECTION_KEY, seatId)]: selectionValue };
+function settingsBagWithSelection(
+  selectionValue: string,
+  seatId: string | null,
+  maxEntitled?: boolean
+): Record<string, unknown> {
+  return {
+    [seatScopedKey(SELECTION_KEY, seatId)]: selectionValue,
+    ...(maxEntitled === undefined ? {} : { [seatScopedKey(EVE_MAX_ENTITLED_SETTINGS_KEY, seatId)]: maxEntitled }),
+  };
 }
 
 /**
- * The full live chain: backend read → resolved EVE cloud route.
+ * The full live chain, wired EXACTLY as `index.ts` wires it.
  *
- * `maxEntitled` is the three-state clamp input the shim passes per request:
- * omitted ⇒ unknown ⇒ no clamp (the server stays the binding gate).
+ * NOTE what is NOT here: no injected entitlement callback. The earlier version of
+ * this helper passed a `readMaxEntitled` dep that the production call site never
+ * supplied, so every clamp test passed while the clamp was dead code in the
+ * product. The only inputs now are the settings bag and the license — the same
+ * two things production has.
  */
-async function resolveRouteFromBackend(maxEntitled?: boolean) {
+async function resolveRouteFromBackend() {
   return resolveEveCloudRouteFromBackend({
-    readSelection: readInferenceSelectionFromBackendStrict,
+    readLaneState: readInferenceLaneStateFromBackendStrict,
     readLicense: () => FAKE_LICENSE,
     functionUrl: 'https://example.supabase.co/functions/v1/eve-inference',
-    ...(maxEntitled === undefined ? {} : { readMaxEntitled: () => maxEntitled }),
   });
 }
 
@@ -223,10 +237,13 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
   // The non-brick clamp, on the LIVE chain rather than in isolation.
   // -------------------------------------------------------------------------
 
-  it('CLAMP: a persisted MAX on a PROVEN unentitled seat still sends, on wire tier "standard"', async () => {
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null));
+  it('CLAMP (PRODUCTION WIRING): a persisted MAX on a seat the STORE says is unentitled sends on "standard"', async () => {
+    // The ONLY inputs are the settings bag and the license — exactly what
+    // index.ts supplies. Nothing is injected. If the clamp were dead code again,
+    // this fails.
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null, false));
 
-    const route = await resolveRouteFromBackend(false);
+    const route = await resolveRouteFromBackend();
 
     // Active — the seat is NOT bricked — but metered on the floor rung.
     expect(route?.active).toBe(true);
@@ -234,30 +251,95 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     expect(route?.license).toBe(FAKE_LICENSE);
   });
 
-  it('CLAMP: an entitled seat keeps MAX, and an UNKNOWN entitlement does not downgrade it', async () => {
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null));
-    expect((await resolveRouteFromBackend(true))?.tier).toBe('max');
+  it('CLAMP (PRODUCTION WIRING): reads the SEAT-PHYSICAL entitlement key, so no seat inherits another seat s plan', async () => {
+    const seatId = 'seat-acme-gmbh';
+    setActiveSeatId(seatId);
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), seatId, false));
+    expect((await resolveRouteFromBackend())?.tier).toBe('standard');
 
+    // The founder/legacy un-prefixed entitlement must NOT be picked up by a real
+    // seat: an un-scoped `true` alongside a scoped `false` stays clamped.
+    setActiveSeatId(seatId);
+    httpRequestMock.mockResolvedValue({
+      ...settingsBagWithSelection(eveTierValue('eve-max'), seatId, false),
+      [EVE_MAX_ENTITLED_SETTINGS_KEY]: true,
+    });
+    expect((await resolveRouteFromBackend())?.tier).toBe('standard');
+  });
+
+  it('CLAMP (PRODUCTION WIRING): an entitled seat keeps MAX, and an ABSENT flag does not downgrade it', async () => {
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null, true));
+    expect((await resolveRouteFromBackend())?.tier).toBe('max');
+
+    // No entitlement key at all ⇒ unknown ⇒ the server stays the binding gate.
+    // Guessing "unentitled" here would silently downgrade a paying seat.
     httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null));
-    // No readMaxEntitled at all ⇒ unknown ⇒ the server stays the binding gate.
+    expect((await resolveRouteFromBackend())?.tier).toBe('max');
+
+    // A non-boolean value is unknown too, never a falsy clamp.
+    httpRequestMock.mockResolvedValue({
+      ...settingsBagWithSelection(eveTierValue('eve-max'), null),
+      [EVE_MAX_ENTITLED_SETTINGS_KEY]: 'false',
+    });
     expect((await resolveRouteFromBackend())?.tier).toBe('max');
   });
 
-  it('CLAMP: a seeded legacy `eve-ultra` on an unentitled seat lands on "standard", never on nothing', async () => {
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null));
-    const route = await resolveRouteFromBackend(false);
+  it('CLAMP (PRODUCTION WIRING): a seeded legacy `eve-ultra` on an unentitled seat lands on "standard", never on nothing', async () => {
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null, false));
+    const route = await resolveRouteFromBackend();
     expect(route?.active).toBe(true);
     expect(route?.tier).toBe('standard');
   });
 
   it('CLAMP: a LOCAL selection is unaffected and still debits no cloud lane', async () => {
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(localTierValue('local-high'), null));
     for (const entitled of [true, false, undefined]) {
-      httpRequestMock.mockResolvedValue(settingsBagWithSelection(localTierValue('local-high'), null));
-      const route = await resolveRouteFromBackend(entitled);
+      httpRequestMock.mockResolvedValue(settingsBagWithSelection(localTierValue('local-high'), null, entitled));
+      const route = await resolveRouteFromBackend();
       expect(route?.active).toBe(false);
       expect(route?.tier).toBeUndefined();
       expect(route?.license).toBeUndefined();
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // WIRE-LEVEL REPAIR. A corrupt persisted value used to reach the shim as "no
+  // tier" and be answered 500 on EVERY turn, because the repair existed only in
+  // the renderer hook — a boot-order race, and absent entirely where the hook
+  // never mounts. These assert the repair AT THE WIRE.
+  // -------------------------------------------------------------------------
+
+  it('REPAIR: a corrupt EVE-prefixed value still produces a SENDABLE tier, not a 500-every-turn route', async () => {
+    for (const corrupt of [
+      'command-eve-inference:eve-bogus',
+      'command-eve-inference:eve-maximum',
+      'command-eve-inference:',
+    ]) {
+      httpRequestMock.mockResolvedValue(settingsBagWithSelection(corrupt, null));
+      const route = await resolveRouteFromBackend();
+      expect(route?.active, corrupt).toBe(true);
+      // The shim 500s on anything outside the server allow-list, so "defined"
+      // is not enough — it has to be the sendable floor rung.
+      expect(route?.tier, corrupt).toBe('standard');
+    }
+  });
+
+  it('REPAIR: a corrupt NON-prefixed value does NOT strand the seat on the local lane forever', async () => {
+    // It matched neither prefix, so it silently became "local" and nothing ever
+    // repaired it — a seat quietly stuck off the cloud lane with no way back.
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection('totally-corrupt-value', null));
+    const route = await resolveRouteFromBackend();
+    expect(route?.active).toBe(true);
+    expect(route?.tier).toBe('standard');
+  });
+
+  it('REPAIR: a KNOWN rung is never repaired — verbatim routing is untouched', async () => {
+    // The repair must not become a new silent-downgrade path. Anything the
+    // registry can name travels exactly as before.
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null, true));
+    expect((await resolveRouteFromBackend())?.tier).toBe('max');
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-standard'), null));
+    expect((await resolveRouteFromBackend())?.tier).toBe('standard');
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(localTierValue('local-standard'), null));
+    expect((await resolveRouteFromBackend())?.active).toBe(false);
   });
 });
