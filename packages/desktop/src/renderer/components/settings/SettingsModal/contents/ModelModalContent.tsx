@@ -27,6 +27,7 @@ import { useSettingsViewMode } from '../settingsViewContext';
 import { consumePendingDeepLink } from '@/renderer/hooks/system/useDeepLink';
 import { useEntitlementGate } from '@/renderer/hooks/useEntitlementGate';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
+import { useEveSelectionAuthority } from '@renderer/hooks/agent/useEveInferenceSelection';
 import {
   EVE_DEFAULT_INFERENCE_SELECTION,
   EVE_LOCAL_PICKER_TIERS,
@@ -245,6 +246,19 @@ const ModelModalContent: React.FC = () => {
     });
   }, []);
 
+  // The write gate on the SHARED selection key, read from the one definition of it
+  // (see useEveInferenceSelection). While the funding question is unanswered this
+  // surface may not persist the key either — an ungated second writer is not a
+  // second gate, it is a hole.
+  const selectionAuthorityResolved = useEveSelectionAuthority();
+  /** IN-MEMORY ONLY. A held lane flip, replayed once authority answers. */
+  const [pendingLocalLaneSelection, setPendingLocalLaneSelection] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (!selectionAuthorityResolved || pendingLocalLaneSelection === undefined) return;
+    setPendingLocalLaneSelection(undefined);
+    void configService.set('commandEve.inferenceSelection', pendingLocalLaneSelection);
+  }, [pendingLocalLaneSelection, selectionAuthorityResolved]);
+
   /** The picker-side local id that corresponds to the chosen bundled tier. */
   const localSelectionValue = useMemo(() => {
     const match = EVE_LOCAL_PICKER_TIERS.find((tier) => tier.localTierId === selectedLocalModelTierId);
@@ -255,10 +269,23 @@ const ModelModalContent: React.FC = () => {
    * Turn the private local lane on/off. OFF returns to the UNNAMED cloud default
    * — never to a named cloud rung — so a lane switch can never silently re-meter
    * a seat onto the strong lane. Re-engaging MAX stays the MAX toggle's job.
+   *
+   * THE SAME WRITE GATE AS THE HOOK'S. This is the SECOND writer of
+   * `commandEve.inferenceSelection`, and it used to persist unconditionally — so
+   * gating only `useEveInferenceSelection` left the shared key writable through
+   * this switch during the exact window the gate exists for. While authority is
+   * UNKNOWN the flip is held IN MEMORY (the switch moves, so the user is not
+   * fighting a dead control) and replayed once the answer lands; the operator is
+   * told so rather than left with a control that quietly did nothing.
    */
   const setCommandEveLocalLane = (useLocal: boolean): void => {
     const next = useLocal ? localSelectionValue : EVE_DEFAULT_INFERENCE_SELECTION;
     setLocalLaneActive(useLocal);
+    if (!selectionAuthorityResolved) {
+      setPendingLocalLaneSelection(next);
+      message.info(t('settings.commandEveLocalLaneHeldUntilVerified'));
+      return;
+    }
     void configService.set('commandEve.inferenceSelection', next);
   };
 
@@ -272,7 +299,14 @@ const ModelModalContent: React.FC = () => {
       // next turn runs another.
       if (localLaneActive) {
         const match = EVE_LOCAL_PICKER_TIERS.find((tier) => tier.localTierId === normalizedTierId);
-        if (match) await configService.set('commandEve.inferenceSelection', localTierValue(match.id));
+        // Same shared key, same gate. `commandEve.localModelTierId` above is a
+        // DIFFERENT key with no funding meaning and is written either way.
+        if (match && selectionAuthorityResolved) {
+          await configService.set('commandEve.inferenceSelection', localTierValue(match.id));
+        } else if (match) {
+          setPendingLocalLaneSelection(localTierValue(match.id));
+          message.info(t('settings.commandEveLocalLaneHeldUntilVerified'));
+        }
       }
       message.success(t('settings.commandEveLocalRuntimeSelected'));
       return true;

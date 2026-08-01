@@ -1021,5 +1021,6 @@
   "skillsAdded": "{{addedCount}} навыков добавлено и выбрано{{skippedCountText}}",
   "skippedCount": "{{count}} пропущено",
   "allSkillsExist": "Все найденные навыки уже существуют",
-  "noExternalSources": "Внешние источники навыков не найдены"
+  "noExternalSources": "Внешние источники навыков не найдены",
+  "commandEveLocalLaneHeldUntilVerified": "Сохранено локально. Вступит в силу, как только статус места будет проверен."
 }

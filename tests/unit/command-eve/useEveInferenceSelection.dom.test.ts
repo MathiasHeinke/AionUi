@@ -93,6 +93,10 @@ import { useEveInferenceSelection } from '@renderer/hooks/agent/useEveInferenceS
 import { configService } from '@/common/config/configService';
 import { EVE_DEFAULT_INFERENCE_SELECTION, eveTierValue, localTierValue } from '@/common/config/eveInferenceCore';
 
+/** Writes to the SHARED SELECTION KEY only — never the sibling `maxEntitled` key. */
+const selectionWrites = (): unknown[][] =>
+  vi.mocked(configService.set).mock.calls.filter(([key]) => key === 'commandEve.inferenceSelection');
+
 describe('useEveInferenceSelection', () => {
   beforeEach(() => {
     store.clear();
@@ -125,6 +129,11 @@ describe('useEveInferenceSelection', () => {
   });
 
   it('commit() persists the choice to commandEve.inferenceSelection (next-turn pickup)', () => {
+    // AUTHORITY FIRST, and that is the contract rather than fixture noise: under
+    // the Founder ruling NO writer persists this key while the funding question
+    // is unanswered — `origin: 'user'` included. The held case is asserted
+    // directly below and in eveInferenceSelectionUnknownWrite.dom.test.tsx.
+    creditsStatus.ok = true;
     const { result } = renderHook(() => useEveInferenceSelection());
     const localHigh = localTierValue('local-high');
     act(() => result.current.commit(localHigh));
@@ -133,7 +142,30 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.selection).toBe(localHigh);
   });
 
+  it('commit() while authority is UNKNOWN writes NOTHING and holds the intent in memory', async () => {
+    // The paired negative for the row above: same click, same value, only the
+    // answer to "may we write?" changed. Without this pairing the row above would
+    // pass just as happily with the gate deleted.
+    creditsStatus.ok = false; // entitled, but the credits read is not authoritative
+    const { result, rerender } = renderHook(() => useEveInferenceSelection());
+    const localHigh = localTierValue('local-high');
+    act(() => result.current.commit(localHigh));
+    expect(selectionWrites()).toEqual([]);
+    expect(store.get('commandEve.inferenceSelection')).toBeUndefined();
+    // Not painted either — the in-memory selection is untouched.
+    expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+    // ...but not dropped: it is held, and lands when the answer does.
+    expect(result.current.intentPending).toBe(true);
+
+    creditsStatus.ok = true;
+    creditsHookState.status = { ...creditsStatus };
+    rerender();
+    await waitFor(() => expect(store.get('commandEve.inferenceSelection')).toBe(localHigh));
+    expect(result.current.intentPending).toBe(false);
+  });
+
   it('fires the onChange callback after a successful commit', () => {
+    creditsStatus.ok = true;
     const onChange = vi.fn();
     const { result } = renderHook(() => useEveInferenceSelection(onChange));
     const eveStandard = eveTierValue('eve-standard');
@@ -149,6 +181,32 @@ describe('useEveInferenceSelection', () => {
       configService.set('commandEve.inferenceSelection', localStandard);
     });
     await waitFor(() => expect(result.current.selection).toBe(localStandard));
+  });
+
+  it('a retired rung arriving over the SUBSCRIPTION while authority is UNKNOWN is not re-persisted', async () => {
+    // THE FOURTH WRITER, and the one with no other gate in front of it. `commit`
+    // and `setMaxEngaged` hold their own clicks; the mount effect holds its own
+    // migration. The subscription handler calls `setSelection` directly, so when
+    // ANOTHER surface (Settings → Modell) writes a retired rung while the funding
+    // question is unanswered, only setSelection's own gate stands between that and
+    // a migrated rewrite of the shared key. Deleting that gate reddened nothing
+    // until this row existed.
+    creditsStatus.ok = false; // entitled, credits not authoritative ⇒ UNKNOWN
+    const { result } = renderHook(() => useEveInferenceSelection());
+    await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
+    vi.clearAllMocks();
+
+    // Through configService.set — the only call that notifies subscribers, i.e.
+    // the real cross-surface path.
+    act(() => {
+      configService.set('commandEve.inferenceSelection', eveTierValue('eve-ultra'));
+    });
+
+    // In memory the hook may adopt the migrated value (the UI must not show a dead
+    // lane), but what is ON DISK is the other surface's word, unrewritten.
+    await waitFor(() => expect(result.current.selection).toBe(eveTierValue('eve-max')));
+    expect(store.get('commandEve.inferenceSelection')).toBe(eveTierValue('eve-ultra'));
+    expect(configService.set).not.toHaveBeenCalledWith('commandEve.inferenceSelection', eveTierValue('eve-max'));
   });
 
   it('keeps EVE Standard SELECTABLE while trialing — selectable, not free', () => {
@@ -467,7 +525,7 @@ describe('useEveInferenceSelection', () => {
     expect(configService.set).toHaveBeenLastCalledWith('commandEve.inferenceSelection', eveTierValue('eve-max'));
   });
 
-  it('leaves every OFFERED rung untouched and writes nothing', async () => {
+  it('leaves every OFFERED rung untouched and writes the SELECTION key nothing', async () => {
     for (const tierId of ['eve-standard', 'eve-max'] as const) {
       vi.clearAllMocks();
       store.set('commandEve.inferenceSelection', eveTierValue(tierId));
@@ -477,7 +535,11 @@ describe('useEveInferenceSelection', () => {
       const { result, unmount } = renderHook(() => useEveInferenceSelection());
       await waitFor(() => expect(result.current.selection).toBe(eveTierValue(tierId)));
       expect(store.get('commandEve.inferenceSelection')).toBe(eveTierValue(tierId));
-      expect(configService.set).not.toHaveBeenCalled();
+      // SCOPED TO THE KEY UNDER TEST. A blanket `not.toHaveBeenCalled()` also
+      // forbade the `commandEve.maxEntitled` publication — a DIFFERENT key with
+      // its own contract, which now legitimately lands here because a SIGNED paid
+      // seat resolves authority without waiting on a credits read.
+      expect(selectionWrites()).toEqual([]);
       unmount();
     }
   });

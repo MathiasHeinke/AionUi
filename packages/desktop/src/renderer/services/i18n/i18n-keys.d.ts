@@ -2551,6 +2551,7 @@ export type I18nKey =
   | 'settings.commandEveEgressStatus'
   | 'settings.commandEveEgressStatusDesc'
   | 'settings.commandEveLocalLane'
+  | 'settings.commandEveLocalLaneHeldUntilVerified'
   | 'settings.commandEveLocalLaneHint'
   | 'settings.commandEveLocalRuntime'
   | 'settings.commandEveLocalRuntimeBackend'

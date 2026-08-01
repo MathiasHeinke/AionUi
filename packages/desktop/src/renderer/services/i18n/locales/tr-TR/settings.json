@@ -1019,5 +1019,6 @@
   "skillsAdded": "{{addedCount}} yetenek eklendi ve seçildi{{skippedCountText}}",
   "skippedCount": "{{count}} atlandı",
   "allSkillsExist": "Bulunan tüm yetenekler zaten mevcut",
-  "noExternalSources": "Harici beceri kaynağı bulunamadı"
+  "noExternalSources": "Harici beceri kaynağı bulunamadı",
+  "commandEveLocalLaneHeldUntilVerified": "Yerel olarak kaydedildi. Koltuk durumun doğrulanır doğrulanmaz etkin olur."
 }

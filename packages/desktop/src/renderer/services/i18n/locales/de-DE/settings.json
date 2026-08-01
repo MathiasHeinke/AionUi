@@ -329,6 +329,7 @@
   "commandEveLocalRuntimeBackend": "Lokale Verarbeitung",
   "commandEveLocalLane": "Lokal verarbeiten",
   "commandEveLocalLaneHint": "EVE arbeitet vollstaendig auf diesem Mac. Es werden keine Cloud-Credits verbraucht.",
+  "commandEveLocalLaneHeldUntilVerified": "Lokal uebernommen. Wird aktiv, sobald dein Seat-Status geprueft ist.",
   "commandEveLocalRuntimeMeta": "{{context}} Kontext · min. {{memory}} GB RAM · {{disk}} GB Speicher",
   "commandEveLocalRuntimeCurrent": "Aktiv",
   "commandEveLocalRuntimeSelect": "Auswählen",

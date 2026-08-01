@@ -44,6 +44,7 @@ import {
   EVE_INFERENCE_TIERS,
   EVE_INFERENCE_SELECTABLE_TIERS,
   EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS,
+  eveServerAllowedWireTierFingerprint,
   hasEveMaxAccess,
   isOfferedWireTier,
   isServerAllowedWireTier,
@@ -1368,6 +1369,16 @@ describe('MAX unlock — SERVER/CLIENT PARITY (CAO round 2, finding 1)', () => {
         }
       }
     }
+  });
+
+  it('the SERVER-ALLOWED WIRE TIER list has not drifted from the server copy', () => {
+    // Fingerprint pinned on BOTH sides; editing one copy alone reddens this. The
+    // server twin is `knownTierFingerprint` over KNOWN_TIERS, asserted in
+    // supabase/functions/_shared/eve-inference-credits.test.mjs. Before this pair
+    // existed, this hand-typed copy of the server's list was joined to it by
+    // nothing but memory — and a rung only one side knows about is a 403
+    // tier_not_allowed on EVERY request from that seat, not only media ones.
+    expect(eveServerAllowedWireTierFingerprint()).toBe('eve-inference-known-tiers/v1:standard,high,xhigh,max');
   });
 
   it('the parity table has not drifted from the server copy', () => {

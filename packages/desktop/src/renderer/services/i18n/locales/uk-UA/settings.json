@@ -939,5 +939,6 @@
   "skillsAdded": "Додано та вибрано навичок: {{addedCount}}{{skippedCountText}}",
   "skippedCount": "пропущено: {{count}}",
   "allSkillsExist": "Всі знайдені навички вже існують",
-  "noExternalSources": "Зовнішні джерела навичок не знайдені"
+  "noExternalSources": "Зовнішні джерела навичок не знайдені",
+  "commandEveLocalLaneHeldUntilVerified": "Збережено локально. Набуде чинності, щойно статус місця буде перевірено."
 }

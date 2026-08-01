@@ -1021,5 +1021,6 @@
   "skillsAdded": "{{addedCount}} skills added and selected{{skippedCountText}}",
   "skippedCount": "{{count}} skipped",
   "allSkillsExist": "All found skills already exist",
-  "noExternalSources": "외부 스킬 소스를 찾을 수 없습니다"
+  "noExternalSources": "외부 스킬 소스를 찾을 수 없습니다",
+  "commandEveLocalLaneHeldUntilVerified": "로컬에 저장되었습니다. 시트 상태가 확인되면 적용됩니다."
 }

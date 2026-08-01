@@ -1009,5 +1009,6 @@
   },
   "cdP": {
     "title": "CDP (Chrome DevTools Protocol)"
-  }
+  },
+  "commandEveLocalLaneHeldUntilVerified": "Salvo localmente. Entra em vigor assim que o status do seu assento for verificado."
 }

@@ -22,8 +22,26 @@
  * is the input being varied), the Electron config store, and the IPC bridge. The
  * assertion is on the real `configService.set` calls the real hook makes.
  *
- * SABOTAGE CHECK: remove either `paidTierAccessKnown` guard in the hook (the mount
- * migration, or the unknown-lane fallback) and the UNKNOWN cases below go red.
+ * SABOTAGE CHECK — EXECUTED, NOT ASSERTED. Every claim below was measured by
+ * deleting the named production wiring and running `bunx vitest run
+ * tests/unit/command-eve tests/unit/renderer` (4486 tests, 384 files):
+ *
+ *   mount-migration write gate          -> 5 red
+ *   setMaxEngaged UNKNOWN hold          -> 3 red
+ *   commit() UNKNOWN hold               -> 1 red
+ *   pending-intent visible-refusal arm  -> 1 red
+ *   authoritative-negative release      -> 2 red
+ *   maxEntitled publication gate        -> 5 red
+ *   setSelection's own write gate       -> 1 red (the subscription path, pinned in
+ *                                          useEveInferenceSelection.dom.test.ts)
+ *
+ * THE PREVIOUS VERSION OF THIS PARAGRAPH WAS FALSE. It read: "remove either
+ * paidTierAccessKnown guard in the hook (the mount migration, or the unknown-lane
+ * fallback) and the UNKNOWN cases below go red." The second half was untrue —
+ * deleting the unknown-lane fallback guard reddened 0 tests, and so did deleting
+ * that entire effect, because neither of its arms can ever be true. The effect is
+ * now gone and its premise is pinned in eveSelectionStrandingImpossible.test.ts.
+ * A sabotage claim that has not been run is a rumour.
  *
  * NAMING: `.dom.test.tsx`. The vitest `node` project takes `tests/unit/**\/*.test.ts`
  * and never `.tsx`; the `dom` project takes ONLY `*.dom.test.ts(x)`. A plain
@@ -86,9 +104,30 @@ function entitlementUnknown(): void {
   gate.credits = { loading: true, status: null };
 }
 
-/** A LOADED but non-authoritative read: the answer arrived and it is "no answer". */
+/**
+ * A LOADED but non-authoritative read: the answer arrived and it is "no answer".
+ *
+ * `state: 'unconfigured'` is the PRODUCTION shape of that, not an invented one —
+ * `useEntitlementGate`'s catch block synthesises exactly this on a bridge failure,
+ * and `getEntitlementStatus` returns it when no verification key is available.
+ * This fixture used to say `state: 'unknown'`, which is not in
+ * `ICommandEveEntitlementGateState` and therefore never reaches the hook: the
+ * test was varying an input the product cannot produce.
+ */
 function entitlementUnreadable(): void {
-  gate.entitlement = { loading: false, status: { ok: false, state: 'unknown' } };
+  gate.entitlement = { loading: false, status: { ok: false, state: 'unconfigured' } };
+  gate.credits = { loading: false, status: { ok: false } };
+}
+
+/**
+ * THE AUTHORITATIVE NEGATIVE — the state the previous gate could not tell from
+ * silence. The seat is registered and definitively NOT licensed. There is no
+ * credits account without a licence (the bridge answers NO_BEARER), so a gate
+ * that waits for `ok:true` credits waits forever and the deferred write is
+ * stranded for the lifetime of the install.
+ */
+function entitlementAuthoritativeNo(): void {
+  gate.entitlement = { loading: false, status: { ok: false, state: 'registered_unlicensed' } };
   gate.credits = { loading: false, status: { ok: false } };
 }
 
@@ -207,8 +246,12 @@ describe('KNOWN entitlement: the migration is not merely postponed forever', () 
     expect(selectionWrites().length).toBeGreaterThan(0);
   });
 
-  it('a user-initiated pick is ALWAYS persisted — the gate holds machine writes, not people', async () => {
-    // The guard must not swallow a deliberate choice; that would be its own bug.
+  it('a user-initiated pick is persisted ONCE AUTHORITY HAS ANSWERED', async () => {
+    // The gate must not swallow a deliberate choice made after the answer landed.
+    // It DOES hold one made before — that half is `a MAX click during the UNKNOWN
+    // window...` below. This test's name used to say "ALWAYS persisted — the gate
+    // holds machine writes, not people", which was the exempted-`origin:'user'`
+    // doctrine the Founder ruling overturned.
     entitlementKnown();
     store.map.set(SELECTION_KEY, MAX_SELECTION);
 
@@ -217,5 +260,77 @@ describe('KNOWN entitlement: the migration is not merely postponed forever', () 
 
     view.result.current.commit(STANDARD_SELECTION);
     await waitFor(() => expect(store.map.get(SELECTION_KEY)).toBe(STANDARD_SELECTION));
+  });
+
+  it('an AUTHORITATIVE NEGATIVE releases the deferred migration — a "no" is an ANSWER', async () => {
+    // THE STRANDING DEFECT. The gate demanded `state === 'entitled'`, so a seat
+    // the server had definitively answered "not licensed" never satisfied it: the
+    // retired tier stayed on disk forever, and every turn kept shipping a tier the
+    // server refuses. Silence and "no" are different, and only one of them is a
+    // reason to keep waiting.
+    store.map.set(SELECTION_KEY, LEGACY_SELECTION);
+    entitlementAuthoritativeNo();
+
+    const view = renderHook(() => useEveInferenceSelection());
+    await waitFor(() => expect(store.map.get(SELECTION_KEY)).not.toBe(LEGACY_SELECTION));
+
+    expect(selectionWrites().length).toBeGreaterThan(0);
+    // ...and the answer being "no" is not a licence to hand out MAX.
+    expect(view.result.current.maxAvailable).toBe(false);
+    expect(String(store.map.get(SELECTION_KEY))).toBe(MAX_SELECTION);
+  });
+});
+
+describe('a click during the UNKNOWN window is held IN MEMORY, then resolved VISIBLY', () => {
+  it('a MAX click while authority is unknown neither paints, nor sends, nor persists', async () => {
+    const view = renderHook(() => useEveInferenceSelection());
+    await waitFor(() => expect(view.result.current.selection).toBeTruthy());
+
+    view.result.current.setMaxEngaged(true);
+    await waitFor(() => expect(view.result.current.intentPending).toBe(true));
+
+    // NOT ON DISK — the send path re-reads the disk key, so this is also "not
+    // sent". There is deliberately no second persisted key either.
+    expect(selectionWrites()).toEqual([]);
+    expect(store.sets.map(([key]) => key)).not.toContain(SELECTION_KEY);
+    expect(store.map.size).toBe(0);
+    // NOT PAINTED — `maxEngaged` is derived from `selection`, which is untouched.
+    expect(view.result.current.maxEngaged).toBe(false);
+    expect(view.result.current.maxState).toBe('locked');
+  });
+
+  it('a PERMITTED held intent lands on disk the moment the answer arrives', async () => {
+    const view = renderHook(() => useEveInferenceSelection());
+    await waitFor(() => expect(view.result.current.selection).toBeTruthy());
+    view.result.current.setMaxEngaged(true);
+    await waitFor(() => expect(view.result.current.intentPending).toBe(true));
+
+    // The seat turns out to own purchased credits: MAX is permitted.
+    entitlementKnown();
+    view.rerender();
+
+    await waitFor(() => expect(store.map.get(SELECTION_KEY)).toBe(MAX_SELECTION));
+    expect(view.result.current.maxEngaged).toBe(true);
+    expect(view.result.current.intentPending).toBe(false);
+    expect(view.result.current.intentRefused).toBe(false);
+  });
+
+  it('an IMPERMISSIBLE held intent resolves to a VISIBLE refusal — never silently dropped', async () => {
+    const view = renderHook(() => useEveInferenceSelection());
+    await waitFor(() => expect(view.result.current.selection).toBeTruthy());
+    view.result.current.setMaxEngaged(true);
+    await waitFor(() => expect(view.result.current.intentPending).toBe(true));
+
+    // The answer is an authoritative NO. Three things must be true at once.
+    entitlementAuthoritativeNo();
+    view.rerender();
+
+    await waitFor(() => expect(view.result.current.intentRefused).toBe(true));
+    expect(selectionWrites()).toEqual([]); // never silently sent
+    expect(view.result.current.maxEngaged).toBe(false); // never silently painted
+    expect(view.result.current.intentPending).toBe(false); // and it did resolve
+
+    view.result.current.acknowledgeIntentRefused();
+    await waitFor(() => expect(view.result.current.intentRefused).toBe(false));
   });
 });

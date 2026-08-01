@@ -51,13 +51,11 @@ import { isPaidPlanForSeat } from '@/common/config/creditsCore';
 import {
   buildEvePickerGroups,
   EVE_DEFAULT_INFERENCE_SELECTION,
-  EVE_INFERENCE_DEFAULT_TIER_ID,
   EVE_INFERENCE_MAX_TIER_ID,
   EVE_INFERENCE_STANDARD_TIER_ID,
   EVE_MAX_ENTITLED_SETTINGS_KEY,
   eveTierValue,
   hasEveMaxAccess,
-  isEveInferenceSelection,
   migrateLegacyEveSelection,
   type EvePickerGroup,
   type EvePickerItem,
@@ -139,8 +137,30 @@ export interface UseEveInferenceSelectionResult {
   /**
    * Engage/disengage MAX. Disengaging always works. Engaging is refused when MAX
    * is locked, so the control can never persist a lane the server would refuse.
+   *
+   * While authority is UNKNOWN this records an IN-MEMORY pending intent instead
+   * (see {@link intentPending}) — no paint, no wire, no disk.
    */
   setMaxEngaged: (next: boolean) => void;
+  /**
+   * Whether both funding authorities have ANSWERED — positive or negative.
+   * The gate on every write to `commandEve.inferenceSelection`.
+   */
+  authorityResolved: boolean;
+  /**
+   * A click landed while authority was UNKNOWN and is being held IN MEMORY.
+   * It is not on disk, it is not painted, and it is not on the wire.
+   */
+  intentPending: boolean;
+  /**
+   * A held intent was REFUSED once the answer landed (a MAX intent on a seat the
+   * answer says may not have MAX). Surfaced so the refusal is VISIBLE — an
+   * impermissible intent must resolve to locked/upsell, never be silently
+   * dropped. Cleared by {@link acknowledgeIntentRefused}.
+   */
+  intentRefused: boolean;
+  /** Dismiss the refusal notice after the surface has shown it. */
+  acknowledgeIntentRefused: () => void;
   /**
    * Whether the EVE Inference (cloud) lane has a usable license bearer at rest.
    * `true` = activated, cloud routes; `false` = no usable cloud bearer, so the
@@ -151,6 +171,74 @@ export interface UseEveInferenceSelectionResult {
   cloudBearerAvailable: boolean | undefined;
   /** Re-read the bearer presence (call after a re-activation). */
   refreshBearer: () => Promise<void>;
+}
+
+/** The one persisted key every writer in this module shares. */
+const SELECTION_KEY = 'commandEve.inferenceSelection';
+
+/**
+ * AUTHORITY RESOLUTION — a DIFFERENT QUESTION from entitlement, and keeping the
+ * two apart is the whole point of this function (Founder ruling, round 3).
+ *
+ *   `authorityResolved` = "has the funding question been ANSWERED?"
+ *   `maxEntitled`       = "was the answer YES?"
+ *
+ * Conflating them produced three separate defects. The old predicate demanded
+ * `state === 'entitled'`, so an authoritative NO never resolved: a seat the
+ * server had definitively answered "not licensed" stranded every deferred write
+ * forever, because the gate it was waiting on could only open for the positive
+ * answer. AN AUTHORITATIVE "NO" IS AN ANSWER.
+ *
+ * The three ways the question gets answered, all of them terminal:
+ *   1. Entitlement says NOT entitled. There is no credits account without a
+ *      licence — the credits bridge returns `ok:false` with a NO_BEARER reason
+ *      for exactly this seat — so waiting for a credits read would wait forever.
+ *      Answer: no paid lane. RESOLVED.
+ *   2. Entitlement says entitled AND the SIGNED licence already carries
+ *      `has_paid_seat`. That alone decides MAX (see `hasEveMaxAccess`), so a
+ *      credits blip cannot change the answer. RESOLVED.
+ *   3. Entitlement says entitled and the credits read is authoritative
+ *      (`ok === true`). The full picture. RESOLVED — either way.
+ *
+ * Everything else is UNKNOWN and must hold every write:
+ *   - either source still loading;
+ *   - no status object at all (pre-first-read, or a non-desktop build with no
+ *     entitlement bridge — unchanged from the previous predicate, which also
+ *     never opened there);
+ *   - `state === 'unconfigured'`, which is this bridge's "I cannot tell you"
+ *     (no bundled key, or a thrown bridge read) rather than a seat verdict.
+ */
+export function eveSelectionAuthorityResolved(input: {
+  entitlementLoading: boolean;
+  entitlementStatus: { ok?: boolean; state?: string; has_paid_seat?: boolean } | null | undefined;
+  creditsLoading: boolean;
+  creditsStatus: { ok?: boolean } | null | undefined;
+}): boolean {
+  const entitlement = input.entitlementStatus;
+  const entitlementAnswered =
+    input.entitlementLoading === false && entitlement != null && entitlement.state !== 'unconfigured';
+  if (!entitlementAnswered) return false;
+  const seatIsEntitled = entitlement.ok === true && entitlement.state === 'entitled';
+  if (!seatIsEntitled) return true; // an authoritative NO is an ANSWER
+  if (entitlement.has_paid_seat === true) return true; // the signed licence already decided
+  return input.creditsLoading === false && input.creditsStatus?.ok === true;
+}
+
+/**
+ * The write gate on its own, for the OTHER surface that persists the shared key
+ * (Settings → Modell's local-lane switch). It lives here rather than in its own
+ * file so there is exactly one definition of "may this key be written", and so
+ * the hooks/agent directory stays under the ten-child limit.
+ */
+export function useEveSelectionAuthority(): boolean {
+  const { loading: entitlementLoading, status } = useEntitlementGate();
+  const { loading: creditsLoading, status: creditsStatus } = useCreditsStatus();
+  return eveSelectionAuthorityResolved({
+    entitlementLoading,
+    entitlementStatus: status,
+    creditsLoading,
+    creditsStatus,
+  });
 }
 
 /**
@@ -206,24 +294,43 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     };
   }, [creditsStatus, status]);
 
-  // AUTHORITATIVE FUNDING TRUTH — hoisted above every writer on purpose (R4).
+  // THE WRITE GATE — hoisted above every writer on purpose (R4).
   //
   // It used to be computed further down, AFTER `setSelection` and after the mount
   // migration effect, which is precisely why those two could persist a lane while
   // the entitlement was still unknown. A guard that is declared after the code it
   // is supposed to guard cannot guard it.
-  const paidTierAccessKnown =
-    !entitlementLoading &&
-    status?.ok === true &&
-    status.state === 'entitled' &&
-    !creditsLoading &&
-    creditsStatus?.ok === true;
+  //
+  // It is `authorityResolved`, NOT `maxEntitled` — see the doc on
+  // eveSelectionAuthorityResolved for why demanding the POSITIVE answer stranded
+  // an unentitled seat's deferred writes forever.
+  const authorityResolved = eveSelectionAuthorityResolved({
+    entitlementLoading,
+    entitlementStatus: status,
+    creditsLoading,
+    creditsStatus,
+  });
 
   const [selection, expose] = useState<string>(() => {
     // Default to EVE Standard (cloud) for a fresh user; local Gemma is opt-in.
-    const stored = configService.get('commandEve.inferenceSelection') || EVE_DEFAULT_INFERENCE_SELECTION;
+    const stored = configService.get(SELECTION_KEY) || EVE_DEFAULT_INFERENCE_SELECTION;
     return migrateLegacyEveSelection(stored) ?? stored;
   });
+
+  /**
+   * THE PENDING INTENT, IN MEMORY AND NOWHERE ELSE.
+   *
+   * A click during the UNKNOWN window is an intent, not a decision the app may
+   * record. It is deliberately NOT a second persisted key: an on-disk "pending"
+   * key would recreate the very problem this gate exists to close, one rename
+   * away. It is deliberately NOT folded into `selection` either — `maxEngaged`
+   * is derived from `selection`, so parking a MAX intent there would PAINT MAX
+   * on an answer nobody has given.
+   */
+  const [pendingIntent, setPendingIntent] = useState<string | undefined>(undefined);
+  /** A held intent the answer then refused. Drives the visible locked/upsell resolution. */
+  const [intentRefused, setIntentRefused] = useState(false);
+  const acknowledgeIntentRefused = useCallback(() => setIntentRefused(false), []);
 
   /**
    * Adopt a selection, migrating a retired one on the way in AND persisting the
@@ -238,55 +345,61 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
    * value neither writes nor re-enters through the subscription — no loop, no
    * duplicate onChange.
    *
-   * `origin` IS THE R4 GATE, and it is the whole point of this parameter:
-   *   - `'user'`  — the person in front of the app picked this. Always persisted;
-   *                 refusing to record a deliberate choice would be its own bug.
-   *   - `'auto'`  — the APP decided: a legacy-value migration, an unknown-lane
-   *                 fallback, a value arriving over the subscription. These are
-   *                 REFUSED while entitlement is unknown. UNKNOWN fails closed in
-   *                 both directions, and rewriting the persisted key is the
-   *                 direction that loses the user's paid intent: a stored
-   *                 `eve-ultra` was being silently migrated to `eve-max` (or a
-   *                 stored MAX reset to Standard) before anyone knew whether the
-   *                 seat was entitled, and the write is not undone when the answer
-   *                 arrives. In-memory state still updates so the UI stays
-   *                 coherent; only the DISK write waits for an answer.
+   * THE GATE NO LONGER LOOKS AT `origin`, AND THAT IS THE FIX. It used to exempt
+   * `origin: 'user'` on the reasoning that refusing a deliberate choice would be
+   * its own bug — but an exempted writer is not a gated writer, and this one
+   * persisted MAX for a seat nobody had yet established may have it. A deliberate
+   * choice made during the UNKNOWN window is not discarded; it is held IN MEMORY
+   * by the caller (see `pendingIntent`) and replayed — or visibly refused — the
+   * moment the answer lands. The parameter survives only to distinguish those two
+   * cases in the reader's head; both are held.
+   *
+   * In-memory state still updates so the UI stays coherent; only the DISK write
+   * waits for an answer. What waits is exactly what R4 protects: a stored
+   * `eve-ultra` was being silently migrated to `eve-max` (or a stored MAX reset to
+   * Standard) before anyone knew whether the seat was entitled, and the write is
+   * not undone when the answer arrives.
    */
   const setSelection = useCallback(
-    (next: string, origin: 'user' | 'auto' = 'user') => {
-      const migrated = migrateLegacyEveSelection(next);
-      if (migrated === undefined) {
-        expose(next);
-        return;
-      }
-      expose(migrated);
-      if (origin === 'auto' && !paidTierAccessKnown) return;
-      if (configService.get('commandEve.inferenceSelection') !== migrated) {
-        configService.set('commandEve.inferenceSelection', migrated);
+    (next: string) => {
+      // `migrateLegacyEveSelection` answers `undefined` for BOTH "not an EVE
+      // value" and "already canonical", so the resolved value is the migration
+      // when there is one and the input otherwise. The old shape returned early
+      // on `undefined`, which is why every caller had to re-issue its own
+      // `configService.set` — and an ungated duplicate write beside a gated one
+      // is how `origin: 'user'` slipped past the gate in the first place. ONE
+      // writer, ONE gate.
+      const resolved = migrateLegacyEveSelection(next) ?? next;
+      expose(resolved);
+      if (!authorityResolved) return;
+      if (configService.get(SELECTION_KEY) !== resolved) {
+        configService.set(SELECTION_KEY, resolved);
       }
     },
-    [paidTierAccessKnown]
+    [authorityResolved]
   );
 
   // A selection already on disk when this mounts never passes through the
   // subscription, so it is migrated (and written back) once funding truth is
   // AUTHORITATIVE.
   //
-  // The `paidTierAccessKnown` gate is the fix for the R4 hole this effect was:
+  // The `authorityResolved` gate is the fix for the R4 hole this effect was:
   // it ran on mount with an empty dep array, i.e. at the exact moment entitlement
   // is least likely to be known, and rewrote the persisted key anyway. A seat
   // whose stored lane was the retired `eve-ultra` had it replaced with `eve-max`
   // before anything knew whether that seat may have MAX. The in-memory adoption
   // still happens immediately (the UI must not show a dead lane); only the write
-  // waits. Re-runs when the answer lands, so nothing is stranded.
+  // waits. Re-runs when the answer lands — for the NEGATIVE answer as well as the
+  // positive one, which is exactly what the old `state === 'entitled'` gate could
+  // not do — so nothing is stranded.
   useEffect(() => {
-    const stored = configService.get('commandEve.inferenceSelection');
+    const stored = configService.get(SELECTION_KEY);
     const migrated = migrateLegacyEveSelection(stored);
     if (migrated === undefined || migrated === stored) return;
     expose(migrated);
-    if (!paidTierAccessKnown) return;
-    configService.set('commandEve.inferenceSelection', migrated);
-  }, [paidTierAccessKnown]);
+    if (!authorityResolved) return;
+    configService.set(SELECTION_KEY, migrated);
+  }, [authorityResolved]);
 
   // Keep local state in sync with writes from the other surface. Since MAT-1749
   // there are exactly two writers of this key — the composer's MAX toggle (via
@@ -294,8 +407,8 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   // reading through this hook. This subscription is what lets a Settings change
   // reach an open composer without a reload.
   useEffect(() => {
-    const unsubscribe = configService.subscribe('commandEve.inferenceSelection', (value) => {
-      if (typeof value === 'string' && value.length > 0) setSelection(value, 'auto');
+    const unsubscribe = configService.subscribe(SELECTION_KEY, (value) => {
+      if (typeof value === 'string' && value.length > 0) setSelection(value);
     });
     return unsubscribe;
   }, [setSelection]);
@@ -368,24 +481,55 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   // unreadable state would clamp a paying seat down to Standard, which is worse
   // than not clamping at all. Guarded on an actual change so this never loops.
   useEffect(() => {
-    if (!paidTierAccessKnown) return;
+    if (!authorityResolved) return;
     if (configService.get(EVE_MAX_ENTITLED_SETTINGS_KEY) === maxAvailable) return;
     configService.set(EVE_MAX_ENTITLED_SETTINGS_KEY, maxAvailable);
-  }, [maxAvailable, paidTierAccessKnown]);
+  }, [maxAvailable, authorityResolved]);
 
   const setMaxEngaged = useCallback(
     (next: boolean) => {
       const value = next ? maxSelectionValue : eveTierValue(EVE_INFERENCE_STANDARD_TIER_ID);
+      // UNKNOWN: hold the click IN MEMORY. It must not paint MAX (nothing here
+      // touches `selection`), must not send MAX (the send path re-reads the DISK
+      // key, which is untouched), and must not touch disk. It is neither obeyed
+      // nor discarded — it waits for the answer.
+      if (!authorityResolved) {
+        setPendingIntent(value);
+        setIntentRefused(false);
+        return;
+      }
       // Engaging a locked MAX would persist a lane the server refuses; the
-      // upsell affordance is the answer there, not a write.
-      if (next && !maxAvailable) return;
+      // upsell affordance is the answer there, not a write — and the refusal is
+      // RAISED, not swallowed, so the surface can show it.
+      if (next && !maxAvailable) {
+        setIntentRefused(true);
+        return;
+      }
+      setIntentRefused(false);
       if (value === selection) return;
       setSelection(value);
-      configService.set('commandEve.inferenceSelection', value);
       onChange?.(value);
     },
-    [maxAvailable, maxSelectionValue, onChange, selection, setSelection]
+    [authorityResolved, maxAvailable, maxSelectionValue, onChange, selection, setSelection]
   );
+
+  /**
+   * THE ANSWER LANDS — resolve the held intent, in one of exactly two visible
+   * ways. Never silently sent, never silently painted, never silently dropped.
+   */
+  useEffect(() => {
+    if (!authorityResolved || pendingIntent === undefined) return;
+    setPendingIntent(undefined);
+    if (pendingIntent === maxSelectionValue && !maxAvailable) {
+      // The answer is NO. The intent resolves to locked/upsell, VISIBLY.
+      setIntentRefused(true);
+      return;
+    }
+    setIntentRefused(false);
+    if (pendingIntent === selection) return;
+    setSelection(pendingIntent);
+    onChange?.(pendingIntent);
+  }, [authorityResolved, maxAvailable, maxSelectionValue, onChange, pendingIntent, selection, setSelection]);
 
   const isSelectable = useCallback(
     (value: string) => {
@@ -400,44 +544,47 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
       const item = items.find((i) => i.value === value);
       // Ignore unknown values and greyed (paid-only while trialing) rows.
       if (!item || item.disabled) return;
+      // UNKNOWN: held in memory like every other click. `commit` is the same
+      // shared key, so exempting it would leave the gate with a hole named
+      // differently.
+      if (!authorityResolved) {
+        setPendingIntent(value);
+        setIntentRefused(false);
+        return;
+      }
       setSelection(value);
-      configService.set('commandEve.inferenceSelection', value);
       onChange?.(value);
     },
-    [items, onChange]
+    [authorityResolved, items, onChange, setSelection]
   );
 
-  // Reset to the safe default once when the persisted selection is no longer
-  // usable, so the SEND PATH never re-reads a stranded value as the active lane:
-  //  - a metered EVE tier after both entitlement and credit truth confirm that it
-  //    is no longer funded, OR
-  //  - a now-UNKNOWN EVE selection that resolves to no lane in the model.
+  // ── THE UNKNOWN-LANE FALLBACK EFFECT IS DELETED, AND THAT IS THE HONEST FIX ──
   //
-  // MAX IS THE ONE EXCEPTION, and it is deliberate. An unfunded MAX is not a
-  // stranded selection: the clamp above already makes it SEND on Standard, so
-  // nothing is broken by keeping it — while erasing it would throw away the
-  // user's stated intent and force them to re-pick after every lapse or transient
-  // credits blip. Intent is preserved; entitlement decides what travels.
+  // It reset a stranded EVE selection to Standard on two conditions:
+  //   `isUnknownEve`            — an EVE value resolving to no lane in the model;
+  //   `isConfirmedUnfundedTier` — an EVE lane that is present but disabled.
+  // Its comment claimed it prevented a silent downgrade, and a test file claimed
+  // deleting its guard would go red. NEITHER ARM CAN EVER BE TRUE, so both claims
+  // were false. Measured, not reasoned: deleting the guard reddened 0 of 4486
+  // tests, and deleting the whole effect reddened 0 as well.
   //
-  // Unknown local/connected values remain untouched because their provider model
-  // may not have loaded yet; an absent lane is not proof they were retired.
-  useEffect(() => {
-    const fallback = eveTierValue(EVE_INFERENCE_DEFAULT_TIER_ID);
-    const isUnknownEve = isEveInferenceSelection(selection) && !items.some((item) => item.value === selection);
-    const isConfirmedUnfundedTier =
-      selectedRaw?.group === 'eve' && selectedRaw.disabled && selection !== maxSelectionValue;
-    // ONE gate for BOTH arms. `isConfirmedUnfundedTier` carried its own
-    // `paidTierAccessKnown` term; `isUnknownEve` did not, so an EVE selection that
-    // simply had not resolved to a lane yet was reset to Standard and WRITTEN TO
-    // DISK while entitlement was unknown — a silent downgrade of exactly the kind
-    // R4 forbids, and unrecoverable once the answer arrives. Hoisting the gate to
-    // cover the whole effect means no arm can be added later without it.
-    if (!paidTierAccessKnown) return;
-    if ((isConfirmedUnfundedTier || isUnknownEve) && selection !== fallback) {
-      setSelection(fallback, 'auto');
-      configService.set('commandEve.inferenceSelection', fallback);
-    }
-  }, [selectedRaw, items, paidTierAccessKnown, selection, maxSelectionValue, setSelection]);
+  //   `isUnknownEve` is unreachable because EVERY path that sets `selection`
+  //   normalises first — the useState initializer and `setSelection` both run
+  //   `migrateLegacyEveSelection`, which maps ANY `command-eve-inference:*` string
+  //   (retired, unknown, corrupt) onto the OFFERED surface. `isEveInferenceSelection`
+  //   is the same prefix test, so an EVE selection that is not in `items` cannot
+  //   exist here.
+  //
+  //   `isConfirmedUnfundedTier` is unreachable because the EVE group offers exactly
+  //   Standard and MAX; Standard is never disabled, and MAX is excluded by the
+  //   `!== maxSelectionValue` term that keeps the intent across a lapse. There is
+  //   no third rung to be disabled.
+  //
+  // Dead code whose comment asserts a safety property is worse than no code: it is
+  // read as protection. The premise that KILLED it is pinned instead, in
+  // tests/unit/command-eve/eveSelectionStrandingImpossible.test.ts — if a third
+  // selectable EVE rung or a paid-only Standard is ever added, that test goes red
+  // and whoever adds it has to bring a GATED reset back with it.
 
   return {
     selection,
@@ -452,6 +599,10 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     maxLocked,
     maxState,
     setMaxEngaged,
+    authorityResolved,
+    intentPending: pendingIntent !== undefined,
+    intentRefused,
+    acknowledgeIntentRefused,
     cloudBearerAvailable,
     refreshBearer,
   };

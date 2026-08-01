@@ -600,7 +600,28 @@ describe('main adapter source-derived wire registry', () => {
     ).toEqual(observed);
   });
 
-  it('stays byte-exact with every renderer-callable provider declaration', () => {
+  it('holds the SAME KEY SET as every provider DECLARED in src/common + src/renderer', () => {
+    // WHAT THIS DOES AND DOES NOT CHECK — the name used to say "stays byte-exact
+    // with every renderer-callable provider declaration", and neither half was
+    // true of the code:
+    //
+    //   NOT BYTE-EXACT. It compares two SORTED SETS of key strings. Ordering,
+    //   duplicates within the source, and every byte of the surrounding
+    //   declaration are outside it. (The registry's own uniqueness IS checked, on
+    //   the last line.) The payload CLASS per key is a separate contract, frozen
+    //   by the next test.
+    //
+    //   NOT EVERY DECLARATION. The scan covers src/common and src/renderer only.
+    //   There are 19 further `buildProvider<...>` sites in src/process, src/preload
+    //   and src/index.ts. Widening the roots was attempted and is NOT a rename
+    //   away: the extractor requires a string-literal key and those trees declare
+    //   some through constants (e.g. commandEveBridge.ts:1802,
+    //   index.ts TELEMETRY_CONSENT_GET_CHANNEL), so it throws
+    //   "Unresolved renderer provider key" rather than reporting a drift. Resolving
+    //   constants across modules is a real extractor change, not in this scope.
+    //
+    // The gap that scope leaves is covered directly below, so "out of scope" does
+    // not quietly mean "unchecked".
     const declarations = ['packages/desktop/src/common', 'packages/desktop/src/renderer'].flatMap((root) =>
       collectTypeScriptFiles(path.join(process.cwd(), root)).flatMap(extractProviderDeclarations)
     );
@@ -608,6 +629,38 @@ describe('main adapter source-derived wire registry', () => {
 
     expect([...RENDERER_PROVIDER_KEYS].toSorted()).toEqual([...sourceProviderKeys].toSorted());
     expect(new Set(RENDERER_PROVIDER_KEYS).size).toBe(RENDERER_PROVIDER_KEYS.length);
+  });
+
+  it('MAIN-SIDE declarations introduce no key the renderer registry does not already know', () => {
+    // The scope gap above, closed for every key that can be read without a
+    // constant resolver: a literal `buildProvider<...>('some.key')` anywhere in
+    // src/process, src/preload or src/index.ts must already be a registered
+    // renderer-callable key. A main-side handler for a key the registry has never
+    // heard of is either an unpoliced wire entry or a dead handler; both are worth
+    // a red build, and neither was visible before.
+    const roots = ['packages/desktop/src/process', 'packages/desktop/src/preload'];
+    const files = roots.flatMap((root) => collectTypeScriptFiles(path.join(process.cwd(), root)));
+    files.push(path.join(process.cwd(), 'packages/desktop/src/index.ts'));
+
+    const registered = new Set<string>(RENDERER_PROVIDER_KEYS);
+    const literalKey = /\bbuildProvider\s*(?:<[\s\S]*?>)?\s*\(\s*(['"])([\w.$-]+)\1/g;
+    const unknown: string[] = [];
+    let literalsSeen = 0;
+
+    for (const file of files) {
+      const source = fs.readFileSync(file, 'utf8');
+      for (const match of source.matchAll(literalKey)) {
+        literalsSeen += 1;
+        const key = match[2];
+        if (!registered.has(key)) unknown.push(`${path.relative(process.cwd(), file)} -> ${key}`);
+      }
+    }
+
+    // A regex that stops matching would otherwise "pass" by finding nothing.
+    expect(literalsSeen, 'no literal buildProvider key found in the main tree — the scan has drifted').toBeGreaterThan(
+      10
+    );
+    expect(unknown, 'main-side provider keys missing from RENDERER_PROVIDER_KEYS').toEqual([]);
   });
 
   it('freezes an explicit source-derived payload class for every registered provider', () => {

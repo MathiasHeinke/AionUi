@@ -1021,5 +1021,6 @@
   "skillsAdded": "{{addedCount}} skills added and selected{{skippedCountText}}",
   "skippedCount": "{{count}} skipped",
   "allSkillsExist": "All found skills already exist",
-  "noExternalSources": "外部スキルソースが見つかりません"
+  "noExternalSources": "外部スキルソースが見つかりません",
+  "commandEveLocalLaneHeldUntilVerified": "ローカルに保存しました。シート状態の確認が完了すると反映されます。"
 }

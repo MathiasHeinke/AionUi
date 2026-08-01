@@ -1021,5 +1021,6 @@
   "skillsAdded": "{{addedCount}} skills added and selected{{skippedCountText}}",
   "skippedCount": "{{count}} skipped",
   "allSkillsExist": "All found skills already exist",
-  "noExternalSources": "未發現外部技能來源"
+  "noExternalSources": "未發現外部技能來源",
+  "commandEveLocalLaneHeldUntilVerified": "已在本機儲存。席位狀態驗證通過後即刻生效。"
 }

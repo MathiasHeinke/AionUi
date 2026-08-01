@@ -204,7 +204,7 @@ describe('honchoRuntimeConfigCore — DERIVER routing', () => {
       expect(d.apiKey).toBe('');
       expect(d.model).toBe('');
       expect(d.behindEgressBoundary).toBe(true);
-      expect(d.routeReason).toBe('fallback-free-flash');
+      expect(d.routeReason).toBe('fallback-metered-cloud');
       expect(d.baseUrl).toBe('http://127.0.0.1:25811/v1');
     }
   });

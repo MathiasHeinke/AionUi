@@ -1020,5 +1020,6 @@
   "skillsAdded": "已添加并勾选 {{addedCount}} 个技能{{skippedCountText}}",
   "skippedCount": "{{count}} 个跳过",
   "allSkillsExist": "所有找到的技能都已存在",
-  "noExternalSources": "未发现外部技能源"
+  "noExternalSources": "未发现外部技能源",
+  "commandEveLocalLaneHeldUntilVerified": "已在本地保存。席位状态验证通过后即刻生效。"
 }

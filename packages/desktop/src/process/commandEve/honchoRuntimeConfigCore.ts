@@ -13,10 +13,19 @@
  * (open-source dialectical user-model memory): the per-seat Postgres database,
  * the opaque Honcho workspace, the business/private peer split, the on-disk home
  * (under the seat's own HERMES_HOME so the memory DATA never leaves the machine),
- * AND the deriver-LLM routing decision (local Gemma vs the FREE cloud-Flash
- * fallback). It performs NO install, NO SQL, NO network, NO process spawn — those
+ * AND the deriver-LLM routing decision (local Gemma vs the METERED cloud rung).
+ * It performs NO install, NO SQL, NO network, NO process spawn — those
  * are LATER increments. This module only DECIDES + NAMES; it is deterministic and
  * unit-testable in plain Node.
+ *
+ * R2 — THERE IS NO FREE LANE, AND THIS FILE USED TO SAY OTHERWISE. Every
+ * paragraph below called the cloud fallback "FREE" and quoted "nicht mal
+ * Cent-Beträge". The Standard rung it pins declares `consumesCredits: true` in
+ * eveInferenceCore — every cloud turn reserves, calls and debits, the deriver's
+ * turns included. And this was not merely a comment: the route reason it EMITTED
+ * was the literal string `fallback-free-flash`, which travels into logs and
+ * diagnostics as a claim about billing. The routing is unchanged; what it is
+ * CALLED now matches what it costs.
  *
  * FOUNDER-LOCKED DECISIONS (spec 2026-07-04):
  *   1. Honcho is LOCAL, No-Docker. The memory DATA always stays on the user's
@@ -26,17 +35,21 @@
  *      user's chat) routes:
  *        - LOCAL Gemma E4B (via Ollama) ONLY when the user OPTED IN (~4 GB,
  *          consent-gated) AND the model is READY. Local ⇒ nothing egresses.
- *        - ELSE the FREE "DeepSeek V4 Flash" lane (EVE Standard tier). The
- *          default fallback — "nicht mal Cent-Beträge".
+ *        - ELSE the Standard cloud rung (EVE Standard tier), the default
+ *          fallback. It is CHEAP, not free: those turns are credit-metered like
+ *          any other cloud turn.
  *   3. (2026-07-05) The deriver is USER-SWITCHABLE via `deriverMode`:
  *        - 'auto'  (default) ⇒ the founder-locked rule above (local when
- *          opted-in+ready, else free cloud-Flash).
+ *          opted-in+ready, else the metered cloud rung).
  *        - 'local' ⇒ PRIVACY-LOCK: the deriver ALWAYS routes to loopback Ollama
  *          and NEVER to the cloud shim, even when the model is cold. A cold model
  *          means derivation simply does not succeed yet (the readiness probe keeps
  *          Honcho un-advertised until warm) — memory falls back to Company Brain,
  *          but NOTHING ever egresses. The switch is the explicit opt-in.
- *        - 'cloud' ⇒ force the free cloud-Flash lane (convenience over locality).
+ *        - 'cloud' ⇒ force the metered cloud rung (convenience over locality).
+ *          It is NOT user-selectable: no surface writes `deriverMode`, and the
+ *          only caller (honchoProvisioningRun) takes it as a parameter. If a
+ *          surface is ever added for it, it must say "metered", never "free".
  *
  * THE THREE INVARIANTS THIS CORE MAKES STRUCTURAL (not merely defaulted):
  *   A. NEVER A DIRECT EDGE CALL. The cloud-Flash deriver base is the LOOPBACK
@@ -48,8 +61,9 @@
  *      chat. A source-level grep-gate test pins that this file never string-
  *      references the edge URL / the backend host, so a future edit can not add a
  *      direct-to-edge bypass.
- *   B. NEVER THE USER'S PAID TIER. The cloud branch's forced tier is the literal
- *      {@link HONCHO_DERIVER_FORCED_TIER} ('standard' = FREE). {@link
+ *   B. NEVER THE USER'S STRONG TIER. The cloud branch's forced tier is the literal
+ *      {@link HONCHO_DERIVER_FORCED_TIER} ('standard' — the METERED entry rung,
+ *      not a free one). {@link
  *      resolveHonchoDeriverConfig} takes NO picker/selection parameter, so no code
  *      path can reach 'high'/'max'. An operator sitting on eve-max can not make
  *      the deriver bill a paid tier — it is unrepresentable, not defended.
@@ -93,8 +107,13 @@ export const HONCHO_DEFAULT_SHIM_BASE_URL = 'http://127.0.0.1:25811';
 export const HONCHO_DEFAULT_LOCAL_MODEL_REF = 'gemma4:e4b';
 
 /**
- * The tier the cloud deriver is HARD-PINNED to — the FREE Standard/Flash lane.
+ * The tier the cloud deriver is HARD-PINNED to — the METERED Standard rung.
  * A literal, never derived from the user's picker selection (invariant B).
+ *
+ * It is the CHEAPEST rung, which is what invariant B is about: the deriver must
+ * never ride the seat's strong lane. It is not an un-metered one — Standard
+ * declares `consumesCredits: true`, so a derivation costs the seat credits like
+ * any other cloud turn.
  */
 export const HONCHO_DERIVER_FORCED_TIER = 'standard';
 
@@ -133,7 +152,7 @@ export interface HonchoDeriverConfig {
   forcedTier?: string;
   /** true on the cloud branch ⇒ the deriver MUST ride the shim egress path (S11/S13). */
   behindEgressBoundary?: boolean;
-  /** non-secret reason string: 'local-opt-in-ready' | 'fallback-free-flash' | 'opt-in-not-ready'. */
+  /** non-secret reason string: 'local-opt-in-ready' | 'fallback-metered-cloud' | 'opt-in-not-ready'. */
   routeReason?: string;
 }
 
@@ -184,7 +203,7 @@ export interface HonchoRuntimeConfigInput {
   /**
    * (2026-07-05) The USER-SWITCHABLE deriver mode. 'auto' (default) = the
    * founder-locked local-when-ready-else-cloud rule; 'local' = privacy-lock (never
-   * cloud, even cold); 'cloud' = force free cloud-Flash. Absent ⇒ 'auto'.
+   * cloud, even cold); 'cloud' = force the METERED cloud rung. Absent ⇒ 'auto'.
    */
   deriverMode?: HonchoDeriverMode;
 }
@@ -291,7 +310,7 @@ export function requireLoopbackShimBase(value?: string): string {
  * Route the Honcho deriver LLM. Exactly two branches on ONE boolean discriminant
  * (`optedIn && ready`), default-deny: both must be explicitly true to go local;
  * every other state (not opted in, opted-in-but-not-ready, unknown) falls to the
- * FREE cloud-Flash lane.
+ * METERED cloud rung.
  *
  * There is intentionally NO picker/selection/tier input — the cloud branch's
  * tier is the literal {@link HONCHO_DERIVER_FORCED_TIER}, so the deriver can never
@@ -321,17 +340,21 @@ export function resolveHonchoDeriverConfig(input: HonchoDeriverInput): HonchoDer
     };
   }
 
-  // Fallback: the FREE cloud-Flash lane, always behind the loopback shim.
+  // Fallback: the METERED Standard cloud rung, always behind the loopback shim.
   const shimBase = requireLoopbackShimBase(input.shimBaseUrl || HONCHO_DEFAULT_SHIM_BASE_URL);
   return {
     branch: HONCHO_DERIVER_BRANCH_CLOUD,
     baseUrl: `${shimBase}/v1`,
-    model: '', // the shim's dedicated deriver ingress pins the free-tier model server-side
+    model: '', // the shim's dedicated deriver ingress pins the Standard-rung model server-side
     apiKey: '', // bearer is the shim's job (Authorization header only) — NEVER baked here
     forcedTier: HONCHO_DERIVER_FORCED_TIER,
     behindEgressBoundary: true,
     routeReason:
-      mode === 'cloud' ? 'forced-cloud' : input.localModelOptedIn === true ? 'opt-in-not-ready' : 'fallback-free-flash',
+      mode === 'cloud'
+        ? 'forced-cloud'
+        : input.localModelOptedIn === true
+          ? 'opt-in-not-ready'
+          : 'fallback-metered-cloud',
   };
 }
 

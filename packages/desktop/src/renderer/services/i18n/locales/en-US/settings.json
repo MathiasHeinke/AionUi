@@ -1172,6 +1172,7 @@
   "commandEveLocalRuntimeBackend": "Local processing",
   "commandEveLocalLane": "Process locally",
   "commandEveLocalLaneHint": "EVE runs entirely on this Mac. No cloud credits are used.",
+  "commandEveLocalLaneHeldUntilVerified": "Saved locally. It takes effect as soon as your seat status has been verified.",
   "commandEveLocalRuntimeMeta": "{{context}} context · min. {{memory}} GB RAM · {{disk}} GB disk",
   "commandEveLocalRuntimeCurrent": "Active",
   "commandEveLocalRuntimeSelect": "Select",

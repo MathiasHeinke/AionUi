@@ -472,6 +472,30 @@ export function isLocalSelection(value: string | null | undefined): boolean {
 export const EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS = Object.freeze(['standard', 'high', 'xhigh', 'max'] as const);
 
 /**
+ * A structural fingerprint of the allow-list above, pinned on BOTH sides — here
+ * and in the server's `supabase/functions/_shared/eve-inference-core.ts`
+ * (`knownTierFingerprint` over `KNOWN_TIERS`).
+ *
+ * WHY IT EXISTS. This list is a HAND-TYPED COPY of the server's `KNOWN_TIERS`,
+ * living in a different repository, with nothing joining them but someone
+ * remembering. `eveMaxParity` carries a fingerprint on both sides for exactly
+ * this reason — editing one copy alone reddens a test named for the parity —
+ * and this list had none. The failure mode is not cosmetic: the tier travels on
+ * EVERY request, so a rung this side believes is accepted and the function does
+ * not is answered 403 `tier_not_allowed`, and the seat loses every turn, not
+ * merely the ones that route to media.
+ *
+ * Deliberately over the ORDERED list rather than a set: the two files are read
+ * side by side by humans, and an order that disagrees is a review hazard even
+ * when the membership matches.
+ */
+export function eveServerAllowedWireTierFingerprint(
+  tiers: readonly string[] = EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS
+): string {
+  return `eve-inference-known-tiers/v1:${tiers.join(',')}`;
+}
+
+/**
  * A wire tier the server accepts. Narrower than {@link EveInferenceWireTier},
  * which also contains rungs the picker offers but the function refuses — a
  * predicate narrowing to the wider type would let a refused value type-check as
