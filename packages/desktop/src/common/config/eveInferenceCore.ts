@@ -954,7 +954,12 @@ export function describeCommandEveActiveLane(persisted: string | null | undefine
  * discriminant for paid-only UI affordances (BYOK / add-own-model / client seats);
  * absent/false ⇒ free or trial tier. Carried here so the pure gate helpers consume it.
  *
- * `has_active_topup` (v1.5 M7) is the SECOND unlock path: an active credit
+ * `has_active_topup` (v1.5 M7) unlocks BYOK ONLY — it is NOT a MAX unlock. A
+ * subscription that has been fully SPENT has no purchased balance, so MAX stays
+ * locked (see {@link hasEveMaxAccess}); treating it as a MAX unlock made the
+ * client offer a lane the server answers with 402. Keep the two gates distinct.
+ *
+ * As a BYOK signal it is the SECOND unlock path: an active credit
  * SUBSCRIPTION (recurring top-up, from 25 €/month) that grants Pro features WITHOUT
  * a paid client seat. It is sourced from the credits-status contract (additive; an
  * absent field ⇒ false ⇒ today's behavior). Either signal unlocks BYOK; cancelling
