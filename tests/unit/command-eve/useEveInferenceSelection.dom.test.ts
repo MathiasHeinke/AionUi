@@ -596,31 +596,56 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.maxAvailable).toBe(false);
   });
 
-  it('MAX is AVAILABLE on a paid seat, on an active top-up, and on purchased credits', () => {
-    const cases: Array<() => void> = [
-      () => {
-        entitlement.has_paid_seat = true;
+  it('MAX is AVAILABLE on a paid seat and on PURCHASED credits — never on a top-up alone', () => {
+    // INVERTED (CAO round 2): the middle row used to expect `true` for an active
+    // top-up with an EMPTY wallet. That assertion WAS the defect — a fully spent
+    // subscription has no purchased balance, so the server 402s it while the client
+    // was offering it.
+    const cases: Array<{ name: string; apply: () => void; available: boolean }> = [
+      {
+        name: 'paid seat',
+        apply: () => {
+          entitlement.has_paid_seat = true;
+        },
+        available: true,
       },
-      () => {
-        creditsStatus.ok = true;
-        creditsStatus.has_active_topup = true;
+      {
+        name: 'active top-up, wallet EMPTY',
+        apply: () => {
+          creditsStatus.ok = true;
+          creditsStatus.has_active_topup = true;
+        },
+        available: false,
       },
-      () => {
-        creditsStatus.ok = true;
-        creditsStatus.purchased_credits_remaining = 5_000;
+      {
+        name: 'active top-up WITH purchased credits',
+        apply: () => {
+          creditsStatus.ok = true;
+          creditsStatus.has_active_topup = true;
+          creditsStatus.purchased_credits_remaining = 5_000;
+        },
+        available: true,
+      },
+      {
+        name: 'purchased credits, no top-up',
+        apply: () => {
+          creditsStatus.ok = true;
+          creditsStatus.purchased_credits_remaining = 5_000;
+        },
+        available: true,
       },
     ];
-    for (const applyCase of cases) {
+    for (const c of cases) {
       entitlement.has_paid_seat = false;
       creditsStatus.ok = false;
       creditsStatus.tier = 'free';
       creditsStatus.has_active_topup = false;
       creditsStatus.purchased_credits_remaining = 0;
-      applyCase();
+      c.apply();
 
       const { result, unmount } = renderHook(() => useEveInferenceSelection());
-      expect(result.current.maxAvailable).toBe(true);
-      expect(result.current.maxState).toBe('available');
+      expect(result.current.maxAvailable, c.name).toBe(c.available);
+      expect(result.current.maxState, c.name).toBe(c.available ? 'available' : 'locked');
       unmount();
     }
   });

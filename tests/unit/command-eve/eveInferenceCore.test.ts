@@ -71,6 +71,7 @@ import {
   type EveConnectedProviderGroup,
   type EvePickerItem,
 } from '@/common/config/eveInferenceCore';
+import { EVE_MAX_PARITY_CASES, eveMaxParityFingerprint } from '@/common/config/eveMaxParity';
 
 /** Synthetic CEVE wire string — NOT a real license. */
 const FAKE_WIRE = 'CEVE.v2.FAKE-payload-TESTONLY.FAKE-sig-TESTONLY';
@@ -804,11 +805,15 @@ describe('eveInferenceCore — HONEST tier routing (resolveWireTierFromSelection
 });
 
 describe('eveInferenceCore — MAX money gate (spec 2.6 / server 1.4 mirror)', () => {
-  it('unlocks MAX on a paid seat, a paid plan, an active top-up, or PURCHASED credits', () => {
+  it('unlocks MAX on a paid seat, a paid plan, or PURCHASED credits — and NOT on a top-up alone', () => {
     expect(hasEveMaxAccess({ trial_ends_at: null, has_paid_seat: true })).toBe(true);
     expect(hasEveMaxAccess({ trial_ends_at: null, has_paid_plan: true })).toBe(true);
-    expect(hasEveMaxAccess({ trial_ends_at: null, has_active_topup: true })).toBe(true);
     expect(hasEveMaxAccess({ trial_ends_at: null, has_purchased_credits: true })).toBe(true);
+    // INVERTED (CAO round 2): this line used to assert `true`, and that assertion
+    // WAS the defect written down. An active top-up that has been fully spent has
+    // no purchased balance, so the server 402s it; unlocking here made the client
+    // offer a lane the server refuses.
+    expect(hasEveMaxAccess({ trial_ends_at: null, has_active_topup: true })).toBe(false);
   });
 
   it('LOCKS MAX on promotional/allowance-only credits — a promotion is not a purchase', () => {
@@ -1023,5 +1028,62 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
         expect(desc).toContain('EVE Cloud');
       }
     }
+  });
+});
+
+describe('MAX unlock — SERVER/CLIENT PARITY (CAO round 2, finding 1)', () => {
+  // The rule, stated once: MAX unlocks IFF (paid plan/seat) OR (purchased > 0).
+  // `has_active_topup` is NOT an unlock — an exhausted subscription has no
+  // purchased balance, and the server would 402 a seat the client had unlocked.
+  it.each(EVE_MAX_PARITY_CASES.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+    const entitlement = {
+      trial_ends_at: null,
+      has_paid_seat: c.paidPlan,
+      has_paid_plan: c.paidPlan,
+      has_active_topup: c.activeTopup,
+      has_purchased_credits: c.purchasedCredits > 0,
+      has_metered_credits: c.purchasedCredits > 0 || c.allowanceCredits > 0,
+      metered_credit_access_known: true,
+    };
+    expect(hasEveMaxAccess(entitlement), `${c.name}: client gate disagrees with the table`).toBe(c.maxUnlocked);
+  });
+
+  it('an ACTIVE but SPENT top-up locks MAX — the regression this finding is about', () => {
+    // Before the fix this returned true, and the server answered 402.
+    expect(
+      hasEveMaxAccess({
+        trial_ends_at: null,
+        has_paid_seat: false,
+        has_paid_plan: false,
+        has_active_topup: true,
+        has_purchased_credits: false,
+      })
+    ).toBe(false);
+  });
+
+  it('has_active_topup can NEVER flip the answer on its own, in any combination', () => {
+    // Exhaustive over the other three signals: toggling ONLY the top-up must not
+    // change the verdict. That is stronger than the table and kills the whole
+    // "topup exists" family of unlocks.
+    for (const paidSeat of [true, false]) {
+      for (const paidPlan of [true, false]) {
+        for (const purchased of [true, false]) {
+          const base = {
+            trial_ends_at: null,
+            has_paid_seat: paidSeat,
+            has_paid_plan: paidPlan,
+            has_purchased_credits: purchased,
+          };
+          expect(hasEveMaxAccess({ ...base, has_active_topup: true })).toBe(
+            hasEveMaxAccess({ ...base, has_active_topup: false })
+          );
+        }
+      }
+    }
+  });
+
+  it('the parity table has not drifted from the server copy', () => {
+    // Fingerprint pinned on BOTH sides. Editing one copy alone reddens this.
+    expect(eveMaxParityFingerprint()).toBe('0010=0|0011=0|0110=1|0100=1|1001=1|1011=1|0001=0|0000=0');
   });
 });

@@ -590,8 +590,15 @@ describe('MAX pill keyboard focus — WCAG 2.4.7 (D1)', () => {
   });
 
   it('the focus ring clears WCAG 1.4.11 (3:1 non-text) in EVERY shipped accent/theme', () => {
-    // The first proposed value was 34%, which measured 1.75:1 — a focus ring that
+    // The first proposed value was 34%, which modelled 1.75:1 — a focus ring that
     // exists and cannot be seen is the same defect wearing a different hat.
+    //
+    // MODEL vs MEASUREMENT. Independent capture on the real app reports 4.38:1
+    // worst case (emerald/light) where this model computes 4.52 — the model runs
+    // ~0.14 OPTIMISTIC. So the floor below is raised by that known bias rather than
+    // compared naively against 3.0: a model that has been measured wrong once is
+    // not allowed to certify itself at face value again.
+    const MODEL_OPTIMISM = 0.15; // >= the observed 0.14 gap
     const RING_ALPHA = 0.8;
     expect(sendBarCss).toContain(
       `box-shadow: 0 0 0 2px color-mix(in srgb, var(--eve-max-accent) ${RING_ALPHA * 100}%, transparent)`
@@ -600,9 +607,27 @@ describe('MAX pill keyboard focus — WCAG 2.4.7 (D1)', () => {
     for (const accent of shippedAccents) {
       const ring = over(maxAccentFor(accent.base, accent.theme), RING_ALPHA, COMPOSER_BACKGROUND[accent.theme]);
       const ratio = contrast(ring, [...COMPOSER_BACKGROUND[accent.theme]] as Rgb);
-      if (ratio < 3.0) failures.push(`${accent.name} ring ${ratio.toFixed(2)}:1`);
+      if (ratio - MODEL_OPTIMISM < 3.0) failures.push(`${accent.name} ring ${ratio.toFixed(2)}:1`);
     }
-    expect(failures, 'focus rings under the 3:1 non-text floor').toEqual([]);
+    expect(failures, 'focus rings under the 3:1 non-text floor (bias-adjusted)').toEqual([]);
+  });
+
+  it('records the MEASURED worst case, which is NOT the modelled one', () => {
+    // 4.38 measured (emerald/light) vs 4.52 modelled. Both are written down so the
+    // gap stays visible instead of the model quietly becoming the claim.
+    const MEASURED_WORST = 4.38;
+    const modelled = Math.min(
+      ...shippedAccents.map((a) =>
+        contrast(over(maxAccentFor(a.base, a.theme), 0.8, COMPOSER_BACKGROUND[a.theme]), [
+          ...COMPOSER_BACKGROUND[a.theme],
+        ] as Rgb)
+      )
+    );
+    expect(MEASURED_WORST).toBeGreaterThanOrEqual(3.0);
+    // The model must not be MORE pessimistic than the measurement without someone
+    // noticing — if it flips, the bias allowance above is pointing the wrong way.
+    expect(modelled).toBeGreaterThanOrEqual(MEASURED_WORST);
+    expect(modelled - MEASURED_WORST).toBeLessThanOrEqual(0.15);
   });
 
   it('REGRESSION: the 34% ring first proposed would FAIL the non-text floor', () => {

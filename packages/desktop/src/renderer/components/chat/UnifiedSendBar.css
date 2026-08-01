@@ -443,12 +443,19 @@
  * and neither state rule touches it — so this is a property the state rules do not
  * contest, on top of an order that wins outright. Both mechanisms, not one.
  *
- * 80%, not the 34% first proposed: at 34% the ring measured 1.75:1 against the
+ * 80%, not the 34% first proposed: at 34% the ring modelled 1.75:1 against the
  * composer, failing WCAG 1.4.11's 3:1 for non-text indicators — a focus ring that
  * technically exists and cannot be seen is the same class of defect as the one
- * being fixed. 80% measures 4.52:1 worst case across all eight shipped
- * accent/theme combinations. Attribute hooks only (R4: Arco relocates className
- * off the disabled button). */
+ * being fixed.
+ *
+ * MEASURED, not modelled: independent capture on the real app puts the worst case
+ * at 4.38:1 (emerald/light) across all eight shipped accent/theme combinations —
+ * 46% clear of the 3:1 floor. The model in eveMaxComposerCss.test.ts computes 4.52
+ * for the same case, i.e. it runs ~0.14 optimistic here, which is why the measured
+ * figure is the one recorded. Claimed-versus-measured is the exact gap that has
+ * produced rejects on this ticket.
+ *
+ * Attribute hooks only (R4: Arco relocates className off the disabled button). */
 .unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle']:focus-visible,
 .unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-active='true']:focus-visible,
 .unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-locked='true']:focus-visible {

@@ -1059,17 +1059,23 @@ export function shouldDisableModelByok(
 }
 
 /**
- * THE MAX MONEY GATE. MAX unlocks on a REAL purchase and nothing else:
+ * THE MAX MONEY GATE. Exactly two unlocks, and nothing else:
  *
- *   (a) a qualifying paid plan / paid client seat, OR
- *   (b) an active recurring top-up subscription, OR
- *   (c) a REAL purchased-credit balance (`purchased_credits_remaining > 0`).
+ *   (a) a qualifying PAID plan / paid client seat, OR
+ *   (b) a REAL purchased-credit BALANCE (`purchased_credits_remaining > 0`).
  *
- * Promotional / trial / included-allowance credits do NOT unlock MAX. This is
- * the client mirror of the server-side rule; the server stays the binding gate
- * and answers an unfunded MAX with its 402 upsell. Mirroring it here is what
- * lets the picker render an honest LOCKED state with an upsell affordance
- * instead of offering a lane that will be refused.
+ * `has_active_topup` IS NOT AN UNLOCK, and removing it is the point. A top-up
+ * subscription that has been fully SPENT is not a purchase balance — the seat has
+ * no purchased credits left. Treating "has a top-up" as an unlock kept MAX open
+ * on an exhausted wallet, and the server (which gates on
+ * `entitlement.kind === "paid" || purchased_credits_remaining > 0`) then answered
+ * 402. Client offering what the server refuses is the whole defect class here, so
+ * the two predicates are deliberately the SAME rule stated twice, and a parity
+ * test asserts they agree on the same inputs.
+ *
+ * Promotional / trial / included-allowance credits do NOT unlock MAX. The ledger
+ * already separates the buckets; a promotional grant lands in ALLOWANCE, and that
+ * split IS the enforcement seam.
  *
  * Fail-CLOSED on purpose: every unlock signal must be present-and-true. An
  * absent or unreadable credits status therefore locks MAX rather than opening
@@ -1079,7 +1085,6 @@ export function hasEveMaxAccess(entitlement: EveEntitlementView | null | undefin
   return (
     entitlement?.has_paid_seat === true ||
     entitlement?.has_paid_plan === true ||
-    entitlement?.has_active_topup === true ||
     entitlement?.has_purchased_credits === true
   );
 }

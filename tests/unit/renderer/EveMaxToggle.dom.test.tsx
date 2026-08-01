@@ -55,7 +55,14 @@ vi.mock('react-i18next', () => ({
 
 import EveMaxToggle from '@/renderer/components/agent/EveMaxToggle';
 import { EVE_MAX_COMPOSER_ATTRIBUTE } from '@/renderer/components/agent/EveMaxToggle';
-import { buildEvePickerGroups, EVE_INFERENCE_TIERS } from '@/common/config/eveInferenceCore';
+import {
+  buildEvePickerGroups,
+  EVE_INFERENCE_MAX_TIER_ID,
+  EVE_INFERENCE_STANDARD_TIER_ID,
+  EVE_INFERENCE_TIERS,
+  eveTierValue,
+  resolveEffectiveWireTierFromSelection,
+} from '@/common/config/eveInferenceCore';
 
 /** CSS comments legitimately mention selector names; only real rules count. */
 function stripCssComments(css: string): string {
@@ -88,14 +95,25 @@ function renderInComposer(props: { disabled?: boolean } = {}) {
 }
 
 /**
- * Apply a state patch, then DERIVE `maxActive` the same way the hook does
- * (`selected && entitled`). Letting a test set an impossible combination — e.g.
- * active while unentitled — would let the component pass against a state the
- * product can never be in.
+ * Apply a state patch, then derive `maxActive` FROM THE REAL PRODUCT SOURCE.
+ *
+ * This used to compute `maxEngaged && maxAvailable` inline — a PARALLEL model of
+ * the product's logic, which is the sixth instance of that shape on this ticket.
+ * A parallel model can agree with a broken component: if the real rule changed,
+ * the mock would keep feeding the old answer and the component would keep passing.
+ *
+ * So the mock now calls `resolveEffectiveWireTierFromSelection` — the same core
+ * function the hook uses to compute `maxActive` — over the same two inputs. There
+ * is no second implementation of the rule anywhere in this file, and breaking the
+ * real resolver turns these tests red (mutation-proved).
  */
 function setState(next: Partial<typeof mocks.hookState>): void {
   Object.assign(mocks.hookState, next);
-  mocks.hookState.maxActive = mocks.hookState.maxEngaged && mocks.hookState.maxAvailable;
+  const selection = mocks.hookState.maxEngaged
+    ? eveTierValue(EVE_INFERENCE_MAX_TIER_ID)
+    : eveTierValue(EVE_INFERENCE_STANDARD_TIER_ID);
+  mocks.hookState.maxActive =
+    resolveEffectiveWireTierFromSelection(selection, { maxEntitled: mocks.hookState.maxAvailable }) === 'max';
 }
 
 describe('EveMaxToggle — composer MAX state', () => {
