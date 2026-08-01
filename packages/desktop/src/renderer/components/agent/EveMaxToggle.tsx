@@ -42,14 +42,17 @@
  * regardless of `!important`, because the `!important` declaration is what reads
  * the variable.
  *
- * WHAT DRIVES THAT STAMP IS THE POINT: `maxActive` (what the wire will serve),
- * never `maxEngaged` (what the user once chose). The composer glow means "the
+ * WHAT DRIVES THAT STAMP IS THE POINT: `maxActive` from useEveMaxAuthority — the
+ * MAIN process's decision about what the wire will serve, for THIS seat — never
+ * `maxEngaged` (what the user once chose), and never a renderer-local
+ * recomputation of the wire tier (that duplicate authority has been deleted). The composer glow means "the
  * strong lane is running THIS turn". Two states must therefore NOT paint it:
  * a lapsed seat whose intent is remembered but clamped, and a seat whose
  * entitlement is not yet known. Intent stays visible on the pill instead.
  */
 
 import { useEveInferenceSelection } from '@renderer/hooks/agent/useEveInferenceSelection';
+import { useEveMaxAuthority } from '@renderer/hooks/agent/useEveMaxAuthority';
 import { Button, Tooltip } from '@arco-design/web-react';
 import { Lightning, Lock } from '@icon-park/react';
 import React, { useCallback, useEffect, useRef } from 'react';
@@ -84,7 +87,11 @@ const EveMaxToggle: React.FC<{
   disabled?: boolean;
 }> = ({ disabled }) => {
   const { t } = useTranslation();
-  const { maxEngaged, maxActive, maxAvailable, maxLocked, maxState, setMaxEngaged } = useEveInferenceSelection();
+  const { maxEngaged, maxAvailable, maxLocked, maxState, setMaxEngaged } = useEveInferenceSelection();
+  // THE SURFACE'S ONLY INPUT. Comes from MAIN, seat-bound, fails closed. The
+  // selection hook deliberately no longer exposes a `maxActive` — it is not an
+  // authority on what the wire sends.
+  const { maxActive } = useEveMaxAuthority();
   const anchorRef = useRef<HTMLSpanElement>(null);
 
   // THE SURFACE FOLLOWS `maxActive`, NEVER `maxEngaged`.

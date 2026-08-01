@@ -205,7 +205,6 @@ describe('useEveInferenceSelection', () => {
       EVE_DEFAULT_INFERENCE_SELECTION
     );
     // ...and the seat can still send: the effective wire tier is the floor rung.
-    expect(result.current.effectiveWireTier).toBe('standard');
     // The chip can still NAME the choice even though it is not selectable.
     expect(result.current.selectedItem).toBeUndefined();
     expect(result.current.activeItem?.label).toBe('MAX');
@@ -283,7 +282,6 @@ describe('useEveInferenceSelection', () => {
       'commandEve.inferenceSelection',
       EVE_DEFAULT_INFERENCE_SELECTION
     );
-    expect(result.current.effectiveWireTier).toBe('standard');
   });
 
   it('lights MAX back up on purchase WITHOUT the user re-picking it', async () => {
@@ -294,7 +292,6 @@ describe('useEveInferenceSelection', () => {
 
     const { result, rerender } = renderHook(() => useEveInferenceSelection());
     await waitFor(() => expect(result.current.maxLocked).toBe(true));
-    expect(result.current.effectiveWireTier).toBe('standard');
 
     // The seat buys credits.
     creditsStatus.purchased_credits_remaining = 120_000;
@@ -304,7 +301,6 @@ describe('useEveInferenceSelection', () => {
     await waitFor(() => expect(result.current.maxAvailable).toBe(true));
     expect(result.current.maxEngaged).toBe(true);
     expect(result.current.maxState).toBe('engaged');
-    expect(result.current.effectiveWireTier).toBe('max');
     expect(result.current.selection).toBe(eveMax);
   });
 
@@ -341,7 +337,9 @@ describe('useEveInferenceSelection', () => {
   // -------------------------------------------------------------------------
 
   // With no visible "Standard" label any more, the user-facing outcome of a
-  // migration is a BOOLEAN: MAX off (EVE's normal unnamed behaviour) or MAX on.
+  // migration is a BOOLEAN INTENT: MAX off (EVE's normal unnamed behaviour) or on.
+  // Whether MAX actually SERVES is a separate, main-process question — see
+  // eveMaxAuthority.test.ts. This hook is not an authority on that.
   it.each([
     ['eve-standard', false],
     ['eve-high', false],
@@ -356,7 +354,9 @@ describe('useEveInferenceSelection', () => {
     const { result } = renderHook(() => useEveInferenceSelection());
 
     await waitFor(() => expect(result.current.maxEngaged).toBe(maxOn));
-    expect(result.current.effectiveWireTier).toBe(maxOn ? 'max' : 'standard');
+    // NOTE: the hook no longer reports an effective wire tier. What the wire
+    // actually sends is the MAIN process's decision (useEveMaxAuthority); this
+    // hook owns INTENT and ENTITLEMENT only.
   });
 
   it.each([
@@ -387,7 +387,6 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.maxLocked).toBe(true);
     expect(result.current.maxState).toBe('locked');
     // Still sendable — clamped to the floor rung, intent preserved on disk.
-    expect(result.current.effectiveWireTier).toBe('standard');
     expect(store.get('commandEve.inferenceSelection')).toBe(eveTierValue('eve-max'));
   });
 
@@ -456,7 +455,6 @@ describe('useEveInferenceSelection', () => {
       expect(store.get('commandEve.inferenceSelection')).toBe(localTierValue(localId));
       expect(configService.set).not.toHaveBeenCalled();
       // A local lane engages no cloud tier, so it can debit no cloud credits.
-      expect(result.current.effectiveWireTier).toBeUndefined();
       expect(result.current.selectedItem?.group).toBe('local');
       unmount();
     }
@@ -468,7 +466,6 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
     act(() => result.current.commit(eveTierValue('eve-max')));
     expect(result.current.selection).toBe(eveTierValue('eve-max'));
-    expect(result.current.effectiveWireTier).toBe('max');
   });
 
   it('does not offer any non-offered rung anywhere a user could reach it', () => {

@@ -122,17 +122,21 @@ export const EVE_INFERENCE_TIER_SUBLABEL = 'EVE Cloud';
 export const EVE_INFERENCE_TIERS = [
   {
     id: 'eve-standard',
-    // STUFE: Standard — the OFFERED entry rung, and the unnamed default. On a
-    // trial it is EVE Free (100/Tag, €0); for a paying user it is the cheapest
-    // metered rung. The wire `tier` is `standard` either way; the SERVER decides
-    // free-cap vs credit-meter by the entitlement.
+    // STUFE: Standard — the OFFERED entry rung, and the unnamed default.
+    //
+    // IT IS METERED. There is no free cap and no un-metered lane any more: every
+    // cloud turn reserves, calls and debits, standard included. The old metadata
+    // said `consumesCredits: false` and described a "100/Tag, €0" trial cap —
+    // the free-lane ghost surviving in the client after the server deleted it.
+    // A trial seat spends its promotional ALLOWANCE on these turns; that is a
+    // funding source, not a free lane.
     label: 'Standard',
     tier: 'standard',
-    /** Free-tier-eligible: selectable on a trial (capped, not metered). The Pro
-     *  lane renders this same model as the cheapest METERED rung — that cost
-     *  marker is injected by the lane builder, not carried on the free-clean tier. */
+    /** Selectable without a purchase — but still metered, see above. `paidOnly`
+     *  gates SELECTABILITY, `consumesCredits` describes what a turn costs; the
+     *  two are independent and only the first is false here. */
     paidOnly: false,
-    consumesCredits: false,
+    consumesCredits: true,
     gated: false,
     /** User-facing CAPABILITY descriptor (sublabel only; NEVER a model name — founder mandate). */
     modelLabel: 'großer Kontext',

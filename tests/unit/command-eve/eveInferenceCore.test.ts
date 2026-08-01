@@ -175,9 +175,13 @@ describe('eveInferenceCore — collapsed offer: exactly Standard + MAX (spec 2.2
     expect(max.gated).toBe(false);
     expect(max.sublabel).toBe('starkes Agenten-Reasoning');
     expect(max.costBadge).toBe('sehr hohe Kosten');
-    // The free rung stays quiet.
+    // The default rung stays visually quiet — but it IS metered. `consumesCredits`
+    // is true for every cloud rung now; what distinguishes the default is that it
+    // carries no cost BADGE, not that it is free. (It used to claim false, which
+    // was the free-lane ghost surviving in client metadata after the server
+    // deleted the lane.)
     const standard = byLabel(items, 'eve', 'Standard')!;
-    expect(standard.consumesCredits).toBe(false);
+    expect(standard.consumesCredits).toBe(true);
     expect(standard.costBadge).toBeUndefined();
   });
 });

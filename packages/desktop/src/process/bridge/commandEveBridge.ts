@@ -82,6 +82,7 @@ import {
 import { buildCommandEveStatusSurface } from '@process/commandEve/statusSurfaceCore';
 import { resolveHonchoRenderForSeat, type HonchoRenderInput } from '@process/commandEve/honchoRuntimeRenderCore';
 import { clearLicenseWire, hasLicenseWire, readLicenseWire, storeLicenseWire } from '@/common/config/licenseWireAtRest';
+import { resolveEveCloudRouteFromBackend } from '@process/commandEve/inferenceSelectionBackendRead';
 import {
   buildEveInferenceProvider,
   isEveInferenceSelection,
@@ -3244,6 +3245,67 @@ export function initCommandEveBridge(): void {
         success: false,
         msg: error instanceof Error ? error.message : 'Command EVE license-wire status bridge failed.',
         data: { available: false },
+      };
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // THE MAX VISUAL AUTHORITY. The renderer asks; MAIN decides.
+  //
+  // This answers exactly one question — "would the shim send `max` for the ACTIVE
+  // seat right now?" — using resolveEveCloudRouteFromBackend, which is the SAME
+  // resolver `buildCommandEveShimRoutingResolver` hands to the real shim. It owns
+  // the lane-state read and the non-brick clamp, so the answer here and the tier
+  // on the wire come from one computation, not two that happen to agree.
+  //
+  // The receipt is SEAT-BOUND: it carries the seat id and that seat's context
+  // revision, read AFTER the decision so a seat switch mid-flight is visible as a
+  // mismatch rather than silently inherited. The renderer refuses to paint on any
+  // mismatch (see shouldPaintMaxSurface).
+  //
+  // Any failure returns success:false with maxActive:false — the renderer fails
+  // visually closed to the unnamed default. Not painting is always safe.
+  // -------------------------------------------------------------------------
+  bridge.buildProvider('command-eve.inference-lane-decision').provider(async () => {
+    const seatId = (() => {
+      try {
+        return getActiveSeatId();
+      } catch {
+        return '';
+      }
+    })();
+    const seatContextRevision = (() => {
+      try {
+        return getActiveSeatContextRevision();
+      } catch {
+        return -1;
+      }
+    })();
+
+    try {
+      const route = await resolveEveCloudRouteFromBackend({
+        readLicense: () => {
+          const wireResult = readLicenseWire(getDataPath());
+          return wireResult.ok ? wireResult.wire : undefined;
+        },
+      });
+      const wireTier = route?.active === true ? route.tier : undefined;
+      return {
+        success: true,
+        data: {
+          seatId,
+          seatContextRevision,
+          // The decision, not a re-derivation: `max` on the wire is the only
+          // thing that licenses the MAX surface.
+          maxActive: wireTier === 'max',
+          wireTier,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE inference-lane decision failed.',
+        data: { seatId, seatContextRevision, maxActive: false },
       };
     }
   });

@@ -6,6 +6,7 @@
 
 import { ipcBridge } from '@/common';
 import { EVE_DEFAULT_INFERENCE_SELECTION, isEveInferenceSelection } from '@/common/config/eveInferenceCore';
+import EveMaxToggle from '@/renderer/components/agent/EveMaxToggle';
 import { scrubErrorText } from '@/common/config/modelIdentifierScrub';
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import { userVisibleConversationMcpStatuses } from '@/common/config/eveManagedMcpCore';
@@ -893,6 +894,11 @@ const AionrsSendBox: React.FC<{
         }
         rightTools={
           <div className='flex items-center gap-6px'>
+            {/* The MAX control, driven by the MAIN-process authority exactly as the
+                ACP composer's is. Mounted here so the two composers cannot disagree
+                with each other: a half-migrated authority would be worse than the
+                duplicate it replaced. */}
+            {COMMAND_EVE_SHELL_ENABLED ? <EveMaxToggle disabled={runtimeView.isProcessing} /> : null}
             {!isMobile && (
               <ConversationBusyModeControl
                 visible={runtimeView.isProcessing}

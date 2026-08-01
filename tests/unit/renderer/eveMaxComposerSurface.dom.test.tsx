@@ -77,8 +77,17 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (_key: string, fallback?: string) => fallback ?? _key }),
 }));
 
+// THE MAIN-PROCESS AUTHORITY. Supplied here as the external boundary it is. Each
+// seat state below sets it to what MAIN would decide for that state, so the
+// surface is exercised against a decision rather than a renderer computation.
+const authority = { maxActive: false };
+vi.mock('@renderer/hooks/agent/useEveMaxAuthority', () => ({
+  useEveMaxAuthority: () => ({ maxActive: authority.maxActive, state: { status: 'ready' }, refresh: vi.fn() }),
+}));
+
 import EveMaxToggle, { EVE_MAX_COMPOSER_ATTRIBUTE } from '@/renderer/components/agent/EveMaxToggle';
 import { useEveInferenceSelection } from '@renderer/hooks/agent/useEveInferenceSelection';
+import { useEveMaxAuthority } from '@renderer/hooks/agent/useEveMaxAuthority';
 import { eveTierValue, localTierValue, EVE_DEFAULT_INFERENCE_SELECTION } from '@/common/config/eveInferenceCore';
 
 const SELECTION_KEY = 'commandEve.inferenceSelection';
@@ -88,11 +97,12 @@ const SELECTION_KEY = 'commandEve.inferenceSelection';
  * be asserted against the surface rather than restated by the test.
  */
 const WireTierProbe: React.FC = () => {
-  const { effectiveWireTier, maxEngaged, maxActive } = useEveInferenceSelection();
+  const { maxEngaged } = useEveInferenceSelection();
+  const { maxActive } = useEveMaxAuthority();
   return (
     <span
       data-testid='wire-probe'
-      data-wire-tier={effectiveWireTier ?? 'none'}
+      data-wire-tier={maxActive ? 'max' : 'standard'}
       data-engaged={maxEngaged ? 'true' : 'false'}
       data-active={maxActive ? 'true' : 'false'}
     />
@@ -126,6 +136,7 @@ const SEAT_STATES: SeatState[] = [
     apply: () => {
       entitlement.has_paid_seat = true;
       creditsStatus.ok = true;
+      authority.maxActive = true; // MAIN: the wire would send `max`
     },
     expectSurfaceMax: true,
   },
@@ -171,6 +182,7 @@ const SEAT_STATES: SeatState[] = [
 ];
 
 function resetStores(): void {
+  authority.maxActive = false; // fail visually closed unless a state says otherwise
   store.clear();
   subscribers.clear();
   entitlement.trial_ends_at = null;
@@ -255,6 +267,7 @@ describe('composer MAX surface — the state matrix', () => {
 
     creditsStatus.purchased_credits_remaining = 120_000;
     creditsHookState.status = { ...creditsStatus };
+    authority.maxActive = true; // MAIN re-decides after the purchase
     rerender(
       <div className='sendbox-panel eve-panel eve-composer-surface' data-testid='composer'>
         <div className='unified-send-bar'>

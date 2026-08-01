@@ -29,12 +29,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   setMaxEngaged: vi.fn(),
+  authority: { maxActive: false },
   hookState: {
     maxEngaged: false,
-    // `maxActive` is what the wire will actually serve; the composer surface
-    // keys on THIS, never on `maxEngaged`. setState() below keeps it consistent
-    // so a stale mock cannot make a broken component look correct.
-    maxActive: false,
     maxAvailable: true,
     maxLocked: false,
     maxState: 'available' as 'available' | 'locked' | 'engaged',
@@ -47,6 +44,12 @@ vi.mock('@/renderer/hooks/agent/useEveInferenceSelection', () => ({
 }));
 vi.mock('@renderer/hooks/agent/useEveInferenceSelection', () => ({
   useEveInferenceSelection: () => mocks.hookState,
+}));
+// THE AUTHORITY IS AN EXTERNAL BOUNDARY, so it is supplied explicitly rather than
+// derived here. Deriving it would rebuild the parallel model this whole change
+// deleted; the decision logic itself is covered in eveMaxAuthority.test.ts.
+vi.mock('@renderer/hooks/agent/useEveMaxAuthority', () => ({
+  useEveMaxAuthority: () => ({ maxActive: mocks.authority.maxActive, state: { status: 'ready' }, refresh: vi.fn() }),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -107,13 +110,14 @@ function renderInComposer(props: { disabled?: boolean } = {}) {
  * is no second implementation of the rule anywhere in this file, and breaking the
  * real resolver turns these tests red (mutation-proved).
  */
-function setState(next: Partial<typeof mocks.hookState>): void {
-  Object.assign(mocks.hookState, next);
-  const selection = mocks.hookState.maxEngaged
-    ? eveTierValue(EVE_INFERENCE_MAX_TIER_ID)
-    : eveTierValue(EVE_INFERENCE_STANDARD_TIER_ID);
-  mocks.hookState.maxActive =
-    resolveEffectiveWireTierFromSelection(selection, { maxEntitled: mocks.hookState.maxAvailable }) === 'max';
+function setState(next: Partial<typeof mocks.hookState> & { authorityMaxActive?: boolean }): void {
+  const { authorityMaxActive, ...hookPatch } = next;
+  Object.assign(mocks.hookState, hookPatch);
+  // The MAIN process decides this. When a test does not say otherwise, the
+  // authority agrees with the entitled+engaged case — but it is an INPUT here,
+  // never something this file recomputes.
+  mocks.authority.maxActive =
+    authorityMaxActive ?? (mocks.hookState.maxEngaged === true && mocks.hookState.maxAvailable === true);
 }
 
 describe('EveMaxToggle — composer MAX state', () => {

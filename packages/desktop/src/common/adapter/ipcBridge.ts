@@ -13,6 +13,7 @@
  */
 
 import type { IConfirmation } from '@/common/chat/chatLib';
+import type { EveMaxAuthorityReceipt } from '@/common/config/eveMaxAuthorityCore';
 import type { AcpSlashCommandApiItem } from '@/common/chat/slash/types';
 import { bridge } from '@office-ai/platform';
 import type { OpenDialogOptions, SaveDialogOptions } from 'electron';
@@ -1997,6 +1998,14 @@ export const commandEve = {
   // license wire string). Never returns the raw wire — only `{ available }`.
   licenseWireStatus: bridge.buildProvider<IBridgeResponse<ICommandEveLicenseWireStatusResult>, void>(
     'command-eve.license-wire-status'
+  ),
+  // THE MAX VISUAL AUTHORITY. MAIN decides whether the shim would send `max` for
+  // the ACTIVE seat right now, using the same resolver that builds the real
+  // request; the renderer only receives that decision. The receipt is seat-bound
+  // (id + context revision) so a seat transition cannot reuse a prior answer.
+  // The renderer must never recompute this — a second answer is the whole bug.
+  inferenceLaneDecision: bridge.buildProvider<IBridgeResponse<EveMaxAuthorityReceipt>, void>(
+    'command-eve.inference-lane-decision'
   ),
   // Account auth (browser-loopback, P1). The whole PKCE/loopback/token flow runs
   // in the MAIN process — the renderer only triggers it and reads back the gate

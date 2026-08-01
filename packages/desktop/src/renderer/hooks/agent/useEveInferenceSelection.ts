@@ -49,8 +49,6 @@ import {
   hasEveMaxAccess,
   isEveInferenceSelection,
   migrateLegacyEveSelection,
-  resolveEffectiveWireTierFromSelection,
-  type EveInferenceWireTier,
   type EvePickerGroup,
   type EvePickerItem,
 } from '@/common/config/eveInferenceCore';
@@ -102,13 +100,6 @@ export interface UseEveInferenceSelectionResult {
   maxAvailable: boolean;
   /** MAX is the persisted selection (INTENT — independent of whether it is funded). */
   maxEngaged: boolean;
-  /**
-   * MAX is what the wire will actually serve right now (`effectiveWireTier ===
-   * 'max'`). This — never {@link maxEngaged} — is what any surface that DEPICTS
-   * the strong lane must key on. `false` while entitlement is unknown, because
-   * unknown is not active.
-   */
-  maxActive: boolean;
   /** MAX is wanted or shown but not purchasable-backed — render the upsell. */
   maxLocked: boolean;
   /** Rolled-up control state for the toggle surface. */
@@ -118,12 +109,6 @@ export interface UseEveInferenceSelectionResult {
    * is locked, so the control can never persist a lane the server would refuse.
    */
   setMaxEngaged: (next: boolean) => void;
-  /**
-   * The wire tier this seat would actually POST right now — MAX clamped to
-   * `standard` while unentitled, so a lapsed seat can still send. `undefined`
-   * for a local/unresolvable selection, exactly like the unclamped resolver.
-   */
-  effectiveWireTier: EveInferenceWireTier | undefined;
   /**
    * Whether the EVE Inference (cloud) lane has a usable license bearer at rest.
    * `true` = activated, cloud routes; `false` = no usable cloud bearer, so the
@@ -284,39 +269,19 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   const maxAvailable = hasEveMaxAccess(pickerEntitlement);
   const maxEngaged = selection === maxSelectionValue;
   const maxLocked = !maxAvailable;
-  /**
-   * What THIS RENDERER would put on the wire. Read carefully: the renderer does
-   * NOT own the send path — the main-process shim resolves the tier per request
-   * from the backend store. So this value is a VIEW for renderer surfaces, and
-   * the clamp that actually protects a lapsed seat is the one in
-   * `inferenceSelectionBackendRead.ts`, fed by the `commandEve.maxEntitled` flag
-   * published just below. Both apply the same pure rule, so they agree.
-   */
-  const effectiveWireTier = resolveEffectiveWireTierFromSelection(selection, { maxEntitled: maxAvailable });
+  // NO EFFECTIVE-WIRE-TIER IS COMPUTED HERE ANY MORE — deliberately.
+  //
+  // This hook used to derive `effectiveWireTier` and `maxActive` from
+  // resolveEffectiveWireTierFromSelection, in parallel with the MAIN process that
+  // actually builds the shim request. Two authorities can disagree, and when they
+  // do the composer paints a state the wire is not in. The decision now comes from
+  // main over `command-eve.inference-lane-decision` — see useEveMaxAuthority.
+  //
+  // What remains here is deliberately NOT routing: `maxEngaged` is stored INTENT,
+  // and `maxAvailable` is the ENTITLEMENT question that drives the lock/upsell on
+  // the control. Neither may be used to paint the composer surface.
 
-  /**
-   * IS MAX ACTUALLY SERVING THIS TURN? — the single truth any surface that
-   * DEPICTS the strong lane must key on.
-   *
-   * DERIVED FROM THE WIRE TIER, deliberately, rather than recomputed from
-   * `maxEngaged && maxAvailable`. Written this way the invariant "the composer
-   * is painted MAX if and only if the request carries `max`" holds BY
-   * CONSTRUCTION instead of by two expressions that merely happen to agree
-   * today. The previous version painted the composer from `maxEngaged` (stored
-   * INTENT), so a lapsed seat wore the full MAX treatment while the wire was
-   * clamping that very turn to the routine lane — the surface asserting a state
-   * the system was not in.
-   *
-   * Note this is also correctly `false` while entitlement is UNKNOWN: the MAX
-   * gate is fail-closed, so an unproven seat resolves to the routine tier. That
-   * is intended — unknown is not active, and painting on unknown would reinstate
-   * the same lie for the first turns after launch.
-   */
-  const maxActive = effectiveWireTier === 'max';
-
-  // Derived from `maxActive` so the control's rolled-up state and the composer
-  // surface can never disagree about whether MAX is running.
-  const maxState: EveMaxControlState = maxActive ? 'engaged' : maxAvailable ? 'available' : 'locked';
+  const maxState: EveMaxControlState = maxEngaged && maxAvailable ? 'engaged' : maxAvailable ? 'available' : 'locked';
 
   // PUBLISH the entitlement fact the MAIN process needs to apply the clamp.
   //
@@ -400,11 +365,9 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     isSelectable,
     maxAvailable,
     maxEngaged,
-    maxActive,
     maxLocked,
     maxState,
     setMaxEngaged,
-    effectiveWireTier,
     cloudBearerAvailable,
     refreshBearer,
   };
