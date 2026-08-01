@@ -26,13 +26,20 @@
  *   - read/persist the choice from/to `commandEve.inferenceSelection`
  *     (configService) so a switch made anywhere takes effect on the next turn
  *     (the send-path shim re-reads the live selection per request);
- *   - build the two-group picker model gated by live entitlement and credit
- *     truth (all metered levels remain available while bought credits exist);
- *   - expose the current display label + a `commit`, and reset a now-disabled
- *     paid tier only after funding truth is authoritative;
+ *   - resolve the persisted string against an entitlement-gated MODEL of the
+ *     available lanes (`groups`/`items`). THAT MODEL IS NOT A PICKER AND IS NOT
+ *     RENDERED ANYWHERE. It exists so this hook can answer "is the current
+ *     selection still a real, funded lane?" — nothing more. The picker UI it was
+ *     originally built for was deleted with the ladder (MAT-1749);
+ *   - expose the resolved lane (`selectedItem`) so the composer's EVE control can
+ *     say cloud-vs-local, and reset a no-longer-funded selection only after
+ *     funding truth is authoritative;
  *   - own the MAX lane control state (available / locked / engaged) plus the
  *     non-brick clamp, so every surface that can engage MAX agrees on when it
- *     is purchasable-backed and what actually goes on the wire.
+ *     is purchasable-backed.
+ *
+ * WHAT IT IS NOT AN AUTHORITY ON: what the wire actually sends. That is computed
+ * in MAIN and consumed through useEveMaxAuthority. See the MAX-lane section below.
  *
  * Keeping this in ONE hook means the composer's MAX toggle (conversation and
  * start screen) and Settings → Modell cannot drift apart.
@@ -66,33 +73,55 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
  *   - `locked`    — trial/free or promotional-credit-only; the toggle renders
  *                   locked with an upsell affordance. Promotional credits never
  *                   unlock MAX.
- *   - `engaged`   — MAX is the active selection; the composer wears the MAX state.
+ *   - `engaged`   — MAX is the persisted selection AND it is funded.
+ *
+ * THIS DRIVES THE PILL, NOT THE COMPOSER. `maxState` is stamped on the toggle as
+ * `data-eve-max-state` and styles the control the user pressed. Whether the
+ * COMPOSER wears the MAX treatment is a different question with a different
+ * answer — `maxActive` from useEveMaxAuthority, computed in MAIN. Conflating the
+ * two is precisely the defect that made a lapsed seat glow while the wire
+ * clamped, so the two must be read separately here as well.
  *
  * `engaged` is deliberately independent of `available`: a seat that bought MAX,
  * engaged it, and then lapsed keeps its persisted intent (so it lights up again
- * on renewal) while the effective wire tier clamps to Standard.
+ * on renewal) while MAIN clamps the effective wire tier.
  */
 export type EveMaxControlState = 'available' | 'locked' | 'engaged';
 
 export interface UseEveInferenceSelectionResult {
   /** Persisted selection; unknown local/connected values stay verbatim until their source loads. */
   selection: string;
-  /** Two-group picker model, gated by the current entitlement. */
+  /**
+   * The entitlement-gated model of the available lanes (cloud group + local
+   * group). INTERNAL RESOLUTION INPUT ONLY — no surface renders it. It feeds
+   * `items` below, which feeds the lane resolution and the unfunded-reset.
+   * The picker that used to render it no longer exists (MAT-1749).
+   */
   groups: EvePickerGroup[];
-  /** Flattened items across both groups (label lookup / sheet rows). */
+  /** `groups` flattened, for lane lookup by persisted value. Not rendered anywhere. */
   items: EvePickerItem[];
-  /** The currently-selected, still-selectable item (undefined if none). */
+  /**
+   * The lane the persisted selection resolves to, when it is still selectable.
+   * Read by the composer's EVE control to say cloud-vs-local (and by
+   * AcpRuntimeStatus) — never to name a cloud tier.
+   */
   selectedItem: EvePickerItem | undefined;
   /**
-   * The picker row the persisted selection points at, EVEN IF it is currently
-   * locked. `selectedItem` intentionally hides a locked row (nothing may act on
-   * it); this one exists so a surface can still NAME the user's choice instead of
-   * regressing to "pick a model" the moment a subscription lapses.
+   * The lane the persisted selection points at, EVEN IF it is currently locked.
+   * `selectedItem` intentionally hides a locked lane (nothing may act on it);
+   * this one keeps the user's stated choice legible across a lapse.
+   * NOTE: nothing consumes this today — its last reader was the mobile lane
+   * entry, deleted in MAT-1749. Kept as API, not as evidence of a surface.
    */
   activeItem: EvePickerItem | undefined;
-  /** Persist a new selection. No-op for an unknown/disabled value. */
+  /**
+   * Persist a new selection. No-op for an unknown/disabled value.
+   * NOTE: no caller today — the surfaces that used it (the mobile lane entry,
+   * the old picker) are gone. Settings → Modell writes the key directly, and the
+   * composer writes only through `setMaxEngaged`.
+   */
   commit: (value: string) => void;
-  /** True iff `value` is a known, selectable item. */
+  /** True iff `value` is a known, selectable lane. No caller today (see `commit`). */
   isSelectable: (value: string) => boolean;
   /**
    * MAX is backed by a real purchase: a paid plan/seat, OR a purchased-credit
@@ -115,8 +144,8 @@ export interface UseEveInferenceSelectionResult {
   /**
    * Whether the EVE Inference (cloud) lane has a usable license bearer at rest.
    * `true` = activated, cloud routes; `false` = no usable cloud bearer, so the
-   * surface must read "Aktivierung nötig" rather than lie "EVE Cloud";
-   * `undefined` = unknown
+   * composer's EVE control reads "Aktivierung nötig" (UnifiedSendBar's privacy
+   * summary) rather than lie "EVE Cloud"; `undefined` = unknown
    * (loading / non-desktop / transient read error) → do NOT degrade the label.
    */
   cloudBearerAvailable: boolean | undefined;
@@ -180,11 +209,10 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
    * Adopt a selection, migrating a retired one on the way in AND persisting the
    * replacement.
    *
-   * Reading through a migration is not enough on its own: the stored string and
-   * the picker's active row both come from the raw value, so without this write
-   * the config would keep a tier the server refuses and the picker would keep
-   * showing it as chosen. State and config move together here so the two can
-   * never disagree.
+   * Reading through a migration is not enough on its own: the stored string is
+   * what the SEND PATH re-reads per request, so without this write the config
+   * would keep a tier the server refuses and every later read would resurrect
+   * it. State and config move together here so the two can never disagree.
    *
    * The write is guarded on an ACTUAL change, so re-adopting an already-migrated
    * value neither writes nor re-enters through the subscription — no loop, no
@@ -213,8 +241,11 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     }
   }, []);
 
-  // Keep local state in sync with config changes from any other surface
-  // (header ↔ sheet ↔ GuidPicker all read the same key).
+  // Keep local state in sync with writes from the other surface. Since MAT-1749
+  // there are exactly two writers of this key — the composer's MAX toggle (via
+  // setMaxEngaged) and Settings → Modell — and several readers, all of them
+  // reading through this hook. This subscription is what lets a Settings change
+  // reach an open composer without a reload.
   useEffect(() => {
     const unsubscribe = configService.subscribe('commandEve.inferenceSelection', (value) => {
       if (typeof value === 'string' && value.length > 0) setSelection(value);
@@ -222,8 +253,9 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     return unsubscribe;
   }, [setSelection]);
 
-  // Bearer presence for the EVE (cloud) lane. The header chip + picker must tell
-  // the truth: without a license wire, showing "EVE Cloud · Hoch" would lie.
+  // Bearer presence for the EVE (cloud) lane. The composer's EVE control must
+  // tell the truth: without a license wire, saying "EVE Cloud" would lie, so the
+  // privacy summary reads "Aktivierung nötig" instead.
   // `undefined` stays the safe default (don't degrade on a transient/unknown read).
   const [cloudBearerAvailable, setCloudBearerAvailable] = useState<boolean | undefined>(undefined);
   const refreshBearer = useCallback(async () => {
@@ -333,11 +365,11 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     [items, onChange]
   );
 
-  // Reset to the safe default (EVE Standard) once when the active selection is no
-  // longer usable, so no surface shows a stranded value as "active":
+  // Reset to the safe default once when the persisted selection is no longer
+  // usable, so the SEND PATH never re-reads a stranded value as the active lane:
   //  - a metered EVE tier after both entitlement and credit truth confirm that it
   //    is no longer funded, OR
-  //  - a now-UNKNOWN EVE selection that resolves to no picker item.
+  //  - a now-UNKNOWN EVE selection that resolves to no lane in the model.
   //
   // MAX IS THE ONE EXCEPTION, and it is deliberate. An unfunded MAX is not a
   // stranded selection: the clamp above already makes it SEND on Standard, so
@@ -346,7 +378,7 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   // credits blip. Intent is preserved; entitlement decides what travels.
   //
   // Unknown local/connected values remain untouched because their provider model
-  // may not have loaded yet; an absent picker row is not proof they were retired.
+  // may not have loaded yet; an absent lane is not proof they were retired.
   useEffect(() => {
     const fallback = eveTierValue(EVE_INFERENCE_DEFAULT_TIER_ID);
     const isUnknownEve = isEveInferenceSelection(selection) && !items.some((item) => item.value === selection);

@@ -769,8 +769,10 @@ const GuidPage: React.FC = () => {
                     {isCommandEveAssistant ? (
                       // Founder mandate: an EVE user must NEVER see a CLI/agent-type
                       // switcher. Render a static, non-clickable runtime label instead
-                      // of the agent-type dropdown. The EVE Inference + permission-mode
-                      // selectors (in the action row) are the only choices that remain.
+                      // of the agent-type dropdown. The action row's MAX toggle and
+                      // permission-mode selector are the only choices that remain —
+                      // there is NO inference/model selector there either (MAT-1749);
+                      // `modelSelectorNode` above is null for EVE.
                       <span
                         data-testid='eve-static-runtime-label'
                         className={styles.heroAgentSwitchButton}

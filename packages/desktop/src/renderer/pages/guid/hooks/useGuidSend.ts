@@ -172,13 +172,14 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
       }
       await configService.whenReady().catch((): undefined => undefined);
 
-      // EVE Inference (cloud) lane: when the picker selection is an EVE tier,
+      // EVE Inference (cloud) lane: when the PERSISTED selection is an EVE tier,
       // resolve the synthetic provider in the MAIN process (which injects the
       // CEVE license bearer) and route straight to the eve-inference Edge
       // Function — no local model warmup. The local Gemma lanes fall through to
       // the existing warmup path below.
-      // Default a fresh chat (no persisted selection) to EVE Standard (cloud);
-      // local Gemma is opt-in. Mirrors the picker's default.
+      // Default a fresh chat (no persisted selection) to the routine cloud lane;
+      // local Gemma is opt-in via Settings → Modell. Same default
+      // useEveInferenceSelection applies, so both paths agree.
       const inferenceSelection = resolveEffectiveInferenceSelection(configService.get('commandEve.inferenceSelection'));
       // EVE cloud is an explicit cloud lane. If it cannot be resolved, do not
       // silently fall back to local Gemma: that starts a hidden local inference /
