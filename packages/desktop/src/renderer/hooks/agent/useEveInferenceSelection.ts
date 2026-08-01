@@ -93,7 +93,12 @@ export interface UseEveInferenceSelectionResult {
   commit: (value: string) => void;
   /** True iff `value` is a known, selectable item. */
   isSelectable: (value: string) => boolean;
-  /** MAX is backed by a real purchase (paid plan/seat, top-up, or bought credits). */
+  /**
+   * MAX is backed by a real purchase: a paid plan/seat, OR a purchased-credit
+   * BALANCE. An active top-up is deliberately NOT in that list — a subscription
+   * that has been fully spent has no purchased balance, and unlocking on it made
+   * the client offer a lane the server answers with 402.
+   */
   maxAvailable: boolean;
   /** MAX is the persisted selection (INTENT — independent of whether it is funded). */
   maxEngaged: boolean;
