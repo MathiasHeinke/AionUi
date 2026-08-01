@@ -121,6 +121,7 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.telemetry-consent-get',
   'command-eve.telemetry-consent-set',
   'command-eve.video-artifacts-list',
+  'command-eve.video-capabilities',
   'command-eve.video-edit',
   'command-eve.video-generate',
   'command-eve.warm-local-model',
@@ -303,6 +304,10 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'command-eve.telemetry-consent-set': 'record',
   // conversationId only — reads MAIN's own local durable video-artifact store.
   'command-eve.video-artifacts-list': 'record',
+  // No arguments — asks MAIN what the seat may produce. Omitting it here left the
+  // wire unpoliced and therefore unreachable, so the composer silently kept its
+  // default capabilities instead of the seat's real ones.
+  'command-eve.video-capabilities': 'void',
   'command-eve.video-edit': 'record',
   // Prompt, tier, duration, conversationId and an optional grant-verified image
   // PATH. Main re-reads that path and computes the base64/SHA-256 itself.
