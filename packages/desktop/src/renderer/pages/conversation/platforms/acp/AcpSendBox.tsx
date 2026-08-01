@@ -240,9 +240,16 @@ const AcpSendBox: React.FC<{
   // pill and the mobile action sheet so both surfaces stay in lockstep.
   const formatModeLabel = useMemo(() => createModeLabelFormatter(backend, t), [backend, t]);
 
-  // Command EVE (Hermes) conversations swap the raw ACP model row for the EVE
-  // Inference tier picker (Standard/High/Max + Private). Same persistence key as
-  // the desktop header + GuidPage picker, so a switch made in the sheet takes
+  // Command EVE (Hermes) conversations expose NO cloud intelligence ladder. There
+  // is no tier picker here any more: the composer offers an UNNAMED default plus
+  // the additive MAX toggle, and nothing else. Choosing the private LOCAL lane is a
+  // deliberate opt-in in Settings → Modell, not a composer control.
+  //
+  // (This comment used to name "Standard/High/Max + Private" — a picker that no
+  // longer exists. Stale text on a user-facing surface is worse than most: it is
+  // what the next reader builds against.)
+  //
+  // Same persistence key as every other surface, so a switch made anywhere takes
   // effect on the next turn (the send shim re-reads the live selection).
   const eveInference = useEveInferenceSelection();
 
