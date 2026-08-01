@@ -1302,10 +1302,14 @@ export interface ICommandEveEntitlementStatusResult {
   seat_count?: number;
   /**
    * OFFLINE UI HINT (1.2.18) — NOT a binding gate. Derived in the main process
-   * from the verified, time-valid payload (`entitled` && `trial_ends_at == null`)
-   * so the renderer can gate paid-only affordances (BYOK / add-own-model) on ONE
-   * honest boolean without making an entitlement decision itself. Present only
-   * when true; absent ⇒ false. The server remains binding for money-metered paths.
+   * from the verified, time-valid payload: `entitled` AND no trial window AND the
+   * signed edition is on the PAID_SEAT_EDITIONS allowlist in
+   * `common/config/creditsCore` (see entitlementCore.isPaidSeatEdition). It read
+   * `entitled && trial_ends_at == null` until 1.820.1, which called the comped
+   * 100%-off `pilot` seat PAID. The renderer gates paid-only affordances (BYOK /
+   * add-own-model) on this ONE boolean without making an entitlement decision
+   * itself. Present only when true; absent ⇒ false. The server remains binding
+   * for money-metered paths.
    */
   has_paid_seat?: boolean;
 }

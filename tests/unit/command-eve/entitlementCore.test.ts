@@ -637,9 +637,19 @@ describe('activateEntitlement + getEntitlementStatus — CEVE.v2', () => {
     const options = optionsFor(root, publicKeyPem);
     register(options);
 
+    // edition 'standard' EXPLICITLY. This case is named "paid" and it used to
+    // mint the fixture default, which is edition 'pilot' — i.e. the comped
+    // founding seat. It passed anyway, because the old derivation asked
+    // `edition !== 'free'`. Naming the paid edition is what makes the assertion
+    // below mean what the title says.
     const code = signCodeV2(
       privateKey,
-      validPayloadV2({ trial_ends_at: null, expires_at: '2027-01-01T00:00:00.000Z', seat_count: 5 })
+      validPayloadV2({
+        edition: 'standard',
+        trial_ends_at: null,
+        expires_at: '2027-01-01T00:00:00.000Z',
+        seat_count: 5,
+      })
     );
     const result = activateWithWire(code, options);
     expect(result.ok).toBe(true);
@@ -651,9 +661,10 @@ describe('activateEntitlement + getEntitlementStatus — CEVE.v2', () => {
     expect(status.seat_count).toBe(5);
     // seat_count is never a blocking factor offline.
     expect(status.ok).toBe(true);
-    // 1.2.18 paid-seat hint: a verified PAID license (trial_ends_at null) ⇒
-    // has_paid_seat true (unlocks the BYOK / add-own-model affordance). Derived
-    // from the verified payload, NOT a separate claim.
+    // 1.2.18 paid-seat hint: a verified SOLD license (no trial window, edition on
+    // the PAID_SEAT_EDITIONS allowlist) ⇒ has_paid_seat true (unlocks the BYOK /
+    // add-own-model affordance). Derived from the verified payload, NOT a
+    // separate claim.
     expect(status.has_paid_seat).toBe(true);
   });
 
@@ -702,16 +713,64 @@ describe('activateEntitlement + getEntitlementStatus — CEVE.v2', () => {
     expect(stillEntitled.has_paid_seat).toBeFalsy();
   });
 
-  it('isPaidSeatEdition: free is never paid; standard/comped non-trial is paid; a trial is never paid', () => {
+  it('isPaidSeatEdition is an ALLOWLIST: only a SOLD edition is paid; pilot and free are not', () => {
     // The free-forever trap: null trial_ends_at + edition "free" ⇒ NOT paid.
     expect(isPaidSeatEdition(null, 'free')).toBe(false);
     expect(isPaidSeatEdition(undefined, 'free')).toBe(false);
-    // A real paid/comped license: null trial_ends_at + non-free edition ⇒ paid.
+    // A real SOLD seat: no trial window + an edition on PAID_SEAT_EDITIONS ⇒ paid.
     expect(isPaidSeatEdition(null, 'standard')).toBe(true);
-    expect(isPaidSeatEdition(undefined, undefined)).toBe(true); // v1 comped (no trial, no edition surfaced as free)
-    // A trial (non-null trial_ends_at) is never paid, regardless of edition.
+    expect(isPaidSeatEdition(undefined, 'standard')).toBe(true);
+    // THE FOUNDER RULE (1.820.1). `pilot` is the ALOIS100 100%-off founding seat.
+    // Minted perpetual it carries no trial_ends_at (and none at all on the CEVE.v1
+    // wire the live mint path emits), so the old `edition !== 'free'` blacklist
+    // called it PAID and handed a never-billed seat MAX + BYOK.
+    expect(isPaidSeatEdition(null, 'pilot')).toBe(false);
+    expect(isPaidSeatEdition(undefined, 'pilot')).toBe(false);
+    // An UNKNOWN edition is unpaid until someone adds it to the allowlist — the
+    // only safe direction for a money gate. (The old rule defaulted it to PAID.)
+    expect(isPaidSeatEdition(null, 'team')).toBe(false);
+    expect(isPaidSeatEdition(undefined, undefined)).toBe(false);
+    // A trial window (non-null trial_ends_at) is never paid, regardless of edition.
     expect(isPaidSeatEdition('2030-01-01T00:00:00.000Z', 'pilot')).toBe(false);
     expect(isPaidSeatEdition('2030-01-01T00:00:00.000Z', 'standard')).toBe(false);
+  });
+
+  it('a SIGNED CEVE.v1 pilot licence (the ALOIS100 mint) yields has_paid_seat FALSE end to end', () => {
+    // Not the predicate in isolation: a real signed wire, through the real
+    // activation + gate, exactly as the LIVE mint path emits it —
+    // license_version "command-eve-license/v1", edition "pilot", NO trial_ends_at
+    // field on the payload at all, perpetual (expires_at null). That shape is why
+    // the version-keyed trial check was structurally dead in production.
+    const root = makeRoot();
+    const { publicKeyPem, privateKey } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    register(options);
+
+    const code = signCode(privateKey, validPayload({ edition: 'pilot', expires_at: null }));
+    expect(activateWithWire(code, options).ok).toBe(true);
+
+    const status = getEntitlementStatus(options);
+    expect(status.state).toBe('entitled');
+    expect(status.edition).toBe('pilot');
+    // v1 carries no trial_ends_at, so this is the exact input the blacklist saw.
+    expect(status.trial_ends_at).toBeUndefined();
+    // THE RULING: a 100%-discount seat is entitled, and it is NOT paid.
+    expect(status.has_paid_seat).toBeFalsy();
+  });
+
+  it('a SIGNED CEVE.v1 standard licence still yields has_paid_seat TRUE — real customers are not locked out', () => {
+    const root = makeRoot();
+    const { publicKeyPem, privateKey } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    register(options);
+
+    const code = signCode(privateKey, validPayload({ edition: 'standard', expires_at: null }));
+    expect(activateWithWire(code, options).ok).toBe(true);
+
+    const status = getEntitlementStatus(options);
+    expect(status.state).toBe('entitled');
+    expect(status.edition).toBe('standard');
+    expect(status.has_paid_seat).toBe(true);
   });
 });
 

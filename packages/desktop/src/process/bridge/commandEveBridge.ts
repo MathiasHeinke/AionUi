@@ -3275,9 +3275,18 @@ export function initCommandEveBridge(): void {
   // on the wire come from one computation, not two that happen to agree.
   //
   // The receipt is SEAT-BOUND: it carries the seat id and that seat's context
-  // revision, read AFTER the decision so a seat switch mid-flight is visible as a
-  // mismatch rather than silently inherited. The renderer refuses to paint on any
-  // mismatch (see shouldPaintMaxSurface).
+  // revision, read BEFORE the await on resolveEveCloudRouteFromBackend — so the
+  // receipt names the seat the decision was STARTED for. A seat switch during the
+  // await therefore leaves the receipt naming the OLD seat, which is what the
+  // renderer's comparison against the independently-read CURRENT context detects;
+  // it refuses to paint on any mismatch (see shouldPaintMaxSurface).
+  //
+  // This paragraph said "read AFTER the decision" until 1.820.1. It was simply
+  // false — both reads sit above the await, in their own try/catch blocks — and it
+  // described a WEAKER design than the code implements: reading them after the
+  // await would stamp the receipt with the seat that is current at completion, and
+  // a mid-flight switch would then look consistent. The code was right; the
+  // sentence was not.
   //
   // Any failure returns success:false with maxActive:false — the renderer fails
   // visually closed to the unnamed default. Not painting is always safe.

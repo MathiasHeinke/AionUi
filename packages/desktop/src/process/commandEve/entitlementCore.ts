@@ -48,6 +48,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { CommandEveProfileNameSource } from './accountIdentityCore';
+import { isPaidSeatEditionName } from '@/common/config/creditsCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 
 // ---------------------------------------------------------------------------
@@ -91,19 +92,37 @@ export const COMMAND_EVE_LICENSE_EDITIONS = ['pilot', 'standard', 'free'] as con
 export type CommandEveLicenseEdition = (typeof COMMAND_EVE_LICENSE_EDITIONS)[number];
 
 /**
- * The PAID-seat discriminant. A seat is paid iff it is entitled AND non-trial AND
- * NOT the permanent-free edition. Centralised so every has_paid_seat derivation
- * stays consistent and the free-forever trap (a free license has trial_ends_at ==
- * null, which alone would look paid) is closed in ONE place.
+ * The PAID-seat discriminant. Centralised so every has_paid_seat derivation
+ * stays consistent and there is exactly ONE definition of "this seat was sold".
+ *
+ * Paid ⇔ NO trial window (trial_ends_at null/undefined) AND the signed edition
+ * is on the PAID_SEAT_EDITIONS ALLOWLIST in `common/config/creditsCore`.
+ *
+ * THE TRAP (closed here, 1.820.1). This used to be
+ *     (trialEndsAt == null) && edition !== 'free'
+ * — a BLACKLIST, and it sat ORed one disjunct away from the allowlist that
+ * feeds `has_paid_plan`, under a comment celebrating the allowlist. The live
+ * mint path emits CEVE.v1 payloads with NO trial_ends_at field and edition
+ * 'pilot' | 'standard', so the ALOIS100 100%-off `pilot` seat satisfied both
+ * halves and read as PAID — unlocking MAX (and BYOK) on a seat that had paid
+ * nothing. A negative definition also defaults every edition added later to
+ * PAID, which is the wrong direction for a money gate.
+ *
+ * FOUNDER RULE, ENCODED: a 100%-discount / zero-euro seat gets STANDARD ONLY.
+ * `pilot` is NOT paid. A pilot seat keeps its ordinary metered Standard use —
+ * that runs off the live credits balance (`has_metered_credits`), not off this
+ * flag. NAMED SIDE EFFECT: a perpetual pilot seat no longer unlocks the BYOK /
+ * add-own-model affordance either, because that gate reads the same one
+ * definition. That is the intended reading of "Standard only".
  *
  * Inputs come from the SIGNED, time-valid payload (enforced path) or the cached
  * record (flag-OFF dev path):
- *   - trialEndsAt: trial_ends_at (null/undefined ⇒ non-trial)
+ *   - trialEndsAt: trial_ends_at (null/undefined ⇒ no trial window)
  *   - edition:     the signed edition string
- * Paid ⇔ trial_ends_at is null/undefined AND edition !== 'free'.
  */
 export function isPaidSeatEdition(trialEndsAt: string | null | undefined, edition: string | null | undefined): boolean {
-  return (trialEndsAt === null || trialEndsAt === undefined) && edition !== 'free';
+  if (trialEndsAt !== null && trialEndsAt !== undefined) return false;
+  return isPaidSeatEditionName(edition);
 }
 
 export const COMMAND_EVE_LICENSE_REASON_CODES = {
@@ -569,13 +588,13 @@ export interface CommandEveEntitlementStatusResult {
    * OFFLINE UI HINT (1.2.18) — NOT a binding gate. A single honest boolean the
    * renderer can gate paid-only affordances on (e.g. BYOK / add-own-model). It is
    * DERIVED from the SIGNED, time-valid payload, not a separate claim:
-   *   has_paid_seat = (state === 'entitled') && (trial_ends_at == null)
-   * Rationale (real mint model, verified 2026-06-30): the only `entitled` states a
-   * self-serve user can be in are TRIAL (pilot + trial_ends_at, status 'trialing')
-   * and PAID (standard + active, trial_ends_at null) — there is NO free-perpetual
-   * self-serve tier (post-trial ⇒ 'expired' ⇒ not entitled ⇒ curtain). So a
-   * non-trial `entitled` license reliably means real (paid OR founder-comped)
-   * access. Present ONLY when true; absent ⇒ treat as false. The SERVER stays the
+   *   has_paid_seat = (state === 'entitled') && isPaidSeatEdition(trial_ends_at, edition)
+   * i.e. no trial window AND the edition is on the PAID_SEAT_EDITIONS allowlist.
+   * The rationale this once carried — "a non-trial `entitled` licence reliably
+   * means real (paid OR founder-comped) access" — was the defect: a
+   * founder-COMPED seat (edition 'pilot', the ALOIS100 100%-off checkout) is
+   * entitled and non-trial and has paid NOTHING, so lumping it in with paid
+   * handed it MAX and BYOK. Present ONLY when true; absent ⇒ treat as false. The SERVER stays the
    * binding gate for everything money-metered (inference credits, seat billing);
    * this flag only governs the UI affordance for BYOK, which is not server-
    * enforceable (a user's own key bypasses EVE inference entirely).
@@ -1309,7 +1328,8 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
   //     design) ⇒ NOT paid — the edition guard is what closes the free-forever trap,
   //     because keying paid-ness on a null trial_ends_at alone would unlock BYOK /
   //     local models / client seats for a FREE user;
-  //   * a PAID license (edition "standard"/comped, trial_ends_at null) ⇒ paid.
+  //   * a PAID license (an edition on the PAID_SEAT_EDITIONS allowlist, trial_ends_at
+  //     null) ⇒ paid. A COMPED `pilot` seat is NOT on that list and is NOT paid.
   const hasPaidSeat = isPaidSeatEdition(payload.trial_ends_at, payload.edition);
 
   return {

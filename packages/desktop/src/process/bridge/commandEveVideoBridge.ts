@@ -682,11 +682,29 @@ export async function handleCommandEveArtifactContextEnvelope(
       spendPermit = issue(dataPath, {
         conversationId,
         userTurnSha256,
-        // MAT-1753 item F. Reference images are bound by the SAME single-use,
-        // byte-bound permit as the editable clips — one permit per turn, one
-        // store, one TTL, one turn binding. There is deliberately no second
-        // spend authority for reference work and no second popup: a new
-        // mechanism is exactly what "no second spend authority" forbids.
+        // MAT-1753 item F. Reference images ride the SAME single-use, byte-bound
+        // permit as the editable clips — one permit per turn, one store, one TTL,
+        // one turn binding. There is deliberately no second spend authority for
+        // reference work and no second popup: a new mechanism is exactly what
+        // "no second spend authority" forbids.
+        //
+        // WHAT THESE REFERENCE DIGESTS DO **NOT** DO, said plainly rather than
+        // left to be assumed from the word "bound": they are NOT re-verified at
+        // redeem time, because the path that consumes reference images —
+        // `handleCommandEveVideoGenerate` — takes no permit and redeems none. The
+        // only enforced binding is on the EDIT path, where
+        // `evaluateStoredVideoEditSpendPermit` / `consumeVideoEditSpendPermit`
+        // check ONE `observedArtifactSha256` (the clip being edited) against this
+        // list. So a reference digest here is a RECORD of what the turn asked
+        // for, not a gate on what the render may use.
+        //
+        // That is a deliberate, stated limitation and not an oversight to be
+        // closed by widening this comment: binding on the redeem side would mean
+        // threading a permit through the generate IPC and refusing renders
+        // without one, which is a spend-authority change, not a comment fix.
+        // `videoReferenceEnvelope.test.ts` pins BOTH halves — the mint-side
+        // contents AND the absence of a redeem — so whoever adds one has to come
+        // past a red test and correct this paragraph.
         allowedArtifactSha256: [...referenceEntries, ...editable]
           .map((entry) => entry.artifactSha256)
           .filter((sha): sha is string => typeof sha === 'string'),

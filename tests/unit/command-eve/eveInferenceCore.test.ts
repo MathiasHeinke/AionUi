@@ -72,6 +72,11 @@ import {
   type EvePickerItem,
 } from '@/common/config/eveInferenceCore';
 import { EVE_MAX_PARITY_CASES, eveMaxParityFingerprint } from '@/common/config/eveMaxParity';
+// The REAL predicates the parity table must invoke — one per input column. They
+// are imported from production, not restated here: a restatement is the injected
+// copy this whole finding is about.
+import { isPaidCreditsTier, isPaidPlanForSeat } from '@/common/config/creditsCore';
+import { isPaidSeatEdition } from '@/process/commandEve/entitlementCore';
 
 /** Synthetic CEVE wire string — NOT a real license. */
 const FAKE_WIRE = 'CEVE.v2.FAKE-payload-TESTONLY.FAKE-sig-TESTONLY';
@@ -1036,20 +1041,82 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
 });
 
 describe('MAX unlock — SERVER/CLIENT PARITY (CAO round 2, finding 1)', () => {
-  // The rule, stated once: MAX unlocks IFF (paid plan/seat) OR (purchased > 0).
-  // `has_active_topup` is NOT an unlock — an exhausted subscription has no
-  // purchased balance, and the server would 402 a seat the client had unlocked.
-  it.each(EVE_MAX_PARITY_CASES.map((c) => [c.name, c] as const))('%s', (_name, c) => {
-    const entitlement = {
-      trial_ends_at: null,
-      has_paid_seat: c.paidPlan,
-      has_paid_plan: c.paidPlan,
+  // The rule, stated once: MAX unlocks IFF (paid plan/seat) OR (purchased > 0),
+  // and per the Founder's binding rule (1.820.1) a 100%-discount / zero-euro
+  // seat is NOT paid. `has_active_topup` is NOT an unlock — an exhausted
+  // subscription has no purchased balance, and the server would 402 a seat the
+  // client had unlocked.
+  //
+  // EVERY BOOLEAN BELOW IS COMPUTED BY PRODUCTION CODE FROM A RAW INPUT. The
+  // previous version of this block wrote `has_paid_seat: c.paidPlan,
+  // has_paid_plan: c.paidPlan` — two columns fed from ONE input — so
+  // isPaidSeatEdition and the tier allowlist were never invoked and the table was
+  // structurally blind to the blacklists living inside them. It stayed green
+  // while a never-billed `pilot` seat read as PAID.
+  const viewFor = (c: (typeof EVE_MAX_PARITY_CASES)[number]) => {
+    // A CEVE.v1 payload has NO trial_ends_at FIELD AT ALL. Modelling that as
+    // `undefined` rather than `null` is the whole point: the production rule
+    // demanded v2 before it would consider a trial, so on v1 it never fired.
+    const trialEndsAt = c.licenseVersion === 'v1' ? undefined : c.trialEndsAt;
+    return {
+      trial_ends_at: trialEndsAt ?? null,
+      has_paid_seat: isPaidSeatEdition(trialEndsAt, c.licenseEdition),
+      has_paid_plan: isPaidPlanForSeat(c.creditsTier, c.licenseEdition),
       has_active_topup: c.activeTopup,
       has_purchased_credits: c.purchasedCredits > 0,
       has_metered_credits: c.purchasedCredits > 0 || c.allowanceCredits > 0,
       metered_credit_access_known: true,
     };
-    expect(hasEveMaxAccess(entitlement), `${c.name}: client gate disagrees with the table`).toBe(c.maxUnlocked);
+  };
+
+  it.each(EVE_MAX_PARITY_CASES.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+    expect(hasEveMaxAccess(viewFor(c)), `${c.name}: client gate disagrees with the table`).toBe(c.maxUnlocked);
+  });
+
+  it('THE FOUNDER RULE: a pilot seat with ZERO purchased credits loses MAX and KEEPS Standard', () => {
+    // The 100%-off ALOIS100 seat exactly as the live mint path emits it: CEVE.v1,
+    // edition 'pilot', no trial_ends_at field, never billed — and reporting tier
+    // 'starter' because planForEdition seeds it the Starter allowance. Asserted
+    // through buildEvePickerGroups, i.e. the surface the user actually sees, not
+    // through the predicate in isolation.
+    const pilot = viewFor({
+      name: 'pilot',
+      licenseEdition: 'pilot',
+      licenseVersion: 'v1',
+      trialEndsAt: null,
+      creditsTier: 'starter',
+      purchasedCredits: 0,
+      activeTopup: false,
+      allowanceCredits: 100000,
+      maxUnlocked: false,
+    });
+    expect(pilot.has_paid_seat, 'a comped pilot seat was never sold').toBe(false);
+    expect(pilot.has_paid_plan, "a pilot's seeded Starter allowance is not a purchase").toBe(false);
+
+    const cloud = buildEvePickerGroups(pilot).find((group) => group.kind === 'eve');
+    const items = cloud?.items ?? [];
+    const max = items.find((item) => item.value === eveTierValue(EVE_INFERENCE_MAX_TIER_ID));
+    const standard = items.find((item) => item.value === eveTierValue(EVE_INFERENCE_DEFAULT_TIER_ID));
+    expect(max?.disabled, 'MAX must be LOCKED for a never-billed pilot seat').toBe(true);
+    expect(standard?.disabled, 'Standard must still work — a pilot seat is not bricked').toBe(false);
+    // And the wider metered gate (what actually funds a Standard turn) stays open.
+    expect(hasEvePaidInferenceAccess(pilot)).toBe(true);
+  });
+
+  it('SABOTAGE PIN: both paid signals are ALLOWLISTS, so a pilot seat can never read as paid', () => {
+    // The exact blacklist this blocker was: `(trialEndsAt == null) && edition !== 'free'`.
+    // Restoring it turns the parity rows above red; this states the property directly
+    // so the reason is NAMED rather than inferred from a row failure.
+    const blacklist = (trialEndsAt: string | undefined, edition: string): boolean =>
+      trialEndsAt === undefined && edition !== 'free';
+    expect(blacklist(undefined, 'pilot'), 'the OLD rule called a comped pilot paid').toBe(true);
+    expect(isPaidSeatEdition(undefined, 'pilot'), 'the allowlist does not').toBe(false);
+    // ...and the same for the tier half. A pilot reports 'starter' (resolveTier maps
+    // its seeded allowance back onto a plan name), which the tier allowlist ALONE
+    // would accept — so the signed edition has to be part of the answer.
+    expect(isPaidCreditsTier('starter')).toBe(true);
+    expect(isPaidPlanForSeat('starter', 'pilot')).toBe(false);
+    expect(isPaidPlanForSeat('starter', 'standard')).toBe(true);
   });
 
   it('an ACTIVE but SPENT top-up locks MAX — the regression this finding is about', () => {
@@ -1088,6 +1155,12 @@ describe('MAX unlock — SERVER/CLIENT PARITY (CAO round 2, finding 1)', () => {
 
   it('the parity table has not drifted from the server copy', () => {
     // Fingerprint pinned on BOTH sides. Editing one copy alone reddens this.
-    expect(eveMaxParityFingerprint()).toBe('0010=0|0011=0|0110=1|0100=1|1001=1|1011=1|0001=0|0000=0');
+    expect(eveMaxParityFingerprint()).toBe(
+      'standard/v2/0/starter/001=1|standard/v1/0/starter/001=1|standard/v2/0/starter/011=1|' +
+        'standard/v2/1/trial/001=0|pilot/v1/0/starter/001=0|pilot/v2/0/starter/011=0|' +
+        'pilot/v2/1/trial/001=0|pilot/v1/0/starter/100=1|free/v2/0/free/001=0|' +
+        'free/v2/0/starter/100=1|pilot/v1/0/trial/010=0|pilot/v1/0/trial/011=0|' +
+        'pilot/v1/0/starter/110=1|free/v2/0/free/000=0'
+    );
   });
 });

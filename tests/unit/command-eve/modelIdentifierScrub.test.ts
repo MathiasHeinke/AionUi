@@ -142,6 +142,22 @@ describe('the scrub is WIRED at every renderer site that renders upstream error 
     expect(ACP).toMatch(/scrubModelIdentifiers\(\s*initialFailure\.message,\s*CLOUD_MODEL_IDENTIFIERS\s*\)/);
   });
 
+  it('the ACP CLOUD-OCR RETRY failure toast scrubs too — the site this block used to miss', () => {
+    // There are TWO failure toasts on this path, ten lines apart. Pinning only the
+    // first is why the second shipped raw: the suite was green while the property
+    // it is named for — "every ACP toast that renders upstream text is scrubbed" —
+    // was false, and the UNPINNED one was the attempt that had actually reached a
+    // provider and so was the likelier of the two to carry a model id.
+    expect(ACP).toMatch(/scrubModelIdentifiers\(\s*cloudFailure\.message,\s*CLOUD_MODEL_IDENTIFIERS\s*\)/);
+  });
+
+  it('BOTH ACP scrub calls are counted, so a THIRD toast cannot arrive unpinned unnoticed', () => {
+    // A count, not a third name check. Adding a new raw toast leaves both pins
+    // above green; this is what notices. Still a source pin (stated limitation),
+    // but it fails on an ADDITION as well as on a deletion.
+    expect((ACP.match(/scrubModelIdentifiers\(/g) ?? []).length).toBe(2);
+  });
+
   it('the shared send bar scrubs the send-failure reason (the toast pinned at duration 0)', () => {
     expect(SENDBOX).toMatch(/scrubModelIdentifiers\(\s*rawReason,\s*CLOUD_MODEL_IDENTIFIERS\s*\)/);
     // The RAW text may still reach the console — that is the debugging half and

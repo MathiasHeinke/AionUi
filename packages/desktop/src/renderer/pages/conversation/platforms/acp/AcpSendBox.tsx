@@ -1051,7 +1051,14 @@ Please check your local CLI tool authentication status`,
           setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
           const cloudFailure = response.data?.ok === false ? response.data : undefined;
           Message.error({
-            content: cloudFailure?.message || t('conversation.pdf.cloudOcrFailed'),
+            // SCRUBBED (MAT-1749), exactly like the initialFailure toast above.
+            // This is the CLOUD RETRY — the one attempt that actually reached a
+            // provider, so it is the MORE likely of the two to carry a
+            // provider/model id, and it shipped raw for ten lines' distance from
+            // its scrubbed sibling. Pinned by name in modelIdentifierScrub.test.ts.
+            content: cloudFailure?.message
+              ? scrubModelIdentifiers(cloudFailure.message, CLOUD_MODEL_IDENTIFIERS)
+              : t('conversation.pdf.cloudOcrFailed'),
             duration: 6000,
           });
           return null;

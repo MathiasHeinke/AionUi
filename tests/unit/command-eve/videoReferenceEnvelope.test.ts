@@ -220,3 +220,67 @@ describe('MAT-1753 F — one permit, the existing one, bound to the reference BY
     expect(permitFromEnvelope(envelope)).toBeUndefined();
   });
 });
+
+/**
+ * THE OTHER HALF OF ITEM F, WHICH THE SUITE ABOVE DOES NOT COVER.
+ *
+ * Everything above proves the MINT: the reference digests really are written into
+ * the permit's allow-list. It says nothing about REDEEM — and there is no redeem
+ * for them. `handleCommandEveVideoGenerate`, the only path that consumes reference
+ * images, accepts no permit and evaluates none; the sole enforced binding lives on
+ * the EDIT path, which checks ONE observed clip digest.
+ *
+ * So the word "bound" in the mint comment is true of the RECORD and false of any
+ * enforcement. These cases pin that limitation in place, in both directions:
+ *   - if someone deletes the reference digests from the mint, the suite above reddens;
+ *   - if someone adds a redeem to the generate path, THIS reddens, and they must
+ *     come back and rewrite the comment that currently disclaims one.
+ *
+ * A source-shape pin, deliberately, and the limitation is stated rather than
+ * hidden: it catches the arrival or removal of a named call, not a semantically
+ * equivalent rewrite. That is the change that actually happens.
+ */
+describe('the reference-image digests are RECORDED at mint and NOT enforced at redeem', () => {
+  const ROOT = path.resolve(__dirname, '../../../');
+  const SRC = fs
+    .readFileSync(path.join(ROOT, 'packages/desktop/src/process/bridge/commandEveVideoBridge.ts'), 'utf-8')
+    // Strip comments so the paragraph explaining this cannot satisfy the assertion.
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  /** The body of handleCommandEveVideoGenerate, up to the next exported function. */
+  const generateBody = (): string => {
+    const start = SRC.indexOf('export async function handleCommandEveVideoGenerate(');
+    expect(start, 'the render entry point must still be here').toBeGreaterThan(0);
+    const end = SRC.indexOf('export async function handleCommandEveVideoGenerateBridge', start);
+    return SRC.slice(start, end > start ? end : undefined);
+  };
+
+  it('the RENDER path reads no permit, evaluates none, and consumes none', () => {
+    const body = generateBody();
+    for (const forbidden of ['evaluateSpendPermit', 'consumeSpendPermit', 'readSpendPermitRecord', 'spendPermit']) {
+      expect(body, `handleCommandEveVideoGenerate must not touch ${forbidden} while the comment says it does not`).not.toContain(
+        forbidden
+      );
+    }
+  });
+
+  it('the EDIT path is the ONLY redeem, and it judges exactly one observed clip digest', () => {
+    // Named so the asymmetry is explicit: one digest is checked, the up-to-seven
+    // reference digests in the same permit are not.
+    expect(SRC).toMatch(/evaluatePermit\(dataPath,\s*\{[\s\S]{0,200}?observedArtifactSha256,/);
+    expect(SRC).toMatch(/consumePermit\(dataPath,\s*\{[\s\S]{0,300}?artifactSha256: observedArtifactSha256,/);
+  });
+
+  it('the mint comment DISCLAIMS the enforcement it does not provide', () => {
+    // The comment is the only thing standing between this design and a reader who
+    // assumes "bound" means "checked". If it is deleted or softened back into a
+    // bare claim, this fails — the honesty is part of the contract, not decoration.
+    const WITH_COMMENTS = fs.readFileSync(
+      path.join(ROOT, 'packages/desktop/src/process/bridge/commandEveVideoBridge.ts'),
+      'utf-8'
+    );
+    expect(WITH_COMMENTS).toContain('NOT re-verified at');
+    expect(WITH_COMMENTS).toContain('takes no permit and redeems none');
+  });
+});

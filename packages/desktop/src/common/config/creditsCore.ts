@@ -76,6 +76,57 @@ export function isPaidCreditsTier(tier: string | null | undefined): tier is Paid
 }
 
 /**
+ * THE PAID-SEAT EDITION ALLOWLIST. A signed licence edition counts as a PAID
+ * SEAT only by being NAMED here.
+ *
+ * WHY IT LIVES IN common/config. Both halves of the MAX gate need it: the main
+ * process derives `has_paid_seat` from the verified payload
+ * (entitlementCore.isPaidSeatEdition) and the renderer needs the SAME rule when
+ * it judges a reported credits tier. ONE definition imported twice — not two
+ * that happen to agree.
+ *
+ * `pilot` is deliberately ABSENT (Founder rule, 1.820.1): it is the ALOIS100
+ * 100%-off founding seat — a seat that paid nothing. A zero-euro seat gets
+ * STANDARD ONLY. `free` is absent for the same reason. Every SOLD plan
+ * (starter / solo / standard) mints edition `standard`, so one entry covers all
+ * of them.
+ *
+ * MIRRORED on the server as PAID_EDITIONS in
+ * `supabase/functions/_shared/eve-inference-core.ts`.
+ */
+export const PAID_SEAT_EDITIONS = Object.freeze(['standard'] as const);
+
+export type PaidSeatEdition = (typeof PAID_SEAT_EDITIONS)[number];
+
+/** True iff this signed licence edition is an actually-sold seat. */
+export function isPaidSeatEditionName(edition: string | null | undefined): edition is PaidSeatEdition {
+  return typeof edition === 'string' && (PAID_SEAT_EDITIONS as readonly string[]).includes(edition);
+}
+
+/**
+ * The `has_paid_plan` signal for the MAX gate, resolved from the two things the
+ * renderer actually holds: the credits-status TIER and the seat's SIGNED
+ * EDITION.
+ *
+ * WHY THE EDITION OUTRANKS THE TIER. The reported tier is DERIVED, not stored:
+ * `credits-billing-core.resolveTier` maps whatever allowance was granted back
+ * onto a plan name, and `planForEdition` seeds an ALOIS100 `pilot` seat with the
+ * STARTER allowance. A 0 € pilot therefore reports `tier: 'starter'` and would
+ * satisfy `isPaidCreditsTier` on its own — handing MAX to exactly the seat the
+ * Founder rule excludes, while the server (which judges the LICENCE) answers
+ * 402. The tier cannot tell a comped allowance from a bought subscription; the
+ * signed edition can, so when it is known it decides.
+ *
+ * BOTH halves are allowlists. An edition we do not recognise is NOT paid; an
+ * ABSENT edition (gate flag off, or a status carrying no licence) falls back to
+ * the tier allowlist rather than hard-locking a real subscriber.
+ */
+export function isPaidPlanForSeat(tier: string | null | undefined, edition: string | null | undefined): boolean {
+  if (typeof edition === 'string' && edition.length > 0 && !isPaidSeatEditionName(edition)) return false;
+  return isPaidCreditsTier(tier);
+}
+
+/**
  * The credits-status response (Lane-1 contract). All credit counts are in
  * CREDITS (NEW model: 1 credit = 0.1 ct; margin is taken at CONSUMPTION via the
  * tier factors, never at purchase). `spend_cap_eur_cents` is the user's optional

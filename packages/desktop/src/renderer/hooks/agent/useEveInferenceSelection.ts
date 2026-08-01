@@ -47,7 +47,7 @@
 
 import { commandEve } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
-import { isPaidCreditsTier } from '@/common/config/creditsCore';
+import { isPaidPlanForSeat } from '@/common/config/creditsCore';
 import {
   buildEvePickerGroups,
   EVE_DEFAULT_INFERENCE_SELECTION,
@@ -188,13 +188,20 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
       // unlocking the strong lane. Both require an authoritative credits read:
       // an unreadable status must not be able to open a paid lane.
       //
-      // ALLOWLIST, NOT `!== 'free'`. The negative form classified the server's
-      // `trial` tier as PAID and unlocked MAX for every trial seat — the exact
-      // thing the Founder rule forbids. It also defaulted every future tier to
-      // paid. isPaidCreditsTier names the paid tiers explicitly, so anything new
-      // is unpaid until someone decides otherwise, which is the only safe
-      // direction for a money gate.
-      has_paid_plan: creditsAreAuthoritative && isPaidCreditsTier(creditsStatus?.tier),
+      // TWO ALLOWLISTS, NOT `!== 'free'`. The negative form classified the
+      // server's `trial` tier as PAID and unlocked MAX for every trial seat —
+      // the exact thing the Founder rule forbids — and defaulted every future
+      // tier to paid. `isPaidPlanForSeat` names the paid TIERS and the paid
+      // seat EDITIONS explicitly, so anything new is unpaid until someone
+      // decides otherwise, which is the only safe direction for a money gate.
+      //
+      // THE EDITION IS PART OF IT, and that is not belt-and-braces. The tier is
+      // DERIVED server-side from the granted allowance, and an ALOIS100 0 €
+      // `pilot` seat is seeded the STARTER allowance — so it reports
+      // `tier: 'starter'` and the tier allowlist ALONE would unlock MAX for the
+      // one seat the Founder rule names. The signed edition is what can tell a
+      // comped allowance from a bought subscription.
+      has_paid_plan: creditsAreAuthoritative && isPaidPlanForSeat(creditsStatus?.tier, status?.edition),
       has_purchased_credits: creditsAreAuthoritative && purchasedCredits > 0,
     };
   }, [creditsStatus, status]);
