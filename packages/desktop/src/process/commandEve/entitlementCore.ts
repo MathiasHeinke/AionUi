@@ -48,7 +48,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { CommandEveProfileNameSource } from './accountIdentityCore';
-import { isPaidSeatEditionName } from '@/common/config/creditsCore';
+import { isByokSeatEditionName, isPaidSeatEditionName } from '@/common/config/creditsCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 
 // ---------------------------------------------------------------------------
@@ -108,12 +108,17 @@ export type CommandEveLicenseEdition = (typeof COMMAND_EVE_LICENSE_EDITIONS)[num
  * nothing. A negative definition also defaults every edition added later to
  * PAID, which is the wrong direction for a money gate.
  *
- * FOUNDER RULE, ENCODED: a 100%-discount / zero-euro seat gets STANDARD ONLY.
- * `pilot` is NOT paid. A pilot seat keeps its ordinary metered Standard use —
- * that runs off the live credits balance (`has_metered_credits`), not off this
- * flag. NAMED SIDE EFFECT: a perpetual pilot seat no longer unlocks the BYOK /
- * add-own-model affordance either, because that gate reads the same one
- * definition. That is the intended reading of "Standard only".
+ * FOUNDER RULE, ENCODED: a 100%-discount / zero-euro seat gets no MAX without
+ * genuinely purchased credits or an explicitly paid plan. `pilot` is NOT paid. A
+ * pilot seat keeps its ordinary metered Standard use — that runs off the live
+ * credits balance (`has_metered_credits`), not off this flag.
+ *
+ * THIS FLAG NO LONGER ANSWERS THE BYOK QUESTION. It did, and tightening it here
+ * silently removed bring-your-own-model from every perpetual pilot seat. The
+ * Founder ruled that side effect must be undone WITHOUT loosening MAX, so the two
+ * authorities are now separate predicates over separate allowlists — see
+ * {@link isByokSeatEdition}. Widening THIS one to restore BYOK would hand a
+ * never-billed seat the strong lane again; that is the whole point of the split.
  *
  * Inputs come from the SIGNED, time-valid payload (enforced path) or the cached
  * record (flag-OFF dev path):
@@ -123,6 +128,34 @@ export type CommandEveLicenseEdition = (typeof COMMAND_EVE_LICENSE_EDITIONS)[num
 export function isPaidSeatEdition(trialEndsAt: string | null | undefined, edition: string | null | undefined): boolean {
   if (trialEndsAt !== null && trialEndsAt !== undefined) return false;
   return isPaidSeatEditionName(edition);
+}
+
+/**
+ * The BYOK-seat discriminant — the OTHER authority, deliberately not this file's
+ * paid one. Answers "may this seat plug in its own provider key / model?", which
+ * is NOT "did this seat pay us?".
+ *
+ * True ⇔ NO trial window AND the signed edition is on the BYOK_SEAT_EDITIONS
+ * allowlist in `common/config/creditsCore` (`standard` and `pilot`; `free` and
+ * anything unrecognised are out).
+ *
+ * WHY IT EXISTS. `has_paid_seat` used to gate MAX **and** BYOK. When the paid
+ * allowlist was narrowed to exclude the comped ALOIS100 `pilot` seat (correct for
+ * MAX), BYOK vanished from perpetual pilot seats with it. FOUNDER RULING
+ * (1.820.1): a pilot seat KEEPS Standard, KEEPS BYOK, and NEVER gets MAX absent
+ * purchased credits or an explicitly paid plan. One boolean cannot state that;
+ * two predicates can.
+ *
+ * WHY A WIDER RULE IS SAFE HERE AND NOT THERE. BYOK spends the USER's key, not
+ * EVE's wallet — there is no metered cost and no server gate to contradict, so
+ * the failure mode that makes the MAX list fail-closed simply does not exist.
+ * The TRIAL guard is kept anyway: a trial is a preview, and Pro affordances stay
+ * shut until it resolves (a lapsed pilot trial converts to edition `free`, which
+ * is not on the list).
+ */
+export function isByokSeatEdition(trialEndsAt: string | null | undefined, edition: string | null | undefined): boolean {
+  if (trialEndsAt !== null && trialEndsAt !== undefined) return false;
+  return isByokSeatEditionName(edition);
 }
 
 export const COMMAND_EVE_LICENSE_REASON_CODES = {
@@ -585,9 +618,8 @@ export interface CommandEveEntitlementStatusResult {
   trial_ends_at?: string | null;
   seat_count?: number;
   /**
-   * OFFLINE UI HINT (1.2.18) — NOT a binding gate. A single honest boolean the
-   * renderer can gate paid-only affordances on (e.g. BYOK / add-own-model). It is
-   * DERIVED from the SIGNED, time-valid payload, not a separate claim:
+   * OFFLINE UI HINT (1.2.18) — NOT a binding gate. The PAID-seat boolean the MAX
+   * gate keys on. DERIVED from the SIGNED, time-valid payload, not a separate claim:
    *   has_paid_seat = (state === 'entitled') && isPaidSeatEdition(trial_ends_at, edition)
    * i.e. no trial window AND the edition is on the PAID_SEAT_EDITIONS allowlist.
    * The rationale this once carried — "a non-trial `entitled` licence reliably
@@ -595,11 +627,26 @@ export interface CommandEveEntitlementStatusResult {
    * founder-COMPED seat (edition 'pilot', the ALOIS100 100%-off checkout) is
    * entitled and non-trial and has paid NOTHING, so lumping it in with paid
    * handed it MAX and BYOK. Present ONLY when true; absent ⇒ treat as false. The SERVER stays the
-   * binding gate for everything money-metered (inference credits, seat billing);
-   * this flag only governs the UI affordance for BYOK, which is not server-
-   * enforceable (a user's own key bypasses EVE inference entirely).
+   * binding gate for everything money-metered (inference credits, seat billing).
+   *
+   * NOT the BYOK signal any more — see {@link has_byok_seat}. Two questions, two
+   * booleans; sharing one is what let a MAX fix delete BYOK from pilot seats.
    */
   has_paid_seat?: boolean;
+  /**
+   * OFFLINE UI HINT — the BYOK / add-own-model affordance, and NOTHING money-
+   * metered. DERIVED the same honest way, from a DIFFERENT allowlist:
+   *   has_byok_seat = (state === 'entitled') && isByokSeatEdition(trial_ends_at, edition)
+   * i.e. no trial window AND the edition is on BYOK_SEAT_EDITIONS (`standard`,
+   * `pilot`). Present ONLY when true; absent ⇒ treat as false.
+   *
+   * FOUNDER RULING (1.820.1): the comped `pilot` seat KEEPS BYOK while staying
+   * locked out of MAX. It is broader than {@link has_paid_seat} BY DESIGN, and it
+   * must never be read as a paid signal: BYOK is not server-enforceable (a user's
+   * own key bypasses EVE inference entirely) and costs EVE nothing, which is
+   * exactly why it may be granted where MAX may not.
+   */
+  has_byok_seat?: boolean;
 }
 
 export interface CommandEveRegisterResult {
@@ -1173,14 +1220,16 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
       state: entitlement ? 'entitled' : registration ? 'registered_unlicensed' : 'unregistered',
       ...(registration ? { tenant_id: registration.tenant_id } : {}),
       ...(entitlement ? { edition: entitlement.edition, expires_at: entitlement.expires_at } : {}),
-      // Parity with the enforced path so a dev running flag-OFF with a cached paid
-      // record is not surprised by a locked BYOK affordance. Same derivation
-      // (non-trial AND non-free entitlement ⇒ paid), but over the cached record
-      // (gate not enforced here, so there is no verified wire to derive from). The
-      // edition guard closes the free-forever trap: a cached free record carries a
-      // null trial_ends_at, which alone would wrongly read as paid.
+      // Parity with the enforced path so a dev running flag-OFF with a cached
+      // record sees the same affordances. SAME two derivations, over the cached
+      // record (gate not enforced here, so there is no verified wire to derive
+      // from). The edition guards close the free-forever trap: a cached free
+      // record carries a null trial_ends_at, which alone would read as paid.
       ...(entitlement && isPaidSeatEdition(entitlement.trial_ends_at, entitlement.edition)
         ? { has_paid_seat: true }
+        : {}),
+      ...(entitlement && isByokSeatEdition(entitlement.trial_ends_at, entitlement.edition)
+        ? { has_byok_seat: true }
         : {}),
     };
   }
@@ -1332,6 +1381,14 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
   //     null) ⇒ paid. A COMPED `pilot` seat is NOT on that list and is NOT paid.
   const hasPaidSeat = isPaidSeatEdition(payload.trial_ends_at, payload.edition);
 
+  // BYOK UI hint (1.820.1), the SECOND and INDEPENDENT authority, derived from
+  // the same verified payload against the BYOK_SEAT_EDITIONS allowlist. The
+  // COMPED `pilot` seat IS on that list: per the Founder's ruling it keeps
+  // bring-your-own-model while staying locked out of MAX. `free` is not, and
+  // neither is anything unrecognised. Deriving it here — beside the paid one,
+  // from the same signed payload — is what keeps the two honest AND separate.
+  const hasByokSeat = isByokSeatEdition(payload.trial_ends_at, payload.edition);
+
   return {
     version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
     ok: true,
@@ -1342,5 +1399,6 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
     expires_at: payload.expires_at,
     ...v2Surface,
     ...(hasPaidSeat ? { has_paid_seat: true } : {}),
+    ...(hasByokSeat ? { has_byok_seat: true } : {}),
   };
 }

@@ -76,7 +76,7 @@ import { EVE_MAX_PARITY_CASES, eveMaxParityFingerprint } from '@/common/config/e
 // are imported from production, not restated here: a restatement is the injected
 // copy this whole finding is about.
 import { isPaidCreditsTier, isPaidPlanForSeat } from '@/common/config/creditsCore';
-import { isPaidSeatEdition } from '@/process/commandEve/entitlementCore';
+import { isByokSeatEdition, isPaidSeatEdition } from '@/process/commandEve/entitlementCore';
 
 /** Synthetic CEVE wire string — NOT a real license. */
 const FAKE_WIRE = 'CEVE.v2.FAKE-payload-TESTONLY.FAKE-sig-TESTONLY';
@@ -357,39 +357,71 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
   });
 });
 
-describe('eveInferenceCore — paid-seat BYOK gate (1.2.18 Req 4)', () => {
-  // The paid-seat gate is STRICTER than the trial-only check: it unlocks ONLY on
-  // the explicit, main-process-derived has_paid_seat flag (entitled && non-trial).
-  const PAID_SEAT = { trial_ends_at: null, has_paid_seat: true } as const;
+describe('eveInferenceCore — licensed-seat BYOK gate (1.2.18 Req 4 + 1.820.1 decoupling)', () => {
+  // The seat gate is STRICTER than the trial-only check: it unlocks ONLY on the
+  // explicit, main-process-derived has_byok_seat flag (entitled && non-trial &&
+  // the edition is on BYOK_SEAT_EDITIONS).
+  const BYOK_SEAT = { trial_ends_at: null, has_byok_seat: true } as const;
 
-  it('unlocks add-own-model/API-key ONLY for an explicit paid seat', () => {
-    expect(isModelByokAllowed(PAID_SEAT)).toBe(true);
+  it('unlocks add-own-model/API-key ONLY for an explicit licensed seat', () => {
+    expect(isModelByokAllowed(BYOK_SEAT)).toBe(true);
   });
 
   it('stays locked for trial, free (no flag), absent, and null/undefined', () => {
-    // Trial: never paid, even if a stale flag were present (both conditions required).
-    expect(isModelByokAllowed({ trial_ends_at: '2026-07-01T00:00:00.000Z', has_paid_seat: true })).toBe(false);
+    // Trial: never unlocked, even if a stale flag were present (both conditions required).
+    expect(isModelByokAllowed({ trial_ends_at: '2026-07-01T00:00:00.000Z', has_byok_seat: true })).toBe(false);
     expect(isModelByokAllowed(TRIAL)).toBe(false);
-    // Non-trial but WITHOUT the explicit paid flag ⇒ free ⇒ locked (the new
+    // Non-trial but WITHOUT the explicit seat flag ⇒ free ⇒ locked (the new
     // behavior vs the trial-only check, which would have wrongly unlocked these).
     expect(isModelByokAllowed(PAID_NULL)).toBe(false);
     expect(isModelByokAllowed(PAID_ABSENT)).toBe(false);
     expect(isModelByokAllowed(null)).toBe(false);
     expect(isModelByokAllowed(undefined)).toBe(false);
   });
+
+  // ── THE DECOUPLING, STATED AS A PROPERTY ──────────────────────────────────
+  // BYOK must not read the MAX authority. If it did, the ALOIS100 pilot seat —
+  // which has_byok_seat true / has_paid_seat FALSE — would be locked out again,
+  // and re-coupling the gate would turn this red rather than passing silently.
+  it('does NOT read has_paid_seat: a BYOK seat unlocks with the PAID flag false', () => {
+    expect(isModelByokAllowed({ trial_ends_at: null, has_byok_seat: true, has_paid_seat: false })).toBe(true);
+  });
+
+  it('has_paid_seat alone can NEVER unlock BYOK — the two authorities are separate', () => {
+    // A malformed view carrying only the MAX signal must not open BYOK. This is
+    // the direction that proves the gate stopped sharing the boolean: were the
+    // old `has_paid_seat ||` disjunct restored, this would go green-to-red.
+    expect(isModelByokAllowed({ trial_ends_at: null, has_paid_seat: true })).toBe(false);
+  });
+
+  it('has_paid_seat can NEVER flip the answer, in any combination', () => {
+    // Exhaustive over the other two BYOK signals: toggling ONLY the MAX flag must
+    // not change the verdict. Stronger than a single row — it kills the whole
+    // "paid seat implies BYOK" coupling rather than one instance of it.
+    for (const byokSeat of [true, false]) {
+      for (const topup of [true, false]) {
+        for (const trial of [null, '2099-01-01T00:00:00.000Z']) {
+          const base = { trial_ends_at: trial, has_byok_seat: byokSeat, has_active_topup: topup };
+          expect(isModelByokAllowed({ ...base, has_paid_seat: true })).toBe(
+            isModelByokAllowed({ ...base, has_paid_seat: false })
+          );
+        }
+      }
+    }
+  });
 });
 
 describe('eveInferenceCore — Pro-feature unlock via active credit subscription (M7)', () => {
-  it('unlocks BYOK on an active credit subscription WITHOUT a paid seat', () => {
-    // The second unlock path: no client seat, but an active recurring top-up.
-    expect(isModelByokAllowed({ trial_ends_at: null, has_paid_seat: false, has_active_topup: true })).toBe(true);
-    // has_paid_seat absent entirely, subscription active ⇒ unlocked.
+  it('unlocks BYOK on an active credit subscription WITHOUT a licensed seat', () => {
+    // The second unlock path: no seat flag, but an active recurring top-up.
+    expect(isModelByokAllowed({ trial_ends_at: null, has_byok_seat: false, has_active_topup: true })).toBe(true);
+    // has_byok_seat absent entirely, subscription active ⇒ unlocked.
     expect(isModelByokAllowed({ trial_ends_at: null, has_active_topup: true })).toBe(true);
   });
 
-  it('still unlocks on a paid seat alone (OR semantics; topup absent ⇒ false ⇒ today)', () => {
-    expect(isModelByokAllowed({ trial_ends_at: null, has_paid_seat: true })).toBe(true);
-    expect(isModelByokAllowed({ trial_ends_at: null, has_paid_seat: true, has_active_topup: false })).toBe(true);
+  it('still unlocks on a licensed seat alone (OR semantics; topup absent ⇒ false ⇒ today)', () => {
+    expect(isModelByokAllowed({ trial_ends_at: null, has_byok_seat: true })).toBe(true);
+    expect(isModelByokAllowed({ trial_ends_at: null, has_byok_seat: true, has_active_topup: false })).toBe(true);
   });
 
   it('a trial NEVER unlocks, even with an active subscription (trial gate is absolute)', () => {
@@ -398,7 +430,7 @@ describe('eveInferenceCore — Pro-feature unlock via active credit subscription
 
   it('an absent has_active_topup falls back to today: no seat + no subscription ⇒ locked', () => {
     // Version-skew: an old credits-status without the field ⇒ absent ⇒ false ⇒ locked.
-    expect(isModelByokAllowed({ trial_ends_at: null, has_paid_seat: false })).toBe(false);
+    expect(isModelByokAllowed({ trial_ends_at: null, has_byok_seat: false })).toBe(false);
     expect(isModelByokAllowed({ trial_ends_at: null })).toBe(false);
   });
 });
@@ -406,18 +438,18 @@ describe('eveInferenceCore — Pro-feature unlock via active credit subscription
 describe('eveInferenceCore — transient credits status is not a free-tier verdict', () => {
   it('keeps BYOK available when top-up truth is temporarily unavailable', () => {
     expect(
-      shouldDisableModelByok({ trial_ends_at: null, has_paid_seat: false, has_active_topup: undefined }, false)
+      shouldDisableModelByok({ trial_ends_at: null, has_byok_seat: false, has_active_topup: undefined }, false)
     ).toBe(false);
   });
 
   it('locks only after an authoritative no-seat/no-top-up response', () => {
-    expect(shouldDisableModelByok({ trial_ends_at: null, has_paid_seat: false, has_active_topup: false }, true)).toBe(
+    expect(shouldDisableModelByok({ trial_ends_at: null, has_byok_seat: false, has_active_topup: false }, true)).toBe(
       true
     );
   });
 
-  it('keeps confirmed paid paths unlocked and confirmed trials locked', () => {
-    expect(shouldDisableModelByok({ trial_ends_at: null, has_paid_seat: true }, false)).toBe(false);
+  it('keeps confirmed unlocked paths unlocked and confirmed trials locked', () => {
+    expect(shouldDisableModelByok({ trial_ends_at: null, has_byok_seat: true }, false)).toBe(false);
     expect(shouldDisableModelByok({ trial_ends_at: null, has_active_topup: true }, true)).toBe(false);
     expect(shouldDisableModelByok({ trial_ends_at: '2099-01-01T00:00:00.000Z', has_active_topup: true }, false)).toBe(
       true
@@ -1061,6 +1093,12 @@ describe('MAX unlock — SERVER/CLIENT PARITY (CAO round 2, finding 1)', () => {
     return {
       trial_ends_at: trialEndsAt ?? null,
       has_paid_seat: isPaidSeatEdition(trialEndsAt, c.licenseEdition),
+      // Carried on PURPOSE, derived by the real BYOK predicate. Every `pilot` row
+      // below therefore runs through the MAX gate with has_byok_seat TRUE — so if
+      // the MAX gate ever learned to read the BYOK authority (the re-coupling the
+      // 1.820.1 split exists to prevent), the blocker rows go red instead of
+      // quietly handing a never-billed seat the strong lane.
+      has_byok_seat: isByokSeatEdition(trialEndsAt, c.licenseEdition),
       has_paid_plan: isPaidPlanForSeat(c.creditsTier, c.licenseEdition),
       has_active_topup: c.activeTopup,
       has_purchased_credits: c.purchasedCredits > 0,
@@ -1101,6 +1139,36 @@ describe('MAX unlock — SERVER/CLIENT PARITY (CAO round 2, finding 1)', () => {
     expect(standard?.disabled, 'Standard must still work — a pilot seat is not bricked').toBe(false);
     // And the wider metered gate (what actually funds a Standard turn) stays open.
     expect(hasEvePaidInferenceAccess(pilot)).toBe(true);
+    // THE OTHER HALF OF THE RULING (1.820.1): the same seat KEEPS BYOK. The
+    // BYOK flag it carries is derived by the real predicate in viewFor, and the
+    // MAX assertions above ran with it present — so BYOK is restored WITHOUT
+    // loosening the money gate.
+    expect(pilot.has_byok_seat, 'a licensed pilot seat may bring its own model').toBe(true);
+    expect(isModelByokAllowed(pilot), 'BYOK must survive the MAX lockout').toBe(true);
+    expect(shouldDisableModelByok(pilot, true), 'the Add-Platform affordance stays enabled').toBe(false);
+  });
+
+  it('has_byok_seat can NEVER unlock MAX, in any combination — the split holds one way too', () => {
+    // The mirror of the BYOK-side property test. Toggling ONLY the BYOK authority
+    // must not move the MAX verdict; otherwise the decoupling leaks in the
+    // dangerous direction and a comped seat buys nothing to reach the strong lane.
+    for (const paidSeat of [true, false]) {
+      for (const paidPlan of [true, false]) {
+        for (const purchased of [true, false]) {
+          const base = {
+            trial_ends_at: null,
+            has_paid_seat: paidSeat,
+            has_paid_plan: paidPlan,
+            has_purchased_credits: purchased,
+          };
+          expect(hasEveMaxAccess({ ...base, has_byok_seat: true })).toBe(
+            hasEveMaxAccess({ ...base, has_byok_seat: false })
+          );
+        }
+      }
+    }
+    // Stated concretely as well: the BYOK flag ALONE is not a MAX unlock.
+    expect(hasEveMaxAccess({ trial_ends_at: null, has_byok_seat: true })).toBe(false);
   });
 
   it('SABOTAGE PIN: both paid signals are ALLOWLISTS, so a pilot seat can never read as paid', () => {

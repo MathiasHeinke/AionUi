@@ -504,28 +504,35 @@ const ModelModalContent: React.FC = () => {
       });
   };
 
-  // BYOK (bring-your-own-key) gating (1.2.18 Req 4 + v1.5 M7): adding an own model
-  // / API key (offline OR cloud — both flow through the "Add Platform" path) is
-  // unlocked by EITHER paid path — a PAID CLIENT SEAT (has_paid_seat) OR an ACTIVE
-  // CREDIT SUBSCRIPTION (has_active_topup, from 25 €/Monat). Free AND trial
-  // entitlements are greyed out. Both discriminants are main-process-derived
-  // honest hints (has_paid_seat from the entitlement, has_active_topup from
-  // credits-status); the server stays the binding gate for everything
-  // money-metered. A transient credits read is UNKNOWN, never a synthetic free
-  // result; only an authoritative `ok:true` response may confirm no top-up.
+  // BYOK (bring-your-own-key) gating (1.2.18 Req 4 + v1.5 M7 + the 1.820.1
+  // decoupling): adding an own model / API key (offline OR cloud — both flow
+  // through the "Add Platform" path) is unlocked by EITHER a LICENSED NON-FREE
+  // SEAT (has_byok_seat) OR an ACTIVE CREDIT SUBSCRIPTION (has_active_topup, from
+  // 25 €/Monat). Free AND trial entitlements are greyed out.
+  //
+  // has_byok_seat, NOT has_paid_seat. This surface used to read the PAID-seat
+  // boolean, so narrowing that one to keep a 0 € seat out of MAX also removed
+  // BYOK from every perpetual pilot seat. Founder ruling: a pilot seat keeps
+  // Standard AND BYOK, and never gets MAX without purchased credits or a paid
+  // plan — two questions, two booleans. has_byok_seat is main-process-derived
+  // from the SIGNED edition (entitlementCore.isByokSeatEdition), not a renderer
+  // guess; the server stays the binding gate for everything money-metered.
+  //
+  // A transient credits read is UNKNOWN, never a synthetic free result; only an
+  // authoritative `ok:true` response may confirm no top-up.
   const { status: entitlementStatus } = useEntitlementGate();
   const { status: creditsStatus } = useCreditsStatus();
   const proFeatureView = useMemo(
     () => ({
       trial_ends_at: entitlementStatus?.trial_ends_at ?? null,
-      has_paid_seat: entitlementStatus?.has_paid_seat === true,
+      has_byok_seat: entitlementStatus?.has_byok_seat === true,
       // Additive M7 unlock. Absent (pre-deploy / no subscription) ⇒ false ⇒
-      // today's paid-seat-only behavior.
+      // today's seat-only behavior.
       has_active_topup: creditsStatus?.ok === true && creditsStatus.has_active_topup === true,
     }),
     [
       entitlementStatus?.trial_ends_at,
-      entitlementStatus?.has_paid_seat,
+      entitlementStatus?.has_byok_seat,
       creditsStatus?.ok,
       creditsStatus?.has_active_topup,
     ]

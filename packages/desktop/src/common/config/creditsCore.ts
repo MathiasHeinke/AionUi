@@ -104,6 +104,47 @@ export function isPaidSeatEditionName(edition: string | null | undefined): editi
 }
 
 /**
+ * THE BYOK SEAT EDITION ALLOWLIST — a SECOND, DELIBERATELY DIFFERENT authority.
+ *
+ * WHY IT IS NOT {@link PAID_SEAT_EDITIONS}. "May this seat spend OUR money on the
+ * strong lane?" and "may this seat plug in its OWN provider key?" are different
+ * questions, and 1.820.1 proved what happens when one boolean answers both: the
+ * MAX allowlist was tightened to exclude the comped `pilot` seat — correct — and
+ * BYOK silently disappeared from every perpetual pilot seat as a side effect,
+ * because `has_paid_seat` gated that too.
+ *
+ * FOUNDER RULING (1.820.1, binding): a pilot / zero-euro / 100 %-discount seat
+ *   - KEEPS Standard,
+ *   - KEEPS BYOK / bring-your-own-model,
+ *   - NEVER gets MAX without genuinely purchased credits or an explicitly paid plan.
+ * So `pilot` is ON this list and ABSENT from PAID_SEAT_EDITIONS. That divergence
+ * IS the ruling, written down once.
+ *
+ * WHY BYOK MAY BE WIDER. BYOK costs Command EVE nothing: the user's own key
+ * bypasses EVE inference entirely, so there is no wallet to protect and no
+ * server-side gate to disagree with. It is a licensed-seat affordance, not a
+ * money gate — which is exactly why the MAX rule must not be reused for it.
+ *
+ * STILL AN ALLOWLIST, not `!== 'free'`. The negative form is what put a comped
+ * seat on the paid side in the first place, and it defaults every edition added
+ * later to UNLOCKED. Naming the editions keeps a future edition locked until
+ * someone decides otherwise — the same direction the paid list fails in.
+ *
+ * `free` is deliberately ABSENT: the permanent free seat is explicitly limited to
+ * the free lane with NO BYOK / local models / client seats (founder model
+ * 2026-06-30; mirrored server-side as FREE_SEAT_EXCLUDES in
+ * `supabase/functions/_shared/client-seat-pricing-core.ts`).
+ */
+export const BYOK_SEAT_EDITIONS = Object.freeze(['standard', 'pilot'] as const);
+
+export type ByokSeatEdition = (typeof BYOK_SEAT_EDITIONS)[number];
+
+/** True iff this signed licence edition may bring its own model / API key. */
+export function isByokSeatEditionName(edition: string | null | undefined): edition is ByokSeatEdition {
+  return typeof edition === 'string' && (BYOK_SEAT_EDITIONS as readonly string[]).includes(edition);
+}
+
+/**
  * The `has_paid_plan` signal for the MAX gate, resolved from the two things the
  * renderer actually holds: the credits-status TIER and the seat's SIGNED
  * EDITION.

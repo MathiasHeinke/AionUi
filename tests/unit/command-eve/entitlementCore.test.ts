@@ -12,6 +12,7 @@ import path from 'node:path';
 import {
   activateEntitlement,
   getEntitlementStatus,
+  isByokSeatEdition,
   isPaidSeatEdition,
   readRegistration,
   registerTenant,
@@ -22,6 +23,18 @@ import {
   type CommandEveEntitlementOptions,
   type CommandEveLicenseEdition,
 } from '@/process/commandEve/entitlementCore';
+import { isPaidPlanForSeat } from '@/common/config/creditsCore';
+import {
+  buildEvePickerGroups,
+  EVE_INFERENCE_DEFAULT_TIER_ID,
+  EVE_INFERENCE_MAX_TIER_ID,
+  eveTierValue,
+  hasEveMaxAccess,
+  hasEvePaidInferenceAccess,
+  isModelByokAllowed,
+  shouldDisableModelByok,
+  type EveEntitlementView,
+} from '@/common/config/eveInferenceCore';
 import { storeLicenseWire } from '@/common/config/licenseWireAtRest';
 import { setSafeStorageForTesting, type SafeStorageAdapter } from '@/common/config/keychain';
 
@@ -771,6 +784,165 @@ describe('activateEntitlement + getEntitlementStatus — CEVE.v2', () => {
     expect(status.state).toBe('entitled');
     expect(status.edition).toBe('standard');
     expect(status.has_paid_seat).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BYOK vs MAX — TWO AUTHORITIES, ONE SEAT (Founder ruling, 1.820.1)
+//
+// `has_paid_seat` used to answer both "may this seat reach MAX?" and "may this
+// seat bring its own model?". Narrowing it to keep the comped ALOIS100 `pilot`
+// seat out of MAX was correct and stays — but it silently deleted BYOK from every
+// perpetual pilot seat, because that gate read the same boolean. The ruling: a
+// pilot seat KEEPS Standard, KEEPS BYOK, and NEVER gets MAX without genuinely
+// purchased credits or an explicitly paid plan. That needs two predicates.
+// ---------------------------------------------------------------------------
+
+describe('BYOK seat authority — decoupled from the paid/MAX authority', () => {
+  it('isByokSeatEdition is an ALLOWLIST that INCLUDES pilot — and it is NOT isPaidSeatEdition', () => {
+    // THE DIVERGENCE IS THE RULING. Same input, deliberately different answers.
+    expect(isByokSeatEdition(null, 'pilot')).toBe(true);
+    expect(isPaidSeatEdition(null, 'pilot')).toBe(false);
+    expect(isByokSeatEdition(undefined, 'pilot')).toBe(true);
+    expect(isPaidSeatEdition(undefined, 'pilot')).toBe(false);
+
+    // A real SOLD seat is on BOTH lists — restoring BYOK must not cost a customer
+    // anything, and every paid seat is by construction also a BYOK seat.
+    expect(isByokSeatEdition(null, 'standard')).toBe(true);
+    expect(isPaidSeatEdition(null, 'standard')).toBe(true);
+
+    // The PERMANENT FREE seat is on NEITHER: it is explicitly excluded from BYOK,
+    // local models and client seats. This is the free-forever trap, still closed —
+    // a free record carries a null trial_ends_at exactly like a licensed one.
+    expect(isByokSeatEdition(null, 'free')).toBe(false);
+    expect(isByokSeatEdition(undefined, 'free')).toBe(false);
+
+    // STILL AN ALLOWLIST, not `!== 'free'`. An unrecognised edition is locked
+    // until someone names it — the negative form is what created this ticket.
+    expect(isByokSeatEdition(null, 'team')).toBe(false);
+    expect(isByokSeatEdition(null, '')).toBe(false);
+    expect(isByokSeatEdition(undefined, undefined)).toBe(false);
+    expect(isByokSeatEdition(null, null)).toBe(false);
+
+    // A trial window never unlocks a Pro affordance, whatever the edition says.
+    expect(isByokSeatEdition('2030-01-01T00:00:00.000Z', 'pilot')).toBe(false);
+    expect(isByokSeatEdition('2030-01-01T00:00:00.000Z', 'standard')).toBe(false);
+  });
+
+  it('a SIGNED CEVE.v1 pilot licence yields has_byok_seat TRUE and has_paid_seat FALSE, end to end', () => {
+    // The real signed wire the LIVE mint path emits for the ALOIS100 100 %-off
+    // founding seat, through the real activation + gate: no predicate in isolation.
+    const root = makeRoot();
+    const { publicKeyPem, privateKey } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    register(options);
+
+    const code = signCode(privateKey, validPayload({ edition: 'pilot', expires_at: null }));
+    expect(activateWithWire(code, options).ok).toBe(true);
+
+    const status = getEntitlementStatus(options);
+    expect(status.state).toBe('entitled');
+    expect(status.edition).toBe('pilot');
+    expect(status.has_byok_seat, 'the ruling: a pilot seat KEEPS BYOK').toBe(true);
+    expect(status.has_paid_seat, 'the ruling: a pilot seat is still NOT paid').toBeFalsy();
+  });
+
+  it('a SIGNED free licence yields NEITHER flag — the free seat has no BYOK', () => {
+    const root = makeRoot();
+    const { publicKeyPem, privateKey } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    register(options);
+
+    const code = signCodeV2(
+      privateKey,
+      validPayloadV2({ edition: 'free', trial_ends_at: null, expires_at: null, seat_count: 1 })
+    );
+    expect(activateWithWire(code, options).ok).toBe(true);
+
+    const status = getEntitlementStatus(options);
+    expect(status.state).toBe('entitled');
+    expect(status.edition).toBe('free');
+    expect(status.has_byok_seat).toBeFalsy();
+    expect(status.has_paid_seat).toBeFalsy();
+  });
+
+  it('a v2 pilot INSIDE its 7-day trial window has NEITHER flag — a trial is not a licence to BYOK', () => {
+    const root = makeRoot();
+    const { publicKeyPem, privateKey } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    register(options);
+
+    const code = signCodeV2(
+      privateKey,
+      validPayloadV2({ edition: 'pilot', trial_ends_at: '2026-06-15T00:00:00.000Z', expires_at: null })
+    );
+    expect(activateWithWire(code, options).ok).toBe(true);
+
+    // NOW = 2026-06-12, i.e. inside the window.
+    const status = getEntitlementStatus(options);
+    expect(status.state).toBe('entitled');
+    expect(status.trial_ends_at).toBe('2026-06-15T00:00:00.000Z');
+    expect(status.has_byok_seat).toBeFalsy();
+    expect(status.has_paid_seat).toBeFalsy();
+  });
+
+  // ── THE END STATE THE FOUNDER RULED ON ────────────────────────────────────
+  it('THE RULING, END TO END: a perpetual pilot seat gets Standard ✅, BYOK ✅, MAX ❌', () => {
+    const root = makeRoot();
+    const { publicKeyPem, privateKey } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    register(options);
+
+    // A real signed CEVE.v1 pilot wire — the ALOIS100 mint: perpetual, no
+    // trial_ends_at FIELD AT ALL, never billed a cent.
+    const code = signCode(privateKey, validPayload({ edition: 'pilot', expires_at: null }));
+    expect(activateWithWire(code, options).ok).toBe(true);
+
+    // EVERY seat boolean below comes out of the REAL gate, derived from that
+    // signed payload. Nothing is injected.
+    const status = getEntitlementStatus(options);
+    expect(status.state).toBe('entitled');
+    expect(status.edition).toBe('pilot');
+
+    // The credits half of the view, derived by the REAL production predicates
+    // from the credits-status such a seat actually reports: tier 'starter'
+    // (planForEdition seeds the pilot a Starter ALLOWANCE, so resolveTier maps it
+    // back onto that plan name) with ZERO purchased credits. That is precisely
+    // the shape that would fool a tier-only rule.
+    const creditsTier = 'starter';
+    const purchasedCredits = 0;
+    const allowanceCredits = 100_000;
+    const view: EveEntitlementView = {
+      trial_ends_at: status.trial_ends_at ?? null,
+      has_paid_seat: status.has_paid_seat,
+      has_byok_seat: status.has_byok_seat,
+      has_paid_plan: isPaidPlanForSeat(creditsTier, status.edition),
+      has_purchased_credits: purchasedCredits > 0,
+      has_metered_credits: purchasedCredits > 0 || allowanceCredits > 0,
+      metered_credit_access_known: true,
+      has_active_topup: false,
+    };
+
+    // STANDARD ✅ — through the picker the user actually sees, not a predicate.
+    const cloud = buildEvePickerGroups(view).find((group) => group.kind === 'eve');
+    const items = cloud?.items ?? [];
+    const standard = items.find((item) => item.value === eveTierValue(EVE_INFERENCE_DEFAULT_TIER_ID));
+    const max = items.find((item) => item.value === eveTierValue(EVE_INFERENCE_MAX_TIER_ID));
+    expect(standard, 'Standard must be offered at all').toBeDefined();
+    expect(standard?.disabled, 'STANDARD ✅ — a pilot seat is never bricked').toBe(false);
+    expect(hasEvePaidInferenceAccess(view), 'and the metered lane that funds it stays open').toBe(true);
+
+    // BYOK ✅ — through the same two functions Settings→Modell calls.
+    expect(isModelByokAllowed(view), 'BYOK ✅ — the Founder ruling, restored').toBe(true);
+    expect(shouldDisableModelByok(view, true), 'the Add-Platform affordance is ENABLED').toBe(false);
+
+    // MAX ❌ — and not one inch weaker than before.
+    expect(max, 'MAX must be listed (locked), not hidden').toBeDefined();
+    expect(max?.disabled, 'MAX ❌ — a zero-euro seat buys nothing').toBe(true);
+    expect(hasEveMaxAccess(view), 'MAX ❌ at the predicate too').toBe(false);
+
+    // ...and the ONLY way that seat reaches MAX is by actually buying something.
+    expect(hasEveMaxAccess({ ...view, has_purchased_credits: true }), 'purchased credits DO unlock MAX').toBe(true);
   });
 });
 

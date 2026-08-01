@@ -951,14 +951,22 @@ export function describeCommandEveActiveLane(persisted: string | null | undefine
  * Minimal entitlement view the picker needs. `trial_ends_at` present + non-null
  * ⇒ this is a TRIAL entitlement (entitlementCore CEVE.v2 contract). NOTE: both a
  * PAID license AND the PERMANENT FREE seat keep trial_ends_at null/absent, so
- * trial_ends_at ALONE cannot tell free from paid — that is exactly why the BYOK
- * gate keys off `has_paid_seat`, not trial_ends_at.
+ * trial_ends_at ALONE cannot tell free from paid — that is exactly why the seat
+ * gates key off explicit edition-derived booleans, not trial_ends_at.
  *
  * `has_paid_seat` (1.2.18 + free-seat 2026-06-30) is the explicit, main-process-
- * derived paid-tier hint (see entitlementCore.isPaidSeatEdition: `entitled &&
- * trial_ends_at == null && edition != 'free'`). It is ONE authoritative
- * discriminant for paid-only UI affordances (BYOK / add-own-model / client seats);
- * absent/false ⇒ free or trial tier. Carried here so the pure gate helpers consume it.
+ * derived PAID-seat hint (entitlementCore.isPaidSeatEdition: no trial window AND
+ * the edition is on the PAID_SEAT_EDITIONS allowlist). It is a MAX-authority
+ * signal ONLY. Absent/false ⇒ not a sold seat.
+ *
+ * `has_byok_seat` (1.820.1) is the SEPARATE, main-process-derived BYOK hint
+ * (entitlementCore.isByokSeatEdition: no trial window AND the edition is on the
+ * wider BYOK_SEAT_EDITIONS allowlist, which INCLUDES the comped `pilot` seat).
+ * THE SPLIT IS THE POINT: `has_paid_seat` answered both questions until a MAX fix
+ * narrowed it and silently deleted bring-your-own-model from every perpetual
+ * pilot seat. Founder ruling: pilot keeps Standard AND BYOK, and never gets MAX
+ * without purchased credits or a paid plan. Feeding this into a MAX predicate
+ * would re-open exactly the hole the paid allowlist closed.
  *
  * `has_active_topup` (v1.5 M7) unlocks BYOK ONLY — it is NOT a MAX unlock. A
  * subscription that has been fully SPENT has no purchased balance, so MAX stays
@@ -974,6 +982,8 @@ export function describeCommandEveActiveLane(persisted: string | null | undefine
 export interface EveEntitlementView {
   trial_ends_at?: string | null;
   has_paid_seat?: boolean;
+  /** Licensed, non-free seat (INCLUDING `pilot`) — the BYOK authority. Never a MAX unlock. */
+  has_byok_seat?: boolean;
   has_active_topup?: boolean;
   /** Live credits truth: purchased/included metered credits can fund cloud inference. */
   has_metered_credits?: boolean;
@@ -1015,20 +1025,34 @@ export function isByokDisabledForEntitlement(entitlement: EveEntitlementView | n
 
 /**
  * True iff the user MAY add their own model / API key (BYOK) — the Pro-feature
- * gate (1.2.18 Req 4 + v1.5 M7). Unlocked by EITHER paid path:
- *   - `has_paid_seat` (a paid client seat), OR
+ * gate (1.2.18 Req 4 + v1.5 M7 + the 1.820.1 decoupling). Unlocked by EITHER:
+ *   - `has_byok_seat` (a LICENSED, non-free seat — `standard` OR the comped
+ *     `pilot`; see entitlementCore.isByokSeatEdition), OR
  *   - `has_active_topup` (an active credit subscription, from 25 €/month, M7).
  * AND it must not be trialing (a trial never unlocks Pro features). A free OR
- * trial OR unknown entitlement returns false. This is what the Settings→Modell
- * "Add Platform" / api_key affordances gate on; it SUPERSEDES the trial-only
- * `isByokDisabledForEntitlement`. Defense-in-depth: a present-and-true unlock
- * signal is REQUIRED and it must not be trialing — both conditions — so a
- * malformed/stale view can never wrongly unlock. Cancelling the subscription
- * flips `has_active_topup` off on the next live status read, re-locking for free.
+ * trial OR unknown entitlement returns false.
+ *
+ * IT NO LONGER READS `has_paid_seat`, AND THAT IS THE FIX. This gate and
+ * {@link hasEveMaxAccess} shared that one boolean, so narrowing it to keep a
+ * zero-euro seat out of MAX — correct, and it stays — deleted BYOK from every
+ * perpetual pilot seat as a side effect. FOUNDER RULING (1.820.1): a pilot seat
+ * KEEPS Standard, KEEPS BYOK, and NEVER gets MAX absent purchased credits or an
+ * explicitly paid plan. Reintroducing `has_paid_seat` here would not merely be
+ * redundant (every paid seat is already a BYOK seat) — it would re-couple the two
+ * authorities that this split exists to keep apart.
+ *
+ * Safe to be the wider rule: BYOK spends the USER's key, bypassing EVE inference
+ * entirely, so there is no wallet at risk and no server gate to contradict.
+ *
+ * This is what the Settings→Modell "Add Platform" / api_key affordances gate on;
+ * it SUPERSEDES the trial-only `isByokDisabledForEntitlement`. Defense-in-depth:
+ * a present-and-true unlock signal is REQUIRED and it must not be trialing — both
+ * conditions — so a malformed/stale view can never wrongly unlock. Cancelling the
+ * subscription flips `has_active_topup` off on the next live status read.
  */
 export function isModelByokAllowed(entitlement: EveEntitlementView | null | undefined): boolean {
-  const paidUnlock = entitlement?.has_paid_seat === true || entitlement?.has_active_topup === true;
-  return paidUnlock && !isTrialingEntitlement(entitlement);
+  const byokUnlock = entitlement?.has_byok_seat === true || entitlement?.has_active_topup === true;
+  return byokUnlock && !isTrialingEntitlement(entitlement);
 }
 
 /**

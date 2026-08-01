@@ -1306,12 +1306,21 @@ export interface ICommandEveEntitlementStatusResult {
    * signed edition is on the PAID_SEAT_EDITIONS allowlist in
    * `common/config/creditsCore` (see entitlementCore.isPaidSeatEdition). It read
    * `entitled && trial_ends_at == null` until 1.820.1, which called the comped
-   * 100%-off `pilot` seat PAID. The renderer gates paid-only affordances (BYOK /
-   * add-own-model) on this ONE boolean without making an entitlement decision
-   * itself. Present only when true; absent ⇒ false. The server remains binding
-   * for money-metered paths.
+   * 100%-off `pilot` seat PAID. Feeds the MAX gate only — the renderer reads it
+   * without making an entitlement decision itself. Present only when true; absent
+   * ⇒ false. The server remains binding for money-metered paths.
    */
   has_paid_seat?: boolean;
+  /**
+   * OFFLINE UI HINT (1.820.1) — the BYOK / add-own-model affordance, a SEPARATE
+   * authority from {@link has_paid_seat}. Derived in the main process from the
+   * same verified payload against the BYOK_SEAT_EDITIONS allowlist (see
+   * entitlementCore.isByokSeatEdition), which INCLUDES the comped `pilot` seat
+   * per the Founder's ruling: a zero-euro seat keeps Standard and BYOK, and never
+   * gets MAX without purchased credits or a paid plan. Present only when true;
+   * absent ⇒ false. Never read this as a paid signal.
+   */
+  has_byok_seat?: boolean;
 }
 
 export interface ICommandEveRegistrationRecord {
