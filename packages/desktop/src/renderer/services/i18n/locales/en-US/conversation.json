@@ -614,10 +614,7 @@
   "eveInference": {
     "offlineUnavailable": "EVE Cloud needs an internet connection.",
     "activationUnavailable": "EVE Cloud is available after activation.",
-    "needsActivation": "Activation required",
-    "lane": "Processing",
-    "cloudLane": "EVE Cloud",
-    "cloudLaneDescription": "EVE works in the cloud."
+    "needsActivation": "Activation required"
   },
   "eveMax": {
     "label": "MAX",

@@ -89,15 +89,27 @@ export function useEveMaxAuthority(): UseEveMaxAuthorityResult {
     void refresh();
   }, [refresh, activeSeatId]);
 
-  // RE-ASK AFTER INTENT IS PERSISTED. This is the production event, not a call
-  // wired into one component: ANY surface that writes the selection — the MAX
-  // toggle, the mobile sheet, Settings — goes through configService, so
-  // subscribing here covers all of them and cannot be bypassed by adding a
-  // fourth caller. Without it the user toggles MAX, the next request genuinely
-  // goes out as MAX, and the composer still says otherwise: the stale-surface
-  // bug relocated into the refresh path.
+  // RE-ASK AFTER INTENT IS DURABLY PERSISTED — `subscribePersisted`, not
+  // `subscribe`, and the difference is the whole correctness of this effect.
+  //
+  // It is still the production event rather than a call wired into one
+  // component: ANY surface that writes the selection — the composer's MAX
+  // toggle, Settings → Modell — goes through configService, so subscribing here
+  // covers all of them and cannot be bypassed by adding a third caller. Without
+  // it the user toggles MAX, the next request genuinely goes out as MAX, and the
+  // composer still says otherwise: the stale-surface bug relocated into the
+  // refresh path.
+  //
+  // WHY THE PERSISTED CHANNEL. `subscribe` fires optimistically, BEFORE the
+  // backend PUT is awaited. Refreshing from there re-asks MAIN — which answers
+  // by reading the PERSISTED selection — while the old value is still what is
+  // stored, so the composer could paint a decision for the value the user just
+  // replaced. And a write that FAILS would still have signalled, painting a
+  // state nothing is in. The persisted channel fires only after the PUT
+  // resolves, and never at all when it rejects. No timer: the refresh waits on
+  // the write, not on the clock.
   useEffect(() => {
-    return configService.subscribe('commandEve.inferenceSelection', () => {
+    return configService.subscribePersisted('commandEve.inferenceSelection', () => {
       void refresh();
     });
   }, [refresh]);

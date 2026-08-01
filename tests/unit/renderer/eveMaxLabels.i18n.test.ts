@@ -104,15 +104,19 @@ describe('MAX lane labels resolve through i18n', () => {
     }
   });
 
-  it('the LANE keys name the lane (cloud vs local), never a cloud tier', () => {
+  it('the removed composer LANE row leaves NO orphaned key behind, in EITHER locale', () => {
+    // Same rule as the "how EVE works" row below, applied to the mobile sheet's
+    // `Verarbeitung → EVE Cloud / Lokal` entry. It was a composer lane-selection
+    // affordance; the release removes it, so its vocabulary must leave the bundle
+    // too. A shipped key is a standing invitation to re-mount the row.
     for (const lng of ['de-DE', 'en-US'] as const) {
       inst.changeLanguage(lng);
-      for (const key of ['conversation.eveInference.lane', 'conversation.eveInference.cloudLane'] as const) {
-        expect(inst.exists(key), `${key} missing in ${lng}`).toBe(true);
-        const value = inst.t(key);
-        for (const word of ['Stufe', 'Maximum', 'Sehr hoch', 'tier', 'Tier', 'level', 'Level']) {
-          expect(value, `${key} (${lng}) must not say "${word}"`).not.toContain(word);
-        }
+      for (const key of [
+        'conversation.eveInference.lane',
+        'conversation.eveInference.cloudLane',
+        'conversation.eveInference.cloudLaneDescription',
+      ] as const) {
+        expect(inst.exists(key), `orphan lane key ${key} still in ${lng}`).toBe(false);
       }
     }
   });

@@ -292,13 +292,15 @@ const ChatConversation: React.FC<{
     );
   }, [t]);
 
-  // Model picker placement (Claude-Code-style, founder mandate): for ACP
-  // conversations the in-chat model/inference picker now lives in the bottom
-  // UnifiedSendBar (AcpSendBox → modelSlot), exactly like the start screen —
-  // so it is NOT rendered in the header here (that would be a duplicate). Only
-  // the non-ACP fallback (disabled GoogleModelSelector) stays in the header,
-  // since those conversation types never reach the AcpSendBox bottom bar.
-  // Mobile: model selection lives in the sendbox `+` action sheet either way.
+  // Model picker placement (Claude-Code-style, founder mandate): for a NON-EVE
+  // ACP conversation the in-chat model picker lives in the bottom UnifiedSendBar
+  // (AcpSendBox → modelSlot), exactly like the start screen — so it is NOT
+  // rendered in the header here (that would be a duplicate). Only the non-ACP
+  // fallback (disabled GoogleModelSelector) stays in the header, since those
+  // conversation types never reach the AcpSendBox bottom bar.
+  // Mobile: the same non-EVE model selection lives in the sendbox `+` sheet.
+  // An EVE conversation has NO model/lane/inference picker in either place
+  // (MAT-1749) — only the MAX toggle; its local lane is a Settings decision.
   const modelSelector = useMemo(() => {
     if (!conversation || isAionrsConversation) return undefined;
     if (isMobile) return undefined;

@@ -6,13 +6,16 @@
 
 /**
  * useEveInferenceSelection — the single source of truth for the Command EVE
- * inference lane selection across every surface that can change it:
+ * inference lane selection across the TWO surfaces that can change it:
  *
- *   - The composer's MAX toggle (the ONLY cloud-intelligence affordance there;
- *     off = EVE's normal unnamed behaviour, on = the MAX state).
- *   - The mobile action sheet's LANE entry (EVE Cloud vs the private local lane
- *     — no tier nomenclature).
+ *   - The composer's MAX toggle (the ONLY intelligence affordance the composer
+ *     has, on desktop and on mobile alike; off = EVE's normal unnamed behaviour,
+ *     on = the MAX state).
  *   - Settings → Modell, where the private local lane is chosen deliberately.
+ *
+ * There is NO lane/tier entry in the mobile action sheet any more (MAT-1749).
+ * It offered `Verarbeitung → EVE Cloud / Lokal`, which is a composer
+ * lane-selection affordance, and it was deleted with the ladder.
  *
  * There is deliberately NO cloud intelligence ladder anywhere in the UI any
  * more (MAT-1749, Founder contract). The registry still carries every wire tier
@@ -31,8 +34,8 @@
  *     non-brick clamp, so every surface that can engage MAX agrees on when it
  *     is purchasable-backed and what actually goes on the wire.
  *
- * Keeping this in ONE hook means the desktop component, the header injection and
- * both mobile sheets cannot drift apart.
+ * Keeping this in ONE hook means the composer's MAX toggle (conversation and
+ * start screen) and Settings → Modell cannot drift apart.
  */
 
 import { commandEve } from '@/common/adapter/ipcBridge';

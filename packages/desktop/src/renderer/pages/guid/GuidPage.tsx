@@ -582,9 +582,12 @@ const GuidPage: React.FC = () => {
     />
   );
 
-  // For the Command EVE Assistant we replace the raw model/agent selector with
-  // the clean two-group EVE Inference picker (Privat lokal + EVE Inference).
-  // Founder mandate: nothing confusing — no raw CLI/agent/model list here.
+  // For the Command EVE Assistant the raw model/agent selector is REMOVED and
+  // nothing replaces it (see `modelSelectorNode` below — it is null). The start
+  // screen's only intelligence affordance is the MAX toggle in GuidActionRow;
+  // the private local lane is chosen in Settings → Modell (MAT-1749).
+  // Founder mandate: nothing confusing — no raw CLI/agent/model list here, and
+  // no lane/tier picker standing in for it.
   // Command EVE is the only public assistant identity in the branded shell.
   // Keep this true even while the assistant seed is missing or still loading;
   // otherwise the fallback state exposes the internal CLI/agent catalog.

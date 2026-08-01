@@ -226,11 +226,14 @@ export const COMMAND_EVE_AGENT_FALLBACK_ORDER = ['hermes'] as const;
 /**
  * True iff an ACP conversation's backend is the Command EVE runtime (Hermes)
  * while the EVE shell is enabled. The single signal used to decide whether a
- * running conversation surfaces the EVE Inference tier picker (instead of the
- * raw ACP model selector) and the EVE tier entry in the mobile action sheet.
+ * running conversation SUPPRESSES the raw ACP model selector (desktop) and the
+ * model entry in the mobile action sheet, and mounts the MAX toggle instead.
  *
- * Founder mandate: an EVE user must never see a raw CLI/agent/model list — only
- * the EVE Inference + Private tier picker and the permission-mode selector.
+ * Founder mandate (MAT-1749): an EVE user must never see a raw CLI/agent/model
+ * list — and must not see a replacement lane/tier picker either. The composer
+ * offers exactly one intelligence affordance, the additive MAX toggle, plus the
+ * permission-mode selector. The private local lane is chosen in Settings →
+ * Modell, never in the composer.
  */
 export function isCommandEveAcpConversation(backend: string | null | undefined): boolean {
   return COMMAND_EVE_SHELL_ENABLED && backend === COMMAND_EVE_DEFAULT_ACP_BACKEND;

@@ -31,11 +31,7 @@ import {
   isCommandEveModeExpansion,
 } from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
-import {
-  EVE_DEFAULT_INFERENCE_SELECTION,
-  isEveInferenceSelection,
-  resolveWireTierFromSelection,
-} from '@/common/config/eveInferenceCore';
+import { isEveInferenceSelection, resolveWireTierFromSelection } from '@/common/config/eveInferenceCore';
 import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
@@ -1410,47 +1406,16 @@ Please check your local CLI tool authentication status`,
 
     const entries: MobileActionSheetEntry[] = [];
 
-    if (isEveConversation) {
-      // FOUNDER CONTRACT (MAT-1749): no cloud intelligence ladder on mobile
-      // either. This entry is now the LANE choice — EVE Cloud (the unnamed
-      // default) vs the private local lane — and carries NO tier nomenclature.
-      // MAX is reached through the composer's MAX toggle, nowhere else.
-      const cloudLaneLabel = t('conversation.eveInference.cloudLane', { defaultValue: 'EVE Cloud' });
-      const localItems = eveInference.groups.find((group) => group.kind === 'local')?.items ?? [];
-      const laneOptions: MobileActionSheetOption[] = [
-        {
-          key: EVE_DEFAULT_INFERENCE_SELECTION,
-          label: cloudLaneLabel,
-          description: t('conversation.eveInference.cloudLaneDescription', {
-            defaultValue: 'EVE arbeitet in der Cloud.',
-          }),
-          active: isEveInferenceSelection(eveInference.selection),
-        },
-        ...localItems.map((item) => ({
-          key: item.value,
-          label: `${t('common.localModel', { defaultValue: 'Lokal' })} · ${item.label}`,
-          description: item.sublabel,
-          active: item.value === eveInference.selection && !item.disabled,
-          disabled: item.disabled,
-        })),
-      ];
-      const currentLaneLabel = isEveInferenceSelection(eveInference.selection)
-        ? cloudLaneLabel
-        : `${t('common.localModel', { defaultValue: 'Lokal' })} · ${eveInference.activeItem?.label ?? ''}`.trim();
-      entries.push({
-        key: 'eve-inference',
-        icon: <Brain theme='outline' size='16' />,
-        label: t('conversation.eveInference.lane', { defaultValue: 'Verarbeitung' }),
-        meta: currentLaneLabel,
-        submenu: {
-          title: t('conversation.eveInference.lane', { defaultValue: 'Verarbeitung' }),
-          options: laneOptions,
-          // The cloud row commits the UNNAMED default. Re-engaging MAX is the
-          // MAX toggle's job — a lane switch must never silently re-meter.
-          onSelect: (value) => eveInference.commit(value),
-        },
-      });
-    } else if (modelOptions.length > 0) {
+    // THE LANE ENTRY IS GONE (MAT-1749). It offered `Verarbeitung → EVE Cloud /
+    // Lokal`, which is a composer intelligence/lane-selection affordance — the
+    // exact class this release removes, ladder nomenclature or not. Choosing the
+    // private LOCAL lane is a deliberate Settings → Modell decision now, and the
+    // composer's ONE intelligence affordance is the MAX toggle.
+    //
+    // The `isEveConversation` guard STAYS, and it is load-bearing: without it an
+    // EVE conversation would fall into the raw model list below and simply swap
+    // one composer lane picker for another.
+    if (!isEveConversation && modelOptions.length > 0) {
       // Model entry: only when the agent exposes a switchable list. Otherwise
       // (Codex with no list, no info) skip — exposing a no-op row would be noise.
       entries.push({
@@ -1576,7 +1541,6 @@ Please check your local CLI tool authentication status`,
     canSwitchModel,
     currentMode,
     busySendMode,
-    eveInference,
     formatModeLabel,
     handleSheetModeChange,
     isEveConversation,

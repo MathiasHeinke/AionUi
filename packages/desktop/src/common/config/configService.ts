@@ -8,6 +8,28 @@ import {
 } from './seatConfigKeyCore';
 
 type Subscriber = (value: unknown) => void;
+/**
+ * Fired with a key's value ONLY AFTER the durable backend write for it RESOLVED.
+ *
+ * WHY A SECOND CHANNEL AND NOT A REORDERED `notify`. `subscribe` is the
+ * OPTIMISTIC signal: 60 `configService.set(...)` call sites across 28 files rely
+ * on it landing synchronously so a toggle/field paints the instant it is pressed.
+ * Deferring THAT would change the responsiveness of every settings surface in the
+ * app (GitNexus rates a change to ConfigServiceImpl CRITICAL: 37 direct
+ * importers, 103 impacted files), and would leave the cache holding a value no
+ * subscriber had been told about whenever a PUT rejected.
+ *
+ * So the optimistic signal stays exactly as it was, and a SECOND, strictly
+ * post-durability signal is added for the consumers whose correctness depends on
+ * the write having actually landed — the MAX authority refresh above all: it
+ * re-asks the MAIN process, which reads the PERSISTED state, so asking before
+ * the PUT resolves is asking about the value the user just replaced.
+ *
+ * It cannot be bypassed by a future writer: `persist()` is the only method that
+ * issues the durable PUT, and it emits this after — and only after — that PUT
+ * resolves.
+ */
+type PersistSubscriber = (value: unknown) => void;
 /** Fired with the NEW active seat id after the config cache re-homes (rebindSeat). */
 type SeatSubscriber = (seatId: string) => void;
 
@@ -106,6 +128,9 @@ class ConfigServiceImpl {
   // every renderer consumer keeps calling get/set with the plain key.
   private cache = new Map<string, unknown>();
   private subscribers = new Map<string, Set<Subscriber>>();
+  // Post-durability subscribers. Fired from persist() AFTER the backend PUT
+  // resolves — never before it, never on a rejected write.
+  private persistSubscribers = new Map<string, Set<PersistSubscriber>>();
   // Seat-rebind subscribers: fired AFTER the cache re-homes to a new active seat.
   // This is the single renderer-observable "the seat changed" signal — the basis
   // for remounting per-seat hosts so every mount-once seat read re-fires (closes
@@ -239,7 +264,9 @@ class ConfigServiceImpl {
         this.cache.set('theme.activeId', migrated['theme.activeId']);
         this.cache.set('theme.userThemes', migrated['theme.userThemes']);
         // Persist asynchronously; ignore failure (will re-run next launch).
-        void fetchJson<void>('PUT', '/api/settings/client', migrated).catch(() => {});
+        // Routed through persist() like every other durable write, so this stays
+        // the migration it is and never becomes a second, unsignalled PUT path.
+        void this.persist(migrated, Object.entries(migrated) as Array<[ConfigKey, unknown]>).catch(() => {});
       }
       this.initialized = true;
     })();
@@ -258,33 +285,58 @@ class ConfigServiceImpl {
     return this.cache.get(key) as ConfigKeyMap[K] | undefined;
   }
 
+  /**
+   * THE ONLY PLACE A DURABLE WRITE LEAVES THIS SERVICE.
+   *
+   * Every persisting mutation funnels through here, which is what makes the
+   * post-persistence guarantee structural rather than per-call-site: there is no
+   * other route to the backend PUT, so a future writer cannot add a persisting
+   * path that forgets to signal.
+   *
+   * ORDERING IS THE WHOLE POINT. `await` first, emit second. A rejected PUT
+   * throws out of the await and the loop below is never reached — so a failed
+   * persistence produces NO signal, and a consumer that re-reads main on this
+   * signal can never be triggered by a write that did not land. No timer is
+   * involved anywhere: the emit waits on the write, not on the clock.
+   */
+  private async persist(wire: Record<string, unknown>, persisted: Array<[ConfigKey, unknown]>): Promise<void> {
+    await fetchJson<void>('PUT', '/api/settings/client', wire);
+    for (const [key, value] of persisted) {
+      this.notifyPersisted(key, value);
+    }
+  }
+
   async set<K extends ConfigKey>(key: K, value: ConfigKeyMap[K]): Promise<void> {
     // Cache + subscribers stay keyed by the LOGICAL key; only the wire uses the
     // (possibly seat-scoped) physical key (ISO-2).
     this.cache.set(key, value);
     this.notify(key, value);
-    await fetchJson<void>('PUT', '/api/settings/client', { [this.physicalKey(key)]: value });
+    await this.persist({ [this.physicalKey(key)]: value }, [[key, value]]);
   }
 
   setLocal<K extends ConfigKey>(key: K, value: ConfigKeyMap[K]): void {
     this.cache.set(key, value);
     this.notify(key, value);
+    // Deliberately NO persisted signal: nothing was persisted. A local-only write
+    // must not be able to trigger a consumer that re-reads durable state.
   }
 
   async remove(key: ConfigKey): Promise<void> {
     this.cache.delete(key);
     this.notify(key, undefined);
-    await fetchJson<void>('PUT', '/api/settings/client', { [this.physicalKey(key)]: null });
+    await this.persist({ [this.physicalKey(key)]: null }, [[key, undefined]]);
   }
 
   async setBatch(entries: Partial<{ [K in ConfigKey]: ConfigKeyMap[K] }>): Promise<void> {
     const wire: Record<string, unknown> = {};
+    const persisted: Array<[ConfigKey, unknown]> = [];
     for (const [key, value] of Object.entries(entries)) {
       this.cache.set(key, value);
       this.notify(key as ConfigKey, value);
       wire[this.physicalKey(key)] = value;
+      persisted.push([key as ConfigKey, value]);
     }
-    await fetchJson<void>('PUT', '/api/settings/client', wire);
+    await this.persist(wire, persisted);
   }
 
   subscribe(key: ConfigKey, callback: Subscriber): () => void {
@@ -294,6 +346,31 @@ class ConfigServiceImpl {
     this.subscribers.get(key)!.add(callback);
     return () => {
       this.subscribers.get(key)?.delete(callback);
+    };
+  }
+
+  /**
+   * Subscribe to DURABLE PERSISTENCE of a key.
+   *
+   * Use this instead of `subscribe` when the callback's correctness depends on
+   * the backend actually holding the new value — most importantly when it goes
+   * on to ASK ANOTHER PROCESS a question whose answer is computed from persisted
+   * state. `subscribe` fires optimistically, before the PUT is even in flight;
+   * a re-read triggered from there races the write and can answer for the value
+   * the user just replaced.
+   *
+   * Guarantees:
+   *   - fires only after the PUT for that key RESOLVED;
+   *   - never fires for a REJECTED PUT;
+   *   - never fires for `setLocal` (nothing was persisted).
+   */
+  subscribePersisted(key: ConfigKey, callback: PersistSubscriber): () => void {
+    if (!this.persistSubscribers.has(key)) {
+      this.persistSubscribers.set(key, new Set());
+    }
+    this.persistSubscribers.get(key)!.add(callback);
+    return () => {
+      this.persistSubscribers.get(key)?.delete(callback);
     };
   }
 
@@ -317,6 +394,7 @@ class ConfigServiceImpl {
   reset(): void {
     this.cache.clear();
     this.subscribers.clear();
+    this.persistSubscribers.clear();
     this.seatSubscribers.clear();
     this.initialized = false;
     this.initPromise = null;
@@ -327,6 +405,16 @@ class ConfigServiceImpl {
 
   private notify(key: ConfigKey, value: unknown): void {
     const subs = this.subscribers.get(key);
+    if (subs) {
+      for (const cb of subs) {
+        cb(value);
+      }
+    }
+  }
+
+  /** Reachable ONLY from persist(), i.e. only after a resolved durable write. */
+  private notifyPersisted(key: ConfigKey, value: unknown): void {
+    const subs = this.persistSubscribers.get(key);
     if (subs) {
       for (const cb of subs) {
         cb(value);

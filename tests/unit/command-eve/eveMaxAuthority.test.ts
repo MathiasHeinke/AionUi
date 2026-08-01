@@ -170,13 +170,34 @@ describe('MAX authority — REAL-SEAM wiring (deleting any of these turns this f
   const AIONRS = strip(read('packages/desktop/src/renderer/pages/conversation/platforms/aionrs/AionrsSendBox.tsx'));
   const ACP = strip(read('packages/desktop/src/renderer/pages/conversation/platforms/acp/AcpSendBox.tsx'));
 
-  it('SEAM 1 — the PRODUCTION REFRESH after intent is persisted', () => {
-    // Not a call wired into one component: a subscription to the persisted key, so
+  it('SEAM 1 — the PRODUCTION REFRESH fires only AFTER the write is DURABLE', () => {
+    const CONFIG = strip(read('packages/desktop/src/common/config/configService.ts'));
+
+    // Not a call wired into one component: a subscription on the persisted key, so
     // every surface that writes the selection triggers a re-ask.
-    expect(HOOK).toMatch(/configService\.subscribe\(\s*'commandEve\.inferenceSelection'/);
+    expect(HOOK).toMatch(/configService\.subscribePersisted\(\s*'commandEve\.inferenceSelection'/);
     // ...and the subscriber must actually refresh.
-    const sub = HOOK.slice(HOOK.indexOf("configService.subscribe('commandEve.inferenceSelection'"));
+    const sub = HOOK.slice(HOOK.indexOf("configService.subscribePersisted('commandEve.inferenceSelection'"));
     expect(sub.slice(0, 200)).toMatch(/refresh\(\)/);
+    // ...on the POST-DURABILITY channel, never the optimistic one. `subscribe`
+    // fires before the PUT is awaited, so a refresh from there re-asks main about
+    // the value the user just replaced.
+    expect(HOOK).not.toMatch(/configService\.subscribe\(\s*'commandEve\.inferenceSelection'/);
+
+    // And the channel it subscribes to is emitted ONLY from the durable-write
+    // funnel: `persist()` is the sole caller of notifyPersisted, and the sole
+    // issuer of the PUT — so no persisting path can skip the signal, and no
+    // non-persisting path can fire it.
+    expect(CONFIG).toMatch(/private async persist\(/);
+    const persistBody = CONFIG.slice(CONFIG.indexOf('private async persist('));
+    const awaitAt = persistBody.indexOf("await fetchJson<void>('PUT'");
+    const emitAt = persistBody.indexOf('this.notifyPersisted(');
+    expect(awaitAt).toBeGreaterThanOrEqual(0);
+    expect(emitAt).toBeGreaterThan(awaitAt);
+    // Exactly one PUT issuer in the whole service.
+    expect(CONFIG.match(/fetchJson<void>\('PUT'/g) ?? []).toHaveLength(1);
+    // notifyPersisted is reachable from persist() alone.
+    expect(CONFIG.match(/this\.notifyPersisted\(/g) ?? []).toHaveLength(1);
   });
 
   it('SEAM 2 — the INDEPENDENT revision source, and it is REQUIRED', () => {

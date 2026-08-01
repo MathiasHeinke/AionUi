@@ -126,10 +126,11 @@ const AionrsSendBox: React.FC<{
   const [busySendMode, setBusySendMode] = useState<ConversationBusyControlMode>('queue');
   const layout = useLayoutContext();
   const isMobile = Boolean(layout?.isMobile);
-  // In the Command EVE shell the mobile sheet surfaces the EVE Inference tier
-  // picker instead of the raw provider/model list (same persistence key as the
-  // desktop header + GuidPage picker). aionrs conversations are filtered out of
-  // the EVE shell, so this is a defensive parity path that stays dormant there.
+  // This mobile sheet holds NO EVE intelligence affordance of any kind: no lane
+  // picker, no cloud tier picker, no MAX. aionrs is a different backend from the
+  // Command EVE runtime, and nothing here is conditioned on the EVE shell — the
+  // sheet below shows this backend's own provider/model list plus the permission,
+  // busy-mode, attach, skills and MCP actions, in every shell.
   const conversationContext = useConversationContextSafe();
   const loadedSkills = conversationContext?.loadedSkills ?? [];
   const loadedMcpStatuses = userVisibleConversationMcpStatuses(
@@ -632,10 +633,14 @@ const AionrsSendBox: React.FC<{
       modeOptions.find((opt) => opt.active)?.label ?? t('agentMode.default', { defaultValue: 'Default' });
     const currentModelLabel = modelSelection.current_model?.use_model || t('conversation.welcome.selectModel');
 
-    // THE LANE ENTRY IS GONE. It offered `Verarbeitung -> EVE Cloud / Lokal`,
+    // THE EVE LANE ENTRY IS GONE. It offered `Verarbeitung -> EVE Cloud / Lokal`,
     // which is a composer intelligence affordance — exactly what this release
-    // removes. Local inference is selectable ONLY in Settings → Modell now, as a
-    // deliberate opt-in, and the composer says nothing about processing at all.
+    // removes. EVE's local inference is selectable ONLY in Settings → Modell now,
+    // as a deliberate opt-in.
+    //
+    // What remains is aionrs' OWN provider/model list. It is unconditional and
+    // unfiltered — no EVE-shell branch, no EVE selection, no EVE persistence key
+    // — because aionrs is a separate backend that this release does not govern.
     const modelEntry: MobileActionSheetEntry = {
       key: 'model',
       icon: <Brain theme='outline' size='16' />,
@@ -650,8 +655,6 @@ const AionrsSendBox: React.FC<{
     };
 
     const entries: MobileActionSheetEntry[] = [
-      // Founder mandate: EVE shell surfaces the EVE Inference tier picker; the
-      // raw provider/model list is replaced (not shown alongside).
       modelEntry,
       {
         key: 'permission',
