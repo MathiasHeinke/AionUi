@@ -37,8 +37,10 @@
  * remember.
  *
  * FREE-TIER RULES (entitlement trialing/free per entitlementCore):
- *   - MAX is disabled unless a paid seat, a paid plan, an active top-up, or a
- *     REAL purchased-credit balance exists.
+ *   - MAX is disabled unless a paid seat/plan OR a REAL purchased-credit balance
+ *     exists. An active top-up is NOT in that list: it is a BYOK signal only, and
+ *     a subscription that has been fully spent has no purchased balance — treating
+ *     it as a MAX unlock made the client offer a lane the server answers with 402.
  *   - BYOK is GREYED OUT in settings (handled at the settings surface using
  *     {@link isByokDisabledForEntitlement} from this module).
  *   - EVE Standard + the two local tiers always stay selectable.
