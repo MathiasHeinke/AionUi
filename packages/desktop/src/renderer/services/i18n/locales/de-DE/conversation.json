@@ -598,6 +598,7 @@
     "engagedHint": "MAX ist aktiv — EVE arbeitet mit voller Denkkraft.",
     "lockedHint": "MAX ist im bezahlten Tarif oder mit gekauften Credits verfügbar.",
     "lockedEngagedHint": "MAX bleibt für dich gemerkt, läuft aber erst wieder mit bezahltem Tarif oder gekauften Credits.",
+    "checkingHint": "Berechtigung wird geprüft",
     "upgrade": "MAX freischalten"
   },
   "eveControl": {

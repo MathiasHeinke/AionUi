@@ -709,56 +709,93 @@ export function isServerAllowedWireTier(tier: string): tier is ServerAllowedWire
  *
  * `maxEntitled` is deliberately three-state:
  *   - `true`      — proven entitled: MAX travels.
- *   - `false`     — proven NOT entitled: MAX is clamped to `standard`.
- *   - `undefined` — unknown (a read that failed, a surface with no entitlement
- *                   truth): do NOT clamp. Guessing "not entitled" from an
- *                   unreadable status would silently downgrade a paying seat,
- *                   which is exactly the class of bug this module exists to
- *                   prevent. The server remains the binding gate and answers an
- *                   unfunded MAX with its upsell, not with a served turn.
+ *   - `false`     — proven NOT entitled: MAX falls back to `standard`, and the
+ *                   surface says why.
+ *   - `undefined` — UNKNOWN (never written, a read that failed, a surface with no
+ *                   entitlement truth). Neither answer may be guessed: sending
+ *                   `max` would put paid spend on an UNVERIFIED seat, and sending
+ *                   `standard` would silently downgrade a seat that may well be
+ *                   paying. The lane is therefore HELD — see
+ *                   {@link resolveEveWireLaneDecision}.
  */
 export type EveSeatWireEntitlement = { maxEntitled?: boolean };
 
+/** Why an EVE cloud lane refuses to send. Exactly one reason exists today. */
+export type EveWireHoldReason = 'max-entitlement-unknown';
+
 /**
- * THE NON-BRICK CLAMP.
+ * The three answers the send path can get for a picker selection.
  *
- * A seat that selected MAX and then lost (or never had) MAX entitlement must
- * still be able to send. Rather than rewriting the user's persisted intent — it
- * has to light up again the moment they buy — the EFFECTIVE wire tier falls back
- * to `standard` while the entitlement is provably absent.
- *
- * Standard is never clamped; it is the floor. A LOCAL or unresolvable selection
- * still returns `undefined` so the caller fails loud exactly as before.
+ *   - `send`        — a wire tier the request may carry, verbatim.
+ *   - `hold`        — MAX intent on an UNVERIFIED seat. Nothing may be sent, and
+ *                     nothing may be substituted: both substitutions are the
+ *                     failures this contract exists to prevent.
+ *   - `no-eve-lane` — a LOCAL or unresolvable selection; the cloud lane is not
+ *                     engaged at all (what `undefined` used to mean).
  */
-export function resolveEffectiveWireTierFromSelection(
+export type EveWireLaneDecision =
+  | { status: 'send'; tier: EveInferenceWireTier }
+  | { status: 'hold'; reason: EveWireHoldReason }
+  | { status: 'no-eve-lane' };
+
+/**
+ * THE SEND DECISION — fail-closed in BOTH directions.
+ *
+ * This replaced `resolveEffectiveWireTierFromSelection`, which returned a bare
+ * tier and therefore had no way to say "do not send at all". It answered UNKNOWN
+ * entitlement with `max`, on the reasoning that the server is the binding gate
+ * and that guessing "unentitled" would downgrade a paying seat. Half of that is
+ * still true — the downgrade half — but letting `max` travel on an entitlement
+ * nobody read is HIDDEN SPEND on an unverified seat, and "the server will refuse
+ * it" is not a spend control the client is allowed to lean on.
+ *
+ * So the three states are answered as three states:
+ *
+ *   TRUE     → send `max`.
+ *   FALSE    → send `standard`. The seat is never bricked, and the surface says
+ *              why (non-provider copy — no model, vendor or slug is ever named).
+ *   UNKNOWN  → HOLD. No request leaves on this selection until the entitlement
+ *              resolves one way or the other.
+ *
+ * THE PERSISTED SELECTION IS NEVER TOUCHED HERE, and that is deliberate: the user
+ * chose MAX and that choice must survive a hold, a lapse and a transient credits
+ * blip. Intent is stored; entitlement decides what travels this turn.
+ *
+ * A bare `standard` selection is never held — it is the floor, and it needs no
+ * entitlement. Only a selection that RESOLVES to `max` (including the migrated
+ * legacy rungs) can reach the hold.
+ *
+ * NOTE THE DEFAULT. `seat` defaults to `{}` = unknown = HOLD, so a call site that
+ * FORGETS the entitlement refuses to send rather than spending on a guess.
+ */
+export function resolveEveWireLaneDecision(
   selection: string | null | undefined,
   seat: EveSeatWireEntitlement = {}
-): EveInferenceWireTier | undefined {
+): EveWireLaneDecision {
   const tier = resolveWireTierFromSelection(selection);
-  if (tier !== 'max') return tier;
-  return seat.maxEntitled === false ? 'standard' : 'max';
+  if (tier === undefined) return { status: 'no-eve-lane' };
+  if (tier !== 'max') return { status: 'send', tier };
+  if (seat.maxEntitled === true) return { status: 'send', tier: 'max' };
+  // PROVEN unentitled: the non-brick fallback. Standard is sendable, so the seat
+  // keeps working while the copy explains what it lost.
+  if (seat.maxEntitled === false) return { status: 'send', tier: 'standard' };
+  return { status: 'hold', reason: 'max-entitlement-unknown' };
 }
 
 /**
- * MAY WE *SHOW* THE USER THAT MAX IS ACTIVE? — deliberately the OPPOSITE polarity
- * to {@link resolveEffectiveWireTierFromSelection}, and the 1.820.1 correction.
+ * MAY WE *SHOW* THE USER THAT MAX IS ACTIVE?
  *
- * SENDING and PAINTING are different questions, and unknown authority answers
- * them differently:
+ * Painting MAX requires a POSITIVE, KNOWN entitlement: `maxEntitled === true` and
+ * nothing else. A painted "MAX aktiv" is a MONEY CLAIM made to the user's face,
+ * and making it on an entitlement nobody proved is the unknown-authority-fails-
+ * OPEN defect the picker gate already refuses ({@link hasEveMaxAccess} locks MAX
+ * on an absent/null/unknown entitlement).
  *
- *   SEND  — unknown lets `max` travel. The SERVER is the binding gate; inferring
- *           "unentitled" from a flag we never read would silently downgrade a
- *           paying seat, the exact bug class this module exists to close.
- *   PAINT — unknown shows STANDARD. A painted "MAX aktiv" is a MONEY CLAIM made
- *           to the user's face, and making it on an entitlement nobody proved is
- *           the unknown-authority-fails-OPEN defect the picker gate already
- *           refuses: {@link hasEveMaxAccess} locks MAX on an absent/null/unknown
- *           entitlement. Both halves of that contract lived in this codebase and
- *           said opposite things — this is the half that was wrong.
- *
- * Painting MAX therefore requires a POSITIVE, KNOWN entitlement: `maxEntitled ===
- * true` and nothing else. `undefined` (never written, unreadable, or a surface
- * that holds no entitlement truth) paints Standard, and so does `false`.
+ * SINCE 1.820.2 THIS AGREES WITH THE SEND PATH ON UNKNOWN, and the agreement is
+ * the fix. The two used to disagree on purpose — paint Standard, send MAX — which
+ * is precisely how hidden MAX spend could leave an unverified seat while the
+ * surface showed the routine lane. {@link resolveEveWireLaneDecision} now HOLDS on
+ * unknown, so neither half claims a lane it has not established.
  *
  * NOTE THE DEFAULT. `seat` defaults to `{}` = unknown = do-not-paint-MAX, so a
  * call site that FORGETS the entitlement under-claims rather than over-claims.

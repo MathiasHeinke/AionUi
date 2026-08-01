@@ -46,6 +46,7 @@ import {
 } from '@process/commandEve/inferenceSelectionBackendRead';
 import { EVE_MAX_ENTITLED_SETTINGS_KEY, eveTierValue, localTierValue } from '@/common/config/eveInferenceCore';
 import { __resetActiveSeatForTests, setActiveSeatId } from '@process/commandEve/seatContextCore';
+import { CommandEveMaxEntitlementHoldError } from '@process/commandEve/shimPublicError';
 import { seatScopedKey } from '@/common/config/seatConfigKeyCore';
 
 const SELECTION_KEY = 'commandEve.inferenceSelection';
@@ -104,7 +105,10 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
 
   it('routes EVE Max (legacy seat) all the way to wire tier "max"', async () => {
     // The picker commits eveTierValue('eve-max') = "command-eve-inference:eve-max".
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null));
+    // The entitlement is stated (`true`) because since 1.820.2 an UNSTATED one is a
+    // HOLD, not a permissive "let it travel" — see the hold suite. These routing
+    // cases are about the tier MAPPING, so they supply a proven seat.
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null, true));
 
     const route = await resolveRouteFromBackend();
 
@@ -122,7 +126,7 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
   });
 
   it('routes a persisted legacy Sehr-hoch up to wire tier "max"', async () => {
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-xhigh'), null));
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-xhigh'), null, true));
     const route = await resolveRouteFromBackend();
     expect(route?.active).toBe(true);
     expect(route?.tier).toBe('max');
@@ -141,7 +145,7 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     // to the default (the failure mode this whole fix closes).
     const seatId = 'seat-acme-gmbh';
     setActiveSeatId(seatId);
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), seatId));
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), seatId, true));
 
     const route = await resolveRouteFromBackend();
 
@@ -185,7 +189,7 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     // "command-eve-inference:eve-ultra" on the backend must come out of the
     // route resolver as `max`. The server refuses `ultra`, so anything else
     // here would cost that seat every turn.
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null));
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null, true));
     const route = await resolveRouteFromBackend();
     expect(route?.tier).toBe('max');
   });
@@ -229,7 +233,7 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
   // -------------------------------------------------------------------------
 
   it('BOOT ORDER: a seeded legacy `eve-ultra` posts "max" on the FIRST outbound turn, not a silent "standard"', async () => {
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null));
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null, true));
 
     const route = await resolveRouteFromBackend();
 
@@ -241,7 +245,7 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
   });
 
   it('BOOT ORDER: the seeded value is NOT rewritten by the read path — migration on the wire, persistence elsewhere', async () => {
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null));
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), null, true));
 
     await resolveRouteFromBackend();
 
@@ -254,7 +258,7 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
   it('BOOT ORDER: a seeded `eve-ultra` under a REAL seat also posts "max" on the first turn', async () => {
     const seatId = 'seat-acme-gmbh';
     setActiveSeatId(seatId);
-    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), seatId));
+    httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-ultra'), seatId, true));
 
     const route = await resolveRouteFromBackend();
 
@@ -295,21 +299,25 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     expect((await resolveRouteFromBackend())?.tier).toBe('standard');
   });
 
-  it('CLAMP (PRODUCTION WIRING): an entitled seat keeps MAX, and an ABSENT flag does not downgrade it', async () => {
+  it('CLAMP (PRODUCTION WIRING): an entitled seat keeps MAX, and an ABSENT flag HOLDS rather than guessing', async () => {
     httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null, true));
     expect((await resolveRouteFromBackend())?.tier).toBe('max');
 
-    // No entitlement key at all ⇒ unknown ⇒ the server stays the binding gate.
-    // Guessing "unentitled" here would silently downgrade a paying seat.
+    // No entitlement key at all ⇒ UNKNOWN ⇒ the lane is HELD (1.820.2). This case
+    // used to expect 'max' on the reasoning that the server is the binding gate.
+    // It is not one the client may lean on: letting `max` travel here is paid
+    // inference on a seat nobody verified. Substituting 'standard' would be the
+    // opposite error — the silent downgrade of a possibly-paying seat — so the
+    // resolver refuses to answer at all.
     httpRequestMock.mockResolvedValue(settingsBagWithSelection(eveTierValue('eve-max'), null));
-    expect((await resolveRouteFromBackend())?.tier).toBe('max');
+    await expect(resolveRouteFromBackend()).rejects.toBeInstanceOf(CommandEveMaxEntitlementHoldError);
 
-    // A non-boolean value is unknown too, never a falsy clamp.
+    // A non-boolean value is unknown too — held, never quietly resolved either way.
     httpRequestMock.mockResolvedValue({
       ...settingsBagWithSelection(eveTierValue('eve-max'), null),
       [EVE_MAX_ENTITLED_SETTINGS_KEY]: 'false',
     });
-    expect((await resolveRouteFromBackend())?.tier).toBe('max');
+    await expect(resolveRouteFromBackend()).rejects.toBeInstanceOf(CommandEveMaxEntitlementHoldError);
   });
 
   it('CLAMP (PRODUCTION WIRING): a seeded legacy `eve-ultra` on an unentitled seat lands on "standard", never on nothing', async () => {

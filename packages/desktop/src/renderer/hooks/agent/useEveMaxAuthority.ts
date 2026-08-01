@@ -13,7 +13,7 @@
  * one computation of that answer in the product.
  *
  * WHAT THIS REPLACED, and why it was wrong: the selection hook used to derive
- * `maxActive` from `resolveEffectiveWireTierFromSelection` locally, in parallel
+ * `maxActive` from the wire-tier resolver locally, in parallel
  * with main. Two authorities can disagree, and when they do the composer paints a
  * state the wire is not in — the surface-honesty defect, reintroduced one level
  * up. The local derivation is DELETED, not flagged: a fallback is a second answer.
@@ -25,7 +25,11 @@
 
 import { commandEve } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
-import { shouldPaintMaxSurface, type EveMaxAuthorityState } from '@/common/config/eveMaxAuthorityCore';
+import {
+  shouldHoldSendForMaxEntitlement,
+  shouldPaintMaxSurface,
+  type EveMaxAuthorityState,
+} from '@/common/config/eveMaxAuthorityCore';
 import { useActiveSeatId } from '@renderer/hooks/useActiveSeatId';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import { useCallback, useEffect, useState } from 'react';
@@ -36,6 +40,16 @@ export interface UseEveMaxAuthorityResult {
    * `max` for THIS seat, at this revision. False for every untrustworthy state.
    */
   maxActive: boolean;
+  /**
+   * TRUE iff main reports the lane HELD for this seat: MAX intent, entitlement
+   * still unverified, so main will send nothing on this selection.
+   *
+   * The surfaces owe this state two things — the neutral "entitlement is being
+   * checked" copy, and a held send button. It is deliberately NOT the same
+   * question as `!maxActive`: a proven-unentitled seat also has `maxActive:
+   * false` and must keep sending on the routine lane.
+   */
+  entitlementPending: boolean;
   /** Raw state, for surfaces that want to distinguish loading from a negative. */
   state: EveMaxAuthorityState;
   /** Re-ask (e.g. after a seat switch or a purchase). */
@@ -127,6 +141,7 @@ export function useEveMaxAuthority(): UseEveMaxAuthorityResult {
     // Validation lives in the shared pure core so main-side tests and
     // renderer-side tests cannot drift on what "trustworthy" means.
     maxActive: shouldPaintMaxSurface(state, activeSeatId, currentRevision),
+    entitlementPending: shouldHoldSendForMaxEntitlement(state, activeSeatId, currentRevision),
     state,
     refresh,
   };

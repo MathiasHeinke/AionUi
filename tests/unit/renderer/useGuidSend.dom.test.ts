@@ -34,6 +34,12 @@ vi.mock('@/common/config/configService', () => ({
   configService: {
     whenReady: vi.fn().mockResolvedValue(undefined),
     get: configGetMock,
+    // useGuidSend now reads the MAIN-process lane decision (useEveMaxAuthority →
+    // useActiveSeatId), so the stub has to cover the seat-binding surface too.
+    // Nothing in this file exercises a seat switch; these keep the boundary honest.
+    getCurrentSeatId: () => 'seat-1',
+    onSeatRebind: () => () => undefined,
+    subscribePersisted: () => () => undefined,
   },
 }));
 

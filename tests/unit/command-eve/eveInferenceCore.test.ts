@@ -64,7 +64,7 @@ import {
   describeCommandEveActiveLane,
   resolveCommandEveWarmupLane,
   resolveEffectiveInferenceSelection,
-  resolveEffectiveWireTierFromSelection,
+  resolveEveWireLaneDecision,
   resolveEvePickerItemAvailability,
   resolveWireTierFromSelection,
   shouldDisableModelByok,
@@ -973,64 +973,81 @@ describe('eveInferenceCore — repairInferenceSelection (survivability at the WI
   });
 });
 
-describe('eveInferenceCore — the non-brick clamp (spec 2.3)', () => {
-  it('clamps a MAX selection to `standard` when the seat is PROVEN unentitled — the chat still sends', () => {
+describe('eveInferenceCore — the non-brick fallback (spec 2.3)', () => {
+  it('falls a MAX selection back to `standard` when the seat is PROVEN unentitled — the chat still sends', () => {
     const max = eveTierValue('eve-max');
     expect(resolveWireTierFromSelection(max)).toBe('max');
-    expect(resolveEffectiveWireTierFromSelection(max, { maxEntitled: false })).toBe('standard');
-    // Sendable, not undefined: an unfunded seat must never be unable to send.
-    expect(resolveEffectiveWireTierFromSelection(max, { maxEntitled: false })).not.toBeUndefined();
+    expect(resolveEveWireLaneDecision(max, { maxEntitled: false })).toEqual({ status: 'send', tier: 'standard' });
   });
 
-  it('unknown entitlement still SENDS max — and, INVERTED, never PAINTS it', () => {
-    // THIS CASE USED TO ENCODE HALF A CONTRACT AND CALL IT THE WHOLE ONE. It
-    // asserted `maxEntitled: undefined -> 'max'` and stopped there, while eleven
-    // describes away a sibling test asserted the exact opposite ("fails CLOSED:
-    // absent/null/unknown entitlement locks MAX"). Both halves shipped. The
-    // resolution is not to pick a winner — it is that SEND and PAINT are
-    // different questions:
+  it('unknown entitlement HOLDS the send — and, as before, never PAINTS max', () => {
+    // THIS CASE USED TO ENCODE THE OPPOSITE, and the opposite was the defect.
+    // It asserted `maxEntitled: undefined -> 'max'` on the reasoning that the
+    // server is the binding gate, while the PAINT side of the same unknown showed
+    // Standard. Paint Standard, send MAX: the user is shown the routine lane and
+    // billed for the strong one, on a seat nobody verified.
     //
-    //   SEND  stays permissive. The server is the binding gate and answers an
-    //         unfunded MAX with its upsell; guessing "unentitled" from a flag we
-    //         never read would silently downgrade a PAYING seat.
-    //   PAINT fails closed. Showing "MAX" is a money claim to the user's face and
-    //         needs POSITIVE, KNOWN authority — the same rule hasEveMaxAccess
-    //         already applies to the picker row.
+    // The two sides now AGREE about unknown, and neither substitutes:
+    //   SEND  holds. `max` would be hidden spend on an unverified seat;
+    //         `standard` would be the silent downgrade of a possibly-paying one.
+    //   PAINT holds too — it says nothing about MAX (unchanged behaviour).
     const max = eveTierValue('eve-max');
     for (const unknown of [{}, { maxEntitled: undefined }]) {
-      expect(resolveEffectiveWireTierFromSelection(max, unknown), 'SEND: unknown must not downgrade').toBe('max');
+      expect(resolveEveWireLaneDecision(max, unknown), 'SEND: unknown must not travel').toEqual({
+        status: 'hold',
+        reason: 'max-entitlement-unknown',
+      });
       expect(resolveCommandEveActiveLane(max, unknown).wireTier, 'PAINT: unknown must not claim MAX').toBe('standard');
       expect(commandEveActiveModeLabel(max, 'de-DE', unknown)).toBe('EVE-Cloud');
     }
-    expect(resolveEffectiveWireTierFromSelection(max)).toBe('max');
+    // A FORGOTTEN argument holds rather than spends — the default is unknown.
+    expect(resolveEveWireLaneDecision(max)).toEqual({ status: 'hold', reason: 'max-entitlement-unknown' });
     expect(resolveCommandEveActiveLane(max).wireTier).toBe('standard');
   });
 
-  it('lets MAX travel for an entitled seat, and never clamps the Standard floor', () => {
-    expect(resolveEffectiveWireTierFromSelection(eveTierValue('eve-max'), { maxEntitled: true })).toBe('max');
+  it('lets MAX travel for an entitled seat, and never holds the Standard floor', () => {
+    expect(resolveEveWireLaneDecision(eveTierValue('eve-max'), { maxEntitled: true })).toEqual({
+      status: 'send',
+      tier: 'max',
+    });
+    // Standard needs no entitlement, so it is sendable in all three states — a
+    // hold that caught the floor rung would brick every seat on a cold boot.
     for (const entitled of [true, false, undefined]) {
-      expect(resolveEffectiveWireTierFromSelection(eveTierValue('eve-standard'), { maxEntitled: entitled })).toBe(
-        'standard'
-      );
+      expect(resolveEveWireLaneDecision(eveTierValue('eve-standard'), { maxEntitled: entitled })).toEqual({
+        status: 'send',
+        tier: 'standard',
+      });
     }
   });
 
-  it('a persisted legacy rung is clamped AFTER migration, not instead of it', () => {
-    // eve-ultra migrates to MAX first; only then does the clamp apply. Asserting
-    // both together is what proves the order — a clamp that ran first would make
-    // every legacy seat look like Standard forever.
-    expect(resolveEffectiveWireTierFromSelection(eveTierValue('eve-ultra'), { maxEntitled: true })).toBe('max');
-    expect(resolveEffectiveWireTierFromSelection(eveTierValue('eve-ultra'), { maxEntitled: false })).toBe('standard');
+  it('a persisted legacy rung is judged AFTER migration, not instead of it', () => {
+    // eve-ultra migrates to MAX first; only then does the entitlement decide.
+    // Asserting all three together is what proves the order — a judgement that ran
+    // first would make every legacy seat look like Standard forever.
+    expect(resolveEveWireLaneDecision(eveTierValue('eve-ultra'), { maxEntitled: true })).toEqual({
+      status: 'send',
+      tier: 'max',
+    });
+    expect(resolveEveWireLaneDecision(eveTierValue('eve-ultra'), { maxEntitled: false })).toEqual({
+      status: 'send',
+      tier: 'standard',
+    });
+    expect(resolveEveWireLaneDecision(eveTierValue('eve-ultra'), {})).toEqual({
+      status: 'hold',
+      reason: 'max-entitlement-unknown',
+    });
   });
 
-  it('a LOCAL selection stays undefined under every clamp state (the cloud lane is never engaged)', () => {
+  it('a LOCAL selection engages no cloud lane under any entitlement state — and is never HELD', () => {
+    // A hold here would brick the one lane that costs nothing and needs no
+    // entitlement at all.
     for (const entitled of [true, false, undefined]) {
-      expect(
-        resolveEffectiveWireTierFromSelection(localTierValue('local-standard'), { maxEntitled: entitled })
-      ).toBeUndefined();
-      expect(
-        resolveEffectiveWireTierFromSelection(localTierValue('local-high'), { maxEntitled: entitled })
-      ).toBeUndefined();
+      expect(resolveEveWireLaneDecision(localTierValue('local-standard'), { maxEntitled: entitled })).toEqual({
+        status: 'no-eve-lane',
+      });
+      expect(resolveEveWireLaneDecision(localTierValue('local-high'), { maxEntitled: entitled })).toEqual({
+        status: 'no-eve-lane',
+      });
     }
   });
 });
@@ -1065,19 +1082,23 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
     expect(resolveCommandEveActiveLane(eveTierValue('eve-max')).wireTier).toBe('standard');
   });
 
-  it('THE PAINT/SEND SPLIT, stated in one place: unknown may SEND max and may NOT PAINT it', () => {
-    // These two are the SAME input answered deliberately differently, and asserting
-    // them together is what keeps a future "consistency" cleanup from collapsing
-    // them into one rule and re-opening whichever half it drops.
+  it('THE PAINT/SEND ALIGNMENT, stated in one place: unknown neither PAINTS nor SENDS max', () => {
+    // These two used to be the SAME input answered deliberately DIFFERENTLY, and
+    // that split is the defect this suite now pins shut: whichever half you drop,
+    // one of the two failures follows — a painted claim nobody proved, or spend
+    // nobody authorised.
     const max = eveTierValue('eve-max');
     for (const unknown of [{}, { maxEntitled: undefined }]) {
-      expect(resolveEffectiveWireTierFromSelection(max, unknown), 'SEND: the server stays the gate').toBe('max');
+      expect(resolveEveWireLaneDecision(max, unknown), 'SEND: nothing leaves unverified').toEqual({
+        status: 'hold',
+        reason: 'max-entitlement-unknown',
+      });
       expect(resolveCommandEveActiveLane(max, unknown).wireTier, 'PAINT: needs positive authority').toBe('standard');
     }
     // PROVEN entitled: both say max. PROVEN unentitled: both say standard.
-    expect(resolveEffectiveWireTierFromSelection(max, { maxEntitled: true })).toBe('max');
+    expect(resolveEveWireLaneDecision(max, { maxEntitled: true })).toEqual({ status: 'send', tier: 'max' });
     expect(resolveCommandEveActiveLane(max, { maxEntitled: true }).wireTier).toBe('max');
-    expect(resolveEffectiveWireTierFromSelection(max, { maxEntitled: false })).toBe('standard');
+    expect(resolveEveWireLaneDecision(max, { maxEntitled: false })).toEqual({ status: 'send', tier: 'standard' });
     expect(resolveCommandEveActiveLane(max, { maxEntitled: false }).wireTier).toBe('standard');
   });
 

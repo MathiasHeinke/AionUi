@@ -31,6 +31,7 @@ import {
   isCommandEveModeExpansion,
 } from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
+import { useEveMaxAuthority } from '@/renderer/hooks/agent/useEveMaxAuthority';
 import { isEveInferenceSelection, resolveWireTierFromSelection } from '@/common/config/eveInferenceCore';
 import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
@@ -264,6 +265,15 @@ const AcpSendBox: React.FC<{
   // id whose 64k is the real hardware-safe window.
   const cloudSelectionActive = isEveConversation && isEveInferenceSelection(eveInference.selection);
   const indicatorModelId = cloudSelectionActive ? eveInference.selection : runtimeActivity.modelId;
+
+  // SUBMISSION HOLD. When MAIN reports the lane HELD — MAX intent on a seat whose
+  // entitlement is not yet verified — this composer must not submit. Main refuses
+  // the turn anyway (it builds no route), so this is not the spend control; it is
+  // the surface being honest instead of letting the user fire a turn that will
+  // only come back as an error. Read from the SAME authority that paints the MAX
+  // state, so the composer cannot be held while claiming a lane, or vice versa.
+  const { entitlementPending } = useEveMaxAuthority();
+  const eveSendHeld = isEveConversation && entitlementPending;
 
   // Mirror AgentModeSelector's getMode sync so the sheet shows the live mode label.
   useEffect(() => {
@@ -1852,7 +1862,10 @@ Please check your local CLI tool authentication status`,
           setAtPath(items);
         }}
         loading={isBusy || documentPreparationInFlight}
-        disabled={false}
+        // The ONLY thing that disables this composer's send: a HELD lane. The
+        // textarea stays editable (keepInputEditableWhenDisabled semantics), so a
+        // held turn can still be composed — it just cannot leave.
+        disabled={eveSendHeld}
         hasPendingSpeechInput={speechInputStatus === 'recording'}
         transcribePendingSpeechInput={transcribePendingSpeechInput}
         placeholder={

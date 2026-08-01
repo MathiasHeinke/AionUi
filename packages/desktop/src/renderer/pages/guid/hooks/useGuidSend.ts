@@ -21,6 +21,7 @@ import type { IMcpServer, TProviderWithModel } from '@/common/config/storage';
 import { buildAgentConversationParams } from '@/common/utils/buildAgentConversationParams';
 import { getConversationCreateErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
 import type { SkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
+import { useEveMaxAuthority } from '@/renderer/hooks/agent/useEveMaxAuthority';
 import { toSessionMcpServer } from '@/renderer/hooks/mcp/catalog';
 import { emitter } from '@/renderer/utils/emitter';
 import { updateWorkspaceTime } from '@/renderer/utils/workspace/workspaceHistory';
@@ -82,6 +83,12 @@ export type GuidSendResult = {
   handleSend: () => Promise<boolean>;
   sendMessageHandler: () => void;
   isButtonDisabled: boolean;
+  /**
+   * TRUE while MAIN reports the EVE lane HELD (MAX intent, entitlement not yet
+   * verified). Exposed so a surface can EXPLAIN the held send button; the hold
+   * itself is already applied to `isButtonDisabled` and `sendMessageHandler`.
+   */
+  eveSendHeld: boolean;
 };
 
 const toCommandEveRuntimeModelId = (acpModelId: string): string => acpModelId.replace(/^custom:/, '');
@@ -147,6 +154,13 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     t,
   } = deps;
   const sendingRef = useRef(false);
+  // The MAIN-process lane decision, read through the SAME authority the composer
+  // paints from — never a second derivation. `entitlementPending` is true only
+  // while main reports a HELD lane for the active seat: MAX intent whose
+  // entitlement is not yet verified. Only meaningful in the EVE shell, which is
+  // the only shell that has a MAX lane at all.
+  const { entitlementPending } = useEveMaxAuthority();
+  const eveSendHeld = COMMAND_EVE_SHELL_ENABLED && entitlementPending;
   const skillSelectionReady = skillCatalog.mode === 'selection' && skillCatalog.status === 'ready';
   const guidEnabledSkills = skillSelectionReady ? skillCatalog.selection.enabledSkills : undefined;
   const guidDisabledBuiltinSkills = skillSelectionReady ? skillCatalog.selection.excludedAutoInjectSkills : undefined;
@@ -597,6 +611,12 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
   ]);
 
   const sendMessageHandler = useCallback(() => {
+    // THE SUBMISSION HOLD, AT THE FUNNEL. Both the send button and the Enter key
+    // land here, and only here — the button reads `isButtonDisabled` below, while
+    // GuidPage's key handler calls this directly, so a guard on the button alone
+    // would let the keyboard walk straight past it. Main refuses a held turn
+    // anyway; this is the surface refusing to pretend it did not know.
+    if (eveSendHeld) return;
     if (loading || sendingRef.current) return;
     sendingRef.current = true;
     setLoading(true);
@@ -619,6 +639,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         setLoading(false);
       });
   }, [
+    eveSendHeld,
     loading,
     handleSend,
     setLoading,
@@ -632,11 +653,12 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
   ]);
 
   // Calculate button disabled state
-  const isButtonDisabled = loading || !input.trim();
+  const isButtonDisabled = loading || !input.trim() || eveSendHeld;
 
   return {
     handleSend,
     sendMessageHandler,
     isButtonDisabled,
+    eveSendHeld,
   };
 };

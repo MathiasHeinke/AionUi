@@ -314,7 +314,7 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   // NO EFFECTIVE-WIRE-TIER IS COMPUTED HERE ANY MORE — deliberately.
   //
   // This hook used to derive `effectiveWireTier` and `maxActive` from
-  // resolveEffectiveWireTierFromSelection, in parallel with the MAIN process that
+  // resolveEveWireLaneDecision, in parallel with the MAIN process that
   // actually builds the shim request. Two authorities can disagree, and when they
   // do the composer paints a state the wire is not in. The decision now comes from
   // main over `command-eve.inference-lane-decision` — see useEveMaxAuthority.

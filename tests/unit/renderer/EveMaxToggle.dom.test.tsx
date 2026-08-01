@@ -64,7 +64,7 @@ import {
   EVE_INFERENCE_STANDARD_TIER_ID,
   EVE_INFERENCE_TIERS,
   eveTierValue,
-  resolveEffectiveWireTierFromSelection,
+  resolveEveWireLaneDecision,
 } from '@/common/config/eveInferenceCore';
 
 /** CSS comments legitimately mention selector names; only real rules count. */
@@ -101,7 +101,7 @@ function renderInComposer(props: { disabled?: boolean } = {}) {
  * Apply a state patch, then derive `maxActive` FROM THE REAL PRODUCT SOURCE.
  *
  * This used to compute `maxEngaged && maxAvailable` inline while IMPORTING
- * `resolveEffectiveWireTierFromSelection` and never calling it — a PARALLEL model
+ * `resolveEveWireLaneDecision` and never calling it — a PARALLEL model
  * of the product's rule wearing the real function's name in a comment. That is
  * the failure this ticket keeps hitting: the mock and the component computed the
  * SAME expression from the SAME two inputs, so a component that ignored the
@@ -121,7 +121,8 @@ function authorityAnswerFor(hookState: typeof mocks.hookState): boolean {
   // Intent becomes a selection value; entitlement becomes the seat's wire
   // entitlement. No second implementation of the rule lives in this file.
   const selection = eveTierValue(hookState.maxEngaged ? EVE_INFERENCE_MAX_TIER_ID : EVE_INFERENCE_STANDARD_TIER_ID);
-  return resolveEffectiveWireTierFromSelection(selection, { maxEntitled: hookState.maxAvailable }) === 'max';
+  const decision = resolveEveWireLaneDecision(selection, { maxEntitled: hookState.maxAvailable });
+  return decision.status === 'send' && decision.tier === 'max';
 }
 
 function setState(next: Partial<typeof mocks.hookState> & { authorityMaxActive?: boolean }): void {
@@ -415,7 +416,7 @@ describe('EveMaxToggle — the surface follows the MAIN-PROCESS AUTHORITY, not t
   });
 
   it('the DEFAULT answer is produced by the REAL resolver, not by a boolean written here', () => {
-    // Drives `eveTierValue` + `resolveEffectiveWireTierFromSelection` — the same
+    // Drives `eveTierValue` + `resolveEveWireLaneDecision` — the same
     // core the main-side decision uses. If the product's clamp rule changed, this
     // file's default answer changes with it, instead of a hand-written
     // `maxEngaged && maxAvailable` quietly keeping the old one.

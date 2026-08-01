@@ -83,6 +83,7 @@ import { buildCommandEveStatusSurface } from '@process/commandEve/statusSurfaceC
 import { resolveHonchoRenderForSeat, type HonchoRenderInput } from '@process/commandEve/honchoRuntimeRenderCore';
 import { clearLicenseWire, hasLicenseWire, readLicenseWire, storeLicenseWire } from '@/common/config/licenseWireAtRest';
 import { resolveEveCloudRouteFromBackend } from '@process/commandEve/inferenceSelectionBackendRead';
+import { isCommandEveMaxEntitlementHoldError } from '@process/commandEve/shimPublicError';
 import {
   buildEveInferenceProvider,
   isEveInferenceSelection,
@@ -3349,6 +3350,17 @@ export function initCommandEveBridge(): void {
         },
       };
     } catch (error) {
+      // A HELD lane is a DECIDED state, not a failure to decide. Main knows
+      // exactly what it will do — nothing — so the receipt says so and the
+      // composer can paint the neutral "entitlement is being checked" state and
+      // hold submission. Reporting it as a generic error would collapse it into
+      // "we could not ask", which paints nothing and holds nothing.
+      if (isCommandEveMaxEntitlementHoldError(error)) {
+        return {
+          success: true,
+          data: { seatId, seatContextRevision, maxActive: false, laneHold: 'max-entitlement-unknown' as const },
+        };
+      }
       return {
         success: false,
         msg: error instanceof Error ? error.message : 'Command EVE inference-lane decision failed.',

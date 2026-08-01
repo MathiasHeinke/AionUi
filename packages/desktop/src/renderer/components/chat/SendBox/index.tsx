@@ -1187,6 +1187,12 @@ const SendBox: React.FC<{
 
   const sendMessageHandler = async (options?: { includePendingSpeech?: boolean }) => {
     if (isUploading || speechSendPendingRef.current) return;
+    // `disabled` GATES THE SEND, not just the button. It always claimed to
+    // ("The SEND action stays gated by `disabled` as before" — see
+    // keepInputEditableWhenDisabled), but only the button read it: Enter went
+    // straight through, so a held composer could still submit from the keyboard.
+    // A hold that the mouse honours and the keyboard ignores is not a hold.
+    if (disabled) return;
     const inputAtSendStart = latestInputRef.current;
     const shouldTranscribePendingSpeech = options?.includePendingSpeech && hasActiveSpeechInput;
     let speechTranscript: string | null = null;

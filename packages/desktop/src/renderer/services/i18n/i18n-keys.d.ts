@@ -952,6 +952,7 @@ export type I18nKey =
   | 'conversation.eveInference.needsActivation'
   | 'conversation.eveInference.offlineUnavailable'
   | 'conversation.eveMax.availableHint'
+  | 'conversation.eveMax.checkingHint'
   | 'conversation.eveMax.engagedHint'
   | 'conversation.eveMax.label'
   | 'conversation.eveMax.lockedEngagedHint'

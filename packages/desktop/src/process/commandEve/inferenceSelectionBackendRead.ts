@@ -44,9 +44,11 @@
  *     fail loud instead of silently changing the user's selected lane.
  *
  * BOTH carry `maxEntitled`, and neither may drop it. SEND and PAINT read the same
- * lane state and then disagree ON PURPOSE about unknown: the router lets `max`
- * travel (the server is the binding gate) while every descriptive surface refuses
- * to SAY "MAX" without a positively-known entitlement. See `mayPaintEveMax`.
+ * lane state and now AGREE about unknown: neither claims MAX. The descriptive
+ * surfaces refuse to SAY "MAX" without a positively-known entitlement
+ * (`mayPaintEveMax`), and the router refuses to SEND it — the lane is HELD until
+ * the entitlement resolves (`resolveEveWireLaneDecision`). The old split (paint
+ * Standard, send MAX) is what let hidden MAX spend leave an unverified seat.
  */
 
 import { httpRequest } from '@/common/adapter/httpBridge';
@@ -57,12 +59,12 @@ import {
   EVE_MAX_ENTITLED_SETTINGS_KEY,
   isEveInferenceSelection,
   repairInferenceSelection,
-  resolveEffectiveWireTierFromSelection,
+  resolveEveWireLaneDecision,
   resolveWireTierFromSelection,
 } from '@/common/config/eveInferenceCore';
 import { buildEveCloudRoute, type CommandEveEveCloudRoute } from './ollamaOpenAiShim';
 import { getActiveSeatId } from './seatContextCore';
-import { CommandEveShimPublicError } from './shimPublicError';
+import { CommandEveMaxEntitlementHoldError, CommandEveShimPublicError } from './shimPublicError';
 
 const INFERENCE_SELECTION_KEY = 'commandEve.inferenceSelection';
 /** The documented default selection, used as the last-resort sendable fallback. */
@@ -81,13 +83,13 @@ const EVE_DEFAULT_INFERENCE_SELECTION_FALLBACK = EVE_DEFAULT_INFERENCE_SELECTION
  * The lane state the routing decision needs, read from ONE settings fetch.
  *
  * `maxEntitled` rides along in the SAME GET the selection already required, so
- * making the clamp real costs no extra request on the per-turn hot path. It is
+ * making the decision real costs no extra request on the per-turn hot path. It is
  * three-state on purpose: `undefined` means the renderer has never written it
- * (fresh install, or a boot before the first renderer mount), and an unknown
+ * (fresh install, or a boot before the first renderer mount). An unknown
  * entitlement must NOT be read as "unentitled" — guessing that would silently
- * downgrade a paying seat, which is the exact bug class this file exists to
- * close. Unknown therefore lets the tier travel and leaves the server as the
- * binding gate.
+ * downgrade a paying seat — and it must NOT be read as "entitled" either, which
+ * would spend on an unverified seat. Unknown therefore HOLDS the lane; see
+ * `resolveEveWireLaneDecision`.
  */
 export type CommandEveInferenceLaneState = {
   selection?: string;
@@ -196,7 +198,7 @@ export async function readInferenceSelectionFromBackendStrict(): Promise<string 
  *
  * Chain (exactly what the shim's per-request routing resolver runs):
  *   readLaneState() [ONE backend GET] → repairInferenceSelection
- *     → isEveInferenceSelection? → resolveEffectiveWireTierFromSelection(clamp)
+ *     → isEveInferenceSelection? → resolveEveWireLaneDecision(send / hold)
  *     → buildEveCloudRoute
  *
  * A LOCAL selection returns `{ active: false }`. An EVE selection returns an
@@ -204,14 +206,25 @@ export async function readInferenceSelectionFromBackendStrict(): Promise<string 
  * deliberately propagates: unreadable state is not equivalent to an absent
  * setting and must never become an implicit Standard or local route.
  *
- * THE NON-BRICK CLAMP IS WIRED HERE, NOT INJECTED. `maxEntitled` comes from the
- * SAME settings fetch the selection already needed, so the production path
- * exercises it on every turn. When it proves the seat is NOT MAX-entitled, a
- * persisted MAX selection resolves to `standard` for THIS request only — the
- * stored intent is never rewritten here, so it lights up again the moment the
- * seat buys. When it is unknown the tier travels unchanged and the server stays
- * the binding gate; inferring "unentitled" from a missing flag would silently
- * downgrade a paying seat, the exact failure class this module exists to close.
+ * THE ENTITLEMENT DECISION IS WIRED HERE, NOT INJECTED. `maxEntitled` comes from
+ * the SAME settings fetch the selection already needed, so the production path
+ * exercises it on every turn. All three states are answered as three states:
+ *
+ *   TRUE    → `max` travels.
+ *   FALSE   → a persisted MAX resolves to `standard` for THIS request only. The
+ *             stored intent is never rewritten here, so it lights up again the
+ *             moment the seat buys.
+ *   UNKNOWN → THE LANE IS HELD. No route is built and no request is made, so no
+ *             MAX spend can leave an unverified seat. This is the 1.820.2
+ *             correction: unknown used to let `max` travel on the reasoning that
+ *             the server is the binding gate — but "upstream will refuse it" is
+ *             not a spend control the client may lean on, and the surface was
+ *             simultaneously painting Standard for the same unknown. Paint
+ *             Standard, send MAX was the defect; holding closes both halves.
+ *
+ * Substituting `standard` for the unknown case would be equally wrong in the
+ * other direction — that is the silent downgrade of a possibly-paying seat. So
+ * neither substitution is made: the turn waits for the entitlement to resolve.
  *
  * REPAIR: an EVE-prefixed value that resolves to NO tier previously reached the
  * shim as "no tier" and was answered 500 on every turn. It is repaired here, at
@@ -242,14 +255,23 @@ export async function resolveEveCloudRouteFromBackend(deps: {
   if (!isEveInferenceSelection(selection)) {
     return { active: false };
   }
+  const decision = resolveEveWireLaneDecision(selection, { maxEntitled: laneState.maxEntitled });
+  // THE HOLD, AT THE WIRE. Deliberately a throw and not a substituted tier: this
+  // function's only product is a route, and every route it could return here
+  // would be a claim it has no authority to make. `standard` would silently
+  // downgrade a possibly-paying seat, `max` would spend on an unverified one, and
+  // `{ active: false }` would quietly re-lane a cloud turn onto the local model.
+  // Refusing is the only answer that asserts nothing.
+  if (decision.status === 'hold') {
+    throw new CommandEveMaxEntitlementHoldError();
+  }
   // Belt and braces: repairInferenceSelection already guarantees a resolvable
   // EVE selection, so this fallback should be unreachable. It is here because
   // "should be unreachable" is exactly what the 500-every-turn bug believed
   // about itself — an unresolvable cloud selection must degrade to a sendable
   // tier, never to `undefined`.
   const tier =
-    resolveEffectiveWireTierFromSelection(selection, { maxEntitled: laneState.maxEntitled }) ??
-    resolveWireTierFromSelection(EVE_DEFAULT_INFERENCE_SELECTION_FALLBACK);
+    decision.status === 'send' ? decision.tier : resolveWireTierFromSelection(EVE_DEFAULT_INFERENCE_SELECTION_FALLBACK);
   const license = deps.readLicense();
   return buildEveCloudRoute({
     isEveSelection: true,

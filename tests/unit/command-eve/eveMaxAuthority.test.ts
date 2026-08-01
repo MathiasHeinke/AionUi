@@ -118,7 +118,7 @@ describe('MAX authority — the production wiring, not an injected copy', () => 
     expect(strip(HOOK)).toMatch(/commandEve\.inferenceLaneDecision\.invoke\(\)/);
     expect(strip(HOOK)).toMatch(/shouldPaintMaxSurface\(/);
     // THE DELETION: the selection hook must hold no wire-tier authority at all.
-    expect(strip(SELECTION)).not.toMatch(/resolveEffectiveWireTierFromSelection/);
+    expect(strip(SELECTION)).not.toMatch(/resolveEveWireLaneDecision/);
     expect(strip(SELECTION)).not.toMatch(/maxActive/);
     expect(strip(SELECTION)).not.toMatch(/effectiveWireTier/);
   });
@@ -153,9 +153,7 @@ describe('MAX authority — the production wiring, not an injected copy', () => 
       ['AionrsSendBox', AIONRS_SRC],
       ['GuidActionRow', GUID_SRC],
     ] as const) {
-      expect(strip(src), `${name} must not compute its own wire tier`).not.toMatch(
-        /resolveEffectiveWireTierFromSelection/
-      );
+      expect(strip(src), `${name} must not compute its own wire tier`).not.toMatch(/resolveEveWireLaneDecision/);
     }
   });
 });

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import crypto from 'node:crypto';
@@ -33,6 +33,7 @@ const {
   emitterEmitMock,
   setSendBoxHandlerMock,
   sendBoxPropsMock,
+  maxAuthorityMock,
   speechTranscribePendingMock,
   queuePanelPropsMock,
   queueItemsMock,
@@ -80,6 +81,9 @@ const {
   emitterEmitMock: vi.fn(),
   setSendBoxHandlerMock: vi.fn(),
   sendBoxPropsMock: { current: null as Record<string, unknown> | null },
+  // What MAIN reports about the lane. Default = a decided, unheld lane, which
+  // is what every pre-existing case in this file assumes.
+  maxAuthorityMock: { maxActive: false, entitlementPending: false },
   speechTranscribePendingMock: vi.fn().mockResolvedValue('spoken prompt'),
   queuePanelPropsMock: { current: null as Record<string, unknown> | null },
   queueItemsMock: {
@@ -212,6 +216,11 @@ vi.mock('@/common/config/configService', () => ({
     get: configGetMock,
     set: configSetMock,
     subscribe: vi.fn(() => vi.fn()),
+    // AcpSendBox now reads the MAIN-process lane decision (useEveMaxAuthority →
+    // useActiveSeatId), so the stub has to cover the seat-binding surface too.
+    getCurrentSeatId: () => 'seat-1',
+    onSeatRebind: () => () => undefined,
+    subscribePersisted: vi.fn(() => vi.fn()),
   },
 }));
 
@@ -283,6 +292,17 @@ vi.mock('@/renderer/components/agent/AgentModeSelector', () => ({ default: () =>
 // the AgentModeSelector stub.
 vi.mock('@/renderer/components/agent/AcpModelSelector', () => ({ default: () => null }));
 vi.mock('@/renderer/components/agent/EveMaxToggle', () => ({ default: () => null }));
+// The MAIN-process lane decision. AcpSendBox reads it to decide whether the
+// composer may submit at all; it is an external boundary here, supplied rather
+// than derived (the decision logic itself is covered in the hold suites).
+vi.mock('@/renderer/hooks/agent/useEveMaxAuthority', () => ({
+  useEveMaxAuthority: () => ({
+    maxActive: maxAuthorityMock.maxActive,
+    entitlementPending: maxAuthorityMock.entitlementPending,
+    state: { status: 'ready' as const },
+    refresh: vi.fn(),
+  }),
+}));
 vi.mock('@/renderer/components/chat/SpeechInputButton', async () => {
   const ReactActual = await vi.importActual<typeof import('react')>('react');
   return {
@@ -501,6 +521,8 @@ describe('AcpSendBox', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sendBoxPropsMock.current = null;
+    maxAuthorityMock.maxActive = false;
+    maxAuthorityMock.entitlementPending = false;
     queuePanelPropsMock.current = null;
     queueOnExecuteMock.current = null;
     mobileActionSheetPropsMock.current = null;
@@ -1023,6 +1045,52 @@ describe('AcpSendBox', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('error');
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
     expect(sendBoxPropsMock.current?.loading).toBe(false);
+  });
+
+  it('HOLDS submission while the MAX entitlement is unverified — and only then', async () => {
+    // THE SUBMISSION HOLD, at the seam that carries it. `disabled` is what SendBox
+    // gates BOTH the button and the Enter key on (see sendBoxHoldGate.dom), so
+    // this asserts the composer actually hands the hold down rather than merely
+    // knowing about it.
+    //
+    // The DEFAULT is the control: an EVE composer whose lane is decided must stay
+    // sendable, otherwise "held" would be indistinguishable from "always off".
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    expect(sendBoxPropsMock.current?.disabled).toBe(false);
+
+    cleanup();
+    sendBoxPropsMock.current = null;
+    maxAuthorityMock.entitlementPending = true;
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    expect(sendBoxPropsMock.current?.disabled).toBe(true);
+
+    // ...and a NON-EVE conversation is never held by an EVE lane decision: it has
+    // no MAX lane, so it has nothing to wait for.
+    cleanup();
+    sendBoxPropsMock.current = null;
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='claude'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    expect(sendBoxPropsMock.current?.disabled).toBe(false);
   });
 
   it('inspects a cached PPTX locally and mints one receipt only before the managed marker', async () => {

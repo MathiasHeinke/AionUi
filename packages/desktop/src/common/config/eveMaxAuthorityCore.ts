@@ -8,7 +8,7 @@
  * THE MAX VISUAL AUTHORITY — one decision, made where the request is made.
  *
  * WHY THIS EXISTS. The renderer used to compute its own effective wire tier
- * (`resolveEffectiveWireTierFromSelection` inside the selection hook) while the
+ * (the wire-tier resolver, inside the selection hook) while the
  * MAIN process independently computed the tier that actually goes on the wire.
  * Two authorities can disagree, and when they do the composer paints a state the
  * request is not in — the same defect that was removed at the surface,
@@ -42,6 +42,16 @@ export type EveMaxAuthorityReceipt = {
   maxActive: boolean;
   /** The effective wire tier, for diagnostics. Never used to re-derive maxActive. */
   wireTier?: string;
+  /**
+   * Present iff the lane is HELD: the seat's persisted intent is MAX and its
+   * entitlement is UNKNOWN, so main will send NOTHING on this selection.
+   *
+   * It is a THIRD state, not a flavour of `maxActive: false`. False alone cannot
+   * be distinguished from "proven unentitled, sending Standard", and the two owe
+   * the user opposite things: Standard runs and explains the downgrade, a hold
+   * runs nothing and says the entitlement is still being checked.
+   */
+  laneHold?: 'max-entitlement-unknown';
 };
 
 /** The renderer's view of the authority, including the not-yet-trustworthy states. */
@@ -71,25 +81,62 @@ export function shouldPaintMaxSurface(
   currentSeatId: string | null | undefined,
   currentRevision: number | null
 ): boolean {
-  if (!state || state.status !== 'ready') return false;
+  const receipt = currentSeatReceipt(state, currentSeatId, currentRevision);
+  return receipt?.maxActive === true;
+}
+
+/**
+ * Is the send path HELD for this seat right now?
+ *
+ * The mirror of {@link shouldPaintMaxSurface}, over the SAME binding, so the two
+ * cannot disagree about which receipt is current. It answers TRUE only for a
+ * ready, seat-matched, revision-matched receipt that main marked as held.
+ *
+ * FAIL-CLOSED HERE MEANS "DO NOT HOLD", and the asymmetry is deliberate. A hold
+ * stops the user from sending, so inventing one from loading/error/stale state
+ * would brick a composer on no evidence. The spend guarantee does not depend on
+ * this returning true: main refuses the turn regardless (see
+ * `CommandEveMaxEntitlementHoldError`). This function exists so the surface can
+ * be HONEST about a hold it KNOWS about — never so it can be the only thing
+ * standing between an unverified seat and paid inference.
+ */
+export function shouldHoldSendForMaxEntitlement(
+  state: EveMaxAuthorityState | null | undefined,
+  currentSeatId: string | null | undefined,
+  currentRevision: number | null
+): boolean {
+  const receipt = currentSeatReceipt(state, currentSeatId, currentRevision);
+  return receipt?.laneHold === 'max-entitlement-unknown';
+}
+
+/**
+ * The receipt IFF it is ready, well-formed and bound to the CURRENT seat at the
+ * CURRENT revision — otherwise `undefined`. Extracted so paint and hold share one
+ * definition of "this answer is about the seat in front of the user".
+ */
+function currentSeatReceipt(
+  state: EveMaxAuthorityState | null | undefined,
+  currentSeatId: string | null | undefined,
+  currentRevision: number | null
+): EveMaxAuthorityReceipt | undefined {
+  if (!state || state.status !== 'ready') return undefined;
 
   const receipt = state.receipt;
-  if (!receipt || typeof receipt !== 'object') return false;
-  if (receipt.maxActive !== true) return false;
+  if (!receipt || typeof receipt !== 'object') return undefined;
 
   // SEAT IDENTITY. A receipt for another seat — or for no seat at all — never
   // paints. Both sides must be non-empty strings; "" === "" must not pass.
-  if (typeof receipt.seatId !== 'string' || receipt.seatId.length === 0) return false;
-  if (typeof currentSeatId !== 'string' || currentSeatId.length === 0) return false;
-  if (receipt.seatId !== currentSeatId) return false;
+  if (typeof receipt.seatId !== 'string' || receipt.seatId.length === 0) return undefined;
+  if (typeof currentSeatId !== 'string' || currentSeatId.length === 0) return undefined;
+  if (receipt.seatId !== currentSeatId) return undefined;
 
   // SEAT REVISION — an EXACT match against an INDEPENDENTLY-read CURRENT value.
   // Catches a re-bind of the same seat id underneath us, which the seat id alone
   // cannot see. Absent (null) means we could not establish the current revision,
   // and an unestablished guard must refuse rather than wave the receipt through.
-  if (typeof currentRevision !== 'number') return false;
-  if (typeof receipt.seatContextRevision !== 'number') return false;
-  if (receipt.seatContextRevision !== currentRevision) return false;
+  if (typeof currentRevision !== 'number') return undefined;
+  if (typeof receipt.seatContextRevision !== 'number') return undefined;
+  if (receipt.seatContextRevision !== currentRevision) return undefined;
 
-  return true;
+  return receipt;
 }

@@ -91,7 +91,7 @@ const EveMaxToggle: React.FC<{
   // THE SURFACE'S ONLY INPUT. Comes from MAIN, seat-bound, fails closed. The
   // selection hook deliberately no longer exposes a `maxActive` — it is not an
   // authority on what the wire sends.
-  const { maxActive } = useEveMaxAuthority();
+  const { maxActive, entitlementPending } = useEveMaxAuthority();
   const anchorRef = useRef<HTMLSpanElement>(null);
 
   // THE SURFACE FOLLOWS `maxActive`, NEVER `maxEngaged`.
@@ -118,19 +118,34 @@ const EveMaxToggle: React.FC<{
   const label = t('conversation.eveMax.label', 'MAX');
   // MAX is only truly ON when the wire will actually serve it.
   const effectivelyOn = maxActive;
-  const hint = maxLocked
-    ? maxEngaged
-      ? t(
-          'conversation.eveMax.lockedEngagedHint',
-          'MAX bleibt für dich gemerkt, läuft aber erst wieder mit bezahltem Tarif oder gekauften Credits.'
-        )
-      : t('conversation.eveMax.lockedHint', 'MAX ist im bezahlten Tarif oder mit gekauften Credits verfügbar.')
-    : effectivelyOn
-      ? t('conversation.eveMax.engagedHint', 'MAX ist aktiv — EVE arbeitet mit voller Denkkraft.')
-      : t('conversation.eveMax.availableHint', 'MAX einschalten — volle Denkkraft für harte Aufgaben.');
+  // THE NEUTRAL STATE, and it takes precedence over every other branch.
+  //
+  // While the entitlement is UNVERIFIED the control may claim NEITHER lane: not
+  // MAX (nothing proved it), and not the locked/upsell story either (nothing
+  // disproved it). Saying "checking" is the only sentence the surface has the
+  // authority to say — and it is the same state in which submission is held, so
+  // a user who reads it also understands why the send button will not go.
+  const hint = entitlementPending
+    ? t('conversation.eveMax.checkingHint')
+    : maxLocked
+      ? maxEngaged
+        ? t(
+            'conversation.eveMax.lockedEngagedHint',
+            'MAX bleibt für dich gemerkt, läuft aber erst wieder mit bezahltem Tarif oder gekauften Credits.'
+          )
+        : t('conversation.eveMax.lockedHint', 'MAX ist im bezahlten Tarif oder mit gekauften Credits verfügbar.')
+      : effectivelyOn
+        ? t('conversation.eveMax.engagedHint', 'MAX ist aktiv — EVE arbeitet mit voller Denkkraft.')
+        : t('conversation.eveMax.availableHint', 'MAX einschalten — volle Denkkraft für harte Aufgaben.');
 
   return (
-    <span ref={anchorRef} className='eve-max-toggle-anchor inline-flex items-center' data-eve-max-state={maxState}>
+    <span
+      ref={anchorRef}
+      className='eve-max-toggle-anchor inline-flex items-center'
+      // `checking` is a FOURTH stamped state, never a re-skin of `available` or
+      // `locked`: both of those assert an entitlement answer this one does not have.
+      data-eve-max-state={entitlementPending ? 'checking' : maxState}
+    >
       <Tooltip content={hint} position='top'>
         <Button
           // Deliberately NOT `agent-mode-compact-pill`: inside .unified-send-bar
@@ -154,13 +169,20 @@ const EveMaxToggle: React.FC<{
           data-engaged={maxEngaged ? 'true' : 'false'}
           data-active={effectivelyOn ? 'true' : 'false'}
           data-locked={maxLocked ? 'true' : 'false'}
+          // Separate from `data-locked` on purpose: locked is an ANSWER (not
+          // entitled, here is the upsell), checking is the absence of one.
+          data-checking={entitlementPending ? 'true' : 'false'}
           // Coherent ARIA: "pressed" means the strong lane is ACTUALLY running.
           aria-pressed={effectivelyOn}
           aria-disabled={maxLocked || disabled === true}
           aria-label={`${label} — ${hint}`}
         >
           <span className='eve-max-toggle__content flex items-center gap-4px leading-none'>
-            {maxLocked ? (
+            {/* CHECKING WEARS NEITHER ICON'S CLAIM. A padlock says "we know you
+                are not entitled, buy it"; a filled bolt says "MAX is running".
+                While the entitlement is unverified the control asserts neither,
+                so it shows the plain outline mark. */}
+            {maxLocked && !entitlementPending ? (
               <Lock theme='outline' size='13' aria-hidden='true' />
             ) : (
               <Lightning theme={effectivelyOn ? 'filled' : 'outline'} size='13' aria-hidden='true' />

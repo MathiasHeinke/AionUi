@@ -21,3 +21,37 @@ export class CommandEveShimPublicError extends Error {}
 export function isCommandEveShimPublicError(error: unknown): error is CommandEveShimPublicError {
   return error instanceof CommandEveShimPublicError;
 }
+
+/**
+ * The exact sentence a HELD lane returns. Deliberately NON-PROVIDER: it names no
+ * model, vendor or slug — only the lane the user picked and the reason it is not
+ * running yet. (The chat-facing copy for the same state lives in i18n; this is
+ * the wire-level message the shim is allowed to echo.)
+ */
+export const EVE_MAX_ENTITLEMENT_HOLD_MESSAGE =
+  'Command EVE MAX is on hold: this seat entitlement could not be verified yet.';
+
+/**
+ * MAX intent on an UNVERIFIED seat. A distinct type rather than a bare message,
+ * because two callers must tell it apart from every other failure:
+ *
+ *   - the shim answers it as a public, fail-closed refusal — no request is built,
+ *     so no MAX spend can leave the machine;
+ *   - the inference-lane-decision bridge turns it into a HOLD receipt, so the
+ *     composer paints the neutral "entitlement is being checked" state and holds
+ *     submission instead of showing a generic error.
+ *
+ * It extends CommandEveShimPublicError so the message stays on the allowlist.
+ */
+export class CommandEveMaxEntitlementHoldError extends CommandEveShimPublicError {
+  readonly reasonCode = 'MAX_ENTITLEMENT_UNKNOWN' as const;
+
+  constructor() {
+    super(EVE_MAX_ENTITLEMENT_HOLD_MESSAGE);
+    this.name = 'CommandEveMaxEntitlementHoldError';
+  }
+}
+
+export function isCommandEveMaxEntitlementHoldError(error: unknown): error is CommandEveMaxEntitlementHoldError {
+  return error instanceof CommandEveMaxEntitlementHoldError;
+}
