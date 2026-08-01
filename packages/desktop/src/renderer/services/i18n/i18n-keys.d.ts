@@ -944,7 +944,6 @@ export type I18nKey =
   | 'conversation.eveControl.context'
   | 'conversation.eveControl.contextPercent'
   | 'conversation.eveControl.contextReady'
-  | 'conversation.eveControl.howEveWorks'
   | 'conversation.eveControl.local'
   | 'conversation.eveControl.open'
   | 'conversation.eveControl.privacy'

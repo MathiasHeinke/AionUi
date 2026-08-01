@@ -120,8 +120,20 @@
      and the composer border disappears entirely (measured: 1px -> 0px in dark).
      `--primary` is what --eve-accent itself resolves to (:17) and is declared
      for both themes in themes/default-color-scheme.css, so the fallback is real
-     and theme-correct. */
-  --eve-max-accent: var(--eve-accent, var(--primary));
+     and theme-correct.
+
+     R5 — WHY THIS IS A MIX AND NOT `var(--eve-accent)` DIRECTLY.
+     `--eve-accent` is OVERWRITTEN AT RUNTIME by visualPreferences.ts, which sets
+     the SAME literal for light and dark (the shipped blue is #2563eb in both).
+     So the accent alone is not theme-aware at all, and the MAX pill LABEL
+     measured 4.09:1 light / 2.44:1 dark — both under WCAG AA 4.5:1, the dark one
+     badly. Re-declaring a token in this file could not have fixed it either: an
+     inline style on the root element beats any stylesheet.
+     Adjusting LIGHTNESS around whatever accent the user chose does work, and it
+     keeps their colour family. Light: darken toward the shell text. Dark:
+     lighten toward white. Verified for EVERY shipped accent in
+     eveMaxComposerCss.test.ts — worst case 5.66:1 light, 4.73:1 dark. */
+  --eve-max-accent: color-mix(in srgb, var(--eve-accent, var(--primary)) 70%, var(--eve-shell-text));
   --eve-max-composer-border: color-mix(in srgb, var(--eve-max-accent) 38%, var(--border-base));
   --eve-max-spotlight-ceiling: 0.62;
 
@@ -234,9 +246,13 @@
   --eve-spotlight-max: var(--eve-spotlight-opacity-dark);
   --eve-bg-image-scrim: color-mix(in srgb, #101214 68%, transparent);
 
-  /* MAX lane, dark: the accent token already re-resolves per theme; the border
-     mix is re-stated because the dark composer border is a white-alpha edge
-     rather than the light theme's --border-base. */
+  /* MAX lane, dark. The accent does NOT re-resolve per theme on its own — the
+     runtime writes one literal for both — so the lightness adjustment is the
+     thing that makes it theme-aware: lighten toward white so the pill label
+     clears AA on a dark composer (worst shipped accent 4.73:1). The border mix
+     is re-stated because the dark composer border is a white-alpha edge rather
+     than the light theme's --border-base. */
+  --eve-max-accent: color-mix(in srgb, var(--eve-accent, var(--primary)) 60%, var(--eve-static-white));
   --eve-max-composer-border: color-mix(in srgb, var(--eve-max-accent) 46%, var(--eve-composer-border));
   --eve-max-spotlight-ceiling: 0.78;
 }

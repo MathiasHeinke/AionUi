@@ -19,10 +19,12 @@
  *   right: [ MAX · EVE control · mic · send ]
  *
  * Every piece is passed in as a slot, so the EXISTING components are reused:
- * the consolidated EVE control keeps PRIVACY, TOOLS and CONTEXT behind one
- * progressive-disclosure popover. It no longer presents cloud intelligence
- * tiers — that ladder is gone (MAT-1749) and MAX is the composer's only
- * cloud-intelligence affordance. Non-EVE surfaces retain their direct slots.
+ * the consolidated EVE control holds exactly PRIVACY, TOOLS and CONTEXT behind
+ * one progressive-disclosure popover, in that order and with nothing above them.
+ * It describes NO intelligence at all — neither a tier ladder nor an
+ * "automatic" summary standing in for one (MAT-1749). MAX is the composer's
+ * only intelligence affordance and it sits OUTSIDE the popover.
+ * Non-EVE surfaces retain their direct slots.
  *   - micSlot         → SpeechInputButton (mounted for BOTH surfaces)
  *   - busyModeSlot    → queue/correction mode while EVE is already working
  *   - permissionSlot  → AgentModeSelector (compact, Shield, 'Berechtigung' prefix)
@@ -39,7 +41,7 @@ import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndic
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
 import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 import { Button, Popover } from '@arco-design/web-react';
-import { Layers, Right, SettingTwo, Shield, Tool } from '@icon-park/react';
+import { Layers, Right, Shield, Tool } from '@icon-park/react';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -64,11 +66,11 @@ export interface UnifiedSendBarProps {
   /**
    * Model picker for NON-EVE backends (Acp/Guid selector).
    *
-   * An EVE surface passes NOTHING here: per the Founder contract the EVE
-   * composer shows no cloud intelligence ladder at all — the routine lane is
-   * unnamed and MAX is the only cloud affordance. The consolidated EVE popover
-   * then renders "Automatisch" for this row, which is the honest description of
-   * an unnamed default.
+   * IGNORED ENTIRELY when `eveControl` is set. In Command EVE the composer shows
+   * no intelligence ladder anywhere — MAX is the only intelligence affordance —
+   * so this slot is rendered ONLY on the non-EVE branch. Passing it alongside
+   * `eveControl` is a no-op by design, not an accident: that is what stops the
+   * removed row from reappearing next to MAX.
    */
   modelSlot?: React.ReactNode;
   /**
@@ -88,7 +90,7 @@ export interface UnifiedSendBarProps {
   permissionSlot?: React.ReactNode;
   /** Context-usage + credits indicator (the consumed-context ring + popover). */
   contextSlot?: React.ReactNode;
-  /** Consolidate model, privacy, tools and context behind one EVE control. */
+  /** Consolidate privacy, tools and context behind one EVE control (no model row). */
   eveControl?: EveComposerControlConfig;
   /** The send / stop button — owned by each surface (wired to its own textarea). */
   sendSlot?: React.ReactNode;
@@ -97,15 +99,23 @@ export interface UnifiedSendBarProps {
 }
 
 /**
- * The single non-technical EVE control. Existing model and permission selectors
- * stay mounted inside the popover, preserving their real persistence and runtime
- * behavior while removing infrastructure jargon from the default composer.
+ * The single non-technical EVE control: Datenschutz · Werkzeuge · Kontext, plus
+ * the link to advanced settings.
+ *
+ * IT DESCRIBES NO INTELLIGENCE, BY CONSTRUCTION. The menu used to open with a
+ * "how EVE works → automatic" row. That row survived the ladder removal and
+ * quietly reintroduced the same thing under a friendlier word: an
+ * automatic-thinking summary is still a cloud-intelligence statement. It is
+ * gone, and this control deliberately accepts NO `modelSlot` — there is no prop
+ * through which an intelligence row could be reintroduced without changing this
+ * signature, which is the point.
+ *
+ * MAX is the only intelligence affordance, and it lives OUTSIDE this menu.
  */
 const EveComposerControl: React.FC<{
   config: EveComposerControlConfig;
-  modelSlot?: React.ReactNode;
   permissionSlot?: React.ReactNode;
-}> = ({ config, modelSlot, permissionSlot }) => {
+}> = ({ config, permissionSlot }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [popoverVisible, setPopoverVisible] = useState(false);
@@ -161,12 +171,8 @@ const EveComposerControl: React.FC<{
       style={{ width: menuPlacement.width }}
       data-testid='eve-composer-control-menu'
     >
-      <div className='eve-composer-control__row'>
-        <SettingTwo size={17} aria-hidden='true' />
-        <span className='eve-composer-control__label'>{t('conversation.eveControl.howEveWorks')}</span>
-        <span className='eve-composer-control__value'>{modelSlot ?? t('conversation.eveControl.automatic')}</span>
-      </div>
-
+      {/* The menu STARTS with Datenschutz. Nothing above it — see the component
+          doc: no intelligence row, renamed or otherwise. */}
       <Button
         type='text'
         className='eve-composer-control__row eve-composer-control__row--button'
@@ -272,8 +278,14 @@ const UnifiedSendBar: React.FC<UnifiedSendBarProps> = ({
         {busyModeSlot ? <div className='unified-send-bar__busy-slot'>{busyModeSlot}</div> : null}
         {maxSlot}
         {eveControl ? (
-          <EveComposerControl config={eveControl} modelSlot={modelSlot} permissionSlot={permissionSlot} />
+          // COMMAND EVE: MAX is the ONLY intelligence affordance. `modelSlot`
+          // renders NOWHERE here — not in the menu (the control accepts no such
+          // prop) and not beside MAX either. Rendering it outside the popover
+          // would not be a removal; it would relocate the deleted row into a
+          // MORE prominent place, which is the opposite of the contract.
+          <EveComposerControl config={eveControl} permissionSlot={permissionSlot} />
         ) : (
+          // NON-EVE bars are untouched and keep their own model selector.
           <>
             {modelSlot}
             {permissionSlot}

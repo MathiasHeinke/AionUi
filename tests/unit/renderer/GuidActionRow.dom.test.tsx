@@ -120,8 +120,20 @@ describe('GuidActionRow (UnifiedSendBar integration)', () => {
     expect(screen.queryByTestId('guid-context')).toBeNull();
     expect(screen.getByTestId('guid-send-btn')).toBeTruthy();
 
+    // THE CONTRACT (MAT-1749): the model node used to live INSIDE the EVE
+    // popover, under a "how EVE works → automatic" row. That row is deleted, and
+    // in Command EVE MAX is the ONLY intelligence affordance — so a supplied
+    // model node must render NOWHERE. Not in the menu, and not beside MAX on the
+    // bar either: putting it there would relocate the deleted row into a more
+    // prominent place rather than remove it.
+    //
+    // COMMAND_EVE_SHELL_ENABLED is mocked true here, so this row IS the EVE
+    // branch (see the commandEveShell mock above).
+    expect(screen.queryByTestId('model-node')).toBeNull();
+
     fireEvent.click(screen.getByTestId('eve-composer-control-trigger'));
-    expect(await screen.findByTestId('model-node')).toBeTruthy();
+    await screen.findByTestId('eve-composer-control-menu');
+    expect(screen.queryByTestId('model-node')).toBeNull();
     expect(screen.getByTestId('mode-selector')).toBeTruthy();
   });
 

@@ -81,7 +81,7 @@ describe('UnifiedSendBar', () => {
     expect(screen.queryByText('mic')).toBeNull();
   });
 
-  it('keeps EVE model and permission controls behind one progressive-disclosure control', async () => {
+  it('keeps permission + context behind one progressive-disclosure control — and NEVER the model row', async () => {
     render(
       <MemoryRouter>
         <UnifiedSendBar
@@ -96,6 +96,11 @@ describe('UnifiedSendBar', () => {
       </MemoryRouter>
     );
 
+    // THE CONTRACT: in Command EVE, MAX is the ONLY intelligence affordance.
+    // A supplied `modelSlot` must render NOWHERE — not in the menu (the old
+    // "how EVE works" row, deleted) and NOT on the bar either. Rendering it
+    // outside the popover would relocate the deleted row into a MORE prominent
+    // place, which is not a removal.
     expect(screen.queryByText('model')).toBeNull();
     expect(screen.queryByText('permission')).toBeNull();
     expect(screen.queryByText('legacy-context')).toBeNull();
@@ -105,11 +110,69 @@ describe('UnifiedSendBar', () => {
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(trigger);
 
-    expect(await screen.findByTestId('eve-composer-control-menu')).toBeTruthy();
+    await screen.findByTestId('eve-composer-control-menu');
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('permission')).toBeTruthy();
+    // Still absent AFTER opening the menu: nowhere means nowhere.
+    expect(screen.queryByText('model')).toBeNull();
+    expect(screen.queryByTestId('context-ring')).toBeNull();
+  });
+
+  it('a NON-EVE bar still renders its model selector — the removal must not break the other send bars', () => {
+    render(
+      <MemoryRouter>
+        <UnifiedSendBar
+          modelSlot={<span>model</span>}
+          permissionSlot={<span>permission</span>}
+          contextSlot={<span>legacy-context</span>}
+          sendSlot={<span>send</span>}
+        />
+      </MemoryRouter>
+    );
+
+    // No eveControl ⇒ the untouched non-EVE branch.
+    expect(screen.queryByTestId('eve-composer-control-trigger')).toBeNull();
     expect(screen.getByText('model')).toBeTruthy();
     expect(screen.getByText('permission')).toBeTruthy();
-    expect(screen.queryByTestId('context-ring')).toBeNull();
+    expect(screen.getByText('legacy-context')).toBeTruthy();
+  });
+
+  it('the EVE menu STARTS with Datenschutz — nothing above it, and no intelligence row of any kind', async () => {
+    render(
+      <MemoryRouter>
+        <UnifiedSendBar
+          modelSlot={<span>model</span>}
+          permissionSlot={<span>permission</span>}
+          eveControl={{ tokenUsage: null }}
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByTestId('eve-composer-control-trigger'));
+    const menu = await screen.findByTestId('eve-composer-control-menu');
+
+    // ORDER: Datenschutz · Werkzeuge · Kontext · Erweiterte Einstellungen.
+    const labels = Array.from(menu.querySelectorAll('.eve-composer-control__label')).map((n) =>
+      (n.textContent ?? '').trim()
+    );
+    expect(labels).toEqual([
+      'conversation.eveControl.privacy',
+      'conversation.eveControl.tools',
+      'conversation.eveControl.context',
+    ]);
+
+    // NOTHING above Datenschutz.
+    expect(labels[0]).toBe('conversation.eveControl.privacy');
+
+    // The removed row must not come back under ANY name: no "how EVE works"
+    // key, and no automatic-thinking summary standing in for an intelligence
+    // statement. `automatic` may still appear as the TOOLS fallback, so this
+    // asserts the row identity, not the word.
+    expect(menu.textContent ?? '').not.toContain('howEveWorks');
+    const rows = Array.from(menu.querySelectorAll('.eve-composer-control__row'));
+    expect(rows.length).toBe(3);
+    // ...and the model slot is nowhere in the document at all.
+    expect(screen.queryByText('model')).toBeNull();
   });
 
   it('adds the compact context ring only when real usage exists', () => {

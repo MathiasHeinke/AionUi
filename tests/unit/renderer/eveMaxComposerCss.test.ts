@@ -25,6 +25,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { EVE_ACCENTS } from '@/renderer/theme/visualPreferences';
 
 const VISUAL_CSS = path.resolve(
   __dirname,
@@ -94,8 +95,9 @@ describe('MAX composer state — the CSS-variable seam', () => {
       expect(token).not.toMatch(/\brgba?\(/i);
       expect(token).not.toMatch(/\bhsla?\(/i);
     }
-    // The accent comes from the token layer, and the border is mixed from it.
-    expect(css).toMatch(/--eve-max-accent:\s*var\(--eve-accent/);
+    // The accent is DERIVED from the token layer with a per-theme lightness
+    // adjustment (R5) — see the contrast suite for why a bare var() is not enough.
+    expect(css).toMatch(/--eve-max-accent:\s*color-mix\([^;]*var\(--eve-accent/);
     expect(css).toMatch(/--eve-max-composer-border:\s*color-mix\([^;]*var\(--eve-max-accent\)/);
   });
 
@@ -163,16 +165,12 @@ describe('MAX toggle pill — the three real-app visual defects (R1/R2/R3)', () 
     // The shared rule clamps width/min-width to the control size. MAX is the one
     // pill carrying a word, so it must declare auto width or its label overflows
     // the layout box and steals the neighbour's hit target.
-    expect(sendBarCss).toMatch(/\.unified-send-bar \.eve-max-toggle\.arco-btn[^{]*\{[^}]*width:\s*auto\s*!important/s);
-    expect(sendBarCss).toMatch(
-      /\.unified-send-bar \.eve-max-toggle\.arco-btn[^{]*\{[^}]*min-width:\s*auto\s*!important/s
-    );
-    // ...and it restores a real content box, since the shared rule collapses
-    // .arco-btn-content to the icon size and hides labels.
-    expect(sendBarCss).toMatch(/\.unified-send-bar \.eve-max-toggle \.arco-btn-content\s*\{[^}]*width:\s*auto/s);
-    expect(sendBarCss).toMatch(
-      /\.unified-send-bar \.eve-max-toggle \.eve-max-toggle__label\s*\{[^}]*display:\s*inline\s*!important/s
-    );
+    expect(sendBarCss).toMatch(/\[data-testid='eve-max-toggle'\]\s*\{[^}]*width:\s*auto\s*!important/s);
+    expect(sendBarCss).toMatch(/\[data-testid='eve-max-toggle'\]\s*\{[^}]*min-width:\s*auto\s*!important/s);
+    // ...and it restores a real content box on the component's OWN inner span
+    // (this button renders no .arco-btn-content wrapper at all).
+    expect(sendBarCss).toMatch(/\.eve-max-toggle__content\s*\{[^}]*width:\s*auto/s);
+    expect(sendBarCss).toMatch(/\.eve-max-toggle__label\s*\{[^}]*display:\s*inline\s*!important/s);
   });
 
   it('R1: the toggle declares its own colour on its OWN class — never through :where()', () => {
@@ -188,8 +186,8 @@ describe('MAX toggle pill — the three real-app visual defects (R1/R2/R3)', () 
     }
     // The DISABLED state explicitly re-declares a legible colour rather than
     // inheriting whatever Arco's primary-disabled rule produces.
-    expect(sendBarCss).toMatch(/\.eve-max-toggle\.arco-btn\.arco-btn-disabled/);
-    expect(sendBarCss).toMatch(/\.eve-max-toggle\.arco-btn\[disabled\]/);
+    expect(sendBarCss).toMatch(/\[data-testid='eve-max-toggle'\]\[disabled\]/);
+    expect(sendBarCss).toMatch(/\[data-testid='eve-max-toggle'\]\.arco-btn-disabled/);
   });
 
   it('R1: no hardcoded colour in the MAX pill layer — disabled/locked stay theme-aware', () => {
@@ -201,8 +199,8 @@ describe('MAX toggle pill — the three real-app visual defects (R1/R2/R3)', () 
   it('R3: engaging MAX actually changes the pill, keyed on data-active', () => {
     // data-ACTIVE, not data-engaged: a lapsed seat keeps the intent but the wire
     // clamps, so the pill must not light up for a lane that is not running.
-    expect(sendBarCss).toMatch(/\.eve-max-toggle\.arco-btn\[data-active='true'\]/);
-    const activeRule = sendBarCss.match(/\.eve-max-toggle\.arco-btn\[data-active='true'\][^{]*\{[^}]*\}/s);
+    expect(sendBarCss).toMatch(/\[data-testid='eve-max-toggle'\]\[data-active='true'\]/);
+    const activeRule = sendBarCss.match(/\[data-testid='eve-max-toggle'\]\[data-active='true'\]\s*\{[^}]*\}/s);
     expect(activeRule).not.toBeNull();
     expect(activeRule![0]).toMatch(/background:/);
     expect(activeRule![0]).toMatch(/color:/);
@@ -219,6 +217,123 @@ describe('MAX toggle pill — the three real-app visual defects (R1/R2/R3)', () 
     expect(referenced.size).toBeGreaterThan(0);
     for (const name of referenced) {
       expect(declared.has(name), `${name} is referenced by the MAX pill but declared nowhere`).toBe(true);
+    }
+  });
+});
+
+describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
+  /**
+   * Computed here, not left to the Electron capture, because the failure was
+   * silent: `--eve-accent` is OVERWRITTEN AT RUNTIME by visualPreferences.ts with
+   * the SAME literal for light and dark, so the "theme-aware" accent was not
+   * theme-aware at all and the dark label measured 2.44:1. A stylesheet-only
+   * review could not see that; arithmetic over the real shipped accents can.
+   *
+   * The CSS computes:
+   *   light: color-mix(accent 70%, --eve-shell-text)
+   *   dark:  color-mix(accent 60%, --eve-static-white)
+   * and the pill background is color-mix(maxAccent 16%, transparent) composited
+   * over the composer surface — i.e. 0.16*accent + 0.84*surface.
+   */
+  const LIGHT_ACCENT_SHARE = 0.7;
+  const DARK_ACCENT_SHARE = 0.6;
+  const PILL_TINT = 0.16;
+  const SHELL_TEXT_LIGHT = '#111827';
+  const STATIC_WHITE = '#ffffff';
+  const SURFACE_LIGHT = '#ffffff';
+  const SURFACE_DARK = '#171a1e';
+
+  type Rgb = [number, number, number];
+  const parse = (hex: string): Rgb => {
+    const h = hex.replace('#', '');
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as Rgb;
+  };
+  const channel = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const luminance = (rgb: Rgb): number =>
+    0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2]);
+  const contrast = (a: Rgb, b: Rgb): number => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const mix = (a: Rgb, b: Rgb, share: number): Rgb =>
+    a.map((v, i) => Math.round(v * share + b[i] * (1 - share))) as Rgb;
+
+  /** Every accent the product actually ships, read from the source of truth. */
+  const shippedAccents = Object.entries(EVE_ACCENTS).flatMap(([name, pair]) => [
+    { name: `${name}/light`, base: pair.light.base, theme: 'light' as const },
+    { name: `${name}/dark`, base: pair.dark.base, theme: 'dark' as const },
+  ]);
+
+  function labelContrast(accentHex: string, theme: 'light' | 'dark'): number {
+    const accent = parse(accentHex);
+    const maxAccent =
+      theme === 'light'
+        ? mix(accent, parse(SHELL_TEXT_LIGHT), LIGHT_ACCENT_SHARE)
+        : mix(accent, parse(STATIC_WHITE), DARK_ACCENT_SHARE);
+    const surface = parse(theme === 'light' ? SURFACE_LIGHT : SURFACE_DARK);
+    const pillBackground = mix(maxAccent, surface, PILL_TINT);
+    return contrast(maxAccent, pillBackground);
+  }
+
+  it('the CSS uses exactly the lightness mixes this contrast model assumes', () => {
+    // If the stylesheet drifts from the model, the numbers below stop meaning
+    // anything — so the model is pinned to the source, not assumed.
+    expect(css).toContain(
+      `--eve-max-accent: color-mix(in srgb, var(--eve-accent, var(--primary)) ${LIGHT_ACCENT_SHARE * 100}%, var(--eve-shell-text))`
+    );
+    expect(css).toContain(
+      `--eve-max-accent: color-mix(in srgb, var(--eve-accent, var(--primary)) ${DARK_ACCENT_SHARE * 100}%, var(--eve-static-white))`
+    );
+    // The pill tint lives in the send-bar stylesheet, not the token layer.
+    const sendBar = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/renderer/components/chat/UnifiedSendBar.css'),
+      'utf-8'
+    );
+    expect(sendBar).toContain(`color-mix(in srgb, var(--eve-max-accent) ${PILL_TINT * 100}%, transparent)`);
+  });
+
+  it.each(shippedAccents.map((a) => [a.name, a] as const))(
+    '%s: the MAX label clears WCAG AA (4.5:1) on the engaged pill',
+    (_name, accent) => {
+      const ratio = labelContrast(accent.base, accent.theme);
+      expect(ratio, `${accent.name} label contrast ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+    }
+  );
+
+  it('REGRESSION: using the raw accent (the shipped defect) would FAIL in dark', () => {
+    // Guards the fix itself. Before the lightness adjustment the label used the
+    // accent verbatim; this reproduces that and asserts it is genuinely below AA,
+    // so the assertions above cannot pass for a trivial reason.
+    const rawDark = (() => {
+      const accent = parse(EVE_ACCENTS.blue.dark.base);
+      const pill = mix(accent, parse(SURFACE_DARK), PILL_TINT);
+      return contrast(accent, pill);
+    })();
+    expect(rawDark).toBeLessThan(4.5);
+    // ...and the adjusted value clears it.
+    expect(labelContrast(EVE_ACCENTS.blue.dark.base, 'dark')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('the accent stays the SAME COLOUR FAMILY — a lightness change, not a new hue', () => {
+    // A "fix" that swapped hue would pass contrast and fail the brief.
+    for (const accent of shippedAccents) {
+      const base = parse(accent.base);
+      const adjusted =
+        accent.theme === 'light'
+          ? mix(base, parse(SHELL_TEXT_LIGHT), LIGHT_ACCENT_SHARE)
+          : mix(base, parse(STATIC_WHITE), DARK_ACCENT_SHARE);
+      // Channel ORDER (which component dominates) is preserved by a mix toward
+      // a neutral, so the hue family survives.
+      const order = (rgb: number[]): string =>
+        rgb
+          .map((v, i) => [v, i] as const)
+          .sort((x, y) => y[0] - x[0])
+          .map(([, i]) => i)
+          .join('');
+      expect(order([...adjusted]), `${accent.name} hue order changed`).toBe(order([...base]));
     }
   });
 });

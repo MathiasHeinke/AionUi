@@ -22,6 +22,8 @@
  */
 
 import React from 'react';
+import fs from 'node:fs';
+import path from 'node:path';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -54,6 +56,24 @@ vi.mock('react-i18next', () => ({
 import EveMaxToggle from '@/renderer/components/agent/EveMaxToggle';
 import { EVE_MAX_COMPOSER_ATTRIBUTE } from '@/renderer/components/agent/EveMaxToggle';
 import { buildEvePickerGroups, EVE_INFERENCE_TIERS } from '@/common/config/eveInferenceCore';
+
+/** CSS comments legitimately mention selector names; only real rules count. */
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+/** Every selector of every rule in `css` that targets the MAX toggle. */
+function maxToggleSelectors(css: string): string[] {
+  return (stripCssComments(css).match(/^[^{}@]*eve-max-toggle[^{}]*\{/gm) ?? [])
+    .map((head) => head.replace(/\{$/, '').trim())
+    .flatMap((head) => head.split(',').map((s) => s.trim()))
+    .filter((s) => s.length > 0 && s.includes('eve-max-toggle'));
+}
+
+const UNIFIED_SEND_BAR_CSS = fs.readFileSync(
+  path.resolve(__dirname, '../../../packages/desktop/src/renderer/components/chat/UnifiedSendBar.css'),
+  'utf-8'
+);
 
 /** Render the toggle inside a real composer surface, exactly as the send bars do. */
 function renderInComposer(props: { disabled?: boolean } = {}) {
@@ -419,6 +439,64 @@ describe('EveMaxToggle — NO cloud tier nomenclature in the composer (Founder c
     setState({ maxEngaged: true, maxAvailable: true, maxLocked: false, maxState: 'engaged' });
     renderInComposer();
     expect(screen.getByTestId('eve-max-toggle').getAttribute('data-active')).toBe('true');
+  });
+
+  it('R4: EVERY MAX styling rule still matches the button when it is DISABLED/busy', () => {
+    // THE DEFECT THIS EXISTS FOR: Arco's Tooltip, wrapping a DISABLED button,
+    // relocates the button's `className` onto a wrapper span. Reproduced here in
+    // jsdom — the button ends up with only Arco's own classes, so every
+    // `.eve-max-toggle`-keyed rule stops matching in exactly the busy state R1
+    // was filed about (measured in the real app: 67.7->75.7px wide, 32->28px
+    // tall, radius 999->14px, weight 600->400, label contrast 1.50:1).
+    //
+    // So this does NOT assert on the class. It reads the REAL selectors out of
+    // the stylesheet and requires each one to match a real rendered DOM in some
+    // state — including the disabled states. Reverting the CSS to class-keyed
+    // selectors makes the extracted selectors stop matching and turns this red.
+    const maxSelectors = maxToggleSelectors(UNIFIED_SEND_BAR_CSS)
+      // Pseudo-classes cannot be matched by querySelector against a static DOM.
+      .filter((s) => !/:hover|:focus-visible/.test(s));
+
+    expect(maxSelectors.length).toBeGreaterThan(4);
+
+    // Render every state the rules target, all in the DISABLED/busy variant.
+    const rendered: Document[] = [];
+    for (const state of [
+      { maxEngaged: true, maxAvailable: true, maxLocked: false, maxState: 'engaged' as const },
+      { maxEngaged: false, maxAvailable: false, maxLocked: true, maxState: 'locked' as const },
+      { maxEngaged: false, maxAvailable: true, maxLocked: false, maxState: 'available' as const },
+    ]) {
+      setState(state);
+      const view = renderInComposer({ disabled: true });
+      const button = screen.getByTestId('eve-max-toggle');
+      // The precondition, asserted so the test cannot quietly stop exercising
+      // the relocation: this IS the disabled path.
+      expect(button.hasAttribute('disabled')).toBe(true);
+      rendered.push(document.cloneNode(true) as Document);
+      view.unmount();
+    }
+
+    for (const selector of maxSelectors) {
+      const matchedSomewhere = rendered.some((doc) => doc.querySelector(selector) !== null);
+      expect(matchedSomewhere, `MAX rule never matches a disabled button: ${selector}`).toBe(true);
+    }
+  });
+
+  it('R4: the sizing + colour hooks are attribute/anchor based, not class based', () => {
+    // Cheap structural guard next to the behavioural one above: the two hooks
+    // that survive Arco's relocation must actually be what the rules use.
+    for (const selector of maxToggleSelectors(UNIFIED_SEND_BAR_CSS)) {
+      {
+        // Either it scopes through our own anchor span, or it targets our own
+        // inner label/content class — both survive the wrapper. What must NOT
+        // appear is a bare `.eve-max-toggle` on the button itself.
+        const usesSurvivingHook =
+          selector.includes('.eve-max-toggle-anchor') ||
+          selector.includes('.eve-max-toggle__label') ||
+          selector.includes('.eve-max-toggle__content');
+        expect(usesSurvivingHook, `class-keyed MAX selector will die on disabled: ${selector}`).toBe(true);
+      }
+    }
   });
 
   it('the composer exposes EXACTLY ONE cloud-intelligence affordance', () => {

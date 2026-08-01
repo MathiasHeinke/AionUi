@@ -139,11 +139,22 @@ describe('MAX lane labels resolve through i18n', () => {
     expect(en).toMatch(/paid plan|credits/i);
   });
 
+  it('the removed intelligence row leaves NO orphaned key behind, in EITHER locale', () => {
+    // The EVE menu's old first row ("Wie EVE arbeitet → Automatisch") was a
+    // cloud-intelligence statement wearing a friendlier word. Deleting the row
+    // without deleting its key would leave the vocabulary shipping in the
+    // bundle, ready to be re-mounted by the next person who greps for it.
+    for (const lng of ['de-DE', 'en-US'] as const) {
+      inst.changeLanguage(lng);
+      expect(inst.exists('conversation.eveControl.howEveWorks'), `orphan key still in ${lng}`).toBe(false);
+    }
+  });
+
   it('the pre-existing eveInference keys still resolve (no bundle was clobbered)', () => {
     for (const lng of ['de-DE', 'en-US'] as const) {
       inst.changeLanguage(lng);
       expect(inst.exists('conversation.eveInference.needsActivation')).toBe(true);
-      expect(inst.exists('conversation.eveControl.howEveWorks')).toBe(true);
+      expect(inst.exists('conversation.eveControl.privacy')).toBe(true);
     }
   });
 });

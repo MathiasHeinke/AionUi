@@ -345,30 +345,36 @@
 /* ---------------------------------------------------------------------------
  * MAX lane toggle.
  *
- * Three defects from real-app QA are closed here, and all three came from the
- * control borrowing `agent-mode-compact-pill` + Arco's `type='primary'`:
+ * SELECTOR CHOICE IS THE LOAD-BEARING PART (R4). Arco's Tooltip, when it wraps a
+ * DISABLED button, relocates the button's `className` onto a wrapper span. So in
+ * the busy state the button no longer carries `.eve-max-toggle` at all and every
+ * class-based rule silently stops matching — measured: 67.7px -> 75.7px wide,
+ * 32px -> 28px tall, radius 999px -> 14px, weight 600 -> 400, and the label back
+ * to an illegible 1.50:1. That is precisely the state R1 was filed about, so a
+ * class-keyed fix "closed" the bug everywhere except where it mattered.
  *
- *   R2 HIT TARGET: the shared pill rule above clamps EVERY control in this bar
- *      to a 32x32 icon footprint AND hides its text. MAX is the only pill with
- *      a word in it, so it rendered ~52px of content inside a 32px layout box
- *      and overflowed ~10px each side — `elementFromPoint` at the label's edge
- *      returned the NEIGHBOURING control. It therefore opts out of that rule
- *      entirely and sizes itself.
+ * These rules therefore key off things that SURVIVE the relocation:
+ *   - `.eve-max-toggle-anchor`, a span this component owns and Arco never touches;
+ *   - `[data-testid='eve-max-toggle']` / `[data-active]` / `[data-locked]`, which
+ *     are real DOM attributes that ride along with the button.
+ * Two-hook selectors also land at (0,3,0), above Arco's two-class disabled rules,
+ * so the outcome does not depend on stylesheet order.
  *
- *   R1 CONTRAST: with `type='primary'` + Arco's two-class disabled rule, the
- *      bar's own colour declaration lost the specificity contest (it is written
- *      through `:where()`, which contributes zero), leaving white text on a
- *      near-white composer while busy — the wordmark vanished. Colour here is
- *      declared on the element's OWN class, so it wins on its own merits and
- *      the disabled state keeps a legible, theme-aware colour.
- *
- *   R3 FEEDBACK: `type='primary'` was overridden away, so pressing MAX changed
- *      nothing on the pill. Engagement is now expressed by a real, visible
- *      accent tied to `data-active`.
+ * Also closed here:
+ *   R2 HIT TARGET — the shared pill rule clamps every control in this bar to a
+ *      32x32 icon footprint AND hides its text. MAX is the only pill with a word
+ *      in it, so it rendered ~52px of content inside a 32px box and overflowed
+ *      ~10px each side, stealing the neighbour's hit target. It sizes itself.
+ *   R3 FEEDBACK — engagement is expressed by a real accent tied to `data-active`
+ *      (what the wire will serve), not by Arco's `type='primary'`, which the bar
+ *      overrode away to nothing.
  * ------------------------------------------------------------------------ */
-.unified-send-bar .eve-max-toggle.arco-btn,
-.unified-send-bar .eve-max-toggle.arco-btn-secondary,
-.unified-send-bar .eve-max-toggle.arco-btn-default {
+.unified-send-bar .eve-max-toggle-anchor {
+  height: var(--eve-composer-control-size);
+  flex: 0 0 auto;
+}
+
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'] {
   width: auto !important;
   min-width: auto !important;
   height: var(--eve-composer-control-size) !important;
@@ -379,73 +385,75 @@
   background: transparent !important;
   box-shadow: none !important;
   color: var(--eve-composer-control-color) !important;
-  font-weight: 600;
+  font-weight: 600 !important;
+  font-size: 12px !important;
   letter-spacing: 0.02em;
 }
 
-/* The shared rule collapses .arco-btn-content to the icon box and hides labels;
-   MAX needs its word, so it restores an auto-width content box. */
-.unified-send-bar .eve-max-toggle .arco-btn-content {
+/* The content box. NOTE: this button renders NO `.arco-btn-content` wrapper in
+   either state — a rule targeting one was dead code, caught by the R4 test in
+   EveMaxToggle.dom.test.tsx, which requires every MAX rule to match a real
+   rendered DOM. The component's own `__content` span is the real hook. */
+.unified-send-bar .eve-max-toggle-anchor .eve-max-toggle__content {
   width: auto;
-  min-width: 0;
   height: auto;
   padding: 0;
   overflow: visible;
-}
-
-.unified-send-bar .eve-max-toggle .arco-btn-content > span,
-.unified-send-bar .eve-max-toggle .eve-max-toggle__content {
-  width: auto;
-  height: auto;
   justify-content: center;
 }
 
-.unified-send-bar .eve-max-toggle .eve-max-toggle__label {
+.unified-send-bar .eve-max-toggle-anchor .eve-max-toggle__label {
   display: inline !important;
   font-size: 12px;
   line-height: 1;
 }
 
-.unified-send-bar .eve-max-toggle.arco-btn:hover,
-.unified-send-bar .eve-max-toggle.arco-btn:focus-visible {
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle']:hover,
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle']:focus-visible {
   background: var(--eve-composer-control-hover) !important;
   color: var(--eve-shell-text, var(--color-text-1)) !important;
 }
 
-/* ENGAGED (and actually running): the one piece of feedback the control owes
-   the user. Uses the same MAX accent the composer re-points to, so the pill and
-   the surface read as one state rather than two unrelated cues. */
-.unified-send-bar .eve-max-toggle.arco-btn[data-active='true'],
-.unified-send-bar .eve-max-toggle.arco-btn-secondary[data-active='true'] {
+/* ENGAGED **and actually running** — keyed on data-active, never data-engaged:
+   a lapsed seat keeps its intent but the wire clamps, so the pill must not light
+   up for a lane that is not serving. Shares the composer's MAX accent so pill and
+   surface read as one state. */
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-active='true'] {
   background: color-mix(in srgb, var(--eve-max-accent) 16%, transparent) !important;
   border-color: color-mix(in srgb, var(--eve-max-accent) 46%, transparent) !important;
   color: var(--eve-max-accent) !important;
 }
 
-.unified-send-bar .eve-max-toggle.arco-btn[data-active='true']:hover {
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-active='true']:hover {
   background: color-mix(in srgb, var(--eve-max-accent) 24%, transparent) !important;
 }
 
 /* LOCKED: readable, not shouty, and never invisible. */
-.unified-send-bar .eve-max-toggle.arco-btn[data-locked='true'] {
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-locked='true'] {
   color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 46%, transparent) !important;
 }
 
-/* DISABLED (busy). Declared on the element's own classes so it beats Arco's
-   disabled rule on specificity instead of relying on !important alone — this is
-   the exact contest the white-on-white regression lost. */
-.unified-send-bar .eve-max-toggle.arco-btn.arco-btn-disabled,
-.unified-send-bar .eve-max-toggle.arco-btn[disabled],
-.unified-send-bar .eve-max-toggle.arco-btn-disabled[data-active='true'],
-.unified-send-bar .eve-max-toggle.arco-btn[disabled][data-active='true'] {
-  color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 40%, transparent) !important;
+/* DISABLED (busy) — THE state R4 is about. Reached via [disabled] and via Arco's
+   own disabled class, and written on surviving attributes so it still applies
+   after the className has been moved off the button. */
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][disabled],
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'].arco-btn-disabled {
+  color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 62%, transparent) !important;
   background: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 5%, transparent) !important;
   border-color: transparent !important;
   opacity: 1 !important;
 }
 
+/* Busy but ACTIVE keeps the accent (dimmed by the shared disabled background),
+   so going busy never makes the engaged lane unreadable or ambiguous. */
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-active='true'][disabled],
+.unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'][data-active='true'].arco-btn-disabled {
+  color: var(--eve-max-accent) !important;
+  background: color-mix(in srgb, var(--eve-max-accent) 12%, transparent) !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .unified-send-bar .eve-max-toggle.arco-btn {
+  .unified-send-bar .eve-max-toggle-anchor [data-testid='eve-max-toggle'] {
     transition: none !important;
   }
 }
