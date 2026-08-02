@@ -1,7 +1,25 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import fs from 'node:fs';
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAutoTitle } from '@/renderer/hooks/chat/useAutoTitle';
 import type { TMessage } from '@/common/chat/chatLib';
+
+/**
+ * R2 ON THE CLIENT: the auto-title lane draws NO cloud inference.
+ *
+ * This file used to prove the opposite. It asserted that `generateCloudTitle`
+ * was invoked once per new conversation — a passing test pinning an UNMETERED
+ * OpenRouter call as correct behaviour. The server lane behind it (`eve-title`)
+ * verified only a licence signature, so a cancelled or revoked tenant drew it,
+ * and the desktop fired it on the first exchange of EVERY new conversation.
+ *
+ * The lane is retired. Titles are derived locally from the already-metered
+ * conversation, which is what users saw whenever the cloud call failed anyway.
+ * The mocks below deliberately still EXPOSE a `generateCloudTitle` provider: if
+ * the hook ever reaches for one again, the "no cloud call" test reddens instead
+ * of the mock quietly throwing an unrelated TypeError.
+ */
 
 const {
   getConversationMessagesMock,
@@ -27,6 +45,7 @@ vi.mock('@/common', () => ({
       },
     },
     commandEve: {
+      // Present on purpose — see the header. A hook that calls it fails the gate.
       generateCloudTitle: {
         invoke: generateCloudTitleMock,
       },
@@ -70,88 +89,80 @@ const textMessage = (position: 'left' | 'right', content: string): TMessage =>
 describe('useAutoTitle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getConversationOrNullMock.mockResolvedValue({ id: 'conv-title-cloud-only', name: 'Bitte plane den Launch' });
+    getConversationOrNullMock.mockResolvedValue({ id: 'conv-1', name: 'New Conversation' });
     getConversationMessagesMock.mockResolvedValue({
       items: [textMessage('right', 'Bitte plane den Launch'), textMessage('left', 'Ich erstelle einen Launchplan.')],
     });
-    generateCloudTitleMock.mockResolvedValue({ data: { ok: false, reason_code: 'TITLE_CLOUD_TIMEOUT' } });
+    generateCloudTitleMock.mockResolvedValue({ data: { ok: true, title: 'Ein Cloud-Titel' } });
     generateLocalTitleMock.mockResolvedValue({ data: { ok: true, title: 'Lokaler Gemma Titel' } });
     conversationUpdateMock.mockResolvedValue(true);
   });
 
-  it('does not fall back to local Gemma when cloud title generation fails', async () => {
+  it('derives the title locally from the first user message', async () => {
     const { result } = renderHook(() => useAutoTitle());
 
     await act(async () => {
-      await result.current.checkAndUpdateTitle('conv-title-cloud-only', 'Bitte plane den Launch');
+      await result.current.checkAndUpdateTitle('conv-1', 'Bitte plane den Launch');
     });
 
     await waitFor(() => {
-      expect(generateCloudTitleMock).toHaveBeenCalledTimes(1);
+      expect(conversationUpdateMock).toHaveBeenCalledWith({
+        id: 'conv-1',
+        updates: { name: 'Bitte plane den Launch' },
+      });
     });
-    expect(generateLocalTitleMock).not.toHaveBeenCalled();
-    expect(conversationUpdateMock).not.toHaveBeenCalled();
+    expect(emitterEmitMock).toHaveBeenCalledWith('chat.history.refresh');
   });
 
-  it('uses the AionCore cursor-page contract for cloud title exchange detection', async () => {
-    generateCloudTitleMock.mockResolvedValue({ data: { ok: true, title: 'Launchplan erstellen' } });
-
+  it('draws NO cloud inference for a title — not the retired cloud lane, not local Gemma', async () => {
+    // The load-bearing R2 assertion. Both providers are mocked and available;
+    // the hook must reach for neither. Restoring the retired upgrade path turns
+    // this red.
     const { result } = renderHook(() => useAutoTitle());
 
     await act(async () => {
-      await result.current.checkAndUpdateTitle('conv-title-query-shape', 'Bitte plane den Launch');
-    });
-
-    await waitFor(() => {
-      expect(generateCloudTitleMock).toHaveBeenCalledTimes(1);
-    });
-    expect(getConversationMessagesMock).toHaveBeenCalledWith({
-      conversation_id: 'conv-title-query-shape',
-      limit: 200,
-    });
-    expect(conversationUpdateMock).toHaveBeenCalledWith({
-      id: 'conv-title-query-shape',
-      updates: { name: 'Launchplan erstellen' },
-    });
-  });
-
-  it('does not overwrite a manually renamed conversation title', async () => {
-    getConversationOrNullMock.mockResolvedValue({ id: 'conv-manual-title', name: 'Manueller Kundentitel' });
-    generateCloudTitleMock.mockResolvedValue({ data: { ok: true, title: 'Launchplan erstellen' } });
-
-    const { result } = renderHook(() => useAutoTitle());
-
-    await act(async () => {
-      await result.current.checkAndUpdateTitle('conv-manual-title', 'Bitte plane den Launch');
+      await result.current.checkAndUpdateTitle('conv-1', 'Bitte plane den Launch');
     });
 
     expect(generateCloudTitleMock).not.toHaveBeenCalled();
-    expect(conversationUpdateMock).not.toHaveBeenCalled();
+    expect(generateLocalTitleMock).not.toHaveBeenCalled();
   });
 
-  it('upgrades a default conversation after setting the heuristic baseline title', async () => {
-    getConversationOrNullMock
-      .mockResolvedValueOnce({ id: 'conv-default-title', name: 'New Conversation' })
-      .mockResolvedValue({ id: 'conv-default-title', name: 'Bitte plane den Launch' });
-    generateCloudTitleMock.mockResolvedValue({ data: { ok: true, title: 'Launchplan erstellen' } });
-
+  it('does not rename a conversation the user already titled', async () => {
+    getConversationOrNullMock.mockResolvedValue({ id: 'conv-2', name: 'Mein eigener Titel' });
     const { result } = renderHook(() => useAutoTitle());
 
     await act(async () => {
-      await result.current.checkAndUpdateTitle('conv-default-title', 'Bitte plane den Launch');
+      await result.current.checkAndUpdateTitle('conv-2', 'Bitte plane den Launch');
     });
 
-    await waitFor(() => {
-      expect(conversationUpdateMock).toHaveBeenCalledTimes(2);
+    expect(conversationUpdateMock).not.toHaveBeenCalled();
+    expect(generateCloudTitleMock).not.toHaveBeenCalled();
+  });
+
+  it('leaves the conversation alone when history yields no usable title', async () => {
+    getConversationMessagesMock.mockResolvedValue({ items: [] });
+    const { result } = renderHook(() => useAutoTitle());
+
+    await act(async () => {
+      await result.current.checkAndUpdateTitle('conv-3', '');
     });
-    expect(conversationUpdateMock).toHaveBeenNthCalledWith(1, {
-      id: 'conv-default-title',
-      updates: { name: 'Bitte plane den Launch' },
-    });
-    expect(conversationUpdateMock).toHaveBeenNthCalledWith(2, {
-      id: 'conv-default-title',
-      updates: { name: 'Launchplan erstellen' },
-    });
-    expect(emitterEmitMock).toHaveBeenCalledWith('chat.history.refresh');
+
+    expect(conversationUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('the hook source contains no cloud-title call site at all', () => {
+    // Behavioural absence proves the current code path. This proves the SHAPE:
+    // a future edit cannot reintroduce the call behind a condition these mocks
+    // happen not to trigger.
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/renderer/hooks/chat/useAutoTitle.ts'),
+      'utf-8'
+    );
+    expect(source).not.toContain('generateCloudTitle');
+    expect(source).not.toContain('generateLocalTitle');
+    expect(source).not.toContain('prepareCloudAutoTitleText');
+    // Anti-vacuity: the file must actually be the hook we think it is.
+    expect(source).toContain('deriveAutoTitleFromMessages');
   });
 });

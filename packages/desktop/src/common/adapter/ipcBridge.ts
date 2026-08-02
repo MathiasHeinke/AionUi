@@ -53,7 +53,6 @@ import type {
   UpdateProviderRequest,
 } from '../types/provider/providerApi';
 import type { CommandEveLocalSttRequest, SpeechToTextRequest, SpeechToTextResult } from '../types/provider/speech';
-import type { CommandEveCloudTitleRequest, CommandEveCloudTitleResult } from '../config/eveTitleCore';
 import type {
   CommandEveMultimodalTtsConsentBridgeResult,
   CommandEveMultimodalTtsConsentSetRequest,
@@ -1851,11 +1850,6 @@ export const commandEve = {
     IBridgeResponse<ICommandEveLocalTitleResult>,
     { text: string; locale?: 'de-DE' | 'en-US' }
   >('command-eve.generate-local-title'),
-  // Auto session-title cloud lane: MAIN calls the app-billed eve-title Edge
-  // Function with the CEVE bearer. Renderer never sees the bearer or org key.
-  generateCloudTitle: bridge.buildProvider<IBridgeResponse<CommandEveCloudTitleResult>, CommandEveCloudTitleRequest>(
-    'command-eve.generate-cloud-title'
-  ),
   // Command EVE cloud TTS: MAIN proxies to eve-multimodal with the CEVE bearer.
   // Renderer receives only a validated audio artifact, never the license wire or
   // a provider key. This is a prepared seam; UI activation remains privacy-gated.

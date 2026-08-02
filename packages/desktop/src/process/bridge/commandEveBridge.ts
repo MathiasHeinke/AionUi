@@ -115,11 +115,6 @@ import {
   type CreditsTier,
 } from '@/common/config/creditsCore';
 import {
-  prepareCommandEveCloudTitleText,
-  EVE_TITLE_FUNCTION_URL,
-  type CommandEveCloudTitleRequest,
-} from '@/common/config/eveTitleCore';
-import {
   buildCommandEveMultimodalTtsRequest,
   commandEveMultimodalTtsFailure,
   COMMAND_EVE_MULTIMODAL_TTS_CONSENT_GET_CHANNEL,
@@ -1730,70 +1725,6 @@ export function initCommandEveBridge(): void {
         };
       }
     });
-
-  // Auto session-title cloud lane (1.7.4): MAIN reads the CEVE license-wire from
-  // keychain and calls the app-billed eve-title Edge Function. This is NOT the
-  // metered eve-inference lane and it never draws seat credits. Best-effort:
-  // any auth/network/backend error returns ok:false so the renderer falls back
-  // to local Gemma and then the truncated heuristic title.
-  bridge.buildProvider('command-eve.generate-cloud-title').provider(async (request?: CommandEveCloudTitleRequest) => {
-    const TITLE_TIMEOUT_MS = 12_000;
-    const text = prepareCommandEveCloudTitleText(String(request?.text || ''));
-    if (!text) return { success: false, msg: 'TITLE_NO_TEXT', data: { ok: false, reason_code: 'TITLE_NO_TEXT' } };
-    if (!EVE_TITLE_FUNCTION_URL) {
-      return { success: false, msg: 'TITLE_CLOUD_NO_URL', data: { ok: false, reason_code: 'TITLE_CLOUD_NO_URL' } };
-    }
-
-    const wireResult = readLicenseWire(getDataPath());
-    if (!wireResult.ok || !wireResult.wire) {
-      return {
-        success: false,
-        msg: wireResult.reason_code || 'TITLE_CLOUD_NO_BEARER',
-        data: { ok: false, reason_code: wireResult.reason_code || 'TITLE_CLOUD_NO_BEARER' },
-      };
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TITLE_TIMEOUT_MS);
-    try {
-      const response = await fetch(EVE_TITLE_FUNCTION_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${wireResult.wire}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        redirect: 'error',
-        body: JSON.stringify({
-          text,
-          locale: request?.locale === 'en-US' ? 'en-US' : 'de-DE',
-        }),
-        signal: controller.signal,
-      });
-      const raw = (await response.json().catch((): null => null)) as {
-        ok?: unknown;
-        title?: unknown;
-        error?: unknown;
-      } | null;
-      if (!response.ok || !raw || raw.ok !== true || typeof raw.title !== 'string' || !raw.title.trim()) {
-        const reason = typeof raw?.error === 'string' ? raw.error : `TITLE_CLOUD_HTTP_${response.status}`;
-        return { success: false, msg: reason, data: { ok: false, reason_code: reason } };
-      }
-      return { success: true, data: { ok: true, title: raw.title.trim() } };
-    } catch (error) {
-      return {
-        success: false,
-        msg: error instanceof Error ? error.message : 'TITLE_CLOUD_FAILED',
-        data: {
-          ok: false,
-          reason_code:
-            error instanceof Error && error.name === 'AbortError' ? 'TITLE_CLOUD_TIMEOUT' : 'TITLE_CLOUD_FAILED',
-        },
-      };
-    } finally {
-      clearTimeout(timer);
-    }
-  });
 
   // Cloud TTS (1.7.x multimodal seam): MAIN is the only process allowed to call
   // eve-multimodal with the CEVE license bearer. The renderer gets a sanitized
