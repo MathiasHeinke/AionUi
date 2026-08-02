@@ -5,15 +5,26 @@
  */
 
 /**
- * The fair-use DAILY-CAP wall. Sibling of QuotaExhaustedWall, but for a
- * different signal: not "your wallet is empty" (402) but "this access hit its
- * per-day fair-use ceiling" (429). It is an ABUSE cap, not an allowance — the
- * server's own note on the counter reads "Not a free allowance: every turn it
- * lets through is still metered".
+ * The UPSTREAM RATE-LIMIT wall. Sibling of QuotaExhaustedWall, but for a different
+ * signal: not "your wallet is empty" (402) but "the provider is throttling this
+ * access right now" (429).
  *
- * NEVER a buy link. This wall does not sell, and not out of politeness: buying
- * credits does not lift a fair-use cap, so a purchase CTA here would take money
- * for something it cannot deliver. It states the fact and closes. It reuses the same
+ * IT USED TO CLAIM A DAILY CAP THAT DOES NOT EXIST (fixed 1.820.2). The copy read
+ * "Für heute ist das Fair-Use-Tageslimit dieses Zugangs erreicht. Es setzt sich morgen
+ * zurück" / "It resets tomorrow", citing a per-user daily counter on the server. That
+ * counter has been deleted: it sat behind an `if (deps.usage)` guard the production
+ * entrypoint never satisfied, so it had never once fired and could not have produced
+ * this 429. Every 429 that reaches this wall is UPSTREAM rate limiting — about request
+ * RATE, over minutes, not a day — so "resets tomorrow" was a promise nothing kept, and
+ * a user who waited a day was told to wait for nothing.
+ *
+ * The file, the component and the `eve_daily_cap` discriminator keep their names on
+ * purpose: renaming them touches eight files and a set of i18n keys without changing a
+ * word the user reads. That is naming debt, recorded here, not a live claim.
+ *
+ * NEVER a buy link. This wall does not sell, and not out of politeness: buying credits
+ * does not lift someone else's rate limit, so a purchase CTA here would take money for
+ * something it cannot deliver. It states the fact and closes. It reuses the same
  * idle-suppression gate as the 402 wall (an idle wall has no purpose), so it
  * surfaces only when a turn was actually in flight.
  */
@@ -44,12 +55,12 @@ const DailyCapWall: React.FC<DailyCapWallProps> = ({ reached, jobInFlight, onClo
     <Modal visible title={null} footer={null} onCancel={onClose} maskClosable className='daily-cap-wall' escToExit>
       <div className='daily-cap-wall__body' data-testid='daily-cap-wall'>
         <h2 className='daily-cap-wall__title text-18px font-700 text-t-primary' data-testid='daily-cap-wall-title'>
-          {t('credits.dailyCap.title', { defaultValue: 'Tageslimit erreicht' })}
+          {t('credits.dailyCap.title', { defaultValue: 'Kurz ausgebremst' })}
         </h2>
         <p className='daily-cap-wall__body-text m-t-8px text-14px leading-22px text-t-secondary'>
           {t('credits.dailyCap.body', {
             defaultValue:
-              'Für heute ist das Fair-Use-Tageslimit dieses Zugangs erreicht. Es setzt sich morgen zurück; Anfragen laufen weiterhin über deine Credits. Die lokale KI kannst du jederzeit nutzen.',
+              'Der Modellanbieter hat gerade zu viele Anfragen in kurzer Zeit gesehen und blockt vorübergehend. Versuch es gleich noch einmal — dein Guthaben ist davon nicht betroffen, und die lokale KI kannst du jederzeit nutzen.',
           })}
         </p>
         <div className='daily-cap-wall__actions m-t-16px flex justify-end'>

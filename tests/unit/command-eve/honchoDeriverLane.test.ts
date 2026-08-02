@@ -8,16 +8,19 @@
  * COMPA-624 — the Honcho DERIVER cloud lane on the shim (`POST /honcho/deriver`).
  * This is the SERVER-SIDE enforcement of the two invariants honchoRuntimeConfigCore
  * only NAMES:
- *   MONEY  — the deriver ALWAYS rides the FREE 'standard' tier, picker-independent:
- *            an operator sitting on eve-max (paid) can not make EVE's memory
- *            derivation bill a paid tier.
+ *   MONEY  — the deriver ALWAYS rides the METERED ENTRY rung 'standard',
+ *            picker-independent: an operator sitting on eve-max can not make EVE's
+ *            memory derivation bill a FRONTIER tier. The cap is on what a background
+ *            task may SPEND — never a claim that it spends nothing. 'standard'
+ *            declares consumesCredits: true and its turns are debited like any other.
  *   EGRESS — the deriver text runs through the SAME S11/S13 egress redaction as
  *            chat before any byte reaches the eve-inference function.
- * Plus: fail-closed (503) when no free-lane route/license, and byte-additivity
+ * Plus: fail-closed (503) when no cloud route/license, and byte-additivity
  * (the lane is inert until Honcho is provisioned).
  */
 
 import http, { type IncomingMessage, type ServerResponse } from 'http';
+import { readFileSync } from 'fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   ensureCommandEveShimAuthToken,
@@ -298,5 +301,70 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
     const response = await deriverPost({ model: 'x', messages: [{ role: 'user', content: 'derive' }] });
     expect(response.status).toBe(503);
     expect(seen.hits).toBe(0);
+  });
+
+  // ── THE RETIRED FREE-CLOUD-LANE CONTRACT MAY NOT COME BACK ────────────────────
+  //
+  // Until 1.820.2 this handler was documented AND SPOKE as "the FREE cloud lane": the
+  // JSDoc called it that, the branch was headed "FREE-TIER FORCED", the fail-closed
+  // comment spoke of a missing "free-lane route", and the 503 an operator actually SEES
+  // read "no free-tier route or license". The routing was never wrong; the name was.
+  // 'standard' declares consumesCredits: true — the deriver's turns reserve, call and
+  // debit exactly like a chat turn, so calling this lane free described a lane that has
+  // not existed since the free lane was abolished server-side.
+  //
+  // Two assertions, because only one of them protects the USER:
+  //   (a) the 503 BODY may not call the missing route free. That string is rendered.
+  //   (b) the SOURCE of the deriver lane may not, in code or comment, describe this
+  //       path as free. A comment is where the last one hid, and a comment is what the
+  //       next person writing this handler reads. Comments are therefore IN scope here
+  //       — the opposite choice from the web-copy gate, and for the opposite reason:
+  //       there, a tombstone must be allowed; here, the file IS the doctrine.
+  //
+  // The scan deliberately excludes this test file (it must contain the words to test
+  // for them) and is anchored to the handler + its route registration.
+  it('the 503 body never calls the missing cloud route "free"', async () => {
+    const seen: EveFnSeen = { hits: 0 };
+    const fnUrl = await startFakeEveFunction(seen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      honchoDeriverRoute: () => ({ active: false, functionUrl: fnUrl, license: FAKE_LICENSE }),
+    });
+    const response = await deriverPost({ model: 'x', messages: [{ role: 'user', content: 'derive' }] });
+    expect(response.status).toBe(503);
+    const json = (await response.json()) as { error?: { message?: string } };
+    const message = json.error?.message ?? '';
+    expect(message.length).toBeGreaterThan(0);
+    for (const promise of [/\bfree\b/i, /free-?tier/i, /free-?lane/i, /gratis/i, /kostenlos/i, /umsonst/i]) {
+      expect(message, `the 503 must not describe the cloud route as free: ${promise}`).not.toMatch(promise);
+    }
+  });
+
+  it('the deriver lane SOURCE never describes the metered cloud rung as a free lane', () => {
+    const source = readFileSync(
+      new URL('../../../packages/desktop/src/process/commandEve/ollamaOpenAiShim.ts', import.meta.url),
+      'utf8'
+    );
+    // Anchor on the handler so a rename that moves it out of this file reds here.
+    expect(source).toContain('async function handleHonchoDeriverCompletions(');
+    expect(source).toContain('/honcho/deriver/v1/chat/completions');
+
+    // A FREE-word joined to this lane's vocabulary, on ONE line. Line-scoped so an
+    // unrelated 'free' elsewhere in a 2,500-line file cannot be blamed on the deriver.
+    const LANE = /(deriver|honcho|cloud[- ]?lane|cloud[- ]?flash|standard\/flash|wire tier|forced tier)/i;
+    const FREE = /(\bfree\b|free-?tier|free-?lane|gratis|kostenlos|umsonst)/i;
+    const offenders = source
+      .split('\n')
+      .map((line, i) => ({ line, n: i + 1 }))
+      .filter(({ line }) => LANE.test(line) && FREE.test(line))
+      // 'parse free text' is about UNSTRUCTURED OUTPUT, not price. Exempted by exact
+      // phrase, not by the word, so 'free tier' can never ride in on it.
+      .filter(({ line }) => !/parse free text/i.test(line));
+
+    expect(
+      offenders.map(({ n, line }) => `${n}: ${line.trim()}`),
+      'the deriver lane calls the metered cloud rung free again — it reserves, calls and debits like any other turn'
+    ).toEqual([]);
   });
 });

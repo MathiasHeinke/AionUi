@@ -1002,16 +1002,30 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     expect(response.status).toBe(429);
     expect(json.error?.type).toBe('eve_daily_cap');
-    // INVERTED (1.820.1). This used to require /Tageskontingent/ and /Morgen/ —
-    // it asserted, as a contract, the exact free-quota promise the product does
-    // not keep ("kostenloses Tageskontingent … morgen läuft es automatisch
-    // wieder"). The 429 is a FAIR-USE cap; every turn it lets through is still
-    // credit-metered, so the copy must name the cap and promise nothing free.
-    expect(json.error?.message).toMatch(/Tageslimit/);
-    expect(json.error?.message).toMatch(/Fair-Use/);
+    // INVERTED TWICE, AND THE SECOND TIME IS THE POINT.
+    // v1 required /Tageskontingent/ and /Morgen/ — it asserted as a CONTRACT the exact
+    // free-quota promise the product does not keep. v2 replaced that with a FAIR-USE
+    // DAILY CAP and required /Tageslimit/ + /Fair-Use/ — truthful about price, still
+    // false about mechanism: the only per-user daily cap in the system sat behind an
+    // `if (deps.usage)` guard the production entrypoint never satisfied, so it had
+    // never once fired and could not have produced this 429. It has since been deleted.
+    //
+    // A 429 arriving here is UPSTREAM rate limiting — about request RATE over minutes.
+    // So the copy may not name a DAY, may not promise a RESET, and may not promise
+    // anything free; and it must still say that requests run on credits, because that
+    // is the one thing about this lane that is true and was once denied.
     expect(json.error?.message).toMatch(/Credits/);
-    for (const promise of [/kostenlos/i, /gratis/i, /Tageskontingent/i, /frei\b/i]) {
-      expect(json.error?.message, `429 copy must not promise: ${promise}`).not.toMatch(promise);
+    for (const lie of [
+      /kostenlos/i,
+      /gratis/i,
+      /Tageskontingent/i,
+      /Tageslimit/i,
+      /frei\b/i,
+      /\bmorgen\b/i,
+      /pro Tag/i,
+      /für heute/i,
+    ]) {
+      expect(json.error?.message, `429 copy must not claim: ${lie}`).not.toMatch(lie);
     }
   });
 

@@ -126,8 +126,8 @@
     "explainer": "1,000 credits = €1 (pack price)"
   },
   "dailyCap": {
-    "title": "Daily limit reached",
-    "body": "This access has hit its fair-use daily limit for today. It resets tomorrow; requests are still billed from your credits. You can use the local AI any time.",
+    "title": "Briefly rate-limited",
+    "body": "The model provider is throttling this access after too many requests in a short time. Try again shortly — your credit balance is unaffected, and you can use the local AI any time.",
     "close": "Got it"
   },
   "video": {

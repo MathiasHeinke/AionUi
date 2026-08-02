@@ -196,7 +196,7 @@ describe('honchoRuntimeConfigCore — DERIVER routing', () => {
     expect(d.routeReason).toBe('local-opt-in-ready');
   });
 
-  it('11 — not opted in ⇒ FREE cloud-Flash fallback behind the shim (tier standard, empty key/model)', () => {
+  it('11 — not opted in ⇒ METERED cloud-Flash fallback behind the shim (tier standard, empty key/model)', () => {
     for (const optedIn of [false, undefined] as const) {
       const d = resolveHonchoDeriverConfig({ localModelOptedIn: optedIn, localModelReady: true });
       expect(d.branch).toBe(HONCHO_DERIVER_BRANCH_CLOUD);

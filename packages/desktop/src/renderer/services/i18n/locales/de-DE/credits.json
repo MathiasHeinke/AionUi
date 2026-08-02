@@ -126,8 +126,8 @@
     "explainer": "1.000 Credits = 1 € (Pack-Preis)"
   },
   "dailyCap": {
-    "title": "Tageslimit erreicht",
-    "body": "Für heute ist das Fair-Use-Tageslimit dieses Zugangs erreicht. Es setzt sich morgen zurück; Anfragen laufen weiterhin über deine Credits. Die lokale KI kannst du jederzeit nutzen.",
+    "title": "Kurz ausgebremst",
+    "body": "Der Modellanbieter hat gerade zu viele Anfragen in kurzer Zeit gesehen und blockt vorübergehend. Versuch es gleich noch einmal — dein Guthaben ist davon nicht betroffen, und die lokale KI kannst du jederzeit nutzen.",
     "close": "Alles klar"
   },
   "video": {

@@ -103,12 +103,17 @@ export type ConfigKeyMap = {
   /**
    * COMPA-624 (2026-07-05) — the USER-FACING deriver switch. Honcho's fact-deriver
    * LLM routes by this:
-   *   - 'auto'  (default) ⇒ local Gemma when warm, else the FREE cloud-Flash lane.
+   *   - 'auto'  (default) ⇒ local Gemma when warm, else the METERED cloud-Flash rung.
    *   - 'local' ⇒ PRIVACY-LOCK: derive ONLY on the local model, NEVER the cloud —
    *              a cold model just means derivation waits (memory falls back to
-   *              Company Brain), nothing egresses.
-   *   - 'cloud' ⇒ force the free cloud-Flash lane (convenience over locality).
+   *              Company Brain), nothing egresses, and nothing is billed.
+   *   - 'cloud' ⇒ force the METERED cloud-Flash rung (convenience over locality).
    * Absent ⇒ 'auto'. The memory STORE is always local per-seat Postgres regardless.
+   *
+   * Both cloud branches said "FREE cloud-Flash lane" here until 1.820.2. They are not
+   * free: Standard is the cheapest METERED rung and its turns are debited like any
+   * other. Only the 'local' branch costs nothing, and it costs nothing because the
+   * work never leaves the machine — a fact about locality, not a free tier.
    */
   'commandEve.honchoDeriverMode': 'auto' | 'local' | 'cloud' | undefined;
   'commandEve.localModelTierId': string | undefined;

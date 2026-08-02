@@ -266,13 +266,15 @@ export type CommandEveKanbanAcpReadResolver = () => unknown;
  * COMPA-624 — the Honcho DERIVER cloud lane route resolver. The local Honcho
  * memory server's deriver LLM (the dialectical user-model reasoning, NOT the
  * user's chat) rides a DEDICATED loopback ingress (`POST /honcho/deriver/...`)
- * that is picker-INDEPENDENT and always the FREE Standard/Flash tier.
+ * that is picker-INDEPENDENT and always the METERED Standard/Flash ENTRY rung.
  *
  * This resolver returns ONLY the transport identity — the eve-inference function
  * URL + the CEVE license bearer — and DELIBERATELY carries NO `tier`: the shim
  * forces {@link HONCHO_DERIVER_FORCED_TIER} ('standard') itself, so no caller,
- * picker, or future edit can make EVE's memory-derivation bill a paid tier
+ * picker, or future edit can make EVE's memory-derivation bill a FRONTIER tier
  * (the money invariant, enforced server-side to match honchoRuntimeConfigCore).
+ * 'standard' is the CHEAPEST metered rung, never an unbilled one: it declares
+ * consumesCredits: true, and this lane's turns are debited like any chat turn.
  *
  * `active: false` / omitted ⇒ the deriver lane is INERT (503) — a build without
  * Honcho provisioned behaves byte-identically to before this lane existed.
@@ -1521,14 +1523,19 @@ async function handleEveCloudCompletions(
     // concrete reset/limit we keep its text, otherwise a generic friendly line.
     // Stays OpenAI-error-shaped so the chat renders message verbatim.
     //
-    // IT IS A FAIR-USE CAP, NOT A FREE QUOTA (1.820.1). This line used to read
-    // "EVE hat ihr kostenloses Tageskontingent für heute erreicht … morgen läuft
-    // es automatisch wieder — oder du schaltest mehr Kontingent über die Credits
-    // frei." Three false claims in one sentence: there is no free quota (every
-    // cloud turn is credit-metered), tomorrow is not free, and buying credits does
-    // not lift a fair-use cap. The server's own comment on the cap it returns says
-    // it plainly: "Not a free allowance: every turn it lets through is still
-    // metered." The copy now says what is true and promises nothing.
+    // AND IT IS NOT A DAILY CAP EITHER, BECAUSE THERE IS NO LONGER ONE (1.820.2).
+    // The first fix replaced "EVE hat ihr kostenloses Tageskontingent für heute
+    // erreicht … morgen läuft es automatisch wieder" with a fair-use-cap wording,
+    // because there is no free quota. That removed the free-lane lie but kept a
+    // second one: it still named a per-user DAILY CAP as the thing that fired. The
+    // server-side cap it referred to has since been deleted — it sat behind an
+    // `if (deps.usage)` guard the production entrypoint never satisfied, so it had
+    // never once executed and could not have produced this 429.
+    //
+    // A 429 on this path therefore comes from UPSTREAM rate limiting, which is about
+    // request RATE, not a daily allowance and not the wallet. So the copy names that
+    // and nothing else: no cap number, no reset time, no promise that credits lift it.
+    // (The wallet has its own refusal and it is a 402, not this.)
     if (upstream.status === 429) {
       let upstreamMessage = '';
       try {
@@ -1538,15 +1545,22 @@ async function handleEveCloudCompletions(
         upstreamMessage = '';
       }
       // Scrubbed: the quoted upstream sentence is the exact place a provider
-      // slug reaches the chat on a daily-cap turn.
+      // slug reaches the chat on a rate-limited turn.
       // Same deny-list as the body scrub — this quoted sentence is echoed into the
       // chat verbatim, so shape-only would leak a bare model name here too.
       const safeUpstreamMessage = scrubModelIdentifiers(upstreamMessage, EVE_SERVED_MODEL_IDENTIFIERS);
       const friendly =
-        'EVE hat für heute das Tageslimit dieses Zugangs erreicht (Fair-Use-Schutz). ' +
-        'Versuch es später noch einmal — Anfragen laufen wie immer über deine Credits.' +
+        'EVE wurde gerade vom Anbieter ausgebremst (zu viele Anfragen in kurzer Zeit). ' +
+        'Versuch es gleich noch einmal — Anfragen laufen wie immer über deine Credits.' +
         (safeUpstreamMessage ? ` (${safeUpstreamMessage})` : '');
       response.writeHead(429, { 'content-type': 'application/json' });
+      // The `eve_daily_cap` DISCRIMINATOR keeps its name deliberately. It is an
+      // internal signal the renderer switches on (creditsCore.detectDailyCapReached ->
+      // useQuotaWall -> the warm wall), not copy anybody reads, and its BEHAVIOUR —
+      // show a warm wall instead of a raw error on any upstream 429 — is correct and
+      // wanted. Renaming it touches eight files and a set of i18n keys for no change in
+      // what the user is told. It is naming debt, and it is named as such rather than
+      // half-renamed: what the user READS is fixed above and in DailyCapWall.
       response.end(JSON.stringify({ error: { message: friendly, type: 'eve_daily_cap', code: 429 } }));
       return;
     }
@@ -1575,15 +1589,36 @@ async function handleEveCloudCompletions(
 
 /**
  * COMPA-624 — the Honcho DERIVER cloud lane. A DEDICATED ingress the local Honcho
- * memory server points its deriver LLM at when it falls back to the FREE cloud
- * lane (no local Gemma). It is deliberately SEPARATE from the chat lane:
+ * memory server points its deriver LLM at when it CANNOT run locally (no local
+ * Gemma). It is deliberately SEPARATE from the chat lane:
+ *
+ * EVERY CLOUD TURN ON THIS PATH IS METERED, AND THIS BLOCK USED TO SAY OTHERWISE.
+ * Four places in this handler — the summary line, the wire-tier bullet, the
+ * fail-closed comment, and the 503 message an operator actually SEES — described this
+ * path and its route with the vocabulary of a lane that costs nothing. The routing is
+ * unchanged and correct; what was false is what it was called. The retired wording is
+ * not reproduced here, because this file is what the next person to edit this handler
+ * reads, and a quoted phrase travels just as well as an asserted one (a source guard
+ * in honchoDeriverLane.test.ts enforces that). The rung this pins, Standard, declares
+ * `consumesCredits: true` in eveInferenceCore: the deriver's turns reserve, call and
+ * debit exactly like a chat turn. Calling the entry rung "free" is how a metered lane
+ * comes to look like an entitlement, and it is the same ghost this repo has now
+ * exorcised from the server, the funnel and the account page.
+ *
+ * WHAT IS GENUINELY UNBILLED IS THE LOCAL LANE, and nothing here touches it: with
+ * `deriverMode: 'local'` (or 'auto' with a warm opted-in Gemma) derivation never
+ * reaches this handler at all — it goes to loopback Ollama, nothing egresses, and no
+ * credit moves. That is a fact about WHERE the work runs, not a free tier of ours.
+ * BYOK is the same shape on the chat lane. Both survive untouched.
  *
  *  - PICKER-INDEPENDENT: it NEVER calls options.eveRouting(), so it does not
  *    matter what tier the operator picked for their chat — the deriver always
  *    reaches the metered cloud lane (a local-tier picker would otherwise strand it).
- *  - FREE-TIER FORCED: the wire tier is the literal HONCHO_DERIVER_FORCED_TIER
- *    ('standard'), set HERE, never read from a selection. An operator on eve-max
- *    can never make EVE's memory-derivation bill a paid tier (the money invariant).
+ *  - ENTRY-RUNG FORCED: the wire tier is the literal HONCHO_DERIVER_FORCED_TIER
+ *    ('standard' — the CHEAPEST METERED rung, not a free one), set HERE, never read
+ *    from a selection. An operator on eve-max can never make EVE's memory-derivation
+ *    bill a frontier tier (the money invariant runs in that direction: the cap is on
+ *    what a background task may SPEND, not a promise that it spends nothing).
  *  - EGRESS-SAFE: it delegates to handleEveCloudCompletions, so the SAME S11/S13
  *    egress boundary (PII redaction + receipt) runs before any byte leaves the
  *    machine — identical guarantee to chat, per the founder DSGVO requirement.
@@ -1620,18 +1655,19 @@ async function handleHonchoDeriverCompletions(
   const deriverRoute = await options.honchoDeriverRoute();
   const functionUrl = typeof deriverRoute?.functionUrl === 'string' ? deriverRoute.functionUrl.trim() : '';
   const license = typeof deriverRoute?.license === 'string' ? deriverRoute.license.trim() : '';
-  // Fail CLOSED: without an active free-lane route + license the deriver has no
+  // Fail CLOSED: without an active METERED cloud route + license the deriver has no
   // way to authenticate — never egress half-configured. The config core's
   // `ready` gate should already have kept the deriver from starting on this path.
   if (!deriverRoute?.active || functionUrl.length === 0 || license.length === 0) {
     jsonResponse(response, 503, {
-      error: { message: 'Honcho deriver cloud lane is unavailable (no free-tier route or license).' },
+      error: { message: 'Honcho deriver cloud lane is unavailable (no cloud route or license).' },
     });
     return;
   }
-  // FORCE the free Standard/Flash tier — a literal from honchoRuntimeConfigCore,
-  // NEVER the user's picker tier. handleEveCloudCompletions validates it against
-  // KNOWN_EVE_WIRE_TIERS, so a future rename that broke the constant fails loud.
+  // FORCE the Standard/Flash ENTRY rung — the cheapest METERED tier, a literal from
+  // honchoRuntimeConfigCore, NEVER the user's picker tier. handleEveCloudCompletions
+  // validates it against KNOWN_EVE_WIRE_TIERS, so a future rename that broke the
+  // constant fails loud.
   const forcedRoute: CommandEveEveCloudRoute = {
     active: true,
     functionUrl,
@@ -2272,7 +2308,7 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
       })),
     kanbanAcpRead: shimOptions.kanbanAcpRead || ((): unknown => ({ ok: false, reason: 'not-available' })),
     // COMPA-624: default is an INERT deriver lane (503) until main injects the
-    // free-tier route on a seat where Honcho is provisioned — purely additive.
+    // METERED cloud route on a seat where Honcho is provisioned — purely additive.
     honchoDeriverRoute: shimOptions.honchoDeriverRoute || ((): CommandEveHonchoDeriverRoute => ({ active: false })),
     // MAT-1747: default is UNPROVISIONED — empty bearer + inert handler, so
     // `/eve/artifact/call` is a 404 until main injects it. Byte-identical shim
@@ -2313,8 +2349,8 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
         await handleManagedImageGeneration(request, response);
         return;
       }
-      // COMPA-624 — the Honcho deriver's dedicated FREE cloud lane. Separate path
-      // so it is picker-independent + free-tier-forced + never a warmup-ping.
+      // COMPA-624 — the Honcho deriver's dedicated METERED cloud lane. Separate path
+      // so it is picker-independent + entry-rung-forced + never a warmup-ping.
       if (request.method === 'POST' && requestPath === '/honcho/deriver/v1/chat/completions') {
         if (!requireShimAuth(request, response, options.authToken)) return;
         await handleHonchoDeriverCompletions(request, response, options);

@@ -8,7 +8,7 @@
  * COMPA-624 (2026-07-05) — the USER-SWITCHABLE deriver toggle. Proves the pure
  * routing: 'auto' honours the founder-locked local-when-ready-else-cloud rule;
  * 'local' is a PRIVACY-LOCK (always loopback Ollama, NEVER the cloud shim, even when
- * cold); 'cloud' forces the free cloud-Flash lane. Plus the serve deriver env and the
+ * cold); 'cloud' forces the METERED cloud-Flash rung. Plus the serve deriver env and the
  * warm-up-receipt readiness reader.
  */
 
@@ -38,7 +38,7 @@ describe('resolveHonchoDeriverConfig — the deriver switch', () => {
     expect(d.routeReason).toBe('local-opt-in-ready');
   });
 
-  it("'auto' + local NOT ready ⇒ falls to the FREE cloud-Flash shim lane (the crutch)", () => {
+  it("'auto' + local NOT ready ⇒ falls to the METERED cloud-Flash shim rung (the crutch)", () => {
     const d = resolveHonchoDeriverConfig({ deriverMode: 'auto', localModelOptedIn: true, localModelReady: false });
     expect(d.branch).toBe(HONCHO_DERIVER_BRANCH_CLOUD);
     expect(d.baseUrl).toContain('127.0.0.1:25811'); // the loopback shim, never the edge fn
@@ -55,10 +55,10 @@ describe('resolveHonchoDeriverConfig — the deriver switch', () => {
     expect(cold.routeReason).toBe('local-locked');
   });
 
-  it("'cloud' ⇒ forces the free cloud-Flash lane even when a local model is ready", () => {
+  it("'cloud' ⇒ forces the METERED cloud-Flash rung even when a local model is ready", () => {
     const d = resolveHonchoDeriverConfig({ deriverMode: 'cloud', localModelOptedIn: true, localModelReady: true });
     expect(d.branch).toBe(HONCHO_DERIVER_BRANCH_CLOUD);
-    expect(d.forcedTier).toBe(HONCHO_DERIVER_FORCED_TIER); // still hard-pinned to FREE
+    expect(d.forcedTier).toBe(HONCHO_DERIVER_FORCED_TIER); // still hard-pinned to the ENTRY rung
     expect(d.routeReason).toBe('forced-cloud');
   });
 
