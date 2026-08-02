@@ -141,7 +141,11 @@ describe('consequence control — installing eveRouting is what creates the EVE 
     fetch(`${url}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${SHIM_TOKEN}` },
-      body: JSON.stringify({ model: 'x', messages: [{ role: 'user', content: 'hi' }] }),
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'x',
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
     });
 
   it('WITH an active EVE route the request enters the EVE lane (and fails on the missing bearer)', async () => {

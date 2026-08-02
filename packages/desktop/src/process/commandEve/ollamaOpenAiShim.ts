@@ -15,6 +15,13 @@ import {
   type CommandEveEgressPolicyAction,
   type CommandEveSensitivityClass,
 } from './egressBoundaryCore';
+import {
+  COMMAND_EVE_OPERATION_DECISION_HEADER,
+  commandEvePaidSeamRefusalBody,
+  isCommandEvePaidOperation,
+  readCommandEveDeclaredOperation,
+  resolveCommandEvePaidSeam,
+} from './paidOperationRegistryCore';
 import { isLegacySeatId, sanitizeSeatId } from './seatContextCore';
 import { isCommandEveShimPublicError } from './shimPublicError';
 import { evaluateWorkerDispatch, type EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
@@ -1204,8 +1211,22 @@ async function handleEveCloudCompletions(
   // S13 waiver is a CONSCIOUS per-message founder choice; the deriver is AUTOMATIC
   // background reasoning, so it must never auto-send raw secrets/finance/health to
   // the cloud LLM. Omitted/false ⇒ chat behaviour is byte-identical.
-  neverWaiveSecretFloor = false
+  neverWaiveSecretFloor = false,
+  // MAT-1749: the REGISTERED operation this metered call is being made FOR. Defaults
+  // to '' so a call site added later that forgets to declare one fails CLOSED here
+  // rather than inheriting the right to spend.
+  operation = ''
 ): Promise<void> {
+  // THE MONEY CHOKEPOINT. This is the only function in the shim that requests a
+  // metered provider, so this is where the registry must hold — not merely at the
+  // router that happens to call it today. handleChatCompletions already routes
+  // local_only away from here; this assertion is what makes that structural,
+  // guaranteeing no future path can reach a paid provider with an operation the
+  // registry does not list as payable.
+  if (!isCommandEvePaidOperation(operation)) {
+    jsonResponse(response, 403, commandEvePaidSeamRefusalBody(resolveCommandEvePaidSeam(operation, 'shim')));
+    return;
+  }
   const functionUrl = typeof route.functionUrl === 'string' ? route.functionUrl.trim() : '';
   const license = typeof route.license === 'string' ? route.license.trim() : '';
   // HONEST TIER ROUTING (1.2.19): the wire tier is the user's ACTUAL selection,
@@ -1716,7 +1737,11 @@ async function handleHonchoDeriverCompletions(
   };
   // neverWaiveSecretFloor=true (Codex #1): the deriver is automatic background
   // reasoning, so the S3 secret floor holds even on the founder's own legacy seat.
-  await handleEveCloudCompletions(request, body, response, options, forcedRoute, undefined, true);
+  // MAT-1749: the deriver's registry membership is STRUCTURAL. It is declared here,
+  // by the shim, because the caller reached the dedicated deriver ingress — not by
+  // anything the client sent. `body` above is a fresh allowlisted object, so a
+  // client-supplied `eve_operation` was already dropped and cannot borrow this rung.
+  await handleEveCloudCompletions(request, body, response, options, forcedRoute, undefined, true, 'honcho_deriver');
 }
 
 export function localOpenAiPayload(
@@ -1900,15 +1925,49 @@ async function handleChatCompletions(
     const eveRoute = forceLocalVision ? { active: false } : await options.eveRouting(body);
     body.messages = asMessages(body.messages).map(stripManagedVisualTurnAuthorization);
     if (eveRoute?.active) {
-      // Content-free route proof consumed by the bounded compression receipt.
-      // This reveals no model/tier and lets local-only tests prove that the
-      // authenticated loopback shim did not choose an external lane.
-      response.setHeader('x-command-eve-inference-lane', 'eve_cloud');
-      // SG-1 A1: the attribution token rides the X-EVE-Dispatch HEADER, never the
-      // body — so a client that stuffs `body.agent_id` cannot spoof a role.
-      const dispatchToken = headerToken(request.headers['x-eve-dispatch']);
-      await handleEveCloudCompletions(request, body, response, options, eveRoute, dispatchToken);
-      return;
+      // MAT-1749 — THE PAID SEAM. Authenticating WHO called is not authorising WHAT
+      // FOR. Everything above proved the caller holds the loopback nonce; only the
+      // registry decides whether this OPERATION may spend the customer's money.
+      //
+      // Consulted HERE, before any cloud handling, so a refusal costs nothing: no
+      // provider request, no reservation, no debit. Local lanes stay permissive —
+      // this branch is only reached when the resolved route is the METERED one.
+      const seam = resolveCommandEvePaidSeam(readCommandEveDeclaredOperation(body));
+      if (seam.disposition === 'refused') {
+        // ABSENT REFUSES. Until now a missing declaration fell through to a valid
+        // identity, and that default is what billed a customer for a title they
+        // never asked for. An unnamed operation does not get to spend.
+        response.setHeader(COMMAND_EVE_OPERATION_DECISION_HEADER, `refused:${seam.reason}`);
+        jsonResponse(response, 403, commandEvePaidSeamRefusalBody(seam));
+        return;
+      }
+      if (seam.disposition === 'paid') {
+        // Content-free route proof consumed by the bounded compression receipt.
+        // This reveals no model/tier and lets local-only tests prove that the
+        // authenticated loopback shim did not choose an external lane.
+        response.setHeader('x-command-eve-inference-lane', 'eve_cloud');
+        response.setHeader(COMMAND_EVE_OPERATION_DECISION_HEADER, `paid:${seam.operation}`);
+        // SG-1 A1: the attribution token rides the X-EVE-Dispatch HEADER, never the
+        // body — so a client that stuffs `body.agent_id` cannot spoof a role.
+        const dispatchToken = headerToken(request.headers['x-eve-dispatch']);
+        await handleEveCloudCompletions(
+          request,
+          body,
+          response,
+          options,
+          eveRoute,
+          dispatchToken,
+          false,
+          seam.operation
+        );
+        return;
+      }
+      // local_only — a REGISTERED but NON-BILLABLE operation (title_generation,
+      // context_compression). It falls through to the local lanes below and must
+      // NEVER reach the paid one: if local derivation is unavailable the user
+      // simply gets no auto-title, exactly as d5135ec6 decided for the title path
+      // AionUi owned. Silently borrowing the paid lane is the bug, not the fallback.
+      response.setHeader(COMMAND_EVE_OPERATION_DECISION_HEADER, `local_only:${seam.operation}`);
     }
   }
 

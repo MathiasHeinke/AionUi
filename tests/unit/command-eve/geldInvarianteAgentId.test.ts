@@ -100,7 +100,12 @@ describe('A2 Geld-Invariante — pricing tier ⊥ agent_id', () => {
         authorization: `Bearer ${SHIM_AUTH_TOKEN}`,
         'x-eve-dispatch': 'a-valid-token',
       },
-      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+      }),
     });
     return seen.body ?? {};
   }

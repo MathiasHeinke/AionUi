@@ -302,6 +302,11 @@ describe('BYOK — an entitled, SELECTED own-key lane never reaches a metered en
       model: 'gemma4:e4b',
       messages: [{ role: 'user', content: 'write the invoice' }],
       stream: false,
+      // MAT-1749: a real user turn DECLARES itself at the paid seam — the provider
+      // profile stamps this on every main-agent call to the loopback shim. The
+      // control has to model the turn the product actually sends, or it would
+      // silently start measuring the operation allowlist instead of the recorder.
+      eve_operation: 'user_chat_turn',
     });
 
     // The recorder REFUSES the egress (that is its job), so the turn fails — but it

@@ -99,7 +99,12 @@ async function send(header: string | undefined): Promise<Record<string, unknown>
       authorization: `Bearer ${SHIM_AUTH_TOKEN}`,
       ...(header ? { 'x-eve-dispatch': header } : {}),
     },
-    body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
+    body: JSON.stringify({
+      eve_operation: 'user_chat_turn',
+      model: 'm',
+      messages: [{ role: 'user', content: 'hi' }],
+      stream: false,
+    }),
   });
   return seen.body ?? {};
 }

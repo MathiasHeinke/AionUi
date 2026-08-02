@@ -351,7 +351,11 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'spend credits' }] }),
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'm',
+        messages: [{ role: 'user', content: 'spend credits' }],
+      }),
     });
 
     expect(response.status).toBe(401);
@@ -402,7 +406,12 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
-      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'wait' }], stream: false }),
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'm',
+        messages: [{ role: 'user', content: 'wait' }],
+        stream: false,
+      }),
     });
     const payload = (await response.json()) as { error?: { type?: string } };
 
@@ -435,7 +444,12 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       signal: controller.signal,
-      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'cancel' }], stream: false }),
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'm',
+        messages: [{ role: 'user', content: 'cancel' }],
+        stream: false,
+      }),
     });
 
     await upstreamSeen;
@@ -464,6 +478,7 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'Hier ist ein API key: sk-abcdefghijklmnopqrstuvwxyz123456' }],
         stream: false,
@@ -495,6 +510,7 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [
           {
@@ -539,6 +555,7 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'minicpm-v:8b',
         messages: [
           {
@@ -579,6 +596,7 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'minicpm-v:8b',
         messages: [
           {
@@ -626,6 +644,7 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'Use the status tool.' }],
         stream: false,
@@ -673,7 +692,12 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
-      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hello' }], stream: false }),
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'm',
+        messages: [{ role: 'user', content: 'hello' }],
+        stream: false,
+      }),
     });
 
     expect(response.status).toBe(503);
@@ -700,6 +724,7 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'local',
         messages: [{ role: 'user', content: 'hello' }],
         stream: false,
@@ -754,6 +779,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `${marker}\nAnalyze the four-slide deck.` }],
         stream: false,
@@ -787,6 +813,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [
           {
@@ -831,6 +858,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `${marker}\nAnalyze the selected image.` }],
         stream: false,
@@ -866,6 +894,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'plan my week' }],
         stream: false,
@@ -921,6 +950,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
         method: 'POST',
         headers: SHIM_JSON_HEADERS,
         body: JSON.stringify({
+          eve_operation: 'user_chat_turn',
           model: 'custom:command-eve-gemma4-e4b-64k:latest',
           messages: [{ role: 'user', content: 'Synthetic provenance turn.' }],
           stream: false,
@@ -952,6 +982,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [
           {
@@ -993,6 +1024,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'plan my week' }],
         stream: false,
@@ -1054,6 +1086,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'read the config' }],
         stream: false,
@@ -1083,6 +1116,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'audit and repair this complex project' }],
         stream: false,
@@ -1118,6 +1152,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hallo' }],
         stream: false,
@@ -1145,6 +1180,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hi' }],
         stream: false,
@@ -1173,6 +1209,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'local hello' }],
         stream: false,
@@ -1200,6 +1237,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'API key: sk-abcdefghijklmnopqrstuvwxyz123456' }],
         stream: false,
@@ -1230,6 +1268,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [
           { role: 'user', content: 'Leg den Kontakt an.' },
@@ -1272,6 +1311,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hi' }],
         stream: false,
@@ -1300,6 +1340,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hi' }],
         stream: false,
@@ -1323,6 +1364,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hi' }],
         stream: false,
@@ -1368,6 +1410,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hi' }],
         stream: false,
@@ -1400,6 +1443,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hardest task' }],
         stream: false,
@@ -1427,6 +1471,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'think harder' }],
         stream: false,
@@ -1461,6 +1506,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hi' }],
         stream: false,
@@ -1491,6 +1537,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'ping' }],
         max_tokens: 1,
@@ -1524,6 +1571,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
         stream: false,
@@ -1561,6 +1609,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `IBAN DE89 3704 0044 0532 0130 00` }],
         stream: false,
@@ -1597,6 +1646,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `IBAN DE89 3704 0044 0532 0130 00 und ruf ${PHONE} an.` }],
         stream: false,
@@ -1649,6 +1699,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'IBAN DE89 3704 0044 0532 0130 00 zum Testen.' }],
         stream: false,
@@ -1677,6 +1728,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
         stream: false,
@@ -1705,6 +1757,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
         stream: false,
@@ -1737,6 +1790,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
         stream: false,
@@ -1752,7 +1806,20 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
 });
 
 describe('warmCommandEveEveLane — EVE cloud preflight', () => {
-  it('routes the preflight through the shim to the EVE function (NOT a local ping), with bearer + tier', async () => {
+  /**
+   * MAT-1749 CHANGED THIS CONTRACT ON PURPOSE — and it is a product decision, not a
+   * test repair. This preflight used to send a real 1-token turn to the metered
+   * eve-inference function at app start, so every launch on a cloud tier bought a
+   * warm lane with the customer's credits for something the customer never asked
+   * for. That is the same family as the unrequested title this ticket exists to
+   * close, so the preflight is NOT on the registry's paid list and is now refused
+   * before any metered call.
+   *
+   * The seat loses a latency optimisation; it does not lose money. Making it work
+   * again is a ONE-LINE registry decision the founder can take deliberately — it
+   * must not be taken by a test quietly declaring itself a user chat turn.
+   */
+  it('no longer buys a warm cloud lane: the preflight is refused before any metered call', async () => {
     let ollamaSeen = false;
     const ollamaBaseUrl = await startFakeOpenAiServer(() => {
       ollamaSeen = true;
@@ -1768,16 +1835,15 @@ describe('warmCommandEveEveLane — EVE cloud preflight', () => {
 
     const result = await warmCommandEveEveLane({ baseUrl: shimServerUrl, tier: 'standard', timeoutMs: 5_000 });
 
-    expect(result.ok).toBe(true);
-    expect(result.tier).toBe('standard');
-    expect(result.status).toBe(200);
-    // The EVE function — not Ollama — was warmed (preflight is NOT classified as a ping).
-    expect(fnSeen.authHeader).toBe(`Bearer ${FAKE_LICENSE}`);
-    expect(fnSeen.body?.tier).toBe('standard');
+    // THE MONEY CLAIM: the metered function was never called, so a launch cannot bill.
+    expect(fnSeen.body).toBeUndefined();
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(403);
+    // And it did not quietly warm the local model instead — it simply did nothing.
     expect(ollamaSeen).toBe(false);
   });
 
-  it('is fail-soft when the EVE license is missing (reports ok:false + 401, never throws)', async () => {
+  it('stays fail-soft when the EVE license is missing (reports ok:false, never throws)', async () => {
     const fnSeen: EveFnSeen = {};
     const fnUrl = await startFakeEveFunction(fnSeen);
 
@@ -1789,9 +1855,12 @@ describe('warmCommandEveEveLane — EVE cloud preflight', () => {
 
     const result = await warmCommandEveEveLane({ baseUrl: shimServerUrl, tier: 'standard', timeoutMs: 5_000 });
 
+    // Startup must survive a refusal: fail-soft result, no throw.
     expect(result.ok).toBe(false);
-    expect(result.status).toBe(401);
-    // Fail-closed at the shim: no unauthenticated request reached the function.
+    // The operation seam now answers BEFORE the license check, so an unregistered
+    // preflight is refused (403) rather than reported as an auth problem (401).
+    expect(result.status).toBe(403);
+    // Fail-closed at the shim: no request reached the function.
     expect(fnSeen.body).toBeUndefined();
   });
 
@@ -1827,6 +1896,7 @@ describe('Command EVE shim — per-seat usage attribution (A3)', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'm',
         messages: [{ role: 'user', content: 'hi' }],
         stream: false,
@@ -1853,7 +1923,12 @@ describe('Command EVE shim — per-seat usage attribution (A3)', () => {
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
-      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+      }),
     });
 
     expect(fnSeen.body?.seat_id).toBe('seat-1');
@@ -1874,6 +1949,7 @@ describe('Command EVE shim — per-seat usage attribution (A3)', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'm',
         messages: [{ role: 'user', content: 'hi' }],
         stream: false,
@@ -1902,7 +1978,12 @@ describe('Command EVE shim — per-seat usage attribution (A3)', () => {
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
-      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+      }),
     });
 
     expect(fnSeen.body?.seat_id).toBe(seatUuid);
@@ -1933,6 +2014,7 @@ describe('Command EVE shim — A1 attribution spoof-close (SG-1)', () => {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'm',
         messages: [{ role: 'user', content: 'hi' }],
         stream: false,
@@ -1962,6 +2044,7 @@ describe('Command EVE shim — A1 attribution spoof-close (SG-1)', () => {
       method: 'POST',
       headers: { ...SHIM_JSON_HEADERS, 'x-eve-dispatch': 'valid-tok' },
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'm',
         messages: [{ role: 'user', content: 'hi' }],
         stream: false,
@@ -1988,6 +2071,7 @@ describe('Command EVE shim — A1 attribution spoof-close (SG-1)', () => {
       method: 'POST',
       headers: { ...SHIM_JSON_HEADERS, 'x-eve-dispatch': 'bogus-token' },
       body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
         model: 'm',
         messages: [{ role: 'user', content: 'hi' }],
         stream: false,
