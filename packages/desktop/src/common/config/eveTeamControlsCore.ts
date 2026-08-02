@@ -30,6 +30,7 @@
  * company is never empty.
  */
 
+import { wireTierConsumesCredits } from './eveInferenceCore';
 import {
   EVE_SYSTEM_AGENT_ID,
   EVE_TEAM_ROSTER,
@@ -206,6 +207,33 @@ export function findFreeFloorWorker(roster: readonly EveTeamRole[] = EVE_TEAM_RO
 /** True iff `role` is the free local always-on floor worker. */
 export function isFreeFloorWorker(role: Pick<EveTeamRole, 'free' | 'rhythm'>): boolean {
   return role.free === true && role.rhythm === 'always-on';
+}
+
+/**
+ * DOES A TURN BY THIS ROLE COST THE SEAT CREDITS? ONE ANSWER, ASKED OF THE RIGHT
+ * FIELD.
+ *
+ * THE CONTRADICTION THIS ENDS. The `house-keeper` row declares `free: true` and its
+ * outcome copy says the work is "kostenlos und lokal, ohne Credits" — while its
+ * `tier` is `'standard'`, a METERED rung. The panel derived its credit marker from
+ * {@link wireTierConsumesCredits}(role.tier) alone, so ONE card asserted both "ohne
+ * Credits" and "verbraucht Credits" at the same time. Neither half was a typo: the
+ * card was reading a field that answers a different question.
+ *
+ * `tier` names the EVE Inference LEVEL a role LEANS ON when it needs the cloud.
+ * `free` declares WHERE the work runs — the bundled local Gemma, which never
+ * reaches the metered lane and never debits. For the local floor the second fact
+ * decides, and `tier` is simply not the question being asked.
+ *
+ * FAIL-CLOSED IN THE SAME DIRECTION AS {@link wireTierConsumesCredits}: only an
+ * EXPLICIT `free: true` waives the marker. Anything else — a missing flag, a new
+ * role, an unpriced rung — is assumed to COST. Guessing "free" is how a metered
+ * turn gets sold to a user as a gift, which is the defect this whole area exists to
+ * prevent.
+ */
+export function eveTeamRoleConsumesCredits(role: Pick<EveTeamRole, 'tier' | 'free'>): boolean {
+  if (role.free === true) return false;
+  return wireTierConsumesCredits(role.tier);
 }
 
 /**

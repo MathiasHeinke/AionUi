@@ -60,6 +60,8 @@ import {
   REPO_ROOT,
   activeSurfaces,
   allLocalesOnDisk,
+  FREE_WORD,
+  ZERO_COST_CLAIM,
   diffContract,
   discoverSurfaces,
   extractCopy,
@@ -294,9 +296,11 @@ const OUTCOME_GUARANTEE = new RegExp(
 );
 const LEGACY_GUARANTEE_PHRASES =
   /14\s*Tage\s*oder\s*gratis|14\s*days?\s*or\s*(?:it'?s\s*)?free|Erster[-\s]?Kunde[-\s]?läuft|first[-\s]?client[-\s]?runs|Zwei Garantien|Two guarantees|zahlst du nichts|you pay nothing|Erfolgsgarantie|Liefergarantie|Geld[-\s]?zurück|money[-\s]?back/i;
-const FREE_WORD = /(gratis|kostenlos|kostenfrei|umsonst|zum nulltarif|geschenkt|\bfree\b|\bfor free\b|\bno cost\b)/i;
-const ZERO_COST_CLAIM =
-  /(aufs Haus|on the house|auf uns\b|\bon us\b|ohne (?:dein )?(?:Guthaben|Credits?)|keine Credits?|null Credits?|\b0 Credits?\b|no credits? (?:deducted|charged|used)|zieht keine Credits?|werden nicht abgezogen)/i;
+// THE TWO ZERO-COST RULES NOW LIVE IN core.mjs, and are imported rather than declared.
+// They stopped being private the moment a SECOND gate needed them: the same claim class
+// ships in hardcoded .ts strings, which this manifest deliberately does not cover (see the
+// header). One definition, two consumers — a rule copied into a second file is a rule that
+// will eventually disagree with itself.
 
 const VOCABULARY: { name: string; rx: RegExp }[] = [
   { name: 'OUTCOME_GUARANTEE (the category rule that v2 relied on)', rx: OUTCOME_GUARANTEE },

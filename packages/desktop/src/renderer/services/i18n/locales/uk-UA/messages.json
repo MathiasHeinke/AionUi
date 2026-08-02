@@ -4,6 +4,8 @@
   "conversationInProgress": "Наразі триває діалог...",
   "confirm": "Підтвердити",
   "canceledExecution": "Виконання скасовано",
+  "sendFailed": "Не вдалося надіслати.",
+  "sendFailedWithReason": "Не вдалося надіслати: {{reason}}",
   "openLinkFailed": "Не вдалося відкрити посилання",
   "imageGenerationModelDetected": "Виявлено модель зображень, інструмент зображень було автоматично ввімкнено. Модель за замовчуванням: {{platform}}:{{model}}",
   "auto_handling_permissions": "Автоматична обробка запиту на дозвіл: {{request}}",

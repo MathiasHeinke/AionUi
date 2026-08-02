@@ -4,6 +4,8 @@
   "conversationInProgress": "Bir görüşme şu anda devam ediyor...",
   "confirm": "Onayla",
   "canceledExecution": "Yürütme iptal edildi",
+  "sendFailed": "Gönderme başarısız oldu.",
+  "sendFailedWithReason": "Gönderme başarısız oldu: {{reason}}",
   "openLinkFailed": "Bağlantı açılamadı",
   "imageGenerationModelDetected": "Görüntü modeli algılandı, görüntü aracı otomatik olarak etkinleştirildi. Varsayılan model: {{platform}}:{{model}}",
   "auto_handling_permissions": "Otomatik izin isteği işleme: {{request}}",

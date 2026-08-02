@@ -74,19 +74,24 @@ vi.mock('@renderer/components/team/ProjectedSpendMeter', () => ({
 // THE REAL PANEL, and the real roster + real core behind it.
 import DeinTeamPanel from '@renderer/components/team/DeinTeamPanel';
 import { EVE_TEAM_ROSTER } from '@/common/config/eveTeamRoster';
+import { eveTeamRoleConsumesCredits } from '@/common/config/eveTeamControlsCore';
+
+/** The metered roster, and the zero-cost floor, split by the ONE derived answer. */
+const METERED_ROLES = EVE_TEAM_ROSTER.filter((role) => eveTeamRoleConsumesCredits(role));
+const ZERO_COST_ROLES = EVE_TEAM_ROSTER.filter((role) => !eveTeamRoleConsumesCredits(role));
 
 afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('the team panel never presents a worker as free', () => {
-  it('EVERY role card rendered by the REAL panel carries the credit marker', () => {
+describe('the team panel never presents a metered worker as free — nor a local one as billed', () => {
+  it('EVERY METERED role card rendered by the REAL panel carries the credit marker', () => {
     render(<DeinTeamPanel />);
 
     // Drive off the shipped roster, so a role added on a new tier is covered
     // without editing this test.
-    expect(EVE_TEAM_ROSTER.length).toBeGreaterThan(0);
-    for (const role of EVE_TEAM_ROSTER) {
+    expect(METERED_ROLES.length).toBeGreaterThan(0);
+    for (const role of METERED_ROLES) {
       const card = document.querySelector(`[data-agent-id="${role.agent_id}"]`);
       expect(card, `no card rendered for ${role.agent_id}`).not.toBeNull();
       expect(
@@ -96,7 +101,29 @@ describe('the team panel never presents a worker as free', () => {
     }
   });
 
-  it('the marker count equals the roster size — no card is silently skipped', () => {
+  it('THE ZERO-COST FLOOR carries NO credit marker — its own copy says "ohne Credits"', () => {
+    // THE CONTRADICTION THIS ROW ENDS. The loop above used to run over the WHOLE
+    // roster, so the `house-keeper` card was required to say "verbraucht Credits"
+    // while the very same card renders the outcome line "… kostenlos und lokal,
+    // ohne Credits." One card, both claims, and a green suite over the pair. A
+    // gate that requires a contradiction is not a gate on the truth.
+    //
+    // It is derived, not enumerated: whatever the roster declares `free`, the panel
+    // must agree with. If that set becomes empty this reds too — a gate with
+    // nothing left to guard must say so rather than pass quietly.
+    render(<DeinTeamPanel />);
+    expect(ZERO_COST_ROLES.length).toBeGreaterThan(0);
+    for (const role of ZERO_COST_ROLES) {
+      const card = document.querySelector(`[data-agent-id="${role.agent_id}"]`);
+      expect(card, `no card rendered for ${role.agent_id}`).not.toBeNull();
+      expect(
+        card?.textContent ?? '',
+        `${role.agent_id} is the zero-cost local floor and must not be marked as spending credits`
+      ).not.toContain(CREDIT_MARKER);
+    }
+  });
+
+  it('the marker count equals the METERED roster size — no card is silently skipped', () => {
     // Guards the loop above against a future card that renders no agent-id: a
     // card that cannot be found cannot be checked, and "not found" must not read
     // as "fine".
@@ -105,9 +132,9 @@ describe('the team panel never presents a worker as free', () => {
       if (element?.tagName !== 'SPAN' && element?.tagName !== 'DIV') return false;
       return element?.textContent?.trim().endsWith(CREDIT_MARKER) === true;
     });
-    // Every card contributes at least its own Tag; nested elements may match too,
-    // so assert the FLOOR is the roster size rather than an exact count.
-    expect(markers.length).toBeGreaterThanOrEqual(EVE_TEAM_ROSTER.length);
+    // Every metered card contributes at least its own Tag; nested elements may
+    // match too, so assert the FLOOR is the metered roster size, not an exact count.
+    expect(markers.length).toBeGreaterThanOrEqual(METERED_ROLES.length);
   });
 
   it('the tiers a real role runs on include the ones the old hand-typed table called free', () => {

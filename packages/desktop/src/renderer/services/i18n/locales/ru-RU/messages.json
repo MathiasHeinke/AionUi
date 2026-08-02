@@ -4,6 +4,8 @@
   "conversationInProgress": "Диалог в процессе...",
   "confirm": "Подтвердить",
   "canceledExecution": "Выполнение отменено",
+  "sendFailed": "Не удалось отправить.",
+  "sendFailedWithReason": "Не удалось отправить: {{reason}}",
   "openLinkFailed": "Не удалось открыть ссылку",
   "imageGenerationModelDetected": "Обнаружена модель для изображений, инструмент изображений автоматически включён. Модель по умолчанию: {{platform}}:{{model}}",
   "auto_handling_permissions": "Автоматическая обработка запроса разрешения: {{request}}",

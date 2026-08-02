@@ -33,11 +33,11 @@
  */
 
 import { EVE_TEAM_ROSTER, type EveTeamRole } from '@/common/config/eveTeamRoster';
-import { wireTierConsumesCredits } from '@/common/config/eveInferenceCore';
 import {
   applyControlAction,
   controlKindForRole,
   evaluateFloorGuard,
+  eveTeamRoleConsumesCredits,
   isFreeFloorWorker,
   statusForRole,
   type EveTeamControlAction,
@@ -191,7 +191,13 @@ const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, onAction }) => {
   // the user Standard and High cost nothing, while eveInferenceCore declared both
   // `consumesCredits: true`. Two hand-maintained copies of a money fact is one
   // copy too many, and the wrong one was the one on screen.
-  const consumesCredits = wireTierConsumesCredits(role.tier);
+  //
+  // IT NOW ASKS ABOUT THE ROLE, NOT ONLY ABOUT ITS TIER. Reading
+  // `wireTierConsumesCredits(role.tier)` straight put "verbraucht Credits" on the
+  // one card whose own copy says "kostenlos und lokal, ohne Credits" — the local
+  // G0 floor, whose `tier` describes a rung it never rides. See
+  // eveTeamRoleConsumesCredits for why `free` is the field that answers this.
+  const consumesCredits = eveTeamRoleConsumesCredits(role);
   const status = statusForRole(role, statuses);
   const isFloor = isFreeFloorWorker(role);
   const roleName = t(`deinTeam.roles.${role.agent_id}.name`, { defaultValue: role.displayName });

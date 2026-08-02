@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7022
+# entries: 7026
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -2082,6 +2082,8 @@ copy	1	de-DE/messages.json	Nicht verifizierte Operation
 copy	1	de-DE/messages.json	Noch keine Antwort zum Kopieren
 copy	1	de-DE/messages.json	Option
 copy	1	de-DE/messages.json	Request-ID
+copy	1	de-DE/messages.json	Senden fehlgeschlagen.
+copy	1	de-DE/messages.json	Senden fehlgeschlagen: {{reason}}
 copy	1	de-DE/messages.json	Speicherpfad
 copy	1	de-DE/messages.json	System
 copy	1	de-DE/messages.json	Tippen, um nach Dateien zu suchen
@@ -5573,6 +5575,8 @@ copy	1	en-US/messages.json	Save path
 copy	1	en-US/messages.json	Save the conversation to a file in the current project
 copy	1	en-US/messages.json	Save to file
 copy	1	en-US/messages.json	Scroll to bottom
+copy	1	en-US/messages.json	Sending failed.
+copy	1	en-US/messages.json	Sending failed: {{reason}}
 copy	1	en-US/messages.json	Show in folder
 copy	1	en-US/messages.json	System
 copy	1	en-US/messages.json	The agent is requesting permission.

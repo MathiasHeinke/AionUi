@@ -32,7 +32,40 @@ import {
 const FAKE_LICENSE = 'CEVE.v2.FAKE-payload-TESTONLY.FAKE-sig-TESTONLY';
 const SHIM_AUTH_TOKEN = ensureCommandEveShimAuthToken();
 
-type EveFnSeen = { body?: Record<string, unknown>; authHeader?: string | null; path?: string; hits: number };
+type EveFnSeen = {
+  body?: Record<string, unknown>;
+  authHeader?: string | null;
+  path?: string;
+  hits: number;
+  /**
+   * THE DEBIT LEDGER, OBSERVED RATHER THAN INFERRED.
+   *
+   * An audit passed this area from TOPOLOGY — "all debits live in licence-gated
+   * functions, therefore the local lane cannot touch the ledger" — and was wrong,
+   * because the deriver reached one of those functions on a seat whose picker was
+   * local. So this harness does not reason about where debits live: the fake
+   * eve-inference function APPENDS A ROW every time it is called, exactly as the
+   * real one reserves-calls-debits, and the assertions read the rows. "No debit was
+   * written" is then a fact about what happened, not a claim about the code's shape.
+   */
+  debits: Array<{ tier: unknown }>;
+};
+
+/** A fresh recorder: zero hits, empty ledger. */
+const newSeen = (): EveFnSeen => ({ hits: 0, debits: [] });
+
+/**
+ * The operator's CHAT picker sitting on the METERED EVE cloud lane — the ONLY state
+ * in which EVE's background memory derivation is allowed to spend. The deriver never
+ * reads this route's url/licence (it forces its own), only its `active` fact, so the
+ * url here is deliberately a dead port.
+ */
+const chatLaneMeteredCloud = () => ({
+  active: true,
+  functionUrl: 'http://127.0.0.1:1',
+  license: FAKE_LICENSE,
+  tier: 'standard',
+});
 
 let eveFnServer: http.Server | undefined;
 let shimServerUrl = '';
@@ -68,6 +101,8 @@ async function startFakeEveFunction(seen: EveFnSeen): Promise<string> {
       seen.path = new URL(request.url || '/', 'http://127.0.0.1').pathname;
       seen.authHeader = request.headers.authorization ?? null;
       seen.body = await readRequestBody(request);
+      // A call to this endpoint IS a metered turn: it reserves, calls and debits.
+      seen.debits.push({ tier: seen.body?.tier });
       writeJson(response, 200, {
         choices: [{ message: { role: 'assistant', content: 'deriver-ok' }, finish_reason: 'stop' }],
       });
@@ -102,12 +137,13 @@ afterEach(async () => {
 });
 
 describe('Honcho deriver cloud lane (COMPA-624)', () => {
-  it('routes the deriver to the eve-inference function at the FREE standard tier with the bearer in the header only', async () => {
-    const seen: EveFnSeen = { hits: 0 };
+  it('routes the deriver to the eve-inference function at the METERED standard rung with the bearer in the header only', async () => {
+    const seen = newSeen();
     const fnUrl = await startFakeEveFunction(seen);
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,
       ollamaBaseUrl: 'http://127.0.0.1:1', // never reached
+      eveRouting: chatLaneMeteredCloud,
       honchoDeriverRoute: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE }),
     });
 
@@ -128,8 +164,8 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
     expect(seen.body).not.toHaveProperty('model');
   });
 
-  it('MONEY: forces the FREE standard tier even when the chat picker is eve-max (paid) — picker-independent', async () => {
-    const seen: EveFnSeen = { hits: 0 };
+  it('MONEY: forces the METERED standard rung even when the chat picker is eve-max (paid) — the cap is one-way', async () => {
+    const seen = newSeen();
     const fnUrl = await startFakeEveFunction(seen);
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,
@@ -151,7 +187,7 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
   });
 
   it('MONEY: a deriver route that tries to smuggle a paid tier is ignored (tier is forced server-side)', async () => {
-    const seen: EveFnSeen = { hits: 0 };
+    const seen = newSeen();
     const fnUrl = await startFakeEveFunction(seen);
     // The route type has no `tier` field; a hostile resolver casts one in anyway.
     const spoofRoute = { active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'max' } as unknown as {
@@ -162,6 +198,7 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,
       ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: chatLaneMeteredCloud,
       honchoDeriverRoute: () => spoofRoute,
     });
 
@@ -170,11 +207,12 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
   });
 
   it('EGRESS: redacts a secret in the deriver text before the function is called (S11/S13 runs on this lane)', async () => {
-    const seen: EveFnSeen = { hits: 0 };
+    const seen = newSeen();
     const fnUrl = await startFakeEveFunction(seen);
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,
       ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: chatLaneMeteredCloud,
       honchoDeriverRoute: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE }),
     });
 
@@ -192,13 +230,14 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
   });
 
   it('EGRESS: holds the S3 secret floor even on the legacy seat with redaction OFF (Codex #1 — never auto-sends secrets)', async () => {
-    const seen: EveFnSeen = { hits: 0 };
+    const seen = newSeen();
     const fnUrl = await startFakeEveFunction(seen);
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,
       ollamaBaseUrl: 'http://127.0.0.1:1',
       egressRedactionMode: () => 'off', // operator turned the filter OFF
       activeSeatId: () => 'seat-1', // the founder's OWN legacy seat — the chat lane WOULD waive S3 here
+      eveRouting: chatLaneMeteredCloud,
       honchoDeriverRoute: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE }),
     });
 
@@ -217,11 +256,12 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
   });
 
   it('EGRESS: ALLOWLISTS the outbound body — tools/tool_choice/parallel_tool_calls/response_format never forwarded (Codex #2 + re-audit)', async () => {
-    const seen: EveFnSeen = { hits: 0 };
+    const seen = newSeen();
     const fnUrl = await startFakeEveFunction(seen);
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,
       ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: chatLaneMeteredCloud,
       honchoDeriverRoute: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE }),
     });
 
@@ -256,8 +296,26 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
     expect(forwarded).not.toContain('abcdefghijklmnopqrstuvwxyz'); // the response_format secret never egresses
   });
 
-  it('is picker-independent on the OTHER side too: reaches the cloud fn even when the chat picker is LOCAL', async () => {
-    const seen: EveFnSeen = { hits: 0 };
+  // ── THE INVERTED PIN — LOCAL IS COST-FREE END TO END, MEMORY INCLUDED ────────
+  //
+  // THE ROW THAT USED TO STAND HERE:
+  //
+  //   it('is picker-independent on the OTHER side too: reaches the cloud fn even
+  //       when the chat picker is LOCAL', …)
+  //     expect(response.status).toBe(200);
+  //     expect(seen.hits).toBe(1); // the deriver reached the cloud fn, …
+  //
+  // It is kept, verbatim, above — because it is the only committed record of what
+  // this lane USED to do, and deleting the record would leave the fix looking like a
+  // feature rather than a correction. It PASSED, and the property its own words
+  // describe was the defect: an operator who had picked the lane that spends nothing
+  // still had EVE's background memory reasoning drawing METERED cloud turns, with no
+  // surface anywhere that could stop it (`deriverMode` is not user-selectable).
+  //
+  // Inverted, the same construction is the guard. Nothing else about the harness
+  // changed: same fake function, same route, same request.
+  it('LOCAL chat picker: the cloud fn is NEVER reached and NO debit is written', async () => {
+    const seen = newSeen();
     const fnUrl = await startFakeEveFunction(seen);
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,
@@ -267,8 +325,90 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
     });
 
     const response = await deriverPost({ model: 'x', messages: [{ role: 'user', content: 'derive' }], stream: false });
+
+    // BEHAVIOURAL, not structural. Not "a flag is set", not "the debit code is behind
+    // a licence gate" — the metered endpoint recorded NOTHING, so nothing was
+    // reserved, called or debited.
+    expect(seen.hits).toBe(0);
+    expect(seen.debits).toEqual([]);
+    expect(response.status).toBe(503);
+  });
+
+  it('BYOK chat picker: the same refusal — an own-key seat is not quietly metered by its memory', async () => {
+    const seen = newSeen();
+    const fnUrl = await startFakeEveFunction(seen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      // A connected/BYOK selection is not an EVE selection, so the routing resolver
+      // answers exactly this — the same shape the local lane produces.
+      eveRouting: () => ({ active: false }),
+      honchoDeriverRoute: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE }),
+    });
+
+    const response = await deriverPost({ model: 'x', messages: [{ role: 'user', content: 'derive' }], stream: false });
+
+    expect(seen.hits).toBe(0);
+    expect(seen.debits).toEqual([]);
+    expect(response.status).toBe(503);
+  });
+
+  it('R4 HOLD: a chat-lane resolver that THROWS never becomes permission to spend', async () => {
+    const seen = newSeen();
+    const fnUrl = await startFakeEveFunction(seen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      // The unknown-entitlement hold: the chat resolver refuses to answer at all.
+      eveRouting: () => {
+        throw new Error('entitlement authority is unknown');
+      },
+      honchoDeriverRoute: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE }),
+    });
+
+    const response = await deriverPost({ model: 'x', messages: [{ role: 'user', content: 'derive' }], stream: false });
+
+    expect(seen.hits).toBe(0);
+    expect(seen.debits).toEqual([]);
+    expect(response.status).toBe(503);
+  });
+
+  it('NO PICKER WIRED AT ALL is not permission either — default-deny in every direction', async () => {
+    const seen = newSeen();
+    const fnUrl = await startFakeEveFunction(seen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      // No eveRouting: the shim default answers `undefined`. "We could not ask"
+      // must not read as "go ahead" — that is how a hole gets a different name.
+      honchoDeriverRoute: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE }),
+    });
+
+    const response = await deriverPost({ model: 'x', messages: [{ role: 'user', content: 'derive' }], stream: false });
+
+    expect(seen.hits).toBe(0);
+    expect(seen.debits).toEqual([]);
+    expect(response.status).toBe(503);
+  });
+
+  it('POSITIVE CONTROL: a METERED chat picker still derives — exactly one turn, exactly one debit', async () => {
+    // Without this row the four refusals above would pass just as happily against a
+    // handler that answered 503 unconditionally, i.e. against a broken feature.
+    const seen = newSeen();
+    const fnUrl = await startFakeEveFunction(seen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: chatLaneMeteredCloud,
+      honchoDeriverRoute: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE }),
+    });
+
+    const response = await deriverPost({ model: 'x', messages: [{ role: 'user', content: 'derive' }], stream: false });
+
     expect(response.status).toBe(200);
-    expect(seen.hits).toBe(1); // the deriver reached the cloud fn, not the dead local upstream
+    expect(seen.hits).toBe(1);
+    // And the one debit is the ENTRY rung, never the operator's chat tier.
+    expect(seen.debits).toEqual([{ tier: 'standard' }]);
   });
 
   it('FAIL-CLOSED: 503 when the deriver route is absent (default inert lane)', async () => {
@@ -278,7 +418,7 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
   });
 
   it('FAIL-CLOSED: 503 when active but the license is missing (never egress half-configured)', async () => {
-    const seen: EveFnSeen = { hits: 0 };
+    const seen = newSeen();
     const fnUrl = await startFakeEveFunction(seen);
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,
@@ -291,7 +431,7 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
   });
 
   it('FAIL-CLOSED: 503 when the route is inactive (active:false)', async () => {
-    const seen: EveFnSeen = { hits: 0 };
+    const seen = newSeen();
     const fnUrl = await startFakeEveFunction(seen);
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,
@@ -324,7 +464,7 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
   // The scan deliberately excludes this test file (it must contain the words to test
   // for them) and is anchored to the handler + its route registration.
   it('the 503 body never calls the missing cloud route "free"', async () => {
-    const seen: EveFnSeen = { hits: 0 };
+    const seen = newSeen();
     const fnUrl = await startFakeEveFunction(seen);
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,

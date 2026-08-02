@@ -41,6 +41,14 @@ const UPDATER = 'scripts/approved-copy/update.mjs';
 const CORE = 'scripts/approved-copy/core.mjs';
 const GATE = 'tests/unit/approved-copy/localeCopyManifest.test.ts';
 const SAFEGUARD = 'tests/unit/approved-copy/updaterIsManualOnly.test.ts';
+/**
+ * The THIRD gate that reads the shared mechanism: the zero-cost claim rules moved into
+ * core.mjs when a second surface — hardcoded .ts copy — turned out to carry the same claim
+ * class the locale manifest deliberately does not cover. It imports the ANALYSIS library,
+ * never the updater, and the row below asserts exactly that, so widening this allowlist by
+ * one file does not widen what the safeguard actually protects.
+ */
+const CLAIM_GATE = 'tests/unit/approved-copy/hardcodedZeroCostClaims.test.ts';
 
 /**
  * THE MECHANISM'S OWN FILES. These four are the only places in the repository allowed to
@@ -48,7 +56,7 @@ const SAFEGUARD = 'tests/unit/approved-copy/updaterIsManualOnly.test.ts';
  * manifest and police the tooling. Each is asserted to exist, so a rename cannot silently
  * drop a file out of the scan by dropping it out of the allowlist.
  */
-const OWN_FILES = [UPDATER, CORE, GATE, SAFEGUARD];
+const OWN_FILES = [UPDATER, CORE, GATE, SAFEGUARD, CLAIM_GATE];
 
 /**
  * WHAT COUNTS AS AN AUTOMATION SURFACE — anything that can cause code to run without a
@@ -136,6 +144,19 @@ describe('THE UPDATER IS MANUAL — enforced, not asserted in a comment', () => 
         `${required} is no longer in the automation scan — the safeguard stopped watching it`
       ).toContain(required);
     }
+  });
+
+  it('NO allowlisted GATE reaches the updater — the allowlist buys access to the LIBRARY only', () => {
+    // The token scan cannot tell `core.mjs` (pure analysis) from `update.mjs` (the thing
+    // that rewrites the manifest), so every file added to OWN_FILES gets both. This row
+    // puts the distinction back: a gate may READ the mechanism, never RUN it.
+    // Scoped to the file this allowlist was widened FOR. The other two legitimately name
+    // the updater in executable content — GATE carries its own allowlist array of the
+    // mechanism's paths, SAFEGUARD is that mechanism's police — and pretending otherwise
+    // would be an assertion written to pass rather than to hold.
+    const source = executableOnly(CLAIM_GATE, readFileSync(path.join(REPO_ROOT, CLAIM_GATE), 'utf8'));
+    expect(source, `${CLAIM_GATE} names the updater in executable content`).not.toMatch(/update\.mjs/);
+    expect(source, `${CLAIM_GATE} no longer reads the shared analysis library`).toMatch(/core\.mjs/);
   });
 
   it('the mechanism files exist exactly where the allowlist says they do', () => {

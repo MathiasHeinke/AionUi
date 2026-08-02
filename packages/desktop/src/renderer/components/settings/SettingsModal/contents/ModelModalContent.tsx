@@ -33,6 +33,7 @@ import {
   EVE_LOCAL_PICKER_TIERS,
   isLocalSelection,
   localTierValue,
+  mayPersistSelectionWithoutAuthority,
   shouldDisableModelByok,
 } from '@/common/config/eveInferenceCore';
 import { bridge as platformBridge } from '@office-ai/platform';
@@ -270,18 +271,30 @@ const ModelModalContent: React.FC = () => {
    * — never to a named cloud rung — so a lane switch can never silently re-meter
    * a seat onto the strong lane. Re-engaging MAX stays the MAX toggle's job.
    *
-   * THE SAME WRITE GATE AS THE HOOK'S. This is the SECOND writer of
-   * `commandEve.inferenceSelection`, and it used to persist unconditionally — so
-   * gating only `useEveInferenceSelection` left the shared key writable through
-   * this switch during the exact window the gate exists for. While authority is
-   * UNKNOWN the flip is held IN MEMORY (the switch moves, so the user is not
-   * fighting a dead control) and replayed once the answer lands; the operator is
-   * told so rather than left with a control that quietly did nothing.
+   * THE SAME WRITE GATE AS THE HOOK'S, AND IT KEYS ON THE VALUE — NOT ON THE
+   * SURFACE, AND NOT ON THE DIRECTION OF THE SWITCH.
+   *
+   * This is the SECOND writer of `commandEve.inferenceSelection`. It used to persist
+   * unconditionally, so gating only `useEveInferenceSelection` left the shared key
+   * writable during the exact window the gate exists for. R4 closed that — and
+   * closed it too far, in the one direction that hurts the operator: turning the
+   * private lane ON was held too, and `state === 'unconfigured'` never resolves, so
+   * on a seat whose entitlement bridge cannot answer, the ZERO-COST lane became
+   * PERMANENTLY unreachable. A hold whose failure mode is "you must keep spending"
+   * is not a spend control; it is the money defect wearing the guard's coat.
+   *
+   * So the two cases are now distinguished explicitly, by
+   * {@link mayPersistSelectionWithoutAuthority}:
+   *   ON  → a LOCAL selection. Nothing egresses, nothing is debited, no authority is
+   *         needed to permit it. WRITTEN IMMEDIATELY, in every authority state.
+   *   OFF → {@link EVE_DEFAULT_INFERENCE_SELECTION}, a METERED rung. Held in memory
+   *         while the answer is unknown and replayed when it lands, exactly as
+   *         before. THAT is the half R4 is about and it is untouched.
    */
   const setCommandEveLocalLane = (useLocal: boolean): void => {
     const next = useLocal ? localSelectionValue : EVE_DEFAULT_INFERENCE_SELECTION;
     setLocalLaneActive(useLocal);
-    if (!selectionAuthorityResolved) {
+    if (!selectionAuthorityResolved && !mayPersistSelectionWithoutAuthority(next)) {
       setPendingLocalLaneSelection(next);
       message.info(t('settings.commandEveLocalLaneHeldUntilVerified'));
       return;
@@ -299,9 +312,14 @@ const ModelModalContent: React.FC = () => {
       // next turn runs another.
       if (localLaneActive) {
         const match = EVE_LOCAL_PICKER_TIERS.find((tier) => tier.localTierId === normalizedTierId);
-        // Same shared key, same gate. `commandEve.localModelTierId` above is a
-        // DIFFERENT key with no funding meaning and is written either way.
-        if (match && selectionAuthorityResolved) {
+        // Same shared key, same VALUE-KEYED gate. `commandEve.localModelTierId`
+        // above is a DIFFERENT key with no funding meaning and is written either
+        // way. What this branch writes is always a LOCAL value — a move WITHIN the
+        // zero-cost lane, which can not put a seat on a metered rung — so it needs
+        // no funding answer. The `else` survives for the unreachable case (a value
+        // the predicate refuses), because a writer with no held branch is how a
+        // deliberate choice gets silently dropped.
+        if (match && (selectionAuthorityResolved || mayPersistSelectionWithoutAuthority(localTierValue(match.id)))) {
           await configService.set('commandEve.inferenceSelection', localTierValue(match.id));
         } else if (match) {
           setPendingLocalLaneSelection(localTierValue(match.id));

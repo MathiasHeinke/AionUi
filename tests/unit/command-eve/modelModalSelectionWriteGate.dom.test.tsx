@@ -142,28 +142,80 @@ beforeEach(() => {
   setAuthority('unknown');
 });
 
-describe('GUARD 1 — the local-lane switch may not persist the shared key while the answer is UNKNOWN', () => {
-  /** SABOTAGE: delete the `if (!selectionAuthorityResolved) { … return; }` block in
-   *  `setCommandEveLocalLane`. The switch then writes during UNKNOWN. */
-  it('UNKNOWN: flipping the switch writes NOTHING and holds the flip in memory', () => {
+describe('GUARD 1 — the shared key is gated on WHAT IS WRITTEN, not on which control wrote it', () => {
+  // ── THE INVERTED PIN ────────────────────────────────────────────────────────
+  //
+  // THE TWO ROWS THAT USED TO STAND HERE, quoted rather than deleted, because they
+  // are the only committed record of the behaviour and a deleted record makes a
+  // correction look like a feature:
+  //
+  //   it('UNKNOWN: flipping the switch writes NOTHING and holds the flip in memory')
+  //     expect(selectionWrites()).toEqual([]);
+  //     expect(store.get(SELECTION_KEY)).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+  //
+  //   it('UNKNOWN → ANSWERED: the held flip is REPLAYED, so a deliberate choice is
+  //       never lost')
+  //     expect(selectionWrites()).toEqual([]);   // …and lands when the answer does
+  //
+  // Both PASSED, and together they described the defect. R4 exists to stop a METERED
+  // selection being persisted for a seat nobody has verified. Turning the PRIVATE,
+  // ZERO-COST lane ON is the opposite transaction, and it was held by the same gate.
+  // `state === 'unconfigured'` — this bridge's "I cannot tell you" — never resolves,
+  // so on such a seat the replay is not a delay: IT NEVER FIRES. The operator was
+  // pinned to the METERED default at exactly the moment the billing subsystem could
+  // not answer at all. A spend control whose failure mode is "you must keep
+  // spending" is the money defect wearing the guard's coat.
+  //
+  // Corrected contract, one sentence: a LOCAL selection is persistable in every
+  // authority state; a METERED one is not. Same key, same surface, different VALUE.
+  //
+  /** SABOTAGE: in `setCommandEveLocalLane`, drop
+   *  `&& !mayPersistSelectionWithoutAuthority(next)` from the hold condition — the
+   *  zero-cost lane becomes unreachable again while the answer is missing. */
+  it('UNKNOWN: flipping the switch ON writes the LOCAL lane IMMEDIATELY — no answer is needed to spend nothing', () => {
     render(<ModelModalContent />);
     fireEvent.click(screen.getByTestId('command-eve-local-lane-switch'));
 
-    expect(selectionWrites()).toEqual([]);
-    expect(store.get(SELECTION_KEY)).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
-    // The control still MOVED — a held flip must not read as a dead switch.
+    expect(selectionWrites()).toEqual([localTierValue('local-standard')]);
+    expect(store.get(SELECTION_KEY)).toBe(localTierValue('local-standard'));
+    // The control MOVED and the disk agrees with it — no ghost state.
     expect(screen.getByTestId('command-eve-local-lane-switch').getAttribute('aria-checked')).toBe('true');
   });
 
-  it('UNKNOWN → ANSWERED: the held flip is REPLAYED, so a deliberate choice is never lost', async () => {
+  /** SABOTAGE: make that same condition unconditional (`if (false)`), i.e. gate on
+   *  nothing at all. The METERED default below then lands on disk unverified. */
+  it('UNKNOWN: flipping the switch OFF — a METERED default — still writes NOTHING. R4 is untouched', () => {
+    // The paired negative, SAME control, SAME authority state, only the value's cost
+    // differs. Without it the row above would pass just as happily against a surface
+    // with no gate at all.
+    setAuthority('positive');
     const view = render(<ModelModalContent />);
+    fireEvent.click(screen.getByTestId('command-eve-local-lane-switch')); // ON → local, written
+    expect(selectionWrites()).toEqual([localTierValue('local-standard')]);
+
+    configSet.mockClear();
+    act(() => setAuthority('unknown'));
+    view.rerender(<ModelModalContent />);
+    fireEvent.click(screen.getByTestId('command-eve-local-lane-switch')); // OFF → metered default
+
+    expect(selectionWrites()).toEqual([]);
+    expect(store.get(SELECTION_KEY)).toBe(localTierValue('local-standard'));
+  });
+
+  it('UNKNOWN → ANSWERED: the held METERED flip is REPLAYED, so a deliberate choice is never lost', async () => {
+    setAuthority('positive');
+    const view = render(<ModelModalContent />);
+    fireEvent.click(screen.getByTestId('command-eve-local-lane-switch'));
+    configSet.mockClear();
+    act(() => setAuthority('unknown'));
+    view.rerender(<ModelModalContent />);
     fireEvent.click(screen.getByTestId('command-eve-local-lane-switch'));
     expect(selectionWrites()).toEqual([]);
 
     act(() => setAuthority('positive'));
     view.rerender(<ModelModalContent />);
 
-    await waitFor(() => expect(selectionWrites()).toEqual([localTierValue('local-standard')]));
+    await waitFor(() => expect(selectionWrites()).toEqual([EVE_DEFAULT_INFERENCE_SELECTION]));
   });
 
   it('ANSWERED / POSITIVE: the same flip writes IMMEDIATELY', () => {
@@ -180,7 +232,10 @@ describe('GUARD 1 — the local-lane switch may not persist the shared key while
     expect(selectionWrites()).toEqual([localTierValue('local-standard')]);
   });
 
-  it('switching the lane back OFF is gated on the SAME answer, not exempted', () => {
+  it('the METERED default is the ONE value the switch can hold — the direction, not the control, decides', () => {
+    // Deliberately kept beside the row above rather than merged into it: this is the
+    // claim that the gate still EXISTS on this control, stated separately from the
+    // claim about which value it lets through.
     setAuthority('positive');
     const view = render(<ModelModalContent />);
     fireEvent.click(screen.getByTestId('command-eve-local-lane-switch'));
@@ -191,12 +246,21 @@ describe('GUARD 1 — the local-lane switch may not persist the shared key while
     view.rerender(<ModelModalContent />);
     fireEvent.click(screen.getByTestId('command-eve-local-lane-switch'));
     expect(selectionWrites()).toEqual([]);
+    expect(EVE_DEFAULT_INFERENCE_SELECTION.startsWith('command-eve-local:')).toBe(false);
   });
 });
 
-describe('GUARD 2 — the tier-select path is the SAME key and must carry the SAME gate', () => {
-  /** SABOTAGE: drop `&& selectionAuthorityResolved` from the `if (match && …)` in
-   *  `selectCommandEveLocalModelTier`. The tier click then writes during UNKNOWN. */
+describe('GUARD 2 — the tier-select path is the SAME key and carries the SAME value-keyed rule', () => {
+  // THE PIN THAT USED TO STAND HERE said the tier click "moves the SIBLING key but
+  // NOT the shared one" during UNKNOWN, and was held/replayed. It PASSED, and it
+  // encoded the same defect one level down: every value this path can write is a
+  // LOCAL one (`localTierValue(...)`), i.e. a move WITHIN the zero-cost lane that
+  // cannot put a seat on a metered rung. Holding it stranded the private lane on the
+  // seats whose authority never resolves — for a write that costs nothing.
+  //
+  /** SABOTAGE: in `selectCommandEveLocalModelTier`, drop the
+   *  `|| mayPersistSelectionWithoutAuthority(localTierValue(match.id))` disjunct.
+   *  The tier click is held again during UNKNOWN. */
 
   /** Turn the local lane on with the answer in hand, then move to `state`. */
   function withLaneActive(state: 'unknown' | 'positive' | 'negative') {
@@ -210,31 +274,29 @@ describe('GUARD 2 — the tier-select path is the SAME key and must carry the SA
     return view;
   }
 
-  it('UNKNOWN: picking a different bundled tier moves the SIBLING key but NOT the shared one', async () => {
+  it('UNKNOWN: picking a different bundled tier moves the SIBLING key AND the shared one — both are local', async () => {
     withLaneActive('unknown');
     fireEvent.click(screen.getByTestId('command-eve-model-tier-select-gemma-4-12b-local-planning'));
 
     // The sibling key has no funding meaning and is written either way — asserting
-    // it proves the click really reached the handler, so the negative below is
+    // it proves the click really reached the handler, so the assertion below is
     // about the GATE and not about a click that never landed.
     await waitFor(() =>
       expect(configSet).toHaveBeenCalledWith('commandEve.localModelTierId', 'gemma-4-12b-local-planning')
     );
-    expect(selectionWrites()).toEqual([]);
-    expect(store.get(SELECTION_KEY)).toBe(localTierValue('local-standard'));
+    await waitFor(() => expect(selectionWrites()).toEqual([localTierValue('local-high')]));
+    expect(store.get(SELECTION_KEY)).toBe(localTierValue('local-high'));
   });
 
-  it('UNKNOWN → ANSWERED: the held tier move is REPLAYED onto the shared key', async () => {
-    const view = withLaneActive('unknown');
+  it('and what it wrote is still a LOCAL value — the exemption can never smuggle a metered rung', async () => {
+    // The rule is about the VALUE. If this path ever learns to write something that
+    // is not local, the exemption it now enjoys becomes a hole, and this reds.
+    withLaneActive('unknown');
     fireEvent.click(screen.getByTestId('command-eve-model-tier-select-gemma-4-12b-local-planning'));
-    await waitFor(() =>
-      expect(configSet).toHaveBeenCalledWith('commandEve.localModelTierId', 'gemma-4-12b-local-planning')
-    );
-    expect(selectionWrites()).toEqual([]);
-
-    act(() => setAuthority('positive'));
-    view.rerender(<ModelModalContent />);
-    await waitFor(() => expect(selectionWrites()).toEqual([localTierValue('local-high')]));
+    await waitFor(() => expect(selectionWrites().length).toBe(1));
+    for (const written of selectionWrites()) {
+      expect(typeof written === 'string' && written.startsWith('command-eve-local:')).toBe(true);
+    }
   });
 
   it('ANSWERED / POSITIVE: the same tier click writes the shared key immediately', async () => {

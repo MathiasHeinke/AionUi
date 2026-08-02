@@ -1611,9 +1611,27 @@ async function handleEveCloudCompletions(
  * credit moves. That is a fact about WHERE the work runs, not a free tier of ours.
  * BYOK is the same shape on the chat lane. Both survive untouched.
  *
- *  - PICKER-INDEPENDENT: it NEVER calls options.eveRouting(), so it does not
- *    matter what tier the operator picked for their chat — the deriver always
- *    reaches the metered cloud lane (a local-tier picker would otherwise strand it).
+ *  - PICKER-GATED, AND IT USED TO BE PICKER-INDEPENDENT. THAT WAS THE DEFECT. This
+ *    handler never called options.eveRouting(), so an operator sitting on the private
+ *    local lane — who has chosen to spend nothing — still had EVE's memory derivation
+ *    reaching this METERED rung on every turn where the bundled Gemma was not warm.
+ *    No surface could stop it either: the `deriverMode` switch is not user-selectable
+ *    (honchoRuntimeConfigCore says so in its own doc) and defaults to 'auto'. So
+ *    "the operator picked the lane that costs nothing" was true of chat and false of
+ *    the machine underneath it, which is the whole claim in a different place.
+ *
+ *    NOW: this path is taken ONLY when the chat lane is PROVEN to be the metered
+ *    cloud one (`eveRouting()` answers an active route). EVERY other answer — a local
+ *    selection, a BYOK selection, a resolver that throws (the R4 unknown-entitlement
+ *    hold), or no picker wired at all — is answered 503 with NOTHING forwarded.
+ *    Derivation then does not succeed on this path; per honchoRuntimeConfigCore that
+ *    is the DESIGNED degradation (memory falls back to Company Brain), not an outage.
+ *    One sentence: EVE's background memory work may never put a seat on a metered
+ *    rung the operator did not pick.
+ *
+ *    The coupling is ONE-WAY by construction. It can only make this path REFUSE. It
+ *    can never make derivation ride a stronger tier, because the wire tier below is
+ *    still the literal forced constant and is never read from a selection.
  *  - ENTRY-RUNG FORCED: the wire tier is the literal HONCHO_DERIVER_FORCED_TIER
  *    ('standard' — the CHEAPEST METERED rung, not a free one), set HERE, never read
  *    from a selection. An operator on eve-max can never make EVE's memory-derivation
@@ -1652,6 +1670,28 @@ async function handleHonchoDeriverCompletions(
     stream: rawBody.stream,
     model: rawBody.model,
   };
+  // THE OPERATOR'S OWN LANE CHOICE DECIDES WHETHER BACKGROUND MEMORY MAY SPEND.
+  // Read BEFORE the route/licence checks so a seat on a zero-cost selection can not
+  // reach the metered egress even when Honcho is fully provisioned and licensed.
+  // Default-deny in every direction: a thrown resolver (the R4 unknown-entitlement
+  // hold) and an absent resolver both land on `false`, never on "go ahead".
+  let chatLaneIsMeteredCloud = false;
+  try {
+    // No body: this is background reasoning, never a one-turn managed visual grant.
+    const chatRoute = await options.eveRouting();
+    chatLaneIsMeteredCloud = chatRoute?.active === true;
+  } catch {
+    chatLaneIsMeteredCloud = false;
+  }
+  if (!chatLaneIsMeteredCloud) {
+    jsonResponse(response, 503, {
+      error: {
+        message:
+          'Honcho memory derivation stays on the selected private lane; the metered cloud path is not available for it.',
+      },
+    });
+    return;
+  }
   const deriverRoute = await options.honchoDeriverRoute();
   const functionUrl = typeof deriverRoute?.functionUrl === 'string' ? deriverRoute.functionUrl.trim() : '';
   const license = typeof deriverRoute?.license === 'string' ? deriverRoute.license.trim() : '';

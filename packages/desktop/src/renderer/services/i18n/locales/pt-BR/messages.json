@@ -4,6 +4,8 @@
   "conversationInProgress": "Uma conversa está em andamento no momento...",
   "confirm": "Confirmar",
   "canceledExecution": "Execução cancelada",
+  "sendFailed": "Falha ao enviar.",
+  "sendFailedWithReason": "Falha ao enviar: {{reason}}",
   "openLinkFailed": "Falha ao abrir o link",
   "imageGenerationModelDetected": "Modelo de imagem detectado, a ferramenta de imagem foi ativada automaticamente. Modelo padrão: {{platform}}:{{model}}",
   "auto_handling_permissions": "Manipulando automaticamente solicitação de permissão: {{request}}",

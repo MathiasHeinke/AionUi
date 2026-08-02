@@ -340,3 +340,29 @@ export function diffContract(observed, manifest) {
   }
   return v;
 }
+
+// ── the zero-cost claim vocabulary — SHARED, because it now guards TWO surfaces ──
+//
+// These two rules were private to tests/unit/approved-copy/localeCopyManifest.test.ts,
+// where they exist only as ANTI-CIRCULARITY probes: that gate is procedural (a manifest
+// diff), and the rules are there to prove its probes are novel.
+//
+// They are exported here because the class of claim they name — "this costs you nothing"
+// — turned out to live OUTSIDE the locale tree as well. The `house-keeper` roster row
+// carried `outcome: '… kostenlos und lokal, ohne Credits.'` as a HARDCODED .ts string,
+// while the same card derived "verbraucht Credits" from its tier. One card, both claims,
+// and every gate green: the manifest gate stops at the locale tree and says so, and no
+// other gate looked at hardcoded copy at all.
+//
+// So there is now a second consumer (tests/unit/approved-copy/hardcodedZeroCostClaims.test.ts)
+// and ONE definition. A rule copied into a second file is a rule that will disagree with
+// itself; this repo has already retired several of those.
+//
+// THE HONEST BOUND, stated here rather than inherited: this is a VOCABULARY, and a
+// vocabulary is never semantic coverage — the next sentence is always drawn from outside
+// whatever list was written. What it buys is that the exact wording class which shipped
+// the contradiction can not ship again unbacked.
+export const FREE_WORD =
+  /(gratis|kostenlos|kostenfrei|umsonst|zum nulltarif|geschenkt|\bfree\b|\bfor free\b|\bno cost\b)/i;
+export const ZERO_COST_CLAIM =
+  /(aufs Haus|on the house|auf uns\b|\bon us\b|ohne (?:dein )?(?:Guthaben|Credits?)|keine Credits?|null Credits?|\b0 Credits?\b|no credits? (?:deducted|charged|used)|zieht keine Credits?|werden nicht abgezogen)/i;

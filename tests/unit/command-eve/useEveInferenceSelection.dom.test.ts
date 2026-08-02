@@ -142,25 +142,51 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.selection).toBe(localHigh);
   });
 
-  it('commit() while authority is UNKNOWN writes NOTHING and holds the intent in memory', async () => {
-    // The paired negative for the row above: same click, same value, only the
+  it('commit() of a METERED rung while authority is UNKNOWN writes NOTHING and holds the intent in memory', async () => {
+    // The paired negative for the row above: same click, same mechanism, only the
     // answer to "may we write?" changed. Without this pairing the row above would
     // pass just as happily with the gate deleted.
+    //
+    // THE PROBE IS NOW A METERED VALUE, AND THAT IS THE CORRECTION. It used to be
+    // `localTierValue('local-high')` — so this row pinned the private, ZERO-COST
+    // lane as un-persistable while the funding question was open. R4 exists to stop
+    // an unverified seat persisting a rung that SPENDS; applying it to a lane that
+    // spends nothing made the cost-free option unreachable on precisely the seats
+    // whose entitlement bridge cannot answer (`unconfigured` never resolves). The
+    // hold is on what the value COSTS. Here it must, and does, still hold.
     creditsStatus.ok = false; // entitled, but the credits read is not authoritative
-    const { result, rerender } = renderHook(() => useEveInferenceSelection());
+    // Start on the private lane, so the metered pick below is a REAL change and the
+    // held-then-replayed write cannot be confused with a no-op.
     const localHigh = localTierValue('local-high');
-    act(() => result.current.commit(localHigh));
+    store.set('commandEve.inferenceSelection', localHigh);
+    const { result, rerender } = renderHook(() => useEveInferenceSelection());
+    const meteredStandard = eveTierValue('eve-standard');
+    act(() => result.current.commit(meteredStandard));
     expect(selectionWrites()).toEqual([]);
-    expect(store.get('commandEve.inferenceSelection')).toBeUndefined();
+    expect(store.get('commandEve.inferenceSelection')).toBe(localHigh);
     // Not painted either — the in-memory selection is untouched.
-    expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+    expect(result.current.selection).toBe(localHigh);
     // ...but not dropped: it is held, and lands when the answer does.
     expect(result.current.intentPending).toBe(true);
 
     creditsStatus.ok = true;
     creditsHookState.status = { ...creditsStatus };
     rerender();
-    await waitFor(() => expect(store.get('commandEve.inferenceSelection')).toBe(localHigh));
+    await waitFor(() => expect(store.get('commandEve.inferenceSelection')).toBe(meteredStandard));
+    expect(result.current.intentPending).toBe(false);
+  });
+
+  it('commit() of the LOCAL lane while authority is UNKNOWN writes IMMEDIATELY — nothing is spent, nothing is held', () => {
+    // The other half of the same rule, on the same call, in the same state. The
+    // zero-cost lane must remain reachable exactly when the billing subsystem can
+    // not answer — that is when an operator most needs it.
+    creditsStatus.ok = false;
+    const { result } = renderHook(() => useEveInferenceSelection());
+    const localHigh = localTierValue('local-high');
+    act(() => result.current.commit(localHigh));
+    expect(selectionWrites()).toEqual([['commandEve.inferenceSelection', localHigh]]);
+    expect(store.get('commandEve.inferenceSelection')).toBe(localHigh);
+    expect(result.current.selection).toBe(localHigh);
     expect(result.current.intentPending).toBe(false);
   });
 

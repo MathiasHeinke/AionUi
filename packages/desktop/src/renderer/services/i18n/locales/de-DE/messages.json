@@ -4,6 +4,8 @@
   "conversationInProgress": "Eine Unterhaltung läuft gerade...",
   "confirm": "Bestätigen",
   "canceledExecution": "Ausführung abgebrochen",
+  "sendFailed": "Senden fehlgeschlagen.",
+  "sendFailedWithReason": "Senden fehlgeschlagen: {{reason}}",
   "openLinkFailed": "Link konnte nicht geöffnet werden",
   "imageGenerationModelDetected": "Bildmodell erkannt, Bild-Tool wurde automatisch aktiviert. Standardmodell: {{platform}}:{{model}}",
   "auto_handling_permissions": "Berechtigungsanfrage wird automatisch bearbeitet: {{request}}",

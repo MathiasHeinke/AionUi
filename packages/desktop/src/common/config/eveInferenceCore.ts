@@ -460,6 +460,61 @@ export function isLocalSelection(value: string | null | undefined): boolean {
 }
 
 /**
+ * THE BYOK / CONNECTED-PROVIDER SELECTION PREFIX, AND WHY IT HAD TO EXIST.
+ *
+ * A `connected` picker group ({@link EveConnectedProviderGroup}) carries the
+ * operator's OWN provider key. Such a turn costs the operator directly at their
+ * provider and NEVER reaches EVE's metered lane, so it is — like local — funding-
+ * neutral for us.
+ *
+ * Until now a connected item's `value` was whatever an adapter chose, which meant
+ * it carried NEITHER prefix. {@link repairInferenceSelection} treats "neither
+ * prefix" as corrupt and rewrites it to {@link EVE_DEFAULT_INFERENCE_SELECTION} —
+ * a METERED rung. So a persisted BYOK selection would have been silently converted
+ * into a metered turn. It is dead code today (the only production caller of
+ * {@link buildEvePickerGroups} passes no connected groups), and the correct time to
+ * close a money hole is before something walks into it.
+ *
+ * Giving BYOK a NAMEABLE identity is what makes "never repaired onto the metered
+ * lane" implementable rather than merely asserted.
+ */
+const CONNECTED_SELECTION_PREFIX = 'command-eve-connected:';
+
+/** Stable selection value for a connected (BYOK) provider item. */
+export function connectedSelectionValue(id: string): string {
+  return `${CONNECTED_SELECTION_PREFIX}${id}`;
+}
+
+/** True iff a picker selection value belongs to a connected (BYOK) provider group. */
+export function isConnectedSelection(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.startsWith(CONNECTED_SELECTION_PREFIX);
+}
+
+/**
+ * MAY THIS SELECTION BE PERSISTED WHILE THE FUNDING AUTHORITY IS STILL UNKNOWN?
+ *
+ * R4 holds every write of `commandEve.inferenceSelection` until the entitlement /
+ * credits question has been ANSWERED, because writing a METERED rung for a seat
+ * nobody has verified is a spend decision made on no authority.
+ *
+ * THAT REASON DOES NOT REACH THE LANES THAT COST US NOTHING, and applying the hold
+ * to them anyway inverted the protection: `state === 'unconfigured'` never resolves,
+ * so on a seat whose entitlement bridge cannot answer, the ZERO-COST lane became
+ * permanently unreachable — the operator was pushed onto the metered default at
+ * exactly the moment the billing subsystem was unable to say anything at all. A
+ * gate whose failure mode is "you must keep spending" is not a spend control.
+ *
+ * So the gate keys on the VALUE, not on the surface that writes it:
+ *   - local  ⇒ persistable always (nothing egresses, nothing is debited),
+ *   - BYOK   ⇒ persistable always (the operator's own key, never our metered lane),
+ *   - EVE    ⇒ HELD until the answer lands. Unchanged. This is the money contract.
+ * Anything unrecognised is held too — default-deny, never default-write.
+ */
+export function mayPersistSelectionWithoutAuthority(value: string | null | undefined): boolean {
+  return isLocalSelection(value) || isConnectedSelection(value);
+}
+
+/**
  * The wire tiers the eve-inference Edge Function accepts.
  *
  * Deliberately its OWN list rather than a slice of the picker registry: the
@@ -649,6 +704,17 @@ export function repairInferenceSelection(persisted: string | null | undefined): 
     // too: the local picker list can legitimately grow, and the local lane never
     // egresses, so an unrecognised local value costs nothing and must not be
     // silently converted into a metered cloud turn.
+    return { selection: effective, repaired: false };
+  }
+
+  if (isConnectedSelection(effective)) {
+    // A BYOK / connected-provider selection is honoured VERBATIM, exactly like a
+    // local one, and for the same reason: it never reaches EVE's metered lane, so
+    // there is no cost to rescue it from — and "repairing" it onto
+    // EVE_DEFAULT_INFERENCE_SELECTION would silently convert an operator's own-key
+    // turn into a METERED one. An unrecognised connected id is left alone too: the
+    // connected surface can legitimately grow, and the wire already answers
+    // `{ active: false }` for anything that is not an EVE selection.
     return { selection: effective, repaired: false };
   }
 

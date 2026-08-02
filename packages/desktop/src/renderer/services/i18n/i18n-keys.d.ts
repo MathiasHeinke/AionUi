@@ -1920,6 +1920,8 @@ export type I18nKey =
   | 'messages.processing'
   | 'messages.responseSentSuccessfully'
   | 'messages.scrollToBottom'
+  | 'messages.sendFailed'
+  | 'messages.sendFailedWithReason'
   | 'messages.slash.empty'
   | 'messages.slash.hint'
   | 'messages.slash.title'

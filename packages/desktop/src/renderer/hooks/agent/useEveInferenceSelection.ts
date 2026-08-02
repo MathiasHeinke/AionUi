@@ -57,6 +57,7 @@ import {
   EVE_MAX_ENTITLED_SETTINGS_KEY,
   eveTierValue,
   hasEveMaxAccess,
+  mayPersistSelectionWithoutAuthority,
   migrateLegacyEveSelection,
   type EvePickerGroup,
   type EvePickerItem,
@@ -336,7 +337,14 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
       // writer, ONE gate.
       const resolved = migrateLegacyEveSelection(next) ?? next;
       expose(resolved);
-      if (!authorityResolved) return;
+      // THE HOLD IS ON WHAT THE VALUE COSTS, NOT ON THE FACT THAT SOMETHING IS
+      // BEING WRITTEN. A METERED rung waits for the funding answer — that is R4 and
+      // it is untouched. A LOCAL or BYOK selection costs us nothing, so there is no
+      // authority to wait for, and waiting anyway made the zero-cost lane
+      // unreachable on exactly the seats whose entitlement bridge cannot answer
+      // (`state === 'unconfigured'` never resolves). See
+      // mayPersistSelectionWithoutAuthority.
+      if (!authorityResolved && !mayPersistSelectionWithoutAuthority(resolved)) return;
       if (configService.get(SELECTION_KEY) !== resolved) {
         configService.set(SELECTION_KEY, resolved);
       }
@@ -509,10 +517,13 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
       const item = items.find((i) => i.value === value);
       // Ignore unknown values and greyed (paid-only while trialing) rows.
       if (!item || item.disabled) return;
-      // UNKNOWN: held in memory like every other click. `commit` is the same
-      // shared key, so exempting it would leave the gate with a hole named
-      // differently.
-      if (!authorityResolved) {
+      // UNKNOWN: a METERED pick is held in memory like every other click —
+      // `commit` is the same shared key, so exempting it would leave the gate with
+      // a hole named differently. A LOCAL / BYOK pick is NOT held: it costs us
+      // nothing, so there is no funding answer to wait for, and holding it is what
+      // made the zero-cost lane unreachable on a seat whose authority never
+      // resolves. The distinction is the VALUE's, not this call site's.
+      if (!authorityResolved && !mayPersistSelectionWithoutAuthority(value)) {
         setPendingIntent(value);
         setIntentRefused(false);
         return;
