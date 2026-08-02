@@ -273,13 +273,29 @@ export interface QuotaExhaustedBody {
 // Canonical pack table + margin invariant (spec §1, §2)
 // ---------------------------------------------------------------------------
 
-/**
- * Legacy markup hint, RETAINED for the transparent-math display fallback only.
- * SUPERSEDED by the per-token markup billing model (margin at CONSUMPTION via
- * tier factors, not a flat purchase-time markup). The binding €→credits
- * conversion + margin live server-side; the desktop never re-derives money here.
- */
-export const CREDIT_PACK_MARKUP = 0.4;
+// `CREDIT_PACK_MARKUP` IS GONE (founder ruling 1.820.2). It pinned a MARGIN RATE —
+// a fraction, in the CLIENT — under a comment that already admitted it was superseded
+// and that "margin lives server-side". Three things were wrong with it at once:
+//
+//   * Nothing read it. It had exactly one reference in the whole repository: its own
+//     `export`. A constant with no consumer is not a fallback, it is a number waiting
+//     to be quoted; the retained-for-display justification described a code path that
+//     does not exist.
+//   * It is not derivable here. A margin rate bakes in a VAT jurisdiction, a payment
+//     fee, a refund rate and a usage mix. None of those live in this tree. The client
+//     multiplies nothing and charges nothing — the server is authoritative on every
+//     debit — so this file cannot know a margin to state.
+//   * IT WAS OUTSIDE EVERY GATE. `margin-claim-honesty.test.mjs` exists in the
+//     Company.OS repo and scans `supabase/functions/**` only. It cannot see this file,
+//     so the one rule in the estate that forbids a pinned margin was blind to the one
+//     place a pinned margin survived. That half is closed too:
+//     tests/unit/command-eve/marginClaimHonesty.test.ts now applies the same category
+//     to the desktop money tree — and to a shape the server gate had no need for, a
+//     margin/markup constant carrying a RATE rather than a factor.
+//
+// It is DELETED rather than commented out, and this tombstone deliberately does not
+// reproduce the figure: a reader lifting a number out of the money core into a deck
+// cannot tell a tombstone from a claim, and the digits travel either way.
 
 /**
  * The credit UNIT in EUR. NEW server billing model: 1 credit = 0.1 cent (0.001 €),

@@ -25,6 +25,8 @@
  * No Electron/fs/network — exactly the pattern of eveInferenceCore.test.ts.
  */
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   ADDITIONAL_SEAT_EUR,
@@ -319,21 +321,101 @@ describe('selectDefaultPackIndex — 100 → 200 → largest', () => {
 
 describe('buildWallModel — transparent credit math', () => {
   it('computes "M more jobs like this" per pack from credits_needed', () => {
+    // THIS FIXTURE USED TO CARRY A 250 € PACK and assert its output as correct, in a
+    // file whose own header lists "the 250 € pack" among the things it guards AGAINST.
+    // A test that feeds a retired rung through the production wall model and calls the
+    // result right is a committed statement that the rung is live — the exact defect
+    // class this suite exists to catch, shipped inside the suite.
+    //
+    // The fixture is now built from rungs the product actually sells, at the FACE
+    // value it sells them at (1 € = 1000 credits). The `bonus` field is still exercised
+    // on one rung because the 402 body is the SERVER's to write and it stays
+    // authoritative on the grant: if it ever advertises a bonus (a promo, a migration
+    // credit) the wall must render what the buyer will actually receive.
     const wall = buildWallModel({
       error: 'quota_exhausted',
       credits_needed: 8,
       packs: [
-        { eur: 100, credits: 100, bonus: 8 }, // 108 / 8 = 13 jobs
-        { eur: 250, credits: 250, bonus: 38 }, // 288 / 8 = 36 jobs
+        { eur: 100, credits: 100_000, bonus: 0 }, // 100000 / 8 = 12500 jobs
+        { eur: 200, credits: 200_000, bonus: 8_000 }, // 208000 / 8 = 26000 jobs
       ],
     });
     expect(wall.creditsNeeded).toBe(8);
     const hundred = wall.packs.find((p) => p.eur === 100)!;
-    expect(hundred.jobsLikeThis).toBe(13);
+    expect(hundred.jobsLikeThis).toBe(12_500);
     expect(hundred.isDefaultSelected).toBe(true); // 100-pack is default
-    const twoFifty = wall.packs.find((p) => p.eur === 250)!;
-    expect(twoFifty.jobsLikeThis).toBe(36);
-    expect(twoFifty.isDefaultSelected).toBe(false);
+    const twoHundred = wall.packs.find((p) => p.eur === 200)!;
+    expect(twoHundred.totalCredits).toBe(208_000); // a server-advertised bonus is rendered
+    expect(twoHundred.jobsLikeThis).toBe(26_000);
+    expect(twoHundred.isDefaultSelected).toBe(false);
+  });
+
+  it('every pack rung these tests exercise is one the product actually sells', () => {
+    // The header of this file already CLAIMED the 250 € pack was guarded against; two
+    // fixtures below that claim used it anyway, and nothing could report the
+    // contradiction because no assertion read the file. This one does: every `eur:`
+    // literal in this suite must be a rung in the shipped catalog, so a retired price
+    // cannot re-enter as a test fixture — which is how the last one got in.
+    //
+    // NAMING A RETIRED RUNG IN ORDER TO REJECT IT IS LEGAL — asserting its output as
+    // correct is not. That is the same distinction the web-copy gate draws between a
+    // tombstone and an advertisement, and it needs the same escape hatch: an ALLOWLIST
+    // of EXACT lines with a reason, so admitting one is a decision a reviewer can see
+    // rather than a hole nobody notices. A stale entry reds too — an exemption that no
+    // longer names a real line is exactly where the next retired fixture would hide.
+    //
+    // AN EXEMPTION CARRIES A BUDGET, NOT JUST A TEXT. A first cut of this allowlist
+    // exempted any line whose text matched, and a sabotage run proved the hole
+    // immediately: pasting the SAME line into the wall-model fixture — where its
+    // output IS asserted as correct — kept the gate at 58 passed. Text-matching
+    // exempts every copy, including the ones nobody reviewed. So each entry pins how
+    // many times it may occur, and the count is asserted exactly: a second copy reds,
+    // and so does a deletion that leaves a stale exemption behind.
+    const REVIEWED_RETIRED_FIXTURES = [
+      {
+        line: '{ eur: 250, credits: 250_000, bonus: 0 },',
+        times: 1,
+        why: 'the rejection test above: 250 must NOT out-rank a shipped 200 in selectDefaultPackIndex',
+      },
+    ];
+    const source = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+    const live = new Set(DEFAULT_CREDIT_PACKS.map((p) => p.eur));
+    expect([...live].toSorted((a, b) => a - b)).toEqual([25, 50, 100, 200]);
+
+    const lines = source.split('\n');
+    for (const { line, times, why } of REVIEWED_RETIRED_FIXTURES) {
+      const seen = lines.filter((l) => l.trim() === line).length;
+      expect(
+        seen,
+        `the reviewed exemption "${line}" (${why}) is budgeted for ${times} occurrence(s) but the file has ` +
+          `${seen}. ${seen === 0 ? 'Remove it rather than leaving a hole.' : 'A copy of an exempted fixture is not itself reviewed — the extra one must justify itself or go.'}`
+      ).toBe(times);
+    }
+
+    let scanned = 0;
+    const offenders: string[] = [];
+    lines.forEach((raw, i) => {
+      const trimmed = raw.trim();
+      for (const m of raw.matchAll(/\beur:\s*([0-9_]+)/g)) {
+        scanned += 1;
+        const eur = Number(m[1].replace(/_/g, ''));
+        if (live.has(eur)) continue;
+        if (REVIEWED_RETIRED_FIXTURES.some((r) => r.line === trimmed)) continue;
+        // …and the allowlist's own DECLARATION of that line, which necessarily quotes
+        // it. Matched exactly (`line: '<entry>',`) rather than by prefix, so the
+        // exemption cannot be used to smuggle a rung that is not already allowlisted.
+        if (REVIEWED_RETIRED_FIXTURES.some((r) => trimmed === `line: '${r.line}',`)) continue;
+        offenders.push(`line ${i + 1}: ${eur} € — ${trimmed}`);
+      }
+    });
+    expect(scanned, 'the fixture scan found no pack rungs — the regex is broken, not the file').toBeGreaterThan(8);
+    expect(
+      offenders,
+      `a retired pack rung is exercised as a fixture. The catalog is ` +
+        `${[...live].toSorted((a, b) => a - b).join(' / ')} € — a rung the product cannot sell must not be ` +
+        `asserted as correct. If it is being REJECTED on purpose, add the exact line to ` +
+        `REVIEWED_RETIRED_FIXTURES with a reason.\n${offenders.join('\n')}`
+    ).toEqual([]);
   });
 
   it('falls back to the default catalog when the 402 body carries no packs', () => {
