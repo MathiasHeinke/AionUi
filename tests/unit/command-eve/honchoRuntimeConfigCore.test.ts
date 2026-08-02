@@ -22,6 +22,7 @@
 
 import { describe, expect, it } from 'vitest';
 import fs from 'fs';
+import http from 'http';
 import path from 'path';
 import { EVE_INFERENCE_FUNCTION_URL } from '@/common/config/eveInferenceCore';
 import { resolveSeatHome, type SeatHomePaths } from '@/process/commandEve/seatContextCore';
@@ -369,6 +370,102 @@ describe('honchoRuntimeConfigCore — EGRESS safety', () => {
     expect(src).not.toContain('EVE_INFERENCE_FUNCTION_URL');
     expect(src).not.toContain('unvbeothoimlzlolxucl');
     expect(src).not.toContain('/functions/v1/');
+  });
+});
+
+describe('honchoRuntimeConfigCore — the local lane, driven', () => {
+  /**
+   * 19 — THE LOCAL HAPPY PATH SUCCEEDS, AND NOTHING LEAVES THE MACHINE.
+   *
+   * WHAT WAS ALREADY PROVEN, so this test does not re-prove it: the ROUTING
+   * (deriverMode 'local' always takes the local branch, even cold) and the
+   * REFUSAL (requireLoopbackBase throws on every non-loopback base, the real edge
+   * URL included — tests 15 and 15b). Money and egress were both already covered.
+   *
+   * WHAT WAS NOT: that the config this core emits is USABLE. Every existing
+   * assertion reads a returned object. A baseUrl whose path shape no local server
+   * answers, or a port nobody serves, satisfies all of them — the lane could have
+   * been broken end to end with this battery green.
+   *
+   * So this one drives it. A REAL loopback HTTP server answers on an OS-assigned
+   * port, the emitted baseUrl is used as the OpenAI-compatible base it claims to
+   * be, and the request goes through `fetch` with the transport recorded. The
+   * success is BEHAVIOURAL (a body served by that server), and the egress claim is
+   * asserted on the URLs the transport was ACTUALLY handed, not on the config's
+   * own fields.
+   *
+   * WHAT IT DOES NOT CLAIM: this drives the emitted config, not a shipped deriver
+   * client — there is no process here that issues Honcho's own requests. It proves
+   * the base is answerable and that this exchange stayed on 127.0.0.1; it does not
+   * prove some other component cannot egress elsewhere.
+   *
+   * THE REQUEST COUNT IS CHECKED FIRST. "Nothing egressed" is trivially true of a
+   * run that issued nothing, so the vacuous pass is ruled out before the rest of
+   * the assertions mean anything.
+   */
+  it('19 — deriverMode local reaches a loopback deriver endpoint and succeeds, with zero non-loopback egress', async () => {
+    const seen: string[] = [];
+    // It answers the OpenAI-compatible deriver route and NOTHING ELSE. A catch-all
+    // would accept any path the core emitted, which would make the base's shape —
+    // the part a broken lane gets wrong — unfalsifiable here.
+    const server = http.createServer((req, res) => {
+      seen.push(`${req.method ?? '?'} ${req.headers.host ?? '(no host header)'}${req.url ?? ''}`);
+      if (req.method === 'POST' && (req.url ?? '').endsWith('/v1/chat/completions')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { content: 'derived-on-this-machine' } }] }));
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: `no deriver endpoint at ${req.method ?? '?'} ${req.url ?? ''}` }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const address = server.address();
+    const port = typeof address === 'object' && address !== null ? address.port : 0;
+
+    const attempted: string[] = [];
+    const realFetch = globalThis.fetch;
+    try {
+      expect(port).toBeGreaterThan(0);
+      const cfg = resolveHonchoDeriverConfig({
+        deriverMode: 'local',
+        // Cold on purpose: 'local' is the privacy LOCK, so it must not need the
+        // readiness flags to stay on the machine.
+        localModelOptedIn: false,
+        localModelReady: false,
+        ollamaBaseUrl: `http://127.0.0.1:${port}`,
+      });
+      expect(cfg.branch).toBe(HONCHO_DERIVER_BRANCH_LOCAL);
+
+      globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+        attempted.push(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+        return realFetch(input, init);
+      }) as typeof fetch;
+
+      const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: cfg.model, messages: [{ role: 'user', content: 'derive' }] }),
+      });
+      const payload = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+
+      // Anti-vacuity first: a run that issued nothing satisfies every egress
+      // assertion below.
+      expect(attempted).toHaveLength(1);
+      expect(seen).toHaveLength(1);
+      // It SUCCEEDED — the body came off the loopback server, so the emitted base
+      // is a real, answerable endpoint and not merely a well-formed string.
+      expect(response.ok).toBe(true);
+      expect(payload.choices?.[0]?.message?.content).toBe('derived-on-this-machine');
+      // …and every URL the transport was handed stayed on this machine.
+      for (const url of attempted) {
+        expect(new URL(url).hostname).toBe('127.0.0.1');
+        expect(url).not.toContain(EVE_INFERENCE_FUNCTION_URL);
+        expect(url).not.toContain('unvbeothoimlzlolxucl');
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
 
