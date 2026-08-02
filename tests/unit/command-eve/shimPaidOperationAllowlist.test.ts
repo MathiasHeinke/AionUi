@@ -163,10 +163,14 @@ describe('MAT-1749 registry — membership is the only way to the paid lane', ()
       'honcho_deriver',
       'title_generation',
       'context_compression',
+      'compression',
     ]);
   });
 
-  it('refuses absent, blank, non-string and unknown declarations', () => {
+  it('refuses an ABSENT declaration and only an absent one', () => {
+    // Absent is the single case that does NOT degrade to local. It most likely means
+    // the user's own paid turn with a broken producer, and a paying customer silently
+    // receiving free-model answers is worse than a loud 403.
     expect(resolveCommandEvePaidSeam(undefined)).toMatchObject({ disposition: 'refused', reason: 'absent' });
     expect(resolveCommandEvePaidSeam('   ')).toMatchObject({ disposition: 'refused', reason: 'absent' });
     expect(resolveCommandEvePaidSeam(42)).toMatchObject({ disposition: 'refused', reason: 'absent' });
@@ -174,12 +178,41 @@ describe('MAT-1749 registry — membership is the only way to the paid lane', ()
       disposition: 'refused',
       reason: 'absent',
     });
-    expect(resolveCommandEvePaidSeam('web_extract')).toMatchObject({
-      disposition: 'refused',
-      reason: 'unregistered',
-    });
     expect(resolveCommandEvePaidSeam('title_generation')).toMatchObject({ disposition: 'local_only' });
     expect(resolveCommandEvePaidSeam('user_chat_turn')).toMatchObject({ disposition: 'paid' });
+  });
+
+  it('sends a NAMED but unregistered operation local — it may run, it may not spend', () => {
+    // The ruling: this registry governs SPENDING, not whether a feature may run.
+    // These are real Hermes auxiliaries (FACT whl tools/web_tools.py:517,
+    // tools/vision_tools.py:968, tools/mcp_tool.py:1154, tools/approval.py:1116)
+    // that reached the PAID lane before this fix. Refusing them would have traded a
+    // money defect for a functionality defect.
+    for (const operation of ['web_extract', 'vision', 'mcp', 'approval', 'tts_audio_tags']) {
+      expect(resolveCommandEvePaidSeam(operation), `${operation} must run locally, not be refused`).toMatchObject({
+        disposition: 'local_only',
+        reason: 'unregistered',
+      });
+    }
+    // Including one that does not exist yet.
+    expect(resolveCommandEvePaidSeam('some_future_hermes_auxiliary')).toMatchObject({
+      disposition: 'local_only',
+      reason: 'unregistered',
+    });
+  });
+
+  it('lands BOTH compaction names on the free lane, whichever one arrives', () => {
+    // The desktop's compression patch declares `context_compression`; Hermes' native
+    // task is `compression` (FACT whl agent/context_compressor.py:1500). That patch
+    // installs on a best-effort import and returns silently when it fails, so both
+    // names must be non-billable — otherwise the safe behaviour would depend on
+    // whether a silent ImportError happened.
+    expect(resolveCommandEvePaidSeam('context_compression')).toMatchObject({ disposition: 'local_only' });
+    expect(resolveCommandEvePaidSeam('compression')).toMatchObject({ disposition: 'local_only' });
+    // Registered, so neither is reported as an unknown operation.
+    expect(resolveCommandEvePaidSeam('compression').reason).toBeUndefined();
+    expect(commandEvePaidOperations()).not.toContain('compression');
+    expect(commandEvePaidOperations()).not.toContain('context_compression');
   });
 
   it('lets the shim mint the deriver rung but never lets a caller claim it', () => {
@@ -238,7 +271,7 @@ describe('MAT-1749 S1/S5 — title_generation costs the customer nothing', () =>
   });
 });
 
-describe('MAT-1749 S3 — an undeclared operation may not spend', () => {
+describe('MAT-1749 S3 — nothing unapproved spends: absent refuses, unknown goes local', () => {
   it('S3: an ABSENT declaration on the paid path REFUSES instead of defaulting through', async () => {
     const shimUrl = await startShimOnPaidLane();
 
@@ -255,7 +288,11 @@ describe('MAT-1749 S3 — an undeclared operation may not spend', () => {
     });
   });
 
-  it('refuses an operation nobody registered — including one Hermes may add later', async () => {
+  it('runs an operation nobody registered LOCALLY — no metered call, no debit, still works', async () => {
+    // INVERTED DELIBERATELY (CEO ruling). This used to assert 403. Refusing a named
+    // auxiliary saved money it was never going to spend and broke a working feature
+    // to do it. It now runs on the free lane instead: the customer is not billed AND
+    // the feature survives.
     const shimUrl = await startShimOnPaidLane();
 
     const response = await postChat(shimUrl, {
@@ -263,11 +300,40 @@ describe('MAT-1749 S3 — an undeclared operation may not spend', () => {
       messages: USER_TURN,
       eve_operation: 'some_future_hermes_auxiliary',
     });
+    const payload = (await response.json()) as { choices: Array<{ message: { content: string } }> };
 
-    expect(response.status).toBe(403);
+    // THE MONEY CLAIM: the metered host was never asked, so nothing could be billed.
     expect(metered!.debits).toHaveLength(0);
-    expect(response.headers.get('x-command-eve-operation')).toBe('refused:unregistered');
+    // AND THE FUNCTION CLAIM: it still produced an answer, from the free lane.
+    expect(response.status).toBe(200);
+    expect(payload.choices[0].message.content).toBe('Local Title About Invoices');
+    expect(local!.calls).toHaveLength(1);
+    expect(response.headers.get('x-command-eve-operation')).toBe(
+      'local_only:unregistered:some_future_hermes_auxiliary'
+    );
+    expect(response.headers.get('x-command-eve-inference-lane')).toBe('ollama_local');
   });
+
+  // The real Hermes auxiliaries that genuinely reached the PAID lane before this fix
+  // (FACT whl tools/web_tools.py:517, tools/vision_tools.py:968, tools/mcp_tool.py:1154,
+  // tools/approval.py:1116, tools/tts_tool.py:1151). Each must now answer from the
+  // free lane and bill nothing — running degraded beats not running at all.
+  it.each(['web_extract', 'vision', 'mcp', 'approval', 'tts_audio_tags'])(
+    'runs the real Hermes auxiliary %s locally rather than breaking it',
+    async (operation) => {
+      const shimUrl = await startShimOnPaidLane();
+
+      const response = await postChat(shimUrl, {
+        model: 'custom:command-eve-gemma-64k:latest',
+        messages: USER_TURN,
+        eve_operation: operation,
+      });
+
+      expect(response.status, `${operation} must still function`).toBe(200);
+      expect(metered!.debits, `${operation} must not debit`).toHaveLength(0);
+      expect(local!.calls, `${operation} must reach the free lane`).toHaveLength(1);
+    }
+  );
 
   it('refuses a caller that claims the deriver rung on the general lane', async () => {
     const shimUrl = await startShimOnPaidLane();

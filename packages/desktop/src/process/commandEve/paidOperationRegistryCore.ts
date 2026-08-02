@@ -22,7 +22,13 @@
  * that must not spend. `title_generation` was closed once already for AionUi's own
  * title path (commit d5135ec6) and a SECOND producer inside Hermes survived on a
  * different call site. A positive list makes the NEXT unnamed auxiliary — one that
- * does not exist yet — fail closed on the day it ships.
+ * does not exist yet — unable to spend on the day it ships.
+ *
+ * WHAT "FAIL CLOSED" MEANS HERE, because the phrase is ambiguous and the ambiguity
+ * is expensive: it means CANNOT SPEND, not CANNOT RUN. This registry governs money,
+ * so it is entitled to withhold the paid lane and nothing more. A named operation it
+ * does not know still runs — locally, for free. The one exception is an operation
+ * that names itself NOTHING, which is refused loudly; see resolveCommandEvePaidSeam.
  *
  * THE CARRIER — why the operation rides the BODY and not `X-EVE-Dispatch`.
  *
@@ -71,8 +77,14 @@ export type CommandEvePaidSeamLane = 'paid' | 'local_only';
 /** What the seam decided. `refused` never reaches any provider. */
 export type CommandEvePaidSeamDisposition = CommandEvePaidSeamLane | 'refused';
 
-/** Why a refusal happened — `absent` is the old silent default, now a refusal. */
-export type CommandEvePaidSeamRefusalReason = 'absent' | 'unregistered' | 'not_client_declarable';
+/**
+ * Why the seam decided what it decided.
+ *
+ * Note that `unregistered` is NOT a refusal reason. A named operation that nobody
+ * registered is sent to the LOCAL lane, not turned away — see the asymmetry below.
+ * `absent` and `not_client_declarable` are the two that refuse.
+ */
+export type CommandEvePaidSeamReason = 'absent' | 'unregistered' | 'not_client_declarable';
 
 /**
  * WHO is making the claim.
@@ -91,7 +103,7 @@ export type CommandEvePaidSeamDecision = {
   /** The declared operation, normalized. Empty string when nothing was declared. */
   operation: string;
   disposition: CommandEvePaidSeamDisposition;
-  reason?: CommandEvePaidSeamRefusalReason;
+  reason?: CommandEvePaidSeamReason;
 };
 
 /**
@@ -114,11 +126,20 @@ export type CommandEvePaidSeamDecision = {
  *                         cannot make for free is a title nobody gets. If local
  *                         derivation is unavailable the user simply gets no
  *                         auto-title; it must NOT fall back to the paid lane.
- *   context_compression — the C9a bounded compaction call. It is "everything else"
- *                         under this ticket and must never debit, but it is a
- *                         desktop-owned in-product caller whose hard refusal would
- *                         break context compaction outright. local_only keeps the
- *                         feature working at zero cost, exactly as titles do.
+ *   context_compression — the C9a bounded compaction call, as the DESKTOP's own
+ *                         patched HTTP call names it.
+ *   compression         — the same operation as HERMES natively names it
+ *                         (whl agent/context_compressor.py:1500). Both names are
+ *                         registered ON PURPOSE. The desktop's compression patch
+ *                         returns silently when its import fails, and if that ever
+ *                         happens Hermes' native call runs instead and declares the
+ *                         OTHER name. Registering one name would make the safe
+ *                         behaviour depend on a silent ImportError; registering both
+ *                         makes the outcome identical either way.
+ *
+ * EVERYTHING ELSE — any named operation not listed here — resolves to local_only
+ * as well. Membership still governs SPENDING, which is the only thing this registry
+ * is entitled to govern; it does not govern whether a feature may run at all.
  */
 type CommandEveOperationEntry = {
   lane: CommandEvePaidSeamLane;
@@ -141,6 +162,7 @@ const COMMAND_EVE_OPERATION_REGISTRY: ReadonlyMap<string, CommandEveOperationEnt
   ['honcho_deriver', { lane: 'paid', clientDeclarable: false }],
   ['title_generation', { lane: 'local_only', clientDeclarable: true }],
   ['context_compression', { lane: 'local_only', clientDeclarable: true }],
+  ['compression', { lane: 'local_only', clientDeclarable: true }],
 ]);
 
 /** The registered operations, for tests, receipts and diagnostics. */
@@ -182,11 +204,26 @@ export function resolveCommandEvePaidSeam(
 ): CommandEvePaidSeamDecision {
   const operation = typeof declared === 'string' ? declared.trim().toLowerCase() : '';
   if (operation.length === 0) {
+    // ABSENT STAYS LOUD, and it is the one case that does NOT degrade to local.
+    // The most likely producer of an undeclared request in production is the user's
+    // OWN paid turn with a broken declaration. Sending that to the local lane would
+    // hand a paying Standard/MAX customer free-model answers with no signal at all —
+    // a silent quality and trust defect, and far harder to notice than a 403. An
+    // unnamed operation must fail where somebody can see it.
     return { operation: '', disposition: 'refused', reason: 'absent' };
   }
   const entry = COMMAND_EVE_OPERATION_REGISTRY.get(operation);
   if (entry === undefined) {
-    return { operation, disposition: 'refused', reason: 'unregistered' };
+    // NAMED BUT UNREGISTERED ⇒ LOCAL, NOT REFUSED. The asset this seam protects is
+    // the customer's money, so the correct fail-closed direction is "cannot SPEND",
+    // not "cannot RUN". Turning these away would trade a money defect for a
+    // functionality defect: Hermes has at least seven auxiliaries on this path
+    // (web_extract, vision, mcp, approval, tts_audio_tags among them), and hard
+    // refusal would break shipped features to save money they never needed to
+    // spend. Local costs nothing and egresses nothing, so the feature survives and
+    // the customer is never billed. An auxiliary a FUTURE Hermes adds inherits this
+    // same outcome on the day it ships — degraded, never surprising, never charged.
+    return { operation, disposition: 'local_only', reason: 'unregistered' };
   }
   // A structural rung cannot be CLAIMED. Being registered is not the same as being
   // claimable: the deriver is payable because it arrived on the deriver ingress,

@@ -1962,12 +1962,20 @@ async function handleChatCompletions(
         );
         return;
       }
-      // local_only — a REGISTERED but NON-BILLABLE operation (title_generation,
-      // context_compression). It falls through to the local lanes below and must
-      // NEVER reach the paid one: if local derivation is unavailable the user
-      // simply gets no auto-title, exactly as d5135ec6 decided for the title path
-      // AionUi owned. Silently borrowing the paid lane is the bug, not the fallback.
-      response.setHeader(COMMAND_EVE_OPERATION_DECISION_HEADER, `local_only:${seam.operation}`);
+      // local_only — the operation may RUN but may not SPEND. Two ways to land here:
+      // a registered non-billable rung (title_generation, compression), or a named
+      // operation nobody registered — including one a future Hermes adds. Both fall
+      // through to the local lanes below and must NEVER reach the paid one: if local
+      // derivation is unavailable the user simply gets no auto-title, exactly as
+      // d5135ec6 decided for the title path AionUi owned. Silently borrowing the paid
+      // lane is the bug; running for free is not.
+      //
+      // The reason rides the receipt so an operator can tell "known and deliberately
+      // free" from "unknown, so we declined to bill for it".
+      response.setHeader(
+        COMMAND_EVE_OPERATION_DECISION_HEADER,
+        seam.reason ? `local_only:${seam.reason}:${seam.operation}` : `local_only:${seam.operation}`
+      );
     }
   }
 
