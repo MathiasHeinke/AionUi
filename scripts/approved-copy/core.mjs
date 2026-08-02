@@ -45,12 +45,18 @@
 //   it WITHOUT SOMEONE LOOKING.
 //
 // ONE DELIBERATE DIVERGENCE FROM THE WEB REPO'S VERSION, AND IT IS A STRENGTHENING.
-//   There, copy had to be dug out of .tsx/.ts source next to Tailwind class strings, so
-//   it needed a heuristic copy filter and a MIN_COPY_LENGTH of 12 — which left every
-//   fragment shorter than that outside the contract. Here the surfaces are pure
-//   translation dictionaries: EVERY string value is, by construction, text a customer
-//   reads. So there is NO length floor and NO heuristic. A two-word promise is inside
-//   this contract.
+//   There, copy has to be dug out of .tsx/.ts source next to Tailwind class strings, so
+//   it needs a heuristic filter and cannot simply take every string. Here the surfaces
+//   are pure translation dictionaries: EVERY string value is, by construction, text a
+//   customer reads. So there is NO filter at all — no shape test, no length floor. A
+//   two-word promise is inside this contract.
+//
+//   THE WEB REPO NO LONGER HAS A LENGTH FLOOR EITHER, and this note used to say it did.
+//   Its MIN_COPY_LENGTH of 12 was removed after it was measured to drop 1,485 distinct
+//   strings — including every short price on the site ('99 €/Monat', 'ab 25 €', '€0').
+//   Its filter is now SHAPE-based, so the remaining divergence is that it still HAS a
+//   filter and this one does not. A comment that describes the other tree's gate as
+//   weaker than it is invites someone to "align" the two in the wrong direction.
 //
 // Pure string/JSON analysis. No bundler, no DOM, no network. Imported by the committed
 // gate (tests/unit/approved-copy/localeCopyManifest.test.ts) AND by update.mjs, so the
