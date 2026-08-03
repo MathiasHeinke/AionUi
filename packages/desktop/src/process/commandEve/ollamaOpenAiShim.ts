@@ -2602,26 +2602,36 @@ export async function warmCommandEveLocalModel(
 }
 
 /**
- * Light EVE Inference (cloud) lane preflight. Fired at startup when the active
- * picker selection is an EVE tier, INSTEAD of the local Ollama warm-up, so the
- * first real EVE turn does not pay the cold-start cost: it warms the TLS/edge
- * path to the eve-inference Edge Function and verifies the CEVE license +
- * reachability while the user is still typing.
+ * EVE Inference (cloud) lane preflight — RETIRED. THIS ISSUES NO REQUEST.
  *
- * Unlike the local warm-up this is NOT a "ping" — a ping is classified as a
- * warm-up request by the shim and stays LOCAL by design. The preflight sends a
- * minimal *real* EVE-persona chat (tiny system + user message, max_tokens 1) so
- * `isCommandEveWarmupRequest` does NOT match and the shim routes it through the
- * live EVE cloud route (egress boundary → license bearer → function). The
- * eve-inference function returns an OpenAI-compatible completion exactly like a
- * normal turn; we only care that the route resolves and authenticates.
+ * It used to warm the TLS/edge path to the eve-inference Edge Function at
+ * startup, and it did that by sending a minimal *real* EVE-persona chat (tiny
+ * system + user message, max_tokens 1) shaped precisely so
+ * `isCommandEveWarmupRequest` would NOT match and the shim would route it
+ * through the live, METERED cloud lane. Every launch on an EVE tier therefore
+ * bought a warm lane with the customer's credits for something nobody asked
+ * for (MAT-1749). Starting an app is not a user-authorised billable action.
  *
- * Fail-soft: every failure mode (missing route/license, blocked egress,
- * unreachable function, timeout) is captured into the result — this never
- * throws and never blocks app start. A non-2xx status (e.g. 401 no-license,
- * 502 unreachable) is reported via `ok: false` + `status` so the caller can log
- * a gentle status, but it is still just a warm-up: the user's first real turn
- * surfaces the same error through the normal path.
+ * What happens now: the loopback guard still rejects a non-loopback base URL
+ * with an error result, and everything after it returns a first-class SKIP —
+ * `{ ok: false, skipped: true }`, and no `status`, because nothing was
+ * contacted. `skipped` exists so a caller cannot mistake this for a broken
+ * cloud lane: `ok: false` alone reads as a fault and gets logged as a warning,
+ * and a warning on every single launch is how operators learn to ignore
+ * warnings.
+ *
+ * Refusing it at the shim's operation allowlist was considered and rejected: a
+ * refusal is still an authenticated request, and it still produced that
+ * per-launch warning. Declining before any I/O is the only version with nothing
+ * to explain away.
+ *
+ * Fail-soft, unchanged: this never throws and never blocks app start.
+ *
+ * NO CALLER TODAY — `scheduleCommandEveEveLaneWarmup` was deleted along with the
+ * charge. The function is kept as the landing spot for a dedicated NON-METERED
+ * health endpoint; restoring edge warming means replacing the early return below
+ * with a call to that endpoint, never re-registering this as a payable
+ * operation.
  */
 export async function warmCommandEveEveLane(
   warmupOptions: CommandEveEveLaneWarmupOptions = {}
