@@ -30,6 +30,40 @@
  * does not know still runs — locally, for free. The one exception is an operation
  * that names itself NOTHING, which is refused loudly; see resolveCommandEvePaidSeam.
  *
+ * WHAT ONE USER SEND ACTUALLY COSTS — THE CONTRACT, CORRECTED.
+ *
+ * The audit brief for this ticket said "ONE USER SEND = EXACTLY ONE CHAT DEBIT". That
+ * is true of a simple chat turn and WRONG as a universal, and the wrong version was
+ * briefly encoded in a test name here. The real contract:
+ *
+ *   A send meters ONCE PER MAIN-MODEL REQUEST that the user's own task requires,
+ *   and ZERO times for background or auxiliary work the user did not request.
+ *
+ * Per-request billing for successive agentic iterations is INTENDED, not a defect. The
+ * server keys each debit on hashed-user + a 10-second bucket + a fingerprint over
+ * (tier, model, messages) — FACT(server supabase/functions/_shared/eve-inference-core.ts:
+ * 348-361, :372-383). A tool loop appends the assistant tool_call and the tool result
+ * between rounds (FACT whl agent/conversation_loop.py, e.g. :3763, :3791), so each round
+ * carries different messages, derives a different key, and is charged as the distinct
+ * work it is. It burns real upstream tokens; collapsing an N-round send into one debit
+ * would make us absorb the cost of N-1 requests. There is no turn-level coalescing on
+ * either side, and none should be added.
+ *
+ * Idempotency here is RETRY protection, not turn coalescing: an identical request
+ * repeated inside the same 10-second bucket dedupes to one debit
+ * (FACT server eve-inference-core.ts:341-346, :353-356). Beyond that window a repeat is
+ * a fresh key and a fresh debit, which is correct for a deliberate re-ask.
+ *
+ * NOT VERIFIED, tracked separately: whether any transport retry can re-issue an
+ * identical request MORE than 10 seconds after a first attempt that already succeeded
+ * upstream. The shim itself never retries a paid request (pinned by test), so it cannot
+ * be the cause. Do not chase this here.
+ *
+ * What this registry governs is the OTHER half: work the user never asked for reaches
+ * no metered provider at all. That is the defect this ticket fixed — titles, the
+ * startup preflight, auxiliaries — and it is a different thing from an agentic loop
+ * executing the user's own request.
+ *
  * KNOWN LIMITATION, ACCEPTED FOR 1.820.1 — READ THIS BEFORE "FIXING" IT.
  *
  * local_only operations require a working LOCAL lane. On a CLOUD-ONLY seat with no
@@ -215,7 +249,12 @@ const COMMAND_EVE_OPERATION_REGISTRY: ReadonlyMap<string, CommandEveOperationEnt
  *   title_generation  FACT(whl agent/title_generator.py:58)
  *   compression       FACT(whl agent/context_compressor.py:1500)
  *   web_extract       FACT(whl tools/web_tools.py:517, :668; tools/browser_tool.py:2258)
- *   vision            FACT(whl tools/vision_tools.py:968, :1453; tools/browser_tool.py:3298)
+ *   vision            FACT(whl tools/vision_tools.py:968, :1453; tools/browser_tool.py:3298;
+ *                     tools/browser_camofox.py:758) — FOUR sites. An earlier version of
+ *                     this comment listed three. The CLASSIFICATION was never wrong, because
+ *                     what is registered is the task NAME and `vision` was always in the
+ *                     list — but a prose miscount in the one file whose subject is
+ *                     incomplete enumeration is worth correcting loudly.
  *   mcp               FACT(whl tools/mcp_tool.py:1154)
  *   approval          FACT(whl tools/approval.py:1116)
  *   tts_audio_tags    FACT(whl tools/tts_tool.py:1151)
@@ -243,6 +282,23 @@ export const COMMAND_EVE_HERMES_AUXILIARY_TASKS: readonly string[] = [
   'monitor',
   'call',
 ];
+
+/**
+ * Names that a scan of the wheel yields but which are NOT auxiliary tasks.
+ *
+ * This list exists so the enumeration above can be checked MECHANICALLY rather than
+ * trusted. The compatibility test derives every task name from the bundled wheel and
+ * requires each one to appear in exactly one of the two lists: classified, or
+ * acknowledged-and-excluded with a reason. A name in neither reddens.
+ *
+ * That closes the structural weakness, not just the instance of it: until now the task
+ * list was hand-written and a name nobody noticed would simply have been absent, which
+ * is precisely how the direct-client mechanism went unseen.
+ *
+ *   __reset__  FACT(whl hermes_cli/web_server.py:768) — a sentinel the web server
+ *              passes to clear per-task auxiliary config, never an LLM call.
+ */
+export const COMMAND_EVE_WHEEL_NON_TASK_NAMES: readonly string[] = ['__reset__'];
 
 /**
  * MECHANISM 3 — the DIRECT auxiliary clients, and why this list has to exist.

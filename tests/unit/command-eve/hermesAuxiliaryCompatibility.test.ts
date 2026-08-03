@@ -31,6 +31,7 @@ import {
   COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS,
   COMMAND_EVE_HERMES_TRANSPORT_BYPASS_SEAMS,
   COMMAND_EVE_ITERATION_SUMMARY_OPERATION,
+  COMMAND_EVE_WHEEL_NON_TASK_NAMES,
   commandEvePaidOperations,
   commandEveRegisteredOperations,
   resolveCommandEvePaidSeam,
@@ -49,7 +50,81 @@ const WHEEL_PATH = fileURLToPath(
  */
 const PINNED_WHEEL_SHA256 = 'a0a5427f6025474288af4399fa277e871813d6b409ad253fd5154bb30d7e62d9';
 
+/** Matches a task name in either form Hermes uses: `task="x"` or `"task": "x"`. */
+const WHEEL_TASK_NAME = /task\s*=\s*["']([a-z_][a-z0-9_]*)["']|["']task["']\s*:\s*["']([a-z_][a-z0-9_]*)["']/;
+
+/**
+ * Read every task name the bundled wheel mentions, straight out of the archive.
+ *
+ * Deliberately over-inclusive: it also catches config defaults and docstrings, which
+ * is fine because the SET of names is what matters, not the site count. Being noisy
+ * in this direction is safe — it can only demand that MORE names be accounted for.
+ */
+async function deriveTaskNamesFromWheel(): Promise<Set<string>> {
+  const yauzl = await import('yauzl');
+  const buffer = fs.readFileSync(WHEEL_PATH);
+  return new Promise<Set<string>>((resolve, reject) => {
+    const found = new Set<string>();
+    yauzl.fromBuffer(buffer, { lazyEntries: true }, (openErr, zip) => {
+      if (openErr || !zip) return reject(openErr ?? new Error('wheel could not be opened'));
+      zip.on('entry', (entry: { fileName: string }) => {
+        if (!entry.fileName.endsWith('.py')) return zip.readEntry();
+        zip.openReadStream(entry, (streamErr, stream) => {
+          if (streamErr || !stream) return reject(streamErr ?? new Error('wheel entry unreadable'));
+          const chunks: Buffer[] = [];
+          stream.on('data', (c: Buffer) => chunks.push(c));
+          stream.on('end', () => {
+            for (const line of Buffer.concat(chunks).toString('utf8').split('\n')) {
+              const match = WHEEL_TASK_NAME.exec(line);
+              if (match) found.add(match[1] ?? match[2]);
+            }
+            zip.readEntry();
+          });
+          stream.on('error', reject);
+        });
+      });
+      zip.on('end', () => resolve(found));
+      zip.on('error', reject);
+      zip.readEntry();
+    });
+  });
+}
+
 describe('MAT-1749 — the auxiliary classification is pinned to the wheel it came from', () => {
+  it('DERIVES every task name from the wheel — a name in neither list reddens', async () => {
+    // THE ENUMERATION IS NO LONGER TRUSTED, IT IS CHECKED.
+    //
+    // COMMAND_EVE_HERMES_AUXILIARY_TASKS was hand-written, so a task nobody noticed
+    // would simply have been absent and every assertion would still have passed —
+    // which is exactly how the direct-client mechanism went unseen. This scans the
+    // bundled wheel and requires every task name it finds to be in EXACTLY ONE of two
+    // lists: classified, or acknowledged as a non-task with a reason. A task a future
+    // wheel introduces is in neither, so it fails here instead of shipping unclassified.
+    const derived = await deriveTaskNamesFromWheel();
+
+    // The scan must actually find things: a scanner returning nothing would satisfy
+    // every loop below while proving nothing at all.
+    expect(derived.size, 'the wheel scan found no task names — the scanner is broken').toBeGreaterThan(5);
+
+    const classified = new Set(COMMAND_EVE_HERMES_AUXILIARY_TASKS);
+    const excluded = new Set(COMMAND_EVE_WHEEL_NON_TASK_NAMES);
+
+    for (const name of derived) {
+      const inClassified = classified.has(name);
+      const inExcluded = excluded.has(name);
+      expect(
+        inClassified || inExcluded,
+        `wheel task "${name}" is neither classified nor acknowledged — classify it, or exclude it with a reason`
+      ).toBe(true);
+      expect(inClassified && inExcluded, `wheel task "${name}" is in both lists`).toBe(false);
+    }
+
+    // ...and nothing is claimed that the wheel no longer contains.
+    for (const task of COMMAND_EVE_HERMES_AUXILIARY_TASKS) {
+      expect(derived.has(task), `"${task}" is classified but no longer exists in the wheel`).toBe(true);
+    }
+  });
+
   it('still ships the exact Hermes wheel the classification was derived from', () => {
     expect(fs.existsSync(WHEEL_PATH), 'the pinned Hermes wheel is missing or was renamed').toBe(true);
     const digest = crypto.createHash('sha256').update(fs.readFileSync(WHEEL_PATH)).digest('hex');
