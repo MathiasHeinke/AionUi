@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7026
+# entries: 7054
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -577,6 +577,7 @@ copy	1	de-DE/common.json	Ausblenden
 copy	1	de-DE/common.json	Ausklappen
 copy	1	de-DE/common.json	Auswählen
 copy	1	de-DE/common.json	Bearbeiten
+copy	1	de-DE/common.json	Bearbeiten: {{edit1k}} Credits (1K) · {{edit2k}} (2K) · +{{perReference}} pro Referenzbild
 copy	1	de-DE/common.json	Beenden
 copy	1	de-DE/common.json	Beleg: {{receipt}}
 copy	1	de-DE/common.json	Benutzerdefiniert
@@ -585,6 +586,7 @@ copy	1	de-DE/common.json	Beschreibe Ziel, Arbeit und Grenzen des Projekts
 copy	1	de-DE/common.json	Bestehenden Ordner übernehmen
 copy	1	de-DE/common.json	Bestätigen
 copy	1	de-DE/common.json	Bestätigung ausstehend
+copy	1	de-DE/common.json	Bildmodell
 copy	1	de-DE/common.json	Bitte warten...
 copy	1	de-DE/common.json	Chat trennen
 copy	1	de-DE/common.json	Chat verbinden
@@ -674,6 +676,7 @@ copy	1	de-DE/common.json	Letzten zulässigen Vorgang rückgängig machen?
 copy	1	de-DE/common.json	Löschen
 copy	1	de-DE/common.json	Löschen bestätigen
 copy	1	de-DE/common.json	Löschen fehlgeschlagen
+copy	1	de-DE/common.json	MAX
 copy	1	de-DE/common.json	Mehr
 copy	1	de-DE/common.json	Mehr anzeigen
 copy	1	de-DE/common.json	Mehr anzeigen ({{count}} Zeilen)
@@ -692,6 +695,7 @@ copy	1	de-DE/common.json	Ordner
 copy	1	de-DE/common.json	Ordner auswählen
 copy	1	de-DE/common.json	Ordner übernehmen
 copy	1	de-DE/common.json	Plan prüfen
+copy	1	de-DE/common.json	Preis aktuell nicht verfügbar
 copy	1	de-DE/common.json	Privat
 copy	1	de-DE/common.json	Projekt
 copy	1	de-DE/common.json	Projekt aktualisiert
@@ -715,8 +719,10 @@ copy	1	de-DE/common.json	Projektplan konnte nicht übernommen werden
 copy	1	de-DE/common.json	Projektprofil (optional)
 copy	1	de-DE/common.json	Projektsicherheitsprüfung fehlgeschlagen
 copy	1	de-DE/common.json	Projekttitel
+copy	1	de-DE/common.json	Qualität
 copy	1	de-DE/common.json	Reparieren
 copy	1	de-DE/common.json	Schließen
+copy	1	de-DE/common.json	Schnell
 copy	1	de-DE/common.json	Sek
 copy	1	de-DE/common.json	Senden
 copy	1	de-DE/common.json	Skills
@@ -748,6 +754,7 @@ copy	1	de-DE/common.json	Zu den Einstellungen
 copy	1	de-DE/common.json	Zuordnung zum Projekt "{{title}}" fehlgeschlagen
 copy	1	de-DE/common.json	Zurück
 copy	1	de-DE/common.json	Zurück zum Chat
+copy	1	de-DE/common.json	ca. {{credits1k}} Credits (1K) · {{credits2k}} (2K)
 copy	1	de-DE/common.json	esc zum Abbrechen
 copy	1	de-DE/common.json	oder
 copy	1	de-DE/common.json	z. B. Markteinführung
@@ -1064,6 +1071,7 @@ copy	1	de-DE/conversation.json	EVE hat sensible Daten vor dem Modell blockiert (
 copy	1	de-DE/conversation.json	EVE hat {{files}} lokal geprüft. Für Diagramme, Bilder und Layout werden nur gerenderte Folienvorschauen einmalig über die verwaltete Command-EVE-Cloud verarbeitet: Zero Data Retention, kein Training und kein Anbieter-Key in der App. Die PPTX-Datei selbst bleibt auf diesem Mac. Abbrechen lässt Entwurf und Datei ungesendet.
 copy	1	de-DE/conversation.json	EVE hat {{files}} lokal geprüft. Für die visuelle Analyse wird nur eine verkleinerte Vorschau einmalig über die verwaltete Command-EVE-Cloud verarbeitet: Zero Data Retention, kein Training und kein Anbieter-Key in der App. Das Original bleibt auf diesem Mac. Abbrechen lässt Entwurf und Bild ungesendet.
 copy	1	de-DE/conversation.json	EVE ist bereit
+copy	1	de-DE/conversation.json	EVE kann das Bild nur sehen, wenn Vision aktiv ist. Dabei wird eine verkleinerte Vorschau des Bildes an den verwalteten Cloud-Vision-Anbieter von Command EVE gesendet (Zero Data Retention, kein Training, kein Anbieter-Key in der App). Jede Cloud-Vision-Analyse kostet Credits pro Bild. Das Original bleibt auf diesem Mac. Deine Entscheidung gilt dauerhaft für diesen Arbeitsplatz und lässt sich jederzeit unter Einstellungen → Datenschutz ändern.
 copy	1	de-DE/conversation.json	EVE kann noch nicht senden: {{reason}}
 copy	1	de-DE/conversation.json	EVE konnte diese Präsentation nicht sicher vorbereiten. Die Nachricht wurde nicht gesendet.
 copy	1	de-DE/conversation.json	EVE konnte dieses Bild nicht sicher vorbereiten. Die Nachricht wurde nicht gesendet.
@@ -1214,6 +1222,7 @@ copy	1	de-DE/conversation.json	Neuen Namen eingeben
 copy	2	de-DE/conversation.json	Neuer Chat
 copy	1	de-DE/conversation.json	Neuer Chat in diesem Projekt
 copy	1	de-DE/conversation.json	Neuer Ordner
+copy	1	de-DE/conversation.json	Nicht jetzt
 copy	1	de-DE/conversation.json	Nicht mehr fragen
 copy	1	de-DE/conversation.json	Nicht unterstützt
 copy	1	de-DE/conversation.json	Noch kein Projekt gewählt
@@ -1298,6 +1307,11 @@ copy	1	de-DE/conversation.json	VS Code
 copy	1	de-DE/conversation.json	Verschieben fehlgeschlagen
 copy	1	de-DE/conversation.json	Verstanden
 copy	1	de-DE/conversation.json	Versuche es später erneut oder sende diese Nachricht noch einmal.
+copy	1	de-DE/conversation.json	Vision aktivieren
+copy	1	de-DE/conversation.json	Vision bleibt deaktiviert – das Bild wurde nicht gesendet. Du kannst Vision jederzeit unter Einstellungen → Datenschutz aktivieren.
+copy	1	de-DE/conversation.json	Vision für dieses Bild aktivieren?
+copy	1	de-DE/conversation.json	Vision ist auf diesem Arbeitsplatz derzeit nicht verfügbar. Das Bild wurde nicht gesendet; Entwurf und Dateien bleiben erhalten.
+copy	1	de-DE/conversation.json	Vision konnte nicht aktiviert werden. Entwurf und Dateien bleiben erhalten.
 copy	1	de-DE/conversation.json	Visuelle Analyse dieser Präsentation erlauben?
 copy	1	de-DE/conversation.json	Vordefinierte Assistenten
 copy	1	de-DE/conversation.json	Vorherige Agentensitzung ist nicht verfügbar
@@ -4116,6 +4130,7 @@ copy	1	en-US/common.json	Download latest
 copy	1	en-US/common.json	Edit
 copy	1	en-US/common.json	Edit metadata
 copy	1	en-US/common.json	Edit project metadata
+copy	1	en-US/common.json	Edit: {{edit1k}} credits (1K) · {{edit2k}} (2K) · +{{perReference}} per reference image
 copy	1	en-US/common.json	Error
 copy	1	en-US/common.json	Error Details
 copy	1	en-US/common.json	Expand
@@ -4123,6 +4138,7 @@ copy	1	en-US/common.json	Expand More
 copy	1	en-US/common.json	Failed
 copy	1	en-US/common.json	Failed to delete
 copy	1	en-US/common.json	Failed to save
+copy	1	en-US/common.json	Fast
 copy	1	en-US/common.json	File
 copy	1	en-US/common.json	Filter projects by realm
 copy	1	en-US/common.json	Folder
@@ -4132,9 +4148,11 @@ copy	1	en-US/common.json	Github
 copy	1	en-US/common.json	Go to Settings
 copy	1	en-US/common.json	Hide
 copy	1	en-US/common.json	Hide to Tray
+copy	1	en-US/common.json	Image model
 copy	1	en-US/common.json	Import
 copy	1	en-US/common.json	Loading projects…
 copy	1	en-US/common.json	Locked
+copy	1	en-US/common.json	MAX
 copy	1	en-US/common.json	Model
 copy	1	en-US/common.json	More
 copy	1	en-US/common.json	Name
@@ -4150,6 +4168,7 @@ copy	1	en-US/common.json	Pause All Tasks
 copy	1	en-US/common.json	Placement: {{destination}}
 copy	1	en-US/common.json	Please wait...
 copy	1	en-US/common.json	Preview
+copy	1	en-US/common.json	Price currently unavailable
 copy	1	en-US/common.json	Private
 copy	1	en-US/common.json	Processing...
 copy	1	en-US/common.json	Project
@@ -4168,6 +4187,7 @@ copy	1	en-US/common.json	Project update hidden
 copy	1	en-US/common.json	Project updated
 copy	2	en-US/common.json	Projects
 copy	1	en-US/common.json	Projects are not available yet
+copy	1	en-US/common.json	Quality
 copy	1	en-US/common.json	Quit
 copy	1	en-US/common.json	Realm and root
 copy	1	en-US/common.json	Receipt: {{receipt}}
@@ -4242,6 +4262,7 @@ copy	1	en-US/common.json	Version
 copy	1	en-US/common.json	View More ({{count}} lines)
 copy	1	en-US/common.json	Website
 copy	1	en-US/common.json	Your local chats, files, and settings will remain intact.
+copy	1	en-US/common.json	approx. {{credits1k}} credits (1K) · {{credits2k}} (2K)
 copy	1	en-US/common.json	e.g. Market launch
 copy	1	en-US/common.json	esc to cancel
 copy	1	en-US/common.json	m
@@ -4461,6 +4482,7 @@ copy	1	en-US/conversation.json	Drop to import
 copy	1	en-US/conversation.json	EVE Cloud is available after activation.
 copy	1	en-US/conversation.json	EVE Cloud needs an internet connection.
 copy	1	en-US/conversation.json	EVE blocked sensitive data before model egress ({{count}} finding(s)).
+copy	1	en-US/conversation.json	EVE can only see the image when Vision is enabled. A downscaled preview of the image is sent to Command EVE's managed cloud vision provider (zero data retention, no training, no provider key in the app). Each cloud vision analysis costs credits per image. The original stays on this Mac. Your decision persists for this seat and can be changed any time under Settings → Privacy.
 copy	1	en-US/conversation.json	EVE cannot send yet: {{reason}}
 copy	1	en-US/conversation.json	EVE checked {{files}} locally. Only a reduced preview is processed once through Command EVE's managed cloud using Zero Data Retention and no-training routing. No provider key is stored in the app, and the original stays on this Mac. Cancel keeps the draft and image unsent.
 copy	1	en-US/conversation.json	EVE checked {{files}} locally. To understand charts, images and layout, only rendered slide previews are processed once through Command EVE's managed cloud using Zero Data Retention and no-training routing. No provider key is stored in the app, and the PPTX file itself stays on this Mac. Cancel keeps the draft and file unsent.
@@ -4485,6 +4507,8 @@ copy	1	en-US/conversation.json	Earlier
 copy	1	en-US/conversation.json	Edit
 copy	1	en-US/conversation.json	Edit Name
 copy	1	en-US/conversation.json	Editing
+copy	1	en-US/conversation.json	Enable Vision
+copy	1	en-US/conversation.json	Enable Vision for this image?
 copy	1	en-US/conversation.json	Enter keywords to search messages
 copy	1	en-US/conversation.json	Enter new name
 copy	1	en-US/conversation.json	Error
@@ -4618,6 +4642,7 @@ copy	1	en-US/conversation.json	No staged changes
 copy	1	en-US/conversation.json	No unstaged changes
 copy	1	en-US/conversation.json	No valid files detected. Please drag from Finder/Explorer.
 copy	1	en-US/conversation.json	None
+copy	1	en-US/conversation.json	Not now
 copy	1	en-US/conversation.json	Open
 copy	1	en-US/conversation.json	Open Connector Catalog
 copy	1	en-US/conversation.json	Open EVE controls
@@ -4846,6 +4871,9 @@ copy	1	en-US/conversation.json	Upload Files
 copy	1	en-US/conversation.json	Upstream
 copy	1	en-US/conversation.json	VS Code
 copy	1	en-US/conversation.json	View More >>
+copy	1	en-US/conversation.json	Vision could not be enabled. Draft and files are preserved.
+copy	1	en-US/conversation.json	Vision is currently unavailable for this seat. The image was not sent; draft and files are preserved.
+copy	1	en-US/conversation.json	Vision stays off, so the image was not sent. You can enable Vision any time under Settings → Privacy.
 copy	1	en-US/conversation.json	Visual slide analysis failed. The message and presentation remain unsent.
 copy	1	en-US/conversation.json	Voice input failed. Please try again
 copy	1	en-US/conversation.json	Voice input is not available in this environment

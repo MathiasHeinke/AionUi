@@ -84,6 +84,12 @@ import type {
   CommandEveCloudVisualPolicyReceiptResult,
   CommandEveCloudVisualPolicyState,
 } from '../config/visual/cloudVisualPolicyCore';
+import type {
+  CommandEveImageModelPreferenceMutationRequest,
+  CommandEveImageModelPreferenceMutationResult,
+  CommandEveImageModelPreferenceState,
+} from '../config/visual/imageModelPreferenceCore';
+import type { CommandEveImageModelRegistryResult } from '../config/eveImageModelRegistryCore';
 import type { AgentUsageLedgerEnvelope } from '../config/seatUsageCore';
 import type {
   ITeamAgentRemovedEvent,
@@ -1963,6 +1969,22 @@ export const commandEve = {
     IBridgeResponse<CommandEveCloudVisualPolicyMutationResult>,
     CommandEveCloudVisualPolicyMutationRequest
   >('command-eve.cloud-visual-policy-set'),
+  // MAT-1769 — the seat's image model preference (Schnell / Qualität / MAX),
+  // Main-authoritative and per seat exactly like the visual policy above.
+  imageModelPreferenceRead: bridge.buildProvider<IBridgeResponse<CommandEveImageModelPreferenceState>, void>(
+    'command-eve.image-model-preference-read'
+  ),
+  imageModelPreferenceSet: bridge.buildProvider<
+    IBridgeResponse<CommandEveImageModelPreferenceMutationResult>,
+    CommandEveImageModelPreferenceMutationRequest
+  >('command-eve.image-model-preference-set'),
+  // MAT-1769 — the SERVER-OWNED image model registry (display names + credit
+  // quotes). Main fetches it from the gateway's non-billable capabilities
+  // surface; on any failure this answers success:false and the renderer shows
+  // "price unavailable". There is deliberately no client-side fallback table.
+  imageCapabilities: bridge.buildProvider<IBridgeResponse<CommandEveImageModelRegistryResult>, void>(
+    'command-eve.image-capabilities'
+  ),
   // One-turn managed synthesis authorization. MAIN returns only a short-lived
   // opaque marker; the license bearer and provider key never cross the bridge.
   managedVisualTurnAuthorize: bridge.buildProvider<

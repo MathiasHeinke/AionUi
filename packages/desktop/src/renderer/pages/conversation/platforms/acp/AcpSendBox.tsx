@@ -90,6 +90,7 @@ import { useTranslation } from 'react-i18next';
 import { buildSendFailureError } from './buildSendFailureError';
 import { runProjectChatIntentGate } from '@/renderer/pages/conversation/shared/projectChatIntentGate';
 import AcpDocumentPreparationStatus, { type AcpDocumentPreparationState } from './AcpDocumentPreparationStatus';
+import AcpVisionEnablementPrompt from './AcpVisionEnablementPrompt';
 import { useCommandEveVisualPreparation } from './useCommandEveVisualPreparation';
 import { useAcpInitialMessage } from './useAcpInitialMessage';
 import type { UseAcpMessageReturn } from './useAcpMessage';
@@ -107,8 +108,30 @@ import {
   type VideoSeatCapabilities,
 } from '@/common/config/videoCostCore';
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
+import ImageModelPill from '@/renderer/components/billing/ImageModelPill';
+import {
+  DEFAULT_COMMAND_EVE_IMAGE_MODEL_TIER,
+  type CommandEveImageModelRegistry,
+  type CommandEveImageModelTierId,
+} from '@/common/config/eveImageModelRegistryCore';
 import { isImageFile } from '@/renderer/pages/conversation/Preview/fileUtils';
 import { addressesVideoMarketer } from '@/common/config/eveTeamRoster';
+import { configService } from '@/common/config/configService';
+
+/**
+ * MAT-1769. Thrown ONLY by the marker-minting receipt read inside
+ * `executeCommand` when Main reports the cloud visual policy DISABLED (every
+ * sidecar was already cached, so no earlier wall fired). `submitMessage` catches
+ * it and raises the one-time in-chat enablement prompt instead of an error; it
+ * must never pass through the generic send-failure rendering, which is why it
+ * is a type rather than a message string.
+ */
+class CommandEveVisionPolicyDisabledError extends Error {
+  constructor() {
+    super('EVE_VISION_POLICY_DISABLED');
+    this.name = 'CommandEveVisionPolicyDisabledError';
+  }
+}
 
 const useAcpSendBoxDraft = getSendBoxDraftHook('acp', {
   _type: 'acp',
@@ -192,6 +215,16 @@ const AcpSendBox: React.FC<{
   const [currentMode, setCurrentMode] = useState<string | undefined>(session_mode);
   const [busySendMode, setBusySendMode] = useState<ConversationBusyControlMode>('queue');
   const [documentPreparation, setDocumentPreparation] = useState<AcpDocumentPreparationState | null>(null);
+  // MAT-1769 — the pending send parked behind the one-time Vision enablement
+  // prompt. Non-null renders the in-chat card in the draft band; the exact
+  // send arguments travel with it so "Vision aktivieren" can re-drive the
+  // identical send after the policy flips, with the draft already restored.
+  const [visionEnablementPending, setVisionEnablementPending] = useState<{
+    message: string;
+    allFiles: string[];
+    controls: { clearSelection: () => void; restoreDraftAndFiles: () => void };
+  } | null>(null);
+  const [visionEnablementBusy, setVisionEnablementBusy] = useState(false);
   const documentPreparationInFlightRef = useRef(false);
   // Reactive twin of the ref for rendering: the ref serves synchronous guards,
   // the store-backed hook keeps `loading` correct regardless of microtask
@@ -507,6 +540,15 @@ const AcpSendBox: React.FC<{
           const flowId = `visual_${uuid().replace(/-/g, '')}`;
           const receiptResult = await ipcBridge.commandEve.cloudVisualPolicyReceipt.invoke({ flowId });
           if (!receiptResult.success || !receiptResult.data?.ok) {
+            // MAT-1769: a DISABLED policy is not an error — it is the one case
+            // the user can fix in place. Surface it as the typed signal
+            // `submitMessage` turns into the one-time in-chat enablement
+            // prompt, never as a dead-end toast. Everything else (unavailable,
+            // transport) keeps the honest failure below.
+            const failedPolicy = receiptResult.data?.ok === false ? receiptResult.data.policy : undefined;
+            if (failedPolicy?.status === 'disabled') {
+              throw new CommandEveVisionPolicyDisabledError();
+            }
             // CommandEveCloudVisualPolicyReceiptResult carries no `message` field on
             // either branch (see cloudVisualPolicyCore.ts) — the translated sentence
             // is the only honest content here, matching issueVisualAuthority below.
@@ -569,9 +611,7 @@ const AcpSendBox: React.FC<{
             // ride this envelope rather than a surface of their own, so the agent
             // sees exactly the files the user is looking at and there is no
             // second picker that could show something else.
-            ...(referenceImagePathsForTurn.length === 0
-              ? {}
-              : { referenceImagePaths: referenceImagePathsForTurn }),
+            ...(referenceImagePathsForTurn.length === 0 ? {} : { referenceImagePaths: referenceImagePathsForTurn }),
           });
           if (envelopeResult?.success && typeof envelopeResult.data?.envelope === 'string') {
             artifactEnvelope = envelopeResult.data.envelope;
@@ -605,6 +645,12 @@ const AcpSendBox: React.FC<{
         runtimeView.markSendAccepted(result.turn_id, result.runtime, result.msg_id);
         emitter.emit('chat.history.refresh');
       } catch (error: unknown) {
+        // MAT-1769: the disabled-policy signal belongs to the enablement prompt
+        // in `submitMessage`, not to the failure rendering below — and no turn
+        // state was marked yet on that path, so there is nothing to clean up.
+        if (error instanceof CommandEveVisionPolicyDisabledError) {
+          throw error;
+        }
         // SCRUBBED (MAT-1749) AT THE BINDING, not at one of its four sinks. This
         // sentence is rendered into the chat as a `tips` message, into the ACP
         // auth-failure stream message, into the archived-conversation toast, and
@@ -781,6 +827,75 @@ Please check your local CLI tool authentication status`,
       })
       .catch(() => {
         /* fail closed: the initial all-false state stands */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // IMAGE MODEL SELECTION (MAT-1769). Unlike the video pill this is a
+  // PERSISTENT control, gated only on isEveConversation: image generation is
+  // agent-mediated (Hermes decides mid-turn to call the managed shim), so a
+  // draft-intent gate like `draftRoutesToVideo` could never predict it — ANY
+  // EVE turn can produce or edit an image, and the choice governs both. The
+  // selection is a per-seat preference owned by Main; the renderer keeps only
+  // the last proven seat id as the stale-action fence for writes.
+  const [imageModelTier, setImageModelTier] = useState<CommandEveImageModelTierId>(
+    DEFAULT_COMMAND_EVE_IMAGE_MODEL_TIER
+  );
+  const imagePreferenceSeatRef = useRef<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void ipcBridge.commandEve.imageModelPreferenceRead
+      .invoke()
+      .then((response) => {
+        if (cancelled || !response?.success || !response.data || response.data.status !== 'resolved') return;
+        imagePreferenceSeatRef.current = response.data.seatId;
+        setImageModelTier(response.data.tier);
+      })
+      .catch(() => {
+        /* fail closed: the product default tier stands */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleImageModelTierChange = useCallback((tierId: CommandEveImageModelTierId) => {
+    setImageModelTier(tierId);
+    const expectedSeatId = imagePreferenceSeatRef.current;
+    // Without a proven seat the choice stays LOCAL — a write without the
+    // stale-action fence could land on the wrong side of a seat switch.
+    if (!expectedSeatId) return;
+    void ipcBridge.commandEve.imageModelPreferenceSet
+      .invoke({ expectedSeatId, tier: tierId })
+      .then((response) => {
+        // Main re-proved the persisted value; adopt what it actually stored.
+        if (response?.success && response.data?.ok && response.data.preference.status === 'resolved') {
+          setImageModelTier(response.data.preference.tier);
+        }
+      })
+      .catch(() => {
+        /* the local choice stands; the next read reconciles */
+      });
+  }, []);
+
+  // THE SERVER-OWNED PRICE BOOK. Asked of Main, never answered here: the
+  // registry (display names + credit quotes) lives behind the gateway's
+  // non-billable capabilities surface, and an absent or failed answer is
+  // `null` — the pill then shows "price unavailable" instead of a number.
+  // There is deliberately no client-side fallback table to fall back to.
+  const [imageModelRegistry, setImageModelRegistry] = useState<CommandEveImageModelRegistry | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void ipcBridge.commandEve.imageCapabilities
+      .invoke()
+      .then((response) => {
+        if (cancelled || !response?.success || !response.data?.ok) return;
+        setImageModelRegistry(response.data.registry);
+      })
+      .catch(() => {
+        /* fail closed: no registry, no prices */
       });
     return () => {
       cancelled = true;
@@ -1107,6 +1222,33 @@ Please check your local CLI tool authentication status`,
     [isEveConversation, t]
   );
 
+  // MAT-1769 — raise the ONE-TIME in-chat Vision enablement prompt for a send
+  // that hit the disabled cloud-visual policy wall. Two guards make it honest:
+  // a seat that already answered "Nicht jetzt" gets a quiet notice and never
+  // the question again, and an already-open card is never stacked by a second
+  // blocked send. The draft and files were already restored by the caller, so
+  // parking the exact send arguments is enough to re-drive it on accept.
+  const raiseVisionEnablementPrompt = useCallback(
+    (
+      message: string,
+      allFiles: string[],
+      controls: { clearSelection: () => void; restoreDraftAndFiles: () => void }
+    ) => {
+      if (configService.get('commandEve.visionEnablementDeclined') === true) {
+        Message.warning({
+          content: t('conversation.visual.enablement.declinedNotice', {
+            defaultValue:
+              'Vision stays off, so the image was not sent. You can enable Vision any time under Settings → Privacy.',
+          }),
+          duration: 6000,
+        });
+        return;
+      }
+      setVisionEnablementPending((previous) => previous ?? { message, allFiles, controls });
+    },
+    [t]
+  );
+
   const submitMessage = useCallback(
     async (
       message: string,
@@ -1318,25 +1460,44 @@ Please check your local CLI tool authentication status`,
       }
 
       const flowId = visualSourceCount > 0 ? `visual_${uuid().replace(/-/g, '')}` : undefined;
-      const issueVisualAuthority = async () => {
-        if (!flowId) return undefined;
+      // MAT-1769 tri-state: 'disabled' reaches the caller WITHOUT a toast so it
+      // can raise the one-time in-chat enablement prompt; 'unavailable' gets the
+      // honest unavailable notice here (no prompt — a toggle cannot fix a seat
+      // whose policy cannot be read); anything else keeps the existing failure.
+      type VisualAuthorityIssue =
+        | { status: 'issued'; flowId: string; visualPolicyReceipt: CommandEveCloudVisualPolicyReceipt }
+        | { status: 'none' }
+        | { status: 'disabled' }
+        | { status: 'failed' };
+      const issueVisualAuthority = async (): Promise<VisualAuthorityIssue> => {
+        if (!flowId) return { status: 'none' };
         try {
           const receiptResult = await ipcBridge.commandEve.cloudVisualPolicyReceipt.invoke({ flowId });
           if (!receiptResult.success || !receiptResult.data?.ok) {
+            const failedPolicy = receiptResult.data?.ok === false ? receiptResult.data.policy : undefined;
+            if (failedPolicy?.status === 'disabled') {
+              return { status: 'disabled' };
+            }
             setDocumentPreparation({
               phase: 'presentation_error',
               fileCount: visualSourceCount,
               startedAt: Date.now(),
             });
             Message.error({
-              content: t('conversation.visual.managedCloudFailed', {
-                defaultValue: 'Cloud visual analysis is disabled or unavailable for this seat.',
-              }),
+              content:
+                failedPolicy?.status === 'unavailable'
+                  ? t('conversation.visual.enablement.unavailableNotice', {
+                      defaultValue:
+                        'Vision is currently unavailable for this seat. The image was not sent; draft and files are preserved.',
+                    })
+                  : t('conversation.visual.managedCloudFailed', {
+                      defaultValue: 'Cloud visual analysis is disabled or unavailable for this seat.',
+                    }),
               duration: 6000,
             });
-            return undefined;
+            return { status: 'failed' };
           }
-          return { flowId, visualPolicyReceipt: receiptResult.data.receipt };
+          return { status: 'issued', flowId, visualPolicyReceipt: receiptResult.data.receipt };
         } catch (error) {
           setDocumentPreparation({ phase: 'presentation_error', fileCount: visualSourceCount, startedAt: Date.now() });
           // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream string.
@@ -1352,7 +1513,7 @@ Please check your local CLI tool authentication status`,
               }),
             duration: 6000,
           });
-          return undefined;
+          return { status: 'failed' };
         }
       };
       const stopAfterVisualAuthorityFailure = () => {
@@ -1380,11 +1541,20 @@ Please check your local CLI tool authentication status`,
       }
 
       if (presentationPreparation.requiresVisualPolicyReceipt || imagePreparation.requiresVisualPolicyReceipt) {
-        visualAuthority = await issueVisualAuthority();
-        if (!visualAuthority) {
+        const issued = await issueVisualAuthority();
+        if (issued.status === 'disabled') {
+          // MAT-1769: the dead-end toast is replaced by the contextual in-chat
+          // question. The draft and files are restored first, so the pending
+          // send parked on the card is exactly the one the user tried.
+          stopAfterVisualAuthorityFailure();
+          raiseVisionEnablementPrompt(message, allFiles, controls);
+          return false;
+        }
+        if (issued.status !== 'issued') {
           stopAfterVisualAuthorityFailure();
           return false;
         }
+        visualAuthority = { flowId: issued.flowId, visualPolicyReceipt: issued.visualPolicyReceipt };
 
         if (presentationPreparation.requiresVisualPolicyReceipt) {
           const retriedPresentationPreparation = await preparePresentationFiles(pdfPreparedFiles, visualAuthority);
@@ -1448,6 +1618,13 @@ Please check your local CLI tool authentication status`,
         return accepted;
       } catch (error) {
         controls.restoreDraftAndFiles();
+        // MAT-1769: every sidecar was cached, so the disabled policy only
+        // surfaced at marker minting inside executeCommand. Same answer as the
+        // first wall: ask once, in chat, instead of failing the send.
+        if (error instanceof CommandEveVisionPolicyDisabledError) {
+          raiseVisionEnablementPrompt(message, allFiles, controls);
+          return false;
+        }
         throw error;
       } finally {
         documentPreparationInFlightRef.current = false;
@@ -1465,6 +1642,7 @@ Please check your local CLI tool authentication status`,
       preparePdfFiles,
       prepareImageFiles,
       preparePresentationFiles,
+      raiseVisionEnablementPrompt,
       videoCostWall.requestVideo,
       videoTierId,
       draftRoutesToVideo,
@@ -1472,6 +1650,62 @@ Please check your local CLI tool authentication status`,
       videoVoiceIds,
     ]
   );
+
+  // MAT-1769 — "Vision aktivieren": persist the enablement through the existing
+  // Main-authoritative policy path (the ONE-TIME decision, per seat), then
+  // re-drive the exact parked send. Preparation re-runs against Main's local
+  // sidecars, the receipt now issues, and the send continues with no further
+  // question. A failed mutation keeps the card open and sends nothing — the
+  // image never leaves the device on a half-made decision.
+  const handleVisionEnablementAccept = useCallback(async () => {
+    const pending = visionEnablementPending;
+    if (!pending || visionEnablementBusy) return;
+    setVisionEnablementBusy(true);
+    try {
+      const result = await ipcBridge.commandEve.cloudVisualPolicySet.invoke({
+        expectedSeatId: configService.getCurrentSeatId(),
+        enabled: true,
+      });
+      if (!result.success || !result.data?.ok) {
+        Message.error({
+          content: t('conversation.visual.enablement.enableFailed', {
+            defaultValue: 'Vision could not be enabled. Draft and files are preserved.',
+          }),
+          duration: 6000,
+        });
+        return;
+      }
+    } catch {
+      Message.error({
+        content: t('conversation.visual.enablement.enableFailed', {
+          defaultValue: 'Vision could not be enabled. Draft and files are preserved.',
+        }),
+        duration: 6000,
+      });
+      return;
+    } finally {
+      setVisionEnablementBusy(false);
+    }
+    setVisionEnablementPending(null);
+    await submitMessage(pending.message, pending.allFiles, pending.controls);
+  }, [submitMessage, t, visionEnablementBusy, visionEnablementPending]);
+
+  // MAT-1769 — "Nicht jetzt": persist the DECLINE (per seat, one-time), dismiss
+  // the card, and send nothing. No upload, no provider call and no debit happen
+  // on this path, and the marker keeps the prompt from reappearing on later
+  // images. The draft and files were already restored when the card was raised.
+  const handleVisionEnablementDecline = useCallback(() => {
+    if (visionEnablementBusy) return;
+    setVisionEnablementPending(null);
+    void configService.set('commandEve.visionEnablementDeclined', true);
+    Message.warning({
+      content: t('conversation.visual.enablement.declinedNotice', {
+        defaultValue:
+          'Vision stays off, so the image was not sent. You can enable Vision any time under Settings → Privacy.',
+      }),
+      duration: 6000,
+    });
+  }, [t, visionEnablementBusy]);
 
   useEffect(
     () => () => {
@@ -1978,6 +2212,28 @@ Please check your local CLI tool authentication status`,
         }
         prefix={
           <>
+            {/* One-time Vision enablement prompt (MAT-1769). Renders in the
+                draft band like the pills — inline, keyboard-reachable, never a
+                modal — and only for a send that actually hit the disabled
+                cloud-visual policy wall. Already-enabled seats never see it. */}
+            {visionEnablementPending ? (
+              <AcpVisionEnablementPrompt
+                busy={visionEnablementBusy}
+                onAccept={() => void handleVisionEnablementAccept()}
+                onDecline={handleVisionEnablementDecline}
+              />
+            ) : null}
+            {/* Image model picker (MAT-1769). Persistent for every managed EVE
+                conversation: any turn can generate or edit an image through the
+                agent-mediated lane, and this choice governs both. Renders in
+                the draft band like the video pill — never an overlay, so it
+                cannot intercept or delay a send. */}
+            <ImageModelPill
+              visible={isEveConversation}
+              value={imageModelTier}
+              onChange={handleImageModelTierChange}
+              registry={imageModelRegistry}
+            />
             {/* Quality picker for the pending video. Renders in the draft band,
                 never as an overlay — it cannot intercept or delay a send. */}
             <VideoQualityPill

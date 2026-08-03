@@ -171,6 +171,12 @@ import {
   setCommandEveCloudVisualPolicy,
   verifyCommandEveCloudVisualPolicyReceipt,
 } from '@process/commandEve/visual/cloudVisualPolicyMain';
+import {
+  readCommandEveImageModelPreference,
+  setCommandEveImageModelPreference,
+} from '@process/commandEve/imageModelPreferenceMain';
+import { readCommandEveImageModelRegistry } from '@process/commandEve/imageCapabilitiesMain';
+import { isCommandEveImageModelPreferenceMutationRequest } from '@/common/config/visual/imageModelPreferenceCore';
 import type { CommandEveManagedVisualTurnAuthorizationRequest } from '@/common/config/eveManagedVisualTurnCore';
 import type {
   CommandEveCloudVisualPolicyMutationRequest,
@@ -1053,7 +1059,9 @@ export function initCommandEveBridge(): void {
             if (res.ok) {
               const json = (await res.json()) as { models?: Array<{ name?: string; size?: number }> };
               installedModels = (json.models || [])
-                .map((m) => ({ name: String(m?.name || ''), ...(typeof m?.size === 'number' ? { size: m.size } : {}) }))
+                .map((m) =>
+                  Object.assign({ name: String(m?.name || ``) }, typeof m?.size === `number` ? { size: m.size } : {})
+                )
                 .filter((m) => m.name.length > 0);
             }
           } finally {
@@ -2085,12 +2093,12 @@ export function initCommandEveBridge(): void {
   bridge.buildProvider('command-eve.video-artifacts-list').provider(handleCommandEveVideoArtifactsListBridge);
   // MAT-1753. The renderer asks what the seat may offer; it never decides.
   bridge.buildProvider('command-eve.video-capabilities').provider(handleCommandEveVideoCapabilitiesBridge);
-  // MAT-1747. The envelope rides the turn the user was already sending, so this
-  // is a READ with no side effect on the transcript; the edit below is the only
-  // spending path and it accepts a capability handle, never an id.
-  bridge
-    .buildProvider('command-eve.artifact-context-envelope')
-    .provider(handleCommandEveArtifactContextEnvelopeBridge);
+  // MAT-1747. The envelope rides the turn the user was already sending, so it
+  // has no side effect on the TRANSCRIPT; the edit below is the only spending
+  // path and it accepts a capability handle, never an id. (MAT-1769: the same
+  // call durably records THIS turn's attached images as read-only registry
+  // entries for later turns — a local manifest write, never a transcript one.)
+  bridge.buildProvider('command-eve.artifact-context-envelope').provider(handleCommandEveArtifactContextEnvelopeBridge);
   // A steer never builds an envelope, so this is the only place the outstanding
   // spend permit can be retired when the person corrects a run in flight.
   bridge.buildProvider('command-eve.artifact-turn-steer').provider(handleCommandEveArtifactTurnSteerBridge);
@@ -2124,6 +2132,39 @@ export function initCommandEveBridge(): void {
         data: result,
       };
     });
+
+  // MAT-1769 — the seat's image model preference. Same Main-authoritative seat
+  // discipline as the cloud visual policy: the renderer never names a target
+  // seat, and a mutation carries expectedSeatId only as a stale-action fence.
+  bridge.buildProvider('command-eve.image-model-preference-read').provider(async () => {
+    const preference = await readCommandEveImageModelPreference();
+    return { success: preference.status === 'resolved', data: preference };
+  });
+
+  bridge.buildProvider('command-eve.image-model-preference-set').provider(async (request?: unknown) => {
+    if (!isCommandEveImageModelPreferenceMutationRequest(request)) {
+      const preference = await readCommandEveImageModelPreference();
+      return { success: false, msg: 'malformed_request', data: { ok: false, preference } };
+    }
+    const result = await setCommandEveImageModelPreference(request);
+    return {
+      success: result.ok,
+      msg: result.ok ? undefined : result.preference.status === 'unavailable' ? result.preference.reason : 'mismatch',
+      data: result,
+    };
+  });
+
+  // MAT-1769 — the SERVER-OWNED image model registry, answered by Main through
+  // the non-billable capabilities surface. Fail-closed by construction: any
+  // fetch/parse failure is success:false with the reason, and the renderer
+  // shows "price unavailable" — there is no client-side fallback rate table.
+  bridge.buildProvider('command-eve.image-capabilities').provider(async () => {
+    const result = await readCommandEveImageModelRegistry();
+    if (!result.ok) {
+      return { success: false, msg: result.reason, data: result };
+    }
+    return { success: true, data: result };
+  });
 
   bridge
     .buildProvider('command-eve.managed-visual-turn-authorize')

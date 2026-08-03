@@ -10,8 +10,8 @@
  * Round 1 gated the context envelope and reported this policy met. It had gated
  * one of two surfaces. The MCP server registered `eve_video_edit`
  * unconditionally, so the tool list Hermes publishes advertised a paid
- * capability to the model on every seat, including the overwhelming majority
- * where the spending flag is off and the app would refuse the call.
+ * capability to the model on every seat, including seats where the spending
+ * path is closed and the app would refuse the call.
  *
  * That is not a cosmetic mismatch:
  *
@@ -20,13 +20,21 @@
  *     from where it sits a refusal reads as a mistake it made;
  *   - it puts an offer in the transcript that the product does not honour, which
  *     is the same class of dishonesty as a button that does nothing;
- *   - and it makes the flag look decorative to anyone reading the tool list,
- *     which is how a default-off feature quietly becomes default-on.
+ *   - and it makes the gate look decorative to anyone reading the tool list,
+ *     which is how a closed feature quietly becomes an open one.
  *
  * So the decision lives HERE, in one testable place, and both the MCP entry
  * point and the config that spawns it read from it. The entry point cannot be
  * imported by a test — it connects a stdio transport on import — which is
  * exactly why the decision must not live inside it.
+ *
+ * WHAT THE ENV MEANS HERE, post-1.820.2: this module runs in the MCP CHILD,
+ * which cannot read the licence wire and must not try. Main resolves
+ * eligibility once (`agentVideoEditFlag.ts`: default-ON for an eligible seat,
+ * `'0'` kill-switch, no wire fails closed) and emits exactly `'1'` into this
+ * process's environment when — and only when — the seat may be told about the
+ * paid tool. The exact-`'1'` read below is therefore not the eligibility check;
+ * it is the carrier of one already made.
  *
  * PURE: no fs, no network, no SDK. Takes an env object, returns descriptors.
  */
@@ -72,9 +80,10 @@ const VIDEO_EDIT: EveArtifactToolDescriptor = {
  * point of the artifact envelope — gating it too would mean the feature is
  * absent in its own default state.
  *
- * The SPENDING half appears only when the flag says exactly `1`, judged by the
- * same function the paid handler itself asks, so the tool list and the handler
- * cannot disagree about what this seat can do.
+ * The SPENDING half appears only when the env says exactly `1` — the value Main
+ * emits after ITS resolver (`agentVideoEditFlag.ts`) has judged this seat
+ * eligible and not kill-switched — so the tool list and the handler cannot
+ * disagree about what this seat can do.
  */
 export function buildEveArtifactToolSurface(env: NodeJS.ProcessEnv = process.env): EveArtifactToolDescriptor[] {
   const surface = [ARTIFACT_GET, ARTIFACT_LIST];

@@ -185,7 +185,16 @@
   },
   "visual": {
     "sourceLimit": "Select no more than six images or presentations per turn.",
-    "managedCloudFailed": "Managed visual analysis could not be authorized. The draft and files remain unsent."
+    "managedCloudFailed": "Managed visual analysis could not be authorized. The draft and files remain unsent.",
+    "enablement": {
+      "title": "Enable Vision for this image?",
+      "description": "EVE can only see the image when Vision is enabled. A downscaled preview of the image is sent to Command EVE's managed cloud vision provider (zero data retention, no training, no provider key in the app). Each cloud vision analysis costs credits per image. The original stays on this Mac. Your decision persists for this seat and can be changed any time under Settings → Privacy.",
+      "confirm": "Enable Vision",
+      "decline": "Not now",
+      "declinedNotice": "Vision stays off, so the image was not sent. You can enable Vision any time under Settings → Privacy.",
+      "unavailableNotice": "Vision is currently unavailable for this seat. The image was not sent; draft and files are preserved.",
+      "enableFailed": "Vision could not be enabled. Draft and files are preserved."
+    }
   },
   "createFailed": "Failed to create conversation",
   "createError": {

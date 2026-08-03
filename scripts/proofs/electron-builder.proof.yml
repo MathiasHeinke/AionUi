@@ -1,0 +1,300 @@
+appId: com.fynlabs.commandeve
+productName: Command EVE
+executableName: Command EVE
+copyright: Copyright © 2026 FYN Labs LLC
+
+protocols:
+  - name: Command EVE Protocol
+    schemes:
+      - command-eve
+
+asar:
+  smartUnpack: true
+
+# electron-builder repeats the original eight V1 settings after afterPack.
+# scripts/electronFusePolicy.js owns the complete, strict policy (including
+# newer fuses) and fails the build before signing if Electron adds another one.
+# The packaged app always ships from app.asar.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: false
+  # Required while the packaged main renderer is loaded from file://app.asar.
+  # Navigation, CSP, IPC and webview gates provide the compensating controls.
+  grantFileProtocolExtraPrivileges: true
+
+directories:
+  app: .
+  output: out-proof
+  buildResources: resources
+
+files:
+  # electron-vite build output (main process + preload + renderer)
+  - out/main/**/*
+  - out/preload/**/*
+  - out/renderer/**/*
+  # Static resources — use explicit directory inclusion to prevent resource loss
+  - public/**/*
+  - package.json
+  # Native modules and their runtime dependencies
+  - node_modules/better-sqlite3/**/*
+  - node_modules/@mapbox/**/*
+  - node_modules/detect-libc/**/*
+  - node_modules/prebuild-install/**/*
+  - node_modules/node-gyp-build/**/*
+  - node_modules/bindings/**/*
+  # CLI dependencies (needed by nested jackspeak/glob)
+  - node_modules/@isaacs/cliui/**/*
+  - node_modules/ansi-regex/**/*
+  - node_modules/ansi-styles/**/*
+  - node_modules/strip-ansi/**/*
+  - node_modules/wrap-ansi/**/*
+  - node_modules/string-width/**/*
+  - node_modules/eastasianwidth/**/*
+  - node_modules/emoji-regex/**/*
+  # open library - needs to be external for Windows asar compatibility
+  - node_modules/open/**/*
+  - node_modules/default-browser/**/*
+  - node_modules/default-browser-id/**/*
+  - node_modules/run-applescript/**/*
+  - node_modules/bundle-name/**/*
+  # tree-sitter WASM dependencies
+  - node_modules/web-tree-sitter/**/*
+  - node_modules/tree-sitter-bash/**/*
+  # CRITICAL: Exclude ALL tree-sitter native binaries to prevent signing issues
+  - '!**/node_modules/tree-sitter-*/prebuilds/**'
+  - '!**/node_modules/tree-sitter-*/build/**'
+  - '!**/node_modules/tree-sitter-*/src/**'
+  - '!**/node_modules/tree-sitter-*/**/*.node'
+  - '!**/node_modules/tree-sitter-*/**/*.obj'
+  - '!**/node_modules/tree-sitter-*/**/*.o'
+  - '!**/node_modules/tree-sitter-*/**/*.cc'
+  - '!**/node_modules/tree-sitter-*/**/*.c'
+  # Exclude dev/test files
+  - '!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}'
+  - '!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}'
+  - '!**/node_modules/*/{*.test.js,*.spec.js,*.test.ts,*.spec.ts}'
+  # Defensive: exclude sibling packages from desktop bundle
+  - '!packages/web-host/**'
+  - '!packages/web-cli/**'
+  - '!packages/shared-scripts/**'
+  - '!packages/desktop/src/**'
+  - '!**/node_modules/*.d.ts'
+  - '!**/node_modules/.bin'
+  - '!**/node_modules/*/{docs,documentation,doc}'
+  # Exclude system files
+  - '!**/{.DS_Store,.git,.gitignore,.gitattributes}'
+  - '!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}'
+  - '!**/{appveyor.yml,.travis.yml,circle.yml}'
+  - '!**/{npm-debug.log,yarn.lock,.yarn-metadata.json,yarn-error.log}'
+  # Exclude large packages
+  - '!**/node_modules/{@img,@emnapi}/**'
+  - '!**/node_modules/@img/sharp-*/**'
+  - '!**/node_modules/@anthropic-ai/claude-code/vendor/**'
+  - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/**'
+  # Exclude JAR files and JNI libraries that cause notarization issues
+  - '!**/*.jar'
+  - '!**/*.jnilib'
+  # Exclude all vendor directories to prevent unsigned binaries
+  - '!**/node_modules/*/vendor/**'
+  - '!**/node_modules/@*/*/vendor/**'
+  # Re-include vendor dirs for native modules that need them (if any)
+  - 'node_modules/better-sqlite3/vendor/**'
+  # Exclude vite source maps
+  - '!**/*.map'
+  # Exclude syntax highlighter languages (keep common ones)
+  - '!**/out/**/react-syntax-highlighter_languages_highlight_*'
+  - 'out/**/react-syntax-highlighter_languages_highlight_{javascript,typescript,python,java,cpp,c,html,css,json,xml,yaml,shell,bash,dockerfile,sql,markdown,go,rust,php}'
+  # Ensure vendor chunks from manual splitting are included
+  - 'out/renderer/**/vendor-*.js'
+  # Remap viteStaticCopy output (out/main/static/)
+  # to root-level directories inside the asar, so runtime path resolution stays simple.
+  - from: out/main/static
+    to: static
+
+extraResources:
+  - from: public
+    to: .
+  - from: resources/app.png
+    to: app.png
+  # aioncore binary (pre-compiled per platform/arch, ships its own bun runtime)
+  # Hermes wheel is bundled so first-run setup does not depend on hermes-agent
+  # being published to the public Python package index.
+  #
+  # NOTE: the web-search dependency wheels under resources/bundled-hermes/web/
+  # (lxml, brotli, primp, ...) ship UNSIGNED native Mach-O .so binaries inside
+  # third-party PyPI wheels. Apple notarytool inspects INSIDE those .whl files
+  # and rejects the whole app ("The binary is not signed with a valid Developer
+  # ID certificate") — and the wheels cannot be Dev-ID signed without breaking
+  # the pip RECORD hash. We therefore EXCLUDE web/ from the notarized bundle and
+  # let the first-run runtime bootstrap install ddgs from PyPI over the network
+  # (web search needs network anyway). The wheels stay in the source tree for the
+  # offline-capable path / future signing — they are only kept out of the .app.
+  # filter is relative to the `from` dir; "!web" prunes the directory and
+  # "!web/**" drops its contents so NO .whl with a native binary lands here.
+  - from: resources/bundled-hermes
+    to: bundled-hermes
+    filter:
+      - '!web'
+      - '!web/**'
+  # EVE strategy skills (the real eve-doctrine/plan-system/icp-persona-panel/etc.
+  # SKILL.md trees), staged into resources/bundled-skills by
+  # scripts/fetch-bundled-skills.mjs (committed snapshot; refreshed from the
+  # canonical Company.OS /.claude/skills when present). Lands at
+  # Contents/Resources/bundled-skills/ OUTSIDE the asar — the bundled CPython/
+  # Hermes agent reads SKILL.md via os.walk, not Electron fs. First-run copies
+  # these into the writable managedSkillsRoot so skills.external_dirs serves the
+  # real method content (replacing the boilerplate onboarding stubs). Pure
+  # markdown -> no deep-sign/notarize step needed (unlike Resources/python).
+  - from: resources/bundled-skills
+    to: bundled-skills
+    filter:
+      # Retired DACH-outbound content remains in repository history for audit,
+      # but must not enter the signed app payload or Hermes discovery surface.
+      - '!marketing-outbound'
+      - '!marketing-outbound/**'
+  # eve-acp-launcher (SG-1 Design A): the POSIX-sh wrapper that gives the Claude
+  # delegate lane a real pause-gate + attribution env. Lands at
+  # Contents/Resources/eve-acp-launcher/eve-acp-launcher.sh, where
+  # resolveBundledLauncherPath(process.resourcesPath) finds it. Invoked via
+  # `/bin/sh <launcher>` (eveWorkerLauncherCore.LAUNCHER_INTERPRETER), so it does
+  # NOT depend on its executable bit surviving the package step. Pure shell text —
+  # no Mach-O binary, so no deep-sign/notarize step (like bundled-skills).
+  - from: resources/eve-acp-launcher
+    to: eve-acp-launcher
+  # Self-contained CPython 3.12 (astral-sh/python-build-standalone), staged at
+  # build/bundled-python/python by scripts/fetch-bundled-python.mjs (NOT committed
+  # to git). Lands at Contents/Resources/python/ — interpreter at
+  # python/bin/python3.12. S2 bootstrap prefers it; S3 must deep-sign
+  # Resources/python/** before notarize. See docs/bundled-python.md.
+win:
+  target:
+    - nsis
+    #    - msi
+    - zip
+  icon: resources/app.ico # Use the checked-in Windows icon resource for executable metadata/icon patching
+  artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+  differentialPackage: false
+
+mac:
+  target:
+    - dmg
+    - zip
+  icon: resources/app.icns
+  # Space-free artifact name so the on-disk filename matches the url written into
+  # latest-mac.yml EXACTLY. ${productName} ("Command EVE") contains a space which
+  # electron-builder sanitizes to a dash in the yml url ("Command-EVE-…") while the
+  # on-disk file keeps the space — a 404 on a static HTTPS feed at download time.
+  # Using a literal dash form makes disk name === yml url. (TRAP 2)
+  artifactName: Command-EVE-${version}-${os}-${arch}.${ext}
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: entitlements.plist
+  entitlementsInherit: entitlements.plist
+  # Info.plist purpose strings. NSMicrophoneUsageDescription is REQUIRED for mic
+  # access (speech-to-text voice input) — macOS shows it on the permission prompt
+  # and refuses the mic without it under the hardened runtime.
+  extendInfo:
+    NSMicrophoneUsageDescription: Command EVE uses your microphone for voice input (speech-to-text). With the local provider, your audio is transcribed on this Mac and never leaves the device.
+
+dmg:
+  # Use UDZO format which is more reliable on CI
+  format: UDZO
+  # Disable internet-enabled DMG to avoid network issues
+  internetEnabled: false
+  # Simple window settings to avoid layout issues
+  window:
+    width: 540
+    height: 380
+  # Contents positioning
+  contents:
+    - x: 140
+      y: 180
+      type: file
+    - x: 400
+      y: 180
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - deb
+  icon: resources/app.png
+  artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+  category: Utility
+  maintainer: FYN Labs LLC
+  vendor: FYN Labs LLC
+  synopsis: ${description}
+  description: ${description}
+  desktop:
+    entry:
+      Name: Command EVE
+      Comment: ${description}
+      Icon: command-eve
+      Categories: Office;Utility;
+      MimeType: x-scheme-handler/command-eve;
+
+npmRebuild: false
+buildDependenciesFromSource: false
+nodeGypRebuild: false
+
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**/*'
+  - '**/node_modules/@mapbox/**/*'
+  - '**/node_modules/detect-libc/**/*'
+  - '**/node_modules/prebuild-install/**/*'
+  - '**/node_modules/node-gyp-build/**/*'
+  - '**/node_modules/bindings/**/*'
+  # open library and dependencies - needed for Windows asar compatibility
+  - '**/node_modules/open/**/*'
+  - '**/node_modules/default-browser/**/*'
+  - '**/node_modules/default-browser-id/**/*'
+  - '**/node_modules/run-applescript/**/*'
+  - '**/node_modules/bundle-name/**/*'
+  # tree-sitter WASM files need to be unpacked for fs.readFile access
+  - '**/node_modules/web-tree-sitter/**/*'
+  - '**/node_modules/tree-sitter-bash/**/*'
+  # Builtin MCP server scripts must be unpacked so external node processes can execute them
+  - 'out/main/builtin-mcp-image-gen.js'
+  - 'out/main/builtin-mcp-eve-artifacts.js'
+  - 'out/main/team-mcp-stdio.js'
+  - 'out/main/team-guide-mcp-stdio.js'
+
+# Compression level: normal for faster builds, maximum for smallest size
+# Note: electron-builder doesn't support YAML template syntax for env vars
+# The build script sets ELECTRON_BUILDER_COMPRESSION_LEVEL env var which takes precedence
+compression: normal
+removePackageScripts: true
+electronDist: node_modules/electron/dist
+
+# Auto-update feed. The DMG/zip is distributed via the PUBLIC R2 bucket, not via
+# GitHub Releases (the MathiasHeinke/company-os repo is PRIVATE, so the in-app
+# autoUpdater — which carries no GitHub token — could never fetch its releases).
+# `provider: generic` makes the BUILT app's Contents/Resources/app-update.yml
+# point at the R2 base, so the installed app reads `<url>/latest-mac.yml` (plus
+# the channel suffix from getUpdateChannel(), e.g. latest-arm64-mac.yml) over a
+# plain static HTTPS GET — no auth, no GitHub API.
+#
+# NOTE: at runtime autoUpdaterService.configureFeed() ALSO calls
+# setFeedURL({ provider: 'generic', url }) using COMMAND_EVE_UPDATE_FEED_URL /
+# the persisted `update.feedUrl`; that runtime override takes precedence over
+# this bundled app-update.yml. This block is the build-time default + the source
+# `publish-update-feed.mjs` mirrors to R2 (latest-mac.yml + zip + blockmap).
+publish:
+  provider: generic
+  url: https://eve-update-proxy.commandeve.workers.dev
+  publishAutoUpdate: true

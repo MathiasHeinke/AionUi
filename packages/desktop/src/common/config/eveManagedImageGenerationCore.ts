@@ -6,6 +6,7 @@
 
 import type { TProviderWithModel } from './storage';
 import type { CommandEvePrivacyLane } from './eveMultimodalGatewayCore';
+import type { CommandEveImageModelTierId } from './eveImageModelRegistryCore';
 
 export const COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID = 'command-eve-managed-image';
 export const COMMAND_EVE_MANAGED_IMAGE_PLATFORM = 'command-eve-managed-image';
@@ -52,6 +53,16 @@ export type CommandEveManagedImageEdgeRequest = {
   aspect_ratio: CommandEveManagedImageAspectRatio;
   resolution: CommandEveManagedImageResolution;
   input_references: CommandEveManagedImageReference[];
+  /**
+   * The seat's image model choice as the BARE TIER ID (MAT-1769, CoS
+   * contract). Resolved MAIN-SIDE against the server-owned registry
+   * immediately before the request; the server owns tier → slug resolution
+   * authoritatively, so a slug never travels — a slug the client could name
+   * would be a slug the registry never priced. The shim-facing model name
+   * stays `command-eve-visual-direction-v1`; the agent/shim contract never
+   * sees this field.
+   */
+  image_model: CommandEveImageModelTierId;
 };
 
 export type CommandEveManagedImageArtifact = {

@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { readLicenseWire } from '@/common/config/licenseWireAtRest';
+
 /**
  * MAT-1747 — the one place that answers "may this seat spend on a video edit?".
  *
@@ -14,13 +16,35 @@
  * somewhere BOTH lanes can import without an import cycle, and the paid handler
  * itself has to be the thing that asks.
  *
- * Default OFF, and it stays off for 1.820.1. It may only be turned on after a
- * packaged, signed-resource first run proves the MCP server actually lands in
- * the emitted Hermes config AND a bounded no-paid dry path works — neither of
- * which a unit test can establish.
+ * THE CONTRACT, AND ITS HISTORY. 1.820.1 shipped this DEFAULT-OFF behind an
+ * opt-in env flag: nothing advertised `eve_video_edit` unless
+ * `COMMAND_EVE_ENABLE_AGENT_VIDEO_EDIT` was exactly `'1'`, because an MCP tool
+ * call does not pass through Hermes' approval prompt and the feature had not
+ * yet earned default-on. Two proofs earned it: the packaged emitted-config
+ * proof (the shipping asarUnpack list puts the MCP script where an external
+ * node can execute it, the packaged layout emits `aionui-eve-artifacts`, and
+ * every fail-closed precondition survives) and the bounded no-paid dry proof
+ * (context → tool surface → loopback, with zero debit and zero egress). With
+ * both green, 1.820.2 flips the POSTURE, not the spend authority:
+ *
+ *   - an ELIGIBLE seat — one whose CEVE licence wire is present and readable
+ *     via the real `readLicenseWire(dataPath)` — advertises `eve_video_edit`
+ *     BY DEFAULT, with no env var involved;
+ *   - exactly `'0'` (trimmed) is the emergency kill-switch and forces OFF even
+ *     on an eligible seat;
+ *   - `'1'` is now a NO-OP. Default-on made it redundant, and it must NOT
+ *     bypass eligibility: advertising a paid capability on an unauthenticated
+ *     seat is forbidden, whatever the env says;
+ *   - no licence wire, or a wire that will not read, is OFF — fail closed, as
+ *     every other credential read on this path already is.
+ *
+ * What did NOT change: the server-side gates. Licence verify, entitlement,
+ * debit-before-provider and idempotency all re-verify everything per request,
+ * exactly as before. This flip changes ADVERTISEMENT and permit minting; it
+ * spends nothing by itself.
  */
 
-/** Env flag that makes the SPENDING operation reachable. Default: off. */
+/** Env flag carrying the kill-switch (and, to the MCP child, Main's decision). */
 export const COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG = 'COMMAND_EVE_ENABLE_AGENT_VIDEO_EDIT';
 
 /**
@@ -29,9 +53,54 @@ export const COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG = 'COMMAND_EVE_ENABLE_AGENT_VIDEO
  * A spending flag that accepts several spellings is a spending flag that gets
  * turned on by accident — by a stray `=true` in a shell profile, or by a value
  * someone assumed was ignored.
+ *
+ * WHO READS THIS, post-flip: the MCP CHILD, and only the child. Main resolves
+ * eligibility itself (see {@link resolveAgentVideoEditAdvertisement}) and emits
+ * exactly `'1'` into the child environment when — and only when — the seat may
+ * be told about the paid tool, so for the child this exact-`'1'` read IS the
+ * whole decision. Main never decides from this function: on Main's side `'1'`
+ * is a no-op and `'0'` is the kill-switch, both judged by the resolver below.
  */
 export function isAgentVideoEditEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return (env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] || '').trim() === '1';
+}
+
+export interface AgentVideoEditAdvertisementInput {
+  env: NodeJS.ProcessEnv;
+  /** True iff the seat's CEVE licence wire is present AND readable. */
+  licenseWirePresent: boolean;
+}
+
+/**
+ * THE advertisement decision, pure and in one place.
+ *
+ * Kill-switch first: exactly `'0'` (trimmed) closes the seat even when a
+ * licence wire reads fine — an emergency off that does not require deleting
+ * credentials. Otherwise the seat advertises iff it is eligible, i.e. the
+ * licence wire is present and readable. Every other value of the flag —
+ * including `'1'` — changes nothing: default-on made `'1'` redundant, and a
+ * redundant spelling that could ALSO override the eligibility check would be
+ * an opt-out seat's way to advertise a capability it cannot pay for.
+ */
+export function resolveAgentVideoEditAdvertisement(input: AgentVideoEditAdvertisementInput): boolean {
+  if ((input.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] || '').trim() === '0') return false;
+  return input.licenseWirePresent === true;
+}
+
+/**
+ * The production half of the decision: reads the licence wire at rest through
+ * the REAL `readLicenseWire` (keychain ref, decrypt, well-formedness check —
+ * any failure is `ok: false` and therefore ineligible) and folds it into the
+ * resolver above. Every Main-side consumer — the context envelope, the shared
+ * paid handler, the loopback and the MCP-child env emission — asks HERE, so
+ * the four surfaces cannot drift apart about what this seat offers.
+ */
+export function isAgentVideoEditAdvertisingEnabled(dataPath: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const wire = readLicenseWire(dataPath);
+  return resolveAgentVideoEditAdvertisement({
+    env,
+    licenseWirePresent: wire.ok === true && typeof wire.wire === 'string' && wire.wire.length > 0,
+  });
 }
 
 // ---------------------------------------------------------------------------

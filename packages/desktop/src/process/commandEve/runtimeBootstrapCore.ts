@@ -44,7 +44,7 @@ import { commandEveShimAuthTokenFilePath, provisionCommandEveShimAuthTokenFile }
 import { getBuiltinMcpScriptPath } from '../utils/builtinMcpPath';
 import { honchoMcpServerForSeat } from './honchoMcpServerCore';
 import { provisionArtifactCapabilityBearerFile } from './artifactCapabilityLoopback';
-import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG, isAgentVideoEditEnabled } from './agentVideoEditFlag';
+import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG, isAgentVideoEditAdvertisingEnabled } from './agentVideoEditFlag';
 import {
   eveHonchoMemoryDirective,
   resolveHonchoRenderForSeat,
@@ -247,6 +247,15 @@ export const EVE_STRATEGY_SKILL_IDS = [
   // gate fails closed on an ALTERED file, not just a missing one
   // (COPYWRITING_PINNED_SHA256 in scripts/fetch-bundled-skills.mjs).
   'copywriting',
+  // seo + seo-aeo-best-practices (1.820.2, MAT-1769): the second wave of
+  // VENDORED third-party skills, shipped byte-identical to their upstream
+  // sources under the same fail-closed digest-pin contract as copywriting
+  // (SEO_PINNED_SHA256 / SEO_AEO_PINNED_SHA256 in scripts/fetch-bundled-skills.mjs).
+  // seo declares MIT in its SKILL.md frontmatter (no licence text file exists
+  // upstream — recorded, not fabricated, in PROVENANCE.md);
+  // seo-aeo-best-practices has NO declared licence, recorded as undeclared.
+  'seo',
+  'seo-aeo-best-practices',
 ] as const;
 // Generated-runtime cleanup list. These ids previously landed in the app-owned
 // managed skill directory but are no longer approved for Hermes discovery.
@@ -917,7 +926,7 @@ export type RuntimeBootstrapOptions = {
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.820.1',
+  release: '1.820.2',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
@@ -1068,6 +1077,20 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'Conversion copywriting',
       tier: 'department',
       source: 'Corey Haines marketing skills (MIT, vendored unchanged)',
+      default_state: 'active',
+    },
+    {
+      id: 'seo',
+      name: 'SEO optimization',
+      tier: 'department',
+      source: 'web-quality-skills SEO skill (MIT frontmatter-declared, vendored unchanged)',
+      default_state: 'active',
+    },
+    {
+      id: 'seo-aeo-best-practices',
+      name: 'SEO & AEO best practices',
+      tier: 'department',
+      source: 'SEO/AEO best-practices skill (licence undeclared, vendored unchanged)',
       default_state: 'active',
     },
     {
@@ -1455,7 +1478,7 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.820.1',
+  release: '1.820.2',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
@@ -1805,9 +1828,12 @@ export function buildCommandEveArtifactContextHermesMcpServer(input: {
   /**
    * POLICY F — whether THIS seat may be told about the paid edit tool.
    *
-   * Emitted into the child's env only when true, so the default config is
-   * byte-identical to the one that shipped and a closed seat publishes a tool
-   * list with no spending capability in it at all.
+   * Emitted into the child's env only when true, so a closed seat publishes a
+   * tool list with no spending capability in it at all. "True" is decided by
+   * ONE resolver (`agentVideoEditFlag.ts`): since 1.820.2 an eligible seat —
+   * licence wire present and readable — passes it BY DEFAULT, exactly `'0'` in
+   * the env kill-switches even an eligible seat, and an absent or unreadable
+   * wire fails closed.
    *
    * Omitting the key rather than writing `0` is safe because the reader
    * (`isAgentVideoEditEnabled`) demands exactly `'1'`: an absent key and a `'0'`
@@ -5603,10 +5629,15 @@ function writeHermesRuntimeFiles(
           scriptPath: artifactCapabilityScriptPath,
           shimBaseUrl: manifest.local_runtime.egress_proxy_url,
           bearerFile: artifactCapabilityBearerFile,
-          // POLICY F — one flag, both surfaces. The child publishes the paid
-          // tool only when the same check the paid handler makes says this seat
-          // may spend. Default off, so the emitted config is unchanged.
-          videoEditEnabled: isAgentVideoEditEnabled(),
+          // POLICY F — one decision, every surface. The child publishes the
+          // paid tool only when the SAME resolver the paid handler and the
+          // envelope ask says this seat may be told: eligible (licence wire
+          // readable from THIS userData root) by default since 1.820.2, `'0'`
+          // kill-switches, no wire fails closed. `paths.userDataPath` is the
+          // resolved userData root `readLicenseWire` expects — the same root
+          // the bearer file above and every `readLicenseWire(getDataPath())`
+          // caller resolve against.
+          videoEditEnabled: isAgentVideoEditAdvertisingEnabled(paths.userDataPath),
         })
       : undefined;
   // COMPA-624 Inc.3 — the per-seat Honcho MCP server, or undefined when Honcho is

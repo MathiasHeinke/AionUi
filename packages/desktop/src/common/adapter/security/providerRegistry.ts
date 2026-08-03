@@ -64,6 +64,9 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.evaluate-gate-decision',
   'command-eve.generate-local-title',
   'command-eve.guided-auth-setup',
+  'command-eve.image-capabilities',
+  'command-eve.image-model-preference-read',
+  'command-eve.image-model-preference-set',
   'command-eve.kanban-acp-apply',
   'command-eve.kanban-acp-peek',
   'command-eve.kanban-acp-reject',
@@ -245,6 +248,13 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'command-eve.evaluate-gate-decision': 'record',
   'command-eve.generate-local-title': 'record',
   'command-eve.guided-auth-setup': 'record',
+  // MAT-1769 — no arguments: asks MAIN for the server-owned image model
+  // registry (display names + credit quotes). Read-only, non-billable.
+  'command-eve.image-capabilities': 'void',
+  // No arguments — Main resolves the active seat itself.
+  'command-eve.image-model-preference-read': 'void',
+  // expectedSeatId (stale-action fence only) + the chosen tier.
+  'command-eve.image-model-preference-set': 'record',
   'command-eve.kanban-acp-apply': 'record',
   'command-eve.kanban-acp-peek': 'void',
   'command-eve.kanban-acp-reject': 'record',

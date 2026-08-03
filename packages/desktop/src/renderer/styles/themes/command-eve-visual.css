@@ -2137,6 +2137,42 @@
   color: rgb(var(--danger-6));
 }
 
+/* MAT-1769 — the one-time in-chat Vision enablement card. Lives in the draft
+   band like the document-preparation strip: static (no transition/animation,
+   so reduced-motion needs no override), keyboard-reachable, never an overlay. */
+.acp-vision-enablement {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 12px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--glass-chrome-border, var(--color-border-2));
+  border-radius: 8px;
+  background: var(--color-fill-1);
+}
+
+.acp-vision-enablement__title {
+  color: var(--eve-shell-text-primary, var(--color-text-1));
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.acp-vision-enablement__description {
+  margin: 0;
+  color: var(--eve-shell-text-secondary, var(--color-text-2));
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.acp-vision-enablement__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
 .acp-document-preparation__label {
   min-width: 0;
   overflow: hidden;

@@ -289,5 +289,16 @@
   "unit": {
     "minute_short": "m",
     "second_short": "s"
+  },
+  "credits": {
+    "image": {
+      "modelLabel": "Image model",
+      "tierFast": "Fast",
+      "tierQuality": "Quality",
+      "tierMax": "MAX",
+      "inlineEstimate": "approx. {{credits1k}} credits (1K) · {{credits2k}} (2K)",
+      "estimateUnavailable": "Price currently unavailable",
+      "editEstimateTitle": "Edit: {{edit1k}} credits (1K) · {{edit2k}} (2K) · +{{perReference}} per reference image"
+    }
   }
 }

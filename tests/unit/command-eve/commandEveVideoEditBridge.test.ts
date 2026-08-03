@@ -9,8 +9,8 @@
  *
  * The claims worth testing here all cost money if they are wrong:
  *
- *   - the paid path is CLOSED by default, in the shared handler, so neither lane
- *     can be open while the other is shut;
+ *   - the paid path is CLOSED on a kill-switched or ineligible seat, in the
+ *     shared handler, so neither lane can be open while the other is shut;
  *   - a paid edit needs an EPHEMERAL SINGLE-USE PERMIT minted by a real user
  *     send, so a fourteen-day handle recovered from a transcript buys nothing;
  *   - one permit is one edit — the same permit with a different instruction
@@ -26,9 +26,10 @@
  * probe would have fired.
  *
  * NOTE ON THE FLAG: it is enabled per-test through an injected dep and NEVER
- * through `process.env`. The spending flag stays default-off everywhere,
- * including in the test environment — a suite that switches it on globally would
- * be the one place the default is not the default.
+ * through `process.env`. Since 1.820.2 the env var is only the kill-switch
+ * (`'0'`) — eligibility comes from the licence wire, which this file mocks —
+ * and a suite that set the env globally would still be the one place a stray
+ * value could silently flip every assertion below.
  */
 
 import crypto from 'node:crypto';
@@ -151,7 +152,7 @@ afterEach(() => {
   fs.rmSync(dataRoot, { recursive: true, force: true });
 });
 
-describe('the paid path is closed unless it is explicitly opened', () => {
+describe('the paid path is closed unless the seat is eligible', () => {
   it('refuses in the SHARED handler, so the renderer IPC lane cannot be open while the loopback is shut', async () => {
     // THE regression this test exists for: the first build gated only the MCP
     // loopback, and `commandEveBridge` registered the identical paid handler for
@@ -171,9 +172,10 @@ describe('the paid path is closed unless it is explicitly opened', () => {
   });
 
   it('reads the flag from the environment by default, and the environment does not set it', () => {
-    // The POSITIVE control for "default-off is real": the flag name is not
-    // present in this process, so nothing in this suite is running with the
-    // spending path implicitly open.
+    // The POSITIVE control for "the kill-switch is not accidentally engaged":
+    // the flag name is not present in this process, so nothing in this suite is
+    // running with the spending path implicitly closed (or a stray '1' making
+    // the eligibility assertions ambiguous).
     expect(process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]).toBeUndefined();
   });
 });

@@ -18,14 +18,17 @@
  * filesystem path or a base64 clip. The CEVE bearer, the credit authority and
  * the idempotency key all stay on this side.
  *
- * `eve_video_edit` is behind a DEFAULT-OFF flag, deliberately and for the same
- * reason the gateway half shipped behind `EVE_MULTIMODAL_ENABLE_XAI_VIDEO_EDIT`:
- * an MCP tool call does not pass through Hermes' approval prompt, so until a
- * packaged first run proves this server actually lands in the emitted Hermes
- * config, a model must not be able to reach a spending path unattended. The read
- * operation is unaffected — it costs nothing and cannot spend.
+ * `eve_video_edit` is advertised DEFAULT-ON for an ELIGIBLE seat as of 1.820.2
+ * (it shipped default-off in 1.820.1, behind the same opt-in posture the
+ * gateway half keeps with `EVE_MULTIMODAL_ENABLE_XAI_VIDEO_EDIT`). ELIGIBLE
+ * means the seat's CEVE licence wire is present and readable, and exactly `'0'`
+ * in `COMMAND_EVE_ENABLE_AGENT_VIDEO_EDIT` is the kill-switch that closes even
+ * an eligible seat. The decision is made ONCE, in `agentVideoEditFlag.ts`, and
+ * every surface — this loopback, the envelope, the emitted child env — reads
+ * that one resolver. The read operation is unaffected — it costs nothing and
+ * cannot spend.
  *
- * The flag is checked HERE for a good message and AGAIN inside the shared paid
+ * The gate is checked HERE for a good message and AGAIN inside the shared paid
  * handler, which is where it actually binds. That is not belt-and-braces
  * decoration: the first build checked it only here, and the identical paid
  * handler was registered without any gate on the renderer IPC lane. A gate that
@@ -38,11 +41,21 @@ import path from 'node:path';
 import { hydrateVideoArtifactPayload, isVideoArtifactEditable } from '@/common/config/videoGenerationRequestCore';
 import { handleCommandEveVideoEdit } from '@process/bridge/commandEveVideoBridge';
 import { getDataPath } from '@process/utils/utils';
-import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG, isAgentVideoEditEnabled } from './agentVideoEditFlag';
+import {
+  COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG,
+  isAgentVideoEditAdvertisingEnabled,
+  isAgentVideoEditEnabled,
+  resolveAgentVideoEditAdvertisement,
+} from './agentVideoEditFlag';
 import { readArtifactCapabilityGrant } from './artifactCapabilityHandleStore';
 import { listVideoArtifactRecords } from './videoArtifactStore';
 
-export { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG, isAgentVideoEditEnabled };
+export {
+  COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG,
+  isAgentVideoEditAdvertisingEnabled,
+  isAgentVideoEditEnabled,
+  resolveAgentVideoEditAdvertisement,
+};
 
 const BEARER_FILE_NAME = 'artifact-capability-bearer';
 
@@ -93,7 +106,7 @@ const productionDeps: ArtifactCapabilityLoopbackDeps = {
   listArtifactRecords: listVideoArtifactRecords,
   readGrant: readArtifactCapabilityGrant,
   videoEdit: handleCommandEveVideoEdit,
-  isVideoEditEnabled: () => isAgentVideoEditEnabled(),
+  isVideoEditEnabled: () => isAgentVideoEditAdvertisingEnabled(getDataPath()),
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -177,8 +190,9 @@ export async function artifactCapabilityCallHandler(
         //
         // KNOWN CONSEQUENCE, stated rather than hidden: a clip produced through
         // THIS lane does not render inline in the chat the way one produced
-        // through the renderer lane does. The paid path is default-off, so this
-        // regresses nothing that ships — but it is an open display gap, not a
+        // through the renderer lane does. It used to regress nothing because the
+        // paid path shipped default-off; since 1.820.2 eligible seats reach this
+        // lane by default, so the gap is live — an open display gap, not a
         // solved problem.
         replayed: result.replayed === true,
       },

@@ -1,6 +1,6 @@
 {
   "version": "command-eve-capability-pack/v0",
-  "release": "1.820.1",
+  "release": "1.820.2",
   "policy": {
     "default_mode": "proposal_only",
     "secret_rule": "Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.",
@@ -145,6 +145,20 @@
       "name": "Conversion copywriting",
       "tier": "department",
       "source": "Corey Haines marketing skills (MIT, vendored unchanged)",
+      "default_state": "active"
+    },
+    {
+      "id": "seo",
+      "name": "SEO optimization",
+      "tier": "department",
+      "source": "web-quality-skills SEO skill (MIT frontmatter-declared, vendored unchanged)",
+      "default_state": "active"
+    },
+    {
+      "id": "seo-aeo-best-practices",
+      "name": "SEO & AEO best practices",
+      "tier": "department",
+      "source": "SEO/AEO best-practices skill (licence undeclared, vendored unchanged)",
       "default_state": "active"
     },
     {

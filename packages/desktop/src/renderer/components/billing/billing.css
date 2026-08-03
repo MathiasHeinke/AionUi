@@ -281,3 +281,76 @@
   opacity: 0.8;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- inline image-model selector (MAT-1769) ----
+   Same draft-band idiom as the video-quality pill above: a picker, not a gate.
+   Exactly three radios (Schnell / Qualität / MAX) plus the server-quoted price
+   of the current choice — or an honest "unavailable" when the registry cannot
+   be proven. Kept visually quieter than the EVE MAX reasoning toggle: the MAX
+   option borrows the same accent token but carries NO background fill and a
+   lighter border mix (the reasoning toggle uses 16%/46%; this stays at 40%
+   border only). No transitions or animations, so the control is reduced-motion
+   safe by construction. */
+.image-model-pill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+  font-size: 12px;
+  color: var(--text-secondary, #4b5563);
+}
+.image-model-pill__label {
+  font-weight: 600;
+}
+.image-model-pill__options {
+  display: flex;
+  gap: 4px;
+}
+.image-model-pill__option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.image-model-pill__option:hover {
+  border-color: var(--border-secondary, #e5e7eb);
+}
+/* Same argument as the video pill: on a control that decides what an image
+   costs, keyboard focus must be VISIBLE and must not be confusable with the
+   selected state — so an outline, never a border-colour change. */
+.image-model-pill__option:focus-visible {
+  outline: 2px solid var(--color-primary-6, #2563eb);
+  outline-offset: 2px;
+}
+.image-model-pill__option.is-selected {
+  border-color: var(--color-primary-6, #2563eb);
+  color: var(--color-primary-6, #2563eb);
+  font-weight: 600;
+}
+/* The premium tier, selected: a whisper of the MAX accent, deliberately below
+   the reasoning toggle's treatment — colour and border only, no fill. */
+.image-model-pill__option--max.is-selected {
+  border-color: color-mix(in srgb, var(--eve-max-accent, var(--color-primary-6, #2563eb)) 40%, transparent);
+  color: var(--eve-max-accent, var(--color-primary-6, #2563eb));
+}
+/* The server-pinned model name next to the tier label (e.g. Nano Banana 2). */
+.image-model-pill__model {
+  opacity: 0.7;
+  font-weight: 400;
+}
+.image-model-pill__estimate {
+  margin-left: auto;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+.image-model-pill__estimate--unavailable {
+  font-style: italic;
+}

@@ -97,6 +97,8 @@ typings/
 
 # Electron-Forge
 out/
+# Packaged proof builds (scripts/proofs/)
+out-proof/
 
 # IDE and Editor files
 .idea

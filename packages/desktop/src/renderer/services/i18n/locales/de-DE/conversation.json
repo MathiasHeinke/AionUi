@@ -184,7 +184,16 @@
   },
   "visual": {
     "sourceLimit": "Wähle pro Nachricht höchstens sechs Bilder oder Präsentationen aus.",
-    "managedCloudFailed": "Die verwaltete visuelle Analyse konnte nicht freigegeben werden. Entwurf und Dateien bleiben ungesendet."
+    "managedCloudFailed": "Die verwaltete visuelle Analyse konnte nicht freigegeben werden. Entwurf und Dateien bleiben ungesendet.",
+    "enablement": {
+      "title": "Vision für dieses Bild aktivieren?",
+      "description": "EVE kann das Bild nur sehen, wenn Vision aktiv ist. Dabei wird eine verkleinerte Vorschau des Bildes an den verwalteten Cloud-Vision-Anbieter von Command EVE gesendet (Zero Data Retention, kein Training, kein Anbieter-Key in der App). Jede Cloud-Vision-Analyse kostet Credits pro Bild. Das Original bleibt auf diesem Mac. Deine Entscheidung gilt dauerhaft für diesen Arbeitsplatz und lässt sich jederzeit unter Einstellungen → Datenschutz ändern.",
+      "confirm": "Vision aktivieren",
+      "decline": "Nicht jetzt",
+      "declinedNotice": "Vision bleibt deaktiviert – das Bild wurde nicht gesendet. Du kannst Vision jederzeit unter Einstellungen → Datenschutz aktivieren.",
+      "unavailableNotice": "Vision ist auf diesem Arbeitsplatz derzeit nicht verfügbar. Das Bild wurde nicht gesendet; Entwurf und Dateien bleiben erhalten.",
+      "enableFailed": "Vision konnte nicht aktiviert werden. Entwurf und Dateien bleiben erhalten."
+    }
   },
   "commandEveRuntimePreparing": "EVE bereitet die lokale Runtime vor. Das kann beim ersten Start oder nach Modellwechsel etwas dauern.",
   "commandEveRuntimeNotReady": "EVE kann noch nicht senden: {{reason}}",

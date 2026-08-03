@@ -104,8 +104,13 @@ export interface EveArtifactEnvelopeEntry {
    * surface of its own for the reason item C names: those files ARE what the
    * user is looking at, so the agent must see exactly them, and no second picker
    * may exist to disagree.
+   *
+   * `image` (MAT-1769) is an image the user attached to an EARLIER message of
+   * this conversation, re-listed from Main's durable record so a follow-up
+   * ("das Bild") resolves the latest visible image without reattachment.
+   * Newest first, never editable, no handle.
    */
-  kind: 'video' | 'reference_image';
+  kind: 'video' | 'reference_image' | 'image';
   mimeType: string;
   durationSeconds: number;
   editable: boolean;
@@ -199,6 +204,9 @@ export function buildEveArtifactContextEnvelope(input: EveArtifactContextEnvelop
     'Entries with kind=reference_image are files the user attached to THIS message. They are',
     'inputs — usable as reference images for a video — not clips that exist yet: there is nothing to',
     'play and no handle to pass. Do not ask the user to pick them again; they are already chosen.',
+    'Entries with kind=image are images the user sent with an earlier message, NEWEST first:',
+    '"the image" / "das Bild" means the first of them unless the user says otherwise. They are',
+    'already part of this conversation — never ask the user to re-attach one.',
     'To act on a clip, pass its `edit_handle` verbatim to the matching tool. The handle names WHICH clip:',
     'never substitute an artifact_id, a filename, a conversation id or a guess for it.',
     'An artifact without an `edit_handle` cannot be edited; say so rather than attempting it.',

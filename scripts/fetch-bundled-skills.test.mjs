@@ -14,6 +14,13 @@ import {
   EVE_STRATEGY_SKILLS,
   EVE_STRATEGY_SKILL_IDS,
   PLAUD_REQUIRED_FILES,
+  SEO_AEO_PINNED_SHA256,
+  SEO_AEO_REQUIRED_FILES,
+  SEO_AEO_UPSTREAM,
+  SEO_PINNED_SHA256,
+  SEO_REQUIRED_FILES,
+  SEO_UPSTREAM,
+  VENDORED_SKILL_HYGIENE_EXEMPTIONS,
   findForbiddenUserFacingJsonContent,
   findSkillHygieneFailures,
   decideSkillSource,
@@ -29,8 +36,8 @@ import {
 
 // --- allowlist shape -------------------------------------------------------
 
-test('the allowlist is exactly 39 and includes curated production skills', () => {
-  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 39);
+test('the allowlist is exactly 41 and includes curated production skills', () => {
+  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 41);
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-doctrine'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-chief-of-staff-orchestration'));
   assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('marketing-outbound'));
@@ -55,6 +62,8 @@ test('the allowlist is exactly 39 and includes curated production skills', () =>
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('book-publishing'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('premium-website-builder'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('copywriting'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('seo'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('seo-aeo-best-practices'));
   // gitnexus and other dev/IDE skills must NEVER be in the allowlist.
   assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('gitnexus'));
 });
@@ -208,7 +217,7 @@ function makeFixtureSrc(root, { omit = [] } = {}) {
   return srcRoot;
 }
 
-test('stageBundledSkills refreshes from source and verifies all 39 including nested production assets', () => {
+test('stageBundledSkills refreshes from source and verifies all 41 including nested production assets', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-test-'));
   try {
     const srcRoot = makeFixtureSrc(root);
@@ -471,6 +480,108 @@ test('verifyPinnedSkillFiles rejects a path-traversing pin instead of reading ou
     pinnedSha256: { '../../../package.json': 'deadbeef' },
   });
   assert.deepEqual(failures, ['bundled_skill_pinned_file_invalid:synthetic:../../../package.json']);
+});
+
+// --- seo + seo-aeo-best-practices: the second VENDORED wave (1.820.2, MAT-1769) ---
+
+test('seo + seo-aeo-best-practices are allowlisted as digest-pinned vendored skills', () => {
+  const cases = [
+    ['seo', SEO_PINNED_SHA256, SEO_REQUIRED_FILES, SEO_UPSTREAM],
+    ['seo-aeo-best-practices', SEO_AEO_PINNED_SHA256, SEO_AEO_REQUIRED_FILES, SEO_AEO_UPSTREAM],
+  ];
+  for (const [id, pinned, required, upstream] of cases) {
+    const skill = EVE_STRATEGY_SKILLS.find(({ id: candidate }) => candidate === id);
+    assert.ok(skill, `${id} must be in the build allowlist`);
+    assert.equal(skill.pinnedSha256, pinned);
+    assert.equal(skill.requiredFiles, required);
+    // requiredFiles proves PRESENCE; pinnedSha256 proves the BYTES. Every pinned
+    // path must also be required, so a deleted file fails on both gates.
+    for (const relativePath of Object.keys(pinned)) {
+      assert.ok(required.includes(relativePath), relativePath);
+    }
+    assert.ok(required.includes('PROVENANCE.md'));
+    // No executable / script surface may creep into a vendored text skill.
+    assert.deepEqual(
+      required.filter((f) => /\.(mjs|js|cjs|sh|py|bash|zsh)$/.test(f)),
+      []
+    );
+    assert.equal(upstream.retrieved, '2026-08-03');
+    // Neither upstream ships a licence text file: seo declares MIT in
+    // frontmatter, seo-aeo-best-practices is undeclared — recorded, not fabricated.
+    assert.ok(!required.includes('LICENSE'), `${id} must not fabricate a licence file`);
+  }
+  assert.equal(SEO_UPSTREAM.license.startsWith('MIT'), true);
+  assert.equal(SEO_AEO_UPSTREAM.license.startsWith('undeclared'), true);
+});
+
+test('the committed seo + seo-aeo-best-practices snapshots hash to the pinned upstream digests', () => {
+  for (const [id, pinned] of [
+    ['seo', SEO_PINNED_SHA256],
+    ['seo-aeo-best-practices', SEO_AEO_PINNED_SHA256],
+  ]) {
+    assert.deepEqual(
+      verifyPinnedSkillFiles({
+        skillId: id,
+        root: path.resolve('resources/bundled-skills', id),
+        pinnedSha256: pinned,
+      }),
+      []
+    );
+  }
+});
+
+test('the vendored seo SKILL.md files pass hygiene as shipped (one exactly-scoped exemption)', () => {
+  for (const id of ['seo', 'seo-aeo-best-practices']) {
+    const text = fs.readFileSync(path.resolve('resources/bundled-skills', id, 'SKILL.md'), 'utf8');
+    assert.deepEqual(findSkillHygieneFailures({ skillId: id, text }), []);
+  }
+  // The exemption is scoped to exactly one check on exactly one id: vendored
+  // bytes must not be edited for a local style rule, and every OTHER hygiene
+  // rule still applies to seo-aeo-best-practices.
+  assert.deepEqual(VENDORED_SKILL_HYGIENE_EXEMPTIONS, {
+    'seo-aeo-best-practices': ['description_missing_trigger'],
+  });
+});
+
+test('stageBundledSkills fails closed when a pinned seo-aeo reference file is ALTERED', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-seo-aeo-altered-'));
+  try {
+    const srcRoot = makeFixtureSrc(root);
+    // One appended byte — present, non-empty, still valid markdown. Existence
+    // checks cannot see this; only the digest pin can.
+    fs.appendFileSync(
+      path.join(srcRoot, 'seo-aeo-best-practices', 'references', 'eeat-principles.md'),
+      '\n<!-- unreviewed local edit -->\n'
+    );
+    const snapshotRoot = path.join(root, 'snapshot');
+    const failures = stageBundledSkills({ srcRoot, snapshotRoot });
+    assert.ok(
+      failures.includes('bundled_skill_pinned_file_altered:seo-aeo-best-practices:references/eeat-principles.md'),
+      failures.join(',')
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('stageBundledSkills fails closed when a pinned seo-aeo reference file is MISSING', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-seo-aeo-missing-'));
+  try {
+    const srcRoot = makeFixtureSrc(root);
+    fs.rmSync(path.join(srcRoot, 'seo-aeo-best-practices', 'references', 'technical-seo.md'));
+    const snapshotRoot = path.join(root, 'snapshot');
+    const failures = stageBundledSkills({ srcRoot, snapshotRoot });
+    assert.ok(
+      failures.includes('bundled_skill_required_file_missing:seo-aeo-best-practices:references/technical-seo.md'),
+      failures.join(',')
+    );
+    assert.ok(
+      failures.includes('bundled_skill_pinned_file_missing:seo-aeo-best-practices:references/technical-seo.md'),
+      failures.join(',')
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('stageBundledSkills keeps the committed snapshot when source is absent', () => {

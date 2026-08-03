@@ -10,11 +10,12 @@
  * Two claims are being tested, and they pull in opposite directions:
  *
  *   - the READ half must actually work, or the whole envelope story is a demo;
- *   - the SPENDING half must be unreachable until a desktop-side consent gate
- *     exists, because an MCP tool call does NOT pass through Hermes' approval
- *     prompt. Default-off is the same posture the gateway half shipped with
- *     (`EVE_MULTIMODAL_ENABLE_XAI_VIDEO_EDIT`), and it is enforced here rather
- *     than promised in a comment.
+ *   - the SPENDING half must be unreachable on a kill-switched or ineligible
+ *     seat, because an MCP tool call does NOT pass through Hermes' approval
+ *     prompt. Since 1.820.2 an ELIGIBLE seat (licence wire readable) is open BY
+ *     DEFAULT and exactly `'0'` in the env is the kill-switch — the resolver in
+ *     `agentVideoEditFlag.ts` decides, and it is enforced here rather than
+ *     promised in a comment.
  */
 
 import fs from 'node:fs';
@@ -142,18 +143,23 @@ describe('the read half works', () => {
   });
 });
 
-describe('the spending half is closed by default', () => {
-  it('is OFF unless the flag is exactly "1"', () => {
+describe('the spending half follows the one resolver decision', () => {
+  it('the MCP CHILD surface still opens only for exactly "1" — the value Main emits after deciding', () => {
+    // `isAgentVideoEditEnabled` is the CHILD's read of the env Main populated.
+    // Main itself decides via the resolver (tested in agentVideoEditFlag.test.ts):
+    // eligible seat → Main emits '1'; kill-switched or ineligible → it emits
+    // nothing. So for the child an absent key must stay closed, whatever the
+    // 1.820.2 default-on posture is on Main's side.
     expect(isAgentVideoEditEnabled({})).toBe(false);
     expect(isAgentVideoEditEnabled({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '' })).toBe(false);
     expect(isAgentVideoEditEnabled({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: 'true' })).toBe(false);
     expect(isAgentVideoEditEnabled({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '0' })).toBe(false);
-    // The POSITIVE control — the flag can be turned on, so the refusals above
-    // are about the value and not about a flag that never reads.
+    // The POSITIVE control — the child surface CAN be opened, so the refusals
+    // above are about the value and not about a flag that never reads.
     expect(isAgentVideoEditEnabled({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' })).toBe(true);
   });
 
-  it('never reaches the edit path while the flag is off', async () => {
+  it('never reaches the edit path on a kill-switched or ineligible seat', async () => {
     const videoEdit = vi.fn();
     const result = await artifactCapabilityCallHandler(
       { operation: 'video_edit', handle: HANDLE, instruction: 'gib der Aubergine ein Gesicht' },

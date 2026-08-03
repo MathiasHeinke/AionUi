@@ -30,6 +30,12 @@ import {
   listVideoArtifactRecords,
 } from '@process/commandEve/videoArtifactStore';
 import {
+  imageArtifactIdForSha256,
+  imageMimeTypeFromPath,
+  listImageArtifactRecords,
+  saveImageArtifactRecord,
+} from '@process/commandEve/visual/imageArtifactRecordStore';
+import {
   buildConversationArtifactEnvelopeEntries,
   ensureVideoEditCapabilityHandle,
   readArtifactCapabilityGrant,
@@ -51,7 +57,7 @@ import {
   revokeVideoEditSpendOnUserSteer,
 } from '@process/commandEve/videoEditSpendPermitStore';
 import { hasVisibleCharacters } from '@/common/config/eveOpaqueTokenCore';
-import { isAgentVideoEditEnabled, readVideoSeatCapabilities } from '@process/commandEve/agentVideoEditFlag';
+import { isAgentVideoEditAdvertisingEnabled, readVideoSeatCapabilities } from '@process/commandEve/agentVideoEditFlag';
 import {
   buildEveArtifactContextEnvelope,
   type EveArtifactEnvelopeEntry,
@@ -167,7 +173,7 @@ const productionDeps: CommandEveVideoBridgeDeps = {
   readCapabilityGrant: readArtifactCapabilityGrant,
   resolveCapability: resolveVideoEditCapability,
   readVideoSource: (filePath: string) => readBoundedVideoSource(filePath),
-  isVideoEditEnabled: () => isAgentVideoEditEnabled(),
+  isVideoEditEnabled: () => isAgentVideoEditAdvertisingEnabled(getDataPath()),
   isSpendStoreHealthy: isVideoEditSpendStoreHealthy,
   isSpendDenied: isVideoEditSpendDenied,
   evaluateSpendPermit: evaluateStoredVideoEditSpendPermit,
@@ -521,7 +527,11 @@ export interface CommandEveArtifactContextEnvelopeDeps {
   recordActiveTurn?: typeof recordActiveUserTurn;
   /** Retires the conversation when turn state could not be established. */
   denySpend?: typeof denyVideoEditSpend;
-  /** Whether the PAID path is enabled for this seat. Default-off, deliberately. */
+  /**
+   * Whether the PAID path is advertised for this seat. Default-ON for an
+   * eligible seat since 1.820.2 (licence wire readable), with `'0'` as the
+   * kill-switch — see `agentVideoEditFlag.ts`.
+   */
   isVideoEditEnabled?: () => boolean;
   /**
    * MAT-1753. Turns the reference images pending on the DRAFT into envelope
@@ -532,6 +542,13 @@ export interface CommandEveArtifactContextEnvelopeDeps {
   getActiveSeatId?: typeof getActiveSeatId;
   areFileSelectionPathsGranted?: typeof areCommandEveFileSelectionPathsGranted;
   readImageSource?: (filePath: string) => { bytes: Uint8Array };
+  /**
+   * MAT-1769 (requirement 9). The durable SENT-IMAGE registry: records of
+   * images attached to earlier turns, re-listed as kind=image entries so a
+   * follow-up resolves the latest visible image without reattachment.
+   */
+  listImageRecords?: typeof listImageArtifactRecords;
+  saveImageRecord?: typeof saveImageArtifactRecord;
 }
 
 const productionEnvelopeDeps: CommandEveArtifactContextEnvelopeDeps = {
@@ -540,11 +557,21 @@ const productionEnvelopeDeps: CommandEveArtifactContextEnvelopeDeps = {
   issuePermit: issueVideoEditSpendPermit,
   recordActiveTurn: recordActiveUserTurn,
   denySpend: denyVideoEditSpend,
-  isVideoEditEnabled: () => isAgentVideoEditEnabled(),
+  isVideoEditEnabled: () => isAgentVideoEditAdvertisingEnabled(getDataPath()),
   getActiveSeatId,
   areFileSelectionPathsGranted: areCommandEveFileSelectionPathsGranted,
   readImageSource: (filePath: string) => readBoundedImageSource(filePath),
+  listImageRecords: listImageArtifactRecords,
+  saveImageRecord: saveImageArtifactRecord,
 };
+
+/**
+ * At most this many sent-image records ride one envelope. The per-turn visual
+ * source limit is six, so the newest six images always cover "the image the
+ * user is talking about" — and a long conversation of attachments cannot
+ * starve the video clips out of the shared entry budget.
+ */
+const IMAGE_ARTIFACT_ENVELOPE_MAX_ENTRIES = 6;
 
 export interface CommandEveArtifactContextEnvelopeRequest {
   conversationId?: string;
@@ -611,8 +638,11 @@ export async function handleCommandEveArtifactContextEnvelope(
     // POLICY F: advertise the paid capability only when the paid path is really
     // enabled. The previous build advertised `eve_video_edit` whenever anything
     // was editable — including while the spending flag was off — which put an
-    // offer we would refuse into every transcript.
-    const paidEnabled = (deps.isVideoEditEnabled ?? (() => isAgentVideoEditEnabled()))();
+    // offer we would refuse into every transcript. Since 1.820.2 "really
+    // enabled" is ONE resolver decision (`agentVideoEditFlag.ts`): an eligible
+    // seat (licence wire readable) advertises by default, `'0'` kill-switches
+    // it, and no wire fails closed.
+    const paidEnabled = (deps.isVideoEditEnabled ?? (() => isAgentVideoEditAdvertisingEnabled(dataPath)))();
 
     // THE RAW BYTES. Read once, never reassigned, never normalised. `rawUserTurn`
     // is the only thing that reaches the digest; `userTurnPresent` is a separate
@@ -667,7 +697,20 @@ export async function handleCommandEveArtifactContextEnvelope(
     // sees is an ordinal id, and the SHA-256 travels only in the non-rendered
     // field the spend permit binds.
     const referenceEntries = buildReferenceImageEnvelopeEntries(request?.referenceImagePaths, deps);
-    const entries = [...referenceEntries, ...storedEntries];
+    // MAT-1769 (requirement 9). The images attached to EARLIER turns ride the
+    // same envelope, between the pending references and the stored clips:
+    // newer than the clips the user saw before them, older than the files
+    // still on the draft. Read-only entries — no handle, no capability, and
+    // deliberately NOT part of the spend-permit binding below.
+    const imageEntries = buildStoredImageEnvelopeEntries(dataPath, conversationId, deps);
+    const entries = [...referenceEntries, ...imageEntries, ...storedEntries];
+    // And THIS turn's attached images become next turns' durable records. The
+    // write happens after the listing so the current envelope never shows the
+    // same image twice (once pending, once stored), and first-write-wins makes
+    // a restored or retried send idempotent. A failed send leaves a record for
+    // an image that is still on the user's draft — which is exactly the image
+    // the user is looking at, so the reference stays truthful.
+    recordSentImageArtifacts(dataPath, conversationId, request?.referenceImagePaths, referenceEntries, deps);
     const editable = entries.filter((entry) => entry.editable);
     const allowedCapabilities = paidEnabled && editable.length > 0 ? ['eve_video_edit'] : [];
 
@@ -875,6 +918,83 @@ function buildReferenceImageEnvelopeEntries(
 }
 
 /**
+ * MAT-1769 (requirement 9) — the durable sent-image records as envelope entries.
+ *
+ * Read-only by construction: `editable` is false, no handle is minted, and the
+ * record's content hash travels only in the non-rendered field, exactly like
+ * the reference entries. Newest first and capped, so "das Bild" resolves to
+ * the image the user most recently sent and a long attachment history cannot
+ * crowd the clips out of the envelope.
+ */
+function buildStoredImageEnvelopeEntries(
+  dataPath: string,
+  conversationId: string,
+  deps: CommandEveArtifactContextEnvelopeDeps
+): EveArtifactEnvelopeEntry[] {
+  const list = deps.listImageRecords;
+  if (!list) return [];
+  try {
+    return list(dataPath, conversationId)
+      .toSorted((a, b) => b.created_at - a.created_at)
+      .slice(0, IMAGE_ARTIFACT_ENVELOPE_MAX_ENTRIES)
+      .map((record) => ({
+        artifactId: record.id,
+        kind: 'image' as const,
+        mimeType: record.mimeType,
+        durationSeconds: 0,
+        editable: false,
+        artifactSha256: record.sha256,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Persist this turn's reference images as next turns' sent-image records.
+ *
+ * The paths were already grant-verified and the bytes already hashed by
+ * `buildReferenceImageEnvelopeEntries` — this reuses BOTH results and touches
+ * no file again. Dedupe is by content hash against the records already on
+ * disk, so attaching the same image twice across turns yields one registry
+ * entry, and a record only ever claims what was actually attached to a send.
+ */
+function recordSentImageArtifacts(
+  dataPath: string,
+  conversationId: string,
+  paths: readonly string[] | undefined,
+  referenceEntries: readonly EveArtifactEnvelopeEntry[],
+  deps: CommandEveArtifactContextEnvelopeDeps
+): void {
+  const save = deps.saveImageRecord;
+  if (!save || !Array.isArray(paths) || paths.length === 0) return;
+  if (referenceEntries.length !== paths.length) return;
+  let known: Set<string>;
+  try {
+    known = new Set((deps.listImageRecords?.(dataPath, conversationId) ?? []).map((record) => record.sha256));
+  } catch {
+    known = new Set();
+  }
+  paths.forEach((filePath, index) => {
+    const sha256 = referenceEntries[index]?.artifactSha256;
+    if (!sha256 || known.has(sha256)) return;
+    try {
+      save(dataPath, {
+        id: imageArtifactIdForSha256(sha256),
+        conversation_id: conversationId,
+        sha256,
+        mimeType: imageMimeTypeFromPath(filePath),
+        created_at: Date.now(),
+      });
+      known.add(sha256);
+    } catch {
+      // A record that could not be written costs the NEXT envelope one entry,
+      // never this send — the reference entries above already name the image.
+    }
+  });
+}
+
+/**
  * MAT-1753 — what this seat's video lane may actually offer.
  *
  * The renderer must never answer this for itself. A picker that decides its own
@@ -1005,9 +1125,12 @@ export async function handleCommandEveVideoEdit(
   deps: CommandEveVideoBridgeDeps = productionDeps
 ): Promise<CommandEveVideoEditResult> {
   // THE flag gate, in the shared handler rather than in one lane's wrapper.
-  // Default-off until a packaged first run proves the MCP server actually lands
-  // in the emitted Hermes config and a bounded no-paid dry path works.
-  const paidEnabled = (deps.isVideoEditEnabled ?? (() => isAgentVideoEditEnabled()))();
+  // Since 1.820.2 the question is decided by ONE resolver
+  // (`agentVideoEditFlag.ts`): an eligible seat — licence wire present and
+  // readable — is open by default, exactly `'0'` in the env is the kill-switch,
+  // and an unreadable or absent wire fails closed. The two packaged/dry proofs
+  // that unlocked default-on are named in that module's header.
+  const paidEnabled = (deps.isVideoEditEnabled ?? (() => isAgentVideoEditAdvertisingEnabled(deps.getDataPath())))();
   if (!paidEnabled) {
     return refuseEdit(
       'video-edit-disabled',
@@ -1127,7 +1250,9 @@ export async function handleCommandEveVideoEdit(
     const reason = capability.reason;
     return refuseEdit(
       `video-edit-${reason}`,
-      reason === 'artifact-missing' ? 'Das Ausgangsvideo ist nicht mehr vorhanden.' : describeArtifactCapabilityRefusal(reason)
+      reason === 'artifact-missing'
+        ? 'Das Ausgangsvideo ist nicht mehr vorhanden.'
+        : describeArtifactCapabilityRefusal(reason)
     );
   }
 
@@ -1146,7 +1271,10 @@ export async function handleCommandEveVideoEdit(
   // GRANT named. Nothing the caller supplied is on either side.
   const permitRecord = readPermitRecord(dataPath, permit);
   if (permitRecord && permitRecord.conversation_id !== grant.conversation_id) {
-    return refuseEdit('video-edit-permit-conversation-mismatch', describeSpendPermitRefusal('permit-conversation-mismatch'));
+    return refuseEdit(
+      'video-edit-permit-conversation-mismatch',
+      describeSpendPermitRefusal('permit-conversation-mismatch')
+    );
   }
 
   // RETRY RECOVERY, before anything can charge again. A permit that already

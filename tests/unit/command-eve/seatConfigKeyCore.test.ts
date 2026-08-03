@@ -80,7 +80,7 @@ describe('(b) cross-seat fence — two seats → two distinct keys', () => {
 });
 
 describe('(c) the allowlist is explicit + auditable', () => {
-  it('exposes exactly the 10 per-seat keys', () => {
+  it('exposes exactly the 11 per-seat keys', () => {
     // Pinned on purpose: adding or removing a key here has to be a decision
     // somebody made, not a diff nobody noticed. 1.820 adds the approval grant —
     // a command one client approved must never be pre-approved inside another
@@ -95,6 +95,14 @@ describe('(c) the allowlist is explicit + auditable', () => {
     // 1.820.1 REMOVES `commandEve.churnSignal` (11 → 10). It existed to reveal a
     // hidden 49 € "Solo" save-offer plan; that plan is deleted by Founder ruling
     // and nothing ever read the flag.
+    //
+    // MAT-1769 adds `commandEve.imageModelPreference` (10 → 11): the managed
+    // image model choice is per seat — one client's MAX must never become
+    // another client's bill.
+    //
+    // MAT-1769 (native Vision enablement) adds `commandEve.visionEnablementDeclined`
+    // (11 → 12): the one-time in-chat decline marker is per seat, so one client
+    // seat's "Nicht jetzt" never silences the prompt in a sibling seat.
     expect([...SEAT_SCOPED_CONFIG_KEYS].toSorted()).toEqual(
       [
         'commandEve.authority',
@@ -103,10 +111,12 @@ describe('(c) the allowlist is explicit + auditable', () => {
         'commandEve.clientSeeded',
         'commandEve.egressRedactionMode',
         'commandEve.executionMode',
+        'commandEve.imageModelPreference',
         'commandEve.inferenceSelection',
         'commandEve.maxEntitled',
         'commandEve.teamWorkerStatus',
         'commandEve.valueReceiptHourlyEur',
+        'commandEve.visionEnablementDeclined',
       ].toSorted()
     );
   });

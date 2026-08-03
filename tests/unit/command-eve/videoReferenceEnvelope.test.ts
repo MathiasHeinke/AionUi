@@ -38,6 +38,11 @@ vi.mock('@process/utils/utils', () => ({ getDataPath: () => '/tmp/eve-data' }));
 import type { CommandEveArtifactContextEnvelopeDeps } from '@/process/bridge/commandEveVideoBridge';
 import { handleCommandEveArtifactContextEnvelope } from '@/process/bridge/commandEveVideoBridge';
 import { readVideoEditSpendPermitRecord } from '@/process/commandEve/videoEditSpendPermitStore';
+import {
+  imageArtifactIdForSha256,
+  listImageArtifactRecords,
+  saveImageArtifactRecord,
+} from '@/process/commandEve/visual/imageArtifactRecordStore';
 
 let dataRoot: string;
 let imageRoot: string;

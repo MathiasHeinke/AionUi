@@ -289,5 +289,16 @@
   "unit": {
     "minute_short": "Min",
     "second_short": "Sek"
+  },
+  "credits": {
+    "image": {
+      "modelLabel": "Bildmodell",
+      "tierFast": "Schnell",
+      "tierQuality": "Qualität",
+      "tierMax": "MAX",
+      "inlineEstimate": "ca. {{credits1k}} Credits (1K) · {{credits2k}} (2K)",
+      "estimateUnavailable": "Preis aktuell nicht verfügbar",
+      "editEstimateTitle": "Bearbeiten: {{edit1k}} Credits (1K) · {{edit2k}} (2K) · +{{perReference}} pro Referenzbild"
+    }
   }
 }

@@ -6,7 +6,8 @@
 
 /**
  * MAT-1747 round 6 — `initCommandEveBridge` really registers the three new
- * providers, and the paid one is closed by default WHERE THE APP REGISTERS IT.
+ * providers, and the paid one answers the SAME resolver decision WHERE THE APP
+ * REGISTERS IT — kill-switched closed, eligible open, before any network.
  *
  * WHY THIS FILE EXISTS. `gitnexus detect_changes` (scope compare, base
  * `f2e98d97`) reports risk HIGH and names two affected execution flows rooted at
@@ -108,11 +109,49 @@ describe('MAT-1747 round 6 — the app registers every provider the renderer cal
   });
 });
 
-describe('MAT-1747 round 6 — the REGISTERED paid route is flag-gated, not just the handler', () => {
-  it('refuses with video-edit-disabled before any network, on the provider the app actually wired', async () => {
+describe('MAT-1747 round 6 — the REGISTERED paid route follows the one resolver decision, not just the handler', () => {
+  it("refuses with video-edit-disabled before any network on a KILL-SWITCHED ('0') seat, on the provider the app actually wired", async () => {
     // THE regression: the renderer IPC lane once reached the identical paid
     // handler with no gate. Driving the registered provider — not the import —
-    // is the only way that difference is visible.
+    // is the only way that difference is visible. Since 1.820.2 the env value
+    // that closes an eligible seat is exactly '0' (this file's licence-wire
+    // mock reads fine, so the seat IS eligible — the kill-switch is the only
+    // thing closing it).
+    const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const previous = process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG];
+    process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] = '0';
+    try {
+      const provider = registered.get('command-eve.video-edit')!;
+      const result = (await provider({
+        handle: `evecap_${'a'.repeat(64)}`,
+        permit: `evespend_${'b'.repeat(64)}`,
+        instruction: 'gib der Aubergine ein Gesicht',
+      })) as EditEnvelope;
+
+      expect(result.success).toBe(true);
+      expect(result.data?.ok).toBe(false);
+      expect(result.data?.reasonCode).toBe('video-edit-disabled');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG];
+      else process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] = previous;
+    }
+    expect(process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]).toBeUndefined();
+  });
+
+  it('DISCRIMINATING CONTROL: on an ELIGIBLE seat with env UNSET (the 1.820.2 default) the identical request is refused for a DIFFERENT reason', async () => {
+    // Without this, `video-edit-disabled` could be a catch-all this provider
+    // returns for any bad request, and the gate would be proving nothing. The
+    // licence-wire mock reads fine and the env carries nothing — the default-on
+    // posture itself — so the flag gate PASSES and the refusal comes from the
+    // authority checks behind it (here: the spend store this process never
+    // reconciled), still before the network, exactly as
+    // `commandEveVideoEditBridge.test.ts` pins them. Nothing is spent here.
+    //
+    // This is also the inversion of the pre-1.820.2 contract: the same request
+    // with the same env used to refuse as `video-edit-disabled`. If someone
+    // restores the old env-only gate, THIS test goes red.
     const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchSpy);
     expect(process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]).toBeUndefined();
@@ -124,45 +163,14 @@ describe('MAT-1747 round 6 — the REGISTERED paid route is flag-gated, not just
       instruction: 'gib der Aubergine ein Gesicht',
     })) as EditEnvelope;
 
-    expect(result.success).toBe(true);
     expect(result.data?.ok).toBe(false);
-    expect(result.data?.reasonCode).toBe('video-edit-disabled');
+    expect(result.data?.reasonCode).not.toBe('video-edit-disabled');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('DISCRIMINATING CONTROL: with the flag ON the identical request is refused for a DIFFERENT reason', async () => {
-    // Without this, `video-edit-disabled` could be a catch-all this provider
-    // returns for any bad request, and the flag would be proving nothing. The
-    // request still carries a handle that was never minted, so it is refused
-    // again — by the authority checks, before the network, exactly as
-    // `commandEveVideoEditBridge.test.ts` pins them. Nothing is spent here.
-    const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
-    vi.stubGlobal('fetch', fetchSpy);
-    const previous = process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG];
-    process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] = '1';
-    try {
-      const provider = registered.get('command-eve.video-edit')!;
-      const result = (await provider({
-        handle: `evecap_${'a'.repeat(64)}`,
-        permit: `evespend_${'b'.repeat(64)}`,
-        instruction: 'gib der Aubergine ein Gesicht',
-      })) as EditEnvelope;
-
-      expect(result.data?.ok).toBe(false);
-      expect(result.data?.reasonCode).not.toBe('video-edit-disabled');
-      expect(fetchSpy).not.toHaveBeenCalled();
-    } finally {
-      if (previous === undefined) delete process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG];
-      else process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] = previous;
-    }
-    // The flag is put back, so the file leaves the process closed for every
-    // suite that runs after it.
-    expect(process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]).toBeUndefined();
-  });
-
-  it('refuses the same way on a request with nothing in it, and still never reaches the network', async () => {
-    // The default-off refusal must not depend on the caller supplying anything
-    // well-formed — otherwise a malformed request is a different, unproven path.
+  it('refuses on a request with nothing in it, and still never reaches the network', async () => {
+    // The refusal must not depend on the caller supplying anything well-formed
+    // — otherwise a malformed request is a different, unproven path.
     const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchSpy);
 

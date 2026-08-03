@@ -22,8 +22,15 @@ import {
   type CommandEveManagedImageResolution,
 } from '@/common/config/eveManagedImageGenerationCore';
 import { EVE_MULTIMODAL_FUNCTION_URL, resolveCommandEveMultimodalGate } from '@/common/config/eveMultimodalGatewayCore';
+import {
+  getCommandEveImageModelTierSpec,
+  type CommandEveImageModelRegistryResult,
+} from '@/common/config/eveImageModelRegistryCore';
+import type { CommandEveImageModelPreferenceState } from '@/common/config/visual/imageModelPreferenceCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { readCommandEveLimitedResponseText } from './limitedFetchResponse';
+import { readCommandEveImageModelPreference } from './imageModelPreferenceMain';
+import { readCommandEveImageModelRegistry } from './imageCapabilitiesMain';
 import { getDataPath } from '@process/utils/utils';
 
 const MAX_REFERENCE_BYTES = 4 * 1024 * 1024;
@@ -68,7 +75,7 @@ function parseReferenceDataUrl(value: unknown): { mimeType: CommandEveManagedIma
 function buildEdgeRequest(
   raw: CommandEveManagedImageLocalRequest
 ):
-  | { ok: true; body: CommandEveManagedImageEdgeRequest; promptSha256: string }
+  | { ok: true; body: Omit<CommandEveManagedImageEdgeRequest, 'image_model'>; promptSha256: string }
   | { ok: false; result: CommandEveManagedImageLocalResult } {
   if (raw.model !== COMMAND_EVE_MANAGED_IMAGE_MODEL) {
     return { ok: false, result: failure(400, 'model_not_supported', 'Managed image model is not supported.') };
@@ -133,9 +140,25 @@ function buildEdgeRequest(
   };
 }
 
+export type CommandEveManagedImageGenerationOptions = {
+  fetchFn?: typeof fetch;
+  dataPath?: string;
+  /**
+   * MAT-1769 seams, injectable for tests. Production reads the seat's stored
+   * preference and the server-owned registry through the main-process
+   * authorities; a read failure on the preference falls back to the product
+   * default tier, a read failure on the registry refuses the request.
+   */
+  readPreference?: () => Promise<CommandEveImageModelPreferenceState>;
+  readRegistry?: (options: {
+    fetchFn?: typeof fetch;
+    dataPath?: string;
+  }) => Promise<CommandEveImageModelRegistryResult>;
+};
+
 export async function executeCommandEveManagedImageGeneration(
   raw: CommandEveManagedImageLocalRequest,
-  options: { fetchFn?: typeof fetch; dataPath?: string } = {}
+  options: CommandEveManagedImageGenerationOptions = {}
 ): Promise<CommandEveManagedImageLocalResult> {
   const built = buildEdgeRequest(raw);
   if (built.ok === false) return built.result;
@@ -156,6 +179,57 @@ export async function executeCommandEveManagedImageGeneration(
     return failure(401, wireResult.reason_code || 'missing_license', 'Command EVE license is unavailable.');
   }
 
+  // MAT-1769 — the seat's model choice, resolved MAIN-SIDE immediately before
+  // the request. The shim/agent contract is unchanged (`model` stays
+  // `command-eve-visual-direction-v1` and is still guarded above); the seat's
+  // selection is applied here, never trusted from the request body. Two
+  // failure doctrines, deliberately different: the PREFERENCE fails closed to
+  // the registry's own default tier (a preference has a safe default, and the
+  // SERVER names it), the REGISTRY fails closed to a REFUSAL — generating with
+  // no server-verified registry would be billing against a hardcoded guess,
+  // which is the one thing this feature exists to remove.
+  const registryOptions: { fetchFn?: typeof fetch; dataPath?: string } = {
+    ...(options.fetchFn === undefined ? {} : { fetchFn: options.fetchFn }),
+    ...(options.dataPath === undefined ? {} : { dataPath: options.dataPath }),
+  };
+  // The generation lane bypasses the short-lived registry cache: the quote that
+  // informed the choice may be a minute old, but the model a request is billed
+  // against must be provable NOW.
+  const readRegistry =
+    options.readRegistry ??
+    ((opts: { fetchFn?: typeof fetch; dataPath?: string }) =>
+      readCommandEveImageModelRegistry({ ...opts, bypassCache: true }));
+  const registryResult = await readRegistry(registryOptions);
+  if (!registryResult.ok) {
+    return failure(
+      503,
+      'image_model_registry_unavailable',
+      'Image model registry is unavailable; managed image generation is refused rather than billed against an unverified model.'
+    );
+  }
+  if (registryResult.registry.enabled !== true) {
+    return failure(
+      503,
+      'image_generation_disabled',
+      'Managed image generation is disabled on the gateway; the request is refused, not retried against another model.'
+    );
+  }
+  const preference = await (options.readPreference ?? (() => readCommandEveImageModelPreference()))();
+  const tier = preference.status === 'resolved' ? preference.tier : registryResult.registry.default_tier;
+  const tierSpec = getCommandEveImageModelTierSpec(registryResult.registry, tier);
+  if (!tierSpec) {
+    return failure(
+      503,
+      'image_model_tier_unavailable',
+      'The selected image model tier is not offered by the current server registry.'
+    );
+  }
+  // The bare tier id travels; the server owns tier → slug (CoS contract).
+  const body: CommandEveManagedImageEdgeRequest = {
+    ...built.body,
+    image_model: tierSpec.id,
+  };
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -168,7 +242,7 @@ export async function executeCommandEveManagedImageGeneration(
       },
       redirect: 'error',
       cache: 'no-store',
-      body: JSON.stringify(built.body),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
     const responseText = await readCommandEveLimitedResponseText(

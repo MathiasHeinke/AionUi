@@ -99,6 +99,13 @@ export const SEAT_SCOPED_CONFIG_KEYS: ReadonlySet<string> = new Set<string>([
   // value after switching seats. Main performs strict exact-key reads; this
   // allowlist also keeps ordinary renderer config persistence physically scoped.
   'commandEve.cloudVisualAnalysisEnabled',
+  // MAT-1769: the managed image model choice is per seat for the same reason —
+  // one client's MAX must never become another client's bill.
+  'commandEve.imageModelPreference',
+  // MAT-1769 (native Vision enablement): the one-time "Nicht jetzt" answer on
+  // the in-chat Vision enablement prompt is per seat — a decline inside one
+  // client seat must never silence the question inside another.
+  'commandEve.visionEnablementDeclined',
   // 1.820: the approval grant, including the commands this seat's human said EVE
   // may always run. Per seat for the same reason as the redaction switch, only
   // sharper: a command one client approved must never be pre-approved while EVE

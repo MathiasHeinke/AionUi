@@ -31,12 +31,15 @@
  * from a keyword classifier.
  *
  * WHICH TOOLS EXIST IS NOT DECIDED HERE. `eveArtifactToolSurface` decides, from
- * the same flag the paid handler reads, and this file registers what it is
- * given. Round 1 registered the paid tool unconditionally — so a seat with the
- * spending flag down still advertised `eve_video_edit` to the model on every
- * turn — and the reason that could ship unnoticed is that this module cannot be
- * imported by a test: it connects a stdio transport at import time. A decision
- * that cannot be unit-tested does not belong in a file that cannot be imported.
+ * the env Main populated when it spawned this process — since 1.820.2 Main's
+ * resolver (`agentVideoEditFlag.ts`) emits exactly `'1'` for an eligible seat
+ * BY DEFAULT, withholds the key on a kill-switched (`'0'`) or ineligible one —
+ * and this file registers what it is given. Round 1 registered the paid tool
+ * unconditionally — so a closed seat still advertised `eve_video_edit` to the
+ * model on every turn — and the reason that could ship unnoticed is that this
+ * module cannot be imported by a test: it connects a stdio transport at import
+ * time. A decision that cannot be unit-tested does not belong in a file that
+ * cannot be imported.
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';

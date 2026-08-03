@@ -32,7 +32,7 @@
  *
  * IT IS A RATCHET, NOT A CLEAN BILL OF HEALTH — stated plainly, because a gate whose
  * boundary is inherited rather than written down is how this repo got here:
- *   * 70 keys are outstanding TODAY, measured, listed verbatim in {@link KNOWN_DEBT}.
+ *   * 74 keys are outstanding TODAY, measured, listed verbatim in {@link KNOWN_DEBT}.
  *     Translating them is not in this change's scope and this gate does not pretend it was.
  *   * A key NOT on that list is RED. That is the whole point: the 71st can not be added
  *     silently.
@@ -69,6 +69,13 @@ const KNOWN_DEBT: readonly string[] = [
   'conversation.presentation.contextTooLarge',
   'conversation.runtimeStatus.laneCloud',
   'conversation.runtimeStatus.laneLocal',
+  // MAT-1769: the image-model pill, same debt class as the video pill below —
+  // de-DE/en-US carry the copy; the eight unsupported locales render the
+  // fallback until a translation pass covers credits.* wholesale.
+  'credits.image.editEstimateTitle',
+  'credits.image.estimateUnavailable',
+  'credits.image.inlineEstimate',
+  'credits.image.modelLabel',
   'credits.onboarding.briefPlaceholder',
   'credits.onboarding.connectClient',
   'credits.onboarding.connectPlaceholder',

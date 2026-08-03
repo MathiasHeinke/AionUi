@@ -102,6 +102,59 @@ export const COPYWRITING_PINNED_SHA256 = Object.freeze({
 // pinning it would only pin it to itself.
 export const COPYWRITING_REQUIRED_FILES = Object.freeze([...Object.keys(COPYWRITING_PINNED_SHA256), 'PROVENANCE.md']);
 
+// ---------------------------------------------------------------------------
+// seo + seo-aeo-best-practices (1.820.2, MAT-1769) — the second wave of VENDORED
+// third-party skills, under exactly the copywriting contract: byte-identical
+// upstream copies, digest-pinned so the build fails closed on ALTERED as well as
+// MISSING. Neither upstream tree ships a LICENCE TEXT file: seo declares
+// `license: MIT` in its SKILL.md frontmatter (the declaration is recorded in
+// PROVENANCE.md — we do not write our own licence file for someone else's
+// claim); seo-aeo-best-practices has NO licence marker at all, so its licence is
+// UNDECLARED/unknown and its PROVENANCE.md says exactly that instead of
+// fabricating one. Provenance is duplicated in the shipped PROVENANCE.md next to
+// the files; the two must agree, and seoSkillSnapshot.test.ts asserts that they
+// do.
+//
+// REFRESH SOURCING: the canonical authoring home is Company.OS `.claude/skills`
+// (both skills were added there 2026-08-03). A refresh must point
+// COMMAND_EVE_SKILLS_SRC at a Company.OS checkout that CONTAINS them — when the
+// default root below predates their landing, refresh mode simply keeps the
+// committed snapshot for these ids (fail-safe, never a silent edit). Release
+// builds always run snapshot mode (scripts/build-with-builder.js) and never
+// consult an external root, so the shipped bytes are always the committed,
+// digest-pinned ones.
+export const SEO_UPSTREAM = Object.freeze({
+  source_path: '/Users/mathiasheinke/.codex/skills/seo',
+  author: 'web-quality-skills',
+  version: '1.0',
+  license: 'MIT (frontmatter-declared; no licence text file exists upstream)',
+  retrieved: '2026-08-03',
+});
+
+/** sha256 of every vendored upstream file, at SEO_UPSTREAM.retrieved. */
+export const SEO_PINNED_SHA256 = Object.freeze({
+  'SKILL.md': 'a06ca86d0b0cc75982ee10651bd7398c0242a13d91d3b4c8eae0bf1360d18b92',
+});
+
+export const SEO_REQUIRED_FILES = Object.freeze([...Object.keys(SEO_PINNED_SHA256), 'PROVENANCE.md']);
+
+export const SEO_AEO_UPSTREAM = Object.freeze({
+  source_path: '/Users/mathiasheinke/.agents/skills/seo-aeo-best-practices',
+  license: 'undeclared (no LICENSE file and no licence frontmatter upstream)',
+  retrieved: '2026-08-03',
+});
+
+/** sha256 of every vendored upstream file, at SEO_AEO_UPSTREAM.retrieved. */
+export const SEO_AEO_PINNED_SHA256 = Object.freeze({
+  'SKILL.md': '21d5865242c9939ee524ec0cc396c3098ccd7eac846ca9e043789beef22c9c25',
+  'references/aeo-considerations.md': 'b9f7c5eca66a0b3594e57b648838f3e01c8daf39d69dfd542bc14199bc3ccd74',
+  'references/eeat-principles.md': '7ff154f8f26df3a597f9f5f72751eda28f19f9064b8126b3c6cfb298fb700b22',
+  'references/structured-data.md': 'e61b75e85c4ad34caaa13a0dcf9e9f391ca609d0099db9419860734b5da78949',
+  'references/technical-seo.md': '0f35171b8d423125143f10c9ec07a7fd46f7096e1da443b5fa00b8717b20d069',
+});
+
+export const SEO_AEO_REQUIRED_FILES = Object.freeze([...Object.keys(SEO_AEO_PINNED_SHA256), 'PROVENANCE.md']);
+
 export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'eve-doctrine' },
   // eve-chief-of-staff-orchestration (MAT-1751): the standing HG-3.5 Chief-of-Staff
@@ -203,6 +256,20 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
     id: 'copywriting',
     requiredFiles: COPYWRITING_REQUIRED_FILES,
     pinnedSha256: COPYWRITING_PINNED_SHA256,
+  },
+  // seo + seo-aeo-best-practices (1.820.2, MAT-1769): two more VENDORED
+  // third-party skills under the same byte-identical, digest-pinned contract —
+  // see SEO_UPSTREAM / SEO_AEO_UPSTREAM above and the shipped PROVENANCE.md
+  // files. Text only: no scripts, no executables, no product/billing logic.
+  {
+    id: 'seo',
+    requiredFiles: SEO_REQUIRED_FILES,
+    pinnedSha256: SEO_PINNED_SHA256,
+  },
+  {
+    id: 'seo-aeo-best-practices',
+    requiredFiles: SEO_AEO_REQUIRED_FILES,
+    pinnedSha256: SEO_AEO_PINNED_SHA256,
   },
 ]);
 
@@ -363,6 +430,16 @@ export const SKILL_IDS_REQUIRING_RUNTIME_INVISIBILITY = Object.freeze([
   'legal-enforcement-dach',
 ]);
 
+// Vendored byte-identical skills must NOT be edited to satisfy a LOCAL style
+// rule. seo-aeo-best-practices' upstream description reads "Use this skill when
+// implementing page SEO, …" — a real trigger phrase the agent routes on, but not
+// one of the exact strings the description_missing_trigger check recognises.
+// Exempt exactly that one check for exactly that id; every other hygiene rule
+// (frontmatter, name, no embedded doctrine, …) still applies in full.
+export const VENDORED_SKILL_HYGIENE_EXEMPTIONS = Object.freeze({
+  'seo-aeo-best-practices': Object.freeze(['description_missing_trigger']),
+});
+
 export function findRuntimeInstallInstructions(text) {
   const patterns = [
     { id: 'runtime-pip-install', re: /\b(?:python\s+-m\s+pip|pip|uv\s+pip)\s+install\b/i },
@@ -480,7 +557,8 @@ export function findSkillHygieneFailures({ skillId, text }) {
     failures.push(...findRuntimeInstallInstructions(text));
   }
 
-  return failures;
+  const exemptions = VENDORED_SKILL_HYGIENE_EXEMPTIONS[skillId] ?? [];
+  return failures.filter((failure) => !exemptions.includes(failure));
 }
 
 function isSafeRelativeSkillLink(linkedFile) {

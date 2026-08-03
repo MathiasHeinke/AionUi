@@ -13,7 +13,7 @@
  * unconditionally, so every Hermes tool list handed the model a paid capability
  * the app would refuse.
  *
- * Two surfaces, one flag, and the tests below cover both:
+ * Two surfaces, one decision, and the tests below cover both:
  *
  *   - the TOOL LIST the MCP child publishes;
  *   - the context ENVELOPE the model reads on every turn.
@@ -21,6 +21,12 @@
  * An advertised-but-refused tool is not a harmless mismatch. It teaches the
  * model to keep trying a door that will never open on its own, and it puts an
  * offer in the transcript that the product does not honour.
+ *
+ * POST-1.820.2 FRAMING: the flag this file passes around is the MCP CHILD's
+ * env, which Main populates from its eligibility resolver
+ * (`agentVideoEditFlag.ts` — default-ON for an eligible seat, `'0'`
+ * kill-switch, no licence wire fails closed). An ABSENT key here therefore
+ * means "Main decided this seat is closed", not "the product ships off".
  *
  * The flag is passed as an explicit env object per assertion; nothing here
  * mutates `process.env`, so the default stays default even inside this file.
@@ -62,8 +68,8 @@ describe('the MCP tool list is gated on the SAME flag as the envelope', () => {
 
   it('never hides the FREE tools, whatever the flag says', () => {
     // The read half costs nothing and cannot spend. Gating it too would make the
-    // whole artifact-context story collapse the moment the paid path is off —
-    // which is its default state.
+    // whole artifact-context story collapse on every kill-switched or ineligible
+    // seat — the seats whose child env carries no flag at all.
     for (const env of [{}, { [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' }]) {
       expect(isToolAdvertised(buildEveArtifactToolSurface(env), EVE_ARTIFACT_TOOL_ARTIFACT_GET)).toBe(true);
       expect(isToolAdvertised(buildEveArtifactToolSurface(env), EVE_ARTIFACT_TOOL_ARTIFACT_LIST)).toBe(true);
@@ -243,7 +249,7 @@ describe('the Hermes config tells the child which surface to publish', () => {
     bearerFile: '/Users/founder/Library/Application Support/command-eve/artifact-capability-bearer',
   };
 
-  it('omits the spending flag by default, so the child publishes the free surface', () => {
+  it('omits the spending flag unless Main says the seat is eligible, so a closed seat publishes the free surface', () => {
     const server = buildCommandEveArtifactContextHermesMcpServer(valid);
     expect(server?.env?.[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]).toBeUndefined();
   });
@@ -269,7 +275,7 @@ describe('the context envelope agrees with the tool list', () => {
     },
   ];
 
-  it('names no paid capability while the flag is down', () => {
+  it('names no paid capability on a closed (kill-switched or ineligible) seat', () => {
     const envelope = buildEveArtifactContextEnvelope({ entries, allowedCapabilities: [] });
     expect(envelope).toContain('artifact_id=video-1');
     expect(envelope).not.toContain(EVE_ARTIFACT_TOOL_VIDEO_EDIT);

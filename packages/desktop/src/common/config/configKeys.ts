@@ -54,6 +54,25 @@ export type ConfigKeyMap = {
    * unavailable. Enabling removes the exact key rather than persisting true.
    */
   'commandEve.cloudVisualAnalysisEnabled': boolean | undefined;
+  /**
+   * PER-SEAT one-time DECLINE marker for the in-chat Vision enablement prompt
+   * (MAT-1769). Set true only when the operator explicitly answers "Nicht jetzt"
+   * on the composer's enablement card; the prompt then never reappears for later
+   * images (Vision itself stays governed by the Main-authoritative
+   * `commandEve.cloudVisualAnalysisEnabled` policy — this key gates ONLY the
+   * question, never the capability, and a decline performs no upload, no
+   * provider call and no debit). Re-enabling Vision anywhere leaves this marker
+   * harmlessly set: with the policy enabled the prompt never renders anyway.
+   */
+  'commandEve.visionEnablementDeclined': boolean | undefined;
+  /**
+   * PER-SEAT managed image model preference (MAT-1769): which server-resolved
+   * tier ('fast' | 'quality' | 'max') the managed image generation/edit lane
+   * uses for this seat. Absent or malformed resolves to the product default
+   * 'quality'; Main performs strict exact-key reads exactly as it does for the
+   * cloud visual policy above.
+   */
+  'commandEve.imageModelPreference': string | undefined;
   'aionrs.config': { preferredMode?: string } | undefined;
   'aionrs.defaultModel': { id: string; use_model: string } | undefined;
   'tools.imageGenerationModel': TProviderWithModel & { switch?: boolean };
