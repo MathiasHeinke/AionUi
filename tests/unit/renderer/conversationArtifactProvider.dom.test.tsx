@@ -152,4 +152,37 @@ describe('ConversationArtifactProvider', () => {
 
     expect(screen.getByTestId('artifact-ids').textContent).toBe('');
   });
+
+  it('1.820.3 display gap closed: a chat.history.refresh reloads both sources, so an agent-lane edit child becomes visible', async () => {
+    // The MCP/loopback `eve_video_edit` lane persists the edited child in
+    // Main's durable store but fires no renderer-local event. The turn's own
+    // completion signal must be enough: on chat.history.refresh the provider
+    // re-fetches and the child appears WITH the answer, not after a manual
+    // conversation reload.
+    render(
+      <ConversationArtifactProvider conversation_id='conv-1'>
+        <ArtifactIds />
+      </ConversationArtifactProvider>
+    );
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('artifact-ids').textContent).toBe('');
+
+    // The edit completes in Main: the durable store now holds source + child.
+    const editChild = {
+      ...videoArtifact,
+      id: 'video-1-edit-1',
+      payload: { ...videoArtifact.payload, parent_artifact_id: 'video-1' },
+      created_at: 2000,
+      updated_at: 2000,
+    };
+    videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [videoArtifact, editChild] });
+
+    act(() => {
+      emitter.emit('chat.history.refresh');
+    });
+
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('artifact-ids').textContent).toContain('video-1-edit-1'));
+    expect(screen.getByTestId('artifact-ids').textContent).toContain('video-1');
+  });
 });

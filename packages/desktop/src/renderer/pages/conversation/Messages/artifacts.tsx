@@ -6,7 +6,8 @@
 
 import { ipcBridge } from '@/common';
 import type { IConversationArtifact, IConversationArtifactStatus } from '@/common/adapter/ipcBridge';
-import { useAddEventListener } from '@/renderer/utils/emitter';
+import { addEventListener, useAddEventListener } from '@/renderer/utils/emitter';
+
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 type ConversationArtifactContextValue = {
@@ -38,6 +39,52 @@ function upsertArtifacts(
 
 export const useConversationArtifacts = (): IConversationArtifact[] =>
   useContext(ConversationArtifactContext).artifacts;
+
+/**
+ * THE shared visibility predicate for conversation artifacts (1.820.3).
+ * Extracted from MessageList so the render surface and the contextual media
+ * gate in AcpSendBox judge "visible" identically — a dismissed artifact can
+ * never activate anything, anywhere. The predicate itself is UNCHANGED from
+ * the one MessageList always used; the rendering contract is preserved by
+ * moving it, not altering it.
+ */
+export const isVisibleConversationArtifact = (artifact: IConversationArtifact): boolean => {
+  if (artifact.kind === 'cron_trigger') return artifact.status === 'active';
+  if (artifact.kind === 'skill_suggest') return artifact.status === 'pending';
+  return artifact.status !== 'dismissed';
+};
+
+/**
+ * The media type of an artifact's payload, narrowed across the union: cron
+ * and skill-suggest artifacts have no media payload and answer null.
+ */
+export const mediaArtifactTypeOf = (artifact: IConversationArtifact): 'image' | 'video' | null => {
+  if (artifact.kind === 'cron_trigger' || artifact.kind === 'skill_suggest') return null;
+  const type = artifact.payload.artifact_type;
+  return type === 'image' || type === 'video' ? type : null;
+};
+
+/**
+ * The latest VISIBLE, SOURCE-CAPABLE media artifact, or null (1.820.3).
+ *
+ * Stricter than mere visibility on purpose: a dismissed artifact is not
+ * visible at all, a pending one is not a source yet (it is still being
+ * produced), and a payload without a media `artifact_type` ('image' |
+ * 'video') is not a media source either — so dismissed, failed/pending or
+ * non-source media can never activate contextual controls downstream.
+ */
+export const selectLatestVisibleMediaSourceArtifact = (
+  artifacts: readonly IConversationArtifact[]
+): IConversationArtifact | null => {
+  let latest: IConversationArtifact | null = null;
+  for (const artifact of artifacts) {
+    if (!isVisibleConversationArtifact(artifact)) continue;
+    if (artifact.status !== 'active' && artifact.status !== 'saved') continue;
+    if (mediaArtifactTypeOf(artifact) === null) continue;
+    if (!latest || artifact.created_at > latest.created_at) latest = artifact;
+  }
+  return latest;
+};
 
 export const useUpsertConversationArtifact = (): ((artifact: IConversationArtifact) => void) =>
   useContext(ConversationArtifactContext).upsertArtifact;
@@ -75,25 +122,42 @@ export const ConversationArtifactProvider: React.FC<React.PropsWithChildren<{ co
     // it cannot return it. Fetching both on every load — including switching
     // back to this conversation — is what makes a generated video survive a
     // reload instead of only existing until this provider unmounts.
-    void Promise.all([
-      ipcBridge.conversation.listArtifacts.invoke({ conversation_id }).catch((error): IConversationArtifact[] => {
-        console.error('[ConversationArtifactProvider] Failed to load artifacts:', error);
-        return [];
-      }),
-      ipcBridge.commandEve.videoArtifactsList
-        .invoke({ conversationId: conversation_id })
-        .then((response) => response?.data ?? [])
-        .catch((error): IConversationArtifact[] => {
-          console.error('[ConversationArtifactProvider] Failed to load local video artifacts:', error);
+    const loadArtifacts = () =>
+      Promise.all([
+        ipcBridge.conversation.listArtifacts.invoke({ conversation_id }).catch((error): IConversationArtifact[] => {
+          console.error('[ConversationArtifactProvider] Failed to load artifacts:', error);
           return [];
         }),
-    ]).then(([remoteArtifacts, localVideoArtifacts]) => {
-      if (!alive) return;
-      setArtifacts(upsertArtifacts([], [...remoteArtifacts, ...localVideoArtifacts]));
+        ipcBridge.commandEve.videoArtifactsList
+          .invoke({ conversationId: conversation_id })
+          .then((response) => response?.data ?? [])
+          .catch((error): IConversationArtifact[] => {
+            console.error('[ConversationArtifactProvider] Failed to load local video artifacts:', error);
+            return [];
+          }),
+      ]).then(([remoteArtifacts, localVideoArtifacts]) => {
+        if (!alive) return;
+        setArtifacts(upsertArtifacts([], [...remoteArtifacts, ...localVideoArtifacts]));
+      });
+
+    void loadArtifacts();
+
+    // 1.820.3 — the MCP/agent-lane edit display gap, closed. A video EDIT
+    // produced inside an agent turn (the MCP `eve_video_edit` lane or the
+    // loopback) persists its child artifact in Main's durable store but fires
+    // no renderer-local event the way the direct generation lane does. The
+    // turn's own completion signal is `chat.history.refresh` — the same event
+    // every other surface already refetches on — so we reload both artifact
+    // sources on it: the edited clip becomes visible WITH the agent's answer,
+    // not after a manual conversation reload. The durable store is the
+    // authority; this is a refresh, never a guess.
+    const unsubscribeRefresh = addEventListener('chat.history.refresh', () => {
+      void loadArtifacts();
     });
 
     return () => {
       alive = false;
+      unsubscribeRefresh();
     };
   }, [conversation_id]);
 

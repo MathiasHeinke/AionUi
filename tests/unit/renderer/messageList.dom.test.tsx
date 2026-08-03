@@ -90,9 +90,13 @@ vi.mock('@/renderer/hooks/file/useAutoPreviewOfficeFiles', () => ({
   useAutoPreviewOfficeFiles: () => {},
 }));
 
-vi.mock('@/renderer/pages/conversation/Messages/artifacts', () => ({
-  useConversationArtifacts: () => artifactMock.artifacts,
-}));
+vi.mock('@/renderer/pages/conversation/Messages/artifacts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/renderer/pages/conversation/Messages/artifacts')>();
+  return {
+    ...actual,
+    useConversationArtifacts: () => artifactMock.artifacts,
+  };
+});
 
 vi.mock('@/renderer/pages/conversation/Messages/useAutoScroll', () => ({
   useAutoScroll: () => ({

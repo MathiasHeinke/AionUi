@@ -54,9 +54,13 @@ vi.mock('@/renderer/hooks/file/useAutoPreviewOfficeFiles', () => ({
   useAutoPreviewOfficeFiles: () => {},
 }));
 
-vi.mock('@/renderer/pages/conversation/Messages/artifacts', () => ({
-  useConversationArtifacts: () => [],
-}));
+vi.mock('@/renderer/pages/conversation/Messages/artifacts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/renderer/pages/conversation/Messages/artifacts')>();
+  return {
+    ...actual,
+    useConversationArtifacts: () => [],
+  };
+});
 
 vi.mock('@/renderer/pages/conversation/Messages/components/MessageText', () => ({
   default: ({ message }: { message: IMessageText }) => <div>{message.content.content}</div>,

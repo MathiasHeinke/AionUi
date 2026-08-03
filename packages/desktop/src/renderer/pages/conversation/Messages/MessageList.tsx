@@ -25,7 +25,7 @@ import './messages.css';
 import HOC from '@renderer/utils/ui/HOC';
 import type { FileChangeInfo } from './MessageFileChanges';
 import MessageFileChanges, { parseDiff } from './MessageFileChanges';
-import { useConversationArtifacts } from './artifacts';
+import { useConversationArtifacts, isVisibleConversationArtifact } from './artifacts';
 import {
   emptyMessageHistoryPagination,
   shouldLoadOlderConversationMessages,
@@ -115,11 +115,9 @@ const highlightStyle: React.CSSProperties = {
 
 const getUnhandledMessageType = (_message: never): string => 'unknown';
 
-const isVisibleConversationArtifact = (artifact: IConversationArtifact): boolean => {
-  if (artifact.kind === 'cron_trigger') return artifact.status === 'active';
-  if (artifact.kind === 'skill_suggest') return artifact.status === 'pending';
-  return artifact.status !== 'dismissed';
-};
+// The predicate moved to ./artifacts as the shared visibility contract
+// (1.820.3) — MessageList and the AcpSendBox media gate now judge
+// "visible" identically. Its definition is unchanged.
 
 const getGeneratedArtifactSourceKeys = (artifact: IConversationArtifact): string[] => {
   if (artifact.kind === 'cron_trigger' || artifact.kind === 'skill_suggest') return [];

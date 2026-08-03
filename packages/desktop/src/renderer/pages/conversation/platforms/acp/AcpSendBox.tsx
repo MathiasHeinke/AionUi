@@ -117,6 +117,14 @@ import {
 import { isImageFile } from '@/renderer/pages/conversation/Preview/fileUtils';
 import { addressesVideoMarketer } from '@/common/config/eveTeamRoster';
 import { configService } from '@/common/config/configService';
+import { resolveMediaLaneIntent } from '@/common/config/mediaLaneIntentCore';
+import { estimateVideoEditCredits } from '@/common/config/videoEditRequestCore';
+import { isVideoEditEligibleTier } from '@/common/config/videoGenerationRequestCore';
+import {
+  mediaArtifactTypeOf,
+  selectLatestVisibleMediaSourceArtifact,
+  useConversationArtifacts,
+} from '@renderer/pages/conversation/Messages/artifacts';
 
 /**
  * MAT-1769. Thrown ONLY by the marker-minting receipt read inside
@@ -805,6 +813,57 @@ Please check your local CLI tool authentication status`,
     [content, isEveConversation]
   );
 
+  // 1.820.3 — THE CONTEXTUAL MEDIA GATE (Founder contract). Media controls
+  // follow INTENT, never mere content: an ordinary draft shows nothing, an
+  // explicit image or video request shows exactly that lane's creation
+  // options, and a genuine mutation intent over a visible source artifact
+  // shows an edit-hint for that medium — and NOTHING else. The artifact list
+  // supplies CONTEXT through the shared visible-artifact selector (the same
+  // one MessageList uses); the discriminated resolver turns it into a
+  // visibility-only decision: NO send routing, NO target inference, NO
+  // selectedArtifactIds, NO provider or debit. `draftRoutesToVideo` stays
+  // exactly as narrow as the send path — an edit-hint NEVER widens it: the
+  // Hermes artifact envelope and the eve_video_edit tool resolve the actual
+  // handle semantically at send time.
+  const conversationArtifacts = useConversationArtifacts();
+  const latestMediaSource = useMemo(
+    () => selectLatestVisibleMediaSourceArtifact(conversationArtifacts),
+    [conversationArtifacts]
+  );
+  const latestVisibleArtifactType = useMemo(
+    () => (latestMediaSource ? mediaArtifactTypeOf(latestMediaSource) : null),
+    [latestMediaSource]
+  );
+  const mediaLaneIntent = useMemo(
+    () =>
+      isEveConversation
+        ? resolveMediaLaneIntent({
+            message: content,
+            resolvedAgentId: addressesVideoMarketer(content) ? VIDEO_LANE_AGENT_ID : null,
+            latestVisibleArtifactType,
+          })
+        : ({ operation: 'none' } as const),
+    [content, isEveConversation, latestVisibleArtifactType]
+  );
+  const showImageControls =
+    (mediaLaneIntent.operation === 'create' && mediaLaneIntent.medium === 'image') ||
+    (mediaLaneIntent.operation === 'edit-hint' && mediaLaneIntent.medium === 'image');
+  const showVideoCreateControls = mediaLaneIntent.operation === 'create' && mediaLaneIntent.medium === 'video';
+  const showVideoEditHint = mediaLaneIntent.operation === 'edit-hint' && mediaLaneIntent.medium === 'video';
+  // The honest inline edit price for the edit-hint affordance: the SOURCE's
+  // own tier and seconds (a video edit inherits source quality/duration —
+  // no creation selector may promise otherwise). Null when the source is not
+  // edit-eligible, so the affordance never quotes a price that would refuse.
+  const videoEditEstimate = useMemo(() => {
+    if (!showVideoEditHint || !latestMediaSource) return null;
+    const payload = latestMediaSource.payload as { tier_id?: unknown; duration_seconds?: unknown };
+    const tierId = payload.tier_id === 'sd' || payload.tier_id === 'fast' ? payload.tier_id : null;
+    const seconds = typeof payload.duration_seconds === 'number' ? payload.duration_seconds : null;
+    if (tierId === null || seconds === null || !isVideoEditEligibleTier(tierId)) return null;
+    const credits = estimateVideoEditCredits(tierId, seconds);
+    return Number.isFinite(credits) ? { credits, seconds } : null;
+  }, [showVideoEditHint, latestMediaSource]);
+
   // WHAT THE SEAT MAY OFFER. Asked of MAIN, never decided here: a renderer that
   // answered this for itself could render a 1080p option, or a voice control, for
   // an entitlement the seat does not hold — and the refusal would then arrive
@@ -833,13 +892,12 @@ Please check your local CLI tool authentication status`,
     };
   }, []);
 
-  // IMAGE MODEL SELECTION (MAT-1769). Unlike the video pill this is a
-  // PERSISTENT control, gated only on isEveConversation: image generation is
-  // agent-mediated (Hermes decides mid-turn to call the managed shim), so a
-  // draft-intent gate like `draftRoutesToVideo` could never predict it — ANY
-  // EVE turn can produce or edit an image, and the choice governs both. The
-  // selection is a per-seat preference owned by Main; the renderer keeps only
-  // the last proven seat id as the stale-action fence for writes.
+  // IMAGE MODEL SELECTION (MAT-1769). The SELECTION is a per-seat preference
+  // owned by Main; the renderer keeps only the last proven seat id as the
+  // stale-action fence for writes. Its VISIBILITY is contextual since
+  // 1.820.3: the picker shows only for an image create/edit intent (the
+  // mediaLaneIntent gate above) — the preference itself stays persistent,
+  // so the agent-mediated image lane always applies the seat's last choice.
   const [imageModelTier, setImageModelTier] = useState<CommandEveImageModelTierId>(
     DEFAULT_COMMAND_EVE_IMAGE_MODEL_TIER
   );
@@ -2269,21 +2327,24 @@ Please check your local CLI tool authentication status`,
                 onDecline={handleVisionEnablementDecline}
               />
             ) : null}
-            {/* Image model picker (MAT-1769). Persistent for every managed EVE
-                conversation: any turn can generate or edit an image through the
-                agent-mediated lane, and this choice governs both. Renders in
-                the draft band like the video pill — never an overlay, so it
-                cannot intercept or delay a send. */}
+            {/* Image model picker (MAT-1769, contextual since 1.820.3).
+                Shows ONLY for an explicit image create/edit intent — the
+                selection governs generation AND edit, so both intents get
+                the same selector. Renders in the draft band like the video
+                pill — never an overlay, so it cannot intercept a send. */}
             <ImageModelPill
-              visible={isEveConversation}
+              visible={showImageControls}
               value={imageModelTier}
               onChange={handleImageModelTierChange}
               registry={imageModelRegistry}
             />
-            {/* Quality picker for the pending video. Renders in the draft band,
-                never as an overlay — it cannot intercept or delay a send. */}
+            {/* Quality picker for the pending video — CREATION only. An edit
+                inherits the source's quality and duration, so a video edit
+                gets the compact affordance below instead of creation
+                settings it could not honour. Renders in the draft band,
+                never as an overlay. */}
             <VideoQualityPill
-              visible={draftRoutesToVideo}
+              visible={showVideoCreateControls}
               value={videoTierId}
               onChange={setVideoTierId}
               modeKind={videoModeKind}
@@ -2292,6 +2353,27 @@ Please check your local CLI tool authentication status`,
               selectedVoiceIds={videoVoiceIds}
               onVoiceToggle={toggleVideoVoice}
             />
+            {/* Compact video-EDIT affordance (1.820.3). A mutation intent
+                over the visible source clip shows this — no resolution,
+                duration or voice selector, because the edit tool inherits
+                all of them from the source. Visibility only: the send stays
+                a normal Hermes turn. */}
+            {showVideoEditHint ? (
+              <div className='video-edit-hint' role='note' data-testid='video-edit-hint'>
+                <span className='video-edit-hint__label'>
+                  {t('credits.video.editHintLabel', { defaultValue: 'Video bearbeiten' })}
+                </span>
+                {videoEditEstimate ? (
+                  <span className='video-edit-hint__estimate'>
+                    {t('credits.video.inlineEstimate', {
+                      defaultValue: 'ca. {{credits}} Credits / {{sec}}s',
+                      credits: videoEditEstimate.credits,
+                      sec: videoEditEstimate.seconds,
+                    })}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             {uploadFile.length > 0 && (
               <HorizontalFileList>
                 {uploadFile.map((path) => (

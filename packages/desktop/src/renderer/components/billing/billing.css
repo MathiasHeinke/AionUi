@@ -354,3 +354,23 @@
 .image-model-pill__estimate--unavailable {
   font-style: italic;
 }
+
+/* 1.820.3 — the compact video-EDIT affordance. A note, not a control: no
+   buttons, no selectors, no animations (reduced-motion safe by
+   construction). It borrows the pill shell so the draft band reads as one
+   surface, but it offers nothing the edit tool cannot honour. */
+.video-edit-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+.video-edit-hint__label {
+  font-weight: 600;
+  opacity: 0.85;
+}
+.video-edit-hint__estimate {
+  opacity: 0.65;
+}

@@ -16,6 +16,7 @@ import AcpSendBox from '@/renderer/pages/conversation/platforms/acp/AcpSendBox';
 import type { UseAcpMessageReturn } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
 import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
 import { stripCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
+import { ConversationArtifactProvider } from '@/renderer/pages/conversation/Messages/artifacts';
 
 const {
   sendMessageInvokeMock,
@@ -69,6 +70,9 @@ const {
   imageModelPreferenceSetInvokeMock,
   imageCapabilitiesInvokeMock,
   cloudVisualPolicySetInvokeMock,
+  listArtifactsInvokeMock,
+  videoArtifactsListInvokeMock,
+  chatHistoryRefreshHandlerMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
   steerInvokeMock: vi.fn(),
@@ -148,6 +152,9 @@ const {
   imageModelPreferenceSetInvokeMock: vi.fn(),
   imageCapabilitiesInvokeMock: vi.fn(),
   cloudVisualPolicySetInvokeMock: vi.fn(),
+  listArtifactsInvokeMock: vi.fn(),
+  videoArtifactsListInvokeMock: vi.fn(),
+  chatHistoryRefreshHandlerMock: { current: null as null | (() => void) },
 }));
 
 function createDeferred<T>() {
@@ -177,6 +184,12 @@ vi.mock('@/common', () => ({
     conversation: {
       stop: {
         invoke: vi.fn().mockResolvedValue({ runtime: null }),
+      },
+      listArtifacts: {
+        invoke: listArtifactsInvokeMock,
+      },
+      artifactStream: {
+        on: vi.fn(() => () => {}),
       },
     },
     commandEve: {
@@ -218,6 +231,9 @@ vi.mock('@/common', () => ({
       },
       imageCapabilities: {
         invoke: imageCapabilitiesInvokeMock,
+      },
+      videoArtifactsList: {
+        invoke: videoArtifactsListInvokeMock,
       },
     },
     pptPreview: {
@@ -470,6 +486,14 @@ vi.mock('@/renderer/utils/emitter', () => ({
     emit: emitterEmitMock,
   },
   useAddEventListener: vi.fn(),
+  // The artifact provider's history-refresh subscription (1.820.3 display
+  // gap). Tests fire the handler via chatHistoryRefreshHandlerMock.current.
+  addEventListener: vi.fn((event: string, handler: () => void) => {
+    if (event === 'chat.history.refresh') chatHistoryRefreshHandlerMock.current = handler;
+    return () => {
+      if (event === 'chat.history.refresh') chatHistoryRefreshHandlerMock.current = null;
+    };
+  }),
 }));
 vi.mock('@/renderer/utils/file/fileSelection', () => ({
   mergeFileSelectionItems: vi.fn(),
@@ -569,6 +593,11 @@ describe('AcpSendBox', () => {
     presentationPrepareInvokeMock.mockReset();
     cloudVisualPolicyReceiptInvokeMock.mockReset();
     cloudVisualPolicySetInvokeMock.mockReset();
+    listArtifactsInvokeMock.mockReset();
+    listArtifactsInvokeMock.mockResolvedValue([]);
+    videoArtifactsListInvokeMock.mockReset();
+    videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
+    chatHistoryRefreshHandlerMock.current = null;
     managedVisualTurnAuthorizeInvokeMock.mockReset();
     videoGenerateInvokeMock.mockReset();
     videoGenerateInvokeMock.mockResolvedValue({
@@ -2656,7 +2685,10 @@ describe('AcpSendBox', () => {
     // No preset voices for an unentitled seat, so the field never appears.
     expect(sent.presetVoiceIds).toBeUndefined();
   });
-  it('MAT-1769: the image model picker is persistent for an EVE conversation and persists clicks through Main', async () => {
+  it('1.820.3: the image model picker shows for an image intent and persists clicks through Main', async () => {
+    // CONTEXTUAL since 1.820.3: the control follows intent, not the bare EVE
+    // conversation. An explicit image draft reveals it…
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein Bild: eine lila Aubergine als Icon.' };
     // Main stores what it is asked and answers with the value it re-proved.
     imageModelPreferenceSetInvokeMock.mockImplementation(async (request: { tier: string }) => ({
       success: true,
@@ -2671,7 +2703,6 @@ describe('AcpSendBox', () => {
         },
       },
     }));
-    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
 
     render(
       <AcpSendBox
@@ -2682,8 +2713,6 @@ describe('AcpSendBox', () => {
       />
     );
 
-    // Persistent, NOT draft-gated: an inert draft still shows the control,
-    // because any EVE turn can produce or edit an image.
     await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
     expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'quality');
     // The capabilities default in this file is UNPROVEN — no price may appear.
@@ -2708,7 +2737,9 @@ describe('AcpSendBox', () => {
       success: true,
       data: { status: 'resolved', tier: 'quality', source: 'stored_default', seatId: 'seat-1' },
     });
-    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+    // 1.820.3: the rollback case only matters when the pill is VISIBLE, so
+    // the draft carries an explicit image intent.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein Bild: eine lila Aubergine als Icon.' };
 
     render(
       <AcpSendBox
@@ -2731,6 +2762,256 @@ describe('AcpSendBox', () => {
     await waitFor(() =>
       expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'quality')
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // 1.820.3 — contextual media controls (Founder contract + CoS boundaries)
+  // ---------------------------------------------------------------------
+
+  const VIDEO_SOURCE_ARTIFACT = {
+    id: 'video-artifact-1',
+    conversation_id: 'conv-1',
+    kind: 'video' as const,
+    status: 'active' as const,
+    created_at: 1000,
+    updated_at: 1000,
+    payload: {
+      artifact_type: 'video' as const,
+      title: 'Video 720p',
+      description: '720p · 5s · ca. 700 Credits · grok-imagine-video',
+      path: '/tmp/Downloads/video-artifact-1.mp4',
+      mime_type: 'video/mp4',
+      hash: 'e'.repeat(64),
+      size: 598145,
+      duration_seconds: 5,
+      origin_capability: 'video_generation',
+      tier_id: 'fast',
+    },
+  };
+
+  const renderWithVideoArtifact = () => {
+    videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [VIDEO_SOURCE_ARTIFACT] });
+    return render(
+      <ConversationArtifactProvider conversation_id='conv-1'>
+        <AcpSendBox
+          conversation_id='conv-1'
+          backend='hermes'
+          workspacePath='/tmp/workspace'
+          messageState={makeMessageState()}
+        />
+      </ConversationArtifactProvider>
+    );
+  };
+
+  it('1.820.3: a plain draft shows ZERO media controls, even in an EVE conversation', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'send' })).toBeTruthy());
+    expect(screen.queryByTestId('image-model-pill')).toBeNull();
+    expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+    expect(screen.queryByTestId('video-edit-hint')).toBeNull();
+  });
+
+  it('1.820.3: an image draft shows ONLY the image controls', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein Bild: eine lila Aubergine als Icon.' };
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
+    expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+    expect(screen.queryByTestId('video-edit-hint')).toBeNull();
+  });
+
+  it('1.820.3: a video draft shows ONLY the video creation controls', async () => {
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: [],
+      content: 'Erstelle ein kurzes Video (480p): eine Aubergine dreht sich.',
+    };
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
+    expect(screen.queryByTestId('image-model-pill')).toBeNull();
+    expect(screen.queryByTestId('video-edit-hint')).toBeNull();
+  });
+
+  it('1.820.3: removing or changing the intent hides the stale controls, with no layout ghost', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein Bild: eine Aubergine.' };
+    const { rerender } = render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
+
+    // image → plain: everything hides.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+    rerender(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.queryByTestId('image-model-pill')).toBeNull());
+    expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+
+    // plain → video: the video creation controls appear.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein kurzes Video: Aubergine.' };
+    rerender(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
+    expect(screen.queryByTestId('image-model-pill')).toBeNull();
+
+    // video → plain: clean again.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+    rerender(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.queryByTestId('video-quality-pill')).toBeNull());
+  });
+
+  it('1.820.3: the canonical follow-up shows the edit-hint, no creation selector, and the send stays a normal Hermes turn', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Gib der Aubergine ein Gesicht.' };
+    sendBoxMessageMock.current = 'Gib der Aubergine ein Gesicht.';
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    renderWithVideoArtifact();
+
+    // The compact affordance with the honest edit price — and NO creation
+    // settings the edit tool cannot honour (no quality/resolution selector).
+    await waitFor(() => expect(screen.getByTestId('video-edit-hint')).toBeTruthy());
+    expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+    expect(screen.queryByTestId('video-quality-option-hd')).toBeNull();
+    expect(screen.queryByTestId('image-model-pill')).toBeNull();
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    // Execution boundary: a NORMAL Hermes dispatch — never the direct
+    // generation branch — and no selectedArtifactIds inferred from "latest".
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalled());
+    for (const call of artifactContextEnvelopeInvokeMock.mock.calls) {
+      expect(call[0]).not.toHaveProperty('selectedArtifactIds');
+    }
+  });
+
+  it('1.820.3: a dismissed artifact cannot activate the edit-hint', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Gib der Aubergine ein Gesicht.' };
+    videoArtifactsListInvokeMock.mockResolvedValue({
+      success: true,
+      data: [{ ...VIDEO_SOURCE_ARTIFACT, status: 'dismissed' as const }],
+    });
+
+    render(
+      <ConversationArtifactProvider conversation_id='conv-1'>
+        <AcpSendBox
+          conversation_id='conv-1'
+          backend='hermes'
+          workspacePath='/tmp/workspace'
+          messageState={makeMessageState()}
+        />
+      </ConversationArtifactProvider>
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'send' })).toBeTruthy());
+    expect(screen.queryByTestId('video-edit-hint')).toBeNull();
+    expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+    expect(screen.queryByTestId('image-model-pill')).toBeNull();
+  });
+
+  it('1.820.3: revealing controls never calls a provider, upload, receipt or paid lane', async () => {
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: [],
+      content: 'Erstelle ein Bild: eine Aubergine.',
+    };
+    const { rerender } = render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
+
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein kurzes Video: Aubergine.' };
+    rerender(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
+
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+    expect(imagePrepareInvokeMock).not.toHaveBeenCalled();
+    expect(cloudVisualPolicyReceiptInvokeMock).not.toHaveBeenCalled();
+    expect(managedVisualTurnAuthorizeInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('1.820.3: an explicit video creation keeps the existing direct videoGenerate path (unchanged boundary)', async () => {
+    // The other half of the boundary: create+video MAY use the direct lane.
+    // This pins that the contextual gate did not disturb the shipped path.
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: [],
+      content: 'Erstelle ein kurzes Video (480p, 5 Sekunden): eine lila Aubergine, die sich dreht.',
+    };
+    sendBoxMessageMock.current = 'Erstelle ein kurzes Video (480p, 5 Sekunden): eine lila Aubergine, die sich dreht.';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });
 
   it('MAT-1769: Vision accept is single-flight — a double-click buys one enablement and one re-drive', async () => {
