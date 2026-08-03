@@ -64,6 +64,20 @@ describe('isArtifactMutationIntent', () => {
     expect(isArtifactMutationIntent('')).toBe(false);
     expect(isArtifactMutationIntent(undefined)).toBe(false);
   });
+
+  it('excludes time/scheduling/document objects even with mutation verbs (Grok MAJOR 2+3)', () => {
+    expect(isArtifactMutationIntent('give me five minutes')).toBe(false);
+    expect(isArtifactMutationIntent('add that to the email')).toBe(false);
+    expect(isArtifactMutationIntent('change the meeting time')).toBe(false);
+    expect(isArtifactMutationIntent('remove the second paragraph')).toBe(false);
+    expect(isArtifactMutationIntent('Ändere den Betreff.')).toBe(false);
+    expect(isArtifactMutationIntent('Lösch den zweiten Absatz.')).toBe(false);
+  });
+
+  it('keeps polite question-FORM requests (Grok MAJOR 1: no blanket `?` ban)', () => {
+    expect(isArtifactMutationIntent('Kannst du der Aubergine ein Gesicht geben?')).toBe(true);
+    expect(isArtifactMutationIntent('Can you give the eggplant a face?')).toBe(true);
+  });
 });
 
 describe('resolveMediaLaneIntent — the Founder/CoS contract', () => {

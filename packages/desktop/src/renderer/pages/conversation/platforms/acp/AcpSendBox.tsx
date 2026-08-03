@@ -2359,7 +2359,7 @@ Please check your local CLI tool authentication status`,
                 all of them from the source. Visibility only: the send stays
                 a normal Hermes turn. */}
             {showVideoEditHint ? (
-              <div className='video-edit-hint' role='note' data-testid='video-edit-hint'>
+              <div className='video-edit-hint' role='note' aria-live='polite' data-testid='video-edit-hint'>
                 <span className='video-edit-hint__label'>
                   {t('credits.video.editHintLabel', { defaultValue: 'Video bearbeiten' })}
                 </span>

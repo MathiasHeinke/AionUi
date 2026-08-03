@@ -66,7 +66,7 @@ const IMAGE_GENERATION_PATTERNS: readonly RegExp[] = [
   // EN: noun-first — "an icon for ... — create it", "profile picture"
   /\b(image|picture|photo|icon|logo|illustration|artwork|poster|thumbnail|wallpaper|avatar|profile\s+picture|cover\s?art)s?\b[^.!?]{0,60}\b(generate|create|make|produce|render|draw|design|build|für\s+mich|for\s+me)\b/i,
   // EN: format/lane keywords — "text-to-image", "ai image", "image generation"
-  /\b(text[-\s]?to[-\s]?image|img[-\s]?to[-\s]?image|image[-\s]?to[-\s]?image|image\s+gen(eration)?|ai\s+image|ai\s+art|image\s+edit|edit\s+(this|the|that)\s+(image|picture|photo))\b/i,
+  /\b(text[-\s]?to[-\s]?image|img[-\s]?to[-\s]?image|image[-\s]?to[-\s]?image|image\s+gen(eration)?|ai\s+image|ai\s+art)\b/i,
   // DE: "erstelle/mach/generiere/zeichne/male ein Bild/Foto/Icon/Logo".
   // `schneid` stays OUT here ("schneide ein Bild" is cropping, not generating).
   /\b(erstell|erstelle|erstellst|mach|mache|machst|generier|generiere|generierst|produzier|produziere|zeichn|zeichne|mal|male|erzeug|erzeuge|bau|baue|design|entwirf|brauch|brauche|brauchst|braucht|möcht|möchte|möchtest|hätte?\s+gern)\b[^.!?]{0,60}\b(bild|bilder|foto|icon|logo|illustration|grafik|poster|thumbnail|avatar|profilbild|titelfoto)s?\b/i,
@@ -93,6 +93,8 @@ const IMAGE_EDIT_PATTERNS: readonly RegExp[] = [
   /\b(bild|bilder|foto|icon|logo)\b[^.!?]{0,30}\b(bearbeiten|verändern|ändern|editieren)\b/i,
   /\b(edit|change|modify|retouch|restyle|adjust|crop|recolou?r)\b[^.!?]{0,40}\b(image|picture|photo|icon|logo)s?\b/i,
   /\b(image|picture|photo|icon|logo)\s+edit\b/i,
+  /\bimage\s+edit\b/i,
+  /\bedit\s+(this|the|that)\s+(image|picture|photo)\b/i,
 ];
 
 /** Explicit video EDIT phrasing with a medium noun ("bearbeite das Video"). */
@@ -133,15 +135,26 @@ const PLEASANTRY_PATTERNS: readonly RegExp[] = [
 
 /**
  * Opinion, analysis, review and question requests. Asking ABOUT an artifact
- * is not mutating it. ("Kannst du der Aubergine ein Gesicht geben?" is a
- * request and survives: it matches a mutation family; "Was hältst du davon?"
- * matches nothing below and stays null.)
+ * is not mutating it. "Kannst du der Aubergine ein Gesicht geben?" IS a
+ * request and survives — question FORM alone excludes nothing; only
+ * analysis/opinion SHAPES exclude (Grok review 2026-08-03, MAJOR 1: a
+ * blanket trailing-`?` ban killed polite requests).
  */
 const ANALYSIS_PATTERNS: readonly RegExp[] = [
   /\b(was\s+(hältst|meinst|denkst)|wie\s+findest|analysier|analyse|bewert|bewerte|review|erklär|erkläre|beschreib|beschreibe|interpretier|was\s+(siehst|erkennst)|ist\s+das|was\s+ist|was\s+kannst\s+du)\b/i,
   /\b(what\s+do\s+you\s+(think|see|make)|analy[sz]e|review|explain|describe|interpret|tell\s+me\s+about)\b/i,
-  /\?[\s]*$/,
 ];
+
+/**
+ * Objects that make an imperative NON-media: time, scheduling, documents,
+ * credentials, prices, coordinates. "give me five minutes", "add that to
+ * the email", "change the meeting time", "Ändere den Betreff", "Lösch den
+ * zweiten Absatz" are not artifact mutations, whatever is on screen (Grok
+ * review 2026-08-03, MAJOR 2+3: bare mutation verbs over-fired on ordinary
+ * chat once an artifact was visible).
+ */
+const NON_MEDIA_OBJECT_PATTERN =
+  /\b(minute|minutes|minuten|seconds|sekunde|sekunden|hour|hours|stunde|stunden|time|zeit|termin|termine|meeting|meetings|appointment|schedule|deadline|email|e-mail|mail|betreff|subject|paragraph|absatz|absätze|sentence|satz|sätze|page|seite|seiten|password|passwort|pin|code|date|datum|price|preis|budget|number|nummer|phone|telefon|address|adresse|invoice|rechnung|budget|gehalt)\b/i;
 
 /** Meta targets that are not the visible artifact: app, chat, settings… */
 const META_TARGET_PATTERN =
@@ -158,6 +171,9 @@ const ARTIFACT_MUTATION_PATTERNS: readonly RegExp[] = [
   /\b(add|put|give|place|insert|attach|append|change|edit|modify|adjust|remove|delete|replace|swap|crop|animate|recolou?r|darken|lighten|blur|sharpen|resize|rotate|flip|retouch|restyle|tweak)\b/i,
   /\bfüg\w*\s+[^.!?]{0,40}\s*(hinzu|dazu|ein|eine|einen)\b/i,
   /\bgib\w*\s+[^.!?]{0,40}\s+(ein|eine|einen|einem|einer)\b/i,
+  // German polite/question form moves the infinitive to the END:
+  // "Kannst du der Aubergine ein Gesicht geben?" — the ein-phrase leads.
+  /\b(ein|eine|einen|einem|einer)\b[^.!?]{0,40}\s+(gib|gebe|gibst|geben|gebst|geb)\b/i,
   /\bsetz\w*\s+[^.!?]{0,30}\s*(ein|drauf|darauf|auf|davor|dahinter|zusammen)\b/i,
   /\b(änder|veränder|bearbeit|entfern|lösch|ersetz|schneid|kürz|animier|umfärb|färb\w*\s+[^.!?]{0,30}\s+um|einfärb|aufhell|abdunkel|verpixel|schärf|dreh|spiegel|rettuschier|überarbeit)\w*\b/i,
 ];
@@ -170,6 +186,7 @@ export function isArtifactMutationIntent(message: string | null | undefined): bo
   if (PLEASANTRY_PATTERNS.some((re) => re.test(text))) return false;
   if (ANALYSIS_PATTERNS.some((re) => re.test(text))) return false;
   if (META_TARGET_PATTERN.test(text)) return false;
+  if (NON_MEDIA_OBJECT_PATTERN.test(text)) return false;
   return ARTIFACT_MUTATION_PATTERNS.some((re) => re.test(text));
 }
 

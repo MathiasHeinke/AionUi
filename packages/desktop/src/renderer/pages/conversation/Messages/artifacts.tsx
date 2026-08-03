@@ -122,8 +122,12 @@ export const ConversationArtifactProvider: React.FC<React.PropsWithChildren<{ co
     // it cannot return it. Fetching both on every load — including switching
     // back to this conversation — is what makes a generated video survive a
     // reload instead of only existing until this provider unmounts.
-    const loadArtifacts = () =>
-      Promise.all([
+    let loadSeq = 0;
+    const loadArtifacts = () => {
+      // Generation guard (Grok review MINOR): overlapping refreshes finish
+      // out of order — a stale full-replace never lands over a newer one.
+      const seq = ++loadSeq;
+      return Promise.all([
         ipcBridge.conversation.listArtifacts.invoke({ conversation_id }).catch((error): IConversationArtifact[] => {
           console.error('[ConversationArtifactProvider] Failed to load artifacts:', error);
           return [];
@@ -136,9 +140,10 @@ export const ConversationArtifactProvider: React.FC<React.PropsWithChildren<{ co
             return [];
           }),
       ]).then(([remoteArtifacts, localVideoArtifacts]) => {
-        if (!alive) return;
+        if (!alive || seq !== loadSeq) return;
         setArtifacts(upsertArtifacts([], [...remoteArtifacts, ...localVideoArtifacts]));
       });
+    };
 
     void loadArtifacts();
 
