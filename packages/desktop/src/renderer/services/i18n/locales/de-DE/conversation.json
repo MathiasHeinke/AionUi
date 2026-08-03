@@ -191,6 +191,7 @@
       "confirm": "Vision aktivieren",
       "decline": "Nicht jetzt",
       "declinedNotice": "Vision bleibt deaktiviert – das Bild wurde nicht gesendet. Du kannst Vision jederzeit unter Einstellungen → Datenschutz aktivieren.",
+      "declineSaveFailed": "Vision bleibt deaktiviert – das Bild wurde nicht gesendet. Deine Entscheidung konnte nicht gespeichert werden und wird beim nächsten Bild erneut abgefragt.",
       "unavailableNotice": "Vision ist auf diesem Arbeitsplatz derzeit nicht verfügbar. Das Bild wurde nicht gesendet; Entwurf und Dateien bleiben erhalten.",
       "enableFailed": "Vision konnte nicht aktiviert werden. Entwurf und Dateien bleiben erhalten."
     }

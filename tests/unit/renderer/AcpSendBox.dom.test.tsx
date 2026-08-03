@@ -2699,6 +2699,184 @@ describe('AcpSendBox', () => {
     await waitFor(() => expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'max'));
   });
 
+  it('MAT-1769: a failed preference write rolls the pill back to what Main will actually bill', async () => {
+    // Grok review MAJOR 1: an optimistic tier that never landed must not keep
+    // quoting one model while Main bills another. The write rejects; the pill
+    // must re-read Main and adopt the stored value.
+    imageModelPreferenceSetInvokeMock.mockRejectedValue(new Error('ipc down'));
+    imageModelPreferenceReadInvokeMock.mockResolvedValue({
+      success: true,
+      data: { status: 'resolved', tier: 'quality', source: 'stored_default', seatId: 'seat-1' },
+    });
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
+
+    await act(async () => {
+      screen.getByTestId('image-model-option-max').click();
+    });
+
+    // The write was attempted… and the rollback read followed it.
+    await waitFor(() => expect(imageModelPreferenceSetInvokeMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(imageModelPreferenceReadInvokeMock.mock.calls.length).toBeGreaterThanOrEqual(2));
+    // The pill shows Main's value again, not the optimistic click.
+    await waitFor(() =>
+      expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'quality')
+    );
+  });
+
+  it('MAT-1769: Vision accept is single-flight — a double-click buys one enablement and one re-drive', async () => {
+    // Grok review MAJOR 2: the busy guard must hold synchronously, before the
+    // first re-render, or two clicks run the policy write and the paid
+    // re-drive twice.
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/screenshot.png'], content: 'Look at this' };
+    sendBoxMessageMock.current = 'Look at this';
+    const policySet = createDeferred<unknown>();
+    cloudVisualPolicySetInvokeMock.mockReturnValue(policySet.promise);
+    // Implementations survive vi.clearAllMocks() (clear ≠ reset): name the
+    // happy-path send explicitly instead of inheriting whichever mock an
+    // earlier test left behind.
+    sendMessageInvokeMock.mockResolvedValue({});
+    // After the enablement lands the world looks different: the receipt issues
+    // and preparation succeeds. The disabled answers are ONCE-only, so the
+    // re-driven send meets the enabled seat (the beforeEach defaults).
+    cloudVisualPolicyReceiptInvokeMock.mockResolvedValueOnce({
+      success: false,
+      data: {
+        ok: false,
+        policy: {
+          status: 'disabled',
+          reason: 'disabled_by_operator',
+          seatId: 'owner',
+          physicalKey: 'commandEve.cloudVisualAnalysisEnabled',
+        },
+      },
+    });
+    imagePrepareInvokeMock.mockReset();
+    imagePrepareInvokeMock
+      .mockResolvedValueOnce({
+        success: false,
+        data: {
+          ok: false,
+          reason_code: 'EVE_IMAGE_CLOUD_VISUAL_POLICY_REQUIRED',
+          documents: [],
+          prepared_files: [],
+          requires_cloud_vision_consent: false,
+        },
+      })
+      .mockResolvedValue({
+        success: true,
+        data: {
+          ok: true,
+          documents: [
+            {
+              source_path: '/tmp/screenshot.png',
+              source_name: 'screenshot.png',
+              sidecar_path: '/tmp/hermes/document-intelligence/image/hash/document.md',
+              prompt_context: '## Image 1\n\nA screenshot.',
+            },
+          ],
+        },
+      });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() =>
+      expect(screen.getByRole('group', { name: 'conversation.visual.enablement.title' })).toBeTruthy()
+    );
+
+    // Two clicks, same synchronous window — the second must be refused by the
+    // ref guard, not by the rendered disabled state (which lags a render).
+    await act(async () => {
+      screen.getByRole('button', { name: 'conversation.visual.enablement.confirm' }).click();
+      screen.getByRole('button', { name: 'conversation.visual.enablement.confirm' }).click();
+    });
+    expect(cloudVisualPolicySetInvokeMock).toHaveBeenCalledTimes(1);
+
+    // Let the single flight finish: the parked send re-drives exactly once.
+    await act(async () => {
+      policySet.resolve({ success: true, data: { ok: true } });
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole('group', { name: 'conversation.visual.enablement.title' })).toBeNull()
+    );
+    expect(cloudVisualPolicySetInvokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('MAT-1769: a decline that fails to persist says so honestly instead of claiming never-again', async () => {
+    // Grok review MAJOR 3: the one-time claim needs the write to have landed.
+    // A rejected persist keeps everything free (no upload, no provider, no
+    // send) but tells the user the question will come back.
+    configSetMock.mockRejectedValue(new Error('store full'));
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/screenshot.png'], content: 'Look at this' };
+    sendBoxMessageMock.current = 'Look at this';
+    imagePrepareInvokeMock.mockResolvedValue({
+      success: false,
+      data: {
+        ok: false,
+        reason_code: 'EVE_IMAGE_CLOUD_VISUAL_POLICY_REQUIRED',
+        documents: [],
+        prepared_files: [],
+        requires_cloud_vision_consent: false,
+      },
+    });
+    cloudVisualPolicyReceiptInvokeMock.mockResolvedValue({
+      success: false,
+      data: {
+        ok: false,
+        policy: {
+          status: 'disabled',
+          reason: 'disabled_by_operator',
+          seatId: 'owner',
+          physicalKey: 'commandEve.cloudVisualAnalysisEnabled',
+        },
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() =>
+      expect(screen.getByRole('group', { name: 'conversation.visual.enablement.title' })).toBeTruthy()
+    );
+
+    await act(async () => screen.getByRole('button', { name: 'conversation.visual.enablement.decline' }).click());
+
+    await waitFor(() => expect(messageWarningMock).toHaveBeenCalledTimes(1));
+    expect(messageWarningMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('decision could not be saved'),
+      })
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('group', { name: 'conversation.visual.enablement.title' })).toBeNull()
+    );
+    expect(cloudVisualPolicySetInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(messageErrorMock).not.toHaveBeenCalled();
+  });
+
   it('MAT-1769: no image model picker outside a managed EVE conversation', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
 

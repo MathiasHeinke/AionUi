@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7054
+# entries: 7056
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -1308,6 +1308,7 @@ copy	1	de-DE/conversation.json	Verschieben fehlgeschlagen
 copy	1	de-DE/conversation.json	Verstanden
 copy	1	de-DE/conversation.json	Versuche es später erneut oder sende diese Nachricht noch einmal.
 copy	1	de-DE/conversation.json	Vision aktivieren
+copy	1	de-DE/conversation.json	Vision bleibt deaktiviert – das Bild wurde nicht gesendet. Deine Entscheidung konnte nicht gespeichert werden und wird beim nächsten Bild erneut abgefragt.
 copy	1	de-DE/conversation.json	Vision bleibt deaktiviert – das Bild wurde nicht gesendet. Du kannst Vision jederzeit unter Einstellungen → Datenschutz aktivieren.
 copy	1	de-DE/conversation.json	Vision für dieses Bild aktivieren?
 copy	1	de-DE/conversation.json	Vision ist auf diesem Arbeitsplatz derzeit nicht verfügbar. Das Bild wurde nicht gesendet; Entwurf und Dateien bleiben erhalten.
@@ -4874,6 +4875,7 @@ copy	1	en-US/conversation.json	View More >>
 copy	1	en-US/conversation.json	Vision could not be enabled. Draft and files are preserved.
 copy	1	en-US/conversation.json	Vision is currently unavailable for this seat. The image was not sent; draft and files are preserved.
 copy	1	en-US/conversation.json	Vision stays off, so the image was not sent. You can enable Vision any time under Settings → Privacy.
+copy	1	en-US/conversation.json	Vision stays off, so the image was not sent. Your decision could not be saved and will be asked again for the next image.
 copy	1	en-US/conversation.json	Visual slide analysis failed. The message and presentation remain unsent.
 copy	1	en-US/conversation.json	Voice input failed. Please try again
 copy	1	en-US/conversation.json	Voice input is not available in this environment

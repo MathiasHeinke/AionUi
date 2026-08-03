@@ -192,6 +192,7 @@
       "confirm": "Enable Vision",
       "decline": "Not now",
       "declinedNotice": "Vision stays off, so the image was not sent. You can enable Vision any time under Settings → Privacy.",
+      "declineSaveFailed": "Vision stays off, so the image was not sent. Your decision could not be saved and will be asked again for the next image.",
       "unavailableNotice": "Vision is currently unavailable for this seat. The image was not sent; draft and files are preserved.",
       "enableFailed": "Vision could not be enabled. Draft and files are preserved."
     }

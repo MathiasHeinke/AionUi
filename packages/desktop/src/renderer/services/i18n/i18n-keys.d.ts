@@ -1198,6 +1198,7 @@ export type I18nKey =
   | 'conversation.thinking.label'
   | 'conversation.visual.enablement.confirm'
   | 'conversation.visual.enablement.decline'
+  | 'conversation.visual.enablement.declineSaveFailed'
   | 'conversation.visual.enablement.declinedNotice'
   | 'conversation.visual.enablement.description'
   | 'conversation.visual.enablement.enableFailed'

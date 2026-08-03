@@ -867,17 +867,34 @@ Please check your local CLI tool authentication status`,
     // Without a proven seat the choice stays LOCAL — a write without the
     // stale-action fence could land on the wrong side of a seat switch.
     if (!expectedSeatId) return;
+    // ROLLBACK ON FAILURE: a preference write that did not land must not leave
+    // the pill quoting one model while Main bills another. Re-read what Main
+    // actually holds and adopt it — the pill is Main's mirror or it is a lie
+    // at the exact moment of choosing (Grok review 2026-08-03, MAJOR 1).
+    const rollBackToMainsValue = () => {
+      void ipcBridge.commandEve.imageModelPreferenceRead
+        .invoke()
+        .then((readback) => {
+          if (readback?.success && readback.data?.status === 'resolved') {
+            imagePreferenceSeatRef.current = readback.data.seatId;
+            setImageModelTier(readback.data.tier);
+          }
+        })
+        .catch(() => {
+          /* Main is unreachable; the next successful read reconciles */
+        });
+    };
     void ipcBridge.commandEve.imageModelPreferenceSet
       .invoke({ expectedSeatId, tier: tierId })
       .then((response) => {
         // Main re-proved the persisted value; adopt what it actually stored.
         if (response?.success && response.data?.ok && response.data.preference.status === 'resolved') {
           setImageModelTier(response.data.preference.tier);
+          return;
         }
+        rollBackToMainsValue();
       })
-      .catch(() => {
-        /* the local choice stands; the next read reconciles */
-      });
+      .catch(rollBackToMainsValue);
   }, []);
 
   // THE SERVER-OWNED PRICE BOOK. Asked of Main, never answered here: the
@@ -1657,55 +1674,84 @@ Please check your local CLI tool authentication status`,
   // sidecars, the receipt now issues, and the send continues with no further
   // question. A failed mutation keeps the card open and sends nothing — the
   // image never leaves the device on a half-made decision.
+  //
+  // SINGLE-FLIGHT (Grok review 2026-08-03, MAJOR 2): the busy flag lives in a
+  // REF checked synchronously, because a useState guard only takes effect
+  // after the re-render — a double-click inside that window would run the
+  // policy write AND the paid re-drive twice. Busy holds through the re-drive,
+  // not just through the policy call.
+  const visionEnablementBusyRef = useRef(false);
   const handleVisionEnablementAccept = useCallback(async () => {
     const pending = visionEnablementPending;
-    if (!pending || visionEnablementBusy) return;
+    if (!pending || visionEnablementBusyRef.current) return;
+    visionEnablementBusyRef.current = true;
     setVisionEnablementBusy(true);
+    let policyEnabled = false;
     try {
       const result = await ipcBridge.commandEve.cloudVisualPolicySet.invoke({
         expectedSeatId: configService.getCurrentSeatId(),
         enabled: true,
       });
-      if (!result.success || !result.data?.ok) {
-        Message.error({
-          content: t('conversation.visual.enablement.enableFailed', {
-            defaultValue: 'Vision could not be enabled. Draft and files are preserved.',
-          }),
-          duration: 6000,
-        });
-        return;
-      }
+      policyEnabled = Boolean(result.success && result.data?.ok);
     } catch {
+      policyEnabled = false;
+    }
+    if (!policyEnabled) {
+      // A failed mutation keeps the card open and sends nothing — the image
+      // never leaves the device on a half-made decision.
       Message.error({
         content: t('conversation.visual.enablement.enableFailed', {
           defaultValue: 'Vision could not be enabled. Draft and files are preserved.',
         }),
         duration: 6000,
       });
+      visionEnablementBusyRef.current = false;
+      setVisionEnablementBusy(false);
       return;
+    }
+    // The re-drive runs INSIDE the busy window: a second click while it is in
+    // flight is refused by the ref, not by a rendered state.
+    setVisionEnablementPending(null);
+    try {
+      await submitMessage(pending.message, pending.allFiles, pending.controls);
     } finally {
+      visionEnablementBusyRef.current = false;
       setVisionEnablementBusy(false);
     }
-    setVisionEnablementPending(null);
-    await submitMessage(pending.message, pending.allFiles, pending.controls);
-  }, [submitMessage, t, visionEnablementBusy, visionEnablementPending]);
+  }, [submitMessage, t, visionEnablementPending]);
 
   // MAT-1769 — "Nicht jetzt": persist the DECLINE (per seat, one-time), dismiss
   // the card, and send nothing. No upload, no provider call and no debit happen
-  // on this path, and the marker keeps the prompt from reappearing on later
-  // images. The draft and files were already restored when the card was raised.
-  const handleVisionEnablementDecline = useCallback(() => {
-    if (visionEnablementBusy) return;
+  // on this path. The "never again" claim is only made when the write LANDED
+  // (Grok review 2026-08-03, MAJOR 3): a failed persist gets the honest notice
+  // that the question will come back — the decline itself is always free.
+  const handleVisionEnablementDecline = useCallback(async () => {
+    if (visionEnablementBusyRef.current) return;
+    visionEnablementBusyRef.current = true;
+    setVisionEnablementBusy(true);
     setVisionEnablementPending(null);
-    void configService.set('commandEve.visionEnablementDeclined', true);
-    Message.warning({
-      content: t('conversation.visual.enablement.declinedNotice', {
-        defaultValue:
-          'Vision stays off, so the image was not sent. You can enable Vision any time under Settings → Privacy.',
-      }),
-      duration: 6000,
-    });
-  }, [t, visionEnablementBusy]);
+    try {
+      await configService.set('commandEve.visionEnablementDeclined', true);
+      Message.warning({
+        content: t('conversation.visual.enablement.declinedNotice', {
+          defaultValue:
+            'Vision stays off, so the image was not sent. You can enable Vision any time under Settings → Privacy.',
+        }),
+        duration: 6000,
+      });
+    } catch {
+      Message.warning({
+        content: t('conversation.visual.enablement.declineSaveFailed', {
+          defaultValue:
+            'Vision stays off, so the image was not sent. Your decision could not be saved and will be asked again for the next image.',
+        }),
+        duration: 6000,
+      });
+    } finally {
+      visionEnablementBusyRef.current = false;
+      setVisionEnablementBusy(false);
+    }
+  }, [t]);
 
   useEffect(
     () => () => {
