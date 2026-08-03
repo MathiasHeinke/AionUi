@@ -9,7 +9,7 @@ this record.
 
 | Field | Value |
 | --- | --- |
-| Source path | `/Users/mathiasheinke/.agents/skills/seo-aeo-best-practices` (user-scope agents skill directory) |
+| Source path | `${HOME}/.agents/skills/seo-aeo-best-practices` (user-scope agents skill directory, host-local canonical source) |
 | Upstream skill version | none declared (no version field in `SKILL.md` frontmatter) |
 | Upstream author | not stated anywhere in the upstream tree |
 | Licence | **UNDECLARED / UNKNOWN** — see below |

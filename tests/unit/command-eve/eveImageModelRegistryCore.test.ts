@@ -187,8 +187,8 @@ describe('parseCommandEveImageModelRegistry', () => {
           supports_references: false,
           resolutions: ['1K', '2K'],
           quotes: {
-            generate_credits: { '1K': 460, '2K': 460 },
-            edit_credits: { '1K': 460, '2K': 460 },
+            generate_credits: { '1K': 460, '2K': 644 },
+            edit_credits: { '1K': 460, '2K': 644 },
             per_input_reference_credits: 0,
           },
         },

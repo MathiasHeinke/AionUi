@@ -124,7 +124,7 @@ export const COPYWRITING_REQUIRED_FILES = Object.freeze([...Object.keys(COPYWRIT
 // consult an external root, so the shipped bytes are always the committed,
 // digest-pinned ones.
 export const SEO_UPSTREAM = Object.freeze({
-  source_path: '/Users/mathiasheinke/.codex/skills/seo',
+  source_path: '${HOME}/.codex/skills/seo',
   author: 'web-quality-skills',
   version: '1.0',
   license: 'MIT (frontmatter-declared; no licence text file exists upstream)',
@@ -139,7 +139,7 @@ export const SEO_PINNED_SHA256 = Object.freeze({
 export const SEO_REQUIRED_FILES = Object.freeze([...Object.keys(SEO_PINNED_SHA256), 'PROVENANCE.md']);
 
 export const SEO_AEO_UPSTREAM = Object.freeze({
-  source_path: '/Users/mathiasheinke/.agents/skills/seo-aeo-best-practices',
+  source_path: '${HOME}/.agents/skills/seo-aeo-best-practices',
   license: 'undeclared (no LICENSE file and no licence frontmatter upstream)',
   retrieved: '2026-08-03',
 });

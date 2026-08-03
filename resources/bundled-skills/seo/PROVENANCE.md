@@ -9,7 +9,7 @@ this record.
 
 | Field | Value |
 | --- | --- |
-| Source path | `/Users/mathiasheinke/.codex/skills/seo` (user-scope Codex skill directory) |
+| Source path | `${HOME}/.codex/skills/seo` (user-scope Codex skill directory, host-local canonical source) |
 | Upstream skill version | `1.0` (`metadata.version` in `SKILL.md` frontmatter) |
 | Upstream author | `web-quality-skills` (`metadata.author` in `SKILL.md` frontmatter) |
 | Licence | MIT — declared via `license: MIT` in `SKILL.md` frontmatter |

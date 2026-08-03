@@ -82,7 +82,9 @@ const SKILLS: VendoredSkillSpec[] = [
     upstream: SEO_UPSTREAM,
     expectedTree: ['PROVENANCE.md', 'SKILL.md'],
     provenanceNeedles: [
-      '/Users/mathiasheinke/.codex/skills/seo',
+      // Portable form (Grok review MINOR 13): host-local paths are recorded
+      // as ${HOME}-relative so the public repo carries no machine path.
+      '${HOME}/.codex/skills/seo',
       'web-quality-skills',
       '1.0',
       'MIT',
@@ -106,7 +108,7 @@ const SKILLS: VendoredSkillSpec[] = [
       'references/technical-seo.md',
     ],
     provenanceNeedles: [
-      '/Users/mathiasheinke/.agents/skills/seo-aeo-best-practices',
+      '${HOME}/.agents/skills/seo-aeo-best-practices',
       '2026-08-03',
       // The licence gap must be NAMED, not papered over.
       'UNDECLARED',
