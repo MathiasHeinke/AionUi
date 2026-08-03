@@ -79,12 +79,19 @@ type MeteredHost = {
   close: () => Promise<void>;
 };
 
-async function startMeteredHost(): Promise<MeteredHost> {
+async function startMeteredHost(options: { status?: number } = {}): Promise<MeteredHost> {
   const debits: Array<{ tier: unknown; body: Record<string, unknown> }> = [];
   const server = http.createServer((request, response) => {
     void (async () => {
       const body = await readRequestBody(request);
+      // Recorded BEFORE the status is chosen: upstream may have done the work and
+      // charged for it even when it answers with an error, so a retry would be a
+      // genuine second charge.
       debits.push({ tier: body.tier, body });
+      if (options.status && options.status !== 200) {
+        writeJson(response, options.status, { error: { message: 'metered host unavailable' } });
+        return;
+      }
       writeJson(response, 200, {
         choices: [{ message: { role: 'assistant', content: 'paid-cloud-answer' }, finish_reason: 'stop' }],
       });
@@ -404,12 +411,18 @@ describe('MAT-1749 S3 — nothing unapproved spends: absent refuses, unknown goe
     expect(response.headers.get('x-command-eve-operation')).toBe('local_only:iteration_limit_summary');
   });
 
-  it('ONE user send stays ONE debit even when the iteration-cap summary follows it', async () => {
-    // THE CONTRACT THIS WHOLE TICKET EXISTS FOR. The summary runs inside a turn the
-    // user has already paid for, so labelling it `user_chat_turn` — the intuitive
-    // choice — would have put a SECOND metered call inside ONE send and rebuilt the
-    // original defect. Both requests cross the same shim and the same recorder; the
-    // count after the summary must still be one.
+  it('the iteration-cap summary adds NO metered request to the send it runs inside', async () => {
+    // RENAMED AND RESTATED. This was called "ONE user send stays ONE debit", which
+    // states a universal that is FALSE for an agentic send: the server debits PER
+    // REQUEST — FACT(server eve-inference-core.ts:348-361), key = hashed user + 10s
+    // bucket + fingerprint(tier, model, messages) — so a send making N main-model
+    // requests around tool calls correctly produces N debits. The old name passed
+    // only because no tool round was exercised: a test named for a property it did
+    // not measure, which is this ticket's signature defect.
+    //
+    // The TRUE property here, and the one this ticket is about: AUXILIARY work the
+    // user never requested contributes ZERO. Labelling the summary `user_chat_turn`
+    // would have added one.
     const shimUrl = await startShimOnPaidLane();
 
     const paidTurn = await postChat(shimUrl, {
@@ -418,7 +431,7 @@ describe('MAT-1749 S3 — nothing unapproved spends: absent refuses, unknown goe
       eve_operation: 'user_chat_turn',
     });
     expect(paidTurn.status).toBe(200);
-    expect(metered!.debits, 'the user send itself must debit exactly once').toHaveLength(1);
+    expect(metered!.debits, 'the main-model request must meter exactly once').toHaveLength(1);
 
     const summary = await postChat(shimUrl, {
       model: 'custom:command-eve-gemma-64k:latest',
@@ -427,8 +440,86 @@ describe('MAT-1749 S3 — nothing unapproved spends: absent refuses, unknown goe
     });
 
     expect(summary.status).toBe(200);
-    expect(metered!.debits, 'the summary added a second debit to one user send').toHaveLength(1);
+    expect(metered!.debits, 'the auxiliary summary added a metered request').toHaveLength(1);
     expect(local!.calls, 'the summary must have been served locally').toHaveLength(1);
+  });
+
+  it('a TOOL-LOOP send meters once per main-model request and zero for auxiliary work', async () => {
+    // THE TRUE CONTRACT, exercised with a real tool round.
+    //
+    // Round 1 is the user's question. The loop then appends the assistant tool_call
+    // and the tool result (FACT whl agent/conversation_loop.py has 20 messages.append
+    // sites, e.g. :3763, :3791), so round 2 carries a DIFFERENT messages array. The
+    // server folds `messages` into the fingerprint (FACT server
+    // eve-inference-core.ts:372-383), so the two rounds derive DIFFERENT idempotency
+    // keys and are correctly charged as two distinct pieces of work. Debiting once
+    // for two rounds would make us eat the upstream cost of the second.
+    //
+    // SCOPE, stated honestly: the recorder proves how many METERED REQUESTS the
+    // client emits and that their bodies differ. The debit accounting and the
+    // idempotency dedupe are SERVER-side and are not, and cannot be, proven here.
+    const shimUrl = await startShimOnPaidLane();
+
+    const round1 = await postChat(shimUrl, {
+      model: 'custom:command-eve-gemma-64k:latest',
+      messages: USER_TURN,
+      eve_operation: 'user_chat_turn',
+    });
+    expect(round1.status).toBe(200);
+
+    // Auxiliary work inside the same send — must contribute nothing.
+    await postChat(shimUrl, {
+      model: 'custom:command-eve-gemma-64k:latest',
+      messages: USER_TURN,
+      eve_operation: 'title_generation',
+    });
+
+    const round2 = await postChat(shimUrl, {
+      model: 'custom:command-eve-gemma-64k:latest',
+      messages: [
+        ...USER_TURN,
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{ id: 'c1', type: 'function', function: { name: 'ls', arguments: '{}' } }],
+        },
+        { role: 'tool', tool_call_id: 'c1', content: 'invoices.csv' },
+      ],
+      eve_operation: 'user_chat_turn',
+    });
+    expect(round2.status).toBe(200);
+
+    // ONE metered request per main-model round the user's own task required...
+    expect(metered!.debits, 'a tool-loop send must meter once per main-model round').toHaveLength(2);
+    // ...and the rounds must be DISTINCT work, or the server would dedupe them into
+    // one debit and we would absorb the upstream cost of the second.
+    const [first, second] = metered!.debits;
+    expect(JSON.stringify(second.body.messages)).not.toBe(JSON.stringify(first.body.messages));
+    // ...and ZERO for the auxiliary, which went to the free lane instead.
+    expect(local!.calls, 'the auxiliary must have been served locally').toHaveLength(1);
+  });
+
+  it('the shim never retries a paid request itself, so it cannot cause a double charge', async () => {
+    // The client's half of no-double-charge. Server idempotency dedupes a retry of an
+    // IDENTICAL request only within a 10-second bucket (FACT server
+    // eve-inference-core.ts:353-356), so the shim must not manufacture retries of its
+    // own: one inbound paid request must produce exactly one upstream request even
+    // when the metered host answers with a normally-retryable status.
+    metered = await startMeteredHost({ status: 503 });
+    local = await startLocalOllama();
+    const shimUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: local.url,
+      eveRouting: () => ({ active: true, functionUrl: metered!.url, license: 'ceve-test-license', tier: 'standard' }),
+    });
+
+    await postChat(shimUrl, {
+      model: 'custom:command-eve-gemma-64k:latest',
+      messages: USER_TURN,
+      eve_operation: 'user_chat_turn',
+    });
+
+    expect(metered!.debits, 'the shim retried a paid request and could double-charge').toHaveLength(1);
   });
 
   // The real Hermes auxiliaries that genuinely reached the PAID lane before this fix
