@@ -26,9 +26,12 @@ import {
   stopCommandEveOllamaOpenAiShimForTest,
 } from '@/process/commandEve/ollamaOpenAiShim';
 import {
+  COMMAND_EVE_DIRECT_AUXILIARY_OPERATION,
   COMMAND_EVE_HERMES_AUXILIARY_TASKS,
+  COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS,
   commandEvePaidOperations,
   commandEveRegisteredOperations,
+  resolveCommandEvePaidSeam,
 } from '@/process/commandEve/paidOperationRegistryCore';
 
 const WHEEL_PATH = fileURLToPath(
@@ -73,6 +76,60 @@ describe('MAT-1749 — the auxiliary classification is pinned to the wheel it ca
     // compressor). They declare `eve_auxiliary` instead, which must stay non-payable.
     expect(commandEveRegisteredOperations()).toContain('eve_auxiliary');
     expect(commandEvePaidOperations()).not.toContain('eve_auxiliary');
+  });
+
+  it('pins the DIRECT-client population too, not just the call_llm one', () => {
+    // THE PIN USED TO MEASURE THE WRONG POPULATION. It enumerated `task=` kwargs and
+    // claimed a Hermes bump would force re-classification — but direct clients are
+    // not in that population, so it could never have seen them, and four shipped
+    // features hard-failed on a cloud tier. Both populations are pinned now, and the
+    // wheel sha above is what forces either to be re-derived on a bump.
+    expect(COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS).toEqual([
+      'goal_judge',
+      'kanban_decomposer',
+      'triage_specifier',
+      'profile_describer',
+    ]);
+
+    const decision = resolveCommandEvePaidSeam(COMMAND_EVE_DIRECT_AUXILIARY_OPERATION);
+    expect(decision.disposition).toBe('local_only');
+    expect(commandEveRegisteredOperations()).toContain(COMMAND_EVE_DIRECT_AUXILIARY_OPERATION);
+    expect(commandEvePaidOperations()).not.toContain(COMMAND_EVE_DIRECT_AUXILIARY_OPERATION);
+
+    // Disjoint populations — a name in both would mean one list describes the wrong
+    // mechanism.
+    for (const client of COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS) {
+      expect(COMMAND_EVE_HERMES_AUXILIARY_TASKS, `${client} appears in both populations`).not.toContain(client);
+    }
+  });
+
+  it('stamps the ONE choke point every direct client draws its body from', () => {
+    // All four import get_auxiliary_extra_body INSIDE the calling function (late
+    // binding), so patching this single module attribute reaches all of them — and
+    // reaches a direct client a future Hermes adds that follows the same idiom.
+    const bootstrapSource = fs.readFileSync(
+      fileURLToPath(
+        new URL('../../../packages/desktop/src/process/commandEve/runtimeBootstrapCore.ts', import.meta.url)
+      ),
+      'utf8'
+    );
+    expect(bootstrapSource).toContain(
+      'auxiliary_client.get_auxiliary_extra_body = command_eve_get_auxiliary_extra_body'
+    );
+
+    // THE ASSIGNMENT MUST BE UNCONDITIONAL. An earlier draft used setdefault, which
+    // preserves a value that is already there — so a preexisting `user_chat_turn`
+    // would have survived this choke point and turned an auxiliary into a PAID call
+    // with a hidden debit. That is the original defect rebuilt inside its own fix.
+    // A choke point a caller can pre-empt is not a choke point.
+    expect(bootstrapSource).toContain('_merged["eve_operation"] = "eve_auxiliary"');
+    expect(bootstrapSource, 'the direct-client declaration must overwrite, never setdefault').not.toContain(
+      '_merged.setdefault("eve_operation"'
+    );
+    // The call_llm wrapper has always assigned; pin that it stays that way too, so
+    // neither choke point can drift to a fail-open form.
+    expect(bootstrapSource).toContain('merged["eve_operation"] = operation');
+    expect(bootstrapSource).not.toContain('merged.setdefault("eve_operation"');
   });
 });
 

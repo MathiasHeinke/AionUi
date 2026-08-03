@@ -363,6 +363,27 @@ describe('MAT-1749 S3 — nothing unapproved spends: absent refuses, unknown goe
     expect(response.headers.get('x-command-eve-inference-lane')).toBe('ollama_local');
   });
 
+  it('runs a DIRECT auxiliary client locally — no metered call, no debit, no 403', async () => {
+    // goal_judge, kanban_decomposer, triage_specifier and profile_describer never
+    // touch call_llm: each takes a client from get_text_auxiliary_client and calls
+    // chat.completions.create itself. Until this was closed they arrived with NO
+    // declaration and were REFUSED — four shipped features hard-failing on a cloud
+    // tier. All four declare this one identity, so this is what all four now get.
+    const shimUrl = await startShimOnPaidLane();
+
+    const response = await postChat(shimUrl, {
+      model: 'custom:command-eve-gemma-64k:latest',
+      messages: USER_TURN,
+      eve_operation: 'eve_auxiliary',
+    });
+    const payload = (await response.json()) as { choices: Array<{ message: { content: string } }> };
+
+    expect(response.status, 'a direct auxiliary client must not be refused').toBe(200);
+    expect(metered!.debits, 'a direct auxiliary client must never debit').toHaveLength(0);
+    expect(local!.calls, 'a direct auxiliary client must reach the free lane').toHaveLength(1);
+    expect(payload.choices[0].message.content).toBe('Local Title About Invoices');
+  });
+
   // The real Hermes auxiliaries that genuinely reached the PAID lane before this fix
   // (FACT whl tools/web_tools.py:517, tools/vision_tools.py:968, tools/mcp_tool.py:1154,
   // tools/approval.py:1116, tools/tts_tool.py:1151). Each must now answer from the

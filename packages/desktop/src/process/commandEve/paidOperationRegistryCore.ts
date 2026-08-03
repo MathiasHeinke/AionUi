@@ -234,6 +234,37 @@ export const COMMAND_EVE_HERMES_AUXILIARY_TASKS: readonly string[] = [
   'call',
 ];
 
+/**
+ * MECHANISM 3 — the DIRECT auxiliary clients, and why this list has to exist.
+ *
+ * COMMAND_EVE_HERMES_AUXILIARY_TASKS above enumerates `call_llm` tasks. That is A
+ * population, not THE population, so a wheel pin built on it could only ever force
+ * re-classification for that one mechanism. These four clients take a client from
+ * `get_text_auxiliary_client()` and call `chat.completions.create()` themselves —
+ * invisible to any `task=` enumeration. Neither the classification nor the pin ever
+ * saw them, and all four hard-failed with a 403 on a cloud tier. A pin that measures
+ * the wrong population is this module's own defect one level up.
+ *
+ *   goal_judge         FACT(whl hermes_cli/goals.py:411, :440, :449)
+ *   kanban_decomposer  FACT(whl hermes_cli/kanban_decompose.py:310, :327, :336)
+ *   triage_specifier   FACT(whl hermes_cli/kanban_specify.py:171, :188, :197)
+ *   profile_describer  FACT(whl hermes_cli/profile_describer.py:222, :240, :249)
+ *
+ * These are the labels passed to `get_text_auxiliary_client`, NOT the declared
+ * operation: the body comes from `get_auxiliary_extra_body()`, which is fetched
+ * independently of the label, so all four declare the generic
+ * {@link COMMAND_EVE_DIRECT_AUXILIARY_OPERATION} — local_only, never payable.
+ */
+export const COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS: readonly string[] = [
+  'goal_judge',
+  'kanban_decomposer',
+  'triage_specifier',
+  'profile_describer',
+];
+
+/** What every direct auxiliary client declares. Registered local_only. */
+export const COMMAND_EVE_DIRECT_AUXILIARY_OPERATION = 'eve_auxiliary';
+
 /** The registered operations, for tests, receipts and diagnostics. */
 export function commandEveRegisteredOperations(): readonly string[] {
   return [...COMMAND_EVE_OPERATION_REGISTRY.keys()];
