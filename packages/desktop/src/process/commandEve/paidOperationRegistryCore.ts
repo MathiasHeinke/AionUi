@@ -195,6 +195,16 @@ const COMMAND_EVE_OPERATION_REGISTRY: ReadonlyMap<string, CommandEveOperationEnt
   // name instead, which also keeps ABSENT precise: it no longer means "an auxiliary
   // forgot to say", it means "the user's own turn lost its producer".
   ['eve_auxiliary', { lane: 'local_only', clientDeclarable: true }],
+  // MECHANISM 5 — the iteration-cap summary. Hermes hand-builds this request and
+  // calls chat.completions.create() on the PRIMARY client, deliberately bypassing the
+  // transport — its own comment says so, FACT(whl agent/chat_completion_helpers.py:
+  // 1328-1331) — so the profile hook never stamps it.
+  //
+  // LOCAL_ONLY, and the reason matters more than the entry. It runs inside a turn the
+  // user has ALREADY paid for, so billing it would put a SECOND metered call inside
+  // ONE user send and break the one-send-one-debit contract this registry exists to
+  // hold. `user_chat_turn` was the intuitive label here and the wrong one.
+  ['iteration_limit_summary', { lane: 'local_only', clientDeclarable: true }],
 ]);
 
 /**
@@ -264,6 +274,34 @@ export const COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS: readonly string[] = [
 
 /** What every direct auxiliary client declares. Registered local_only. */
 export const COMMAND_EVE_DIRECT_AUXILIARY_OPERATION = 'eve_auxiliary';
+
+/**
+ * MECHANISM 5 — the TRANSPORT-BYPASS seam, identified by the client `reason` the
+ * summary path asks for.
+ *
+ * `handle_max_iterations` hand-builds its request and calls
+ * `chat.completions.create()` on the primary client, so `build_api_kwargs_extras`
+ * never runs and nothing declares. Hermes documents the bypass itself —
+ * FACT(whl agent/chat_completion_helpers.py:1328-1331), written for a different
+ * reason (schema sanitisation) — which is exactly why this must be pinned: the
+ * bypass is DELIBERATE upstream and a version bump will not repair it.
+ *
+ *   iteration_limit_summary        FACT(whl agent/chat_completion_helpers.py:1470)
+ *   iteration_limit_summary_retry  FACT(whl agent/chat_completion_helpers.py:1513)
+ *
+ * These two literals appear at those two call sites and nowhere else in the wheel,
+ * which is what makes exact-equality scoping safe: every other reason
+ * (`chat_completion_request`, `chat_completion_stream_request`,
+ * `codex_stream_request`, `codex_stream_direct`) is untouched, so the MAIN lane
+ * cannot be affected by the producer patch.
+ */
+export const COMMAND_EVE_HERMES_TRANSPORT_BYPASS_SEAMS: readonly string[] = [
+  'iteration_limit_summary',
+  'iteration_limit_summary_retry',
+];
+
+/** What the iteration-cap summary declares. Registered local_only — never paid. */
+export const COMMAND_EVE_ITERATION_SUMMARY_OPERATION = 'iteration_limit_summary';
 
 /** The registered operations, for tests, receipts and diagnostics. */
 export function commandEveRegisteredOperations(): readonly string[] {

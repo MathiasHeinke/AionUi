@@ -29,6 +29,8 @@ import {
   COMMAND_EVE_DIRECT_AUXILIARY_OPERATION,
   COMMAND_EVE_HERMES_AUXILIARY_TASKS,
   COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS,
+  COMMAND_EVE_HERMES_TRANSPORT_BYPASS_SEAMS,
+  COMMAND_EVE_ITERATION_SUMMARY_OPERATION,
   commandEvePaidOperations,
   commandEveRegisteredOperations,
   resolveCommandEvePaidSeam,
@@ -101,6 +103,60 @@ describe('MAT-1749 — the auxiliary classification is pinned to the wheel it ca
     for (const client of COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS) {
       expect(COMMAND_EVE_HERMES_AUXILIARY_TASKS, `${client} appears in both populations`).not.toContain(client);
     }
+  });
+
+  it('pins the TRANSPORT-BYPASS seam too — the pin now describes all five mechanisms', () => {
+    // MECHANISM 5. Hermes documents this bypass in its own comment
+    // (FACT whl agent/chat_completion_helpers.py:1328-1331), written for schema
+    // sanitisation — so the bypass is DELIBERATE upstream and a version bump will not
+    // repair it. That is exactly why it must be pinned rather than assumed away.
+    expect(COMMAND_EVE_HERMES_TRANSPORT_BYPASS_SEAMS).toEqual([
+      'iteration_limit_summary',
+      'iteration_limit_summary_retry',
+    ]);
+
+    const decision = resolveCommandEvePaidSeam(COMMAND_EVE_ITERATION_SUMMARY_OPERATION);
+    expect(decision.disposition).toBe('local_only');
+    expect(commandEveRegisteredOperations()).toContain(COMMAND_EVE_ITERATION_SUMMARY_OPERATION);
+    expect(commandEvePaidOperations(), 'the iteration summary must never be payable').not.toContain(
+      COMMAND_EVE_ITERATION_SUMMARY_OPERATION
+    );
+
+    // All three populations stay disjoint — a name in two lists means one is
+    // describing the other's mechanism, which is how mechanism 3 went unseen.
+    const populations = [
+      COMMAND_EVE_HERMES_AUXILIARY_TASKS,
+      COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS,
+      COMMAND_EVE_HERMES_TRANSPORT_BYPASS_SEAMS,
+    ];
+    const all: string[] = [];
+    for (const population of populations) all.push(...population);
+    expect(new Set(all).size, 'the mechanism populations overlap').toBe(all.length);
+  });
+
+  it('installs the transport-bypass producer, scoped so the MAIN lane cannot be touched', () => {
+    const bootstrapSource = fs.readFileSync(
+      fileURLToPath(
+        new URL('../../../packages/desktop/src/process/commandEve/runtimeBootstrapCore.ts', import.meta.url)
+      ),
+      'utf8'
+    );
+
+    expect(bootstrapSource).toContain('def _install_command_eve_iteration_summary_declaration_patch() -> None:');
+    expect(bootstrapSource).toContain("'_install_command_eve_iteration_summary_declaration_patch()',");
+    expect(bootstrapSource).toContain(
+      'AIAgent._ensure_primary_openai_client = command_eve_ensure_primary_openai_client'
+    );
+    expect(bootstrapSource).toContain('_merged["eve_operation"] = "iteration_limit_summary"');
+
+    // SCOPING IS THE SAFETY PROPERTY. _ensure_primary_openai_client is on the MAIN
+    // lane's critical path, so the match must be exact-equality against the two known
+    // reasons, with every other reason returning the untouched client. A prefix match
+    // would be a standing invitation to catch a future main-lane reason.
+    expect(bootstrapSource).toContain('if reason not in _COMMAND_EVE_SUMMARY_REASONS:');
+    expect(bootstrapSource, 'the summary seam must not be matched by prefix').not.toContain(
+      'reason.startswith("iteration_limit_summary")'
+    );
   });
 
   it('stamps the ONE choke point every direct client draws its body from', () => {

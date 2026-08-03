@@ -173,6 +173,7 @@ describe('MAT-1749 registry — membership is the only way to the paid lane', ()
       'monitor',
       'call',
       'eve_auxiliary',
+      'iteration_limit_summary',
     ]);
     // The registered set grew when the auxiliaries were classified explicitly. The
     // PAYABLE set did not, and that is the only line here that can cost anyone money.
@@ -382,6 +383,52 @@ describe('MAT-1749 S3 — nothing unapproved spends: absent refuses, unknown goe
     expect(metered!.debits, 'a direct auxiliary client must never debit').toHaveLength(0);
     expect(local!.calls, 'a direct auxiliary client must reach the free lane').toHaveLength(1);
     expect(payload.choices[0].message.content).toBe('Local Title About Invoices');
+  });
+
+  it('runs the ITERATION-CAP SUMMARY locally — 200, free lane, no debit', async () => {
+    // MECHANISM 5. handle_max_iterations hand-builds its request and calls
+    // chat.completions.create() on the primary client, bypassing the transport that
+    // stamps every other main-lane call, so it arrived ABSENT and was refused —
+    // ending a long agentic turn with an error line instead of a summary.
+    const shimUrl = await startShimOnPaidLane();
+
+    const response = await postChat(shimUrl, {
+      model: 'custom:command-eve-gemma-64k:latest',
+      messages: USER_TURN,
+      eve_operation: 'iteration_limit_summary',
+    });
+
+    expect(response.status, 'the iteration-cap summary must not be refused').toBe(200);
+    expect(metered!.debits, 'the summary must never debit').toHaveLength(0);
+    expect(local!.calls, 'the summary must reach the free lane').toHaveLength(1);
+    expect(response.headers.get('x-command-eve-operation')).toBe('local_only:iteration_limit_summary');
+  });
+
+  it('ONE user send stays ONE debit even when the iteration-cap summary follows it', async () => {
+    // THE CONTRACT THIS WHOLE TICKET EXISTS FOR. The summary runs inside a turn the
+    // user has already paid for, so labelling it `user_chat_turn` — the intuitive
+    // choice — would have put a SECOND metered call inside ONE send and rebuilt the
+    // original defect. Both requests cross the same shim and the same recorder; the
+    // count after the summary must still be one.
+    const shimUrl = await startShimOnPaidLane();
+
+    const paidTurn = await postChat(shimUrl, {
+      model: 'custom:command-eve-gemma-64k:latest',
+      messages: USER_TURN,
+      eve_operation: 'user_chat_turn',
+    });
+    expect(paidTurn.status).toBe(200);
+    expect(metered!.debits, 'the user send itself must debit exactly once').toHaveLength(1);
+
+    const summary = await postChat(shimUrl, {
+      model: 'custom:command-eve-gemma-64k:latest',
+      messages: USER_TURN,
+      eve_operation: 'iteration_limit_summary',
+    });
+
+    expect(summary.status).toBe(200);
+    expect(metered!.debits, 'the summary added a second debit to one user send').toHaveLength(1);
+    expect(local!.calls, 'the summary must have been served locally').toHaveLength(1);
   });
 
   // The real Hermes auxiliaries that genuinely reached the PAID lane before this fix
