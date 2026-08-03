@@ -1369,15 +1369,17 @@ function registerCommandEveRuntimeBridge(): void {
 
 /**
  * Lane-aware startup warm-up dispatcher. Reads the SAME effective inference
- * selection the send path resolves and warms ONLY the lane the user will hit:
+ * selection the send path resolves, and warms at most the LOCAL lane:
  *
- *   - EVE tier active  → light cloud preflight (TLS/edge + license/reachability),
- *     never loading the bundled local model into VRAM the user may not use.
- *   - Local selected   → the existing bundled-Ollama model warm-up.
+ *   - EVE tier active  → NOTHING is warmed. Not the bundled local model, which the
+ *     user will not use — and not the cloud lane either, because warming that meant
+ *     sending a real METERED turn at every launch, a charge nobody authorised
+ *     (MAT-1749). Silent on purpose: a warning here would announce a decision, not a
+ *     fault, on every single cloud-tier start.
+ *   - Local selected   → the existing bundled-Ollama model warm-up, unchanged.
  *
- * Fail-soft on every branch (neither call can block app start or throw to the
- * user). `eveWarmup` is injected so the shim warmup primitives stay swappable in
- * tests; the local warm-up keeps its existing receipt/in-flight gating.
+ * Fail-soft (nothing here can block app start or throw to the user); the local
+ * warm-up keeps its existing receipt/in-flight gating.
  */
 function scheduleCommandEveLocalModelWarmup(
   receipt: CommandEveWarmupReceipt,

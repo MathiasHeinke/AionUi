@@ -83,12 +83,18 @@ describe('MAT-1749 — the auxiliary classification is pinned to the wheel it ca
  * run the wheel's interpreter, so these predicates mirror the source and the wheel is
  * sha-pinned above so the mirror cannot drift without a test failing first.
  *
- *   _is_payment_error    FACT(whl agent/auxiliary_client.py:2365-2373) — status in
- *                        {402, 404, 429, None} AND a billing keyword in the message.
- *   _is_auth_error       FACT(whl agent/auxiliary_client.py:2499-2513) — status 401,
- *                        or 403 ONLY when the message contains "bad-credentials".
- *   _is_rate_limit_error FACT(whl agent/auxiliary_client.py:2413-2428) — status 429,
- *                        or a RateLimitError instance.
+ * This is the COMPLETE set of predicates in the pinned wheel's except-chain. An
+ * earlier version of this file transcribed only three of them and omitted every
+ * quota keyword — a check named for a property it only partly measured, which is the
+ * defect class this ticket keeps finding.
+ *
+ *   _is_payment_error              FACT(whl agent/auxiliary_client.py:2353-2390)
+ *   _is_rate_limit_error           FACT(whl agent/auxiliary_client.py:2405-2439)
+ *   _is_auth_error                 FACT(whl agent/auxiliary_client.py:2499-2514)
+ *   _is_connection_error           FACT(whl agent/auxiliary_client.py:2442-2477)
+ *   _is_transient_transport_error  FACT(whl agent/auxiliary_client.py:2480-2496)
+ *   _is_model_not_found_error      FACT(whl agent/auxiliary_client.py:2560-2596)
+ *   _is_unsupported_parameter_error FACT(whl agent/auxiliary_client.py:2517-2548)
  */
 const HERMES_BILLING_KEYWORDS = [
   'credits',
@@ -102,15 +108,137 @@ const HERMES_BILLING_KEYWORDS = [
   'no usable credits',
   'model_not_supported_on_free_tier',
   'not available on the free tier',
+  'quota exceeded',
+  'quota_exceeded',
+  'too many tokens per day',
+  'daily limit',
+  'tokens per day',
+  'daily quota',
+  'resource exhausted',
+  'weekly usage limit',
+  'weekly limit',
 ];
 
-function hermesWouldRetryOnAnotherProvider(status: number, message: string): boolean {
+const HERMES_RATE_LIMIT_KEYWORDS = [
+  'rate limit',
+  'rate_limit',
+  'too many requests',
+  'try again',
+  'retry after',
+  'resets in',
+];
+
+const HERMES_CONNECTION_KEYWORDS = [
+  'connection refused',
+  'name or service not known',
+  'no route to host',
+  'network is unreachable',
+  'timed out',
+  'connection reset',
+  'incomplete chunked read',
+  'peer closed connection',
+  'response ended prematurely',
+  'unexpected eof',
+  'remoteprotocolerror',
+  'localprotocolerror',
+];
+
+const HERMES_MODEL_NOT_FOUND_KEYWORDS = [
+  'model does not exist',
+  'does not exist in our configuration',
+  'openrouter catalog',
+  'is not a valid model',
+  'no such model',
+  'model not found',
+  'the model `',
+  'model_not_found',
+  'unknown model',
+];
+
+const HERMES_UNSUPPORTED_PARAM_MARKERS = [
+  'unsupported parameter',
+  'unsupported_parameter',
+  'not supported',
+  'does not support',
+  'unknown parameter',
+  'unrecognized request argument',
+  'unrecognized parameter',
+  'invalid parameter',
+];
+
+/**
+ * Every trigger, evaluated the way the wheel evaluates it. `excTypeName` matters:
+ * several predicates key off the exception CLASS, not the payload.
+ */
+function hermesFallbackTriggers(status: number, message: string, excTypeName: string): string[] {
   const lower = message.toLowerCase();
-  const paymentError = [402, 404, 429].includes(status) && HERMES_BILLING_KEYWORDS.some((kw) => lower.includes(kw));
-  const authError = status === 401 || (status === 403 && lower.includes('bad-credentials'));
-  const rateLimitError = status === 429;
-  return paymentError || authError || rateLimitError;
+  const fired: string[] = [];
+
+  if ([402, 404, 429].includes(status) && HERMES_BILLING_KEYWORDS.some((kw) => lower.includes(kw))) {
+    fired.push('_is_payment_error');
+  }
+  if (status === 402) fired.push('_is_payment_error(402)');
+  if (
+    excTypeName === 'RateLimitError' ||
+    (status === 429 &&
+      (HERMES_RATE_LIMIT_KEYWORDS.some((kw) => lower.includes(kw)) ||
+        !HERMES_BILLING_KEYWORDS.some((kw) => lower.includes(kw))))
+  ) {
+    fired.push('_is_rate_limit_error');
+  }
+  if (
+    status === 401 ||
+    lower.includes('error code: 401') ||
+    excTypeName.toLowerCase().includes('authenticationerror') ||
+    (status === 403 && lower.includes('bad-credentials')) ||
+    (lower.includes('unauthenticated') && lower.includes('bad-credentials'))
+  ) {
+    fired.push('_is_auth_error');
+  }
+  if (
+    ['Connection', 'Timeout', 'DNS', 'SSL'].some((kw) => excTypeName.includes(kw)) ||
+    HERMES_CONNECTION_KEYWORDS.some((kw) => lower.includes(kw))
+  ) {
+    fired.push('_is_connection_error');
+  }
+  if (status === 408 || (status >= 500 && status < 600)) {
+    fired.push('_is_transient_transport_error');
+  }
+  if (
+    ![
+      'credits',
+      'insufficient funds',
+      'billing',
+      'out of funds',
+      'balance_depleted',
+      'no usable credits',
+      'free tier',
+      'free-tier',
+      'not available on the free tier',
+    ].some((kw) => lower.includes(kw)) &&
+    [404, 400].includes(status) &&
+    HERMES_MODEL_NOT_FOUND_KEYWORDS.some((kw) => lower.includes(kw))
+  ) {
+    fired.push('_is_model_not_found_error');
+  }
+  for (const param of ['temperature', 'max_tokens']) {
+    if (lower.includes(param) && HERMES_UNSUPPORTED_PARAM_MARKERS.some((m) => lower.includes(m))) {
+      fired.push(`_is_unsupported_parameter_error(${param})`);
+    }
+  }
+  return fired;
 }
+
+/**
+ * The EXACT refusal messages, pinned. Changing one is a deliberate act that has to
+ * be re-checked against every trigger above — a stray "billing" or "try again" in a
+ * refusal would silently hand the turn to an external provider.
+ */
+const COMMAND_EVE_REFUSAL_MESSAGES = {
+  absent: 'This request declared no Command EVE operation, so it may not use the paid lane.',
+  notClientDeclarable: 'This Command EVE operation cannot be claimed by a caller on the general lane.',
+  unregistered: 'This Command EVE operation is not registered for the paid lane.',
+} as const;
 
 const SHIM_JSON_HEADERS = {
   'content-type': 'application/json',
@@ -171,23 +299,40 @@ describe('MAT-1749 — a refusal is TERMINAL and cannot push the turn off-device
     expect(response.status).toBe(403);
     expect(meteredHits).toBe(0);
 
-    // THE CLAIM: this exact (status, message) pair matches none of Hermes' triggers,
-    // so the auxiliary client raises instead of re-running the turn on OpenRouter,
-    // Nous Portal or Anthropic. A refusal that leaked off-device would be worse than
-    // the overcharge this ticket exists to fix.
-    expect(
-      hermesWouldRetryOnAnotherProvider(response.status, message),
-      `refusal "${message}" would trigger Hermes provider fallback`
-    ).toBe(false);
+    // The message is one of the pinned safe strings, not merely "some 403".
+    expect(Object.values(COMMAND_EVE_REFUSAL_MESSAGES)).toContain(message);
 
-    // The specific ways it could go wrong, named so a future edit cannot reintroduce
-    // them by accident: never 401/402/429, and never billing-flavoured wording.
-    expect([401, 402, 404, 429]).not.toContain(response.status);
-    expect(message.toLowerCase()).not.toContain('bad-credentials');
-    for (const keyword of HERMES_BILLING_KEYWORDS) {
-      expect(message.toLowerCase(), `refusal message must not contain the billing keyword "${keyword}"`).not.toContain(
-        keyword
-      );
+    // THE CLAIM: this exact (status, message, exception-class) triple matches NONE of
+    // the wheel's triggers, so the auxiliary client raises instead of re-running the
+    // turn on OpenRouter, Nous Portal or Anthropic. A refusal that leaked off-device
+    // would be worse than the overcharge this ticket exists to fix.
+    //
+    // INFERENCE: the OpenAI Python SDK raises PermissionDeniedError for 403. Both the
+    // specific class and a generic status error are checked so the conclusion does not
+    // rest on that mapping alone.
+    for (const excTypeName of ['PermissionDeniedError', 'APIStatusError']) {
+      const fired = hermesFallbackTriggers(response.status, message, excTypeName);
+      expect(fired, `refusal "${message}" as ${excTypeName} would trigger: ${fired.join(', ')}`).toEqual([]);
     }
+  });
+
+  it('every pinned refusal message is inert against every trigger, at its own status', () => {
+    // Checks the messages directly as well as through the wire, so a message edited
+    // in the registry core is caught even if no route currently emits it.
+    for (const [label, message] of Object.entries(COMMAND_EVE_REFUSAL_MESSAGES)) {
+      const fired = hermesFallbackTriggers(403, message, 'PermissionDeniedError');
+      expect(fired, `${label} refusal would trigger: ${fired.join(', ')}`).toEqual([]);
+    }
+  });
+
+  it('the trigger transcription is live — it fires on inputs that SHOULD reroute', () => {
+    // A checker that never fires proves nothing. These are the shapes Hermes really
+    // does reroute on, so if this test stops going red the transcription has rotted.
+    expect(hermesFallbackTriggers(402, 'payment required', 'APIStatusError')).not.toEqual([]);
+    expect(hermesFallbackTriggers(429, 'rate limit exceeded', 'APIStatusError')).toContain('_is_rate_limit_error');
+    expect(hermesFallbackTriggers(401, 'unauthorized', 'AuthenticationError')).toContain('_is_auth_error');
+    expect(hermesFallbackTriggers(503, 'upstream boom', 'APIStatusError')).toContain('_is_transient_transport_error');
+    expect(hermesFallbackTriggers(404, 'quota exceeded', 'APIStatusError')).toContain('_is_payment_error');
+    expect(hermesFallbackTriggers(0, 'connection refused', 'APIConnectionError')).toContain('_is_connection_error');
   });
 });

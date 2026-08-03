@@ -30,6 +30,20 @@
  * does not know still runs — locally, for free. The one exception is an operation
  * that names itself NOTHING, which is refused loudly; see resolveCommandEvePaidSeam.
  *
+ * KNOWN LIMITATION, ACCEPTED FOR 1.820.1 — READ THIS BEFORE "FIXING" IT.
+ *
+ * local_only operations require a working LOCAL lane. On a CLOUD-ONLY seat with no
+ * live local model, an auxiliary routed here fails VISIBLY — the local upstream is
+ * unreachable, so the caller sees a 502 — instead of quietly falling back to the paid
+ * lane. That is DELIBERATE. The alternative, letting an auxiliary reach the metered
+ * provider whenever local is missing, is precisely the defect this module exists to
+ * close: one user message, two debits, the second for something never requested.
+ *
+ * A visible failure on a cloud-only seat is therefore the accepted cost, ratified by
+ * the Founder for 1.820.1. Do NOT restore paid auxiliary fallback to make the error
+ * go away; that re-creates the original bug with better manners. A consented,
+ * single-receipt auxiliary strategy is queued for 1.820.2 and is where this belongs.
+ *
  * THE CARRIER — why the operation rides the BODY and not `X-EVE-Dispatch`.
  *
  * The brief asked for the existing `X-EVE-Dispatch` header unless there is a

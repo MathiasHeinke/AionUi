@@ -286,14 +286,37 @@ describe('MAT-1749 S1/S5 — title_generation costs the customer nothing', () =>
     expect(metered!.debits).toHaveLength(0);
   });
 
-  it('never leaks the operation declaration to any provider', async () => {
+  it('never leaks the operation declaration to the LOCAL provider', async () => {
     const shimUrl = await startShimOnPaidLane();
     await postChat(shimUrl, {
       model: 'custom:command-eve-gemma-64k:latest',
       messages: USER_TURN,
       eve_operation: 'title_generation',
     });
+    expect(local!.calls).toHaveLength(1);
     expect(local!.calls[0]).not.toHaveProperty('eve_operation');
+  });
+
+  it('never leaks the operation declaration to the METERED provider', async () => {
+    // This assertion used to live inside a test named "to ANY provider" that only
+    // ever inspected the LOCAL body — a test named for a property it did not
+    // measure, which is the defect class this whole ticket keeps turning up. The
+    // metered body is the one that leaves the machine, so it is the one to check.
+    const shimUrl = await startShimOnPaidLane();
+    await postChat(shimUrl, {
+      model: 'custom:command-eve-gemma-64k:latest',
+      messages: USER_TURN,
+      eve_operation: 'user_chat_turn',
+    });
+
+    expect(metered!.debits).toHaveLength(1);
+    const outbound = metered!.debits[0].body;
+    expect(outbound, 'the routing signal reached the paid provider').not.toHaveProperty('eve_operation');
+    // The outbound body is an allowlist, so prove the shape is the intended one and
+    // not merely missing this one key.
+    expect(outbound).toHaveProperty('messages');
+    expect(outbound).toHaveProperty('tier');
+    expect(outbound).not.toHaveProperty('model');
   });
 });
 
@@ -489,20 +512,19 @@ describe('MAT-1749 — the free lanes stay free and stay permissive', () => {
 
 describe('MAT-1749 — the guard sits in front of the money and stays there', () => {
   /**
-   * THIS ONE IS A STRUCTURAL PIN, AND SAYS SO.
+   * A STRUCTURAL PIN, AND IT SAYS SO — but it is no longer what proves this seam.
    *
-   * `handleEveCloudCompletions` is the only function that requests a metered
-   * provider, and it re-asserts the registry before doing so. That assertion is
-   * defence in depth: `handleChatCompletions` already routes local_only and refused
-   * operations away, so today NO reachable request can arrive here with an
-   * unpayable operation — which means no behavioural test can redden when it is
-   * deleted. A guard nothing can prove is a guard that quietly rots, so its presence
-   * and its ORDERING relative to the egress are pinned here instead.
+   * It used to be the only guard here, because the router refused before the egress
+   * function ran: no reachable request could arrive unpayable, so no behavioural
+   * test could redden when the guard was neutralised. Sol defeated exactly that on
+   * e40c3396 — literal deletion reddened this pin, `false && …` did not.
    *
-   * What this protects: a future call site added next to the two that exist now.
-   * It would inherit the right to spend the moment this assertion is gone.
+   * The payability decision now lives ONLY in the egress function, so the
+   * behavioural tests below observe a real debit the moment it is neutralised by any
+   * means. This pin stays as a cheap ordering assertion — the decision must precede
+   * the fetch — not as the proof.
    */
-  it('re-asserts the registry BEFORE the metered fetch, in the only function that egresses', async () => {
+  it('consults the registry BEFORE the metered fetch, in the only function that egresses', async () => {
     const fs = await import('fs');
     const url = await import('url');
     const shimPath = url.fileURLToPath(
@@ -516,12 +538,55 @@ describe('MAT-1749 — the guard sits in front of the money and stays there', ()
     const nextFunctionOffset = bodyAfterStart.indexOf('\nasync function ');
     const body = nextFunctionOffset === -1 ? bodyAfterStart : bodyAfterStart.slice(0, nextFunctionOffset);
 
-    const guardOffset = body.indexOf('isCommandEvePaidOperation(operation)');
+    const guardOffset = body.indexOf('resolveCommandEvePaidSeam(operation, operationSource)');
     const egressOffset = body.indexOf('await fetch(functionUrl');
 
     expect(guardOffset, 'the paid-operation assertion is missing from the egress function').toBeGreaterThan(-1);
     expect(egressOffset, 'the metered fetch was not found — this pin needs updating').toBeGreaterThan(-1);
     expect(guardOffset, 'the registry must be consulted BEFORE the metered request').toBeLessThan(egressOffset);
+  });
+
+  /**
+   * THE ANTI-NEUTRALISATION TESTS. These are the ones that matter.
+   *
+   * The property: if the payability decision at the final egress is defeated by ANY
+   * means — `false &&`, inverting the comparison, short-circuiting it, stubbing the
+   * predicate to a constant — a request that may not spend reaches the metered
+   * recorder, and the recorder counts every request it receives as a debit. There is
+   * no flag to read and no source string to match; the assertion is on observed
+   * traffic, which no rewrite of the condition can fake.
+   *
+   * Verified against two different neutralisation shapes, because one shape proves
+   * one shape.
+   */
+  it('an ABSENT operation cannot reach the metered host, however the guard is written', async () => {
+    const shimUrl = await startShimOnPaidLane();
+
+    const response = await postChat(shimUrl, {
+      model: 'custom:command-eve-gemma-64k:latest',
+      messages: USER_TURN,
+    });
+
+    expect(metered!.debits, 'an undeclared turn reached the metered host').toHaveLength(0);
+    expect(response.status).toBe(403);
+    expect(response.headers.get('x-command-eve-operation')).toBe('refused:absent');
+    // It must not even claim the cloud lane on the way out.
+    expect(response.headers.get('x-command-eve-inference-lane')).toBeNull();
+  });
+
+  it('a caller-claimed structural rung cannot reach the metered host either', async () => {
+    const shimUrl = await startShimOnPaidLane();
+
+    const response = await postChat(shimUrl, {
+      model: 'custom:command-eve-gemma-64k:latest',
+      messages: USER_TURN,
+      eve_operation: 'honcho_deriver',
+    });
+
+    expect(metered!.debits, 'a borrowed deriver rung reached the metered host').toHaveLength(0);
+    expect(response.status).toBe(403);
+    expect(response.headers.get('x-command-eve-operation')).toBe('refused:not_client_declarable');
+    expect(response.headers.get('x-command-eve-inference-lane')).toBeNull();
   });
 });
 

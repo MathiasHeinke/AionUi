@@ -18,9 +18,9 @@ import {
 import {
   COMMAND_EVE_OPERATION_DECISION_HEADER,
   commandEvePaidSeamRefusalBody,
-  isCommandEvePaidOperation,
   readCommandEveDeclaredOperation,
   resolveCommandEvePaidSeam,
+  type CommandEvePaidSeamSource,
 } from './paidOperationRegistryCore';
 import { isLegacySeatId, sanitizeSeatId } from './seatContextCore';
 import { isCommandEveShimPublicError } from './shimPublicError';
@@ -1221,21 +1221,36 @@ async function handleEveCloudCompletions(
   // background reasoning, so it must never auto-send raw secrets/finance/health to
   // the cloud LLM. Omitted/false ⇒ chat behaviour is byte-identical.
   neverWaiveSecretFloor = false,
-  // MAT-1749: the REGISTERED operation this metered call is being made FOR. Defaults
-  // to '' so a call site added later that forgets to declare one fails CLOSED here
-  // rather than inheriting the right to spend.
-  operation = ''
+  // MAT-1749: the operation this metered call is being made FOR. Defaults to '' so a
+  // call site added later that forgets to declare one fails CLOSED here rather than
+  // inheriting the right to spend.
+  operation = '',
+  // WHO named the operation: 'client' when it was read out of a request body (the
+  // general lane), 'shim' when this process minted it from the ingress the caller
+  // reached (the deriver lane). Defaults to the stricter of the two.
+  operationSource: CommandEvePaidSeamSource = 'client'
 ): Promise<void> {
-  // THE MONEY CHOKEPOINT. This is the only function in the shim that requests a
-  // metered provider, so this is where the registry must hold — not merely at the
-  // router that happens to call it today. handleChatCompletions already routes
-  // local_only away from here; this assertion is what makes that structural,
-  // guaranteeing no future path can reach a paid provider with an operation the
-  // registry does not list as payable.
-  if (!isCommandEvePaidOperation(operation)) {
-    jsonResponse(response, 403, commandEvePaidSeamRefusalBody(resolveCommandEvePaidSeam(operation, 'shim')));
+  // THE MONEY CHOKEPOINT — AND THE ONLY PLACE THE PAYABILITY DECISION IS TAKEN.
+  //
+  // This used to be a SECOND copy of a decision the router had already made, and
+  // that is precisely why it could be defeated: the router refused first, so
+  // rewriting this as `false && …` left every test green (Sol, zange on e40c3396).
+  // A guard whose neutralisation nothing can observe is a guard nobody can prove.
+  //
+  // The router now decides only the LANE — local_only never arrives here — and
+  // delegates the money question to this function, the single thing standing between
+  // a request and a metered provider. Neutralise it by any means and an undeclared
+  // turn reaches the recorder, which committed tests observe as a debit.
+  const seam = resolveCommandEvePaidSeam(operation, operationSource);
+  if (seam.disposition !== 'paid') {
+    response.setHeader(COMMAND_EVE_OPERATION_DECISION_HEADER, `refused:${seam.reason ?? 'not_payable'}`);
+    jsonResponse(response, 403, commandEvePaidSeamRefusalBody(seam));
     return;
   }
+  // Content-free route proof consumed by the bounded compression receipt. Set only
+  // AFTER the money question is settled, so a refusal never claims a cloud lane.
+  response.setHeader('x-command-eve-inference-lane', 'eve_cloud');
+  response.setHeader(COMMAND_EVE_OPERATION_DECISION_HEADER, `paid:${seam.operation}`);
   const functionUrl = typeof route.functionUrl === 'string' ? route.functionUrl.trim() : '';
   const license = typeof route.license === 'string' ? route.license.trim() : '';
   // HONEST TIER ROUTING (1.2.19): the wire tier is the user's ACTUAL selection,
@@ -1750,7 +1765,20 @@ async function handleHonchoDeriverCompletions(
   // by the shim, because the caller reached the dedicated deriver ingress — not by
   // anything the client sent. `body` above is a fresh allowlisted object, so a
   // client-supplied `eve_operation` was already dropped and cannot borrow this rung.
-  await handleEveCloudCompletions(request, body, response, options, forcedRoute, undefined, true, 'honcho_deriver');
+  // 'shim' source: this process minted the rung from the ingress the caller reached,
+  // so it is not a claim anyone made in a body and cannot be borrowed from the
+  // general lane.
+  await handleEveCloudCompletions(
+    request,
+    body,
+    response,
+    options,
+    forcedRoute,
+    undefined,
+    true,
+    'honcho_deriver',
+    'shim'
+  );
 }
 
 export function localOpenAiPayload(
@@ -1941,21 +1969,18 @@ async function handleChatCompletions(
       // Consulted HERE, before any cloud handling, so a refusal costs nothing: no
       // provider request, no reservation, no debit. Local lanes stay permissive —
       // this branch is only reached when the resolved route is the METERED one.
-      const seam = resolveCommandEvePaidSeam(readCommandEveDeclaredOperation(body));
-      if (seam.disposition === 'refused') {
-        // ABSENT REFUSES. Until now a missing declaration fell through to a valid
-        // identity, and that default is what billed a customer for a title they
-        // never asked for. An unnamed operation does not get to spend.
-        response.setHeader(COMMAND_EVE_OPERATION_DECISION_HEADER, `refused:${seam.reason}`);
-        jsonResponse(response, 403, commandEvePaidSeamRefusalBody(seam));
-        return;
-      }
-      if (seam.disposition === 'paid') {
-        // Content-free route proof consumed by the bounded compression receipt.
-        // This reveals no model/tier and lets local-only tests prove that the
-        // authenticated loopback shim did not choose an external lane.
-        response.setHeader('x-command-eve-inference-lane', 'eve_cloud');
-        response.setHeader(COMMAND_EVE_OPERATION_DECISION_HEADER, `paid:${seam.operation}`);
+      const declaredOperation = readCommandEveDeclaredOperation(body);
+      const seam = resolveCommandEvePaidSeam(declaredOperation);
+      if (seam.disposition !== 'local_only') {
+        // NOT the money decision — that belongs to handleEveCloudCompletions, which
+        // is the only function that can actually spend. This branch decides LANE
+        // only: anything not routed to local is handed to the egress function, which
+        // refuses an absent or unclaimable operation itself (403, no upstream call).
+        //
+        // Duplicating the payability test here is what made the egress guard
+        // unprovable: with the router refusing first, neutralising the real guard
+        // changed nothing any test could see.
+        //
         // SG-1 A1: the attribution token rides the X-EVE-Dispatch HEADER, never the
         // body — so a client that stuffs `body.agent_id` cannot spoof a role.
         const dispatchToken = headerToken(request.headers['x-eve-dispatch']);
@@ -1967,7 +1992,8 @@ async function handleChatCompletions(
           eveRoute,
           dispatchToken,
           false,
-          seam.operation
+          declaredOperation,
+          'client'
         );
         return;
       }
