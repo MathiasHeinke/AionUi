@@ -1807,43 +1807,41 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
 
 describe('warmCommandEveEveLane — EVE cloud preflight', () => {
   /**
-   * MAT-1749 CHANGED THIS CONTRACT ON PURPOSE — and it is a product decision, not a
-   * test repair. This preflight used to send a real 1-token turn to the metered
-   * eve-inference function at app start, so every launch on a cloud tier bought a
-   * warm lane with the customer's credits for something the customer never asked
-   * for. That is the same family as the unrequested title this ticket exists to
-   * close, so the preflight is NOT on the registry's paid list and is now refused
-   * before any metered call.
+   * MAT-1749 CHANGED THIS CONTRACT ON PURPOSE — a product decision, not a test
+   * repair. This preflight used to send a real 1-token turn to the metered
+   * eve-inference function at app start, its payload shaped (in its own comment) so
+   * the request "is NOT classified as a local warm-up and is routed through the EVE
+   * cloud lane instead". Every launch on a cloud tier therefore bought a warm lane
+   * with the customer's credits for something nobody asked for.
    *
-   * The seat loses a latency optimisation; it does not lose money. Making it work
-   * again is a ONE-LINE registry decision the founder can take deliberately — it
-   * must not be taken by a test quietly declaring itself a user chat turn.
+   * It now issues NO REQUEST. Leaving the shim to refuse it was rejected: a refusal
+   * is still an authenticated request and still warned on every start, which teaches
+   * operators to ignore warnings.
+   *
+   * The seat loses a latency optimisation; it does not lose money. Edge warming can
+   * return against a dedicated NON-METERED health endpoint — and that is the change
+   * that should replace the early return, not a quiet re-registration.
    */
-  it('no longer buys a warm cloud lane: the preflight is refused before any metered call', async () => {
-    let ollamaSeen = false;
-    const ollamaBaseUrl = await startFakeOpenAiServer(() => {
-      ollamaSeen = true;
-    });
-    const fnSeen: EveFnSeen = {};
-    const fnUrl = await startFakeEveFunction(fnSeen);
-
-    shimServerUrl = await startCommandEveOllamaOpenAiShim({
-      port: 0,
-      ollamaBaseUrl,
-      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+  it('issues NO request at all — nothing to the shim, nothing to a provider, nothing to bill', async () => {
+    let shimHits = 0;
+    // This server stands in for the loopback shim. Relying on the shim to REFUSE was
+    // not enough: a refusal is still an authenticated request, and it still produced
+    // a console warning on every cloud-tier launch. The claim now is stronger and
+    // simpler — nothing is sent, so this recorder must never observe anything.
+    const shimStandIn = await startFakeOpenAiServer(() => {
+      shimHits += 1;
     });
 
-    const result = await warmCommandEveEveLane({ baseUrl: shimServerUrl, tier: 'standard', timeoutMs: 5_000 });
+    const result = await warmCommandEveEveLane({ baseUrl: shimStandIn, tier: 'standard', timeoutMs: 5_000 });
 
-    // THE MONEY CLAIM: the metered function was never called, so a launch cannot bill.
-    expect(fnSeen.body).toBeUndefined();
-    expect(result.ok).toBe(false);
-    expect(result.status).toBe(403);
-    // And it did not quietly warm the local model instead — it simply did nothing.
-    expect(ollamaSeen).toBe(false);
+    expect(shimHits).toBe(0);
+    // A first-class SKIP, not a failure: there is no status because nothing answered.
+    expect(result.skipped).toBe(true);
+    expect(result.status).toBeUndefined();
+    expect(result.tier).toBe('standard');
   });
 
-  it('stays fail-soft when the EVE license is missing (reports ok:false, never throws)', async () => {
+  it('skips without throwing, whatever the license or route state is', async () => {
     const fnSeen: EveFnSeen = {};
     const fnUrl = await startFakeEveFunction(fnSeen);
 
@@ -1855,12 +1853,9 @@ describe('warmCommandEveEveLane — EVE cloud preflight', () => {
 
     const result = await warmCommandEveEveLane({ baseUrl: shimServerUrl, tier: 'standard', timeoutMs: 5_000 });
 
-    // Startup must survive a refusal: fail-soft result, no throw.
-    expect(result.ok).toBe(false);
-    // The operation seam now answers BEFORE the license check, so an unregistered
-    // preflight is refused (403) rather than reported as an auth problem (401).
-    expect(result.status).toBe(403);
-    // Fail-closed at the shim: no request reached the function.
+    // Startup must survive this quietly. The licence no longer matters because the
+    // question is never asked.
+    expect(result.skipped).toBe(true);
     expect(fnSeen.body).toBeUndefined();
   });
 

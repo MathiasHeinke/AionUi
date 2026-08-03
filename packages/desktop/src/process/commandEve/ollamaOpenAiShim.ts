@@ -466,6 +466,15 @@ export type CommandEveEveLaneWarmupResult = {
   /** HTTP status the shim/function returned, when a response was received. */
   status?: number;
   error?: string;
+  /**
+   * MAT-1749: the preflight declined to run and issued NO request at all.
+   *
+   * A first-class outcome, not a failure. `ok: false` on its own reads as "the
+   * cloud lane is broken" and gets logged as a warning on every launch; `skipped`
+   * says nothing was attempted, nothing was billed, and there is nothing to
+   * investigate.
+   */
+  skipped?: boolean;
 };
 
 export type CommandEvePromptProof = {
@@ -2630,54 +2639,24 @@ export async function warmCommandEveEveLane(
     };
   }
 
-  const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), warmupOptions.timeoutMs ?? 30_000);
-  try {
-    const response = await fetch(chatCompletionsUrl(baseUrl), {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${warmupOptions.authToken || ensureCommandEveShimAuthToken()}`,
-      },
-      redirect: 'error',
-      signal: abortController.signal,
-      body: JSON.stringify({
-        // A tiny EVE-persona system message keeps the prompt-proof marker happy;
-        // the non-"ping" user content ensures the request is NOT classified as a
-        // local warm-up and is routed through the EVE cloud lane instead.
-        messages: [
-          { role: 'system', content: 'EVE Operating Rule: warm-up preflight.' },
-          { role: 'user', content: 'warm up' },
-        ],
-        max_tokens: 1,
-        stream: false,
-      }),
-    });
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      return {
-        ok: false,
-        elapsedMs: Date.now() - startedAt,
-        tier,
-        status: response.status,
-        error: text || `EVE preflight failed (${response.status})`,
-      };
-    }
-    await response.arrayBuffer().catch((): undefined => undefined);
-    return {
-      ok: true,
-      elapsedMs: Date.now() - startedAt,
-      tier,
-      status: response.status,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      elapsedMs: Date.now() - startedAt,
-      tier,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
+  // MAT-1749 — NO REQUEST IS ISSUED. There is deliberately no fetch below this line.
+  //
+  // This used to POST a one-token turn shaped, in its own words, so that it "is NOT
+  // classified as a local warm-up and is routed through the EVE cloud lane instead".
+  // That made every launch on a cloud tier a metered turn. Starting an app is not a
+  // user-authorised billable action, so warming the edge is not a cost we may pass on.
+  //
+  // Letting the shim's operation allowlist refuse it was not good enough: a refusal
+  // still sends an authenticated request and still produced a startup warning every
+  // time. Declining here, before any I/O, is the only version with nothing to explain.
+  //
+  // The function is KEPT rather than deleted so a future NON-METERED health endpoint
+  // has an obvious place to land — at which point this early return is what changes.
+  return {
+    ok: false,
+    skipped: true,
+    elapsedMs: Date.now() - startedAt,
+    tier,
+    error: 'Cloud preflight is disabled: app start is not a user-authorised billable action.',
+  };
 }

@@ -58,6 +58,35 @@ describe('Command EVE runtime bridge registration', () => {
     expect(warmupSource).not.toContain("lane = { lane: 'local' }");
   });
 
+  it('never schedules a cloud inference warm-up, and never warns about not doing it', () => {
+    // MAT-1749. Startup used to fire a metered EVE turn to warm the edge, then warn
+    // whenever that failed. Both are gone: no scheduler call, so no request and no
+    // per-launch warning. A warning here would describe a decision, not a problem,
+    // and would train operators to ignore the warnings that do matter.
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const warmupStart = source.indexOf('function scheduleCommandEveLocalModelWarmup(');
+    const warmupEnd = source.indexOf('function registerCronResumeBridge(', warmupStart);
+    const warmupSource = source.slice(warmupStart, warmupEnd);
+
+    const eveBranchStart = warmupSource.indexOf("if (lane.lane === 'eve') {");
+    const eveBranchEnd = warmupSource.indexOf('// Local lane:', eveBranchStart);
+    expect(eveBranchStart).toBeGreaterThan(-1);
+    expect(eveBranchEnd).toBeGreaterThan(eveBranchStart);
+    const eveBranch = warmupSource.slice(eveBranchStart, eveBranchEnd);
+
+    // The cloud branch does nothing and says nothing. (The lane-RESOLUTION failure
+    // above it still warns, and should — that one is a genuine problem.)
+    expect(eveBranch).not.toContain('console.warn');
+    expect(eveBranch).not.toContain('Warmup(');
+    expect(warmupSource).not.toContain('scheduleCommandEveEveLaneWarmup');
+    expect(warmupSource).not.toContain('eveWarmup');
+    // Gone from the file, not merely unreferenced from this branch.
+    expect(source).not.toContain('function scheduleCommandEveEveLaneWarmup(');
+    // The LOCAL model warm-up must survive untouched — this fix must not cost the
+    // local lane its warm start.
+    expect(warmupSource).toContain('ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmup, mark)');
+  });
+
   it('gates every managed local route on the exact release receipt and never downloads from chat', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
     const resolverStart = source.indexOf('function buildCommandEveManagedLocalOpenAiRoutingResolver(');

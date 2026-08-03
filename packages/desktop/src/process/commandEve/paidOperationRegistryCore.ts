@@ -163,7 +163,62 @@ const COMMAND_EVE_OPERATION_REGISTRY: ReadonlyMap<string, CommandEveOperationEnt
   ['title_generation', { lane: 'local_only', clientDeclarable: true }],
   ['context_compression', { lane: 'local_only', clientDeclarable: true }],
   ['compression', { lane: 'local_only', clientDeclarable: true }],
+  // --- the remaining Hermes 0.17 auxiliaries, classified EXPLICITLY -------------
+  // Behaviourally identical to leaving them unregistered (both resolve local_only),
+  // but naming them is the point: the set a shipped Hermes can reach is now a
+  // decision on the record, pinned by COMMAND_EVE_HERMES_AUXILIARY_TASKS below.
+  ['web_extract', { lane: 'local_only', clientDeclarable: true }],
+  ['vision', { lane: 'local_only', clientDeclarable: true }],
+  ['mcp', { lane: 'local_only', clientDeclarable: true }],
+  ['approval', { lane: 'local_only', clientDeclarable: true }],
+  ['tts_audio_tags', { lane: 'local_only', clientDeclarable: true }],
+  ['monitor', { lane: 'local_only', clientDeclarable: true }],
+  ['call', { lane: 'local_only', clientDeclarable: true }],
+  // Hermes has auxiliary call sites that pass NO task at all — FACT(whl
+  // agent/plugin_llm.py:949-950, `task=None`) and FACT(whl trajectory_compressor.py:
+  // 649-655, no task kwarg). With no name of their own they would arrive ABSENT and
+  // be REFUSED, breaking real paths. The declaration patch gives them this generic
+  // name instead, which also keeps ABSENT precise: it no longer means "an auxiliary
+  // forgot to say", it means "the user's own turn lost its producer".
+  ['eve_auxiliary', { lane: 'local_only', clientDeclarable: true }],
 ]);
+
+/**
+ * The auxiliary tasks a SHIPPED Hermes 0.17 can actually reach.
+ *
+ * Read off the bundled wheel, whose sha256 is pinned by the compatibility test, so a
+ * Hermes bump forces this classification to be re-made deliberately:
+ *   title_generation  FACT(whl agent/title_generator.py:58)
+ *   compression       FACT(whl agent/context_compressor.py:1500)
+ *   web_extract       FACT(whl tools/web_tools.py:517, :668; tools/browser_tool.py:2258)
+ *   vision            FACT(whl tools/vision_tools.py:968, :1453; tools/browser_tool.py:3298)
+ *   mcp               FACT(whl tools/mcp_tool.py:1154)
+ *   approval          FACT(whl tools/approval.py:1116)
+ *   tts_audio_tags    FACT(whl tools/tts_tool.py:1151)
+ *   monitor           FACT(whl cron/scripts/classify_items.py:167)
+ *   call              FACT(whl plugins/teams_pipeline/pipeline.py:513)
+ *
+ * DELIBERATELY ABSENT: `session_search` and `skills_hub`. Both are named in the
+ * `call_llm` docstring (whl agent/auxiliary_client.py:5189-5191) but neither appears
+ * as a `task=` at any call site in this wheel. They were reported as reachable
+ * earlier in this ticket on the strength of that docstring alone — a docstring is not
+ * a call site, and the correction is recorded here so it is not re-made.
+ *
+ * NONE of these is payable. Only the user's own turn and the structurally minted
+ * deriver are; this ticket exists because an auxiliary charge nobody asked for
+ * reached a customer's bill.
+ */
+export const COMMAND_EVE_HERMES_AUXILIARY_TASKS: readonly string[] = [
+  'title_generation',
+  'compression',
+  'web_extract',
+  'vision',
+  'mcp',
+  'approval',
+  'tts_audio_tags',
+  'monitor',
+  'call',
+];
 
 /** The registered operations, for tests, receipts and diagnostics. */
 export function commandEveRegisteredOperations(): readonly string[] {

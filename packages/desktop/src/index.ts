@@ -1345,46 +1345,27 @@ function registerCommandEveRuntimeBridge(): void {
     });
 }
 
-type CommandEveEveLaneWarmup = (options: {
-  baseUrl?: string;
-  tier?: string;
-  timeoutMs?: number;
-}) => Promise<{ ok: boolean; elapsedMs: number; tier: string; status?: number; error?: string }>;
-
-/**
- * Fire a LIGHT EVE Inference (cloud) preflight at startup so the first real EVE
- * turn is fast: it warms the TLS/edge path to the eve-inference function and
- * verifies the CEVE license + reachability while the user is still typing. Goes
- * through the loopback shim (same egress-boundary-safe path the send lane uses).
+/*
+ * MAT-1749 — THE CLOUD STARTUP PREFLIGHT IS GONE, NOT MERELY REFUSED.
  *
- * Fail-soft: warm-up never blocks app start and never throws to the user — a
- * preflight failure (no license, unreachable, blocked) is logged only. The
- * user's first real turn surfaces the same error through the normal path.
+ * There used to be a `scheduleCommandEveEveLaneWarmup` here that fired a light EVE
+ * Inference preflight at startup to warm the TLS/edge path. Its own payload comment
+ * said it was shaped so the request "is NOT classified as a local warm-up and is
+ * routed through the EVE cloud lane instead" — which is to say every launch on a
+ * cloud tier issued a real metered turn. Launching the app is not a user-authorised
+ * billable action, so the charge was never ours to make.
+ *
+ * Deleting the scheduler rather than leaning on the shim's 403 is deliberate. A
+ * refusal still costs an authenticated request and still produced a console warning
+ * on EVERY cloud-tier start, which trains operators to ignore warnings. No request
+ * is the only version of this with nothing to explain away.
+ *
+ * Edge warming can come back the moment there is a dedicated NON-METERED health
+ * endpoint to warm it against. `warmCommandEveEveLane` is kept (as a no-request
+ * skip) so that future wiring has something to attach to.
+ *
+ * The LOCAL model warm-up below is untouched.
  */
-function scheduleCommandEveEveLaneWarmup(
-  shimUrl: string,
-  tier: string | undefined,
-  eveWarmup: CommandEveEveLaneWarmup,
-  mark?: (label: string) => void
-): void {
-  void eveWarmup({ baseUrl: shimUrl, tier, timeoutMs: 30_000 })
-    .then((result) => {
-      if (result.ok) {
-        console.info(`[Command EVE] EVE Inference preflight ready: ${result.tier} (${result.elapsedMs}ms)`);
-        mark?.(`commandEveEvePreflight (${result.elapsedMs}ms)`);
-      } else {
-        console.warn(
-          `[Command EVE] EVE Inference preflight not ready (non-blocking): ${result.error || 'unknown error'}` +
-            (result.status ? ` [status ${result.status}]` : '')
-        );
-      }
-    })
-    .catch((error) => {
-      // Defense-in-depth: warmCommandEveEveLane is already fail-soft, but never
-      // let a rejected preflight escape into an unhandled rejection.
-      console.warn('[Command EVE] EVE Inference preflight threw (non-blocking):', error);
-    });
-}
 
 /**
  * Lane-aware startup warm-up dispatcher. Reads the SAME effective inference
@@ -1402,8 +1383,7 @@ function scheduleCommandEveLocalModelWarmup(
   receipt: CommandEveWarmupReceipt,
   shimUrl: string,
   warmup: CommandEveWarmup,
-  mark?: (label: string) => void,
-  eveWarmup?: CommandEveEveLaneWarmup
+  mark?: (label: string) => void
 ): void {
   // Resolve the warm-up lane from the LIVE picker selection in the BACKEND store
   // (same source the per-request routing resolver reads), not the main-process
@@ -1424,11 +1404,11 @@ function scheduleCommandEveLocalModelWarmup(
     }
 
     if (lane.lane === 'eve') {
-      // EVE is the active lane: warm the cloud route, NOT the local model. Skip the
-      // Ollama warm-up so we never load Gemma into VRAM the user will not use.
-      if (eveWarmup) {
-        scheduleCommandEveEveLaneWarmup(shimUrl, lane.tier, eveWarmup, mark);
-      }
+      // EVE is the active lane, so we do NOTHING at startup. We must not load Gemma
+      // into VRAM the user will not use, and we must not warm the cloud lane either:
+      // that warming was a metered turn the user never asked for (MAT-1749). Silent
+      // on purpose — a warning here would fire on every cloud-tier launch and would
+      // describe a decision, not a problem.
       return;
     }
 
@@ -1799,7 +1779,7 @@ const handleAppReady = async (): Promise<void> => {
 
   try {
     const { getDataPath } = await import('./process/utils/utils');
-    const { startCommandEveOllamaOpenAiShim, warmCommandEveLocalModel, warmCommandEveEveLane } =
+    const { startCommandEveOllamaOpenAiShim, warmCommandEveLocalModel } =
       await import('./process/commandEve/ollamaOpenAiShim');
     const {
       ensureCommandEveRuntimeBootstrap,
@@ -1906,7 +1886,7 @@ const handleAppReady = async (): Promise<void> => {
     if (mustWaitForRuntimeBootstrap) {
       const receipt = await ensureCommandEveRuntimeBootstrap(bootstrapOptions);
       mark(`commandEveRuntimeBootstrap (${receipt.status})`);
-      scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark, warmCommandEveEveLane);
+      scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark);
     } else {
       const hermesReadyBeforeBootstrap = fs.existsSync(runtimePaths.hermesShim);
       runDeferredCommandEveRuntimeBootstrap = () => {
@@ -1928,13 +1908,7 @@ const handleAppReady = async (): Promise<void> => {
                 await restartCommandEveBackendForSeat();
                 mark('commandEveBackendRestartAfterRuntimeBootstrap');
               }
-              scheduleCommandEveLocalModelWarmup(
-                receipt,
-                shimUrl,
-                warmCommandEveLocalModel,
-                mark,
-                warmCommandEveEveLane
-              );
+              scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark);
             })
             .catch((error) => {
               console.error('[Command EVE] Runtime bootstrap failed:', error);

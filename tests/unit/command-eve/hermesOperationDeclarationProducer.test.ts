@@ -72,6 +72,19 @@ describe('MAT-1749 producer — every auxiliary declares what it is calling for'
   it('declares the bounded compaction call, which posts to the shim directly', () => {
     expect(bootstrapSource).toContain('"eve_operation": "context_compression",');
   });
+
+  it('gives a task-LESS auxiliary a generic name instead of letting it arrive absent', () => {
+    // FACT(whl agent/plugin_llm.py:949-950) passes task=None and FACT(whl
+    // trajectory_compressor.py:649-655) omits it entirely. Absent is REFUSED, so
+    // without this fallback those two real paths would break — and "absent" would
+    // stop meaning the only thing it should mean: the user's own turn lost its
+    // producer.
+    expect(bootstrapSource).toContain('str(task or "").strip().lower() or "eve_auxiliary"');
+    expect(
+      commandEveRegisteredOperations(),
+      'the producer emits eve_auxiliary but the registry does not know it'
+    ).toContain('eve_auxiliary');
+  });
 });
 
 describe('MAT-1749 — producer and registry may not drift apart', () => {

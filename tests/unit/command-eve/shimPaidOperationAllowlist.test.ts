@@ -22,6 +22,7 @@ import {
   stopCommandEveOllamaOpenAiShimForTest,
 } from '@/process/commandEve/ollamaOpenAiShim';
 import {
+  COMMAND_EVE_HERMES_AUXILIARY_TASKS,
   commandEvePaidOperations,
   commandEveRegisteredOperations,
   resolveCommandEvePaidSeam,
@@ -164,7 +165,18 @@ describe('MAT-1749 registry — membership is the only way to the paid lane', ()
       'title_generation',
       'context_compression',
       'compression',
+      'web_extract',
+      'vision',
+      'mcp',
+      'approval',
+      'tts_audio_tags',
+      'monitor',
+      'call',
+      'eve_auxiliary',
     ]);
+    // The registered set grew when the auxiliaries were classified explicitly. The
+    // PAYABLE set did not, and that is the only line here that can cost anyone money.
+    expect(commandEvePaidOperations()).toHaveLength(2);
   });
 
   it('refuses an ABSENT declaration and only an absent one', () => {
@@ -183,22 +195,36 @@ describe('MAT-1749 registry — membership is the only way to the paid lane', ()
   });
 
   it('sends a NAMED but unregistered operation local — it may run, it may not spend', () => {
-    // The ruling: this registry governs SPENDING, not whether a feature may run.
-    // These are real Hermes auxiliaries (FACT whl tools/web_tools.py:517,
-    // tools/vision_tools.py:968, tools/mcp_tool.py:1154, tools/approval.py:1116)
-    // that reached the PAID lane before this fix. Refusing them would have traded a
-    // money defect for a functionality defect.
-    for (const operation of ['web_extract', 'vision', 'mcp', 'approval', 'tts_audio_tags']) {
+    // The ruling: this registry governs SPENDING, not whether a feature may run. A
+    // task a FUTURE Hermes introduces lands here, and must degrade rather than break.
+    for (const operation of ['some_future_hermes_auxiliary', 'summarise_inbox', 'whatever_ships_next']) {
       expect(resolveCommandEvePaidSeam(operation), `${operation} must run locally, not be refused`).toMatchObject({
         disposition: 'local_only',
         reason: 'unregistered',
       });
     }
-    // Including one that does not exist yet.
-    expect(resolveCommandEvePaidSeam('some_future_hermes_auxiliary')).toMatchObject({
-      disposition: 'local_only',
-      reason: 'unregistered',
-    });
+  });
+
+  it('classifies every reachable Hermes 0.17 auxiliary explicitly, and none of them as payable', () => {
+    // The set is no longer implicit. Each of these is a REGISTERED local_only entry,
+    // so it resolves without an `unregistered` reason — the classification is on the
+    // record rather than falling through a default.
+    for (const task of COMMAND_EVE_HERMES_AUXILIARY_TASKS) {
+      const decision = resolveCommandEvePaidSeam(task);
+      expect(decision.disposition, `${task} must be local_only`).toBe('local_only');
+      expect(decision.reason, `${task} must be classified, not defaulted`).toBeUndefined();
+      expect(commandEvePaidOperations(), `${task} must never be payable`).not.toContain(task);
+    }
+  });
+
+  it('gives a task-LESS Hermes auxiliary a name so it degrades instead of being refused', () => {
+    // FACT(whl agent/plugin_llm.py:949-950) call_llm(task=None, ...) and
+    // FACT(whl trajectory_compressor.py:649-655) omit the task entirely. Without
+    // eve_auxiliary they would arrive ABSENT and be refused — a hard break on real
+    // paths — and ABSENT would stop meaning "the user's own turn lost its producer".
+    expect(resolveCommandEvePaidSeam('eve_auxiliary')).toMatchObject({ disposition: 'local_only' });
+    expect(resolveCommandEvePaidSeam('eve_auxiliary').reason).toBeUndefined();
+    expect(commandEvePaidOperations()).not.toContain('eve_auxiliary');
   });
 
   it('lands BOTH compaction names on the free lane, whichever one arrives', () => {
