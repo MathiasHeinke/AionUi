@@ -2908,8 +2908,8 @@ describe('AcpSendBox', () => {
   });
 
   it('1.820.3: the canonical follow-up shows the edit-hint, no creation selector, and the send stays a normal Hermes turn', async () => {
-    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Gib der Aubergine ein Gesicht.' };
-    sendBoxMessageMock.current = 'Gib der Aubergine ein Gesicht.';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Gib der Aubergine im Video ein Gesicht.' };
+    sendBoxMessageMock.current = 'Gib der Aubergine im Video ein Gesicht.';
     sendMessageInvokeMock.mockResolvedValue({});
 
     renderWithVideoArtifact();
@@ -2934,7 +2934,7 @@ describe('AcpSendBox', () => {
   });
 
   it('1.820.3: a dismissed artifact cannot activate the edit-hint', async () => {
-    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Gib der Aubergine ein Gesicht.' };
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Gib der Aubergine im Video ein Gesicht.' };
     videoArtifactsListInvokeMock.mockResolvedValue({
       success: true,
       data: [{ ...VIDEO_SOURCE_ARTIFACT, status: 'dismissed' as const }],
@@ -2990,6 +2990,55 @@ describe('AcpSendBox', () => {
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });
 
+  it.each(['Gib mir ein Video von einer Aubergine.', 'Give me a video of an eggplant.'])(
+    '1.820.3 ROUTING PARITY: the unambiguous request idiom "%s" shows video controls AND reaches exactly one direct video job',
+    async (message) => {
+      // The visible selection/quote and the send path use the SAME shared
+      // predicate — a control that shows must be a job that runs, exactly once.
+      draftDataMock.current = { atPath: [], uploadFile: [], content: message };
+      sendBoxMessageMock.current = message;
+
+      render(
+        <AcpSendBox
+          conversation_id='conv-1'
+          backend='hermes'
+          workspacePath='/tmp/workspace'
+          messageState={makeMessageState()}
+        />
+      );
+      await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
+
+      await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+      await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+      // Exactly the single direct job — no second path through a normal turn.
+      expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it('1.820.3: "Add a video to the page" stays quiet — no controls, no direct job', async () => {
+    // 'add' is neither a strong creation verb nor edit semantics: no media
+    // controls, and the send is a plain Hermes turn with no paid job.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Add a video of the product to the page.' };
+    sendBoxMessageMock.current = 'Add a video of the product to the page.';
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'send' })).toBeTruthy());
+    expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+  });
+
   it('1.820.3: an explicit video creation keeps the existing direct videoGenerate path (unchanged boundary)', async () => {
     // The other half of the boundary: create+video MAY use the direct lane.
     // This pins that the contextual gate did not disturb the shipped path.
@@ -3012,6 +3061,271 @@ describe('AcpSendBox', () => {
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
     await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['Schneide das Video.', 'Mach das Video heller.', 'Animate this video.'])(
+    '1.820.3 EDIT VETO: "%s" never direct-generates — edit-hint shown, exactly one normal Hermes dispatch',
+    async (message) => {
+      draftDataMock.current = { atPath: [], uploadFile: [], content: message };
+      sendBoxMessageMock.current = message;
+      sendMessageInvokeMock.mockResolvedValue({});
+
+      renderWithVideoArtifact();
+
+      // The shared veto drives BOTH surfaces: the compact edit affordance is
+      // visible (explicit medium noun + edit semantics over an eligible
+      // source), the creation pill is NOT…
+      await waitFor(() => expect(screen.getByTestId('video-edit-hint')).toBeTruthy());
+      expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+
+      await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+      // …and the send NEVER reaches the direct paid generation branch, even
+      // though these texts also satisfy the creation regex. Exactly one
+      // normal Hermes dispatch; no selectedArtifactIds inferred.
+      await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+      expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+      for (const call of artifactContextEnvelopeInvokeMock.mock.calls) {
+        expect(call[0]).not.toHaveProperty('selectedArtifactIds');
+      }
+    }
+  );
+
+  it('1.820.3: umlaut edit intents bind correctly — Ändere das Video => video edit-hint, Ändere das Bild => image affordance', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Ändere das Video.' };
+    sendBoxMessageMock.current = 'Ändere das Video.';
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    renderWithVideoArtifact();
+    await waitFor(() => expect(screen.getByTestId('video-edit-hint')).toBeTruthy());
+    expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+    expect(screen.queryByTestId('image-model-pill')).toBeNull();
+  });
+
+  it('1.820.3: an ambiguous follow-up without a medium noun shows NO hint, but the Hermes turn still goes out', async () => {
+    // Precision over recall: "Gib der Aubergine ein Gesicht" (no medium noun)
+    // is ordinary text for the UI gate — Hermes still receives the full
+    // conversation + artifact envelope and can perform the edit.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Gib der Aubergine ein Gesicht.' };
+    sendBoxMessageMock.current = 'Gib der Aubergine ein Gesicht.';
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    renderWithVideoArtifact();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'send' })).toBeTruthy());
+    expect(screen.queryByTestId('video-edit-hint')).toBeNull();
+    expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+    expect(screen.queryByTestId('image-model-pill')).toBeNull();
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('1.820.3: the image-edit affordance shows ONLY the reference-capable tier with its edit quote, never the full selector', async () => {
+    imageCapabilitiesInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: true,
+        registry: {
+          version: 'command-eve-image-model-registry/v1',
+          enabled: true,
+          default_tier: 'quality',
+          tiers: [
+            {
+              id: 'fast',
+              slug: 'x-ai/grok-imagine-image-quality',
+              display_name: 'Schnell',
+              premium: false,
+              supports_references: false,
+              resolutions: ['1K', '2K'],
+              quotes: {
+                generate_credits: { '1K': 460, '2K': 644 },
+                edit_credits: { '1K': 460, '2K': 644 },
+                per_input_reference_credits: 0,
+              },
+            },
+            {
+              id: 'quality',
+              slug: 'google/gemini-3.1-flash-image',
+              display_name: 'Nano Banana 2',
+              premium: false,
+              supports_references: true,
+              resolutions: ['1K', '2K'],
+              quotes: {
+                generate_credits: { '1K': 1380, '2K': 1380 },
+                edit_credits: { '1K': 1380, '2K': 1380 },
+                per_input_reference_credits: 0,
+              },
+            },
+            {
+              id: 'max',
+              slug: 'openai/gpt-image-2',
+              display_name: 'GPT Image 2',
+              premium: true,
+              supports_references: false,
+              resolutions: ['1K', '2K'],
+              quotes: {
+                generate_credits: { '1K': 2300, '2K': 2300 },
+                edit_credits: { '1K': 2300, '2K': 2300 },
+                per_input_reference_credits: 0,
+              },
+            },
+          ],
+        },
+      },
+    });
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: [],
+      content: 'Bearbeite das Bild und gib der Aubergine ein Gesicht.',
+    };
+    videoArtifactsListInvokeMock.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'image-artifact-1',
+          conversation_id: 'conv-1',
+          kind: 'image' as const,
+          status: 'active' as const,
+          created_at: 900,
+          updated_at: 900,
+          payload: {
+            artifact_type: 'image' as const,
+            title: 'Bild',
+            path: '/tmp/img-1.jpg',
+            mime_type: 'image/jpeg',
+          },
+        },
+        VIDEO_SOURCE_ARTIFACT, // newer, but IRRELEVANT: the explicit image edit binds to the image
+      ].map((artifact, index) => ({ ...artifact, created_at: 900 + index, updated_at: 900 + index })),
+    });
+
+    render(
+      <ConversationArtifactProvider conversation_id='conv-1'>
+        <AcpSendBox
+          conversation_id='conv-1'
+          backend='hermes'
+          workspacePath='/tmp/workspace'
+          messageState={makeMessageState()}
+        />
+      </ConversationArtifactProvider>
+    );
+
+    await waitFor(() => expect(screen.getByTestId('image-edit-hint')).toBeTruthy());
+    // The full three-tier selector is NOT offered for an edit…
+    expect(screen.queryByTestId('image-model-pill')).toBeNull();
+    // …the affordance names the reference-capable tier and a quote LINE.
+    const hint = screen.getByTestId('image-edit-hint');
+    const hintText = hint.textContent ?? '';
+    expect(hintText).toContain('Nano Banana 2');
+    expect(hintText).toContain('Credits (1K)');
+    expect(hintText).not.toContain('GPT Image 2');
+    expect(hintText).not.toContain('Schnell');
+    // …and the newer video does NOT produce a video affordance either.
+    expect(screen.queryByTestId('video-edit-hint')).toBeNull();
+  });
+
+  it('1.820.3 price truth: the hint carries edit_credits (never generate_credits) from the effective reference-capable tier', async () => {
+    // DELIBERATELY DIVERGENT fixture: generate and edit figures differ on
+    // every tier, so a mode mix-up cannot hide. `quality` is the only
+    // reference-capable tier; its EDIT figure is 980, not 1380.
+    imageCapabilitiesInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: true,
+        registry: {
+          version: 'command-eve-image-model-registry/v1',
+          enabled: true,
+          default_tier: 'quality',
+          tiers: [
+            {
+              id: 'fast',
+              slug: 'x-ai/grok-imagine-image-quality',
+              display_name: 'Schnell',
+              premium: false,
+              supports_references: false,
+              resolutions: ['1K', '2K'],
+              quotes: {
+                generate_credits: { '1K': 460, '2K': 644 },
+                edit_credits: { '1K': 400, '2K': 560 },
+                per_input_reference_credits: 0,
+              },
+            },
+            {
+              id: 'quality',
+              slug: 'google/gemini-3.1-flash-image',
+              display_name: 'Nano Banana 2',
+              premium: false,
+              supports_references: true,
+              resolutions: ['1K', '2K'],
+              quotes: {
+                generate_credits: { '1K': 1380, '2K': 1380 },
+                edit_credits: { '1K': 980, '2K': 980 },
+                per_input_reference_credits: 0,
+              },
+            },
+            {
+              id: 'max',
+              slug: 'openai/gpt-image-2',
+              display_name: 'GPT Image 2',
+              premium: true,
+              supports_references: false,
+              resolutions: ['1K', '2K'],
+              quotes: {
+                generate_credits: { '1K': 2300, '2K': 2300 },
+                edit_credits: { '1K': 1900, '2K': 1900 },
+                per_input_reference_credits: 0,
+              },
+            },
+          ],
+        },
+      },
+    });
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: [],
+      content: 'Bearbeite das Bild und gib der Aubergine ein Gesicht.',
+    };
+    videoArtifactsListInvokeMock.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'image-artifact-1',
+          conversation_id: 'conv-1',
+          kind: 'image' as const,
+          status: 'active' as const,
+          created_at: 900,
+          updated_at: 900,
+          payload: {
+            artifact_type: 'image' as const,
+            title: 'Bild',
+            path: '/tmp/img-1.jpg',
+            mime_type: 'image/jpeg',
+          },
+        },
+      ],
+    });
+
+    render(
+      <ConversationArtifactProvider conversation_id='conv-1'>
+        <AcpSendBox
+          conversation_id='conv-1'
+          backend='hermes'
+          workspacePath='/tmp/workspace'
+          messageState={makeMessageState()}
+        />
+      </ConversationArtifactProvider>
+    );
+
+    await waitFor(() => expect(screen.getByTestId('image-edit-hint')).toBeTruthy());
+    const hint = screen.getByTestId('image-edit-hint');
+    // The effective tier is the reference-capable one…
+    expect(hint).toHaveAttribute('data-effective-tier', 'quality');
+    // …and the quote on it is the EDIT figure (980), never the generate
+    // figure (1380) — the exact blocker this surface exists to pin.
+    expect(hint).toHaveAttribute('data-edit-credits-1k', '980');
+    expect(hint).toHaveAttribute('data-edit-credits-2k', '980');
+    expect(hint.getAttribute('data-edit-credits-1k')).not.toBe('1380');
   });
 
   it('MAT-1769: Vision accept is single-flight — a double-click buys one enablement and one re-drive', async () => {

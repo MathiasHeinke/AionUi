@@ -11,7 +11,7 @@ import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import type { AvailableCommand, IMessageThinking } from '@/common/chat/chatLib';
 import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
 import { resolveAcpAutoApprove } from './acpAutoApprove';
-import { addEventListener } from '@/renderer/utils/emitter';
+import { addEventListener, emitter } from '@/renderer/utils/emitter';
 import type { SlashCommandItem } from '@/common/chat/slash/types';
 import { mapAcpCommandsToSlashCommands } from '@/common/chat/slash/acpMapping';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
@@ -516,6 +516,14 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           {
             // Mark turn as finished to prevent auto-recover from late messages
             turnFinishedRef.current = true;
+            // 1.820.3 — the timing-correct artifact refresh. An agent-lane
+            // artifact (a video edit child produced by the eve_video_edit tool
+            // inside THIS turn) is persisted in Main's durable store by the
+            // time the terminal `finish` arrives — and NOT before. The generic
+            // `chat.history.refresh` fires at send-acceptance, which is why
+            // the edited clip used to appear only after a manual reload. The
+            // artifact provider refetches on this event for this conversation.
+            emitter.emit('commandEve.artifacts.refresh', { conversation_id });
             // Immediate state reset (notification is handled by centralized hook)
             setRunning(false);
             runningRef.current = false;

@@ -73,6 +73,7 @@ const KNOWN_DEBT: readonly string[] = [
   // de-DE/en-US carry the copy; the eight unsupported locales render the
   // fallback until a translation pass covers credits.* wholesale.
   'credits.image.editEstimateTitle',
+  'credits.image.editHintLabel',
   'credits.image.estimateUnavailable',
   'credits.image.inlineEstimate',
   'credits.image.modelLabel',

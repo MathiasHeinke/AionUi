@@ -117,11 +117,10 @@ import {
 import { isImageFile } from '@/renderer/pages/conversation/Preview/fileUtils';
 import { addressesVideoMarketer } from '@/common/config/eveTeamRoster';
 import { configService } from '@/common/config/configService';
-import { resolveMediaLaneIntent } from '@/common/config/mediaLaneIntentCore';
+import { resolveMediaLaneIntent, isExplicitVideoEditRequest, isExplicitVideoCreateRequest } from '@/common/config/mediaLaneIntentCore';
 import { estimateVideoEditCredits } from '@/common/config/videoEditRequestCore';
 import { isVideoEditEligibleTier } from '@/common/config/videoGenerationRequestCore';
 import {
-  mediaArtifactTypeOf,
   selectLatestVisibleMediaSourceArtifact,
   useConversationArtifacts,
 } from '@renderer/pages/conversation/Messages/artifacts';
@@ -813,26 +812,26 @@ Please check your local CLI tool authentication status`,
     [content, isEveConversation]
   );
 
-  // 1.820.3 — THE CONTEXTUAL MEDIA GATE (Founder contract). Media controls
-  // follow INTENT, never mere content: an ordinary draft shows nothing, an
-  // explicit image or video request shows exactly that lane's creation
-  // options, and a genuine mutation intent over a visible source artifact
-  // shows an edit-hint for that medium — and NOTHING else. The artifact list
-  // supplies CONTEXT through the shared visible-artifact selector (the same
-  // one MessageList uses); the discriminated resolver turns it into a
-  // visibility-only decision: NO send routing, NO target inference, NO
-  // selectedArtifactIds, NO provider or debit. `draftRoutesToVideo` stays
-  // exactly as narrow as the send path — an edit-hint NEVER widens it: the
-  // Hermes artifact envelope and the eve_video_edit tool resolve the actual
-  // handle semantically at send time.
+  // 1.820.3 — THE CONTEXTUAL MEDIA GATE (Founder invariant). Media controls
+  // follow INTENT, never mere content: an ordinary draft shows nothing; an
+  // explicit image or video CREATE intent shows exactly that lane's creation
+  // options; an explicit EDIT intent (medium noun + edit semantics) shows a
+  // compact, truthful edit affordance for exactly that medium — and NOTHING
+  // else. The shared selector supplies per-medium, canonically edit-eligible
+  // source truth; the discriminated resolver turns it into a visibility-only
+  // decision: NO send routing, NO target inference, NO selectedArtifactIds,
+  // NO provider or debit. `draftRoutesToVideo` and the direct generation
+  // branch stay exactly as narrow as before — an edit NEVER widens them; the
+  // shared veto (`isExplicitVideoEditRequest`, same predicate) keeps every
+  // video edit inside a normal Hermes turn.
   const conversationArtifacts = useConversationArtifacts();
-  const latestMediaSource = useMemo(
-    () => selectLatestVisibleMediaSourceArtifact(conversationArtifacts),
+  const latestImageSource = useMemo(
+    () => selectLatestVisibleMediaSourceArtifact(conversationArtifacts, 'image'),
     [conversationArtifacts]
   );
-  const latestVisibleArtifactType = useMemo(
-    () => (latestMediaSource ? mediaArtifactTypeOf(latestMediaSource) : null),
-    [latestMediaSource]
+  const latestVideoSource = useMemo(
+    () => selectLatestVisibleMediaSourceArtifact(conversationArtifacts, 'video'),
+    [conversationArtifacts]
   );
   const mediaLaneIntent = useMemo(
     () =>
@@ -840,29 +839,29 @@ Please check your local CLI tool authentication status`,
         ? resolveMediaLaneIntent({
             message: content,
             resolvedAgentId: addressesVideoMarketer(content) ? VIDEO_LANE_AGENT_ID : null,
-            latestVisibleArtifactType,
+            sources: { image: latestImageSource !== null, video: latestVideoSource !== null },
           })
         : ({ operation: 'none' } as const),
-    [content, isEveConversation, latestVisibleArtifactType]
+    [content, isEveConversation, latestImageSource, latestVideoSource]
   );
-  const showImageControls =
-    (mediaLaneIntent.operation === 'create' && mediaLaneIntent.medium === 'image') ||
-    (mediaLaneIntent.operation === 'edit-hint' && mediaLaneIntent.medium === 'image');
+  const showImageCreateControls = mediaLaneIntent.operation === 'create' && mediaLaneIntent.medium === 'image';
+  const showImageEditHint = mediaLaneIntent.operation === 'edit-hint' && mediaLaneIntent.medium === 'image';
   const showVideoCreateControls = mediaLaneIntent.operation === 'create' && mediaLaneIntent.medium === 'video';
   const showVideoEditHint = mediaLaneIntent.operation === 'edit-hint' && mediaLaneIntent.medium === 'video';
-  // The honest inline edit price for the edit-hint affordance: the SOURCE's
-  // own tier and seconds (a video edit inherits source quality/duration —
-  // no creation selector may promise otherwise). Null when the source is not
-  // edit-eligible, so the affordance never quotes a price that would refuse.
+  // The honest inline edit price for the VIDEO affordance: the MATCHING video
+  // source's own tier and seconds (a video edit inherits source
+  // quality/duration — never the overall latest media artifact's). Null when
+  // the source is not edit-eligible, so the affordance never quotes a price
+  // that would refuse.
   const videoEditEstimate = useMemo(() => {
-    if (!showVideoEditHint || !latestMediaSource) return null;
-    const payload = latestMediaSource.payload as { tier_id?: unknown; duration_seconds?: unknown };
+    if (!showVideoEditHint || !latestVideoSource) return null;
+    const payload = latestVideoSource.payload as { tier_id?: unknown; duration_seconds?: unknown };
     const tierId = payload.tier_id === 'sd' || payload.tier_id === 'fast' ? payload.tier_id : null;
     const seconds = typeof payload.duration_seconds === 'number' ? payload.duration_seconds : null;
     if (tierId === null || seconds === null || !isVideoEditEligibleTier(tierId)) return null;
     const credits = estimateVideoEditCredits(tierId, seconds);
     return Number.isFinite(credits) ? { credits, seconds } : null;
-  }, [showVideoEditHint, latestMediaSource]);
+  }, [showVideoEditHint, latestVideoSource]);
 
   // WHAT THE SEAT MAY OFFER. Asked of MAIN, never decided here: a renderer that
   // answered this for itself could render a 1080p option, or a voice control, for
@@ -976,6 +975,20 @@ Please check your local CLI tool authentication status`,
       cancelled = true;
     };
   }, []);
+
+  // IMAGE EDIT MODEL TRUTH (Founder blocker 2): only the registry's
+  // reference-capable tier may edit (today exactly `quality` = Nano Banana 2;
+  // fast/max are supports_references=false and the edge parser refuses them
+  // pre-debit). The affordance presents THAT tier and its edit_credits quote
+  // — never the full selector, never a deterministic failure. The actual
+  // request's tier is pinned request-scoped in managedImageGenerationService
+  // (references force the reference-capable tier for THAT request only; the
+  // seat's persistent preference is untouched).
+  const imageEditSpec = useMemo(() => {
+    if (!showImageEditHint || !imageModelRegistry) return null;
+    const spec = imageModelRegistry.tiers.find((tier) => tier.supports_references === true);
+    return spec ?? null;
+  }, [showImageEditHint, imageModelRegistry]);
 
   // WHICH OF THE FOUR MODES this send is. Derived from the attachments the user
   // can already see, which is the whole of item C: reference images ARE the files
@@ -1360,10 +1373,26 @@ Please check your local CLI tool authentication status`,
       // claimed the opposite and was wrong.
       const routesToVideo =
         isEveConversation &&
-        isVideoLaneRequest({
+        (isVideoLaneRequest({
           message,
           resolvedAgentId: addressesVideoMarketer(message) ? VIDEO_LANE_AGENT_ID : null,
-        });
+        }) ||
+          // 1.820.3 — ROUTING PARITY with the draft-visibility gate: the same
+          // shared pure create-vs-edit discriminator decides BOTH surfaces.
+          // An unambiguous new-output idiom ("Gib mir ein Video von …",
+          // "Give me a video of …") shows the video creation controls — so
+          // it must also reach THIS single direct job, or the visible
+          // selection and quote would be dishonest.
+          isExplicitVideoCreateRequest(message)) &&
+        // 1.820.3 — THE SHARED EDIT VETO. An explicit video EDIT ("Schneide
+        // das Video.", "Mach das Video heller.", "Gib der Aubergine im Video
+        // ein Gesicht") satisfies the creation regex too — and must NEVER
+        // enter this direct paid generation branch. The same pure predicate
+        // drives the draft-visibility gate, so UI and send can never
+        // disagree: every video edit goes out as a normal Hermes turn, where
+        // the artifact envelope and the eve_video_edit tool resolve the
+        // source semantically. No selectedArtifactIds are inferred anywhere.
+        !isExplicitVideoEditRequest(message);
 
       if (routesToVideo) {
         // The image sources that travel with a video request — the exact files
@@ -2328,16 +2357,58 @@ Please check your local CLI tool authentication status`,
               />
             ) : null}
             {/* Image model picker (MAT-1769, contextual since 1.820.3).
-                Shows ONLY for an explicit image create/edit intent — the
-                selection governs generation AND edit, so both intents get
-                the same selector. Renders in the draft band like the video
-                pill — never an overlay, so it cannot intercept a send. */}
+                Shows ONLY for an explicit image CREATE intent — the full
+                three-tier selector with generation quotes. An image EDIT
+                gets the compact truthful affordance below instead. Renders
+                in the draft band — never an overlay. */}
             <ImageModelPill
-              visible={showImageControls}
+              visible={showImageCreateControls}
               value={imageModelTier}
               onChange={handleImageModelTierChange}
               registry={imageModelRegistry}
             />
+            {/* Compact IMAGE-EDIT affordance (1.820.3, Founder blocker 2).
+                Only the registry's reference-capable tier may edit (today:
+                Nano Banana 2). Shows that tier and its edit_credits quote —
+                never the full selector, never an unsupported tier, never a
+                deterministic failure. */}
+            {showImageEditHint ? (
+              <div
+                className='video-edit-hint'
+                role='note'
+                aria-live='polite'
+                data-testid='image-edit-hint'
+                // Observability, not copy: the EDIT-mode truth in inspectable
+                // form — the effective reference-capable tier and the
+                // edit_credits figures it bills at. The visible text stays
+                // localized; these attributes let tests (and audits) verify
+                // edit mode never quotes generate_credits.
+                {...(imageEditSpec
+                  ? {
+                      'data-effective-tier': imageEditSpec.id,
+                      'data-edit-credits-1k': String(imageEditSpec.quotes.edit_credits['1K']),
+                      'data-edit-credits-2k': String(imageEditSpec.quotes.edit_credits['2K']),
+                    }
+                  : { 'data-quote-state': 'unavailable' })}
+              >
+                <span className='video-edit-hint__label'>
+                  {t('credits.image.editHintLabel', { defaultValue: 'Bild bearbeiten' })}
+                </span>
+                {imageEditSpec ? (
+                  <span className='video-edit-hint__estimate'>
+                    {`${imageEditSpec.display_name} · ${t('credits.image.inlineEstimate', {
+                      defaultValue: 'ca. {{credits1k}} Credits (1K) · {{credits2k}} (2K)',
+                      credits1k: imageEditSpec.quotes.edit_credits['1K'],
+                      credits2k: imageEditSpec.quotes.edit_credits['2K'],
+                    })}`}
+                  </span>
+                ) : (
+                  <span className='video-edit-hint__estimate'>
+                    {t('credits.image.estimateUnavailable', { defaultValue: 'Preis aktuell nicht verfügbar' })}
+                  </span>
+                )}
+              </div>
+            ) : null}
             {/* Quality picker for the pending video — CREATION only. An edit
                 inherits the source's quality and duration, so a video edit
                 gets the compact affordance below instead of creation

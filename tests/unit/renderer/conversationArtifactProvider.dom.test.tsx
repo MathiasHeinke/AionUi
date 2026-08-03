@@ -19,6 +19,7 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ConversationArtifactProvider,
+  selectLatestVisibleMediaSourceArtifact,
   useConversationArtifacts,
 } from '@/renderer/pages/conversation/Messages/artifacts';
 import { emitter } from '@/renderer/utils/emitter';
@@ -153,6 +154,38 @@ describe('ConversationArtifactProvider', () => {
     expect(screen.getByTestId('artifact-ids').textContent).toBe('');
   });
 
+  it('1.820.3: the finish-scoped event refreshes for the matching conversation and ignores others', async () => {
+    render(
+      <ConversationArtifactProvider conversation_id='conv-1'>
+        <ArtifactIds />
+      </ConversationArtifactProvider>
+    );
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalledTimes(1));
+
+    // Another conversation's completion must not refetch here.
+    act(() => {
+      emitter.emit('commandEve.artifacts.refresh', { conversation_id: 'conv-2' });
+    });
+    expect(videoArtifactsListInvokeMock).toHaveBeenCalledTimes(1);
+
+    // The REAL terminal event (emitted by useAcpMessage's finish case):
+    // refetch, and the edit child persisted by then becomes visible.
+    const editChild = {
+      ...videoArtifact,
+      id: 'video-1-edit-1',
+      payload: { ...videoArtifact.payload, parent_artifact_id: 'video-1' },
+      created_at: 2000,
+      updated_at: 2000,
+    };
+    videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [videoArtifact, editChild] });
+    act(() => {
+      emitter.emit('commandEve.artifacts.refresh', { conversation_id: 'conv-1' });
+    });
+
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('artifact-ids').textContent).toContain('video-1-edit-1'));
+  });
+
   it('1.820.3 display gap closed: a chat.history.refresh reloads both sources, so an agent-lane edit child becomes visible', async () => {
     // The MCP/loopback `eve_video_edit` lane persists the edited child in
     // Main's durable store but fires no renderer-local event. The turn's own
@@ -184,5 +217,79 @@ describe('ConversationArtifactProvider', () => {
     await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByTestId('artifact-ids').textContent).toContain('video-1-edit-1'));
     expect(screen.getByTestId('artifact-ids').textContent).toContain('video-1');
+  });
+
+  describe('1.820.3 media edit source truth (Founder blocker 7)', () => {
+    const baseVideo = (overrides: Record<string, unknown> = {}) => ({
+      id: 'v-1',
+      conversation_id: 'conv-1',
+      kind: 'video' as const,
+      status: 'active' as const,
+      created_at: 1000,
+      updated_at: 1000,
+      payload: {
+        artifact_type: 'video' as const,
+        title: 'Video 720p',
+        description: '720p · 5s · ca. 700 Credits · grok-imagine-video',
+        path: '/tmp/v-1.mp4',
+        mime_type: 'video/mp4',
+        hash: 'a'.repeat(64),
+        size: 598145,
+        duration_seconds: 5,
+        origin_capability: 'video_generation',
+        tier_id: 'fast',
+        ...overrides,
+      },
+    });
+
+    it('an eligible 720p/5s clip WITH a local path IS a source', () => {
+      expect(selectLatestVisibleMediaSourceArtifact([baseVideo()], 'video')?.id).toBe('v-1');
+    });
+
+    it('an HD/1080p clip is visible in chat but NOT an edit source (edit is capped at 720p)', () => {
+      const hd = baseVideo({
+        title: 'Video 1080p',
+        description: '1080p · 5s · ca. 1250 Credits · grok-imagine-video-1.5',
+        tier_id: 'hd',
+      });
+      expect(selectLatestVisibleMediaSourceArtifact([hd], 'video')).toBeNull();
+    });
+
+    it('an over-ceiling clip (> 8.7s) is NOT an edit source', () => {
+      const long = baseVideo({
+        duration_seconds: 12,
+        description: '720p · 12s · ca. 1500 Credits · grok-imagine-video',
+      });
+      expect(selectLatestVisibleMediaSourceArtifact([long], 'video')).toBeNull();
+    });
+
+    it('a clip without a usable local path is NOT an edit source', () => {
+      const noPath = baseVideo({ path: '' });
+      expect(selectLatestVisibleMediaSourceArtifact([noPath], 'video')).toBeNull();
+    });
+
+    it('dismissed and pending clips are NOT sources', () => {
+      expect(
+        selectLatestVisibleMediaSourceArtifact([{ ...baseVideo(), status: 'dismissed' as const }], 'video')
+      ).toBeNull();
+      expect(
+        selectLatestVisibleMediaSourceArtifact([{ ...baseVideo(), status: 'pending' as const }], 'video')
+      ).toBeNull();
+    });
+
+    it('per-medium binding: a newer video never shadows the matching image source, and vice versa', () => {
+      const image = {
+        id: 'img-1',
+        conversation_id: 'conv-1',
+        kind: 'image' as const,
+        status: 'active' as const,
+        created_at: 900,
+        updated_at: 900,
+        payload: { artifact_type: 'image' as const, title: 'Bild', path: '/tmp/img-1.jpg', mime_type: 'image/jpeg' },
+      };
+      const newerVideo = { ...baseVideo(), created_at: 2000, updated_at: 2000 };
+      expect(selectLatestVisibleMediaSourceArtifact([image, newerVideo], 'image')?.id).toBe('img-1');
+      expect(selectLatestVisibleMediaSourceArtifact([image, newerVideo], 'video')?.id).toBe('v-1');
+    });
   });
 });

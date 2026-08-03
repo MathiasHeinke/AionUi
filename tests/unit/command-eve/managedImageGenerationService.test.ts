@@ -188,8 +188,10 @@ describe('managed image generation main-process service', () => {
 
   it('threads the seat’s SELECTED tier into the edge request as the bare tier id', async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+    // A GENERATION request (no references): the seat's choice travels as-is.
+    const { input_references: _refs, ...generationRequest } = request();
 
-    await executeCommandEveManagedImageGeneration(request(), {
+    await executeCommandEveManagedImageGeneration(generationRequest, {
       fetchFn: fetchFn as typeof fetch,
       dataPath: '/tmp/test',
       ...imageLaneSeams({
@@ -205,6 +207,66 @@ describe('managed image generation main-process service', () => {
 
     const body = JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body));
     expect(body.image_model).toBe('max');
+  });
+
+  it('1.820.3 edit authority: references ride the reference-capable tier for THIS request only, preference untouched', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+    const maxPreference = vi.fn(async () => ({
+      status: 'resolved' as const,
+      tier: 'max' as const,
+      source: 'stored_explicit' as const,
+      seatId: 'seat-1',
+      physicalKey: 'commandEve.imageModelPreference',
+    }));
+
+    // request() carries one reference — an EDIT. `max` is
+    // supports_references=false and the edge would refuse it pre-debit, so
+    // the service pins THIS request to the reference-capable tier (quality).
+    await executeCommandEveManagedImageGeneration(request(), {
+      fetchFn: fetchFn as typeof fetch,
+      dataPath: '/tmp/test',
+      ...imageLaneSeams({ readPreference: maxPreference }),
+    });
+
+    const body = JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body));
+    expect(body.image_model).toBe('quality');
+    // The preference was READ, never WRITTEN: no persistence path was driven
+    // — the next plain generation still bills the seat's own choice.
+    expect(maxPreference).toHaveBeenCalledTimes(1);
+  });
+
+  it('1.820.3 edit authority: a fast-seat edit also resolves to the reference-capable tier', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+
+    await executeCommandEveManagedImageGeneration(request(), {
+      fetchFn: fetchFn as typeof fetch,
+      dataPath: '/tmp/test',
+      ...imageLaneSeams({
+        readPreference: vi.fn(async () => ({
+          status: 'resolved' as const,
+          tier: 'fast' as const,
+          source: 'stored_explicit' as const,
+          seatId: 'seat-1',
+          physicalKey: 'commandEve.imageModelPreference',
+        })),
+      }),
+    });
+
+    const body = JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body));
+    expect(body.image_model).toBe('quality');
+  });
+
+  it('1.820.3 edit authority: a quality-seat edit stays on quality (no override churn)', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+
+    await executeCommandEveManagedImageGeneration(request(), {
+      fetchFn: fetchFn as typeof fetch,
+      dataPath: '/tmp/test',
+      ...imageLaneSeams(),
+    });
+
+    const body = JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body));
+    expect(body.image_model).toBe('quality');
   });
 
   it('falls back to the registry’s default tier when the preference cannot be read', async () => {

@@ -7,45 +7,49 @@
 /**
  * 1.820.3 — the ONE media-lane intent gate for the composer's media controls.
  *
- * FOUNDER CONTRACT (2026-08-03, refined by CoS): media option controls are
- * CONTEXTUAL to INTENT, never to content alone. An ordinary chat or draft —
- * "Hallo", "Danke", "Was kannst du?", a topic change — shows neither image
- * nor video controls, even when the conversation visibly contains a media
- * artifact. The artifact on screen is CONTEXT, not intent: it may resolve
- * WHICH medium a genuine mutation intent targets; it may never activate
- * controls by itself.
+ * FOUNDER INVARIANT (2026-08-03, final refinement): ordinary chat shows NO
+ * image/video options. Image options appear only when the user genuinely
+ * wants IMAGE work; video creation settings only when the user genuinely
+ * wants to CREATE a video. Artifact presence is CONTEXT, never intent.
+ * Follow-up edits stay normal Hermes turns and are never routed into direct
+ * paid video generation.
+ *
+ * PRECISION OVER RECALL, BY DESIGN: an edit affordance requires an EXPLICIT
+ * MEDIUM NOUN plus edit/mutation semantics ("Bearbeite das Bild", "Schneide
+ * das Video", "Gib der Aubergine im Video ein Gesicht", "edit this clip").
+ * There is deliberately NO generic mutation-verb authority and NO denylist
+ * to grow: a bare "add/change/remove/give" without a medium noun is
+ * ordinary work and shows NOTHING. An ambiguous "Gib der Aubergine ein
+ * Gesicht" (no medium noun) shows no hint either — Hermes still receives
+ * the full conversation and artifact envelope and can perform the edit.
+ * The controls are preflight affordances, never semantic authority.
  *
  * The resolution contract, in order:
  *
- *   1. EXPLICIT image create/edit intent → image controls.
- *   2. EXPLICIT video create/edit intent → video controls.
- *      (Explicit video beats explicit image when a draft carries both:
- *      the most expensive lane wins the visible price.)
- *   3. A genuinely GENERIC artifact-mutation/reference intent PLUS the
- *      latest visible relevant artifact → the artifact's KIND decides image
- *      vs video. "Generic" means the mutation families below (add/put/give/
- *      change/edit/remove/replace/crop/animate/recolor and the German
- *      equivalents füge hinzu, gib … ein/eine/einen, setze, ändere,
- *      bearbeite, entferne, ersetze, schneide) — semantic families, never
- *      one pinned sentence. Greetings, thanks, questions, analysis/review
- *      requests, "mach weiter" and unrelated imperatives are excluded BEFORE
- *      the mutation families run.
- *   4. Artifact presence without create/edit/mutation intent → null.
- *   5. Explicit current-draft intent overrides artifact context. Image and
- *      video are structurally mutually exclusive (one return value).
+ *   1. EXPLICIT video EDIT (medium noun + edit semantics) → edit-hint/video,
+ *      but only with a visible, canonically EDIT-ELIGIBLE video source.
+ *      This check runs FIRST: explicit edit recognition vetoes creation —
+ *      "Schneide das Video." and "Mach das Video heller." must never fall
+ *      into the video-creation regex and therefore never into the direct
+ *      videoGenerate branch (the shared send-path veto below is the same
+ *      predicate).
+ *   2. EXPLICIT image EDIT → edit-hint/image with a visible image source.
+ *   3. EXPLICIT video CREATE (the shipped video gate, semantics untouched)
+ *      → create/video.
+ *   4. EXPLICIT image CREATE → create/image.
+ *   5. Everything else → none. Mixed-media conversations change nothing:
+ *      explicit edit intent binds to the matching MEDIUM's source
+ *      ("Bearbeite das Bild" needs a visible IMAGE even when the newest
+ *      artifact is a video, and vice versa).
  *
- * AUTHORITY BOUNDARY: the Hermes artifact envelope remains the authority for
- * actual TARGET resolution at send time. This renderer gate answers exactly
- * one question — whether preflight controls should be VISIBLE. It does not
- * route, does not name a target artifact, and invents no hard-coded artifact
- * ID path. Revealing controls is free by construction: no provider, upload
- * or debit may follow from it.
+ * AUTHORITY BOUNDARY: this gate is VISIBILITY ONLY. No routing, no target
+ * id, no selectedArtifactIds, no provider, no debit. The Hermes artifact
+ * envelope remains the authority for actual target resolution at send.
  *
- * The explicit-intent half is a GENERALIZATION OF THE EXISTING VIDEO GATE
- * (`isVideoLaneRequest` in videoCostCore.ts: addressed agent, resolved
- * skills, capability flag, NL classifier as last resort) — the image
- * predicate below is built from the same pattern families so the two lanes
- * read as one mechanism, not two hacks.
+ * UNICODE: every pattern here uses LETTER-AWARE boundaries
+ * (`(?<![\p{L}\p{N}])` / `(?![\p{L}\p{N}])` with the `u` flag), because
+ * JavaScript's `\b` is ASCII-only and fails before an initial Ä/Ö/Ü —
+ * "Ändere das Video" must match as reliably as "Bearbeite das Video".
  *
  * PURE: no fs, no Electron, no IPC.
  */
@@ -54,161 +58,151 @@ import { isVideoLaneRequest, type VideoLaneRouting } from './videoCostCore';
 
 export type MediaLane = 'image' | 'video';
 
+/** Letter-aware boundary pieces (JS `\b` is ASCII-only and breaks on ÄÖÜ). */
+const LB = String.raw`(?<![\p{L}\p{N}])`;
+const RB = String.raw`(?![\p{L}\p{N}])`;
+
+const IMAGE_NOUN = String.raw`(?:bild|bilder|fotos?|icons?|logos?|illustrations?|grafik|posters?|thumbnails?|avatars?|profilbild\w*|titelfotos?|images?|pictures?|photos?|artworks?|wallpapers?|graphics?|cover\s?arts?)`;
+const VIDEO_NOUN = String.raw`(?:videos?|clips?|reels?|kurzvideos?|footage|movies?)`;
+
+const CREATE_VERBS_DE = String.raw`(?:erstell\w*|mach\w*|generier\w*|produzier\w*|zeichn\w*|mal\w*|erzeug\w*|bau\w*|design\w*|entwirf\w*|brauch\w*|möcht\w*|hätte?\s+gern)`;
+const CREATE_VERBS_EN = String.raw`(?:generate|create|make|produce|render|draw|paint|design|build|whip\s+up)`;
+
+/** Edit/mutation semantics — verbs and derived adjectives, never a medium. */
+const EDIT_SEMANTICS_DE = String.raw`(?:bearbeit\w*|veränder\w*|änder\w*|ändre\w*|editier\w*|schneid\w*|kürz\w*|entfern\w*|lösch\w*|ersetz\w*|animier\w*|färb\w*|einfärb\w*|aufhell\w*|heller|abdunkel\w*|dunkler|verpixel\w*|schärf\w*|spiegel\w*|rettuschier\w*|überarbeit\w*|ergänz\w*|füg\w*\s+[^.!?]{0,30}\s+(?:hinzu|dazu)\b|füg\w*\s+[^.!?]{0,20}\s+(?:ein|eine|einen)\b|gib\w*\s+[^.!?]{0,40}\s+(?:ein|eine|einen|einem|einer)\b|setz\w*\s+[^.!?]{0,30}\s+(?:drauf|darauf|auf|davor|dahinter|zusammen))`;
+// give/add/put were REMOVED (Grok MAJOR): "Give me a video of …" and "Add a
+// video of …" are CREATE idioms, and a medium noun plus these verbs alone
+// must never read as an edit. insert/attach/append were REMOVED too (Grok
+// final MAJOR): they are ordinary workplace verbs ("insert the table",
+// "attach the contract", "append the signature"), and with an artifact on
+// screen they lit edit affordances on non-edit language.
+const EDIT_SEMANTICS_EN = String.raw`(?:edit|change|modify|adjust|remove|delete|replace|swap|crop|animate|animates|animating|recolou?r|darken|darker|lighten|lighter|brighten|brighter|blur|sharpen|resize|rotate|flip|retouch|restyle|tweak|trim|cut)`;
+
+const IMAGE_NOUN_RE = new RegExp(`${LB}${IMAGE_NOUN}${RB}`, 'iu');
+const VIDEO_NOUN_RE = new RegExp(`${LB}${VIDEO_NOUN}${RB}`, 'iu');
+const EDIT_SEMANTICS_DE_RE = new RegExp(`${LB}${EDIT_SEMANTICS_DE}${RB}`, 'iu');
+const EDIT_SEMANTICS_EN_RE = new RegExp(`${LB}${EDIT_SEMANTICS_EN}${RB}`, 'iu');
+
 /**
- * NL classifier for image creation/edit requests — the mirror of
- * `isVideoGenerationRequest`, same pattern families, same fail-closed
- * empty-input rule. Creation phrasing only: "show me the photo from
- * yesterday" must never match.
+ * STRONG explicit creation — the precedence discriminator (CoS 2026-08-03):
+ * a creation VERB PHRASE for new output (erstell|generier|produzier|erzeug|
+ * design|entwirf|generate|create|produce|render|draw|paint|build) or an
+ * unambiguous request idiom for new output ("Gib mir ein Video von …",
+ * "Give me a video of …"). Edit-like WORDS in the same message ("Erstelle
+ * ein animiertes Video", "Erstelle ein Bild und füge darauf ein Logo
+ * hinzu", "Create an animated video") do NOT turn a strong creation into an
+ * edit. `mach`/`make` stay OUT of the strong list deliberately: "Mach das
+ * Video heller" is an edit, and only the explicit creation families above
+ * may outrank edit semantics.
  */
-const IMAGE_GENERATION_PATTERNS: readonly RegExp[] = [
-  // EN: "generate/create/make/draw/design an image/picture/icon/logo/poster"
-  /\b(generate|create|make|produce|render|draw|paint|design|build|whip\s+up)\b[^.!?]{0,60}\b(image|picture|photo|icon|logo|illustration|artwork|poster|thumbnail|wallpaper|avatar|graphic|cover\s?art)s?\b/i,
-  // EN: noun-first — "an icon for ... — create it", "profile picture"
-  /\b(image|picture|photo|icon|logo|illustration|artwork|poster|thumbnail|wallpaper|avatar|profile\s+picture|cover\s?art)s?\b[^.!?]{0,60}\b(generate|create|make|produce|render|draw|design|build|für\s+mich|for\s+me)\b/i,
-  // EN: format/lane keywords — "text-to-image", "ai image", "image generation"
-  /\b(text[-\s]?to[-\s]?image|img[-\s]?to[-\s]?image|image[-\s]?to[-\s]?image|image\s+gen(eration)?|ai\s+image|ai\s+art)\b/i,
-  // DE: "erstelle/mach/generiere/zeichne/male ein Bild/Foto/Icon/Logo".
-  // `schneid` stays OUT here ("schneide ein Bild" is cropping, not generating).
-  /\b(erstell|erstelle|erstellst|mach|mache|machst|generier|generiere|generierst|produzier|produziere|zeichn|zeichne|mal|male|erzeug|erzeuge|bau|baue|design|entwirf|brauch|brauche|brauchst|braucht|möcht|möchte|möchtest|hätte?\s+gern)\b[^.!?]{0,60}\b(bild|bilder|foto|icon|logo|illustration|grafik|poster|thumbnail|avatar|profilbild|titelfoto)s?\b/i,
-  // DE: verb-after-noun — "Bild erstellen/generieren", "Logo entwerfen".
-  /\b(bild|bilder|foto|icon|logo|illustration|grafik|poster|thumbnail|avatar|profilbild|titelfoto)s?\b[^.!?]{0,60}\b(erstellen|erstell|generieren|generier|produzieren|produzier|zeichnen|zeichn|malen|machen|mach|erzeugen|erzeug|bauen|bau|entwerfen|entwirf|für\s+mich)\b/i,
+const STRONG_CREATE_VERBS_DE = String.raw`(?:erstell\w*|generier\w*|produzier\w*|erzeug\w*|bau\w*|design\w*|entwirf\w*)`;
+const STRONG_CREATE_VERBS_EN = String.raw`(?:generate|create|produce|render|draw|paint|design|build|whip\s+up)`;
+
+const VIDEO_CREATE_STRONG_PATTERNS: readonly RegExp[] = [
+  new RegExp(`${LB}${STRONG_CREATE_VERBS_DE}${RB}[^.!?]{0,60}${LB}${VIDEO_NOUN}${RB}`, 'iu'),
+  new RegExp(`${LB}${VIDEO_NOUN}${RB}[^.!?]{0,60}${LB}${STRONG_CREATE_VERBS_DE}${RB}`, 'iu'),
+  new RegExp(`${LB}${STRONG_CREATE_VERBS_EN}${RB}[^.!?]{0,60}${LB}${VIDEO_NOUN}${RB}`, 'iu'),
+  new RegExp(`${LB}${VIDEO_NOUN}${RB}[^.!?]{0,60}${LB}${STRONG_CREATE_VERBS_EN}${RB}`, 'iu'),
+  // unambiguous request idioms for NEW output
+  new RegExp(`${LB}gib\\w*\\s+(?:mir|uns)\\b[^.!?]{0,40}${LB}${VIDEO_NOUN}${RB}`, 'iu'),
+  new RegExp(`${LB}give\\s+me\\b[^.!?]{0,40}${LB}${VIDEO_NOUN}${RB}`, 'iu'),
 ];
 
-/** Empty / whitespace / non-string input is never an image-creation request. */
+const IMAGE_CREATE_STRONG_PATTERNS: readonly RegExp[] = [
+  new RegExp(`${LB}${STRONG_CREATE_VERBS_DE}${RB}[^.!?]{0,60}${LB}${IMAGE_NOUN}${RB}`, 'iu'),
+  new RegExp(`${LB}${IMAGE_NOUN}${RB}[^.!?]{0,60}${LB}${STRONG_CREATE_VERBS_DE}${RB}`, 'iu'),
+  new RegExp(`${LB}${STRONG_CREATE_VERBS_EN}${RB}[^.!?]{0,60}${LB}${IMAGE_NOUN}${RB}`, 'iu'),
+  new RegExp(`${LB}${IMAGE_NOUN}${RB}[^.!?]{0,60}${LB}${STRONG_CREATE_VERBS_EN}${RB}`, 'iu'),
+  new RegExp(`${LB}gib\\w*\\s+(?:mir|uns)\\b[^.!?]{0,40}${LB}${IMAGE_NOUN}${RB}`, 'iu'),
+  new RegExp(`${LB}give\\s+me\\b[^.!?]{0,40}${LB}${IMAGE_NOUN}${RB}`, 'iu'),
+];
+
+/** Strong explicit VIDEO creation (the precedence discriminator, shared). */
+export function isExplicitVideoCreateRequest(message: string | null | undefined): boolean {
+  return matchesAny(VIDEO_CREATE_STRONG_PATTERNS, message);
+}
+
+/** Strong explicit IMAGE creation (the precedence discriminator, shared). */
+export function isExplicitImageCreateRequest(message: string | null | undefined): boolean {
+  return matchesAny(IMAGE_CREATE_STRONG_PATTERNS, message);
+}
+
+const IMAGE_CREATION_PATTERNS: readonly RegExp[] = [
+  // EN verb-first / noun-first
+  new RegExp(`${LB}${CREATE_VERBS_EN}${RB}[^.!?]{0,60}${LB}${IMAGE_NOUN}${RB}`, 'iu'),
+  new RegExp(`${LB}${IMAGE_NOUN}${RB}[^.!?]{0,60}${LB}${CREATE_VERBS_EN}${RB}`, 'iu'),
+  // EN lane keywords
+  new RegExp(
+    `${LB}(?:text[-\\s]?to[-\\s]?image|img[-\\s]?to[-\\s]?image|image[-\\s]?to[-\\s]?image|image\\s+gen(?:eration)?|ai\\s+image|ai\\s+art)${RB}`,
+    'iu'
+  ),
+  // DE verb-first / noun-first
+  new RegExp(`${LB}${CREATE_VERBS_DE}${RB}[^.!?]{0,60}${LB}${IMAGE_NOUN}${RB}`, 'iu'),
+  new RegExp(`${LB}${IMAGE_NOUN}${RB}[^.!?]{0,60}${LB}${CREATE_VERBS_DE}${RB}`, 'iu'),
+];
+
+function matchesAny(patterns: readonly RegExp[], message: string | null | undefined): boolean {
+  if (typeof message !== 'string') return false;
+  const text = message.trim();
+  if (text.length === 0) return false;
+  return patterns.some((re) => re.test(text));
+}
+
+/** Explicit image-CREATION intent (generation). */
 export function isImageLaneRequest(message: string | null | undefined): boolean {
-  if (typeof message !== 'string') return false;
-  const text = message.trim();
-  if (text.length === 0) return false;
-  return IMAGE_GENERATION_PATTERNS.some((re) => re.test(text));
+  return matchesAny(IMAGE_CREATION_PATTERNS, message);
 }
 
 /**
- * Explicit image EDIT phrasing with a medium noun ("bearbeite das Bild",
- * "edit this image"). An edit is a different operation than a create — the
- * discriminated resolver below never confuses the two, so the UI can never
- * promise creation settings for an edit the tool cannot honour.
+ * EXPLICIT edit intent = an explicit MEDIUM NOUN plus edit/mutation
+ * semantics, matched independently (order-free) — AND NOT a strong explicit
+ * creation for that medium (the shared precedence rule: "Erstelle ein
+ * animiertes Video" and "Create an animated video" are CREATE even though
+ * they carry edit-like words; "Mach das Video heller", "Schneide das
+ * Video", "Animate this video" stay EDIT).
+ *
+ * THIS IS ALSO THE SHARED SEND-PATH VETO for video: AcpSendBox's direct
+ * videoGenerate branch must refuse when the video form matches, so an edit
+ * can never be mis-routed into a fresh paid generation — even with NO
+ * eligible source, the turn goes to Hermes, which explains a missing target
+ * honestly.
  */
-const IMAGE_EDIT_PATTERNS: readonly RegExp[] = [
-  /\b(bearbeit|bearbeite|veränder|verändere|ändere|ändre|editier|editiere|ergänz|ergänze|füg|füge)\b[^.!?]{0,40}\b(bild|bilder|foto|icon|logo)\b/i,
-  /\b(bild|bilder|foto|icon|logo)\b[^.!?]{0,30}\b(bearbeiten|verändern|ändern|editieren)\b/i,
-  /\b(edit|change|modify|retouch|restyle|adjust|crop|recolou?r)\b[^.!?]{0,40}\b(image|picture|photo|icon|logo)s?\b/i,
-  /\b(image|picture|photo|icon|logo)\s+edit\b/i,
-  /\bimage\s+edit\b/i,
-  /\bedit\s+(this|the|that)\s+(image|picture|photo)\b/i,
-];
+export function isExplicitVideoEditRequest(message: string | null | undefined): boolean {
+  if (typeof message !== 'string' || message.trim().length === 0) return false;
+  if (isExplicitVideoCreateRequest(message)) return false;
+  return VIDEO_NOUN_RE.test(message) && (EDIT_SEMANTICS_DE_RE.test(message) || EDIT_SEMANTICS_EN_RE.test(message));
+}
 
-/** Explicit video EDIT phrasing with a medium noun ("bearbeite das Video"). */
-const VIDEO_EDIT_PATTERNS: readonly RegExp[] = [
-  /\b(bearbeit|bearbeite|veränder|verändere|ändere|ändre|editier|editiere|schneid|kürz)\w*\b[^.!?]{0,40}\b(video|clip|reel|kurzvideo)s?\b/i,
-  /\b(video|clip|reel|kurzvideo)s?\b[^.!?]{0,30}\b(bearbeiten|verändern|ändern|editieren|schneiden|kürzen)\b/i,
-  /\b(edit|trim|cut|crop|modify|retouch|restyle|animate|recolou?r)\b[^.!?]{0,40}\b(video|clip|reel|footage|movie)s?\b/i,
-  /\b(video|clip)s?\s+(edit|trim)\b/i,
-];
-
-/** True iff the draft explicitly asks to EDIT an image (medium named). */
+/** EXPLICIT image EDIT intent, with the same creation precedence. */
 export function isImageEditRequest(message: string | null | undefined): boolean {
-  if (typeof message !== 'string') return false;
-  const text = message.trim();
-  if (text.length === 0) return false;
-  return IMAGE_EDIT_PATTERNS.some((re) => re.test(text));
-}
-
-/** True iff the draft explicitly asks to EDIT a video (medium named). */
-export function isVideoEditRequest(message: string | null | undefined): boolean {
-  if (typeof message !== 'string') return false;
-  const text = message.trim();
-  if (text.length === 0) return false;
-  return VIDEO_EDIT_PATTERNS.some((re) => re.test(text));
-}
-
-/**
- * Greetings, thanks, closings, and continuation filler. These are never an
- * artifact mutation, whatever artifact is on screen. Anchored to the whole
- * message (modulo punctuation) so "Hallo, und jetzt bearbeite das Bild" can
- * still resolve through the mutation families.
- */
-const PLEASANTRY_PATTERNS: readonly RegExp[] = [
-  /^\s*(hallo|hi|hey|moin|servus|grüß\s?dich|guten\s+(morgen|tag|abend)|good\s+(morning|afternoon|evening)|hello)\b[\s!.]*$/i,
-  /^\s*(danke|danke\s+schön|vielen\s+dank|thanks?|thank\s+you|thx|merci)\b[\s!.]*$/i,
-  /^\s*(ok(ay)?|alles\s+klar|passt|perfekt|super|toll|great|nice|cool|weiter|mach\s+weiter|continue|go\s+on|ja|jap|yes|nein|no|nö)\b[\s!.]*$/i,
-];
-
-/**
- * Opinion, analysis, review and question requests. Asking ABOUT an artifact
- * is not mutating it. "Kannst du der Aubergine ein Gesicht geben?" IS a
- * request and survives — question FORM alone excludes nothing; only
- * analysis/opinion SHAPES exclude (Grok review 2026-08-03, MAJOR 1: a
- * blanket trailing-`?` ban killed polite requests).
- */
-const ANALYSIS_PATTERNS: readonly RegExp[] = [
-  /\b(was\s+(hältst|meinst|denkst)|wie\s+findest|analysier|analyse|bewert|bewerte|review|erklär|erkläre|beschreib|beschreibe|interpretier|was\s+(siehst|erkennst)|ist\s+das|was\s+ist|was\s+kannst\s+du)\b/i,
-  /\b(what\s+do\s+you\s+(think|see|make)|analy[sz]e|review|explain|describe|interpret|tell\s+me\s+about)\b/i,
-];
-
-/**
- * Objects that make an imperative NON-media: time, scheduling, documents,
- * credentials, prices, coordinates. "give me five minutes", "add that to
- * the email", "change the meeting time", "Ändere den Betreff", "Lösch den
- * zweiten Absatz" are not artifact mutations, whatever is on screen (Grok
- * review 2026-08-03, MAJOR 2+3: bare mutation verbs over-fired on ordinary
- * chat once an artifact was visible).
- */
-const NON_MEDIA_OBJECT_PATTERN =
-  /\b(minute|minutes|minuten|seconds|sekunde|sekunden|hour|hours|stunde|stunden|time|zeit|termin|termine|meeting|meetings|appointment|schedule|deadline|email|e-mail|mail|betreff|subject|paragraph|absatz|absätze|sentence|satz|sätze|page|seite|seiten|password|passwort|pin|code|date|datum|price|preis|budget|number|nummer|phone|telefon|address|adresse|invoice|rechnung|budget|gehalt)\b/i;
-
-/** Meta targets that are not the visible artifact: app, chat, settings… */
-const META_TARGET_PATTERN =
-  /\b(chat|konversation|conversation|verlauf|app|anwendung|einstellungen|settings|account|konto|profil\s+seite|modellwahl|skill|agent|workspace|projektordner)\b/i;
-
-/**
- * GENERIC artifact-mutation families — the draft asks to change something,
- * without naming a medium. The visible artifact supplies the medium.
- * EN: add/put/give/change/edit/remove/replace/crop/animate/recolor/adjust…
- * DE: füge … hinzu, gib … ein/eine/einen, setze, ändere, bearbeite,
- * entferne, ersetze, schneide, animiere, färbe um.
- */
-const ARTIFACT_MUTATION_PATTERNS: readonly RegExp[] = [
-  /\b(add|put|give|place|insert|attach|append|change|edit|modify|adjust|remove|delete|replace|swap|crop|animate|recolou?r|darken|lighten|blur|sharpen|resize|rotate|flip|retouch|restyle|tweak)\b/i,
-  /\bfüg\w*\s+[^.!?]{0,40}\s*(hinzu|dazu|ein|eine|einen)\b/i,
-  /\bgib\w*\s+[^.!?]{0,40}\s+(ein|eine|einen|einem|einer)\b/i,
-  // German polite/question form moves the infinitive to the END:
-  // "Kannst du der Aubergine ein Gesicht geben?" — the ein-phrase leads.
-  /\b(ein|eine|einen|einem|einer)\b[^.!?]{0,40}\s+(gib|gebe|gibst|geben|gebst|geb)\b/i,
-  /\bsetz\w*\s+[^.!?]{0,30}\s*(ein|drauf|darauf|auf|davor|dahinter|zusammen)\b/i,
-  /\b(änder|veränder|bearbeit|entfern|lösch|ersetz|schneid|kürz|animier|umfärb|färb\w*\s+[^.!?]{0,30}\s+um|einfärb|aufhell|abdunkel|verpixel|schärf|dreh|spiegel|rettuschier|überarbeit)\w*\b/i,
-];
-
-/** True iff the draft is a genuine generic artifact-mutation/reference intent. */
-export function isArtifactMutationIntent(message: string | null | undefined): boolean {
-  if (typeof message !== 'string') return false;
-  const text = message.trim();
-  if (text.length === 0) return false;
-  if (PLEASANTRY_PATTERNS.some((re) => re.test(text))) return false;
-  if (ANALYSIS_PATTERNS.some((re) => re.test(text))) return false;
-  if (META_TARGET_PATTERN.test(text)) return false;
-  if (NON_MEDIA_OBJECT_PATTERN.test(text)) return false;
-  return ARTIFACT_MUTATION_PATTERNS.some((re) => re.test(text));
+  if (typeof message !== 'string' || message.trim().length === 0) return false;
+  if (isExplicitImageCreateRequest(message)) return false;
+  return IMAGE_NOUN_RE.test(message) && (EDIT_SEMANTICS_DE_RE.test(message) || EDIT_SEMANTICS_EN_RE.test(message));
 }
 
 /** The artifact payload kinds this gate reads as media context. */
 export type MediaArtifactType = 'image' | 'video';
 
 /**
- * The UI-ONLY result of the intent gate (CoS 2026-08-03, second correction):
- *
+ * Per-medium source truth, supplied by the caller's shared selector:
+ * whether a VISIBLE, edit-eligible source of that medium exists RIGHT NOW.
+ * The gate never looks at artifacts itself — context is injected, and only
+ * to bind explicit edit intent to a matching medium.
+ */
+export interface MediaLaneSources {
+  image: boolean;
+  video: boolean;
+}
+
+/**
+ * The UI-ONLY result of the intent gate:
  *   - `{ operation: 'none' }` — ordinary chat: visually clean, no controls.
- *   - `{ operation: 'create', medium }` — an explicit creation request: the
- *     full relevant CREATION options may show (image model selector, or the
- *     video generation settings). `create + video` may use the existing
- *     direct videoGenerate branch at send.
- *   - `{ operation: 'edit-hint', medium }` — a genuine edit/mutation intent
- *     over a visible source artifact. This is a HINT for preflight
- *     affordances only: it MUST remain a normal Hermes dispatch turn, it
- *     never widens the direct generation branch, it infers no
- *     selectedArtifactIds and names no target — the Hermes artifact envelope
- *     and the eve_video_edit tool resolve the actual handle semantically at
- *     send time. An edit-hint NEVER shows creation settings the edit tool
- *     cannot honour (a video edit inherits source quality/duration).
+ *   - `{ operation: 'create', medium }` — explicit creation: the full
+ *     relevant CREATION options (image selector / video generation settings).
+ *   - `{ operation: 'edit-hint', medium }` — explicit edit intent over a
+ *     visible, eligible source of the SAME medium. A compact affordance
+ *     only: never creation settings the edit cannot honour, never a
+ *     promise without a source.
  */
 export type MediaLaneIntent =
   | { operation: 'none' }
@@ -216,28 +210,35 @@ export type MediaLaneIntent =
   | { operation: 'edit-hint'; medium: MediaLane };
 
 export interface MediaLaneIntentInput extends VideoLaneRouting {
-  /**
-   * The `artifact_type` of the LATEST VISIBLE, SOURCE-CAPABLE conversation
-   * artifact (`'image'` or `'video'`; anything else is passed as null by the
-   * caller). CONTEXT, never intent: used only to disambiguate a genuine
-   * mutation intent, per the contract above. Dismissed, failed or
-   * source-less media must already be filtered out by the caller's shared
-   * visible-artifact selector.
-   */
-  latestVisibleArtifactType?: MediaArtifactType | null;
+  /** Per-medium visible, edit-eligible source availability (see above). */
+  sources?: MediaLaneSources;
 }
 
 const NONE: MediaLaneIntent = { operation: 'none' };
 
 /**
- * Which media controls — if any — belong in the draft band for this draft in
- * this conversation. Visibility only: no routing, no target id, no provider,
- * no debit, no send decision.
+ * Which media controls — if any — belong in the draft band for this draft
+ * in this conversation. Visibility only: no routing, no target id, no
+ * provider, no debit, no send decision.
  */
 export function resolveMediaLaneIntent(input: MediaLaneIntentInput): MediaLaneIntent {
-  // 1+2. EXPLICIT CREATE intent wins, video before image (the most expensive
-  // lane takes the visible price when a draft carries both). Semantics of
-  // the shipped video gate untouched.
+  const sources = input.sources ?? { image: false, video: false };
+
+  // 1. EXPLICIT VIDEO EDIT — first, always. The edit veto outranks the
+  // creation regex in BOTH directions the text can travel (visibility and
+  // send routing). Without a visible edit-eligible video source there is
+  // nothing the affordance could honestly promise → none; the turn still
+  // goes out through Hermes, which explains the missing target.
+  if (isExplicitVideoEditRequest(input.message)) {
+    return sources.video ? { operation: 'edit-hint', medium: 'video' } : NONE;
+  }
+  // 2. EXPLICIT IMAGE EDIT — same contract against a visible image source.
+  if (isImageEditRequest(input.message)) {
+    return sources.image ? { operation: 'edit-hint', medium: 'image' } : NONE;
+  }
+  // 3. EXPLICIT VIDEO CREATE — the shipped gate plus the strong creation
+  // families (request idioms like "Gib mir ein Video von …" are creation,
+  // not edit; the precedence discriminator is shared with the veto above).
   if (
     isVideoLaneRequest({
       message: input.message,
@@ -246,34 +247,15 @@ export function resolveMediaLaneIntent(input: MediaLaneIntentInput): MediaLaneIn
       ...(input.resolvedVideoCapability === undefined
         ? {}
         : { resolvedVideoCapability: input.resolvedVideoCapability }),
-    })
+    }) ||
+    isExplicitVideoCreateRequest(input.message)
   ) {
     return { operation: 'create', medium: 'video' };
   }
-  if (isImageLaneRequest(input.message)) return { operation: 'create', medium: 'image' };
-
-  // 3. EDIT intent — and an edit is only offerable with a visible source of
-  // the SAME medium. Without one there is nothing the affordance could
-  // honestly promise, so the answer is `none` (the turn still goes out; the
-  // agent says what is missing).
-  const artifactType = input.latestVisibleArtifactType ?? null;
-  if (artifactType) {
-    if (artifactType === 'image' && isImageEditRequest(input.message)) {
-      return { operation: 'edit-hint', medium: 'image' };
-    }
-    if (artifactType === 'video' && isVideoEditRequest(input.message)) {
-      return { operation: 'edit-hint', medium: 'video' };
-    }
-    // GENERIC mutation intent: the artifact's KIND disambiguates. This is
-    // the "Gib der Aubergine ein Gesicht" case — and the only way the
-    // artifact may influence anything.
-    if (isArtifactMutationIntent(input.message)) {
-      return { operation: 'edit-hint', medium: artifactType };
-    }
+  // 4. EXPLICIT IMAGE CREATE.
+  if (isImageLaneRequest(input.message) || isExplicitImageCreateRequest(input.message)) {
+    return { operation: 'create', medium: 'image' };
   }
-
-  // 4. Everything else: ordinary chat, no controls — including "Hallo",
-  // "Danke", "Was hältst du davon?" and topic changes in a conversation
-  // that happens to show an artifact.
+  // 5. Ordinary chat — including bare mutation verbs without a medium noun.
   return NONE;
 }

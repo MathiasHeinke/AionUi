@@ -6,6 +6,10 @@
 
 import { ipcBridge } from '@/common';
 import type { IConversationArtifact, IConversationArtifactStatus } from '@/common/adapter/ipcBridge';
+import {
+  isVideoArtifactEditable,
+  type CommandEveVideoConversationArtifactPayload,
+} from '@/common/config/videoGenerationRequestCore';
 import { addEventListener, useAddEventListener } from '@/renderer/utils/emitter';
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
@@ -65,22 +69,57 @@ export const mediaArtifactTypeOf = (artifact: IConversationArtifact): 'image' | 
 };
 
 /**
- * The latest VISIBLE, SOURCE-CAPABLE media artifact, or null (1.820.3).
+ * Whether a visible artifact is a usable EDIT SOURCE for its medium
+ * (1.820.3, Founder blocker 7):
  *
- * Stricter than mere visibility on purpose: a dismissed artifact is not
- * visible at all, a pending one is not a source yet (it is still being
- * produced), and a payload without a media `artifact_type` ('image' |
- * 'video') is not a media source either — so dismissed, failed/pending or
- * non-source media can never activate contextual controls downstream.
+ *   - VIDEO: the canonical hydration/editability core decides — the SAME
+ *     `isVideoArtifactEditable` the Hermes envelope and the paid handler
+ *     use. An HD/1080p clip, an over-ceiling clip (> 8.7s), one without a
+ *     usable local path, or a legacy payload that cannot hydrate is visible
+ *     in chat but is NOT an edit source, and must never light an edit
+ *     affordance.
+ *   - IMAGE: an image artifact is an edit source when it is complete and
+ *     carries a usable local path (the managed image lane reads sources at
+ *     rest; references ride the same lane).
+ *
+ * Dismissed and pending artifacts are excluded upstream by the visibility
+ * predicate plus this status filter — they are never a source.
+ */
+export const isUsableMediaEditSource = (artifact: IConversationArtifact): boolean => {
+  if (!isVisibleConversationArtifact(artifact)) return false;
+  if (artifact.status !== 'active' && artifact.status !== 'saved') return false;
+  const type = mediaArtifactTypeOf(artifact);
+  if (type === 'video') {
+    try {
+      return isVideoArtifactEditable(artifact.payload as CommandEveVideoConversationArtifactPayload);
+    } catch {
+      return false;
+    }
+  }
+  if (type === 'image') {
+    const payload = artifact.payload as { path?: unknown; data_url?: unknown; url?: unknown };
+    return (
+      (typeof payload.path === 'string' && payload.path.length > 0) ||
+      (typeof payload.data_url === 'string' && payload.data_url.length > 0) ||
+      (typeof payload.url === 'string' && payload.url.length > 0)
+    );
+  }
+  return false;
+};
+
+/**
+ * The latest VISIBLE, usable EDIT SOURCE for ONE medium, or null (1.820.3).
+ * Per medium by design: "Bearbeite das Bild" must bind to a visible IMAGE
+ * even when the newest artifact overall is a video (and vice versa).
  */
 export const selectLatestVisibleMediaSourceArtifact = (
-  artifacts: readonly IConversationArtifact[]
+  artifacts: readonly IConversationArtifact[],
+  medium: 'image' | 'video'
 ): IConversationArtifact | null => {
   let latest: IConversationArtifact | null = null;
   for (const artifact of artifacts) {
-    if (!isVisibleConversationArtifact(artifact)) continue;
-    if (artifact.status !== 'active' && artifact.status !== 'saved') continue;
-    if (mediaArtifactTypeOf(artifact) === null) continue;
+    if (mediaArtifactTypeOf(artifact) !== medium) continue;
+    if (!isUsableMediaEditSource(artifact)) continue;
     if (!latest || artifact.created_at > latest.created_at) latest = artifact;
   }
   return latest;
@@ -147,21 +186,32 @@ export const ConversationArtifactProvider: React.FC<React.PropsWithChildren<{ co
 
     void loadArtifacts();
 
-    // 1.820.3 — the MCP/agent-lane edit display gap, closed. A video EDIT
-    // produced inside an agent turn (the MCP `eve_video_edit` lane or the
-    // loopback) persists its child artifact in Main's durable store but fires
-    // no renderer-local event the way the direct generation lane does. The
-    // turn's own completion signal is `chat.history.refresh` — the same event
-    // every other surface already refetches on — so we reload both artifact
-    // sources on it: the edited clip becomes visible WITH the agent's answer,
-    // not after a manual conversation reload. The durable store is the
-    // authority; this is a refresh, never a guess.
+    // 1.820.3 — the MCP/agent-lane edit display gap, closed with CORRECT
+    // timing. A video EDIT produced inside an agent turn (the MCP
+    // `eve_video_edit` lane or the loopback) persists its child artifact in
+    // Main's durable store but fires no renderer-local event the way the
+    // direct generation lane does. Two complementary triggers, both
+    // generation-guarded above:
+    //   - `commandEve.artifacts.refresh`: emitted by useAcpMessage's terminal
+    //     `finish` case — the REAL turn completion, by which time the child
+    //     exists on disk. This is the agent-lane fix.
+    //   - `chat.history.refresh`: the generic surface refresh other flows
+    //     already rely on (cheap; the seq guard makes it harmless).
+    // The durable store is the authority; both are refreshes, never guesses.
+    const unsubscribeFinishRefresh = addEventListener(
+      'commandEve.artifacts.refresh',
+      (event: { conversation_id: string }) => {
+        if (event.conversation_id !== conversation_id) return;
+        void loadArtifacts();
+      }
+    );
     const unsubscribeRefresh = addEventListener('chat.history.refresh', () => {
       void loadArtifacts();
     });
 
     return () => {
       alive = false;
+      unsubscribeFinishRefresh();
       unsubscribeRefresh();
     };
   }, [conversation_id]);

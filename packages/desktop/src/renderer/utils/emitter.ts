@@ -41,6 +41,11 @@ interface EventTypes {
   'codex.selected.file.clear': void;
   'codex.workspace.refresh': void;
   'chat.history.refresh': void;
+  // 1.820.3 — the TIMING-CORRECT artifact refresh. Emitted by useAcpMessage's
+  // terminal `finish` case (the real ACP turn completion), conversation-scoped.
+  // `chat.history.refresh` fires at send-ACCEPTANCE — far too early for an
+  // agent-lane artifact (e.g. an eve_video_edit child) to exist on disk.
+  'commandEve.artifacts.refresh': [{ conversation_id: string }];
   // Durable conversation recovery signals. The database/runtime are the source
   // of truth when a renderer misses a realtime user/terminal frame.
   'conversation.messages.refresh': [{ conversation_id: string; expectedTerminalMessageId?: string }];

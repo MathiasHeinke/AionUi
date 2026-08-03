@@ -224,10 +224,31 @@ export async function executeCommandEveManagedImageGeneration(
       'The selected image model tier is not offered by the current server registry.'
     );
   }
+  // REQUEST-SCOPED EDIT AUTHORITY (1.820.3, Founder blocker 2). A request
+  // carrying reference inputs is an EDIT, and an edit may only run on the
+  // registry's reference-capable tier — the edge parser refuses every other
+  // tier pre-debit. Rather than billing the seat's choice into a refusal
+  // that was knowable here, THIS request alone resolves to the
+  // reference-capable tier. Nothing is persisted and nothing about the
+  // seat's preference changes: the next plain generation still uses it;
+  // only this edit rides the tier that can actually serve it.
+  const referenceCount = built.body.input_references?.length ?? 0;
+  let effectiveTierSpec = tierSpec;
+  if (referenceCount > 0 && tierSpec.supports_references !== true) {
+    const referenceCapable = registryResult.registry.tiers.find((candidate) => candidate.supports_references === true);
+    if (!referenceCapable) {
+      return failure(
+        503,
+        'image_edit_tier_unavailable',
+        'Image editing is unavailable: the current server registry offers no reference-capable tier.'
+      );
+    }
+    effectiveTierSpec = referenceCapable;
+  }
   // The bare tier id travels; the server owns tier → slug (CoS contract).
   const body: CommandEveManagedImageEdgeRequest = {
     ...built.body,
-    image_model: tierSpec.id,
+    image_model: effectiveTierSpec.id,
   };
 
   const controller = new AbortController();

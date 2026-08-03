@@ -207,6 +207,45 @@ describe('useAcpMessage', () => {
     expect(result.current.runtimeActivity.contextSize).toBe(65_536);
   });
 
+  it('1.820.3: the terminal finish emits commandEve.artifacts.refresh scoped to the conversation', async () => {
+    conversationGetInvokeMock.mockResolvedValue({
+      id: 'conv-1',
+      type: 'acp',
+      status: 'finished',
+      extra: { backend: 'hermes' },
+    });
+    const emitSpy = vi.spyOn(emitter, 'emit');
+
+    renderHook(() => useAcpMessage('conv-1'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: null,
+        msg_id: 'msg-refresh',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'text',
+        data: 'Editing',
+        msg_id: 'msg-refresh',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'msg-refresh',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    // The TIMING contract: the artifact refresh fires on the terminal finish
+    // (never at send acceptance), scoped to THIS conversation.
+    const refreshCalls = emitSpy.mock.calls.filter((call) => call[0] === 'commandEve.artifacts.refresh');
+    expect(refreshCalls).toEqual([['commandEve.artifacts.refresh', { conversation_id: 'conv-1' }]]);
+    emitSpy.mockRestore();
+  });
+
   describe('ACP stream watchdog', () => {
     it('classifies stale buffered renderer work as ui_backlog', () => {
       expect(

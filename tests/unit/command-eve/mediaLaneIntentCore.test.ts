@@ -5,179 +5,278 @@
  */
 
 /**
- * 1.820.3 — the media-lane intent gate, pinned against the Founder/CoS
- * contract: intent activates controls, never content. The visible artifact
- * only disambiguates a genuine mutation intent.
+ * 1.820.3 — the media-lane intent gate, pinned against the FINAL
+ * Founder/CoS contract: precision over recall, explicit medium noun plus
+ * edit semantics required, edit veto before creation, per-medium source
+ * binding, umlaut-safe German.
  */
 
 import { describe, expect, it } from 'vitest';
 
 import {
-  isArtifactMutationIntent,
+  isExplicitVideoEditRequest,
+  isImageEditRequest,
   isImageLaneRequest,
   resolveMediaLaneIntent,
 } from '@/common/config/mediaLaneIntentCore';
 
-describe('isImageLaneRequest', () => {
-  it('matches image creation phrasing in EN and DE', () => {
-    expect(isImageLaneRequest('Erstelle ein Bild: eine lila Aubergine als Icon.')).toBe(true);
-    expect(isImageLaneRequest('generate an image of an eggplant icon')).toBe(true);
-    expect(isImageLaneRequest('Mach mir ein Logo für die Firma')).toBe(true);
-    expect(isImageLaneRequest('create a poster for the launch')).toBe(true);
-    expect(isImageLaneRequest('text-to-image with a neon eggplant')).toBe(true);
-  });
+const NONE = { operation: 'none' } as const;
 
-  it('never matches plain chat, non-creation media mentions, or video intent', () => {
-    expect(isImageLaneRequest('Schick mir das Foto von gestern.')).toBe(false);
-    expect(isImageLaneRequest('Was siehst du auf dem Bild?')).toBe(false);
-    expect(isImageLaneRequest('hello, how are you?')).toBe(false);
-    expect(isImageLaneRequest('')).toBe(false);
-    expect(isImageLaneRequest(undefined)).toBe(false);
-    expect(isImageLaneRequest('Erstelle ein kurzes Video von einer Aubergine.')).toBe(false);
-    expect(isImageLaneRequest('generate a video clip for the product')).toBe(false);
-  });
-});
-
-describe('isArtifactMutationIntent', () => {
-  it('covers the generic mutation families (EN + DE), not one pinned sentence', () => {
-    expect(isArtifactMutationIntent('Gib der Aubergine ein Gesicht.')).toBe(true);
-    expect(isArtifactMutationIntent('Füge links ein Logo hinzu.')).toBe(true);
-    expect(isArtifactMutationIntent('add a second character')).toBe(true);
-    expect(isArtifactMutationIntent('change the background to black')).toBe(true);
-    expect(isArtifactMutationIntent('Entferne den Schatten.')).toBe(true);
-    expect(isArtifactMutationIntent('Ersetze den Himmel durch Nacht.')).toBe(true);
-    expect(isArtifactMutationIntent('crop it to 1:1')).toBe(true);
-    expect(isArtifactMutationIntent('Schneide den Anfang weg.')).toBe(true);
-    expect(isArtifactMutationIntent('animate the eggplant slowly')).toBe(true);
-    expect(isArtifactMutationIntent('Färbe den Hintergrund um.')).toBe(true);
-  });
-
-  it('excludes greetings, thanks, questions, analysis, continuation and meta imperatives', () => {
-    expect(isArtifactMutationIntent('Hallo.')).toBe(false);
-    expect(isArtifactMutationIntent('Danke.')).toBe(false);
-    expect(isArtifactMutationIntent('Was hältst du davon?')).toBe(false);
-    expect(isArtifactMutationIntent('Was kannst du eigentlich alles?')).toBe(false);
-    expect(isArtifactMutationIntent('Analysiere das Bild.')).toBe(false);
-    expect(isArtifactMutationIntent('Mach weiter.')).toBe(false);
-    expect(isArtifactMutationIntent('Lösch den Chat.')).toBe(false);
-    expect(isArtifactMutationIntent('Ändere die App-Einstellungen.')).toBe(false);
-    expect(isArtifactMutationIntent('')).toBe(false);
-    expect(isArtifactMutationIntent(undefined)).toBe(false);
-  });
-
-  it('excludes time/scheduling/document objects even with mutation verbs (Grok MAJOR 2+3)', () => {
-    expect(isArtifactMutationIntent('give me five minutes')).toBe(false);
-    expect(isArtifactMutationIntent('add that to the email')).toBe(false);
-    expect(isArtifactMutationIntent('change the meeting time')).toBe(false);
-    expect(isArtifactMutationIntent('remove the second paragraph')).toBe(false);
-    expect(isArtifactMutationIntent('Ändere den Betreff.')).toBe(false);
-    expect(isArtifactMutationIntent('Lösch den zweiten Absatz.')).toBe(false);
-  });
-
-  it('keeps polite question-FORM requests (Grok MAJOR 1: no blanket `?` ban)', () => {
-    expect(isArtifactMutationIntent('Kannst du der Aubergine ein Gesicht geben?')).toBe(true);
-    expect(isArtifactMutationIntent('Can you give the eggplant a face?')).toBe(true);
+describe('plain chat / greetings / questions: NEVER any control', () => {
+  it.each([
+    'Hallo.',
+    'Danke.',
+    'Was hältst du davon?',
+    'Was kannst du eigentlich alles?',
+    'Analysiere das Bild.',
+    'Mach weiter.',
+    'Schreib mir eine E-Mail an den Kunden.',
+    'Schau dir das im Video an.',
+    'Was passiert im Video?',
+    'hello, how are you?',
+    '',
+  ])('%s => none', (message) => {
+    expect(resolveMediaLaneIntent({ message, sources: { image: true, video: true } })).toEqual(NONE);
   });
 });
 
-describe('resolveMediaLaneIntent — the Founder/CoS contract', () => {
-  it('explicit image create/edit intent => image controls (no artifact needed)', () => {
+describe('GENERIC MUTATION OVERFIRE: every reproduced false positive is quiet', () => {
+  it.each([
+    'Füge eine Aufgabe hinzu.',
+    'Add a todo item.',
+    'Lösche die Datei.',
+    'Remove this task.',
+    'Change the project title.',
+    'Setze den Status auf erledigt.',
+    'Add a note for tomorrow.',
+    'Bearbeite den Vertrag.',
+    'give me five minutes',
+    'add that to the email',
+    'change the meeting time',
+    'remove the second paragraph',
+    'Ändere den Betreff.',
+    'Lösch den zweiten Absatz.',
+    'Gib der Aubergine ein Gesicht.', // NO medium noun: ambiguous by design
+  ])('%s => none even with sources visible', (message) => {
+    expect(resolveMediaLaneIntent({ message, sources: { image: true, video: true } })).toEqual(NONE);
+  });
+});
+
+describe('explicit EDIT intent binds to the MATCHING medium only', () => {
+  it('Bearbeite das Bild + newest artifact is VIDEO (image source exists) => edit-hint/image', () => {
+    expect(
+      resolveMediaLaneIntent({
+        message: 'Bearbeite das Bild und gib der Aubergine ein Gesicht.',
+        sources: { image: true, video: true },
+      })
+    ).toEqual({ operation: 'edit-hint', medium: 'image' });
+  });
+
+  it('Bearbeite das Bild + only VIDEO source => none (no matching source, no wrong affordance)', () => {
+    expect(resolveMediaLaneIntent({ message: 'Bearbeite das Bild.', sources: { image: false, video: true } })).toEqual(
+      NONE
+    );
+  });
+
+  it('Bearbeite das Video + newest artifact is IMAGE (video source exists) => edit-hint/video', () => {
+    expect(
+      resolveMediaLaneIntent({
+        message: 'Bearbeite das Video und mach es kürzer.',
+        sources: { image: true, video: true },
+      })
+    ).toEqual({ operation: 'edit-hint', medium: 'video' });
+  });
+
+  it('Bearbeite das Video + only IMAGE source => none', () => {
+    expect(resolveMediaLaneIntent({ message: 'Bearbeite das Video.', sources: { image: true, video: false } })).toEqual(
+      NONE
+    );
+  });
+
+  it('the canonical explicit frame: Gib der Aubergine im Video ein Gesicht => edit-hint/video', () => {
+    expect(
+      resolveMediaLaneIntent({
+        message: 'Gib der Aubergine im Video ein Gesicht.',
+        sources: { image: false, video: true },
+      })
+    ).toEqual({ operation: 'edit-hint', medium: 'video' });
+  });
+
+  it('the canonical frame without a video source => none (Hermes explains the missing target)', () => {
+    expect(
+      resolveMediaLaneIntent({
+        message: 'Gib der Aubergine im Video ein Gesicht.',
+        sources: { image: true, video: false },
+      })
+    ).toEqual(NONE);
+  });
+
+  it('Füge links ein Logo im Bild hinzu => edit-hint/image with image source', () => {
+    expect(
+      resolveMediaLaneIntent({
+        message: 'Füge links ein Logo im Bild hinzu.',
+        sources: { image: true, video: false },
+      })
+    ).toEqual({ operation: 'edit-hint', medium: 'image' });
+  });
+});
+
+describe('EDIT VETO beats the creation regex (the three direct-generation regressions)', () => {
+  it.each(['Schneide das Video.', 'Mach das Video heller.', 'Animate this video.'])(
+    '%s => edit-hint/video with source, never create',
+    (message) => {
+      expect(resolveMediaLaneIntent({ message, sources: { image: false, video: true } })).toEqual({
+        operation: 'edit-hint',
+        medium: 'video',
+      });
+      // …and the shared veto predicate matches the same texts.
+      expect(isExplicitVideoEditRequest(message)).toBe(true);
+    }
+  );
+
+  it('the veto holds without a source (none, but still vetoed — never direct generation)', () => {
+    for (const message of ['Schneide das Video.', 'Mach das Video heller.', 'Animate this video.']) {
+      expect(isExplicitVideoEditRequest(message)).toBe(true);
+      expect(resolveMediaLaneIntent({ message, sources: { image: false, video: false } })).toEqual(NONE);
+    }
+  });
+});
+
+describe('UMLAUT-SAFE German boundaries', () => {
+  it.each([
+    'Ändere das Video.',
+    'Ändere das Bild.',
+    'Verändere das Video bitte.',
+    'Öffne das Bild nicht, aber bearbeite das Bild.',
+  ])('%s matches the edit predicate for its medium', (message) => {
+    const isVideo = /video/i.test(message);
+    if (isVideo) {
+      expect(isExplicitVideoEditRequest(message)).toBe(true);
+      expect(resolveMediaLaneIntent({ message, sources: { image: true, video: true } })).toEqual({
+        operation: 'edit-hint',
+        medium: 'video',
+      });
+    } else {
+      expect(isImageEditRequest(message)).toBe(true);
+      expect(resolveMediaLaneIntent({ message, sources: { image: true, video: true } })).toEqual({
+        operation: 'edit-hint',
+        medium: 'image',
+      });
+    }
+  });
+
+  it('umlaut stems do not overfire on non-media nouns', () => {
+    expect(isExplicitVideoEditRequest('Ändere den Termin.')).toBe(false);
+    expect(isImageEditRequest('Ändere den Vertrag.')).toBe(false);
+  });
+});
+
+describe('explicit CREATE intent (unchanged semantics)', () => {
+  it('explicit image create => create/image (full selector, no source needed)', () => {
     expect(resolveMediaLaneIntent({ message: 'Erstelle ein Bild: eine lila Aubergine als Icon.' })).toEqual({
       operation: 'create',
       medium: 'image',
     });
   });
 
-  it('explicit video create/edit intent => video controls (no artifact needed)', () => {
+  it('explicit video create => create/video (full creation settings, no source needed)', () => {
     expect(resolveMediaLaneIntent({ message: 'Erstelle ein kurzes Video (480p): eine Aubergine dreht sich.' })).toEqual(
       { operation: 'create', medium: 'video' }
     );
   });
 
-  it('latest video + "Hallo" => null (artifact is context, never intent)', () => {
-    expect(resolveMediaLaneIntent({ message: 'Hallo.', latestVisibleArtifactType: 'video' })).toEqual({
-      operation: 'none',
-    });
-  });
-
-  it('latest video + "Danke" => null', () => {
-    expect(resolveMediaLaneIntent({ message: 'Danke.', latestVisibleArtifactType: 'video' })).toEqual({
-      operation: 'none',
-    });
-  });
-
-  it('latest video + "Was hältst du davon?" => null', () => {
-    expect(resolveMediaLaneIntent({ message: 'Was hältst du davon?', latestVisibleArtifactType: 'video' })).toEqual({
-      operation: 'none',
-    });
-  });
-
-  it('latest video + topic change => null', () => {
-    expect(
-      resolveMediaLaneIntent({
-        message: 'Schreib mir eine E-Mail an den Kunden.',
-        latestVisibleArtifactType: 'video',
-      })
-    ).toEqual({ operation: 'none' });
-  });
-
-  it('latest video + "Gib der Aubergine ein Gesicht" => video (kind disambiguates mutation)', () => {
-    expect(
-      resolveMediaLaneIntent({
-        message: 'Gib der Aubergine ein Gesicht.',
-        latestVisibleArtifactType: 'video',
-      })
-    ).toEqual({ operation: 'edit-hint', medium: 'video' });
-  });
-
-  it('latest image + "Füge links ein Logo hinzu" => image', () => {
-    expect(
-      resolveMediaLaneIntent({
-        message: 'Füge links ein Logo hinzu.',
-        latestVisibleArtifactType: 'image',
-      })
-    ).toEqual({ operation: 'edit-hint', medium: 'image' });
-  });
-
-  it('mutation intent WITHOUT a visible artifact => null', () => {
-    expect(resolveMediaLaneIntent({ message: 'Gib der Aubergine ein Gesicht.' })).toEqual({ operation: 'none' });
-    expect(resolveMediaLaneIntent({ message: 'add a second character' })).toEqual({ operation: 'none' });
-  });
-
-  it('explicit current-draft intent overrides artifact context', () => {
-    // Fresh explicit image request over a visible video: image wins the slot.
-    expect(
-      resolveMediaLaneIntent({
-        message: 'Erstelle ein Bild im gleichen Stil.',
-        latestVisibleArtifactType: 'video',
-      })
-    ).toEqual({ operation: 'create', medium: 'image' });
-    // Explicit video beats explicit image when a draft carries both.
+  it('a mixed draft still resolves to the expensive lane (video before image)', () => {
     expect(resolveMediaLaneIntent({ message: 'Erstelle ein Bild und ein Video davon.' })).toEqual({
       operation: 'create',
       medium: 'video',
     });
   });
 
-  it('image and video are structurally mutually exclusive (one return value)', () => {
+  it('image creation phrasing EN + DE, and never video creation as image', () => {
+    expect(isImageLaneRequest('generate an image of an eggplant icon')).toBe(true);
+    expect(isImageLaneRequest('Mach mir ein Logo für die Firma')).toBe(true);
+    expect(isImageLaneRequest('Erstelle ein kurzes Video von einer Aubergine.')).toBe(false);
+    expect(isImageLaneRequest('Schick mir das Foto von gestern.')).toBe(false);
+  });
+
+  it('keeps the shipped video-gate signals (addressed videomarketer still wins)', () => {
+    expect(resolveMediaLaneIntent({ message: 'Hallo.', resolvedAgentId: 'video-marketer' })).toEqual({
+      operation: 'create',
+      medium: 'video',
+    });
+  });
+});
+
+describe('CREATION-VS-EDIT PRECEDENCE (CoS): strong creation wins over edit-like words', () => {
+  it.each([
+    ['Erstelle ein animiertes Video von einer Aubergine.', 'video'],
+    ['Create an animated video.', 'video'],
+    ['Gib mir ein Video von einer Aubergine.', 'video'],
+    ['Give me a video of an eggplant.', 'video'],
+    ['Erstelle ein Bild und füge darauf ein Logo hinzu.', 'image'],
+    ['Create an image and add a logo.', 'image'],
+    ['generate images of eggplants for the campaign', 'image'],
+  ])('%s => create/%s (NEVER edit, even with a source visible)', (message, medium) => {
+    expect(resolveMediaLaneIntent({ message, sources: { image: true, video: true } })).toEqual({
+      operation: 'create',
+      medium,
+    });
+    // The shared veto predicate agrees: these are NOT edits.
+    if (medium === 'video') expect(isExplicitVideoEditRequest(message)).toBe(false);
+    else expect(isImageEditRequest(message)).toBe(false);
+  });
+
+  it('edit semantics still hold when no strong creation is named', () => {
+    for (const message of ['Mach das Video heller.', 'Schneide das Video.', 'Animate this video.']) {
+      expect(isExplicitVideoEditRequest(message)).toBe(true);
+      expect(resolveMediaLaneIntent({ message, sources: { image: false, video: true } })).toEqual({
+        operation: 'edit-hint',
+        medium: 'video',
+      });
+    }
+  });
+
+  it('weak/ambiguous forms stay quiet rather than misroute', () => {
+    // 'add' without a strong creation verb and without edit semantics: not
+    // an edit, not our lane at all.
+    expect(resolveMediaLaneIntent({ message: 'Add a video of the product to the page.' })).toEqual(NONE);
+    // "Give me five minutes" is neither (no medium noun).
+    expect(resolveMediaLaneIntent({ message: 'Give me five minutes.' })).toEqual(NONE);
+    // "Gib mir ein Gesicht" — request idiom without a medium noun: quiet.
+    expect(resolveMediaLaneIntent({ message: 'Gib mir ein Gesicht.' })).toEqual(NONE);
+    // Ordinary workplace verbs are not edits even with a matching source
+    // visible (Grok final MAJOR): insert/attach/append do not fire.
+    expect(
+      resolveMediaLaneIntent({
+        message: 'Insert the new table into the image doc.',
+        sources: { image: true, video: false },
+      })
+    ).toEqual(NONE);
+    expect(
+      resolveMediaLaneIntent({ message: 'Attach the contract to the ticket.', sources: { image: true, video: true } })
+    ).toEqual(NONE);
+    expect(
+      resolveMediaLaneIntent({ message: 'Append the signature to the report.', sources: { image: true, video: false } })
+    ).toEqual(NONE);
+  });
+});
+
+describe('structural exclusivity', () => {
+  it('every answer is exactly one of none/create/edit-hint', () => {
     const lanes = [
       resolveMediaLaneIntent({ message: 'Erstelle ein Bild.' }),
       resolveMediaLaneIntent({ message: 'Erstelle ein Video.' }),
-      resolveMediaLaneIntent({ message: 'Gib der Aubergine ein Gesicht.', latestVisibleArtifactType: 'video' }),
+      resolveMediaLaneIntent({
+        message: 'Gib der Aubergine im Video ein Gesicht.',
+        sources: { image: false, video: true },
+      }),
+      resolveMediaLaneIntent({ message: 'Hallo.' }),
     ];
     expect(lanes).toEqual([
       { operation: 'create', medium: 'image' },
       { operation: 'create', medium: 'video' },
       { operation: 'edit-hint', medium: 'video' },
+      NONE,
     ]);
-    for (const lane of lanes)
-      expect(lane.operation === 'none' || lane.operation === 'create' || lane.operation === 'edit-hint').toBe(true);
-  });
-
-  it('keeps the video gate’s existing signals (addressed videomarketer still wins)', () => {
-    expect(resolveMediaLaneIntent({ message: 'Hallo.', resolvedAgentId: 'video-marketer' })).toEqual({
-      operation: 'create',
-      medium: 'video',
-    });
   });
 });
