@@ -18,6 +18,7 @@
 
 import { useEffect } from 'react';
 import { ipcBridge } from '@/common';
+import { emitter } from '@/renderer/utils/emitter';
 import { isTerminalTurnState } from './useConversationListSync';
 
 export type ImageArtifactReconcileRelayDecision = { action: 'ignore' } | { action: 'reconcile'; conversationId: string };
@@ -32,10 +33,24 @@ export function decideImageArtifactReconcileRelay(event: { session_id?: string; 
 }
 
 /**
+ * What a reconcile summary means for the render surface (pure, unit-tested):
+ * ONLY a run that actually BOUND something new warrants a provider refresh —
+ * alreadyBound/zero-candidate runs must not tax the UI.
+ */
+export function reconcileSummaryNeedsRefresh(summary: unknown): boolean {
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return false;
+  const bound = (summary as Record<string, unknown>).bound;
+  return typeof bound === 'number' && bound > 0;
+}
+
+/**
  * Mount-once relay (ConversationHistoryContext, next to the session digest
  * relay). In-flight de-dupe per conversation; every invocation is
  * best-effort and fail-quiet — a reconcile failure must never surface to the
- * chat UI.
+ * chat UI. When the durable reconcile BOUND a staged child this turn, the
+ * relay emits the artifact refresh itself: the bind changes Main's store,
+ * and without this notification the new card would only appear on the next
+ * load — the R2 same-turn gap.
  */
 export function useImageArtifactReconcileRelay(): void {
   useEffect(() => {
@@ -48,6 +63,14 @@ export function useImageArtifactReconcileRelay(): void {
       inFlight.add(conversationId);
       void ipcBridge.commandEve.imageArtifactReconcile
         .invoke({ conversationId })
+        .then((response) => {
+          const summary = response?.data && typeof response.data === 'object'
+            ? (response.data as { summary?: unknown }).summary
+            : undefined;
+          if (reconcileSummaryNeedsRefresh(summary)) {
+            emitter.emit('commandEve.artifacts.refresh', { conversation_id: conversationId });
+          }
+        })
         .catch(() => {
           // Fail-quiet — the list-time reconcile recovers on the next load.
         })

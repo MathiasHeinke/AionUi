@@ -8,7 +8,7 @@ import { extractImageBindCandidatesFromTranscript } from '@/common/config/imageA
 import { reconcileConversationImageArtifactBinds } from '@/process/commandEve/imageArtifactReconcileMain';
 import { bindStagedImageArtifact, countPendingStagedImageArtifacts, readImageArtifactRecordById, stageGeneratedImageArtifact } from '@/process/commandEve/imageArtifactStore';
 import { handleCommandEveImageArtifactsList } from '@/process/bridge/commandEveImageArtifactBridge';
-import { decideImageArtifactReconcileRelay } from '@/renderer/pages/conversation/GroupedHistory/hooks/useImageArtifactReconcileRelay';
+import { decideImageArtifactReconcileRelay, reconcileSummaryNeedsRefresh } from '@/renderer/pages/conversation/GroupedHistory/hooks/useImageArtifactReconcileRelay';
 
 const R2_ROW_PATH = 'tests/fixtures/command-eve/r2-row.json';
 const R2_HANDLE = `img_h_${'ab'.repeat(32)}`;
@@ -300,5 +300,18 @@ describe('decideImageArtifactReconcileRelay', () => {
     expect(decideImageArtifactReconcileRelay({ session_id: CONVO, state: 'in_progress' })).toEqual({ action: 'ignore' });
     expect(decideImageArtifactReconcileRelay({ session_id: '', state: 'completed' })).toEqual({ action: 'ignore' });
     expect(decideImageArtifactReconcileRelay({})).toEqual({ action: 'ignore' });
+  });
+});
+
+describe('reconcileSummaryNeedsRefresh (the same-turn render trigger)', () => {
+  it('refreshes only when the reconcile actually bound something new', () => {
+    expect(reconcileSummaryNeedsRefresh({ bound: 1, alreadyBound: 0 })).toBe(true);
+    expect(reconcileSummaryNeedsRefresh({ bound: 3 })).toBe(true);
+    expect(reconcileSummaryNeedsRefresh({ bound: 0, alreadyBound: 2 })).toBe(false);
+    expect(reconcileSummaryNeedsRefresh({ bound: 0 })).toBe(false);
+    expect(reconcileSummaryNeedsRefresh({})).toBe(false);
+    expect(reconcileSummaryNeedsRefresh(undefined)).toBe(false);
+    expect(reconcileSummaryNeedsRefresh(null)).toBe(false);
+    expect(reconcileSummaryNeedsRefresh('bound')).toBe(false);
   });
 });
