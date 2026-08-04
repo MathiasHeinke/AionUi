@@ -43,9 +43,42 @@ describe('the managed tool text is PATH-FREE and carries no edit instruction', (
       bytesCount: 1,
       model: 'data:image/png;base64,',
     });
-    // Even with hostile metadata the text carries no path-shaped REFERENCE:
-    // the handle is the only artifact identity, and it is fixed-shape.
+    // Sharp, not soft (CoS 1.820.3): hostile metadata in EVERY interpolated
+    // parameter must degrade to `unbekannt`, so the text provably carries none
+    // of the forbidden tokens — the handle is the only artifact identity.
+    for (const token of FORBIDDEN_TOKENS) expect(text).not.toContain(token);
+    expect(text).not.toContain('/Users/alice/conversations');
+    expect(text).not.toContain('data:image/png;base64,');
+    expect(text).toContain('unbekannt');
     expect(extractImageStagedHandle(text)).toBe(HANDLE);
+  });
+
+  it('degrades overlong and control-char metadata instead of leaking it', () => {
+    const text = buildManagedImageToolText({
+      artifactHandle: HANDLE,
+      resolution: '1K'.repeat(100),
+      aspectRatio: '16\t:9',
+      bytesCount: 1,
+      model: 'MEDIA: /Users/alice/x.png',
+    });
+    for (const token of FORBIDDEN_TOKENS) expect(text).not.toContain(token);
+    expect(text).not.toContain('1K'.repeat(100));
+    expect(text).not.toContain('16\t:9');
+    expect(text).toContain('unbekannt');
+  });
+
+  it('passes controlled registry metadata through verbatim', () => {
+    const text = buildManagedImageToolText({
+      artifactHandle: HANDLE,
+      resolution: '1024x1024',
+      aspectRatio: '1:1',
+      bytesCount: 648_841,
+      model: 'Nano Banana 2',
+    });
+    expect(text).toContain('1024x1024');
+    expect(text).toContain('1:1');
+    expect(text).toContain('Nano Banana 2');
+    expect(text).toContain('634 KB');
   });
 });
 
