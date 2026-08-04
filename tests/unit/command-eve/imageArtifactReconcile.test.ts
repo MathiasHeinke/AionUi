@@ -303,6 +303,52 @@ describe('decideImageArtifactReconcileRelay', () => {
   });
 });
 
+describe('the list-time win publishes exactly once (production wiring shape)', () => {
+  it('a fresh bind from reconcileBeforeList emits command-eve.image-artifacts-changed once and the same list already carries the child', async () => {
+    const staged = stageOrphan();
+    const rewritten = r2Message();
+    rewritten.content = rewritten.content.split(R2_HANDLE).join(staged.handle);
+    const emitted: string[] = [];
+    // Mirror the production closure (commandEveBridge
+    // reconcileImageArtifactBindsForConversation): the SAME reconcile call the
+    // list path makes, with the emitter wired through onFreshBind.
+    const listed = await handleCommandEveImageArtifactsList(
+      { conversationId: CONVO },
+      {
+        getDataPath: () => dataRoot,
+        reconcileBeforeList: (conversationId) =>
+          reconcileConversationImageArtifactBinds(dataRoot, conversationId, {
+            fetchTranscript: async () => [rewritten],
+            bind: bindStagedImageArtifact,
+            log: () => undefined,
+            onFreshBind: (id) => emitted.push(id),
+          }),
+      }
+    );
+    expect(emitted).toEqual([CONVO]);
+    expect(listed.map((record) => record.id)).toEqual([staged.record.id]);
+    expect(listed[0]?.status).toBe('active');
+    expect(listed[0]?.payload.parent_artifact_id).toBe('img_parent');
+
+    // A second list (e.g. a provider reload right after): no new emission.
+    const listedAgain = await handleCommandEveImageArtifactsList(
+      { conversationId: CONVO },
+      {
+        getDataPath: () => dataRoot,
+        reconcileBeforeList: (conversationId) =>
+          reconcileConversationImageArtifactBinds(dataRoot, conversationId, {
+            fetchTranscript: async () => [rewritten],
+            bind: bindStagedImageArtifact,
+            log: () => undefined,
+            onFreshBind: (id) => emitted.push(id),
+          }),
+      }
+    );
+    expect(listedAgain).toHaveLength(1);
+    expect(emitted).toEqual([CONVO]);
+  });
+});
+
 describe('the race-proof fresh-bind notification inside the reconcile', () => {
   it('onFreshBind fires once for the lane that WINS the race; the relay-late run reports pendingStaged=0/bound=0 and is covered by the unconditional terminal refresh', async () => {
     // The exact R2 sequence: the LIST-time reconcile binds first...
