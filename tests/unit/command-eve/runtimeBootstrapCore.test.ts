@@ -1127,6 +1127,39 @@ describe('Command EVE runtime bootstrap core', () => {
         terminal_yolo_disabled: ['session-auto'],
         idempotent_install: true,
       });
+      // ACP session-restore endpoint contract: a base_url frozen at session
+      // creation must never win over the current loopback runtime on resume
+      // (proven live: a resumed turn died APIConnectionError against the stale
+      // ephemeral port before any tool call). Strict fences: only provider
+      // exactly 'custom' AND persisted http loopback; the CURRENT runtime
+      // base_url must itself pass the strict local-shim check — fail closed
+      // everywhere else, and persist the refresh so the next restore starts
+      // correct.
+      expect(providerOverride).toContain('_install_command_eve_acp_session_restore_patch');
+      expect(providerOverride).toContain('def _command_eve_resolve_restore_base_url(');
+      expect(providerOverride).toContain('def _command_eve_is_loopback_http_host(');
+      expect(providerOverride).toContain('db.update_session_meta(str(session_id), json.dumps(meta))');
+      const sessionRestoreHarness = spawnSync(
+        'python3',
+        [path.resolve('tests/fixtures/command-eve/acp_session_restore_patch_harness.py'), providerOverridePath],
+        { encoding: 'utf8', timeout: 10_000 }
+      );
+      expect(sessionRestoreHarness.status, sessionRestoreHarness.stderr || sessionRestoreHarness.stdout).toBe(0);
+      expect(JSON.parse(sessionRestoreHarness.stdout)).toEqual({
+        a_to_b: {
+          call_base_url: 'http://127.0.0.1:42222/v1',
+          session_id_preserved: true,
+          cwd_preserved: true,
+          api_mode_preserved: true,
+          model_preserved: true,
+          persisted_to_b: true,
+          result: true,
+        },
+        remote_untouched: { call_base_url: 'https://api.openrouter.ai/v1', no_meta_write: true },
+        non_custom_untouched: { call_base_url: 'http://127.0.0.1:41111/v1', no_meta_write: true },
+        current_missing_fail_closed: { call_base_url: 'http://127.0.0.1:41111/v1', no_meta_write: true },
+        current_remote_fail_closed: { call_base_url: 'http://127.0.0.1:41111/v1', no_meta_write: true },
+      });
       expect(providerOverride).toContain('"local-fallback"');
       expect(providerOverride).toContain('request_host in {"127.0.0.1", "localhost", "::1"}');
       expect(providerOverride).not.toContain('request_host == "127.0.0.1"');
