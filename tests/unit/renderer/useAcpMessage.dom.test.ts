@@ -118,7 +118,10 @@ vi.mock('@/common', () => ({
   },
 }));
 
-const makeExternalWriteFailure = (overrides: Record<string, unknown> = {}): IResponseMessage => ({
+const makeExternalWriteFailure = (
+  overrides: Record<string, unknown> = {},
+  turnId = 'turn-write-recovery'
+): IResponseMessage => ({
   type: 'acp_tool_call',
   data: {
     update: {
@@ -136,6 +139,7 @@ const makeExternalWriteFailure = (overrides: Record<string, unknown> = {}): IRes
     },
   },
   msg_id: 'message-write-call-1',
+  turn_id: turnId,
   conversation_id: 'conv-1',
 });
 
@@ -165,11 +169,19 @@ describe('classifyAcpExternalWriteBlock', () => {
     });
     expect(classifyAcpExternalWriteBlock(markerOnlyInReport.data)).toBeUndefined();
 
-    const markerInResult = makeExternalWriteFailure({
+    const markerMixedWithResultProse = makeExternalWriteFailure({
       raw_input: { path: '/tmp/report.md', content: '# Report' },
       content: [{ type: 'content', content: { type: 'text', text: 'permission denied\nRESULT: HardBlocked' } }],
     });
-    expect(classifyAcpExternalWriteBlock(markerInResult.data)?.markdown).toBe('# Report');
+    expect(classifyAcpExternalWriteBlock(markerMixedWithResultProse.data)).toBeUndefined();
+
+    const equalsMarker = makeExternalWriteFailure({
+      content: [{ type: 'content', content: { type: 'text', text: 'RESULT=HardBlocked' } }],
+    });
+    expect(classifyAcpExternalWriteBlock(equalsMarker.data)).toBeUndefined();
+
+    const untypedMarker = makeExternalWriteFailure({ content: [{ content: { text: 'RESULT: HardBlocked' } }] });
+    expect(classifyAcpExternalWriteBlock(untypedMarker.data)).toBeUndefined();
   });
 
   it('falls back from malformed rawInput to a valid raw_input compatibility payload', () => {
@@ -509,6 +521,8 @@ describe('useAcpMessage', () => {
     );
     expect(reportStageWorkspaceInvokeMock).toHaveBeenCalledWith({
       conversation_id: 'conv-1',
+      turn_id: 'turn-write-recovery',
+      tool_call_id: 'write-call-1',
       markdown: '# Quarterly report\n\nRecovered body.',
       suggested_name: 'Quarterly Report.pdf',
     });
@@ -554,7 +568,40 @@ describe('useAcpMessage', () => {
     expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
     expect(conversationStopInvokeMock).not.toHaveBeenCalled();
     expect(reportStageWorkspaceInvokeMock).not.toHaveBeenCalled();
-    expect(result.current.running).toBe(false);
+    // No matching runtime identity means the recovery lane must not mutate
+    // turn state either; the ordinary start remains visible/running.
+    expect(result.current.running).toBe(true);
+  });
+
+  it('1.820.4: a stale replay cannot cancel the current turn or stage old report bytes', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(result.current.hasHydratedRunningState).toBe(true));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: null,
+        msg_id: 'message-current-turn',
+        turn_id: 'turn-current',
+        conversation_id: 'conv-1',
+      });
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-current', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-current',
+      });
+      responseStreamHandlerRef.current?.(makeExternalWriteFailure({}, 'turn-old'));
+    });
+
+    expect(conversationStopInvokeMock).not.toHaveBeenCalled();
+    expect(reportStageWorkspaceInvokeMock).not.toHaveBeenCalled();
+    expect(result.current.running).toBe(true);
   });
 
   describe('ACP stream watchdog', () => {

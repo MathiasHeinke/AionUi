@@ -740,13 +740,21 @@ export const useAcpMessage = (
             // Replay/duplicate: the original failed card, stop request, staging
             // request and Preview opening already own this tool call.
             if (recoveredExternalWriteCallIdsRef.current.has(externalWriteBlock.toolCallId)) break;
+            const failedTurnId = typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
+            const activeTurnId = getConversationRuntimeViewSnapshot(conversation_id).activeTurnId;
+            if (!failedTurnId || !activeTurnId || failedTurnId !== activeTurnId) {
+              // A missing/stale failure frame may still be shown, but it must
+              // never terminalize or cancel a newer turn and must never stage
+              // old report bytes into that turn's workspace.
+              commitMessage(transformedMessage);
+              break;
+            }
             recoveredExternalWriteCallIdsRef.current.add(externalWriteBlock.toolCallId);
 
             // Preserve the existing ACP card as the visible failure receipt,
             // then terminalize every local running surface immediately. The
             // display-only watchdog remains unchanged and grants no authority.
             commitMessage(transformedMessage);
-            const activeTurnId = getConversationRuntimeViewSnapshot(conversation_id).activeTurnId;
             turnFinishedRef.current = true;
             setRunning(false);
             runningRef.current = false;
@@ -770,14 +778,12 @@ export const useAcpMessage = (
             }));
             clearConversationGenerating(conversation_id);
 
-            // Missing runtime truth fails closed: the failed card is retained,
-            // but no uncancellable recovery write is staged. With an active
-            // turn, cancel exactly once and only then ask Main to stage. Neither
-            // step retries or falls back to another path/tool/converter.
-            if (!activeTurnId) break;
+            // The failed frame's own turn identity was proven equal to the
+            // active runtime turn above. Cancel exactly once and only then ask
+            // Main to stage. Neither step retries or falls back to another path.
             void (async () => {
               try {
-                await ipcBridge.conversation.stop.invoke({ conversation_id, turn_id: activeTurnId });
+                await ipcBridge.conversation.stop.invoke({ conversation_id, turn_id: failedTurnId });
               } catch {
                 return;
               }
@@ -785,6 +791,8 @@ export const useAcpMessage = (
               try {
                 const staged = await ipcBridge.report.stageWorkspace.invoke({
                   conversation_id,
+                  turn_id: failedTurnId,
+                  tool_call_id: externalWriteBlock.toolCallId,
                   markdown: externalWriteBlock.markdown,
                   suggested_name: externalWriteBlock.suggestedName,
                 });

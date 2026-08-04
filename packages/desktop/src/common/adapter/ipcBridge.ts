@@ -2443,6 +2443,8 @@ export interface ICommandEveReportExportResult {
  */
 export interface ICommandEveReportStageWorkspaceRequest {
   conversation_id: string;
+  turn_id: string;
+  tool_call_id: string;
   markdown: string;
   suggested_name: string;
 }

@@ -831,14 +831,17 @@ async function fetchConversationTranscriptFull(conversationId: string, window: n
 let imageArtifactsChangedEmitter: { emit: (payload: { conversation_id: string }) => void } | undefined;
 function getImageArtifactsChangedEmitter(): { emit: (payload: { conversation_id: string }) => void } {
   if (!imageArtifactsChangedEmitter) {
-    imageArtifactsChangedEmitter = bridge.buildEmitter<{ conversation_id: string }>('command-eve.image-artifacts-changed');
+    imageArtifactsChangedEmitter = bridge.buildEmitter<{ conversation_id: string }>(
+      'command-eve.image-artifacts-changed'
+    );
   }
   return imageArtifactsChangedEmitter;
 }
 
 async function reconcileImageArtifactBindsForConversation(conversationId: string) {
   const { reconcileConversationImageArtifactBinds } = await import('../commandEve/imageArtifactReconcileMain');
-  const { bindStagedImageArtifact, countPendingStagedImageArtifacts } = await import('../commandEve/imageArtifactStore');
+  const { bindStagedImageArtifact, countPendingStagedImageArtifacts } =
+    await import('../commandEve/imageArtifactStore');
   return reconcileConversationImageArtifactBinds(getDataPath(), conversationId, {
     fetchTranscript: (id, window) => fetchConversationTranscriptFull(id, window),
     bind: bindStagedImageArtifact,
@@ -1901,8 +1904,7 @@ export function initCommandEveBridge(): void {
     .provider(
       async (
         request?:
-          | CommandEveMultimodalTtsConsentSetRequest
-          | CommandEveBridgeEnvelope<CommandEveMultimodalTtsConsentSetRequest>
+          CommandEveMultimodalTtsConsentSetRequest | CommandEveBridgeEnvelope<CommandEveMultimodalTtsConsentSetRequest>
       ) => {
         const payload = unwrapBridgeRequest<CommandEveMultimodalTtsConsentSetRequest>(request);
         const data = setCommandEveMultimodalTtsConsent(getDataPath(), payload);
@@ -2271,23 +2273,23 @@ export function initCommandEveBridge(): void {
         onFreshBind: (conversationId) => getImageArtifactsChangedEmitter().emit({ conversation_id: conversationId }),
       })
     );
-  bridge
-    .buildProvider('command-eve.image-artifacts-list')
-    .provider((request?: { conversationId?: string }) =>
-      handleCommandEveImageArtifactsListBridge(request, {
-        getDataPath,
-        reconcileBeforeList: (conversationId) => reconcileImageArtifactBindsForConversation(conversationId),
-      })
-    );
+  bridge.buildProvider('command-eve.image-artifacts-list').provider((request?: { conversationId?: string }) =>
+    handleCommandEveImageArtifactsListBridge(request, {
+      getDataPath,
+      reconcileBeforeList: (conversationId) => reconcileImageArtifactBindsForConversation(conversationId),
+    })
+  );
   // Durable re-bind authority: the turnCompleted relay invokes this at turn
   // end; the list above reconciles at load. Both are best-effort, idempotent
   // and debit-free (binding flips display state only).
-  bridge.buildProvider('command-eve.image-artifact-reconcile').provider(async (request?: { conversationId?: string }) => {
-    const conversationId = typeof request?.conversationId === 'string' ? request.conversationId : '';
-    if (!conversationId) return { success: false, data: { ok: false, reason: 'invalid-request' } };
-    const summary = await reconcileImageArtifactBindsForConversation(conversationId);
-    return { success: true, data: { ok: true, summary } };
-  });
+  bridge
+    .buildProvider('command-eve.image-artifact-reconcile')
+    .provider(async (request?: { conversationId?: string }) => {
+      const conversationId = typeof request?.conversationId === 'string' ? request.conversationId : '';
+      if (!conversationId) return { success: false, data: { ok: false, reason: 'invalid-request' } };
+      const summary = await reconcileImageArtifactBindsForConversation(conversationId);
+      return { success: true, data: { ok: true, summary } };
+    });
   bridge.buildProvider('command-eve.image-artifact-preview').provider(handleCommandEveImageArtifactPreviewBridge);
   bridge
     .buildProvider('command-eve.image-artifact-import-legacy')
@@ -4270,74 +4272,97 @@ export function initCommandEveBridge(): void {
   // -------------------------------------------------------------------------
   bridge
     .buildProvider('command-eve.report-stage-workspace')
-    .provider(async (request?: { conversation_id?: string; markdown?: string; suggested_name?: string }) => {
-      const version = 'command-eve-report-stage-workspace/v0' as const;
-      const conversationId = typeof request?.conversation_id === 'string' ? request.conversation_id.trim() : '';
-      const markdown = typeof request?.markdown === 'string' ? request.markdown : '';
-      const suggestedName = typeof request?.suggested_name === 'string' ? request.suggested_name.trim() : '';
-      if (!conversationId) {
-        return {
-          success: false,
-          msg: 'Conversation id is required.',
-          data: { version, ok: false, reason_code: 'REPORT_STAGE_CONVERSATION_INVALID' },
-        };
-      }
-      if (!markdown.trim()) {
-        return {
-          success: false,
-          msg: 'Markdown content is required.',
-          data: { version, ok: false, reason_code: 'REPORT_STAGE_MARKDOWN_REQUIRED' },
-        };
-      }
-      if (
-        !suggestedName ||
-        suggestedName.length > 255 ||
-        suggestedName.includes('\0') ||
-        suggestedName.includes('/') ||
-        suggestedName.includes('\\')
-      ) {
-        return {
-          success: false,
-          msg: 'A report name is required.',
-          data: { version, ok: false, reason_code: 'REPORT_STAGE_REQUESTED_NAME_INVALID' },
-        };
-      }
+    .provider(
+      async (request?: {
+        conversation_id?: string;
+        turn_id?: string;
+        tool_call_id?: string;
+        markdown?: string;
+        suggested_name?: string;
+      }) => {
+        const version = 'command-eve-report-stage-workspace/v0' as const;
+        const conversationId = typeof request?.conversation_id === 'string' ? request.conversation_id.trim() : '';
+        const turnId = typeof request?.turn_id === 'string' ? request.turn_id.trim() : '';
+        const toolCallId = typeof request?.tool_call_id === 'string' ? request.tool_call_id.trim() : '';
+        const markdown = typeof request?.markdown === 'string' ? request.markdown : '';
+        const suggestedName = typeof request?.suggested_name === 'string' ? request.suggested_name.trim() : '';
+        if (
+          !conversationId ||
+          conversationId.length > 256 ||
+          conversationId.includes('\0') ||
+          !turnId ||
+          turnId.length > 256 ||
+          turnId.includes('\0') ||
+          !toolCallId ||
+          toolCallId.length > 256 ||
+          toolCallId.includes('\0')
+        ) {
+          return {
+            success: false,
+            msg: 'Conversation, turn and tool-call identity are required.',
+            data: { version, ok: false, reason_code: 'REPORT_STAGE_CONVERSATION_INVALID' },
+          };
+        }
+        if (!markdown.trim()) {
+          return {
+            success: false,
+            msg: 'Markdown content is required.',
+            data: { version, ok: false, reason_code: 'REPORT_STAGE_MARKDOWN_REQUIRED' },
+          };
+        }
+        if (
+          !suggestedName ||
+          suggestedName.length > 255 ||
+          suggestedName.includes('\0') ||
+          suggestedName.includes('/') ||
+          suggestedName.includes('\\')
+        ) {
+          return {
+            success: false,
+            msg: 'A report name is required.',
+            data: { version, ok: false, reason_code: 'REPORT_STAGE_REQUESTED_NAME_INVALID' },
+          };
+        }
 
-      const capturedSeatId = getActiveSeatId();
-      const capturedSeatRevision = getActiveSeatContextRevision();
-      const isSeatCurrent = () =>
-        getActiveSeatId() === capturedSeatId && getActiveSeatContextRevision() === capturedSeatRevision;
-      try {
-        const workspaceRoot = await fetchConversationWorkspace(conversationId);
-        const staged = stageRecoveredMarkdownInWorkspace({
-          workspaceRoot,
-          requestedPath: suggestedName,
-          markdown,
-          seatId: capturedSeatId,
-          activeSeatId: getActiveSeatId(),
-          isSeatCurrent,
-        });
-        return {
-          success: true,
-          data: {
-            version,
-            ok: true,
-            file_name: staged.relativePath,
-            size_bytes: staged.bytesWritten,
-          },
-        };
-      } catch (error) {
-        const reasonCode =
-          error instanceof RecoveredReportStageError || error instanceof ReportStageWorkspaceLookupError
-            ? error.reasonCode
-            : 'REPORT_STAGE_FAILED';
-        return {
-          success: false,
-          msg: error instanceof Error ? error.message : 'Recovered report staging failed.',
-          data: { version, ok: false, reason_code: reasonCode },
-        };
+        const capturedSeatId = getActiveSeatId();
+        const capturedSeatRevision = getActiveSeatContextRevision();
+        const isSeatCurrent = () =>
+          getActiveSeatId() === capturedSeatId && getActiveSeatContextRevision() === capturedSeatRevision;
+        try {
+          const workspaceRoot = await fetchConversationWorkspace(conversationId);
+          const staged = stageRecoveredMarkdownInWorkspace({
+            workspaceRoot,
+            requestedPath: suggestedName,
+            markdown,
+            seatId: capturedSeatId,
+            conversationId,
+            turnId,
+            toolCallId,
+            activeSeatId: getActiveSeatId(),
+            isSeatCurrent,
+          });
+          return {
+            success: true,
+            data: {
+              version,
+              ok: true,
+              file_name: staged.relativePath,
+              size_bytes: staged.bytesWritten,
+            },
+          };
+        } catch (error) {
+          const reasonCode =
+            error instanceof RecoveredReportStageError || error instanceof ReportStageWorkspaceLookupError
+              ? error.reasonCode
+              : 'REPORT_STAGE_FAILED';
+          return {
+            success: false,
+            msg: error instanceof Error ? error.message : 'Recovered report staging failed.',
+            data: { version, ok: false, reason_code: reasonCode },
+          };
+        }
       }
-    });
+    );
 
   // -------------------------------------------------------------------------
   // REPORT EXPORT (Lane C / RPT-1). Turn the active seat's report markdown into

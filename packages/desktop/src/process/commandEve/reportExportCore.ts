@@ -42,6 +42,7 @@
 
 import { documentConverter } from '@/common/chat/document/DocumentConverter';
 import { getActiveSeatId } from '@process/commandEve/seatContextCore';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -577,8 +578,8 @@ export function defaultReportFileStem(title?: string): string {
 
 /** Largest recovered markdown body Main will stage into a conversation workspace. */
 export const RECOVERED_REPORT_STAGE_MAX_BYTES = 1024 * 1024;
-/** `name.md` plus at most fifteen deterministic collision suffixes. */
-export const RECOVERED_REPORT_STAGE_MAX_CANDIDATES = 16;
+/** One deterministic identity-bound candidate; replays must never create a suffix copy. */
+export const RECOVERED_REPORT_STAGE_MAX_CANDIDATES = 1;
 
 export type RecoveredReportStagePath = {
   /** Direct-child file name, safe to return as Preview metadata. */
@@ -599,6 +600,10 @@ export type RecoveredReportStageInput = {
   markdown: string;
   /** Seat captured before Main fetched the conversation. */
   seatId: string;
+  /** Main-verified identity tuple used to make reconnect/restart replays idempotent. */
+  conversationId: string;
+  turnId: string;
+  toolCallId: string;
   /** Current seat at the staging boundary. Must equal `seatId`. */
   activeSeatId: string;
   /** Optional live seat/revision fence checked before and after the write. */
@@ -703,13 +708,85 @@ function removeCreatedFileIfSame(candidate: string, created: fs.Stats | undefine
   }
 }
 
+function assertRecoveredWorkspaceIdentity(workspaceRoot: string, expected: fs.Stats): void {
+  try {
+    const current = fs.lstatSync(workspaceRoot);
+    if (
+      !current.isDirectory() ||
+      current.isSymbolicLink() ||
+      current.dev !== expected.dev ||
+      current.ino !== expected.ino
+    ) {
+      stageError('REPORT_STAGE_WORKSPACE_CHANGED', 'Recovered report workspace changed during staging.');
+    }
+  } catch (error) {
+    if (error instanceof RecoveredReportStageError) throw error;
+    stageError('REPORT_STAGE_WORKSPACE_UNAVAILABLE', 'Recovered report workspace became unavailable.');
+  }
+}
+
+function stableRecoveredReportName(input: RecoveredReportStageInput): string {
+  const identities = [input.seatId, input.conversationId, input.turnId, input.toolCallId].map((value) =>
+    String(value || '').trim()
+  );
+  if (identities.some((value) => !value || value.length > 256 || value.includes('\0'))) {
+    return stageError('REPORT_STAGE_IDENTITY_INVALID', 'Recovered report identity is missing or invalid.');
+  }
+  const requestedName = portableReportBasename(input.requestedPath);
+  const stem = defaultReportFileStem(requestedName.replace(/\.[^.]*$/, ''));
+  const identitySuffix = crypto.createHash('sha256').update(identities.join('\0'), 'utf8').digest('hex').slice(0, 12);
+  return `${stem}-eve-${identitySuffix}.md`;
+}
+
+function readIdempotentRecoveredReport(input: {
+  candidate: RecoveredReportStagePath;
+  workspaceRoot: string;
+  realWorkspaceRoot: string;
+  rootStats: fs.Stats;
+  expectedBytes: Buffer;
+}): RecoveredReportStageResult {
+  assertRecoveredWorkspaceIdentity(input.workspaceRoot, input.rootStats);
+  let stats: fs.Stats;
+  try {
+    stats = fs.lstatSync(input.candidate.absolutePath);
+  } catch {
+    return stageError('REPORT_STAGE_IDEMPOTENCY_CONFLICT', 'Recovered report replay target is unavailable.');
+  }
+  if (stats.isSymbolicLink()) {
+    return stageError('REPORT_STAGE_TARGET_LINK', 'Recovered report target is a symbolic link.');
+  }
+  if (
+    !stats.isFile() ||
+    stats.nlink !== 1 ||
+    (stats.mode & 0o777) !== 0o600 ||
+    stats.size !== input.expectedBytes.byteLength
+  ) {
+    return stageError('REPORT_STAGE_IDEMPOTENCY_CONFLICT', 'Recovered report replay target does not match.');
+  }
+  const realCandidate = fs.realpathSync.native(input.candidate.absolutePath);
+  const relative = path.relative(input.realWorkspaceRoot, realCandidate);
+  if (
+    relative !== input.candidate.relativePath ||
+    path.isAbsolute(relative) ||
+    path.dirname(realCandidate) !== input.realWorkspaceRoot
+  ) {
+    return stageError('REPORT_STAGE_PATH_ESCAPE', 'Recovered report replay target escaped the workspace.');
+  }
+  const observedBytes = fs.readFileSync(input.candidate.absolutePath);
+  if (!observedBytes.equals(input.expectedBytes)) {
+    return stageError('REPORT_STAGE_IDEMPOTENCY_CONFLICT', 'Recovered report replay content does not match.');
+  }
+  assertRecoveredWorkspaceIdentity(input.workspaceRoot, input.rootStats);
+  return { ...input.candidate, bytesWritten: input.expectedBytes.byteLength };
+}
+
 /**
  * Stage recovered markdown in the authoritative conversation workspace.
  *
- * The destination is always one new direct `.md` child. Existing files are
- * never overwritten; regular-file collisions receive a bounded suffix. A link,
- * special file, traversal, oversized body, seat mismatch, or realpath escape
- * fails closed. Creation uses O_NOFOLLOW | O_CREAT | O_EXCL and mode 0600.
+ * The destination is one identity-bound direct `.md` child. A replay of the
+ * same seat/conversation/turn/tool tuple returns that exact verified file;
+ * mismatched bytes fail closed and never create a suffix copy. Creation uses
+ * O_NOFOLLOW | O_CREAT | O_EXCL and mode 0600.
  */
 export function stageRecoveredMarkdownInWorkspace(input: RecoveredReportStageInput): RecoveredReportStageResult {
   assertRecoveredReportSeat(input);
@@ -721,10 +798,11 @@ export function stageRecoveredMarkdownInWorkspace(input: RecoveredReportStageInp
     return stageError('REPORT_STAGE_MARKDOWN_TOO_LARGE', 'Recovered report markdown exceeds the staging limit.');
   }
 
-  // Validate both untrusted strings before path.resolve/lstat can observe a
-  // fallback CWD or an unsafe name. The loop resolves the same candidate again
-  // with its collision index after the canonical workspace is known.
+  // Validate every renderer-derived field before path.resolve/lstat can observe
+  // a fallback CWD or an unsafe name. The stable name contains only a short
+  // Main-derived identity suffix, never a renderer-supplied path.
   resolveRecoveredReportStagePath({ workspaceRoot: input.workspaceRoot, requestedPath: input.requestedPath });
+  const stableRequestedPath = stableRecoveredReportName(input);
   const workspaceRoot = path.resolve(input.workspaceRoot);
   let rootStats: fs.Stats;
   let realWorkspaceRoot: string;
@@ -741,9 +819,10 @@ export function stageRecoveredMarkdownInWorkspace(input: RecoveredReportStageInp
 
   for (let collisionIndex = 0; collisionIndex < RECOVERED_REPORT_STAGE_MAX_CANDIDATES; collisionIndex += 1) {
     assertRecoveredReportSeat(input);
+    assertRecoveredWorkspaceIdentity(workspaceRoot, rootStats);
     const candidate = resolveRecoveredReportStagePath({
       workspaceRoot,
-      requestedPath: input.requestedPath,
+      requestedPath: stableRequestedPath,
       collisionIndex,
     });
 
@@ -767,7 +846,15 @@ export function stageRecoveredMarkdownInWorkspace(input: RecoveredReportStageInp
       if (!existing.isFile()) {
         return stageError('REPORT_STAGE_TARGET_INVALID', 'Recovered report target collision is not a regular file.');
       }
-      continue;
+      const replay = readIdempotentRecoveredReport({
+        candidate,
+        workspaceRoot,
+        realWorkspaceRoot,
+        rootStats,
+        expectedBytes: bytes,
+      });
+      assertRecoveredReportSeat(input);
+      return replay;
     } catch (error) {
       if (error instanceof RecoveredReportStageError) throw error;
       if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') throw error;
@@ -813,6 +900,7 @@ export function stageRecoveredMarkdownInWorkspace(input: RecoveredReportStageInp
       ) {
         return stageError('REPORT_STAGE_PATH_ESCAPE', 'Recovered report target escaped the canonical workspace.');
       }
+      assertRecoveredWorkspaceIdentity(workspaceRoot, rootStats);
       assertRecoveredReportSeat(input);
       fs.closeSync(fd);
       fd = undefined;
@@ -828,17 +916,15 @@ export function stageRecoveredMarkdownInWorkspace(input: RecoveredReportStageInp
       removeCreatedFileIfSame(candidate.absolutePath, createdStats);
       if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
         try {
-          const racedCollision = fs.lstatSync(candidate.absolutePath);
-          if (racedCollision.isSymbolicLink()) {
-            return stageError('REPORT_STAGE_TARGET_LINK', 'Recovered report target is a symbolic link.');
-          }
-          if (!racedCollision.isFile()) {
-            return stageError(
-              'REPORT_STAGE_TARGET_INVALID',
-              'Recovered report target collision is not a regular file.'
-            );
-          }
-          continue;
+          const replay = readIdempotentRecoveredReport({
+            candidate,
+            workspaceRoot,
+            realWorkspaceRoot,
+            rootStats,
+            expectedBytes: bytes,
+          });
+          assertRecoveredReportSeat(input);
+          return replay;
         } catch (collisionError) {
           if (collisionError instanceof RecoveredReportStageError) throw collisionError;
           return stageError('REPORT_STAGE_WRITE_FAILED', 'Recovered report collision verification failed.');
@@ -849,5 +935,5 @@ export function stageRecoveredMarkdownInWorkspace(input: RecoveredReportStageInp
     }
   }
 
-  return stageError('REPORT_STAGE_COLLISIONS_EXHAUSTED', 'Recovered report collision suffixes are exhausted.');
+  return stageError('REPORT_STAGE_IDEMPOTENCY_CONFLICT', 'Recovered report identity could not be staged.');
 }

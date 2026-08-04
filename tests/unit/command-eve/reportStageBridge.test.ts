@@ -107,38 +107,65 @@ afterEach(() => {
 describe('command-eve.report-stage-workspace', () => {
   it('registers a pathless provider and stages a relative 0600 markdown child from AionCore workspace truth', async () => {
     expect(registered.has('command-eve.report-stage-workspace')).toBe(true);
-    const result = await call('command-eve.report-stage-workspace', {
+    const request = {
       conversation_id: 'conv-1',
+      turn_id: 'turn-1',
+      tool_call_id: 'tool-call-1',
       markdown: '# Recovered report\n\nBody.',
       suggested_name: 'Client Report.pdf',
-    });
+    };
+    const result = await call('command-eve.report-stage-workspace', request);
+    const replay = await call('command-eve.report-stage-workspace', request);
 
-    expect(fakeFetch).toHaveBeenCalledTimes(1);
+    expect(fakeFetch).toHaveBeenCalledTimes(2);
     expect(String(fakeFetch.mock.calls[0]?.[0])).toBe('http://127.0.0.1:13400/api/conversations/conv-1');
-    expect(result).toEqual({
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      version: 'command-eve-report-stage-workspace/v0',
+      ok: true,
+      size_bytes: Buffer.byteLength('# Recovered report\n\nBody.'),
+    });
+    expect(result.data?.file_name).toMatch(/^client-report-eve-[0-9a-f]{12}\.md$/);
+    expect(replay).toEqual(result);
+    expect(result).toMatchObject({
       success: true,
       data: {
         version: 'command-eve-report-stage-workspace/v0',
         ok: true,
-        file_name: 'client-report.md',
         size_bytes: Buffer.byteLength('# Recovered report\n\nBody.'),
       },
     });
     expect(result.data).not.toHaveProperty('workspace');
     expect(result.data).not.toHaveProperty('path');
-    const staged = path.join(workspace, 'client-report.md');
+    const staged = path.join(workspace, result.data?.file_name as string);
     expect(fs.readFileSync(staged, 'utf8')).toBe('# Recovered report\n\nBody.');
     expect(fs.statSync(staged).mode & 0o777).toBe(0o600);
-    expect(fs.readdirSync(workspace)).toEqual(['client-report.md']);
+    expect(fs.readdirSync(workspace)).toEqual([result.data?.file_name]);
   });
 
   it('fails closed before lookup when turn payload identity/content/name is missing', async () => {
     const results = await Promise.all(
       [
         { markdown: '# Report', suggested_name: 'report.md' },
-        { conversation_id: 'conv-1', suggested_name: 'report.md' },
-        { conversation_id: 'conv-1', markdown: '# Report' },
-        { conversation_id: 'conv-1', markdown: '# Report', suggested_name: '/tmp/report.md' },
+        {
+          conversation_id: 'conv-1',
+          turn_id: 'turn-1',
+          tool_call_id: 'tool-call-1',
+          suggested_name: 'report.md',
+        },
+        {
+          conversation_id: 'conv-1',
+          turn_id: 'turn-1',
+          tool_call_id: 'tool-call-1',
+          markdown: '# Report',
+        },
+        {
+          conversation_id: 'conv-1',
+          turn_id: 'turn-1',
+          tool_call_id: 'tool-call-1',
+          markdown: '# Report',
+          suggested_name: '/tmp/report.md',
+        },
       ].map((request) => call('command-eve.report-stage-workspace', request))
     );
     expect(results.every((result) => result.success === false)).toBe(true);
@@ -154,6 +181,8 @@ describe('command-eve.report-stage-workspace', () => {
     responseWorkspace = authoritativeWorkspace;
     const result = await call('command-eve.report-stage-workspace', {
       conversation_id: 'conv-1',
+      turn_id: 'turn-1',
+      tool_call_id: 'tool-call-1',
       markdown: '# Report',
       suggested_name: 'report.md',
     });
@@ -166,6 +195,8 @@ describe('command-eve.report-stage-workspace', () => {
     beforeFetchResponse = () => setActiveSeatId(SEAT_B);
     const result = await call('command-eve.report-stage-workspace', {
       conversation_id: 'conv-1',
+      turn_id: 'turn-1',
+      tool_call_id: 'tool-call-1',
       markdown: '# Seat A report',
       suggested_name: 'report.md',
     });

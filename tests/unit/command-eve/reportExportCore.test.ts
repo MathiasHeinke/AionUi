@@ -33,7 +33,6 @@ import {
   exportReportToPdf,
   markdownToReportHtml,
   RECOVERED_REPORT_STAGE_MAX_BYTES,
-  RECOVERED_REPORT_STAGE_MAX_CANDIDATES,
   RecoveredReportStageError,
   resolveRecoveredReportStagePath,
   SeatTruthFenceError,
@@ -266,6 +265,9 @@ describe('reportExportCore — ACP external-write recovery staging', () => {
       requestedPath: '/Users/operator/Desktop/Quarterly Client Report.pdf',
       markdown: '# Quarterly client report\n\nRecovered.',
       seatId: SEAT_A,
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      toolCallId: 'tool-call-1',
       activeSeatId: SEAT_A,
       ...overrides,
     });
@@ -285,42 +287,45 @@ describe('reportExportCore — ACP external-write recovery staging', () => {
   it('creates one relative 0600 file with the exact bounded markdown', () => {
     const workspace = makeWorkspace();
     const result = stage(workspace);
-    expect(result.relativePath).toBe('quarterly-client-report.md');
+    expect(result.relativePath).toMatch(/^quarterly-client-report-eve-[0-9a-f]{12}\.md$/);
     expect(result.absolutePath).toBe(path.join(workspace, result.relativePath));
     expect(result.bytesWritten).toBe(Buffer.byteLength('# Quarterly client report\n\nRecovered.'));
     expect(fs.readFileSync(result.absolutePath, 'utf8')).toBe('# Quarterly client report\n\nRecovered.');
     expect(fs.lstatSync(result.absolutePath).isSymbolicLink()).toBe(false);
     expect(fs.statSync(result.absolutePath).mode & 0o777).toBe(0o600);
-    expect(fs.readdirSync(workspace)).toEqual(['quarterly-client-report.md']);
+    expect(fs.readdirSync(workspace)).toEqual([result.relativePath]);
   });
 
-  it('never overwrites an existing report and uses one bounded collision suffix', () => {
+  it('never overwrites an unrelated human-named report', () => {
     const workspace = makeWorkspace();
     const existing = path.join(workspace, 'quarterly-client-report.md');
     fs.writeFileSync(existing, 'original', { mode: 0o600 });
     const result = stage(workspace);
-    expect(result.relativePath).toBe('quarterly-client-report-2.md');
+    expect(result.relativePath).not.toBe('quarterly-client-report.md');
     expect(fs.readFileSync(existing, 'utf8')).toBe('original');
     expect(fs.readFileSync(result.absolutePath, 'utf8')).toContain('Recovered.');
   });
 
-  it('fails closed after the bounded collision set is exhausted', () => {
+  it('returns the exact same verified file for a replay after remount/restart', () => {
     const workspace = makeWorkspace();
-    for (let collisionIndex = 0; collisionIndex < RECOVERED_REPORT_STAGE_MAX_CANDIDATES; collisionIndex += 1) {
-      const candidate = resolveRecoveredReportStagePath({
-        workspaceRoot: workspace,
-        requestedPath: 'Quarterly Client Report.pdf',
-        collisionIndex,
-      });
-      fs.writeFileSync(candidate.absolutePath, 'occupied', { mode: 0o600 });
-    }
+    const first = stage(workspace);
+    const replay = stage(workspace);
+    expect(replay).toEqual(first);
+    expect(fs.readdirSync(workspace)).toEqual([first.relativePath]);
+  });
+
+  it('fails closed when the deterministic replay target has different bytes', () => {
+    const workspace = makeWorkspace();
+    const first = stage(workspace);
+    fs.writeFileSync(first.absolutePath, 'tampered', { mode: 0o600 });
     try {
       stage(workspace);
-      throw new Error('expected collision exhaustion');
+      throw new Error('expected idempotency conflict');
     } catch (error) {
       expect(error).toBeInstanceOf(RecoveredReportStageError);
-      expect((error as RecoveredReportStageError).reasonCode).toBe('REPORT_STAGE_COLLISIONS_EXHAUSTED');
+      expect((error as RecoveredReportStageError).reasonCode).toBe('REPORT_STAGE_IDEMPOTENCY_CONFLICT');
     }
+    expect(fs.readdirSync(workspace)).toEqual([first.relativePath]);
   });
 
   it('rejects traversal and an unavailable workspace before creating anything', () => {
@@ -335,7 +340,9 @@ describe('reportExportCore — ACP external-write recovery staging', () => {
     const outside = makeWorkspace();
     const outsideFile = path.join(outside, 'outside.md');
     fs.writeFileSync(outsideFile, 'outside', { mode: 0o600 });
-    fs.symlinkSync(outsideFile, path.join(workspace, 'quarterly-client-report.md'));
+    const first = stage(workspace);
+    fs.unlinkSync(first.absolutePath);
+    fs.symlinkSync(outsideFile, first.absolutePath);
     try {
       stage(workspace);
       throw new Error('expected target link rejection');
@@ -353,6 +360,31 @@ describe('reportExportCore — ACP external-write recovery staging', () => {
     } catch (error) {
       expect((error as RecoveredReportStageError).reasonCode).toBe('REPORT_STAGE_WORKSPACE_LINK');
     }
+  });
+
+  it('rejects an authoritative workspace inode swap before creating a file', () => {
+    const workspace = makeWorkspace();
+    const displacedWorkspace = `${workspace}-displaced`;
+    tempRoots.push(displacedWorkspace);
+    let seatChecks = 0;
+
+    try {
+      stage(workspace, {
+        isSeatCurrent: () => {
+          seatChecks += 1;
+          if (seatChecks === 2) {
+            fs.renameSync(workspace, displacedWorkspace);
+            fs.mkdirSync(workspace, { mode: 0o700 });
+          }
+          return true;
+        },
+      });
+      throw new Error('expected workspace identity rejection');
+    } catch (error) {
+      expect(error).toBeInstanceOf(RecoveredReportStageError);
+      expect((error as RecoveredReportStageError).reasonCode).toBe('REPORT_STAGE_WORKSPACE_CHANGED');
+    }
+    expect(fs.readdirSync(workspace)).toEqual([]);
   });
 
   it('rejects a cross-seat or stale-seat write without leaving a file', () => {

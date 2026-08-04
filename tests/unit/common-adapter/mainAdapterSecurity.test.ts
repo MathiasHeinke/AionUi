@@ -107,6 +107,14 @@ function validProviderPayload(providerKey: RendererProviderKey): string {
         outputPath: '/tmp/customer-report.pdf',
         title: 'Customer report',
       });
+    case 'command-eve.report-stage-workspace':
+      return providerPayload(providerKey, {
+        conversation_id: 'conversation-1',
+        turn_id: 'turn-1',
+        tool_call_id: 'tool-call-1',
+        markdown: '# Recovered report',
+        suggested_name: 'recovered-report.md',
+      });
     case 'command-eve.team-manage-apply':
     case 'command-eve.team-manage-reject':
     case 'command-eve.kanban-acp-reject':
@@ -488,6 +496,44 @@ describe('main adapter IPC trust boundary', () => {
         })
       )
     ).toThrow('outputPath');
+    expect(state.emitter.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows pathless report staging only through its exact bounded schema', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    await handler(event, validProviderPayload('command-eve.report-stage-workspace'));
+    expect(state.emitter.emit).toHaveBeenCalledTimes(1);
+
+    for (const invalid of [
+      {
+        conversation_id: 'conversation-1',
+        turn_id: 'turn-1',
+        tool_call_id: 'tool-call-1',
+        markdown: '# Report',
+        suggested_name: '../report.md',
+      },
+      {
+        conversation_id: 'conversation-1',
+        turn_id: '',
+        tool_call_id: 'tool-call-1',
+        markdown: '# Report',
+        suggested_name: 'report.md',
+      },
+      {
+        conversation_id: 'conversation-1',
+        turn_id: 'turn-1',
+        tool_call_id: 'tool-call-1',
+        markdown: '# Report',
+        suggested_name: 'report.md',
+        workspace: '/tmp',
+      },
+    ]) {
+      expect(() => handler(event, providerPayload('command-eve.report-stage-workspace', invalid))).toThrow(
+        'report-stage-workspace'
+      );
+    }
     expect(state.emitter.emit).toHaveBeenCalledTimes(1);
   });
 });

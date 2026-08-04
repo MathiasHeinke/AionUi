@@ -132,6 +132,8 @@
   },
   "video": {
     "title": "Create video",
+    "modelLabel": "Model",
+    "durationLabel": "Duration",
     "costPreview": "This ~{{sec}}s video costs about {{credits}} credits — continue?",
     "upgrade1080p": "Upgrade to 1080p (costs more)",
     "tierHd": "HD quality",

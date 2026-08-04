@@ -77,10 +77,12 @@ function hasHardBlockedResultMarker(content: unknown): boolean {
   if (!Array.isArray(content)) return false;
   for (const item of content) {
     const itemRecord = asRecord(item);
+    if (itemRecord?.type !== 'content') continue;
     const inner = asRecord(itemRecord?.content);
+    if (inner?.type !== 'text') continue;
     const text = inner?.text;
     if (typeof text !== 'string' || text.length === 0 || text.length > MAX_RESULT_TEXT_CHARS) continue;
-    if (text.split(/\r?\n/).some((line) => /^\s*RESULT\s*[:=]\s*HardBlocked\s*$/.test(line))) return true;
+    if (/^\s*RESULT:\s*HardBlocked\s*$/.test(text)) return true;
   }
   return false;
 }
@@ -94,7 +96,7 @@ function hasBoundedMarkdown(markdown: string): boolean {
  * Classify the one ACP failure that the desktop may recover locally.
  *
  * Fail-closed by construction: only a failed write/edit tool update, carrying an
- * exact result-line marker (`RESULT: HardBlocked` or `RESULT=HardBlocked`), an
+ * exact typed text result marker (`RESULT: HardBlocked`), an
  * external requested target and a bounded markdown body qualifies. Report prose,
  * shell/read failures, malformed inputs and relative workspace writes do not.
  */

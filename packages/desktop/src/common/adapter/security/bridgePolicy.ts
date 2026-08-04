@@ -266,6 +266,41 @@ function assertHighRiskProviderPayload(providerKey: RendererProviderKey, payload
       }
       return;
     }
+    case 'command-eve.report-stage-workspace': {
+      const allowedKeys = new Set(['conversation_id', 'turn_id', 'tool_call_id', 'markdown', 'suggested_name']);
+      if (!hasOnlyKeys(payload, allowedKeys) || Object.keys(payload).length !== allowedKeys.size) {
+        throw new Error('Invalid report-stage-workspace payload keys.');
+      }
+      if (
+        !isNonEmptyString(payload.conversation_id) ||
+        payload.conversation_id.length > 256 ||
+        payload.conversation_id.includes('\0')
+      ) {
+        throw new Error('Invalid report-stage-workspace conversation_id.');
+      }
+      for (const key of ['turn_id', 'tool_call_id'] as const) {
+        if (!isNonEmptyString(payload[key]) || payload[key].length > 256 || payload[key].includes('\0')) {
+          throw new Error(`Invalid report-stage-workspace ${key}.`);
+        }
+      }
+      if (
+        typeof payload.markdown !== 'string' ||
+        payload.markdown.trim().length === 0 ||
+        Buffer.byteLength(payload.markdown, 'utf8') > 1024 * 1024
+      ) {
+        throw new Error('Invalid report-stage-workspace markdown.');
+      }
+      if (
+        !isNonEmptyString(payload.suggested_name) ||
+        payload.suggested_name.length > 255 ||
+        payload.suggested_name.includes('\0') ||
+        payload.suggested_name.includes('/') ||
+        payload.suggested_name.includes('\\')
+      ) {
+        throw new Error('Invalid report-stage-workspace suggested_name.');
+      }
+      return;
+    }
     default:
       return;
   }

@@ -1,6 +1,6 @@
 {
   "name": "command-eve",
-  "version": "1.820.3",
+  "version": "1.820.4",
   "description": "Command EVE local operator shell for Company.OS.",
   "keywords": [],
   "license": "Apache-2.0",

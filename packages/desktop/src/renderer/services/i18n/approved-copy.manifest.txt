@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7056
+# entries: 7062
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -1272,6 +1272,7 @@ copy	1	de-DE/conversation.json	Sende Feedback mit Logs, damit das Team das Probl
 copy	1	de-DE/conversation.json	Sendemodus während EVE arbeitet
 copy	1	de-DE/conversation.json	Sensible Daten bereinigt
 copy	1	de-DE/conversation.json	Sensible Daten blockiert
+copy	1	de-DE/conversation.json	Session-ID kopieren
 copy	1	de-DE/conversation.json	Skill (Python)
 copy	1	de-DE/conversation.json	Skill/Regel generieren
 copy	2	de-DE/conversation.json	Speichern
@@ -1415,6 +1416,7 @@ copy	1	de-DE/credits.json	Credits
 copy	1	de-DE/credits.json	Credits aufgebraucht? Monatliche Top-ups zum Nennwert — 1 € = {{perEur}} Credits. Mehr Verbrauch = größeres Paket, nie ein höherer Tarif.
 copy	1	de-DE/credits.json	Das Logo muss kleiner als 512 KB sein.
 copy	1	de-DE/credits.json	Das dauerhaft verfügbare Unternehmenswissen, mit dem EVE deine Arbeit einordnet.
+copy	1	de-DE/credits.json	Dauer
 copy	1	de-DE/credits.json	Dein Agentur- / Markenname
 copy	1	de-DE/credits.json	Dein Credit-Status erscheint, sobald du angemeldet bist.
 copy	1	de-DE/credits.json	Dein Name, Logo und Footer auf jedem Report, den EVE liefert — liefere unter deiner Marke, nicht unserer.
@@ -1460,6 +1462,7 @@ copy	1	de-DE/credits.json	Lege fest, wie viel EVE pro Periode an Credits ausgebe
 copy	1	de-DE/credits.json	Logo hochladen
 copy	1	de-DE/credits.json	Logo ändern
 copy	2	de-DE/credits.json	Löschen
+copy	1	de-DE/credits.json	Modell
 copy	1	de-DE/credits.json	Nachkaufen
 copy	1	de-DE/credits.json	Noch keine Notizen — füge Wissen hinzu oder erzähl es EVE im Chat.
 copy	1	de-DE/credits.json	Noch keine Verbrauchsdaten (ab v1.5 erfasst).
@@ -4452,6 +4455,7 @@ copy	1	en-US/conversation.json	Conversation is busy
 copy	1	en-US/conversation.json	Conversation not found or has been deleted
 copy	1	en-US/conversation.json	Conversation state is out of sync
 copy	1	en-US/conversation.json	Conversations
+copy	1	en-US/conversation.json	Copy session ID
 copy	1	en-US/conversation.json	Correction
 copy	1	en-US/conversation.json	Corrections cannot include files, so this message was queued for afterwards.
 copy	1	en-US/conversation.json	Corrections with files stay queued.
@@ -4936,6 +4940,7 @@ copy	1	en-US/credits.json	Current projects
 copy	2	en-US/credits.json	Delete
 copy	1	en-US/credits.json	Delete this entry?
 copy	1	en-US/credits.json	Dos & don'ts
+copy	1	en-US/credits.json	Duration
 copy	1	en-US/credits.json	Enter a valid spend cap (0 = uncapped).
 copy	1	en-US/credits.json	Entry could not be deleted ({{code}}).
 copy	1	en-US/credits.json	Entry could not be loaded ({{code}}).
@@ -4955,6 +4960,7 @@ copy	1	en-US/credits.json	Keep track of credits, spending, seats, and report bra
 copy	1	en-US/credits.json	Knowledge profile
 copy	1	en-US/credits.json	Loading Company Brain …
 copy	1	en-US/credits.json	Logo must be under 512 KB.
+copy	1	en-US/credits.json	Model
 copy	1	en-US/credits.json	No active subscription — Standard costs {{eur}} €/month.
 copy	1	en-US/credits.json	No notes yet — add knowledge here or tell EVE in the chat.
 copy	1	en-US/credits.json	No usage data yet (tracked from v1.5).
