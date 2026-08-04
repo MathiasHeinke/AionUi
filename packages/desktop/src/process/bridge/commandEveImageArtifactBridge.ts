@@ -116,7 +116,16 @@ export async function handleCommandEveImageArtifactBind(
       handle: request?.handle,
       toolCallId,
     });
-    if (result.ok && !result.alreadyBound) deps.onFreshBind?.(conversationId);
+    if (result.ok && !result.alreadyBound) {
+      // Best-effort, isolated: a throwing notifier must NEVER turn a
+      // successful bind into `artifact-missing` — the record IS active, and a
+      // retry would read alreadyBound and never notify again.
+      try {
+        deps.onFreshBind?.(conversationId);
+      } catch {
+        /* the bind stands; the render refresh has the terminal relay behind it */
+      }
+    }
     return result;
   } catch {
     return { ok: false, reason: 'artifact-missing' };

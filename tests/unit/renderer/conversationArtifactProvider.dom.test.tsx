@@ -24,13 +24,29 @@ import {
 } from '@/renderer/pages/conversation/Messages/artifacts';
 import { emitter } from '@/renderer/utils/emitter';
 
-const { listArtifactsInvokeMock, videoArtifactsListInvokeMock, imageArtifactsListInvokeMock, artifactStreamOnMock } =
-  vi.hoisted(() => ({
+const {
+  listArtifactsInvokeMock,
+  videoArtifactsListInvokeMock,
+  imageArtifactsListInvokeMock,
+  artifactStreamOnMock,
+  imageArtifactsChangedCallback,
+  imageArtifactsChangedUnsubscribeMock,
+} = vi.hoisted(() => {
+  const callbackHolder: { current: undefined | ((event: { conversation_id: string }) => void) } = { current: undefined };
+  // The unsubscribe mirrors the REAL emitter contract: it detaches the
+  // listener, so a post-unmount event never reaches the callback at all.
+  const unsubscribeMock = vi.fn(() => {
+    callbackHolder.current = undefined;
+  });
+  return {
     listArtifactsInvokeMock: vi.fn(),
     videoArtifactsListInvokeMock: vi.fn(),
     imageArtifactsListInvokeMock: vi.fn(),
     artifactStreamOnMock: vi.fn(() => () => {}),
-  }));
+    imageArtifactsChangedCallback: callbackHolder,
+    imageArtifactsChangedUnsubscribeMock: unsubscribeMock,
+  };
+});
 
 vi.mock('@/common', () => ({
   ipcBridge: {
@@ -41,7 +57,12 @@ vi.mock('@/common', () => ({
     commandEve: {
       videoArtifactsList: { invoke: videoArtifactsListInvokeMock },
       imageArtifactsList: { invoke: imageArtifactsListInvokeMock },
-      imageArtifactsChanged: { on: () => () => undefined },
+      imageArtifactsChanged: {
+        on: (callback: (event: { conversation_id: string }) => void) => {
+          imageArtifactsChangedCallback.current = callback;
+          return imageArtifactsChangedUnsubscribeMock;
+        },
+      },
     },
   },
 }));
@@ -73,6 +94,8 @@ beforeEach(() => {
   listArtifactsInvokeMock.mockReset();
   videoArtifactsListInvokeMock.mockReset();
   imageArtifactsListInvokeMock.mockReset();
+  imageArtifactsChangedCallback.current = undefined;
+  imageArtifactsChangedUnsubscribeMock.mockReset();
   listArtifactsInvokeMock.mockResolvedValue([]);
   videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
   imageArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
@@ -190,6 +213,48 @@ describe('ConversationArtifactProvider', () => {
 
     await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByTestId('artifact-ids').textContent).toContain('video-1-edit-1'));
+  });
+
+  it('1.820.3 same-turn trigger: imageArtifactsChanged reloads ONLY the matching conversation, exactly once per event', async () => {
+    videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [videoArtifact] });
+    render(
+      <ConversationArtifactProvider conversation_id='conv-1'>
+        <ArtifactIds />
+      </ConversationArtifactProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId('artifact-ids').textContent).toContain('video-1'));
+    expect(typeof imageArtifactsChangedCallback.current).toBe('function');
+    const listCallsBefore = videoArtifactsListInvokeMock.mock.calls.length;
+
+    imageArtifactsChangedCallback.current!({ conversation_id: 'conv-2' });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(videoArtifactsListInvokeMock.mock.calls.length).toBe(listCallsBefore);
+
+    imageArtifactsChangedCallback.current!({ conversation_id: 'conv-1' });
+    await waitFor(() => expect(videoArtifactsListInvokeMock.mock.calls.length).toBe(listCallsBefore + 1));
+    expect(videoArtifactsListInvokeMock).toHaveBeenLastCalledWith({ conversationId: 'conv-1' });
+  });
+
+  it('1.820.3 same-turn trigger: unmount unsubscribes the imageArtifactsChanged listener, a later event reloads nothing', async () => {
+    videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [videoArtifact] });
+    const { unmount } = render(
+      <ConversationArtifactProvider conversation_id='conv-1'>
+        <ArtifactIds />
+      </ConversationArtifactProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId('artifact-ids').textContent).toContain('video-1'));
+    const listCallsBefore = videoArtifactsListInvokeMock.mock.calls.length;
+    const unsubscribeCallsBefore = imageArtifactsChangedUnsubscribeMock.mock.calls.length;
+
+    unmount();
+    expect(imageArtifactsChangedUnsubscribeMock.mock.calls.length).toBe(unsubscribeCallsBefore + 1);
+    expect(imageArtifactsChangedCallback.current).toBeUndefined();
+
+    // Production semantics: a post-unmount event reaches no listener, so no
+    // reload (and no IPC) can happen.
+    imageArtifactsChangedCallback.current?.({ conversation_id: 'conv-1' });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(videoArtifactsListInvokeMock.mock.calls.length).toBe(listCallsBefore);
   });
 
   it('1.820.3 display gap closed: a chat.history.refresh reloads both sources, so an agent-lane edit child becomes visible', async () => {

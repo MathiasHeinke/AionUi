@@ -740,11 +740,20 @@ async function fetchConversationTranscriptFull(conversationId: string, window: n
  * swallowed.
  */
 /**
- * The Main→renderer fresh-bind event for the managed image lane. Module
- * scope so the reconcile closure AND the IPC registrations share the one
- * emitter instance the renderer subscribes to.
+ * The Main→renderer fresh-bind event for the managed image lane. LAZY by
+ * design: a module-load-time `bridge.buildEmitter` would fire in every test
+ * harness that mocks the platform bridge with a buildProvider-only fake (ten
+ * bridge-registration suites), long before any bind exists. The one shared
+ * instance is created on first use — the renderer subscribes to the channel
+ * NAME, never to an instance, so the lazy timing is invisible to it.
  */
-const imageArtifactsChangedEmitter = bridge.buildEmitter<{ conversation_id: string }>('command-eve.image-artifacts-changed');
+let imageArtifactsChangedEmitter: { emit: (payload: { conversation_id: string }) => void } | undefined;
+function getImageArtifactsChangedEmitter(): { emit: (payload: { conversation_id: string }) => void } {
+  if (!imageArtifactsChangedEmitter) {
+    imageArtifactsChangedEmitter = bridge.buildEmitter<{ conversation_id: string }>('command-eve.image-artifacts-changed');
+  }
+  return imageArtifactsChangedEmitter;
+}
 
 async function reconcileImageArtifactBindsForConversation(conversationId: string) {
   const { reconcileConversationImageArtifactBinds } = await import('../commandEve/imageArtifactReconcileMain');
@@ -754,7 +763,7 @@ async function reconcileImageArtifactBindsForConversation(conversationId: string
     bind: bindStagedImageArtifact,
     log: (line) => console.warn(line),
     countPendingStaged: countPendingStagedImageArtifacts,
-    onFreshBind: (id) => imageArtifactsChangedEmitter.emit({ conversation_id: id }),
+    onFreshBind: (id) => getImageArtifactsChangedEmitter().emit({ conversation_id: id }),
   });
 }
 
@@ -2178,7 +2187,7 @@ export function initCommandEveBridge(): void {
     .provider((request?: { conversationId?: string; handle?: string; toolCallId?: string }) =>
       handleCommandEveImageArtifactBindBridge(request, {
         getDataPath,
-        onFreshBind: (conversationId) => imageArtifactsChangedEmitter.emit({ conversation_id: conversationId }),
+        onFreshBind: (conversationId) => getImageArtifactsChangedEmitter().emit({ conversation_id: conversationId }),
       })
     );
   bridge

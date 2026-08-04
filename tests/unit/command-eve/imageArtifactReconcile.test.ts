@@ -425,3 +425,43 @@ describe('the fresh-bind renderer notification (same-turn insertion trigger)', (
     expect(notifications).toEqual([CONVO]);
   });
 });
+
+describe('notification failure isolation (P1)', () => {
+  it('a THROWING onFreshBind keeps the successful bind result in the IPC handler — never artifact-missing, and the retry reads alreadyBound', async () => {
+    const staged = stageOrphan();
+    const deps = {
+      getDataPath: () => dataRoot,
+      onFreshBind: () => {
+        throw new Error('emitter exploded');
+      },
+    };
+    const result = await handleCommandEveImageArtifactBind(
+      { conversationId: CONVO, handle: staged.handle, toolCallId: R2_TOOL_CALL_ID },
+      deps
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.alreadyBound).toBe(false);
+    expect(readImageArtifactRecordById(dataRoot, staged.record.id)?.status).toBe('active');
+    const retry = await handleCommandEveImageArtifactBind(
+      { conversationId: CONVO, handle: staged.handle, toolCallId: R2_TOOL_CALL_ID },
+      deps
+    );
+    expect(retry.ok && 'alreadyBound' in retry && retry.alreadyBound).toBe(true);
+  });
+
+  it('a THROWING onFreshBind cannot reject the fail-quiet reconcile or alter its summary', async () => {
+    const staged = stageOrphan();
+    const rewritten = r2Message();
+    rewritten.content = rewritten.content.split(R2_HANDLE).join(staged.handle);
+    const summary = await reconcileConversationImageArtifactBinds(dataRoot, CONVO, {
+      fetchTranscript: async () => [rewritten],
+      bind: bindStagedImageArtifact,
+      log: () => undefined,
+      onFreshBind: () => {
+        throw new Error('emitter exploded');
+      },
+    });
+    expect(summary).toMatchObject({ bound: 1, refused: [] });
+    expect(readImageArtifactRecordById(dataRoot, staged.record.id)?.status).toBe('active');
+  });
+});

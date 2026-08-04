@@ -131,7 +131,15 @@ export async function reconcileConversationImageArtifactBinds(
   // A fresh bind from ANY lane notifies exactly once — the turn-end relay is
   // not the only path that can win the race (the list-time reconcile bound
   // the R2 child first, and the renderer never learned of it in-session).
-  if (summary.bound > 0) deps.onFreshBind?.(conversationId);
+  // Isolated best-effort: a throwing notifier must not reject this fail-quiet
+  // reconcile or alter the summary the caller reports.
+  if (summary.bound > 0) {
+    try {
+      deps.onFreshBind?.(conversationId);
+    } catch {
+      /* notification is a hint, never a verdict — the summary already says it */
+    }
+  }
 
   // One bounded, content-free line per run — a refused bind must be VISIBLE
   // (the R2 orphan was invisible), but the log never carries handles or paths.
