@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { bridge } from '@office-ai/platform';
+import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { ProjectWorkspaceError } from '@/common/types/project-workspace/reasonCodes';
 import type {
   ProjectWorkspaceConversationArtifactDTO,
@@ -28,11 +29,16 @@ import {
 import { ProjectWorkspaceLifecycleService } from '@process/services/project-workspace/ProjectWorkspaceLifecycleService';
 import { ProjectWorkspaceService } from '@process/services/project-workspace/ProjectWorkspaceService';
 import { createAionCoreProjectBindingClient } from '@process/services/project-workspace/runtime/conversationBindingClient';
+import {
+  createAutoProjectCompletionCoordinator,
+  startMainAutoProjectTurnCompletionRelay,
+} from '@process/services/project-workspace/runtime/autoProjectTurnCompletionRelay';
 import { createProjectSemanticCoordinator } from '@process/services/project-workspace/semantic/projectSemanticCoordinator';
 import { ProjectWorkspaceConversationArtifactStore } from '@process/services/project-workspace/storage/conversationArtifactStore';
 import { ProjectWorkspaceRegistryStore } from '@process/services/project-workspace/storage/registryStore';
 import { ensureProjectWorkspaceSeatBootstrap } from '@process/services/project-workspace/seatBootstrap';
 import { ProjectLifecycleOperationStore } from '@process/services/project-workspace/transaction/lifecycleOperationStore';
+import { getMainProcessLocalBackendCapability } from '@process/security/localBackendCapabilityCore';
 import { getDataPath } from '@process/utils/utils';
 
 /**
@@ -352,6 +358,27 @@ export function initProjectWorkspaceServiceBridge(): void {
         return { status: 'rejected' as const, reason_code: toReasonCode(error) };
       }
     });
+
+  // 1.820.4 (MAT-1772) — persistent post-turn ownership lives in Main, not in
+  // a renderer route. Navigation, a hidden window, or a sidebar remount can no
+  // longer orphan a successful EVE turn. The coordinator first obtains one
+  // short server-side DeepSeek title, persists it as the session name, and only
+  // then asks the idempotent facade to create/bind the identically named project.
+  const autoProjectCoordinator = createAutoProjectCompletionCoordinator({
+    binding_client,
+    fetch_impl: (input, init) => globalThis.fetch(input, init),
+    get_port: getPort,
+    read_license: () => {
+      const wire = readLicenseWire(getDataPath());
+      return wire.ok ? wire.wire : undefined;
+    },
+    ensure_after_successful_turn: (input) => facade.ensureAfterSuccessfulTurn(input),
+  });
+  startMainAutoProjectTurnCompletionRelay({
+    get_port: getPort,
+    get_capability: getMainProcessLocalBackendCapability,
+    on_turn_completed: (payload) => autoProjectCoordinator.handle(payload),
+  });
 
   // S81/R2 — boot-time recovery of interrupted workspace transactions.
   // ORDERING (Fable review finding): initAllBridges() calls initCommandEveBridge()

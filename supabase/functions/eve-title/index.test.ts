@@ -185,7 +185,7 @@ Deno.test('calls OpenRouter with server key and returns a sanitized title', asyn
 
       assertEquals(String(input), 'https://openrouter.ai/api/v1/chat/completions');
       assertEquals(headers.Authorization, 'Bearer test-openrouter-key');
-      assertEquals(payload.model, 'deepseek/deepseek-v4-flash');
+      assertEquals(payload.model, 'deepseek/deepseek-v4-flash-0731');
       assertEquals(payload.temperature, 0.2);
       assertEquals(payload.max_tokens, 64);
       assertEquals(payload.messages[0].role, 'system');

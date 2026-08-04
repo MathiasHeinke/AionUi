@@ -96,7 +96,9 @@ async function callOpenRouterTitle(args: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: Deno.env.get('EVE_TITLE_OPENROUTER_MODEL') || EVE_TITLE_DEFAULT_MODEL,
+        // Structural EVE Standard lane: neither the desktop nor deployment
+        // environment may silently select another provider/model.
+        model: EVE_TITLE_DEFAULT_MODEL,
         messages: buildEveTitlePrompt(args.request),
         temperature: 0.2,
         max_tokens: 64,

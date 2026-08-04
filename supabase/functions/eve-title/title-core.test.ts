@@ -3,6 +3,8 @@
 import { assertEquals } from 'jsr:@std/assert@1';
 import {
   buildEveTitlePrompt,
+  EVE_TITLE_DEFAULT_MODEL,
+  EVE_TITLE_MAX_CHARS,
   prepareEveTitleRequestBody,
   prepareEveTitleText,
   sanitizeEveGeneratedTitle,
@@ -37,14 +39,31 @@ Deno.test('normalizes locale and prompt language', () => {
   assertEquals(buildEveTitlePrompt(prepared.request)[0].content.includes('English'), true);
 });
 
-Deno.test('sanitizes model title output to one short line', () => {
+Deno.test('pins title inference to DeepSeek V4 Flash and asks for the shared short-title contract', () => {
+  const prompt = buildEveTitlePrompt({ text: 'Bitte plane den Launch', locale: 'de-DE' })[0].content;
+
+  assertEquals(EVE_TITLE_DEFAULT_MODEL, 'deepseek/deepseek-v4-flash-0731');
+  assertEquals(prompt.includes('2-4 words'), true);
+  assertEquals(prompt.includes('at most 36 characters'), true);
+});
+
+Deno.test('sanitizes reasoning, labels, markdown, controls, and wrapping punctuation', () => {
   assertEquals(
-    sanitizeEveGeneratedTitle('<think>hidden</think>\nTitle: "Launchplan erstellen."'),
+    sanitizeEveGeneratedTitle('<think>hidden</think>\n### 1. Session title: **"Launchplan\u200b erstellen."**'),
     'Launchplan erstellen'
   );
-  assertEquals(
-    sanitizeEveGeneratedTitle('one two three four five six seven eight nine ten'),
-    'one two three four five six seven eight'
-  );
+});
+
+Deno.test('keeps at most four whole words without crossing 36 characters', () => {
+  assertEquals(sanitizeEveGeneratedTitle('one two three four five six seven eight nine ten'), 'one two three four');
+  const title = sanitizeEveGeneratedTitle('Internationalisierungsstrategie für weltweite Kampagnen');
+  assertEquals(title, 'Internationalisierungsstrategie für');
+  assertEquals((title ?? '').length <= EVE_TITLE_MAX_CHARS, true);
+});
+
+Deno.test('fails closed instead of returning one-word, partial-word, or empty titles', () => {
+  assertEquals(sanitizeEveGeneratedTitle('Launch'), null);
+  assertEquals(sanitizeEveGeneratedTitle('Außergewöhnlichlangeswortdasgrenzeüberschreitet kurz'), null);
+  assertEquals(sanitizeEveGeneratedTitle('<think>unfinished reasoning'), null);
   assertEquals(sanitizeEveGeneratedTitle(' '), null);
 });

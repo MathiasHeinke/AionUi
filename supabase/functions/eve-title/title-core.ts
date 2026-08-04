@@ -7,8 +7,12 @@
 export type EveTitleLocale = 'de-DE' | 'en-US';
 
 export const EVE_TITLE_TEXT_MAX_CHARS = 1000;
-export const EVE_TITLE_MAX_CHARS = 48;
-export const EVE_TITLE_DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
+export const EVE_TITLE_MIN_WORDS = 2;
+export const EVE_TITLE_MAX_WORDS = 4;
+export const EVE_TITLE_MAX_CHARS = 36;
+// Same dated pin as EVE Standard. Never use the floating alias here: automatic
+// names must not silently change price or behaviour underneath a release.
+export const EVE_TITLE_DEFAULT_MODEL = 'deepseek/deepseek-v4-flash-0731';
 
 export type EveTitleRequest = {
   text: string;
@@ -96,7 +100,8 @@ export function buildEveTitlePrompt(request: EveTitleRequest): Array<{ role: 'sy
       content: [
         'You generate short chat session titles for Command EVE.',
         `Return one ${language} title only.`,
-        'Use 3-6 words, no quotes, no markdown, no trailing punctuation.',
+        `Use ${EVE_TITLE_MIN_WORDS}-${EVE_TITLE_MAX_WORDS} words and at most ${EVE_TITLE_MAX_CHARS} characters.`,
+        'Use no quotes, no markdown, and no trailing punctuation.',
         'Do not include secrets, provider names, model names, or labels like Title:',
       ].join(' '),
     },
@@ -109,31 +114,36 @@ export function buildEveTitlePrompt(request: EveTitleRequest): Array<{ role: 'sy
 
 export function sanitizeEveGeneratedTitle(raw: unknown): string | null {
   let text = String(raw ?? '');
-  text = text.replace(/<think>[\s\S]*?<\/think>/gi, ' ');
+  text = text.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, ' ').replace(/<\/?(?:answer|final)>/gi, ' ');
   const firstLine = text
     .replace(/\r/g, '')
     .split('\n')
     .map((line) => line.trim())
-    .find((line) => line.length > 0);
+    .find((line) => line.length > 0 && !/^```/.test(line));
   if (!firstLine) return null;
 
   let title = firstLine
-    .replace(/^\s*(titel|title)\s*[:：]\s*/i, '')
-    .replace(/^[#>*\-\d.\s]+/u, '')
-    .replace(/^["'“”«»‟]+/u, '')
-    .replace(/["'“”«»‟]+$/u, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200d\u2060\ufeff]/gu, ' ')
+    .replace(/^\s*(?:[#>*_~`]+\s*)+/u, '')
+    .replace(/^\s*(?:[-+•]\s+|\d{1,2}[.)]\s+)/u, '')
+    .replace(/^\s*(?:titel|title|sitzungstitel|session\s+title|chat\s+title|conversation\s+title)\s*[:：\-–—]\s*/iu, '')
+    .replace(/^[\s"'“”«»‟*_~`]+/u, '')
+    .replace(/[\s"'“”«»‟*_~`]+$/u, '')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/[.。!！?？,;:、]+$/u, '')
     .trim();
 
   if (!title) return null;
-  const words = title.split(' ').filter(Boolean);
-  if (words.length > 8) {
-    title = words.slice(0, 8).join(' ');
+
+  const boundedWords: string[] = [];
+  for (const word of title.split(/\s+/u).filter(Boolean).slice(0, EVE_TITLE_MAX_WORDS)) {
+    const candidate = [...boundedWords, word].join(' ');
+    if (candidate.length > EVE_TITLE_MAX_CHARS) break;
+    boundedWords.push(word);
   }
-  if (title.length > EVE_TITLE_MAX_CHARS) {
-    title = title.slice(0, EVE_TITLE_MAX_CHARS).trim();
-  }
-  return title.length >= 2 ? title : null;
+
+  if (boundedWords.length < EVE_TITLE_MIN_WORDS) return null;
+  title = boundedWords.join(' ');
+  return title.length <= EVE_TITLE_MAX_CHARS ? title : null;
 }

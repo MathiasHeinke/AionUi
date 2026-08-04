@@ -858,7 +858,10 @@ export class ProjectWorkspaceFacade {
         if (!this.isAutoProjectEligibleMetadata(metadata)) return { status: 'noop' };
         title = metadata.name.trim();
       }
-      if (!title || title.length > 200 || isDefaultOrGreetingTitle(title)) return { status: 'noop' };
+      // Automatic projects must remain compact in both the session list and on
+      // disk. Main owns the DeepSeek title write before reaching this facade;
+      // an older/failed relay must never provision a long prompt as a folder.
+      if (!title || title.length > 36 || isDefaultOrGreetingTitle(title)) return { status: 'noop' };
       // The re-read waits gave a seat switch a window to start — re-check.
       if (this.deps.is_seat_switch_in_flight?.()) return { status: 'noop' };
 
