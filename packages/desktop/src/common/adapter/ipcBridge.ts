@@ -2029,6 +2029,10 @@ export const commandEve = {
     IBridgeResponse<ICommandEveImageArtifactImportResult>,
     { conversationId: string; legacyWorkspaceId: string; expectedFileName: string }
   >('command-eve.image-artifact-import-legacy'),
+  imageArtifactReconcile: bridge.buildProvider<
+    IBridgeResponse<{ ok: boolean; summary?: unknown; reason?: string }>,
+    { conversationId: string }
+  >('command-eve.image-artifact-reconcile'),
   // Main-authoritative per-seat visual policy. Renderer supplies no target seat
   // for reads/receipt issuance; expectedSeatId on mutation is only a stale fence.
   cloudVisualPolicyRead: bridge.buildProvider<IBridgeResponse<CommandEveCloudVisualPolicyState>, void>(

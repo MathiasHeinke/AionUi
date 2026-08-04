@@ -225,6 +225,39 @@ export function purgeExpiredStagedImageArtifacts(dataPath: string, nowMs: number
   return removed;
 }
 
+/**
+ * Cheap pending-staged probe for the reconcile guard (1.820.3): the artifact
+ * list runs on every conversation load AND every chat.history.refresh, and a
+ * durable reconcile there must NOT fetch a full transcript window when there
+ * is provably nothing to bind. Sweeps expired entries first (same path the
+ * mint uses), then counts the valid UNBOUND ones — a bound handle file is
+ * retained until its TTL purely so a re-delivered bind resolves "already
+ * bound", and it must not tax every list for 30 minutes. A missing directory
+ * is a clean 0; an unreadable directory answers "unknown" (1) so recovery
+ * work is never skipped on a scan error.
+ */
+export function countPendingStagedImageArtifacts(dataPath: string, nowMs: number = Date.now()): number {
+  purgeExpiredStagedImageArtifacts(dataPath, nowMs);
+  const directory = path.join(storeRoot(dataPath), STAGED_SUBDIR);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(directory, { withFileTypes: true });
+  } catch (error) {
+    return error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT' ? 0 : 1;
+  }
+  let pending = 0;
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name.length !== 69 || !isSha256Hex(entry.name.slice(0, 64))) continue;
+    try {
+      const staged = parseStagedHandleEntry(JSON.parse(fs.readFileSync(path.join(directory, entry.name), 'utf8')));
+      if (staged && staged.bound !== true) pending += 1;
+    } catch {
+      /* an unreadable entry is not bindable authority — it does not count */
+    }
+  }
+  return pending;
+}
+
 export interface StageGeneratedImageArtifactInput {
   bytes: Uint8Array;
   mimeType: string;

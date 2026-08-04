@@ -104,6 +104,7 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.image-artifact-bind',
   'command-eve.image-artifact-import-legacy',
   'command-eve.image-artifact-preview',
+  'command-eve.image-artifact-reconcile',
   'command-eve.image-artifacts-list',
   'command-eve.presentation-prepare',
   'command-eve.registration-status',
@@ -261,6 +262,7 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'command-eve.image-artifact-bind': 'record',
   'command-eve.image-artifact-import-legacy': 'record',
   'command-eve.image-artifact-preview': 'record',
+  'command-eve.image-artifact-reconcile': 'record',
   'command-eve.image-artifacts-list': 'record',
   // No arguments — Main resolves the active seat itself.
   'command-eve.image-model-preference-read': 'void',

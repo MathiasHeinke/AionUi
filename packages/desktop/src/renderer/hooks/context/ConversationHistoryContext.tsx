@@ -8,6 +8,7 @@ import React, { createContext, useContext, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConversationListSync } from '@/renderer/pages/conversation/GroupedHistory/hooks/useConversationListSync';
 import { useSessionDigestRelay } from '@/renderer/pages/conversation/GroupedHistory/hooks/useSessionDigestRelay';
+import { useImageArtifactReconcileRelay } from '@/renderer/pages/conversation/GroupedHistory/hooks/useImageArtifactReconcileRelay';
 import type { GroupedHistoryResult } from '@/renderer/pages/conversation/GroupedHistory/types';
 import { buildGroupedHistory } from '@/renderer/pages/conversation/GroupedHistory/utils/groupingHelpers';
 
@@ -25,6 +26,9 @@ export const ConversationHistoryProvider: React.FC<React.PropsWithChildren> = ({
   // hands { conversation_id } to the main-side digest writer over IPC — a separate
   // lifecycle from the sidebar store, so it is a sibling hook, not nested in it.
   useSessionDigestRelay();
+  // 1.820.3: the durable image bind reconcile relay — same turn.completed
+  // stream, same sibling-hook discipline, Main does the idempotent re-bind.
+  useImageArtifactReconcileRelay();
 
   const groupedHistory = useMemo(() => {
     return buildGroupedHistory(conversationListSync.conversations, t);

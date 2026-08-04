@@ -128,6 +128,14 @@ export async function handleCommandEveImageArtifactBindBridge(
 export interface CommandEveImageArtifactsListDeps {
   getDataPath: typeof getDataPath;
   listRecords?: typeof listActiveImageArtifacts;
+  /**
+   * 1.820.3 load recovery: a best-effort durable reconcile that binds any
+   * staged handle the volatile renderer path missed (the R2 orphan class)
+   * BEFORE the list is served. Optional so unit tests can isolate the list;
+   * production wires the Main transcript reconcile from commandEveBridge.
+   * Never throws into the list.
+   */
+  reconcileBeforeList?: (conversationId: string) => Promise<unknown>;
 }
 
 const productionListDeps: CommandEveImageArtifactsListDeps = {
@@ -146,6 +154,11 @@ export async function handleCommandEveImageArtifactsList(
 ): Promise<CommandEveActiveImageArtifact[]> {
   if (!request || typeof request.conversationId !== 'string' || request.conversationId.length === 0) return [];
   try {
+    // Load recovery first: an orphan staged child binds idempotently, then the
+    // list below already contains it. A reconcile failure costs nothing here.
+    if (deps.reconcileBeforeList) {
+      await deps.reconcileBeforeList(request.conversationId).catch((): undefined => undefined);
+    }
     return (deps.listRecords ?? listActiveImageArtifacts)(deps.getDataPath(), request.conversationId);
   } catch {
     return [];

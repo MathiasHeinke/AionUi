@@ -702,6 +702,55 @@ async function fetchConversationTranscript(conversationId: string, window: numbe
 }
 
 /**
+ * 1.820.3 — reconcile transcript fetch. NOT the digest's compact mode: the
+ * backend's compact mode TRUNCATES large acp_tool_call outputs (aioncore
+ * service.rs row_to_message_response_compact, its t8_6 test), which could cut
+ * a staged handle in half and silently orphan a child forever. content_mode
+ * full with a deliberately small window — the staged handle TTL is 30
+ * minutes, so anything a reconcile can still bind is recent by construction.
+ */
+async function fetchConversationTranscriptFull(conversationId: string, window: number): Promise<unknown> {
+  // Unlike the digest's fail-quiet compact fetch, this one THROWS on every
+  // failure (no port, non-2xx, parse, network/abort): the reconcile must be
+  // able to report transcriptFetched=false instead of mistaking a failed read
+  // for an empty transcript. Its only caller catches and reports; the list
+  // surface stays fail-quiet one level up.
+  const port = getCommandEveBackendPort();
+  if (!port) throw new Error('backend port unavailable');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SESSION_DIGEST_TIMEOUT_MS);
+  try {
+    const limit = Math.min(200, Math.max(1, Math.floor(window)));
+    const url = `http://127.0.0.1:${port}/api/conversations/${encodeURIComponent(conversationId)}/messages?limit=${limit}&content_mode=full`;
+    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    if (!res.ok) throw new Error(`transcript fetch failed (${res.status})`);
+    const json = (await res.json()) as { data?: { items?: unknown } | null; items?: unknown };
+    return json?.data?.items ?? json?.items ?? [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 1.820.3 — production reconcile closure for the staged image bind contract.
+ * Same transcript substrate as the session digest (loopback messages API, no
+ * raw database coupling); the store bind is idempotent, so the renderer fast
+ * path racing this is a normal `alreadyBound`, never a conflict. The log line
+ * is the visibility the R2 orphan never got: refused binds are reported, not
+ * swallowed.
+ */
+async function reconcileImageArtifactBindsForConversation(conversationId: string) {
+  const { reconcileConversationImageArtifactBinds } = await import('../commandEve/imageArtifactReconcileMain');
+  const { bindStagedImageArtifact, countPendingStagedImageArtifacts } = await import('../commandEve/imageArtifactStore');
+  return reconcileConversationImageArtifactBinds(getDataPath(), conversationId, {
+    fetchTranscript: (id, window) => fetchConversationTranscriptFull(id, window),
+    bind: bindStagedImageArtifact,
+    log: (line) => console.warn(line),
+    countPendingStaged: countPendingStagedImageArtifacts,
+  });
+}
+
+/**
  * T5 — resolve a conversation's TITLE (best-effort) for the digest entry title. Reads
  * the same conversations list the sidebar uses; returns the matching row's name, else
  * undefined (the digest core falls back to a dated "Session <datum>").
@@ -2113,7 +2162,23 @@ export function initCommandEveBridge(): void {
   // (display authority at turn end), list + preview (durable, path-free),
   // legacy import (strictly confined one-time adoption).
   bridge.buildProvider('command-eve.image-artifact-bind').provider(handleCommandEveImageArtifactBindBridge);
-  bridge.buildProvider('command-eve.image-artifacts-list').provider(handleCommandEveImageArtifactsListBridge);
+  bridge
+    .buildProvider('command-eve.image-artifacts-list')
+    .provider((request?: { conversationId?: string }) =>
+      handleCommandEveImageArtifactsListBridge(request, {
+        getDataPath,
+        reconcileBeforeList: (conversationId) => reconcileImageArtifactBindsForConversation(conversationId),
+      })
+    );
+  // Durable re-bind authority: the turnCompleted relay invokes this at turn
+  // end; the list above reconciles at load. Both are best-effort, idempotent
+  // and debit-free (binding flips display state only).
+  bridge.buildProvider('command-eve.image-artifact-reconcile').provider(async (request?: { conversationId?: string }) => {
+    const conversationId = typeof request?.conversationId === 'string' ? request.conversationId : '';
+    if (!conversationId) return { success: false, data: { ok: false, reason: 'invalid-request' } };
+    const summary = await reconcileImageArtifactBindsForConversation(conversationId);
+    return { success: true, data: { ok: true, summary } };
+  });
   bridge.buildProvider('command-eve.image-artifact-preview').provider(handleCommandEveImageArtifactPreviewBridge);
   bridge
     .buildProvider('command-eve.image-artifact-import-legacy')
