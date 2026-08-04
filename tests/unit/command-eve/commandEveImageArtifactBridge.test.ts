@@ -11,10 +11,12 @@ import {
   handleCommandEveImageArtifactPreview,
   handleCommandEveImageArtifactsList,
   handleCommandEveImageEdit,
+  type CommandEveImageArtifactImportLegacyDeps,
   type CommandEveImageEditDeps,
 } from '@/process/bridge/commandEveImageArtifactBridge';
 import {
   bindStagedImageArtifact,
+  importLegacyImageArtifact,
   readImageArtifactBytes,
   readImageArtifactRecordById,
   stageGeneratedImageArtifact,
@@ -370,20 +372,33 @@ describe('bind / list / preview / import handlers', () => {
   it('IPC bridge wrapper: legacyWorkspaceId reaches the store with the workspace root it resolves', async () => {
     // Regression pin for the type-contract leak: the Bridge wrapper dropped
     // legacyWorkspaceId from its request type while the inner handler already
-    // required it. A store spy proves the full pass-through, end to end.
-    const importLegacy = vi.fn(() => ({ ok: true, alreadyImported: false, record: { id: 'img_spy' } }));
-    const workspaceRootForLegacyId = vi.fn((legacyWorkspaceId: string) => `/tmp/ws/${legacyWorkspaceId}`);
+    // required it. Typed spies (no `as never` — the contract is the point)
+    // prove the full pass-through, end to end.
+    const source = seedActiveImage();
+    const importCalls: Array<{ dataPath: string; input: Parameters<typeof importLegacyImageArtifact>[1] }> = [];
+    const deps: CommandEveImageArtifactImportLegacyDeps = {
+      getDataPath: () => dataRoot,
+      importLegacy: (dataPath, input) => {
+        importCalls.push({ dataPath, input });
+        return { ok: true, record: source, alreadyImported: false };
+      },
+      workspaceRootForLegacyId: (legacyWorkspaceId) => `/tmp/ws/${legacyWorkspaceId}`,
+    };
     const result = await handleCommandEveImageArtifactImportLegacyBridge(
       { conversationId: '3be29bae', legacyWorkspaceId: 'hermes-temp-3be29bae', expectedFileName: 'img-1.png' },
-      { getDataPath: () => dataRoot, importLegacy, workspaceRootForLegacyId } as never
+      deps
     );
-    expect(workspaceRootForLegacyId).toHaveBeenCalledWith('hermes-temp-3be29bae');
-    expect(importLegacy).toHaveBeenCalledWith(dataRoot, {
-      conversationId: '3be29bae',
-      legacyWorkspaceId: 'hermes-temp-3be29bae',
-      expectedFileName: 'img-1.png',
-      workspaceRoot: '/tmp/ws/hermes-temp-3be29bae',
-    });
-    expect(result.success).toBe(true);
+    expect(importCalls).toEqual([
+      {
+        dataPath: dataRoot,
+        input: {
+          conversationId: '3be29bae',
+          legacyWorkspaceId: 'hermes-temp-3be29bae',
+          expectedFileName: 'img-1.png',
+          workspaceRoot: '/tmp/ws/hermes-temp-3be29bae',
+        },
+      },
+    ]);
+    expect(result).toEqual({ success: true, data: { ok: true, record: source, alreadyImported: false } });
   });
 });
