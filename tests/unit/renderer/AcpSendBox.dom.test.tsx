@@ -240,6 +240,7 @@ vi.mock('@/common', () => ({
       imageArtifactsList: {
         invoke: imageArtifactsListInvokeMock,
       },
+      imageArtifactsChanged: { on: () => () => undefined },
     },
     pptPreview: {
       start: {
