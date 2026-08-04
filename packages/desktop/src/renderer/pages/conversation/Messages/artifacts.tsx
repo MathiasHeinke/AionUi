@@ -80,7 +80,9 @@ export const mediaArtifactTypeOf = (artifact: IConversationArtifact): 'image' | 
  *     affordance.
  *   - IMAGE: an image artifact is an edit source when it is complete and
  *     carries a usable local path (the managed image lane reads sources at
- *     rest; references ride the same lane).
+ *     rest; references ride the same lane) — OR when it is a MANAGED
+ *     GENERATED image, which is id-based by contract and qualifies through
+ *     its `managed_image` marker instead.
  *
  * Dismissed and pending artifacts are excluded upstream by the visibility
  * predicate plus this status filter — they are never a source.
@@ -97,7 +99,13 @@ export const isUsableMediaEditSource = (artifact: IConversationArtifact): boolea
     }
   }
   if (type === 'image') {
-    const payload = artifact.payload as { path?: unknown; data_url?: unknown; url?: unknown };
+    const payload = artifact.payload as { path?: unknown; data_url?: unknown; url?: unknown; managed_image?: unknown };
+    // 1.820.3 — a MANAGED GENERATED image is id-based by contract: its bytes
+    // live in Main's private store and the record carries NO path. The marker
+    // is the whole qualification — the durable capability grant behind it is
+    // what the edit lane resolves, exactly as the video contract's hydration
+    // gate qualifies a clip. Byte-compatible with the video edit-source rule.
+    if (payload.managed_image === true) return true;
     return (
       (typeof payload.path === 'string' && payload.path.length > 0) ||
       (typeof payload.data_url === 'string' && payload.data_url.length > 0) ||
@@ -155,12 +163,14 @@ export const ConversationArtifactProvider: React.FC<React.PropsWithChildren<{ co
     let alive = true;
     setArtifacts([]);
 
-    // AionCore's own artifacts (`listArtifacts`) and the desktop's local durable
-    // store (`videoArtifactsList`) are two independent sources: AionCore never
-    // learns about a video generated through the direct Main -> gateway call, so
-    // it cannot return it. Fetching both on every load — including switching
-    // back to this conversation — is what makes a generated video survive a
-    // reload instead of only existing until this provider unmounts.
+    // AionCore's own artifacts (`listArtifacts`), the desktop's local durable
+    // video store (`videoArtifactsList`) and the managed generated-image store
+    // (`imageArtifactsList`, 1.820.3) are three independent sources: AionCore
+    // never learns about media produced through the direct Main -> gateway
+    // calls, so it cannot return them. Fetching all three on every load —
+    // including switching back to this conversation — is what makes generated
+    // media survive a reload instead of only existing until this provider
+    // unmounts.
     let loadSeq = 0;
     const loadArtifacts = () => {
       // Generation guard (Grok review MINOR): overlapping refreshes finish
@@ -178,9 +188,16 @@ export const ConversationArtifactProvider: React.FC<React.PropsWithChildren<{ co
             console.error('[ConversationArtifactProvider] Failed to load local video artifacts:', error);
             return [];
           }),
-      ]).then(([remoteArtifacts, localVideoArtifacts]) => {
+        ipcBridge.commandEve.imageArtifactsList
+          .invoke({ conversationId: conversation_id })
+          .then((response) => (response?.data ?? []) as IConversationArtifact[])
+          .catch((error): IConversationArtifact[] => {
+            console.error('[ConversationArtifactProvider] Failed to load local image artifacts:', error);
+            return [];
+          }),
+      ]).then(([remoteArtifacts, localVideoArtifacts, localImageArtifacts]) => {
         if (!alive || seq !== loadSeq) return;
-        setArtifacts(upsertArtifacts([], [...remoteArtifacts, ...localVideoArtifacts]));
+        setArtifacts(upsertArtifacts([], [...remoteArtifacts, ...localVideoArtifacts, ...localImageArtifacts]));
       });
     };
 

@@ -14,7 +14,6 @@ import time
 import types
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
 
 
 PROVIDER_PATH = Path(sys.argv[1]).resolve()
@@ -146,13 +145,19 @@ assert compressor._command_eve_context_policy_signature == (4_096, 0.50, "local-
 strict_loopback_check = NAMESPACE["_command_eve_is_local_shim_base"]
 assert strict_loopback_check("http://127.0.0.1:25811/v1") is True
 assert strict_loopback_check("https://example.invalid/v1") is False
-# Production remains pinned to 25811. The harness uses an OS-assigned loopback
-# port so it cannot collide with a running Command EVE instance.
-NAMESPACE["_command_eve_is_local_shim_base"] = lambda value: (
-    (parsed := urlparse(str(value or ""))).scheme == "http"
-    and (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"}
-    and parsed.path.rstrip("/") in {"", "/v1"}
-)
+# The guard is intentionally port-agnostic: E2E/multi-instance launches bind an
+# OS-assigned ephemeral port and the emitted model.base_url carries it. Pinning
+# 25811 made the auxiliary auth patch a silent no-op there (vision/compression
+# 401). What must hold is loopback-host + /v1-path + a port — nothing more.
+assert strict_loopback_check("http://127.0.0.1:64698/v1") is True
+assert strict_loopback_check("http://localhost:64999/v1") is True
+assert strict_loopback_check("http://127.0.0.1:64698") is True
+assert strict_loopback_check("http://10.0.0.5:25811/v1") is False
+assert strict_loopback_check("http://127.0.0.1:25811/other") is False
+assert strict_loopback_check("https://127.0.0.1:25811/v1") is False
+assert strict_loopback_check("http://127.0.0.1/v1") is False
+# No monkeypatch of the guard: the scenario servers below bind OS-assigned
+# loopback ports and now exercise the REAL emitted check end to end.
 NAMESPACE["_COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S"] = 0.15
 NAMESPACE["_COMMAND_EVE_COMPRESSION_MAX_ATTEMPTS"] = 2
 NAMESPACE["_COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S"] = 0.45

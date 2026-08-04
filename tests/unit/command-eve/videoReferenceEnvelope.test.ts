@@ -56,7 +56,9 @@ function seedImage(label: string): string {
   return filePath;
 }
 
-function envelopeDeps(overrides: Partial<CommandEveArtifactContextEnvelopeDeps> = {}): CommandEveArtifactContextEnvelopeDeps {
+function envelopeDeps(
+  overrides: Partial<CommandEveArtifactContextEnvelopeDeps> = {}
+): CommandEveArtifactContextEnvelopeDeps {
   return {
     getDataPath: () => dataRoot,
     // No STORED artifacts at all, deliberately: everything asserted below must
@@ -86,7 +88,12 @@ describe('MAT-1753 C — reference images ride the EXISTING artifact envelope', 
   it('names every attached image, in order, with no second picker and no path', async () => {
     const paths = ['a', 'b', 'c'].map(seedImage);
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'mach daraus ein Video', referenceImagePaths: paths },
+      {
+        conversationId: 'conv-1',
+        requestedEditOperation: 'video_edit',
+        userTurnText: 'mach daraus ein Video',
+        referenceImagePaths: paths,
+      },
       envelopeDeps()
     );
 
@@ -110,7 +117,12 @@ describe('MAT-1753 C — reference images ride the EXISTING artifact envelope', 
   it('never offers an edit handle for a pending input', async () => {
     const paths = ['a', 'b'].map(seedImage);
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'mach daraus ein Video', referenceImagePaths: paths },
+      {
+        conversationId: 'conv-1',
+        requestedEditOperation: 'video_edit',
+        userTurnText: 'mach daraus ein Video',
+        referenceImagePaths: paths,
+      },
       envelopeDeps()
     );
     // There is nothing produced to edit, so no handle is minted and none renders.
@@ -121,7 +133,12 @@ describe('MAT-1753 C — reference images ride the EXISTING artifact envelope', 
   it('emits NOTHING rather than a short list when the ceiling is exceeded', async () => {
     const paths = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(seedImage);
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'mach daraus ein Video', referenceImagePaths: paths },
+      {
+        conversationId: 'conv-1',
+        requestedEditOperation: 'video_edit',
+        userTurnText: 'mach daraus ein Video',
+        referenceImagePaths: paths,
+      },
       envelopeDeps()
     );
     // A list of seven would tell the model the user attached fewer images than
@@ -132,7 +149,12 @@ describe('MAT-1753 C — reference images ride the EXISTING artifact envelope', 
   it('emits nothing when the paths were not grant-verified', async () => {
     const paths = ['a', 'b'].map(seedImage);
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'mach daraus ein Video', referenceImagePaths: paths },
+      {
+        conversationId: 'conv-1',
+        requestedEditOperation: 'video_edit',
+        userTurnText: 'mach daraus ein Video',
+        referenceImagePaths: paths,
+      },
       envelopeDeps({ areFileSelectionPathsGranted: () => false })
     );
     expect(envelope).toBe('');
@@ -142,7 +164,12 @@ describe('MAT-1753 C — reference images ride the EXISTING artifact envelope', 
     const paths = ['a', 'b', 'c'].map(seedImage);
     const granted = vi.fn(() => true);
     await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'mach daraus ein Video', referenceImagePaths: paths },
+      {
+        conversationId: 'conv-1',
+        requestedEditOperation: 'video_edit',
+        userTurnText: 'mach daraus ein Video',
+        referenceImagePaths: paths,
+      },
       envelopeDeps({ areFileSelectionPathsGranted: granted })
     );
     expect(granted).toHaveBeenCalledTimes(1);
@@ -161,7 +188,12 @@ describe('MAT-1753 F — one permit, the existing one, bound to the reference BY
   it('mints NO permit when reference images are the only thing on the turn', async () => {
     const paths = ['a', 'b'].map(seedImage);
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'mach daraus ein Video', referenceImagePaths: paths },
+      {
+        conversationId: 'conv-1',
+        requestedEditOperation: 'video_edit',
+        userTurnText: 'mach daraus ein Video',
+        referenceImagePaths: paths,
+      },
       envelopeDeps()
     );
     expect(envelope).toContain('kind=reference_image');
@@ -173,7 +205,12 @@ describe('MAT-1753 F — one permit, the existing one, bound to the reference BY
     const turn = 'mach daraus ein Video';
     const clipSha = 'c'.repeat(64);
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: turn, referenceImagePaths: paths },
+      {
+        conversationId: 'conv-1',
+        requestedEditOperation: 'video_edit',
+        userTurnText: turn,
+        referenceImagePaths: paths,
+      },
       envelopeDeps({
         buildEntries: () => [
           {
@@ -208,7 +245,12 @@ describe('MAT-1753 F — one permit, the existing one, bound to the reference BY
   it('mints no permit at all when the paid path is disabled', async () => {
     const paths = ['a'].map(seedImage);
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'mach daraus ein Video', referenceImagePaths: paths },
+      {
+        conversationId: 'conv-1',
+        requestedEditOperation: 'video_edit',
+        userTurnText: 'mach daraus ein Video',
+        referenceImagePaths: paths,
+      },
       envelopeDeps({ isVideoEditEnabled: () => false })
     );
     // The entries still ride along; the spending credential does not.
@@ -219,7 +261,12 @@ describe('MAT-1753 F — one permit, the existing one, bound to the reference BY
   it('mints no permit for a turn with no text, however many images are attached', async () => {
     const paths = ['a', 'b'].map(seedImage);
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: '   ', referenceImagePaths: paths },
+      {
+        conversationId: 'conv-1',
+        requestedEditOperation: 'video_edit',
+        userTurnText: '   ',
+        referenceImagePaths: paths,
+      },
       envelopeDeps()
     );
     expect(permitFromEnvelope(envelope)).toBeUndefined();
@@ -264,9 +311,10 @@ describe('the reference-image digests are RECORDED at mint and NOT enforced at r
   it('the RENDER path reads no permit, evaluates none, and consumes none', () => {
     const body = generateBody();
     for (const forbidden of ['evaluateSpendPermit', 'consumeSpendPermit', 'readSpendPermitRecord', 'spendPermit']) {
-      expect(body, `handleCommandEveVideoGenerate must not touch ${forbidden} while the comment says it does not`).not.toContain(
-        forbidden
-      );
+      expect(
+        body,
+        `handleCommandEveVideoGenerate must not touch ${forbidden} while the comment says it does not`
+      ).not.toContain(forbidden);
     }
   });
 

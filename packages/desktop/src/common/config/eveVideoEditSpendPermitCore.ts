@@ -86,7 +86,14 @@ export const VIDEO_EDIT_SPEND_PERMIT_TTL_MS = 15 * 60 * 1000;
 /** Never bind a permit to more artifacts than one envelope can show. */
 export const VIDEO_EDIT_SPEND_PERMIT_MAX_ARTIFACTS = 24;
 
-export type SpendPermitOperation = 'video_edit';
+/**
+ * The operations a permit can authorise (1.820.3: the managed IMAGE edit joined
+ * the video one). One permit authorises exactly one operation: a video permit
+ * presented for an image edit is `permit-operation-mismatch`, and vice versa.
+ * The store, the TTL, the turn binding and the one-spend-per-turn accounting
+ * are SHARED — the turn is the unit of spend, not the medium.
+ */
+export type SpendPermitOperation = 'video_edit' | 'image_edit';
 
 /**
  * What is stored, server-side, for one permit.
@@ -144,7 +151,9 @@ export type SpendPermitRefusal =
    */
   | 'spend-store-unreconciled';
 
-export type SpendPermitEvaluation = { ok: true; record: VideoEditSpendPermitRecord } | { ok: false; reason: SpendPermitRefusal };
+export type SpendPermitEvaluation =
+  | { ok: true; record: VideoEditSpendPermitRecord }
+  | { ok: false; reason: SpendPermitRefusal };
 
 /** Shape check only. Says nothing about whether we ever minted it. */
 export function isWellFormedVideoEditSpendPermit(value: unknown): value is string {
@@ -156,6 +165,12 @@ export interface MintVideoEditSpendPermitInput {
   userTurnSha256: string;
   /** The editable artifacts visible in THIS turn's envelope, by their bytes. */
   allowedArtifactSha256: readonly string[];
+  /**
+   * The operation this permit authorises (1.820.3). Optional so every existing
+   * video-lane construction stays valid; absent means `video_edit`, which is
+   * what every permit minted before the union existed is.
+   */
+  operation?: SpendPermitOperation;
   nowMs: number;
   randomBytes: (size: number) => Uint8Array;
   ttlMs?: number;
@@ -208,7 +223,7 @@ export function mintVideoEditSpendPermit(
     permit: `${VIDEO_EDIT_SPEND_PERMIT_PREFIX}${toLowerHex(bytes)}`,
     record: {
       conversation_id: input.conversationId,
-      operation: 'video_edit',
+      operation: input.operation ?? 'video_edit',
       user_turn_sha256: input.userTurnSha256,
       allowed_artifact_sha256: allowed,
       issued_at_ms: input.nowMs,

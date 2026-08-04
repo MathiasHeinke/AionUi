@@ -65,6 +65,8 @@ const REGISTRY: CommandEveImageModelRegistry = {
 /**
  * The MAT-1769 seams, injected so no test depends on seat settings or a second
  * network surface. Default: a stored-quality seat against the full registry.
+ * The 1.820.3 STAGE seam defaults to a spy returning a fixed staged handle, so
+ * no test touches the private artifact store unless it means to.
  */
 function imageLaneSeams(overrides: Record<string, unknown> = {}) {
   return {
@@ -76,6 +78,7 @@ function imageLaneSeams(overrides: Record<string, unknown> = {}) {
       physicalKey: 'commandEve.imageModelPreference',
     })),
     readRegistry: vi.fn(async () => ({ ok: true as const, registry: REGISTRY })),
+    stageArtifact: vi.fn(() => ({ artifactHandle: `img_h_${'b'.repeat(64)}` })),
     ...overrides,
   };
 }
@@ -152,13 +155,24 @@ describe('managed image generation main-process service', () => {
       ...imageLaneSeams(),
     });
 
+    // 1.820.3 — the response is PATH-FREE and BYTE-FREE: an opaque staged
+    // handle plus typed metadata. No `b64_json` ever leaves this process.
     expect(result).toMatchObject({
       status: 200,
       body: {
-        data: [{ b64_json: outputBase64, media_type: 'image/png' }],
+        data: [
+          {
+            artifact_handle: `img_h_${'b'.repeat(64)}`,
+            media_type: 'image/png',
+            sha256: crypto.createHash('sha256').update(outputBytes).digest('hex'),
+            bytes_count: outputBytes.length,
+          },
+        ],
         usage: { cost: 0.12, model: 'google/gemini-3-pro-image' },
       },
     });
+    expect(JSON.stringify(result.body)).not.toContain('b64_json');
+    expect(JSON.stringify(result.body)).not.toContain(outputBase64);
     expect(fetchFn).toHaveBeenCalledOnce();
     const [url, init] = fetchFn.mock.calls[0];
     expect(url).toBe(EVE_MULTIMODAL_FUNCTION_URL);
@@ -363,6 +377,45 @@ describe('managed image generation main-process service', () => {
       status: 502,
       body: { error: { code: 'managed_image_receipt_mismatch' } },
     });
+  });
+
+  it('1.820.3 STAGE: the verified bytes, tier and provenance reach the store — and a stage failure is named, never a fake success', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+    const stageArtifact = vi.fn(() => ({ artifactHandle: `img_h_${'c'.repeat(64)}` }));
+
+    const result = await executeCommandEveManagedImageGeneration(request(), {
+      fetchFn: fetchFn as typeof fetch,
+      dataPath: '/tmp/test',
+      ...imageLaneSeams({ stageArtifact }),
+      stagedParentArtifactId: 'img_parent123',
+    });
+
+    expect(result.status).toBe(200);
+    expect(stageArtifact).toHaveBeenCalledTimes(1);
+    const staged = stageArtifact.mock.calls[0][0] as Record<string, unknown>;
+    // The bytes staged are EXACTLY the receipt-verified provider bytes — not
+    // the base64 string, not a re-encode.
+    expect(Buffer.from(staged.bytes as Uint8Array).equals(outputBytes)).toBe(true);
+    expect(staged).toMatchObject({
+      mimeType: 'image/png',
+      tier: 'quality',
+      model: 'google/gemini-3-pro-image',
+      resolution: '1K',
+      aspectRatio: '16:9',
+      promptSha256: crypto.createHash('sha256').update(prompt).digest('hex'),
+      parentArtifactId: 'img_parent123',
+    });
+
+    // A stage failure: the image was genuinely produced (and billed) upstream,
+    // so the refusal names what happened instead of reporting a generation failure.
+    const failingStage = vi.fn(() => undefined);
+    await expect(
+      executeCommandEveManagedImageGeneration(request(), {
+        fetchFn: fetchFn as typeof fetch,
+        dataPath: '/tmp/test',
+        ...imageLaneSeams({ stageArtifact: failingStage }),
+      })
+    ).resolves.toMatchObject({ status: 502, body: { error: { code: 'managed_image_stage_failed' } } });
   });
 
   it('rejects an unknown model before reading the license, the registry, or making a network call', async () => {

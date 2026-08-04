@@ -17,7 +17,19 @@ import {
 import type { TProviderWithModel } from '@/common/config/storage';
 
 export type ManagedImageGenerationClientResult =
-  | { ok: true; dataUrl: string; model?: string; costUsd?: number }
+  | {
+      ok: true;
+      /** The opaque staged reference (`img_h_…`) — the ONLY artifact identity the model ever sees. */
+      artifactHandle: string;
+      mediaType: string;
+      sha256: string;
+      bytesCount: number;
+      /** Echoed from the verified request — the tool text states what was asked for. */
+      resolution: string;
+      aspectRatio: string;
+      model?: string;
+      costUsd?: number;
+    }
   | { ok: false; error: string };
 
 function localImagesEndpoint(baseUrl: string): string | null {
@@ -112,23 +124,34 @@ export async function executeManagedImageGenerationViaShim(input: {
       return { ok: false, error: message };
     }
     const artifact = raw.data[0];
-    if (!isRecord(artifact) || typeof artifact.b64_json !== 'string') {
-      return { ok: false, error: 'Managed image response did not contain an image.' };
+    // 1.820.3 — the managed lane is PATH-FREE and BYTE-FREE: the shim stages
+    // the image privately in Main and answers with an opaque staged handle
+    // plus typed metadata. There is deliberately no `b64_json` fallback here:
+    // this client exists only for the managed lane, and re-inflating provider
+    // bytes into the MCP transport is exactly the payload the contract removes.
+    if (!isRecord(artifact) || typeof artifact.artifact_handle !== 'string') {
+      return { ok: false, error: 'Managed image response did not contain an image reference.' };
     }
     const mimeType = typeof artifact.media_type === 'string' ? artifact.media_type.toLowerCase() : 'image/png';
     if (!COMMAND_EVE_MANAGED_IMAGE_MIME_TYPES.includes(mimeType as CommandEveManagedImageMimeType)) {
       return { ok: false, error: 'Managed image response used an unsupported format.' };
     }
-    const bytes = Buffer.from(artifact.b64_json, 'base64');
-    if (bytes.length < 8 || bytes.toString('base64').replace(/=+$/, '') !== artifact.b64_json.replace(/=+$/, '')) {
-      return { ok: false, error: 'Managed image response contained invalid image data.' };
+    const sha256 = typeof artifact.sha256 === 'string' ? artifact.sha256 : '';
+    const bytesCount = typeof artifact.bytes_count === 'number' ? artifact.bytes_count : 0;
+    if (!/^[0-9a-f]{64}$/.test(sha256) || !Number.isFinite(bytesCount) || bytesCount <= 0) {
+      return { ok: false, error: 'Managed image response carried incomplete artifact metadata.' };
     }
     const usage = isRecord(raw.usage) ? raw.usage : undefined;
     const cost = usage?.cost;
     const model = usage?.model;
     return {
       ok: true,
-      dataUrl: `data:${mimeType};base64,${artifact.b64_json}`,
+      artifactHandle: artifact.artifact_handle,
+      mediaType: mimeType,
+      sha256,
+      bytesCount,
+      resolution,
+      aspectRatio,
       ...(typeof model === 'string' && model.trim() ? { model: model.trim() } : {}),
       ...(typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? { costUsd: cost } : {}),
     };

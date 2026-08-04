@@ -101,6 +101,10 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.open-account-web',
   'command-eve.pdf-prepare',
   'command-eve.image-prepare',
+  'command-eve.image-artifact-bind',
+  'command-eve.image-artifact-import-legacy',
+  'command-eve.image-artifact-preview',
+  'command-eve.image-artifacts-list',
   'command-eve.presentation-prepare',
   'command-eve.registration-status',
   'command-eve.registration-update',
@@ -251,6 +255,13 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   // MAT-1769 — no arguments: asks MAIN for the server-owned image model
   // registry (display names + credit quotes). Read-only, non-billable.
   'command-eve.image-capabilities': 'void',
+  // 1.820.3 — the managed image artifact lane. conversationId + handle +
+  // toolCallId (bind), conversationId (list), conversationId + artifactId
+  // (preview), conversationId + expectedFileName (legacy import).
+  'command-eve.image-artifact-bind': 'record',
+  'command-eve.image-artifact-import-legacy': 'record',
+  'command-eve.image-artifact-preview': 'record',
+  'command-eve.image-artifacts-list': 'record',
   // No arguments — Main resolves the active seat itself.
   'command-eve.image-model-preference-read': 'void',
   // expectedSeatId (stale-action fence only) + the chosen tier.

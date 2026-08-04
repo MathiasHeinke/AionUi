@@ -277,6 +277,40 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const [pathHtmlLoading, setPathHtmlLoading] = useState(false);
   const [localFilePreviewSource, setLocalFilePreviewSource] = useState<string>();
   const [localFilePreviewLoading, setLocalFilePreviewLoading] = useState(false);
+  const [managedImagePreviewSource, setManagedImagePreviewSource] = useState<string>();
+
+  // 1.820.3 — a MANAGED GENERATED image carries NO path and NO URL by
+  // contract: its bytes live in Main's private store. The card resolves its
+  // preview BY ARTIFACT ID over the `commandEve.imageArtifactPreview` bridge,
+  // which re-verifies the conversation and the SHA-256 on every read.
+  const isManagedImage = type === 'image' && payload.managed_image === true && !source;
+  useEffect(() => {
+    if (!isManagedImage) {
+      setManagedImagePreviewSource(undefined);
+      return;
+    }
+    let active = true;
+    setManagedImagePreviewSource(undefined);
+    void (async () => {
+      try {
+        const response = await ipcBridge.commandEve.imageArtifactPreview.invoke({
+          conversationId: artifact.conversation_id,
+          artifactId: artifact.id,
+        });
+        const preview = response?.data;
+        if (!active || !preview) return;
+        setManagedImagePreviewSource(
+          sanitizeArtifactPreviewSource(`data:${preview.mime_type};base64,${preview.data_base64}`, 'image')
+        );
+      } catch {
+        // The card stays truthful without an inline preview — the artifact
+        // itself is listed and described either way.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [artifact.conversation_id, artifact.id, isManagedImage]);
 
   useEffect(() => {
     if (type !== 'html' || htmlContent || !openPath) {
@@ -403,7 +437,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
     const content = htmlContent || pathHtmlContent;
     return content ? secureArtifactHtml(content) : undefined;
   }, [htmlContent, pathHtmlContent]);
-  const previewSource = source?.startsWith('file:') ? localFilePreviewSource : source;
+  const previewSource = managedImagePreviewSource ?? (source?.startsWith('file:') ? localFilePreviewSource : source);
   const pdfPreviewSource = openPath ? localFilePreviewSource : source;
   const canOpen = Boolean(openPath || (source && /^https?:/i.test(source)));
   const hasPreview =

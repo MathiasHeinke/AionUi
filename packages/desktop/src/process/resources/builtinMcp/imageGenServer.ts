@@ -94,7 +94,10 @@ Input Support:
 - Text prompts for generation or analysis
 
 Output:
-- Saves generated/processed images to workspace with timestamp naming
+- Managed (Command EVE) lane: the image is stored privately by the app and the
+  result names an internal artifact reference (img_h_...) plus human metadata —
+  NEVER a file path. Editing uses the separate edit_handle from your context.
+- Other providers: saves generated/processed images to workspace with timestamp naming
 - Returns image path and AI description/analysis
 
 IMPORTANT: When user provides multiple images, ALWAYS pass ALL images to the image_uris parameter as an array.`,

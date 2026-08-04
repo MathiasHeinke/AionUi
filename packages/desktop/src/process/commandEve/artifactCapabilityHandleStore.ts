@@ -34,6 +34,7 @@ import path from 'node:path';
 import { isSha256Hex } from '@/common/config/eveOpaqueTokenCore';
 import {
   isWellFormedArtifactCapabilityHandle,
+  mintImageEditCapabilityGrant,
   mintVideoEditCapabilityGrant,
   resolveArtifactCapabilityGrant,
   type ArtifactCapabilityGrant,
@@ -86,7 +87,7 @@ function parseGrant(value: unknown): ArtifactCapabilityGrant | undefined {
     typeof record.conversation_id !== 'string' ||
     typeof record.artifact_id !== 'string' ||
     typeof record.artifact_sha256 !== 'string' ||
-    record.operation !== 'video_edit' ||
+    (record.operation !== 'video_edit' && record.operation !== 'image_edit') ||
     typeof record.issued_at_ms !== 'number'
   ) {
     return undefined;
@@ -232,6 +233,105 @@ export function readArtifactCapabilityGrant(
   }
 }
 
+/**
+ * The `image_edit` half of `ensureVideoEditCapabilityHandle` (1.820.3).
+ *
+ * Same store, same index, same one-handle-per-(conversation, artifact, bytes)
+ * rule — the managed image record carries no hydration debt, so the reference
+ * is a plain (conversation, artifact, sha256) triple rather than a video
+ * artifact record. The existing grant is re-validated against the CURRENT hash
+ * AND the `image_edit` operation before reuse: a grant minted for a different
+ * operation names a different authority and gets replaced, not reused.
+ */
+export function ensureImageEditCapabilityHandle(
+  dataPath: string,
+  artifact: { conversation_id: string; artifact_id: string; artifact_sha256: string },
+  options: { nowMs?: number; randomBytes?: (size: number) => Uint8Array } = {}
+): string | undefined {
+  const nowMs = options.nowMs ?? Date.now();
+  const file = indexFile(dataPath, artifact.conversation_id, artifact.artifact_id);
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    const existing = readArtifactCapabilityGrant(dataPath, raw.handle, nowMs);
+    if (
+      existing &&
+      existing.conversation_id === artifact.conversation_id &&
+      existing.artifact_id === artifact.artifact_id &&
+      existing.artifact_sha256 === artifact.artifact_sha256 &&
+      existing.operation === 'image_edit'
+    ) {
+      return existing.handle;
+    }
+  } catch {
+    /* no usable index entry — fall through and mint */
+  }
+
+  const grant = mintImageEditCapabilityGrant({
+    conversationId: artifact.conversation_id,
+    artifactId: artifact.artifact_id,
+    artifactSha256: artifact.artifact_sha256,
+    nowMs,
+    randomBytes: options.randomBytes ?? ((size: number) => new Uint8Array(crypto.randomBytes(size))),
+  });
+  if (!grant) return undefined;
+  try {
+    pruneArtifactCapabilityGrants(dataPath, nowMs);
+    writeGrantAtomic(path.join(capabilityDirectory(dataPath), grantFileName(grant.handle)), grant);
+  } catch {
+    return undefined;
+  }
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, `${JSON.stringify({ handle: grant.handle }, null, 2)}\n`, { mode: 0o600 });
+    fs.chmodSync(file, 0o600);
+  } catch {
+    // The index is a cache. Losing it costs a re-mint next turn; it never costs
+    // correctness, so it must not turn a working handle into a failure.
+  }
+  return grant.handle;
+}
+
+export type ImageEditCapabilityResolution =
+  | { ok: true; grant: ArtifactCapabilityGrant }
+  | { ok: false; reason: ArtifactCapabilityRefusal };
+
+/**
+ * Turn a presented `image_edit` handle into an authorised grant, or refuse.
+ *
+ * Slimmer than `resolveVideoEditCapability` on purpose: the artifact lookup is
+ * the caller's own store's job (the image edit handler reads its record and its
+ * private bytes, and hashes what it actually read), so what remains here is the
+ * credential judgement — well-formed, minted by us, this conversation, this
+ * operation, these bytes. `observedArtifactSha256` MUST be the hash of the
+ * bytes the caller is about to send, exactly as on the video path.
+ */
+export function resolveImageEditCapability(
+  dataPath: string,
+  input: { handle: unknown; observedArtifactSha256: string; expectedConversationId?: string },
+  deps: { readGrant: typeof readArtifactCapabilityGrant; nowMs: () => number } = {
+    readGrant: readArtifactCapabilityGrant,
+    nowMs: () => Date.now(),
+  }
+): ImageEditCapabilityResolution {
+  const grant = deps.readGrant(dataPath, input.handle, deps.nowMs());
+  if (!grant) {
+    return {
+      ok: false,
+      reason: isWellFormedArtifactCapabilityHandle(input.handle) ? 'handle-unknown' : 'handle-malformed',
+    };
+  }
+  if (input.expectedConversationId !== undefined && input.expectedConversationId !== grant.conversation_id) {
+    return { ok: false, reason: 'conversation-mismatch' };
+  }
+  return resolveArtifactCapabilityGrant({
+    handle: input.handle,
+    grant,
+    conversationId: grant.conversation_id,
+    operation: 'image_edit',
+    observedArtifactSha256: input.observedArtifactSha256,
+  });
+}
+
 export type VideoEditCapabilityResolution =
   | { ok: true; grant: ArtifactCapabilityGrant; artifact: CommandEveVideoConversationArtifact }
   | { ok: false; reason: ArtifactCapabilityRefusal | 'artifact-missing' };
@@ -317,7 +417,10 @@ export function buildConversationArtifactEnvelopeEntries(
   dataPath: string,
   conversationId: string,
   options: { nowMs?: number; selectedArtifactIds?: readonly string[]; maxEntries?: number } = {},
-  deps: { listArtifactRecords: typeof listVideoArtifactRecords; ensureHandle: typeof ensureVideoEditCapabilityHandle } = {
+  deps: {
+    listArtifactRecords: typeof listVideoArtifactRecords;
+    ensureHandle: typeof ensureVideoEditCapabilityHandle;
+  } = {
     listArtifactRecords: listVideoArtifactRecords,
     ensureHandle: ensureVideoEditCapabilityHandle,
   }

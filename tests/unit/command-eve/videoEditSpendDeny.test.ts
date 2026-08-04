@@ -137,7 +137,10 @@ function steerDeps(overrides: Partial<CommandEveArtifactTurnSteerDeps> = {}): Co
   return { getDataPath: () => dataRoot, ...overrides };
 }
 
-function editDeps(fetchImpl: typeof fetch, overrides: Partial<CommandEveVideoBridgeDeps> = {}): CommandEveVideoBridgeDeps {
+function editDeps(
+  fetchImpl: typeof fetch,
+  overrides: Partial<CommandEveVideoBridgeDeps> = {}
+): CommandEveVideoBridgeDeps {
   return {
     getDataPath: () => dataRoot,
     fetch: fetchImpl,
@@ -167,7 +170,7 @@ async function armedConversation(conversationId: string, turn: string) {
   const source = seedSource(conversationId, `video-${conversationId}`);
   const handle = ensureVideoEditCapabilityHandle(dataRoot, source)!;
   const { envelope } = await handleCommandEveArtifactContextEnvelope(
-    { conversationId, userTurnText: turn },
+    { conversationId, requestedEditOperation: 'video_edit', userTurnText: turn },
     envelopeDeps()
   );
   const permit = permitFromEnvelope(envelope)!;
@@ -278,7 +281,7 @@ describe('MAT-1747 requirement 4 — only a successful ordinary send recovers th
     // THE recovery: an ordinary user send that establishes fresh turn state and
     // mints a new valid permit.
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'jetzt doch bitte das Gesicht' },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: 'jetzt doch bitte das Gesicht' },
       envelopeDeps()
     );
     const fresh = permitFromEnvelope(envelope);
@@ -318,7 +321,7 @@ describe('MAT-1747 requirement 4 — only a successful ordinary send recovers th
       steerDeps({ revokeOnSteer: brokenPermitStorage as never })
     );
     await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'jetzt doch bitte das Gesicht' },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: 'jetzt doch bitte das Gesicht' },
       envelopeDeps()
     );
 

@@ -227,7 +227,7 @@ describe('the context envelope asks the SAME resolver when no dep is injected', 
   it('an ELIGIBLE seat with an editable clip advertises eve_video_edit AND mints a permit, env unset', async () => {
     expect(storeLicenseWire(dataRoot, FAKE_WIRE).ok).toBe(true);
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'gib der Aubergine ein Gesicht' },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: 'gib der Aubergine ein Gesicht' },
       envelopeDepsWithoutFlag()
     );
     expect(envelope).toContain('Allowed capabilities on this seat: eve_video_edit.');
@@ -240,7 +240,7 @@ describe('the context envelope asks the SAME resolver when no dep is injected', 
     expect(storeLicenseWire(dataRoot, FAKE_WIRE).ok).toBe(true);
     process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] = '0';
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'gib der Aubergine ein Gesicht' },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: 'gib der Aubergine ein Gesicht' },
       envelopeDepsWithoutFlag()
     );
     expect(envelope).toContain(CLOSED_SEAT_SENTENCE);
@@ -250,7 +250,7 @@ describe('the context envelope asks the SAME resolver when no dep is injected', 
 
   it('an INELIGIBLE seat (no licence wire) gets the same sentence and no permit', async () => {
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'gib der Aubergine ein Gesicht' },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: 'gib der Aubergine ein Gesicht' },
       envelopeDepsWithoutFlag()
     );
     expect(envelope).toContain(CLOSED_SEAT_SENTENCE);
@@ -262,7 +262,7 @@ describe('the context envelope asks the SAME resolver when no dep is injected', 
     // The no-bypass rule, at the envelope level: '1' is a no-op, not an override.
     process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] = '1';
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'gib der Aubergine ein Gesicht' },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: 'gib der Aubergine ein Gesicht' },
       envelopeDepsWithoutFlag()
     );
     expect(envelope).toContain(CLOSED_SEAT_SENTENCE);

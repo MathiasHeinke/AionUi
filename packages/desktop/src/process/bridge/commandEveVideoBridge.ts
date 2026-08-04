@@ -38,9 +38,13 @@ import {
 import {
   buildConversationArtifactEnvelopeEntries,
   ensureVideoEditCapabilityHandle,
+  ensureImageEditCapabilityHandle,
   readArtifactCapabilityGrant,
   resolveVideoEditCapability,
 } from '@process/commandEve/artifactCapabilityHandleStore';
+import { listActiveImageArtifacts } from '@process/commandEve/imageArtifactStore';
+import { isAgentImageEditAdvertisingEnabled } from '@process/commandEve/agentImageEditFlag';
+import type { CommandEveActiveImageArtifact } from '@/common/config/managedImageArtifactCore';
 import {
   acquireVideoEditInflightLock,
   consumeVideoEditSpendPermit,
@@ -549,6 +553,19 @@ export interface CommandEveArtifactContextEnvelopeDeps {
    */
   listImageRecords?: typeof listImageArtifactRecords;
   saveImageRecord?: typeof saveImageArtifactRecord;
+  /**
+   * 1.820.3 — the MANAGED GENERATED image store: active records ride the
+   * envelope as EDITABLE kind=image entries with an `evecap_` handle, minted
+   * through the same one-handle-per-(conversation, artifact, bytes) rule as
+   * the video lane.
+   */
+  listManagedImageRecords?: typeof listActiveImageArtifacts;
+  ensureImageEditHandle?: typeof ensureImageEditCapabilityHandle;
+  /**
+   * Whether the paid IMAGE edit is advertised for this seat. One resolver
+   * (`agentImageEditFlag.ts`), same posture as the video flag.
+   */
+  isImageEditEnabled?: () => boolean;
 }
 
 const productionEnvelopeDeps: CommandEveArtifactContextEnvelopeDeps = {
@@ -563,6 +580,9 @@ const productionEnvelopeDeps: CommandEveArtifactContextEnvelopeDeps = {
   readImageSource: (filePath: string) => readBoundedImageSource(filePath),
   listImageRecords: listImageArtifactRecords,
   saveImageRecord: saveImageArtifactRecord,
+  listManagedImageRecords: listActiveImageArtifacts,
+  ensureImageEditHandle: ensureImageEditCapabilityHandle,
+  isImageEditEnabled: () => isAgentImageEditAdvertisingEnabled(getDataPath()),
 };
 
 /**
@@ -608,6 +628,18 @@ export interface CommandEveArtifactContextEnvelopeRequest {
    * Hashed immediately; never stored, logged or forwarded.
    */
   userTurnText?: string;
+  /**
+   * 1.820.3 (CoS fail-closed gate) — the ONE spend operation this turn may
+   * carry, resolved by the RENDERER through `resolveEditAuthorization`
+   * (mutation semantics + canonical source truth) and passed explicitly.
+   *
+   * Main VALIDATES it: exactly `'video_edit'` or `'image_edit'`, anything else
+   * is treated as absent. And ABSENT MEANS NO PERMIT — no legacy `video_edit`
+   * default, no derivation from which artifact kinds happen to exist. A turn
+   * whose edit intent the app could not resolve carries no spending credential
+   * at all; the model choosing a medium is precisely what this field removes.
+   */
+  requestedEditOperation?: string;
 }
 
 /**
@@ -643,6 +675,11 @@ export async function handleCommandEveArtifactContextEnvelope(
     // seat (licence wire readable) advertises by default, `'0'` kill-switches
     // it, and no wire fails closed.
     const paidEnabled = (deps.isVideoEditEnabled ?? (() => isAgentVideoEditAdvertisingEnabled(dataPath)))();
+    // The image half of the same question, resolved HERE (not later) because
+    // the turn pointer below must move on every send while EITHER paid path is
+    // open — an image permit judged against a pointer only the video lane
+    // moved would refuse its own turn.
+    const imagePaidEnabled = (deps.isImageEditEnabled ?? (() => isAgentImageEditAdvertisingEnabled(dataPath)))();
 
     // THE RAW BYTES. Read once, never reassigned, never normalised. `rawUserTurn`
     // is the only thing that reaches the digest; `userTurnPresent` is a separate
@@ -676,7 +713,7 @@ export async function handleCommandEveArtifactContextEnvelope(
     // nothing — a send that could not establish its own turn state has no
     // business handing out authority bound to that turn.
     let turnStateEstablished = false;
-    if (paidEnabled && userTurnPresent) {
+    if ((paidEnabled || imagePaidEnabled) && userTurnPresent) {
       try {
         turnStateEstablished =
           (deps.recordActiveTurn ?? recordActiveUserTurn)(dataPath, conversationId, userTurnSha256) === true;
@@ -703,7 +740,10 @@ export async function handleCommandEveArtifactContextEnvelope(
     // still on the draft. Read-only entries — no handle, no capability, and
     // deliberately NOT part of the spend-permit binding below.
     const imageEntries = buildStoredImageEnvelopeEntries(dataPath, conversationId, deps);
-    const entries = [...referenceEntries, ...imageEntries, ...storedEntries];
+    // 1.820.3 — the MANAGED GENERATED images. EDITABLE kind=image entries with
+    // an `evecap_` handle, between the read-only sent images and the clips.
+    const managedImageEntries = buildManagedImageEnvelopeEntries(dataPath, conversationId, deps);
+    const entries = [...referenceEntries, ...imageEntries, ...managedImageEntries, ...storedEntries];
     // And THIS turn's attached images become next turns' durable records. The
     // write happens after the listing so the current envelope never shows the
     // same image twice (once pending, once stored), and first-write-wins makes
@@ -711,47 +751,81 @@ export async function handleCommandEveArtifactContextEnvelope(
     // an image that is still on the user's draft — which is exactly the image
     // the user is looking at, so the reference stays truthful.
     recordSentImageArtifacts(dataPath, conversationId, request?.referenceImagePaths, referenceEntries, deps);
-    const editable = entries.filter((entry) => entry.editable);
-    const allowedCapabilities = paidEnabled && editable.length > 0 ? ['eve_video_edit'] : [];
+    const editableVideos = entries.filter((entry) => entry.editable && entry.kind === 'video');
+    const editableImages = managedImageEntries.filter((entry) => entry.editable);
+    // POLICY F per medium: a capability is advertised only when the paid path
+    // is really enabled AND there is something editable to spend it on. The
+    // two media are advertised INDEPENDENTLY — kill-switching one never
+    // darkens the other.
+    const allowedCapabilities = [
+      ...(paidEnabled && editableVideos.length > 0 ? ['eve_video_edit'] : []),
+      ...(imagePaidEnabled && editableImages.length > 0 ? ['eve_image_edit'] : []),
+    ];
+
+    // 1.820.3 CoS FAIL-CLOSED GATE — the turn's ONE permit is minted ONLY for
+    // the operation the renderer's authorization resolver named, and ONLY when
+    // that operation is enabled here and has editable artifacts to bind. An
+    // absent or unrecognised `requestedEditOperation` mints NOTHING: no legacy
+    // `video_edit` default, no derivation from artifact kinds. The model never
+    // picks the medium a permit covers; the app decided before the model call.
+    const requestedEditOperation =
+      request?.requestedEditOperation === 'video_edit' || request?.requestedEditOperation === 'image_edit'
+        ? request.requestedEditOperation
+        : undefined;
 
     let spendPermit: string | undefined;
-    if (allowedCapabilities.length > 0 && userTurnPresent && turnStateEstablished) {
+    if (requestedEditOperation !== undefined && userTurnPresent && turnStateEstablished) {
       const issue = deps.issuePermit ?? issueVideoEditSpendPermit;
       // `undefined` here is an ordinary outcome, and one of its causes is POLICY
       // C: a turn that already bought its edit gets no second permit, however
       // many times this path is driven for it. Another is that the mint itself
       // hit a storage failure — in which case it has already denied the
       // conversation on its way out.
-      spendPermit = issue(dataPath, {
-        conversationId,
-        userTurnSha256,
-        // MAT-1753 item F. Reference images ride the SAME single-use, byte-bound
-        // permit as the editable clips — one permit per turn, one store, one TTL,
-        // one turn binding. There is deliberately no second spend authority for
-        // reference work and no second popup: a new mechanism is exactly what
-        // "no second spend authority" forbids.
-        //
-        // WHAT THESE REFERENCE DIGESTS DO **NOT** DO, said plainly rather than
-        // left to be assumed from the word "bound": they are NOT re-verified at
-        // redeem time, because the path that consumes reference images —
-        // `handleCommandEveVideoGenerate` — takes no permit and redeems none. The
-        // only enforced binding is on the EDIT path, where
-        // `evaluateStoredVideoEditSpendPermit` / `consumeVideoEditSpendPermit`
-        // check ONE `observedArtifactSha256` (the clip being edited) against this
-        // list. So a reference digest here is a RECORD of what the turn asked
-        // for, not a gate on what the render may use.
-        //
-        // That is a deliberate, stated limitation and not an oversight to be
-        // closed by widening this comment: binding on the redeem side would mean
-        // threading a permit through the generate IPC and refusing renders
-        // without one, which is a spend-authority change, not a comment fix.
-        // `videoReferenceEnvelope.test.ts` pins BOTH halves — the mint-side
-        // contents AND the absence of a redeem — so whoever adds one has to come
-        // past a red test and correct this paragraph.
-        allowedArtifactSha256: [...referenceEntries, ...editable]
-          .map((entry) => entry.artifactSha256)
-          .filter((sha): sha is string => typeof sha === 'string'),
-      });
+      if (requestedEditOperation === 'video_edit' && paidEnabled && editableVideos.length > 0) {
+        spendPermit = issue(dataPath, {
+          conversationId,
+          userTurnSha256,
+          operation: 'video_edit',
+          // MAT-1753 item F. Reference images ride the SAME single-use, byte-bound
+          // permit as the editable clips — one permit per turn, one store, one TTL,
+          // one turn binding. There is deliberately no second spend authority for
+          // reference work and no second popup: a new mechanism is exactly what
+          // "no second spend authority" forbids.
+          //
+          // WHAT THESE REFERENCE DIGESTS DO **NOT** DO, said plainly rather than
+          // left to be assumed from the word "bound": they are NOT re-verified at
+          // redeem time, because the path that consumes reference images —
+          // `handleCommandEveVideoGenerate` — takes no permit and redeems none. The
+          // only enforced binding is on the EDIT path, where
+          // `evaluateStoredVideoEditSpendPermit` / `consumeVideoEditSpendPermit`
+          // check ONE `observedArtifactSha256` (the clip being edited) against this
+          // list. So a reference digest here is a RECORD of what the turn asked
+          // for, not a gate on what the render may use.
+          //
+          // That is a deliberate, stated limitation and not an oversight to be
+          // closed by widening this comment: binding on the redeem side would mean
+          // threading a permit through the generate IPC and refusing renders
+          // without one, which is a spend-authority change, not a comment fix.
+          // `videoReferenceEnvelope.test.ts` pins BOTH halves — the mint-side
+          // contents AND the absence of a redeem — so whoever adds one has to come
+          // past a red test and correct this paragraph.
+          allowedArtifactSha256: [...referenceEntries, ...editableVideos]
+            .map((entry) => entry.artifactSha256)
+            .filter((sha): sha is string => typeof sha === 'string'),
+        });
+      } else if (requestedEditOperation === 'image_edit' && imagePaidEnabled && editableImages.length > 0) {
+        // The image half, bound by the same store, TTL and turn digest — but
+        // operation `image_edit`, so a video permit can never buy an image edit
+        // and this permit can never buy a video one.
+        spendPermit = issue(dataPath, {
+          conversationId,
+          userTurnSha256,
+          operation: 'image_edit',
+          allowedArtifactSha256: editableImages
+            .map((entry) => entry.artifactSha256)
+            .filter((sha): sha is string => typeof sha === 'string'),
+        });
+      }
     }
 
     return {
@@ -945,6 +1019,64 @@ function buildStoredImageEnvelopeEntries(
         editable: false,
         artifactSha256: record.sha256,
       }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 1.820.3 — the MANAGED GENERATED images as envelope entries.
+ *
+ * The editable counterpart of the read-only sent-image entries above: every
+ * ACTIVE record in the managed image store rides newest-first, and each one
+ * gets its durable `evecap_` edit handle through the same
+ * one-handle-per-(conversation, artifact, bytes) rule the video lane uses.
+ * A record whose handle cannot be minted is still listed — visible but not
+ * editable — and the envelope says so by omitting the handle, never by
+ * inventing one. STAGED records are absent by construction: the store only
+ * lists active ones, because an unbound image has no conversation to ride.
+ */
+function buildManagedImageEnvelopeEntries(
+  dataPath: string,
+  conversationId: string,
+  deps: CommandEveArtifactContextEnvelopeDeps
+): EveArtifactEnvelopeEntry[] {
+  const list = deps.listManagedImageRecords;
+  if (!list) return [];
+  const nowMs = Date.now();
+  try {
+    return list(dataPath, conversationId)
+      .toSorted((a, b) => b.created_at - a.created_at)
+      .slice(0, IMAGE_ARTIFACT_ENVELOPE_MAX_ENTRIES)
+      .map((record) => {
+        let editHandle: string | undefined;
+        try {
+          editHandle = (deps.ensureImageEditHandle ?? ensureImageEditCapabilityHandle)(
+            dataPath,
+            {
+              conversation_id: record.conversation_id,
+              artifact_id: record.id,
+              artifact_sha256: record.payload.sha256,
+            },
+            { nowMs }
+          );
+        } catch {
+          editHandle = undefined;
+        }
+        const entry: EveArtifactEnvelopeEntry = {
+          artifactId: record.id,
+          kind: 'image',
+          mimeType: record.payload.mime_type,
+          durationSeconds: 0,
+          // A handle is minted ONLY for an editable image, so the envelope can
+          // never name an image the edit lane would refuse.
+          editable: Boolean(editHandle),
+          artifactSha256: record.payload.sha256,
+        };
+        if (editHandle !== undefined) entry.editHandle = editHandle;
+        if (record.payload.parent_artifact_id !== undefined) entry.parentArtifactId = record.payload.parent_artifact_id;
+        return entry;
+      });
   } catch {
     return [];
   }

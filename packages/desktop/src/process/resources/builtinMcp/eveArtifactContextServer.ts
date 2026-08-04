@@ -52,6 +52,7 @@ import {
   describeEveArtifactTool,
   EVE_ARTIFACT_TOOL_ARTIFACT_GET,
   EVE_ARTIFACT_TOOL_ARTIFACT_LIST,
+  EVE_ARTIFACT_TOOL_IMAGE_EDIT,
   EVE_ARTIFACT_TOOL_VIDEO_EDIT,
   isToolAdvertised,
 } from './eveArtifactToolSurface';
@@ -193,13 +194,38 @@ async function main() {
           .string()
           .min(1)
           .max(2000)
-          .describe('What should change about the video, in the user\'s own terms.'),
+          .describe("What should change about the video, in the user's own terms."),
       },
       async ({ handle, permit, instruction }) => {
         const result = await callMain('video_edit', { handle, permit, instruction });
         // No path is echoed back, in either direction. Main deliberately returns
         // an artifact id and no `MEDIA:` line, so nothing here can leak a home
         // directory name into a transcript or an upstream API.
+        return textResult(result, result.ok !== true);
+      }
+    );
+  }
+
+  // 1.820.3 — the IMAGE half of POLICY F, advertised from ITS OWN env carrier
+  // exactly like the video tool above. Same credential pair (handle + permit),
+  // same path-free doctrine in both directions.
+  if (isToolAdvertised(surface, EVE_ARTIFACT_TOOL_IMAGE_EDIT)) {
+    server.tool(
+      EVE_ARTIFACT_TOOL_IMAGE_EDIT,
+      describeEveArtifactTool(surface, EVE_ARTIFACT_TOOL_IMAGE_EDIT),
+      {
+        handle: handleSchema,
+        permit: permitSchema,
+        instruction: z
+          .string()
+          .min(1)
+          .max(2000)
+          .describe("What should change about the image, in the user's own terms."),
+      },
+      async ({ handle, permit, instruction }) => {
+        const result = await callMain('image_edit', { handle, permit, instruction });
+        // Main answers with a staged reference (`img_h_…`) and a parent id —
+        // never a path — so nothing here can leak one into the transcript.
         return textResult(result, result.ok !== true);
       }
     );

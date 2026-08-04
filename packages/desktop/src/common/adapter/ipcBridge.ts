@@ -73,6 +73,32 @@ import type {
   CommandEveVideoGenerateResult,
 } from '../config/videoGenerationRequestCore';
 import type { CommandEveVideoEditRequest, CommandEveVideoEditResult } from '../config/videoEditRequestCore';
+import type { CommandEveActiveImageArtifact } from '../config/managedImageArtifactCore';
+
+/**
+ * 1.820.3 — the renderer-facing shapes of the managed image artifact lane.
+ * The bind/import reason unions mirror the Main-side store results
+ * (`imageArtifactStore.ts`) without importing process code into `common/`.
+ */
+export type ICommandEveImageArtifactBindResult =
+  | { ok: true; record: CommandEveActiveImageArtifact; alreadyBound: boolean }
+  | {
+      ok: false;
+      reason: 'handle-malformed' | 'handle-unknown' | 'handle-expired' | 'artifact-missing' | 'conversation-mismatch';
+    };
+
+export type ICommandEveImageArtifactPreview = {
+  data_base64: string;
+  mime_type: string;
+  size: number;
+};
+
+export type ICommandEveImageArtifactImportResult =
+  | { ok: true; record: CommandEveActiveImageArtifact; alreadyImported: boolean }
+  | {
+      ok: false;
+      reason: 'invalid-request' | 'path-outside-workspace' | 'file-missing' | 'file-unreadable' | 'unsupported-file';
+    };
 import type {
   CommandEveManagedVisualTurnAuthorizationRequest,
   CommandEveManagedVisualTurnAuthorizationResult,
@@ -1928,7 +1954,18 @@ export const commandEve = {
   >('command-eve.video-capabilities'),
   artifactContextEnvelope: bridge.buildProvider<
     IBridgeResponse<{ envelope: string }>,
-    { conversationId: string; selectedArtifactIds?: string[]; userTurnText?: string }
+    {
+      conversationId: string;
+      selectedArtifactIds?: string[];
+      userTurnText?: string;
+      referenceImagePaths?: string[];
+      /**
+       * 1.820.3 fail-closed spend gate: the ONE operation this turn's permit
+       * may authorise, resolved renderer-side by `resolveEditAuthorization`.
+       * Absent → Main mints NO permit.
+       */
+      requestedEditOperation?: 'video_edit' | 'image_edit';
+    }
   >('command-eve.artifact-context-envelope'),
   // MAT-1747 — a STEER is a real user turn, and this is where it is treated as
   // one. A correction typed while the model is working never builds an envelope
@@ -1956,6 +1993,34 @@ export const commandEve = {
   videoEdit: bridge.buildProvider<IBridgeResponse<CommandEveVideoEditResult>, CommandEveVideoEditRequest>(
     'command-eve.video-edit'
   ),
+  // 1.820.3 — the managed IMAGE artifact lane (staged-handle contract).
+  // BIND: the renderer read the staged handle out of the finished turn's tool
+  // output; Main flips staged→active, scopes the record to this conversation
+  // and mints the durable edit grant. Idempotent on the tool call id; a
+  // refusal never blocks the turn's finish.
+  imageArtifactBind: bridge.buildProvider<
+    IBridgeResponse<ICommandEveImageArtifactBindResult>,
+    { conversationId: string; handle: string; toolCallId: string }
+  >('command-eve.image-artifact-bind'),
+  // LIST: the durable ACTIVE managed images for a conversation. The payload
+  // carries no path by construction — the renderer previews by artifact id.
+  imageArtifactsList: bridge.buildProvider<
+    IBridgeResponse<CommandEveActiveImageArtifact[]>,
+    { conversationId: string }
+  >('command-eve.image-artifacts-list'),
+  // PREVIEW: the ONLY window onto the private blob — by artifact id, active
+  // records of this conversation only, SHA-256 re-verified on every read.
+  imageArtifactPreview: bridge.buildProvider<
+    IBridgeResponse<ICommandEveImageArtifactPreview | null>,
+    { conversationId: string; artifactId: string }
+  >('command-eve.image-artifact-preview'),
+  // LEGACY IMPORT: the one-time, strictly confined adoption of the
+  // pre-contract P1 proof file. Main resolves and confines the workspace
+  // path; the renderer names only the conversation and the expected file name.
+  imageArtifactImportLegacy: bridge.buildProvider<
+    IBridgeResponse<ICommandEveImageArtifactImportResult>,
+    { conversationId: string; expectedFileName: string }
+  >('command-eve.image-artifact-import-legacy'),
   // Main-authoritative per-seat visual policy. Renderer supplies no target seat
   // for reads/receipt issuance; expectedSeatId on mutation is only a stale fence.
   cloudVisualPolicyRead: bridge.buildProvider<IBridgeResponse<CommandEveCloudVisualPolicyState>, void>(

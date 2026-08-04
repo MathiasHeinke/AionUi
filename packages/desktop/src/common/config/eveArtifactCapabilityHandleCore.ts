@@ -60,8 +60,14 @@ export const ARTIFACT_CAPABILITY_HANDLE_ENTROPY_BYTES = 32;
  */
 export const ARTIFACT_CAPABILITY_HANDLE_PREFIX = 'evecap_';
 
-/** The operations a handle can authorise. One handle authorises exactly one. */
-export type ArtifactCapabilityOperation = 'video_edit';
+/**
+ * The operations a handle can authorise. One handle authorises exactly one.
+ *
+ * `image_edit` (1.820.3) is the managed IMAGE lane's edit; the binding rules
+ * are identical, so a video handle presented for an image edit (or vice versa)
+ * is an `operation-mismatch` refusal, never a guess.
+ */
+export type ArtifactCapabilityOperation = 'video_edit' | 'image_edit';
 
 /** The stored binding. This, not the model's word, is what a handle means. */
 export interface ArtifactCapabilityGrant {
@@ -127,7 +133,7 @@ export function mintArtifactCapabilityGrant(input: {
   if (typeof input.conversationId !== 'string' || input.conversationId.length === 0) return undefined;
   if (typeof input.artifactId !== 'string' || input.artifactId.length === 0) return undefined;
   if (!isSha256Hex(input.artifactSha256)) return undefined;
-  if (input.operation !== 'video_edit') return undefined;
+  if (input.operation !== 'video_edit' && input.operation !== 'image_edit') return undefined;
 
   let bytes: Uint8Array;
   try {
@@ -177,6 +183,32 @@ export function mintVideoEditCapabilityGrant(input: {
 }
 
 /**
+ * Mint an EDIT handle for a stored MANAGED IMAGE (1.820.3).
+ *
+ * Unlike the video minter there is no legacy-hydration gate: every record in
+ * the managed image store was written by this lane, and the caller (bind,
+ * import, envelope) already knows the artifact is active and editable. The
+ * grant binds exactly what the video grant binds — conversation, artifact id,
+ * the bytes' SHA-256 at mint time — under the `image_edit` operation.
+ */
+export function mintImageEditCapabilityGrant(input: {
+  conversationId: string;
+  artifactId: string;
+  artifactSha256: string;
+  nowMs: number;
+  randomBytes: (size: number) => Uint8Array;
+}): ArtifactCapabilityGrant | undefined {
+  return mintArtifactCapabilityGrant({
+    conversationId: input.conversationId,
+    artifactId: input.artifactId,
+    artifactSha256: input.artifactSha256,
+    operation: 'image_edit',
+    nowMs: input.nowMs,
+    randomBytes: input.randomBytes,
+  });
+}
+
+/**
  * Turn a presented handle into an authorisation, or into a named refusal.
  *
  * `observedArtifactSha256` is the hash of the bytes ACTUALLY on disk right now,
@@ -198,10 +230,7 @@ export function resolveArtifactCapabilityGrant(input: {
   if (!constantTimeHandleEquals(grant.handle, input.handle)) return { ok: false, reason: 'handle-unknown' };
   if (grant.conversation_id !== input.conversationId) return { ok: false, reason: 'conversation-mismatch' };
   if (grant.operation !== input.operation) return { ok: false, reason: 'operation-mismatch' };
-  if (
-    !isSha256Hex(input.observedArtifactSha256) ||
-    input.observedArtifactSha256 !== grant.artifact_sha256
-  ) {
+  if (!isSha256Hex(input.observedArtifactSha256) || input.observedArtifactSha256 !== grant.artifact_sha256) {
     return { ok: false, reason: 'artifact-changed' };
   }
   return { ok: true, grant };

@@ -22,12 +22,15 @@ afterEach(() => {
 
 describe('managed image generation loopback client', () => {
   it('posts one bounded direction to the authenticated loopback images endpoint', async () => {
+    const sha256 = 'a'.repeat(64);
     const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
             created: 1,
-            data: [{ b64_json: Buffer.from('generated-image').toString('base64'), media_type: 'image/png' }],
+            // 1.820.3 — the staged-handle shape: opaque reference + typed
+            // metadata, deliberately NO b64_json on this wire.
+            data: [{ artifact_handle: `img_h_${'b'.repeat(64)}`, media_type: 'image/png', sha256, bytes_count: 15 }],
             usage: { model: 'google/gemini-3-pro-image', cost: 0.12 },
           }),
           { status: 200, headers: { 'content-type': 'application/json' } }
@@ -45,7 +48,12 @@ describe('managed image generation loopback client', () => {
       })
     ).resolves.toMatchObject({
       ok: true,
-      dataUrl: `data:image/png;base64,${Buffer.from('generated-image').toString('base64')}`,
+      artifactHandle: `img_h_${'b'.repeat(64)}`,
+      mediaType: 'image/png',
+      sha256,
+      bytesCount: 15,
+      resolution: '1K',
+      aspectRatio: '16:9',
       model: 'google/gemini-3-pro-image',
       costUsd: 0.12,
     });
@@ -95,19 +103,43 @@ describe('managed image generation loopback client', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('rejects oversized or malformed responses instead of treating them as images', async () => {
+  it('rejects a response without a staged reference or with incomplete metadata', async () => {
+    // The pre-contract byte-bearing shape is REFUSED, not inflated: this client
+    // exists only for the managed lane, and the managed lane carries no bytes.
     vi.stubGlobal(
       'fetch',
       vi.fn(
         async () =>
-          new Response(JSON.stringify({ data: [{ b64_json: '%%%not-base64%%%', media_type: 'image/png' }] }), {
+          new Response(JSON.stringify({ data: [{ b64_json: 'aW1hZ2U=', media_type: 'image/png' }] }), {
             status: 200,
           })
       )
     );
-
     await expect(
       executeManagedImageGenerationViaShim({ provider: provider(), prompt: 'direction', referenceDataUrls: [] })
-    ).resolves.toEqual({ ok: false, error: 'Managed image response contained invalid image data.' });
+    ).resolves.toEqual({ ok: false, error: 'Managed image response did not contain an image reference.' });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  artifact_handle: `img_h_${'b'.repeat(64)}`,
+                  media_type: 'image/png',
+                  sha256: 'nope',
+                  bytes_count: 15,
+                },
+              ],
+            }),
+            { status: 200 }
+          )
+      )
+    );
+    await expect(
+      executeManagedImageGenerationViaShim({ provider: provider(), prompt: 'direction', referenceDataUrls: [] })
+    ).resolves.toEqual({ ok: false, error: 'Managed image response carried incomplete artifact metadata.' });
   });
 });

@@ -309,7 +309,7 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(DEFAULT_COMMAND_EVE_CAPABILITY_PACK.release).toBe(packageJson.version);
     expect(publicBrand.version).toBe(`v${COMMAND_EVE_MARKETING_VERSION}`);
     expect(publicRuntimeBootstrap.release).toBe(packageJson.version);
-    expect([...publicRuntimeBootstrap.hermes.extras].sort()).toEqual(['acp', 'mcp']);
+    expect([...publicRuntimeBootstrap.hermes.extras].toSorted()).toEqual(['acp', 'mcp']);
     expect(publicCapabilityPack.release).toBe(packageJson.version);
     for (const id of ['autor-studio', 'essay-writer', 'book-publishing', 'premium-website-builder']) {
       expect(publicCapabilityPack.skills.find((skill) => skill.id === id)?.default_state).toBe('active');
@@ -1057,7 +1057,16 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(buildExtras.slice(0, buildExtras.indexOf('extra_body: dict[str, Any] = {}'))).toContain(
         '_require_command_eve_permission_authority_patch()'
       );
-      expect(providerOverride).toContain('and parsed.port == 25811');
+      // The loopback-shim guard must NOT pin the canonical 25811 port: explicit
+      // E2E/multi-instance launches bind an OS-assigned ephemeral port, the
+      // emitted model.base_url carries it, and a 25811 pin made the auxiliary
+      // auth patch a silent no-op there (vision/compression 401'd with the
+      // wheel's "no-key-required" placeholder while the main lane, whose
+      // credential rides the port-agnostic profile default_headers, kept
+      // working). The guard keeps the nonce off non-loopback / non-/v1
+      // endpoints; any loopback port is accepted.
+      expect(providerOverride).toContain('and parsed.port is not None');
+      expect(providerOverride).not.toContain('parsed.port == 25811');
       expect(providerOverride).toContain('re.fullmatch(r"[a-f0-9]{64}", token)');
       expect(providerOverride).toContain('top_level["reasoning_effort"] = "none"');
       expect(providerOverride).toContain('Command EVE cloud-shim stop continuation patch');
@@ -2522,7 +2531,7 @@ describe('Command EVE founder-only ops skills channel', () => {
     const founderOpsDir = buildFounderOpsFixture(root);
     const paths = resolveCommandEveRuntimeBootstrapPaths(root);
 
-    const copied = copyFounderOpsSkills(paths, founderOpsDir).sort();
+    const copied = copyFounderOpsSkills(paths, founderOpsDir).toSorted();
     expect(copied).toEqual(['claude-code-tmux-delegation', 'production-public-sync']);
     expect(fs.existsSync(path.join(paths.founderOpsSkillsRoot, 'production-public-sync', 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(paths.founderOpsSkillsRoot, 'claude-code-tmux-delegation', 'SKILL.md'))).toBe(true);

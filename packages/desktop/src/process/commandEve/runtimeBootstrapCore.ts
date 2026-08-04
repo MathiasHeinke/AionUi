@@ -45,6 +45,7 @@ import { getBuiltinMcpScriptPath } from '../utils/builtinMcpPath';
 import { honchoMcpServerForSeat } from './honchoMcpServerCore';
 import { provisionArtifactCapabilityBearerFile } from './artifactCapabilityLoopback';
 import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG, isAgentVideoEditAdvertisingEnabled } from './agentVideoEditFlag';
+import { COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG, isAgentImageEditAdvertisingEnabled } from './agentImageEditFlag';
 import {
   eveHonchoMemoryDirective,
   resolveHonchoRenderForSeat,
@@ -1843,6 +1844,14 @@ export function buildCommandEveArtifactContextHermesMcpServer(input: {
    * environment reaches it.
    */
   videoEditEnabled?: boolean;
+  /**
+   * 1.820.3 — whether THIS seat may additionally be told about the paid IMAGE
+   * edit tool. Its OWN carrier (`COMMAND_EVE_ENABLE_AGENT_IMAGE_EDIT`), its
+   * own resolver (`agentImageEditFlag.ts`), same posture as the video one —
+   * the two media are advertised independently so kill-switching one never
+   * darkens the other.
+   */
+  imageEditEnabled?: boolean;
 }): CommandEveHermesMcpServer | undefined {
   const nodeExecutable = input.nodeExecutable.trim();
   const scriptPath = input.scriptPath.trim();
@@ -1860,6 +1869,7 @@ export function buildCommandEveArtifactContextHermesMcpServer(input: {
       AIONUI_EVE_ARTIFACT_BASE_URL: new URL(input.shimBaseUrl).origin,
       AIONUI_EVE_ARTIFACT_BEARER_FILE: bearerFile,
       ...(input.videoEditEnabled === true ? { [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' } : {}),
+      ...(input.imageEditEnabled === true ? { [COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]: '1' } : {}),
     },
   };
 }
@@ -3520,13 +3530,24 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    return {"Authorization": f"Bearer {token}"} if token else {}',
     '',
     '',
+    '# Port-agnostic on purpose. Packaged launches use the canonical 25811, but',
+    '# explicit E2E/multi-instance launches bind an OS-assigned ephemeral port and',
+    '# the emitted model.base_url carries it (resolveCommandEveShimListenPort).',
+    '# Pinning 25811 made this guard False there: the auxiliary auth patch below',
+    '# silently no-opped and vision/compression calls reached the shim with the',
+    '# wheel\'s "no-key-required" placeholder — a 401 the MAIN lane never hit,',
+    "# because its credential rides the provider profile's default_headers, which",
+    '# carry no port check. The nonce itself is the credential (a 0600 same-uid',
+    '# file; the port is printed in the emitted config and is not a secret), so',
+    '# what this check must guarantee is only that the nonce is never attached',
+    '# to a non-loopback or non-/v1 endpoint.',
     'def _command_eve_is_local_shim_base(base_url: str) -> bool:',
     '    try:',
     '        parsed = urlparse(str(base_url or ""))',
     '        return (',
     '            parsed.scheme == "http"',
     '            and (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"}',
-    '            and parsed.port == 25811',
+    '            and parsed.port is not None',
     '            and parsed.path.rstrip("/") in {"", "/v1"}',
     '        )',
     '    except Exception:',
@@ -5638,6 +5659,8 @@ function writeHermesRuntimeFiles(
           // the bearer file above and every `readLicenseWire(getDataPath())`
           // caller resolve against.
           videoEditEnabled: isAgentVideoEditAdvertisingEnabled(paths.userDataPath),
+          // 1.820.3 — the image half of POLICY F, from ITS OWN resolver.
+          imageEditEnabled: isAgentImageEditAdvertisingEnabled(paths.userDataPath),
         })
       : undefined;
   // COMPA-624 Inc.3 — the per-seat Honcho MCP server, or undefined when Honcho is
@@ -6756,8 +6779,8 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     !bundledHermesWheel ||
     (hermesWheelInstallReceipt?.package_version === manifest.hermes.version &&
       hermesWheelInstallReceipt.wheel_sha256 === hermesWheelSha256 &&
-      JSON.stringify([...hermesWheelInstallReceipt.extras].sort()) ===
-        JSON.stringify([...manifest.hermes.extras].sort()))
+      JSON.stringify([...hermesWheelInstallReceipt.extras].toSorted()) ===
+        JSON.stringify([...manifest.hermes.extras].toSorted()))
   );
   const hermesRuntimeMatches = hermesInstalled && hermesVersionMatches && installedHermesWheelMatches;
   if (runtimeProvenance.hermes && bundledHermesWheel) {
@@ -6813,7 +6836,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           version: 'command-eve-hermes-wheel-receipt/v2',
           package_version: manifest.hermes.version,
           wheel_sha256: hermesWheelSha256,
-          extras: [...manifest.hermes.extras].sort(),
+          extras: [...manifest.hermes.extras].toSorted(),
         } satisfies HermesWheelInstallReceipt);
       } catch {
         wheelReceiptWritten = false;

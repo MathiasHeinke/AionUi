@@ -31,6 +31,7 @@ import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { readCommandEveLimitedResponseText } from './limitedFetchResponse';
 import { readCommandEveImageModelPreference } from './imageModelPreferenceMain';
 import { readCommandEveImageModelRegistry } from './imageCapabilitiesMain';
+import { stageGeneratedImageArtifact } from './imageArtifactStore';
 import { getDataPath } from '@process/utils/utils';
 
 const MAX_REFERENCE_BYTES = 4 * 1024 * 1024;
@@ -154,6 +155,29 @@ export type CommandEveManagedImageGenerationOptions = {
     fetchFn?: typeof fetch;
     dataPath?: string;
   }) => Promise<CommandEveImageModelRegistryResult>;
+  /**
+   * 1.820.3 STAGE seam. After the receipt is verified, the provider BYTES are
+   * persisted privately and an opaque staged handle is minted — the response
+   * that leaves this process names the handle, never the bytes and never a
+   * path. Injected for tests; production stages into the managed image
+   * artifact store under `dataPath`.
+   */
+  stageArtifact?: (input: {
+    bytes: Uint8Array;
+    mimeType: string;
+    tier: string;
+    model: string;
+    resolution: string;
+    aspectRatio: string;
+    promptSha256: string;
+    parentArtifactId?: string;
+  }) => { artifactHandle: string } | undefined;
+  /**
+   * Set by the image EDIT lane only: the staged child records the artifact it
+   * was derived from. Never read from the request body — provenance is Main's
+   * statement, not the caller's.
+   */
+  stagedParentArtifactId?: string;
 };
 
 export async function executeCommandEveManagedImageGeneration(
@@ -301,14 +325,55 @@ export async function executeCommandEveManagedImageGeneration(
     ) {
       return failure(502, 'managed_image_receipt_mismatch', 'Managed image receipt did not match the request.');
     }
+
+    // 1.820.3 — STAGE, then answer PATH-FREE. The verified bytes are persisted
+    // privately under dataPath and an opaque staged handle (`img_h_…`, minutes
+    // TTL) is minted; the renderer binds the handle to its conversation at the
+    // end of the turn. What leaves this process is typed metadata only — no
+    // `b64_json`, no path — because the only consumer is an MCP tool whose
+    // output lands VERBATIM in a model transcript, and the pre-contract lane
+    // leaked the account name there via `Generated image saved to: /Users/…`.
+    const stage =
+      options.stageArtifact ??
+      ((stageInput: {
+        bytes: Uint8Array;
+        mimeType: string;
+        tier: string;
+        model: string;
+        resolution: string;
+        aspectRatio: string;
+        promptSha256: string;
+        parentArtifactId?: string;
+      }) => {
+        const staged = stageGeneratedImageArtifact(options.dataPath ?? getDataPath(), stageInput);
+        return staged ? { artifactHandle: staged.handle } : undefined;
+      });
+    const staged = stage({
+      bytes: artifactBytes,
+      mimeType: parsed.data.artifact.mime_type,
+      tier: effectiveTierSpec.id,
+      model: parsed.data.image_generation.model,
+      resolution: built.body.resolution,
+      aspectRatio: built.body.aspect_ratio,
+      promptSha256: built.promptSha256,
+      ...(options.stagedParentArtifactId === undefined ? {} : { parentArtifactId: options.stagedParentArtifactId }),
+    });
+    if (!staged) {
+      // The image WAS generated (and billed) upstream — reporting a generation
+      // failure would be a lie in the other direction. This names exactly what
+      // happened: produced, not stored. Same doctrine as `video-artifact-save-failed`.
+      return failure(502, 'managed_image_stage_failed', 'Managed image was generated but could not be stored locally.');
+    }
     return {
       status: 200,
       body: {
         created: Math.floor(Date.now() / 1000),
         data: [
           {
-            b64_json: parsed.data.artifact.data_base64,
+            artifact_handle: staged.artifactHandle,
             media_type: parsed.data.artifact.mime_type,
+            sha256: artifactSha256,
+            bytes_count: artifactBytes.length,
           },
         ],
         usage: {

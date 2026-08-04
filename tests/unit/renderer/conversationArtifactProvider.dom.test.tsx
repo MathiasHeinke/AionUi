@@ -24,11 +24,13 @@ import {
 } from '@/renderer/pages/conversation/Messages/artifacts';
 import { emitter } from '@/renderer/utils/emitter';
 
-const { listArtifactsInvokeMock, videoArtifactsListInvokeMock, artifactStreamOnMock } = vi.hoisted(() => ({
-  listArtifactsInvokeMock: vi.fn(),
-  videoArtifactsListInvokeMock: vi.fn(),
-  artifactStreamOnMock: vi.fn(() => () => {}),
-}));
+const { listArtifactsInvokeMock, videoArtifactsListInvokeMock, imageArtifactsListInvokeMock, artifactStreamOnMock } =
+  vi.hoisted(() => ({
+    listArtifactsInvokeMock: vi.fn(),
+    videoArtifactsListInvokeMock: vi.fn(),
+    imageArtifactsListInvokeMock: vi.fn(),
+    artifactStreamOnMock: vi.fn(() => () => {}),
+  }));
 
 vi.mock('@/common', () => ({
   ipcBridge: {
@@ -38,6 +40,7 @@ vi.mock('@/common', () => ({
     },
     commandEve: {
       videoArtifactsList: { invoke: videoArtifactsListInvokeMock },
+      imageArtifactsList: { invoke: imageArtifactsListInvokeMock },
     },
   },
 }));
@@ -68,8 +71,10 @@ const ArtifactIds: React.FC = () => {
 beforeEach(() => {
   listArtifactsInvokeMock.mockReset();
   videoArtifactsListInvokeMock.mockReset();
+  imageArtifactsListInvokeMock.mockReset();
   listArtifactsInvokeMock.mockResolvedValue([]);
   videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
+  imageArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
 });
 
 describe('ConversationArtifactProvider', () => {

@@ -40,6 +40,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { hydrateVideoArtifactPayload, isVideoArtifactEditable } from '@/common/config/videoGenerationRequestCore';
 import { handleCommandEveVideoEdit } from '@process/bridge/commandEveVideoBridge';
+import { handleCommandEveImageEdit } from '@process/bridge/commandEveImageArtifactBridge';
 import { getDataPath } from '@process/utils/utils';
 import {
   COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG,
@@ -47,6 +48,7 @@ import {
   isAgentVideoEditEnabled,
   resolveAgentVideoEditAdvertisement,
 } from './agentVideoEditFlag';
+import { isAgentImageEditAdvertisingEnabled } from './agentImageEditFlag';
 import { readArtifactCapabilityGrant } from './artifactCapabilityHandleStore';
 import { listVideoArtifactRecords } from './videoArtifactStore';
 
@@ -99,6 +101,13 @@ export interface ArtifactCapabilityLoopbackDeps {
   readGrant: typeof readArtifactCapabilityGrant;
   videoEdit: typeof handleCommandEveVideoEdit;
   isVideoEditEnabled: () => boolean;
+  /**
+   * 1.820.3 — the managed IMAGE edit. Optional for the same reason every
+   * MAT-1747 dep is optional: existing test literals must stay valid. Absent
+   * falls back to the production handler and the production flag.
+   */
+  imageEdit?: typeof handleCommandEveImageEdit;
+  isImageEditEnabled?: () => boolean;
 }
 
 const productionDeps: ArtifactCapabilityLoopbackDeps = {
@@ -107,6 +116,8 @@ const productionDeps: ArtifactCapabilityLoopbackDeps = {
   readGrant: readArtifactCapabilityGrant,
   videoEdit: handleCommandEveVideoEdit,
   isVideoEditEnabled: () => isAgentVideoEditAdvertisingEnabled(getDataPath()),
+  imageEdit: handleCommandEveImageEdit,
+  isImageEditEnabled: () => isAgentImageEditAdvertisingEnabled(getDataPath()),
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -195,6 +206,42 @@ export async function artifactCapabilityCallHandler(
         // lane by default, so the gap is live — an open display gap, not a
         // solved problem.
         replayed: result.replayed === true,
+      },
+    };
+  }
+
+  if (operation === 'image_edit') {
+    const isImageEditEnabled =
+      deps.isImageEditEnabled ?? (() => isAgentImageEditAdvertisingEnabled(deps.getDataPath()));
+    if (!isImageEditEnabled()) {
+      // 403, not 404 — same doctrine as the video branch: the capability exists
+      // and is deliberately closed, and "unknown" would teach the model to retry.
+      return { status: 403, payload: { ok: false, reason: 'agent-image-edit-disabled' } };
+    }
+    const instruction = typeof body.instruction === 'string' ? body.instruction : '';
+    // The permit is REQUIRED and is not defaulted or repaired here — a missing
+    // permit reaches the shared handler as `''` and is refused there BEFORE the
+    // grant read, so the two lanes cannot disagree about what an absent
+    // credential means.
+    const permit = typeof body.permit === 'string' ? body.permit : '';
+    const imageEdit = deps.imageEdit ?? handleCommandEveImageEdit;
+    const result = await imageEdit({
+      handle: typeof handle === 'string' ? handle : '',
+      instruction,
+      permit,
+    });
+    if (result.ok === false) {
+      return { status: 400, payload: { ok: false, reason: result.reasonCode, message: result.message } };
+    }
+    return {
+      status: 200,
+      payload: {
+        ok: true,
+        // The STAGED handle of the child — never a path, never bytes. The child
+        // binds to the conversation through the same terminal flow as a fresh
+        // generation, which is what puts its card in the chat.
+        artifact_id: result.artifactHandle,
+        parent_artifact_id: result.parentArtifactId,
       },
     };
   }

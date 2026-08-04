@@ -180,6 +180,21 @@ export function isImageEditRequest(message: string | null | undefined): boolean 
   return IMAGE_NOUN_RE.test(message) && (EDIT_SEMANTICS_DE_RE.test(message) || EDIT_SEMANTICS_EN_RE.test(message));
 }
 
+/**
+ * Edit/mutation semantics WITHOUT a medium noun (1.820.3).
+ *
+ * Exported for the SEPARATE edit-authorization resolver
+ * (`editAuthorizationCore.ts`) — contextual mutations like "Gib der Aubergine
+ * ein Gesicht." must be recognizable where spend authority is decided, while
+ * THIS module's own visibility gate deliberately keeps requiring the explicit
+ * medium noun. Sharing the predicate keeps the two from drifting apart about
+ * what "a mutation" is; it changes nothing about what is SHOWN.
+ */
+export function hasMediaEditSemantics(message: string | null | undefined): boolean {
+  if (typeof message !== 'string' || message.trim().length === 0) return false;
+  return EDIT_SEMANTICS_DE_RE.test(message) || EDIT_SEMANTICS_EN_RE.test(message);
+}
+
 /** The artifact payload kinds this gate reads as media context. */
 export type MediaArtifactType = 'image' | 'video';
 

@@ -117,7 +117,12 @@ import {
 import { isImageFile } from '@/renderer/pages/conversation/Preview/fileUtils';
 import { addressesVideoMarketer } from '@/common/config/eveTeamRoster';
 import { configService } from '@/common/config/configService';
-import { resolveMediaLaneIntent, isExplicitVideoEditRequest, isExplicitVideoCreateRequest } from '@/common/config/mediaLaneIntentCore';
+import {
+  resolveMediaLaneIntent,
+  isExplicitVideoEditRequest,
+  isExplicitVideoCreateRequest,
+} from '@/common/config/mediaLaneIntentCore';
+import { resolveEditAuthorization } from '@/common/config/editAuthorizationCore';
 import { estimateVideoEditCredits } from '@/common/config/videoEditRequestCore';
 import { isVideoEditEligibleTier } from '@/common/config/videoGenerationRequestCore';
 import {
@@ -599,6 +604,18 @@ const AcpSendBox: React.FC<{
         // send, and a missing registry is not a failed send.
         let artifactEnvelope = '';
         try {
+          // 1.820.3 CoS fail-closed gate — the ONE spend operation this turn
+          // may carry, resolved HERE from mutation semantics + the canonical
+          // per-medium sources (the same `selectLatestVisibleMediaSourceArtifact`
+          // truth the visibility gate uses). This is SEPARATE from
+          // `mediaLaneIntent`: a contextual mutation with no medium noun shows
+          // NO pill yet still resolves its operation internally, and a turn
+          // that resolves to nothing passes NO field — Main then mints NO
+          // permit, rather than letting the model pick a medium.
+          const requestedEditOperation = resolveEditAuthorization({
+            message: input,
+            sources: { image: latestImageSource !== null, video: latestVideoSource !== null },
+          });
           const envelopeResult = await ipcBridge.commandEve.artifactContextEnvelope.invoke({
             conversationId: conversation_id,
             // The raw turn, so Main can bind THIS send's single-use spend permit
@@ -619,6 +636,7 @@ const AcpSendBox: React.FC<{
             // sees exactly the files the user is looking at and there is no
             // second picker that could show something else.
             ...(referenceImagePathsForTurn.length === 0 ? {} : { referenceImagePaths: referenceImagePathsForTurn }),
+            ...(requestedEditOperation === null ? {} : { requestedEditOperation }),
           });
           if (envelopeResult?.success && typeof envelopeResult.data?.envelope === 'string') {
             artifactEnvelope = envelopeResult.data.envelope;

@@ -39,11 +39,13 @@ import {
   buildEveArtifactToolSurface,
   EVE_ARTIFACT_TOOL_ARTIFACT_GET,
   EVE_ARTIFACT_TOOL_ARTIFACT_LIST,
+  EVE_ARTIFACT_TOOL_IMAGE_EDIT,
   EVE_ARTIFACT_TOOL_VIDEO_EDIT,
   isToolAdvertised,
 } from '@/process/resources/builtinMcp/eveArtifactToolSurface';
 import { buildEveArtifactContextEnvelope } from '@/common/config/eveArtifactContextEnvelopeCore';
 import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG } from '@/process/commandEve/agentVideoEditFlag';
+import { COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG } from '@/process/commandEve/agentImageEditFlag';
 import { buildCommandEveArtifactContextHermesMcpServer } from '@/process/commandEve/runtimeBootstrapCore';
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -79,6 +81,31 @@ describe('the MCP tool list is gated on the SAME flag as the envelope', () => {
   it('gives every advertised tool a description, so a gated list is not a mute one', () => {
     for (const tool of buildEveArtifactToolSurface({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' })) {
       expect(tool.description.length).toBeGreaterThan(40);
+    }
+  });
+
+  it('1.820.3 — the IMAGE tool has its OWN carrier: each medium advertises independently', () => {
+    // Neither flag: free surface only.
+    expect(names({})).toEqual([EVE_ARTIFACT_TOOL_ARTIFACT_GET, EVE_ARTIFACT_TOOL_ARTIFACT_LIST]);
+    // Image only: the image tool appears, the video tool does not.
+    const imageOnly = names({ [COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]: '1' });
+    expect(imageOnly).toContain(EVE_ARTIFACT_TOOL_IMAGE_EDIT);
+    expect(imageOnly).not.toContain(EVE_ARTIFACT_TOOL_VIDEO_EDIT);
+    // Video only: unchanged from the pre-image surface.
+    const videoOnly = names({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' });
+    expect(videoOnly).toContain(EVE_ARTIFACT_TOOL_VIDEO_EDIT);
+    expect(videoOnly).not.toContain(EVE_ARTIFACT_TOOL_IMAGE_EDIT);
+    // Both: both paid tools, free tools still first.
+    const both = names({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1', [COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]: '1' });
+    expect(both).toEqual([
+      EVE_ARTIFACT_TOOL_ARTIFACT_GET,
+      EVE_ARTIFACT_TOOL_ARTIFACT_LIST,
+      EVE_ARTIFACT_TOOL_VIDEO_EDIT,
+      EVE_ARTIFACT_TOOL_IMAGE_EDIT,
+    ]);
+    // Near-miss spellings stay off for the image flag too.
+    for (const spelling of ['0', 'true', 'yes', '']) {
+      expect(names({ [COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]: spelling })).not.toContain(EVE_ARTIFACT_TOOL_IMAGE_EDIT);
     }
   });
 });
@@ -127,7 +154,13 @@ const REQUIRED_GUARD = 'if (isToolAdvertised(surface, EVE_ARTIFACT_TOOL_VIDEO_ED
 function paidRegistrationIndex(code: string): number {
   const call = 'server.tool(';
   for (let at = code.indexOf(call); at >= 0; at = code.indexOf(call, at + 1)) {
-    if (code.slice(at + call.length).trimStart().startsWith('EVE_ARTIFACT_TOOL_VIDEO_EDIT')) return at;
+    if (
+      code
+        .slice(at + call.length)
+        .trimStart()
+        .startsWith('EVE_ARTIFACT_TOOL_VIDEO_EDIT')
+    )
+      return at;
   }
   return -1;
 }
@@ -228,7 +261,13 @@ describe('the MCP server process registers from that surface and nothing else', 
     const code = stripCommentsAndLiterals(serverSource);
     let found = 0;
     for (let at = code.indexOf('server.tool('); at >= 0; at = code.indexOf('server.tool(', at + 1)) {
-      if (code.slice(at + 'server.tool('.length).trimStart().startsWith('EVE_ARTIFACT_TOOL_VIDEO_EDIT')) found += 1;
+      if (
+        code
+          .slice(at + 'server.tool('.length)
+          .trimStart()
+          .startsWith('EVE_ARTIFACT_TOOL_VIDEO_EDIT')
+      )
+        found += 1;
     }
     expect(found).toBe(1);
   });
@@ -260,6 +299,14 @@ describe('the Hermes config tells the child which surface to publish', () => {
     // and the child cannot disagree about what is on offer.
     const server = buildCommandEveArtifactContextHermesMcpServer({ ...valid, videoEditEnabled: true });
     expect(server?.env?.[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]).toBe('1');
+  });
+
+  it('1.820.3 — carries the image flag independently, and omits it unless Main says so', () => {
+    const closed = buildCommandEveArtifactContextHermesMcpServer(valid);
+    expect(closed?.env?.[COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]).toBeUndefined();
+    const imageOnly = buildCommandEveArtifactContextHermesMcpServer({ ...valid, imageEditEnabled: true });
+    expect(imageOnly?.env?.[COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]).toBe('1');
+    expect(imageOnly?.env?.[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]).toBeUndefined();
   });
 });
 

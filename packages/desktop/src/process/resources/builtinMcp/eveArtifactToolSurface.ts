@@ -40,10 +40,12 @@
  */
 
 import { isAgentVideoEditEnabled } from '@process/commandEve/agentVideoEditFlag';
+import { isAgentImageEditEnabled } from '@process/commandEve/agentImageEditFlag';
 
 export const EVE_ARTIFACT_TOOL_ARTIFACT_GET = 'eve_artifact_get';
 export const EVE_ARTIFACT_TOOL_ARTIFACT_LIST = 'eve_artifact_list';
 export const EVE_ARTIFACT_TOOL_VIDEO_EDIT = 'eve_video_edit';
+export const EVE_ARTIFACT_TOOL_IMAGE_EDIT = 'eve_image_edit';
 
 export interface EveArtifactToolDescriptor {
   name: string;
@@ -73,6 +75,13 @@ const VIDEO_EDIT: EveArtifactToolDescriptor = {
   spends: true,
 };
 
+const IMAGE_EDIT: EveArtifactToolDescriptor = {
+  name: EVE_ARTIFACT_TOOL_IMAGE_EDIT,
+  description:
+    'Edit an image the user already has. Takes the capability handle for the SOURCE image (an `edit_handle` from a kind=image entry in your context), the single-use image spend permit from this request, and a plain instruction ("make the sky overcast"). The result is a NEW image — the original is never overwritten — returned as a fresh staged reference (`img_h_…`) you may show the user. Quality and format are inherited from the source and cannot be chosen. This spends the user\'s credits, ONCE: the permit is consumed, and a second edit — including a different variation of the same one — needs the user to ask again.',
+  spends: true,
+};
+
 /**
  * The tools this seat may be told about.
  *
@@ -88,6 +97,10 @@ const VIDEO_EDIT: EveArtifactToolDescriptor = {
 export function buildEveArtifactToolSurface(env: NodeJS.ProcessEnv = process.env): EveArtifactToolDescriptor[] {
   const surface = [ARTIFACT_GET, ARTIFACT_LIST];
   if (isAgentVideoEditEnabled(env)) surface.push(VIDEO_EDIT);
+  // 1.820.3 — the image half. Its OWN flag carrier (`agentImageEditFlag.ts`):
+  // the two paid tools are advertised independently, so kill-switching one
+  // medium never darkens the other.
+  if (isAgentImageEditEnabled(env)) surface.push(IMAGE_EDIT);
   return surface;
 }
 

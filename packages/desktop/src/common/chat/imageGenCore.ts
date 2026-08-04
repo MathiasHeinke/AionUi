@@ -20,6 +20,7 @@ import type { TProviderWithModel } from '@/common/config/storage';
 import type { UnifiedChatCompletionResponse } from '@/common/api/RotatingApiClient';
 import { IMAGE_EXTENSIONS, MIME_TYPE_MAP, MIME_TO_EXT_MAP, DEFAULT_IMAGE_EXTENSION } from '@/common/config/constants';
 import { COMMAND_EVE_MANAGED_IMAGE_PLATFORM } from '@/common/config/eveManagedImageGenerationCore';
+import { buildManagedImageToolText } from '@/common/config/managedImageArtifactCore';
 import { executeManagedImageGenerationViaShim } from './managedImageGenerationClient';
 
 const API_TIMEOUT_MS = 120000; // 2 minutes for image generation API calls
@@ -273,12 +274,22 @@ export async function executeImageGeneration(
       if (managed.ok === false) {
         return { success: false, text: `Error generating image: ${managed.error}`, error: managed.error };
       }
-      const imagePath = await saveGeneratedImage(managed.dataUrl, workspaceDir);
+      // 1.820.3 — PATH-FREE managed lane. NOTHING is saved to the workspace and
+      // no path, `file:` URL, `MEDIA:` directive or `data:image` payload ever
+      // reaches the model-visible text: Main staged the bytes privately and the
+      // answer carries only the opaque staged handle plus human metadata. The
+      // renderer binds the handle to the conversation at the end of the turn
+      // (see `imageArtifactBindCore.ts`), which is what puts the inline card
+      // and the Artefakte entry there — not a file on disk.
       return {
         success: true,
-        text: `Managed visual direction generated${managed.model ? ` with ${managed.model}` : ''}.\n\nGenerated image saved to: ${imagePath}`,
-        imagePath,
-        relativeImagePath: path.relative(workspaceDir, imagePath),
+        text: buildManagedImageToolText({
+          artifactHandle: managed.artifactHandle,
+          resolution: managed.resolution,
+          aspectRatio: managed.aspectRatio,
+          bytesCount: managed.bytesCount,
+          ...(managed.model === undefined ? {} : { model: managed.model }),
+        }),
       };
     }
 

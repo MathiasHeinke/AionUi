@@ -77,6 +77,7 @@ import {
   mintVideoEditSpendPermit,
   VIDEO_EDIT_SPEND_PERMIT_TTL_MS,
   type SpendPermitEvaluation,
+  type SpendPermitOperation,
   type SpendPermitRefusal,
   type VideoEditSpendPermitRecord,
 } from '@/common/config/eveVideoEditSpendPermitCore';
@@ -157,7 +158,7 @@ function parsePermitRecord(value: unknown): VideoEditSpendPermitRecord | undefin
   const record = value as Record<string, unknown>;
   if (
     typeof record.conversation_id !== 'string' ||
-    record.operation !== 'video_edit' ||
+    (record.operation !== 'video_edit' && record.operation !== 'image_edit') ||
     !isSha256Hex(record.user_turn_sha256) ||
     !Array.isArray(record.allowed_artifact_sha256) ||
     typeof record.issued_at_ms !== 'number' ||
@@ -491,14 +492,18 @@ export function reinitializeVideoEditSpendStore(dataPath: string | undefined): V
     proven =
       sweepLiveAuthorityFiles(
         turnDirectory(dataPath),
-        (name) => name.length === ACTIVE_TURN_NAME_LENGTH && name.slice(-12) === '.active.json' && isSha256Hex(name.slice(0, 64))
+        (name) =>
+          name.length === ACTIVE_TURN_NAME_LENGTH &&
+          name.slice(-12) === '.active.json' &&
+          isSha256Hex(name.slice(0, 64))
       ) && proven;
     // The in-flight edit lock. A lock held by a process that no longer exists is
     // not protecting anything; leaving it would close the lane for its TTL.
     proven =
       sweepLiveAuthorityFiles(
         path.join(permitDirectory(dataPath), INFLIGHT_SUBDIR),
-        (name) => name.length === INFLIGHT_LOCK_NAME_LENGTH && name.slice(-5) === '.lock' && isSha256Hex(name.slice(0, 64))
+        (name) =>
+          name.length === INFLIGHT_LOCK_NAME_LENGTH && name.slice(-5) === '.lock' && isSha256Hex(name.slice(0, 64))
       ) && proven;
   } catch {
     proven = false;
@@ -839,6 +844,15 @@ export interface IssueVideoEditSpendPermitInput {
   conversationId: string;
   userTurnSha256: string;
   allowedArtifactSha256: readonly string[];
+  /**
+   * The operation the minted permit authorises (1.820.3). Optional; absent
+   * means `video_edit`. The mint-time revocation below is scoped to the SAME
+   * operation so a turn's video permit and its image permit can both be live —
+   * the one-spend-per-turn rule still binds them, because the turn's
+   * `.spent.json` claim is operation-agnostic and exactly one of them can win
+   * it.
+   */
+  operation?: SpendPermitOperation;
   nowMs?: number;
   randomBytes?: (size: number) => Uint8Array;
   ttlMs?: number;
@@ -892,6 +906,7 @@ export function issueVideoEditSpendPermit(dataPath: string, input: IssueVideoEdi
     conversationId: input.conversationId,
     userTurnSha256: input.userTurnSha256,
     allowedArtifactSha256: input.allowedArtifactSha256,
+    operation: input.operation ?? 'video_edit',
     nowMs,
     randomBytes: input.randomBytes ?? ((size: number) => new Uint8Array(crypto.randomBytes(size))),
     ...(input.ttlMs === undefined ? {} : { ttlMs: input.ttlMs }),
@@ -900,7 +915,11 @@ export function issueVideoEditSpendPermit(dataPath: string, input: IssueVideoEdi
   try {
     // A sweep we cannot vouch for may have left a live permit from an earlier
     // turn on disk. Minting a second one beside it — and then lifting the deny —
-    // is exactly the fail-open this round removes.
+    // is exactly the fail-open this round removes. The revocation covers EVERY
+    // live permit regardless of operation: at most one permit is live per
+    // conversation, so a model cannot bank permits across turns — and with the
+    // 1.820.3 requestedEditOperation gate the newly minted one is always the
+    // turn's ONE operation anyway.
     if (!revokeLiveVideoEditSpendPermits(dataPath, input.conversationId, nowMs).clean) {
       denyVideoEditSpend(dataPath, input.conversationId, nowMs);
       return undefined;
@@ -984,7 +1003,10 @@ export function revokeLiveVideoEditSpendPermits(
 }
 
 /** Read a permit record by the permit itself. Unknown and unreadable read alike. */
-export function readVideoEditSpendPermitRecord(dataPath: string, permit: unknown): VideoEditSpendPermitRecord | undefined {
+export function readVideoEditSpendPermitRecord(
+  dataPath: string,
+  permit: unknown
+): VideoEditSpendPermitRecord | undefined {
   if (!isWellFormedVideoEditSpendPermit(permit)) return undefined;
   return parsePermitRecord(readJson(permitFiles(dataPath, permit).record));
 }
@@ -1027,7 +1049,11 @@ export function readVideoEditSpendCompletion(
   return completion as unknown as VideoEditSpendCompletion;
 }
 
-export function recordVideoEditSpendCompletion(dataPath: string, permit: string, completion: VideoEditSpendCompletion): void {
+export function recordVideoEditSpendCompletion(
+  dataPath: string,
+  permit: string,
+  completion: VideoEditSpendCompletion
+): void {
   if (!isWellFormedVideoEditSpendPermit(permit)) return;
   try {
     writeJsonPrivate(permitFiles(dataPath, permit).result, completion);
@@ -1131,12 +1157,19 @@ function inflightLockFile(dataPath: string, conversationId: string): string {
  * Also `wx`. A stale lock past the TTL is reclaimed rather than honoured, so a
  * crash during an edit costs one wait, not a permanently closed lane.
  */
-export function acquireVideoEditInflightLock(dataPath: string, conversationId: string, nowMs: number = Date.now()): boolean {
+export function acquireVideoEditInflightLock(
+  dataPath: string,
+  conversationId: string,
+  nowMs: number = Date.now()
+): boolean {
   const file = inflightLockFile(dataPath, conversationId);
   if (createExclusive(file, { pid: process.pid, acquired_at_ms: nowMs })) return true;
   const held = readJson(file);
   const acquiredAt =
-    held && typeof held === 'object' && !Array.isArray(held) && typeof (held as Record<string, unknown>).acquired_at_ms === 'number'
+    held &&
+    typeof held === 'object' &&
+    !Array.isArray(held) &&
+    typeof (held as Record<string, unknown>).acquired_at_ms === 'number'
       ? ((held as Record<string, unknown>).acquired_at_ms as number)
       : 0;
   if (nowMs - acquiredAt < VIDEO_EDIT_INFLIGHT_LOCK_TTL_MS) return false;
@@ -1166,14 +1199,20 @@ export function releaseVideoEditInflightLock(dataPath: string, conversationId: s
  */
 export function evaluateStoredVideoEditSpendPermit(
   dataPath: string,
-  input: { permit: unknown; conversationId: string; observedArtifactSha256: string; nowMs?: number }
+  input: {
+    permit: unknown;
+    conversationId: string;
+    observedArtifactSha256: string;
+    nowMs?: number;
+    operation?: SpendPermitOperation;
+  }
 ): SpendPermitEvaluation {
   const activeTurn = readActiveUserTurn(dataPath, input.conversationId);
   return evaluateVideoEditSpendPermit({
     permit: input.permit,
     record: readVideoEditSpendPermitRecord(dataPath, input.permit),
     conversationId: input.conversationId,
-    operation: 'video_edit',
+    operation: input.operation ?? 'video_edit',
     observedUserTurnSha256: activeTurn === undefined ? '' : activeTurn.user_turn_sha256,
     observedArtifactSha256: input.observedArtifactSha256,
     nowMs: input.nowMs ?? Date.now(),

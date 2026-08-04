@@ -116,7 +116,9 @@ function seedSource(conversationId: string, id: string) {
   return artifact;
 }
 
-function envelopeDeps(overrides: Partial<CommandEveArtifactContextEnvelopeDeps> = {}): CommandEveArtifactContextEnvelopeDeps {
+function envelopeDeps(
+  overrides: Partial<CommandEveArtifactContextEnvelopeDeps> = {}
+): CommandEveArtifactContextEnvelopeDeps {
   return {
     getDataPath: () => dataRoot,
     buildEntries: buildConversationArtifactEnvelopeEntries,
@@ -125,7 +127,10 @@ function envelopeDeps(overrides: Partial<CommandEveArtifactContextEnvelopeDeps> 
   };
 }
 
-function editDeps(fetchImpl: typeof fetch, overrides: Partial<CommandEveVideoBridgeDeps> = {}): CommandEveVideoBridgeDeps {
+function editDeps(
+  fetchImpl: typeof fetch,
+  overrides: Partial<CommandEveVideoBridgeDeps> = {}
+): CommandEveVideoBridgeDeps {
   return {
     getDataPath: () => dataRoot,
     fetch: fetchImpl,
@@ -175,7 +180,15 @@ describe('the raw ORDINARY user turn is hashed VERBATIM', () => {
     const seen: string[] = [];
     const deps = envelopeDeps({
       buildEntries: () => [
-        { artifactId: 'video-1', kind: 'video', mimeType: 'video/mp4', durationSeconds: 5, editable: true, editHandle: `evecap_${'a'.repeat(64)}`, artifactSha256: SOURCE_SHA },
+        {
+          artifactId: 'video-1',
+          kind: 'video',
+          mimeType: 'video/mp4',
+          durationSeconds: 5,
+          editable: true,
+          editHandle: `evecap_${'a'.repeat(64)}`,
+          artifactSha256: SOURCE_SHA,
+        },
       ],
       issuePermit: (_dataPath, input) => {
         seen.push(input.userTurnSha256);
@@ -185,7 +198,10 @@ describe('the raw ORDINARY user turn is hashed VERBATIM', () => {
 
     for (const variant of variants) {
       // oxlint-disable-next-line no-await-in-loop -- sequential on purpose: the ORDER of `seen` is asserted against `variants` below, and Promise.all would not preserve it
-      await handleCommandEveArtifactContextEnvelope({ conversationId: 'conv-1', userTurnText: variant }, deps);
+      await handleCommandEveArtifactContextEnvelope(
+        { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: variant },
+        deps
+      );
     }
 
     expect(seen).toHaveLength(4);
@@ -201,7 +217,15 @@ describe('the raw ORDINARY user turn is hashed VERBATIM', () => {
     const seen: string[] = [];
     const deps = envelopeDeps({
       buildEntries: () => [
-        { artifactId: 'video-1', kind: 'video', mimeType: 'video/mp4', durationSeconds: 5, editable: true, editHandle: `evecap_${'a'.repeat(64)}`, artifactSha256: SOURCE_SHA },
+        {
+          artifactId: 'video-1',
+          kind: 'video',
+          mimeType: 'video/mp4',
+          durationSeconds: 5,
+          editable: true,
+          editHandle: `evecap_${'a'.repeat(64)}`,
+          artifactSha256: SOURCE_SHA,
+        },
       ],
       issuePermit: (_dataPath, input) => {
         seen.push(input.userTurnSha256);
@@ -209,7 +233,7 @@ describe('the raw ORDINARY user turn is hashed VERBATIM', () => {
       },
     });
     const result = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: ' \t\r\n ' },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: ' \t\r\n ' },
       deps
     );
     expect(seen).toEqual([]);
@@ -225,7 +249,7 @@ describe('the raw ORDINARY user turn is hashed VERBATIM', () => {
     const bare = 'gib der Aubergine ein Gesicht';
 
     const first = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: bare },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: bare },
       envelopeDeps()
     );
     const permit = permitFromEnvelope(first.envelope)!;
@@ -235,7 +259,7 @@ describe('the raw ORDINARY user turn is hashed VERBATIM', () => {
     // happens to have nothing editable in view, so it mints no permit of its
     // own. It still MOVES THE TURN.
     await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: `${bare} ` },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: `${bare} ` },
       envelopeDeps({ buildEntries: () => [] })
     );
     expect(readActiveUserTurn(dataRoot, 'conv-1')?.user_turn_sha256).toBe(sha256(`${bare} `));
@@ -268,7 +292,8 @@ describe('nothing normalises the turn text between arrival and digest', () => {
       expect(code, `the mint path must not contain ${forbidden}`).not.toContain(forbidden);
     }
     // NEGATIVE CONTROL: the probe fires on the round-1 shape.
-    const roundOne = "const userTurnText = typeof request?.userTurnText === 'string' ? request.userTurnText.trim() : '';";
+    const roundOne =
+      "const userTurnText = typeof request?.userTurnText === 'string' ? request.userTurnText.trim() : '';";
     expect(roundOne).toContain('.trim(');
   });
 });
@@ -278,7 +303,7 @@ describe('POLICY B — the stored user-turn hash is re-compared at redeem', () =
     const source = seedSource('conv-1', 'video-aubergine');
     const handle = ensureVideoEditCapabilityHandle(dataRoot, source)!;
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'gib der Aubergine ein Gesicht' },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: 'gib der Aubergine ein Gesicht' },
       envelopeDeps()
     );
     const permit = permitFromEnvelope(envelope)!;
@@ -299,13 +324,13 @@ describe('POLICY B — the stored user-turn hash is re-compared at redeem', () =
     const source = seedSource('conv-1', 'video-aubergine');
     const handle = ensureVideoEditCapabilityHandle(dataRoot, source)!;
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'gib der Aubergine ein Gesicht' },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: 'gib der Aubergine ein Gesicht' },
       envelopeDeps()
     );
     const permit = permitFromEnvelope(envelope)!;
 
     await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'danke, das reicht' },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: 'danke, das reicht' },
       envelopeDeps({ buildEntries: () => [] })
     );
 
@@ -329,7 +354,7 @@ describe('POLICY C — one distinct paid edit per explicit user turn', () => {
     const turn = 'gib der Aubergine ein Gesicht';
 
     const first = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: turn },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: turn },
       envelopeDeps()
     );
     const permit = permitFromEnvelope(first.envelope)!;
@@ -342,7 +367,7 @@ describe('POLICY C — one distinct paid edit per explicit user turn', () => {
 
     // Same conversation, same raw turn, mint path driven again.
     const second = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: turn },
+      { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: turn },
       envelopeDeps()
     );
     expect(permitFromEnvelope(second.envelope)).toBeUndefined();
@@ -350,7 +375,11 @@ describe('POLICY C — one distinct paid edit per explicit user turn', () => {
     // POSITIVE CONTROL: a genuinely different turn still gets its own permit, so
     // the rule above is about the turn and not about the feature having died.
     const third = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'und jetzt mach den Hintergrund blau' },
+      {
+        conversationId: 'conv-1',
+        requestedEditOperation: 'video_edit',
+        userTurnText: 'und jetzt mach den Hintergrund blau',
+      },
       envelopeDeps()
     );
     expect(permitFromEnvelope(third.envelope)).toBeTruthy();
@@ -412,7 +441,7 @@ describe('POLICY L — the conversation fence runs BEFORE retry recovery', () =>
     return { permit, turn, editedPath: done.ok === true ? done.mediaDirective : '' };
   }
 
-  it('refuses conversation B a recovery of conversation A\'s completed edit, and leaks no path', async () => {
+  it("refuses conversation B a recovery of conversation A's completed edit, and leaks no path", async () => {
     // The round-1 defect: recovery matched only (instruction sha, artifact sha),
     // then looked the artifact up in the COMPLETION's conversation. Two
     // conversations holding byte-identical clips were therefore enough to hand

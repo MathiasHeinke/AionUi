@@ -8,6 +8,7 @@ import { ipcBridge } from '@/common';
 import { conversation as conversationBridge } from '@/common/adapter/ipcBridge';
 import { transformMessage } from '@/common/chat/chatLib';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
+import { collectImageBindFromToolCallUpdate } from '@/common/config/imageArtifactBindCore';
 import type { AvailableCommand, IMessageThinking } from '@/common/chat/chatLib';
 import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
 import { resolveAcpAutoApprove } from './acpAutoApprove';
@@ -196,6 +197,12 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // Guard: after finish arrives, prevent auto-recover from setting running=true
   // until a new 'start' signal arrives for the next turn
   const turnFinishedRef = useRef(false);
+
+  // 1.820.3 — staged image handles (`img_h_…`) seen in THIS turn's tool call
+  // outputs, keyed by tool call id. Collected as the `acp_tool_call` messages
+  // arrive and bound to the conversation at the terminal `finish` — BEFORE the
+  // artifact refresh fires, so the first render already sees the bound record.
+  const pendingImageBindsRef = useRef<Map<string, string>>(new Map());
 
   // Track whether current turn has a thinking message in the conversation
   const hasThinkingMessageRef = useRef(false);
@@ -500,6 +507,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           // New turn starting — clear the finished guard and content flag
           turnFinishedRef.current = false;
           hasContentInTurnRef.current = false;
+          // A new turn owns no staged image references yet; anything collected
+          // last turn was either bound at its finish or is abandoned with it.
+          pendingImageBindsRef.current.clear();
           setRunning(true);
           runningRef.current = true;
           setRuntimeActivity((prev) => ({
@@ -516,14 +526,43 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           {
             // Mark turn as finished to prevent auto-recover from late messages
             turnFinishedRef.current = true;
-            // 1.820.3 — the timing-correct artifact refresh. An agent-lane
-            // artifact (a video edit child produced by the eve_video_edit tool
-            // inside THIS turn) is persisted in Main's durable store by the
-            // time the terminal `finish` arrives — and NOT before. The generic
-            // `chat.history.refresh` fires at send-acceptance, which is why
-            // the edited clip used to appear only after a manual reload. The
-            // artifact provider refetches on this event for this conversation.
-            emitter.emit('commandEve.artifacts.refresh', { conversation_id });
+            // 1.820.3 — BIND BEFORE REFRESH, and display authority is separate
+            // from spend authority by design. A managed image produced inside
+            // THIS turn was staged in Main WITHOUT a conversation; the staged
+            // handles collected from this turn's tool outputs are bound to THIS
+            // conversation now, and only then does the artifact refresh fire —
+            // so the same-turn inline card and the Artefakte entry appear with
+            // the turn, not after a manual reload. Each bind is awaited but a
+            // refusal never blocks the finish: it costs the card, not the
+            // message. Main makes the bind idempotent on the tool call id, so
+            // a re-delivered finish binds nothing twice.
+            const pendingImageBinds = [...pendingImageBindsRef.current.entries()];
+            pendingImageBindsRef.current.clear();
+            const emitArtifactRefresh = () => emitter.emit('commandEve.artifacts.refresh', { conversation_id });
+            if (pendingImageBinds.length === 0) {
+              emitArtifactRefresh();
+            } else {
+              void (async () => {
+                for (const [toolCallId, handle] of pendingImageBinds) {
+                  try {
+                    // eslint-disable-next-line no-await-in-loop
+                    await ipcBridge.commandEve.imageArtifactBind.invoke({
+                      conversationId: conversation_id,
+                      handle,
+                      toolCallId,
+                    });
+                  } catch {
+                    /* a refused bind costs the inline card, never the turn */
+                  }
+                }
+                emitArtifactRefresh();
+              })();
+            }
+            // (The refresh above is also the 1.820.3 timing-correct artifact
+            // refresh for agent-lane VIDEO edits: the child is persisted in
+            // Main's durable store by the time the terminal `finish` arrives —
+            // and NOT before — which is why the refresh lives here rather than
+            // at send-acceptance.)
             // Immediate state reset (notification is handled by centralized hook)
             setRunning(false);
             runningRef.current = false;
@@ -679,6 +718,15 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             setRunning(true);
             runningRef.current = true;
           }
+          // 1.820.3 — collect staged image references as the tool outputs
+          // arrive; they are BOUND at the terminal finish, not here, because
+          // only the finished turn proves the image belongs to this
+          // conversation's display. The parser is pure; a miss means "nothing
+          // to bind", never an error.
+          const imageBind = collectImageBindFromToolCallUpdate(
+            (message.data as AcpToolActivityWire | undefined)?.update
+          );
+          if (imageBind) pendingImageBindsRef.current.set(imageBind.toolCallId, imageBind.handle);
           setRuntimeActivity((prev) => ({
             ...prev,
             phase: activeToolName ? 'tool_wait' : 'streaming',

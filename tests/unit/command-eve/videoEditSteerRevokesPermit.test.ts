@@ -55,10 +55,7 @@ import {
   buildConversationArtifactEnvelopeEntries,
   ensureVideoEditCapabilityHandle,
 } from '@/process/commandEve/artifactCapabilityHandleStore';
-import {
-  readActiveUserTurn,
-  readVideoEditSpendPermitRecord,
-} from '@/process/commandEve/videoEditSpendPermitStore';
+import { readActiveUserTurn, readVideoEditSpendPermitRecord } from '@/process/commandEve/videoEditSpendPermitStore';
 import { saveVideoArtifactRecord } from '@/process/commandEve/videoArtifactStore';
 import { buildVideoConversationArtifact } from '@/common/config/videoGenerationRequestCore';
 
@@ -124,7 +121,10 @@ function steerDeps(overrides: Partial<CommandEveArtifactTurnSteerDeps> = {}): Co
   return { getDataPath: () => dataRoot, ...overrides };
 }
 
-function editDeps(fetchImpl: typeof fetch, overrides: Partial<CommandEveVideoBridgeDeps> = {}): CommandEveVideoBridgeDeps {
+function editDeps(
+  fetchImpl: typeof fetch,
+  overrides: Partial<CommandEveVideoBridgeDeps> = {}
+): CommandEveVideoBridgeDeps {
   return {
     getDataPath: () => dataRoot,
     fetch: fetchImpl,
@@ -154,7 +154,7 @@ async function armedConversation(conversationId: string, turn: string) {
   const source = seedSource(conversationId, `video-${conversationId}`);
   const handle = ensureVideoEditCapabilityHandle(dataRoot, source)!;
   const { envelope } = await handleCommandEveArtifactContextEnvelope(
-    { conversationId, userTurnText: turn },
+    { conversationId, requestedEditOperation: 'video_edit', userTurnText: turn },
     envelopeDeps()
   );
   const permit = permitFromEnvelope(envelope)!;
@@ -264,7 +264,7 @@ describe('the two defences a steer raises are independent', () => {
 });
 
 describe('a steer is scoped and grants nothing', () => {
-  it('leaves another conversation\'s permit alone', async () => {
+  it("leaves another conversation's permit alone", async () => {
     const { permit } = await armedConversation('conv-1', 'gib der Aubergine ein Gesicht');
     await handleCommandEveArtifactTurnSteer({ conversationId: 'conv-2', steerText: 'etwas anderes' }, steerDeps());
     expect(readVideoEditSpendPermitRecord(dataRoot, permit)).toBeTruthy();

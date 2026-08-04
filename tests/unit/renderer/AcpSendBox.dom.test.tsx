@@ -72,6 +72,7 @@ const {
   cloudVisualPolicySetInvokeMock,
   listArtifactsInvokeMock,
   videoArtifactsListInvokeMock,
+  imageArtifactsListInvokeMock,
   chatHistoryRefreshHandlerMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
@@ -154,6 +155,7 @@ const {
   cloudVisualPolicySetInvokeMock: vi.fn(),
   listArtifactsInvokeMock: vi.fn(),
   videoArtifactsListInvokeMock: vi.fn(),
+  imageArtifactsListInvokeMock: vi.fn(),
   chatHistoryRefreshHandlerMock: { current: null as null | (() => void) },
 }));
 
@@ -234,6 +236,9 @@ vi.mock('@/common', () => ({
       },
       videoArtifactsList: {
         invoke: videoArtifactsListInvokeMock,
+      },
+      imageArtifactsList: {
+        invoke: imageArtifactsListInvokeMock,
       },
     },
     pptPreview: {
@@ -597,6 +602,8 @@ describe('AcpSendBox', () => {
     listArtifactsInvokeMock.mockResolvedValue([]);
     videoArtifactsListInvokeMock.mockReset();
     videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
+    imageArtifactsListInvokeMock.mockReset();
+    imageArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
     chatHistoryRefreshHandlerMock.current = null;
     managedVisualTurnAuthorizeInvokeMock.mockReset();
     videoGenerateInvokeMock.mockReset();
@@ -3915,7 +3922,7 @@ describe('MAT-1747 round 5 — the production route of a correction, renderer se
     const source = await seedSource(conversationId, `video-${conversationId}`);
     const handle = handleStore.ensureVideoEditCapabilityHandle(dataRoot, source)!;
     const { envelope } = await bridge.handleCommandEveArtifactContextEnvelope(
-      { conversationId, userTurnText: turn },
+      { conversationId, requestedEditOperation: 'video_edit', userTurnText: turn },
       {
         getDataPath: () => dataRoot,
         buildEntries: handleStore.buildConversationArtifactEnvelopeEntries,
@@ -4123,12 +4130,26 @@ describe('MAT-1747 round 5 — the production route of a correction, renderer se
   // handlers and the real store. Nothing hand-calls a hashing helper.
 
   /** The ORDINARY send, through the send box, with the REAL Main envelope handler behind the IPC. */
-  async function sendOrdinaryThroughTheSendBox(conversationId: string, text: string) {
+  async function sendOrdinaryThroughTheSendBox(
+    conversationId: string,
+    text: string,
+    options: { visibleVideoSource?: unknown } = {}
+  ) {
     draftDataMock.current = { atPath: [], uploadFile: [], content: text };
     sendBoxMessageMock.current = text;
     runtimeViewMock.isProcessing = false;
     runtimeViewMock.canSendMessage = true;
     runtimeViewMock.activeTurnId = null;
+
+    // 1.820.3 fail-closed gate: the send box passes `requestedEditOperation`
+    // only when its authorization resolver sees BOTH the edit intent AND the
+    // canonically editable source — and the source reaches it through the REAL
+    // artifact provider, so the fixture exposes the seeded clip the same way
+    // production does. `video-edit-hint` appearing is the deterministic proof
+    // the provider has loaded before the send reads the source truth.
+    if (options.visibleVideoSource) {
+      videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [options.visibleVideoSource] });
+    }
 
     // Same wiring idea as the steer leg above: only the serialization hop is
     // stood in for. The handler, the store and the disk are the real ones, so
@@ -4154,13 +4175,19 @@ describe('MAT-1747 round 5 — the production route of a correction, renderer se
     });
 
     render(
-      <AcpSendBox
-        conversation_id={conversationId}
-        backend='hermes'
-        workspacePath='/tmp/workspace'
-        messageState={makeMessageState()}
-      />
+      <ConversationArtifactProvider conversation_id={conversationId}>
+        <AcpSendBox
+          conversation_id={conversationId}
+          backend='hermes'
+          workspacePath='/tmp/workspace'
+          messageState={makeMessageState()}
+        />
+      </ConversationArtifactProvider>
     );
+
+    if (options.visibleVideoSource) {
+      await screen.findByTestId('video-edit-hint');
+    }
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -4172,7 +4199,11 @@ describe('MAT-1747 round 5 — the production route of a correction, renderer se
   const sha256 = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
 
   // Padded on BOTH ends, and the padding is the whole point of the fixture.
-  const PADDED_TURN = '   Hello   ';
+  // 1.820.3: the sentence is an EXPLICIT video edit, because the fail-closed
+  // gate mints only for a resolved edit operation — a bare "Hello" resolves to
+  // no operation and carries no permit at all (that case is pinned in the
+  // `editAuthorizationCore` / permit-gate suites).
+  const PADDED_TURN = '   Bearbeite das Video   ';
 
   it('ORDINARY TURN: the padded raw bytes reach the mint AND the runtime, and the pointer is those bytes', async () => {
     const source = await seedSource('conv-raw', 'video-conv-raw');
@@ -4200,7 +4231,7 @@ describe('MAT-1747 round 5 — the production route of a correction, renderer se
     // rather than the whitespace mattering.
     const source = await seedSource('conv-raw', 'video-conv-raw');
     const handle = handleStore.ensureVideoEditCapabilityHandle(dataRoot, source)!;
-    const sent = await sendOrdinaryThroughTheSendBox('conv-raw', PADDED_TURN);
+    const sent = await sendOrdinaryThroughTheSendBox('conv-raw', PADDED_TURN, { visibleVideoSource: source });
 
     // The permit is read out of the bytes the MODEL received, not out of a
     // handler return value — this is the credential the model actually holds.
@@ -4219,7 +4250,7 @@ describe('MAT-1747 round 5 — the production route of a correction, renderer se
     // digests, and it is enough to close the paid path.
     const source = await seedSource('conv-raw', 'video-conv-raw');
     const handle = handleStore.ensureVideoEditCapabilityHandle(dataRoot, source)!;
-    const sent = await sendOrdinaryThroughTheSendBox('conv-raw', PADDED_TURN);
+    const sent = await sendOrdinaryThroughTheSendBox('conv-raw', PADDED_TURN, { visibleVideoSource: source });
     const permit = /evespend_[0-9a-f]{64}/.exec(sent)?.[0];
     expect(permit).toBeTruthy();
 

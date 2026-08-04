@@ -57,7 +57,10 @@ import type {
   CommandEveArtifactTurnSteerDeps,
   CommandEveVideoBridgeDeps,
 } from '@/process/bridge/commandEveVideoBridge';
-import { buildConversationArtifactEnvelopeEntries, ensureVideoEditCapabilityHandle } from '@/process/commandEve/artifactCapabilityHandleStore';
+import {
+  buildConversationArtifactEnvelopeEntries,
+  ensureVideoEditCapabilityHandle,
+} from '@/process/commandEve/artifactCapabilityHandleStore';
 import { saveVideoArtifactRecord } from '@/process/commandEve/videoArtifactStore';
 import { buildVideoConversationArtifact } from '@/common/config/videoGenerationRequestCore';
 
@@ -145,7 +148,9 @@ function seedSource(conversationId: string, id: string) {
   return artifact;
 }
 
-function envelopeDeps(overrides: Partial<CommandEveArtifactContextEnvelopeDeps> = {}): CommandEveArtifactContextEnvelopeDeps {
+function envelopeDeps(
+  overrides: Partial<CommandEveArtifactContextEnvelopeDeps> = {}
+): CommandEveArtifactContextEnvelopeDeps {
   return {
     getDataPath: () => dataRoot,
     buildEntries: buildConversationArtifactEnvelopeEntries,
@@ -158,7 +163,10 @@ function steerDeps(overrides: Partial<CommandEveArtifactTurnSteerDeps> = {}): Co
   return { getDataPath: () => dataRoot, ...overrides };
 }
 
-function editDeps(fetchImpl: typeof fetch, overrides: Partial<CommandEveVideoBridgeDeps> = {}): CommandEveVideoBridgeDeps {
+function editDeps(
+  fetchImpl: typeof fetch,
+  overrides: Partial<CommandEveVideoBridgeDeps> = {}
+): CommandEveVideoBridgeDeps {
   return {
     getDataPath: () => dataRoot,
     fetch: fetchImpl,
@@ -188,7 +196,7 @@ async function armedConversation(process_: { bridge: BridgeModule }, conversatio
   const source = seedSource(conversationId, `video-${conversationId}`);
   const handle = ensureVideoEditCapabilityHandle(dataRoot, source)!;
   const { envelope } = await process_.bridge.handleCommandEveArtifactContextEnvelope(
-    { conversationId, userTurnText: turn },
+    { conversationId, requestedEditOperation: 'video_edit', userTurnText: turn },
     envelopeDeps()
   );
   const permit = permitFromEnvelope(envelope)!;
@@ -380,11 +388,19 @@ describe('MAT-1747 round 5 requirement (ii) — a cleanup that cannot prove itse
     expect(listNames(turnDir()).filter((name) => name.slice(-12) === '.active.json').length).toBe(2);
 
     // BOTH conversations, not just the one that happened to be steered.
-    const one = await attemptEdit(boot, { handle: first.handle, permit: first.permit, instruction: 'gib der Aubergine ein Gesicht' });
+    const one = await attemptEdit(boot, {
+      handle: first.handle,
+      permit: first.permit,
+      instruction: 'gib der Aubergine ein Gesicht',
+    });
     expect(one.fetchSpy).not.toHaveBeenCalled();
     expect(one.debitSpy).not.toHaveBeenCalled();
 
-    const two = await attemptEdit(boot, { handle: second.handle, permit: second.permit, instruction: 'mach den Hintergrund blau' });
+    const two = await attemptEdit(boot, {
+      handle: second.handle,
+      permit: second.permit,
+      instruction: 'mach den Hintergrund blau',
+    });
     expect(two.fetchSpy).not.toHaveBeenCalled();
     expect(two.debitSpy).not.toHaveBeenCalled();
   });
@@ -399,17 +415,29 @@ describe('MAT-1747 round 5 requirement (ii) — a cleanup that cannot prove itse
     // Unrolled deliberately: these three must run ONE AFTER THE OTHER. Running
     // them in parallel would be a different test — the claim is that a retry
     // does not clear the state for the retry that follows it.
-    const first = await attemptEdit(boot, { handle: armed.handle, permit: armed.permit, instruction: 'gib der Aubergine ein Gesicht' });
+    const first = await attemptEdit(boot, {
+      handle: armed.handle,
+      permit: armed.permit,
+      instruction: 'gib der Aubergine ein Gesicht',
+    });
     expect(first.fetchSpy).not.toHaveBeenCalled();
     expect(first.debitSpy).not.toHaveBeenCalled();
     expect(boot.store.isVideoEditSpendStoreHealthy()).toBe(false);
 
-    const second = await attemptEdit(boot, { handle: armed.handle, permit: armed.permit, instruction: 'gib der Aubergine ein Gesicht' });
+    const second = await attemptEdit(boot, {
+      handle: armed.handle,
+      permit: armed.permit,
+      instruction: 'gib der Aubergine ein Gesicht',
+    });
     expect(second.fetchSpy).not.toHaveBeenCalled();
     expect(second.debitSpy).not.toHaveBeenCalled();
     expect(boot.store.isVideoEditSpendStoreHealthy()).toBe(false);
 
-    const third = await attemptEdit(boot, { handle: armed.handle, permit: armed.permit, instruction: 'gib der Aubergine ein Gesicht' });
+    const third = await attemptEdit(boot, {
+      handle: armed.handle,
+      permit: armed.permit,
+      instruction: 'gib der Aubergine ein Gesicht',
+    });
     expect(third.fetchSpy).not.toHaveBeenCalled();
     expect(third.debitSpy).not.toHaveBeenCalled();
     expect(boot.store.isVideoEditSpendStoreHealthy()).toBe(false);

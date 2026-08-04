@@ -161,6 +161,12 @@ import {
   handleCommandEveVideoEditBridge,
   handleCommandEveVideoGenerateBridge,
 } from '@process/bridge/commandEveVideoBridge';
+import {
+  handleCommandEveImageArtifactBindBridge,
+  handleCommandEveImageArtifactImportLegacyBridge,
+  handleCommandEveImageArtifactPreviewBridge,
+  handleCommandEveImageArtifactsListBridge,
+} from '@process/bridge/commandEveImageArtifactBridge';
 import { handleCommandEvePresentationPrepare } from '@process/bridge/commandEvePresentationBridge';
 import { consumeCommandEveFileSelectionPathGrant } from '@process/commandEve/fileSelectionGrantCore';
 import { authorizeCommandEveManagedVisualTurn } from '@process/commandEve/managedVisualTurnAuthorizationCore';
@@ -2103,6 +2109,15 @@ export function initCommandEveBridge(): void {
   // spend permit can be retired when the person corrects a run in flight.
   bridge.buildProvider('command-eve.artifact-turn-steer').provider(handleCommandEveArtifactTurnSteerBridge);
   bridge.buildProvider('command-eve.video-edit').provider(handleCommandEveVideoEditBridge);
+  // 1.820.3 — the managed IMAGE artifact lane (staged-handle contract): bind
+  // (display authority at turn end), list + preview (durable, path-free),
+  // legacy import (strictly confined one-time adoption).
+  bridge.buildProvider('command-eve.image-artifact-bind').provider(handleCommandEveImageArtifactBindBridge);
+  bridge.buildProvider('command-eve.image-artifacts-list').provider(handleCommandEveImageArtifactsListBridge);
+  bridge.buildProvider('command-eve.image-artifact-preview').provider(handleCommandEveImageArtifactPreviewBridge);
+  bridge
+    .buildProvider('command-eve.image-artifact-import-legacy')
+    .provider(handleCommandEveImageArtifactImportLegacyBridge);
 
   bridge.buildProvider('command-eve.cloud-visual-policy-read').provider(async () => {
     const policy = await readCommandEveCloudVisualPolicy();
