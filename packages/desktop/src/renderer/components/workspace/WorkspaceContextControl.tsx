@@ -18,6 +18,14 @@ import styles from './WorkspaceContextControl.module.css';
 
 export type WorkspaceContextControlProps = {
   workspacePath?: string;
+  /**
+   * 1.820.4 (MAT-1772) — durable project title from a completed project
+   * workspace artifact (path-free by main-side contract). Display priority:
+   * the project name ALWAYS wins over the basename of a temporary
+   * (`hermes-temp-*`) workspace — and over any basename, since a bound
+   * project is the truthful context label. Never a path.
+   */
+  projectName?: string;
   editable?: boolean;
   disabled?: boolean;
   onSelectWorkspace?: (path: string) => void;
@@ -42,6 +50,7 @@ const workspaceNameFromPath = (path?: string): string => {
  */
 const WorkspaceContextControl: React.FC<WorkspaceContextControlProps> = ({
   workspacePath,
+  projectName,
   editable = false,
   disabled = false,
   onSelectWorkspace,
@@ -49,7 +58,8 @@ const WorkspaceContextControl: React.FC<WorkspaceContextControlProps> = ({
 }) => {
   const { t } = useTranslation();
   const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => getRecentWorkspaces());
-  const workspaceName = workspaceNameFromPath(workspacePath);
+  const durableProjectName = projectName?.trim() ? projectName.trim() : '';
+  const workspaceName = durableProjectName || workspaceNameFromPath(workspacePath);
   const displayLabel = workspaceName || t('guid.workspace.workInProject');
 
   const inspectContext = useCallback(() => {
@@ -136,7 +146,13 @@ const WorkspaceContextControl: React.FC<WorkspaceContextControlProps> = ({
   );
 
   return (
-    <Tooltip content={workspacePath || displayLabel} position='top' disabled={!workspacePath}>
+    // When a durable project name wins, the tooltip shows THAT name — never
+    // the internal temporary workspace path underneath it.
+    <Tooltip
+      content={durableProjectName ? displayLabel : workspacePath || displayLabel}
+      position='top'
+      disabled={!workspacePath && !durableProjectName}
+    >
       {editable ? (
         <Dropdown
           trigger='click'

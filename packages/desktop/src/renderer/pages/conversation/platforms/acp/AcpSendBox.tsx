@@ -131,6 +131,7 @@ import {
   selectLatestVisibleMediaSourceArtifact,
   useConversationArtifacts,
 } from '@renderer/pages/conversation/Messages/artifacts';
+import type { ProjectWorkspaceConversationArtifactDTO } from '@/common/types/project-workspace/ui';
 
 /**
  * MAT-1769. Thrown ONLY by the marker-minting receipt read inside
@@ -156,6 +157,69 @@ const useAcpSendBoxDraft = getSendBoxDraftHook('acp', {
 
 const EMPTY_AT_PATH: Array<string | FileOrFolderItem> = [];
 const EMPTY_UPLOAD_FILES: string[] = [];
+
+/**
+ * 1.820.4 (MAT-1772) — pick the durable project title for the composer chip:
+ * the NEWEST successful (state === 'completed') project workspace artifact of
+ * the current conversation. Ordering keys off (updated_at, created_at) so a
+ * re-completed artifact wins; anything not completed or title-less is ignored.
+ * The payload is path-free by main-side construction — only the title crosses.
+ */
+export const selectNewestCompletedProjectTitle = (
+  artifacts: readonly ProjectWorkspaceConversationArtifactDTO[]
+): string | null => {
+  let newest: ProjectWorkspaceConversationArtifactDTO | null = null;
+  for (const artifact of artifacts) {
+    if (artifact.payload.state !== 'completed') continue;
+    if (typeof artifact.payload.project_title !== 'string' || artifact.payload.project_title.trim().length === 0) {
+      continue;
+    }
+    if (
+      !newest ||
+      artifact.updated_at > newest.updated_at ||
+      (artifact.updated_at === newest.updated_at && artifact.created_at >= newest.created_at)
+    ) {
+      newest = artifact;
+    }
+  }
+  return newest ? newest.payload.project_title : null;
+};
+
+/**
+ * Track the newest completed project artifact title for a conversation. The
+ * durable main-side store is the authority: initial list + re-list on every
+ * `artifact-changed` push for this conversation (never a renderer-side guess).
+ */
+const useNewestCompletedProjectTitle = (conversationId: string): string | null => {
+  const [title, setTitle] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    // The project-workspace bridge is additive (1.820.4): a renderer host or
+    // test double without it simply never shows the durable chip — the
+    // composer itself must never crash on the absent namespace.
+    const workspaceBridge = (ipcBridge as Partial<typeof ipcBridge>).projectWorkspace;
+    if (!workspaceBridge) return undefined;
+    const refresh = () =>
+      workspaceBridge.listConversationArtifacts
+        .invoke({ conversation_id: conversationId })
+        .then((artifacts) => {
+          if (!cancelled) setTitle(selectNewestCompletedProjectTitle(artifacts ?? []));
+        })
+        .catch(() => {
+          /* a missing artifact store must never blank the composer */
+        });
+    void refresh();
+    const unsubscribe = workspaceBridge.artifactChanged.on((payload) => {
+      if (payload.conversation_id !== conversationId) return;
+      void refresh();
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [conversationId]);
+  return title;
+};
 
 const useSendBoxDraft = (conversation_id: string) => {
   const { data, mutate } = useAcpSendBoxDraft(conversation_id);
@@ -859,6 +923,9 @@ Please check your local CLI tool authentication status`,
   // shared veto (`isExplicitVideoEditRequest`, same predicate) keeps every
   // video edit inside a normal Hermes turn.
   const conversationArtifacts = useConversationArtifacts();
+  // 1.820.4 (MAT-1772) — the durable project chip truth: the newest COMPLETED
+  // project workspace artifact's title, path-free, ahead of hermes-temp-*.
+  const durableProjectName = useNewestCompletedProjectTitle(conversation_id);
   const latestImageSource = useMemo(
     () => selectLatestVisibleMediaSourceArtifact(conversationArtifacts, 'image'),
     [conversationArtifacts]
@@ -2310,7 +2377,9 @@ Please check your local CLI tool authentication status`,
               onLocalFilesAdded={handleFilesAdded}
               loadedMcpStatuses={loadedMcpStatuses}
             />
-            {!isMobile ? <WorkspaceContextControl workspacePath={workspacePath} /> : null}
+            {!isMobile ? (
+              <WorkspaceContextControl workspacePath={workspacePath} projectName={durableProjectName ?? undefined} />
+            ) : null}
           </div>
         }
         hideSpeechButton

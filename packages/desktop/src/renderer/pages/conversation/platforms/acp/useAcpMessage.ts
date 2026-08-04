@@ -80,13 +80,7 @@ export type AcpRuntimeActivity = {
 };
 
 export type AcpStreamWatchdogStatus =
-  | 'idle'
-  | 'streaming'
-  | 'tool_wait'
-  | 'heartbeat_only'
-  | 'ui_backlog'
-  | 'stopped'
-  | 'failed';
+  'idle' | 'streaming' | 'tool_wait' | 'heartbeat_only' | 'ui_backlog' | 'stopped' | 'failed';
 
 export function classifyAcpStreamWatchdog(input: {
   now: number;
@@ -143,7 +137,10 @@ function extractAcpToolActivity(message: IResponseMessage): { callId: string; ac
   };
 }
 
-export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: boolean }): UseAcpMessageReturn => {
+export const useAcpMessage = (
+  conversation_id: string,
+  options?: { skipWarmup?: boolean; autoProject?: boolean }
+): UseAcpMessageReturn => {
   const addOrUpdateMessage = useAddOrUpdateMessage();
   const [running, setRunning] = useState(false);
   const [hasHydratedRunningState, setHasHydratedRunningState] = useState(false);
@@ -526,6 +523,25 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           {
             // Mark turn as finished to prevent auto-recover from late messages
             turnFinishedRef.current = true;
+            // 1.820.4 (MAT-1772) — post-turn auto-project hint. ONLY a
+            // successful start -> substantive output -> finish sequence fires
+            // this, and only when AcpChat gated the hook on for the
+            // Command-EVE ACP backend. Strictly fire-and-forget: turn
+            // completion NEVER waits on project provisioning, and every
+            // eligibility fact (EVE/temp/unbound/title) is re-proven main-side.
+            const hadSubstantiveOutput = hasContentInTurnRef.current;
+            if (hadSubstantiveOutput && options?.autoProject === true) {
+              const messageTurnId = typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
+              const finishedTurnId =
+                messageTurnId || getConversationRuntimeViewSnapshot(conversation_id).activeTurnId || message.msg_id;
+              if (finishedTurnId) {
+                void ipcBridge.projectWorkspace.ensureAfterSuccessfulTurn
+                  .invoke({ conversation_id, turn_id: finishedTurnId })
+                  .catch(() => {
+                    /* provisioning must never surface in the finished turn */
+                  });
+              }
+            }
             // 1.820.3 — BIND BEFORE REFRESH, and display authority is separate
             // from spend authority by design. A managed image produced inside
             // THIS turn was staged in Main WITHOUT a conversation; the staged
@@ -906,6 +922,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       setAcpStatus,
       applyContextUsage,
       reportInferenceError,
+      options?.autoProject,
     ]
   );
 

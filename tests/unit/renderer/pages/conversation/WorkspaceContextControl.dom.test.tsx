@@ -117,4 +117,33 @@ describe('WorkspaceContextControl', () => {
     await waitFor(() => expect(showOpenMock).toHaveBeenCalledTimes(1));
     expect(onSelectWorkspace).not.toHaveBeenCalled();
   });
+
+  it('shows the durable project title ahead of a hermes-temp workspace basename (1.820.4 MAT-1772)', () => {
+    render(
+      <WorkspaceContextControl
+        workspacePath='/Users/founder/.command-eve/workspaces/hermes-temp-6969007f'
+        projectName='Q3 Planung'
+      />
+    );
+
+    const control = screen.getByTestId('workspace-context-control');
+    expect(control).toHaveTextContent('Q3 Planung');
+    expect(control).not.toHaveTextContent('hermes-temp');
+    expect(control.getAttribute('aria-label')).toBe('Q3 Planung');
+  });
+
+  it('falls back to the workspace basename when no project artifact title exists', () => {
+    render(<WorkspaceContextControl workspacePath='/Users/founder/.command-eve/workspaces/hermes-temp-6969007f' />);
+
+    const control = screen.getByTestId('workspace-context-control');
+    expect(control).toHaveTextContent('hermes-temp-6969007f');
+    expect(control.getAttribute('aria-label')).toBe('hermes-temp-6969007f');
+  });
+
+  it('ignores a blank project name and keeps the basename', () => {
+    render(<WorkspaceContextControl workspacePath='/tmp/Produkt-Roadmap' projectName='   ' />);
+
+    const control = screen.getByTestId('workspace-context-control');
+    expect(control).toHaveTextContent('Produkt-Roadmap');
+  });
 });

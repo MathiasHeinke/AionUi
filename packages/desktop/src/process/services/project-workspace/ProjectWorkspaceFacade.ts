@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { shell } from 'electron';
+import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import type { ProjectIntentPlan } from '@/common/types/project-workspace/intent';
 import type { ProjectCatalogRecord, RealmRecord, RootRecord } from '@/common/types/project-workspace/registry';
 import { ProjectWorkspaceError } from '@/common/types/project-workspace/reasonCodes';
@@ -10,7 +11,10 @@ import type {
   ProjectPlacementDTO,
   ProjectSummaryDTO,
   ProjectWorkspaceAction,
+  ProjectWorkspaceArtifactDTO,
   ProjectWorkspaceConversationArtifactDTO,
+  ProjectWorkspaceEnsureAutoProjectRequest,
+  ProjectWorkspaceEnsureAutoProjectResult,
   ProjectWorkspaceExplicitChatIntentRequest,
   ProjectWorkspaceExplicitChatIntentResult,
   ProjectWorkspaceListDTO,
@@ -25,7 +29,10 @@ import type { ProjectWorkspaceLifecycleService } from './ProjectWorkspaceLifecyc
 import type { ProjectCreateResult, ProjectWorkspaceService } from './ProjectWorkspaceService';
 import { matchConversationCandidates, resolveProjectIntent } from './core/intentCore';
 import { mapProjectWorkspaceReason } from './core/lifecycleReasonCore';
-import type { ProjectConversationMetadataClient } from './runtime/conversationBindingClient';
+import type {
+  ProjectConversationMetadata,
+  ProjectConversationMetadataClient,
+} from './runtime/conversationBindingClient';
 import { ensureProjectWorkspaceSeatBootstrap } from './seatBootstrap';
 import type { ProjectWorkspaceConversationArtifactStore } from './storage/conversationArtifactStore';
 import type { ProjectWorkspaceRegistryStore } from './storage/registryStore';
@@ -56,6 +63,52 @@ const DEFAULT_PREVIEW_TTL_MS = 300_000;
  * the facade pins a constant, regex-valid sentinel instead of trusting input.
  */
 const UI_CONVERSATION_ID = 'project-workspace-ui';
+
+/**
+ * 1.820.4 (MAT-1772) — post-turn auto-project policy constants. The ONLY
+ * placement an autonomous create may use: the seat's single app-managed
+ * default BUSINESS realm (`geschaeftlich`, seeded by seatBootstrap) with
+ * exactly one active app-managed root. Missing or ambiguous → fail closed.
+ */
+const AUTO_PROJECT_BUSINESS_REALM_SLUG = 'geschaeftlich';
+/** Bounded local metadata re-reads while the persisted title is still default. */
+const AUTO_PROJECT_TITLE_REREAD_COUNT = 2;
+const AUTO_PROJECT_TITLE_REREAD_DELAY_MS = 750;
+
+/** Every shipped locale's `conversation.welcome.newConversation` default title. */
+const AUTO_PROJECT_DEFAULT_TITLES = new Set([
+  'neuer chat',
+  'new chat',
+  'novo chat',
+  'yeni sohbet',
+  'новий чат',
+  'новый чат',
+  '新しいチャット',
+  '新会话',
+  '新會話',
+  '새 채팅',
+]);
+
+/**
+ * A greeting-only first message never became a durable task title. Conservative
+ * on purpose: anything beyond a bare greeting word (+ punctuation) counts as a
+ * real title, and every other ambiguity is settled by the bounded re-reads.
+ */
+const GREETING_ONLY_TITLE =
+  /^(hi+|hello|hey|hallo|servus|moin|na|salut|bonjour|hola|ciao|ol[áa]|hei|hej|привет|privet|merhaba|こんにちは|안녕(하세요)?|你好|您好|guten\s+(tag|morgen|abend)|good\s+(morning|afternoon|evening|day))[\s!?.。！？…]*$/i;
+
+function isDefaultOrGreetingTitle(title: string): boolean {
+  const normalized = title.trim().toLocaleLowerCase('en-US');
+  if (!normalized) return true;
+  if (AUTO_PROJECT_DEFAULT_TITLES.has(normalized)) return true;
+  return GREETING_ONLY_TITLE.test(normalized);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 type MutationIdentity = {
   project_id: string;
@@ -90,6 +143,8 @@ export type ProjectWorkspaceFacadeDeps = {
   is_seat_switch_in_flight?: () => boolean;
   now_ms?: () => number;
   preview_ttl_ms?: number;
+  /** Injectable for tests; delay between the bounded title re-reads. */
+  auto_project_title_reread_delay_ms?: number;
   /** Injectable for tests; defaults to electron shell.showItemInFolder. */
   reveal_in_folder?: (absolutePath: string) => void;
 };
@@ -145,6 +200,7 @@ function allowedActions(record: ProjectCatalogRecord): ProjectWorkspaceAction[] 
 export class ProjectWorkspaceFacade {
   private readonly nowMs: () => number;
   private readonly previewTtlMs: number;
+  private readonly autoProjectTitleRereadDelayMs: number;
   private readonly revealInFolder: (absolutePath: string) => void;
   private readonly previews = new Map<string, PreviewStashEntry>();
   private readonly artifactListeners = new Set<ArtifactListener>();
@@ -152,6 +208,7 @@ export class ProjectWorkspaceFacade {
   constructor(private readonly deps: ProjectWorkspaceFacadeDeps) {
     this.nowMs = deps.now_ms ?? Date.now;
     this.previewTtlMs = deps.preview_ttl_ms ?? DEFAULT_PREVIEW_TTL_MS;
+    this.autoProjectTitleRereadDelayMs = deps.auto_project_title_reread_delay_ms ?? AUTO_PROJECT_TITLE_REREAD_DELAY_MS;
     this.revealInFolder = deps.reveal_in_folder ?? ((absolutePath) => shell.showItemInFolder(absolutePath));
   }
 
@@ -369,10 +426,22 @@ export class ProjectWorkspaceFacade {
     return {
       seat_label: this.deps.get_active_seat_label(),
       seat_context_revision: this.deps.get_active_seat_context_revision(),
-      automatic_creation_enabled: false,
+      automatic_creation_enabled: this.isAutoProjectPolicyActive(),
       placements,
       projects,
     };
+  }
+
+  /**
+   * 1.820.4 (MAT-1772) — the Projects UI truth source for "automatic creation".
+   * It reports the NEW post-turn auto-project policy (`ensureAfterSuccessfulTurn`),
+   * which is genuinely active exactly when its main-side dependencies are wired.
+   * This is an explicit policy SEPARATION from the intent-core calibration
+   * auto-create: `PROJECT_AUTO_CREATE_RELEASE_LOCKED` stays true and untouched
+   * as historical/eval doctrine — the calibration code never gated this path.
+   */
+  private isAutoProjectPolicyActive(): boolean {
+    return Boolean(this.deps.service && this.deps.lifecycle && this.deps.artifact_store && this.deps.binding_client);
   }
 
   async previewCreate(request: {
@@ -728,6 +797,241 @@ export class ProjectWorkspaceFacade {
       return { decision: 'handled', artifact_id: artifactId };
     } catch {
       return { decision: 'pass_through' }; // intent errors never block sending
+    }
+  }
+
+  /**
+   * 1.820.4 (MAT-1772) — post-turn auto-project policy. After a successful,
+   * substantive EVE/Hermes ACP turn on a conversation that still lives in its
+   * temporary workspace, provision ONE durable project in the seat's single
+   * app-managed default business placement and bind the conversation to it.
+   *
+   * ADDITIVE BY CONTRACT: this is a post-turn action only. It is NOT the 250ms
+   * pre-send chatIntent gate, never blocks a turn, and the renderer only sends
+   * the opaque hint `{ conversation_id, turn_id }` — every eligibility fact
+   * (ACP/EVE backend, temporary + non-custom workspace, unbound state, durable
+   * title) is re-derived here from TRUSTED main-side metadata and catalogs.
+   *
+   * FAIL-CLOSED: empty/errored/replayed/non-EVE/already-bound/custom or
+   * non-temporary turns, seat switches, and missing/ambiguous business
+   * placements all resolve to `{ status: 'noop' }`. Nothing is ever guessed:
+   * no path, no placement, no title. The method never throws — the IPC bridge
+   * relies on that for its fire-and-forget renderer contract.
+   */
+  async ensureAfterSuccessfulTurn(
+    request: ProjectWorkspaceEnsureAutoProjectRequest
+  ): Promise<ProjectWorkspaceEnsureAutoProjectResult> {
+    try {
+      if (this.deps.is_seat_switch_in_flight?.()) return { status: 'noop' };
+      const conversationId = typeof request?.conversation_id === 'string' ? request.conversation_id : '';
+      const turnId = typeof request?.turn_id === 'string' ? request.turn_id.trim() : '';
+      if (!conversationId || !turnId || turnId.length > 256) return { status: 'noop' };
+      const seatId = this.deps.get_active_seat_id();
+
+      // Trusted metadata re-read #1. A backend/metadata failure is a no-op,
+      // never a reason to create anything.
+      let metadata: ProjectConversationMetadata;
+      try {
+        metadata = await this.deps.binding_client.readMetadata(conversationId);
+      } catch {
+        return { status: 'noop' };
+      }
+      if (!this.isAutoProjectEligibleMetadata(metadata)) return { status: 'noop' };
+
+      // Durable title: the PERSISTED conversation name only. While it is still
+      // a default/greeting title, perform a few bounded LOCAL re-reads (the
+      // title write can race the terminal finish frame) — never inference, and
+      // no durable title means a safe no-op.
+      let title = metadata.name.trim();
+      for (
+        let attempt = 0;
+        attempt < AUTO_PROJECT_TITLE_REREAD_COUNT && isDefaultOrGreetingTitle(title);
+        attempt += 1
+      ) {
+        await delay(this.autoProjectTitleRereadDelayMs);
+        try {
+          metadata = await this.deps.binding_client.readMetadata(conversationId);
+        } catch {
+          return { status: 'noop' };
+        }
+        // The conversation changed under us (bound, switched, no longer temp).
+        if (!this.isAutoProjectEligibleMetadata(metadata)) return { status: 'noop' };
+        title = metadata.name.trim();
+      }
+      if (!title || title.length > 200 || isDefaultOrGreetingTitle(title)) return { status: 'noop' };
+      // The re-read waits gave a seat switch a window to start — re-check.
+      if (this.deps.is_seat_switch_in_flight?.()) return { status: 'noop' };
+
+      // Exactly ONE app-managed default business placement, or fail closed.
+      // The same idempotent lazy seat bootstrap as list() runs first so a seat
+      // restored/switched to after boot still offers its seeded placement.
+      if (this.deps.registry.readSeatCatalogs(seatId).realms.realms.length === 0) {
+        ensureProjectWorkspaceSeatBootstrap({
+          registry: this.deps.registry,
+          seat_id: seatId,
+          data_path: path.dirname(this.deps.registry.stateRoot),
+        });
+      }
+      const placement = this.resolveAutoBusinessPlacement(seatId);
+      if (!placement) return { status: 'noop' };
+
+      // Deterministic idempotency identity from seat + conversation + turn:
+      // duplicate finish events and retries of the SAME turn collide on it.
+      const idempotencyIdentity = deterministicUuid(`auto-project\0${seatId}\0${conversationId}\0${turnId}`);
+
+      let plan: ProjectIntentPlan;
+      try {
+        plan = this.derivePlan({
+          placement_id: this.placementId(placement.realm.realm_id, placement.root.root_id),
+          title,
+          conversation_id: conversationId,
+        });
+      } catch {
+        // e.g. catalog.project-conflict: an equal-title project already exists.
+        // Never guess another placement and never force a duplicate.
+        return { status: 'noop' };
+      }
+      const projectId = plan.project_id;
+      if (!projectId) return { status: 'noop' };
+      plan.created_by = 'eve';
+
+      const result = await this.deps.service.create(plan);
+      if (result.ok === false) {
+        return { status: 'rejected', reason_code: mapProjectWorkspaceReason(result.reason_code) };
+      }
+
+      // ProjectWorkspaceService.create() commits the semantic bundle and its
+      // conversation-binding CAS as ONE transaction. Never issue a second
+      // lifecycle bind here: doing so races the already-committed revision and
+      // can turn a successful create into a false rejection. Re-read the
+      // trusted metadata instead and surface success only when that atomic
+      // commit is observable.
+      let committedMetadata: ProjectConversationMetadata;
+      try {
+        committedMetadata = await this.deps.binding_client.readMetadata(conversationId);
+      } catch {
+        return { status: 'rejected', reason_code: 'invariant_failure' };
+      }
+      if (
+        committedMetadata.binding?.project_id !== projectId ||
+        committedMetadata.binding.workspace_root_ref !== plan.workspace_root_ref
+      ) {
+        return { status: 'rejected', reason_code: 'invariant_failure' };
+      }
+
+      this.writeAutoProjectArtifact({
+        seatId,
+        conversationId,
+        artifactId: idempotencyIdentity,
+        plan,
+        placement,
+        receiptId: result.transaction_id,
+      });
+      return { status: 'created', project_id: projectId, project_title: plan.title };
+    } catch (error) {
+      return {
+        status: 'rejected',
+        reason_code:
+          error instanceof ProjectWorkspaceError ? mapProjectWorkspaceReason(error.reason_code) : 'invariant_failure',
+      };
+    }
+  }
+
+  /**
+   * Eligibility for the post-turn auto-project policy, proven ONLY from
+   * trusted main-side metadata: a Command-EVE/Hermes ACP conversation that is
+   * still in its temporary workspace, has no user-selected custom workspace,
+   * and is not already project-bound (the binding re-check is also the primary
+   * duplicate/replay guard: one project per conversation).
+   */
+  private isAutoProjectEligibleMetadata(metadata: ProjectConversationMetadata): boolean {
+    return (
+      metadata.conversation_type === 'acp' &&
+      metadata.backend !== null &&
+      isCommandEveAcpConversation(metadata.backend) &&
+      metadata.is_temporary_workspace === true &&
+      metadata.custom_workspace !== true &&
+      metadata.binding === null
+    );
+  }
+
+  /**
+   * Resolve the seat's single app-managed default BUSINESS placement from the
+   * trusted catalogs. Zero or ambiguous (≠1 active business realm, or ≠1
+   * active app-managed root beneath it) returns null — the caller fails closed
+   * as a pathless no-op and never guesses a path.
+   */
+  private resolveAutoBusinessPlacement(seatId: string): { realm: RealmRecord; root: RootRecord } | null {
+    const catalogs = this.deps.registry.readSeatCatalogs(seatId);
+    const businessRealms = catalogs.realms.realms.filter(
+      (realm) => realm.status === 'active' && realm.path_slug === AUTO_PROJECT_BUSINESS_REALM_SLUG
+    );
+    if (businessRealms.length !== 1) return null;
+    const roots = catalogs.roots.roots.filter(
+      (root) => root.realm_id === businessRealms[0].realm_id && root.status === 'active' && root.kind === 'app_managed'
+    );
+    if (roots.length !== 1) return null;
+    return { realm: businessRealms[0], root: roots[0] };
+  }
+
+  /**
+   * Surface the successful auto-create through the existing project
+   * conversation artifact flow: the composer picks the newest COMPLETED
+   * artifact's `project_title` for the durable project chip. The artifact id
+   * is the deterministic turn identity, so a replayed finish re-creates an
+   * identical record (store-level idempotent) instead of piling up artifacts.
+   */
+  private writeAutoProjectArtifact(input: {
+    seatId: string;
+    conversationId: string;
+    artifactId: string;
+    plan: ProjectIntentPlan;
+    placement: { realm: RealmRecord; root: RootRecord };
+    receiptId: string;
+  }): void {
+    const preview: ProjectWorkspaceArtifactDTO = {
+      artifact_id: input.artifactId,
+      state: 'preview',
+      ...(input.plan.project_id ? { project_id: input.plan.project_id } : {}),
+      intent_summary: `Project "${input.plan.title}" created and linked`,
+      target_label: `${input.placement.realm.label} / ${input.placement.root.label}`,
+      project_title: input.plan.title,
+      delta_summary: [`create -> ${input.plan.slug}`, `bind -> ${input.plan.slug}`],
+      safe_follow_ups: ['reveal', 'edit'],
+    };
+    try {
+      this.deps.artifact_store.create({
+        seat_id: input.seatId,
+        conversation_id: input.conversationId,
+        artifact_id: input.artifactId,
+        payload: preview,
+      });
+      this.deps.artifact_store.transition({
+        seat_id: input.seatId,
+        conversation_id: input.conversationId,
+        artifact_id: input.artifactId,
+        expected_state: 'preview',
+        payload: {
+          ...preview,
+          state: 'completed',
+          receipt: {
+            receipt_id: input.receiptId,
+            outcome: 'completed',
+            completed_at: this.nowMs(),
+          },
+        },
+      });
+    } catch (error) {
+      // An identical COMPLETED artifact from an earlier delivery of this same
+      // turn is success, not failure (the store's completed state is terminal
+      // and rejects a second transition). Anything else is logged, never
+      // thrown: the project and the binding have already committed.
+      const existing = this.deps.artifact_store
+        .list(input.seatId, input.conversationId)
+        .find((artifact) => artifact.id === input.artifactId);
+      if (existing?.payload.state !== 'completed') {
+        console.error('[ProjectWorkspace] auto-project artifact write failed (non-blocking)', error);
+      }
     }
   }
 }

@@ -37,6 +37,8 @@ import type {
 import type { PreviewHistoryTarget, PreviewSnapshotInfo } from '../types/office/preview';
 import type {
   ProjectWorkspaceConversationArtifactDTO,
+  ProjectWorkspaceEnsureAutoProjectRequest,
+  ProjectWorkspaceEnsureAutoProjectResult,
   ProjectWorkspaceExplicitChatIntentRequest,
   ProjectWorkspaceExplicitChatIntentResult,
   ProjectWorkspaceListDTO,
@@ -320,6 +322,13 @@ export const projectWorkspace = {
   chatIntent: bridge.buildProvider<ProjectWorkspaceExplicitChatIntentResult, ProjectWorkspaceExplicitChatIntentRequest>(
     'project-workspace.chat-intent'
   ),
+  // 1.820.4 (MAT-1772) — post-turn auto-project hint. Fire-and-forget: the
+  // input is only the opaque `{ conversation_id, turn_id }`; eligibility is
+  // re-proven main-side and the pathless outcome may be ignored by the caller.
+  ensureAfterSuccessfulTurn: bridge.buildProvider<
+    ProjectWorkspaceEnsureAutoProjectResult,
+    ProjectWorkspaceEnsureAutoProjectRequest
+  >('project-workspace.ensureAfterSuccessfulTurn'),
 };
 
 async function invokeProjectRuntimeFallback<T>(direct: () => Promise<T>, main: () => Promise<T>): Promise<T> {
@@ -815,13 +824,7 @@ export interface ICommandEveCommandCenterReadModelResult {
 }
 
 export type ICommandEveConnectorEvidenceState =
-  | 'installed'
-  | 'available'
-  | 'needs_auth'
-  | 'unverified'
-  | 'gated'
-  | 'connected'
-  | 'blocked';
+  'installed' | 'available' | 'needs_auth' | 'unverified' | 'gated' | 'connected' | 'blocked';
 
 export interface ICommandEveConnectorCatalogCard {
   id: string;
@@ -1307,11 +1310,7 @@ export interface ICommandEveCrmConsentLocalResult {
 export type ICommandEveLicenseEdition = 'pilot' | 'standard';
 
 export type ICommandEveEntitlementGateState =
-  | 'unconfigured'
-  | 'unregistered'
-  | 'registered_unlicensed'
-  | 'entitled'
-  | 'expired';
+  'unconfigured' | 'unregistered' | 'registered_unlicensed' | 'entitled' | 'expired';
 
 export interface ICommandEveEntitlementStatusResult {
   version: 'command-eve-entitlement/v0';
@@ -1719,11 +1718,7 @@ export interface ICommandEveCreditsSpendCapResult {
 export type ICommandEveOnboardingItemState = 'ok' | 'blocked' | 'skipped';
 
 export type ICommandEveOnboardingRemediationKind =
-  | 'none'
-  | 'external-link'
-  | 'html-screen'
-  | 'cloud-redirect'
-  | 'reinstall';
+  'none' | 'external-link' | 'html-screen' | 'cloud-redirect' | 'reinstall';
 
 export type ICommandEveOnboardingItemId = 'registration' | 'license' | 'cloud-lane' | 'local-lane' | 'identity';
 
@@ -3617,13 +3612,7 @@ export interface IConversationTurnCompletedEvent {
   turn_id: string;
   status: 'pending' | 'running' | 'finished';
   state:
-    | 'ai_generating'
-    | 'ai_waiting_input'
-    | 'ai_waiting_confirmation'
-    | 'initializing'
-    | 'stopped'
-    | 'error'
-    | 'unknown';
+    'ai_generating' | 'ai_waiting_input' | 'ai_waiting_confirmation' | 'initializing' | 'stopped' | 'error' | 'unknown';
   detail: string;
   can_send_message: boolean;
   runtime: {

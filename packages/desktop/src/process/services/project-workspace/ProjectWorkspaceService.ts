@@ -536,7 +536,7 @@ export class ProjectWorkspaceService {
       slug: plan.slug,
       status: 'active',
       domain_ids: plan.domain_ids,
-      created_by: 'user',
+      created_by: plan.created_by ?? 'user',
       created_at: createdAt,
       workspace_root_ref: plan.workspace_root_ref,
       manual_overrides: [],

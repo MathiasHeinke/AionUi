@@ -62,6 +62,12 @@ export type ProjectIntentPlan = {
   question_count: 0 | 1;
   snapshot: ImmutableProjectTargetSnapshot;
   reason_code?: ProjectWorkspaceReasonCode;
+  /**
+   * Provenance recorded in the project manifest. Manual (UI/chat-intent)
+   * creates leave this unset and persist `'user'`; the 1.820.4 post-turn
+   * auto-project policy sets `'eve'`. Main-owned — never renderer-supplied.
+   */
+  created_by?: 'user' | 'eve';
 };
 
 export type CalibrationClass = ProjectIntentAction;

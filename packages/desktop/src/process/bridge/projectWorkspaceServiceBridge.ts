@@ -4,6 +4,8 @@ import { bridge } from '@office-ai/platform';
 import { ProjectWorkspaceError } from '@/common/types/project-workspace/reasonCodes';
 import type {
   ProjectWorkspaceConversationArtifactDTO,
+  ProjectWorkspaceEnsureAutoProjectRequest,
+  ProjectWorkspaceEnsureAutoProjectResult,
   ProjectWorkspaceExplicitChatIntentRequest,
   ProjectWorkspaceExplicitChatIntentResult,
   ProjectWorkspaceListDTO,
@@ -332,6 +334,22 @@ export function initProjectWorkspaceServiceBridge(): void {
       } catch {
         // Defensive only — facade.chatIntent is already fail-open by contract.
         return { decision: 'pass_through' as const };
+      }
+    });
+  // 1.820.4 (MAT-1772) — post-turn auto-project provider. Fire-and-forget
+  // from the renderer: the provider catches EVERY error and never throws
+  // across IPC, so conversation completion can never hang on provisioning.
+  bridge
+    .buildProvider<ProjectWorkspaceEnsureAutoProjectResult, ProjectWorkspaceEnsureAutoProjectRequest>(
+      'project-workspace.ensureAfterSuccessfulTurn'
+    )
+    .provider(async (input) => {
+      try {
+        return await facade.ensureAfterSuccessfulTurn(input);
+      } catch (error) {
+        // Defensive only — facade.ensureAfterSuccessfulTurn is already
+        // catch-all by contract; keep the IPC boundary unconditionally safe.
+        return { status: 'rejected' as const, reason_code: toReasonCode(error) };
       }
     });
 

@@ -26,6 +26,7 @@ const {
   conversationGetUsageInvokeMock,
   confirmMessageInvokeMock,
   reportInferenceErrorMock,
+  ensureAutoProjectInvokeMock,
 } = vi.hoisted(() => ({
   addOrUpdateMessageMock: vi.fn(),
   responseStreamOnMock: vi.fn(),
@@ -38,6 +39,8 @@ const {
   // Default: NO quota/cap signal recognized → the error path renders the cold bubble
   // exactly as before. Tests flip this to true to exercise the suppression (M-quotawall).
   reportInferenceErrorMock: vi.fn((): boolean => false),
+  // 1.820.4 (MAT-1772): the post-turn auto-project IPC hint (fire-and-forget).
+  ensureAutoProjectInvokeMock: vi.fn().mockResolvedValue({ status: 'noop' }),
 }));
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
@@ -89,6 +92,11 @@ vi.mock('@/common', () => ({
       },
       getUsage: {
         invoke: conversationGetUsageInvokeMock,
+      },
+    },
+    projectWorkspace: {
+      ensureAfterSuccessfulTurn: {
+        invoke: ensureAutoProjectInvokeMock,
       },
     },
   },
@@ -244,6 +252,95 @@ describe('useAcpMessage', () => {
     const refreshCalls = emitSpy.mock.calls.filter((call) => call[0] === 'commandEve.artifacts.refresh');
     expect(refreshCalls).toEqual([['commandEve.artifacts.refresh', { conversation_id: 'conv-1' }]]);
     emitSpy.mockRestore();
+  });
+
+  describe('1.820.4 post-turn auto-project trigger (MAT-1772)', () => {
+    const emitFrame = (type: string, msgId = 'msg-turn', turnId?: string): void => {
+      responseStreamHandlerRef.current?.({
+        type,
+        data: type === 'text' ? 'Working' : null,
+        msg_id: msgId,
+        ...(turnId ? { turn_id: turnId } : {}),
+        conversation_id: 'conv-1',
+      } as IResponseMessage);
+    };
+
+    it('fires the pathless IPC hint on a successful substantive finish with the runtime turn id', () => {
+      conversationGetInvokeMock.mockResolvedValue(null);
+      renderHook(() => useAcpMessage('conv-1', { autoProject: true }));
+      localSendAccepted('conv-1', 'turn-abc', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-abc',
+      });
+
+      act(() => {
+        emitFrame('start');
+        emitFrame('text');
+        emitFrame('finish', 'msg-turn', 'turn-exact');
+      });
+
+      expect(ensureAutoProjectInvokeMock).toHaveBeenCalledTimes(1);
+      expect(ensureAutoProjectInvokeMock).toHaveBeenCalledWith({ conversation_id: 'conv-1', turn_id: 'turn-exact' });
+    });
+
+    it('does not fire on an empty finish (no substantive output)', () => {
+      conversationGetInvokeMock.mockResolvedValue(null);
+      renderHook(() => useAcpMessage('conv-1', { autoProject: true }));
+
+      act(() => {
+        emitFrame('start');
+        emitFrame('finish');
+      });
+
+      expect(ensureAutoProjectInvokeMock).not.toHaveBeenCalled();
+    });
+
+    it('does not fire when the AcpChat gate is off (non-EVE backend)', () => {
+      conversationGetInvokeMock.mockResolvedValue(null);
+      renderHook(() => useAcpMessage('conv-1'));
+
+      act(() => {
+        emitFrame('start');
+        emitFrame('text');
+        emitFrame('finish');
+      });
+
+      expect(ensureAutoProjectInvokeMock).not.toHaveBeenCalled();
+    });
+
+    it('does not fire on an errored turn', () => {
+      conversationGetInvokeMock.mockResolvedValue(null);
+      renderHook(() => useAcpMessage('conv-1', { autoProject: true }));
+
+      act(() => {
+        emitFrame('start');
+        emitFrame('text');
+        emitFrame('error');
+      });
+
+      expect(ensureAutoProjectInvokeMock).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the finish msg_id when no runtime turn id is hydrated', () => {
+      conversationGetInvokeMock.mockResolvedValue(null);
+      renderHook(() => useAcpMessage('conv-1', { autoProject: true }));
+
+      act(() => {
+        emitFrame('start', 'msg-finish-1');
+        emitFrame('text', 'msg-finish-1');
+        emitFrame('finish', 'msg-finish-1');
+      });
+
+      expect(ensureAutoProjectInvokeMock).toHaveBeenCalledTimes(1);
+      expect(ensureAutoProjectInvokeMock).toHaveBeenCalledWith({
+        conversation_id: 'conv-1',
+        turn_id: 'msg-finish-1',
+      });
+    });
   });
 
   describe('ACP stream watchdog', () => {

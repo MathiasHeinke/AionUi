@@ -82,12 +82,7 @@ export type ProjectWorkspaceReceiptDTO = {
 };
 
 export type ProjectWorkspaceArtifactState =
-  | 'preview'
-  | 'awaiting_confirmation'
-  | 'committing'
-  | 'completed'
-  | 'rejected'
-  | 'recovery_required';
+  'preview' | 'awaiting_confirmation' | 'committing' | 'completed' | 'rejected' | 'recovery_required';
 
 /**
  * Reference to a renderer-owned i18n key plus interpolation params (1.818
@@ -135,8 +130,7 @@ export type ProjectWorkspaceMutationIdentity = {
 };
 
 export type ProjectWorkspaceEnvelope<T> =
-  | { ok: true; data: T }
-  | { ok: false; reason_code: ProjectWorkspaceUiReasonCode };
+  { ok: true; data: T } | { ok: false; reason_code: ProjectWorkspaceUiReasonCode };
 
 export type ProjectWorkspaceExplicitChatIntentRequest = {
   conversation_id: string;
@@ -151,3 +145,21 @@ export type ProjectWorkspaceExplicitChatIntentResult =
   | { decision: 'pass_through' }
   | { decision: 'needs_clarification'; question: string; question_i18n?: ProjectWorkspaceI18nRef }
   | { decision: 'handled'; artifact_id: string };
+
+/**
+ * 1.820.4 post-turn auto-project outcome (MAT-1772). Strictly path-free: the
+ * renderer learns THAT a project was provisioned/bound (or why not), never
+ * where it lives. `noop` covers every ineligible turn (non-EVE, errored,
+ * already-bound, custom/non-temporary workspace, missing durable title) —
+ * eligibility is re-derived main-side, the renderer only transports the turn
+ * hint `{ conversation_id, turn_id }` and can never assert it.
+ */
+export type ProjectWorkspaceEnsureAutoProjectRequest = {
+  conversation_id: string;
+  turn_id: string;
+};
+
+export type ProjectWorkspaceEnsureAutoProjectResult =
+  | { status: 'created'; project_id: string; project_title: string }
+  | { status: 'noop' }
+  | { status: 'rejected'; reason_code: ProjectWorkspaceUiReasonCode };

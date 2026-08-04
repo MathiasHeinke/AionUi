@@ -64,6 +64,10 @@ function fakeBindingClient(
       return {
         conversation_id: entry.conversation_id,
         name: entry.conversation_id,
+        conversation_type: 'acp',
+        backend: null,
+        is_temporary_workspace: false,
+        custom_workspace: false,
         binding: entry.project_id
           ? { project_id: entry.project_id, workspace_root_ref: `root:${ROOT_ID}` as const }
           : null,
@@ -75,6 +79,10 @@ function fakeBindingClient(
       metadata.map((entry) => ({
         conversation_id: entry.conversation_id,
         name: entry.conversation_id,
+        conversation_type: 'acp',
+        backend: null,
+        is_temporary_workspace: false,
+        custom_workspace: false,
         binding: entry.project_id
           ? { project_id: entry.project_id, workspace_root_ref: `root:${ROOT_ID}` as const }
           : null,
@@ -211,7 +219,9 @@ describe('ProjectWorkspaceFacade (S81 R1b)', () => {
 
     expect(dto.seat_label).toBe('Alpha Seat');
     expect(dto.seat_context_revision).toBe(SEAT_REVISION);
-    expect(dto.automatic_creation_enabled).toBe(false);
+    // 1.820.4 (MAT-1772): the post-turn auto-project policy is genuinely wired
+    // in this fixture, so the Projects UI truth reports automatic creation.
+    expect(dto.automatic_creation_enabled).toBe(true);
     expect(dto.placements).toHaveLength(1);
     expect(dto.placements[0]).toMatchObject({
       placement_id: f.placementId,

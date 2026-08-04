@@ -33,6 +33,21 @@ export type ProjectConversationMetadataClient = ProjectConversationBindingClient
 export type ProjectConversationMetadata = ProjectBindingSnapshot & {
   conversation_id: string;
   name: string;
+  /**
+   * Trusted platform discriminator from the conversation record (`acp`, …).
+   * Empty string when the record carries no usable value — never eligible.
+   */
+  conversation_type: string;
+  /** ACP backend id from trusted `extra.backend`; null when absent/unusable. */
+  backend: string | null;
+  /** Authoritative temp-workspace flag from `extra.is_temporary_workspace`. */
+  is_temporary_workspace: boolean;
+  /**
+   * Custom (user-selected) workspace flag. Mirrors the renderer mapper:
+   * an explicit persisted boolean wins; otherwise derived from a non-empty
+   * non-temporary `extra.workspace`.
+   */
+  custom_workspace: boolean;
 };
 
 export class ProjectBindingClientError extends Error {
@@ -143,6 +158,32 @@ function snapshotFromConversation(conversation: Record<string, unknown>): Projec
   };
 }
 
+/**
+ * Workspace eligibility flags from trusted `extra` (1.820.4, MAT-1772).
+ * Fail-closed by construction: anything absent or unusable parses to the
+ * INELIGIBLE value (not temporary / not custom) instead of throwing, so the
+ * listMetadata enrichment keeps its per-item tolerance while the post-turn
+ * auto-project policy simply no-ops on such records.
+ */
+function workspaceFlagsFromExtra(extra: unknown): { is_temporary_workspace: boolean; custom_workspace: boolean } {
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) {
+    return { is_temporary_workspace: false, custom_workspace: false };
+  }
+  const record = extra as Record<string, unknown>;
+  const isTemporary = record.is_temporary_workspace === true;
+  if (Object.hasOwn(record, 'custom_workspace')) {
+    return { is_temporary_workspace: isTemporary, custom_workspace: record.custom_workspace === true };
+  }
+  const workspace = typeof record.workspace === 'string' ? record.workspace : '';
+  return { is_temporary_workspace: isTemporary, custom_workspace: workspace.length > 0 && !isTemporary };
+}
+
+function backendFromExtra(extra: unknown): string | null {
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null;
+  const backend = (extra as Record<string, unknown>).backend;
+  return typeof backend === 'string' && backend.trim() ? backend : null;
+}
+
 function metadataFromConversation(conversation: Record<string, unknown>): ProjectConversationMetadata {
   if (
     typeof conversation.id !== 'string' ||
@@ -156,6 +197,9 @@ function metadataFromConversation(conversation: Record<string, unknown>): Projec
   return {
     conversation_id: conversation.id,
     name: conversation.name.trim(),
+    conversation_type: typeof conversation.type === 'string' ? conversation.type : '',
+    backend: backendFromExtra(conversation.extra),
+    ...workspaceFlagsFromExtra(conversation.extra),
     ...snapshotFromConversation(conversation),
   };
 }

@@ -56,6 +56,7 @@ const EXPECTED_PROVIDER_CHANNELS = [
   'project-workspace.bindConversation',
   'project-workspace.unbindConversation',
   'project-workspace.chat-intent',
+  'project-workspace.ensureAfterSuccessfulTurn',
 ] as const;
 
 describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
@@ -108,7 +109,9 @@ describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
 
     expect(dto.seat_context_revision).toBe(0);
     expect(dto.seat_label).toBe('Founder');
-    expect(dto.automatic_creation_enabled).toBe(false);
+    // 1.820.4 (MAT-1772): the production bridge wires every auto-project
+    // dependency, so the policy is genuinely active — reported truthfully.
+    expect(dto.automatic_creation_enabled).toBe(true);
     // The bridge init bootstraps the seat: default realms/roots are seeded
     // (Privat/Geschäftlich), so placements are offerable on first list.
     expect(dto.placements).toEqual([
@@ -236,6 +239,31 @@ describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
         idempotency_key: '11111111-1111-4111-8111-111111111111',
       })) as { decision: string };
       expect(result.decision).toBe('pass_through');
+    });
+
+    it('maps a thrown error in ensureAfterSuccessfulTurn to a pathless rejected outcome', async () => {
+      await initWithThrowingFacade('ensureAfterSuccessfulTurn');
+      const result = (await providerFor('project-workspace.ensureAfterSuccessfulTurn')({
+        conversation_id: 'c1',
+        turn_id: 'turn-1',
+      })) as { status: string; reason_code?: string };
+      expect(result.status).toBe('rejected');
+      expect(result.reason_code).toBe('seat_changed');
+      expect(JSON.stringify(result)).not.toContain('/');
+    });
+
+    it('ensureAfterSuccessfulTurn resolves a pathless noop for an ineligible conversation', async () => {
+      const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
+      initProjectWorkspaceServiceBridge();
+      // The stubbed fetch returns no usable conversation record shape for
+      // eligibility (no type/extra flags) — the facade must no-op, and the
+      // provider must never throw across IPC.
+      const result = (await providerFor('project-workspace.ensureAfterSuccessfulTurn')({
+        conversation_id: 'conv-ineligible',
+        turn_id: 'turn-1',
+      })) as { status: string };
+      expect(['noop', 'rejected']).toContain(result.status);
+      expect(JSON.stringify(result)).not.toContain(dataRoot);
     });
 
     it('maps a thrown error in listConversationArtifacts to an empty list', async () => {

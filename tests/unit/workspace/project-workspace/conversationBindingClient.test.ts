@@ -47,6 +47,10 @@ describe('AionCore project conversation binding CAS client', () => {
     await expect(client.readMetadata('conversation-a')).resolves.toEqual({
       conversation_id: 'conversation-a',
       name: 'Launch',
+      conversation_type: '',
+      backend: null,
+      is_temporary_workspace: false,
+      custom_workspace: false,
       binding: A,
       project_binding_revision: 0,
       project_binding_receipt_id: null,
@@ -55,6 +59,10 @@ describe('AionCore project conversation binding CAS client', () => {
       {
         conversation_id: 'conversation-a',
         name: 'Launch',
+        conversation_type: '',
+        backend: null,
+        is_temporary_workspace: false,
+        custom_workspace: false,
         binding: A,
         project_binding_revision: 0,
         project_binding_receipt_id: null,
@@ -62,6 +70,10 @@ describe('AionCore project conversation binding CAS client', () => {
       {
         conversation_id: 'conversation-b',
         name: 'Other',
+        conversation_type: '',
+        backend: null,
+        is_temporary_workspace: false,
+        custom_workspace: false,
         binding: null,
         project_binding_revision: 0,
         project_binding_receipt_id: null,
@@ -94,6 +106,10 @@ describe('AionCore project conversation binding CAS client', () => {
       {
         conversation_id: 'conversation-a',
         name: 'Launch',
+        conversation_type: '',
+        backend: null,
+        is_temporary_workspace: false,
+        custom_workspace: false,
         binding: A,
         project_binding_revision: 0,
         project_binding_receipt_id: null,
@@ -101,6 +117,10 @@ describe('AionCore project conversation binding CAS client', () => {
       {
         conversation_id: 'conversation-c',
         name: 'Ops',
+        conversation_type: '',
+        backend: null,
+        is_temporary_workspace: false,
+        custom_workspace: false,
         binding: null,
         project_binding_revision: 0,
         project_binding_receipt_id: null,
@@ -489,5 +509,95 @@ describe('AionCore project conversation binding CAS client', () => {
       })
     ).rejects.toMatchObject<ProjectBindingClientError>({ code: 'PROJECT_BINDING_OPERATION_INVALID' });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('parses the trusted auto-project eligibility fields (1.820.4 MAT-1772)', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            id: 'conversation-a',
+            name: 'Q3 Planung',
+            type: 'acp',
+            extra: { backend: 'hermes', is_temporary_workspace: true, workspace: '/tmp/hermes-temp-x' },
+          },
+        }),
+        { status: 200 }
+      )
+    );
+    const client = createAionCoreProjectBindingClient({ get_port: () => 43123, fetch_impl: fetchImpl });
+
+    await expect(client.readMetadata('conversation-a')).resolves.toMatchObject({
+      conversation_id: 'conversation-a',
+      conversation_type: 'acp',
+      backend: 'hermes',
+      is_temporary_workspace: true,
+      // A temporary workspace is NEVER custom, even with a workspace string.
+      custom_workspace: false,
+      binding: null,
+    });
+  });
+
+  it('derives custom_workspace from a non-temporary workspace path and respects an explicit flag', async () => {
+    const derived = createAionCoreProjectBindingClient({
+      get_port: () => 43123,
+      fetch_impl: vi.fn<typeof fetch>().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              id: 'conversation-a',
+              name: 'Custom',
+              type: 'acp',
+              extra: { backend: 'hermes', workspace: '/Users/founder/projects/x' },
+            },
+          }),
+          { status: 200 }
+        )
+      ),
+    });
+    await expect(derived.readMetadata('conversation-a')).resolves.toMatchObject({
+      is_temporary_workspace: false,
+      custom_workspace: true,
+    });
+
+    const explicit = createAionCoreProjectBindingClient({
+      get_port: () => 43123,
+      fetch_impl: vi.fn<typeof fetch>().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              id: 'conversation-a',
+              name: 'Custom',
+              type: 'acp',
+              extra: { backend: 'hermes', is_temporary_workspace: true, custom_workspace: true },
+            },
+          }),
+          { status: 200 }
+        )
+      ),
+    });
+    await expect(explicit.readMetadata('conversation-a')).resolves.toMatchObject({
+      is_temporary_workspace: true,
+      custom_workspace: true,
+    });
+  });
+
+  it('parses absent or unusable eligibility fields to the ineligible values (fail closed)', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: { id: 'conversation-a', name: 'Legacy', extra: { backend: 42, is_temporary_workspace: 'yes' } },
+        }),
+        { status: 200 }
+      )
+    );
+    const client = createAionCoreProjectBindingClient({ get_port: () => 43123, fetch_impl: fetchImpl });
+
+    await expect(client.readMetadata('conversation-a')).resolves.toMatchObject({
+      conversation_type: '',
+      backend: null,
+      is_temporary_workspace: false,
+      custom_workspace: false,
+    });
   });
 });
