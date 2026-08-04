@@ -115,6 +115,50 @@ describe('httpBridge realtime recovery', () => {
     expect(stream).toHaveBeenCalledWith(payload);
   });
 
+  it('maps turn completion evidence fail-closed and preserves explicit AionCore proof', async () => {
+    const { mapConversationTurnCompletedEvent } = await import('@/common/adapter/conversationTurnCompletedMapper');
+    const legacy = mapConversationTurnCompletedEvent({
+      conversation_id: 'conversation-legacy',
+      turn_id: 'turn-legacy',
+      status: 'finished',
+    });
+    const explicit = mapConversationTurnCompletedEvent({
+      conversation_id: 'conversation-explicit',
+      turn_id: 'turn-explicit',
+      status: 'finished',
+      state: 'ai_waiting_input',
+      has_substantive_output: true,
+      canSendMessage: true,
+    });
+    const malformed = mapConversationTurnCompletedEvent({
+      conversation_id: 'conversation-malformed',
+      turn_id: 'turn-malformed',
+      state: 'ai_waiting_input',
+      has_substantive_output: true,
+      can_send_message: 'false',
+    });
+
+    expect(legacy).toMatchObject({
+      session_id: 'conversation-legacy',
+      turn_id: 'turn-legacy',
+      state: 'unknown',
+      has_substantive_output: false,
+    });
+    expect(explicit).toMatchObject({
+      session_id: 'conversation-explicit',
+      turn_id: 'turn-explicit',
+      state: 'ai_waiting_input',
+      has_substantive_output: true,
+      can_send_message: true,
+    });
+    expect(malformed).toMatchObject({
+      status: 'pending',
+      state: 'ai_waiting_input',
+      has_substantive_output: true,
+      can_send_message: false,
+    });
+  });
+
   it('answers the AionCore heartbeat so a mounted chat keeps its realtime stream', async () => {
     const { wsEmitter } = await import('@/common/adapter/httpBridge');
     const internalPing = vi.fn();

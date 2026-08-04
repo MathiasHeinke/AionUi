@@ -52,9 +52,8 @@ const isTerminalStreamMessage = (message: { type: string; data: unknown }): bool
  * The three terminal turn states (turn finished for now). EXPORTED so the T5
  * session-digest relay (useSessionDigestRelay) uses the SAME predicate — the two must
  * agree on what "terminal" means, so the relay's immediate-flush condition can never
- * drift from the sidebar's resting-flag logic. NOTE the state-default falle (see the
- * turn.completed mapper): a missing state becomes 'ai_waiting_input' only when
- * status==='finished', else 'unknown' — and 'unknown' is NOT terminal here.
+ * drift from the sidebar's resting-flag logic. NOTE the fail-closed mapper contract:
+ * a missing/unknown backend state always remains `unknown` and is never terminal.
  */
 export const isTerminalTurnState = (state: string): boolean => {
   return state === 'ai_waiting_input' || state === 'error' || state === 'stopped';
@@ -220,9 +219,18 @@ const localGeneratingTurnIds = new Map<string, string | null>();
 type AutoProjectTurnRelayState = {
   turnId: string | null;
   hasSubstantiveOutput: boolean;
+  terminalSuccessObserved: boolean;
+  seatEpoch: number;
+  requestScheduled: boolean;
+  retryTimer: ReturnType<typeof setTimeout> | null;
 };
 const autoProjectTurnRelayState = new Map<string, Map<string, AutoProjectTurnRelayState>>();
 const completedAutoProjectTurnKeys = new Set<string>();
+const failedAutoProjectTurnKeys = new Set<string>();
+const inFlightAutoProjectTurnKeys = new Set<string>();
+const autoProjectTurnAttemptCounts = new Map<string, number>();
+const AUTO_PROJECT_MAX_ATTEMPTS = 2;
+const AUTO_PROJECT_RETRY_DELAY_MS = 250;
 let lastSidebarReceiptUpdatedAt = 0;
 
 const normalizeStreamIdentity = (value: unknown): string | null => {
@@ -237,10 +245,55 @@ const rememberCompletedAutoProjectTurn = (key: string): void => {
   if (oldest) completedAutoProjectTurnKeys.delete(oldest);
 };
 
+const rememberFailedAutoProjectTurn = (key: string): void => {
+  if (failedAutoProjectTurnKeys.has(key)) return;
+  failedAutoProjectTurnKeys.add(key);
+  if (failedAutoProjectTurnKeys.size <= 256) return;
+  const oldest = failedAutoProjectTurnKeys.values().next().value;
+  if (oldest) failedAutoProjectTurnKeys.delete(oldest);
+};
+
+const rememberAutoProjectAttempt = (key: string, attempt: number): void => {
+  autoProjectTurnAttemptCounts.delete(key);
+  autoProjectTurnAttemptCounts.set(key, attempt);
+  if (autoProjectTurnAttemptCounts.size <= 256) return;
+  const oldest = autoProjectTurnAttemptCounts.keys().next().value;
+  if (oldest) autoProjectTurnAttemptCounts.delete(oldest);
+};
+
+const autoProjectTurnKey = (conversationId: string, turnId: string): string => `${conversationId}\0${turnId}`;
+
+const clearAutoProjectTurnTimer = (state: AutoProjectTurnRelayState): void => {
+  if (state.retryTimer !== null) clearTimeout(state.retryTimer);
+  state.retryTimer = null;
+  state.requestScheduled = false;
+};
+
+const findAutoProjectRelayTurn = (
+  conversationId: string,
+  turnId: string
+): [streamTurnKey: string, state: AutoProjectTurnRelayState] | null => {
+  const turns = autoProjectTurnRelayState.get(conversationId);
+  if (!turns) return null;
+  const direct = turns.get(turnId);
+  if (direct) return [turnId, direct];
+  for (const entry of turns) {
+    if (entry[1].turnId === turnId) return entry;
+  }
+  return null;
+};
+
 const clearAutoProjectRelayForConversation = (conversationId: string): void => {
+  const turns = autoProjectTurnRelayState.get(conversationId);
+  turns?.forEach(clearAutoProjectTurnTimer);
   autoProjectTurnRelayState.delete(conversationId);
-  for (const key of completedAutoProjectTurnKeys) {
-    if (key.startsWith(`${conversationId}\0`)) completedAutoProjectTurnKeys.delete(key);
+  for (const collection of [completedAutoProjectTurnKeys, failedAutoProjectTurnKeys, inFlightAutoProjectTurnKeys]) {
+    for (const key of collection) {
+      if (key.startsWith(`${conversationId}\0`)) collection.delete(key);
+    }
+  }
+  for (const key of autoProjectTurnAttemptCounts.keys()) {
+    if (key.startsWith(`${conversationId}\0`)) autoProjectTurnAttemptCounts.delete(key);
   }
 };
 
@@ -251,8 +304,128 @@ const clearAutoProjectRelayTurn = (conversationId: string, turnId: string | null
   }
   const turns = autoProjectTurnRelayState.get(conversationId);
   if (!turns) return;
-  turns.delete(turnId);
+  const entry = findAutoProjectRelayTurn(conversationId, turnId);
+  if (!entry) return;
+  clearAutoProjectTurnTimer(entry[1]);
+  turns.delete(entry[0]);
   if (turns.size === 0) autoProjectTurnRelayState.delete(conversationId);
+};
+
+const resetAutoProjectRelayState = (): void => {
+  autoProjectTurnRelayState.forEach((turns) => turns.forEach(clearAutoProjectTurnTimer));
+  autoProjectTurnRelayState.clear();
+  completedAutoProjectTurnKeys.clear();
+  failedAutoProjectTurnKeys.clear();
+  inFlightAutoProjectTurnKeys.clear();
+  autoProjectTurnAttemptCounts.clear();
+};
+
+const hasSubstantiveAutoProjectOutput = (data: unknown): boolean => {
+  if (typeof data === 'string') return data.trim().length > 0;
+  if (Array.isArray(data)) return data.some(hasSubstantiveAutoProjectOutput);
+  if (!data || typeof data !== 'object') return false;
+  const record = data as Record<string, unknown>;
+  return ['content', 'text', 'delta'].some((field) => hasSubstantiveAutoProjectOutput(record[field]));
+};
+
+/**
+ * Deliver a renderer-proven successful turn to Main. Calls are result-aware:
+ * `created` seals the exact-once key; bridge failures/noops/rejections get one
+ * bounded retry because Main may still be finishing a durable title write.
+ * Main re-proves every policy fact and this helper never creates a project.
+ */
+const requestAutoProjectForCompletedTurn = (
+  conversationId: string,
+  streamTurnKey: string,
+  state: AutoProjectTurnRelayState
+): void => {
+  const turnId = state.turnId ?? streamTurnKey;
+  const key = autoProjectTurnKey(conversationId, turnId);
+  if (
+    state.seatEpoch !== seatEpoch ||
+    failedAutoProjectTurnKeys.has(key) ||
+    completedAutoProjectTurnKeys.has(key) ||
+    inFlightAutoProjectTurnKeys.has(key)
+  ) {
+    return;
+  }
+
+  const attempt = autoProjectTurnAttemptCounts.get(key) ?? 0;
+  if (attempt >= AUTO_PROJECT_MAX_ATTEMPTS) return;
+  rememberAutoProjectAttempt(key, attempt + 1);
+  inFlightAutoProjectTurnKeys.add(key);
+
+  void ipcBridge.projectWorkspace.ensureAfterSuccessfulTurn
+    .invoke({ conversation_id: conversationId, turn_id: turnId })
+    .then((result) => {
+      inFlightAutoProjectTurnKeys.delete(key);
+      if (state.seatEpoch !== seatEpoch || failedAutoProjectTurnKeys.has(key)) return;
+      if (result.status === 'created') {
+        rememberCompletedAutoProjectTurn(key);
+        autoProjectTurnAttemptCounts.delete(key);
+        clearAutoProjectRelayTurn(conversationId, turnId);
+        return;
+      }
+      scheduleAutoProjectRequest(conversationId, streamTurnKey, state, AUTO_PROJECT_RETRY_DELAY_MS);
+    })
+    .catch(() => {
+      inFlightAutoProjectTurnKeys.delete(key);
+      if (state.seatEpoch !== seatEpoch || failedAutoProjectTurnKeys.has(key)) return;
+      scheduleAutoProjectRequest(conversationId, streamTurnKey, state, AUTO_PROJECT_RETRY_DELAY_MS);
+    });
+};
+
+function scheduleAutoProjectRequest(
+  conversationId: string,
+  streamTurnKey: string,
+  state: AutoProjectTurnRelayState,
+  delayMs = 0
+): void {
+  const turnId = state.turnId ?? streamTurnKey;
+  const key = autoProjectTurnKey(conversationId, turnId);
+  if (
+    !state.hasSubstantiveOutput ||
+    !state.terminalSuccessObserved ||
+    state.seatEpoch !== seatEpoch ||
+    failedAutoProjectTurnKeys.has(key) ||
+    completedAutoProjectTurnKeys.has(key) ||
+    inFlightAutoProjectTurnKeys.has(key) ||
+    (autoProjectTurnAttemptCounts.get(key) ?? 0) >= AUTO_PROJECT_MAX_ATTEMPTS
+  ) {
+    return;
+  }
+
+  if (state.retryTimer !== null) {
+    clearTimeout(state.retryTimer);
+    state.retryTimer = null;
+  }
+  if (state.requestScheduled) return;
+
+  const queue = () => {
+    state.requestScheduled = true;
+    queueMicrotask(() => {
+      state.requestScheduled = false;
+      const current = autoProjectTurnRelayState.get(conversationId)?.get(streamTurnKey);
+      if (current !== state || state.seatEpoch !== seatEpoch || failedAutoProjectTurnKeys.has(key)) return;
+      requestAutoProjectForCompletedTurn(conversationId, streamTurnKey, state);
+    });
+  };
+
+  if (delayMs > 0) {
+    state.retryTimer = setTimeout(() => {
+      state.retryTimer = null;
+      queue();
+    }, delayMs);
+  } else {
+    queue();
+  }
+}
+
+const failAutoProjectTurn = (conversationId: string, turnId: string): void => {
+  const key = autoProjectTurnKey(conversationId, turnId);
+  rememberFailedAutoProjectTurn(key);
+  autoProjectTurnAttemptCounts.delete(key);
+  clearAutoProjectRelayTurn(conversationId, turnId);
 };
 
 /**
@@ -275,17 +448,29 @@ const relaySuccessfulTurnToAutoProject = (message: {
   const messageTurnId = normalizeStreamIdentity(message.turn_id);
   const streamTurnKey = messageTurnId ?? normalizeStreamIdentity(message.msg_id);
   if (!streamTurnKey) return;
-  const completedKey = `${conversationId}\0${streamTurnKey}`;
+  const relayKey = autoProjectTurnKey(conversationId, messageTurnId ?? streamTurnKey);
+
+  if (message.type === 'error' || (message.type === 'agent_status' && isTerminalAgentStatus(message.data))) {
+    failAutoProjectTurn(conversationId, messageTurnId ?? streamTurnKey);
+    return;
+  }
 
   if (message.type === 'start') {
-    if (completedAutoProjectTurnKeys.has(completedKey)) return;
+    if (completedAutoProjectTurnKeys.has(relayKey) || failedAutoProjectTurnKeys.has(relayKey)) return;
     let turns = autoProjectTurnRelayState.get(conversationId);
     if (!turns) {
       turns = new Map();
       autoProjectTurnRelayState.set(conversationId, turns);
     }
     if (!turns.has(streamTurnKey)) {
-      turns.set(streamTurnKey, { turnId: messageTurnId, hasSubstantiveOutput: false });
+      turns.set(streamTurnKey, {
+        turnId: messageTurnId,
+        hasSubstantiveOutput: false,
+        terminalSuccessObserved: false,
+        seatEpoch,
+        requestScheduled: false,
+        retryTimer: null,
+      });
     }
     while (turns.size > 8) {
       const oldest = turns.keys().next().value;
@@ -295,37 +480,35 @@ const relaySuccessfulTurnToAutoProject = (message: {
     return;
   }
 
-  const turns = autoProjectTurnRelayState.get(conversationId);
-  const tracked = turns?.get(streamTurnKey);
-  if (!tracked) return;
-
-  if (message.type === 'error' || (message.type === 'agent_status' && isTerminalAgentStatus(message.data))) {
-    clearAutoProjectRelayTurn(conversationId, streamTurnKey);
-    return;
+  let turns = autoProjectTurnRelayState.get(conversationId);
+  let tracked = turns?.get(streamTurnKey);
+  if (!tracked && (message.type === 'text' || message.type === 'content')) {
+    if (completedAutoProjectTurnKeys.has(relayKey) || failedAutoProjectTurnKeys.has(relayKey)) return;
+    turns ??= new Map();
+    autoProjectTurnRelayState.set(conversationId, turns);
+    tracked = {
+      turnId: messageTurnId,
+      hasSubstantiveOutput: false,
+      terminalSuccessObserved: false,
+      seatEpoch,
+      requestScheduled: false,
+      retryTimer: null,
+    };
+    turns.set(streamTurnKey, tracked);
   }
+  if (!tracked || tracked.seatEpoch !== seatEpoch) return;
 
   if (message.type === 'text' || message.type === 'content') {
     tracked.turnId ??= messageTurnId;
-    tracked.hasSubstantiveOutput = true;
+    tracked.hasSubstantiveOutput ||= hasSubstantiveAutoProjectOutput(message.data);
+    scheduleAutoProjectRequest(conversationId, streamTurnKey, tracked);
     return;
   }
 
   if (message.type !== 'finish') return;
-  clearAutoProjectRelayTurn(conversationId, streamTurnKey);
-  if (!tracked.hasSubstantiveOutput) return;
-
-  const finishedTurnId = messageTurnId ?? tracked.turnId ?? streamTurnKey;
-  if (!finishedTurnId) return;
-  if (completedAutoProjectTurnKeys.has(completedKey)) return;
-  rememberCompletedAutoProjectTurn(completedKey);
-
-  void ipcBridge.projectWorkspace.ensureAfterSuccessfulTurn
-    .invoke({ conversation_id: conversationId, turn_id: finishedTurnId })
-    .catch(() => {
-      // Keep the turn non-blocking, but allow a durable stream replay to retry
-      // when the renderer-to-Main bridge itself was temporarily unavailable.
-      completedAutoProjectTurnKeys.delete(completedKey);
-    });
+  tracked.turnId ??= messageTurnId;
+  tracked.terminalSuccessObserved = true;
+  scheduleAutoProjectRequest(conversationId, streamTurnKey, tracked);
 };
 
 const nextSidebarReceiptUpdatedAt = (): number => {
@@ -712,8 +895,7 @@ const initializeConversationListSyncStore = () => {
     localSidebarStatusReceipts.clear();
     sidebarStatusWriteChains.clear();
     localGeneratingTurnIds.clear();
-    autoProjectTurnRelayState.clear();
-    completedAutoProjectTurnKeys.clear();
+    resetAutoProjectRelayState();
     lastSidebarReceiptUpdatedAt = 0;
     resetConversationListForSeatSwitch();
     refreshConversationsForSeatSwitch(seatEpoch);
@@ -809,8 +991,50 @@ const initializeConversationListSyncStore = () => {
 
     const isUnseen = activeConversationIdState !== event.session_id;
     if (isTerminalTurnState(event.state)) {
-      if (event.state === 'error' || event.state === 'stopped') {
-        clearAutoProjectRelayTurn(event.session_id, normalizeStreamIdentity(event.turn_id));
+      const completedTurnId = normalizeStreamIdentity(event.turn_id);
+      if (completedTurnId && (event.state === 'error' || event.state === 'stopped')) {
+        failAutoProjectTurn(event.session_id, completedTurnId);
+      } else if (
+        completedTurnId &&
+        event.status === 'finished' &&
+        event.state === 'ai_waiting_input' &&
+        event.has_substantive_output &&
+        event.can_send_message &&
+        !event.runtime?.is_processing
+      ) {
+        // Only the explicit AionCore outcome/output evidence may recover a
+        // compacted stream. Legacy `status=finished` is deliberately UNKNOWN
+        // in the mapper and can never become success by inference.
+        let entry = findAutoProjectRelayTurn(event.session_id, completedTurnId);
+        if (!entry) {
+          const currentTurnCorrelates =
+            conversation_idsState.has(event.session_id) &&
+            (localGeneratingTurnIds.get(event.session_id) === completedTurnId ||
+              getConversationTurnId(event.session_id) === completedTurnId);
+          if (currentTurnCorrelates) {
+            let turns = autoProjectTurnRelayState.get(event.session_id);
+            if (!turns) {
+              turns = new Map();
+              autoProjectTurnRelayState.set(event.session_id, turns);
+            }
+            const state: AutoProjectTurnRelayState = {
+              turnId: completedTurnId,
+              hasSubstantiveOutput: true,
+              terminalSuccessObserved: true,
+              seatEpoch,
+              requestScheduled: false,
+              retryTimer: null,
+            };
+            turns.set(completedTurnId, state);
+            entry = [completedTurnId, state];
+          }
+        }
+        if (entry && entry[1].seatEpoch === seatEpoch) {
+          entry[1].turnId ??= completedTurnId;
+          entry[1].hasSubstantiveOutput = true;
+          entry[1].terminalSuccessObserved = true;
+          scheduleAutoProjectRequest(event.session_id, entry[0], entry[1]);
+        }
       }
       markCompletionUnread(event.session_id);
       // Split the terminal turn states into their semantic resting flags:

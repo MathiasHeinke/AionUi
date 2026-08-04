@@ -83,7 +83,11 @@ const harness = vi.hoisted(() => {
       }
     ),
     writeRendererLog: vi.fn().mockResolvedValue(undefined),
-    ensureAfterSuccessfulTurn: vi.fn().mockResolvedValue({ outcome: 'completed' }),
+    ensureAfterSuccessfulTurn: vi.fn().mockResolvedValue({
+      status: 'created',
+      project_id: 'project-auto',
+      project_title: 'Automatic project',
+    }),
   };
 });
 
@@ -172,6 +176,7 @@ const terminalTurn = (
   state,
   detail: '',
   can_send_message: true,
+  has_substantive_output: true,
   runtime: runtimeSummary,
   workspace: '',
   model: { platform: '', name: '', use_model: '' },
@@ -371,6 +376,116 @@ describe('conversation sidebar continuity', () => {
       turn_id: 'turn-race-2',
     });
 
+    // Explicit AionCore completion evidence closes a compact stream that
+    // delivered substantive output but lost its finish frame.
+    harness.ensureAfterSuccessfulTurn.mockClear();
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(
+          responseMessage({
+            type: 'content',
+            data: { content: 'Substantive durable result' },
+            conversation_id: 'conversation-auto',
+            turn_id: 'turn-completed-only',
+          })
+        )
+      );
+      harness.turnCompletedHandlers.forEach((handler) =>
+        handler(
+          terminalTurn(
+            'conversation-auto',
+            'turn-completed-only',
+            runtime({ turn_id: 'turn-completed-only' }),
+            'ai_waiting_input'
+          )
+        )
+      );
+    });
+    await act(flushPromises);
+    expect(harness.ensureAfterSuccessfulTurn).toHaveBeenCalledTimes(1);
+    expect(harness.ensureAfterSuccessfulTurn).toHaveBeenCalledWith({
+      conversation_id: 'conversation-auto',
+      turn_id: 'turn-completed-only',
+    });
+
+    // A later compact replay of that same turn remains exactly once.
+    act(() => {
+      for (const type of ['start', 'content', 'finish']) {
+        harness.responseHandlers.forEach((handler) =>
+          handler(
+            responseMessage({
+              type,
+              data: type === 'content' ? 'Substantive result' : null,
+              conversation_id: 'conversation-auto',
+              turn_id: 'turn-completed-only',
+            })
+          )
+        );
+      }
+    });
+    await act(flushPromises);
+    expect(harness.ensureAfterSuccessfulTurn).toHaveBeenCalledTimes(1);
+
+    // Lifecycle completion alone is not success. Missing/false AionCore output
+    // proof remains fail-closed even when a historical last_message exists.
+    harness.ensureAfterSuccessfulTurn.mockClear();
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(
+          responseMessage({
+            type: 'start',
+            conversation_id: 'conversation-auto',
+            turn_id: 'turn-empty-completion',
+          })
+        )
+      );
+      const event = terminalTurn(
+        'conversation-auto',
+        'turn-empty-completion',
+        runtime({ turn_id: 'turn-empty-completion' })
+      );
+      event.has_substantive_output = false;
+      event.last_message = { id: 'old-assistant', content: 'historical', status: 'finish', created_at: 1 };
+      harness.turnCompletedHandlers.forEach((handler) => handler(event));
+    });
+    await act(flushPromises);
+    expect(harness.ensureAfterSuccessfulTurn).not.toHaveBeenCalled();
+
+    // A same-tick failure always wins over an optimistic completion candidate,
+    // in either event order, and tombstones every later replay for that turn.
+    for (const [turnId, successFirst] of [
+      ['turn-success-then-error', true],
+      ['turn-error-then-success', false],
+    ] as const) {
+      act(() => {
+        harness.responseHandlers.forEach((handler) =>
+          handler(
+            responseMessage({
+              type: 'content',
+              data: 'Partial output',
+              conversation_id: 'conversation-auto',
+              turn_id: turnId,
+            })
+          )
+        );
+        const success = terminalTurn('conversation-auto', turnId, runtime({ turn_id: turnId }));
+        const failure = terminalTurn('conversation-auto', turnId, runtime({ turn_id: turnId }), 'error');
+        harness.turnCompletedHandlers.forEach((handler) => handler(successFirst ? success : failure));
+        harness.turnCompletedHandlers.forEach((handler) => handler(successFirst ? failure : success));
+        harness.responseHandlers.forEach((handler) =>
+          handler(
+            responseMessage({
+              type: 'finish',
+              conversation_id: 'conversation-auto',
+              turn_id: turnId,
+            })
+          )
+        );
+      });
+    }
+    await act(flushPromises);
+    expect(harness.ensureAfterSuccessfulTurn).not.toHaveBeenCalled();
+
     // A failed turn may terminalize only through turn.completed; a later
     // replayed finish must not resurrect it as a successful auto-project.
     harness.ensureAfterSuccessfulTurn.mockClear();
@@ -456,6 +571,43 @@ describe('conversation sidebar continuity', () => {
     });
     expect(harness.ensureAfterSuccessfulTurn).toHaveBeenCalledTimes(2);
 
+    // Defined retry policy: Main noop/rejected results get exactly one bounded
+    // retry; a third call is impossible even after more timer/replay pressure.
+    harness.ensureAfterSuccessfulTurn.mockClear();
+    harness.ensureAfterSuccessfulTurn
+      .mockResolvedValueOnce({ status: 'noop' })
+      .mockResolvedValueOnce({ status: 'rejected', reason_code: 'transient_precommit_failure' });
+    await act(async () => {
+      for (const type of ['content', 'finish']) {
+        harness.responseHandlers.forEach((handler) =>
+          handler(
+            responseMessage({
+              type,
+              data: type === 'content' ? 'Bounded retry result' : null,
+              conversation_id: 'conversation-auto',
+              turn_id: 'turn-result-retry',
+            })
+          )
+        );
+      }
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(250);
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await flushPromises();
+      harness.responseHandlers.forEach((handler) =>
+        handler(
+          responseMessage({
+            type: 'finish',
+            conversation_id: 'conversation-auto',
+            turn_id: 'turn-result-retry',
+          })
+        )
+      );
+      await flushPromises();
+    });
+    expect(harness.ensureAfterSuccessfulTurn).toHaveBeenCalledTimes(2);
+
     // A seat rebind invalidates an in-flight turn before an old-seat finish can
     // arrive. The following real A->B switch doubles as the cleanup assertion.
     harness.ensureAfterSuccessfulTurn.mockClear();
@@ -485,6 +637,9 @@ describe('conversation sidebar continuity', () => {
     act(() => {
       harness.responseHandlers.forEach((handler) =>
         handler(responseMessage({ type: 'finish', conversation_id: 'conversation-auto', turn_id: 'turn-old-seat' }))
+      );
+      harness.turnCompletedHandlers.forEach((handler) =>
+        handler(terminalTurn('conversation-auto', 'turn-old-seat', runtime({ turn_id: 'turn-old-seat' })))
       );
     });
     await act(flushPromises);

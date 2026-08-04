@@ -160,6 +160,7 @@ import {
   wsEmitter,
   wsMappedEmitter,
 } from './httpBridge';
+import { mapConversationTurnCompletedEvent } from './conversationTurnCompletedMapper';
 import { fromApiSearchResult, type ApiMessageSearchItem } from './searchMapper';
 import type { IAddTeamAgentParams, ICreateTeamParams } from './teamMapper';
 import {
@@ -482,52 +483,7 @@ export const conversation = {
     created_at: number;
   }>('message.userCreated'),
   artifactStream: wsEmitter<IConversationArtifact>('conversation.artifact'),
-  turnCompleted: wsMappedEmitter<IConversationTurnCompletedEvent>('turn.completed', (raw) => {
-    const r = raw as Record<string, unknown>;
-    const rawLast = (r.last_message ?? r.lastMessage) as Record<string, unknown> | undefined;
-    const last_message: IConversationTurnCompletedEvent['last_message'] = rawLast
-      ? {
-          id: rawLast.id as string | undefined,
-          type: rawLast.type as string | undefined,
-          content: rawLast.content ?? null,
-          status: rawLast.status as string | null | undefined,
-          created_at: (rawLast.created_at ?? rawLast.createdAt ?? Date.now()) as number,
-        }
-      : {
-          content: null,
-          created_at: Date.now(),
-        };
-    const rawRuntime = (r.runtime ?? {}) as Record<string, unknown>;
-    const runtime: IConversationTurnCompletedEvent['runtime'] = {
-      state: (rawRuntime.state ?? 'idle') as IConversationTurnCompletedEvent['runtime']['state'],
-      can_send_message: (rawRuntime.can_send_message ?? rawRuntime.canSendMessage ?? true) as boolean,
-      has_task: (rawRuntime.has_task ?? rawRuntime.hasTask ?? false) as boolean,
-      task_status: (rawRuntime.task_status ??
-        rawRuntime.taskStatus) as IConversationTurnCompletedEvent['runtime']['task_status'],
-      is_processing: (rawRuntime.is_processing ?? rawRuntime.isProcessing ?? false) as boolean,
-      pending_confirmations: (rawRuntime.pending_confirmations ?? rawRuntime.pendingConfirmations ?? 0) as number,
-      turn_id: (rawRuntime.turn_id ?? rawRuntime.turnId ?? null) as string | null,
-    };
-    const rawModel = (r.model ?? {}) as Record<string, unknown>;
-    const model: IConversationTurnCompletedEvent['model'] = {
-      platform: (rawModel.platform ?? '') as string,
-      name: (rawModel.name ?? '') as string,
-      use_model: (rawModel.use_model ?? rawModel.useModel ?? '') as string,
-    };
-    return {
-      session_id: (r.session_id ?? r.sessionId ?? r.conversation_id ?? '') as string,
-      turn_id: (r.turn_id ?? r.turnId ?? runtime.turn_id ?? '') as string,
-      status: (r.status ?? 'finished') as IConversationTurnCompletedEvent['status'],
-      state: (r.state ??
-        (r.status === 'finished' ? 'ai_waiting_input' : 'unknown')) as IConversationTurnCompletedEvent['state'],
-      detail: (r.detail ?? '') as string,
-      can_send_message: (r.can_send_message ?? r.canSendMessage ?? r.status === 'finished') as boolean,
-      runtime,
-      workspace: (r.workspace ?? '') as string,
-      model,
-      last_message,
-    };
-  }),
+  turnCompleted: wsMappedEmitter<IConversationTurnCompletedEvent>('turn.completed', mapConversationTurnCompletedEvent),
   listChanged: wsEmitter<IConversationListChangedEvent>('conversation.listChanged'),
   // Uses httpRequest directly (instead of httpGet + withResponseMap) because the
   // response mapper needs `workspace` from params to build fullPath/relativePath,
@@ -824,7 +780,13 @@ export interface ICommandEveCommandCenterReadModelResult {
 }
 
 export type ICommandEveConnectorEvidenceState =
-  'installed' | 'available' | 'needs_auth' | 'unverified' | 'gated' | 'connected' | 'blocked';
+  | 'installed'
+  | 'available'
+  | 'needs_auth'
+  | 'unverified'
+  | 'gated'
+  | 'connected'
+  | 'blocked';
 
 export interface ICommandEveConnectorCatalogCard {
   id: string;
@@ -1310,7 +1272,11 @@ export interface ICommandEveCrmConsentLocalResult {
 export type ICommandEveLicenseEdition = 'pilot' | 'standard';
 
 export type ICommandEveEntitlementGateState =
-  'unconfigured' | 'unregistered' | 'registered_unlicensed' | 'entitled' | 'expired';
+  | 'unconfigured'
+  | 'unregistered'
+  | 'registered_unlicensed'
+  | 'entitled'
+  | 'expired';
 
 export interface ICommandEveEntitlementStatusResult {
   version: 'command-eve-entitlement/v0';
@@ -1718,7 +1684,11 @@ export interface ICommandEveCreditsSpendCapResult {
 export type ICommandEveOnboardingItemState = 'ok' | 'blocked' | 'skipped';
 
 export type ICommandEveOnboardingRemediationKind =
-  'none' | 'external-link' | 'html-screen' | 'cloud-redirect' | 'reinstall';
+  | 'none'
+  | 'external-link'
+  | 'html-screen'
+  | 'cloud-redirect'
+  | 'reinstall';
 
 export type ICommandEveOnboardingItemId = 'registration' | 'license' | 'cloud-lane' | 'local-lane' | 'identity';
 
@@ -3639,9 +3609,17 @@ export interface IConversationTurnCompletedEvent {
   turn_id: string;
   status: 'pending' | 'running' | 'finished';
   state:
-    'ai_generating' | 'ai_waiting_input' | 'ai_waiting_confirmation' | 'initializing' | 'stopped' | 'error' | 'unknown';
+    | 'ai_generating'
+    | 'ai_waiting_input'
+    | 'ai_waiting_confirmation'
+    | 'initializing'
+    | 'stopped'
+    | 'error'
+    | 'unknown';
   detail: string;
   can_send_message: boolean;
+  /** Explicit AionCore proof for this logical turn; absent/unknown wire data maps to false. */
+  has_substantive_output: boolean;
   runtime: {
     state: 'idle' | 'starting' | 'running' | 'waiting_confirmation';
     can_send_message: boolean;
