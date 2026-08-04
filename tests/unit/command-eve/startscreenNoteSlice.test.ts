@@ -191,6 +191,14 @@ describe('v1.6 Beat 2 — Session-1-Artefakt-Skill (D6-Merge)', () => {
     expect(md).toContain('images, videos, audio clips, HTML screens, reports, files, markdown tables, code snippets');
     expect(md).toContain('return a visible failure artifact instead of silently stopping');
     expect(md).toContain('Do not paste a bare file path as the only answer');
+    expect(md).toContain('create the source FIRST as one relative .md file in the active conversation workspace');
+    expect(md).toContain(
+      'Never write a report directly to an absolute or external target such as /tmp, Desktop, or Downloads'
+    );
+    expect(md).toContain('Never install or invoke a converter, package, or alternate file tool');
+    expect(md).toContain('stop after that first blocked attempt');
+    expect(md).toContain('this skill itself grants no filesystem rights and does not stop or cancel turns');
+    expect(md).toContain('native Save-As flow');
     expect(md).toContain('Do this proactively');
   });
 

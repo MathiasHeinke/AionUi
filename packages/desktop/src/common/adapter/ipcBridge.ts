@@ -2436,10 +2436,34 @@ export interface ICommandEveReportExportResult {
   reason_code?: string;
 }
 
+/**
+ * Pathless renderer request for ACP external-write recovery. Main resolves the
+ * authoritative workspace from `conversation_id`; the renderer can supply only
+ * report bytes and a basename hint, never a workspace or destination path.
+ */
+export interface ICommandEveReportStageWorkspaceRequest {
+  conversation_id: string;
+  markdown: string;
+  suggested_name: string;
+}
+
+/** Pathless result: only the new direct-child file name crosses back to Preview. */
+export interface ICommandEveReportStageWorkspaceResult {
+  version: 'command-eve-report-stage-workspace/v0';
+  ok: boolean;
+  file_name?: string;
+  size_bytes?: number;
+  reason_code?: string;
+}
+
 export const report = {
   export: bridge.buildProvider<IBridgeResponse<ICommandEveReportExportResult>, ICommandEveReportExportRequest>(
     'command-eve.report-export'
   ),
+  stageWorkspace: bridge.buildProvider<
+    IBridgeResponse<ICommandEveReportStageWorkspaceResult>,
+    ICommandEveReportStageWorkspaceRequest
+  >('command-eve.report-stage-workspace'),
 };
 
 // ---------------------------------------------------------------------------

@@ -231,7 +231,9 @@ import { enforceMemoryBoundary } from '@process/commandEve/memoryBoundaryContrac
 import {
   createElectronPdfRenderer,
   exportReport,
+  RecoveredReportStageError,
   SeatTruthFenceError,
+  stageRecoveredMarkdownInWorkspace,
   type ReportContent,
 } from '@process/commandEve/reportExportCore';
 
@@ -607,6 +609,7 @@ let commandEveSessionDigestInFlight: Promise<unknown> | null = null;
 
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 const SESSION_DIGEST_TIMEOUT_MS = 12_000;
+const REPORT_STAGE_WORKSPACE_FETCH_TIMEOUT_MS = 5_000;
 // Perf (8GB audit): a session digest is a BACKGROUND nice-to-have. Below this unified-
 // memory floor we skip its local inference entirely so it can't compete with the
 // foreground turn for RAM on a low-memory machine (e.g. an 8GB Air). Matches the local-
@@ -616,6 +619,84 @@ const SESSION_DIGEST_MIN_MEMORY_GB = 10;
 /** Resolve the local aioncore backend port the restart hook publishes (main-side). */
 function getCommandEveBackendPort(): number | undefined {
   return (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
+}
+
+class ReportStageWorkspaceLookupError extends Error {
+  readonly reasonCode: string;
+  constructor(message: string, reasonCode: string) {
+    super(message);
+    this.name = 'ReportStageWorkspaceLookupError';
+    this.reasonCode = reasonCode;
+  }
+}
+
+/**
+ * Fetch the canonical conversation workspace from AionCore in Main.
+ *
+ * No renderer workspace value participates. The response id must match the
+ * requested conversation and the workspace must be a bounded absolute path;
+ * filesystem/seat containment is re-asserted by reportExportCore before write.
+ */
+export async function fetchConversationWorkspace(conversationId: string): Promise<string> {
+  const id = typeof conversationId === 'string' ? conversationId.trim() : '';
+  if (!id || id.length > 256 || id.includes('\0')) {
+    throw new ReportStageWorkspaceLookupError(
+      'Conversation id is missing or invalid.',
+      'REPORT_STAGE_CONVERSATION_INVALID'
+    );
+  }
+  const port = getCommandEveBackendPort();
+  if (!port) {
+    throw new ReportStageWorkspaceLookupError('AionCore backend is unavailable.', 'REPORT_STAGE_BACKEND_UNAVAILABLE');
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REPORT_STAGE_WORKSPACE_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/conversations/${encodeURIComponent(id)}`, {
+      method: 'GET',
+      redirect: 'error',
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new ReportStageWorkspaceLookupError(
+        `Conversation workspace lookup failed (${response.status}).`,
+        'REPORT_STAGE_CONVERSATION_LOOKUP_FAILED'
+      );
+    }
+    const json = (await response.json()) as {
+      data?: { id?: unknown; extra?: { workspace?: unknown } | null } | null;
+    };
+    const conversation = json?.data;
+    if (!conversation || conversation.id !== id) {
+      throw new ReportStageWorkspaceLookupError(
+        'Conversation workspace response did not match the request.',
+        'REPORT_STAGE_CONVERSATION_MISMATCH'
+      );
+    }
+    const workspace = conversation.extra?.workspace;
+    if (
+      typeof workspace !== 'string' ||
+      workspace.trim().length === 0 ||
+      workspace.length > 4096 ||
+      workspace.includes('\0') ||
+      !nodePath.isAbsolute(workspace)
+    ) {
+      throw new ReportStageWorkspaceLookupError(
+        'Conversation has no authoritative workspace.',
+        'REPORT_STAGE_WORKSPACE_MISSING'
+      );
+    }
+    return workspace.trim();
+  } catch (error) {
+    if (error instanceof ReportStageWorkspaceLookupError) throw error;
+    throw new ReportStageWorkspaceLookupError(
+      'Conversation workspace lookup failed.',
+      'REPORT_STAGE_CONVERSATION_LOOKUP_FAILED'
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -4181,6 +4262,84 @@ export function initCommandEveBridge(): void {
   });
 
   // -------------------------------------------------------------------------
+  // ACP EXTERNAL-WRITE RECOVERY (1.820.4). The renderer supplies NO workspace
+  // and NO destination path. Main resolves the conversation's canonical
+  // workspace from AionCore, captures the active seat + revision across that
+  // await, and creates one new direct-child markdown file through the exclusive
+  // no-follow staging core. This provider is NOT the native Save-As lane below.
+  // -------------------------------------------------------------------------
+  bridge
+    .buildProvider('command-eve.report-stage-workspace')
+    .provider(async (request?: { conversation_id?: string; markdown?: string; suggested_name?: string }) => {
+      const version = 'command-eve-report-stage-workspace/v0' as const;
+      const conversationId = typeof request?.conversation_id === 'string' ? request.conversation_id.trim() : '';
+      const markdown = typeof request?.markdown === 'string' ? request.markdown : '';
+      const suggestedName = typeof request?.suggested_name === 'string' ? request.suggested_name.trim() : '';
+      if (!conversationId) {
+        return {
+          success: false,
+          msg: 'Conversation id is required.',
+          data: { version, ok: false, reason_code: 'REPORT_STAGE_CONVERSATION_INVALID' },
+        };
+      }
+      if (!markdown.trim()) {
+        return {
+          success: false,
+          msg: 'Markdown content is required.',
+          data: { version, ok: false, reason_code: 'REPORT_STAGE_MARKDOWN_REQUIRED' },
+        };
+      }
+      if (
+        !suggestedName ||
+        suggestedName.length > 255 ||
+        suggestedName.includes('\0') ||
+        suggestedName.includes('/') ||
+        suggestedName.includes('\\')
+      ) {
+        return {
+          success: false,
+          msg: 'A report name is required.',
+          data: { version, ok: false, reason_code: 'REPORT_STAGE_REQUESTED_NAME_INVALID' },
+        };
+      }
+
+      const capturedSeatId = getActiveSeatId();
+      const capturedSeatRevision = getActiveSeatContextRevision();
+      const isSeatCurrent = () =>
+        getActiveSeatId() === capturedSeatId && getActiveSeatContextRevision() === capturedSeatRevision;
+      try {
+        const workspaceRoot = await fetchConversationWorkspace(conversationId);
+        const staged = stageRecoveredMarkdownInWorkspace({
+          workspaceRoot,
+          requestedPath: suggestedName,
+          markdown,
+          seatId: capturedSeatId,
+          activeSeatId: getActiveSeatId(),
+          isSeatCurrent,
+        });
+        return {
+          success: true,
+          data: {
+            version,
+            ok: true,
+            file_name: staged.relativePath,
+            size_bytes: staged.bytesWritten,
+          },
+        };
+      } catch (error) {
+        const reasonCode =
+          error instanceof RecoveredReportStageError || error instanceof ReportStageWorkspaceLookupError
+            ? error.reasonCode
+            : 'REPORT_STAGE_FAILED';
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Recovered report staging failed.',
+          data: { version, ok: false, reason_code: reasonCode },
+        };
+      }
+    });
+
+  // -------------------------------------------------------------------------
   // REPORT EXPORT (Lane C / RPT-1). Turn the active seat's report markdown into
   // a clean OPERATOR-branded PDF / Word / Markdown deliverable on disk, then open
   // it. The SEAT-TRUTH FENCE is enforced in main, fail-closed: exportReport calls
@@ -4189,7 +4348,9 @@ export function initCommandEveBridge(): void {
   // uses Electron's OWN Chromium (createElectronPdfRenderer → offscreen window +
   // printToPDF; no heavy headless-chrome dep). The output is an inert static file
   // (the recipient never logs in), and the brand is the operator's own, never
-  // Command EVE.
+  // Command EVE. This explicit native Save-As path intentionally remains able
+  // to write Desktop/Downloads after dialog.showSave issued a seat-bound
+  // FileSelectionGrant; workspace staging must never narrow that user action.
   // -------------------------------------------------------------------------
   bridge
     .buildProvider('command-eve.report-export')

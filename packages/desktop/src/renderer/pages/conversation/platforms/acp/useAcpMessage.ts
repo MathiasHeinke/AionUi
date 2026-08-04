@@ -9,6 +9,7 @@ import { conversation as conversationBridge } from '@/common/adapter/ipcBridge';
 import { transformMessage } from '@/common/chat/chatLib';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import { collectImageBindFromToolCallUpdate } from '@/common/config/imageArtifactBindCore';
+import { classifyAcpExternalWriteBlock } from '@/renderer/pages/conversation/Messages/acp/externalWriteRecoveryPolicy';
 import type { AvailableCommand, IMessageThinking } from '@/common/chat/chatLib';
 import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
 import { resolveAcpAutoApprove } from './acpAutoApprove';
@@ -187,6 +188,11 @@ export const useAcpMessage = (
   // can re-deliver an acp_permission (reconnect/replay), and confirmMessage is
   // not idempotent on the backend — answer each call_id at most once.
   const autoApprovedCallIdsRef = useRef<Set<string>>(new Set());
+
+  // A failed ACP frame can be replayed after reconnect. External-write recovery
+  // is terminal and non-idempotent at the renderer boundary (cancel + stage), so
+  // each tool call id is consumed once for the lifetime of this conversation.
+  const recoveredExternalWriteCallIdsRef = useRef<Set<string>>(new Set());
 
   // Track whether current turn has content output
   const hasContentInTurnRef = useRef(false);
@@ -729,6 +735,78 @@ export const useAcpMessage = (
           break;
         }
         case 'acp_tool_call': {
+          const externalWriteBlock = classifyAcpExternalWriteBlock(message.data);
+          if (externalWriteBlock) {
+            // Replay/duplicate: the original failed card, stop request, staging
+            // request and Preview opening already own this tool call.
+            if (recoveredExternalWriteCallIdsRef.current.has(externalWriteBlock.toolCallId)) break;
+            recoveredExternalWriteCallIdsRef.current.add(externalWriteBlock.toolCallId);
+
+            // Preserve the existing ACP card as the visible failure receipt,
+            // then terminalize every local running surface immediately. The
+            // display-only watchdog remains unchanged and grants no authority.
+            commitMessage(transformedMessage);
+            const activeTurnId = getConversationRuntimeViewSnapshot(conversation_id).activeTurnId;
+            turnFinishedRef.current = true;
+            setRunning(false);
+            runningRef.current = false;
+            setAiProcessing(false);
+            aiProcessingRef.current = false;
+            activeToolCallsRef.current.clear();
+            pendingImageBindsRef.current.clear();
+            activeThinkingRef.current = null;
+            clearThinkingMessageThrottle();
+            setThought({ subject: '', description: '' });
+            setHasThinkingMessage(false);
+            hasThinkingMessageRef.current = false;
+            hasContentInTurnRef.current = false;
+            requestTraceRef.current = null;
+            setRuntimeActivity((prev) => ({
+              ...prev,
+              phase: 'error',
+              updatedAt: Date.now(),
+              elapsedMs: prev.startedAt ? Math.max(0, Date.now() - prev.startedAt) : prev.elapsedMs,
+              detail: 'external_write_hard_blocked',
+            }));
+            clearConversationGenerating(conversation_id);
+
+            // Missing runtime truth fails closed: the failed card is retained,
+            // but no uncancellable recovery write is staged. With an active
+            // turn, cancel exactly once and only then ask Main to stage. Neither
+            // step retries or falls back to another path/tool/converter.
+            if (!activeTurnId) break;
+            void (async () => {
+              try {
+                await ipcBridge.conversation.stop.invoke({ conversation_id, turn_id: activeTurnId });
+              } catch {
+                return;
+              }
+
+              try {
+                const staged = await ipcBridge.report.stageWorkspace.invoke({
+                  conversation_id,
+                  markdown: externalWriteBlock.markdown,
+                  suggested_name: externalWriteBlock.suggestedName,
+                });
+                const fileName = staged?.success && staged.data?.ok ? staged.data.file_name : undefined;
+                if (!fileName || fileName.length > 255 || fileName.includes('/') || fileName.includes('\\')) return;
+                emitter.emit('preview.open', {
+                  content: externalWriteBlock.markdown,
+                  contentType: 'markdown',
+                  metadata: {
+                    title: fileName.replace(/\.md$/i, ''),
+                    file_name: fileName,
+                    conversation_id,
+                  },
+                });
+              } catch {
+                // Staging is a single bounded attempt. The failed ACP card is
+                // already visible; never retry an alternate tool or path.
+              }
+            })();
+            break;
+          }
+
           const activeToolName = getFirstActiveToolName(activeToolCallsRef.current);
           if (!runningRef.current && !turnFinishedRef.current) {
             setRunning(true);
@@ -995,6 +1073,7 @@ export const useAcpMessage = (
     permissionBackendRef.current = undefined;
     hasLocalPermissionAuthorityRef.current = false;
     autoApprovedCallIdsRef.current = new Set();
+    recoveredExternalWriteCallIdsRef.current = new Set();
   }, [conversation_id]);
 
   // Keep local permission authority current for the auto-approve path. Restrictive

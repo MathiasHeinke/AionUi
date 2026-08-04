@@ -18,6 +18,9 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   assertSeatTruth,
@@ -29,7 +32,12 @@ import {
   exportReportToMarkdown,
   exportReportToPdf,
   markdownToReportHtml,
+  RECOVERED_REPORT_STAGE_MAX_BYTES,
+  RECOVERED_REPORT_STAGE_MAX_CANDIDATES,
+  RecoveredReportStageError,
+  resolveRecoveredReportStagePath,
   SeatTruthFenceError,
+  stageRecoveredMarkdownInWorkspace,
   type PdfRenderer,
   type ReportContent,
 } from '@process/commandEve/reportExportCore';
@@ -68,9 +76,17 @@ const okContent = (seatId: string): ReportContent => ({
 
 const noopBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]); // "%PDF"
 const fakePdfRenderer: PdfRenderer = async () => noopBytes;
+const tempRoots: string[] = [];
+
+const makeWorkspace = (): string => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-report-stage-'));
+  tempRoots.push(workspace);
+  return workspace;
+};
 
 afterEach(() => {
   __resetActiveSeatForTests();
+  for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
 describe('reportExportCore — seat-truth fence (fail-closed)', () => {
@@ -237,5 +253,121 @@ describe('reportExportCore — file stem helper', () => {
     expect(defaultReportFileStem('Quarterly Client Report!')).toBe('quarterly-client-report');
     expect(defaultReportFileStem('   ')).toBe('report');
     expect(defaultReportFileStem(undefined)).toBe('report');
+  });
+});
+
+describe('reportExportCore — ACP external-write recovery staging', () => {
+  const stage = (
+    workspaceRoot: string,
+    overrides: Partial<Parameters<typeof stageRecoveredMarkdownInWorkspace>[0]> = {}
+  ) =>
+    stageRecoveredMarkdownInWorkspace({
+      workspaceRoot,
+      requestedPath: '/Users/operator/Desktop/Quarterly Client Report.pdf',
+      markdown: '# Quarterly client report\n\nRecovered.',
+      seatId: SEAT_A,
+      activeSeatId: SEAT_A,
+      ...overrides,
+    });
+
+  it('resolves a sanitized direct markdown child and never preserves an external directory', () => {
+    const workspace = makeWorkspace();
+    const resolved = resolveRecoveredReportStagePath({
+      workspaceRoot: workspace,
+      requestedPath: '/Users/operator/Downloads/Q3 Überprüfung.docx',
+    });
+    expect(resolved.relativePath).toBe('q3-berpr-fung.md');
+    expect(resolved.absolutePath).toBe(path.join(workspace, resolved.relativePath));
+    expect(path.dirname(resolved.absolutePath)).toBe(workspace);
+    expect(resolved.absolutePath).not.toContain('/Downloads/');
+  });
+
+  it('creates one relative 0600 file with the exact bounded markdown', () => {
+    const workspace = makeWorkspace();
+    const result = stage(workspace);
+    expect(result.relativePath).toBe('quarterly-client-report.md');
+    expect(result.absolutePath).toBe(path.join(workspace, result.relativePath));
+    expect(result.bytesWritten).toBe(Buffer.byteLength('# Quarterly client report\n\nRecovered.'));
+    expect(fs.readFileSync(result.absolutePath, 'utf8')).toBe('# Quarterly client report\n\nRecovered.');
+    expect(fs.lstatSync(result.absolutePath).isSymbolicLink()).toBe(false);
+    expect(fs.statSync(result.absolutePath).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(workspace)).toEqual(['quarterly-client-report.md']);
+  });
+
+  it('never overwrites an existing report and uses one bounded collision suffix', () => {
+    const workspace = makeWorkspace();
+    const existing = path.join(workspace, 'quarterly-client-report.md');
+    fs.writeFileSync(existing, 'original', { mode: 0o600 });
+    const result = stage(workspace);
+    expect(result.relativePath).toBe('quarterly-client-report-2.md');
+    expect(fs.readFileSync(existing, 'utf8')).toBe('original');
+    expect(fs.readFileSync(result.absolutePath, 'utf8')).toContain('Recovered.');
+  });
+
+  it('fails closed after the bounded collision set is exhausted', () => {
+    const workspace = makeWorkspace();
+    for (let collisionIndex = 0; collisionIndex < RECOVERED_REPORT_STAGE_MAX_CANDIDATES; collisionIndex += 1) {
+      const candidate = resolveRecoveredReportStagePath({
+        workspaceRoot: workspace,
+        requestedPath: 'Quarterly Client Report.pdf',
+        collisionIndex,
+      });
+      fs.writeFileSync(candidate.absolutePath, 'occupied', { mode: 0o600 });
+    }
+    try {
+      stage(workspace);
+      throw new Error('expected collision exhaustion');
+    } catch (error) {
+      expect(error).toBeInstanceOf(RecoveredReportStageError);
+      expect((error as RecoveredReportStageError).reasonCode).toBe('REPORT_STAGE_COLLISIONS_EXHAUSTED');
+    }
+  });
+
+  it('rejects traversal and an unavailable workspace before creating anything', () => {
+    const workspace = makeWorkspace();
+    expect(() => stage(workspace, { requestedPath: '../outside.md' })).toThrow(RecoveredReportStageError);
+    expect(fs.readdirSync(workspace)).toEqual([]);
+    expect(() => stage('', { workspaceRoot: '' })).toThrow(RecoveredReportStageError);
+  });
+
+  it('rejects target and workspace symlinks instead of following them', () => {
+    const workspace = makeWorkspace();
+    const outside = makeWorkspace();
+    const outsideFile = path.join(outside, 'outside.md');
+    fs.writeFileSync(outsideFile, 'outside', { mode: 0o600 });
+    fs.symlinkSync(outsideFile, path.join(workspace, 'quarterly-client-report.md'));
+    try {
+      stage(workspace);
+      throw new Error('expected target link rejection');
+    } catch (error) {
+      expect((error as RecoveredReportStageError).reasonCode).toBe('REPORT_STAGE_TARGET_LINK');
+    }
+    expect(fs.readFileSync(outsideFile, 'utf8')).toBe('outside');
+
+    const linkParent = makeWorkspace();
+    const workspaceLink = path.join(linkParent, 'workspace-link');
+    fs.symlinkSync(outside, workspaceLink, 'dir');
+    try {
+      stage(workspaceLink);
+      throw new Error('expected workspace link rejection');
+    } catch (error) {
+      expect((error as RecoveredReportStageError).reasonCode).toBe('REPORT_STAGE_WORKSPACE_LINK');
+    }
+  });
+
+  it('rejects a cross-seat or stale-seat write without leaving a file', () => {
+    const workspace = makeWorkspace();
+    expect(() => stage(workspace, { activeSeatId: SEAT_B })).toThrow(RecoveredReportStageError);
+    expect(() => stage(workspace, { isSeatCurrent: () => false })).toThrow(RecoveredReportStageError);
+    expect(fs.readdirSync(workspace)).toEqual([]);
+  });
+
+  it('rejects missing and oversized markdown without leaving a file', () => {
+    const workspace = makeWorkspace();
+    expect(() => stage(workspace, { markdown: '' })).toThrow(RecoveredReportStageError);
+    expect(() => stage(workspace, { markdown: 'x'.repeat(RECOVERED_REPORT_STAGE_MAX_BYTES + 1) })).toThrow(
+      RecoveredReportStageError
+    );
+    expect(fs.readdirSync(workspace)).toEqual([]);
   });
 });

@@ -13,6 +13,10 @@ import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
 import { emitter } from '@/renderer/utils/emitter';
 import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
 import {
+  ACP_EXTERNAL_WRITE_RECOVERY_MAX_MARKDOWN_BYTES,
+  classifyAcpExternalWriteBlock,
+} from '@/renderer/pages/conversation/Messages/acp/externalWriteRecoveryPolicy';
+import {
   localSendAccepted,
   localSendStarted,
   resetConversationRuntimeViewStoreForTest,
@@ -27,6 +31,8 @@ const {
   confirmMessageInvokeMock,
   reportInferenceErrorMock,
   ensureAutoProjectInvokeMock,
+  conversationStopInvokeMock,
+  reportStageWorkspaceInvokeMock,
 } = vi.hoisted(() => ({
   addOrUpdateMessageMock: vi.fn(),
   responseStreamOnMock: vi.fn(),
@@ -36,6 +42,8 @@ const {
   conversationGetInvokeMock: vi.fn(),
   conversationGetUsageInvokeMock: vi.fn().mockResolvedValue(null),
   confirmMessageInvokeMock: vi.fn(),
+  conversationStopInvokeMock: vi.fn(),
+  reportStageWorkspaceInvokeMock: vi.fn(),
   // Default: NO quota/cap signal recognized → the error path renders the cold bubble
   // exactly as before. Tests flip this to true to exercise the suppression (M-quotawall).
   reportInferenceErrorMock: vi.fn((): boolean => false),
@@ -81,6 +89,9 @@ vi.mock('@/common', () => ({
       get: {
         invoke: conversationGetInvokeMock,
       },
+      stop: {
+        invoke: conversationStopInvokeMock,
+      },
       activeCount: {
         invoke: vi.fn().mockResolvedValue({ count: 0 }),
       },
@@ -99,8 +110,99 @@ vi.mock('@/common', () => ({
         invoke: ensureAutoProjectInvokeMock,
       },
     },
+    report: {
+      stageWorkspace: {
+        invoke: reportStageWorkspaceInvokeMock,
+      },
+    },
   },
 }));
+
+const makeExternalWriteFailure = (overrides: Record<string, unknown> = {}): IResponseMessage => ({
+  type: 'acp_tool_call',
+  data: {
+    update: {
+      sessionUpdate: 'tool_call_update',
+      tool_call_id: 'write-call-1',
+      status: 'failed',
+      title: 'Write report',
+      kind: 'edit',
+      raw_input: {
+        path: '/Users/operator/Desktop/Quarterly Report.pdf',
+        content: '# Quarterly report\n\nRecovered body.',
+      },
+      content: [{ type: 'content', content: { type: 'text', text: 'RESULT: HardBlocked' } }],
+      ...overrides,
+    },
+  },
+  msg_id: 'message-write-call-1',
+  conversation_id: 'conv-1',
+});
+
+describe('classifyAcpExternalWriteBlock', () => {
+  it.each([
+    '/tmp/client-report.pdf',
+    '/Users/operator/Desktop/client-report.docx',
+    '/Users/operator/Downloads/client-report.md',
+    'C:\\Users\\operator\\Desktop\\client-report.pdf',
+  ])('accepts a failed external report write with an exact HardBlocked RESULT marker: %s', (requestedPath) => {
+    const message = makeExternalWriteFailure({
+      rawInput: JSON.stringify({ path: requestedPath, markdown: '# Report' }),
+      raw_input: undefined,
+    });
+    expect(classifyAcpExternalWriteBlock(message.data)).toEqual({
+      toolCallId: 'write-call-1',
+      requestedPath,
+      suggestedName: requestedPath.split(/[\\/]/).at(-1),
+      markdown: '# Report',
+    });
+  });
+
+  it('reads the marker only from tool result content, never from report text itself', () => {
+    const markerOnlyInReport = makeExternalWriteFailure({
+      raw_input: { path: '/tmp/report.md', content: '# Report\n\nRESULT: HardBlocked' },
+      content: [{ type: 'content', content: { type: 'text', text: 'permission denied' } }],
+    });
+    expect(classifyAcpExternalWriteBlock(markerOnlyInReport.data)).toBeUndefined();
+
+    const markerInResult = makeExternalWriteFailure({
+      raw_input: { path: '/tmp/report.md', content: '# Report' },
+      content: [{ type: 'content', content: { type: 'text', text: 'permission denied\nRESULT: HardBlocked' } }],
+    });
+    expect(classifyAcpExternalWriteBlock(markerInResult.data)?.markdown).toBe('# Report');
+  });
+
+  it('falls back from malformed rawInput to a valid raw_input compatibility payload', () => {
+    const message = makeExternalWriteFailure({
+      rawInput: '{malformed',
+      raw_input: { path: '/tmp/report.md', content: '# Compatible report' },
+    });
+    expect(classifyAcpExternalWriteBlock(message.data)?.markdown).toBe('# Compatible report');
+  });
+
+  it.each([
+    ['shell error', { kind: 'execute' }],
+    ['read error', { kind: 'read' }],
+    ['relative target', { raw_input: { path: 'reports/report.md', content: '# Report' } }],
+    ['missing path', { raw_input: { content: '# Report' } }],
+    ['missing markdown', { raw_input: { path: '/tmp/report.md' } }],
+    ['malformed raw input', { rawInput: '{bad-json', raw_input: undefined }],
+    ['missing tool session update', { sessionUpdate: undefined }],
+    ['non-failed status', { status: 'completed' }],
+  ])('fails closed for %s', (_label, update) => {
+    expect(classifyAcpExternalWriteBlock(makeExternalWriteFailure(update).data)).toBeUndefined();
+  });
+
+  it('rejects markdown beyond the UTF-8 byte limit', () => {
+    const message = makeExternalWriteFailure({
+      raw_input: {
+        path: '/tmp/report.md',
+        content: 'ä'.repeat(ACP_EXTERNAL_WRITE_RECOVERY_MAX_MARKDOWN_BYTES),
+      },
+    });
+    expect(classifyAcpExternalWriteBlock(message.data)).toBeUndefined();
+  });
+});
 
 const makePermissionRequest = (callId: string): AcpPermissionRequest => ({
   session_id: 'session-1',
@@ -147,6 +249,26 @@ describe('useAcpMessage', () => {
     responseStreamHandlerRef.current = undefined;
     confirmMessageInvokeMock.mockResolvedValue(undefined);
     reportInferenceErrorMock.mockReturnValue(false);
+    conversationStopInvokeMock.mockResolvedValue({
+      runtime: {
+        state: 'idle',
+        can_send_message: true,
+        has_task: false,
+        task_status: 'finished',
+        is_processing: false,
+        pending_confirmations: 0,
+        turn_id: null,
+      },
+    });
+    reportStageWorkspaceInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        version: 'command-eve-report-stage-workspace/v0',
+        ok: true,
+        file_name: 'quarterly-report.md',
+        size_bytes: 35,
+      },
+    });
   });
 
   it('keeps one response-stream subscription across stream-driven renders', async () => {
@@ -341,6 +463,98 @@ describe('useAcpMessage', () => {
         turn_id: 'msg-finish-1',
       });
     });
+  });
+
+  it('1.820.4: cancels and stages one qualifying blocked external write exactly once across replay', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const emitSpy = vi.spyOn(emitter, 'emit');
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(result.current.hasHydratedRunningState).toBe(true));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: null,
+        msg_id: 'message-write-call-1',
+        conversation_id: 'conv-1',
+      });
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-write-recovery', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-write-recovery',
+      });
+      responseStreamHandlerRef.current?.(makeExternalWriteFailure());
+      responseStreamHandlerRef.current?.(makeExternalWriteFailure());
+    });
+
+    await waitFor(() => expect(reportStageWorkspaceInvokeMock).toHaveBeenCalledTimes(1));
+    expect(conversationStopInvokeMock).toHaveBeenCalledTimes(1);
+    expect(conversationStopInvokeMock).toHaveBeenCalledWith({
+      conversation_id: 'conv-1',
+      turn_id: 'turn-write-recovery',
+    });
+    expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
+    expect(addOrUpdateMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'acp_tool_call',
+        content: expect.objectContaining({
+          update: expect.objectContaining({ status: 'failed', tool_call_id: 'write-call-1' }),
+        }),
+      })
+    );
+    expect(reportStageWorkspaceInvokeMock).toHaveBeenCalledWith({
+      conversation_id: 'conv-1',
+      markdown: '# Quarterly report\n\nRecovered body.',
+      suggested_name: 'Quarterly Report.pdf',
+    });
+    const stageRequest = reportStageWorkspaceInvokeMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(stageRequest).not.toHaveProperty('workspace');
+    expect(stageRequest).not.toHaveProperty('path');
+    expect(result.current.running).toBe(false);
+    expect(result.current.aiProcessing).toBe(false);
+
+    const previewCalls = emitSpy.mock.calls.filter((call) => call[0] === 'preview.open');
+    expect(previewCalls).toEqual([
+      [
+        'preview.open',
+        {
+          content: '# Quarterly report\n\nRecovered body.',
+          contentType: 'markdown',
+          metadata: {
+            title: 'quarterly-report',
+            file_name: 'quarterly-report.md',
+            conversation_id: 'conv-1',
+          },
+        },
+      ],
+    ]);
+    emitSpy.mockRestore();
+  });
+
+  it('1.820.4: keeps the failed card but performs no uncancellable stage when the active turn is missing', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(result.current.hasHydratedRunningState).toBe(true));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: null,
+        msg_id: 'message-write-call-1',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.(makeExternalWriteFailure());
+    });
+
+    expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
+    expect(conversationStopInvokeMock).not.toHaveBeenCalled();
+    expect(reportStageWorkspaceInvokeMock).not.toHaveBeenCalled();
+    expect(result.current.running).toBe(false);
   });
 
   describe('ACP stream watchdog', () => {
