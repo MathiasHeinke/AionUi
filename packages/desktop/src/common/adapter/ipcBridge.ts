@@ -97,7 +97,13 @@ export type ICommandEveImageArtifactImportResult =
   | { ok: true; record: CommandEveActiveImageArtifact; alreadyImported: boolean }
   | {
       ok: false;
-      reason: 'invalid-request' | 'path-outside-workspace' | 'file-missing' | 'file-unreadable' | 'unsupported-file';
+      reason:
+        | 'invalid-request'
+        | 'workspace-id-mismatch'
+        | 'path-outside-workspace'
+        | 'file-missing'
+        | 'file-unreadable'
+        | 'unsupported-file';
     };
 import type {
   CommandEveManagedVisualTurnAuthorizationRequest,
@@ -2015,11 +2021,13 @@ export const commandEve = {
     { conversationId: string; artifactId: string }
   >('command-eve.image-artifact-preview'),
   // LEGACY IMPORT: the one-time, strictly confined adoption of the
-  // pre-contract P1 proof file. Main resolves and confines the workspace
-  // path; the renderer names only the conversation and the expected file name.
+  // pre-contract P1 proof file. conversationId is the CANONICAL conversation
+  // the record binds to; legacyWorkspaceId is the Hermes workspace folder the
+  // file lives in (must be exactly `hermes-temp-<conversationId>`); Main
+  // resolves and confines the workspace path — the renderer never supplies one.
   imageArtifactImportLegacy: bridge.buildProvider<
     IBridgeResponse<ICommandEveImageArtifactImportResult>,
-    { conversationId: string; expectedFileName: string }
+    { conversationId: string; legacyWorkspaceId: string; expectedFileName: string }
   >('command-eve.image-artifact-import-legacy'),
   // Main-authoritative per-seat visual policy. Renderer supplies no target seat
   // for reads/receipt issuance; expectedSeatId on mutation is only a stale fence.

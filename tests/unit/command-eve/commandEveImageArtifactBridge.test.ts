@@ -323,23 +323,43 @@ describe('bind / list / preview / import handlers', () => {
     ).toBeNull();
   });
 
-  it('import handler: exact-file accept; traversal refuse; production root is the pre-contract workspace', async () => {
+  it('import handler: canonical binding through the fence; exact-file accept; traversal and malformed requests refuse', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-import-ws-'));
     try {
       fs.writeFileSync(path.join(workspaceRoot, 'img-1785796180699.png'), SOURCE_BYTES);
-      const deps = { getDataPath: () => dataRoot, workspaceRootForConversation: () => workspaceRoot };
+      const deps = { getDataPath: () => dataRoot, workspaceRootForLegacyId: () => workspaceRoot };
       const accepted = await handleCommandEveImageArtifactImportLegacy(
-        { conversationId: 'hermes-temp-3be29bae', expectedFileName: 'img-1785796180699.png' },
+        { conversationId: '3be29bae', legacyWorkspaceId: 'hermes-temp-3be29bae', expectedFileName: 'img-1785796180699.png' },
         deps
       );
       expect(accepted).toMatchObject({ ok: true, alreadyImported: false });
+      if (accepted.ok) expect(accepted.record.conversation_id).toBe('3be29bae');
+      // The canonical surface lists it; the workspace-folder id lists nothing.
+      expect((await handleCommandEveImageArtifactsList({ conversationId: '3be29bae' }, deps)).length).toBe(1);
+      expect(await handleCommandEveImageArtifactsList({ conversationId: 'hermes-temp-3be29bae' }, deps)).toEqual([]);
+
       const refused = await handleCommandEveImageArtifactImportLegacy(
-        { conversationId: 'conv-1', expectedFileName: '../img-1785796180699.png' },
+        {
+          conversationId: '3be29bae',
+          legacyWorkspaceId: 'hermes-temp-3be29bae',
+          expectedFileName: '../img-1785796180699.png',
+        },
         deps
       );
       expect(refused).toEqual({ ok: false, reason: 'invalid-request' });
+      const mismatched = await handleCommandEveImageArtifactImportLegacy(
+        { conversationId: '3be29bae', legacyWorkspaceId: 'hermes-temp-other', expectedFileName: 'img-1785796180699.png' },
+        deps
+      );
+      expect(mismatched).toEqual({ ok: false, reason: 'workspace-id-mismatch' });
       expect(
-        await handleCommandEveImageArtifactImportLegacy({ conversationId: '', expectedFileName: 'x.png' }, deps)
+        await handleCommandEveImageArtifactImportLegacy(
+          { conversationId: '', legacyWorkspaceId: 'hermes-temp-3be29bae', expectedFileName: 'x.png' },
+          deps
+        )
+      ).toEqual({ ok: false, reason: 'invalid-request' });
+      expect(
+        await handleCommandEveImageArtifactImportLegacy({ conversationId: '3be29bae', expectedFileName: 'x.png' } as never, deps)
       ).toEqual({ ok: false, reason: 'invalid-request' });
     } finally {
       fs.rmSync(workspaceRoot, { recursive: true, force: true });

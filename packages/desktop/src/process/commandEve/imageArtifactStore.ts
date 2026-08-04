@@ -422,30 +422,50 @@ export type ImageArtifactImportResult =
   | { ok: true; record: CommandEveActiveImageArtifact; alreadyImported: boolean }
   | {
       ok: false;
-      reason: 'invalid-request' | 'path-outside-workspace' | 'file-missing' | 'file-unreadable' | 'unsupported-file';
+      reason:
+        | 'invalid-request'
+        | 'workspace-id-mismatch'
+        | 'path-outside-workspace'
+        | 'file-missing'
+        | 'file-unreadable'
+        | 'unsupported-file';
     };
 
 /**
  * LEGACY IMPORT (1.820.3, bounded): adopt ONE pre-contract workspace image —
- * the P1 proof file that was saved before this lane existed — as an ACTIVE,
- * conversation-bound record.
+ * the P1 proof file that was saved before this lane existed — as an ACTIVE
+ * record bound to the CANONICAL conversation.
  *
- * The confinement check is the whole function: the caller supplies the
- * conversation's workspace root and the EXPECTED bare file name, and the file
- * is accepted only when its REALPATH is exactly that one file — `..`, a
- * subdirectory, an absolute path or a symlink all resolve to something else
- * and are refused. No path is stored anywhere: the payload keeps sha, size and
- * mime only, like every other record in this store.
+ * TWO identifiers, kept deliberately distinct (the wrong-scoping defect this
+ * fixes): `conversationId` is the CANONICAL conversation the record belongs to
+ * and is listed under; `legacyWorkspaceId` is the Hermes WORKSPACE FOLDER the
+ * pre-contract lane saved into. The UI surfaces the canonical id, so a record
+ * bound to the folder id would persist but never render — exactly the failure
+ * the first import produced. The only accepted relationship between the two is
+ * the Hermes legacy folder shape itself:
+ *
+ *   legacyWorkspaceId === 'hermes-temp-' + conversationId     (exactly)
+ *
+ * Anything else is refused — no arbitrary path acceptance, no id mapping
+ * table, no heuristic.
+ *
+ * The confinement check is the rest of the function: the file is accepted only
+ * when its REALPATH is exactly the expected file inside the legacy workspace
+ * root — `..`, a subdirectory, an absolute path or a symlink all resolve to
+ * something else and are refused. No path is stored anywhere: the payload
+ * keeps sha, size and mime only, like every other record in this store.
  */
 export function importLegacyImageArtifact(
   dataPath: string,
-  input: { conversationId: string; expectedFileName: string; workspaceRoot: string; nowMs?: number },
+  input: { conversationId: string; legacyWorkspaceId: string; expectedFileName: string; workspaceRoot: string; nowMs?: number },
   deps: ImageArtifactBindDeps = {}
 ): ImageArtifactImportResult {
-  const { conversationId, expectedFileName, workspaceRoot } = input;
+  const { conversationId, legacyWorkspaceId, expectedFileName, workspaceRoot } = input;
   if (
     typeof conversationId !== 'string' ||
     !SAFE_ID.test(conversationId) ||
+    typeof legacyWorkspaceId !== 'string' ||
+    !SAFE_ID.test(legacyWorkspaceId) ||
     typeof expectedFileName !== 'string' ||
     !SAFE_FILE_NAME.test(expectedFileName) ||
     expectedFileName === '..' ||
@@ -454,6 +474,10 @@ export function importLegacyImageArtifact(
   ) {
     return { ok: false, reason: 'invalid-request' };
   }
+  // THE non-path fence: the legacy folder must be exactly the Hermes shape for
+  // THIS canonical conversation, or the import is not the bounded migration it
+  // claims to be.
+  if (legacyWorkspaceId !== `hermes-temp-${conversationId}`) return { ok: false, reason: 'workspace-id-mismatch' };
   const mimeType = EXTENSION_TO_MIME[path.extname(expectedFileName).toLowerCase()];
   if (!mimeType) return { ok: false, reason: 'unsupported-file' };
 

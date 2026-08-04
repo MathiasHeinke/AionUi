@@ -231,30 +231,39 @@ export async function handleCommandEveImageArtifactPreviewBridge(
 export interface CommandEveImageArtifactImportLegacyDeps {
   getDataPath: typeof getDataPath;
   /**
-   * The conversation's workspace root. Injectable so tests point at a temp
-   * fixture; production is the pre-contract image lane's one save location,
-   * `~/Developer/conversations/<conversationId>`.
+   * The legacy workspace root for a WORKSPACE FOLDER id. Injectable so tests
+   * point at a temp fixture; production is the pre-contract image lane's one
+   * save location, `~/Developer/conversations/<legacyWorkspaceId>`.
    */
-  workspaceRootForConversation?: (conversationId: string) => string;
+  workspaceRootForLegacyId?: (legacyWorkspaceId: string) => string;
   importLegacy?: typeof importLegacyImageArtifact;
 }
 
 const productionImportDeps: CommandEveImageArtifactImportLegacyDeps = {
   getDataPath,
-  workspaceRootForConversation: (conversationId) =>
-    path.join(os.homedir(), 'Developer', 'conversations', conversationId),
+  workspaceRootForLegacyId: (legacyWorkspaceId) =>
+    path.join(os.homedir(), 'Developer', 'conversations', legacyWorkspaceId),
   importLegacy: importLegacyImageArtifact,
 };
 
+/**
+ * Adopt the pre-contract P1 proof file. `conversationId` is the CANONICAL
+ * conversation the record binds to (and renders under); `legacyWorkspaceId`
+ * is the Hermes workspace folder the file actually lives in, and the store
+ * refuses anything but the exact `hermes-temp-<canonical>` shape.
+ */
 export async function handleCommandEveImageArtifactImportLegacy(
-  request?: { conversationId?: string; expectedFileName?: string },
+  request?: { conversationId?: string; legacyWorkspaceId?: string; expectedFileName?: string },
   deps: CommandEveImageArtifactImportLegacyDeps = productionImportDeps
 ): Promise<ImageArtifactImportResult> {
   const conversationId = request?.conversationId;
+  const legacyWorkspaceId = request?.legacyWorkspaceId;
   const expectedFileName = request?.expectedFileName;
   if (
     typeof conversationId !== 'string' ||
     conversationId.length === 0 ||
+    typeof legacyWorkspaceId !== 'string' ||
+    legacyWorkspaceId.length === 0 ||
     typeof expectedFileName !== 'string' ||
     expectedFileName.length === 0
   ) {
@@ -263,9 +272,10 @@ export async function handleCommandEveImageArtifactImportLegacy(
   try {
     return (deps.importLegacy ?? importLegacyImageArtifact)(deps.getDataPath(), {
       conversationId,
+      legacyWorkspaceId,
       expectedFileName,
-      workspaceRoot: (deps.workspaceRootForConversation ?? productionImportDeps.workspaceRootForConversation!)(
-        conversationId
+      workspaceRoot: (deps.workspaceRootForLegacyId ?? productionImportDeps.workspaceRootForLegacyId!)(
+        legacyWorkspaceId
       ),
     });
   } catch {

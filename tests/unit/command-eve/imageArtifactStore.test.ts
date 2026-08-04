@@ -141,6 +141,8 @@ describe('BIND', () => {
 
 describe('LEGACY IMPORT', () => {
   const FILE_NAME = 'img-1785796180699.png';
+  const CANONICAL = '3be29bae';
+  const LEGACY_ID = `hermes-temp-${CANONICAL}`;
   let workspaceRoot: string;
   let fileBytes: Buffer;
 
@@ -154,33 +156,64 @@ describe('LEGACY IMPORT', () => {
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
-  it('adopts the exact expected workspace file as an ACTIVE bound record, and is idempotent', () => {
+  it('adopts the exact expected workspace file as an ACTIVE record bound to the CANONICAL conversation — and is idempotent', () => {
     const result = importLegacyImageArtifact(dataRoot, {
-      conversationId: 'hermes-temp-3be29bae',
+      conversationId: CANONICAL,
+      legacyWorkspaceId: LEGACY_ID,
       expectedFileName: FILE_NAME,
       workspaceRoot,
     });
     expect(result).toMatchObject({ ok: true, alreadyImported: false });
     if (result.ok === false) return;
     expect(result.record.status).toBe('active');
-    expect(result.record.conversation_id).toBe('hermes-temp-3be29bae');
+    // THE fix: bound to the canonical id, so the canonical artifact surface
+    // lists it — and the workspace-folder id lists NOTHING.
+    expect(result.record.conversation_id).toBe(CANONICAL);
     expect(result.record.payload.sha256).toBe(crypto.createHash('sha256').update(fileBytes).digest('hex'));
     // No path stored: sha/size/mime only.
     expect(JSON.stringify(result.record)).not.toContain(workspaceRoot);
-    expect(listActiveImageArtifacts(dataRoot, 'hermes-temp-3be29bae').length).toBe(1);
+    expect(listActiveImageArtifacts(dataRoot, CANONICAL).length).toBe(1);
+    expect(listActiveImageArtifacts(dataRoot, LEGACY_ID)).toEqual([]);
 
     const again = importLegacyImageArtifact(dataRoot, {
-      conversationId: 'hermes-temp-3be29bae',
+      conversationId: CANONICAL,
+      legacyWorkspaceId: LEGACY_ID,
       expectedFileName: FILE_NAME,
       workspaceRoot,
     });
     expect(again).toMatchObject({ ok: true, alreadyImported: true });
-    expect(listActiveImageArtifacts(dataRoot, 'hermes-temp-3be29bae').length).toBe(1);
+    if (again.ok) expect(again.record.id).toBe(result.record.id);
+    expect(listActiveImageArtifacts(dataRoot, CANONICAL).length).toBe(1);
+  });
+
+  it('the workspace-id fence: only hermes-temp-<canonical> exactly is accepted', () => {
+    const attempt = (legacyWorkspaceId: string) =>
+      importLegacyImageArtifact(dataRoot, {
+        conversationId: CANONICAL,
+        legacyWorkspaceId,
+        expectedFileName: FILE_NAME,
+        workspaceRoot,
+      });
+    // Positive control first: the exact shape IS accepted.
+    expect(attempt(LEGACY_ID).ok).toBe(true);
+    // A different conversation's folder, an arbitrary id, the canonical id
+    // itself, and near-miss spellings are all refused — no mapping table, no
+    // heuristic.
+    expect(attempt('hermes-temp-other9')).toEqual({ ok: false, reason: 'workspace-id-mismatch' });
+    expect(attempt('some-random-folder')).toEqual({ ok: false, reason: 'workspace-id-mismatch' });
+    expect(attempt(CANONICAL)).toEqual({ ok: false, reason: 'workspace-id-mismatch' });
+    expect(attempt(`hermes-tmp-${CANONICAL}`)).toEqual({ ok: false, reason: 'workspace-id-mismatch' });
+    expect(attempt(`hermes-temp-${CANONICAL}-extra`)).toEqual({ ok: false, reason: 'workspace-id-mismatch' });
   });
 
   it('refuses traversal, subdirectory, absolute and wrong names', () => {
     const attempt = (expectedFileName: string) =>
-      importLegacyImageArtifact(dataRoot, { conversationId: 'conv-1', expectedFileName, workspaceRoot });
+      importLegacyImageArtifact(dataRoot, {
+        conversationId: CANONICAL,
+        legacyWorkspaceId: LEGACY_ID,
+        expectedFileName,
+        workspaceRoot,
+      });
     expect(attempt('../outside.png')).toEqual({ ok: false, reason: 'invalid-request' });
     expect(attempt('../../etc/passwd.png')).toEqual({ ok: false, reason: 'invalid-request' });
     expect(attempt('sub/dir.png')).toEqual({ ok: false, reason: 'invalid-request' });
@@ -191,7 +224,7 @@ describe('LEGACY IMPORT', () => {
     // A safe name with an unsupported extension is not an image.
     fs.writeFileSync(path.join(workspaceRoot, 'notes.txt'), 'text');
     expect(attempt('notes.txt')).toEqual({ ok: false, reason: 'unsupported-file' });
-    expect(listActiveImageArtifacts(dataRoot, 'conv-1')).toEqual([]);
+    expect(listActiveImageArtifacts(dataRoot, CANONICAL)).toEqual([]);
   });
 
   it('refuses a file outside the root reached through a symlinked parent', () => {
@@ -204,7 +237,8 @@ describe('LEGACY IMPORT', () => {
       // The expected name under a root whose REALPATH is a different directory
       // still resolves exactly — that case is legitimately confined…
       const viaLink = importLegacyImageArtifact(dataRoot, {
-        conversationId: 'conv-1',
+        conversationId: CANONICAL,
+        legacyWorkspaceId: LEGACY_ID,
         expectedFileName: FILE_NAME,
         workspaceRoot: linkRoot,
       });
@@ -213,7 +247,8 @@ describe('LEGACY IMPORT', () => {
       fs.symlinkSync(path.join(outside, FILE_NAME), path.join(workspaceRoot, 'img-link.png'));
       expect(
         importLegacyImageArtifact(dataRoot, {
-          conversationId: 'conv-1',
+          conversationId: CANONICAL,
+          legacyWorkspaceId: LEGACY_ID,
           expectedFileName: 'img-link.png',
           workspaceRoot,
         })
