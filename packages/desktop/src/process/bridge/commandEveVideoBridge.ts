@@ -273,6 +273,7 @@ export async function handleCommandEveVideoGenerate(
   // resolver the picker asked, so the two cannot disagree.
   const tierGateRefusal = refuseUnproducibleVideoRequest({
     tierId: request.tierId,
+    ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
     modeKind: pathMode.kind,
     capabilities,
   });
@@ -347,6 +348,7 @@ export async function handleCommandEveVideoGenerate(
   const body = buildVideoGenerationBody({
     prompt: request.prompt.trim(),
     tierId: request.tierId,
+    ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
     durationSeconds: request.durationSeconds,
     mode: wireMode,
     requestId: deps.newRequestId(),

@@ -21,6 +21,7 @@ import {
   getVideoTier,
   resolveVideoPlan,
   type VideoModeKind,
+  type VideoModelId,
   type VideoQualityTier,
   type VideoRequestMode,
   type VideoResolution,
@@ -45,6 +46,8 @@ export const VIDEO_GENERATION_CAPABILITY = 'video_generation' as const;
 export interface CommandEveVideoGenerateRequest {
   prompt: string;
   tierId: VideoQualityTier;
+  /** Optional for backwards compatibility; current EVE UI sends the resolved model. */
+  modelId?: VideoModelId;
   durationSeconds: number;
   /**
    * Optional so the pre-existing gateway-communication tests keep exercising the
@@ -84,6 +87,8 @@ export interface VideoAssetPayload {
 export interface VideoGenerationRequest {
   prompt: string;
   tierId: VideoQualityTier;
+  /** The shared plan's model. Absent lets an older caller retain automatic routing. */
+  modelId?: VideoModelId;
   durationSeconds: number;
   /**
    * The resolved input mode. One value, four alternatives, no combination — the
@@ -131,6 +136,7 @@ export function buildVideoGenerationBody(request: VideoGenerationRequest): Recor
     video_generation: {
       prompt: request.prompt,
       tier: request.tierId,
+      ...(request.modelId === undefined ? {} : { model: request.modelId }),
       duration_seconds: request.durationSeconds,
       mode: mode.kind,
       ...modeFields,
@@ -573,12 +579,14 @@ export function buildVideoConversationArtifact(input: {
  */
 export function refuseUnproducibleVideoRequest(input: {
   tierId: VideoQualityTier;
+  modelId?: VideoModelId;
   modeKind: VideoModeKind;
   capabilities?: VideoSeatCapabilities;
 }): { ok: false; reasonCode: 'video-tier-unavailable'; message: string; retryable: false } | null {
   const resolved = resolveVideoPlan({
     modeKind: input.modeKind,
     tierId: input.tierId,
+    ...(input.modelId === undefined ? {} : { modelId: input.modelId }),
     ...(input.capabilities === undefined ? {} : { capabilities: input.capabilities }),
   });
   // `=== true`, not truthiness: this project compiles without strictNullChecks,
@@ -592,6 +600,8 @@ export function refuseUnproducibleVideoRequest(input: {
         ? 'Videos aus Referenzbildern sind für dieses Konto nicht freigeschaltet.'
         : resolved.reason === 'video-edit-resolution-refused'
           ? 'Videobearbeitungen gibt es nicht in 1080p.'
+          : resolved.reason === 'video-model-unavailable'
+            ? 'Dieses Videomodell unterstützt die gewählte Kombination nicht.'
           : 'Diese Videoqualität ist für diese Anfrage nicht verfügbar.',
     retryable: false,
   };

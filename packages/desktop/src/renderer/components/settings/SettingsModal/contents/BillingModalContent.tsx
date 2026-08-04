@@ -66,7 +66,14 @@ const BillingModalContent: React.FC = () => {
   // Credit figures are five-digit; ungrouped they read as noise. Group them in the
   // ACTIVE UI language so "100,000" / "100.000" matches the sentence around it.
   const formatCredits = useMemo(() => {
-    const nf = new Intl.NumberFormat(i18n?.language || 'de-DE');
+    const nf = new Intl.NumberFormat(i18n?.language || 'de-DE', { maximumFractionDigits: 0 });
+    return (n: number): string => nf.format(Math.round(n));
+  }, [i18n?.language]);
+  const formatEur = useMemo(() => {
+    const nf = new Intl.NumberFormat(i18n?.language || 'de-DE', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
     return (n: number): string => nf.format(n);
   }, [i18n?.language]);
 
@@ -196,15 +203,15 @@ const BillingModalContent: React.FC = () => {
               {t('credits.settings.allowanceUsedEur', {
                 defaultValue: '{{pct}}% of allowance used · {{rem}} credits left (≈ {{eur}} €)',
                 pct: Math.round(meter.allowanceUsedFraction * 100),
-                rem: meter.totalRemaining,
-                eur: (meter.totalRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
+                rem: formatCredits(meter.totalRemaining),
+                eur: formatEur(meter.totalRemaining * CREDIT_UNIT_EUR),
               })}
             </div>
             <Progress percent={Math.round(meter.allowanceUsedFraction * 100)} showText={false} />
             <div className='billing-settings__meter-detail'>
               {t('credits.settings.purchasedRemaining', {
                 defaultValue: '{{n}} purchased credits',
-                n: meter.purchasedRemaining,
+                n: formatCredits(meter.purchasedRemaining),
               })}
             </div>
             {/* v1.6 Slice 3 — the "Was ist ein Credit?" explainer. Since 1.820.1
@@ -266,9 +273,9 @@ const BillingModalContent: React.FC = () => {
                   <span className='billing-settings__usage-figures'>
                     {t('credits.settings.usageFigures', {
                       defaultValue: '{{calls}} Calls · {{credits}} Credits · {{eur}} €',
-                      calls: row.calls,
-                      credits: row.credits,
-                      eur: row.retail_eur.toFixed(2),
+                      calls: formatCredits(row.calls),
+                      credits: formatCredits(row.credits),
+                      eur: formatEur(row.retail_eur),
                     })}
                   </span>
                 </div>

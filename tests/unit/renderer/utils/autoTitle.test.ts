@@ -5,7 +5,11 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { buildAutoTitleFromContent, deriveAutoTitleFromMessages } from '@/renderer/utils/chat/autoTitle';
+import {
+  buildAutoTitleFromContent,
+  deriveAutoTitleFromMessages,
+  isGreetingOnlyAutoTitle,
+} from '@/renderer/utils/chat/autoTitle';
 import type { TMessage } from '@/common/chat/chatLib';
 
 vi.mock('@/renderer/utils/chat/thinkTagFilter', () => ({
@@ -82,6 +86,18 @@ describe('autoTitle', () => {
     it('handles content with only newlines', () => {
       expect(buildAutoTitleFromContent('\n\n\n')).toBeNull();
     });
+
+    it('skips greeting-only lines and uses the first substantive line', () => {
+      expect(buildAutoTitleFromContent('Hallo.\nBitte plane den Launch')).toBe('Bitte plane den Launch');
+      expect(buildAutoTitleFromContent('Moin!')).toBeNull();
+      expect(buildAutoTitleFromContent('Hello — I am here')).toBeNull();
+    });
+
+    it('recognises the greeting-only titles written by older builds', () => {
+      expect(isGreetingOnlyAutoTitle('Hallo.')).toBe(true);
+      expect(isGreetingOnlyAutoTitle('Moin, ich bin da!')).toBe(true);
+      expect(isGreetingOnlyAutoTitle('Hallo, bitte plane den Launch')).toBe(false);
+    });
   });
 
   describe('deriveAutoTitleFromMessages', () => {
@@ -137,6 +153,11 @@ describe('autoTitle', () => {
     it('processes markdown in user messages', () => {
       const messages = [mockUserMessage('## Title')];
       expect(deriveAutoTitleFromMessages(messages)).toBe('Title');
+    });
+
+    it('uses the first substantive user turn after a greeting', () => {
+      const messages = [mockUserMessage('Hallo.'), mockAssistantMessage('Hallo!'), mockUserMessage('Baue den Report')];
+      expect(deriveAutoTitleFromMessages(messages)).toBe('Baue den Report');
     });
   });
 });

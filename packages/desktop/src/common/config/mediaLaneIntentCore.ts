@@ -84,6 +84,33 @@ const EDIT_SEMANTICS_DE_RE = new RegExp(`${LB}${EDIT_SEMANTICS_DE}${RB}`, 'iu');
 const EDIT_SEMANTICS_EN_RE = new RegExp(`${LB}${EDIT_SEMANTICS_EN}${RB}`, 'iu');
 
 /**
+ * Follow-up corrections that name a requested element as missing.
+ *
+ * These deliberately stay OUTSIDE `EDIT_SEMANTICS_*`: the composer must remain
+ * visually quiet for natural follow-ups such as "Wo ist mein Logo?". Only the
+ * separate spend-authorisation gate consumes this signal, and it can authorise
+ * an edit only when context resolves to exactly one canonical editable source.
+ */
+const CONTEXTUAL_MISSING_ELEMENT_PATTERNS: readonly RegExp[] = [
+  new RegExp(
+    String.raw`${LB}(?:wo\s+(?:ist|bleibt)|warum\s+(?:fehlt|ist))\s+(?:denn\s+)?(?:mein(?:e[nsr]?)?|unser(?:e[nsr]?)?|der|die|das)\s+(?:logo|schriftzug|text|titel|gesicht)${RB}`,
+    'iu'
+  ),
+  new RegExp(
+    String.raw`${LB}(?:mein(?:e[nsr]?)?|unser(?:e[nsr]?)?|der|die|das)\s+(?:logo|schriftzug|text|titel|gesicht)\s+(?:fehlt|ist\s+(?:nicht\s+da|weg|verschwunden))${RB}`,
+    'iu'
+  ),
+  new RegExp(
+    String.raw`${LB}(?:where(?:'s|\s+is)|why\s+is(?:n't|\s+not))\s+(?:my|our|the)\s+(?:logo|wordmark|text|title|face)${RB}`,
+    'iu'
+  ),
+  new RegExp(
+    String.raw`${LB}(?:my|our|the)\s+(?:logo|wordmark|text|title|face)\s+(?:is\s+missing|isn't\s+there|is\s+gone|disappeared)${RB}`,
+    'iu'
+  ),
+];
+
+/**
  * STRONG explicit creation — the precedence discriminator (CoS 2026-08-03):
  * a creation VERB PHRASE for new output (erstell|generier|produzier|erzeug|
  * design|entwirf|generate|create|produce|render|draw|paint|build) or an
@@ -192,7 +219,11 @@ export function isImageEditRequest(message: string | null | undefined): boolean 
  */
 export function hasMediaEditSemantics(message: string | null | undefined): boolean {
   if (typeof message !== 'string' || message.trim().length === 0) return false;
-  return EDIT_SEMANTICS_DE_RE.test(message) || EDIT_SEMANTICS_EN_RE.test(message);
+  return (
+    EDIT_SEMANTICS_DE_RE.test(message) ||
+    EDIT_SEMANTICS_EN_RE.test(message) ||
+    CONTEXTUAL_MISSING_ELEMENT_PATTERNS.some((pattern) => pattern.test(message))
+  );
 }
 
 /** The artifact payload kinds this gate reads as media context. */

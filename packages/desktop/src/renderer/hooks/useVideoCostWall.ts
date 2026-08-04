@@ -36,6 +36,7 @@ import {
   buildVideoSubmitGate,
   estimateVideoCost,
   type VideoModeKind,
+  type VideoModelId,
   type VideoPlan,
   type VideoQualityTier,
   type VideoSeatCapabilities,
@@ -70,6 +71,7 @@ export interface VideoCostWallState {
     request: {
       durationSeconds?: number;
       tierId?: VideoQualityTier;
+      modelId?: VideoModelId;
       modeKind: VideoModeKind;
       capabilities?: VideoSeatCapabilities;
     },
@@ -84,6 +86,7 @@ export function useVideoCostWall(): VideoCostWallState {
       request: {
         durationSeconds?: number;
         tierId?: VideoQualityTier;
+        modelId?: VideoModelId;
         modeKind: VideoModeKind;
         capabilities?: VideoSeatCapabilities;
       },
@@ -98,6 +101,7 @@ export function useVideoCostWall(): VideoCostWallState {
       const preview = estimateVideoCost({
         modeKind: request.modeKind,
         tierId: request.tierId ?? gate.defaultTierId,
+        ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
         ...(request.durationSeconds === undefined ? {} : { durationSeconds: request.durationSeconds }),
         ...(request.capabilities === undefined ? {} : { capabilities: request.capabilities }),
       });

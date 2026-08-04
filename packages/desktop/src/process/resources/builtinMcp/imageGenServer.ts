@@ -69,12 +69,12 @@ async function main() {
 
   server.tool(
     'aionui_image_generation',
-    `REQUIRED tool for generating or editing images. You MUST use this tool for ANY image generation request.
+    `REQUIRED tool for generating new images. You MUST use this tool for ANY image generation request.
 
 CRITICAL: You (the AI assistant) CANNOT generate images directly. You MUST call this tool for:
 - Creating/generating any new images from text descriptions
 - Drawing, painting, or making any visual content
-- Editing or modifying existing images
+- Editing or modifying ordinary local/remote image files on non-managed providers
 
 Primary Functions:
 - Generate new images from English text descriptions
@@ -85,7 +85,7 @@ IMPORTANT: All prompts must be in English for optimal results.
 When to Use (MANDATORY):
 - User asks to "generate", "create", "draw", "make", "paint" an image
 - User asks for any visual content creation
-- User asks to edit or modify an image
+- User asks to edit or modify an ordinary local/remote image file on a non-managed provider
 - User mentions @filename with image extensions (.jpg, .jpeg, .png, .gif, .webp, .bmp, .tiff, .svg)
 
 Input Support:
@@ -96,7 +96,10 @@ Input Support:
 Output:
 - Managed (Command EVE) lane: the image is stored privately by the app and the
   result names an internal artifact reference (img_h_...) plus human metadata —
-  NEVER a file path. Editing uses the separate edit_handle from your context.
+  NEVER a file path. To edit an existing managed artifact, MUST use the separate
+  \`eve_image_edit\` tool with the \`edit_handle\` supplied in conversation context.
+  Never pass an img_h_ reference as a local path, search the filesystem or app
+  database for it, or regenerate the image merely to obtain a file path.
 - Other providers: saves generated/processed images to workspace with timestamp naming
 - Returns image path and AI description/analysis
 
@@ -127,7 +130,7 @@ IMPORTANT: When user provides multiple images, ALWAYS pass ALL images to the ima
         .string()
         .optional()
         .describe(
-          'Optional: Working directory for resolving relative paths and saving output images. Defaults to current working directory.'
+          'Non-managed providers only: working directory for resolving relative paths and saving output images. The Command EVE managed lane ignores this value, returns an internal artifact, and uses native artifact export when the user wants a file.'
         ),
     },
     async ({ prompt, image_uris, aspect_ratio, resolution, workspace_dir }) => {

@@ -82,6 +82,9 @@ export type VideoResolution = '480p' | '720p' | '1080p';
 /** The two xAI video models, which differ in what they ACCEPT, not just price. */
 export type VideoModelId = 'grok-imagine-video' | 'grok-imagine-video-1.5';
 
+/** Stable order for the contextual model picker: economical first, premium second. */
+export const VIDEO_MODEL_IDS: readonly VideoModelId[] = ['grok-imagine-video', 'grok-imagine-video-1.5'] as const;
+
 /**
  * The four ways a clip can be produced. They are ALTERNATIVES, not flags: see
  * {@link VideoRequestMode} for the union that makes any two of them impossible to
@@ -337,6 +340,7 @@ export function describeVideoModeRefusal(reason: VideoModeRefusal): string {
 
 export type VideoPlanRefusal =
   | 'video-tier-unavailable'
+  | 'video-model-unavailable'
   | 'reference-model-unavailable'
   | 'video-edit-resolution-refused';
 
@@ -390,6 +394,8 @@ function tiersForMode(modeKind: VideoModeKind): readonly VideoTierSpec[] {
 export function resolveVideoPlan(input: {
   modeKind: VideoModeKind;
   tierId?: VideoQualityTier;
+  /** Explicit user selection. Absent preserves the economical automatic route. */
+  modelId?: VideoModelId;
   durationSeconds?: number;
   capabilities?: VideoSeatCapabilities;
 }): VideoPlanResult {
@@ -407,13 +413,24 @@ export function resolveVideoPlan(input: {
     clampedFromTierId = requestedTier.id;
   }
 
-  const model = videoModelFor(input.modeKind, tier.resolution);
+  const automaticModel = videoModelFor(input.modeKind, tier.resolution);
+  const model = input.modelId ?? automaticModel;
+  // Reference generation exists only on 1.5; edit stays on the established
+  // edit-capable base model. Those are provider contracts, not preferences.
+  if (input.modeKind === 'reference' && model !== 'grok-imagine-video-1.5') {
+    return { ok: false, reason: 'video-model-unavailable' };
+  }
+  if (input.modeKind === 'edit' && model !== automaticModel) {
+    return { ok: false, reason: 'video-model-unavailable' };
+  }
   if (model === 'grok-imagine-video-1.5' && !hd15) return { ok: false, reason: 'video-tier-unavailable' };
 
   const usdPerSecond = VIDEO_MODEL_USD_PER_SECOND[model][tier.resolution];
   // Unreachable for every pair the routing above can produce, and checked anyway:
   // a missing rate must never become a free render.
-  if (usdPerSecond === undefined) return { ok: false, reason: 'video-tier-unavailable' };
+  if (usdPerSecond === undefined) {
+    return { ok: false, reason: input.modelId === undefined ? 'video-tier-unavailable' : 'video-model-unavailable' };
+  }
 
   const maxDurationSeconds = input.modeKind === 'reference' ? MAX_REFERENCE_VIDEO_SECONDS : MAX_VIDEO_DURATION_SECONDS;
   const rawDuration = input.durationSeconds;
@@ -445,6 +462,7 @@ export function resolveVideoPlan(input: {
 /** What the caller knows about the pending request when choosing a tier. */
 export interface VideoTierAvailability {
   modeKind: VideoModeKind;
+  modelId?: VideoModelId;
   capabilities?: VideoSeatCapabilities;
 }
 
@@ -464,8 +482,27 @@ export function listAvailableVideoTiers(availability: VideoTierAvailability): re
       resolveVideoPlan({
         modeKind: availability.modeKind,
         tierId: tier.id,
+        ...(availability.modelId === undefined ? {} : { modelId: availability.modelId }),
         ...(availability.capabilities === undefined ? {} : { capabilities: availability.capabilities }),
       }).ok === true
+  );
+}
+
+/** The models that can genuinely produce at least one tier for this request. */
+export function listAvailableVideoModels(availability: {
+  modeKind: VideoModeKind;
+  capabilities?: VideoSeatCapabilities;
+}): readonly VideoModelId[] {
+  return VIDEO_MODEL_IDS.filter((modelId) =>
+    tiersForMode(availability.modeKind).some(
+      (tier) =>
+        resolveVideoPlan({
+          modeKind: availability.modeKind,
+          tierId: tier.id,
+          modelId,
+          ...(availability.capabilities === undefined ? {} : { capabilities: availability.capabilities }),
+        }).ok === true
+    )
   );
 }
 
@@ -512,6 +549,8 @@ export interface VideoCostRequest {
   durationSeconds?: number;
   /** Selected quality tier (defaults to the Fast/720p default tier). */
   tierId?: VideoQualityTier;
+  /** Explicit contextual model choice. Absent keeps the economical automatic route. */
+  modelId?: VideoModelId;
   /**
    * The mode the render will ACTUALLY use. REQUIRED, and that is the point of
    * item E: an estimate that does not know the mode cannot know the model, and an
@@ -549,6 +588,7 @@ export function estimateVideoCost(request: VideoCostRequest): VideoCostPreview |
   const resolved = resolveVideoPlan({
     modeKind: request.modeKind,
     ...(request.tierId === undefined ? {} : { tierId: request.tierId }),
+    ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
     ...(request.durationSeconds === undefined ? {} : { durationSeconds: request.durationSeconds }),
     ...(request.capabilities === undefined ? {} : { capabilities: request.capabilities }),
   });

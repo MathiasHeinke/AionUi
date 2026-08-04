@@ -27,10 +27,13 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  DEFAULT_VIDEO_DURATION_SECONDS,
   estimateVideoCost,
+  listAvailableVideoModels,
   listAvailableVideoTiers,
   MAX_VIDEO_REFERENCE_AUDIOS,
   type VideoModeKind,
+  type VideoModelId,
   type VideoPresetVoice,
   type VideoQualityTier,
   type VideoSeatCapabilities,
@@ -42,8 +45,12 @@ export interface VideoQualityPillProps {
   value: VideoQualityTier;
   /** Select a tier. Called on click only — never automatically. */
   onChange: (tierId: VideoQualityTier) => void;
+  /** Explicit contextual model selection. Absent retains automatic routing. */
+  modelId?: VideoModelId;
+  onModelChange?: (modelId: VideoModelId) => void;
   /** Clip duration in seconds, for the credit estimate (defaults to the core's). */
   durationSeconds?: number;
+  onDurationChange?: (durationSeconds: number) => void;
   /** Hide the control entirely (the draft does not route to video). */
   visible: boolean;
   /**
@@ -68,7 +75,10 @@ export interface VideoQualityPillProps {
 const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
   value,
   onChange,
+  modelId,
+  onModelChange,
   durationSeconds,
+  onDurationChange,
   visible,
   modeKind,
   capabilities,
@@ -80,21 +90,30 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
 
   if (!visible) return null;
 
-  // Only what this request can ACTUALLY produce. A text prompt on a seat without
-  // 1.5 gets two options; with 1.5 proven it gets three, because 1.5 does
-  // text-to-video at 1080p. Reference mode gets none at all without 1.5.
-  const tiers = listAvailableVideoTiers({
+  const models = listAvailableVideoModels({
     modeKind,
     ...(capabilities === undefined ? {} : { capabilities }),
   });
+  const effectiveModelId = modelId !== undefined && models.includes(modelId) ? modelId : undefined;
+
+  // Only what this request can ACTUALLY produce for the selected model. A model
+  // switch can remove 1080p immediately; an impossible stale tier is represented
+  // by the economical default below, never by a price for another request.
+  const tiers = listAvailableVideoTiers({
+    modeKind,
+    ...(effectiveModelId === undefined ? {} : { modelId: effectiveModelId }),
+    ...(capabilities === undefined ? {} : { capabilities }),
+  });
   if (tiers.length === 0) return null;
+  const effectiveTier = tiers.find((tier) => tier.id === value) ?? tiers.find((tier) => tier.isDefault) ?? tiers[0];
 
   // ONE resolution of mode + tier + capability, shared with the send path. The
   // pill does not recompute a price of its own — a second derivation is a second
   // answer, and the one the user reads must be the one the request carries.
   const preview = estimateVideoCost({
     modeKind,
-    tierId: value,
+    tierId: effectiveTier.id,
+    ...(effectiveModelId === undefined ? {} : { modelId: effectiveModelId }),
     ...(durationSeconds === undefined ? {} : { durationSeconds }),
     ...(capabilities === undefined ? {} : { capabilities }),
   });
@@ -114,34 +133,94 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
     <div
       className='video-quality-pill'
       data-testid='video-quality-pill'
-      data-selected-tier={value}
+      data-selected-tier={effectiveTier.id}
       data-mode={modeKind}
       data-model={preview.plan.model}
+      data-duration-seconds={preview.plan.durationSeconds}
     >
-      <span className='video-quality-pill__label'>{t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}</span>
+      {onModelChange && models.length > 1 ? (
+        <div className='video-quality-pill__group' data-testid='video-model-group'>
+          <span className='video-quality-pill__label'>{t('credits.video.modelLabel', { defaultValue: 'Modell' })}</span>
+          <div
+            className='video-quality-pill__options'
+            role='radiogroup'
+            aria-label={t('credits.video.modelLabel', { defaultValue: 'Modell' })}
+          >
+            {models.map((model) => {
+              const selected = model === preview.plan.model;
+              return (
+                <button
+                  key={model}
+                  type='button'
+                  role='radio'
+                  aria-checked={selected}
+                  className={`video-quality-pill__option${selected ? ' is-selected' : ''}`}
+                  data-testid={`video-model-option-${model}`}
+                  onClick={() => onModelChange(model)}
+                >
+                  {model === 'grok-imagine-video-1.5' ? 'Grok Video 1.5' : 'Grok Video'}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
-      <div
-        className='video-quality-pill__options'
-        role='radiogroup'
-        aria-label={t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}
-      >
-        {tiers.map((tier) => {
-          const selected = tier.id === value;
-          return (
-            <button
-              key={tier.id}
-              type='button'
-              role='radio'
-              aria-checked={selected}
-              className={`video-quality-pill__option${selected ? ' is-selected' : ''}`}
-              data-testid={`video-quality-option-${tier.id}`}
-              onClick={() => onChange(tier.id)}
-            >
-              {tier.resolution}
-            </button>
-          );
-        })}
+      <div className='video-quality-pill__group'>
+        <span className='video-quality-pill__label'>{t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}</span>
+        <div
+          className='video-quality-pill__options'
+          role='radiogroup'
+          aria-label={t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}
+        >
+          {tiers.map((tier) => {
+            const selected = tier.id === effectiveTier.id;
+            return (
+              <button
+                key={tier.id}
+                type='button'
+                role='radio'
+                aria-checked={selected}
+                className={`video-quality-pill__option${selected ? ' is-selected' : ''}`}
+                data-testid={`video-quality-option-${tier.id}`}
+                onClick={() => onChange(tier.id)}
+              >
+                {tier.resolution}
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      {onDurationChange ? (
+        <div className='video-quality-pill__group' data-testid='video-duration-group'>
+          <span className='video-quality-pill__label'>{t('credits.video.durationLabel', { defaultValue: 'Dauer' })}</span>
+          <div
+            className='video-quality-pill__options'
+            role='radiogroup'
+            aria-label={t('credits.video.durationLabel', { defaultValue: 'Dauer' })}
+          >
+            {[5, 10, 15]
+              .filter((seconds) => seconds <= preview.plan.maxDurationSeconds)
+              .map((seconds) => {
+                const selected = seconds === (durationSeconds ?? DEFAULT_VIDEO_DURATION_SECONDS);
+                return (
+                  <button
+                    key={seconds}
+                    type='button'
+                    role='radio'
+                    aria-checked={selected}
+                    className={`video-quality-pill__option${selected ? ' is-selected' : ''}`}
+                    data-testid={`video-duration-option-${seconds}`}
+                    onClick={() => onDurationChange(seconds)}
+                  >
+                    {seconds}s
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      ) : null}
 
       {showVoices && (
         <div

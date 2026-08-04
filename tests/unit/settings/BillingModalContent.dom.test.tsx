@@ -302,9 +302,9 @@ describe('BillingModalContent — A3 per-seat usage card (v1.5)', () => {
             ok_calls: 4,
             prompt_tokens: 0,
             completion_tokens: 0,
-            retail_eur_cents: 500,
+            retail_eur_cents: 269,
             raw_eur_cents: 100,
-            credits: 50,
+            credits: 2694.5467303603205,
           },
         ],
         total: {
@@ -312,9 +312,9 @@ describe('BillingModalContent — A3 per-seat usage card (v1.5)', () => {
           ok_calls: 14,
           prompt_tokens: 0,
           completion_tokens: 0,
-          retail_eur_cents: 1500,
+          retail_eur_cents: 1269,
           raw_eur_cents: 300,
-          credits: 150,
+          credits: 2794.5467303603205,
         },
       },
       setMonth: vi.fn(),
@@ -324,6 +324,10 @@ describe('BillingModalContent — A3 per-seat usage card (v1.5)', () => {
     // Both seats' rows render, labels joined from the wire (never from the server).
     expect(screen.getByTestId('billing-usage-row-seat-1').textContent).toContain('Founder');
     expect(screen.getByTestId('billing-usage-row-uuid-a').textContent).toContain('Klinik Salem');
+    const clientRowText = screen.getByTestId('billing-usage-row-uuid-a').textContent ?? '';
+    expect(clientRowText).toContain('2.695 Credits');
+    expect(clientRowText).toContain('2,69 €');
+    expect(clientRowText).not.toContain('2694.5467303603205');
   });
 
   it('client-seat scope: a delegate on a client seat sees ONLY its own row (no sibling seats leak)', () => {

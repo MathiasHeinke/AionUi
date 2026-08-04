@@ -101,9 +101,11 @@ import {
   DEFAULT_VIDEO_DURATION_SECONDS,
   DEFAULT_VIDEO_TIER_ID,
   isVideoTierAvailable,
+  listAvailableVideoModels,
   MAX_VIDEO_REFERENCE_AUDIOS,
   VIDEO_PRESET_VOICES,
   type VideoModeKind,
+  type VideoModelId,
   type VideoQualityTier,
   type VideoSeatCapabilities,
 } from '@/common/config/videoCostCore';
@@ -808,6 +810,20 @@ Please check your local CLI tool authentication status`,
   // Inline quality selection. Fast/720p until the user clicks HD — never
   // auto-upgraded, which is what keeps the "explicit upgrade" property true.
   const [videoTierId, setVideoTierId] = useState<VideoQualityTier>(DEFAULT_VIDEO_TIER_ID);
+  const [videoModelId, setVideoModelId] = useState<VideoModelId | undefined>(undefined);
+  const [videoDurationSeconds, setVideoDurationSeconds] = useState(DEFAULT_VIDEO_DURATION_SECONDS);
+  const handleVideoTierChange = useCallback((tierId: VideoQualityTier) => {
+    setVideoTierId(tierId);
+    // 1080p is a truthful shorthand for the 1.5 model; keep the two visible
+    // selectors coherent instead of letting one invalidate the other.
+    if (tierId === 'hd') setVideoModelId('grok-imagine-video-1.5');
+  }, []);
+  const handleVideoModelChange = useCallback((modelId: VideoModelId) => {
+    setVideoModelId(modelId);
+    if (modelId === 'grok-imagine-video') {
+      setVideoTierId((current) => (current === 'hd' ? DEFAULT_VIDEO_TIER_ID : current));
+    }
+  }, []);
 
   // Show the quality selector only while the DRAFT already routes to the video
   // lane, using the same predicate the send path uses.
@@ -1435,15 +1451,28 @@ Please check your local CLI tool authentication status`,
         const sendModeKind: VideoModeKind =
           attachedImagePaths.length === 0 ? 'text' : attachedImagePaths.length === 1 ? 'image' : 'reference';
         const selectedTier = draftRoutesToVideo ? videoTierId : DEFAULT_VIDEO_TIER_ID;
+        const selectedModel = draftRoutesToVideo ? videoModelId : undefined;
+        const producibleModel =
+          selectedModel !== undefined &&
+          listAvailableVideoModels({ modeKind: sendModeKind, capabilities: videoCapabilities }).includes(selectedModel)
+            ? selectedModel
+            : undefined;
         const producibleTier = isVideoTierAvailable(selectedTier, {
           modeKind: sendModeKind,
+          ...(producibleModel === undefined ? {} : { modelId: producibleModel }),
           capabilities: videoCapabilities,
         })
           ? selectedTier
           : DEFAULT_VIDEO_TIER_ID;
 
         videoCostWall.requestVideo(
-          { tierId: producibleTier, modeKind: sendModeKind, capabilities: videoCapabilities },
+          {
+            tierId: producibleTier,
+            ...(producibleModel === undefined ? {} : { modelId: producibleModel }),
+            durationSeconds: draftRoutesToVideo ? videoDurationSeconds : DEFAULT_VIDEO_DURATION_SECONDS,
+            modeKind: sendModeKind,
+            capabilities: videoCapabilities,
+          },
           (resolved) => {
             // The ONLY provider job this send starts. An earlier revision ALSO
             // dispatched a `[EVE:VIDEO ...]`-stamped message into the normal ACP
@@ -1455,6 +1484,7 @@ Please check your local CLI tool authentication status`,
               .invoke({
                 prompt: message,
                 tierId: resolved.tierId,
+                modelId: resolved.plan.model,
                 // The PLAN's duration, not the raw default: reference mode is
                 // capped at 15s and the plan already applied that ceiling, so the
                 // length that was priced is the length that is requested.
@@ -1514,6 +1544,8 @@ Please check your local CLI tool authentication status`,
                 // video ends its own tier here. Only here — see the failure
                 // paths above, which deliberately leave the choice standing.
                 setVideoTierId(DEFAULT_VIDEO_TIER_ID);
+                setVideoModelId(undefined);
+                setVideoDurationSeconds(DEFAULT_VIDEO_DURATION_SECONDS);
               })
               .catch(() => {
                 Message.error({
@@ -1767,6 +1799,8 @@ Please check your local CLI tool authentication status`,
       raiseVisionEnablementPrompt,
       videoCostWall.requestVideo,
       videoTierId,
+      videoModelId,
+      videoDurationSeconds,
       draftRoutesToVideo,
       videoCapabilities,
       videoVoiceIds,
@@ -2435,7 +2469,11 @@ Please check your local CLI tool authentication status`,
             <VideoQualityPill
               visible={showVideoCreateControls}
               value={videoTierId}
-              onChange={setVideoTierId}
+              onChange={handleVideoTierChange}
+              modelId={videoModelId}
+              onModelChange={handleVideoModelChange}
+              durationSeconds={videoDurationSeconds}
+              onDurationChange={setVideoDurationSeconds}
               modeKind={videoModeKind}
               capabilities={videoCapabilities}
               presetVoices={VIDEO_PRESET_VOICES}

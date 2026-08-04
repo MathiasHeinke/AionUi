@@ -59,6 +59,7 @@
     "exportSuccess": "Export succeeded",
     "exportCanceled": "Export canceled",
     "exportFailed": "Export failed",
+    "copySessionId": "複製工作階段 ID",
     "pin": "Pin",
     "unpin": "Unpin",
     "pinned": "Pinned",

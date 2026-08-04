@@ -112,6 +112,52 @@ type ConversationListSyncSnapshot = {
   errorConversationIds: Set<string>;
 };
 
+export type ConversationSidebarRestingState = 'idle' | 'done' | 'attention' | 'error';
+
+export type ConversationSidebarStatusReceipt = {
+  version: 1;
+  seat_id: string;
+  state: ConversationSidebarRestingState;
+  turn_id: string | null;
+  updated_at: number;
+};
+
+const CONVERSATION_SIDEBAR_STATUS_EXTRA_KEY = 'command_eve_sidebar_status';
+
+const isConversationSidebarRestingState = (value: unknown): value is ConversationSidebarRestingState => {
+  return value === 'idle' || value === 'done' || value === 'attention' || value === 'error';
+};
+
+/**
+ * Read the durable sidebar receipt from the conversation-owned `extra` bag.
+ * The seat id is part of the receipt even though each seat already has its own
+ * backend data dir: it is a final renderer-side fence against a stale/cross-seat
+ * list response being painted after a rapid A -> B -> A switch.
+ */
+export const readConversationSidebarStatusReceipt = (
+  conversation: TChatConversation,
+  currentSeatId: string
+): ConversationSidebarStatusReceipt | null => {
+  const extra = conversation.extra as Record<string, unknown> | undefined;
+  const raw = extra?.[CONVERSATION_SIDEBAR_STATUS_EXTRA_KEY];
+  if (!raw || typeof raw !== 'object') return null;
+
+  const receipt = raw as Partial<ConversationSidebarStatusReceipt>;
+  if (
+    receipt.version !== 1 ||
+    receipt.seat_id !== currentSeatId ||
+    !isConversationSidebarRestingState(receipt.state) ||
+    (receipt.turn_id !== null && typeof receipt.turn_id !== 'string') ||
+    typeof receipt.updated_at !== 'number' ||
+    !Number.isFinite(receipt.updated_at) ||
+    receipt.updated_at <= 0
+  ) {
+    return null;
+  }
+
+  return receipt as ConversationSidebarStatusReceipt;
+};
+
 const listeners = new Set<() => void>();
 
 let isStoreInitialized = false;
@@ -163,6 +209,158 @@ const getConversationListSyncSnapshot = (): ConversationListSyncSnapshot => snap
  */
 let seatEpoch = 0;
 
+/**
+ * A renderer transition is visible immediately while its conversation-extra
+ * PATCH is in flight. The override is retired as soon as a list read carries an
+ * equal/newer durable receipt. It is deliberately cleared on every seat epoch.
+ */
+const localSidebarStatusReceipts = new Map<string, ConversationSidebarStatusReceipt>();
+const sidebarStatusWriteChains = new Map<string, Promise<void>>();
+const localGeneratingTurnIds = new Map<string, string | null>();
+let lastSidebarReceiptUpdatedAt = 0;
+
+const nextSidebarReceiptUpdatedAt = (): number => {
+  lastSidebarReceiptUpdatedAt = Math.max(Date.now(), lastSidebarReceiptUpdatedAt + 1);
+  return lastSidebarReceiptUpdatedAt;
+};
+
+const getConversationTurnId = (conversation_id: string): string | null => {
+  return conversationsState.find((conversation) => conversation.id === conversation_id)?.runtime?.turn_id ?? null;
+};
+
+const persistConversationSidebarStatus = (
+  conversation_id: string,
+  state: ConversationSidebarRestingState,
+  turn_id: string | null = null
+): void => {
+  if (!conversation_id) return;
+
+  const issuedAtEpoch = seatEpoch;
+  const receipt: ConversationSidebarStatusReceipt = {
+    version: 1,
+    seat_id: configService.getCurrentSeatId(),
+    state,
+    turn_id,
+    updated_at: nextSidebarReceiptUpdatedAt(),
+  };
+  localSidebarStatusReceipts.set(conversation_id, receipt);
+
+  const chainKey = `${issuedAtEpoch}:${conversation_id}`;
+  const previous = sidebarStatusWriteChains.get(chainKey) ?? Promise.resolve();
+  let next: Promise<void>;
+  next = previous
+    .catch(() => {})
+    .then(async () => {
+      if (issuedAtEpoch !== seatEpoch) return;
+      await ipcBridge.conversation.update.invoke({
+        id: conversation_id,
+        updates: {
+          extra: {
+            [CONVERSATION_SIDEBAR_STATUS_EXTRA_KEY]: receipt,
+          },
+        } as unknown as Partial<TChatConversation>,
+        merge_extra: true,
+      });
+    })
+    .catch((error: unknown) => {
+      if (issuedAtEpoch !== seatEpoch) return;
+      console.error('[WorkspaceGroupedHistory] Failed to persist conversation status:', error);
+    })
+    .finally(() => {
+      if (sidebarStatusWriteChains.get(chainKey) === next) {
+        sidebarStatusWriteChains.delete(chainKey);
+      }
+    });
+  sidebarStatusWriteChains.set(chainKey, next);
+};
+
+const receiptMatchesRuntime = (receipt: ConversationSidebarStatusReceipt, conversation: TChatConversation): boolean => {
+  const runtimeTurnId = conversation.runtime?.turn_id ?? null;
+  return !receipt.turn_id || !runtimeTurnId || receipt.turn_id === runtimeTurnId;
+};
+
+const getEffectiveSidebarStatusReceipt = (
+  conversation: TChatConversation,
+  currentSeatId: string
+): ConversationSidebarStatusReceipt | null => {
+  const storedReceipt = readConversationSidebarStatusReceipt(conversation, currentSeatId);
+  const localReceipt = localSidebarStatusReceipts.get(conversation.id) ?? null;
+  if (storedReceipt && localReceipt && storedReceipt.updated_at >= localReceipt.updated_at) {
+    localSidebarStatusReceipts.delete(conversation.id);
+    return storedReceipt;
+  }
+  return localReceipt ?? storedReceipt;
+};
+
+const reconcileConversationSidebarStatuses = (conversations: TChatConversation[]): void => {
+  const currentSeatId = configService.getCurrentSeatId();
+  const nextGenerating = new Set<string>();
+  const nextCompletionUnread = new Set<string>();
+  const nextCompleted = new Set<string>();
+  const nextAttention = new Set<string>();
+  const nextError = new Set<string>();
+
+  for (const conversation of conversations) {
+    const localGeneratingTurnId = localGeneratingTurnIds.get(conversation.id);
+    const runtimeConfirmsLocalTurnEnded =
+      localGeneratingTurnId !== undefined &&
+      conversation.runtime?.is_processing === false &&
+      Boolean(localGeneratingTurnId) &&
+      conversation.runtime.turn_id === localGeneratingTurnId;
+    const isGenerating =
+      conversation.runtime?.is_processing === true ||
+      (localGeneratingTurnId !== undefined && !runtimeConfirmsLocalTurnEnded);
+    if (isGenerating) {
+      nextGenerating.add(conversation.id);
+      continue;
+    }
+
+    const receipt = getEffectiveSidebarStatusReceipt(conversation, currentSeatId);
+    if (activeConversationIdState === conversation.id) {
+      if (receipt && receipt.state !== 'idle') {
+        persistConversationSidebarStatus(conversation.id, 'idle', conversation.runtime?.turn_id ?? receipt.turn_id);
+      }
+      continue;
+    }
+
+    if (!receipt || receipt.state === 'idle' || !receiptMatchesRuntime(receipt, conversation)) {
+      continue;
+    }
+
+    // The terminal-turn guard is durable too: a late content/tool frame after a
+    // relaunch must not resurrect a completed row as "running".
+    nextCompleted.add(conversation.id);
+    nextCompletionUnread.add(conversation.id);
+    if (receipt.state === 'attention') nextAttention.add(conversation.id);
+    if (receipt.state === 'error') nextError.add(conversation.id);
+  }
+
+  generatingConversationIdsState = nextGenerating;
+  completionUnreadConversationIdsState = nextCompletionUnread;
+  completedConversationIdsState = nextCompleted;
+  attentionConversationIdsState = nextAttention;
+  errorConversationIdsState = nextError;
+};
+
+const applyConversationListRows = (items: TChatConversation[]): void => {
+  const filteredData = items.filter((conversation) => {
+    // Legacy rows from the pre-provider-probe health check flow are hidden
+    // from normal history. New health checks must not create conversations.
+    const extra = conversation.extra as { is_health_check?: boolean; team_id?: string; teamId?: string } | undefined;
+    return extra?.is_health_check !== true && !extra?.team_id && !extra?.teamId;
+  });
+  conversationsState = filteredData;
+  // Use ALL conversation IDs (including team/legacy health-check rows) so the
+  // responseStream listener recognises them as known and doesn't trigger an
+  // infinite refreshConversations loop.
+  conversation_idsState = new Set(items.map((conversation) => conversation.id));
+  for (const conversation_id of localSidebarStatusReceipts.keys()) {
+    if (!conversation_idsState.has(conversation_id)) localSidebarStatusReceipts.delete(conversation_id);
+  }
+  reconcileConversationSidebarStatuses(filteredData);
+  emitStoreChange();
+};
+
 const refreshConversations = () => {
   const issuedAtEpoch = seatEpoch;
   void ipcBridge.database.getUserConversations
@@ -171,18 +369,7 @@ const refreshConversations = () => {
       if (issuedAtEpoch !== seatEpoch) return; // seat switched mid-flight — stale result, drop
       const items = result?.items;
       if (items && Array.isArray(items)) {
-        const filteredData = items.filter((conv) => {
-          // Legacy rows from the pre-provider-probe health check flow are hidden
-          // from normal history. New health checks must not create conversations.
-          const extra = conv.extra as { is_health_check?: boolean; team_id?: string; teamId?: string } | undefined;
-          return extra?.is_health_check !== true && !extra?.team_id && !extra?.teamId;
-        });
-        conversationsState = filteredData;
-        // Use ALL conversation IDs (including team/legacy health-check rows) so the
-        // responseStream listener recognises them as known and doesn't
-        // trigger an infinite refreshConversations loop.
-        conversation_idsState = new Set(items.map((conversation) => conversation.id));
-        emitStoreChange();
+        applyConversationListRows(items);
         return;
       }
 
@@ -241,13 +428,7 @@ const refreshConversationsForSeatSwitch = (issuedAtEpoch: number, retriesRemaini
       if (issuedAtEpoch !== seatEpoch) return; // switched again mid-flight — stale, drop
       const items = result?.items;
       if (items && Array.isArray(items)) {
-        const filteredData = items.filter((conv) => {
-          const extra = conv.extra as { is_health_check?: boolean; team_id?: string; teamId?: string } | undefined;
-          return extra?.is_health_check !== true && !extra?.team_id && !extra?.teamId;
-        });
-        conversationsState = filteredData;
-        conversation_idsState = new Set(items.map((conversation) => conversation.id));
-        emitStoreChange();
+        applyConversationListRows(items);
         return;
       }
       conversationsState = [];
@@ -377,12 +558,24 @@ const logLateStreamIgnored = (conversation_id: string, type: string) => {
 };
 
 const setActiveConversationState = (conversation_id: string | null) => {
+  const changed = activeConversationIdState !== conversation_id;
   activeConversationIdState = conversation_id;
   // Opening a conversation means the user has seen its resting state, so clear
   // the "needs you" / "errored" flags (mirrors clearCompletionUnread).
   if (conversation_id) {
+    clearCompletionUnreadState(conversation_id);
     clearAttention(conversation_id);
     clearError(conversation_id);
+    clearCompleted(conversation_id);
+    if (changed) {
+      const conversation = conversationsState.find(({ id }) => id === conversation_id);
+      if (conversation) {
+        const receipt = getEffectiveSidebarStatusReceipt(conversation, configService.getCurrentSeatId());
+        if (receipt && receipt.state !== 'idle') {
+          persistConversationSidebarStatus(conversation_id, 'idle', getConversationTurnId(conversation_id));
+        }
+      }
+    }
   }
 };
 
@@ -407,6 +600,10 @@ const initializeConversationListSyncStore = () => {
     // reset below) is invalidated at write-time and cannot clobber the new
     // seat's list.
     seatEpoch += 1;
+    localSidebarStatusReceipts.clear();
+    sidebarStatusWriteChains.clear();
+    localGeneratingTurnIds.clear();
+    lastSidebarReceiptUpdatedAt = 0;
     resetConversationListForSeatSwitch();
     refreshConversationsForSeatSwitch(seatEpoch);
   });
@@ -419,6 +616,8 @@ const initializeConversationListSyncStore = () => {
       clearCompleted(event.conversation_id);
       clearAttention(event.conversation_id);
       clearError(event.conversation_id);
+      localSidebarStatusReceipts.delete(event.conversation_id);
+      localGeneratingTurnIds.delete(event.conversation_id);
     }
     refreshConversations();
   });
@@ -447,6 +646,13 @@ const initializeConversationListSyncStore = () => {
         // while a fresh turn temporarily replaces it with the running state.
         markCompletionUnread(conversation_id);
       }
+      const restingState: ConversationSidebarRestingState | null =
+        isErrorStream && activeConversationIdState !== conversation_id ? 'error' : wasGenerating ? 'done' : null;
+      if (restingState) {
+        persistConversationSidebarStatus(conversation_id, restingState, message.turn_id || null);
+      }
+      localGeneratingTurnIds.delete(conversation_id);
+      markCompleted(conversation_id);
       clearGenerating(conversation_id);
       return;
     }
@@ -458,8 +664,11 @@ const initializeConversationListSyncStore = () => {
     if (message.type === 'start') {
       // A fresh turn clears any stale resting flags from the previous turn so the
       // row doesn't keep an old "errored"/"needs you" dot while it's regenerating.
+      clearCompletionUnreadState(conversation_id);
       clearAttention(conversation_id);
       clearError(conversation_id);
+      localGeneratingTurnIds.set(conversation_id, message.turn_id || null);
+      persistConversationSidebarStatus(conversation_id, 'idle', message.turn_id || null);
     }
     if (decision.clearCompleted) {
       clearCompleted(conversation_id);
@@ -469,10 +678,21 @@ const initializeConversationListSyncStore = () => {
       return;
     }
     if (decision.markGenerating) {
+      if (!localGeneratingTurnIds.has(conversation_id)) {
+        localGeneratingTurnIds.set(conversation_id, message.turn_id || null);
+      }
       markGenerating(conversation_id);
     }
   });
   ipcBridge.conversation.turnCompleted.on((event) => {
+    if (event.runtime?.is_processing) {
+      clearCompleted(event.session_id);
+      localGeneratingTurnIds.set(event.session_id, event.runtime.turn_id ?? event.turn_id ?? null);
+      markGenerating(event.session_id);
+      refreshConversations();
+      return;
+    }
+
     const isUnseen = activeConversationIdState !== event.session_id;
     if (isTerminalTurnState(event.state)) {
       markCompletionUnread(event.session_id);
@@ -486,7 +706,14 @@ const initializeConversationListSyncStore = () => {
       } else if (isUnseen && (event.state === 'error' || event.state === 'stopped')) {
         markError(event.session_id);
       }
+      const restingState: ConversationSidebarRestingState = isUnseen
+        ? event.state === 'ai_waiting_input'
+          ? 'attention'
+          : 'error'
+        : 'done';
+      persistConversationSidebarStatus(event.session_id, restingState, event.turn_id || null);
     }
+    localGeneratingTurnIds.delete(event.session_id);
     markCompleted(event.session_id);
     clearGenerating(event.session_id);
     refreshConversations();

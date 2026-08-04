@@ -9,14 +9,37 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TChatConversation } from '@/common/config/storage';
 
+const mocks = vi.hoisted(() => ({
+  copyText: vi.fn().mockResolvedValue(undefined),
+  copySuccess: vi.fn(),
+  copyError: vi.fn(),
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
 vi.mock('@arco-design/web-react', async () => {
-  const Menu = Object.assign(({ children }: { children: React.ReactNode }) => <div role='menu'>{children}</div>, {
-    Item: ({ children }: { children: React.ReactNode }) => <div role='menuitem'>{children}</div>,
-  });
+  const Menu = Object.assign(
+    ({ children, onClickMenuItem }: { children: React.ReactNode; onClickMenuItem?: (key: string) => void }) => (
+      <div role='menu'>
+        {React.Children.map(children, (child) =>
+          React.isValidElement(child)
+            ? React.cloneElement(child as React.ReactElement<{ onClick?: () => void }>, {
+                onClick: () => onClickMenuItem?.(String(child.key)),
+              })
+            : child
+        )}
+      </div>
+    ),
+    {
+      Item: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
+        <div role='menuitem' onClick={onClick}>
+          {children}
+        </div>
+      ),
+    }
+  );
 
   return {
     Checkbox: ({ checked }: { checked?: boolean }) => <input readOnly type='checkbox' checked={checked} />,
@@ -26,6 +49,7 @@ vi.mock('@arco-design/web-react', async () => {
         {droplist}
       </>
     ),
+    Message: { success: mocks.copySuccess, error: mocks.copyError },
     Menu,
     Spin: () => <span data-testid='spin' />,
     Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -35,6 +59,8 @@ vi.mock('@arco-design/web-react', async () => {
 vi.mock('@/renderer/hooks/context/LayoutContext', () => ({
   useLayoutContext: () => ({ isMobile: false }),
 }));
+
+vi.mock('@/renderer/utils/ui/clipboard', () => ({ copyText: mocks.copyText }));
 
 vi.mock('@/renderer/utils/ui/siderTooltip', () => ({
   cleanupSiderTooltips: vi.fn(),
@@ -180,5 +206,14 @@ describe('ConversationRow archive UI', () => {
     cleanup();
     renderRow({ onMoveStart: undefined });
     expect(screen.queryByText('conversation.history.moveToFolder')).toBeNull();
+  });
+
+  it('copies the exact opaque session id from the row menu', async () => {
+    renderRow();
+
+    fireEvent.click(screen.getByText('conversation.history.copySessionId'));
+
+    expect(mocks.copyText).toHaveBeenCalledWith('conv-1');
+    await vi.waitFor(() => expect(mocks.copySuccess).toHaveBeenCalledWith('messages.copiedToClipboard'));
   });
 });

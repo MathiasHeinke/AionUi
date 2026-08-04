@@ -24,6 +24,22 @@ describe('resolveEditAuthorization — the fail-closed spend gate', () => {
     expect(resolveEditAuthorization({ message, sources: IMAGE_ONLY })).toBe('image_edit');
   });
 
+  it('repairs a natural missing-logo follow-up without opening media controls', () => {
+    const german = 'Ja, und wo ist mein Logo?';
+    const english = 'Where is my logo?';
+
+    expect(resolveMediaLaneIntent({ message: german, sources: IMAGE_ONLY })).toEqual({ operation: 'none' });
+    expect(resolveEditAuthorization({ message: german, sources: IMAGE_ONLY })).toBe('image_edit');
+    expect(resolveMediaLaneIntent({ message: english, sources: VIDEO_ONLY })).toEqual({ operation: 'none' });
+    expect(resolveEditAuthorization({ message: english, sources: VIDEO_ONLY })).toBe('video_edit');
+  });
+
+  it('keeps missing-element follow-ups fail-closed when the target is absent or ambiguous', () => {
+    expect(resolveEditAuthorization({ message: 'Wo ist mein Logo?', sources: BOTH })).toBeNull();
+    expect(resolveEditAuthorization({ message: 'Mein Logo fehlt.', sources: NEITHER })).toBeNull();
+    expect(resolveEditAuthorization({ message: 'Where is my logo?', sources: BOTH })).toBeNull();
+  });
+
   it('an explicit medium in the draft beats a deviating context', () => {
     // The newest canonical source is the image, but the user SAID video.
     expect(resolveEditAuthorization({ message: 'Bearbeite das Video', sources: BOTH })).toBe('video_edit');

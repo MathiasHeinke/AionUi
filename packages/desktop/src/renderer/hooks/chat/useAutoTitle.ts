@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ipcBridge } from '@/common';
-import { deriveAutoTitleFromMessages } from '@/renderer/utils/chat/autoTitle';
+import { deriveAutoTitleFromMessages, isGreetingOnlyAutoTitle } from '@/renderer/utils/chat/autoTitle';
 import { emitter } from '@/renderer/utils/emitter';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
 
@@ -27,7 +27,12 @@ export const useAutoTitle = () => {
       const defaultTitle = t('conversation.welcome.newConversation');
       try {
         const conversation = await getConversationOrNull(conversation_id);
-        if (!conversation || conversation.name !== defaultTitle) {
+        // Preserve every deliberate/manual name. The only non-default names we
+        // heal are greeting-only titles created by the older first-line rule.
+        if (
+          !conversation ||
+          (conversation.name !== defaultTitle && !isGreetingOnlyAutoTitle(conversation.name ?? ''))
+        ) {
           return null;
         }
 
@@ -60,10 +65,9 @@ export const useAutoTitle = () => {
 
   const checkAndUpdateTitle = useCallback(
     async (conversation_id: string, messageContent: string) => {
-      // Set the truncated heuristic title for a default-named new conversation.
-      // No-ops if the conversation already carries the user's first message as
-      // its name. There is no second pass: the model-summary upgrade that used
-      // to run here drew an unmetered cloud lane and was retired with it.
+      // Set the bounded local title for a default-named conversation, or heal a
+      // greeting-only title written by an older build. There is no model call:
+      // the first substantive user turn already contains enough naming truth.
       await syncTitleFromHistory(conversation_id, messageContent);
     },
     [syncTitleFromHistory]

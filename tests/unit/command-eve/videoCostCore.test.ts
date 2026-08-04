@@ -31,6 +31,7 @@ import {
   isVideoGenerationRequest,
   isVideoLaneRequest,
   isVideoTierAvailable,
+  listAvailableVideoModels,
   listAvailableVideoTiers,
   deriveVideoCreditsPerSecond,
   requestRoutesToVideoLane,
@@ -106,6 +107,42 @@ describe('VIDEO_TIERS — default + upgrade shape', () => {
     expect(plan('text', 'fast').model).toBe('grok-imagine-video');
     expect(plan('text', 'hd').model).toBe('grok-imagine-video-1.5');
     expect(plan('reference', 'fast').model).toBe('grok-imagine-video-1.5');
+  });
+
+  it('honours an explicit 1.5 selection at 720p and prices that model', () => {
+    const resolved = resolveVideoPlan({
+      modeKind: 'text',
+      tierId: 'fast',
+      modelId: 'grok-imagine-video-1.5',
+      durationSeconds: 5,
+      capabilities: HD15,
+    });
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.plan.model).toBe('grok-imagine-video-1.5');
+    expect(resolved.plan.estimatedCredits).toBe(1400);
+  });
+
+  it('offers only models the seat and mode can actually use', () => {
+    expect(listAvailableVideoModels({ modeKind: 'text' })).toEqual(['grok-imagine-video']);
+    expect(listAvailableVideoModels({ modeKind: 'text', capabilities: HD15 })).toEqual([
+      'grok-imagine-video',
+      'grok-imagine-video-1.5',
+    ]);
+    expect(listAvailableVideoModels({ modeKind: 'reference', capabilities: HD15 })).toEqual([
+      'grok-imagine-video-1.5',
+    ]);
+  });
+
+  it('refuses impossible explicit model and resolution combinations', () => {
+    expect(
+      resolveVideoPlan({
+        modeKind: 'text',
+        tierId: 'hd',
+        modelId: 'grok-imagine-video',
+        capabilities: HD15,
+      })
+    ).toEqual({ ok: false, reason: 'video-model-unavailable' });
   });
 
   it('getVideoTier falls back to the default tier for an unknown id', () => {

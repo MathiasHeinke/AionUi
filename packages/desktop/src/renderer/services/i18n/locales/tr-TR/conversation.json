@@ -59,6 +59,7 @@
     "exportSuccess": "Export succeeded",
     "exportCanceled": "Export canceled",
     "exportFailed": "Export failed",
+    "copySessionId": "Oturum kimliğini kopyala",
     "pin": "Pin",
     "unpin": "Unpin",
     "pinned": "Pinned",

@@ -59,6 +59,7 @@
     "exportSuccess": "Export succeeded",
     "exportCanceled": "Export canceled",
     "exportFailed": "Export failed",
+    "copySessionId": "세션 ID 복사",
     "pin": "Pin",
     "unpin": "Unpin",
     "pinned": "Pinned",

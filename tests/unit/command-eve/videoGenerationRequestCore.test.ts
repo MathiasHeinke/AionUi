@@ -42,6 +42,20 @@ describe('buildVideoGenerationBody', () => {
     expect(body.capability).toBe('video_generation');
   });
 
+  it('carries an explicit resolved model without ever carrying a resolution', () => {
+    const body = buildVideoGenerationBody({
+      prompt: 'ein Produktclip',
+      tierId: 'fast',
+      modelId: 'grok-imagine-video-1.5',
+      durationSeconds: 10,
+      mode: { kind: 'text' },
+      requestId: 'req-model',
+    });
+    const video = body.video_generation as Record<string, unknown>;
+    expect(video.model).toBe('grok-imagine-video-1.5');
+    expect(video.resolution).toBeUndefined();
+  });
+
   it('carries the image and its receipt together, or neither', () => {
     const text = buildVideoGenerationBody({
       prompt: 'p',
@@ -321,6 +335,16 @@ describe('refuseUnproducibleVideoRequest — the local gate, repointed at real i
     expect(refuseUnproducibleVideoRequest({ tierId: 'fast', modeKind: 'text' })).toBeNull();
     expect(refuseUnproducibleVideoRequest({ tierId: 'sd', modeKind: 'text' })).toBeNull();
     expect(refuseUnproducibleVideoRequest({ tierId: 'fast', modeKind: 'image' })).toBeNull();
+  });
+
+  it('refuses a base-model 1080p combination before the paid request', () => {
+    const refusal = refuseUnproducibleVideoRequest({
+      tierId: 'hd',
+      modelId: 'grok-imagine-video',
+      modeKind: 'text',
+      capabilities: HD15,
+    });
+    expect(refusal?.message).toContain('Videomodell');
   });
 });
 

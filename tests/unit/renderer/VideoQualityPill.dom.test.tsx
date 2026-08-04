@@ -75,6 +75,34 @@ describe('VideoQualityPill', () => {
     expect(onChange).toHaveBeenCalledWith('hd');
   });
 
+  it('contextually exposes model, resolution and duration without a popup', async () => {
+    const onModelChange = vi.fn();
+    const onDurationChange = vi.fn();
+    render(
+      <VideoQualityPill
+        visible
+        value='fast'
+        onChange={vi.fn()}
+        modelId='grok-imagine-video-1.5'
+        onModelChange={onModelChange}
+        durationSeconds={10}
+        onDurationChange={onDurationChange}
+        modeKind='text'
+        capabilities={HD15}
+      />
+    );
+
+    expect(screen.getByTestId('video-model-option-grok-imagine-video-1.5')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('video-duration-option-10')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('video-quality-pill-estimate')).toHaveTextContent('2800');
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    await userEvent.click(screen.getByTestId('video-model-option-grok-imagine-video'));
+    await userEvent.click(screen.getByTestId('video-duration-option-15'));
+    expect(onModelChange).toHaveBeenCalledWith('grok-imagine-video');
+    expect(onDurationChange).toHaveBeenCalledWith(15);
+  });
+
   it('never upgrades on its own — no click, no change', () => {
     const onChange = vi.fn();
     render(<VideoQualityPill visible value='fast' onChange={onChange} modeKind='text' />);

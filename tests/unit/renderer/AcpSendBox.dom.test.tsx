@@ -2648,6 +2648,45 @@ describe('AcpSendBox', () => {
     expect(sent.referenceImagePaths).toBeUndefined();
   });
 
+  it('1.820.4: sends the contextual video model and duration selected in the composer', async () => {
+    videoCapabilitiesInvokeMock.mockResolvedValue({
+      success: true,
+      data: { hd15Available: true, presetVoicesAvailable: false },
+    });
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByTestId('video-model-option-grok-imagine-video-1.5')).toBeTruthy());
+    await act(async () => {
+      screen.getByTestId('video-model-option-grok-imagine-video-1.5').click();
+    });
+    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-model', 'grok-imagine-video-1.5'));
+    await act(async () => {
+      screen.getByTestId('video-duration-option-10').click();
+    });
+    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-duration-seconds', '10'));
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({
+      tierId: 'fast',
+      modelId: 'grok-imagine-video-1.5',
+      durationSeconds: 10,
+    });
+    expect(modalConfirmMock).not.toHaveBeenCalled();
+  });
+
   it('MAT-1753: several attached images become ONE reference request, with no second picker', async () => {
     videoCapabilitiesInvokeMock.mockResolvedValue({
       success: true,

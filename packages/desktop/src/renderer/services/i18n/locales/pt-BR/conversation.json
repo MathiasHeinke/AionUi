@@ -55,6 +55,7 @@
     "exportSuccess": "Exportação bem-sucedida",
     "exportCanceled": "Exportação cancelada",
     "exportFailed": "A exportação falhou",
+    "copySessionId": "Copiar ID da sessão",
     "pin": "Fixar",
     "unpin": "Desafixar",
     "pinned": "Fixado",

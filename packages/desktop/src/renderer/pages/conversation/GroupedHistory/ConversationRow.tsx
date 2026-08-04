@@ -8,8 +8,9 @@ import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
 import CommandEveGlyph from '@/renderer/components/commandEve/CommandEveGlyph';
 import { cleanupSiderTooltips, getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
-import { Dropdown, Menu, Spin, Tooltip } from '@arco-design/web-react';
-import { Box, CheckSmall, DeleteOne, EditOne, Export, FolderOpen, MoreOne, Pushpin } from '@icon-park/react';
+import { copyText } from '@/renderer/utils/ui/clipboard';
+import { Dropdown, Menu, Message, Spin, Tooltip } from '@arco-design/web-react';
+import { Box, CheckSmall, Copy, DeleteOne, EditOne, Export, FolderOpen, MoreOne, Pushpin } from '@icon-park/react';
 import classNames from 'classnames';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -261,6 +262,12 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
                       onExport?.(conversation);
                       return;
                     }
+                    if (key === 'copy-session-id') {
+                      void copyText(conversation.id)
+                        .then(() => Message.success(t('messages.copiedToClipboard')))
+                        .catch(() => Message.error(t('messages.copyFailed')));
+                      return;
+                    }
                     if (key === 'delete') {
                       onDelete(conversation.id);
                     }
@@ -304,6 +311,12 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
                       </div>
                     </Menu.Item>
                   )}
+                  <Menu.Item key='copy-session-id'>
+                    <div className='flex items-center gap-8px'>
+                      <Copy theme='outline' size='14' />
+                      <span>{t('conversation.history.copySessionId')}</span>
+                    </div>
+                  </Menu.Item>
                   <Menu.Item key='delete'>
                     <div className='flex items-center gap-8px text-[rgb(var(--warning-6))]'>
                       <DeleteOne theme='outline' size='14' />

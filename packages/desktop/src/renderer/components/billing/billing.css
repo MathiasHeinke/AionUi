@@ -239,6 +239,12 @@
 .video-quality-pill__label {
   font-weight: 600;
 }
+.video-quality-pill__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .video-quality-pill__options {
   display: flex;
   gap: 4px;

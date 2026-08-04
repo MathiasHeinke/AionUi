@@ -981,6 +981,7 @@ export type I18nKey =
   | 'conversation.history.batchModeExit'
   | 'conversation.history.batchNoSelection'
   | 'conversation.history.cancelDelete'
+  | 'conversation.history.copySessionId'
   | 'conversation.history.cancelEdit'
   | 'conversation.history.confirmDelete'
   | 'conversation.history.conversationsSection'

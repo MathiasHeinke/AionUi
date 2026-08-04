@@ -140,6 +140,23 @@ describe('useAutoTitle', () => {
     expect(generateCloudTitleMock).not.toHaveBeenCalled();
   });
 
+  it('heals a greeting-only title once a substantive turn exists', async () => {
+    getConversationOrNullMock.mockResolvedValue({ id: 'conv-hello', name: 'Hallo.' });
+    getConversationMessagesMock.mockResolvedValue({
+      items: [textMessage('right', 'Hallo.'), textMessage('right', 'Bitte plane den Launch')],
+    });
+    const { result } = renderHook(() => useAutoTitle());
+
+    await act(async () => {
+      await result.current.checkAndUpdateTitle('conv-hello', 'Bitte plane den Launch');
+    });
+
+    expect(conversationUpdateMock).toHaveBeenCalledWith({
+      id: 'conv-hello',
+      updates: { name: 'Bitte plane den Launch' },
+    });
+  });
+
   it('leaves the conversation alone when history yields no usable title', async () => {
     getConversationMessagesMock.mockResolvedValue({ items: [] });
     const { result } = renderHook(() => useAutoTitle());

@@ -55,6 +55,7 @@
     "exportSuccess": "Экспорт успешен",
     "exportCanceled": "Экспорт отменён",
     "exportFailed": "Ошибка экспорта",
+    "copySessionId": "Копировать ID сессии",
     "pin": "Закрепить",
     "unpin": "Открепить",
     "pinned": "Закреплено",
