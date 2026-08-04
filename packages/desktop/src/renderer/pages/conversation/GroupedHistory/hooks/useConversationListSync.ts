@@ -217,7 +217,116 @@ let seatEpoch = 0;
 const localSidebarStatusReceipts = new Map<string, ConversationSidebarStatusReceipt>();
 const sidebarStatusWriteChains = new Map<string, Promise<void>>();
 const localGeneratingTurnIds = new Map<string, string | null>();
+type AutoProjectTurnRelayState = {
+  turnId: string | null;
+  hasSubstantiveOutput: boolean;
+};
+const autoProjectTurnRelayState = new Map<string, Map<string, AutoProjectTurnRelayState>>();
+const completedAutoProjectTurnKeys = new Set<string>();
 let lastSidebarReceiptUpdatedAt = 0;
+
+const normalizeStreamIdentity = (value: unknown): string | null => {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+};
+
+const rememberCompletedAutoProjectTurn = (key: string): void => {
+  if (completedAutoProjectTurnKeys.has(key)) return;
+  completedAutoProjectTurnKeys.add(key);
+  if (completedAutoProjectTurnKeys.size <= 256) return;
+  const oldest = completedAutoProjectTurnKeys.values().next().value;
+  if (oldest) completedAutoProjectTurnKeys.delete(oldest);
+};
+
+const clearAutoProjectRelayForConversation = (conversationId: string): void => {
+  autoProjectTurnRelayState.delete(conversationId);
+  for (const key of completedAutoProjectTurnKeys) {
+    if (key.startsWith(`${conversationId}\0`)) completedAutoProjectTurnKeys.delete(key);
+  }
+};
+
+const clearAutoProjectRelayTurn = (conversationId: string, turnId: string | null): void => {
+  if (!turnId) {
+    autoProjectTurnRelayState.delete(conversationId);
+    return;
+  }
+  const turns = autoProjectTurnRelayState.get(conversationId);
+  if (!turns) return;
+  turns.delete(turnId);
+  if (turns.size === 0) autoProjectTurnRelayState.delete(conversationId);
+};
+
+/**
+ * 1.820.4 (MAT-1772) — durable post-turn relay.
+ *
+ * This listener belongs to the permanently mounted conversation-list store,
+ * not AcpChat. Switching from session A to B therefore cannot unmount the only
+ * observer before A's terminal frame arrives. Renderer evidence is deliberately
+ * narrow: exactly start -> text/content -> finish for one turn. Main still
+ * re-proves EVE backend, temporary workspace, title, binding and seat authority.
+ */
+const relaySuccessfulTurnToAutoProject = (message: {
+  type: string;
+  conversation_id: string;
+  turn_id?: string;
+  msg_id?: string;
+  data: unknown;
+}): void => {
+  const conversationId = message.conversation_id;
+  const messageTurnId = normalizeStreamIdentity(message.turn_id);
+  const streamTurnKey = messageTurnId ?? normalizeStreamIdentity(message.msg_id);
+  if (!streamTurnKey) return;
+  const completedKey = `${conversationId}\0${streamTurnKey}`;
+
+  if (message.type === 'start') {
+    if (completedAutoProjectTurnKeys.has(completedKey)) return;
+    let turns = autoProjectTurnRelayState.get(conversationId);
+    if (!turns) {
+      turns = new Map();
+      autoProjectTurnRelayState.set(conversationId, turns);
+    }
+    if (!turns.has(streamTurnKey)) {
+      turns.set(streamTurnKey, { turnId: messageTurnId, hasSubstantiveOutput: false });
+    }
+    while (turns.size > 8) {
+      const oldest = turns.keys().next().value;
+      if (!oldest) break;
+      turns.delete(oldest);
+    }
+    return;
+  }
+
+  const turns = autoProjectTurnRelayState.get(conversationId);
+  const tracked = turns?.get(streamTurnKey);
+  if (!tracked) return;
+
+  if (message.type === 'error' || (message.type === 'agent_status' && isTerminalAgentStatus(message.data))) {
+    clearAutoProjectRelayTurn(conversationId, streamTurnKey);
+    return;
+  }
+
+  if (message.type === 'text' || message.type === 'content') {
+    tracked.turnId ??= messageTurnId;
+    tracked.hasSubstantiveOutput = true;
+    return;
+  }
+
+  if (message.type !== 'finish') return;
+  clearAutoProjectRelayTurn(conversationId, streamTurnKey);
+  if (!tracked.hasSubstantiveOutput) return;
+
+  const finishedTurnId = messageTurnId ?? tracked.turnId ?? streamTurnKey;
+  if (!finishedTurnId) return;
+  if (completedAutoProjectTurnKeys.has(completedKey)) return;
+  rememberCompletedAutoProjectTurn(completedKey);
+
+  void ipcBridge.projectWorkspace.ensureAfterSuccessfulTurn
+    .invoke({ conversation_id: conversationId, turn_id: finishedTurnId })
+    .catch(() => {
+      // Keep the turn non-blocking, but allow a durable stream replay to retry
+      // when the renderer-to-Main bridge itself was temporarily unavailable.
+      completedAutoProjectTurnKeys.delete(completedKey);
+    });
+};
 
 const nextSidebarReceiptUpdatedAt = (): number => {
   lastSidebarReceiptUpdatedAt = Math.max(Date.now(), lastSidebarReceiptUpdatedAt + 1);
@@ -603,6 +712,8 @@ const initializeConversationListSyncStore = () => {
     localSidebarStatusReceipts.clear();
     sidebarStatusWriteChains.clear();
     localGeneratingTurnIds.clear();
+    autoProjectTurnRelayState.clear();
+    completedAutoProjectTurnKeys.clear();
     lastSidebarReceiptUpdatedAt = 0;
     resetConversationListForSeatSwitch();
     refreshConversationsForSeatSwitch(seatEpoch);
@@ -618,6 +729,7 @@ const initializeConversationListSyncStore = () => {
       clearError(event.conversation_id);
       localSidebarStatusReceipts.delete(event.conversation_id);
       localGeneratingTurnIds.delete(event.conversation_id);
+      clearAutoProjectRelayForConversation(event.conversation_id);
     }
     refreshConversations();
   });
@@ -626,6 +738,8 @@ const initializeConversationListSyncStore = () => {
     if (!conversation_id) {
       return;
     }
+
+    relaySuccessfulTurnToAutoProject(message);
 
     if (!conversation_idsState.has(conversation_id)) {
       refreshConversations();
@@ -695,6 +809,9 @@ const initializeConversationListSyncStore = () => {
 
     const isUnseen = activeConversationIdState !== event.session_id;
     if (isTerminalTurnState(event.state)) {
+      if (event.state === 'error' || event.state === 'stopped') {
+        clearAutoProjectRelayTurn(event.session_id, normalizeStreamIdentity(event.turn_id));
+      }
       markCompletionUnread(event.session_id);
       // Split the terminal turn states into their semantic resting flags:
       //   ai_waiting_input → attention (EVE is waiting on the user)

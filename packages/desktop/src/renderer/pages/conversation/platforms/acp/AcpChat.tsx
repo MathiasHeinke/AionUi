@@ -101,10 +101,6 @@ const AcpChat: React.FC<{
   const teamPermission = useTeamPermission();
   const messageState = useAcpMessage(conversation_id, {
     skipWarmup: Boolean(teamPermission) || waitForWarmup === false,
-    // 1.820.4 (MAT-1772) — the post-turn auto-project hint activates ONLY for
-    // the Command-EVE (Hermes) ACP backend. Every other backend keeps its
-    // exact previous finish behavior; eligibility itself is re-proven main-side.
-    autoProject: isCommandEveAcpConversation(backend),
   });
   // Read the shared runtime store without installing another copy of the IPC
   // hydration/listener effects already owned by the sendbox runtime hook.

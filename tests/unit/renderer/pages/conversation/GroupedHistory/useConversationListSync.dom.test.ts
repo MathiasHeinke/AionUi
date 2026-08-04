@@ -83,6 +83,7 @@ const harness = vi.hoisted(() => {
       }
     ),
     writeRendererLog: vi.fn().mockResolvedValue(undefined),
+    ensureAfterSuccessfulTurn: vi.fn().mockResolvedValue({ outcome: 'completed' }),
   };
 });
 
@@ -100,6 +101,9 @@ vi.mock('@/common', () => ({
       responseStream: { on: harness.onResponse },
       turnCompleted: { on: harness.onTurnCompleted },
       listChanged: { on: harness.onListChanged },
+    },
+    projectWorkspace: {
+      ensureAfterSuccessfulTurn: { invoke: harness.ensureAfterSuccessfulTurn },
     },
   },
 }));
@@ -159,12 +163,13 @@ const responseMessage = (overrides: Partial<IResponseMessage>): IResponseMessage
 const terminalTurn = (
   conversation_id: string,
   turn_id: string,
-  runtimeSummary: TConversationRuntimeSummary
+  runtimeSummary: TConversationRuntimeSummary,
+  state: IConversationTurnCompletedEvent['state'] = 'ai_waiting_input'
 ): IConversationTurnCompletedEvent => ({
   session_id: conversation_id,
   turn_id,
   status: 'finished',
-  state: 'ai_waiting_input',
+  state,
   detail: '',
   can_send_message: true,
   runtime: runtimeSummary,
@@ -236,12 +241,17 @@ describe('conversation sidebar continuity', () => {
     harness.rowsBySeat.set('seat-a', [
       conversation('conversation-a', runningTurn),
       conversation('native-a', undefined, {}, 'aionrs'),
+      conversation('conversation-auto', runtime()),
     ]);
     harness.rowsBySeat.set('seat-b', [conversation('conversation-b', runtime())]);
 
     const listHook = renderHook(() => useConversationListSync());
     await act(flushPromises);
-    expect(listHook.result.current.conversations.map(({ id }) => id)).toEqual(['conversation-a', 'native-a']);
+    expect(listHook.result.current.conversations.map(({ id }) => id)).toEqual([
+      'conversation-a',
+      'native-a',
+      'conversation-auto',
+    ]);
     expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(true);
 
     // The shared response stream also covers native/AionRS turns. Its start and
@@ -276,6 +286,195 @@ describe('conversation sidebar continuity', () => {
     });
     expect(listHook.result.current.hasConversationError('native-a')).toBe(true);
 
+    // The auto-project relay is owned by this permanently mounted store. Start
+    // a substantive EVE turn in session A, navigate to session B, then finish A
+    // in the background. A full replay of the same turn remains once-only.
+    await act(async () => {
+      listHook.result.current.setActiveConversation('conversation-auto');
+      await flushPromises();
+    });
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'start', conversation_id: 'conversation-auto', turn_id: 'turn-auto' }))
+      );
+      harness.responseHandlers.forEach((handler) =>
+        handler(
+          responseMessage({
+            type: 'content',
+            data: 'Substantive result',
+            conversation_id: 'conversation-auto',
+            turn_id: 'turn-auto',
+          })
+        )
+      );
+    });
+    await act(async () => {
+      listHook.result.current.setActiveConversation('native-a');
+      await flushPromises();
+    });
+    await act(async () => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'finish', conversation_id: 'conversation-auto', turn_id: 'turn-auto' }))
+      );
+      await flushPromises();
+    });
+    expect(harness.ensureAfterSuccessfulTurn).toHaveBeenCalledTimes(1);
+    expect(harness.ensureAfterSuccessfulTurn).toHaveBeenCalledWith({
+      conversation_id: 'conversation-auto',
+      turn_id: 'turn-auto',
+    });
+
+    await act(async () => {
+      for (const type of ['start', 'content', 'finish']) {
+        harness.responseHandlers.forEach((handler) =>
+          handler(
+            responseMessage({
+              type,
+              data: type === 'content' ? 'Substantive result' : null,
+              conversation_id: 'conversation-auto',
+              turn_id: 'turn-auto',
+            })
+          )
+        );
+      }
+      await flushPromises();
+    });
+    expect(harness.ensureAfterSuccessfulTurn).toHaveBeenCalledTimes(1);
+
+    // Late T1 terminal frames must never erase a newer, still-live T2 relay.
+    harness.ensureAfterSuccessfulTurn.mockClear();
+    act(() => {
+      for (const [type, turn_id] of [
+        ['start', 'turn-race-1'],
+        ['content', 'turn-race-1'],
+        ['start', 'turn-race-2'],
+        ['content', 'turn-race-2'],
+        ['error', 'turn-race-1'],
+        ['finish', 'turn-race-2'],
+      ] as const) {
+        harness.responseHandlers.forEach((handler) =>
+          handler(
+            responseMessage({
+              type,
+              data: type === 'content' ? `Substantive ${turn_id}` : null,
+              conversation_id: 'conversation-auto',
+              turn_id,
+            })
+          )
+        );
+      }
+    });
+    await act(flushPromises);
+    expect(harness.ensureAfterSuccessfulTurn).toHaveBeenCalledTimes(1);
+    expect(harness.ensureAfterSuccessfulTurn).toHaveBeenCalledWith({
+      conversation_id: 'conversation-auto',
+      turn_id: 'turn-race-2',
+    });
+
+    // A failed turn may terminalize only through turn.completed; a later
+    // replayed finish must not resurrect it as a successful auto-project.
+    harness.ensureAfterSuccessfulTurn.mockClear();
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'start', conversation_id: 'conversation-auto', turn_id: 'turn-failed' }))
+      );
+      harness.responseHandlers.forEach((handler) =>
+        handler(
+          responseMessage({
+            type: 'content',
+            data: 'Partial output before failure',
+            conversation_id: 'conversation-auto',
+            turn_id: 'turn-failed',
+          })
+        )
+      );
+      harness.turnCompletedHandlers.forEach((handler) =>
+        handler(terminalTurn('conversation-auto', 'turn-failed', runtime({ turn_id: 'turn-failed' }), 'error'))
+      );
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'finish', conversation_id: 'conversation-auto', turn_id: 'turn-failed' }))
+      );
+    });
+    await act(flushPromises);
+    expect(harness.ensureAfterSuccessfulTurn).not.toHaveBeenCalled();
+
+    // Conversation deletion clears the in-flight relay evidence.
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'start', conversation_id: 'conversation-auto', turn_id: 'turn-deleted' }))
+      );
+      harness.responseHandlers.forEach((handler) =>
+        handler(
+          responseMessage({
+            type: 'content',
+            data: 'Will be deleted',
+            conversation_id: 'conversation-auto',
+            turn_id: 'turn-deleted',
+          })
+        )
+      );
+      harness.listChangedHandlers.forEach((handler) =>
+        handler({ conversation_id: 'conversation-auto', action: 'deleted' })
+      );
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'finish', conversation_id: 'conversation-auto', turn_id: 'turn-deleted' }))
+      );
+    });
+    await act(flushPromises);
+    expect(harness.ensureAfterSuccessfulTurn).not.toHaveBeenCalled();
+
+    // A rejected renderer->Main invoke removes only the replay suppression key;
+    // the same durable stream may retry, then remains once-only after success.
+    harness.ensureAfterSuccessfulTurn.mockRejectedValueOnce(new Error('bridge unavailable'));
+    await act(async () => {
+      for (const type of ['start', 'content', 'finish']) {
+        harness.responseHandlers.forEach((handler) =>
+          handler(
+            responseMessage({
+              type,
+              data: type === 'content' ? 'Retryable result' : null,
+              conversation_id: 'conversation-auto',
+              turn_id: 'turn-retry',
+            })
+          )
+        );
+      }
+      await flushPromises();
+      for (const type of ['start', 'content', 'finish']) {
+        harness.responseHandlers.forEach((handler) =>
+          handler(
+            responseMessage({
+              type,
+              data: type === 'content' ? 'Retryable result' : null,
+              conversation_id: 'conversation-auto',
+              turn_id: 'turn-retry',
+            })
+          )
+        );
+      }
+      await flushPromises();
+    });
+    expect(harness.ensureAfterSuccessfulTurn).toHaveBeenCalledTimes(2);
+
+    // A seat rebind invalidates an in-flight turn before an old-seat finish can
+    // arrive. The following real A->B switch doubles as the cleanup assertion.
+    harness.ensureAfterSuccessfulTurn.mockClear();
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'start', conversation_id: 'conversation-auto', turn_id: 'turn-old-seat' }))
+      );
+      harness.responseHandlers.forEach((handler) =>
+        handler(
+          responseMessage({
+            type: 'content',
+            data: 'Old seat output',
+            conversation_id: 'conversation-auto',
+            turn_id: 'turn-old-seat',
+          })
+        )
+      );
+    });
+
     await act(async () => {
       harness.setCurrentSeatId('seat-b');
       harness.seatRebindHandlers.forEach((handler) => handler('seat-b'));
@@ -283,13 +482,24 @@ describe('conversation sidebar continuity', () => {
     });
     expect(listHook.result.current.conversations.map(({ id }) => id)).toEqual(['conversation-b']);
     expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(false);
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'finish', conversation_id: 'conversation-auto', turn_id: 'turn-old-seat' }))
+      );
+    });
+    await act(flushPromises);
+    expect(harness.ensureAfterSuccessfulTurn).not.toHaveBeenCalled();
 
     await act(async () => {
       harness.setCurrentSeatId('seat-a');
       harness.seatRebindHandlers.forEach((handler) => handler('seat-a'));
       await flushPromises();
     });
-    expect(listHook.result.current.conversations.map(({ id }) => id)).toEqual(['conversation-a', 'native-a']);
+    expect(listHook.result.current.conversations.map(({ id }) => id)).toEqual([
+      'conversation-a',
+      'native-a',
+      'conversation-auto',
+    ]);
     expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(true);
 
     const emitSpy = vi.spyOn(emitter, 'emit');
