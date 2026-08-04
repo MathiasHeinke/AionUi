@@ -30,7 +30,10 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG,
+  COMMAND_EVE_VIDEO_HD15_FLAG,
+  COMMAND_EVE_VIDEO_PRESET_VOICES_FLAG,
   isAgentVideoEditAdvertisingEnabled,
+  readVideoSeatCapabilities,
   resolveAgentVideoEditAdvertisement,
 } from '@/process/commandEve/agentVideoEditFlag';
 import { storeLicenseWire } from '@/common/config/licenseWireAtRest';
@@ -113,6 +116,37 @@ describe('resolveAgentVideoEditAdvertisement — the pure decision', () => {
         })
       ).toBe(false);
     }
+  });
+});
+
+describe('readVideoSeatCapabilities — released video model surface', () => {
+  it('offers HD 1.5 by default for the licensed 1.820.4 release', () => {
+    expect(readVideoSeatCapabilities({})).toEqual({
+      hd15Available: true,
+      presetVoicesAvailable: false,
+    });
+  });
+
+  it("accepts exactly '0' (trimmed) as the HD 1.5 emergency kill-switch", () => {
+    expect(readVideoSeatCapabilities({ [COMMAND_EVE_VIDEO_HD15_FLAG]: '0' }).hd15Available).toBe(false);
+    expect(readVideoSeatCapabilities({ [COMMAND_EVE_VIDEO_HD15_FLAG]: ' 0 ' }).hd15Available).toBe(false);
+  });
+
+  it('does not let unrelated spellings disable the released HD 1.5 surface', () => {
+    for (const spelling of ['1', 'true', 'yes', 'off', '']) {
+      expect(readVideoSeatCapabilities({ [COMMAND_EVE_VIDEO_HD15_FLAG]: spelling }).hd15Available).toBe(true);
+    }
+  });
+
+  it("keeps preset voices fail-closed behind exact '1'", () => {
+    for (const spelling of ['0', 'true', 'yes', '']) {
+      expect(
+        readVideoSeatCapabilities({ [COMMAND_EVE_VIDEO_PRESET_VOICES_FLAG]: spelling }).presetVoicesAvailable
+      ).toBe(false);
+    }
+    expect(readVideoSeatCapabilities({ [COMMAND_EVE_VIDEO_PRESET_VOICES_FLAG]: ' 1 ' }).presetVoicesAvailable).toBe(
+      true
+    );
   });
 });
 

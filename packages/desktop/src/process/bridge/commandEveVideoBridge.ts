@@ -117,7 +117,8 @@ export interface CommandEveVideoBridgeDeps {
   /**
    * The seat's video model capabilities (MAT-1753). Optional for the same reason
    * every MAT-1747 member is: an existing test literal must stay valid. Absent
-   * means the default-OFF flags are read, which is the fail-closed answer.
+   * means the release defaults are read (HD 1.5 offered; preset voices gated).
+   * The paid gateway still re-authorizes the concrete request independently.
    */
   getVideoSeatCapabilities?: () => VideoSeatCapabilities;
   /**
@@ -1134,9 +1135,9 @@ function recordSentImageArtifacts(
  * The renderer must never answer this for itself. A picker that decides its own
  * capabilities is a picker that can promise a render nobody is entitled to, and
  * the refusal then arrives after the wait instead of before the click. Main reads
- * the default-OFF flags and the renderer displays the answer; the gateway decides
- * again on every request, because a client-side capability is a display, never a
- * grant.
+ * the release-aligned flags and the renderer displays the answer; the gateway
+ * decides again on every request, because a client-side capability is a display,
+ * never a grant.
  */
 export async function handleCommandEveVideoCapabilitiesBridge(
   _request?: unknown,

@@ -116,9 +116,14 @@ export function isAgentVideoEditAdvertisingEnabled(dataPath: string, env: NodeJS
 // real (`EVE_MULTIMODAL_ENABLE_XAI_VIDEO_HD15`, and the preset-voice
 // entitlement), and it decides again on every request regardless of what the
 // desktop believed. What these buy is honesty in the UI: a control that renders
-// is a promise, so an unentitled seat must not be shown one and then refused.
-// Both default OFF, matching the server's own default-off posture — a capability
-// we cannot prove is a capability we do not advertise.
+// is a promise, so the desktop default has to match the release contract that is
+// actually deployed. For 1.820.4, HD 1.5 is part of the licensed product and the
+// server gate is enabled, so HD 1.5 defaults ON here as well. Exactly `0` remains
+// an emergency desktop kill-switch. Preset voices remain default OFF because
+// their upstream entitlement is narrower and has not been released generally.
+//
+// The server remains the spending authority and re-checks its own flag on every
+// request. This desktop value only controls whether the selector is advertised.
 
 /** Makes grok-imagine-video-1.5 (and therefore 1080p, and reference mode) offerable. */
 export const COMMAND_EVE_VIDEO_HD15_FLAG = 'COMMAND_EVE_ENABLE_VIDEO_HD15';
@@ -137,10 +142,13 @@ export interface VideoSeatCapabilityFlags {
   presetVoicesAvailable: boolean;
 }
 
-/** Exactly `'1'`, for the same reason as the spending flag above. */
+/**
+ * HD 1.5 follows the 1.820.4 licensed-release default and accepts exactly `0`
+ * as an emergency kill-switch. Preset voices keep their exact-`1` opt-in.
+ */
 export function readVideoSeatCapabilities(env: NodeJS.ProcessEnv = process.env): VideoSeatCapabilityFlags {
   return {
-    hd15Available: (env[COMMAND_EVE_VIDEO_HD15_FLAG] || '').trim() === '1',
+    hd15Available: (env[COMMAND_EVE_VIDEO_HD15_FLAG] || '').trim() !== '0',
     presetVoicesAvailable: (env[COMMAND_EVE_VIDEO_PRESET_VOICES_FLAG] || '').trim() === '1',
   };
 }

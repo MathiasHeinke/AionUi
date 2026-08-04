@@ -1,3 +1,6 @@
+import os from 'node:os';
+import path from 'node:path';
+
 import { vi } from 'vitest';
 import {
   createAionCoreProjectBindingClient,
@@ -538,7 +541,91 @@ describe('AionCore project conversation binding CAS client', () => {
     });
   });
 
-  it('derives custom_workspace from a non-temporary workspace path and respects an explicit flag', async () => {
+  it('recognizes only the exact legacy Command EVE temp workspace for its conversation id', async () => {
+    const legacyWorkspace = path.join(os.homedir(), 'Developer', 'conversations', 'hermes-temp-conversation-a');
+    const client = createAionCoreProjectBindingClient({
+      get_port: () => 43123,
+      fetch_impl: vi.fn<typeof fetch>().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              id: 'conversation-a',
+              name: 'Q3 Planung',
+              type: 'acp',
+              extra: {
+                backend: 'hermes',
+                workspace: legacyWorkspace,
+                // AionCore historically derived false because this path was
+                // outside its data root. The exact legacy identity repairs it.
+                is_temporary_workspace: false,
+              },
+            },
+          }),
+          { status: 200 }
+        )
+      ),
+    });
+
+    await expect(client.readMetadata('conversation-a')).resolves.toMatchObject({
+      is_temporary_workspace: true,
+      custom_workspace: false,
+    });
+  });
+
+  it.each([
+    ['wrong id', path.join(os.homedir(), 'Developer', 'conversations', 'hermes-temp-conversation-b')],
+    ['wrong parent', path.join(os.homedir(), 'Desktop', 'hermes-temp-conversation-a')],
+    ['extra suffix', path.join(os.homedir(), 'Developer', 'conversations', 'hermes-temp-conversation-a-copy')],
+  ])('keeps a legacy-looking but noncanonical workspace ineligible: %s', async (_label, workspace) => {
+    const client = createAionCoreProjectBindingClient({
+      get_port: () => 43123,
+      fetch_impl: vi.fn<typeof fetch>().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              id: 'conversation-a',
+              name: 'Q3 Planung',
+              type: 'acp',
+              extra: { backend: 'hermes', workspace, is_temporary_workspace: false },
+            },
+          }),
+          { status: 200 }
+        )
+      ),
+    });
+
+    await expect(client.readMetadata('conversation-a')).resolves.toMatchObject({
+      is_temporary_workspace: false,
+      custom_workspace: true,
+    });
+  });
+
+  it('lets an explicit custom-workspace marker defeat the exact legacy path', async () => {
+    const workspace = path.join(os.homedir(), 'Developer', 'conversations', 'hermes-temp-conversation-a');
+    const client = createAionCoreProjectBindingClient({
+      get_port: () => 43123,
+      fetch_impl: vi.fn<typeof fetch>().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              id: 'conversation-a',
+              name: 'Q3 Planung',
+              type: 'acp',
+              extra: { backend: 'hermes', workspace, is_temporary_workspace: true, custom_workspace: true },
+            },
+          }),
+          { status: 200 }
+        )
+      ),
+    });
+
+    await expect(client.readMetadata('conversation-a')).resolves.toMatchObject({
+      is_temporary_workspace: false,
+      custom_workspace: true,
+    });
+  });
+
+  it('derives custom_workspace from a non-temporary path and lets an explicit custom marker win', async () => {
     const derived = createAionCoreProjectBindingClient({
       get_port: () => 43123,
       fetch_impl: vi.fn<typeof fetch>().mockResolvedValueOnce(
@@ -577,7 +664,7 @@ describe('AionCore project conversation binding CAS client', () => {
       ),
     });
     await expect(explicit.readMetadata('conversation-a')).resolves.toMatchObject({
-      is_temporary_workspace: true,
+      is_temporary_workspace: false,
       custom_workspace: true,
     });
   });

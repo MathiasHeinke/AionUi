@@ -1945,7 +1945,8 @@ export const commandEve = {
   // into the single-use spend permit for this turn and keeps no copy of the TEXT
   // — the digest is persisted (that is the binding), the sentence is not.
   // MAT-1753 — what this seat's video lane may OFFER. Read-only, no side effect,
-  // and deliberately answered by Main from default-OFF flags: a renderer that
+  // and deliberately answered by Main from the release-aligned capability
+  // posture (HD 1.5 released, preset voices still gated). A renderer that
   // decided its own capabilities could render a control for an entitlement the
   // seat does not have, and the user would learn that only after the wait. The
   // gateway re-decides on every request; this exists so the UI does not lie.

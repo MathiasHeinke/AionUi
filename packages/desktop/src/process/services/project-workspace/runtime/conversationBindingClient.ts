@@ -1,3 +1,6 @@
+import os from 'node:os';
+import path from 'node:path';
+
 import { parseProjectId, parseWorkspaceRootRef } from '@/common/types/project-workspace/identity';
 
 export type PortableProjectBinding = {
@@ -160,21 +163,36 @@ function snapshotFromConversation(conversation: Record<string, unknown>): Projec
 
 /**
  * Workspace eligibility flags from trusted `extra` (1.820.4, MAT-1772).
- * Fail-closed by construction: anything absent or unusable parses to the
- * INELIGIBLE value (not temporary / not custom) instead of throwing, so the
- * listMetadata enrichment keeps its per-item tolerance while the post-turn
- * auto-project policy simply no-ops on such records.
+ *
+ * New conversations use AionCore's app-managed workspace and therefore carry
+ * its authoritative `is_temporary_workspace` response flag. A bounded legacy
+ * compatibility rule also recognizes the exact pre-1.820.4 Command EVE path:
+ * `~/Developer/conversations/hermes-temp-<conversationId>`. It is intentionally
+ * NOT a general basename heuristic: a different parent, suffix, id, relative
+ * path or explicit custom-workspace marker remains ineligible.
  */
-function workspaceFlagsFromExtra(extra: unknown): { is_temporary_workspace: boolean; custom_workspace: boolean } {
+function workspaceFlagsFromExtra(
+  extra: unknown,
+  conversationId: string
+): { is_temporary_workspace: boolean; custom_workspace: boolean } {
   if (!extra || typeof extra !== 'object' || Array.isArray(extra)) {
     return { is_temporary_workspace: false, custom_workspace: false };
   }
   const record = extra as Record<string, unknown>;
-  const isTemporary = record.is_temporary_workspace === true;
-  if (Object.hasOwn(record, 'custom_workspace')) {
-    return { is_temporary_workspace: isTemporary, custom_workspace: record.custom_workspace === true };
-  }
+  const explicitlyCustom = record.custom_workspace === true;
   const workspace = typeof record.workspace === 'string' ? record.workspace : '';
+  const expectedLegacyWorkspace = path.join(
+    os.homedir(),
+    'Developer',
+    'conversations',
+    `hermes-temp-${conversationId}`
+  );
+  const isExactLegacyTemporaryWorkspace =
+    !explicitlyCustom && path.isAbsolute(workspace) && path.normalize(workspace) === expectedLegacyWorkspace;
+  const isTemporary = !explicitlyCustom && (record.is_temporary_workspace === true || isExactLegacyTemporaryWorkspace);
+  if (Object.hasOwn(record, 'custom_workspace')) {
+    return { is_temporary_workspace: isTemporary, custom_workspace: explicitlyCustom };
+  }
   return { is_temporary_workspace: isTemporary, custom_workspace: workspace.length > 0 && !isTemporary };
 }
 
@@ -199,7 +217,7 @@ function metadataFromConversation(conversation: Record<string, unknown>): Projec
     name: conversation.name.trim(),
     conversation_type: typeof conversation.type === 'string' ? conversation.type : '',
     backend: backendFromExtra(conversation.extra),
-    ...workspaceFlagsFromExtra(conversation.extra),
+    ...workspaceFlagsFromExtra(conversation.extra, conversation.id),
     ...snapshotFromConversation(conversation),
   };
 }
