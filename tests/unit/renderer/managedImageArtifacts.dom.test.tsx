@@ -29,6 +29,7 @@ vi.mock('@/common', () => ({
     commandEve: {
       videoArtifactsList: { invoke: videoArtifactsListInvokeMock },
       imageArtifactsList: { invoke: imageArtifactsListInvokeMock },
+      imageArtifactsChanged: { on: () => () => undefined },
       imageArtifactPreview: { invoke: imageArtifactPreviewInvokeMock },
     },
   },

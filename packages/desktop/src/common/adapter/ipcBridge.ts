@@ -2029,6 +2029,7 @@ export const commandEve = {
     IBridgeResponse<ICommandEveImageArtifactImportResult>,
     { conversationId: string; legacyWorkspaceId: string; expectedFileName: string }
   >('command-eve.image-artifact-import-legacy'),
+  imageArtifactsChanged: bridge.buildEmitter<{ conversation_id: string }>('command-eve.image-artifacts-changed'),
   imageArtifactReconcile: bridge.buildProvider<
     IBridgeResponse<{ ok: boolean; summary?: unknown; reason?: string }>,
     { conversationId: string }

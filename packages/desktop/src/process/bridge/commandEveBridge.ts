@@ -739,6 +739,13 @@ async function fetchConversationTranscriptFull(conversationId: string, window: n
  * is the visibility the R2 orphan never got: refused binds are reported, not
  * swallowed.
  */
+/**
+ * The Main→renderer fresh-bind event for the managed image lane. Module
+ * scope so the reconcile closure AND the IPC registrations share the one
+ * emitter instance the renderer subscribes to.
+ */
+const imageArtifactsChangedEmitter = bridge.buildEmitter<{ conversation_id: string }>('command-eve.image-artifacts-changed');
+
 async function reconcileImageArtifactBindsForConversation(conversationId: string) {
   const { reconcileConversationImageArtifactBinds } = await import('../commandEve/imageArtifactReconcileMain');
   const { bindStagedImageArtifact, countPendingStagedImageArtifacts } = await import('../commandEve/imageArtifactStore');
@@ -747,6 +754,7 @@ async function reconcileImageArtifactBindsForConversation(conversationId: string
     bind: bindStagedImageArtifact,
     log: (line) => console.warn(line),
     countPendingStaged: countPendingStagedImageArtifacts,
+    onFreshBind: (id) => imageArtifactsChangedEmitter.emit({ conversation_id: id }),
   });
 }
 
@@ -2161,7 +2169,18 @@ export function initCommandEveBridge(): void {
   // 1.820.3 — the managed IMAGE artifact lane (staged-handle contract): bind
   // (display authority at turn end), list + preview (durable, path-free),
   // legacy import (strictly confined one-time adoption).
-  bridge.buildProvider('command-eve.image-artifact-bind').provider(handleCommandEveImageArtifactBindBridge);
+  // Same-turn insertion authority: a FRESH bind — from ANY lane (finish fast
+  // path, list-reconcile, turn-end reconcile, manual) — emits the renderer
+  // event the artifact provider listens to. Renderer-side turn events have
+  // proven unreliable here; the store-level bind cannot be missed.
+  bridge
+    .buildProvider('command-eve.image-artifact-bind')
+    .provider((request?: { conversationId?: string; handle?: string; toolCallId?: string }) =>
+      handleCommandEveImageArtifactBindBridge(request, {
+        getDataPath,
+        onFreshBind: (conversationId) => imageArtifactsChangedEmitter.emit({ conversation_id: conversationId }),
+      })
+    );
   bridge
     .buildProvider('command-eve.image-artifacts-list')
     .provider((request?: { conversationId?: string }) =>

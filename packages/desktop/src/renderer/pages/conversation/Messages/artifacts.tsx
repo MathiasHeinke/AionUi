@@ -225,11 +225,19 @@ export const ConversationArtifactProvider: React.FC<React.PropsWithChildren<{ co
     const unsubscribeRefresh = addEventListener('chat.history.refresh', () => {
       void loadArtifacts();
     });
+    // 1.820.3 same-turn insertion, the lane-independent trigger: Main emits
+    // this after ANY fresh bind (finish fast path, reconcile, list recovery)
+    // because renderer-side turn events proved unreliable on this lane.
+    const unsubscribeImageChanged = ipcBridge.commandEve.imageArtifactsChanged.on((event) => {
+      if (event.conversation_id !== conversation_id) return;
+      void loadArtifacts();
+    });
 
     return () => {
       alive = false;
       unsubscribeFinishRefresh();
       unsubscribeRefresh();
+      unsubscribeImageChanged();
     };
   }, [conversation_id]);
 

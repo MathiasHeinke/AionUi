@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { extractImageBindCandidatesFromTranscript } from '@/common/config/imageArtifactReconcileCore';
 import { reconcileConversationImageArtifactBinds } from '@/process/commandEve/imageArtifactReconcileMain';
 import { bindStagedImageArtifact, countPendingStagedImageArtifacts, readImageArtifactRecordById, stageGeneratedImageArtifact } from '@/process/commandEve/imageArtifactStore';
-import { handleCommandEveImageArtifactsList } from '@/process/bridge/commandEveImageArtifactBridge';
-import { decideImageArtifactReconcileRelay, reconcileSummaryNeedsRefresh } from '@/renderer/pages/conversation/GroupedHistory/hooks/useImageArtifactReconcileRelay';
+import { handleCommandEveImageArtifactBind, handleCommandEveImageArtifactsList } from '@/process/bridge/commandEveImageArtifactBridge';
+import { decideImageArtifactReconcileRelay } from '@/renderer/pages/conversation/GroupedHistory/hooks/useImageArtifactReconcileRelay';
 
 const R2_ROW_PATH = 'tests/fixtures/command-eve/r2-row.json';
 const R2_HANDLE = `img_h_${'ab'.repeat(32)}`;
@@ -303,15 +303,79 @@ describe('decideImageArtifactReconcileRelay', () => {
   });
 });
 
-describe('reconcileSummaryNeedsRefresh (the same-turn render trigger)', () => {
-  it('refreshes only when the reconcile actually bound something new', () => {
-    expect(reconcileSummaryNeedsRefresh({ bound: 1, alreadyBound: 0 })).toBe(true);
-    expect(reconcileSummaryNeedsRefresh({ bound: 3 })).toBe(true);
-    expect(reconcileSummaryNeedsRefresh({ bound: 0, alreadyBound: 2 })).toBe(false);
-    expect(reconcileSummaryNeedsRefresh({ bound: 0 })).toBe(false);
-    expect(reconcileSummaryNeedsRefresh({})).toBe(false);
-    expect(reconcileSummaryNeedsRefresh(undefined)).toBe(false);
-    expect(reconcileSummaryNeedsRefresh(null)).toBe(false);
-    expect(reconcileSummaryNeedsRefresh('bound')).toBe(false);
+describe('the race-proof fresh-bind notification inside the reconcile', () => {
+  it('onFreshBind fires once for the lane that WINS the race; the relay-late run reports pendingStaged=0/bound=0 and is covered by the unconditional terminal refresh', async () => {
+    // The exact R2 sequence: the LIST-time reconcile binds first...
+    const staged = stageOrphan();
+    const notifications: string[] = [];
+    const rewritten = r2Message();
+    rewritten.content = rewritten.content.split(R2_HANDLE).join(staged.handle);
+    const first = await reconcileConversationImageArtifactBinds(dataRoot, CONVO, {
+      fetchTranscript: async () => [rewritten],
+      bind: bindStagedImageArtifact,
+      log: () => undefined,
+      onFreshBind: (id) => notifications.push(id),
+    });
+    expect(first.bound).toBe(1);
+    expect(notifications).toEqual([CONVO]);
+
+    // ...then the TERMINAL relay's reconcile runs: the guard sees only the
+    // bound (retained) handle, so pendingStaged=0 and NO fetch happens at all
+    // — the exact R2 relay summary (pendingStaged=0/bound=0). No second
+    // notification; the unconditional terminal refresh in
+    // useImageArtifactReconcileRelay is what re-renders the card.
+    const second = await reconcileConversationImageArtifactBinds(dataRoot, CONVO, {
+      fetchTranscript: async () => [rewritten],
+      bind: bindStagedImageArtifact,
+      log: () => undefined,
+      countPendingStaged: (dp) => countPendingStagedImageArtifacts(dp),
+      onFreshBind: (id) => notifications.push(id),
+    });
+    expect(second).toMatchObject({ bound: 0, alreadyBound: 0, pendingStaged: 0, transcriptFetched: false });
+    expect(notifications).toEqual([CONVO]);
+    expect(readImageArtifactRecordById(dataRoot, staged.record.id)?.status).toBe('active');
+  });
+
+  it('no fresh bind, no notification — ordinary turns stay quiet', async () => {
+    const notifications: string[] = [];
+    const summary = await reconcileConversationImageArtifactBinds(dataRoot, CONVO, {
+      fetchTranscript: async () => [],
+      bind: bindStagedImageArtifact,
+      log: () => undefined,
+      onFreshBind: (id) => notifications.push(id),
+    });
+    expect(summary.bound).toBe(0);
+    expect(notifications).toEqual([]);
+  });
+});
+
+describe('the fresh-bind renderer notification (same-turn insertion trigger)', () => {
+  it('onFreshBind fires exactly once with the canonical id on a fresh bind, never on alreadyBound or refusal', async () => {
+    const staged = stageOrphan();
+    const notifications: string[] = [];
+    const deps = {
+      getDataPath: () => dataRoot,
+      onFreshBind: (conversationId: string) => notifications.push(conversationId),
+    };
+    const bound = await handleCommandEveImageArtifactBind(
+      { conversationId: CONVO, handle: staged.handle, toolCallId: R2_TOOL_CALL_ID },
+      deps
+    );
+    expect(bound.ok).toBe(true);
+    expect(notifications).toEqual([CONVO]);
+
+    const again = await handleCommandEveImageArtifactBind(
+      { conversationId: CONVO, handle: staged.handle, toolCallId: R2_TOOL_CALL_ID },
+      deps
+    );
+    expect(again.ok && 'alreadyBound' in again && again.alreadyBound).toBe(true);
+    expect(notifications).toEqual([CONVO]);
+
+    const refused = await handleCommandEveImageArtifactBind(
+      { conversationId: CONVO, handle: 'img_h_0000000000000000000000000000000000000000000000000000000000000000', toolCallId: 'tc-x' },
+      deps
+    );
+    expect(refused.ok).toBe(false);
+    expect(notifications).toEqual([CONVO]);
   });
 });

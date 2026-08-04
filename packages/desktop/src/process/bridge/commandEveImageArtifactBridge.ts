@@ -82,6 +82,14 @@ export interface CommandEveImageArtifactBindRequest {
 export interface CommandEveImageArtifactBindDeps {
   getDataPath: typeof getDataPath;
   bind?: typeof bindStagedImageArtifact;
+  /**
+   * 1.820.3 same-turn insertion: invoked with the canonical conversation id
+   * after a FRESH bind (never on alreadyBound/refusal) so Main can notify the
+   * renderer — renderer-side turn events have proven unreliable on this lane
+   * for triggering the render refresh, the store-level bind is the one
+   * trigger that cannot be missed.
+   */
+  onFreshBind?: (conversationId: string) => void;
 }
 
 const productionBindDeps: CommandEveImageArtifactBindDeps = {
@@ -103,11 +111,13 @@ export async function handleCommandEveImageArtifactBind(
     return { ok: false, reason: 'handle-malformed' };
   if (typeof toolCallId !== 'string' || toolCallId.length === 0) return { ok: false, reason: 'handle-malformed' };
   try {
-    return (deps.bind ?? bindStagedImageArtifact)(deps.getDataPath(), {
+    const result = (deps.bind ?? bindStagedImageArtifact)(deps.getDataPath(), {
       conversationId,
       handle: request?.handle,
       toolCallId,
     });
+    if (result.ok && !result.alreadyBound) deps.onFreshBind?.(conversationId);
+    return result;
   } catch {
     return { ok: false, reason: 'artifact-missing' };
   }

@@ -54,6 +54,15 @@ export interface ImageArtifactReconcileDeps {
    * production always injects the store probe.
    */
   countPendingStaged?: (dataPath: string) => number;
+  /**
+   * Same-turn insertion: invoked ONCE with the canonical conversation id when
+   * this run freshly bound at least one record — from WHICHEVER lane won the
+   * race (turn-end relay, list-time reconcile, manual). Renderer-side turn
+   * events have proven unreliable on this lane; a fresh bind in Main is the
+   * one signal that cannot be missed. alreadyBound-only runs do not notify
+   * (the terminal refresh in the relay covers that case unconditionally).
+   */
+  onFreshBind?: (conversationId: string) => void;
 }
 
 // Bounded to the recent turn window: a staged handle lives 30 minutes, so a
@@ -118,6 +127,11 @@ export async function reconcileConversationImageArtifactBinds(
       summary.refused.push({ toolCallId: candidate.toolCallId, reason: result.reason });
     }
   }
+
+  // A fresh bind from ANY lane notifies exactly once — the turn-end relay is
+  // not the only path that can win the race (the list-time reconcile bound
+  // the R2 child first, and the renderer never learned of it in-session).
+  if (summary.bound > 0) deps.onFreshBind?.(conversationId);
 
   // One bounded, content-free line per run — a refused bind must be VISIBLE
   // (the R2 orphan was invisible), but the log never carries handles or paths.
