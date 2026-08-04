@@ -677,3 +677,50 @@ describe('MAX composer state — reduced motion keeps the state, drops the motio
     }
   });
 });
+
+describe('1.820.3 edit-hint contrast (live AAA finding)', () => {
+  const billingCss = fs.readFileSync(path.resolve('packages/desktop/src/renderer/components/billing/billing.css'), 'utf-8');
+  it('the compact edit hint carries an explicit theme-safe text color, never inherited near-black', () => {
+    const hintBlock = billingCss.slice(billingCss.indexOf('.video-edit-hint {'));
+    expect(hintBlock).toContain('color: var(--text-secondary);');
+    expect(hintBlock).toContain('color: var(--text-primary);');
+    expect(hintBlock).toContain('opacity: 1;');
+    // Exact semantic var() without fallback, no hardcoded color values.
+    expect(hintBlock).not.toContain('color: #');
+    expect(hintBlock).not.toContain('rgb(');
+  });
+
+  it('measures >=7:1 (WCAG AAA) in BOTH shipped themes using the shipped token values', () => {
+    const scheme = fs.readFileSync(path.resolve('packages/desktop/src/renderer/styles/themes/default-color-scheme.css'), 'utf-8');
+    const darkStart = scheme.indexOf('[data-theme=\'dark\']');
+    const lightBlock = scheme.slice(0, darkStart);
+    const darkBlock = scheme.slice(darkStart);
+    const token = (block: string, name: string): string => {
+      const match = block.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})`));
+      if (!match) throw new Error(`token ${name} not found`);
+      return match[1]!;
+    };
+    const luminance = (hex: string): number => {
+      const channel = (i: number) => {
+        const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+    };
+    const ratio = (a: string, b: string): number => {
+      const la = luminance(a);
+      const lb = luminance(b);
+      return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+    };
+    // The estimate renders --text-secondary at opacity 1 over the composer
+    // surface; --bg-1 is the strictest shipped surface the draft band sits on.
+    const lightEstimate = ratio(token(lightBlock, '--text-secondary'), token(lightBlock, '--bg-1'));
+    const darkEstimate = ratio(token(darkBlock, '--text-secondary'), token(darkBlock, '--bg-1'));
+    const lightLabel = ratio(token(lightBlock, '--text-primary'), token(lightBlock, '--bg-1'));
+    const darkLabel = ratio(token(darkBlock, '--text-primary'), token(darkBlock, '--bg-1'));
+    expect(lightEstimate).toBeGreaterThanOrEqual(7);
+    expect(darkEstimate).toBeGreaterThanOrEqual(7);
+    expect(lightLabel).toBeGreaterThanOrEqual(7);
+    expect(darkLabel).toBeGreaterThanOrEqual(7);
+  });
+});

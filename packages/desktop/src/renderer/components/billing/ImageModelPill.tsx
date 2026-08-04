@@ -85,8 +85,22 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({ value, onChange, visibl
               data-testid={`image-model-option-${tierId}`}
               onClick={() => onChange(tierId)}
             >
-              {t(TIER_LABELS[tierId].key, { defaultValue: TIER_LABELS[tierId].defaultValue })}
-              {spec && <span className='image-model-pill__model'>{spec.display_name}</span>}
+              {(() => {
+                const tierLabel = t(TIER_LABELS[tierId].key, { defaultValue: TIER_LABELS[tierId].defaultValue });
+                // Never print the same word twice (the 'fast' registry
+                // display_name equals its tier label — "Schnell Schnell" in
+                // the live composer). The registry name adds information only
+                // when it differs ("Qualität Nano Banana 2", "MAX GPT Image 2");
+                // the accessible name stays complete via title/aria either way.
+                const showModelName =
+                  spec && spec.display_name.trim().toLowerCase() !== tierLabel.trim().toLowerCase();
+                return (
+                  <>
+                    {tierLabel}
+                    {showModelName && spec ? <span className='image-model-pill__model'>{spec.display_name}</span> : null}
+                  </>
+                );
+              })()}
             </button>
           );
         })}

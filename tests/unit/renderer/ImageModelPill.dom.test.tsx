@@ -98,6 +98,14 @@ describe('ImageModelPill', () => {
     render(<ImageModelPill visible value='quality' onChange={vi.fn()} registry={REGISTRY} />);
 
     expect(screen.getByTestId('image-model-option-fast')).toHaveTextContent('Schnell');
+    // AAA live finding: the fast registry display_name equals its tier label —
+    // it must render ONCE, never "Schnell Schnell". Quality/MAX keep their
+    // distinct registry names.
+    const fastOption = screen.getByTestId('image-model-option-fast');
+    expect(fastOption.querySelectorAll('.image-model-pill__model')).toHaveLength(0);
+    expect(fastOption.textContent?.trim()).toBe('Schnell');
+    expect(screen.getByTestId('image-model-option-quality').querySelector('.image-model-pill__model')?.textContent).toBe('Nano Banana 2');
+    expect(screen.getByTestId('image-model-option-max').querySelector('.image-model-pill__model')?.textContent).toBe('GPT Image 2');
     expect(screen.getByTestId('image-model-option-quality')).toHaveTextContent('Qualität');
     expect(screen.getByTestId('image-model-option-max')).toHaveTextContent('MAX');
     expect(screen.getAllByRole('radio')).toHaveLength(3);

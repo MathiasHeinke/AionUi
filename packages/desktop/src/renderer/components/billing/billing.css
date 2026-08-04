@@ -366,11 +366,21 @@
   gap: 8px;
   margin-bottom: 8px;
   padding: 0 2px;
+  /* Explicit theme-safe secondary text: the hint inherited the composer's
+     near-black default and was unreadable on the dark surface (live finding).
+     Exact semantic var() WITHOUT fallback — every shipped theme declares
+     these tokens, and a fallback would silently mask a theme gap instead of
+     surfacing it. */
+  color: var(--text-secondary);
 }
 .video-edit-hint__label {
   font-weight: 600;
-  opacity: 0.85;
+  color: var(--text-primary);
 }
 .video-edit-hint__estimate {
-  opacity: 0.65;
+  /* Opacity 1: the secondary token alone already measures >=7:1 against the
+     composer surface in BOTH shipped themes (numeric regression in
+     eveMaxComposerCss.test.ts); dimming it dropped the light theme to ~5.4:1.
+     Quiet by token, not by transparency. */
+  opacity: 1;
 }
