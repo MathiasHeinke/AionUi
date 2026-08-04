@@ -285,7 +285,7 @@ export async function handleCommandEveImageArtifactImportLegacy(
 
 /** IPC-facing envelope matching `ipcBridge.commandEve.imageArtifactImportLegacy`. */
 export async function handleCommandEveImageArtifactImportLegacyBridge(
-  request?: { conversationId?: string; expectedFileName?: string },
+  request?: { conversationId?: string; legacyWorkspaceId?: string; expectedFileName?: string },
   deps: CommandEveImageArtifactImportLegacyDeps = productionImportDeps
 ): Promise<{ success: true; data: ImageArtifactImportResult }> {
   return { success: true, data: await handleCommandEveImageArtifactImportLegacy(request, deps) };
