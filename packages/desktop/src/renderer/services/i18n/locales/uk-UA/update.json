@@ -23,5 +23,7 @@
   "showInFolder": "Показати в папці",
   "openFile": "Відкрити файл",
   "errorTitle": "Помилка оновлення",
+  "restartBannerTitle": "Оновлення встановлено — перезапустіть зараз",
+  "restartBannerDescription": "Версію {{version}} завантажено й готово. Перезапустіть, щоб завершити встановлення — це займе лише хвилину.",
   "installing": "Installing – the app will restart …"
 }

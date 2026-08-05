@@ -25,16 +25,17 @@ interface SessionStatusDotProps {
 /**
  * A single, semantic status dot for a session row — the ONE consistent status
  * mark that replaces the previous mix of unread dots, cron glyphs and avatars.
- * Renders nothing for the `idle` status (and for `running`, which the row
- * already shows as a Spin in place of the avatar).
+ * Renders nothing only for the `idle` status. `running` renders as an animated
+ * pulsing ring (CSS: `session-status-dot[data-status='running']`) so a live
+ * turn is unmistakable on every row, including non-selected background rows.
  */
 const SessionStatusDot: React.FC<SessionStatusDotProps> = ({ status, overlay = false, className = '' }) => {
   const { t } = useTranslation();
   const color = sessionStatusColor(status);
   const shape = sessionStatusShape(status);
 
-  // `idle` (and `running`, surfaced as the row Spin) render no dot.
-  if (!color || status === 'running') {
+  // Only `idle` renders nothing.
+  if (!color) {
     return null;
   }
 

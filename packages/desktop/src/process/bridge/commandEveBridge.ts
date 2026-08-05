@@ -513,6 +513,14 @@ export function isCommandEveSeatSwitchInFlight(): boolean {
 // already force-released the lock, after which a NEW switch took it) from clobbering
 // the new switch's lock in its stale finally.
 let commandEveSwitchSeatEpoch = 0;
+
+// MAT-1773 — transition flag for the my-seats wire read. The my-seats handler is
+// polled (renderer focus + 60s backstop), so the "wire unavailable" diagnostic is
+// logged ONCE per down/up transition, never per poll. The wire reader collapses
+// EVERY failure mode (no session / offline / 401 / non-2xx / malformed / timeout /
+// function not deployed) into `null`; without this log the founder's invisible
+// rail left NO trace anywhere.
+let commandEveMySeatsWireDown = false;
 // WATCHDOG bound for the lock — a pure LIVENESS BACKSTOP, not a completion guarantee.
 // If applySeatSwitch's await never settles (a hung re-spawn whose start() never binds
 // its port), the finally never runs and the lock would stay true for the whole session,
@@ -1904,7 +1912,8 @@ export function initCommandEveBridge(): void {
     .provider(
       async (
         request?:
-          CommandEveMultimodalTtsConsentSetRequest | CommandEveBridgeEnvelope<CommandEveMultimodalTtsConsentSetRequest>
+          | CommandEveMultimodalTtsConsentSetRequest
+          | CommandEveBridgeEnvelope<CommandEveMultimodalTtsConsentSetRequest>
       ) => {
         const payload = unwrapBridgeRequest<CommandEveMultimodalTtsConsentSetRequest>(request);
         const data = setCommandEveMultimodalTtsConsent(getDataPath(), payload);
@@ -3986,11 +3995,34 @@ export function initCommandEveBridge(): void {
       const wire = await readMySeatsWire();
       if (!wire) {
         // No my-seats source live yet ⇒ fail-closed single legacy seat.
+        // MAT-1773: log the transition — the wire reader swallows the concrete
+        // cause (no session / offline / non-2xx / malformed / timeout / function
+        // not deployed), so this is the ONLY main-side trace of a hidden rail.
+        if (!commandEveMySeatsWireDown) {
+          commandEveMySeatsWireDown = true;
+          console.warn(
+            '[Command EVE] my-seats wire unavailable — fail-closed legacy contract ' +
+              '(no stored session, offline, non-2xx/401, malformed body, timeout, or the edge function is not deployed). ' +
+              'The SeatRail falls back to local admin evidence in the renderer.'
+          );
+        }
         return { success: true, data: { version, ok: true, contract: legacyContract, source: 'legacy_fallback' } };
       }
       const parsed = parseMySeats(wire);
       if (!parsed) {
+        // The wire responded but did not match the {account,seats,active_seat_id}
+        // contract — log the TOP-LEVEL KEYS so a contract field mismatch (the
+        // silent role='delegate' downgrade class) is diagnosable from the log.
+        console.warn(
+          `[Command EVE] my-seats wire present but unparseable — top-level keys: ${
+            typeof wire === 'object' && wire !== null ? Object.keys(wire).join(',') : typeof wire
+          }. Fail-closed legacy contract.`
+        );
         return { success: true, data: { version, ok: true, contract: legacyContract, source: 'legacy_fallback' } };
+      }
+      if (commandEveMySeatsWireDown) {
+        commandEveMySeatsWireDown = false;
+        console.info('[Command EVE] my-seats wire read recovered — live contract restored.');
       }
       return { success: true, data: { version, ok: true, contract: parsed, source: 'my_seats' } };
     } catch (error) {

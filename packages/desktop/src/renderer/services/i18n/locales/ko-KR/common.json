@@ -68,6 +68,7 @@
   "tray.runningTasks": "실행 중인 작업",
   "tray.pauseAll": "모든 작업 일시 중지",
   "tray.checkUpdate": "업데이트 확인",
+  "tray.restartToInstallUpdate": "다시 시작하여 v{{version}} 설치",
   "tray.recentChats": "최근 채팅",
   "tray.untitled": "제목 없음",
   "backendStartup": {

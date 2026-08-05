@@ -42,6 +42,7 @@
     "usageFigures": "{{calls}} Calls · {{credits}} Credits · {{eur}} €",
     "usageEmpty": "Noch keine Verbrauchsdaten (ab v1.5 erfasst).",
     "usageUnavailable": "Verbrauchsdaten sind gerade nicht verfügbar.",
+    "seatListDegraded": "Die Kunden-Liste konnte gerade nicht geladen werden — nur dein eigener Seat wird angezeigt. Prüfe die Verbindung oder melde dich erneut an; die vollständige Liste wird beim nächsten erfolgreichen Abruf automatisch wiederhergestellt.",
     "usageFiguresLabel": "{{calls}} Calls · {{credits}} Credits · {{eur}} €"
   },
   "companyBrain": {

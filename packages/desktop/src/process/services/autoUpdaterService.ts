@@ -11,9 +11,10 @@ import log from 'electron-log';
 import { EventEmitter } from 'events';
 import { COMMAND_EVE_SHELL_ENABLED, COMMAND_EVE_UPDATE_FEED_BASE_URL } from '@/common/config/commandEveShell';
 import { mergeAutoUpdateStatus } from '@/common/update/autoUpdateState';
+import { resolveInstallableUpdateVersion } from '@/common/update/updateReadyPromptCore';
 import type { AutoUpdateStatus } from '@/common/update/updateTypes';
 import { recordAutoUpdateQuitAndInstall, recordAutoUpdateStatus } from './autoUpdateDiagnostics';
-import { setIsQuitting } from '@process/utils/tray';
+import { setIsQuitting, setTrayUpdateReady } from '@process/utils/tray';
 
 export type { AutoUpdateStatus } from '@/common/update/updateTypes';
 
@@ -211,6 +212,7 @@ class AutoUpdaterService extends EventEmitter {
     this._feedConfigured = false;
     this._statusBroadcastCallback = null;
     this._lastStatus = null;
+    setTrayUpdateReady(null);
   }
 
   /**
@@ -225,6 +227,7 @@ class AutoUpdaterService extends EventEmitter {
     this._feedConfigured = false;
     this._statusBroadcastCallback = null;
     this._lastStatus = null;
+    setTrayUpdateReady(null);
     // Remove listeners from this EventEmitter instance
     this.removeAllListeners();
     // Remove each registered handler from autoUpdater to prevent
@@ -389,6 +392,8 @@ class AutoUpdaterService extends EventEmitter {
    */
   private broadcastStatus(status: AutoUpdateStatus): void {
     this._lastStatus = mergeAutoUpdateStatus(this._lastStatus, status);
+    // Reflect the downloaded/awaiting-restart state in the tray menu entry.
+    setTrayUpdateReady(resolveInstallableUpdateVersion(this._lastStatus));
     recordAutoUpdateStatus(status, {
       currentAppVersion: app.getVersion(),
       userDataPath: app.getPath('userData'),

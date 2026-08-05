@@ -68,6 +68,7 @@
   "tray.runningTasks": "运行中的任务",
   "tray.pauseAll": "暂停所有任务",
   "tray.checkUpdate": "检查更新",
+  "tray.restartToInstallUpdate": "重启以安装 v{{version}}",
   "tray.recentChats": "最近对话",
   "tray.untitled": "未命名",
   "backendStartup": {

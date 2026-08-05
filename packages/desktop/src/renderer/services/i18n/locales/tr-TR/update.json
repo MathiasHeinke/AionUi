@@ -23,5 +23,7 @@
   "showInFolder": "Klasörde göster",
   "openFile": "Dosyayı aç",
   "errorTitle": "Güncelleme başarısız",
+  "restartBannerTitle": "Güncelleme yüklendi — şimdi yeniden başlat",
+  "restartBannerDescription": "{{version}} sürümü indirildi ve hazır. Yüklemeyi tamamlamak için yeniden başlatın — yalnızca bir dakika sürer.",
   "installing": "Installing – the app will restart …"
 }

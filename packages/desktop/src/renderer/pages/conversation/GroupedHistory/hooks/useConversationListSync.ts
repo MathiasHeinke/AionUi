@@ -7,6 +7,10 @@
 import { ipcBridge } from '@/common';
 import { configService } from '@/common/config/configService';
 import type { TChatConversation } from '@/common/config/storage';
+import {
+  getDocumentPreparationConversationIds,
+  subscribeConversationDocumentPreparation,
+} from '@/renderer/pages/conversation/runtime/conversationDocumentPreparationStore';
 import { addEventListener } from '@/renderer/utils/emitter';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
@@ -106,6 +110,8 @@ export const getSidebarStreamGuardDecision = ({
 type ConversationListSyncSnapshot = {
   conversations: TChatConversation[];
   generatingConversationIds: Set<string>;
+  turnWorkingConversationIds: Set<string>;
+  preparingConversationIds: Set<string>;
   completionUnreadConversationIds: Set<string>;
   attentionConversationIds: Set<string>;
   errorConversationIds: Set<string>;
@@ -162,6 +168,19 @@ const listeners = new Set<() => void>();
 let isStoreInitialized = false;
 let conversationsState: TChatConversation[] = [];
 let generatingConversationIdsState = new Set<string>();
+// 1.820.5 — "working" truth beyond stream frames. The row must light up in ALL
+// pre-stream phases, so two additional renderer-side sources feed the same
+// per-row working state:
+//   - turnWorkingConversationIdsState: the send-lifecycle signal
+//     (`conversation.turn.working`, emitted by useConversationRuntimeView's
+//     markSend* seam for BOTH platforms) — covers "submitted, backend preparing
+//     the turn" before any stream frame exists.
+//   - preparingConversationIdsState: mirror of the document-preparation store —
+//     covers "EVE bereitet den Auftrag vor" while attachments are prepared.
+// Both are unioned into `isConversationGenerating`; the stream-frame set stays
+// untouched so every existing terminal/guard semantic is preserved byte-for-byte.
+let turnWorkingConversationIdsState = new Set<string>();
+let preparingConversationIdsState = new Set<string>();
 let completionUnreadConversationIdsState = new Set<string>();
 let completedConversationIdsState = new Set<string>();
 let attentionConversationIdsState = new Set<string>();
@@ -171,6 +190,8 @@ let activeConversationIdState: string | null = null;
 let snapshotState: ConversationListSyncSnapshot = {
   conversations: conversationsState,
   generatingConversationIds: generatingConversationIdsState,
+  turnWorkingConversationIds: turnWorkingConversationIdsState,
+  preparingConversationIds: preparingConversationIdsState,
   completionUnreadConversationIds: completionUnreadConversationIdsState,
   attentionConversationIds: attentionConversationIdsState,
   errorConversationIds: errorConversationIdsState,
@@ -180,6 +201,8 @@ const emitStoreChange = () => {
   snapshotState = {
     conversations: conversationsState,
     generatingConversationIds: generatingConversationIdsState,
+    turnWorkingConversationIds: turnWorkingConversationIdsState,
+    preparingConversationIds: preparingConversationIdsState,
     completionUnreadConversationIds: completionUnreadConversationIdsState,
     attentionConversationIds: attentionConversationIdsState,
     errorConversationIds: errorConversationIdsState,
@@ -195,6 +218,33 @@ const subscribeConversationListSync = (listener: () => void) => {
 };
 
 const getConversationListSyncSnapshot = (): ConversationListSyncSnapshot => snapshotState;
+
+/**
+ * TEST-ONLY full reset: the store is a deliberate module singleton that
+ * initialises once, so a suite needing a FRESH initialisation (live bridge
+ * re-subscription after clearing its harness handlers) uses this first.
+ * Re-initialisation re-subscribes every listener — callers must clear their
+ * harness handler sets before re-mounting, or events arrive twice.
+ */
+export const resetConversationListSyncForTest = (): void => {
+  isStoreInitialized = false;
+  conversationsState = [];
+  conversation_idsState = new Set();
+  generatingConversationIdsState = new Set();
+  turnWorkingConversationIdsState = new Set();
+  preparingConversationIdsState = new Set();
+  completionUnreadConversationIdsState = new Set();
+  completedConversationIdsState = new Set();
+  attentionConversationIdsState = new Set();
+  errorConversationIdsState = new Set();
+  activeConversationIdState = null;
+  localSidebarStatusReceipts.clear();
+  sidebarStatusWriteChains.clear();
+  localGeneratingTurnIds.clear();
+  resetAutoProjectRelayState();
+  lastSidebarReceiptUpdatedAt = 0;
+  emitStoreChange();
+};
 
 /**
  * SEAT EPOCH (stale-write guard): every fetch captures the epoch at ISSUE time
@@ -695,6 +745,8 @@ const resetConversationListForSeatSwitch = () => {
   conversationsState = [];
   conversation_idsState = new Set();
   generatingConversationIdsState = new Set();
+  turnWorkingConversationIdsState = new Set();
+  preparingConversationIdsState = new Set();
   completionUnreadConversationIdsState = new Set();
   completedConversationIdsState = new Set();
   attentionConversationIdsState = new Set();
@@ -758,6 +810,44 @@ const clearGenerating = (conversation_id: string) => {
   const next = new Set(generatingConversationIdsState);
   next.delete(conversation_id);
   generatingConversationIdsState = next;
+  emitStoreChange();
+};
+
+const markTurnWorking = (conversation_id: string) => {
+  if (turnWorkingConversationIdsState.has(conversation_id)) {
+    return;
+  }
+
+  turnWorkingConversationIdsState = new Set(turnWorkingConversationIdsState).add(conversation_id);
+  emitStoreChange();
+};
+
+const clearTurnWorking = (conversation_id: string) => {
+  if (!turnWorkingConversationIdsState.has(conversation_id)) {
+    return;
+  }
+
+  const next = new Set(turnWorkingConversationIdsState);
+  next.delete(conversation_id);
+  turnWorkingConversationIdsState = next;
+  emitStoreChange();
+};
+
+/**
+ * Mirror the document-preparation store into `preparingConversationIdsState`.
+ * The source store owns the started/settled lifecycle; this only re-syncs the
+ * reflection (and no-ops when nothing changed, so no render storms).
+ */
+const syncPreparingConversations = () => {
+  const next = new Set(getDocumentPreparationConversationIds());
+  if (
+    next.size === preparingConversationIdsState.size &&
+    [...next].every((id) => preparingConversationIdsState.has(id))
+  ) {
+    return;
+  }
+
+  preparingConversationIdsState = next;
   emitStoreChange();
 };
 
@@ -902,9 +992,22 @@ const initializeConversationListSyncStore = () => {
   });
 
   addEventListener('chat.history.refresh', refreshConversations);
+  // Pre-stream "working" signals: the send lifecycle (submitted/accepted/failed)
+  // and the document-preparation store. Both feed the same per-row working
+  // state the stream frames feed, so a row lights up in EVERY active phase.
+  addEventListener('conversation.turn.working', ({ conversation_id, working }) => {
+    if (!conversation_id) return;
+    if (working) {
+      markTurnWorking(conversation_id);
+    } else {
+      clearTurnWorking(conversation_id);
+    }
+  });
+  subscribeConversationDocumentPreparation(syncPreparingConversations);
   ipcBridge.conversation.listChanged.on((event) => {
     if (event.action === 'deleted') {
       clearGenerating(event.conversation_id);
+      clearTurnWorking(event.conversation_id);
       clearCompletionUnreadState(event.conversation_id);
       clearCompleted(event.conversation_id);
       clearAttention(event.conversation_id);
@@ -950,6 +1053,7 @@ const initializeConversationListSyncStore = () => {
       localGeneratingTurnIds.delete(conversation_id);
       markCompleted(conversation_id);
       clearGenerating(conversation_id);
+      clearTurnWorking(conversation_id);
       return;
     }
 
@@ -984,6 +1088,9 @@ const initializeConversationListSyncStore = () => {
     if (event.runtime?.is_processing) {
       clearCompleted(event.session_id);
       localGeneratingTurnIds.set(event.session_id, event.runtime.turn_id ?? event.turn_id ?? null);
+      // The backend took the turn over — the local send gate is superseded by
+      // the durable is_processing truth, which markGenerating now reflects.
+      clearTurnWorking(event.session_id);
       markGenerating(event.session_id);
       refreshConversations();
       return;
@@ -1057,6 +1164,7 @@ const initializeConversationListSyncStore = () => {
     localGeneratingTurnIds.delete(event.session_id);
     markCompleted(event.session_id);
     clearGenerating(event.session_id);
+    clearTurnWorking(event.session_id);
     refreshConversations();
   });
 };
@@ -1069,6 +1177,8 @@ export const useConversationListSync = () => {
   const {
     conversations,
     generatingConversationIds,
+    turnWorkingConversationIds,
+    preparingConversationIds,
     completionUnreadConversationIds,
     attentionConversationIds,
     errorConversationIds,
@@ -1089,11 +1199,22 @@ export const useConversationListSync = () => {
     setActiveConversationState(conversation_id);
   }, []);
 
+  /**
+   * "Working" for the row = the UNION of every live-activity truth:
+   * stream frames + runtime.is_processing + local turn tracking (the
+   * `generating` set), the send-lifecycle gate (`turnWorking`), and the
+   * document-preparation mirror (`preparing`). One semantic status — the row
+   * simply shows "EVE arbeitet" in every active phase, pre-stream included.
+   */
   const isConversationGenerating = useCallback(
     (conversation_id: string) => {
-      return generatingConversationIds.has(conversation_id);
+      return (
+        generatingConversationIds.has(conversation_id) ||
+        turnWorkingConversationIds.has(conversation_id) ||
+        preparingConversationIds.has(conversation_id)
+      );
     },
-    [generatingConversationIds]
+    [generatingConversationIds, turnWorkingConversationIds, preparingConversationIds]
   );
 
   const hasCompletionUnread = useCallback(

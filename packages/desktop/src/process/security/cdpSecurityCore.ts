@@ -4,7 +4,9 @@ export type CdpStartupPolicyInput = {
   configEnabled?: boolean;
 };
 
-export const COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER = '.command-eve-e2e-packaged-attachment';
+// Canonical definition lives in the common layer (userDataPath.ts) so the
+// platform services can detect e2e-packaged builds without importing @process.
+export { COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER } from '@/common/platform/userDataPath';
 
 type PackagedE2EAttachmentPolicyInput = {
   isPackaged: boolean;
@@ -48,7 +50,7 @@ export function hardenPackagedCdpCommandLine(input: PackagedCdpCommandLineInput)
     stripped.add(switchName);
     input.argv.splice(index, 1);
   }
-  return [...stripped].sort();
+  return [...stripped].toSorted();
 }
 
 export function shouldEnableCdpAtStartup(input: CdpStartupPolicyInput): boolean {

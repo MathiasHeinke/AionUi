@@ -71,6 +71,7 @@
   "tray.runningTasks": "Running Tasks",
   "tray.pauseAll": "Pause All Tasks",
   "tray.checkUpdate": "Check Update",
+  "tray.restartToInstallUpdate": "Restart to install v{{version}}",
   "tray.recentChats": "Recent Chats",
   "tray.untitled": "Untitled",
   "backendStartup": {

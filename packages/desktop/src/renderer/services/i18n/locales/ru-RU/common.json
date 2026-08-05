@@ -67,6 +67,7 @@
   "tray.runningTasks": "Запущенные задачи",
   "tray.pauseAll": "Приостановить все задачи",
   "tray.checkUpdate": "Проверить обновления",
+  "tray.restartToInstallUpdate": "Перезапустить для установки v{{version}}",
   "tray.recentChats": "Недавние чаты",
   "tray.untitled": "Без названия",
   "backendStartup": {

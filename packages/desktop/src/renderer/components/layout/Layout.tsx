@@ -75,6 +75,7 @@ const useDebug = () => {
 };
 
 const UpdateModal = React.lazy(() => import('@/renderer/components/settings/UpdateModal'));
+const UpdateReadyBanner = React.lazy(() => import('@/renderer/components/settings/UpdateReadyBanner'));
 const TeamManageConfirmCard = React.lazy(() => import('@/renderer/components/team/TeamManageConfirmCard'));
 const KanbanAcpConfirmCard = React.lazy(() => import('@/renderer/components/team/KanbanAcpConfirmCard'));
 
@@ -410,6 +411,14 @@ const Layout: React.FC<{
               <Suspense fallback={null}>
                 <UpdateModal />
               </Suspense>
+              {/* MAT-1773: once a background update is downloaded, prompt for the
+                  restart instead of silently waiting for a manual quit. CE-shell
+                  only — upstream keeps its native-notification / modal flow. */}
+              {COMMAND_EVE_SHELL_ENABLED && (
+                <Suspense fallback={null}>
+                  <UpdateReadyBanner />
+                </Suspense>
+              )}
               {/* SG-1 Design B: the team_manage confirm card polls for a pending
                   EVE proposal and surfaces the button-only confirm gate globally. */}
               {COMMAND_EVE_SHELL_ENABLED && founderBuild && (

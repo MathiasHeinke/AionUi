@@ -68,6 +68,7 @@
   "tray.runningTasks": "実行中のタスク",
   "tray.pauseAll": "すべてのタスクを一時停止",
   "tray.checkUpdate": "更新を確認",
+  "tray.restartToInstallUpdate": "再起動して v{{version}} をインストール",
   "tray.recentChats": "最近のチャット",
   "tray.untitled": "無題",
   "backendStartup": {

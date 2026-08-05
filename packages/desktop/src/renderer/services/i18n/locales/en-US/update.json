@@ -37,5 +37,7 @@
     "checkReturnedNull": "Update check returned no result (development mode)",
     "noFeedConfigured": "No update feed is configured. Updates are unavailable until a feed URL is set."
   },
+  "restartBannerTitle": "Update installed — restart now",
+  "restartBannerDescription": "Version {{version}} has been downloaded and is ready. Restart to finish installing — it only takes a moment.",
   "installing": "Installing – the app will restart …"
 }

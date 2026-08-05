@@ -278,6 +278,30 @@ describe('SeatRail', () => {
     render(<SeatRail />);
     expect(screen.getByTestId('seat-rail-live').textContent).toBe('');
   });
+
+  // MAT-1773 — the founder's invisible-rail fix: a FAILED my-seats read with local
+  // admin evidence resolves the DEGRADED posture (own seat + add entry, no switch
+  // targets). The rail MUST render — hidden was the bug.
+  it('renders for an admin on the DEGRADED posture (failed my-seats read): own seat + add entry, no switch targets', () => {
+    mockAccess({
+      mySeatsSource: 'legacy_fallback',
+      access: {
+        role: 'admin',
+        canSwitch: false,
+        pinnedSeatId: 'seat-1',
+        activeSeatId: 'seat-1',
+        seats: [{ seat_id: 'seat-1', name: 'Founder', kind: 'own_company', role: 'admin', is_active: true }],
+      },
+    });
+    render(<SeatRail />);
+    expect(screen.getByTestId('seat-rail')).toBeTruthy();
+    expect(screen.getByTestId('seat-rail-seat-seat-1')).toBeTruthy();
+    expect(screen.getByTestId('seat-rail-seat-seat-1').getAttribute('aria-current')).toBe('true');
+    expect(screen.getByTestId('seat-rail-add')).toBeTruthy();
+    // The only seat is the ACTIVE one — clicking it never fires a switch.
+    fireEvent.click(screen.getByTestId('seat-rail-seat-seat-1'));
+    expect(switchToMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('seat helpers', () => {

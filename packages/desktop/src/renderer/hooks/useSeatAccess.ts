@@ -11,22 +11,53 @@
  * reads the my-seats contract over the bridge and resolves it with the SAME pure
  * `resolveSeatAccess` the main process uses, so renderer + main agree on who may
  * switch. It is FAIL-CLOSED by construction:
- *   - non-desktop / no bridge / any error ⇒ delegate, pinned to the legacy seat,
+ *   - non-desktop / no bridge ⇒ delegate, pinned to the legacy seat,
  *     canSwitch=false (no switcher, no route to another seat).
+ *   - MAT-1773: a FAILED my-seats read (bridge legacy_fallback / IPC error) no
+ *     longer hides the rail UNCONDITIONALLY. When local, main-derived evidence
+ *     says the account is an admin (a cached last-good snapshot, or a bound
+ *     non-legacy seat from a previously authorized switch), the hook resolves
+ *     the DEGRADED admin posture (resolveDegradedAdminAccess): own seat + add
+ *     entry, canSwitch=false — never a fabricated or stale switch target. With
+ *     NO evidence it stays fail-closed exactly as before.
+ *   - a failed read is NEVER silent: it is logged via writeRendererLog
+ *     (transition-gated) and surfaced through `mySeatsSource` for a settings hint.
  *   - the truth is always the MAIN process: the switch IPC re-checks authorization
- *     server-side, so this hook hiding the switcher is defense-in-depth, not the
- *     security boundary.
+ *     server-side against a FRESH read, so this hook's posture is defense-in-depth,
+ *     not the security boundary.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { commandEve } from '@/common/adapter/ipcBridge';
+import { application, commandEve } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
 import { isElectronDesktop } from '@renderer/utils/platform';
-import { resolveSeatAccess, type SeatAccess } from '@process/commandEve/seatSwitchCore';
+import {
+  isLegacySeatId,
+  LEGACY_SEAT_ID,
+  resolveDegradedAdminAccess,
+  resolveSeatAccess,
+  type MySeatsContract,
+  type SeatAccess,
+} from '@process/commandEve/seatSwitchCore';
+
+/**
+ * Where the last my-seats resolution came from (MAT-1773 diagnostics):
+ *  - 'my_seats'        — a LIVE read of the edge function (authoritative);
+ *  - 'legacy_fallback' — the bridge fail-closed (no session / offline / non-2xx /
+ *                        malformed / function not deployed — main cannot tell us
+ *                        which, only THAT the read failed);
+ *  - 'bridge_error'    — the IPC itself threw in the renderer;
+ *  - null              — no read attempted yet (loading / non-desktop).
+ */
+export type MySeatsSource = 'my_seats' | 'legacy_fallback' | 'bridge_error';
 
 export interface SeatAccessState {
   loading: boolean;
   access: SeatAccess;
+  /** Provenance of the last my-seats read (see MySeatsSource). A failed read
+   * surfaces here so the settings UI can show an honest hint instead of the rail
+   * silently vanishing. */
+  mySeatsSource: MySeatsSource | null;
   /** True while a switch IPC is in flight (the UI shows a "restarting EVE…" state). */
   switching: boolean;
   /** Reason code of the last failed switch (e.g. SWITCH_SEAT_FORBIDDEN), else null. */
@@ -50,6 +81,7 @@ const FAIL_CLOSED_ACCESS: SeatAccess = resolveSeatAccess(null);
 export function useSeatAccess(): SeatAccessState {
   const [loading, setLoading] = useState(true);
   const [access, setAccess] = useState<SeatAccess>(FAIL_CLOSED_ACCESS);
+  const [mySeatsSource, setMySeatsSource] = useState<MySeatsSource | null>(null);
   const [switching, setSwitching] = useState(false);
   const [lastSwitchError, setLastSwitchError] = useState<string | null>(null);
   // A monotonic nonce bumped on EVERY failure alongside lastSwitchError. A toast
@@ -74,6 +106,100 @@ export function useSeatAccess(): SeatAccessState {
     };
   }, []);
 
+  // MAT-1773 — transition-gated diagnostic for a FAILED my-seats read. The 60s
+  // backstop poll + focus reconcile re-run refresh() constantly, so we log ONCE
+  // per (source, evidence) transition — never per poll. Goes to the main-process
+  // renderer log via writeRendererLog (the same channel useConversationListSync
+  // uses) so a support bundle shows WHY the rail degraded. NEVER throws:
+  // diagnostics must not break resolution.
+  const lastLoggedFailureRef = useRef<string | null>(null);
+  const logReadFailure = useCallback((source: MySeatsSource, evidence: string, errorMessage?: string): void => {
+    const key = `${source}:${evidence}`;
+    if (lastLoggedFailureRef.current === key) return;
+    lastLoggedFailureRef.current = key;
+    try {
+      const invoked = application?.writeRendererLog?.invoke?.({
+        level: source === 'bridge_error' ? 'error' : 'warn',
+        tag: 'seatAccess',
+        message: 'my_seats_read_failed',
+        data: { source, evidence, ...(errorMessage ? { error: errorMessage } : {}) },
+      });
+      void (invoked as Promise<unknown> | undefined)?.catch((): undefined => undefined);
+    } catch {
+      /* diagnostics are best-effort */
+    }
+  }, []);
+
+  // Persist/clear the LAST-GOOD admin evidence snapshot from a LIVE read. An
+  // admin read stores role + the active seat (id + name) so a later failed read
+  // can keep the rail visible in the degraded posture; a live DELEGATE read
+  // removes it (a demotion is authoritative — no phantom admin rail). Best-effort:
+  // a persistence failure must never fail the resolution itself.
+  const persistSnapshot = useCallback((contract: MySeatsContract): void => {
+    try {
+      if (contract.role === 'admin') {
+        const active = contract.seats.find((s) => s.seat_id === contract.active_seat_id);
+        void configService
+          .set('commandEve.lastMySeatsSnapshot', {
+            role: 'admin',
+            active_seat_id: contract.active_seat_id,
+            active_seat_name: active?.name ?? contract.active_seat_id,
+            at: Date.now(),
+          })
+          .catch((): undefined => undefined);
+      } else {
+        void configService.remove('commandEve.lastMySeatsSnapshot').catch((): undefined => undefined);
+      }
+    } catch {
+      /* best-effort */
+    }
+  }, []);
+
+  // MAT-1773 — the DEGRADED admin fallback. A failed my-seats read used to hide
+  // the rail UNCONDITIONALLY (fail-closed ⇒ delegate), which made the founder's
+  // rail invisible on any transient/permanent read failure. When LOCAL evidence
+  // says this install's account is an admin, fall back to the honest degraded
+  // posture instead: own active seat + add entry, canSwitch=false (never a
+  // fabricated/stale switch target). Two evidence sources, both main-derived:
+  //   1. a cached last-good snapshot whose role is 'admin' (a previous LIVE read);
+  //   2. a currently-bound NON-legacy seat — only a previously main-AUTHORIZED
+  //      switch could have bound it, so the account passed the admin gate before.
+  // WITHOUT evidence the posture stays fail-closed (a genuine legacy/single-seat
+  // install is byte-identical to before). Display-only: the switch IPC
+  // re-authorizes against a fresh read in main.
+  const resolveWithFallback = useCallback(
+    (source: MySeatsSource, failClosed: SeatAccess, errorMessage?: string): SeatAccess => {
+      let boundSeat = LEGACY_SEAT_ID;
+      try {
+        const bound = configService.getCurrentSeatId?.();
+        if (typeof bound === 'string' && bound.length > 0) boundSeat = bound;
+      } catch {
+        /* no binding available ⇒ legacy */
+      }
+      let snapshot: { role?: unknown; active_seat_id?: unknown; active_seat_name?: unknown } | undefined;
+      try {
+        const raw = configService.get?.('commandEve.lastMySeatsSnapshot');
+        if (raw && typeof raw === 'object') snapshot = raw;
+      } catch {
+        /* no snapshot available */
+      }
+      const snapshotAdmin = snapshot?.role === 'admin';
+      const evidence = snapshotAdmin ? 'admin-snapshot' : !isLegacySeatId(boundSeat) ? 'active-seat' : 'none';
+      logReadFailure(source, evidence, errorMessage);
+      if (evidence === 'none') return failClosed;
+      // The own seat's display name: only from a snapshot whose recorded active
+      // seat IS the currently-bound one; otherwise null ⇒ the resolver shows the
+      // raw id (honest, never invented).
+      const snapshotName = snapshot?.active_seat_name;
+      const seatName =
+        snapshotAdmin && snapshot?.active_seat_id === boundSeat && typeof snapshotName === 'string'
+          ? snapshotName
+          : null;
+      return resolveDegradedAdminAccess(boundSeat, seatName);
+    },
+    [logReadFailure]
+  );
+
   const refresh = useCallback(async (): Promise<SeatAccess> => {
     if (!isElectronDesktop()) {
       // No desktop bridge ⇒ no seat product ⇒ fail-closed (no switcher).
@@ -86,18 +212,46 @@ export function useSeatAccess(): SeatAccessState {
     try {
       const response = await commandEve.mySeats.invoke();
       const contract = response?.data?.contract ?? null;
+      // LIVE read: any response carrying a real contract that is NOT the bridge's
+      // explicit legacy fail-closed envelope. (Version-skew tolerant: an older
+      // main without the `source` field still counts as live.)
+      if (contract && response?.data?.source !== 'legacy_fallback') {
+        const resolved = resolveSeatAccess(contract);
+        persistSnapshot(contract);
+        lastLoggedFailureRef.current = null;
+        if (mountedRef.current) {
+          setAccess(resolved);
+          setMySeatsSource('my_seats');
+        }
+        return resolved;
+      }
+      // legacy_fallback: main could not read the wire (or parsed nothing). Try
+      // the local-evidence degraded admin fallback before hiding the rail.
       const resolved = resolveSeatAccess(contract);
-      if (mountedRef.current) setAccess(resolved);
-      return resolved;
+      const fallback = resolveWithFallback('legacy_fallback', resolved);
+      if (mountedRef.current) {
+        setAccess(fallback);
+        setMySeatsSource('legacy_fallback');
+      }
+      return fallback;
     } catch (error) {
       console.error('my-seats bridge call failed:', error);
-      // FAIL-CLOSED on any error: never widen access to admin on a failed read.
-      if (mountedRef.current) setAccess(FAIL_CLOSED_ACCESS);
-      return FAIL_CLOSED_ACCESS;
+      // The IPC itself threw. Historically this fail-closed to delegate (rail
+      // hidden); now the same local-evidence fallback applies.
+      const fallback = resolveWithFallback(
+        'bridge_error',
+        FAIL_CLOSED_ACCESS,
+        error instanceof Error ? error.message : String(error)
+      );
+      if (mountedRef.current) {
+        setAccess(fallback);
+        setMySeatsSource('bridge_error');
+      }
+      return fallback;
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [persistSnapshot, resolveWithFallback]);
 
   useEffect(() => {
     void refresh();
@@ -242,5 +396,5 @@ export function useSeatAccess(): SeatAccessState {
     [access, refresh, flagSwitchError]
   );
 
-  return { loading, access, switching, lastSwitchError, switchErrorNonce, refresh, switchTo };
+  return { loading, access, mySeatsSource, switching, lastSwitchError, switchErrorNonce, refresh, switchTo };
 }

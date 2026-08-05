@@ -18,6 +18,21 @@ export const markConversationDocumentPreparationSettled = (conversation_id: stri
   notify();
 };
 
+/**
+ * Non-React subscription seam for other renderer stores (the conversation-list
+ * sync store mirrors this into its per-row "working" truth so the pre-stream
+ * preparation phase — "EVE bereitet den Auftrag vor" — is visible in the
+ * session list too, not only inside the open chat).
+ */
+export const subscribeConversationDocumentPreparation = (listener: Listener): (() => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+
+export const getDocumentPreparationConversationIds = (): string[] => {
+  return Array.from(preparingConversations);
+};
+
 export const useConversationDocumentPreparation = (conversation_id: string): boolean => {
   const subscribe = useCallback((listener: Listener) => {
     listeners.add(listener);

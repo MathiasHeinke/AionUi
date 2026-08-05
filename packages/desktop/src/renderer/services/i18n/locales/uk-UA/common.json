@@ -68,6 +68,7 @@
   "tray.runningTasks": "Запущені завдання",
   "tray.pauseAll": "Призупинити всі завдання",
   "tray.checkUpdate": "Перевірити оновлення",
+  "tray.restartToInstallUpdate": "Перезапустити, щоб встановити v{{version}}",
   "tray.recentChats": "Недавні чати",
   "tray.untitled": "Без назви",
   "backendStartup": {

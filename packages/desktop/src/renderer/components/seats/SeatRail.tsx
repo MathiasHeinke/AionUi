@@ -16,10 +16,13 @@
  * multiseat is included in the one Standard subscription, so this rail grows with
  * no per-seat charge behind it (the retired +99€/seat ladder is gone).
  *
- * SECURITY / VISIBILITY: renders ONLY for an admin. useSeatAccess is fail-closed — a
- * delegate, a single-seat legacy install, no bridge, or any failed my-seats read all
- * resolve to role='delegate' (hidden). The switch IPC re-checks authorization in
- * main, so hiding the rail is defense-in-depth, not the boundary.
+ * SECURITY / VISIBILITY: renders ONLY for an admin. useSeatAccess is fail-closed —
+ * a delegate, a single-seat legacy install, or no bridge all resolve to
+ * role='delegate' (hidden). MAT-1773: a FAILED my-seats read no longer hides the
+ * rail when local main-derived evidence says the account is an admin — the rail
+ * then shows the DEGRADED posture (own seat + "+", canSwitch=false, never a
+ * fabricated seat). The switch IPC re-checks authorization in main against a
+ * fresh read, so the rail is defense-in-depth display, not the boundary.
  */
 
 import React, { useEffect, useState } from 'react';

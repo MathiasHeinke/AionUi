@@ -9,7 +9,7 @@ import CommandEveGlyph from '@/renderer/components/commandEve/CommandEveGlyph';
 import { cleanupSiderTooltips, getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { copyText } from '@/renderer/utils/ui/clipboard';
-import { Dropdown, Menu, Message, Spin, Tooltip } from '@arco-design/web-react';
+import { Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
 import { Box, CheckSmall, Copy, DeleteOne, EditOne, Export, FolderOpen, MoreOne, Pushpin } from '@icon-park/react';
 import classNames from 'classnames';
 import React from 'react';
@@ -80,7 +80,7 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
 
   // ONE semantic status for the row: the public identity remains EVE regardless
   // of which private runtime executes the work, and a single colored dot — done=green,
-  // attention=orange, error=red, running=Spin overlay — replaces the old mix of a
+  // attention=orange, error=red, running=animated pulsing ring — replaces the old mix of a
   // separate unread dot + the cron alarm/pause/attention glyph swapped in as the
   // leading icon. The dots now fire for NORMAL chats too (waiting-input + errored
   // turns), not just scheduled/cron tasks. See sessionStatus.ts for the full
@@ -92,6 +92,7 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     hasError,
     cronStatus,
   });
+  const isWorking = sessionStatus === 'running';
 
   const renderLeadingIcon = () => {
     // When the row is pinned, hovering reveals a pushpin marker that overlays
@@ -141,6 +142,9 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
           'chat-history__item eve-row h-34px rd-8px flex items-center group relative overflow-hidden shrink-0 conversation-item [&.conversation-item+&.conversation-item]:mt-2px min-w-0',
           {
             'eve-row--selected': selected,
+            // Live-turn row treatment: a subtle animated accent makes "working"
+            // readable across the whole list, not only at the glyph.
+            'eve-row--working': isWorking && !batchMode,
             'bg-[rgba(var(--primary-6),0.08)]': batchMode && checked,
           }
         )}
@@ -174,23 +178,16 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
           )}
           <span className='size-22px flex items-center justify-center shrink-0 relative'>
             {/* The EVE glyph ALWAYS renders (public identity stays put);
-              while a turn streams we overlay a small Spin on its bottom-right
-              instead of replacing the glyph with a bare spinner. */}
+              the single semantic status dot overlays its bottom-right —
+              including the animated "running" ring while a turn is live. */}
             {renderLeadingIcon()}
-            {isGenerating && !batchMode && (
-              <span
-                className='absolute -bottom-2px -right-2px flex-center pointer-events-none'
-                style={{ lineHeight: 0 }}
-              >
-                <Spin size={14} />
-              </span>
-            )}
             {/* ONE semantic status dot, overlaid on the glyph's bottom-right. Hidden
-              in batch mode (the checkbox owns the row) and while generating (the
-              Spin overlay already signals "running"). idle renders nothing. */}
-            {!batchMode && !isGenerating && <SessionStatusDot status={sessionStatus} overlay />}
+              in batch mode (the checkbox owns the row). idle renders nothing;
+              running renders an animated pulsing ring on EVERY row, background
+              sessions included. */}
+            {!batchMode && <SessionStatusDot status={sessionStatus} overlay />}
             {/* Pinned indicator: only visible when row is hovered, overlays leading icon */}
-            {!batchMode && isPinned && !isMobile && !isGenerating && (
+            {!batchMode && isPinned && !isMobile && !isWorking && (
               <span
                 className='absolute inset-0 flex-center text-t-secondary pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity'
                 style={{ lineHeight: 0 }}

@@ -19,6 +19,10 @@ import { mapAcpCommandsToSlashCommands } from '@/common/chat/slash/acpMapping';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import type { TokenUsageData } from '@/common/config/storage';
 import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/hooks';
+import {
+  buildReportedConversationArtifact,
+  stageConversationArtifact,
+} from '@/renderer/pages/conversation/Messages/artifacts';
 import type { ThoughtData } from '@/renderer/components/chat/ThoughtDisplay';
 import { useQuotaWall, type QuotaWallState } from '@renderer/hooks/useQuotaWall';
 import {
@@ -81,7 +85,13 @@ export type AcpRuntimeActivity = {
 };
 
 export type AcpStreamWatchdogStatus =
-  'idle' | 'streaming' | 'tool_wait' | 'heartbeat_only' | 'ui_backlog' | 'stopped' | 'failed';
+  | 'idle'
+  | 'streaming'
+  | 'tool_wait'
+  | 'heartbeat_only'
+  | 'ui_backlog'
+  | 'stopped'
+  | 'failed';
 
 export function classifyAcpStreamWatchdog(input: {
   now: number;
@@ -138,10 +148,7 @@ function extractAcpToolActivity(message: IResponseMessage): { callId: string; ac
   };
 }
 
-export const useAcpMessage = (
-  conversation_id: string,
-  options?: { skipWarmup?: boolean }
-): UseAcpMessageReturn => {
+export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: boolean }): UseAcpMessageReturn => {
   const addOrUpdateMessage = useAddOrUpdateMessage();
   const [running, setRunning] = useState(false);
   const [hasHydratedRunningState, setHasHydratedRunningState] = useState(false);
@@ -440,6 +447,15 @@ export const useAcpMessage = (
       }
 
       if (message.type === 'skill_suggest' || message.type === 'cron_trigger') {
+        // MAT-1773 — these are NOT chat messages; they are EVE's IN-SESSION
+        // self-reported artifacts. Dropping them here (the old behavior) left
+        // the chat artifact tray stale until a full reload re-read
+        // `listArtifacts`. Stage them into the shared conversation artifact
+        // store instead: the tray (and the elements rail) render them with
+        // the turn, and the terminal-finish artifact refresh reconciles
+        // against the durable list afterwards.
+        const reportedArtifact = buildReportedConversationArtifact(message);
+        if (reportedArtifact) stageConversationArtifact(conversation_id, reportedArtifact);
         return;
       }
 

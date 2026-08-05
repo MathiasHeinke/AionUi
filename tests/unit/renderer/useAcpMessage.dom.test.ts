@@ -21,6 +21,7 @@ import {
   localSendStarted,
   resetConversationRuntimeViewStoreForTest,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import { useConversationArtifactsById } from '@/renderer/pages/conversation/Messages/artifacts';
 
 const {
   addOrUpdateMessageMock,
@@ -103,6 +104,25 @@ vi.mock('@/common', () => ({
       },
       getUsage: {
         invoke: conversationGetUsageInvokeMock,
+      },
+      // MAT-1773 — the shared artifact store's durable sources; a store
+      // subscriber in these tests loads from them.
+      listArtifacts: {
+        invoke: vi.fn().mockResolvedValue([]),
+      },
+      artifactStream: {
+        on: vi.fn(() => () => {}),
+      },
+    },
+    commandEve: {
+      videoArtifactsList: {
+        invoke: vi.fn().mockResolvedValue({ success: true, data: [] }),
+      },
+      imageArtifactsList: {
+        invoke: vi.fn().mockResolvedValue({ success: true, data: [] }),
+      },
+      imageArtifactsChanged: {
+        on: vi.fn(() => () => {}),
       },
     },
     projectWorkspace: {
@@ -386,6 +406,59 @@ describe('useAcpMessage', () => {
     const refreshCalls = emitSpy.mock.calls.filter((call) => call[0] === 'commandEve.artifacts.refresh');
     expect(refreshCalls).toEqual([['commandEve.artifacts.refresh', { conversation_id: 'conv-1' }]]);
     emitSpy.mockRestore();
+  });
+
+  it('MAT-1773: stages an in-session skill_suggest report into the shared artifact store', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    renderHook(() => useAcpMessage('conv-1'));
+    const store = renderHook(() => useConversationArtifactsById('conv-1'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'skill_suggest',
+        data: { cron_job_id: 'job-1', name: 'Wochenbericht', description: 'Erstellt den Wochenbericht' },
+        msg_id: 'msg-skill-1',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    await waitFor(() => {
+      const staged = store.result.current.find((artifact) => artifact.kind === 'skill_suggest');
+      expect(staged?.status).toBe('pending');
+      expect((staged?.payload as { name?: string } | undefined)?.name).toBe('Wochenbericht');
+    });
+    // Still NOT a chat message — the tray renders it from the artifact store.
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('MAT-1773: stages a cron_trigger report and never leaks it into another conversation', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    renderHook(() => useAcpMessage('conv-1'));
+    const store = renderHook(() => useConversationArtifactsById('conv-1'));
+    const otherStore = renderHook(() => useConversationArtifactsById('conv-2'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'cron_trigger',
+        data: { cron_job_id: 'job-9', cron_job_name: 'Tagessync', triggered_at: 123 },
+        msg_id: 'msg-cron-1',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'skill_suggest',
+        data: { cron_job_id: 'job-2', name: 'Fremder Skill', description: 'Gehört woanders hin' },
+        msg_id: 'msg-skill-2',
+        conversation_id: 'conv-2',
+      });
+    });
+
+    await waitFor(() => {
+      const staged = store.result.current.find((artifact) => artifact.kind === 'cron_trigger');
+      expect(staged?.status).toBe('active');
+      expect((staged?.payload as { cron_job_name?: string } | undefined)?.cron_job_name).toBe('Tagessync');
+    });
+    expect(otherStore.result.current.find((artifact) => artifact.kind === 'skill_suggest')).toBeUndefined();
+    expect(store.result.current.find((artifact) => artifact.kind === 'skill_suggest')).toBeUndefined();
   });
 
   it('1.820.4: cancels and stages one qualifying blocked external write exactly once across replay', async () => {

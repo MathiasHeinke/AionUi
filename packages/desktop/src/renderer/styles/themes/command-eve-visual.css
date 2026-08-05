@@ -326,6 +326,43 @@
   border-radius: 999px;
 }
 
+/* 1.820.5 — the "working" mark. A live turn must be unmistakable on EVERY row
+   (background sessions included), so `running` is an animated pulsing ring
+   rather than a static dot. The animation intentionally overrides the inline
+   overlay box-shadow while it runs. */
+.session-status-dot[data-status='running'] {
+  animation: eve-session-working-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes eve-session-working-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--eve-status-running) 55%, transparent);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--eve-status-running) 0%, transparent);
+    transform: scale(1.15);
+  }
+}
+
+/* Row-level companion to the working dot: a quiet animated accent so a live
+   session scans as "active" across the whole list, not only at the glyph. */
+.eve-row--working {
+  box-shadow: inset 2px 0 0 var(--eve-status-running);
+  animation: eve-row-working-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes eve-row-working-glow {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--eve-status-running) 6%, transparent);
+  }
+}
+
 /* Reusable ownership primitives. They do not imply card composition. */
 .eve-chrome,
 .eve-panel,
@@ -2676,6 +2713,13 @@
 @media (prefers-reduced-motion: reduce) {
   .eve-row {
     transition: none;
+  }
+
+  /* The working state stays VISIBLE under reduced motion (dot + inset accent
+     keep their color), only the pulse/glow animation stops. */
+  .session-status-dot[data-status='running'],
+  .eve-row--working {
+    animation: none;
   }
 
   .eve-settings-page .animate-spin,

@@ -68,6 +68,7 @@
   "tray.runningTasks": "Çalışan Görevler",
   "tray.pauseAll": "Tüm Görevleri Duraklat",
   "tray.checkUpdate": "Güncelleştirme Kontrolü",
+  "tray.restartToInstallUpdate": "v{{version}} yüklemek için yeniden başlat",
   "tray.recentChats": "Son Sohbetler",
   "tray.untitled": "Adsız",
   "backendStartup": {

@@ -37,5 +37,7 @@
     "missingUrl": "Отсутствует URL",
     "checkReturnedNull": "Проверка обновлений не вернула результат (режим разработки)"
   },
+  "restartBannerTitle": "Обновление установлено — перезапустите сейчас",
+  "restartBannerDescription": "Версия {{version}} загружена и готова. Перезапустите, чтобы завершить установку — это займёт всего минуту.",
   "installing": "Installing – the app will restart …"
 }

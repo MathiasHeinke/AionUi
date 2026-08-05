@@ -18,16 +18,20 @@
  * color and shape, rendered as a single small mark overlaid on the EVE glyph.
  * Runtime identity stays private; the mark communicates state consistently:
  *
- *   running   → blue ring (a turn is in flight)
+ *   running   → blue ring (animated pulse — a turn is in flight in ANY phase:
+ *                       submitted/preparing, thinking, streaming, tool wait)
  *   attention → yellow diamond (needs you: a question/clarify,
  *                       or a paused scheduled task)
  *   error     → red square (the last run failed/was missed)
  *   done      → green circle (a completed run you haven't read)
  *   idle      → none (nothing to flag)
  *
- * `running` is intentionally NOT shown as a dot here — the row already renders a
- * Spin in place of the avatar while generating, which is a clearer "busy" signal
- * than a dot. It is still modeled so callers can branch on it.
+ * `running` IS rendered (since 1.820.5) as an animated, unmistakable mark on
+ * every row — background sessions included. The sidebar's "working" truth is
+ * the union of runtime.is_processing, local turn tracking, the send-lifecycle
+ * gate and the document-preparation store (see useConversationListSync), not
+ * only stream frames, so pre-stream phases ("EVE bereitet den Auftrag vor",
+ * "EVE denkt") light the row up too.
  */
 export type SessionStatus = 'running' | 'attention' | 'error' | 'done' | 'idle';
 export type SessionStatusShape = 'ring' | 'diamond' | 'square' | 'circle' | 'none';

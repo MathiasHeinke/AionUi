@@ -41,6 +41,13 @@ interface EventTypes {
   'codex.selected.file.clear': void;
   'codex.workspace.refresh': void;
   'chat.history.refresh': void;
+  // 1.820.5 — the send-lifecycle "working" signal for the session list. Emitted
+  // by useConversationRuntimeView's markSend* seam (both ACP and AionRS funnel
+  // through it) so a row shows activity from the moment a turn is SUBMITTED —
+  // covering the pre-stream window (backend preparing / "EVE denkt") where no
+  // stream frames exist yet. The conversation-list store owns the resulting
+  // flag and clears it on terminal stream/turn-completed truth.
+  'conversation.turn.working': [{ conversation_id: string; working: boolean }];
   // 1.820.3 — the TIMING-CORRECT artifact refresh. Emitted by useAcpMessage's
   // terminal `finish` case (the real ACP turn completion), conversation-scoped.
   // `chat.history.refresh` fires at send-ACCEPTANCE — far too early for an

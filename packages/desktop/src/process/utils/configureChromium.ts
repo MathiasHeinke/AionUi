@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import os from 'os';
 import { getDevAppName } from '@/common/platform';
-import { resolveElectronUserDataPath } from '@/common/platform/userDataPath';
+import { resolveGuardedElectronUserDataPath } from '@/common/platform/userDataPath';
 import {
   COMMAND_EVE_CDP_REGISTRY_FILE,
   COMMAND_EVE_SHELL_ENABLED,
@@ -48,11 +48,30 @@ if (strippedPackagedCdpSwitches.length > 0) {
 if (COMMAND_EVE_SHELL_ENABLED || !app.isPackaged) {
   const appName = COMMAND_EVE_SHELL_ENABLED ? getCommandEveAppName(app.isPackaged) : getDevAppName();
   app.setName(appName);
-  // In Electron 28+, setName alone no longer updates userData path on macOS.
-  // Use the product-specific directory unless the operator explicitly requested
-  // an isolated --user-data-dir (recovery profiles and packaged E2E launches).
-  app.setPath('userData', resolveElectronUserDataPath(app.getPath('userData'), appName));
 }
+// In Electron 28+, setName alone no longer updates userData path on macOS, so
+// the directory is resolved explicitly. The sandbox guard (MAT-1773) forces an
+// isolated profile for packaged builds that are NOT installed production apps
+// (e2e-packaged output, agent sandboxes, /tmp) unless the operator explicitly
+// overrides via --user-data-dir or COMMAND_EVE_USER_DATA_DIR.
+const guardedUserData = resolveGuardedElectronUserDataPath({
+  currentUserDataPath: app.getPath('userData'),
+  appName: app.getName(),
+  appPath: app.getAppPath(),
+  isPackaged: app.isPackaged,
+  platform: process.platform,
+  env: process.env,
+  argv: process.argv,
+  packagedE2eMarkerPresent:
+    app.isPackaged && fs.existsSync(path.join(process.resourcesPath, COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER)),
+  homeDir: os.homedir(),
+});
+app.setPath('userData', guardedUserData.userDataPath);
+// Logged at startup so a stale build serving the wrong profile is diagnosable
+// from the daily log file (configureConsoleLog persists console output).
+console.log(
+  `[UserData] Profile directory: ${guardedUserData.userDataPath} (source: ${guardedUserData.source}, packaged: ${app.isPackaged})`
+);
 
 // app.disableHardwareAcceleration() must run before app is ready.
 applyGpuRecoveryFlags();

@@ -37,5 +37,7 @@
     "checkReturnedNull": "Die Update-Prüfung lieferte kein Ergebnis (Entwicklungsmodus)",
     "noFeedConfigured": "Es ist keine Update-Quelle konfiguriert. Updates sind nicht verfügbar, bis eine Feed-URL gesetzt ist."
   },
+  "restartBannerTitle": "Update installiert — jetzt neu starten",
+  "restartBannerDescription": "Version {{version}} wurde heruntergeladen und ist bereit. Starte neu, um die Installation abzuschließen — es dauert nur einen Moment.",
   "installing": "Wird installiert – die App startet gleich neu …"
 }

@@ -23,5 +23,7 @@
   "showInFolder": "Mostrar na pasta",
   "openFile": "Abrir arquivo",
   "errorTitle": "A atualização falhou",
+  "restartBannerTitle": "Atualização instalada — reinicie agora",
+  "restartBannerDescription": "A versão {{version}} foi baixada e está pronta. Reinicie para concluir a instalação — leva só um instante.",
   "installing": "Installing – the app will restart …"
 }

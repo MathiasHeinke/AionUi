@@ -161,6 +161,25 @@ describe('ConversationRow archive UI', () => {
     expect(status.getAttribute('data-status')).toBe('done');
   });
 
+  it('shows an unmistakable animated working mark while a turn is live', () => {
+    const { container } = renderRow({ isGenerating: true, hasError: true, selected: false });
+
+    // The single semantic status still wins: running dominates even a stale error.
+    const status = screen.getByTestId('session-status-dot');
+    expect(status.getAttribute('data-status')).toBe('running');
+    expect(status.getAttribute('data-shape')).toBe('ring');
+    // The whole row carries the working accent, and no separate spinner renders.
+    expect(container.querySelector('#c-conv-1')?.classList.contains('eve-row--working')).toBe(true);
+    expect(screen.queryByTestId('spin')).toBeNull();
+  });
+
+  it('keeps the working mark off in batch mode', () => {
+    const { container } = renderRow({ isGenerating: true, batchMode: true, checked: false });
+
+    expect(screen.queryByTestId('session-status-dot')).toBeNull();
+    expect(container.querySelector('#c-conv-1')?.classList.contains('eve-row--working')).toBe(false);
+  });
+
   it('uses a native primary action and keeps the menu a separate button', () => {
     const onConversationClick = vi.fn();
     renderRow({ onConversationClick });

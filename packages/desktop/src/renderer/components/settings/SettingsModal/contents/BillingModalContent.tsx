@@ -83,9 +83,16 @@ const BillingModalContent: React.FC = () => {
   // the Rail order, Founder-Ask). Founder summary (ALL seats) only when the admin
   // is on their own legacy/founder home; a delegate / client-seat context sees
   // ONLY its own row (deckungsgleich mit dem my-seats-Scoping).
-  const { access } = useSeatAccess();
+  const { access, mySeatsSource } = useSeatAccess();
   const { usage, available: usageAvailable, month: usageMonth, setMonth: setUsageMonth } = useSeatUsage();
   const isFounderSummary = access.role === 'admin' && isLegacySeatId(access.activeSeatId);
+  // MAT-1773: the my-seats read failed but local evidence kept the admin rail
+  // visible in its degraded posture (own seat only). Tell the operator WHY the
+  // client list / seat labels are incomplete — a silent hide was the founder's
+  // invisible-rail bug. Only for an evidenced admin; a genuine legacy/single-seat
+  // install (role delegate) never sees this.
+  const mySeatsDegraded =
+    access.role === 'admin' && (mySeatsSource === 'legacy_fallback' || mySeatsSource === 'bridge_error');
   const seatLabelById = useMemo(() => {
     const m = new Map<string, string>();
     for (const s of access.seats) m.set(s.seat_id, s.name);
@@ -260,6 +267,17 @@ const BillingModalContent: React.FC = () => {
             month: usageMonth,
           })}
         </p>
+        {mySeatsDegraded ? (
+          <div className='eve-settings-notice eve-settings-inline-notice' data-testid='billing-seats-degraded'>
+            <Info theme='outline' size={15} />
+            <span>
+              {t('credits.settings.seatListDegraded', {
+                defaultValue:
+                  'Your client list could not be loaded right now — showing your own seat only. Check your connection or sign in again; the full list restores itself on the next successful read.',
+              })}
+            </span>
+          </div>
+        ) : null}
         {usageAvailable && usageRows.length > 0 ? (
           <div className='billing-settings__usage-list'>
             {usageRows.map((row) => (

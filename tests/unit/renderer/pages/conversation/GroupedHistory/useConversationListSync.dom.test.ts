@@ -14,8 +14,14 @@ import type {
 import type { TChatConversation, TConversationRuntimeSummary } from '@/common/config/storage';
 import {
   readConversationSidebarStatusReceipt,
+  resetConversationListSyncForTest,
   useConversationListSync,
 } from '@/renderer/pages/conversation/GroupedHistory/hooks/useConversationListSync';
+import {
+  markConversationDocumentPreparationSettled,
+  markConversationDocumentPreparationStarted,
+  resetConversationDocumentPreparationStoreForTest,
+} from '@/renderer/pages/conversation/runtime/conversationDocumentPreparationStore';
 import {
   resetConversationRuntimeRecoveryMonitorsForTest,
   useConversationRuntimeView,
@@ -721,6 +727,117 @@ describe('conversation sidebar continuity', () => {
     ).toMatchObject({ state: 'idle', turn_id: 'turn-hermes', seat_id: 'seat-a' });
 
     runtimeHook.unmount();
+    listHook.unmount();
+  });
+});
+
+describe('conversation sidebar working phases (1.820.5)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    resetConversationRuntimeRecoveryMonitorsForTest();
+    resetConversationRuntimeViewStoreForTest();
+    resetConversationDocumentPreparationStoreForTest();
+    harness.responseHandlers.clear();
+    harness.turnCompletedHandlers.clear();
+    harness.listChangedHandlers.clear();
+    harness.seatRebindHandlers.clear();
+    harness.rowsBySeat.clear();
+    harness.setCurrentSeatId('seat-a');
+    // Fresh store init so this suite's harness handlers are the live ones.
+    resetConversationListSyncForTest();
+  });
+
+  afterEach(() => {
+    resetConversationRuntimeRecoveryMonitorsForTest();
+    resetConversationRuntimeViewStoreForTest();
+    resetConversationDocumentPreparationStoreForTest();
+    vi.useRealTimers();
+  });
+
+  it('lights the row from the send-lifecycle signal and document preparation before any stream frame', async () => {
+    harness.rowsBySeat.set('seat-a', [conversation('conversation-a', runtime())]);
+    const listHook = renderHook(() => useConversationListSync());
+    await act(flushPromises);
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(false);
+
+    // Pre-stream: the turn is submitted ("EVE bereitet den Auftrag vor" /
+    // backend preparing) — no stream frames exist yet, the row must still
+    // show activity.
+    act(() => {
+      emitter.emit('conversation.turn.working', { conversation_id: 'conversation-a', working: true });
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(true);
+
+    // A terminal stream frame ends the send-gate working flag as well.
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'finish', conversation_id: 'conversation-a', turn_id: 'turn-1' }))
+      );
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(false);
+
+    // A send that failed before the backend took over clears via the same signal.
+    act(() => {
+      emitter.emit('conversation.turn.working', { conversation_id: 'conversation-a', working: true });
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(true);
+    act(() => {
+      emitter.emit('conversation.turn.working', { conversation_id: 'conversation-a', working: false });
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(false);
+
+    // Document preparation mirrors into the same working state...
+    act(() => {
+      markConversationDocumentPreparationStarted('conversation-a');
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(true);
+
+    // ...and settling preparation while a stream runs keeps the row working —
+    // the stream-frame truth is independent of the preparation mirror.
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'start', conversation_id: 'conversation-a', turn_id: 'turn-2' }))
+      );
+      markConversationDocumentPreparationSettled('conversation-a');
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(true);
+
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'finish', conversation_id: 'conversation-a', turn_id: 'turn-2' }))
+      );
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(false);
+    listHook.unmount();
+  });
+
+  it('resets the pre-stream working flags on a seat switch', async () => {
+    harness.rowsBySeat.set('seat-a', [conversation('conversation-a', runtime())]);
+    harness.rowsBySeat.set('seat-b', [conversation('conversation-b', runtime())]);
+    const listHook = renderHook(() => useConversationListSync());
+    await act(flushPromises);
+
+    act(() => {
+      emitter.emit('conversation.turn.working', { conversation_id: 'conversation-a', working: true });
+      markConversationDocumentPreparationStarted('conversation-a');
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(true);
+
+    await act(async () => {
+      harness.setCurrentSeatId('seat-b');
+      harness.seatRebindHandlers.forEach((handler) => handler('seat-b'));
+      await flushPromises();
+    });
+    // The store-side working flags must not bleed across the seat boundary.
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(false);
+
+    // The document-preparation mirror reflects its source store, which is
+    // seat-agnostic — settling it keeps the mirror quiet too.
+    act(() => {
+      markConversationDocumentPreparationSettled('conversation-a');
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(false);
     listHook.unmount();
   });
 });

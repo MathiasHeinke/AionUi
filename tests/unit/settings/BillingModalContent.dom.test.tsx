@@ -396,3 +396,62 @@ describe('BillingModalContent — A3 per-seat usage card (v1.5)', () => {
     expect(screen.queryByTestId('billing-usage-row-seat-1')).toBeNull();
   });
 });
+
+describe('BillingModalContent — MAT-1773 degraded my-seats hint', () => {
+  const degradedAdminAccess = (mySeatsSource: string) => ({
+    loading: false,
+    mySeatsSource,
+    access: {
+      role: 'admin' as const,
+      canSwitch: false,
+      pinnedSeatId: 'seat-1',
+      activeSeatId: 'seat-1',
+      seats: [
+        { seat_id: 'seat-1', name: 'Founder', kind: 'own_company' as const, role: 'admin' as const, is_active: true },
+      ],
+    },
+    switching: false,
+    lastSwitchError: null,
+    switchErrorNonce: 0,
+    refresh: vi.fn(),
+    switchTo: vi.fn(),
+  });
+
+  it('shows the inline hint when the my-seats read failed but the admin rail is in the degraded posture', () => {
+    stubStatus('starter');
+    useSeatAccessMock.mockReturnValueOnce(degradedAdminAccess('legacy_fallback'));
+    render(<BillingModalContent />);
+    const hint = screen.getByTestId('billing-seats-degraded');
+    expect(hint.textContent).toContain('own seat only');
+  });
+
+  it('shows the hint on a bridge error too (any failed read, evidenced admin)', () => {
+    stubStatus('starter');
+    useSeatAccessMock.mockReturnValueOnce(degradedAdminAccess('bridge_error'));
+    render(<BillingModalContent />);
+    expect(screen.getByTestId('billing-seats-degraded')).toBeTruthy();
+  });
+
+  it('stays hidden on a LIVE read (healthy admin)', () => {
+    stubStatus('starter');
+    useSeatAccessMock.mockReturnValueOnce(degradedAdminAccess('my_seats'));
+    render(<BillingModalContent />);
+    expect(screen.queryByTestId('billing-seats-degraded')).toBeNull();
+  });
+
+  it('stays hidden for a fail-closed delegate even when the read failed (genuine legacy install — no nag)', () => {
+    stubStatus('free');
+    useSeatAccessMock.mockReturnValueOnce({
+      loading: false,
+      mySeatsSource: 'legacy_fallback',
+      access: { role: 'delegate', canSwitch: false, pinnedSeatId: 'seat-1', activeSeatId: 'seat-1', seats: [] },
+      switching: false,
+      lastSwitchError: null,
+      switchErrorNonce: 0,
+      refresh: vi.fn(),
+      switchTo: vi.fn(),
+    });
+    render(<BillingModalContent />);
+    expect(screen.queryByTestId('billing-seats-degraded')).toBeNull();
+  });
+});

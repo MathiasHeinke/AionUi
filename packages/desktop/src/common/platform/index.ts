@@ -1,8 +1,11 @@
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import type { IPlatformServices } from './IPlatformServices';
 import { NodePlatformServices } from './NodePlatformServices';
 import { COMMAND_EVE_SHELL_ENABLED, getCommandEveAppName } from '@/common/config/commandEveShell';
-import { resolveElectronUserDataPath } from './userDataPath';
+import { COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER } from './userDataPath';
+import { resolveGuardedElectronUserDataPath } from './userDataPath';
 
 let _services: IPlatformServices | null = null;
 
@@ -45,8 +48,23 @@ export function getPlatformServices(): IPlatformServices {
         if (COMMAND_EVE_SHELL_ENABLED || !app.isPackaged) {
           const appName = COMMAND_EVE_SHELL_ENABLED ? getCommandEveAppName(app.isPackaged) : getDevAppName();
           app.setName(appName);
-          app.setPath('userData', resolveElectronUserDataPath(app.getPath('userData'), appName));
         }
+        // Mirror configureChromium.ts: sandbox guard (MAT-1773) so a packaged
+        // build outside /Applications never defaults to the production profile.
+        const guardedUserData = resolveGuardedElectronUserDataPath({
+          currentUserDataPath: app.getPath('userData'),
+          appName: app.getName(),
+          appPath: app.getAppPath(),
+          isPackaged: app.isPackaged,
+          platform: process.platform,
+          env: process.env,
+          argv: process.argv,
+          packagedE2eMarkerPresent:
+            app.isPackaged &&
+            fs.existsSync(path.join(process.resourcesPath, COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER)),
+          homeDir: os.homedir(),
+        });
+        app.setPath('userData', guardedUserData.userDataPath);
         // Typed as IPlatformPaths so tsc enforces completeness: any new method
         // added to the interface will cause a compile error here if omitted below.
         const paths: import('./IPlatformServices').IPlatformPaths = {

@@ -23,5 +23,7 @@
   "showInFolder": "在資料夾中顯示",
   "openFile": "開啟檔案",
   "errorTitle": "更新失敗",
+  "restartBannerTitle": "更新已安裝 — 立即重新啟動",
+  "restartBannerDescription": "版本 {{version}} 已下載完成，重新啟動即可完成安裝，只需片刻。",
   "installing": "Installing – the app will restart …"
 }

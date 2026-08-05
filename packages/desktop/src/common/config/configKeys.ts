@@ -229,6 +229,19 @@ export type ConfigKeyMap = {
    * keeps the print HTML CSP-safe).
    */
   'commandEve.reportBrand': { displayName?: string; logoDataUri?: string; footer?: string } | undefined;
+  /**
+   * MAT-1773 — LAST-GOOD my-seats evidence snapshot. Written ONLY from a LIVE
+   * my-seats read (source 'my_seats'): an admin read stores the account role +
+   * the then-active seat (id + display name); a live delegate read REMOVES it (a
+   * demotion is authoritative — no phantom admin rail). On a FAILED read the
+   * renderer uses this (plus the bound-seat signal) to keep the SeatRail visible
+   * in the honest degraded posture (own seat + add entry, canSwitch=false —
+   * resolveDegradedAdminAccess). Display-only evidence; the main-process switch
+   * guard re-authorizes against a fresh read. INSTALL-GLOBAL (account-level).
+   */
+  'commandEve.lastMySeatsSnapshot':
+    | { role: 'admin' | 'delegate'; active_seat_id: string; active_seat_name: string; at: number }
+    | undefined;
   'assistant.telegram.defaultModel': { id: string; use_model: string } | undefined;
   'assistant.telegram.agent':
     | { agent_type: string; backend?: string; id?: string; custom_agent_id?: string; name?: string }

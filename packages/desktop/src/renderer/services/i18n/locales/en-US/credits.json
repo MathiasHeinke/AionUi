@@ -42,6 +42,7 @@
     "usageFigures": "{{calls}} calls · {{credits}} credits · €{{eur}}",
     "usageEmpty": "No usage data yet (tracked from v1.5).",
     "usageUnavailable": "Usage data is currently unavailable.",
+    "seatListDegraded": "Your client list could not be loaded right now — showing your own seat only. Check your connection or sign in again; the full list restores itself on the next successful read.",
     "usageFiguresLabel": "{{calls}} calls · {{credits}} credits · €{{eur}}"
   },
   "companyBrain": {

@@ -21,6 +21,8 @@ let closeToTrayEnabled = false;
 let isQuitting = false;
 let mainWindowRef: BrowserWindow | null = null;
 let cachedActiveCount = 0;
+/** Version of the downloaded update awaiting a restart, null when none is ready. */
+let updateReadyVersion: string | null = null;
 
 const isSecondaryTrayClick = (event: unknown): boolean => {
   if (!event || typeof event !== 'object') return false;
@@ -42,6 +44,18 @@ export const getIsQuitting = (): boolean => isQuitting;
 
 export const setIsQuitting = (quitting: boolean): void => {
   isQuitting = quitting;
+};
+
+/**
+ * Reflect the "update downloaded — restart to install" state in the tray menu.
+ * Called by the auto-updater service whenever the merged updater status changes;
+ * rebuilds the context menu so the update entry advertises the pending restart
+ * instead of a plain "Check Update" while a downloaded build waits on disk.
+ */
+export const setTrayUpdateReady = (version: string | null): void => {
+  if (updateReadyVersion === version) return;
+  updateReadyVersion = version;
+  rebuildTrayMenu();
 };
 
 /**
@@ -206,7 +220,9 @@ const buildTrayContextMenu = async (): Promise<Electron.Menu> => {
   });
   template.push({ type: 'separator' });
   template.push({
-    label: i18n.t('common.tray.checkUpdate'),
+    label: updateReadyVersion
+      ? i18n.t('common.tray.restartToInstallUpdate', { version: updateReadyVersion })
+      : i18n.t('common.tray.checkUpdate'),
     click: () => {
       showAndFocus();
       mainWindowRef?.webContents.send('tray:check-update');

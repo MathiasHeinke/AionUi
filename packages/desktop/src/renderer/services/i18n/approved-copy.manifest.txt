@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7062
+# entries: 7070
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -687,6 +687,7 @@ copy	1	de-DE/common.json	Min
 copy	1	de-DE/common.json	Modell
 copy	1	de-DE/common.json	Name
 copy	1	de-DE/common.json	Neu laden
+copy	1	de-DE/common.json	Neu starten, um v{{version}} zu installieren
 copy	1	de-DE/common.json	Neuer Chat
 copy	1	de-DE/common.json	Neueste Version herunterladen
 copy	1	de-DE/common.json	Ohne Titel
@@ -1424,6 +1425,7 @@ copy	1	de-DE/credits.json	Dein Plan
 copy	1	de-DE/credits.json	Dein aktueller Verbrauch und das verfügbare Guthaben.
 copy	1	de-DE/credits.json	Der Modellanbieter hat gerade zu viele Anfragen in kurzer Zeit gesehen und blockt vorübergehend. Versuch es gleich noch einmal — dein Guthaben ist davon nicht betroffen, und die lokale KI kannst du jederzeit nutzen.
 copy	1	de-DE/credits.json	Die Blaupause gilt nur für den aktuell ausgewählten Seat.
+copy	1	de-DE/credits.json	Die Kunden-Liste konnte gerade nicht geladen werden — nur dein eigener Seat wird angezeigt. Prüfe die Verbindung oder melde dich erneut an; die vollständige Liste wird beim nächsten erfolgreichen Abruf automatisch wiederhergestellt.
 copy	1	de-DE/credits.json	Diese Sektion wirklich leeren?
 copy	1	de-DE/credits.json	Diesen Auftrag zu Ende bringen
 copy	1	de-DE/credits.json	Diesen Eintrag wirklich löschen?
@@ -3615,12 +3617,14 @@ copy	1	de-DE/update.json	Suche nach Updates ...
 copy	1	de-DE/update.json	Suche nach Updates fehlgeschlagen
 copy	1	de-DE/update.json	Update benötigt Aufmerksamkeit
 copy	1	de-DE/update.json	Update fehlgeschlagen
+copy	1	de-DE/update.json	Update installiert — jetzt neu starten
 copy	1	de-DE/update.json	Update ist bereit
 copy	1	de-DE/update.json	Update verfügbar
 copy	1	de-DE/update.json	Update wird heruntergeladen ...
 copy	1	de-DE/update.json	Version {{currentVersion}} → {{targetVersion}}
 copy	1	de-DE/update.json	Version {{version}} ist bereit zum Neustart
 copy	1	de-DE/update.json	Version {{version}} wird im Hintergrund geladen
+copy	1	de-DE/update.json	Version {{version}} wurde heruntergeladen und ist bereit. Starte neu, um die Installation abzuschließen — es dauert nur einen Moment.
 copy	1	de-DE/update.json	Wird installiert – die App startet gleich neu …
 copy	1	de-DE/update.json	Öffne die App während der Installation nicht erneut. Sie wird automatisch neu gestartet.
 copy	1	en-US/acp.json	ACP authentication error details:
@@ -4210,6 +4214,7 @@ copy	1	en-US/common.json	Reply
 copy	1	en-US/common.json	Required runtime symbols: {{versions}}
 copy	1	en-US/common.json	Restart App
 copy	1	en-US/common.json	Restart Command EVE
+copy	1	en-US/common.json	Restart to install v{{version}}
 copy	1	en-US/common.json	Restore
 copy	1	en-US/common.json	Retry
 copy	1	en-US/common.json	Review before creating
@@ -5002,6 +5007,7 @@ copy	1	en-US/credits.json	Usage by client
 copy	1	en-US/credits.json	Usage data is currently unavailable.
 copy	1	en-US/credits.json	Usage this month per seat ({{month}}).
 copy	1	en-US/credits.json	Your agency / brand name
+copy	1	en-US/credits.json	Your client list could not be loaded right now — showing your own seat only. Check your connection or sign in again; the full list restores itself on the next successful read.
 copy	1	en-US/credits.json	Your current usage and available credit balance.
 copy	1	en-US/credits.json	Your name, logo and footer on every report EVE delivers — deliver under your brand, not ours.
 copy	1	en-US/credits.json	Your plan
@@ -7166,9 +7172,11 @@ copy	1	en-US/update.json	Update available
 copy	1	en-US/update.json	Update check returned no result (development mode)
 copy	1	en-US/update.json	Update failed
 copy	1	en-US/update.json	Update has been downloaded. Click the button below to restart and install the update.
+copy	1	en-US/update.json	Update installed — restart now
 copy	1	en-US/update.json	Update needs attention
 copy	1	en-US/update.json	Update ready
 copy	1	en-US/update.json	Version {{currentVersion}} → {{targetVersion}}
+copy	1	en-US/update.json	Version {{version}} has been downloaded and is ready. Restart to finish installing — it only takes a moment.
 copy	1	en-US/update.json	Version {{version}} is downloading in the background
 copy	1	en-US/update.json	Version {{version}} is ready to restart
 copy	1	en-US/update.json	What's new

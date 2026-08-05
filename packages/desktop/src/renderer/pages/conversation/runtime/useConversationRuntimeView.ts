@@ -349,11 +349,20 @@ export const useConversationRuntimeView = (conversation_id: string): UseConversa
 
   const markSendStarted = useCallback(() => {
     flushRuntimeViewLogs(localSendStarted(conversation_id));
+    // Session-list truth (1.820.5): the turn is submitted — the row must show
+    // "working" NOW, not only once the first stream frame arrives.
+    emitter.emit('conversation.turn.working', { conversation_id, working: true });
   }, [conversation_id]);
 
   const markSendAccepted = useCallback(
     (turn_id: string, runtime: TConversationRuntimeSummary, msg_id?: string) => {
       flushRuntimeViewLogs(localSendAccepted(conversation_id, turn_id, runtime, msg_id));
+      // An instantly-idle runtime means the turn already settled — otherwise the
+      // backend accepted work and the pre-stream window continues.
+      emitter.emit('conversation.turn.working', {
+        conversation_id,
+        working: runtime.is_processing === true,
+      });
       emitMessagesRefresh(conversation_id, msg_id);
       if (runtime.is_processing)
         ensureRuntimeRecoveryMonitor(conversation_id, runtime.turn_id ?? turn_id, msg_id ?? null);
@@ -366,7 +375,12 @@ export const useConversationRuntimeView = (conversation_id: string): UseConversa
     (reason: string) => {
       flushRuntimeViewLogs(localSendFailed(conversation_id, normalizeReason(reason)));
       const runtimeSnapshot = getConversationRuntimeViewSnapshot(conversation_id);
-      if (!runtimeSnapshot.isProcessing) stopRuntimeRecoveryMonitor(conversation_id);
+      if (!runtimeSnapshot.isProcessing) {
+        stopRuntimeRecoveryMonitor(conversation_id);
+        // The send died before the backend took over — no terminal stream frame
+        // will follow, so the session-list "working" flag ends here.
+        emitter.emit('conversation.turn.working', { conversation_id, working: false });
+      }
     },
     [conversation_id]
   );

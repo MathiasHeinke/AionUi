@@ -506,6 +506,43 @@ export function resolveSeatAccess(contract: MySeatsContract | null): SeatAccess 
 }
 
 /**
+ * MAT-1773 — DEGRADED admin fallback (DISPLAY-ONLY, defense-in-depth).
+ *
+ * When the my-seats read fails (edge function unreachable / no session / offline /
+ * malformed — the bridge fail-closes to `source:'legacy_fallback'`) but LOCAL
+ * evidence says this install's account is an admin (a cached last-good contract
+ * snapshot, or a currently-bound NON-legacy seat that only a previously
+ * main-AUTHORIZED switch could have produced), the renderer shows the rail in a
+ * degraded posture instead of hiding it entirely (the founder's invisible-rail
+ * bug). The posture is deliberately minimal and HONEST:
+ *  - exactly ONE seat: the install's OWN currently-active seat (never a fabricated
+ *    or stale wire seat); a legacy home renders as the Founder chip;
+ *  - canSwitch=false — without a live seat list there is nothing to switch to, so
+ *    no stale target is ever offered;
+ *  - role='admin' so the rail (+ the "add seat" entry) stays visible.
+ * This widens NOTHING security-wise: the switch IPC re-authorizes against a FRESH
+ * my-seats read in main (isSeatSwitchAuthorized) and a failed read rejects there.
+ *
+ * @param activeSeatId the renderer's currently-bound seat (mirrors main's active
+ *   seat via configService). Unsanitizable input folds to the legacy founder home.
+ * @param seatName OPTIONAL display name for a non-legacy own seat (from the cached
+ *   snapshot when it matches the bound seat). Absent ⇒ the raw seat id is shown —
+ *   honest, never invented. The legacy home is always named FOUNDER_CHIP_NAME.
+ */
+export function resolveDegradedAdminAccess(activeSeatId: string, seatName?: string | null): SeatAccess {
+  const sanitized = sanitizeSeatId(activeSeatId) ?? LEGACY_SEAT_ID;
+  const legacy = isLegacySeatId(sanitized);
+  const ownSeat: SeatListEntry = {
+    seat_id: sanitized,
+    name: legacy ? FOUNDER_CHIP_NAME : typeof seatName === 'string' && seatName.length > 0 ? seatName : sanitized,
+    kind: legacy ? 'own_company' : 'client',
+    role: 'admin',
+    is_active: true,
+  };
+  return { role: 'admin', canSwitch: false, pinnedSeatId: sanitized, activeSeatId: sanitized, seats: [ownSeat] };
+}
+
+/**
  * SERVER-SIDE / IPC admin guard for the switch handler. Returns true ONLY when
  * the access posture permits switching to `targetSeatId`:
  *  - role must be admin AND canSwitch,
