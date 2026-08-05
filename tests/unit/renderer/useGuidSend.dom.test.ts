@@ -241,6 +241,84 @@ describe('useGuidSend blocked cloud lane', () => {
     expect(deps.setDir).not.toHaveBeenCalled();
   });
 
+  it('carries the guid video selection into the new conversation (MAT-1773 P3)', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+    );
+    bridgeMocks.ensureAssistant.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agent_id: 'hermes-runtime',
+        agent_name: 'EVE',
+        cli_path: '/runtime/hermes',
+        enabled_skills: ['assistant-default'],
+      },
+    });
+    bridgeMocks.runtimeStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: { status: 'ready', model: 'command-eve-gemma4-e4b-64k:latest' },
+      },
+    });
+    bridgeMocks.conversationCreate.mockResolvedValue({ id: 'conversation-1' });
+
+    const deps = createDeps();
+    deps.input = 'Erstelle ein Video: eine lila Aubergine dreht sich langsam.';
+    deps.getVideoSelection = () => ({ modelId: 'google/veo-3.1', resolution: '1080p', durationSeconds: 8 });
+    const { result } = renderHook(() => useGuidSend(deps));
+
+    await act(async () => {
+      await result.current.handleSend();
+    });
+
+    const stored = sessionStorage.getItem('acp_initial_message_conversation-1');
+    expect(stored).toBeTruthy();
+    expect(JSON.parse(stored!)).toMatchObject({
+      input: deps.input,
+      videoSelection: { modelId: 'google/veo-3.1', resolution: '1080p', durationSeconds: 8 },
+    });
+  });
+
+  it('carries NO video selection for an ordinary chat message', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+    );
+    bridgeMocks.ensureAssistant.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agent_id: 'hermes-runtime',
+        agent_name: 'EVE',
+        cli_path: '/runtime/hermes',
+        enabled_skills: ['assistant-default'],
+      },
+    });
+    bridgeMocks.runtimeStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: { status: 'ready', model: 'command-eve-gemma4-e4b-64k:latest' },
+      },
+    });
+    bridgeMocks.conversationCreate.mockResolvedValue({ id: 'conversation-1' });
+
+    const deps = createDeps();
+    deps.getVideoSelection = () => ({ modelId: 'google/veo-3.1', resolution: '1080p', durationSeconds: 8 });
+    const { result } = renderHook(() => useGuidSend(deps));
+
+    await act(async () => {
+      await result.current.handleSend();
+    });
+
+    const stored = sessionStorage.getItem('acp_initial_message_conversation-1');
+    expect(stored).toBeTruthy();
+    expect(JSON.parse(stored!).videoSelection).toBeUndefined();
+  });
+
   it('hands the shared new-chat skill selection to the conversation create contract', async () => {
     configGetMock.mockImplementation((key: string) =>
       key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined

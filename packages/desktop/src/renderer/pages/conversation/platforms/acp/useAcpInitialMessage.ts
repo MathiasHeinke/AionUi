@@ -15,9 +15,35 @@ import { buildSendFailureError } from './buildSendFailureError';
 
 type UseAcpInitialMessageParams = {
   conversation_id: string;
-  sendInitialMessage: (input: string, files: string[]) => Promise<boolean>;
+  sendInitialMessage: (input: string, files: string[], videoSelection?: InitialVideoSelection) => Promise<boolean>;
   resetState: () => void;
   addOrUpdateMessage: (message: TMessage, prepend?: boolean) => void;
+};
+
+/** The picker's selection, carried from the start-chat surface (MAT-1773 P3). */
+export type InitialVideoSelection = {
+  modelId: string;
+  resolution: string | null;
+  durationSeconds: number;
+};
+
+/** Defensive read of the carried selection — sessionStorage is not trusted. */
+const parseInitialVideoSelection = (value: unknown): InitialVideoSelection | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.modelId !== 'string' || record.modelId.trim().length === 0) return undefined;
+  if (
+    typeof record.durationSeconds !== 'number' ||
+    !Number.isFinite(record.durationSeconds) ||
+    record.durationSeconds <= 0
+  ) {
+    return undefined;
+  }
+  return {
+    modelId: record.modelId,
+    resolution: typeof record.resolution === 'string' && record.resolution ? record.resolution : null,
+    durationSeconds: record.durationSeconds,
+  };
 };
 
 /**
@@ -43,15 +69,20 @@ export const useAcpInitialMessage = ({
 
     const submitStoredMessage = async () => {
       try {
-        const initialMessage = JSON.parse(storedMessage) as { input?: unknown; files?: unknown };
+        const initialMessage = JSON.parse(storedMessage) as {
+          input?: unknown;
+          files?: unknown;
+          videoSelection?: unknown;
+        };
         const input = typeof initialMessage.input === 'string' ? initialMessage.input : '';
         const files = Array.isArray(initialMessage.files)
           ? initialMessage.files.filter((file): file is string => typeof file === 'string')
           : [];
+        const videoSelection = parseInitialVideoSelection(initialMessage.videoSelection);
 
         // The fresh-chat handoff must use the exact same preparation, cost-wall,
         // queue, runtime, and recovery path as an in-chat send.
-        await sendInitialMessage(input, files);
+        await sendInitialMessage(input, files, videoSelection);
       } catch (error) {
         // SCRUBBED (MAT-1749) AT THE BINDING: this sentence is rendered into the
         // chat as a `tips` message and handed to `buildSendFailureError`, and it

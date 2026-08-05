@@ -32,6 +32,8 @@ import type { NavigateFunction } from 'react-router-dom';
 import type { AcpModelInfo, AvailableAgent, EffectiveAgentInfo } from '../types';
 import { scrubErrorText, scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
+import { isVideoLaneRequest } from '@/common/config/videoCostCore';
+import type { VideoDraftSelection } from '@/renderer/components/billing/useVideoComposerSelection';
 
 export type GuidSendDeps = {
   // Input state
@@ -67,6 +69,12 @@ export type GuidSendDeps = {
   selectedMcpServerIds?: string[];
   currentEffectiveAgentInfo: EffectiveAgentInfo;
   isGoogleAuth: boolean;
+
+  /**
+   * MAT-1773 (P3) — the video-creation selection held by the start-chat pill,
+   * read at send time. Optional: shells without the pill never carry one.
+   */
+  getVideoSelection?: () => VideoDraftSelection;
 
   // Mention state reset
   setMentionOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -153,6 +161,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     navigate,
     t,
   } = deps;
+  const getVideoSelection = deps.getVideoSelection;
   const sendingRef = useRef(false);
   // The MAIN-process lane decision, read through the SAME authority the composer
   // paints from — never a second derivation. `entitlementPending` is true only
@@ -584,9 +593,17 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
 
         emitter.emit('chat.history.refresh');
 
+        // MAT-1773 (P3): a video selection made on the start-chat surface rides
+        // the initial message, so the new conversation's first send carries the
+        // exact model/resolution/duration the user picked there.
+        const carriedVideoSelection =
+          COMMAND_EVE_SHELL_ENABLED && isVideoLaneRequest({ message: input, resolvedAgentId: null })
+            ? (getVideoSelection?.() ?? null)
+            : null;
         const initialMessage = {
           input,
           files: files.length > 0 ? files : undefined,
+          ...(carriedVideoSelection ? { videoSelection: carriedVideoSelection } : {}),
         };
         sessionStorage.setItem(`acp_initial_message_${conversation.id}`, JSON.stringify(initialMessage));
 
@@ -621,6 +638,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     navigate,
     t,
     eveSendHeld,
+    getVideoSelection,
   ]);
 
   const sendMessageHandler = useCallback(() => {

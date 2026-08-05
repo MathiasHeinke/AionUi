@@ -36,6 +36,10 @@ type GuidInputCardProps = {
   files: string[];
   onRemoveFile: (path: string) => void;
 
+  // Media-lane pill (MAT-1773 P3): the video-creation picker, rendered in the
+  // draft band above the input when the draft routes to a media-create intent.
+  mediaPill?: React.ReactNode;
+
   // Action row
   actionRow: React.ReactNode;
 };
@@ -55,6 +59,7 @@ const GuidInputCard: React.FC<GuidInputCardProps> = ({
   mentionDropdown,
   files,
   onRemoveFile,
+  mediaPill,
   actionRow,
 }) => {
   const layout = useLayoutContext();
@@ -82,6 +87,7 @@ const GuidInputCard: React.FC<GuidInputCardProps> = ({
     >
       <div className={`${styles.guidInputInner} p-12px flex flex-col`}>
         {mentionSelectorBadge}
+        {mediaPill}
         <Input.TextArea
           autoSize={textareaAutoSize}
           placeholder={placeholder}

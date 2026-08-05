@@ -29,6 +29,8 @@ import AssistantSelectionArea from './components/AssistantSelectionArea';
 import { AgentPillBarSkeleton } from './components/GuidSkeleton';
 import GuidActionRow from './components/GuidActionRow';
 import GuidInputCard from './components/GuidInputCard';
+import GuidVideoPill from './components/GuidVideoPill';
+import { useVideoComposerSelection } from '@/renderer/components/billing/useVideoComposerSelection';
 import GuidModelSelector from './components/GuidModelSelector';
 import FirstRunSetupCta from './components/FirstRunSetupCta';
 import MentionDropdown, { MentionSelectorBadge } from './components/MentionDropdown';
@@ -182,6 +184,11 @@ const GuidPage: React.FC = () => {
     selectedAgentInfo: agentSelection.selectedAgentInfo,
   });
 
+  // MAT-1773 (P3) — start-chat/conversation parity: the SAME video-creation
+  // selection the conversation composer holds, via the shared hook. Rendered
+  // by GuidVideoPill and carried into the new conversation on send.
+  const videoComposerSelection = useVideoComposerSelection();
+
   const send = useGuidSend({
     // Input state
     input: guidInput.input,
@@ -218,6 +225,10 @@ const GuidPage: React.FC = () => {
     setMentionQuery: mention.setMentionQuery,
     setMentionSelectorOpen: mention.setMentionSelectorOpen,
     setMentionActiveIndex: mention.setMentionActiveIndex,
+
+    // Media-lane carry (MAT-1773 P3): a video selection made on this surface
+    // rides the initial message into the new conversation.
+    getVideoSelection: videoComposerSelection.currentSelection,
 
     // Navigation
     navigate,
@@ -925,6 +936,11 @@ const GuidPage: React.FC = () => {
               mentionDropdown={mentionDropdownNode}
               files={guidInput.files}
               onRemoveFile={guidInput.handleRemoveFile}
+              mediaPill={
+                isCommandEveAssistant ? (
+                  <GuidVideoPill input={guidInput.input} files={guidInput.files} selection={videoComposerSelection} />
+                ) : undefined
+              }
               actionRow={actionRowNode}
             />
 

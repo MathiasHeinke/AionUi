@@ -107,15 +107,12 @@ import {
   MAX_VIDEO_REFERENCE_AUDIOS,
   VIDEO_PRESET_VOICES,
   type VideoModeKind,
-  type VideoModelSelection,
-  type VideoQualityTier,
-  type VideoSeatCapabilities,
 } from '@/common/config/videoCostCore';
+import { DEFAULT_VIDEO_CATALOG_MODEL_ID } from '@/common/config/videoCatalogCore';
 import {
-  DEFAULT_VIDEO_CATALOG_MODEL_ID,
-  resolveVideoCatalog,
-  type VideoCatalogResolution,
-} from '@/common/config/videoCatalogCore';
+  useVideoComposerSelection,
+  type VideoDraftSelection,
+} from '@/renderer/components/billing/useVideoComposerSelection';
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
 import ImageModelPill from '@/renderer/components/billing/ImageModelPill';
 import {
@@ -899,39 +896,22 @@ Please check your local CLI tool authentication status`,
 
   // Inline quality selection. Fast/720p until the user clicks HD — never
   // auto-upgraded, which is what keeps the "explicit upgrade" property true.
-  const [videoTierId, setVideoTierId] = useState<VideoQualityTier>(DEFAULT_VIDEO_TIER_ID);
-  const [videoModelId, setVideoModelId] = useState<VideoModelSelection | undefined>(undefined);
-  const [videoDurationSeconds, setVideoDurationSeconds] = useState(DEFAULT_VIDEO_DURATION_SECONDS);
-  // F8b — the exact catalog resolution (e.g. `720p`, `2K`). Null follows the
-  // tier; the pill reports auto-picks upward through this state, so the send
-  // carries exactly the combination the pill quoted.
-  const [videoResolution, setVideoResolution] = useState<string | null>(null);
-  // MAT-1773 (F8) — the catalog the model dropdown shows. Starts on the bundled
-  // snapshot (approximate) and upgrades to the live server catalog the moment
-  // the capabilities answer carries one; a failed read simply keeps this.
-  const [videoCatalog, setVideoCatalog] = useState<VideoCatalogResolution>(() => resolveVideoCatalog(null));
-  const handleVideoTierChange = useCallback((tierId: VideoQualityTier) => {
-    setVideoTierId(tierId);
-    // 1080p is a truthful shorthand for the 1.5 model; keep the two visible
-    // selectors coherent instead of letting one invalidate the other.
-    if (tierId === 'hd') setVideoModelId('grok-imagine-video-1.5');
-  }, []);
-  const handleVideoModelChange = useCallback((modelId: VideoModelSelection) => {
-    setVideoModelId(modelId);
-    if (legacyVideoModelIdForCatalogId(modelId) === 'grok-imagine-video') {
-      setVideoTierId((current) => (current === 'hd' ? DEFAULT_VIDEO_TIER_ID : current));
-    }
-  }, []);
-  // F8b — a resolution pick from the catalog dropdown. It updates the tier
-  // shadow-state ONLY (the wire still carries a tier for the legacy lane) and
-  // NEVER touches the model: the old hd→1.5 coupling must not hijack a 1080p
-  // pick on FLUX/Veo/Sora into a Grok render.
-  const handleVideoResolutionChange = useCallback((resolution: string) => {
-    setVideoResolution(resolution);
-    const tier =
-      resolution === '480p' ? 'sd' : resolution === '720p' ? 'fast' : resolution === '1080p' ? 'hd' : undefined;
-    if (tier !== undefined) setVideoTierId(tier);
-  }, []);
+  // MAT-1773 (P3): the state lives in the SHARED hook so the start-chat (guid)
+  // surface holds and carries exactly the same selection through the same pill.
+  const {
+    tierId: videoTierId,
+    modelId: videoModelId,
+    resolution: videoResolution,
+    durationSeconds: videoDurationSeconds,
+    capabilities: videoCapabilities,
+    catalog: videoCatalog,
+    handleTierChange: handleVideoTierChange,
+    handleModelChange: handleVideoModelChange,
+    handleResolutionChange: handleVideoResolutionChange,
+    setDurationSeconds: setVideoDurationSeconds,
+    applySelection: applyVideoSelection,
+    resetSelection: resetVideoSelection,
+  } = useVideoComposerSelection();
 
   // Show the quality selector only while the DRAFT already routes to the video
   // lane, using the same predicate the send path uses.
@@ -1008,38 +988,10 @@ Please check your local CLI tool authentication status`,
     return Number.isFinite(credits) ? { credits, seconds } : null;
   }, [showVideoEditHint, latestVideoSource]);
 
-  // WHAT THE SEAT MAY OFFER. Asked of MAIN, never decided here: a renderer that
-  // answered this for itself could render a 1080p option, or a voice control, for
-  // an entitlement the seat does not hold — and the refusal would then arrive
-  // after the wait instead of before the click. An absent or failed answer stays
-  // fail-closed (both flags false), which is exactly today's behaviour.
-  const [videoCapabilities, setVideoCapabilities] = useState<VideoSeatCapabilities>({
-    hd15Available: false,
-    presetVoicesAvailable: false,
-  });
-  useEffect(() => {
-    let cancelled = false;
-    void ipcBridge.commandEve.videoCapabilities
-      .invoke()
-      .then((response) => {
-        if (cancelled || !response?.success || !response.data) return;
-        setVideoCapabilities({
-          hd15Available: response.data.hd15Available === true,
-          presetVoicesAvailable: response.data.presetVoicesAvailable === true,
-        });
-        // The live catalog replaces the bundled snapshot only when Main proves
-        // one; anything else keeps the fallback (marked approximate).
-        setVideoCatalog(
-          resolveVideoCatalog(response.data.catalog_source === 'live' ? (response.data.catalog ?? null) : null)
-        );
-      })
-      .catch(() => {
-        /* fail closed: the initial all-false state stands */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // WHAT THE SEAT MAY OFFER (capabilities + catalog) is fetched inside the
+  // shared useVideoComposerSelection hook — asked of MAIN, never decided here:
+  // an absent or failed answer stays fail-closed (both flags false), and the
+  // catalog falls back to the bundled snapshot marked approximate.
 
   // IMAGE MODEL SELECTION (MAT-1769). The SELECTION is a per-seat preference
   // owned by Main; the renderer keeps only the last proven seat id as the
@@ -1491,7 +1443,16 @@ Please check your local CLI tool authentication status`,
     async (
       message: string,
       allFiles: string[],
-      controls: { clearSelection: () => void; restoreDraftAndFiles: () => void }
+      controls: {
+        clearSelection: () => void;
+        restoreDraftAndFiles: () => void;
+        /**
+         * The GUID HANDOFF (MAT-1773 P3): a selection made on the start-chat
+         * surface rides the initial message and wins over the composer's own
+         * resting state for exactly this send.
+         */
+        videoSelection?: VideoDraftSelection;
+      }
     ): Promise<boolean> => {
       // S81/R3: bounded, fail-open project intent gate — always first, before
       // PDF prep or dispatch, and never touching executeCommand/sendMessage.
@@ -1570,8 +1531,11 @@ Please check your local CLI tool authentication status`,
         // MAT-1773 (F8) — with the catalog dropdown, the RESTING state is a real
         // selection: Grok Imagine Video 1.5 stays the default. The price the pill
         // quotes for an untouched picker must be the price the send carries, so
-        // the default resolves here too — an explicit pick always wins.
-        const selectedModel = draftRoutesToVideo ? (videoModelId ?? DEFAULT_VIDEO_CATALOG_MODEL_ID) : undefined;
+        // the default resolves here too — an explicit pick always wins. A
+        // carried guid selection (controls.videoSelection) wins over both.
+        const selectedModel = draftRoutesToVideo
+          ? (controls.videoSelection?.modelId ?? videoModelId ?? DEFAULT_VIDEO_CATALOG_MODEL_ID)
+          : undefined;
         // A catalog id naming a legacy model checks against its legacy id: the
         // availability list folds the two spellings into one entry.
         const normalizedSelectedModel =
@@ -1600,14 +1564,16 @@ Please check your local CLI tool authentication status`,
           draftRoutesToVideo &&
           producibleModel !== undefined &&
           legacyVideoModelIdForCatalogId(producibleModel) === null
-            ? (videoResolution ?? undefined)
+            ? (controls.videoSelection?.resolution ?? videoResolution ?? undefined)
             : undefined;
 
         videoCostWall.requestVideo(
           {
             tierId: producibleTier,
             ...(producibleModel === undefined ? {} : { modelId: producibleModel }),
-            durationSeconds: draftRoutesToVideo ? videoDurationSeconds : DEFAULT_VIDEO_DURATION_SECONDS,
+            durationSeconds: draftRoutesToVideo
+              ? (controls.videoSelection?.durationSeconds ?? videoDurationSeconds)
+              : DEFAULT_VIDEO_DURATION_SECONDS,
             modeKind: sendModeKind,
             capabilities: videoCapabilities,
             catalog: videoCatalog.entries,
@@ -1684,9 +1650,7 @@ Please check your local CLI tool authentication status`,
                 // Fast/Standard" has to be true for the NEXT video, so a made
                 // video ends its own tier here. Only here — see the failure
                 // paths above, which deliberately leave the choice standing.
-                setVideoTierId(DEFAULT_VIDEO_TIER_ID);
-                setVideoModelId(undefined);
-                setVideoDurationSeconds(DEFAULT_VIDEO_DURATION_SECONDS);
+                resetVideoSelection();
               })
               .catch(() => {
                 Message.error({
@@ -2066,7 +2030,11 @@ Please check your local CLI tool authentication status`,
   );
 
   const sendInitialMessage = useCallback(
-    async (input: string, files: string[]): Promise<boolean> => {
+    async (input: string, files: string[], videoSelection?: VideoDraftSelection): Promise<boolean> => {
+      // The guid handoff carries the picker state with the first send: adopt it
+      // so the pill shows what was sent, and pass it THROUGH as data — state
+      // set here would not reach this send's own closure.
+      if (videoSelection) applyVideoSelection(videoSelection);
       try {
         return await submitMessage(input, files, {
           clearSelection: () => {},
@@ -2076,6 +2044,7 @@ Please check your local CLI tool authentication status`,
             setAtPath([]);
             emitter.emit('acp.selected.file.clear');
           },
+          ...(videoSelection === undefined ? {} : { videoSelection }),
         });
       } catch {
         // executeCommand already rendered the structured failure and restored
@@ -2083,7 +2052,7 @@ Please check your local CLI tool authentication status`,
         return false;
       }
     },
-    [setAtPath, setContent, setUploadFile, submitMessage]
+    [applyVideoSelection, setAtPath, setContent, setUploadFile, submitMessage]
   );
 
   // The Guid/startscreen handoff is only transport. All real submission work

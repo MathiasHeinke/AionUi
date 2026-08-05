@@ -29,10 +29,19 @@
  * combination is UNSELECTABLE (filtered out), and a selection the new model
  * cannot serve is auto-picked to the nearest supported value and reported
  * upward, never a late error.
+ *
+ * MAT-1773 (P1/P2, 1.820.5): the dropdowns portal to `document.body` (the
+ * composer panel is `overflow: hidden` — an in-flow list is CLIPPED by the
+ * composer edge), open upward when there is no room below, and cap their
+ * height with internal scroll. Rows carry provider identity chips, the list is
+ * sectioned ('Empfohlen' curated, 'Alle Modelle' price-ascending, curated ids
+ * never duplicated), and selection shows a clear check with a warm accent.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { CheckSmall } from '@icon-park/react';
 import {
   DEFAULT_VIDEO_DURATION_SECONDS,
   estimateVideoCost,
@@ -56,8 +65,13 @@ import {
   listVideoCatalogBeyondTopFive,
   resolveVideoCatalogSelection,
   resolveVideoCatalogTopFive,
+  videoCatalogProvider,
   type VideoCatalogEntry,
 } from '@/common/config/videoCatalogCore';
+import {
+  resolvePillDropdownPlacement,
+  type PillDropdownPlacement,
+} from '@/renderer/components/billing/pillDropdownPlacement';
 import './billing.css';
 
 export interface VideoQualityPillProps {
@@ -114,6 +128,122 @@ const tierIdForResolution = (resolution: string): VideoQualityTier | undefined =
   return undefined;
 };
 
+type DropdownKind = 'model' | 'resolution' | 'duration';
+
+/** Estimated px height per option row, for the placement estimate. */
+const ROW_HEIGHT_PX = 34;
+
+/**
+ * One dropdown of the pill: a glass trigger plus a PORTALED list. The portal
+ * is the P1 clipping fix — the composer panel is `overflow: hidden`, so an
+ * in-flow list is cut off at the composer edge; portaling to `document.body`
+ * with fixed placement keeps the list fully visible (upward when tight, above
+ * every other layer) while reading exactly like the in-place disclosure it
+ * replaces. Position is computed once per open — no JS animation loop.
+ */
+const PillDropdown: React.FC<{
+  kind: DropdownKind;
+  open: boolean;
+  onToggle: (kind: DropdownKind) => void;
+  onClose: () => void;
+  ariaLabel: string;
+  triggerTestId: string;
+  listTestId: string;
+  triggerContent: React.ReactNode;
+  /** Faint gold tint on the trigger (an explicit, non-default selection). */
+  triggerActive?: boolean;
+  estimatedRows: number;
+  children: React.ReactNode;
+}> = ({
+  kind,
+  open,
+  onToggle,
+  onClose,
+  ariaLabel,
+  triggerTestId,
+  listTestId,
+  triggerContent,
+  triggerActive = false,
+  estimatedRows,
+  children,
+}) => {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<PillDropdownPlacement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPlacement(null);
+      return;
+    }
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPlacement(
+      resolvePillDropdownPlacement({
+        triggerRect: { top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width },
+        viewportHeight: window.innerHeight,
+        estimatedListHeight: estimatedRows * ROW_HEIGHT_PX + 48,
+      })
+    );
+  }, [open, estimatedRows]);
+
+  // Outside click closes — the portal is outside the pill's DOM subtree, so
+  // this listens on the document and exempts trigger + list explicitly.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (triggerRef.current?.contains(target)) return;
+      if (listRef.current?.contains(target)) return;
+      onClose();
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [open, onClose]);
+
+  return (
+    <div className='video-quality-pill__model-dropdown'>
+      <button
+        ref={triggerRef}
+        type='button'
+        className={`video-quality-pill__option video-quality-pill__model-trigger${triggerActive ? ' is-active' : ''}`}
+        data-testid={triggerTestId}
+        aria-haspopup='listbox'
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        onClick={() => onToggle(kind)}
+      >
+        {triggerContent}
+        <span className='video-quality-pill__chevron' aria-hidden='true'>
+          ▾
+        </span>
+      </button>
+      {open &&
+        placement &&
+        createPortal(
+          <div
+            ref={listRef}
+            className={`video-quality-pill__model-list video-quality-pill__model-list--${placement.direction}`}
+            role='listbox'
+            aria-label={ariaLabel}
+            data-testid={listTestId}
+            data-direction={placement.direction}
+            style={{
+              top: placement.top,
+              left: placement.left,
+              width: placement.width,
+              maxHeight: placement.maxHeight,
+            }}
+          >
+            {children}
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+};
+
 const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
   value,
   onChange,
@@ -133,10 +263,9 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
   onVoiceToggle,
 }) => {
   const { t } = useTranslation();
-  // The dropdowns are disclosures, not modals: they open IN-PLACE below their
-  // trigger, and 'Weitere anzeigen' expands the rest of the catalog inside
-  // the same list — no page jump, no overlay. One open dropdown at a time.
-  const [openDropdown, setOpenDropdown] = useState<'model' | 'resolution' | 'duration' | null>(null);
+  // One open dropdown at a time; 'Weitere anzeigen' expands the catalog within
+  // the SAME list — no page jump, no modal.
+  const [openDropdown, setOpenDropdown] = useState<DropdownKind | null>(null);
   const [showAllModels, setShowAllModels] = useState(false);
 
   const catalog = visible && catalogEntries !== undefined && catalogEntries.length > 0 ? catalogEntries : undefined;
@@ -235,14 +364,16 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
   const showVoices = modeKind === 'reference' && capabilities?.presetVoicesAvailable === true && voices.length > 0;
   const chosenVoiceIds = selectedVoiceIds ?? [];
 
-  // The catalog halves of the model dropdown: the curated TOP-5 in their fixed
-  // order, and everything else sorted by USD/second ascending behind
-  // 'Weitere anzeigen'.
+  // The catalog halves of the model dropdown: the curated shortlist in its
+  // fixed order ('Empfohlen'), and everything else sorted by USD/second
+  // ascending behind 'Weitere anzeigen' ('Alle Modelle'). The long list NEVER
+  // repeats a curated id (normalized-id dedupe in the core).
   const topFive = catalog ? resolveVideoCatalogTopFive(catalog) : [];
   const beyondTopFive = catalog ? listVideoCatalogBeyondTopFive(catalog) : [];
 
   const renderCatalogEntry = (entry: VideoCatalogEntry) => {
     const selected = currentCatalogEntry?.id === entry.id;
+    const provider = videoCatalogProvider(entry);
     // The row's own honest estimate: THIS model's nearest supported resolution
     // and duration for the current request, at the catalog's exact price.
     const rowSelection = resolveVideoCatalogSelection({
@@ -274,6 +405,9 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
           setOpenDropdown(null);
         }}
       >
+        <span className='video-quality-pill__chip' data-provider={provider.key} aria-hidden='true'>
+          {provider.label.charAt(0)}
+        </span>
         <span className='video-quality-pill__model-name'>{displayVideoCatalogName(entry)}</span>
         <span className='video-quality-pill__model-price'>
           {formatVideoCatalogPrice(videoCatalogUsdPerSecond(entry, rowResolution))}
@@ -286,29 +420,17 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
             })}
           </span>
         )}
+        {selected && (
+          <CheckSmall
+            theme='outline'
+            size={13}
+            className='video-quality-pill__check'
+            aria-label={t('credits.video.modelSelected', { defaultValue: 'Ausgewählt' })}
+          />
+        )}
       </button>
     );
   };
-
-  const renderDropdownTrigger = (
-    kind: 'model' | 'resolution' | 'duration',
-    testId: string,
-    ariaLabel: string,
-    content: React.ReactNode
-  ) => (
-    <button
-      type='button'
-      className='video-quality-pill__option video-quality-pill__model-trigger'
-      data-testid={testId}
-      aria-haspopup='listbox'
-      aria-expanded={openDropdown === kind}
-      aria-label={ariaLabel}
-      onClick={() => setOpenDropdown((open) => (open === kind ? null : kind))}
-    >
-      {content}
-      {' ▾'}
-    </button>
-  );
 
   return (
     <div
@@ -323,46 +445,55 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
       {onModelChange && catalog ? (
         <div className='video-quality-pill__group' data-testid='video-model-group'>
           <span className='video-quality-pill__label'>{t('credits.video.modelLabel', { defaultValue: 'Modell' })}</span>
-          <div className='video-quality-pill__model-dropdown'>
-            {renderDropdownTrigger(
-              'model',
-              'video-model-dropdown-trigger',
-              t('credits.video.modelChoose', { defaultValue: 'Modell wählen' }),
+          <PillDropdown
+            kind='model'
+            open={openDropdown === 'model'}
+            onToggle={(kind) => setOpenDropdown((open) => (open === kind ? null : kind))}
+            onClose={() => setOpenDropdown(null)}
+            ariaLabel={t('credits.video.modelChoose', { defaultValue: 'Modell wählen' })}
+            triggerTestId='video-model-dropdown-trigger'
+            listTestId='video-model-dropdown'
+            triggerActive={modelId !== undefined}
+            estimatedRows={(showAllModels ? catalog.length : topFive.length) + 3}
+            triggerContent={
               <>
                 {currentCatalogEntry ? displayVideoCatalogName(currentCatalogEntry) : preview.plan.model}
                 {' · '}
                 {formatVideoCatalogPrice(preview.plan.usdPerSecond)}
               </>
-            )}
-            {openDropdown === 'model' && (
-              <div
-                className='video-quality-pill__model-list'
-                role='listbox'
-                aria-label={t('credits.video.modelChoose', { defaultValue: 'Modell wählen' })}
-                data-testid='video-model-dropdown'
+            }
+          >
+            <div className='video-quality-pill__section-label' data-testid='video-model-section-recommended'>
+              {t('credits.video.modelRecommended', { defaultValue: 'Empfohlen' })}
+            </div>
+            {topFive.map(renderCatalogEntry)}
+            {!showAllModels && beyondTopFive.length > 0 && (
+              <button
+                type='button'
+                className='video-quality-pill__model-show-more'
+                data-testid='video-model-show-more'
+                onClick={() => setShowAllModels(true)}
               >
-                {topFive.map(renderCatalogEntry)}
-                {!showAllModels && beyondTopFive.length > 0 && (
-                  <button
-                    type='button'
-                    className='video-quality-pill__model-show-more'
-                    data-testid='video-model-show-more'
-                    onClick={() => setShowAllModels(true)}
-                  >
-                    {t('credits.video.modelShowMore', { defaultValue: 'Weitere anzeigen' })}
-                  </button>
-                )}
-                {showAllModels && beyondTopFive.map(renderCatalogEntry)}
-                {catalogApproximate && (
-                  <div className='video-quality-pill__model-note' data-testid='video-model-approximate-note'>
-                    {t('credits.video.modelApproximateNote', {
-                      defaultValue: 'Richtpreise aus dem Offline-Katalog',
-                    })}
-                  </div>
-                )}
+                {t('credits.video.modelShowMore', { defaultValue: 'Weitere anzeigen' })}
+              </button>
+            )}
+            {showAllModels && (
+              <>
+                <div className='video-quality-pill__divider' aria-hidden='true' />
+                <div className='video-quality-pill__section-label' data-testid='video-model-section-all'>
+                  {t('credits.video.modelAll', { defaultValue: 'Alle Modelle' })}
+                </div>
+                {beyondTopFive.map(renderCatalogEntry)}
+              </>
+            )}
+            {catalogApproximate && (
+              <div className='video-quality-pill__model-note' data-testid='video-model-approximate-note'>
+                {t('credits.video.modelApproximateNote', {
+                  defaultValue: 'Richtpreise aus dem Offline-Katalog',
+                })}
               </div>
             )}
-          </div>
+          </PillDropdown>
         </div>
       ) : onModelChange && models.length > 1 ? (
         <div className='video-quality-pill__group' data-testid='video-model-group'>
@@ -401,61 +532,57 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
             <span className='video-quality-pill__label'>
               {t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}
             </span>
-            <div className='video-quality-pill__model-dropdown'>
-              {renderDropdownTrigger(
-                'resolution',
-                'video-resolution-dropdown-trigger',
-                t('credits.video.qualityLabel', { defaultValue: 'Qualität' }),
-                effectiveResolution
-              )}
-              {openDropdown === 'resolution' && (
-                <div
-                  className='video-quality-pill__model-list'
-                  role='listbox'
-                  aria-label={t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}
-                  data-testid='video-resolution-dropdown'
-                >
-                  {currentCatalogEntry.resolutions.map((option) => {
-                    const selected = option === selection?.resolution;
-                    const estimate = estimateVideoCatalogCredits({
-                      entry: currentCatalogEntry,
-                      resolution: option,
-                      durationSeconds: effectiveDuration,
-                    });
-                    return (
-                      <button
-                        key={option}
-                        type='button'
-                        role='option'
-                        aria-selected={selected}
-                        data-eve-composite-owner='listbox'
-                        className={`video-quality-pill__model-entry${selected ? ' is-selected' : ''}`}
-                        data-testid={`video-resolution-option-${option}`}
-                        onClick={() => {
-                          onResolutionChange?.(option);
-                          const tier = tierIdForResolution(option);
-                          if (tier !== undefined) onChange(tier);
-                          setOpenDropdown(null);
-                        }}
-                      >
-                        <span className='video-quality-pill__model-name'>{option}</span>
-                        <span className='video-quality-pill__model-price'>
-                          {formatVideoCatalogPrice(videoCatalogUsdPerSecond(currentCatalogEntry, option))}
-                        </span>
-                        {estimate !== undefined && (
-                          <span className='video-quality-pill__model-estimate'>
-                            {t('credits.video.modelEstimate', {
-                              defaultValue: '≈ {{credits}} Credits',
-                              credits: estimate.credits,
-                            })}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <PillDropdown
+              kind='resolution'
+              open={openDropdown === 'resolution'}
+              onToggle={(kind) => setOpenDropdown((open) => (open === kind ? null : kind))}
+              onClose={() => setOpenDropdown(null)}
+              ariaLabel={t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}
+              triggerTestId='video-resolution-dropdown-trigger'
+              listTestId='video-resolution-dropdown'
+              estimatedRows={currentCatalogEntry.resolutions.length}
+              triggerContent={effectiveResolution}
+            >
+              {currentCatalogEntry.resolutions.map((option) => {
+                const selected = option === selection?.resolution;
+                const estimate = estimateVideoCatalogCredits({
+                  entry: currentCatalogEntry,
+                  resolution: option,
+                  durationSeconds: effectiveDuration,
+                });
+                return (
+                  <button
+                    key={option}
+                    type='button'
+                    role='option'
+                    aria-selected={selected}
+                    data-eve-composite-owner='listbox'
+                    className={`video-quality-pill__model-entry${selected ? ' is-selected' : ''}`}
+                    data-testid={`video-resolution-option-${option}`}
+                    onClick={() => {
+                      onResolutionChange?.(option);
+                      const tier = tierIdForResolution(option);
+                      if (tier !== undefined) onChange(tier);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    <span className='video-quality-pill__model-name'>{option}</span>
+                    <span className='video-quality-pill__model-price'>
+                      {formatVideoCatalogPrice(videoCatalogUsdPerSecond(currentCatalogEntry, option))}
+                    </span>
+                    {estimate !== undefined && (
+                      <span className='video-quality-pill__model-estimate'>
+                        {t('credits.video.modelEstimate', {
+                          defaultValue: '≈ {{credits}} Credits',
+                          credits: estimate.credits,
+                        })}
+                      </span>
+                    )}
+                    {selected && <CheckSmall theme='outline' size={13} className='video-quality-pill__check' />}
+                  </button>
+                );
+              })}
+            </PillDropdown>
           </div>
         ) : (
           <div className='video-quality-pill__group' data-testid='video-resolution-group'>
@@ -506,58 +633,54 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
               <span className='video-quality-pill__label'>
                 {t('credits.video.durationLabel', { defaultValue: 'Dauer' })}
               </span>
-              <div className='video-quality-pill__model-dropdown'>
-                {renderDropdownTrigger(
-                  'duration',
-                  'video-duration-dropdown-trigger',
-                  t('credits.video.durationLabel', { defaultValue: 'Dauer' }),
-                  `${effectiveDuration}s`
-                )}
-                {openDropdown === 'duration' && (
-                  <div
-                    className='video-quality-pill__model-list'
-                    role='listbox'
-                    aria-label={t('credits.video.durationLabel', { defaultValue: 'Dauer' })}
-                    data-testid='video-duration-dropdown'
-                  >
-                    {currentCatalogEntry.durations
-                      .toSorted((a, b) => a - b)
-                      .map((seconds) => {
-                        const selected = seconds === selection?.durationSeconds;
-                        const estimate = estimateVideoCatalogCredits({
-                          entry: currentCatalogEntry,
-                          resolution: selection?.resolution ?? null,
-                          durationSeconds: seconds,
-                        });
-                        return (
-                          <button
-                            key={seconds}
-                            type='button'
-                            role='option'
-                            aria-selected={selected}
-                            data-eve-composite-owner='listbox'
-                            className={`video-quality-pill__model-entry${selected ? ' is-selected' : ''}`}
-                            data-testid={`video-duration-option-${seconds}`}
-                            onClick={() => {
-                              onDurationChange(seconds);
-                              setOpenDropdown(null);
-                            }}
-                          >
-                            <span className='video-quality-pill__model-name'>{seconds}s</span>
-                            {estimate !== undefined && (
-                              <span className='video-quality-pill__model-estimate'>
-                                {t('credits.video.modelEstimate', {
-                                  defaultValue: '≈ {{credits}} Credits',
-                                  credits: estimate.credits,
-                                })}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                  </div>
-                )}
-              </div>
+              <PillDropdown
+                kind='duration'
+                open={openDropdown === 'duration'}
+                onToggle={(kind) => setOpenDropdown((open) => (open === kind ? null : kind))}
+                onClose={() => setOpenDropdown(null)}
+                ariaLabel={t('credits.video.durationLabel', { defaultValue: 'Dauer' })}
+                triggerTestId='video-duration-dropdown-trigger'
+                listTestId='video-duration-dropdown'
+                estimatedRows={currentCatalogEntry.durations.length}
+                triggerContent={`${effectiveDuration}s`}
+              >
+                {currentCatalogEntry.durations
+                  .toSorted((a, b) => a - b)
+                  .map((seconds) => {
+                    const selected = seconds === selection?.durationSeconds;
+                    const estimate = estimateVideoCatalogCredits({
+                      entry: currentCatalogEntry,
+                      resolution: selection?.resolution ?? null,
+                      durationSeconds: seconds,
+                    });
+                    return (
+                      <button
+                        key={seconds}
+                        type='button'
+                        role='option'
+                        aria-selected={selected}
+                        data-eve-composite-owner='listbox'
+                        className={`video-quality-pill__model-entry${selected ? ' is-selected' : ''}`}
+                        data-testid={`video-duration-option-${seconds}`}
+                        onClick={() => {
+                          onDurationChange(seconds);
+                          setOpenDropdown(null);
+                        }}
+                      >
+                        <span className='video-quality-pill__model-name'>{seconds}s</span>
+                        {estimate !== undefined && (
+                          <span className='video-quality-pill__model-estimate'>
+                            {t('credits.video.modelEstimate', {
+                              defaultValue: '≈ {{credits}} Credits',
+                              credits: estimate.credits,
+                            })}
+                          </span>
+                        )}
+                        {selected && <CheckSmall theme='outline' size={13} className='video-quality-pill__check' />}
+                      </button>
+                    );
+                  })}
+              </PillDropdown>
             </div>
           ) : null
         ) : (

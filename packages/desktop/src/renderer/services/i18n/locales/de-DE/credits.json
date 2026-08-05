@@ -144,6 +144,9 @@
     "modelChoose": "Modell wählen",
     "modelShowMore": "Weitere anzeigen",
     "modelEstimate": "≈ {{credits}} Credits",
-    "modelApproximateNote": "Richtpreise aus dem Offline-Katalog"
+    "modelApproximateNote": "Richtpreise aus dem Offline-Katalog",
+    "modelRecommended": "Empfohlen",
+    "modelAll": "Alle Modelle",
+    "modelSelected": "Ausgewählt"
   }
 }

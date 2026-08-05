@@ -36,7 +36,7 @@ vi.mock('react-i18next', () => ({
 
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
 import { DEFAULT_VIDEO_TIER_ID, type VideoModelSelection, type VideoQualityTier } from '@/common/config/videoCostCore';
-import { VIDEO_CATALOG_SNAPSHOT, type VideoCatalogEntry } from '@/common/config/videoCatalogCore';
+import { VIDEO_CATALOG_SNAPSHOT, VIDEO_CATALOG_TOP5, type VideoCatalogEntry } from '@/common/config/videoCatalogCore';
 
 /** A seat with grok-imagine-video-1.5 proven available, and nothing else. */
 const HD15 = { hd15Available: true } as const;
@@ -428,6 +428,69 @@ describe('VideoQualityPill model dropdown (MAT-1773 F8)', () => {
     expect(screen.getByTestId('video-model-option-grok-imagine-video')).toBeTruthy();
     expect(screen.getByTestId('video-model-option-grok-imagine-video-1.5')).toBeTruthy();
     expect(screen.queryByTestId('video-model-dropdown-trigger')).toBeNull();
+  });
+
+  it('DEDUPE (1.820.5): a curated model appears exactly once across Empfohlen + Alle Modelle', () => {
+    renderCatalogPill({ catalogEntries: VIDEO_CATALOG_SNAPSHOT });
+    openModelDropdown();
+    fireEvent.click(screen.getByTestId('video-model-show-more'));
+
+    const list = screen.getByTestId('video-model-dropdown');
+    for (const curated of VIDEO_CATALOG_TOP5) {
+      const matches = list.querySelectorAll(`[data-testid="video-model-entry-${curated.id}"]`);
+      // Seedance 2.0 is unpriceable upstream and absent entirely; the rest once.
+      expect(matches.length, `${curated.id} must appear at most once`).toBeLessThanOrEqual(1);
+    }
+    expect(list.querySelectorAll('[data-testid="video-model-entry-x-ai/grok-imagine-video-1.5"]')).toHaveLength(1);
+    expect(screen.getByTestId('video-model-section-recommended').textContent).toBe('Empfohlen');
+    expect(screen.getByTestId('video-model-section-all').textContent).toBe('Alle Modelle');
+  });
+
+  it('rows carry a provider identity chip and the selected row a clear check', () => {
+    renderCatalogPill();
+    const list = openModelDropdown();
+
+    const grokRow = screen.getByTestId('video-model-entry-x-ai/grok-imagine-video-1.5');
+    const chip = grokRow.querySelector('.video-quality-pill__chip');
+    expect(chip?.getAttribute('data-provider')).toBe('xai');
+    expect(chip?.textContent).toBe('x');
+    // The default selection shows the check + warm accent.
+    expect(grokRow.querySelector('.video-quality-pill__check')).not.toBeNull();
+    expect(grokRow.classList.contains('is-selected')).toBe(true);
+
+    const veoRow = screen.getByTestId('video-model-entry-google/veo-3.1');
+    expect(veoRow.querySelector('.video-quality-pill__chip')?.getAttribute('data-provider')).toBe('google');
+    expect(veoRow.querySelector('.video-quality-pill__check')).toBeNull();
+    expect(list.isConnected).toBe(true);
+  });
+
+  it('opens the list UPWARD when the trigger sits near the bottom edge (P1)', () => {
+    renderCatalogPill();
+    const trigger = screen.getByTestId('video-model-dropdown-trigger');
+    // Simulate a cramped viewport: 400px tall, trigger near the bottom.
+    const originalInnerHeight = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { value: 400, configurable: true });
+    trigger.getBoundingClientRect = () =>
+      ({ top: 340, bottom: 368, left: 12, width: 160, right: 172, height: 28, x: 12, y: 340 }) as DOMRect;
+
+    fireEvent.click(trigger);
+    const list = screen.getByTestId('video-model-dropdown');
+    expect(list.getAttribute('data-direction')).toBe('up');
+    expect(list.classList.contains('video-quality-pill__model-list--up')).toBe(true);
+    // Fixed placement: fully inside the viewport, never clipped by the composer.
+    const top = Number((list as HTMLElement).style.top.replace('px', ''));
+    expect(top).toBeGreaterThanOrEqual(0);
+
+    Object.defineProperty(window, 'innerHeight', { value: originalInnerHeight, configurable: true });
+  });
+
+  it('portals the list above the composer with a high z-index (P1)', () => {
+    renderCatalogPill();
+    openModelDropdown();
+    const list = screen.getByTestId('video-model-dropdown');
+    // Portaled out of the pill subtree (the overflow-hidden composer cannot clip it).
+    expect(list.closest('.video-quality-pill')).toBeNull();
+    expect(list.closest('body')).not.toBeNull();
   });
 });
 

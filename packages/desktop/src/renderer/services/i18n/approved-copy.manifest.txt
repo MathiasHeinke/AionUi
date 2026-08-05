@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7078
+# entries: 7084
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -1393,6 +1393,7 @@ copy	2	de-DE/credits.json	1.000 Credits = 1 € (Pack-Preis)
 copy	2	de-DE/credits.json	Abbrechen
 copy	1	de-DE/credits.json	Aktuelle Projekte
 copy	1	de-DE/credits.json	Aktueller Monat
+copy	1	de-DE/credits.json	Alle Modelle
 copy	1	de-DE/credits.json	Alles klar
 copy	1	de-DE/credits.json	Angebot
 copy	1	de-DE/credits.json	Auf 1080p hochstufen (teurer)
@@ -1400,6 +1401,7 @@ copy	1	de-DE/credits.json	Ausgabe-Limit
 copy	1	de-DE/credits.json	Ausgabe-Limit gespeichert.
 copy	1	de-DE/credits.json	Ausgabe-Limit konnte nicht gespeichert werden.
 copy	1	de-DE/credits.json	Ausgabe-Limit: {{eur}}€
+copy	1	de-DE/credits.json	Ausgewählt
 copy	1	de-DE/credits.json	Automatisch nachladen, wenn die Credits knapp werden
 copy	1	de-DE/credits.json	Behalte Guthaben, Ausgaben, Seats und das Branding deiner Reports im Blick.
 copy	1	de-DE/credits.json	Bitte gib dem Eintrag einen Titel.
@@ -1439,6 +1441,7 @@ copy	1	de-DE/credits.json	Eintrag hinzufügen
 copy	1	de-DE/credits.json	Eintrag konnte nicht geladen werden ({{code}}).
 copy	1	de-DE/credits.json	Eintrag konnte nicht gelöscht werden ({{code}}).
 copy	1	de-DE/credits.json	Eintrag konnte nicht gespeichert werden ({{code}}).
+copy	1	de-DE/credits.json	Empfohlen
 copy	1	de-DE/credits.json	Entfernen
 copy	1	de-DE/credits.json	Fast (Standard)
 copy	1	de-DE/credits.json	Fokus
@@ -4915,6 +4918,7 @@ copy	2	en-US/credits.json	1,000 credits = €1 (pack price)
 copy	1	en-US/credits.json	Add a seat — {{eur}} € extra, included in Standard
 copy	1	en-US/credits.json	Add briefing
 copy	1	en-US/credits.json	Add entry
+copy	1	en-US/credits.json	All models
 copy	1	en-US/credits.json	Allowance: {{n}} credits left
 copy	1	en-US/credits.json	Allowance: {{n}} credits left (≈ €{{eur}})
 copy	1	en-US/credits.json	Applies to this seat only.
@@ -4985,12 +4989,14 @@ copy	1	en-US/credits.json	Out of credits? Monthly top-ups at face value — 1 �
 copy	1	en-US/credits.json	Previous month
 copy	1	en-US/credits.json	Purchased: {{n}} credits left
 copy	1	en-US/credits.json	Purchased: {{n}} credits left (≈ €{{eur}})
+copy	1	en-US/credits.json	Recommended
 copy	1	en-US/credits.json	Remove
 copy	1	en-US/credits.json	Report branding
 copy	2	en-US/credits.json	Save
 copy	1	en-US/credits.json	Save branding
 copy	1	en-US/credits.json	Seat status is not verifiable right now.
 copy	1	en-US/credits.json	Section cleared.
+copy	1	en-US/credits.json	Selected
 copy	1	en-US/credits.json	Show more
 copy	1	en-US/credits.json	Spend cap
 copy	1	en-US/credits.json	Spend cap saved.

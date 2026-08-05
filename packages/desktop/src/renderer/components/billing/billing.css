@@ -288,11 +288,12 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- video model dropdown (MAT-1773 F8) ----
-   A disclosure inside the draft band, not an overlay: the list opens in-place
-   below the trigger, and 'Weitere anzeigen' expands the rest of the catalog
-   inside the same scrollable list. No transitions, so the control is
-   reduced-motion quiet like the rest of the pill. */
+/* ---- video model dropdown (MAT-1773 F8, P1/P2 polish 1.820.5) ----
+   The list PORTALS to document.body: the composer panel is `overflow: hidden`,
+   so an in-flow list was clipped at the composer edge (founder screenshot).
+   Fixed placement (up when tight below), capped height with internal scroll,
+   and a z-index above composer, rail and overlays. Motion is CSS-only and
+   reduced-motion quiet below. */
 .video-quality-pill__model-dropdown {
   position: relative;
   display: inline-flex;
@@ -301,31 +302,79 @@
 .video-quality-pill__model-trigger {
   border-color: var(--border-secondary, #e5e7eb);
   font-variant-numeric: tabular-nums;
+  backdrop-filter: var(--glass-composer-filter, none);
 }
 .video-quality-pill__model-trigger[aria-expanded='true'] {
-  border-color: var(--color-primary-6, #2563eb);
-  color: var(--color-primary-6, #2563eb);
+  border-color: var(--eve-max-accent, var(--color-primary-6, #2563eb));
+  color: var(--eve-max-accent, var(--color-primary-6, #2563eb));
+}
+.video-quality-pill__model-trigger.is-active {
+  border-color: color-mix(in srgb, var(--eve-max-accent, var(--color-primary-6, #2563eb)) 45%, transparent);
+  background: color-mix(in srgb, var(--eve-max-accent, var(--color-primary-6, #2563eb)) 8%, transparent);
+}
+.video-quality-pill__chevron {
+  display: inline-block;
+  margin-left: 4px;
+  transition: transform 180ms ease;
+}
+.video-quality-pill__model-trigger[aria-expanded='true'] .video-quality-pill__chevron {
+  transform: rotate(180deg);
 }
 .video-quality-pill__model-list {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 30;
+  position: fixed;
+  z-index: 1400;
   display: flex;
   flex-direction: column;
   min-width: 280px;
-  max-width: 360px;
-  max-height: 320px;
+  max-width: 380px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 4px;
   border: 1px solid var(--border-secondary, #e5e7eb);
   border-radius: 10px;
   background: var(--bg-2, var(--color-bg-2, #fff));
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+  animation: eve-pill-dropdown-open 180ms ease-out;
+}
+.video-quality-pill__model-list--up {
+  animation-name: eve-pill-dropdown-open-up;
+}
+@keyframes eve-pill-dropdown-open {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes eve-pill-dropdown-open-up {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.video-quality-pill__section-label {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, #9ca3af);
+}
+.video-quality-pill__divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-secondary, #e5e7eb);
 }
 .video-quality-pill__model-entry {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   width: 100%;
   padding: 6px 10px;
@@ -336,22 +385,78 @@
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+  transition:
+    transform 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease;
 }
 .video-quality-pill__model-entry:hover:not(:disabled) {
   border-color: var(--border-secondary, #e5e7eb);
+  transform: translateY(-1px);
 }
 .video-quality-pill__model-entry:focus-visible {
   outline: 2px solid var(--color-primary-6, #2563eb);
   outline-offset: 2px;
 }
 .video-quality-pill__model-entry.is-selected {
-  border-color: var(--color-primary-6, #2563eb);
-  color: var(--color-primary-6, #2563eb);
+  border-color: color-mix(in srgb, var(--eve-max-accent, var(--color-primary-6, #2563eb)) 55%, transparent);
+  background: color-mix(in srgb, var(--eve-max-accent, var(--color-primary-6, #2563eb)) 7%, transparent);
+  color: var(--eve-max-accent, var(--color-primary-6, #2563eb));
   font-weight: 600;
+  animation: eve-pill-option-settle 240ms ease-out;
+}
+@keyframes eve-pill-option-settle {
+  from {
+    transform: scale(0.985);
+  }
+  to {
+    transform: scale(1);
+  }
 }
 .video-quality-pill__model-entry:disabled {
   opacity: 0.5;
   cursor: default;
+}
+.video-quality-pill__chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: var(--text-tertiary, #9ca3af);
+}
+.video-quality-pill__chip[data-provider='xai'] {
+  background: #8b5cf6;
+}
+.video-quality-pill__chip[data-provider='google'] {
+  background: #4285f4;
+}
+.video-quality-pill__chip[data-provider='openai'] {
+  background: #10a37f;
+}
+.video-quality-pill__chip[data-provider='blackforestlabs'] {
+  background: #d97706;
+}
+.video-quality-pill__chip[data-provider='bytedance'] {
+  background: #ef4444;
+}
+.video-quality-pill__chip[data-provider='minimax'] {
+  background: #0ea5e9;
+}
+.video-quality-pill__chip[data-provider='kwaivgi'] {
+  background: #64748b;
+}
+.video-quality-pill__chip[data-provider='alibaba'] {
+  background: #f97316;
+}
+.video-quality-pill__chip[data-provider='runway'] {
+  background: #14b8a6;
 }
 .video-quality-pill__model-name {
   flex: 1 1 auto;
@@ -362,13 +467,20 @@
 }
 .video-quality-pill__model-price {
   flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-tertiary, #9ca3af) 12%, transparent);
   font-variant-numeric: tabular-nums;
-  opacity: 0.8;
+  opacity: 0.9;
 }
 .video-quality-pill__model-estimate {
   flex: none;
   font-variant-numeric: tabular-nums;
   opacity: 0.65;
+}
+.video-quality-pill__check {
+  flex: none;
+  color: var(--eve-max-accent, var(--color-primary-6, #2563eb));
 }
 .video-quality-pill__model-show-more {
   padding: 6px 10px;
@@ -391,6 +503,16 @@
   border-top: 1px solid var(--border-secondary, #e5e7eb);
   font-size: 11px;
   opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .video-quality-pill__model-list,
+  .video-quality-pill__model-entry,
+  .video-quality-pill__model-entry.is-selected,
+  .video-quality-pill__chevron {
+    animation: none;
+    transition: none;
+  }
 }
 
 /* ---- inline image-model selector (MAT-1769) ----

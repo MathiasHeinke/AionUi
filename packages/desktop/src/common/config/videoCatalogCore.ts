@@ -372,14 +372,19 @@ export function resolveVideoCatalogTopFive(entries: readonly VideoCatalogEntry[]
 }
 
 /**
- * Everything behind 'Weitere anzeigen': the catalog minus the TOP-5, sorted by
- * USD/second ascending (cheapest first — the base rate, i.e. the cheapest
- * resolution key). Ties keep the catalog order.
+ * Everything behind 'Weitere anzeigen': the catalog minus the curated
+ * shortlist, sorted by USD/second ascending (cheapest first — the base rate,
+ * i.e. the cheapest resolution key). Ties keep the catalog order.
+ *
+ * DEDUPE IS BY NORMALIZED ID, not object identity (founder-visible bug,
+ * 1.820.5): a curated model must NEVER appear twice — once in 'Empfohlen' and
+ * again in 'Alle Modelle' — even when the server qualifies the id differently
+ * than the curated spec and the top-five matched it by display name.
  */
 export function listVideoCatalogBeyondTopFive(entries: readonly VideoCatalogEntry[]): VideoCatalogEntry[] {
-  const top = resolveVideoCatalogTopFive(entries);
+  const topKeys = new Set(resolveVideoCatalogTopFive(entries).map((entry) => normalizeCatalogKey(entry.id)));
   return entries
-    .filter((entry) => !top.includes(entry))
+    .filter((entry) => !topKeys.has(normalizeCatalogKey(entry.id)))
     .toSorted((a, b) => baseVideoCatalogPrice(a) - baseVideoCatalogPrice(b));
 }
 
@@ -392,6 +397,29 @@ export function displayVideoCatalogName(entry: VideoCatalogEntry): string {
   const curated = VIDEO_CATALOG_TOP5.find((candidate) => entryMatchesCurated(entry, candidate));
   if (curated) return curated.displayName;
   return entry.displayName.replace(/:\s+/, ' ');
+}
+
+/**
+ * The provider identity for a row's chip (1.820.5 P2): a stable key derived
+ * from the vendor part of the id (`x-ai/grok-…` -> `xai`) plus a short label.
+ */
+export function videoCatalogProvider(entry: VideoCatalogEntry): { key: string; label: string } {
+  const vendor = entry.id.includes('/') ? entry.id.slice(0, entry.id.indexOf('/')) : entry.id;
+  const key = vendor.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const labels: Record<string, string> = {
+    xai: 'xAI',
+    google: 'Google',
+    openai: 'OpenAI',
+    blackforestlabs: 'FLUX',
+    bytedance: 'ByteDance',
+    minimax: 'MiniMax',
+    kwaivgi: 'Kling',
+    alibaba: 'Alibaba',
+    runway: 'Runway',
+    happyhorse: 'HappyHorse',
+  };
+  const label = labels[key] ?? vendor.charAt(0).toUpperCase() + vendor.slice(1);
+  return { key, label };
 }
 
 // ---------------------------------------------------------------------------

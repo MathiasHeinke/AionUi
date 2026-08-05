@@ -179,6 +179,23 @@ describe('listVideoCatalogBeyondTopFive', () => {
     const prices = beyond.map((e) => Math.min(...Object.values(e.usdPerSecond)));
     expect(prices.toSorted((a, b) => a - b)).toEqual(prices);
   });
+
+  it('DEDUPE (1.820.5): never lists a curated model twice, even through a display-name match', () => {
+    // A server that qualifies the id differently than the curated spec — the
+    // top-five matches it by NAME, and the beyond-list must still exclude it.
+    const aliased = entry('or/x-ai-grok-imagine-video-1.5', 0.32, 'Grok Imagine Video 1.5');
+    const beyond = listVideoCatalogBeyondTopFive([aliased, entry('minimax/hailuo-3', 0.13)]);
+    expect(resolveVideoCatalogTopFive([aliased, entry('minimax/hailuo-3', 0.13)])).toHaveLength(1);
+    expect(beyond.map((e) => e.id)).toEqual(['minimax/hailuo-3']);
+  });
+
+  it('DEDUPE: no snapshot entry appears in both the shortlist and the beyond-list', () => {
+    const top = resolveVideoCatalogTopFive(VIDEO_CATALOG_SNAPSHOT);
+    const beyond = listVideoCatalogBeyondTopFive(VIDEO_CATALOG_SNAPSHOT);
+    for (const curated of top) {
+      expect(beyond.find((e) => e.id === curated.id)).toBeUndefined();
+    }
+  });
 });
 
 describe('resolveVideoCatalogSelection (invalid combinations become unselectable)', () => {

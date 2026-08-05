@@ -48,7 +48,7 @@ describe('useAcpInitialMessage', () => {
     });
 
     expect(sendInitialMessage).toHaveBeenCalledTimes(1);
-    expect(sendInitialMessage).toHaveBeenCalledWith('Read this PDF', ['/tmp/source.pdf']);
+    expect(sendInitialMessage).toHaveBeenCalledWith('Read this PDF', ['/tmp/source.pdf'], undefined);
     expect(sessionStorage.getItem('acp_initial_message_conversation-1')).toBeNull();
     expect(addOrUpdateMessage).not.toHaveBeenCalled();
     expect(resetState).not.toHaveBeenCalled();
@@ -58,5 +58,63 @@ describe('useAcpInitialMessage', () => {
       await Promise.resolve();
     });
     expect(sendInitialMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('carries a well-formed guid video selection through to the submission path (MAT-1773 P3)', async () => {
+    const sendInitialMessage = vi.fn().mockResolvedValue(true);
+    sessionStorage.setItem(
+      'acp_initial_message_conversation-1',
+      JSON.stringify({
+        input: 'Erstelle ein Video: Aubergine.',
+        videoSelection: { modelId: 'google/veo-3.1', resolution: '1080p', durationSeconds: 8 },
+      })
+    );
+
+    renderHook(() =>
+      useAcpInitialMessage({
+        conversation_id: 'conversation-1',
+        sendInitialMessage,
+        resetState: vi.fn(),
+        addOrUpdateMessage: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(sendInitialMessage).toHaveBeenCalledWith('Erstelle ein Video: Aubergine.', [], {
+      modelId: 'google/veo-3.1',
+      resolution: '1080p',
+      durationSeconds: 8,
+    });
+  });
+
+  it('drops a malformed carried selection rather than failing the send', async () => {
+    const sendInitialMessage = vi.fn().mockResolvedValue(true);
+    sessionStorage.setItem(
+      'acp_initial_message_conversation-1',
+      JSON.stringify({
+        input: 'Erstelle ein Video: Aubergine.',
+        videoSelection: { modelId: '', durationSeconds: 'acht' },
+      })
+    );
+
+    renderHook(() =>
+      useAcpInitialMessage({
+        conversation_id: 'conversation-1',
+        sendInitialMessage,
+        resetState: vi.fn(),
+        addOrUpdateMessage: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(sendInitialMessage).toHaveBeenCalledWith('Erstelle ein Video: Aubergine.', [], undefined);
   });
 });
