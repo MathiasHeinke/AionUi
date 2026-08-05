@@ -2701,6 +2701,60 @@ describe('AcpSendBox', () => {
     expect(modalConfirmMock).not.toHaveBeenCalled();
   });
 
+  it('LIVE REGRESSION (packaged 1.820.5): the pill still renders when the capabilities bridge rejects', async () => {
+    // QA 2026-08-05: on the packaged build against the OLD deployed server
+    // (v27, no /video-model-capabilities endpoint) the pill never appeared.
+    // The capabilities answer must be irrelevant to the VISIBILITY gate: the
+    // bundled snapshot stands in, and the pill renders on a create intent.
+    videoCapabilitiesInvokeMock.mockRejectedValue(new Error('ipc bridge unavailable'));
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: [],
+      content: 'Erstelle ein Video: eine lila Aubergine dreht sich langsam.',
+    };
+    sendBoxMessageMock.current = 'Erstelle ein Video: eine lila Aubergine dreht sich langsam.';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
+    expect(screen.getByTestId('video-model-dropdown-trigger')).toBeTruthy();
+  });
+
+  it('LIVE REGRESSION (packaged 1.820.5): the pill renders when the capabilities answer carries no catalog', async () => {
+    // The old-server shape: Main proves the seat flags but no catalog fields —
+    // the pill must fall back to the bundled snapshot and still render.
+    videoCapabilitiesInvokeMock.mockResolvedValue({
+      success: true,
+      data: { hd15Available: true, presetVoicesAvailable: false },
+    });
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: [],
+      content: 'Erstelle ein Video: eine lila Aubergine dreht sich langsam.',
+    };
+    sendBoxMessageMock.current = 'Erstelle ein Video: eine lila Aubergine dreht sich langsam.';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
+    expect(screen.getByTestId('video-model-dropdown-trigger')).toBeTruthy();
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-model', 'grok-imagine-video-1.5');
+  });
+
   it('MAT-1753: several attached images become ONE reference request, with no second picker', async () => {
     videoCapabilitiesInvokeMock.mockResolvedValue({
       success: true,
