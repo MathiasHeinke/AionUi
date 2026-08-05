@@ -38,7 +38,9 @@ import { useTranslation } from 'react-i18next';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
 import { openAccountWeb } from '@renderer/utils/platform';
 import { commandEve } from '@/common/adapter/ipcBridge';
-import { isDeadSessionFailure } from '@process/commandEve/seatWireFetchCore';
+// From the SHARED renderer-safe home — never from the main-process fetch module
+// (a runtime import of `@process/...` black-screened the packaged app on boot).
+import { isDeadSessionFailure } from '@/common/config/seatWireFailureCore';
 import '@renderer/styles/seatRail.css';
 
 // A fixed palette. The seat's color is deterministic from its id (FNV-1a hash) so the

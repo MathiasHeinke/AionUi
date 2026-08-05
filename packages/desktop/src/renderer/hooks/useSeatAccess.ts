@@ -39,7 +39,7 @@ import {
   type MySeatsContract,
   type SeatAccess,
 } from '@process/commandEve/seatSwitchCore';
-import { type MySeatsWireFailure } from '@process/commandEve/seatWireFetchCore';
+import { type MySeatsWireFailure } from '@/common/config/seatWireFailureCore';
 
 /**
  * Where the last my-seats resolution came from (MAT-1773 diagnostics):

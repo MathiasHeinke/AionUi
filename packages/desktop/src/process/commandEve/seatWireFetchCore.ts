@@ -43,6 +43,14 @@
 import { COMMAND_EVE_SUPABASE_URL, resolveSupabaseAnonKey, type CommandEveAccountSession } from './desktopAuthLoopback';
 import { getFreshSession } from './accountSessionAtRest';
 import { getActiveSeatId } from './seatContextCore';
+import { isDeadSessionFailure, type MySeatsWireFailure } from '@/common/config/seatWireFailureCore';
+
+// The failure taxonomy + the dead-session classifier live in the SHARED,
+// renderer-safe `common/config/seatWireFailureCore` (the renderer's SeatRail
+// names them too — a runtime import from THIS main-process module pulled the
+// Node-only chain into the packaged renderer bundle and black-screened the
+// app on boot). Re-export so existing main-side imports keep working.
+export { isDeadSessionFailure, type MySeatsWireFailure } from '@/common/config/seatWireFailureCore';
 
 /** The deployed my-seats edge function (mirrors the my-license URL shape). */
 export const MY_SEATS_FUNCTION_URL = `${COMMAND_EVE_SUPABASE_URL}/functions/v1/my-seats`;
@@ -71,40 +79,6 @@ export interface ReadMySeatsWireDeps {
    * network/http/malformed (transient or server-side).
    */
   onFailure?: (failure: MySeatsWireFailure) => void;
-}
-
-/** WHY a my-seats wire read failed. Surfaced, never thrown. */
-export type MySeatsWireFailure =
-  /** No usable account session: reason_code is the resolver's (NO_SESSION, REFRESH_HTTP_400, …). */
-  | { kind: 'session'; reasonCode?: string }
-  /** Offline / DNS / abort (header or body phase). Transient. */
-  | { kind: 'network' }
-  /** The function answered non-2xx (401 unauthenticated, 5xx, absent). */
-  | { kind: 'http'; status: number }
-  /** A 2xx whose body was unusable (non-JSON, non-object, ok:false). */
-  | { kind: 'malformed' };
-
-/**
- * True iff this failure is a DEAD stored session — the install HAD an account
- * session and it can no longer mint an access token (refresh rejected, or the
- * at-rest record no longer decrypts). A fresh sign-in recovers it, so the UI
- * may offer re-authentication. NO_SESSION (never had one) and REFRESH_NETWORK
- * (offline) are deliberately NOT recoverable-by-relogin signals.
- */
-export function isDeadSessionFailure(failure: MySeatsWireFailure | null | undefined): boolean {
-  if (!failure || failure.kind !== 'session') return false;
-  const code = failure.reasonCode ?? '';
-  // ALLOWLIST, not a guess: refresh rejected (dead/rotated token), an unusable
-  // refresh response, a store that no longer decrypts or parse — every one is
-  // fixed by a fresh sign-in, which rewrites the record. NO_SESSION (never had
-  // one), REFRESH_NETWORK (offline) and UNEXPECTED_THROW (unknown cause) are
-  // deliberately NOT read as "re-login will fix this".
-  return (
-    code.startsWith('REFRESH_HTTP_') ||
-    code === 'REFRESH_BAD_SESSION' ||
-    code.startsWith('KEYCHAIN_') ||
-    code.startsWith('SESSION_')
-  );
 }
 
 /**
