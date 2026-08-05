@@ -49,6 +49,12 @@ export interface CommandEveVideoGenerateRequest {
   tierId: VideoQualityTier;
   /** Optional for backwards compatibility; current EVE UI sends the resolved model. */
   modelId?: VideoModelSelection;
+  /**
+   * F8b — the exact catalog resolution for catalog-only models (e.g. `2K`,
+   * `4K`), which the three legacy tiers cannot name. Absent for the legacy
+   * xAI lane (its tier already names the resolution).
+   */
+  resolution?: string;
   durationSeconds: number;
   /**
    * Optional so the pre-existing gateway-communication tests keep exercising the
@@ -90,6 +96,8 @@ export interface VideoGenerationRequest {
   tierId: VideoQualityTier;
   /** The shared plan's model. Absent lets an older caller retain automatic routing. */
   modelId?: VideoModelSelection;
+  /** F8b — the exact catalog resolution for catalog-only models (e.g. `2K`). */
+  resolution?: string;
   durationSeconds: number;
   /**
    * The resolved input mode. One value, four alternatives, no combination — the
@@ -138,6 +146,9 @@ export function buildVideoGenerationBody(request: VideoGenerationRequest): Recor
       prompt: request.prompt,
       tier: request.tierId,
       ...(request.modelId === undefined ? {} : { model: request.modelId }),
+      // Additive and only present for catalog-only models; the server session
+      // owns honouring it, and the legacy parser ignores unknown keys.
+      ...(request.resolution === undefined ? {} : { resolution: request.resolution }),
       duration_seconds: request.durationSeconds,
       mode: mode.kind,
       ...modeFields,
@@ -587,6 +598,8 @@ export function refuseUnproducibleVideoRequest(input: {
   capabilities?: VideoSeatCapabilities;
   /** The server video catalog (MAT-1773 F8) — required to price catalog models. */
   catalog?: readonly VideoCatalogEntry[];
+  /** F8b — the exact catalog resolution for catalog-only models. */
+  resolutionOverride?: string;
 }): { ok: false; reasonCode: 'video-tier-unavailable'; message: string; retryable: false } | null {
   const resolved = resolveVideoPlan({
     modeKind: input.modeKind,
@@ -594,6 +607,7 @@ export function refuseUnproducibleVideoRequest(input: {
     ...(input.modelId === undefined ? {} : { modelId: input.modelId }),
     ...(input.capabilities === undefined ? {} : { capabilities: input.capabilities }),
     ...(input.catalog === undefined ? {} : { catalog: input.catalog }),
+    ...(input.resolutionOverride === undefined ? {} : { resolutionOverride: input.resolutionOverride }),
   });
   // `=== true`, not truthiness: this project compiles without strictNullChecks,
   // and a boolean-literal discriminant only narrows under an explicit comparison.

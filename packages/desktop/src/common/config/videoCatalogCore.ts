@@ -5,54 +5,65 @@
  */
 
 /**
- * Command EVE VIDEO model catalog — pure catalog core (MAT-1773, F8).
+ * Command EVE VIDEO model catalog — pure catalog core (MAT-1773, F8/F8b).
  *
- * The video model picker is fed by the OpenRouter video catalog, which the
- * server exposes through the capabilities endpoint. This module owns:
+ * The video model picker is fed by the OpenRouter video catalog the server
+ * serves at `GET {eve-multimodal}/video-model-capabilities` (protocol
+ * `command-eve-video-model-catalog/v1`). This module owns:
  *
- *   - the WIRE contract ({@link parseVideoCatalogWire}) — defensive, because the
- *     endpoint answer is server truth and a malformed body must degrade, never
- *     crash the composer;
- *   - the BUNDLED SNAPSHOT ({@link VIDEO_CATALOG_SNAPSHOT}) — the offline
- *     fallback the picker falls back to when the capabilities call fails. Its
- *     prices are marked approximate wherever they surface: a fallback must
- *     never read as live truth;
- *   - the CURATED TOP-5 ({@link resolveVideoCatalogTopFive}) — a fixed, ordered
- *     shortlist (Grok Imagine Video 1.5 first — it stays the default), matched
- *     against catalog entries by id with a display-name fallback, so vendor
- *     prefix drift on the server cannot silently empty the shortlist;
- *   - the PRICE MATH ({@link estimateVideoCatalogCredits}) — model price/s x
- *     seconds x resolution, through the same credits derivation
- *     ({@link deriveVideoCreditsPerSecond}) the legacy xAI table uses, so one
- *     credit means the same thing on both paths.
+ *   - the WIRE contract ({@link parseVideoCatalogWire}) — the REAL response
+ *     shape, parsed defensively: `models[]` with `display_name`, `resolutions`
+ *     /`durations`/`aspect_ratios` (each nullable) and the per-resolution
+ *     `usd_per_second` / `credits_per_second` maps (key `"default"` for
+ *     resolution-flat models like runway/aleph-2);
+ *   - the BUNDLED SNAPSHOT ({@link VIDEO_CATALOG_SNAPSHOT}) — a dated mirror
+ *     of the server's own pinned 2026-08-05 catalog view (18 priceable
+ *     models; the three token-priced Seedance models are unpriceable upstream
+ *     and therefore unofferable here too). Used only when the capabilities
+ *     read fails, and always marked approximate;
+ *   - the CURATED TOP-5 ({@link resolveVideoCatalogTopFive}) — a fixed,
+ *     ordered shortlist (Grok Imagine Video 1.5 first — it stays the
+ *     default). A curated model the served catalog does not carry is SKIPPED
+ *     (today: Seedance 2.0, token-priced upstream) rather than listed with an
+ *     invented price;
+ *   - the SELECTION resolver ({@link resolveVideoCatalogSelection}) — filters
+ *     resolution/duration to what the SELECTED model supports and auto-picks
+ *     the NEAREST supported value when the current one is not, so an invalid
+ *     combination is unreachable in the UI instead of erroring late;
+ *   - the PRICE MATH ({@link estimateVideoCatalogCredits}) — the exact
+ *     model x resolution x duration combination, preferring the SERVER's own
+ *     `credits_per_second` (ceil-rounded like the reserve bound) and falling
+ *     back to the same ceil derivation, so the dropdown can never quote less
+ *     than the server would charge.
  *
  * PURE (no Electron, no fs, no network), mirroring `videoCostCore.ts`.
  */
 
-import { deriveVideoCreditsPerSecond, type VideoResolution } from './videoCostCore';
+import { baseVideoCatalogPrice } from './videoCostCore';
 
 /**
- * Map a catalog id back to a legacy xAI model id when it names one of the two
- * established models. Re-exported from its canonical home in `videoCostCore`
- * so catalog consumers import one module, not two.
+ * One catalog entry, mirroring the server's
+ * `command-eve-video-model-catalog/v1` model view.
  */
-export { legacyVideoModelIdForCatalogId } from './videoCostCore';
-
-/** One catalog entry: a video model the seat can pick, with its list price. */
 export interface VideoCatalogEntry {
   /** Provider-qualified id, e.g. `x-ai/grok-imagine-video-1.5`. */
   id: string;
-  /** Human display name, e.g. `Grok Imagine Video 1.5`. */
+  /** Display name as served (often vendor-prefixed, `Google: Veo 3.1`). */
   displayName: string;
-  /** Base list price per generated second, USD. */
-  pricePerSecondUsd: number;
-  /** Per-resolution overrides when the provider documents them. */
-  pricesByResolution?: Readonly<Partial<Record<VideoResolution, number>>>;
-  /** Resolutions the model can produce, when documented. */
-  resolutions?: readonly VideoResolution[];
-  /** Duration bounds in seconds, when documented. */
-  minDurationSeconds?: number;
-  maxDurationSeconds?: number;
+  /** Supported resolutions; `null` = resolution-flat (e.g. runway/aleph-2). */
+  resolutions: readonly string[] | null;
+  /** Supported clip durations in seconds; `null` = no published list. */
+  durations: readonly number[] | null;
+  /** Supported aspect ratios, when published. */
+  aspectRatios?: readonly string[] | null;
+  /** USD list price per generated second, keyed by resolution (`"default"` when flat). */
+  usdPerSecond: Readonly<Record<string, number>>;
+  /**
+   * The SERVER's own retail credits per second per resolution (ceil-rounded
+   * like the reserve bound). Preferred over any client-side derivation — the
+   * dropdown then quotes exactly what the server would charge.
+   */
+  creditsPerSecond?: Readonly<Record<string, number>>;
 }
 
 /** Where the entries the picker shows came from. */
@@ -69,15 +80,32 @@ export interface VideoCatalogResolution {
 // Wire parsing (defensive — the endpoint answer is not trusted)
 // ---------------------------------------------------------------------------
 
-const VIDEO_RESOLUTIONS: readonly VideoResolution[] = ['480p', '720p', '1080p'];
-
 const asFinitePositiveNumber = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 
-const asResolution = (value: unknown): VideoResolution | undefined =>
-  typeof value === 'string' && (VIDEO_RESOLUTIONS as readonly string[]).includes(value)
-    ? (value as VideoResolution)
-    : undefined;
+const asStringList = (value: unknown): readonly string[] | null | undefined => {
+  if (value === null) return null;
+  if (!Array.isArray(value)) return undefined;
+  const list = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  return list.length > 0 ? list : null;
+};
+
+const asDurationList = (value: unknown): readonly number[] | null | undefined => {
+  if (value === null) return null;
+  if (!Array.isArray(value)) return undefined;
+  const list = value.filter((item): item is number => typeof item === 'number' && Number.isFinite(item) && item > 0);
+  return list.length > 0 ? list : null;
+};
+
+const asPriceMap = (value: unknown): Readonly<Record<string, number>> | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const map: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const price = asFinitePositiveNumber(raw);
+    if (price !== undefined) map[key] = price;
+  }
+  return Object.keys(map).length > 0 ? map : undefined;
+};
 
 const parseEntry = (value: unknown): VideoCatalogEntry | null => {
   if (!value || typeof value !== 'object') return null;
@@ -85,48 +113,34 @@ const parseEntry = (value: unknown): VideoCatalogEntry | null => {
   const id = typeof record.id === 'string' ? record.id.trim() : '';
   const displayNameRaw = record.display_name ?? record.displayName ?? record.name;
   const displayName = typeof displayNameRaw === 'string' ? displayNameRaw.trim() : '';
-  const price = asFinitePositiveNumber(record.price_per_second_usd) ?? asFinitePositiveNumber(record.pricePerSecondUsd);
-  if (!id || !displayName || price === undefined) return null;
+  const usdPerSecond = asPriceMap(record.usd_per_second ?? record.usdPerSecond);
+  if (!id || !displayName || usdPerSecond === undefined) return null;
 
-  const entry: VideoCatalogEntry = { id, displayName, pricePerSecondUsd: price };
-
-  const pricesRaw = record.prices_by_resolution ?? record.pricesByResolution;
-  if (pricesRaw && typeof pricesRaw === 'object') {
-    const prices: Partial<Record<VideoResolution, number>> = {};
-    for (const resolution of VIDEO_RESOLUTIONS) {
-      const resolutionPrice = asFinitePositiveNumber((pricesRaw as Record<string, unknown>)[resolution]);
-      if (resolutionPrice !== undefined) prices[resolution] = resolutionPrice;
-    }
-    if (Object.keys(prices).length > 0) entry.pricesByResolution = prices;
-  }
-
-  if (Array.isArray(record.resolutions)) {
-    const resolutions = record.resolutions
-      .map(asResolution)
-      .filter((resolution): resolution is VideoResolution => resolution !== undefined);
-    if (resolutions.length > 0) entry.resolutions = resolutions;
-  }
-
-  const minDuration = asFinitePositiveNumber(record.min_duration_seconds ?? record.minDurationSeconds);
-  const maxDuration = asFinitePositiveNumber(record.max_duration_seconds ?? record.maxDurationSeconds);
-  if (minDuration !== undefined) entry.minDurationSeconds = minDuration;
-  if (maxDuration !== undefined) entry.maxDurationSeconds = maxDuration;
-
+  const entry: VideoCatalogEntry = { id, displayName, resolutions: null, durations: null, usdPerSecond };
+  const resolutions = asStringList(record.resolutions);
+  if (resolutions !== undefined) entry.resolutions = resolutions;
+  const durations = asDurationList(record.durations);
+  if (durations !== undefined) entry.durations = durations;
+  const aspectRatios = asStringList(record.aspect_ratios ?? record.aspectRatios);
+  if (aspectRatios !== undefined && aspectRatios !== null) entry.aspectRatios = aspectRatios;
+  const creditsPerSecond = asPriceMap(record.credits_per_second ?? record.creditsPerSecond);
+  if (creditsPerSecond !== undefined) entry.creditsPerSecond = creditsPerSecond;
   return entry;
 };
 
 /**
- * Parse the capabilities endpoint's `video_catalog` payload. Accepts either the
- * bare array or a wrapper (`{ video_catalog: [...] }` / `{ models: [...] }`).
- * Returns `null` when nothing usable is present — the caller then falls back
- * to the bundled snapshot. Entries that fail individually are dropped, not
- * fatal: one bad row must not hide twenty good ones.
+ * Parse the `video-model-capabilities` response. Accepts the served envelope
+ * (`{ version, models: [...] }`) or a bare model array. Returns `null` when
+ * nothing usable is present — the caller then falls back to the bundled
+ * snapshot. Individually-bad rows are dropped, not fatal; `enabled: false`
+ * still yields the catalog (the price list is not a secret — the server
+ * serves it disabled too).
  */
 export function parseVideoCatalogWire(payload: unknown): VideoCatalogEntry[] | null {
   let list: unknown = payload;
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const record = payload as Record<string, unknown>;
-    list = record.video_catalog ?? record.videoCatalog ?? record.models;
+    list = record.models ?? record.video_catalog ?? record.videoCatalog;
   }
   if (!Array.isArray(list)) return null;
   const entries = list.map(parseEntry).filter((entry): entry is VideoCatalogEntry => entry !== null);
@@ -134,46 +148,163 @@ export function parseVideoCatalogWire(payload: unknown): VideoCatalogEntry[] | n
 }
 
 // ---------------------------------------------------------------------------
-// The bundled fallback snapshot (21 models, prices APPROXIMATE)
+// The bundled fallback snapshot — a dated mirror of the server's own view
 // ---------------------------------------------------------------------------
 
 /**
- * Static snapshot of the OpenRouter video catalog (21 models), shipped with the
- * app so the picker still works when the capabilities call fails. Prices are
- * list-price estimates and MUST be presented as approximate (`ca.`) wherever
- * they surface — the live catalog replaces them the moment the endpoint
- * answers. Ordering anchor per founder decision 2026-08-05: the cheapest entry
- * is MiniMax Hailuo 3 at ~$0.13/s.
+ * Static mirror of the server's pinned 2026-08-05 catalog view
+ * (`catalog_snapshot: "2026-08-05"`, 18 priceable models — the three
+ * token-priced Seedance models are unpriceable upstream and deliberately
+ * absent: an invented per-second price is not a fallback, it is a lie).
+ * Prices and bounds are the server's OWN resolved figures, so the fallback
+ * quotes what the server would charge; it is still presented as approximate
+ * because it can go stale between releases.
  */
 export const VIDEO_CATALOG_SNAPSHOT: readonly VideoCatalogEntry[] = [
-  { id: 'minimax/hailuo-3', displayName: 'MiniMax Hailuo 3', pricePerSecondUsd: 0.13 },
-  { id: 'minimax/hailuo-2.3', displayName: 'MiniMax Hailuo 2.3', pricePerSecondUsd: 0.14 },
-  { id: 'happyhorse/happyhorse-1.0', displayName: 'HappyHorse 1.0', pricePerSecondUsd: 0.15 },
-  { id: 'happyhorse/happyhorse-1.1', displayName: 'HappyHorse 1.1', pricePerSecondUsd: 0.16 },
-  { id: 'alibaba/wan-2.6', displayName: 'Wan 2.6', pricePerSecondUsd: 0.18 },
-  { id: 'alibaba/wan-2.7', displayName: 'Wan 2.7', pricePerSecondUsd: 0.2 },
-  { id: 'kling/kling-video-o1', displayName: 'Kling Video O1', pricePerSecondUsd: 0.22 },
-  { id: 'google/veo-3.1-lite', displayName: 'Google Veo 3.1 Lite', pricePerSecondUsd: 0.24 },
-  { id: 'kling/kling-v3.0-std', displayName: 'Kling v3.0 Std', pricePerSecondUsd: 0.25 },
-  { id: 'bytedance/seedance-1-5-pro', displayName: 'Seedance 1.5 Pro', pricePerSecondUsd: 0.28 },
-  { id: 'x-ai/grok-imagine-video', displayName: 'Grok Imagine Video', pricePerSecondUsd: 0.3 },
+  {
+    id: 'black-forest-labs/flux-3-video',
+    displayName: 'Black Forest Labs: FLUX.3 Video',
+    resolutions: ['720p', '1080p'],
+    durations: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+    usdPerSecond: { '720p': 0.17, '1080p': 0.29 },
+    creditsPerSecond: { '720p': 340, '1080p': 580 },
+  },
+  {
+    id: 'minimax/hailuo-3',
+    displayName: 'MiniMax: H3',
+    resolutions: ['2K'],
+    durations: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    usdPerSecond: { '2K': 0.13 },
+    creditsPerSecond: { '2K': 260 },
+  },
+  {
+    id: 'runway/aleph-2',
+    displayName: 'Runway: Aleph 2.0',
+    resolutions: null,
+    durations: null,
+    usdPerSecond: { default: 0.28 },
+    creditsPerSecond: { default: 560 },
+  },
+  {
+    id: 'runway/gen-4.5',
+    displayName: 'Runway: Gen-4.5',
+    resolutions: ['720p'],
+    durations: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+    usdPerSecond: { '720p': 0.12 },
+    creditsPerSecond: { '720p': 240 },
+  },
   {
     id: 'x-ai/grok-imagine-video-1.5',
-    displayName: 'Grok Imagine Video 1.5',
-    pricePerSecondUsd: 0.32,
-    pricesByResolution: { '480p': 0.08, '720p': 0.14, '1080p': 0.25 },
+    displayName: 'SpaceXAI: Grok Imagine Video 1.5',
     resolutions: ['480p', '720p', '1080p'],
-    maxDurationSeconds: 15,
+    durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    usdPerSecond: { '480p': 0.08, '720p': 0.14, '1080p': 0.25 },
+    creditsPerSecond: { '480p': 160, '720p': 280, '1080p': 500 },
   },
-  { id: 'bytedance/seedance-2.0-fast', displayName: 'Seedance 2.0 Fast', pricePerSecondUsd: 0.33 },
-  { id: 'runway/gen-4.5', displayName: 'Runway Gen-4.5', pricePerSecondUsd: 0.35 },
-  { id: 'bytedance/seedance-2.0', displayName: 'Seedance 2.0', pricePerSecondUsd: 0.38 },
-  { id: 'google/veo-3.1-fast', displayName: 'Google Veo 3.1 Fast', pricePerSecondUsd: 0.4 },
-  { id: 'runway/aleph-2', displayName: 'Runway Aleph 2', pricePerSecondUsd: 0.42 },
-  { id: 'kling/kling-v3.0-pro', displayName: 'Kling v3.0 Pro', pricePerSecondUsd: 0.45 },
-  { id: 'black-forest-labs/flux-3-video', displayName: 'FLUX.3 Video', pricePerSecondUsd: 0.48 },
-  { id: 'google/veo-3.1', displayName: 'Google Veo 3.1', pricePerSecondUsd: 0.5 },
-  { id: 'openai/sora-2-pro', displayName: 'OpenAI Sora 2 Pro', pricePerSecondUsd: 0.6 },
+  {
+    id: 'alibaba/happyhorse-1.1',
+    displayName: 'Alibaba: HappyHorse 1.1',
+    resolutions: ['720p', '1080p'],
+    durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    usdPerSecond: { '720p': 0.0988, '1080p': 0.1278 },
+    creditsPerSecond: { '720p': 200, '1080p': 260 },
+  },
+  {
+    id: 'alibaba/happyhorse-1.0',
+    displayName: 'Alibaba: HappyHorse 1.0',
+    resolutions: ['720p', '1080p'],
+    durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    usdPerSecond: { '720p': 0.0988, '1080p': 0.1694 },
+    creditsPerSecond: { '720p': 200, '1080p': 340 },
+  },
+  {
+    id: 'x-ai/grok-imagine-video',
+    displayName: 'SpaceXAI: Grok Imagine Video',
+    resolutions: ['480p', '720p'],
+    durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    usdPerSecond: { '480p': 0.05, '720p': 0.07 },
+    creditsPerSecond: { '480p': 100, '720p': 140 },
+  },
+  {
+    id: 'kwaivgi/kling-v3.0-pro',
+    displayName: 'Kling: Video v3.0 Pro',
+    resolutions: ['720p'],
+    durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    usdPerSecond: { '720p': 0.112 },
+    creditsPerSecond: { '720p': 240 },
+  },
+  {
+    id: 'kwaivgi/kling-v3.0-std',
+    displayName: 'Kling: Video v3.0 Standard',
+    resolutions: ['720p'],
+    durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    usdPerSecond: { '720p': 0.084 },
+    creditsPerSecond: { '720p': 180 },
+  },
+  {
+    id: 'google/veo-3.1-fast',
+    displayName: 'Google: Veo 3.1 Fast',
+    resolutions: ['720p', '1080p', '4K'],
+    durations: [4, 6, 8],
+    usdPerSecond: { '720p': 0.1, '1080p': 0.12, '4K': 0.3 },
+    creditsPerSecond: { '720p': 200, '1080p': 240, '4K': 600 },
+  },
+  {
+    id: 'google/veo-3.1-lite',
+    displayName: 'Google: Veo 3.1 Lite',
+    resolutions: ['720p', '1080p'],
+    durations: [8, 4, 6],
+    usdPerSecond: { '720p': 0.05, '1080p': 0.08 },
+    creditsPerSecond: { '720p': 100, '1080p': 160 },
+  },
+  {
+    id: 'kwaivgi/kling-video-o1',
+    displayName: 'Kling: Video O1',
+    resolutions: ['720p'],
+    durations: [5, 10],
+    usdPerSecond: { '720p': 0.112 },
+    creditsPerSecond: { '720p': 240 },
+  },
+  {
+    id: 'minimax/hailuo-2.3',
+    displayName: 'MiniMax: Hailuo 2.3',
+    resolutions: ['1080p'],
+    durations: [6, 10],
+    usdPerSecond: { '1080p': 0.0817 },
+    creditsPerSecond: { '1080p': 180 },
+  },
+  {
+    id: 'alibaba/wan-2.7',
+    displayName: 'Alibaba: Wan 2.7',
+    resolutions: ['720p', '1080p'],
+    durations: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+    usdPerSecond: { '720p': 0.1, '1080p': 0.1 },
+    creditsPerSecond: { '720p': 200, '1080p': 200 },
+  },
+  {
+    id: 'alibaba/wan-2.6',
+    displayName: 'Alibaba: Wan 2.6',
+    resolutions: ['720p', '1080p'],
+    durations: [5, 10],
+    usdPerSecond: { '720p': 0.08, '1080p': 0.12 },
+    creditsPerSecond: { '720p': 160, '1080p': 240 },
+  },
+  {
+    id: 'openai/sora-2-pro',
+    displayName: 'OpenAI: Sora 2 Pro',
+    resolutions: ['720p', '1080p'],
+    durations: [4, 8, 12, 16, 20],
+    usdPerSecond: { '720p': 0.3, '1080p': 0.5 },
+    creditsPerSecond: { '720p': 600, '1080p': 1000 },
+  },
+  {
+    id: 'google/veo-3.1',
+    displayName: 'Google: Veo 3.1',
+    resolutions: ['720p', '1080p', '4K'],
+    durations: [4, 6, 8],
+    usdPerSecond: { '720p': 0.4, '1080p': 0.4, '4K': 0.6 },
+    creditsPerSecond: { '720p': 800, '1080p': 800, '4K': 1200 },
+  },
 ] as const;
 
 /**
@@ -194,9 +325,11 @@ export function resolveVideoCatalog(live: readonly VideoCatalogEntry[] | null | 
 
 /**
  * The curated shortlist, in EXACTLY this order (founder decision 2026-08-05).
- * Each entry carries the id the catalog is expected to use plus a display-name
- * fallback: a server that qualifies ids differently (or renames the display
- * string) must not silently empty the shortlist.
+ * Each entry carries the id the catalog is expected to use plus the display
+ * name the row should show. A curated model the served catalog does not carry
+ * is SKIPPED, not listed with an invented price — today that is Seedance 2.0,
+ * which is token-priced upstream and lands in the server's `unpriceable`
+ * list, so the shortlist shows four until upstream prices it per second.
  */
 export const VIDEO_CATALOG_TOP5: readonly { id: string; displayName: string }[] = [
   { id: 'x-ai/grok-imagine-video-1.5', displayName: 'Grok Imagine Video 1.5' },
@@ -240,74 +373,160 @@ export function resolveVideoCatalogTopFive(entries: readonly VideoCatalogEntry[]
 
 /**
  * Everything behind 'Weitere anzeigen': the catalog minus the TOP-5, sorted by
- * USD/second ascending (cheapest first). Ties keep the catalog order.
+ * USD/second ascending (cheapest first — the base rate, i.e. the cheapest
+ * resolution key). Ties keep the catalog order.
  */
 export function listVideoCatalogBeyondTopFive(entries: readonly VideoCatalogEntry[]): VideoCatalogEntry[] {
   const top = resolveVideoCatalogTopFive(entries);
   return entries
     .filter((entry) => !top.includes(entry))
-    .slice()
-    .toSorted((a, b) => a.pricePerSecondUsd - b.pricePerSecondUsd);
+    .toSorted((a, b) => baseVideoCatalogPrice(a) - baseVideoCatalogPrice(b));
+}
+
+/**
+ * The name a row shows: the curated display name for TOP-5 entries (the
+ * founder's spelling, e.g. `FLUX.3 Video`), otherwise the served name with
+ * the vendor prefix de-colonised (`MiniMax: H3` -> `MiniMax H3`).
+ */
+export function displayVideoCatalogName(entry: VideoCatalogEntry): string {
+  const curated = VIDEO_CATALOG_TOP5.find((candidate) => entryMatchesCurated(entry, candidate));
+  if (curated) return curated.displayName;
+  return entry.displayName.replace(/:\s+/, ' ');
 }
 
 // ---------------------------------------------------------------------------
-// Price math — model x seconds x resolution, through the shared derivation
+// Selection resolver — invalid combinations become UNSELECTABLE
 // ---------------------------------------------------------------------------
+
+/** Numeric rank for "nearest resolution" — 480p < 720p < 1080p < 2K < 4K. */
+const resolutionRank = (resolution: string): number => {
+  const match = /^(\d+(?:\.\d+)?)\s*([kK]?)[pP]?$/.exec(resolution.trim());
+  if (!match) return Number.MAX_SAFE_INTEGER / 2;
+  const value = Number(match[1]);
+  return match[2] ? value * 1000 : value;
+};
+
+const nearestByRank = <T>(candidates: readonly T[], rank: (candidate: T) => number, target: number): T => {
+  let best = candidates[0];
+  for (const candidate of candidates) {
+    const distance = Math.abs(rank(candidate) - target);
+    const bestDistance = Math.abs(rank(best) - target);
+    // Strictly closer wins; an exact tie keeps the LOWER candidate (the
+    // cheaper direction is the honest default for an automatic pick).
+    if (distance < bestDistance || (distance === bestDistance && rank(candidate) < rank(best))) {
+      best = candidate;
+    }
+  }
+  return best;
+};
+
+export interface VideoCatalogSelection {
+  /** The effective resolution — `null` for a resolution-flat model. */
+  resolution: string | null;
+  /** The effective duration in seconds — `null` when the model publishes no list. */
+  durationSeconds: number | null;
+  /** True when the requested resolution was unsupported and auto-picked. */
+  resolutionAdjusted: boolean;
+  /** True when the requested duration was unsupported and auto-picked. */
+  durationAdjusted: boolean;
+}
+
+/**
+ * Filter a (resolution, duration) request to what the SELECTED model actually
+ * supports. An unsupported value is replaced by the NEAREST supported one
+ * (tie-break: the lower/cheaper value) and the adjustment is flagged, so the
+ * UI can show the change instead of failing late. A model with a null list is
+ * unconstrained on that axis.
+ */
+export function resolveVideoCatalogSelection(input: {
+  entry: VideoCatalogEntry;
+  resolution?: string | null;
+  durationSeconds?: number | null;
+}): VideoCatalogSelection {
+  const { entry } = input;
+
+  let resolution: string | null;
+  let resolutionAdjusted = false;
+  if (entry.resolutions === null) {
+    resolution = null;
+  } else if (input.resolution != null && entry.resolutions.includes(input.resolution)) {
+    resolution = input.resolution;
+  } else if (input.resolution != null) {
+    resolution = nearestByRank(entry.resolutions, resolutionRank, resolutionRank(input.resolution));
+    resolutionAdjusted = resolution !== input.resolution;
+  } else {
+    // No request: the ECONOMICAL default is the cheapest supported resolution.
+    resolution = nearestByRank(entry.resolutions, resolutionRank, 0);
+  }
+
+  let durationSeconds: number | null;
+  let durationAdjusted = false;
+  if (entry.durations === null) {
+    durationSeconds = input.durationSeconds ?? null;
+  } else if (input.durationSeconds != null && entry.durations.includes(input.durationSeconds)) {
+    durationSeconds = input.durationSeconds;
+  } else if (input.durationSeconds != null) {
+    durationSeconds = nearestByRank(entry.durations, (candidate) => candidate, input.durationSeconds);
+    durationAdjusted = durationSeconds !== input.durationSeconds;
+  } else {
+    durationSeconds = nearestByRank(entry.durations, (candidate) => candidate, 0);
+  }
+
+  return { resolution, durationSeconds, resolutionAdjusted, durationAdjusted };
+}
+/**
+ * The price helpers' canonical implementations live in `videoCostCore` (the
+ * runtime import graph stays one-directional); re-exported here so catalog
+ * consumers import one module.
+ */
+export {
+  baseVideoCatalogPrice,
+  deriveVideoCatalogCreditsPerSecond,
+  videoCatalogCreditsPerSecond,
+  videoCatalogUsdPerSecond,
+} from './videoCostCore';
+
+import {
+  videoCatalogCreditsPerSecond as creditsPerSecondFor,
+  videoCatalogUsdPerSecond as usdPerSecondFor,
+} from './videoCostCore';
 
 export interface VideoCatalogEstimate {
   /** Estimated credits for the clip (rounded UP — never understate). */
   credits: number;
-  /** The USD/s rate the estimate used (after resolution lookup). */
+  /** The USD/s rate the estimate used. */
   usdPerSecond: number;
-  /**
-   * True when no exact rate exists for the requested resolution and the base
-   * price stood in — the number is then indicative, not the provider's quote
-   * for that resolution.
-   */
-  approximateRate: boolean;
+  /** The credits/s rate the estimate used (server figure when carried). */
+  creditsPerSecond: number;
 }
 
 /**
- * Estimate credits for one catalog entry at a resolution and duration.
- *
- * Rate lookup order: an exact per-resolution price, else the entry's base
- * price (flagged approximate — quoting the 720p number for a 1080p render as
- * fact is the dishonesty this lane keeps having to unship). Returns
- * `undefined` when the entry documents resolutions and the requested one is
- * not among them: a price for a render the model cannot produce is a promise
- * the picker must not make.
+ * Estimate credits for the EXACT (model, resolution, duration) combination.
+ * Resolution `null` is the resolution-flat case (runway/aleph-2). Returns
+ * `undefined` only when the entry has no price at all — entries are
+ * price-checked at parse time, so this is a guard, not an expectation.
  */
 export function estimateVideoCatalogCredits(input: {
   entry: VideoCatalogEntry;
-  resolution: VideoResolution;
+  resolution: string | null;
   durationSeconds: number;
 }): VideoCatalogEstimate | undefined {
-  const { entry, resolution } = input;
-  if (entry.resolutions && !entry.resolutions.includes(resolution)) return undefined;
-
-  const exact = entry.pricesByResolution?.[resolution];
-  const usdPerSecond = exact ?? entry.pricePerSecondUsd;
+  const usdPerSecond = usdPerSecondFor(input.entry, input.resolution);
+  if (usdPerSecond === undefined) return undefined;
+  const creditsPerSecond = creditsPerSecondFor(input.entry, input.resolution);
   const seconds =
     typeof input.durationSeconds === 'number' && Number.isFinite(input.durationSeconds) && input.durationSeconds > 0
       ? Math.ceil(input.durationSeconds)
       : 1;
   return {
-    credits: Math.ceil(seconds * deriveVideoCreditsPerSecond(usdPerSecond)),
+    credits: Math.ceil(seconds * creditsPerSecond),
     usdPerSecond,
-    approximateRate: exact === undefined,
+    creditsPerSecond,
   };
 }
 
-/**
- * Map a catalog id back to a legacy xAI {@link VideoModelId}-shaped slug when
- * it names one of the two established models (`x-ai/grok-imagine-video-1.5` →
- * `grok-imagine-video-1.5`). The legacy models keep their proven price table
- * and capability gates; only genuinely NEW models price from the catalog.
- *
- * (Canonical implementation lives in `videoCostCore` and is re-exported above.)
- */
-
-/** Format a USD/s list price for the picker, German locale (`0,13 $/s`). */
+/** Format a USD/s list price, German decimal comma, sub-cent precision kept. */
 export function formatVideoCatalogPrice(usdPerSecond: number): string {
-  return `${usdPerSecond.toFixed(2).replace('.', ',')} $/s`;
+  const rendered = usdPerSecond.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  return `${rendered.replace('.', ',')} $/s`;
 }

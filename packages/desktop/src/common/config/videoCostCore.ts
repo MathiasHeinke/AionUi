@@ -114,6 +114,50 @@ export function legacyVideoModelIdForCatalogId(catalogId: string): VideoModelId 
   return isLegacyVideoModelId(slug) ? slug : null;
 }
 
+// ---------------------------------------------------------------------------
+// Catalog price helpers (MAT-1773 F8/F8b) — canonical home here so the runtime
+// import graph stays one-directional (videoCatalogCore -> videoCostCore).
+// ---------------------------------------------------------------------------
+
+/**
+ * Retail credits per second with the server's OWN rounding: Math.ceil on the
+ * 1/100-cent figure (sub-cent list prices exist — 0.0988/s — and rounding
+ * DOWN would understate the reserve). Mirrors
+ * `deriveOpenRouterVideoCreditsPerSecond` on the server.
+ */
+export function deriveVideoCatalogCreditsPerSecond(usdPerSecond: number): number {
+  const rawCents = Math.ceil(Math.round(usdPerSecond * 10000) / 100);
+  return rawCents * VIDEO_MARKUP_FACTOR * VIDEO_CREDITS_PER_EUR_CENT;
+}
+
+const videoCatalogPriceKeyFor = (entry: VideoCatalogEntry, resolution: string | null): string => {
+  if (resolution !== null && entry.usdPerSecond[resolution] !== undefined) return resolution;
+  if (entry.usdPerSecond.default !== undefined) return 'default';
+  return Object.keys(entry.usdPerSecond)[0];
+};
+
+/** USD list price per second for a resolution (`null` = resolution-flat). */
+export function videoCatalogUsdPerSecond(entry: VideoCatalogEntry, resolution: string | null): number {
+  return entry.usdPerSecond[videoCatalogPriceKeyFor(entry, resolution)];
+}
+
+/**
+ * Credits per second for a resolution — the SERVER's own figure when the
+ * entry carries one, else the ceil derivation of the USD price. Never a
+ * round-down.
+ */
+export function videoCatalogCreditsPerSecond(entry: VideoCatalogEntry, resolution: string | null): number {
+  const key = videoCatalogPriceKeyFor(entry, resolution);
+  const serverCredits = entry.creditsPerSecond?.[key];
+  if (serverCredits !== undefined) return serverCredits;
+  return deriveVideoCatalogCreditsPerSecond(entry.usdPerSecond[key]);
+}
+
+/** The entry's cheapest per-second USD rate (the expansion list's sort key). */
+export function baseVideoCatalogPrice(entry: VideoCatalogEntry): number {
+  return Math.min(...Object.values(entry.usdPerSecond));
+}
+
 /**
  * The four ways a clip can be produced. They are ALTERNATIVES, not flags: see
  * {@link VideoRequestMode} for the union that makes any two of them impossible to
@@ -381,7 +425,12 @@ export type VideoPlanRefusal =
 export interface VideoPlan {
   modeKind: VideoModeKind;
   tierId: VideoQualityTier;
-  resolution: VideoResolution;
+  /**
+   * The effective resolution: a legacy tier resolution for the xAI models, or
+   * the exact catalog resolution string (e.g. `2K`, `4K`) for catalog-only
+   * models (MAT-1773 F8b widened this from the three-value union).
+   */
+  resolution: string;
   /**
    * The model the render will use: a legacy xAI id, or a server-catalog id for
    * the newer catalog models (MAT-1773 F8). A catalog id that names a legacy
@@ -439,6 +488,12 @@ export function resolveVideoPlan(input: {
    * the fail-closed reading of "no proven price".
    */
   catalog?: readonly VideoCatalogEntry[];
+  /**
+   * F8b — the exact catalog resolution the user picked (e.g. `2K`, `4K`), for
+   * catalog-only models whose resolution set the three legacy tiers cannot
+   * name. Ignored for legacy models (their tiers ARE the resolutions).
+   */
+  resolutionOverride?: string;
 }): VideoPlanResult {
   const requestedTier = getVideoTier(input.tierId);
   const hd15 = input.capabilities?.hd15Available === true;
@@ -472,6 +527,10 @@ export function resolveVideoPlan(input: {
   if (model === 'grok-imagine-video-1.5' && !hd15) return { ok: false, reason: 'video-tier-unavailable' };
 
   let usdPerSecond: number | undefined;
+  let catalogCreditsPerSecond: number | undefined;
+  let planResolution: string = tier.resolution;
+  let catalogMaxDurationSeconds: number | undefined;
+  let catalogMinDurationSeconds: number | undefined;
   if (isLegacyVideoModelId(model)) {
     usdPerSecond = VIDEO_MODEL_USD_PER_SECOND[model][tier.resolution];
   } else {
@@ -480,10 +539,20 @@ export function resolveVideoPlan(input: {
     // price for a render the model cannot produce is a promise, not an offer.
     const entry = input.catalog?.find((candidate) => candidate.id === model);
     if (!entry) return { ok: false, reason: 'video-model-unavailable' };
-    if (entry.resolutions && !entry.resolutions.includes(tier.resolution)) {
+    const requestedResolution = input.resolutionOverride ?? tier.resolution;
+    if (entry.resolutions !== null && !entry.resolutions.includes(requestedResolution)) {
       return { ok: false, reason: 'video-tier-unavailable' };
     }
-    usdPerSecond = entry.pricesByResolution?.[tier.resolution] ?? entry.pricePerSecondUsd;
+    if (entry.resolutions !== null) planResolution = requestedResolution;
+    const priceResolution = entry.resolutions === null ? null : requestedResolution;
+    usdPerSecond = videoCatalogUsdPerSecond(entry, priceResolution);
+    // The SERVER's own credits/s when the entry carries them — the dropdown
+    // and the reserve bound then read the same figure, never two roundings.
+    catalogCreditsPerSecond = videoCatalogCreditsPerSecond(entry, priceResolution);
+    if (entry.durations !== null) {
+      catalogMaxDurationSeconds = Math.max(...entry.durations);
+      catalogMinDurationSeconds = Math.min(...entry.durations);
+    }
   }
   // Unreachable for every pair the routing above can produce, and checked anyway:
   // a missing rate must never become a free render.
@@ -491,21 +560,25 @@ export function resolveVideoPlan(input: {
     return { ok: false, reason: input.modelId === undefined ? 'video-tier-unavailable' : 'video-model-unavailable' };
   }
 
-  const maxDurationSeconds = input.modeKind === 'reference' ? MAX_REFERENCE_VIDEO_SECONDS : MAX_VIDEO_DURATION_SECONDS;
+  const maxDurationSeconds =
+    catalogMaxDurationSeconds ??
+    (input.modeKind === 'reference' ? MAX_REFERENCE_VIDEO_SECONDS : MAX_VIDEO_DURATION_SECONDS);
   const rawDuration = input.durationSeconds;
   const requested =
     typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0
       ? Math.ceil(rawDuration)
       : DEFAULT_VIDEO_DURATION_SECONDS;
-  const durationSeconds = Math.min(requested, maxDurationSeconds);
-  const creditsPerSecond = deriveVideoCreditsPerSecond(usdPerSecond);
+  // The catalog's own window clamps BOTH ends: a model whose shortest clip is
+  // 4s must not be planned at 1s, and 20s-capable models are not cut to 15.
+  const durationSeconds = Math.max(catalogMinDurationSeconds ?? 1, Math.min(requested, maxDurationSeconds));
+  const creditsPerSecond = catalogCreditsPerSecond ?? deriveVideoCreditsPerSecond(usdPerSecond);
 
   return {
     ok: true,
     plan: {
       modeKind: input.modeKind,
       tierId: tier.id,
-      resolution: tier.resolution,
+      resolution: planResolution,
       model,
       usdPerSecond,
       creditsPerSecond,
@@ -577,7 +650,23 @@ export function listAvailableVideoModels(availability: {
   for (const entry of availability.catalog ?? []) {
     // Legacy-named catalog entries are already represented by their legacy id.
     if (legacyVideoModelIdForCatalogId(entry.id) !== null) continue;
-    if (producible(entry.id)) models.push(entry.id);
+    // A catalog-only model is offerable when its OWN resolution set prices at
+    // all for this mode — models like Hailuo 3 (`2K` only) have no tier-named
+    // resolution, so the check must ask the entry's own bounds, not a tier's.
+    const entryResolution =
+      entry.resolutions === null ? undefined : entry.resolutions.includes('720p') ? '720p' : entry.resolutions[0];
+    const offerable = tiersForMode(availability.modeKind).some(
+      (tier) =>
+        resolveVideoPlan({
+          modeKind: availability.modeKind,
+          tierId: tier.id,
+          modelId: entry.id,
+          ...(availability.capabilities === undefined ? {} : { capabilities: availability.capabilities }),
+          ...(availability.catalog === undefined ? {} : { catalog: availability.catalog }),
+          ...(entryResolution === undefined ? {} : { resolutionOverride: entryResolution }),
+        }).ok === true
+    );
+    if (offerable) models.push(entry.id);
   }
   return models;
 }
@@ -638,6 +727,8 @@ export interface VideoCostRequest {
   capabilities?: VideoSeatCapabilities;
   /** The server video catalog (MAT-1773 F8) — needed to price catalog models. */
   catalog?: readonly VideoCatalogEntry[];
+  /** F8b — the exact catalog resolution for catalog-only models (e.g. `2K`). */
+  resolutionOverride?: string;
 }
 
 export interface VideoCostPreview {
@@ -670,6 +761,7 @@ export function estimateVideoCost(request: VideoCostRequest): VideoCostPreview |
     ...(request.durationSeconds === undefined ? {} : { durationSeconds: request.durationSeconds }),
     ...(request.capabilities === undefined ? {} : { capabilities: request.capabilities }),
     ...(request.catalog === undefined ? {} : { catalog: request.catalog }),
+    ...(request.resolutionOverride === undefined ? {} : { resolutionOverride: request.resolutionOverride }),
   });
   if (resolved.ok === false) return undefined;
   const plan = resolved.plan;

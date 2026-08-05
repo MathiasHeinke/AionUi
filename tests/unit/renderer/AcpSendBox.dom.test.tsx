@@ -2630,10 +2630,14 @@ describe('AcpSendBox', () => {
       />
     );
 
-    // The option renders for a TEXT draft with NO attachment at all.
-    await waitFor(() => expect(screen.getByTestId('video-quality-option-hd')).toBeTruthy());
+    // The option renders for a TEXT draft with NO attachment at all — since
+    // F8b as the 1080p entry of the resolution dropdown.
+    await waitFor(() => expect(screen.getByTestId('video-resolution-dropdown-trigger')).toBeTruthy());
     await act(async () => {
-      screen.getByTestId('video-quality-option-hd').click();
+      screen.getByTestId('video-resolution-dropdown-trigger').click();
+    });
+    await act(async () => {
+      screen.getByTestId('video-resolution-option-1080p').click();
     });
 
     await act(async () => {
@@ -2675,6 +2679,9 @@ describe('AcpSendBox', () => {
     await waitFor(() =>
       expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-model', 'grok-imagine-video-1.5')
     );
+    await act(async () => {
+      screen.getByTestId('video-duration-dropdown-trigger').click();
+    });
     await act(async () => {
       screen.getByTestId('video-duration-option-10').click();
     });

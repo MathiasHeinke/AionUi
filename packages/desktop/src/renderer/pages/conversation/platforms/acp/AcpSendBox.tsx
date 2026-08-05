@@ -882,6 +882,10 @@ Please check your local CLI tool authentication status`,
   const [videoTierId, setVideoTierId] = useState<VideoQualityTier>(DEFAULT_VIDEO_TIER_ID);
   const [videoModelId, setVideoModelId] = useState<VideoModelSelection | undefined>(undefined);
   const [videoDurationSeconds, setVideoDurationSeconds] = useState(DEFAULT_VIDEO_DURATION_SECONDS);
+  // F8b — the exact catalog resolution (e.g. `720p`, `2K`). Null follows the
+  // tier; the pill reports auto-picks upward through this state, so the send
+  // carries exactly the combination the pill quoted.
+  const [videoResolution, setVideoResolution] = useState<string | null>(null);
   // MAT-1773 (F8) — the catalog the model dropdown shows. Starts on the bundled
   // snapshot (approximate) and upgrades to the live server catalog the moment
   // the capabilities answer carries one; a failed read simply keeps this.
@@ -897,6 +901,16 @@ Please check your local CLI tool authentication status`,
     if (legacyVideoModelIdForCatalogId(modelId) === 'grok-imagine-video') {
       setVideoTierId((current) => (current === 'hd' ? DEFAULT_VIDEO_TIER_ID : current));
     }
+  }, []);
+  // F8b — a resolution pick from the catalog dropdown. It updates the tier
+  // shadow-state ONLY (the wire still carries a tier for the legacy lane) and
+  // NEVER touches the model: the old hd→1.5 coupling must not hijack a 1080p
+  // pick on FLUX/Veo/Sora into a Grok render.
+  const handleVideoResolutionChange = useCallback((resolution: string) => {
+    setVideoResolution(resolution);
+    const tier =
+      resolution === '480p' ? 'sd' : resolution === '720p' ? 'fast' : resolution === '1080p' ? 'hd' : undefined;
+    if (tier !== undefined) setVideoTierId(tier);
   }, []);
 
   // Show the quality selector only while the DRAFT already routes to the video
@@ -1559,6 +1573,15 @@ Please check your local CLI tool authentication status`,
         })
           ? selectedTier
           : DEFAULT_VIDEO_TIER_ID;
+        // F8b — the exact catalog resolution rides along for catalog-only
+        // models (the three tiers cannot name `2K`/`4K`); for the legacy xAI
+        // lane the tier already names it, so nothing extra is sent.
+        const selectedResolution =
+          draftRoutesToVideo &&
+          producibleModel !== undefined &&
+          legacyVideoModelIdForCatalogId(producibleModel) === null
+            ? (videoResolution ?? undefined)
+            : undefined;
 
         videoCostWall.requestVideo(
           {
@@ -1568,6 +1591,7 @@ Please check your local CLI tool authentication status`,
             modeKind: sendModeKind,
             capabilities: videoCapabilities,
             catalog: videoCatalog.entries,
+            ...(selectedResolution === undefined ? {} : { resolutionOverride: selectedResolution }),
           },
           (resolved) => {
             // The ONLY provider job this send starts. An earlier revision ALSO
@@ -1581,6 +1605,7 @@ Please check your local CLI tool authentication status`,
                 prompt: message,
                 tierId: resolved.tierId,
                 modelId: resolved.plan.model,
+                ...(selectedResolution === undefined ? {} : { resolution: resolved.plan.resolution }),
                 // The PLAN's duration, not the raw default: reference mode is
                 // capped at 15s and the plan already applied that ceiling, so the
                 // length that was priced is the length that is requested.
@@ -2570,6 +2595,8 @@ Please check your local CLI tool authentication status`,
               onChange={handleVideoTierChange}
               modelId={videoModelId}
               onModelChange={handleVideoModelChange}
+              resolution={videoResolution}
+              onResolutionChange={handleVideoResolutionChange}
               durationSeconds={videoDurationSeconds}
               onDurationChange={setVideoDurationSeconds}
               modeKind={videoModeKind}

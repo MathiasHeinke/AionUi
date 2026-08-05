@@ -36,11 +36,7 @@ vi.mock('react-i18next', () => ({
 
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
 import { DEFAULT_VIDEO_TIER_ID, type VideoModelSelection, type VideoQualityTier } from '@/common/config/videoCostCore';
-import {
-  VIDEO_CATALOG_SNAPSHOT,
-  VIDEO_CATALOG_TOP5,
-  type VideoCatalogEntry,
-} from '@/common/config/videoCatalogCore';
+import { VIDEO_CATALOG_SNAPSHOT, type VideoCatalogEntry } from '@/common/config/videoCatalogCore';
 
 /** A seat with grok-imagine-video-1.5 proven available, and nothing else. */
 const HD15 = { hd15Available: true } as const;
@@ -122,14 +118,7 @@ describe('VideoQualityPill', () => {
     expect(screen.getByTestId('video-quality-pill-estimate')).toHaveTextContent('700');
 
     rerender(
-      <VideoQualityPill
-        visible
-        value='hd'
-        onChange={vi.fn()}
-        durationSeconds={5}
-        modeKind='text'
-        capabilities={HD15}
-      />
+      <VideoQualityPill visible value='hd' onChange={vi.fn()} durationSeconds={5} modeKind='text' capabilities={HD15} />
     );
     // 5s x 500 credits/s (1080p on grok-imagine-video-1.5, $0.25/s).
     expect(screen.getByTestId('video-quality-pill-estimate')).toHaveTextContent('2500');
@@ -139,7 +128,14 @@ describe('VideoQualityPill', () => {
   // models — so two prices. A pill that priced by tier would show 700 for both.
   it('prices the MODEL the mode will actually use, not the tier', () => {
     const { rerender } = render(
-      <VideoQualityPill visible value='fast' onChange={vi.fn()} durationSeconds={5} modeKind='text' capabilities={HD15} />
+      <VideoQualityPill
+        visible
+        value='fast'
+        onChange={vi.fn()}
+        durationSeconds={5}
+        modeKind='text'
+        capabilities={HD15}
+      />
     );
     expect(screen.getByTestId('video-quality-pill-estimate')).toHaveTextContent('700');
     expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-model', 'grok-imagine-video');
@@ -298,13 +294,18 @@ describe('VideoQualityPill', () => {
 // MAT-1773 (F8) — the catalog-fed model dropdown
 // ---------------------------------------------------------------------------
 
-/** The five curated models (at their snapshot prices) plus three extras. */
-const F8_CATALOG: VideoCatalogEntry[] = [
-  ...VIDEO_CATALOG_SNAPSHOT.filter((entry) => VIDEO_CATALOG_TOP5.some((curated) => curated.id === entry.id)),
-  { id: 'minimax/hailuo-3', displayName: 'MiniMax Hailuo 3', pricePerSecondUsd: 0.13 },
-  { id: 'alibaba/wan-2.6', displayName: 'Wan 2.6', pricePerSecondUsd: 0.18 },
-  { id: 'kling/kling-v3.0-pro', displayName: 'Kling v3.0 Pro', pricePerSecondUsd: 0.45 },
-];
+/** Four curated models (Seedance is unpriceable upstream) plus three extras. */
+const F8_CATALOG: VideoCatalogEntry[] = VIDEO_CATALOG_SNAPSHOT.filter((entry) =>
+  [
+    'x-ai/grok-imagine-video-1.5',
+    'google/veo-3.1',
+    'openai/sora-2-pro',
+    'black-forest-labs/flux-3-video',
+    'minimax/hailuo-3',
+    'alibaba/wan-2.6',
+    'kwaivgi/kling-v3.0-pro',
+  ].includes(entry.id)
+);
 
 const renderCatalogPill = (
   overrides: Partial<React.ComponentProps<typeof VideoQualityPill>> & {
@@ -321,6 +322,8 @@ const renderCatalogPill = (
     capabilities: HD15,
     catalogEntries: F8_CATALOG,
     onModelChange: vi.fn(),
+    onResolutionChange: vi.fn(),
+    onDurationChange: vi.fn(),
     ...overrides,
   };
   return { ...render(<VideoQualityPill {...props} />), props };
@@ -332,7 +335,7 @@ const openModelDropdown = () => {
 };
 
 describe('VideoQualityPill model dropdown (MAT-1773 F8)', () => {
-  it('renders the curated TOP-5 in order behind a native trigger, plus Weitere anzeigen', () => {
+  it('renders the curated shortlist in order behind a native trigger, plus Weitere anzeigen', () => {
     renderCatalogPill();
 
     // The resting default is Grok Imagine Video 1.5, shown on the trigger.
@@ -340,12 +343,16 @@ describe('VideoQualityPill model dropdown (MAT-1773 F8)', () => {
 
     const list = openModelDropdown();
     const entries = list.querySelectorAll('[role="option"]');
-    expect(entries).toHaveLength(5);
-    expect([...entries].map((el) => el.getAttribute('data-testid'))).toEqual(
-      VIDEO_CATALOG_TOP5.map((curated) => `video-model-entry-${curated.id}`)
-    );
+    // Seedance 2.0 is token-priced upstream: four shown, never an invented price.
+    expect(entries).toHaveLength(4);
+    expect([...entries].map((el) => el.getAttribute('data-testid'))).toEqual([
+      'video-model-entry-x-ai/grok-imagine-video-1.5',
+      'video-model-entry-google/veo-3.1',
+      'video-model-entry-openai/sora-2-pro',
+      'video-model-entry-black-forest-labs/flux-3-video',
+    ]);
 
-    // Everything past the TOP-5 stays hidden behind the final entry.
+    // Everything past the shortlist stays hidden behind the final entry.
     expect(screen.getByTestId('video-model-show-more').textContent).toBe('Weitere anzeigen');
     expect(screen.queryByTestId('video-model-entry-minimax/hailuo-3')).toBeNull();
   });
@@ -361,14 +368,14 @@ describe('VideoQualityPill model dropdown (MAT-1773 F8)', () => {
     expect(entries).toHaveLength(F8_CATALOG.length);
     expect(list.isConnected).toBe(true);
 
-    // The expansion beyond the TOP-5 is price-ascending, MiniMax Hailuo 3 first.
-    const beyondTestIds = [...entries].slice(5).map((el) => el.getAttribute('data-testid'));
+    // The expansion beyond the shortlist is base-price ascending.
+    const beyondTestIds = [...entries].slice(4).map((el) => el.getAttribute('data-testid'));
     expect(beyondTestIds).toEqual([
-      'video-model-entry-minimax/hailuo-3',
       'video-model-entry-alibaba/wan-2.6',
-      'video-model-entry-kling/kling-v3.0-pro',
+      'video-model-entry-kwaivgi/kling-v3.0-pro',
+      'video-model-entry-minimax/hailuo-3',
     ]);
-    expect(entries[5].textContent).toContain('0,13 $/s');
+    expect(entries[4].textContent).toContain('0,08 $/s');
     expect(screen.queryByTestId('video-model-show-more')).toBeNull();
   });
 
@@ -382,9 +389,10 @@ describe('VideoQualityPill model dropdown (MAT-1773 F8)', () => {
 
     openModelDropdown();
     fireEvent.click(screen.getByTestId('video-model-show-more'));
-    // Each row carries name + price/s + the derived estimate for 720p/5s.
+    // Each row carries name + price/s + the derived estimate for its own
+    // nearest supported combination at the current request (H3: 2K/5s).
     const hailuoRow = screen.getByTestId('video-model-entry-minimax/hailuo-3');
-    expect(hailuoRow.textContent).toContain('MiniMax Hailuo 3');
+    expect(hailuoRow.textContent).toContain('MiniMax H3');
     expect(hailuoRow.textContent).toContain('0,13 $/s');
     expect(hailuoRow.textContent).toContain('≈ 1300 Credits');
 
@@ -396,7 +404,8 @@ describe('VideoQualityPill model dropdown (MAT-1773 F8)', () => {
     rerender(<VideoQualityPill {...props} modelId='minimax/hailuo-3' />);
     expect(screen.getByTestId('video-quality-pill-estimate').textContent).toBe('ca. 1300 Credits / 5s');
     expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-model', 'minimax/hailuo-3');
-    expect(screen.getByTestId('video-model-dropdown-trigger').textContent).toContain('MiniMax Hailuo 3');
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-resolution', '2K');
+    expect(screen.getByTestId('video-model-dropdown-trigger').textContent).toContain('MiniMax H3');
   });
 
   it('falls back to the bundled snapshot with prices marked approximate', () => {
@@ -407,9 +416,10 @@ describe('VideoQualityPill model dropdown (MAT-1773 F8)', () => {
 
     fireEvent.click(screen.getByTestId('video-model-show-more'));
     const entries = screen.getByTestId('video-model-dropdown').querySelectorAll('[role="option"]');
-    // The full 21-model snapshot, curated TOP-5 first, Hailuo 3 heading the rest.
-    expect(entries).toHaveLength(21);
-    expect(entries[5].getAttribute('data-testid')).toBe('video-model-entry-minimax/hailuo-3');
+    // The full 18-model snapshot: curated four first, the Grok base model
+    // ($0.05/s) heading the price-ascending rest.
+    expect(entries).toHaveLength(18);
+    expect(entries[4].getAttribute('data-testid')).toBe('video-model-entry-x-ai/grok-imagine-video');
   });
 
   it('keeps the legacy two-model radio when no catalog is provided', () => {
@@ -418,5 +428,117 @@ describe('VideoQualityPill model dropdown (MAT-1773 F8)', () => {
     expect(screen.getByTestId('video-model-option-grok-imagine-video')).toBeTruthy();
     expect(screen.getByTestId('video-model-option-grok-imagine-video-1.5')).toBeTruthy();
     expect(screen.queryByTestId('video-model-dropdown-trigger')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MAT-1773 (F8b) — resolution + duration dropdowns filtered by the model
+// ---------------------------------------------------------------------------
+
+describe('VideoQualityPill resolution/duration dropdowns (MAT-1773 F8b)', () => {
+  it('filters the resolution options to the SELECTED model (Grok: 480p/720p/1080p)', () => {
+    renderCatalogPill();
+
+    fireEvent.click(screen.getByTestId('video-resolution-dropdown-trigger'));
+    const options = screen.getByTestId('video-resolution-dropdown').querySelectorAll('[role="option"]');
+    expect([...options].map((el) => el.getAttribute('data-testid'))).toEqual([
+      'video-resolution-option-480p',
+      'video-resolution-option-720p',
+      'video-resolution-option-1080p',
+    ]);
+  });
+
+  it('filters resolution AND duration to a FLUX.3 pick (720p/1080p, 5..20s)', () => {
+    renderCatalogPill({ modelId: 'black-forest-labs/flux-3-video' });
+
+    fireEvent.click(screen.getByTestId('video-resolution-dropdown-trigger'));
+    const resolutions = screen.getByTestId('video-resolution-dropdown').querySelectorAll('[role="option"]');
+    expect([...resolutions].map((el) => el.getAttribute('data-testid'))).toEqual([
+      'video-resolution-option-720p',
+      'video-resolution-option-1080p',
+    ]);
+    // 480p is UNSELECTABLE — filtered out, not a late error.
+    expect(screen.queryByTestId('video-resolution-option-480p')).toBeNull();
+    fireEvent.click(screen.getByTestId('video-resolution-dropdown-trigger'));
+
+    fireEvent.click(screen.getByTestId('video-duration-dropdown-trigger'));
+    const durations = screen.getByTestId('video-duration-dropdown').querySelectorAll('[role="option"]');
+    expect(durations).toHaveLength(16); // 5..20s
+    expect(durations[0].getAttribute('data-testid')).toBe('video-duration-option-5');
+    expect(durations[15].getAttribute('data-testid')).toBe('video-duration-option-20');
+  });
+
+  it('reports resolution + duration picks and prices the exact combination', () => {
+    const onResolutionChange = vi.fn();
+    const onChange = vi.fn();
+    const onDurationChange = vi.fn();
+    const { rerender, props } = renderCatalogPill({
+      modelId: 'black-forest-labs/flux-3-video',
+      onResolutionChange,
+      onChange,
+      onDurationChange,
+    });
+
+    fireEvent.click(screen.getByTestId('video-resolution-dropdown-trigger'));
+    fireEvent.click(screen.getByTestId('video-resolution-option-1080p'));
+    expect(onResolutionChange).toHaveBeenCalledWith('1080p');
+    expect(onChange).toHaveBeenCalledWith('hd');
+
+    rerender(<VideoQualityPill {...props} resolution='1080p' durationSeconds={20} />);
+    // FLUX 1080p 20s: 580 credits/s -> 11600 — the exact SKU combination.
+    expect(screen.getByTestId('video-quality-pill-estimate').textContent).toBe('ca. 11600 Credits / 20s');
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-resolution', '1080p');
+
+    fireEvent.click(screen.getByTestId('video-duration-dropdown-trigger'));
+    fireEvent.click(screen.getByTestId('video-duration-option-20'));
+    expect(onDurationChange).toHaveBeenCalledWith(20);
+  });
+
+  it('auto-picks the nearest supported resolution/duration on a model switch and shows the change', () => {
+    const onResolutionChange = vi.fn();
+    const onDurationChange = vi.fn();
+    const { rerender, props } = renderCatalogPill({
+      modelId: 'x-ai/grok-imagine-video-1.5',
+      resolution: '480p',
+      durationSeconds: 5,
+      onResolutionChange,
+      onDurationChange,
+    });
+
+    // Switch to FLUX.3: 480p does not exist there — the effect reports the
+    // nearest supported resolution upward (720p), so the change is real state.
+    rerender(
+      <VideoQualityPill
+        {...props}
+        modelId='black-forest-labs/flux-3-video'
+        resolution='480p'
+        durationSeconds={5}
+        onResolutionChange={onResolutionChange}
+        onDurationChange={onDurationChange}
+      />
+    );
+    expect(onResolutionChange).toHaveBeenCalledWith('720p');
+
+    // Switch to Veo (durations 4/6/8): a 5s request auto-picks the nearest
+    // supported duration and reports it.
+    rerender(
+      <VideoQualityPill
+        {...props}
+        modelId='google/veo-3.1'
+        resolution='720p'
+        durationSeconds={5}
+        onResolutionChange={onResolutionChange}
+        onDurationChange={onDurationChange}
+      />
+    );
+    expect(onDurationChange).toHaveBeenCalledWith(4);
+  });
+
+  it('hides the resolution dropdown for a resolution-flat model and prices the default key', () => {
+    renderCatalogPill({ modelId: 'runway/aleph-2', catalogEntries: VIDEO_CATALOG_SNAPSHOT });
+
+    expect(screen.queryByTestId('video-resolution-dropdown-trigger')).toBeNull();
+    // Aleph 2: 560 credits/s -> 5s = 2800, from the resolution-flat default key.
+    expect(screen.getByTestId('video-quality-pill-estimate').textContent).toBe('ca. 2800 Credits / 5s');
   });
 });

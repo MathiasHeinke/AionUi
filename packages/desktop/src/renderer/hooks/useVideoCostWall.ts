@@ -94,6 +94,8 @@ export function useVideoCostWall(): VideoCostWallState {
         capabilities?: VideoSeatCapabilities;
         /** The server video catalog (MAT-1773 F8) — needed to price catalog models. */
         catalog?: readonly VideoCatalogEntry[];
+        /** F8b — the exact catalog resolution for catalog-only models. */
+        resolutionOverride?: string;
       },
       run: VideoRun,
       onCancel?: VideoCancel
@@ -110,6 +112,7 @@ export function useVideoCostWall(): VideoCostWallState {
         ...(request.durationSeconds === undefined ? {} : { durationSeconds: request.durationSeconds }),
         ...(request.capabilities === undefined ? {} : { capabilities: request.capabilities }),
         ...(request.catalog === undefined ? {} : { catalog: request.catalog }),
+        ...(request.resolutionOverride === undefined ? {} : { resolutionOverride: request.resolutionOverride }),
       });
 
       // Fail-closed on anything the gate refuses, and on a request with no

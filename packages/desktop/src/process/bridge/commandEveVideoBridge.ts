@@ -292,6 +292,7 @@ export async function handleCommandEveVideoGenerate(
     modeKind: pathMode.kind,
     capabilities,
     ...(catalog === null ? {} : { catalog }),
+    ...(request.resolution === undefined ? {} : { resolutionOverride: request.resolution }),
   });
   if (tierGateRefusal) return tierGateRefusal;
 
@@ -365,6 +366,7 @@ export async function handleCommandEveVideoGenerate(
     prompt: request.prompt.trim(),
     tierId: request.tierId,
     ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
+    ...(request.resolution === undefined ? {} : { resolution: request.resolution }),
     durationSeconds: request.durationSeconds,
     mode: wireMode,
     requestId: deps.newRequestId(),
