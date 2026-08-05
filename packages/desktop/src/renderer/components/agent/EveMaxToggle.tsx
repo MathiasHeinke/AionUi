@@ -62,6 +62,10 @@
 import { useEveInferenceSelection } from '@renderer/hooks/agent/useEveInferenceSelection';
 import { useEveMaxAuthority } from '@renderer/hooks/agent/useEveMaxAuthority';
 import { openAccountWeb } from '@renderer/utils/platform';
+import {
+  COMPOSER_MAX_IGNITION_ATTRIBUTE,
+  COMPOSER_MAX_IGNITION_MS,
+} from '@renderer/components/agent/eveComposerGlowCore';
 import { Button, Tooltip } from '@arco-design/web-react';
 import { Lightning, Lock } from '@icon-park/react';
 import React, { useCallback, useEffect, useRef } from 'react';
@@ -93,6 +97,30 @@ function useComposerMaxState(anchor: React.RefObject<HTMLElement | null>, engage
   }, [anchor, engaged]);
 }
 
+/**
+ * 1.820.5 (MAT-1773) — IGNITION: on the false -> true `maxActive` edge (and
+ * only there), stamp the one-shot ignition marker; the stylesheet runs a
+ * single ~300ms gold sweep around the border while the marker is present.
+ * A remembered-ON mount does NOT sweep — engaging a gear is a toggle moment,
+ * not a page load. One timeout, no JS animation loop.
+ */
+function useComposerMaxIgnition(anchor: React.RefObject<HTMLElement | null>, active: boolean): void {
+  const previousRef = useRef(active);
+  useEffect(() => {
+    const previous = previousRef.current;
+    previousRef.current = active;
+    if (!active || previous === active) return;
+    const surface = anchor.current?.closest<HTMLElement>(EVE_COMPOSER_SURFACE_SELECTOR);
+    if (!surface) return;
+    surface.setAttribute(COMPOSER_MAX_IGNITION_ATTRIBUTE, 'true');
+    const timer = setTimeout(() => surface.removeAttribute(COMPOSER_MAX_IGNITION_ATTRIBUTE), COMPOSER_MAX_IGNITION_MS);
+    return () => {
+      clearTimeout(timer);
+      surface.removeAttribute(COMPOSER_MAX_IGNITION_ATTRIBUTE);
+    };
+  }, [anchor, active]);
+}
+
 const EveMaxToggle: React.FC<{
   /** Disable the control while the surface is busy (sending / loading). */
   disabled?: boolean;
@@ -122,6 +150,7 @@ const EveMaxToggle: React.FC<{
   // The PILL keeps showing intent (`data-engaged` + its locked styling), so a
   // remembered choice stays visible on the control the user pressed.
   useComposerMaxState(anchorRef, maxActive);
+  useComposerMaxIgnition(anchorRef, maxActive);
 
   // THE CLICK REACHES THE HOOK IN EVERY STATE BUT "BUSY", AND THAT IS THE FIX.
   //

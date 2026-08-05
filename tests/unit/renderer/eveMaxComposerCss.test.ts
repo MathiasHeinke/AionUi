@@ -193,19 +193,48 @@ describe('MAX composer state — the CSS-variable seam', () => {
     expect(darkBlock).toMatch(/--eve-max-spotlight-ceiling:/);
   });
 
-  it('MOTION is calm: one ease transition on engage, and no infinite animation', () => {
+  it('MOTION is a state model: the base layer stays transition-only, loops live ONLY on state selectors', () => {
+    // The 1.820.5 founder-approved state model ADDS infinite animations — but
+    // scoped to the five states, never to the base MAX layer.
     const motion = ruleBody(
       css,
       ".eve-composer-surface[data-eve-max='true']::before,\n.eve-composer-surface[data-eve-max='true']::after"
     );
     expect(motion).toMatch(/transition:[^;]*ease/);
     expect(motion).not.toMatch(/infinite/);
-    // And nothing anywhere in the MAX layer starts a looping animation.
-    const maxRules = css.match(/\[data-eve-max='true'\][^{]*\{[^}]*\}/g) ?? [];
+
+    const maxRules = css.match(/\.eve-composer-surface\[data-eve-max='true'\][^{]*\{[^}]*\}/g) ?? [];
     expect(maxRules.length).toBeGreaterThan(0);
     for (const rule of maxRules) {
-      expect(rule).not.toMatch(/infinite/);
+      if (rule.includes('infinite')) {
+        // A looping animation is legal ONLY on an explicit glow-state selector.
+        expect(rule).toMatch(/\[data-eve-glow=/);
+      }
     }
+
+    // The five states exist as selectors, and the ignition sweep is one-shot.
+    for (const state of ['armed', 'start-stau', 'denk-puls', 'stream']) {
+      expect(css).toContain(`.eve-composer-surface[data-eve-max='true'][data-eve-glow='${state}']`);
+    }
+    expect(css).toContain(".eve-composer-surface[data-eve-max-ignition='true']::after");
+    const ignition = ruleBody(css, ".eve-composer-surface[data-eve-max-ignition='true']::after");
+    expect(ignition).toMatch(/animation:\s*eve-composer-max-ignition\s+300ms[^;]*\s1[;\s]/);
+    expect(ignition).not.toMatch(/infinite/);
+
+    // Calm bounds: every loop is slower than a nervous flicker (>= 1.5s).
+    for (const loop of ['eve-composer-max-breath 4s', 'eve-composer-max-orbit 3s', 'eve-composer-max-flow 2.8s']) {
+      expect(css).toContain(loop);
+    }
+    expect(css).toMatch(/eve-composer-max-heartbeat\s+1\.8s/);
+
+    // The restrained ambient bloom: idle 8px/10%, working 16px/25%.
+    const armedBloom = ruleBody(css, ".eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']");
+    expect(armedBloom).toMatch(/0 0 8px color-mix\(in srgb, var\(--eve-max-accent\) 10%/);
+    const workingBloom = ruleBody(
+      css,
+      ".eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau'],\n.eve-composer-surface[data-eve-max='true'][data-eve-glow='stream']"
+    );
+    expect(workingBloom).toMatch(/0 0 16px color-mix\(in srgb, var\(--eve-max-accent\) 25%/);
   });
 });
 
@@ -676,10 +705,39 @@ describe('MAX composer state — reduced motion keeps the state, drops the motio
       expect(value).toBeGreaterThan(0);
     }
   });
+
+  it('stops the 1.820.5 glow-state animations too — they outspecific the blanket rules', () => {
+    // The state selectors carry an extra attribute, so the generic MAX reduced
+    // rules lose to them; both reduced blocks must stop them EXPLICITLY.
+    const stateSelectors = [
+      ".eve-composer-surface[data-eve-max='true'][data-eve-glow]::before",
+      ".eve-composer-surface[data-eve-max='true'][data-eve-glow]::after",
+      ".eve-composer-surface[data-eve-max-ignition='true']::after",
+    ];
+    const appLevel = `:root[data-eve-reduced-effects='true'] `;
+    const mediaStart = css.indexOf('@media (prefers-reduced-motion: reduce)');
+    expect(mediaStart).toBeGreaterThan(-1);
+    const mediaBlock = css.slice(mediaStart);
+    for (const selector of stateSelectors) {
+      const appIndex = css.indexOf(appLevel + selector);
+      expect(appIndex, `${selector} must appear in the app-level reduced-effects block`).toBeGreaterThan(-1);
+      expect(css.slice(appIndex, appIndex + 700)).toMatch(/animation:\s*none/);
+      const mediaIndex = mediaBlock.indexOf(selector);
+      expect(mediaIndex, `${selector} must appear in the OS reduced-motion block`).toBeGreaterThan(-1);
+      expect(mediaBlock.slice(mediaIndex, mediaIndex + 700)).toMatch(/animation:\s*none/);
+    }
+    // The static warm tint remains: the reduced blocks never re-declare the
+    // MAX tokens (the state keeps its colour; only the motion stops).
+    const reducedSection = css.slice(css.indexOf(":root[data-eve-reduced-effects='true'] .eve-composer-surface {"));
+    expect(reducedSection).not.toMatch(/--eve-max-accent\s*:/);
+  });
 });
 
 describe('1.820.3 edit-hint contrast (live AAA finding)', () => {
-  const billingCss = fs.readFileSync(path.resolve('packages/desktop/src/renderer/components/billing/billing.css'), 'utf-8');
+  const billingCss = fs.readFileSync(
+    path.resolve('packages/desktop/src/renderer/components/billing/billing.css'),
+    'utf-8'
+  );
   it('the compact edit hint carries an explicit theme-safe text color, never inherited near-black', () => {
     const hintBlock = billingCss.slice(billingCss.indexOf('.video-edit-hint {'));
     expect(hintBlock).toContain('color: var(--text-secondary);');
@@ -691,8 +749,11 @@ describe('1.820.3 edit-hint contrast (live AAA finding)', () => {
   });
 
   it('measures >=7:1 (WCAG AAA) in BOTH shipped themes using the shipped token values', () => {
-    const scheme = fs.readFileSync(path.resolve('packages/desktop/src/renderer/styles/themes/default-color-scheme.css'), 'utf-8');
-    const darkStart = scheme.indexOf('[data-theme=\'dark\']');
+    const scheme = fs.readFileSync(
+      path.resolve('packages/desktop/src/renderer/styles/themes/default-color-scheme.css'),
+      'utf-8'
+    );
+    const darkStart = scheme.indexOf("[data-theme='dark']");
     const lightBlock = scheme.slice(0, darkStart);
     const darkBlock = scheme.slice(darkStart);
     const token = (block: string, name: string): string => {

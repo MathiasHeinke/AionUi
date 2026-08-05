@@ -290,7 +290,9 @@ vi.mock('@/renderer/components/chat/SendBox', () => ({
   }) => {
     sendBoxPropsMock.current = props as unknown as Record<string, unknown>;
     return (
-      <>
+      // The real SendBox renders this surface around the composer; the glow
+      // state stamping (1.820.5) needs it present in the double too.
+      <div className='sendbox-panel eve-panel eve-composer-surface' data-testid='composer-surface'>
         {/* The real SendBox renders `prefix` (the draft band: file chips, folder
             tags, the video-quality picker). The double used to drop it, which
             made anything mounted there invisible to these tests. */}
@@ -304,7 +306,7 @@ vi.mock('@/renderer/components/chat/SendBox', () => ({
         >
           send
         </button>
-      </>
+      </div>
     );
   },
 }));
@@ -2699,6 +2701,43 @@ describe('AcpSendBox', () => {
       durationSeconds: 10,
     });
     expect(modalConfirmMock).not.toHaveBeenCalled();
+  });
+
+  it('1.820.5: stamps the MAX glow state on the composer surface from the runtime phase', async () => {
+    // The composer glow follows maxActive (main authority) + runtimeActivity.phase
+    // — the SAME truth the status footer reads. MAX on + thinking => denk-puls.
+    maxAuthorityMock.maxActive = true;
+    const messageState = {
+      ...makeMessageState(),
+      runtimeActivity: { phase: 'thinking', updatedAt: 0 } as UseAcpMessageReturn['runtimeActivity'],
+    };
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={messageState}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('composer-surface')).toHaveAttribute('data-eve-glow', 'denk-puls'));
+  });
+
+  it('1.820.5: no glow attribute with MAX off — the standard composer keeps its neutral look', async () => {
+    maxAuthorityMock.maxActive = false;
+    const messageState = {
+      ...makeMessageState(),
+      runtimeActivity: { phase: 'thinking', updatedAt: 0 } as UseAcpMessageReturn['runtimeActivity'],
+    };
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={messageState}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('composer-surface')).toBeTruthy());
+    expect(screen.getByTestId('composer-surface').hasAttribute('data-eve-glow')).toBe(false);
   });
 
   it('LIVE REGRESSION (packaged 1.820.5): the pill still renders when the capabilities bridge rejects', async () => {

@@ -2084,6 +2084,239 @@
   opacity: 0.34;
 }
 
+/* ---------------------------------------------------------------------------
+   1.820.5 (MAT-1773) — the MAX composer glow STATE MODEL.
+
+   Five states, one attribute (`data-eve-glow`, stamped by AcpSendBox from the
+   SAME runtimeActivity phase the status footer reads; `data-eve-max-ignition`
+   is the one-shot toggle edge from EveMaxToggle):
+
+     off        no attribute          standard composer, untouched
+     armed      MAX on, nothing runs  slow breath + 8px/10% bloom
+     start-stau submitted, no frames  gold shimmer orbits the border (~3s/rev)
+     denk-puls  thinking/tool_wait/…  heartbeat double-pulse, ring swells ~2px
+     stream     streaming/ui_backlog  calm left-to-right flow
+
+   CSS-only keyframes, absolute pseudos and box-shadow only — the composer
+   geometry never changes and there is no JS animation loop.
+--------------------------------------------------------------------------- */
+
+/* The orbiting highlight needs an animatable angle (registered custom
+   property); the static 0deg default doubles as the declaration the CSS
+   contract test requires. */
+@property --eve-composer-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.eve-composer-surface[data-eve-max='true'] {
+  --eve-composer-angle: 0deg;
+}
+
+/* Shared ring geometry for the gradient-carrying states: the same
+   content-box exclusion mask the spotlight hairline uses, so the gradient
+   paints ONLY the border band — never the surface, never the layout. */
+.eve-composer-surface[data-eve-max-ignition='true']::after,
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau']::after,
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='stream']::after {
+  inset: 0;
+  padding: 2px;
+  border-radius: inherit;
+  box-shadow: none;
+  opacity: 1;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+/* 1) IGNITION — one ~300ms gold sweep around the border on toggle-ON, then it
+   hands over to the armed state. The attribute is removed by the toggle after
+   350ms, so this never loops. */
+.eve-composer-surface[data-eve-max-ignition='true']::after {
+  background: conic-gradient(
+    from var(--eve-composer-angle),
+    transparent 0deg,
+    transparent 245deg,
+    color-mix(in srgb, var(--eve-max-accent) 85%, transparent) 305deg,
+    var(--eve-max-accent) 330deg,
+    transparent 360deg
+  );
+  animation: eve-composer-max-ignition 300ms ease-out 1;
+}
+
+@keyframes eve-composer-max-ignition {
+  from {
+    --eve-composer-angle: 0deg;
+  }
+  to {
+    --eve-composer-angle: 360deg;
+  }
+}
+
+/* 2) ARMED IDLE BREATH — a slow luminance oscillation of the hairline plus the
+   restrained idle bloom. Visibly more awake than standard, calm. */
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='armed'] {
+  box-shadow:
+    0 18px 42px color-mix(in srgb, #0f172a 12%, transparent),
+    inset 0 1px 0 var(--glass-edge-highlight),
+    0 0 8px color-mix(in srgb, var(--eve-max-accent) 10%, transparent);
+}
+
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']::before {
+  animation: eve-composer-max-breath 4s ease-in-out infinite;
+}
+
+@keyframes eve-composer-max-breath {
+  0%,
+  100% {
+    opacity: 0.34;
+  }
+  50% {
+    opacity: 0.52;
+  }
+}
+
+/* 3) START-STAU — the gold shimmer circles the border continuously while the
+   turn is submitted and no frame has arrived yet. */
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau']::after {
+  background: conic-gradient(
+    from var(--eve-composer-angle),
+    transparent 0deg,
+    transparent 245deg,
+    color-mix(in srgb, var(--eve-max-accent) 85%, transparent) 305deg,
+    var(--eve-max-accent) 330deg,
+    transparent 360deg
+  );
+  animation: eve-composer-max-orbit 3s linear infinite;
+}
+
+@keyframes eve-composer-max-orbit {
+  from {
+    --eve-composer-angle: 0deg;
+  }
+  to {
+    --eve-composer-angle: 360deg;
+  }
+}
+
+/* 4) DENK-PULS — heartbeat double-pulse (lub-dub, pause): the hairline swells
+   ~2px and brightens, while ::after carries the working bloom and a very
+   subtle inner shimmer on the same beat. */
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='denk-puls']::before {
+  animation: eve-composer-max-ringbeat 1.8s cubic-bezier(0.2, 0.7, 0.2, 1) infinite;
+}
+
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='denk-puls']::after {
+  opacity: 1;
+  box-shadow:
+    0 0 16px 2px color-mix(in srgb, var(--eve-max-accent) 25%, transparent),
+    inset 0 0 20px color-mix(in srgb, var(--eve-max-accent) 6%, transparent);
+  animation: eve-composer-max-heartbeat 1.8s cubic-bezier(0.2, 0.7, 0.2, 1) infinite;
+}
+
+@keyframes eve-composer-max-ringbeat {
+  0% {
+    padding: 1px;
+    opacity: 0.4;
+  }
+  12% {
+    padding: 3px;
+    opacity: 0.75;
+  }
+  24% {
+    padding: 1.5px;
+    opacity: 0.45;
+  }
+  36% {
+    padding: 3px;
+    opacity: 0.65;
+  }
+  55%,
+  100% {
+    padding: 1px;
+    opacity: 0.4;
+  }
+}
+
+@keyframes eve-composer-max-heartbeat {
+  0% {
+    opacity: 0.55;
+  }
+  12% {
+    opacity: 1;
+  }
+  24% {
+    opacity: 0.6;
+  }
+  36% {
+    opacity: 0.9;
+  }
+  55%,
+  100% {
+    opacity: 0.55;
+  }
+}
+
+/* 5) STREAM FLOW — the thinking pulse settles into a steady, quieter
+   left-to-right flow across the border while frames arrive. */
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='stream']::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--eve-max-accent) 25%, transparent) 35%,
+    color-mix(in srgb, var(--eve-max-accent) 60%, transparent) 50%,
+    color-mix(in srgb, var(--eve-max-accent) 25%, transparent) 65%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: eve-composer-max-flow 2.8s linear infinite;
+}
+
+@keyframes eve-composer-max-flow {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* 6) AMBIENT BLOOM (restrained) — the working bloom for every active state.
+   box-shadow only: zero layout space. The focus variants keep the focus ring
+   shadow intact under a glow state (state rules outspecific it). */
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau'],
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='stream'] {
+  box-shadow:
+    0 18px 42px color-mix(in srgb, #0f172a 12%, transparent),
+    inset 0 1px 0 var(--glass-edge-highlight),
+    0 0 16px color-mix(in srgb, var(--eve-max-accent) 25%, transparent);
+}
+
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']:focus-within {
+  box-shadow:
+    0 1px 0 var(--glass-edge-highlight) inset,
+    0 0 0 1px color-mix(in srgb, var(--eve-spotlight-color) 10%, transparent),
+    0 0 30px color-mix(in srgb, var(--eve-spotlight-color) 18%, transparent),
+    0 14px 34px color-mix(in srgb, #0f172a 10%, transparent),
+    0 0 8px color-mix(in srgb, var(--eve-max-accent) 10%, transparent);
+}
+
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau']:focus-within,
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='stream']:focus-within {
+  box-shadow:
+    0 1px 0 var(--glass-edge-highlight) inset,
+    0 0 0 1px color-mix(in srgb, var(--eve-spotlight-color) 10%, transparent),
+    0 0 30px color-mix(in srgb, var(--eve-spotlight-color) 18%, transparent),
+    0 14px 34px color-mix(in srgb, #0f172a 10%, transparent),
+    0 0 16px color-mix(in srgb, var(--eve-max-accent) 25%, transparent);
+}
+
 .eve-composer-surface[data-keyboard-focus='true'],
 .eve-composer-surface:focus-within,
 .eve-composer-surface:has(:focus-visible) {
@@ -2360,6 +2593,23 @@
 }
 
 :root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true']::before {
+  opacity: 0.34;
+}
+
+/* The 1.820.5 glow states (breath/orbit/heartbeat/flow/ignition) all carry the
+   `data-eve-glow` / ignition attributes with MORE specific selectors, so the
+   blanket rules above lose to them — they need an explicit, equally specific
+   stop. The STATE (warm tint, bloom, border) stays; only the motion stops. */
+:root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true'][data-eve-glow]::before,
+:root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true'][data-eve-glow]::after,
+:root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max-ignition='true']::after {
+  animation: none;
+  transition: none;
+}
+
+/* The armed hairline breath resolves to its resting opacity, and the gradient
+   ring states keep a quiet static band instead of the moving shimmer. */
+:root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']::before {
   opacity: 0.34;
 }
 
@@ -2748,6 +2998,19 @@
   }
 
   .eve-composer-surface[data-eve-max='true']::before {
+    opacity: 0.34;
+  }
+
+  /* The 1.820.5 glow states use MORE specific selectors, so they need their
+     own stop inside this media query — same contract: state stays, motion goes. */
+  .eve-composer-surface[data-eve-max='true'][data-eve-glow]::before,
+  .eve-composer-surface[data-eve-max='true'][data-eve-glow]::after,
+  .eve-composer-surface[data-eve-max-ignition='true']::after {
+    animation: none;
+    transition: none;
+  }
+
+  .eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']::before {
     opacity: 0.34;
   }
 

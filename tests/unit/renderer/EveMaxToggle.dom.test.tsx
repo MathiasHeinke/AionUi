@@ -24,7 +24,7 @@
 import React from 'react';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, act } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -181,6 +181,39 @@ describe('EveMaxToggle — composer MAX state', () => {
     expect(node.getAttribute(EVE_MAX_COMPOSER_ATTRIBUTE)).toBe('true');
     unmount();
     expect(node.hasAttribute(EVE_MAX_COMPOSER_ATTRIBUTE)).toBe(false);
+  });
+
+  it('IGNITION: stamps the one-shot marker on the false -> true edge, then retracts it', () => {
+    vi.useFakeTimers();
+    try {
+      const { composer, rerender } = renderInComposer();
+      expect(composer().hasAttribute('data-eve-max-ignition')).toBe(false);
+
+      setState({ maxEngaged: true, maxState: 'engaged' });
+      rerender(
+        <div className='sendbox-panel eve-panel eve-composer-surface' data-testid='composer'>
+          <div className='unified-send-bar'>
+            <EveMaxToggle />
+          </div>
+        </div>
+      );
+      // The engage edge stamps the marker — the CSS sweep runs while it is set.
+      expect(composer().getAttribute('data-eve-max-ignition')).toBe('true');
+
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(composer().hasAttribute('data-eve-max-ignition')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('IGNITION: a remembered-ON mount does NOT sweep — ignition is a toggle moment, not a page load', () => {
+    setState({ maxEngaged: true, maxState: 'engaged' });
+    const { composer } = renderInComposer();
+    expect(composer().getAttribute(EVE_MAX_COMPOSER_ATTRIBUTE)).toBe('true');
+    expect(composer().hasAttribute('data-eve-max-ignition')).toBe(false);
   });
 
   it('marks ONLY the composer that contains the control, never every composer on screen', () => {

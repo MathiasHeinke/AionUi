@@ -32,6 +32,7 @@ import {
 } from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
 import { useEveMaxAuthority } from '@/renderer/hooks/agent/useEveMaxAuthority';
+import { COMPOSER_GLOW_ATTRIBUTE, resolveComposerGlowState } from '@/renderer/components/agent/eveComposerGlowCore';
 import { isEveInferenceSelection, resolveWireTierFromSelection } from '@/common/config/eveInferenceCore';
 import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
@@ -389,8 +390,27 @@ const AcpSendBox: React.FC<{
   // the surface being honest instead of letting the user fire a turn that will
   // only come back as an error. Read from the SAME authority that paints the MAX
   // state, so the composer cannot be held while claiming a lane, or vice versa.
-  const { entitlementPending } = useEveMaxAuthority();
+  const { entitlementPending, maxActive } = useEveMaxAuthority();
   const eveSendHeld = isEveConversation && entitlementPending;
+
+  // 1.820.5 (MAT-1773) — the MAX composer glow STATE MODEL. One attribute on
+  // the composer surface, derived from the SAME truth the runtime status
+  // footer reads (`runtimeActivity.phase`) and the SAME main-process MAX
+  // authority the toggle paints from — never a parallel source. The stylesheet
+  // owns every animation; this only stamps the state. `off` removes the
+  // attribute, so the standard composer keeps its neutral look exactly.
+  const composerRootRef = useRef<HTMLDivElement>(null);
+  const composerGlowState = resolveComposerGlowState({ maxActive, phase: runtimeActivity.phase });
+  useEffect(() => {
+    const surface = composerRootRef.current?.querySelector<HTMLElement>('.eve-composer-surface');
+    if (!surface) return;
+    if (composerGlowState === 'off') {
+      surface.removeAttribute(COMPOSER_GLOW_ATTRIBUTE);
+      return;
+    }
+    surface.setAttribute(COMPOSER_GLOW_ATTRIBUTE, composerGlowState);
+    return () => surface.removeAttribute(COMPOSER_GLOW_ATTRIBUTE);
+  }, [composerGlowState]);
 
   // Mirror AgentModeSelector's getMode sync so the sheet shows the live mode label.
   useEffect(() => {
@@ -2373,7 +2393,7 @@ Please check your local CLI tool authentication status`,
   };
 
   return (
-    <div className='acp-send-box max-w-800px w-full mx-auto flex flex-col mt-auto mb-16px'>
+    <div ref={composerRootRef} className='acp-send-box max-w-800px w-full mx-auto flex flex-col mt-auto mb-16px'>
       <AcpDocumentPreparationStatus state={documentPreparation} />
       <CommandQueuePanel
         items={queuedCommands}
