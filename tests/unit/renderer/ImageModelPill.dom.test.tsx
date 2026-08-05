@@ -5,17 +5,20 @@
  */
 
 /**
- * The inline image-model selector (MAT-1769).
+ * The inline image-model selector (MAT-1769; dropdown idiom since MAT-1773
+ * PACKAGE A).
  *
- * These tests pin four properties: exactly three options with the premium
- * media-control names; radio semantics (picker, never a gate); the price
- * comes from the SERVER REGISTRY handed in as data — never from a client
- * literal; and an unavailable registry degrades to an honest "price
- * unavailable" state with no digits anywhere, while the preference itself
- * stays selectable.
+ * These tests pin: with a proven registry the picker is the SHARED media-model
+ * dropdown — the registry's tier-mapped models listed with provider chips and
+ * per-row registry quotes, a model pick mapping back to the TIER id the
+ * per-seat preference write carries; the 1K/2K resolution dropdown filtered
+ * to the selected model's tiers with auto-pick reporting; and the fail-closed
+ * fallback — an unproven registry degrades to the legacy radios with an
+ * honest "price unavailable" line and no digits anywhere, while the
+ * preference itself stays selectable.
  */
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
@@ -88,65 +91,113 @@ const REGISTRY: CommandEveImageModelRegistry = {
 
 afterEach(cleanup);
 
-describe('ImageModelPill', () => {
+const openModelDropdown = () => {
+  fireEvent.click(screen.getByTestId('image-model-dropdown-trigger'));
+  return screen.getByTestId('image-model-dropdown');
+};
+
+describe('ImageModelPill model dropdown (MAT-1773 PACKAGE A)', () => {
   it('renders nothing when the conversation is not a managed EVE conversation', () => {
     render(<ImageModelPill visible={false} value='quality' onChange={vi.fn()} registry={REGISTRY} />);
     expect(screen.queryByTestId('image-model-pill')).toBeNull();
   });
 
-  it('offers exactly three options with the premium media-control names', () => {
-    render(<ImageModelPill visible value='quality' onChange={vi.fn()} registry={REGISTRY} />);
+  it('shows the selected tier + registry model name on the trigger, deduped', () => {
+    const { rerender } = render(<ImageModelPill visible value='quality' onChange={vi.fn()} registry={REGISTRY} />);
 
-    expect(screen.getByTestId('image-model-option-fast')).toHaveTextContent('Schnell');
-    // AAA live finding: the fast registry display_name equals its tier label —
-    // it must render ONCE, never "Schnell Schnell". Quality/MAX keep their
-    // distinct registry names.
-    const fastOption = screen.getByTestId('image-model-option-fast');
-    expect(fastOption.querySelectorAll('.image-model-pill__model')).toHaveLength(0);
-    expect(fastOption.textContent?.trim()).toBe('Schnell');
-    expect(screen.getByTestId('image-model-option-quality').querySelector('.image-model-pill__model')?.textContent).toBe('Nano Banana 2');
-    expect(screen.getByTestId('image-model-option-max').querySelector('.image-model-pill__model')?.textContent).toBe('GPT Image 2');
-    expect(screen.getByTestId('image-model-option-quality')).toHaveTextContent('Qualität');
-    expect(screen.getByTestId('image-model-option-max')).toHaveTextContent('MAX');
-    expect(screen.getAllByRole('radio')).toHaveLength(3);
-    // The server-pinned model names ride as subtitles on the options.
-    expect(screen.getByTestId('image-model-option-quality')).toHaveTextContent('Nano Banana 2');
-    expect(screen.getByTestId('image-model-option-max')).toHaveTextContent('GPT Image 2');
+    expect(screen.getByTestId('image-model-dropdown-trigger').textContent).toContain('Qualität');
+    expect(screen.getByTestId('image-model-dropdown-trigger').textContent).toContain('Nano Banana 2');
+
+    // The fast registry display_name equals its tier label — it must render
+    // ONCE, never "Schnell Schnell".
+    rerender(<ImageModelPill visible value='fast' onChange={vi.fn()} registry={REGISTRY} />);
+    expect(screen.getByTestId('image-model-dropdown-trigger').textContent?.trim()).toBe('Schnell▾');
   });
 
-  it('is a radiogroup picker, not a gate: radios only, no dialog, no confirm', () => {
+  it('lists the registry models in the Empfohlen curated section, in server order, with chips and per-row estimates', () => {
     render(<ImageModelPill visible value='quality' onChange={vi.fn()} registry={REGISTRY} />);
 
-    expect(screen.getByRole('radiogroup')).toBeTruthy();
-    expect(screen.getByTestId('image-model-option-quality')).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByTestId('image-model-option-fast')).toHaveAttribute('aria-checked', 'false');
-    // Radios are buttons with role=radio; a confirm/cancel pair would arrive as real buttons.
-    expect(screen.queryAllByRole('button')).toHaveLength(0);
-    expect(screen.queryByRole('dialog')).toBeNull();
+    const list = openModelDropdown();
+    expect(screen.getByTestId('image-model-section-recommended').textContent).toBe('Empfohlen');
+
+    const entries = list.querySelectorAll('[role="option"]');
+    expect([...entries].map((el) => el.getAttribute('data-testid'))).toEqual([
+      'image-model-entry-fast',
+      'image-model-entry-quality',
+      'image-model-entry-max',
+    ]);
+
+    // Provider identity chips, derived from the server-pinned slugs.
+    expect(
+      screen
+        .getByTestId('image-model-entry-fast')
+        .querySelector('.video-quality-pill__chip')
+        ?.getAttribute('data-provider')
+    ).toBe('xai');
+    expect(
+      screen
+        .getByTestId('image-model-entry-quality')
+        .querySelector('.video-quality-pill__chip')
+        ?.getAttribute('data-provider')
+    ).toBe('google');
+    expect(
+      screen
+        .getByTestId('image-model-entry-max')
+        .querySelector('.video-quality-pill__chip')
+        ?.getAttribute('data-provider')
+    ).toBe('openai');
+
+    // Per-row estimates quote the REGISTRY's generate_credits at the current
+    // resolution tier (1K by default) — never a client-fabricated number.
+    expect(screen.getByTestId('image-model-entry-fast').textContent).toContain('≈ 30 Credits');
+    expect(screen.getByTestId('image-model-entry-quality').textContent).toContain('≈ 40 Credits');
+    expect(screen.getByTestId('image-model-entry-max').textContent).toContain('≈ 120 Credits');
+
+    // The registry IS the curated shortlist (exactly three tier-mapped
+    // models), so there is nothing behind 'Weitere anzeigen'.
+    expect(screen.queryByTestId('image-model-show-more')).toBeNull();
+
+    // The selected row carries the check + accent.
+    const selected = screen.getByTestId('image-model-entry-quality');
+    expect(selected.classList.contains('is-selected')).toBe(true);
+    expect(selected.querySelector('.video-quality-pill__check')).not.toBeNull();
+    expect(screen.getByTestId('image-model-entry-fast').querySelector('.video-quality-pill__check')).toBeNull();
   });
 
-  it('is keyboard reachable: tab moves focus onto the options', async () => {
-    render(<ImageModelPill visible value='quality' onChange={vi.fn()} registry={REGISTRY} />);
-
-    await userEvent.tab();
-    expect(document.activeElement).toBe(screen.getByTestId('image-model-option-fast'));
-    await userEvent.tab();
-    expect(document.activeElement).toBe(screen.getByTestId('image-model-option-quality'));
-  });
-
-  it('reports a selection to the caller on click only — never automatically', async () => {
+  it('maps a model pick back to the TIER id the registry defines — the value the preference write carries', async () => {
     const onChange = vi.fn();
     const { rerender } = render(<ImageModelPill visible value='quality' onChange={onChange} registry={REGISTRY} />);
     expect(onChange).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByTestId('image-model-option-max'));
+    openModelDropdown();
+    await userEvent.click(screen.getByTestId('image-model-entry-max'));
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith('max');
 
-    // The caller owns the state; the checked radio follows the value prop.
+    // The caller owns the state; the selection follows the value prop.
     rerender(<ImageModelPill visible value='max' onChange={onChange} registry={REGISTRY} />);
-    expect(screen.getByTestId('image-model-option-max')).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'max');
+    expect(screen.getByTestId('image-model-dropdown-trigger').textContent).toContain('GPT Image 2');
+  });
+
+  it('closes the dropdown on a pick and on an outside click', () => {
+    render(<ImageModelPill visible value='quality' onChange={vi.fn()} registry={REGISTRY} />);
+
+    openModelDropdown();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByTestId('image-model-dropdown')).toBeNull();
+
+    const list = openModelDropdown();
+    expect(list.isConnected).toBe(true);
+    fireEvent.click(screen.getByTestId('image-model-entry-fast'));
+    expect(screen.queryByTestId('image-model-dropdown')).toBeNull();
+  });
+
+  it('is a picker, not a gate: no dialog, no confirm', () => {
+    render(<ImageModelPill visible value='quality' onChange={vi.fn()} registry={REGISTRY} />);
+    openModelDropdown();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('listbox')).toBeTruthy();
   });
 
   it('quotes the SELECTED tier from the server registry data', () => {
@@ -160,9 +211,85 @@ describe('ImageModelPill', () => {
     expect(screen.getByTestId('image-model-pill-estimate')).toHaveTextContent('120');
     expect(screen.getByTestId('image-model-pill-estimate')).toHaveTextContent('240');
   });
+});
 
-  it('shows an honest unavailable state with NO literal price when the registry is unproven', () => {
+describe('ImageModelPill resolution dropdown (1K/2K tiers)', () => {
+  it('offers the selected model’s resolution tiers with per-option registry estimates', () => {
+    render(<ImageModelPill visible value='quality' onChange={vi.fn()} registry={REGISTRY} />);
+
+    expect(screen.getByTestId('image-resolution-dropdown-trigger').textContent).toContain('1K');
+
+    fireEvent.click(screen.getByTestId('image-resolution-dropdown-trigger'));
+    const options = screen.getByTestId('image-resolution-dropdown').querySelectorAll('[role="option"]');
+    expect([...options].map((el) => el.getAttribute('data-testid'))).toEqual([
+      'image-resolution-option-1K',
+      'image-resolution-option-2K',
+    ]);
+    // quality: 40 credits (1K), 80 (2K) — the registry's own quotes.
+    expect(screen.getByTestId('image-resolution-option-1K').textContent).toContain('≈ 40 Credits');
+    expect(screen.getByTestId('image-resolution-option-2K').textContent).toContain('≈ 80 Credits');
+  });
+
+  it('reports a resolution pick and re-quotes the model rows at the new tier', async () => {
+    const onResolutionChange = vi.fn();
+    render(
+      <ImageModelPill
+        visible
+        value='quality'
+        onChange={vi.fn()}
+        registry={REGISTRY}
+        onResolutionChange={onResolutionChange}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId('image-resolution-dropdown-trigger'));
+    await userEvent.click(screen.getByTestId('image-resolution-option-2K'));
+
+    expect(onResolutionChange).toHaveBeenCalledWith('2K');
+    expect(screen.getByTestId('image-resolution-dropdown-trigger').textContent).toContain('2K');
+    expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-resolution', '2K');
+
+    // The model rows now quote the 2K generate credits.
+    openModelDropdown();
+    expect(screen.getByTestId('image-model-entry-fast').textContent).toContain('≈ 60 Credits');
+    expect(screen.getByTestId('image-model-entry-max').textContent).toContain('≈ 240 Credits');
+  });
+
+  it('auto-picks the model’s first tier when the current resolution is unsupported, and reports it', () => {
+    const restricted: CommandEveImageModelRegistry = {
+      ...REGISTRY,
+      tiers: REGISTRY.tiers.map((tier) =>
+        tier.id === 'quality' ? Object.assign({}, tier, { resolutions: ['2K'] as const }) : tier
+      ),
+    };
+    const onResolutionChange = vi.fn();
+    render(
+      <ImageModelPill
+        visible
+        value='quality'
+        onChange={vi.fn()}
+        registry={restricted}
+        onResolutionChange={onResolutionChange}
+      />
+    );
+
+    // 1K is unselectable on this model — the pick converges to 2K, shown and
+    // reported, never a late error.
+    expect(onResolutionChange).toHaveBeenCalledWith('2K');
+    expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-resolution', '2K');
+    // A single-tier model needs no resolution dropdown.
+    expect(screen.queryByTestId('image-resolution-dropdown-trigger')).toBeNull();
+  });
+});
+
+describe('ImageModelPill fail-closed fallback (registry unproven)', () => {
+  it('keeps the legacy radios and shows an honest unavailable state with NO literal price', () => {
     render(<ImageModelPill visible value='quality' onChange={vi.fn()} registry={null} />);
+
+    // No dropdown without a registry — nothing proven, nothing listed.
+    expect(screen.queryByTestId('image-model-dropdown-trigger')).toBeNull();
+    expect(screen.getAllByRole('radio')).toHaveLength(3);
+    expect(screen.getByTestId('image-model-option-quality')).toHaveAttribute('aria-checked', 'true');
 
     const estimate = screen.getByTestId('image-model-pill-estimate');
     expect(estimate).toHaveAttribute('data-quote-state', 'unavailable');
@@ -171,7 +298,14 @@ describe('ImageModelPill', () => {
     expect(estimate.textContent).not.toMatch(/\d/);
     // No server-pinned model names either: nothing proven, nothing claimed.
     expect(screen.getByTestId('image-model-option-quality')).not.toHaveTextContent('Nano Banana 2');
-    // …but the preference itself stays selectable.
-    expect(screen.getAllByRole('radio')).toHaveLength(3);
+  });
+
+  it('keeps the preference itself selectable in the fallback', async () => {
+    const onChange = vi.fn();
+    render(<ImageModelPill visible value='quality' onChange={onChange} registry={null} />);
+
+    await userEvent.click(screen.getByTestId('image-model-option-max'));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('max');
   });
 });

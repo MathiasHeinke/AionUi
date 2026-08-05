@@ -128,6 +128,7 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.team-manage-reject',
   'command-eve.telemetry-consent-get',
   'command-eve.telemetry-consent-set',
+  'command-eve.video-artifact-hydrate',
   'command-eve.video-artifacts-list',
   'command-eve.video-capabilities',
   'command-eve.video-edit',
@@ -327,6 +328,7 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'command-eve.telemetry-consent-get': 'void',
   'command-eve.telemetry-consent-set': 'record',
   // conversationId only — reads MAIN's own local durable video-artifact store.
+  'command-eve.video-artifact-hydrate': 'record',
   'command-eve.video-artifacts-list': 'record',
   // No arguments — asks MAIN what the seat may produce. Omitting it here left the
   // wire unpoliced and therefore unreachable, so the composer silently kept its

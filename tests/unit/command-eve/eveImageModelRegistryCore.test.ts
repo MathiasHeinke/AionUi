@@ -18,10 +18,13 @@ import { describe, expect, it } from 'vitest';
 import {
   COMMAND_EVE_IMAGE_MODEL_REGISTRY_VERSION,
   DEFAULT_COMMAND_EVE_IMAGE_MODEL_TIER,
+  commandEveImageModelProvider,
   getCommandEveImageModelTierSpec,
   isCommandEveImageModelTierId,
+  listImageModelsBeyondCurated,
   normalizeCommandEveImageModelTier,
   parseCommandEveImageModelRegistry,
+  resolveImageModelCuratedTiers,
 } from '@/common/config/eveImageModelRegistryCore';
 
 function tierRaw(id: string, overrides: Record<string, unknown> = {}) {
@@ -254,5 +257,37 @@ describe('tier id normalization', () => {
     expect(normalizeCommandEveImageModelTier('ultra')).toBe('quality');
     expect(normalizeCommandEveImageModelTier(null)).toBe('quality');
     expect(normalizeCommandEveImageModelTier('')).toBe('quality');
+  });
+});
+
+describe('catalog presentation helpers (MAT-1773 PACKAGE A)', () => {
+  it('curates the registry’s own tiers in server order — never an invented model', () => {
+    const registry = parseCommandEveImageModelRegistry(registryRaw())!;
+    expect(resolveImageModelCuratedTiers(registry).map((tier) => tier.id)).toEqual(['fast', 'quality', 'max']);
+    // The shortlist IS the registry, so nothing is left for 'Alle Modelle'.
+    expect(listImageModelsBeyondCurated(registry)).toEqual([]);
+  });
+
+  it('keeps the curated shortlist in SERVER order, not tier-id order', () => {
+    const registry = parseCommandEveImageModelRegistry(
+      registryRaw({ tiers: [tierRaw('max'), tierRaw('fast'), tierRaw('quality')] })
+    )!;
+    expect(resolveImageModelCuratedTiers(registry).map((tier) => tier.id)).toEqual(['max', 'fast', 'quality']);
+  });
+
+  it('derives the provider chip identity from the server-pinned slug vendor', () => {
+    const registry = parseCommandEveImageModelRegistry(
+      registryRaw({
+        tiers: [
+          tierRaw('fast', { slug: 'x-ai/grok-imagine-image-quality' }),
+          tierRaw('quality', { slug: 'google/gemini-3.1-flash-image' }),
+          tierRaw('max', { slug: 'openai/gpt-image-2' }),
+        ],
+      })
+    )!;
+    const byVendor = Object.fromEntries(registry.tiers.map((tier) => [tier.id, commandEveImageModelProvider(tier)]));
+    expect(byVendor.fast).toEqual({ key: 'xai', label: 'xAI' });
+    expect(byVendor.quality).toEqual({ key: 'google', label: 'Google' });
+    expect(byVendor.max).toEqual({ key: 'openai', label: 'OpenAI' });
   });
 });

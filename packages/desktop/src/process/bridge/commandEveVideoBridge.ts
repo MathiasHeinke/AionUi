@@ -492,6 +492,13 @@ export async function handleCommandEveVideoGenerateBridge(
 export interface CommandEveVideoArtifactsListDeps {
   getDataPath: typeof getDataPath;
   listArtifactRecords: typeof listVideoArtifactRecords;
+  /**
+   * MAT-1773 (Package B): run the remote-video hydration reconcile before the
+   * list is served, so a clip the agent lane only ever had as a CDN URL is
+   * downloaded to the durable store at load time. Optional + best-effort: a
+   * failed hydrate never blocks the list.
+   */
+  hydrateBeforeList?: (conversationId: string) => Promise<unknown>;
 }
 
 const productionListDeps: CommandEveVideoArtifactsListDeps = {
@@ -511,6 +518,13 @@ export async function handleCommandEveVideoArtifactsList(
   deps: CommandEveVideoArtifactsListDeps = productionListDeps
 ): Promise<CommandEveVideoConversationArtifact[]> {
   if (!request || typeof request.conversationId !== 'string' || request.conversationId.length === 0) return [];
+  if (deps.hydrateBeforeList) {
+    try {
+      await deps.hydrateBeforeList(request.conversationId);
+    } catch {
+      // Best-effort: a failed download must never block the artifact list.
+    }
+  }
   return deps.listArtifactRecords(deps.getDataPath(), request.conversationId);
 }
 

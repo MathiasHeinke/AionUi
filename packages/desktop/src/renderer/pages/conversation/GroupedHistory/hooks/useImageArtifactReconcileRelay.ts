@@ -21,11 +21,16 @@ import { ipcBridge } from '@/common';
 import { emitter } from '@/renderer/utils/emitter';
 import { isTerminalTurnState } from './useConversationListSync';
 
-export type ImageArtifactReconcileRelayDecision = { action: 'ignore' } | { action: 'reconcile'; conversationId: string };
+export type ImageArtifactReconcileRelayDecision =
+  | { action: 'ignore' }
+  | { action: 'reconcile'; conversationId: string };
 
 /** Pure decision, unit-tested without a renderer: only a terminal turn state
  * with a usable conversation id reconciles; everything else is ignored. */
-export function decideImageArtifactReconcileRelay(event: { session_id?: string; state?: string }): ImageArtifactReconcileRelayDecision {
+export function decideImageArtifactReconcileRelay(event: {
+  session_id?: string;
+  state?: string;
+}): ImageArtifactReconcileRelayDecision {
   const conversationId = String(event?.session_id ?? '').trim();
   if (!conversationId) return { action: 'ignore' };
   if (!isTerminalTurnState(String(event?.state ?? ''))) return { action: 'ignore' };
@@ -56,15 +61,20 @@ export function useImageArtifactReconcileRelay(): void {
       const { conversationId } = decision;
       if (inFlight.has(conversationId)) return;
       inFlight.add(conversationId);
-      void ipcBridge.commandEve.imageArtifactReconcile
-        .invoke({ conversationId })
-        .catch(() => {
-          // Fail-quiet — the list-time reconcile recovers on the next load.
-        })
-        .finally(() => {
-          inFlight.delete(conversationId);
-          emitter.emit('commandEve.artifacts.refresh', { conversation_id: conversationId });
-        });
+      // MAT-1773 (Package B): the same turn-end trigger also hydrates remote
+      // video directives — the agent lane hands back a CDN URL and nothing
+      // else downloads it. Both reconciles are idempotent and fail-quiet, so
+      // racing them against the list-time call is a normal no-op.
+      const reconcileImages = ipcBridge.commandEve.imageArtifactReconcile.invoke({ conversationId }).catch(() => {
+        // Fail-quiet — the list-time reconcile recovers on the next load.
+      });
+      const hydrateVideos = ipcBridge.commandEve.videoArtifactHydration.invoke({ conversationId }).catch(() => {
+        // Fail-quiet — the list-time hydration recovers on the next load.
+      });
+      void Promise.allSettled([reconcileImages, hydrateVideos]).finally(() => {
+        inFlight.delete(conversationId);
+        emitter.emit('commandEve.artifacts.refresh', { conversation_id: conversationId });
+      });
     });
     return () => {
       off();

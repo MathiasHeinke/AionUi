@@ -206,6 +206,51 @@ export function getCommandEveImageModelTierSpec(
   return registry.tiers.find((tier) => tier.id === tierId);
 }
 
+// ---------------------------------------------------------------------------
+// Catalog presentation helpers (MAT-1773, PACKAGE A) — the shared media-model
+// dropdown lists the registry like the video catalog lists its entries.
+// ---------------------------------------------------------------------------
+
+/**
+ * The provider identity for a model row's chip: a stable key derived from the
+ * vendor part of the server-pinned slug (`google/gemini-…` -> `google`) plus a
+ * short label. Mirrors the video catalog's `videoCatalogProvider`; kept local
+ * so this module stays free of video imports.
+ */
+export function commandEveImageModelProvider(spec: CommandEveImageModelTierSpec): { key: string; label: string } {
+  const vendor = spec.slug.includes('/') ? spec.slug.slice(0, spec.slug.indexOf('/')) : spec.slug;
+  const key = vendor.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const labels: Record<string, string> = {
+    xai: 'xAI',
+    google: 'Google',
+    openai: 'OpenAI',
+  };
+  const label = labels[key] ?? vendor.charAt(0).toUpperCase() + vendor.slice(1);
+  return { key, label };
+}
+
+/**
+ * The curated shortlist for the model dropdown ('Empfohlen'): the registry's
+ * own tiers in server order. Data-driven by construction — the shortlist IS
+ * the registry, and a model the server did not pin is never invented here.
+ */
+export function resolveImageModelCuratedTiers(registry: CommandEveImageModelRegistry): CommandEveImageModelTierSpec[] {
+  return [...registry.tiers];
+}
+
+/**
+ * Everything behind 'Weitere anzeigen': the registry minus the curated
+ * shortlist, price-ascending by the 1K generation quote. Empty while the
+ * registry is exactly the curated tiers; real (and sorted) the day the server
+ * pins more models than the shortlist carries.
+ */
+export function listImageModelsBeyondCurated(registry: CommandEveImageModelRegistry): CommandEveImageModelTierSpec[] {
+  const curated = new Set(resolveImageModelCuratedTiers(registry).map((tier) => tier.id));
+  return registry.tiers
+    .filter((tier) => !curated.has(tier.id))
+    .toSorted((a, b) => a.quotes.generate_credits['1K'] - b.quotes.generate_credits['1K']);
+}
+
 /**
  * What any read of the registry yields. Shared by Main (fetch), the bridge,
  * and the renderer, so the failure vocabulary is defined exactly once. Every

@@ -293,7 +293,12 @@
    so an in-flow list was clipped at the composer edge (founder screenshot).
    Fixed placement (up when tight below), capped height with internal scroll,
    and a z-index above composer, rail and overlays. Motion is CSS-only and
-   reduced-motion quiet below. */
+   reduced-motion quiet below.
+
+   SHARED (MAT-1773 PACKAGE A): these `.video-quality-pill__*` dropdown styles
+   also style the IMAGE model pill — both lanes render through the shared
+   `MediaModelDropdown`/`MediaPillDropdown`, which kept the established class
+   names rather than churning every selector. */
 .video-quality-pill__model-dropdown {
   position: relative;
   display: inline-flex;
@@ -515,15 +520,20 @@
   }
 }
 
-/* ---- inline image-model selector (MAT-1769) ----
+/* ---- inline image-model selector (MAT-1769; dropdown idiom since MAT-1773
+   PACKAGE A) ----
    Same draft-band idiom as the video-quality pill above: a picker, not a gate.
-   Exactly three radios (Schnell / Qualität / MAX) plus the server-quoted price
-   of the current choice — or an honest "unavailable" when the registry cannot
-   be proven. Kept visually quieter than the EVE MAX reasoning toggle: the MAX
-   option borrows the same accent token but carries NO background fill and a
-   lighter border mix (the reasoning toggle uses 16%/46%; this stays at 40%
-   border only). No transitions or animations, so the control is reduced-motion
-   safe by construction. */
+   With a proven registry the model and resolution pickers are the SHARED
+   MediaModelDropdown/MediaPillDropdown — their interior (trigger, portaled
+   list, chips, rows, checks) reuses the `.video-quality-pill__*` styles above;
+   only the pill shell and the label/group wrappers are image-local here.
+   Without a registry the control fails closed to the legacy three radios
+   (Schnell / Qualität / MAX) plus an honest "unavailable" price line. Kept
+   visually quieter than the EVE MAX reasoning toggle: the MAX option borrows
+   the same accent token but carries NO background fill and a lighter border
+   mix (the reasoning toggle uses 16%/46%; this stays at 40% border only). No
+   transitions or animations beyond the shared dropdown's, so the control
+   stays reduced-motion quiet. */
 .image-model-pill {
   display: flex;
   flex-wrap: wrap;
@@ -536,6 +546,12 @@
 }
 .image-model-pill__label {
   font-weight: 600;
+}
+.image-model-pill__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 .image-model-pill__options {
   display: flex;

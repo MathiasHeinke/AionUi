@@ -376,6 +376,14 @@ export interface CommandEveVideoConversationArtifactPayload {
   /** Set only on derived artifacts — the clip this one was produced FROM. */
   parent_artifact_id?: string;
   /**
+   * MAT-1773 (Package B) — the remote origin of a HYDRATED clip (the provider
+   * CDN URL the agent lane returned). Present only on records the hydration
+   * reconcile downloaded; it is the dedupe key that suppresses the
+   * message-derived card and the idempotency marker that stops a second
+   * download. Never used as a playback source — the local `path` plays.
+   */
+  source_url?: string;
+  /**
    * The tier the clip was PRODUCED at.
    *
    * Optional in the type because every record written before MAT-1747 lacks it,

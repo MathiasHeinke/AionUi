@@ -2021,6 +2021,12 @@ export const commandEve = {
     IBridgeResponse<{ ok: boolean; summary?: unknown; reason?: string }>,
     { conversationId: string }
   >('command-eve.image-artifact-reconcile'),
+  // MAT-1773 (Package B) — downloads agent-lane CDN video URLs into the
+  // durable store; invoked by the turn-end relay and before the video list.
+  videoArtifactHydration: bridge.buildProvider<
+    IBridgeResponse<{ ok: boolean; summary?: unknown; reason?: string }>,
+    { conversationId: string }
+  >('command-eve.video-artifact-hydrate'),
   // Main-authoritative per-seat visual policy. Renderer supplies no target seat
   // for reads/receipt issuance; expectedSeatId on mutation is only a stale fence.
   cloudVisualPolicyRead: bridge.buildProvider<IBridgeResponse<CommandEveCloudVisualPolicyState>, void>(

@@ -161,6 +161,7 @@ import {
   handleCommandEveVideoEditBridge,
   handleCommandEveVideoGenerateBridge,
 } from '@process/bridge/commandEveVideoBridge';
+import { listVideoArtifactRecords } from '@process/commandEve/videoArtifactStore';
 import {
   handleCommandEveImageArtifactBindBridge,
   handleCommandEveImageArtifactImportLegacyBridge,
@@ -209,10 +210,7 @@ import {
   sanitizeSeatId,
 } from '@process/commandEve/seatContextCore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
-import {
-  readMySeatsWire as readMySeatsWireCore,
-  type MySeatsWireFailure,
-} from '@process/commandEve/seatWireFetchCore';
+import { readMySeatsWire as readMySeatsWireCore, type MySeatsWireFailure } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
 import { COMMAND_EVE_HANDOVER_NOTE_RELPATH, HANDOVER_NOTE_MAX_RAW_CHARS } from '@/common/config/startscreenNoteCore';
 import nodePath from 'node:path';
@@ -861,6 +859,14 @@ function getImageArtifactsChangedEmitter(): { emit: (payload: { conversation_id:
     );
   }
   return imageArtifactsChangedEmitter;
+}
+
+async function hydrateRemoteVideosForConversation(conversationId: string) {
+  const { reconcileConversationRemoteVideos } = await import('../commandEve/videoArtifactHydrationMain');
+  return reconcileConversationRemoteVideos(getDataPath(), conversationId, {
+    fetchTranscript: (id, window) => fetchConversationTranscriptFull(id, window),
+    log: (line) => console.warn(line),
+  });
 }
 
 async function reconcileImageArtifactBindsForConversation(conversationId: string) {
@@ -2271,7 +2277,22 @@ export function initCommandEveBridge(): void {
 
   bridge.buildProvider('command-eve.image-prepare').provider(handleCommandEveImagePrepare);
   bridge.buildProvider('command-eve.video-generate').provider(handleCommandEveVideoGenerateBridge);
-  bridge.buildProvider('command-eve.video-artifacts-list').provider(handleCommandEveVideoArtifactsListBridge);
+  bridge.buildProvider('command-eve.video-artifacts-list').provider((request?: { conversationId?: string }) =>
+    handleCommandEveVideoArtifactsListBridge(request, {
+      getDataPath,
+      listArtifactRecords: listVideoArtifactRecords,
+      hydrateBeforeList: (conversationId) => hydrateRemoteVideosForConversation(conversationId),
+    })
+  );
+  // Turn-end hydration authority (MAT-1773 Package B): the reconcile relay
+  // invokes this after a completed turn; the list above hydrates at load. Both
+  // best-effort, idempotent and debit-free (the clip was already paid for).
+  bridge.buildProvider('command-eve.video-artifact-hydrate').provider(async (request?: { conversationId?: string }) => {
+    const conversationId = typeof request?.conversationId === 'string' ? request.conversationId : '';
+    if (!conversationId) return { success: false, data: { ok: false, reason: 'invalid-request' } };
+    const summary = await hydrateRemoteVideosForConversation(conversationId);
+    return { success: true, data: { ok: true, summary } };
+  });
   // MAT-1753. The renderer asks what the seat may offer; it never decides.
   bridge.buildProvider('command-eve.video-capabilities').provider(handleCommandEveVideoCapabilitiesBridge);
   // MAT-1747. The envelope rides the turn the user was already sending, so it
@@ -4019,9 +4040,9 @@ export function initCommandEveBridge(): void {
         if (!commandEveMySeatsWireDown) {
           commandEveMySeatsWireDown = true;
           console.warn(
-            `[Command EVE] my-seats wire unavailable — fail-closed legacy contract. Cause: ${
-              JSON.stringify(commandEveMySeatsWireFailure ?? { kind: 'unknown' })
-            }. The SeatRail falls back to local admin evidence in the renderer.`
+            `[Command EVE] my-seats wire unavailable — fail-closed legacy contract. Cause: ${JSON.stringify(
+              commandEveMySeatsWireFailure ?? { kind: 'unknown' }
+            )}. The SeatRail falls back to local admin evidence in the renderer.`
           );
         }
         return {

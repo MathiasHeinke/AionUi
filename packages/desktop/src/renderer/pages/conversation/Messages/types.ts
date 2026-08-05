@@ -195,7 +195,11 @@ function getGeneratedArtifactPreviewSourceKeys(payload: unknown): string[] {
 export function getGeneratedArtifactPayloadSourceKeys(payload: unknown): string[] {
   const record = parseRecord(payload);
   if (!record) return [];
-  return dedupeStrings(SOURCE_KEYS.map((key) => readString(record, [key])));
+  // `source_url` is dedupe-only by design: a hydrated video record carries its
+  // remote origin there so the message-derived card for the same URL is
+  // suppressed — while playback keeps reading the LOCAL path. It is
+  // deliberately NOT in URL_KEYS, which also feeds source resolution.
+  return dedupeStrings([...SOURCE_KEYS, 'source_url'].map((key) => readString(record, [key])));
 }
 
 export function getToolResultArtifactSourceKeys(resultDisplay: ToolResultDisplay): string[] {

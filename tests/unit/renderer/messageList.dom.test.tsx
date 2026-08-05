@@ -330,6 +330,45 @@ describe('MessageList', () => {
     expect(messageRow.className).not.toContain('pt-10px');
   });
 
+  it('suppresses the message-derived video card once a hydrated durable record covers its URL', async () => {
+    // MAT-1773 (Package B): the hydration reconcile downloaded the CDN clip —
+    // the durable record (local path + source_url marker) plays; the card
+    // re-derived from the message's MEDIA directive must NOT render a second,
+    // dead-URL shell beside it.
+    const url = 'https://cdn.example.com/videos/clip.mp4?sig=1';
+    artifactMock.artifacts = [
+      {
+        id: 'hydrated-1',
+        conversation_id: 'conversation-1',
+        kind: 'video',
+        status: 'active',
+        payload: {
+          artifact_type: 'video',
+          title: 'clip.mp4',
+          path: '/Users/eve/Downloads/Command EVE Videos/conversation-1/hydrated-1.mp4',
+          mime_type: 'video/mp4',
+          source_url: url,
+        },
+        created_at: 3,
+        updated_at: 3,
+      } as never,
+    ];
+    const message: IMessageText = {
+      ...createTextMessage(),
+      content: {
+        content: ['Dein Video ist fertig:', '', `MEDIA: ${url}`].join('\n'),
+      },
+    };
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[message]}>{children}</Wrapper>,
+    });
+
+    const cards = screen.getAllByTestId('generated-artifact-card');
+    expect(cards).toHaveLength(1);
+    expect(screen.getByText('clip.mp4')).toBeInTheDocument();
+  });
+
   it('renders an assistant Hermes MEDIA directive as a visible file artifact', async () => {
     ipcMock.getFileMetadata.mockRejectedValue(new Error('outside workspace'));
     ipcMock.readGeneratedArtifactPreview.mockResolvedValue({
