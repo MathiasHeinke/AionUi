@@ -75,6 +75,7 @@ import type {
   CommandEveVideoGenerateResult,
 } from '../config/videoGenerationRequestCore';
 import type { CommandEveVideoEditRequest, CommandEveVideoEditResult } from '../config/videoEditRequestCore';
+import type { VideoCatalogEntry } from '../config/videoCatalogCore';
 import type { CommandEveActiveImageArtifact } from '../config/managedImageArtifactCore';
 
 /**
@@ -1921,7 +1922,14 @@ export const commandEve = {
   // seat does not have, and the user would learn that only after the wait. The
   // gateway re-decides on every request; this exists so the UI does not lie.
   videoCapabilities: bridge.buildProvider<
-    IBridgeResponse<{ hd15Available: boolean; presetVoicesAvailable: boolean }>,
+    IBridgeResponse<{
+      hd15Available: boolean;
+      presetVoicesAvailable: boolean;
+      /** MAT-1773 (F8) — the live OpenRouter video catalog, null when the read
+       * failed; the renderer then falls back to the bundled snapshot. */
+      catalog?: VideoCatalogEntry[] | null;
+      catalog_source?: 'live' | 'none';
+    }>,
     void
   >('command-eve.video-capabilities'),
   artifactContextEnvelope: bridge.buildProvider<

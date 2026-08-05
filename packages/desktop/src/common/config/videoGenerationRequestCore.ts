@@ -21,12 +21,13 @@ import {
   getVideoTier,
   resolveVideoPlan,
   type VideoModeKind,
-  type VideoModelId,
+  type VideoModelSelection,
   type VideoQualityTier,
   type VideoRequestMode,
   type VideoResolution,
   type VideoSeatCapabilities,
 } from './videoCostCore';
+import type { VideoCatalogEntry } from './videoCatalogCore';
 
 /** The multimodal gateway endpoint, shared with the image/vision/TTS lanes. */
 export const VIDEO_GENERATION_CAPABILITY = 'video_generation' as const;
@@ -47,7 +48,7 @@ export interface CommandEveVideoGenerateRequest {
   prompt: string;
   tierId: VideoQualityTier;
   /** Optional for backwards compatibility; current EVE UI sends the resolved model. */
-  modelId?: VideoModelId;
+  modelId?: VideoModelSelection;
   durationSeconds: number;
   /**
    * Optional so the pre-existing gateway-communication tests keep exercising the
@@ -88,7 +89,7 @@ export interface VideoGenerationRequest {
   prompt: string;
   tierId: VideoQualityTier;
   /** The shared plan's model. Absent lets an older caller retain automatic routing. */
-  modelId?: VideoModelId;
+  modelId?: VideoModelSelection;
   durationSeconds: number;
   /**
    * The resolved input mode. One value, four alternatives, no combination — the
@@ -493,7 +494,9 @@ export function hydrateVideoArtifactPayload(
   payload: CommandEveVideoConversationArtifactPayload
 ): CommandEveVideoConversationArtifactPayload {
   const hasDuration = typeof payload.duration_seconds === 'number' && Number.isFinite(payload.duration_seconds);
-  const recovered = hasDuration ? payload.duration_seconds : Number(LEGACY_DURATION_FROM_DESCRIPTION.exec(payload.description ?? '')?.[1] ?? NaN);
+  const recovered = hasDuration
+    ? payload.duration_seconds
+    : Number(LEGACY_DURATION_FROM_DESCRIPTION.exec(payload.description ?? '')?.[1] ?? NaN);
   const hydrated: CommandEveVideoConversationArtifactPayload = {
     ...payload,
     duration_seconds: Number.isFinite(recovered) && recovered > 0 ? recovered : 0,
@@ -579,15 +582,18 @@ export function buildVideoConversationArtifact(input: {
  */
 export function refuseUnproducibleVideoRequest(input: {
   tierId: VideoQualityTier;
-  modelId?: VideoModelId;
+  modelId?: VideoModelSelection;
   modeKind: VideoModeKind;
   capabilities?: VideoSeatCapabilities;
+  /** The server video catalog (MAT-1773 F8) — required to price catalog models. */
+  catalog?: readonly VideoCatalogEntry[];
 }): { ok: false; reasonCode: 'video-tier-unavailable'; message: string; retryable: false } | null {
   const resolved = resolveVideoPlan({
     modeKind: input.modeKind,
     tierId: input.tierId,
     ...(input.modelId === undefined ? {} : { modelId: input.modelId }),
     ...(input.capabilities === undefined ? {} : { capabilities: input.capabilities }),
+    ...(input.catalog === undefined ? {} : { catalog: input.catalog }),
   });
   // `=== true`, not truthiness: this project compiles without strictNullChecks,
   // and a boolean-literal discriminant only narrows under an explicit comparison.
@@ -602,7 +608,7 @@ export function refuseUnproducibleVideoRequest(input: {
           ? 'Videobearbeitungen gibt es nicht in 1080p.'
           : resolved.reason === 'video-model-unavailable'
             ? 'Dieses Videomodell unterstützt die gewählte Kombination nicht.'
-          : 'Diese Videoqualität ist für diese Anfrage nicht verfügbar.',
+            : 'Diese Videoqualität ist für diese Anfrage nicht verfügbar.',
     retryable: false,
   };
 }

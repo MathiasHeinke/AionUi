@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7070
+# entries: 7078
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -1465,12 +1465,14 @@ copy	1	de-DE/credits.json	Logo hochladen
 copy	1	de-DE/credits.json	Logo ändern
 copy	2	de-DE/credits.json	Löschen
 copy	1	de-DE/credits.json	Modell
+copy	1	de-DE/credits.json	Modell wählen
 copy	1	de-DE/credits.json	Nachkaufen
 copy	1	de-DE/credits.json	Noch keine Notizen — füge Wissen hinzu oder erzähl es EVE im Chat.
 copy	1	de-DE/credits.json	Noch keine Verbrauchsdaten (ab v1.5 erfasst).
 copy	1	de-DE/credits.json	Notiz
 copy	1	de-DE/credits.json	Notizen & Gelerntes
 copy	1	de-DE/credits.json	Report-Branding
+copy	1	de-DE/credits.json	Richtpreise aus dem Offline-Katalog
 copy	1	de-DE/credits.json	Seat hinzufügen — {{eur}} € Aufpreis, in Standard enthalten
 copy	1	de-DE/credits.json	Seat-Status gerade nicht verifizierbar.
 copy	1	de-DE/credits.json	Sektion geleert.
@@ -1490,6 +1492,7 @@ copy	1	de-DE/credits.json	Video erstellen
 copy	1	de-DE/credits.json	Vormonat
 copy	1	de-DE/credits.json	Vorschau des Markenlogos
 copy	1	de-DE/credits.json	Weiter — {{eur}}€ Credits hinzufügen
+copy	1	de-DE/credits.json	Weitere anzeigen
 copy	1	de-DE/credits.json	Wissensprofil
 copy	1	de-DE/credits.json	Ziele & Zukunft
 copy	1	de-DE/credits.json	Zielgruppe
@@ -1508,6 +1511,7 @@ copy	1	de-DE/credits.json	{{pct}}% des Guthabens genutzt
 copy	1	de-DE/credits.json	{{pct}}% des Guthabens genutzt · {{rem}} Credits übrig
 copy	1	de-DE/credits.json	{{pct}}% des Kontingents verbraucht · {{rem}} Credits übrig (≈ {{eur}} €)
 copy	1	de-DE/credits.json	Öffne eine Sektion, ergänze verlässlichen Kontext und halte EVEs Arbeitsgrundlage aktuell.
+copy	1	de-DE/credits.json	≈ {{credits}} Credits
 copy	1	de-DE/credits.json	≈ {{n}} weitere Aufträge wie dieser
 copy	1	de-DE/cron.json	Abbrechen
 copy	2	de-DE/cron.json	Agent
@@ -4914,6 +4918,7 @@ copy	1	en-US/credits.json	Add entry
 copy	1	en-US/credits.json	Allowance: {{n}} credits left
 copy	1	en-US/credits.json	Allowance: {{n}} credits left (≈ €{{eur}})
 copy	1	en-US/credits.json	Applies to this seat only.
+copy	1	en-US/credits.json	Approximate prices (offline catalog)
 copy	1	en-US/credits.json	Audience
 copy	1	en-US/credits.json	Auto-reload when credits run low
 copy	1	en-US/credits.json	Blueprint: {{filled}}/{{total}} sections completed
@@ -4924,6 +4929,7 @@ copy	1	en-US/credits.json	Briefly rate-limited
 copy	2	en-US/credits.json	Cancel
 copy	1	en-US/credits.json	Cap how much EVE may spend on credits per period. 0 = uncapped.
 copy	1	en-US/credits.json	Change logo
+copy	1	en-US/credits.json	Choose model
 copy	2	en-US/credits.json	Clear
 copy	1	en-US/credits.json	Clear this section?
 copy	1	en-US/credits.json	Company
@@ -4985,6 +4991,7 @@ copy	2	en-US/credits.json	Save
 copy	1	en-US/credits.json	Save branding
 copy	1	en-US/credits.json	Seat status is not verifiable right now.
 copy	1	en-US/credits.json	Section cleared.
+copy	1	en-US/credits.json	Show more
 copy	1	en-US/credits.json	Spend cap
 copy	1	en-US/credits.json	Spend cap saved.
 copy	1	en-US/credits.json	Spend cap: {{eur}}€
@@ -5025,6 +5032,7 @@ copy	1	en-US/credits.json	{{n}} remaining (≈ €{{eur}})
 copy	1	en-US/credits.json	{{pct}}% of allowance used
 copy	1	en-US/credits.json	{{pct}}% of allowance used · {{rem}} credits left
 copy	1	en-US/credits.json	{{pct}}% of allowance used · {{rem}} credits left (≈ €{{eur}})
+copy	1	en-US/credits.json	≈ {{credits}} credits
 copy	1	en-US/credits.json	≈ {{n}} more jobs like this
 copy	1	en-US/cron.json	Active
 copy	1	en-US/cron.json	Advanced Settings

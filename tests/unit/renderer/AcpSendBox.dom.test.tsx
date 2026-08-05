@@ -2665,15 +2665,22 @@ describe('AcpSendBox', () => {
       />
     );
 
-    await waitFor(() => expect(screen.getByTestId('video-model-option-grok-imagine-video-1.5')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('video-model-dropdown-trigger')).toBeTruthy());
     await act(async () => {
-      screen.getByTestId('video-model-option-grok-imagine-video-1.5').click();
+      screen.getByTestId('video-model-dropdown-trigger').click();
     });
-    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-model', 'grok-imagine-video-1.5'));
+    await act(async () => {
+      screen.getByTestId('video-model-entry-x-ai/grok-imagine-video-1.5').click();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-model', 'grok-imagine-video-1.5')
+    );
     await act(async () => {
       screen.getByTestId('video-duration-option-10').click();
     });
-    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-duration-seconds', '10'));
+    await waitFor(() =>
+      expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-duration-seconds', '10')
+    );
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
     });

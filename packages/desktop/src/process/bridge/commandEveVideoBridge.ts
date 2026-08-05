@@ -98,6 +98,8 @@ import {
   type VideoRequestMode,
   type VideoSeatCapabilities,
 } from '@/common/config/videoCostCore';
+import type { VideoCatalogEntry } from '@/common/config/videoCatalogCore';
+import { readVideoCatalogWire } from '@process/commandEve/videoCatalogWireMain';
 
 export type { CommandEveVideoGenerateRequest };
 
@@ -160,6 +162,13 @@ export interface CommandEveVideoBridgeDeps {
   recordSpendCompletion?: typeof recordVideoEditSpendCompletion;
   acquireInflightLock?: typeof acquireVideoEditInflightLock;
   releaseInflightLock?: typeof releaseVideoEditInflightLock;
+  /**
+   * MAT-1773 (F8) — the live video catalog read. Optional for the same reason
+   * as the other late additions: every existing deps construction stays valid,
+   * and an absent dep simply means "no live catalog" (the picker falls back to
+   * the bundled snapshot marked approximate).
+   */
+  getVideoCatalogWire?: () => Promise<VideoCatalogEntry[] | null>;
 }
 
 const productionDeps: CommandEveVideoBridgeDeps = {
@@ -188,6 +197,7 @@ const productionDeps: CommandEveVideoBridgeDeps = {
   recordSpendCompletion: recordVideoEditSpendCompletion,
   acquireInflightLock: acquireVideoEditInflightLock,
   releaseInflightLock: releaseVideoEditInflightLock,
+  getVideoCatalogWire: () => readVideoCatalogWire(getDataPath()),
 };
 
 /**
@@ -271,12 +281,17 @@ export async function handleCommandEveVideoGenerate(
   // Cheap, local, BEFORE the license/network round trip: a spec this seat and
   // this mode cannot produce is refused here — never silently downgraded and
   // never forwarded to spend a round trip finding out. It asks the same plan
-  // resolver the picker asked, so the two cannot disagree.
+  // resolver the picker asked, so the two cannot disagree. The live catalog is
+  // loaded alongside so a catalog model the picker priced is not refused here
+  // as unknown; a failed catalog read refuses only NON-legacy models, which is
+  // the fail-closed direction (no proven price, no render).
+  const catalog = deps.getVideoCatalogWire ? await deps.getVideoCatalogWire().catch((): null => null) : null;
   const tierGateRefusal = refuseUnproducibleVideoRequest({
     tierId: request.tierId,
     ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
     modeKind: pathMode.kind,
     capabilities,
+    ...(catalog === null ? {} : { catalog }),
   });
   if (tierGateRefusal) return tierGateRefusal;
 
@@ -1142,13 +1157,26 @@ function recordSentImageArtifacts(
 export async function handleCommandEveVideoCapabilitiesBridge(
   _request?: unknown,
   deps: CommandEveVideoBridgeDeps = productionDeps
-): Promise<{ success: true; data: VideoSeatCapabilities }> {
+): Promise<{
+  success: true;
+  data: VideoSeatCapabilities & {
+    /** The live OpenRouter video catalog, or null when the read failed (F8). */
+    catalog: VideoCatalogEntry[] | null;
+    catalog_source: 'live' | 'none';
+  };
+}> {
   const capabilities = (deps.getVideoSeatCapabilities ?? readVideoSeatCapabilities)();
+  // The catalog read is best-effort and self-quiet: a failed read yields
+  // `none`, and the renderer falls back to the bundled snapshot marked
+  // approximate. It must never delay or break the capability answer itself.
+  const catalog = deps.getVideoCatalogWire ? await deps.getVideoCatalogWire().catch((): null => null) : null;
   return {
     success: true,
     data: {
       hd15Available: capabilities.hd15Available === true,
       presetVoicesAvailable: capabilities.presetVoicesAvailable === true,
+      catalog,
+      catalog_source: catalog !== null && catalog.length > 0 ? 'live' : 'none',
     },
   };
 }

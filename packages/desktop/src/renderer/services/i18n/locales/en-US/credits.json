@@ -140,6 +140,10 @@
     "tierHd": "HD quality",
     "tierFast": "Fast (standard)",
     "confirm": "Continue — {{credits}} credits",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "modelChoose": "Choose model",
+    "modelShowMore": "Show more",
+    "modelEstimate": "≈ {{credits}} credits",
+    "modelApproximateNote": "Approximate prices (offline catalog)"
   }
 }

@@ -140,6 +140,10 @@
     "tierHd": "HD-Qualität",
     "tierFast": "Fast (Standard)",
     "confirm": "Fortfahren — {{credits}} Credits",
-    "cancel": "Abbrechen"
+    "cancel": "Abbrechen",
+    "modelChoose": "Modell wählen",
+    "modelShowMore": "Weitere anzeigen",
+    "modelEstimate": "≈ {{credits}} Credits",
+    "modelApproximateNote": "Richtpreise aus dem Offline-Katalog"
   }
 }

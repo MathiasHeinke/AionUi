@@ -101,14 +101,20 @@ import {
   DEFAULT_VIDEO_DURATION_SECONDS,
   DEFAULT_VIDEO_TIER_ID,
   isVideoTierAvailable,
+  legacyVideoModelIdForCatalogId,
   listAvailableVideoModels,
   MAX_VIDEO_REFERENCE_AUDIOS,
   VIDEO_PRESET_VOICES,
   type VideoModeKind,
-  type VideoModelId,
+  type VideoModelSelection,
   type VideoQualityTier,
   type VideoSeatCapabilities,
 } from '@/common/config/videoCostCore';
+import {
+  DEFAULT_VIDEO_CATALOG_MODEL_ID,
+  resolveVideoCatalog,
+  type VideoCatalogResolution,
+} from '@/common/config/videoCatalogCore';
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
 import ImageModelPill from '@/renderer/components/billing/ImageModelPill';
 import {
@@ -874,17 +880,21 @@ Please check your local CLI tool authentication status`,
   // Inline quality selection. Fast/720p until the user clicks HD — never
   // auto-upgraded, which is what keeps the "explicit upgrade" property true.
   const [videoTierId, setVideoTierId] = useState<VideoQualityTier>(DEFAULT_VIDEO_TIER_ID);
-  const [videoModelId, setVideoModelId] = useState<VideoModelId | undefined>(undefined);
+  const [videoModelId, setVideoModelId] = useState<VideoModelSelection | undefined>(undefined);
   const [videoDurationSeconds, setVideoDurationSeconds] = useState(DEFAULT_VIDEO_DURATION_SECONDS);
+  // MAT-1773 (F8) — the catalog the model dropdown shows. Starts on the bundled
+  // snapshot (approximate) and upgrades to the live server catalog the moment
+  // the capabilities answer carries one; a failed read simply keeps this.
+  const [videoCatalog, setVideoCatalog] = useState<VideoCatalogResolution>(() => resolveVideoCatalog(null));
   const handleVideoTierChange = useCallback((tierId: VideoQualityTier) => {
     setVideoTierId(tierId);
     // 1080p is a truthful shorthand for the 1.5 model; keep the two visible
     // selectors coherent instead of letting one invalidate the other.
     if (tierId === 'hd') setVideoModelId('grok-imagine-video-1.5');
   }, []);
-  const handleVideoModelChange = useCallback((modelId: VideoModelId) => {
+  const handleVideoModelChange = useCallback((modelId: VideoModelSelection) => {
     setVideoModelId(modelId);
-    if (modelId === 'grok-imagine-video') {
+    if (legacyVideoModelIdForCatalogId(modelId) === 'grok-imagine-video') {
       setVideoTierId((current) => (current === 'hd' ? DEFAULT_VIDEO_TIER_ID : current));
     }
   }, []);
@@ -983,6 +993,11 @@ Please check your local CLI tool authentication status`,
           hd15Available: response.data.hd15Available === true,
           presetVoicesAvailable: response.data.presetVoicesAvailable === true,
         });
+        // The live catalog replaces the bundled snapshot only when Main proves
+        // one; anything else keeps the fallback (marked approximate).
+        setVideoCatalog(
+          resolveVideoCatalog(response.data.catalog_source === 'live' ? (response.data.catalog ?? null) : null)
+        );
       })
       .catch(() => {
         /* fail closed: the initial all-false state stands */
@@ -1518,16 +1533,29 @@ Please check your local CLI tool authentication status`,
         const sendModeKind: VideoModeKind =
           attachedImagePaths.length === 0 ? 'text' : attachedImagePaths.length === 1 ? 'image' : 'reference';
         const selectedTier = draftRoutesToVideo ? videoTierId : DEFAULT_VIDEO_TIER_ID;
-        const selectedModel = draftRoutesToVideo ? videoModelId : undefined;
+        // MAT-1773 (F8) — with the catalog dropdown, the RESTING state is a real
+        // selection: Grok Imagine Video 1.5 stays the default. The price the pill
+        // quotes for an untouched picker must be the price the send carries, so
+        // the default resolves here too — an explicit pick always wins.
+        const selectedModel = draftRoutesToVideo ? (videoModelId ?? DEFAULT_VIDEO_CATALOG_MODEL_ID) : undefined;
+        // A catalog id naming a legacy model checks against its legacy id: the
+        // availability list folds the two spellings into one entry.
+        const normalizedSelectedModel =
+          selectedModel === undefined ? undefined : (legacyVideoModelIdForCatalogId(selectedModel) ?? selectedModel);
         const producibleModel =
-          selectedModel !== undefined &&
-          listAvailableVideoModels({ modeKind: sendModeKind, capabilities: videoCapabilities }).includes(selectedModel)
-            ? selectedModel
+          normalizedSelectedModel !== undefined &&
+          listAvailableVideoModels({
+            modeKind: sendModeKind,
+            capabilities: videoCapabilities,
+            catalog: videoCatalog.entries,
+          }).includes(normalizedSelectedModel)
+            ? normalizedSelectedModel
             : undefined;
         const producibleTier = isVideoTierAvailable(selectedTier, {
           modeKind: sendModeKind,
           ...(producibleModel === undefined ? {} : { modelId: producibleModel }),
           capabilities: videoCapabilities,
+          catalog: videoCatalog.entries,
         })
           ? selectedTier
           : DEFAULT_VIDEO_TIER_ID;
@@ -1539,6 +1567,7 @@ Please check your local CLI tool authentication status`,
             durationSeconds: draftRoutesToVideo ? videoDurationSeconds : DEFAULT_VIDEO_DURATION_SECONDS,
             modeKind: sendModeKind,
             capabilities: videoCapabilities,
+            catalog: videoCatalog.entries,
           },
           (resolved) => {
             // The ONLY provider job this send starts. An earlier revision ALSO
@@ -2545,6 +2574,8 @@ Please check your local CLI tool authentication status`,
               onDurationChange={setVideoDurationSeconds}
               modeKind={videoModeKind}
               capabilities={videoCapabilities}
+              catalogEntries={videoCatalog.entries}
+              catalogApproximate={videoCatalog.approximate}
               presetVoices={VIDEO_PRESET_VOICES}
               selectedVoiceIds={videoVoiceIds}
               onVoiceToggle={toggleVideoVoice}

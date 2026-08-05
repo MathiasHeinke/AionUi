@@ -14,7 +14,7 @@
  * here, loudly, rather than pass because "the tier is still selectable".
  */
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
@@ -35,7 +35,12 @@ vi.mock('react-i18next', () => ({
 }));
 
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
-import { DEFAULT_VIDEO_TIER_ID } from '@/common/config/videoCostCore';
+import { DEFAULT_VIDEO_TIER_ID, type VideoModelSelection, type VideoQualityTier } from '@/common/config/videoCostCore';
+import {
+  VIDEO_CATALOG_SNAPSHOT,
+  VIDEO_CATALOG_TOP5,
+  type VideoCatalogEntry,
+} from '@/common/config/videoCatalogCore';
 
 /** A seat with grok-imagine-video-1.5 proven available, and nothing else. */
 const HD15 = { hd15Available: true } as const;
@@ -286,5 +291,132 @@ describe('VideoQualityPill', () => {
     // No file input, and nothing whose test id or markup offers an upload.
     expect(pill.querySelectorAll('input[type="file"]')).toHaveLength(0);
     expect(pill.innerHTML).not.toMatch(/upload|custom.?audio/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MAT-1773 (F8) — the catalog-fed model dropdown
+// ---------------------------------------------------------------------------
+
+/** The five curated models (at their snapshot prices) plus three extras. */
+const F8_CATALOG: VideoCatalogEntry[] = [
+  ...VIDEO_CATALOG_SNAPSHOT.filter((entry) => VIDEO_CATALOG_TOP5.some((curated) => curated.id === entry.id)),
+  { id: 'minimax/hailuo-3', displayName: 'MiniMax Hailuo 3', pricePerSecondUsd: 0.13 },
+  { id: 'alibaba/wan-2.6', displayName: 'Wan 2.6', pricePerSecondUsd: 0.18 },
+  { id: 'kling/kling-v3.0-pro', displayName: 'Kling v3.0 Pro', pricePerSecondUsd: 0.45 },
+];
+
+const renderCatalogPill = (
+  overrides: Partial<React.ComponentProps<typeof VideoQualityPill>> & {
+    modelId?: VideoModelSelection;
+    onModelChange?: (modelId: VideoModelSelection) => void;
+  } = {}
+) => {
+  const props: React.ComponentProps<typeof VideoQualityPill> = {
+    visible: true,
+    value: 'fast' as VideoQualityTier,
+    onChange: vi.fn(),
+    modeKind: 'text',
+    durationSeconds: 5,
+    capabilities: HD15,
+    catalogEntries: F8_CATALOG,
+    onModelChange: vi.fn(),
+    ...overrides,
+  };
+  return { ...render(<VideoQualityPill {...props} />), props };
+};
+
+const openModelDropdown = () => {
+  fireEvent.click(screen.getByTestId('video-model-dropdown-trigger'));
+  return screen.getByTestId('video-model-dropdown');
+};
+
+describe('VideoQualityPill model dropdown (MAT-1773 F8)', () => {
+  it('renders the curated TOP-5 in order behind a native trigger, plus Weitere anzeigen', () => {
+    renderCatalogPill();
+
+    // The resting default is Grok Imagine Video 1.5, shown on the trigger.
+    expect(screen.getByTestId('video-model-dropdown-trigger').textContent).toContain('Grok Imagine Video 1.5');
+
+    const list = openModelDropdown();
+    const entries = list.querySelectorAll('[role="option"]');
+    expect(entries).toHaveLength(5);
+    expect([...entries].map((el) => el.getAttribute('data-testid'))).toEqual(
+      VIDEO_CATALOG_TOP5.map((curated) => `video-model-entry-${curated.id}`)
+    );
+
+    // Everything past the TOP-5 stays hidden behind the final entry.
+    expect(screen.getByTestId('video-model-show-more').textContent).toBe('Weitere anzeigen');
+    expect(screen.queryByTestId('video-model-entry-minimax/hailuo-3')).toBeNull();
+  });
+
+  it('expands the full catalog IN-PLACE, sorted by USD/second ascending (cheapest first)', () => {
+    renderCatalogPill();
+    const list = openModelDropdown();
+
+    fireEvent.click(screen.getByTestId('video-model-show-more'));
+
+    // No page jump, no modal: the same listbox now carries every catalog entry.
+    const entries = screen.getByTestId('video-model-dropdown').querySelectorAll('[role="option"]');
+    expect(entries).toHaveLength(F8_CATALOG.length);
+    expect(list.isConnected).toBe(true);
+
+    // The expansion beyond the TOP-5 is price-ascending, MiniMax Hailuo 3 first.
+    const beyondTestIds = [...entries].slice(5).map((el) => el.getAttribute('data-testid'));
+    expect(beyondTestIds).toEqual([
+      'video-model-entry-minimax/hailuo-3',
+      'video-model-entry-alibaba/wan-2.6',
+      'video-model-entry-kling/kling-v3.0-pro',
+    ]);
+    expect(entries[5].textContent).toContain('0,13 $/s');
+    expect(screen.queryByTestId('video-model-show-more')).toBeNull();
+  });
+
+  it('updates the credit estimate from the catalog price when a model is selected', () => {
+    const onModelChange = vi.fn();
+    const { rerender, props } = renderCatalogPill({ onModelChange });
+
+    // Default: Grok Imagine Video 1.5 at 720p = $0.14/s -> 280 credits/s -> 5s.
+    expect(screen.getByTestId('video-quality-pill-estimate').textContent).toBe('ca. 1400 Credits / 5s');
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-model', 'grok-imagine-video-1.5');
+
+    openModelDropdown();
+    fireEvent.click(screen.getByTestId('video-model-show-more'));
+    // Each row carries name + price/s + the derived estimate for 720p/5s.
+    const hailuoRow = screen.getByTestId('video-model-entry-minimax/hailuo-3');
+    expect(hailuoRow.textContent).toContain('MiniMax Hailuo 3');
+    expect(hailuoRow.textContent).toContain('0,13 $/s');
+    expect(hailuoRow.textContent).toContain('≈ 1300 Credits');
+
+    fireEvent.click(hailuoRow);
+    expect(onModelChange).toHaveBeenCalledWith('minimax/hailuo-3');
+
+    // The parent re-renders with the pick (controlled prop), and the estimate
+    // the user reads is the catalog price of the model the send will carry.
+    rerender(<VideoQualityPill {...props} modelId='minimax/hailuo-3' />);
+    expect(screen.getByTestId('video-quality-pill-estimate').textContent).toBe('ca. 1300 Credits / 5s');
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-model', 'minimax/hailuo-3');
+    expect(screen.getByTestId('video-model-dropdown-trigger').textContent).toContain('MiniMax Hailuo 3');
+  });
+
+  it('falls back to the bundled snapshot with prices marked approximate', () => {
+    renderCatalogPill({ catalogEntries: VIDEO_CATALOG_SNAPSHOT, catalogApproximate: true });
+
+    openModelDropdown();
+    expect(screen.getByTestId('video-model-approximate-note').textContent).toBe('Richtpreise aus dem Offline-Katalog');
+
+    fireEvent.click(screen.getByTestId('video-model-show-more'));
+    const entries = screen.getByTestId('video-model-dropdown').querySelectorAll('[role="option"]');
+    // The full 21-model snapshot, curated TOP-5 first, Hailuo 3 heading the rest.
+    expect(entries).toHaveLength(21);
+    expect(entries[5].getAttribute('data-testid')).toBe('video-model-entry-minimax/hailuo-3');
+  });
+
+  it('keeps the legacy two-model radio when no catalog is provided', () => {
+    renderCatalogPill({ catalogEntries: undefined, modelId: undefined });
+
+    expect(screen.getByTestId('video-model-option-grok-imagine-video')).toBeTruthy();
+    expect(screen.getByTestId('video-model-option-grok-imagine-video-1.5')).toBeTruthy();
+    expect(screen.queryByTestId('video-model-dropdown-trigger')).toBeNull();
   });
 });

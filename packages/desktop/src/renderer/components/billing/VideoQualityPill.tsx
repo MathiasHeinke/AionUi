@@ -24,20 +24,29 @@
  * `canAfford`, 402 on `insufficient_credits` / `spend_cap_exceeded`).
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   DEFAULT_VIDEO_DURATION_SECONDS,
   estimateVideoCost,
+  legacyVideoModelIdForCatalogId,
   listAvailableVideoModels,
   listAvailableVideoTiers,
   MAX_VIDEO_REFERENCE_AUDIOS,
   type VideoModeKind,
-  type VideoModelId,
+  type VideoModelSelection,
   type VideoPresetVoice,
   type VideoQualityTier,
   type VideoSeatCapabilities,
 } from '@/common/config/videoCostCore';
+import {
+  DEFAULT_VIDEO_CATALOG_MODEL_ID,
+  estimateVideoCatalogCredits,
+  formatVideoCatalogPrice,
+  listVideoCatalogBeyondTopFive,
+  resolveVideoCatalogTopFive,
+  type VideoCatalogEntry,
+} from '@/common/config/videoCatalogCore';
 import './billing.css';
 
 export interface VideoQualityPillProps {
@@ -46,8 +55,8 @@ export interface VideoQualityPillProps {
   /** Select a tier. Called on click only — never automatically. */
   onChange: (tierId: VideoQualityTier) => void;
   /** Explicit contextual model selection. Absent retains automatic routing. */
-  modelId?: VideoModelId;
-  onModelChange?: (modelId: VideoModelId) => void;
+  modelId?: VideoModelSelection;
+  onModelChange?: (modelId: VideoModelSelection) => void;
   /** Clip duration in seconds, for the credit estimate (defaults to the core's). */
   durationSeconds?: number;
   onDurationChange?: (durationSeconds: number) => void;
@@ -65,6 +74,14 @@ export interface VideoQualityPillProps {
    * which is the fail-closed reading: no 1080p, no reference mode, no voices.
    */
   capabilities?: VideoSeatCapabilities;
+  /**
+   * MAT-1773 (F8) — the video catalog the model dropdown lists (live from the
+   * capabilities endpoint, or the bundled snapshot when that read failed).
+   * Absent keeps the legacy two-model radio (back-compat for other consumers).
+   */
+  catalogEntries?: readonly VideoCatalogEntry[];
+  /** True when the entries are the fallback snapshot — prices shown as approximate. */
+  catalogApproximate?: boolean;
   /** The preset voices this seat may pick from. Rendered only when entitled. */
   presetVoices?: readonly VideoPresetVoice[];
   /** The currently selected preset voice ids (at most MAX_VIDEO_REFERENCE_AUDIOS). */
@@ -82,19 +99,37 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
   visible,
   modeKind,
   capabilities,
+  catalogEntries,
+  catalogApproximate = false,
   presetVoices,
   selectedVoiceIds,
   onVoiceToggle,
 }) => {
   const { t } = useTranslation();
+  // The model dropdown is a disclosure, not a modal: it opens IN-PLACE below
+  // the trigger, and 'Weitere anzeigen' expands the rest of the catalog inside
+  // the same list — no page jump, no overlay.
+  const [modelListOpen, setModelListOpen] = useState(false);
+  const [showAllModels, setShowAllModels] = useState(false);
 
   if (!visible) return null;
 
+  const catalog = catalogEntries !== undefined && catalogEntries.length > 0 ? catalogEntries : undefined;
   const models = listAvailableVideoModels({
     modeKind,
     ...(capabilities === undefined ? {} : { capabilities }),
+    ...(catalog === undefined ? {} : { catalog }),
   });
-  const effectiveModelId = modelId !== undefined && models.includes(modelId) ? modelId : undefined;
+  const modelAvailable = (candidate: VideoModelSelection): boolean => {
+    const normalized = legacyVideoModelIdForCatalogId(candidate) ?? candidate;
+    return models.includes(candidate) || models.includes(normalized);
+  };
+  // With a catalog the RESTING state is a real selection: Grok Imagine Video
+  // 1.5 stays the default. An explicit pick always wins; a selection the seat
+  // cannot produce falls through to the economical automatic route.
+  const requestedModelId = modelId ?? (catalog ? DEFAULT_VIDEO_CATALOG_MODEL_ID : undefined);
+  const effectiveModelId =
+    requestedModelId !== undefined && modelAvailable(requestedModelId) ? requestedModelId : undefined;
 
   // Only what this request can ACTUALLY produce for the selected model. A model
   // switch can remove 1080p immediately; an impossible stale tier is represented
@@ -103,6 +138,7 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
     modeKind,
     ...(effectiveModelId === undefined ? {} : { modelId: effectiveModelId }),
     ...(capabilities === undefined ? {} : { capabilities }),
+    ...(catalog === undefined ? {} : { catalog }),
   });
   if (tiers.length === 0) return null;
   const effectiveTier = tiers.find((tier) => tier.id === value) ?? tiers.find((tier) => tier.isDefault) ?? tiers[0];
@@ -116,6 +152,7 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
     ...(effectiveModelId === undefined ? {} : { modelId: effectiveModelId }),
     ...(durationSeconds === undefined ? {} : { durationSeconds }),
     ...(capabilities === undefined ? {} : { capabilities }),
+    ...(catalog === undefined ? {} : { catalog }),
   });
   if (preview === undefined) return null;
 
@@ -129,6 +166,55 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
   const showVoices = modeKind === 'reference' && capabilities?.presetVoicesAvailable === true && voices.length > 0;
   const chosenVoiceIds = selectedVoiceIds ?? [];
 
+  // The catalog halves of the dropdown: the curated TOP-5 in their fixed order,
+  // and everything else sorted by USD/second ascending behind 'Weitere anzeigen'.
+  const topFive = catalog ? resolveVideoCatalogTopFive(catalog) : [];
+  const beyondTopFive = catalog ? listVideoCatalogBeyondTopFive(catalog) : [];
+  const currentCatalogEntry = catalog?.find(
+    (entry) => entry.id === preview.plan.model || legacyVideoModelIdForCatalogId(entry.id) === preview.plan.model
+  );
+  const priceForEntry = (entry: VideoCatalogEntry): number =>
+    entry.pricesByResolution?.[effectiveTier.resolution] ?? entry.pricePerSecondUsd;
+
+  const renderCatalogEntry = (entry: VideoCatalogEntry) => {
+    const selected = currentCatalogEntry?.id === entry.id;
+    const estimate = estimateVideoCatalogCredits({
+      entry,
+      resolution: effectiveTier.resolution,
+      durationSeconds: preview.plan.durationSeconds,
+    });
+    return (
+      <button
+        key={entry.id}
+        type='button'
+        role='option'
+        aria-selected={selected}
+        disabled={estimate === undefined}
+        // Rendered via a helper, so the owning listbox is declared for the
+        // static interaction-semantics check (its escape hatch for exactly
+        // this shape) instead of being visible in the JSX tree.
+        data-eve-composite-owner='listbox'
+        className={`video-quality-pill__model-entry${selected ? ' is-selected' : ''}`}
+        data-testid={`video-model-entry-${entry.id}`}
+        onClick={() => {
+          onModelChange?.(entry.id);
+          setModelListOpen(false);
+        }}
+      >
+        <span className='video-quality-pill__model-name'>{entry.displayName}</span>
+        <span className='video-quality-pill__model-price'>{formatVideoCatalogPrice(priceForEntry(entry))}</span>
+        {estimate !== undefined && (
+          <span className='video-quality-pill__model-estimate'>
+            {t('credits.video.modelEstimate', {
+              defaultValue: '≈ {{credits}} Credits',
+              credits: estimate.credits,
+            })}
+          </span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <div
       className='video-quality-pill'
@@ -138,7 +224,57 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
       data-model={preview.plan.model}
       data-duration-seconds={preview.plan.durationSeconds}
     >
-      {onModelChange && models.length > 1 ? (
+      {onModelChange && catalog ? (
+        <div className='video-quality-pill__group' data-testid='video-model-group'>
+          <span className='video-quality-pill__label'>{t('credits.video.modelLabel', { defaultValue: 'Modell' })}</span>
+          <div className='video-quality-pill__model-dropdown'>
+            <button
+              type='button'
+              className='video-quality-pill__option video-quality-pill__model-trigger'
+              data-testid='video-model-dropdown-trigger'
+              aria-haspopup='listbox'
+              aria-expanded={modelListOpen}
+              aria-label={t('credits.video.modelChoose', { defaultValue: 'Modell wählen' })}
+              onClick={() => setModelListOpen((open) => !open)}
+            >
+              {currentCatalogEntry ? currentCatalogEntry.displayName : preview.plan.model}
+              {' · '}
+              {formatVideoCatalogPrice(
+                currentCatalogEntry ? priceForEntry(currentCatalogEntry) : preview.plan.usdPerSecond
+              )}
+              {' ▾'}
+            </button>
+            {modelListOpen && (
+              <div
+                className='video-quality-pill__model-list'
+                role='listbox'
+                aria-label={t('credits.video.modelChoose', { defaultValue: 'Modell wählen' })}
+                data-testid='video-model-dropdown'
+              >
+                {topFive.map(renderCatalogEntry)}
+                {!showAllModels && beyondTopFive.length > 0 && (
+                  <button
+                    type='button'
+                    className='video-quality-pill__model-show-more'
+                    data-testid='video-model-show-more'
+                    onClick={() => setShowAllModels(true)}
+                  >
+                    {t('credits.video.modelShowMore', { defaultValue: 'Weitere anzeigen' })}
+                  </button>
+                )}
+                {showAllModels && beyondTopFive.map(renderCatalogEntry)}
+                {catalogApproximate && (
+                  <div className='video-quality-pill__model-note' data-testid='video-model-approximate-note'>
+                    {t('credits.video.modelApproximateNote', {
+                      defaultValue: 'Richtpreise aus dem Offline-Katalog',
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : onModelChange && models.length > 1 ? (
         <div className='video-quality-pill__group' data-testid='video-model-group'>
           <span className='video-quality-pill__label'>{t('credits.video.modelLabel', { defaultValue: 'Modell' })}</span>
           <div
@@ -167,7 +303,9 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
       ) : null}
 
       <div className='video-quality-pill__group'>
-        <span className='video-quality-pill__label'>{t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}</span>
+        <span className='video-quality-pill__label'>
+          {t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}
+        </span>
         <div
           className='video-quality-pill__options'
           role='radiogroup'
@@ -194,7 +332,9 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
 
       {onDurationChange ? (
         <div className='video-quality-pill__group' data-testid='video-duration-group'>
-          <span className='video-quality-pill__label'>{t('credits.video.durationLabel', { defaultValue: 'Dauer' })}</span>
+          <span className='video-quality-pill__label'>
+            {t('credits.video.durationLabel', { defaultValue: 'Dauer' })}
+          </span>
           <div
             className='video-quality-pill__options'
             role='radiogroup'

@@ -36,11 +36,12 @@ import {
   buildVideoSubmitGate,
   estimateVideoCost,
   type VideoModeKind,
-  type VideoModelId,
+  type VideoModelSelection,
   type VideoPlan,
   type VideoQualityTier,
   type VideoSeatCapabilities,
 } from '@/common/config/videoCostCore';
+import type { VideoCatalogEntry } from '@/common/config/videoCatalogCore';
 
 /**
  * What the caller's submit receives: the resolved tier, the estimate — and the
@@ -71,9 +72,11 @@ export interface VideoCostWallState {
     request: {
       durationSeconds?: number;
       tierId?: VideoQualityTier;
-      modelId?: VideoModelId;
+      modelId?: VideoModelSelection;
       modeKind: VideoModeKind;
       capabilities?: VideoSeatCapabilities;
+      /** The server video catalog (MAT-1773 F8) — needed to price catalog models. */
+      catalog?: readonly VideoCatalogEntry[];
     },
     run: VideoRun,
     onCancel?: VideoCancel
@@ -86,9 +89,11 @@ export function useVideoCostWall(): VideoCostWallState {
       request: {
         durationSeconds?: number;
         tierId?: VideoQualityTier;
-        modelId?: VideoModelId;
+        modelId?: VideoModelSelection;
         modeKind: VideoModeKind;
         capabilities?: VideoSeatCapabilities;
+        /** The server video catalog (MAT-1773 F8) — needed to price catalog models. */
+        catalog?: readonly VideoCatalogEntry[];
       },
       run: VideoRun,
       onCancel?: VideoCancel
@@ -104,6 +109,7 @@ export function useVideoCostWall(): VideoCostWallState {
         ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
         ...(request.durationSeconds === undefined ? {} : { durationSeconds: request.durationSeconds }),
         ...(request.capabilities === undefined ? {} : { capabilities: request.capabilities }),
+        ...(request.catalog === undefined ? {} : { catalog: request.catalog }),
       });
 
       // Fail-closed on anything the gate refuses, and on a request with no

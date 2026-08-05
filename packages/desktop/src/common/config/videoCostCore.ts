@@ -69,6 +69,8 @@
  * unit-testable in plain Node, mirroring `creditsCore.ts` / `eveInferenceCore.ts`.
  */
 
+import type { VideoCatalogEntry } from './videoCatalogCore';
+
 // ---------------------------------------------------------------------------
 // Tiers (Fast/720p default; 1080p = explicit upgrade)
 // ---------------------------------------------------------------------------
@@ -84,6 +86,33 @@ export type VideoModelId = 'grok-imagine-video' | 'grok-imagine-video-1.5';
 
 /** Stable order for the contextual model picker: economical first, premium second. */
 export const VIDEO_MODEL_IDS: readonly VideoModelId[] = ['grok-imagine-video', 'grok-imagine-video-1.5'] as const;
+
+/**
+ * A model the picker may carry: one of the two established xAI ids OR any id
+ * from the server video catalog (MAT-1773 F8 — e.g. `google/veo-3.1`). Widened
+ * from the bare union when the picker became catalog-fed; the legacy ids keep
+ * their proven price table and capability gates.
+ */
+export type VideoModelSelection = VideoModelId | (string & {});
+
+const LEGACY_VIDEO_MODEL_IDS: ReadonlySet<string> = new Set(VIDEO_MODEL_IDS);
+
+/** Type guard for the two established xAI ids. */
+export function isLegacyVideoModelId(model: string): model is VideoModelId {
+  return LEGACY_VIDEO_MODEL_IDS.has(model);
+}
+
+/**
+ * Map a catalog id back to a legacy xAI id when it NAMES one of the two
+ * established models (`x-ai/grok-imagine-video-1.5` → `grok-imagine-video-1.5`).
+ * The legacy models keep their proven price table and capability gates; only
+ * genuinely NEW models price from the catalog. Canonical home is here so the
+ * catalog core can reuse it without a circular import.
+ */
+export function legacyVideoModelIdForCatalogId(catalogId: string): VideoModelId | null {
+  const slug = catalogId.includes('/') ? catalogId.slice(catalogId.lastIndexOf('/') + 1) : catalogId;
+  return isLegacyVideoModelId(slug) ? slug : null;
+}
 
 /**
  * The four ways a clip can be produced. They are ALTERNATIVES, not flags: see
@@ -353,7 +382,13 @@ export interface VideoPlan {
   modeKind: VideoModeKind;
   tierId: VideoQualityTier;
   resolution: VideoResolution;
-  model: VideoModelId;
+  /**
+   * The model the render will use: a legacy xAI id, or a server-catalog id for
+   * the newer catalog models (MAT-1773 F8). A catalog id that names a legacy
+   * model is NORMALIZED back to the legacy id here, so the wire keeps the id
+   * the gateway already knows.
+   */
+  model: VideoModelSelection;
   usdPerSecond: number;
   creditsPerSecond: number;
   durationSeconds: number;
@@ -395,9 +430,15 @@ export function resolveVideoPlan(input: {
   modeKind: VideoModeKind;
   tierId?: VideoQualityTier;
   /** Explicit user selection. Absent preserves the economical automatic route. */
-  modelId?: VideoModelId;
+  modelId?: VideoModelSelection;
   durationSeconds?: number;
   capabilities?: VideoSeatCapabilities;
+  /**
+   * The server video catalog (MAT-1773 F8). Required to price a model id the
+   * legacy table does not know; without it an unknown id is refused, which is
+   * the fail-closed reading of "no proven price".
+   */
+  catalog?: readonly VideoCatalogEntry[];
 }): VideoPlanResult {
   const requestedTier = getVideoTier(input.tierId);
   const hd15 = input.capabilities?.hd15Available === true;
@@ -414,7 +455,12 @@ export function resolveVideoPlan(input: {
   }
 
   const automaticModel = videoModelFor(input.modeKind, tier.resolution);
-  const model = input.modelId ?? automaticModel;
+  // A catalog id that NAMES one of the two established xAI models resolves
+  // through the proven legacy path — the legacy table answers the price and
+  // the wire keeps the id the gateway knows. Only genuinely NEW catalog models
+  // price from the server catalog entry.
+  const requestedLegacy = input.modelId === undefined ? undefined : legacyVideoModelIdForCatalogId(input.modelId);
+  const model = requestedLegacy ?? input.modelId ?? automaticModel;
   // Reference generation exists only on 1.5; edit stays on the established
   // edit-capable base model. Those are provider contracts, not preferences.
   if (input.modeKind === 'reference' && model !== 'grok-imagine-video-1.5') {
@@ -425,7 +471,20 @@ export function resolveVideoPlan(input: {
   }
   if (model === 'grok-imagine-video-1.5' && !hd15) return { ok: false, reason: 'video-tier-unavailable' };
 
-  const usdPerSecond = VIDEO_MODEL_USD_PER_SECOND[model][tier.resolution];
+  let usdPerSecond: number | undefined;
+  if (isLegacyVideoModelId(model)) {
+    usdPerSecond = VIDEO_MODEL_USD_PER_SECOND[model][tier.resolution];
+  } else {
+    // A catalog-only model: the server catalog entry is the ONLY price source,
+    // and its documented resolution bounds are honoured when it has any — a
+    // price for a render the model cannot produce is a promise, not an offer.
+    const entry = input.catalog?.find((candidate) => candidate.id === model);
+    if (!entry) return { ok: false, reason: 'video-model-unavailable' };
+    if (entry.resolutions && !entry.resolutions.includes(tier.resolution)) {
+      return { ok: false, reason: 'video-tier-unavailable' };
+    }
+    usdPerSecond = entry.pricesByResolution?.[tier.resolution] ?? entry.pricePerSecondUsd;
+  }
   // Unreachable for every pair the routing above can produce, and checked anyway:
   // a missing rate must never become a free render.
   if (usdPerSecond === undefined) {
@@ -462,8 +521,10 @@ export function resolveVideoPlan(input: {
 /** What the caller knows about the pending request when choosing a tier. */
 export interface VideoTierAvailability {
   modeKind: VideoModeKind;
-  modelId?: VideoModelId;
+  modelId?: VideoModelSelection;
   capabilities?: VideoSeatCapabilities;
+  /** The server video catalog (MAT-1773 F8) — needed to price catalog models. */
+  catalog?: readonly VideoCatalogEntry[];
 }
 
 /**
@@ -484,16 +545,23 @@ export function listAvailableVideoTiers(availability: VideoTierAvailability): re
         tierId: tier.id,
         ...(availability.modelId === undefined ? {} : { modelId: availability.modelId }),
         ...(availability.capabilities === undefined ? {} : { capabilities: availability.capabilities }),
+        ...(availability.catalog === undefined ? {} : { catalog: availability.catalog }),
       }).ok === true
   );
 }
 
-/** The models that can genuinely produce at least one tier for this request. */
+/**
+ * The models that can genuinely produce at least one tier for this request:
+ * the established xAI ids PLUS every server-catalog entry that resolves
+ * (MAT-1773 F8). Catalog ids naming a legacy model fold into it, so the list
+ * cannot carry the same model twice under two spellings.
+ */
 export function listAvailableVideoModels(availability: {
   modeKind: VideoModeKind;
   capabilities?: VideoSeatCapabilities;
-}): readonly VideoModelId[] {
-  return VIDEO_MODEL_IDS.filter((modelId) =>
+  catalog?: readonly VideoCatalogEntry[];
+}): readonly VideoModelSelection[] {
+  const producible = (modelId: VideoModelSelection): boolean =>
     tiersForMode(availability.modeKind).some(
       (tier) =>
         resolveVideoPlan({
@@ -501,9 +569,17 @@ export function listAvailableVideoModels(availability: {
           tierId: tier.id,
           modelId,
           ...(availability.capabilities === undefined ? {} : { capabilities: availability.capabilities }),
+          ...(availability.catalog === undefined ? {} : { catalog: availability.catalog }),
         }).ok === true
-    )
-  );
+    );
+
+  const models: VideoModelSelection[] = VIDEO_MODEL_IDS.filter(producible);
+  for (const entry of availability.catalog ?? []) {
+    // Legacy-named catalog entries are already represented by their legacy id.
+    if (legacyVideoModelIdForCatalogId(entry.id) !== null) continue;
+    if (producible(entry.id)) models.push(entry.id);
+  }
+  return models;
 }
 
 /**
@@ -550,7 +626,7 @@ export interface VideoCostRequest {
   /** Selected quality tier (defaults to the Fast/720p default tier). */
   tierId?: VideoQualityTier;
   /** Explicit contextual model choice. Absent keeps the economical automatic route. */
-  modelId?: VideoModelId;
+  modelId?: VideoModelSelection;
   /**
    * The mode the render will ACTUALLY use. REQUIRED, and that is the point of
    * item E: an estimate that does not know the mode cannot know the model, and an
@@ -560,6 +636,8 @@ export interface VideoCostRequest {
    */
   modeKind: VideoModeKind;
   capabilities?: VideoSeatCapabilities;
+  /** The server video catalog (MAT-1773 F8) — needed to price catalog models. */
+  catalog?: readonly VideoCatalogEntry[];
 }
 
 export interface VideoCostPreview {
@@ -591,6 +669,7 @@ export function estimateVideoCost(request: VideoCostRequest): VideoCostPreview |
     ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
     ...(request.durationSeconds === undefined ? {} : { durationSeconds: request.durationSeconds }),
     ...(request.capabilities === undefined ? {} : { capabilities: request.capabilities }),
+    ...(request.catalog === undefined ? {} : { catalog: request.catalog }),
   });
   if (resolved.ok === false) return undefined;
   const plan = resolved.plan;
