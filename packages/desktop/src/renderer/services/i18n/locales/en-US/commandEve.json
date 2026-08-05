@@ -7,7 +7,8 @@
     "activeSeat": "{{name}} (active)",
     "switchWhileGeneratingTitle": "A response is still running",
     "switchWhileGeneratingBody": "Switching seats aborts and discards the running response. Switch anyway?",
-    "switchAnyway": "Switch anyway"
+    "switchAnyway": "Switch anyway",
+    "reauth": "Sign in again to load your seats"
   },
   "authority": {
     "notConfirmedYet": "This setting came from an older version and you never confirmed it. Have a look.",

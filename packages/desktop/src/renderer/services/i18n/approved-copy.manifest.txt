@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7084
+# entries: 7086
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -519,6 +519,7 @@ copy	1	de-DE/commandEve.json	EVE fragt vor jeder Änderung. Du siehst jeden Schr
 copy	1	de-DE/commandEve.json	EVE liest und schreibt in deinem Arbeitsordner. Für Befehle fragt sie.
 copy	1	de-DE/commandEve.json	EVE liest, denkt mit und schlägt vor. Sie ändert nichts, auch nichts Freigegebenes.
 copy	1	de-DE/commandEve.json	Eine Stufe. Sie regelt die alltäglichen Entscheidungen — nicht die heiklen darunter.
+copy	1	de-DE/commandEve.json	Erneut anmelden, um Kundenplätze zu laden
 copy	1	de-DE/commandEve.json	Fragen
 copy	1	de-DE/commandEve.json	Geld ausgeben
 copy	1	de-DE/commandEve.json	Höchstens pro Tag
@@ -4056,6 +4057,7 @@ copy	1	en-US/commandEve.json	Publish and send
 copy	1	en-US/commandEve.json	Read credentials
 copy	1	en-US/commandEve.json	Routine
 copy	1	en-US/commandEve.json	See secrets and keys in clear text.
+copy	1	en-US/commandEve.json	Sign in again to load your seats
 copy	1	en-US/commandEve.json	Spend money
 copy	1	en-US/commandEve.json	Switch anyway
 copy	1	en-US/commandEve.json	Switching seats aborts and discards the running response. Switch anyway?

@@ -39,6 +39,7 @@ import {
   type MySeatsContract,
   type SeatAccess,
 } from '@process/commandEve/seatSwitchCore';
+import { type MySeatsWireFailure } from '@process/commandEve/seatWireFetchCore';
 
 /**
  * Where the last my-seats resolution came from (MAT-1773 diagnostics):
@@ -58,6 +59,14 @@ export interface SeatAccessState {
    * surfaces here so the settings UI can show an honest hint instead of the rail
    * silently vanishing. */
   mySeatsSource: MySeatsSource | null;
+  /**
+   * WHY the last read failed, from the main-process envelope (null on a live
+   * read or when the main predates the field). A { kind:'session' } failure
+   * with a REFRESH_HTTP_x / KEYCHAIN_x / SESSION_x reasonCode is a DEAD stored
+   * session — recoverable by re-login (isDeadSessionFailure), which is what
+   * the rail's recovery affordance keys on.
+   */
+  mySeatsWireError: MySeatsWireFailure | null;
   /** True while a switch IPC is in flight (the UI shows a "restarting EVE…" state). */
   switching: boolean;
   /** Reason code of the last failed switch (e.g. SWITCH_SEAT_FORBIDDEN), else null. */
@@ -82,6 +91,7 @@ export function useSeatAccess(): SeatAccessState {
   const [loading, setLoading] = useState(true);
   const [access, setAccess] = useState<SeatAccess>(FAIL_CLOSED_ACCESS);
   const [mySeatsSource, setMySeatsSource] = useState<MySeatsSource | null>(null);
+  const [mySeatsWireError, setMySeatsWireError] = useState<MySeatsWireFailure | null>(null);
   const [switching, setSwitching] = useState(false);
   const [lastSwitchError, setLastSwitchError] = useState<string | null>(null);
   // A monotonic nonce bumped on EVERY failure alongside lastSwitchError. A toast
@@ -212,6 +222,7 @@ export function useSeatAccess(): SeatAccessState {
     try {
       const response = await commandEve.mySeats.invoke();
       const contract = response?.data?.contract ?? null;
+      const wireError = (response?.data?.wire_error ?? null) as MySeatsWireFailure | null;
       // LIVE read: any response carrying a real contract that is NOT the bridge's
       // explicit legacy fail-closed envelope. (Version-skew tolerant: an older
       // main without the `source` field still counts as live.)
@@ -222,6 +233,7 @@ export function useSeatAccess(): SeatAccessState {
         if (mountedRef.current) {
           setAccess(resolved);
           setMySeatsSource('my_seats');
+          setMySeatsWireError(null);
         }
         return resolved;
       }
@@ -232,6 +244,7 @@ export function useSeatAccess(): SeatAccessState {
       if (mountedRef.current) {
         setAccess(fallback);
         setMySeatsSource('legacy_fallback');
+        setMySeatsWireError(wireError);
       }
       return fallback;
     } catch (error) {
@@ -396,5 +409,5 @@ export function useSeatAccess(): SeatAccessState {
     [access, refresh, flagSwitchError]
   );
 
-  return { loading, access, mySeatsSource, switching, lastSwitchError, switchErrorNonce, refresh, switchTo };
+  return { loading, access, mySeatsSource, mySeatsWireError, switching, lastSwitchError, switchErrorNonce, refresh, switchTo };
 }

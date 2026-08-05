@@ -209,7 +209,10 @@ import {
   sanitizeSeatId,
 } from '@process/commandEve/seatContextCore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
-import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
+import {
+  readMySeatsWire as readMySeatsWireCore,
+  type MySeatsWireFailure,
+} from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
 import { COMMAND_EVE_HANDOVER_NOTE_RELPATH, HANDOVER_NOTE_MAX_RAW_CHARS } from '@/common/config/startscreenNoteCore';
 import nodePath from 'node:path';
@@ -355,7 +358,15 @@ function readE2ESyntheticSeatRoster(): unknown | null {
 }
 
 async function readMySeatsWire(): Promise<unknown | null> {
-  return readE2ESyntheticSeatRoster() ?? readMySeatsWireCore(getDataPath());
+  const synthetic = readE2ESyntheticSeatRoster();
+  if (synthetic) return synthetic;
+  const wire = await readMySeatsWireCore(getDataPath(), {
+    onFailure: (failure) => {
+      commandEveMySeatsWireFailure = failure;
+    },
+  });
+  if (wire !== null) commandEveMySeatsWireFailure = null;
+  return wire;
 }
 
 /**
@@ -521,6 +532,12 @@ let commandEveSwitchSeatEpoch = 0;
 // function not deployed) into `null`; without this log the founder's invisible
 // rail left NO trace anywhere.
 let commandEveMySeatsWireDown = false;
+// The WHY behind the current down-state (MAT-1773 follow-up): the wire reader
+// reports every null with a typed failure (session/network/http/malformed), so
+// the fallback envelope can carry it to the renderer — a DEAD account session
+// (re-login recovers it) is then distinguishable from a transient read failure
+// instead of both hiding the rail identically and silently.
+let commandEveMySeatsWireFailure: MySeatsWireFailure | null = null;
 // WATCHDOG bound for the lock — a pure LIVENESS BACKSTOP, not a completion guarantee.
 // If applySeatSwitch's await never settles (a hung re-spawn whose start() never binds
 // its port), the finally never runs and the lock would stay true for the whole session,
@@ -3995,18 +4012,28 @@ export function initCommandEveBridge(): void {
       const wire = await readMySeatsWire();
       if (!wire) {
         // No my-seats source live yet ⇒ fail-closed single legacy seat.
-        // MAT-1773: log the transition — the wire reader swallows the concrete
-        // cause (no session / offline / non-2xx / malformed / timeout / function
-        // not deployed), so this is the ONLY main-side trace of a hidden rail.
+        // MAT-1773: log the transition — and now NAME the cause. The typed
+        // failure travels in the envelope too (wire_error), so the renderer can
+        // tell a DEAD account session (re-login recovers the rail) from a
+        // transient read failure.
         if (!commandEveMySeatsWireDown) {
           commandEveMySeatsWireDown = true;
           console.warn(
-            '[Command EVE] my-seats wire unavailable — fail-closed legacy contract ' +
-              '(no stored session, offline, non-2xx/401, malformed body, timeout, or the edge function is not deployed). ' +
-              'The SeatRail falls back to local admin evidence in the renderer.'
+            `[Command EVE] my-seats wire unavailable — fail-closed legacy contract. Cause: ${
+              JSON.stringify(commandEveMySeatsWireFailure ?? { kind: 'unknown' })
+            }. The SeatRail falls back to local admin evidence in the renderer.`
           );
         }
-        return { success: true, data: { version, ok: true, contract: legacyContract, source: 'legacy_fallback' } };
+        return {
+          success: true,
+          data: {
+            version,
+            ok: true,
+            contract: legacyContract,
+            source: 'legacy_fallback',
+            wire_error: commandEveMySeatsWireFailure,
+          },
+        };
       }
       const parsed = parseMySeats(wire);
       if (!parsed) {
@@ -4018,19 +4045,37 @@ export function initCommandEveBridge(): void {
             typeof wire === 'object' && wire !== null ? Object.keys(wire).join(',') : typeof wire
           }. Fail-closed legacy contract.`
         );
-        return { success: true, data: { version, ok: true, contract: legacyContract, source: 'legacy_fallback' } };
+        return {
+          success: true,
+          data: {
+            version,
+            ok: true,
+            contract: legacyContract,
+            source: 'legacy_fallback',
+            wire_error: { kind: 'malformed' } satisfies MySeatsWireFailure,
+          },
+        };
       }
       if (commandEveMySeatsWireDown) {
         commandEveMySeatsWireDown = false;
         console.info('[Command EVE] my-seats wire read recovered — live contract restored.');
       }
-      return { success: true, data: { version, ok: true, contract: parsed, source: 'my_seats' } };
+      return {
+        success: true,
+        data: { version, ok: true, contract: parsed, source: 'my_seats', wire_error: null },
+      };
     } catch (error) {
       // ANY failure ⇒ fail-closed single legacy seat (never widen on error).
       return {
         success: true,
         msg: error instanceof Error ? error.message : undefined,
-        data: { version, ok: true, contract: legacyContract, source: 'legacy_fallback' },
+        data: {
+          version,
+          ok: true,
+          contract: legacyContract,
+          source: 'legacy_fallback',
+          wire_error: commandEveMySeatsWireFailure,
+        },
       };
     }
   });

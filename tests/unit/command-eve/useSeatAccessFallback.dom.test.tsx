@@ -255,3 +255,33 @@ describe('useSeatAccess — MAT-1773 last-good snapshot lifecycle (live reads)',
     expect(configSetMock).not.toHaveBeenCalled();
   });
 });
+
+describe('useSeatAccess — wire_error surfacing (dead-session recovery signal)', () => {
+  it('a legacy_fallback envelope carrying a session failure surfaces it as mySeatsWireError', async () => {
+    // THE founder's envelope: the read died on a rejected refresh, main names
+    // it, and the rail's re-auth affordance keys on exactly this value.
+    const envelope = legacyFallback() as { data: Record<string, unknown> };
+    envelope.data.wire_error = { kind: 'session', reasonCode: 'REFRESH_HTTP_400' };
+    mySeatsInvoke.mockResolvedValue(envelope);
+    const { latest } = await mountAndSettle();
+
+    expect(latest().mySeatsSource).toBe('legacy_fallback');
+    expect(latest().mySeatsWireError).toEqual({ kind: 'session', reasonCode: 'REFRESH_HTTP_400' });
+    // The posture itself is unchanged: no local evidence ⇒ fail-closed delegate.
+    expect(latest().access.role).toBe('delegate');
+  });
+
+  it('an envelope WITHOUT wire_error (older main) surfaces null, and a live read clears it', async () => {
+    mySeatsInvoke.mockResolvedValue(legacyFallback());
+    const { latest } = await mountAndSettle();
+    expect(latest().mySeatsWireError).toBeNull();
+
+    mySeatsInvoke.mockResolvedValue(liveContract('admin'));
+    await act(async () => {
+      await latest().refresh();
+    });
+    expect(latest().mySeatsSource).toBe('my_seats');
+    expect(latest().mySeatsWireError).toBeNull();
+    expect(latest().access.role).toBe('admin');
+  });
+});

@@ -7,7 +7,8 @@
     "activeSeat": "{{name}} (aktiv)",
     "switchWhileGeneratingTitle": "Antwort läuft noch",
     "switchWhileGeneratingBody": "Beim Seat-Wechsel wird die laufende Antwort abgebrochen und verworfen. Trotzdem wechseln?",
-    "switchAnyway": "Trotzdem wechseln"
+    "switchAnyway": "Trotzdem wechseln",
+    "reauth": "Erneut anmelden, um Kundenplätze zu laden"
   },
   "authority": {
     "notConfirmedYet": "Diese Einstellung stammt noch aus einer älteren Version und wurde von dir nie bestätigt. Sieh sie einmal durch.",

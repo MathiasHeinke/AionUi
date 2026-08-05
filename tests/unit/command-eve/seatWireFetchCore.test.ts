@@ -22,6 +22,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  isDeadSessionFailure,
   readMySeatsWire,
   MY_SEATS_FUNCTION_URL,
   type ReadMySeatsWireDeps,
@@ -254,5 +255,99 @@ describe('H7 — stalled BODY read is aborted (never parks the switch lock)', ()
     )) as Record<string, unknown>;
     expect(wire).not.toBeNull();
     expect((wire.account as Record<string, unknown>).id).toBe('acc1');
+  });
+});
+
+describe('readMySeatsWire — failure naming (onFailure, the invisible-rail diagnosis)', () => {
+  it('a dead/expired session resolver reports { kind: session, reasonCode } and never fetches', async () => {
+    // THE founder's case: a stored session whose refresh is rejected collapses
+    // the read to null BEFORE any network call — and must now SAY so.
+    const fetchMock = vi.fn();
+    const onFailure = vi.fn();
+    const wire = await readMySeatsWire(
+      USER_DATA,
+      baseDeps({
+        fetch: fetchMock as unknown as typeof fetch,
+        onFailure,
+        getFreshSession: vi.fn(async () => ({ ok: false, reason_code: 'REFRESH_HTTP_400' })),
+      })
+    );
+    expect(wire).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onFailure).toHaveBeenCalledTimes(1);
+    expect(onFailure).toHaveBeenCalledWith({ kind: 'session', reasonCode: 'REFRESH_HTTP_400' });
+  });
+
+  it('a missing session (genuine no-account install) reports NO_SESSION', async () => {
+    const onFailure = vi.fn();
+    await readMySeatsWire(USER_DATA, baseDeps({ onFailure, getFreshSession: vi.fn(async () => ({ ok: false })) }));
+    expect(onFailure).toHaveBeenCalledWith({ kind: 'session', reasonCode: 'NO_SESSION' });
+  });
+
+  it('an offline/abort fetch reports { kind: network }', async () => {
+    const onFailure = vi.fn();
+    const wire = await readMySeatsWire(
+      USER_DATA,
+      baseDeps({
+        onFailure,
+        fetch: vi.fn(async () => {
+          throw new Error('offline');
+        }) as unknown as typeof fetch,
+      })
+    );
+    expect(wire).toBeNull();
+    expect(onFailure).toHaveBeenCalledWith({ kind: 'network' });
+  });
+
+  it('a non-2xx reports { kind: http, status }', async () => {
+    const onFailure = vi.fn();
+    const wire = await readMySeatsWire(
+      USER_DATA,
+      baseDeps({ onFailure, fetch: vi.fn(async () => statusResponse(500)) as unknown as typeof fetch })
+    );
+    expect(wire).toBeNull();
+    expect(onFailure).toHaveBeenCalledWith({ kind: 'http', status: 500 });
+  });
+
+  it('a defensive 2xx ok:false reports { kind: malformed }', async () => {
+    const onFailure = vi.fn();
+    const wire = await readMySeatsWire(
+      USER_DATA,
+      baseDeps({ onFailure, fetch: vi.fn(async () => okResponse({ ok: false })) as unknown as typeof fetch })
+    );
+    expect(wire).toBeNull();
+    expect(onFailure).toHaveBeenCalledWith({ kind: 'malformed' });
+  });
+
+  it('a successful read never calls onFailure', async () => {
+    const onFailure = vi.fn();
+    const wire = await readMySeatsWire(
+      USER_DATA,
+      baseDeps({ onFailure, fetch: vi.fn(async () => okResponse(edgeBody())) as unknown as typeof fetch })
+    );
+    expect(wire).not.toBeNull();
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+});
+
+describe('isDeadSessionFailure — which failures a fresh sign-in repairs', () => {
+  it('a rejected refresh is a dead session (recoverable by re-login)', () => {
+    expect(isDeadSessionFailure({ kind: 'session', reasonCode: 'REFRESH_HTTP_400' })).toBe(true);
+    expect(isDeadSessionFailure({ kind: 'session', reasonCode: 'REFRESH_HTTP_401' })).toBe(true);
+    expect(isDeadSessionFailure({ kind: 'session', reasonCode: 'REFRESH_BAD_SESSION' })).toBe(true);
+    expect(isDeadSessionFailure({ kind: 'session', reasonCode: 'KEYCHAIN_DECRYPT_FAILED' })).toBe(true);
+    expect(isDeadSessionFailure({ kind: 'session', reasonCode: 'SESSION_SHAPE_INVALID' })).toBe(true);
+  });
+
+  it('never-had-a-session, offline, transient and unknown failures are NOT re-auth cases', () => {
+    expect(isDeadSessionFailure({ kind: 'session', reasonCode: 'NO_SESSION' })).toBe(false);
+    expect(isDeadSessionFailure({ kind: 'session', reasonCode: 'REFRESH_NETWORK' })).toBe(false);
+    expect(isDeadSessionFailure({ kind: 'session', reasonCode: 'UNEXPECTED_THROW' })).toBe(false);
+    expect(isDeadSessionFailure({ kind: 'session' })).toBe(false);
+    expect(isDeadSessionFailure({ kind: 'network' })).toBe(false);
+    expect(isDeadSessionFailure({ kind: 'http', status: 503 })).toBe(false);
+    expect(isDeadSessionFailure({ kind: 'malformed' })).toBe(false);
+    expect(isDeadSessionFailure(null)).toBe(false);
+    expect(isDeadSessionFailure(undefined)).toBe(false);
   });
 });

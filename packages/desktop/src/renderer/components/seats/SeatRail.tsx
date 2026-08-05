@@ -25,7 +25,7 @@
  * fresh read, so the rail is defense-in-depth display, not the boundary.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Message, Modal, Tooltip } from '@arco-design/web-react';
 import { ExpandLeft, ExpandRight, Plus } from '@icon-park/react';
 import {
@@ -37,6 +37,8 @@ import CommandEveGlyph from '@renderer/components/commandEve/CommandEveGlyph';
 import { useTranslation } from 'react-i18next';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
 import { openAccountWeb } from '@renderer/utils/platform';
+import { commandEve } from '@/common/adapter/ipcBridge';
+import { isDeadSessionFailure } from '@process/commandEve/seatWireFetchCore';
 import '@renderer/styles/seatRail.css';
 
 // A fixed palette. The seat's color is deterministic from its id (FNV-1a hash) so the
@@ -146,11 +148,34 @@ export interface SeatRailProps {
 
 const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
   const { t } = useTranslation();
-  const { loading, access, switching, switchTo, lastSwitchError, switchErrorNonce } = useSeatAccess();
+  const { loading, access, switching, switchTo, lastSwitchError, switchErrorNonce, mySeatsWireError, refresh } =
+    useSeatAccess();
   const [expanded, setExpanded] = useState(true);
+  const [reauthenticating, setReauthenticating] = useState(false);
 
   const visible = !loading && access.role === 'admin';
+  // MAT-1773 follow-up: the rail fail-closed because the my-seats read died on a
+  // DEAD stored account session (refresh rejected / store undecryptable) — the
+  // one failure a fresh sign-in repairs. Offer exactly that, in the rail's
+  // place, instead of hiding without a trace. A genuine no-account install
+  // (NO_SESSION) and transient read failures (network/http/malformed) still
+  // render nothing, byte-identical to before.
+  const sessionRecovery = !visible && !loading && isDeadSessionFailure(mySeatsWireError);
   const renderedExpanded = !compact && expanded;
+
+  const reauthLabel = t('commandEve.seatRail.reauth', 'Erneut anmelden, um Kundenplätze zu laden');
+  const handleReauth = useCallback(async () => {
+    setReauthenticating(true);
+    try {
+      await commandEve.authWebLogin.invoke({ intent: 'login' });
+      // A fresh session is now stored; re-read the wire so the rail populates.
+      await refresh();
+    } catch {
+      // Self-quiet: the next focus/poll reconcile re-reads either way.
+    } finally {
+      setReauthenticating(false);
+    }
+  }, [refresh]);
 
   // 1.7.3 (Codex #1): make sure the global ACP generation tracker is attached from
   // the moment the seat rail exists — BEFORE any switch — so isAnyGenerating() is
@@ -163,10 +188,11 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
   // Publish the rail's current width so the global toast offset (layout.css) keeps
   // content centered for admins. 0 when hidden/unmounted (non-admins unaffected).
   useEffect(() => {
+    const railVisible = visible || sessionRecovery;
     const root = document.documentElement;
-    root.style.setProperty('--seat-rail-width', visible ? (renderedExpanded ? '72px' : '40px') : '0px');
+    root.style.setProperty('--seat-rail-width', railVisible ? (renderedExpanded && visible ? '72px' : '40px') : '0px');
     return () => root.style.setProperty('--seat-rail-width', '0px');
-  }, [visible, renderedExpanded]);
+  }, [visible, sessionRecovery, renderedExpanded]);
 
   // SURFACE a failed switch (CONFIRMED-HIGH fix). useSeatAccess nulls lastSwitchError
   // at the start of every switchTo and sets it on each failure path, so null→code is a
@@ -179,8 +205,37 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
     // switchErrorNonce in deps ⇒ a repeated identical reject code still re-fires.
   }, [lastSwitchError, switchErrorNonce]);
 
-  // Admins only (see the security note above). Nothing renders otherwise.
-  if (!visible) return null;
+  // Admins only (see the security note above). The ONE exception: a dead stored
+  // account session, where the rail's slot shows a single re-authenticate
+  // affordance — a fresh sign-in re-stores the session and the live read below
+  // populates the rail. Everything else renders nothing.
+  if (!visible) {
+    if (!sessionRecovery) return null;
+    return (
+      <nav
+        className='command-eve-seat-rail command-eve-seat-rail--collapsed'
+        data-testid='seat-rail-recovery'
+        aria-label={reauthLabel}
+      >
+        <div className='seat-rail__brand' aria-hidden='true'>
+          <CommandEveGlyph size={22} />
+        </div>
+        <Tooltip content={reauthLabel} position='right' trigger={['hover', 'focus']}>
+          <button
+            type='button'
+            className='seat-rail__toggle'
+            data-testid='seat-rail-reauth'
+            aria-label={reauthLabel}
+            aria-busy={reauthenticating || undefined}
+            disabled={reauthenticating}
+            onClick={() => void handleReauth()}
+          >
+            <ExpandRight size={16} aria-hidden='true' />
+          </button>
+        </Tooltip>
+      </nav>
+    );
+  }
 
   const toggleLabel = renderedExpanded
     ? t('commandEve.seatRail.collapse', 'Leiste einklappen')

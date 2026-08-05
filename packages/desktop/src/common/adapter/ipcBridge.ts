@@ -1782,6 +1782,19 @@ export interface ICommandEveMySeatsResult {
   contract: ICommandEveMySeatsContract;
   /** 'my_seats' when sourced from the live edge function; 'legacy_fallback' when fail-closed. */
   source: 'my_seats' | 'legacy_fallback';
+  /**
+   * WHY the read failed, on a legacy_fallback envelope (null on a live read).
+   * kind 'session' carries the session resolver's reason_code — a dead stored
+   * session (REFRESH_HTTP_x / KEYCHAIN_x / SESSION_x) is recoverable by re-login,
+   * which is what the rail's recovery affordance keys on. Older mains omit the
+   * field; consumers must treat undefined as "unknown".
+   */
+  wire_error?:
+    | { kind: 'session'; reasonCode?: string }
+    | { kind: 'network' }
+    | { kind: 'http'; status: number }
+    | { kind: 'malformed' }
+    | null;
 }
 
 // v1.5 A3: per-seat usage attribution — one seat's aggregated usage for a month.
