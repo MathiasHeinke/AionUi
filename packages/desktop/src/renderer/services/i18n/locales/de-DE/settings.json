@@ -195,7 +195,7 @@
   "commandEvePiiProtection": "PII-Schutz (DSGVO-Egress-Filter)",
   "commandEvePiiProtectionDesc": "An: Persönliche Daten (Telefon, IBAN, Adressen, Gesundheits-/Finanzdaten) werden vor dem Senden an Cloud-Modelle automatisch geschwärzt. Lokale Modelle sind nicht betroffen — dort verlassen Daten deinen Mac nie. Gilt nur für diesen Seat.",
   "commandEveAgentVideoGenerate": "Eve darf selbst Videos generieren",
-  "commandEveAgentVideoGenerateDesc": "Aus (Standard): Videos entstehen nur, wenn du sie selbst über die Video-Auswahl startest — dort siehst du vorher Qualität, Länge und Kosten. An: EVE darf im Gespräch selbst ein kurzes Video erzeugen, wenn du im selben Zug eines verlangst. Jeder Lauf kostet Credits. Länge und Qualität legt die App fest, nicht das Modell. Gilt nur für diesen Seat.",
+  "commandEveAgentVideoGenerateDesc": "Aus (Standard): Videos entstehen nur, wenn du sie selbst über die Video-Auswahl startest — dort siehst du vorher Qualität, Länge und Kosten. An: EVE darf im Gespräch selbst ein kurzes Video erzeugen, wenn du es im selben Zug verlangst. Jeder Lauf kostet Credits. Länge und Qualität bestimmt die App, nicht das Modell. Gilt nur für diesen Seat.",
   "commandEveAgentVideoGenerateError": "Freigabe konnte nicht gespeichert werden — Änderung nicht übernommen. Bitte erneut versuchen.",
   "commandEvePiiProtectionConfirmTitle": "PII-Schutz für diesen Seat ausschalten?",
   "commandEvePiiProtectionConfirmBody": "Aus: Inhalte gehen UNGESCHWÄRZT an das Cloud-Modell (gilt nur für diesen Seat). Persönliche Daten (Telefon, IBAN, Adressen, Gesundheits-/Finanzdaten) werden dann NICHT mehr automatisch entfernt, bevor sie deinen Mac verlassen.",

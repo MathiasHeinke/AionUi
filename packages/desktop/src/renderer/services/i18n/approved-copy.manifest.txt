@@ -2439,7 +2439,7 @@ copy	1	de-DE/settings.json	Assistenten-Beschreibung
 copy	1	de-DE/settings.json	Assistenten-Details
 copy	1	de-DE/settings.json	Auf Kopieren klicken, um das Passwort zu erhalten
 copy	1	de-DE/settings.json	Auf Standardstil zurückgesetzt
-copy	1	de-DE/settings.json	Aus (Standard): Videos entstehen nur, wenn du sie selbst über die Video-Auswahl startest — dort siehst du vorher Qualität, Länge und Kosten. An: EVE darf im Gespräch selbst ein kurzes Video erzeugen, wenn du im selben Zug eines verlangst. Jeder Lauf kostet Credits. Länge und Qualität legt die App fest, nicht das Modell. Gilt nur für diesen Seat.
+copy	1	de-DE/settings.json	Aus (Standard): Videos entstehen nur, wenn du sie selbst über die Video-Auswahl startest — dort siehst du vorher Qualität, Länge und Kosten. An: EVE darf im Gespräch selbst ein kurzes Video erzeugen, wenn du es im selben Zug verlangst. Jeder Lauf kostet Credits. Länge und Qualität bestimmt die App, nicht das Modell. Gilt nur für diesen Seat.
 copy	1	de-DE/settings.json	Aus Assistent entfernen
 copy	1	de-DE/settings.json	Aus JSON importieren
 copy	1	de-DE/settings.json	Aus Sicherheitsgründen können WebUI-Einstellungen nur in der Desktop-Anwendung verwaltet werden. Bitte öffne das Einstellungsfenster in der Command-EVE-Desktop-App zur Konfiguration.
