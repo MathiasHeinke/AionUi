@@ -74,7 +74,7 @@ const channel = (c: number): number => {
 const luminance = (rgb: Rgb | readonly number[]): number =>
   0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2]);
 const contrast = (a: Rgb | readonly number[], b: Rgb | readonly number[]): number => {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  const [hi, lo] = [luminance(a), luminance(b)].toSorted((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 };
 const mix = (a: Rgb, b: Rgb, share: number): Rgb => a.map((v, i) => Math.round(v * share + b[i] * (1 - share))) as Rgb;
@@ -118,7 +118,7 @@ function ruleBody(source: string, selector: string): string {
 describe('MAX composer state — the CSS-variable seam', () => {
   it('re-points the composer variables instead of adding a new element or class', () => {
     const body = ruleBody(css, ".eve-composer-surface[data-eve-max='true']");
-    expect(body).toMatch(/--eve-spotlight-color:\s*var\(--eve-max-accent\)/);
+    expect(body).toMatch(/--eve-spotlight-color:\s*var\(--eve-max-glow\)/);
     expect(body).toMatch(/--eve-composer-border:\s*var\(--eve-max-composer-border\)/);
     expect(body).toMatch(/--eve-spotlight-max:\s*var\(--eve-max-spotlight-ceiling\)/);
     // No direct paint: the rule sets variables ONLY. A `border-color` here would
@@ -229,12 +229,12 @@ describe('MAX composer state — the CSS-variable seam', () => {
 
     // The restrained ambient bloom: idle 8px/10%, working 16px/25%.
     const armedBloom = ruleBody(css, ".eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']");
-    expect(armedBloom).toMatch(/0 0 8px color-mix\(in srgb, var\(--eve-max-accent\) 10%/);
+    expect(armedBloom).toMatch(/0 0 22px 2px\s+color-mix\(in srgb, var\(--eve-max-glow\) 20%/);
     const workingBloom = ruleBody(
       css,
       ".eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau'],\n.eve-composer-surface[data-eve-max='true'][data-eve-glow='stream']"
     );
-    expect(workingBloom).toMatch(/0 0 16px color-mix\(in srgb, var\(--eve-max-accent\) 25%/);
+    expect(workingBloom).toMatch(/0 0 16px color-mix\(in srgb, var\(--eve-max-glow\) 25%/);
   });
 });
 
@@ -347,7 +347,7 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
   const luminance = (rgb: Rgb): number =>
     0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2]);
   const contrast = (a: Rgb, b: Rgb): number => {
-    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    const [hi, lo] = [luminance(a), luminance(b)].toSorted((x, y) => y - x);
     return (hi + 0.05) / (lo + 0.05);
   };
   const mix = (a: Rgb, b: Rgb, share: number): Rgb =>
@@ -528,7 +528,7 @@ describe('MAX pill label — WCAG AA contrast in BOTH themes (R5)', () => {
       const order = (rgb: number[]): string =>
         rgb
           .map((v, i) => [v, i] as const)
-          .sort((x, y) => y[0] - x[0])
+          .toSorted((x, y) => y[0] - x[0])
           .map(([, i]) => i)
           .join('');
       expect(order([...adjusted]), `${accent.name} hue order changed`).toBe(order([...base]));

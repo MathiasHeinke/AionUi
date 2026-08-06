@@ -136,6 +136,20 @@
   --eve-max-accent: color-mix(in srgb, var(--eve-accent, var(--primary)) 70%, var(--eve-shell-text));
   --eve-max-composer-border: color-mix(in srgb, var(--eve-max-accent) 38%, var(--border-base));
   --eve-max-spotlight-ceiling: 0.62;
+  /* THE GLOW COLOUR, split off from --eve-max-accent on purpose (1.820.5).
+     --eve-max-accent has a SECOND job: it tints the MAX pill background at 16%,
+     and the WCAG AA floor for that label is what forces its lightness mix
+     (dark: 56% white). That mix is right for a text background and wrong for a
+     glow — it turned the MAX composer into a pale, near-white ring that read
+     COLDER than the standard lane, whose spotlight is the warm brand logo
+     colour. Two requirements, one token, and the contrast one won.
+     So the glow gets its own token, derived from the BRAND colour rather than
+     from --eve-accent (which resolves to the generic blue --primary). MAX now
+     INTENSIFIES the brand instead of leaving it. Nothing here feeds the pill,
+     so the AA arithmetic in eveMaxComposerCss.test.ts is untouched.
+     Light: the composer surface is bright, so the brand orange takes a small
+     step toward the shell text for legibility — warmth kept, glare removed. */
+  --eve-max-glow: color-mix(in srgb, var(--eve-brand-logo) 82%, var(--eve-shell-text));
 
   /* Local background-image readability */
   --eve-bg-image-intensity: 100%;
@@ -265,6 +279,12 @@
   --eve-max-accent: color-mix(in srgb, var(--eve-accent, var(--primary)) 44%, var(--eve-static-white));
   --eve-max-composer-border: color-mix(in srgb, var(--eve-max-accent) 46%, var(--eve-composer-border));
   --eve-max-spotlight-ceiling: 0.78;
+  /* The dark half of the glow split (see the light block). This is where the
+     old behaviour was worst: --eve-max-accent resolves to 44% blue + 56% WHITE
+     (~#b1d5ff), i.e. mostly white — the "white ring" report. On a dark surface
+     the brand orange needs almost no lift to read as lit, so it takes 12% white
+     instead of 56%: luminous, still unmistakably warm, and still not neon. */
+  --eve-max-glow: color-mix(in srgb, var(--eve-brand-logo) 88%, var(--eve-static-white));
 }
 
 .eve-message-surface,
@@ -2063,7 +2083,11 @@
  * variable and therefore follows it.
  */
 .eve-composer-surface[data-eve-max='true'] {
-  --eve-spotlight-color: var(--eve-max-accent);
+  /* The GLOW token, not --eve-max-accent: the accent is lightness-tuned for the
+     MAX pill's AA label contrast (56% white in dark), which made this ring read
+     near-white and colder than the standard lane. The border keeps using the
+     accent-derived token so the pill and the hairline stay one family. */
+  --eve-spotlight-color: var(--eve-max-glow);
   --eve-composer-border: var(--eve-max-composer-border);
   --eve-spotlight-max: var(--eve-max-spotlight-ceiling);
 }
@@ -2079,9 +2103,13 @@
 }
 
 /* The MAX hairline stays legible at rest, not only on hover/focus — the lane is
-   a state the user must be able to SEE they are in. */
+   a state the user must be able to SEE they are in. This is the whole contrast
+   to OFF: the standard composer shows its spotlight ONLY on hover (::before
+   opacity 0 → --eve-spotlight-max), MAX carries it permanently and breathes.
+   Raised 0.34 → 0.42 to sit at the low end of the new breath range rather than
+   below it, so engaging MAX is a visible step even before the animation moves. */
 .eve-composer-surface[data-eve-max='true']::before {
-  opacity: 0.34;
+  opacity: 0.42;
 }
 
 /* ---------------------------------------------------------------------------
@@ -2143,8 +2171,8 @@
     from var(--eve-composer-angle),
     transparent 0deg,
     transparent 245deg,
-    color-mix(in srgb, var(--eve-max-accent) 85%, transparent) 305deg,
-    var(--eve-max-accent) 330deg,
+    color-mix(in srgb, var(--eve-max-glow) 85%, transparent) 305deg,
+    var(--eve-max-glow) 330deg,
     transparent 360deg
   );
   animation: eve-composer-max-ignition 300ms ease-out 1;
@@ -2165,20 +2193,28 @@
   box-shadow:
     0 18px 42px color-mix(in srgb, #0f172a 12%, transparent),
     inset 0 1px 0 var(--glass-edge-highlight),
-    0 0 8px color-mix(in srgb, var(--eve-max-accent) 10%, transparent);
+    /* Presence through DEPTH, not brightness: a wide, soft, low-opacity bloom
+       reads as expensive; a tight bright rim reads as cheap. So the radius grows
+       8px → 22px with a 2px spread and the opacity goes 10% → 20% — roughly
+       double the light, spread over ~7x the area, which is felt rather than
+       stared at. Deliberately NOT changed: border width, saturation, geometry. */
+    0 0 22px 2px color-mix(in srgb, var(--eve-max-glow) 20%, transparent);
 }
 
 .eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']::before {
   animation: eve-composer-max-breath 4s ease-in-out infinite;
 }
 
+/* Breath widened 0.34–0.52 → 0.30–0.62. The old 0.18 span was below the
+   perceptual threshold at this colour, so the lane looked static; 0.32 is
+   visible when you look at it and still invisible while you type. */
 @keyframes eve-composer-max-breath {
   0%,
   100% {
-    opacity: 0.34;
+    opacity: 0.3;
   }
   50% {
-    opacity: 0.52;
+    opacity: 0.62;
   }
 }
 
@@ -2189,8 +2225,8 @@
     from var(--eve-composer-angle),
     transparent 0deg,
     transparent 245deg,
-    color-mix(in srgb, var(--eve-max-accent) 85%, transparent) 305deg,
-    var(--eve-max-accent) 330deg,
+    color-mix(in srgb, var(--eve-max-glow) 85%, transparent) 305deg,
+    var(--eve-max-glow) 330deg,
     transparent 360deg
   );
   animation: eve-composer-max-orbit 3s linear infinite;
@@ -2215,8 +2251,8 @@
 .eve-composer-surface[data-eve-max='true'][data-eve-glow='denk-puls']::after {
   opacity: 1;
   box-shadow:
-    0 0 16px 2px color-mix(in srgb, var(--eve-max-accent) 25%, transparent),
-    inset 0 0 20px color-mix(in srgb, var(--eve-max-accent) 6%, transparent);
+    0 0 16px 2px color-mix(in srgb, var(--eve-max-glow) 25%, transparent),
+    inset 0 0 20px color-mix(in srgb, var(--eve-max-glow) 6%, transparent);
   animation: eve-composer-max-heartbeat 1.8s cubic-bezier(0.2, 0.7, 0.2, 1) infinite;
 }
 
@@ -2269,9 +2305,9 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in srgb, var(--eve-max-accent) 25%, transparent) 35%,
-    color-mix(in srgb, var(--eve-max-accent) 60%, transparent) 50%,
-    color-mix(in srgb, var(--eve-max-accent) 25%, transparent) 65%,
+    color-mix(in srgb, var(--eve-max-glow) 25%, transparent) 35%,
+    color-mix(in srgb, var(--eve-max-glow) 60%, transparent) 50%,
+    color-mix(in srgb, var(--eve-max-glow) 25%, transparent) 65%,
     transparent 100%
   );
   background-size: 200% 100%;
@@ -2295,7 +2331,7 @@
   box-shadow:
     0 18px 42px color-mix(in srgb, #0f172a 12%, transparent),
     inset 0 1px 0 var(--glass-edge-highlight),
-    0 0 16px color-mix(in srgb, var(--eve-max-accent) 25%, transparent);
+    0 0 16px color-mix(in srgb, var(--eve-max-glow) 25%, transparent);
 }
 
 .eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']:focus-within {
@@ -2304,7 +2340,7 @@
     0 0 0 1px color-mix(in srgb, var(--eve-spotlight-color) 10%, transparent),
     0 0 30px color-mix(in srgb, var(--eve-spotlight-color) 18%, transparent),
     0 14px 34px color-mix(in srgb, #0f172a 10%, transparent),
-    0 0 8px color-mix(in srgb, var(--eve-max-accent) 10%, transparent);
+    0 0 8px color-mix(in srgb, var(--eve-max-glow) 10%, transparent);
 }
 
 .eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau']:focus-within,
@@ -2314,7 +2350,7 @@
     0 0 0 1px color-mix(in srgb, var(--eve-spotlight-color) 10%, transparent),
     0 0 30px color-mix(in srgb, var(--eve-spotlight-color) 18%, transparent),
     0 14px 34px color-mix(in srgb, #0f172a 10%, transparent),
-    0 0 16px color-mix(in srgb, var(--eve-max-accent) 25%, transparent);
+    0 0 16px color-mix(in srgb, var(--eve-max-glow) 25%, transparent);
 }
 
 .eve-composer-surface[data-keyboard-focus='true'],
