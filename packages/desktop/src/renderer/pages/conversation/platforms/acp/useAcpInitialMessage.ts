@@ -18,6 +18,44 @@ type UseAcpInitialMessageParams = {
   sendInitialMessage: (input: string, files: string[], videoSelection?: InitialVideoSelection) => Promise<boolean>;
   resetState: () => void;
   addOrUpdateMessage: (message: TMessage, prepend?: boolean) => void;
+  /**
+   * The quota-wall feed (`useQuotaWall().reportInferenceError`), threaded down
+   * from `messageState` so a 402 quota_exhausted that kills the SEND surfaces
+   * the same warm wall the stream-error lane shows — not a cold
+   * UNKNOWN_UPSTREAM_ERROR card. Optional so the hook stays mountable without
+   * the wall (tests); absent means every failure takes the cold path.
+   */
+  reportInferenceError?: (error: unknown, opts: { jobInFlight: boolean }) => boolean;
+};
+
+/**
+ * Strip a leaked machine body from a user-visible send-failure sentence.
+ *
+ * WHY THIS EXISTS (quota forensics, CEVE-18205): when Hermes dies on a shim
+ * 402, the whole provider body travels as flat text — python-repr JSON
+ * included — through the backend's 502 into `parseError`, and the card showed
+ * it raw (the observed residue ended in `0.1}]}`). The friendly half of the
+ * sentence is worth keeping; the blob is not, in ANY failure, so the cut lives
+ * here at the shared binding rather than in one sink.
+ *
+ * Two cuts, deliberately narrow:
+ *   1. one `{…}` span (first `{` to last `}`) — the embedded object body;
+ *   2. orphaned tail tokens that contain a closing `}`/`]` but no opener —
+ *      what survives when an upstream truncation already ate the blob's head.
+ *      Balanced tokens like the `[ACP-AUTH-…]` markers keep both brackets and
+ *      pass through untouched — the auth-branch match downstream depends on it.
+ *
+ * Returns '' when nothing readable remains; the caller falls back to its own
+ * translated unknown-error copy, never to an empty card.
+ */
+export const stripEmbeddedJsonFromSendFailureText = (text: string): string => {
+  return text
+    .replace(/\{[\s\S]*\}/, ' ')
+    .split(/\s+/)
+    .filter((token) => !/[}\]]/.test(token) || /[{[]/.test(token))
+    .join(' ')
+    .replace(/[\s:\-–—]+$/, '')
+    .trim();
 };
 
 /** The picker's selection, carried from the start-chat surface (MAT-1773 P3). */
@@ -55,6 +93,7 @@ export const useAcpInitialMessage = ({
   sendInitialMessage,
   resetState,
   addOrUpdateMessage,
+  reportInferenceError,
 }: UseAcpInitialMessageParams): void => {
   const { t } = useTranslation();
 
@@ -89,16 +128,31 @@ export const useAcpInitialMessage = ({
         // originates upstream, so it can carry a provider/model id. The console
         // lines below keep the RAW `error` object for debugging — that is the
         // debugging half and must not be confused with the user-facing one.
-        const errorMessageText = scrubModelIdentifiers(
-          getConversationRuntimeWorkspaceErrorMessage(error, t) || parseError(error) || t('common.unknownError'),
-          CLOUD_MODEL_IDENTIFIERS
-        );
+        const errorMessageText =
+          stripEmbeddedJsonFromSendFailureText(
+            scrubModelIdentifiers(
+              getConversationRuntimeWorkspaceErrorMessage(error, t) || parseError(error) || t('common.unknownError'),
+              CLOUD_MODEL_IDENTIFIERS
+            )
+          ) || t('common.unknownError');
         console.error('[useAcpInitialMessage] Error sending initial message:', error);
         console.error('[useAcpInitialMessage] Error details:', {
           name: (error as Error)?.name,
           message: errorMessageText,
           conversation_id,
         });
+
+        // CEVE-18205 quota gate — ask the wall BEFORE building the cold card.
+        // A recognized 402 quota_exhausted (or empty-tank daily cap) surfaces
+        // the warm wall; `jobInFlight: true` because the user just actively
+        // submitted this send — exactly the in-flight attempt the walls'
+        // idle-suppression exists to require. In that case the cold card would
+        // only contradict the wall, so it is skipped; every other failure
+        // renders exactly as before.
+        if (reportInferenceError?.(error, { jobInFlight: true }) === true) {
+          resetState();
+          return;
+        }
 
         const errorMessage: TMessage = {
           id: uuid(),
@@ -121,5 +175,5 @@ export const useAcpInitialMessage = ({
     submitStoredMessage().catch((error) => {
       console.error('Failed to send initial message:', error);
     });
-  }, [addOrUpdateMessage, conversation_id, resetState, sendInitialMessage, t]);
+  }, [addOrUpdateMessage, conversation_id, reportInferenceError, resetState, sendInitialMessage, t]);
 };

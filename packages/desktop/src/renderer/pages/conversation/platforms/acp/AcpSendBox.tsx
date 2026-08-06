@@ -93,7 +93,7 @@ import { runProjectChatIntentGate } from '@/renderer/pages/conversation/shared/p
 import AcpDocumentPreparationStatus, { type AcpDocumentPreparationState } from './AcpDocumentPreparationStatus';
 import AcpVisionEnablementPrompt from './AcpVisionEnablementPrompt';
 import { useCommandEveVisualPreparation } from './useCommandEveVisualPreparation';
-import { useAcpInitialMessage } from './useAcpInitialMessage';
+import { stripEmbeddedJsonFromSendFailureText, useAcpInitialMessage } from './useAcpInitialMessage';
 import type { UseAcpMessageReturn } from './useAcpMessage';
 import { useVideoCostWall } from '@/renderer/hooks/useVideoCostWall';
 import {
@@ -275,6 +275,7 @@ const AcpSendBox: React.FC<{
     tokenUsage,
     context_limit,
     runtimeActivity,
+    quotaWall,
   } = messageState;
   const { t, i18n } = useTranslation();
   const teamPermission = useTeamPermission();
@@ -771,10 +772,18 @@ const AcpSendBox: React.FC<{
         // into `buildSendFailureError`. It originates upstream and can carry a
         // provider/model id; scrubbing one sink and not the others is how the
         // raw one shipped. Scrub once, here, and every consumer is covered.
-        const errorMsg = scrubModelIdentifiers(
-          getConversationRuntimeWorkspaceErrorMessage(error, t) || parseError(error) || t('common.unknownError'),
-          CLOUD_MODEL_IDENTIFIERS
-        );
+        // CEVE-18205, same binding: a backend-relayed provider failure can carry
+        // its raw machine body as flat text (python-repr JSON included — the
+        // observed leak ended in `0.1}]}`). Strip the blob HERE so every sink
+        // below gets the readable half; empty remainder falls back to the
+        // translated unknown-error copy, never to an empty card.
+        const errorMsg =
+          stripEmbeddedJsonFromSendFailureText(
+            scrubModelIdentifiers(
+              getConversationRuntimeWorkspaceErrorMessage(error, t) || parseError(error) || t('common.unknownError'),
+              CLOUD_MODEL_IDENTIFIERS
+            )
+          ) || t('common.unknownError');
         runtimeView.markSendFailed(errorMsg);
         // 1.7.3: the send never became a running turn — clear the guard flag (the
         // non-error failure path emits no terminal stream event to clear it).
@@ -794,10 +803,25 @@ const AcpSendBox: React.FC<{
           throw error;
         }
 
+        // CEVE-18205 quota gate (the forensics fix): a 402 quota_exhausted that
+        // kills the SEND itself used to die here as a cold UNKNOWN_UPSTREAM_ERROR
+        // card — the warm-wall detection lived only on the stream-error lane
+        // (useAcpMessage's 'error' case), and this catch never asked it. Ask
+        // FIRST: a recognized quota signal (or empty-tank daily cap) sets the
+        // wall state the container already renders. `jobInFlight: true` because
+        // the user just actively submitted this send — exactly the in-flight
+        // attempt the walls' idle-suppression exists to require. On a signal the
+        // cold card below is skipped (it would contradict the wall — the v1.6
+        // both-surfaces defect); everything else renders exactly as before.
+        // Guarded call: this runs INSIDE the failure path, where a wiring gap
+        // (a partial messageState in a harness) must degrade to the cold card,
+        // never to a second exception that skips the state resets below.
+        const quotaSignal = quotaWall?.reportInferenceError?.(error, { jobInFlight: true }) === true;
         const isAuthError =
-          errorMsg.includes('[ACP-AUTH-') ||
-          errorMsg.includes('authentication failed') ||
-          errorMsg.includes('认证失败');
+          !quotaSignal &&
+          (errorMsg.includes('[ACP-AUTH-') ||
+            errorMsg.includes('authentication failed') ||
+            errorMsg.includes('认证失败'));
         if (isAuthError) {
           const errorMessage = {
             id: uuid(),
@@ -817,7 +841,7 @@ Please check your local CLI tool authentication status`,
           };
 
           ipcBridge.acpConversation.responseStream.emit(errorMessage);
-        } else {
+        } else if (!quotaSignal) {
           addOrUpdateMessageRef.current(
             {
               id: uuid(),
@@ -835,7 +859,6 @@ Please check your local CLI tool authentication status`,
             true
           );
         }
-
         resetState();
         setAiProcessing(false);
         throw error;
@@ -850,6 +873,7 @@ Please check your local CLI tool authentication status`,
       checkAndUpdateTitle,
       conversation_id,
       eveInference.selection,
+      quotaWall?.reportInferenceError,
       resetState,
       runtimeView,
       setAiProcessing,
@@ -2062,6 +2086,9 @@ Please check your local CLI tool authentication status`,
     sendInitialMessage,
     resetState,
     addOrUpdateMessage: addOrUpdateMessageRef.current,
+    // CEVE-18205: the fresh-chat handoff dies on the same send path — feed the
+    // same wall, so its 402 shows the warm credits wall too, not a cold card.
+    reportInferenceError: quotaWall?.reportInferenceError,
   });
 
   const handleEditQueuedCommand = useCallback(

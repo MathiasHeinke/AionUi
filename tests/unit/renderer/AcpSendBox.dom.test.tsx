@@ -509,7 +509,12 @@ vi.mock('@/renderer/utils/file/fileSelection', () => ({
 vi.mock('@/renderer/utils/file/messageFiles', () => ({
   buildDisplayMessage: buildDisplayMessageMock,
 }));
-vi.mock('@/renderer/pages/conversation/platforms/acp/useAcpInitialMessage', () => ({
+// CEVE-18205: keep the module's REAL named exports (AcpSendBox's send-catch
+// calls stripEmbeddedJsonFromSendFailureText from this module — a bare mock
+// left it undefined and the catch died before its state resets); only the
+// hook itself is replaced.
+vi.mock('@/renderer/pages/conversation/platforms/acp/useAcpInitialMessage', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAcpInitialMessage: (params: { sendInitialMessage?: (input: string, files: string[]) => Promise<boolean> }) => {
     initialMessageParamsMock.current = params;
   },
@@ -566,6 +571,9 @@ const makeMessageState = (): UseAcpMessageReturn =>
       jobInFlight: false,
       open: vi.fn(),
       dismiss: vi.fn(),
+      // CEVE-18205: the send-catch feeds failures to the wall before rendering
+      // the cold card; `false` = "not a quota signal", so the cold path runs.
+      reportInferenceError: vi.fn(() => false),
     },
   }) as unknown as UseAcpMessageReturn;
 
