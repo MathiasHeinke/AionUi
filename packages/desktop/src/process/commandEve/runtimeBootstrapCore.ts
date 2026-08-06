@@ -46,10 +46,8 @@ import { honchoMcpServerForSeat } from './honchoMcpServerCore';
 import { provisionArtifactCapabilityBearerFile } from './artifactCapabilityLoopback';
 import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG, isAgentVideoEditAdvertisingEnabled } from './agentVideoEditFlag';
 import { COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG, isAgentImageEditAdvertisingEnabled } from './agentImageEditFlag';
-import {
-  COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG,
-  isAgentVideoGenerateAdvertisingEnabled,
-} from './agentVideoGenerateFlag';
+import { COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG } from './agentVideoGenerateFlag';
+import { productionAgentVideoGenerateGate } from './agentVideoGenerateGateMain';
 import {
   eveHonchoMemoryDirective,
   resolveHonchoRenderForSeat,
@@ -927,6 +925,15 @@ export type RuntimeBootstrapOptions = {
    * to that containment.
    */
   rememberedCommands?: readonly EveRememberedCommand[];
+  /**
+   * CEVE-18205-FLAG — test seam for the per-seat agent video-generate release.
+   *
+   * Production omits it and the real fail-closed gate
+   * (`productionAgentVideoGenerateGate`) is used, which performs a backend read.
+   * A bootstrap test injects a stub so both directions are drivable without a
+   * backend and without an env var.
+   */
+  resolveAgentVideoGenerateRelease?: () => Promise<boolean>;
 };
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
@@ -5754,7 +5761,23 @@ function writeHermesRuntimeFiles(
   // grant. [] (the default) emits `command_allowlist: []`, byte-identical to the
   // C0 containment, so with nothing granted this parameter changes nothing and
   // every legacy category-wide entry keeps being revoked.
-  rememberedCommands: readonly EveRememberedCommand[] = []
+  rememberedCommands: readonly EveRememberedCommand[] = [],
+  // CEVE-18205-FLAG — whether THIS seat's persisted config releases the paid
+  // agent video-GENERATE tool. A PRE-RESOLVED boolean, not a resolver, because
+  // this writer is synchronous and the release lives behind an async backend read.
+  //
+  // The async bootstrap path (`ensureCommandEveRuntimeBootstrapUnlocked`) awaits
+  // the gate and passes the answer in. The SYNCHRONOUS provisioning path
+  // (`provisionSeatRuntimeFiles`, used on seat switch) cannot await and therefore
+  // passes nothing — which lands on this `false` default and emits no carrier.
+  //
+  // That asymmetry is deliberate and it is the SAFE direction: advertisement can
+  // only ever be NARROWER than the loopback gate, never wider. A seat provisioned
+  // synchronously simply is not told about the tool until the next full bootstrap;
+  // the reverse (advertised here, refused at the gate) is the dishonest direction
+  // POLICY F exists to prevent, and it cannot happen because both ends read the
+  // same gate and this one defaults closed.
+  agentVideoGenerateSeatEnabled = false
 ): string[] {
   const trustedClaudeSeatDelegate = isClaudeSeatDelegateRoute(claudeDelegate) ? claudeDelegate : null;
   ensureDir(paths.hermesHome);
@@ -5822,11 +5845,11 @@ function writeHermesRuntimeFiles(
           videoEditEnabled: isAgentVideoEditAdvertisingEnabled(paths.userDataPath),
           // 1.820.3 — the image half of POLICY F, from ITS OWN resolver.
           imageEditEnabled: isAgentImageEditAdvertisingEnabled(paths.userDataPath),
-          // CEVE-18205 — the GENERATE third, from ITS OWN resolver, against the
-          // same userData root. Default-off: this stays false until a seat sets
-          // the flag to exactly '1', so an upgraded seat publishes no new
-          // spending tool until someone decides it should.
-          videoGenerateEnabled: isAgentVideoGenerateAdvertisingEnabled(paths.userDataPath),
+          // CEVE-18205-FLAG — the GENERATE third. NOT resolved here: this writer is
+          // synchronous and the release is a per-seat config value behind an async
+          // backend read, so the answer is threaded in by whichever caller could
+          // await it. Absent ⇒ false ⇒ no carrier ⇒ the child never advertises it.
+          videoGenerateEnabled: agentVideoGenerateSeatEnabled,
         })
       : undefined;
   // COMPA-624 Inc.3 — the per-seat Honcho MCP server, or undefined when Honcho is
@@ -7250,6 +7273,13 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
 
   const bundledSkillsDir = resolveBundledSkillsDir(env, options.resourcesPath);
   const founderOpsSkillsDir = resolveFounderOpsSkillsDir(env);
+  // CEVE-18205-FLAG — resolve the per-seat generate release HERE, where awaiting is
+  // possible, and hand the answer to the synchronous writer below. The gate is
+  // injectable so a bootstrap test can drive both directions without a backend; the
+  // production default is the real fail-closed gate.
+  const agentVideoGenerateSeatEnabled = await (
+    options.resolveAgentVideoGenerateRelease ?? productionAgentVideoGenerateGate
+  )();
   const bundledSkillFailures = writeHermesRuntimeFiles(
     paths,
     manifest,
@@ -7287,7 +7317,12 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     // Honcho is emitted (byte-identical). Same-seat: paths was resolved with no seatId.
     resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId: undefined, hermesVenv: paths.hermesVenv }),
     commandEveDelegationConcurrency(totalMemoryBytes),
-    options.rememberedCommands ?? []
+    options.rememberedCommands ?? [],
+    // CEVE-18205-FLAG — THE one path that can await the per-seat release, so it is
+    // the one path that may advertise the paid generate tool. The gate itself is
+    // fail-closed in every direction (kill-switch, licence, config, backend error),
+    // so a `false` here is always the deliberate answer and never a missing one.
+    agentVideoGenerateSeatEnabled
   );
   if (bundledSkillFailures.length) {
     // VISIBLE preflight break (founder-self-detection): a skip-status stage with a

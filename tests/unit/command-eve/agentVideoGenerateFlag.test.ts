@@ -5,36 +5,48 @@
  */
 
 /**
- * CEVE-18205 — the generate flag, which is the WHOLE containment for this lane.
+ * CEVE-18205-FLAG — what the ENV may and may not do, after the release moved to
+ * a per-seat config value.
  *
- * The edit tools can afford a relaxed flag because a single-use, turn-bound
- * spend permit stands behind them. Generate has no such permit
- * (`handleCommandEveVideoGenerate` takes none and redeems none), so this
- * resolver is not one gate among several — it is the only thing on this side
- * between a model and a repeated debit. That is why every spelling gets its own
- * assertion instead of a representative sample: a flag that turns on by accident
- * is, here, a bill that arrives by accident.
+ * The first slice made this env var the release itself. That was wrong in a way
+ * worth writing down: an env var is a property of the PROCESS, so it could not
+ * express "this client seat may spend and that one may not" — and this is a
+ * switch that spends a client's credits. The release now lives in the per-seat
+ * config (`agentVideoGenerateSeatResolver.test.ts` covers it); the env kept only
+ * the job it was actually good at.
  *
- * Two properties, and they are independent:
+ * So this file pins a ONE-WAY door, and both directions are load-bearing:
  *
- *   1. OPT-IN IS EXACT. Only `'1'` opens it. `'true'`, `'yes'`, `'on'` and every
- *      other truthy-looking spelling are OFF.
- *   2. OPT-IN IS NOT SUFFICIENT. An ineligible seat stays closed even at `'1'`.
- *      Advertising a paid capability on a seat that cannot pay is forbidden
- *      whatever the environment says.
+ *   - `'0'` closes every seat immediately, with no seat context and no backend
+ *     round trip. That is what an emergency off has to be.
+ *   - NOTHING the env can say OPENS anything. `'1'` in particular is inert. If
+ *     it were required, an operator who ticks the box in the UI would get
+ *     silence — the silently-dead-control failure the store-split lineage exists
+ *     to prevent — and a client seat could inherit a founder's process env.
+ *
+ * `isAgentVideoGenerateEnabled` (exact `'1'`) survives unchanged because it has a
+ * different audience: it is what the MCP CHILD reads out of the env Main gave it,
+ * where the `'1'` IS Main's already-composed decision rather than a request.
  */
 
-import { describe, expect, it } from 'vitest';
-import {
+import { describe, expect, it, vi } from 'vitest';
+
+const readLicenseWireMock = vi.fn();
+vi.mock('@/common/config/licenseWireAtRest', () => ({
+  readLicenseWire: (...args: unknown[]) => readLicenseWireMock(...args),
+}));
+
+const {
   AGENT_VIDEO_GENERATE_DURATION_SECONDS,
   AGENT_VIDEO_GENERATE_TIER_ID,
-  COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG as FLAG,
+  COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG: FLAG,
   isAgentVideoGenerateEnabled,
-  resolveAgentVideoGenerateAdvertisement,
-} from '@/process/commandEve/agentVideoGenerateFlag';
-import { DEFAULT_VIDEO_TIER_ID } from '@/common/config/videoCostCore';
+  isAgentVideoGenerateKillSwitched,
+  isAgentVideoGenerateLicenseEligible,
+} = await import('@/process/commandEve/agentVideoGenerateFlag');
+const { DEFAULT_VIDEO_TIER_ID } = await import('@/common/config/videoCostCore');
 
-describe('the child-side read is exactly "1"', () => {
+describe('the child-side carrier read is exactly "1"', () => {
   it('opens on "1", including with surrounding whitespace', () => {
     expect(isAgentVideoGenerateEnabled({ [FLAG]: '1' })).toBe(true);
     expect(isAgentVideoGenerateEnabled({ [FLAG]: ' 1 ' })).toBe(true);
@@ -48,27 +60,50 @@ describe('the child-side read is exactly "1"', () => {
   });
 });
 
-describe('the Main-side advertisement decision', () => {
-  it('is DEFAULT-OFF: an eligible seat that did not opt in is closed', () => {
-    expect(resolveAgentVideoGenerateAdvertisement({ env: {}, licenseWirePresent: true })).toBe(false);
+describe('the env is a kill-switch and nothing else', () => {
+  it('trips on exactly "0", trimmed', () => {
+    expect(isAgentVideoGenerateKillSwitched({ [FLAG]: '0' })).toBe(true);
+    expect(isAgentVideoGenerateKillSwitched({ [FLAG]: ' 0 ' })).toBe(true);
   });
 
-  it('opens only when BOTH the exact opt-in and eligibility are present', () => {
-    expect(resolveAgentVideoGenerateAdvertisement({ env: { [FLAG]: '1' }, licenseWirePresent: true })).toBe(true);
+  it('does not trip on absence or on any other value', () => {
+    expect(isAgentVideoGenerateKillSwitched({})).toBe(false);
+    for (const value of ['', '1', 'true', 'false', 'off', 'no', '00', ' ']) {
+      expect(isAgentVideoGenerateKillSwitched({ [FLAG]: value }), `"${value}" must not kill-switch`).toBe(false);
+    }
   });
 
-  it('refuses to let the env override eligibility', () => {
-    // The important negative: a seat with no readable licence wire cannot buy
-    // its way in with an env var.
-    expect(resolveAgentVideoGenerateAdvertisement({ env: { [FLAG]: '1' }, licenseWirePresent: false })).toBe(false);
+  it('has no spelling that GRANTS the release — the door is one-way', () => {
+    // There is deliberately no `resolveAgentVideoGenerateAdvertisement` any more:
+    // this module cannot answer "may this seat spend?" at all, because the answer
+    // is per-seat and lives in the config store. All it can do is veto.
+    const flagModule = Object.keys({
+      isAgentVideoGenerateEnabled,
+      isAgentVideoGenerateKillSwitched,
+      isAgentVideoGenerateLicenseEligible,
+    });
+    expect(flagModule).not.toContain('resolveAgentVideoGenerateAdvertisement');
+  });
+});
+
+describe('licence eligibility', () => {
+  it('is true only for a present, readable, non-empty wire', () => {
+    readLicenseWireMock.mockReturnValue({ ok: true, wire: 'CEVE.v2.payload.sig' });
+    expect(isAgentVideoGenerateLicenseEligible('/tmp/seat')).toBe(true);
   });
 
-  it('treats every non-"1" spelling as closed even on an eligible seat', () => {
-    for (const value of ['0', 'true', 'yes', '']) {
-      expect(
-        resolveAgentVideoGenerateAdvertisement({ env: { [FLAG]: value }, licenseWirePresent: true }),
-        `"${value}" must not advertise`
-      ).toBe(false);
+  it('fails closed for every unreadable or empty shape', () => {
+    for (const wire of [
+      { ok: false },
+      { ok: false, wire: 'CEVE.v2.payload.sig' },
+      { ok: true },
+      { ok: true, wire: '' },
+      { ok: true, wire: 42 },
+    ]) {
+      readLicenseWireMock.mockReturnValue(wire);
+      expect(isAgentVideoGenerateLicenseEligible('/tmp/seat'), `${JSON.stringify(wire)} must be ineligible`).toBe(
+        false
+      );
     }
   });
 });

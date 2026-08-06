@@ -39,18 +39,28 @@ import { readLicenseWire } from '@/common/config/licenseWireAtRest';
  * idempotency and the tenant cap on every request — but those bound the BLAST,
  * not the INTENT.
  *
- * Default-off is therefore the honest posture, and `'1'` is a deliberate,
- * per-seat decision to accept that gap. It must NOT be flipped default-on by
- * analogy with the edit flag until generate has a turn-bound permit of its own.
- * That work is named and not done; this comment is the marker.
+ * Default-off is therefore the honest posture. It must NOT be flipped default-on
+ * by analogy with the edit flag until generate has a turn-bound permit of its
+ * own. That work is named and not done; this comment is the marker.
  *
- * ELIGIBILITY IS NOT BYPASSABLE. `'1'` is necessary, never sufficient: a seat
- * whose CEVE licence wire is absent or unreadable stays closed whatever the env
- * says, exactly as every other credential read on this path fails closed.
- * Advertising a paid capability on an unauthenticated seat is forbidden.
+ * WHAT CHANGED IN CEVE-18205-FLAG. The first slice made the release an ENV var,
+ * which is not a per-seat release at all: an env var is a property of the
+ * PROCESS, so every seat an operator runs out of one install got the same answer.
+ * For a switch that spends a CLIENT's credits, "the founder turned it on once"
+ * must never mean "every client seat can spend". The release therefore moved to a
+ * per-seat config value read fresh from the backend settings store — see
+ * `agentVideoGenerateSeatResolver.ts` for the value and its fail-closed
+ * direction, and `agentVideoGenerateGateMain.ts` for the composed production
+ * gate. This module keeps the two decisions that need neither seat context nor a
+ * network round trip: the global kill-switch and licence eligibility.
+ *
+ * ELIGIBILITY IS NOT BYPASSABLE. A seat whose CEVE licence wire is absent or
+ * unreadable stays closed whatever its config says, exactly as every other
+ * credential read on this path fails closed. Advertising a paid capability on an
+ * unauthenticated seat is forbidden.
  */
 
-/** Env flag carrying the opt-in (and, to the MCP child, Main's decision). */
+/** Env flag carrying the kill-switch (and, to the MCP child, Main's decision). */
 export const COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG = 'COMMAND_EVE_ENABLE_AGENT_VIDEO_GENERATE';
 
 /**
@@ -61,52 +71,49 @@ export const COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG = 'COMMAND_EVE_ENABLE_AGENT_V
  * someone assumed was ignored. Same exact-match rule as the edit flag, for the
  * same reason.
  *
- * WHO READS THIS: the MCP CHILD, and only the child. Main resolves eligibility
- * itself ({@link resolveAgentVideoGenerateAdvertisement}) and emits exactly
- * `'1'` into the child environment when — and only when — the seat may be told
- * about the paid tool, so for the child this exact-`'1'` read IS the whole
- * decision.
+ * WHO READS THIS: the MCP CHILD, and only the child. Main composes the real
+ * decision itself (kill-switch + licence + per-seat config, see
+ * `agentVideoGenerateGateMain.ts`) and emits exactly `'1'` into the child
+ * environment when — and only when — the seat may be told about the paid tool,
+ * so for the child this exact-`'1'` read IS the whole decision. The child never
+ * reads the config store: it has no seat context and no business holding one.
  */
 export function isAgentVideoGenerateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return (env[COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG] || '').trim() === '1';
 }
 
-export interface AgentVideoGenerateAdvertisementInput {
-  env: NodeJS.ProcessEnv;
-  /** True iff the seat's CEVE licence wire is present AND readable. */
-  licenseWirePresent: boolean;
-}
-
 /**
- * THE advertisement decision, pure and in one place.
+ * The GLOBAL kill-switch: exactly `'0'` (trimmed).
  *
- * BOTH conditions, in this order and with no third path: the seat opted in with
- * exactly `'1'`, AND it is eligible. Unlike the edit resolver there is no
- * kill-switch value, because there is nothing to kill — absent, empty, `'0'`,
- * `'true'` and every other spelling already mean off.
+ * CEVE-18205-FLAG moved the RELEASE decision to a per-seat config value
+ * (`agentVideoGenerateSeatResolver.ts`), and this env var kept only the half it
+ * was actually good at. An env var is a property of the PROCESS, so it can never
+ * express "this client seat may spend and that one may not" — but it is exactly
+ * the right shape for "close this everywhere, now", which needs no seat context
+ * and no backend round trip.
+ *
+ * The direction is therefore one-way and deliberate: the env can TAKE the release
+ * away, never grant it. `'1'` is not required and grants nothing — requiring it
+ * would mean an operator who ticks the box in the UI gets silence, which is the
+ * silently-dead-control failure this whole store-split lineage exists to prevent.
  */
-export function resolveAgentVideoGenerateAdvertisement(input: AgentVideoGenerateAdvertisementInput): boolean {
-  if ((input.env[COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG] || '').trim() !== '1') return false;
-  return input.licenseWirePresent === true;
+export function isAgentVideoGenerateKillSwitched(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env[COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG] || '').trim() === '0';
 }
 
 /**
- * The production half of the decision: reads the licence wire at rest through
- * the REAL `readLicenseWire` (keychain ref, decrypt, well-formedness check —
- * any failure is `ok: false` and therefore ineligible) and folds it into the
- * resolver above. Every Main-side consumer — the loopback and the MCP-child env
- * emission — asks HERE, so the surfaces cannot drift apart about what this seat
- * offers.
+ * Is this seat entitled at all?
+ *
+ * Reads the licence wire at rest through the REAL `readLicenseWire` (keychain
+ * ref, decrypt, well-formedness check — any failure is `ok: false` and therefore
+ * ineligible). Necessary, never sufficient: a licence says the seat CAN pay, the
+ * per-seat config says it MAY. Advertising a paid capability on a seat that
+ * cannot pay is forbidden whatever its config says, so this is checked before the
+ * config read and independently of it.
  */
-export function isAgentVideoGenerateAdvertisingEnabled(
-  dataPath: string,
-  env: NodeJS.ProcessEnv = process.env
-): boolean {
+export function isAgentVideoGenerateLicenseEligible(dataPath: string): boolean {
   const wire = readLicenseWire(dataPath);
-  return resolveAgentVideoGenerateAdvertisement({
-    env,
-    licenseWirePresent: wire.ok === true && typeof wire.wire === 'string' && wire.wire.length > 0,
-  });
+  return wire.ok === true && typeof wire.wire === 'string' && wire.wire.length > 0;
 }
 
 // ---------------------------------------------------------------------------

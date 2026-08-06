@@ -120,6 +120,30 @@ describe('readCommandEveSettingsFromBackend (shared batch reader)', () => {
     expect(bag['commandEve.egressRedactionMode']).toBe('off');
   });
 
+  it('CEVE-18205 SECURITY: a real seat NEVER inherits the un-prefixed agentVideoGenerateEnabled', async () => {
+    const seatId = 'seat-acme-gmbh';
+    setActiveSeatId(seatId);
+    // The FOUNDER seat released agent video generation for itself (un-prefixed
+    // true). A client seat that never made that decision must NOT inherit it —
+    // inheriting here does not merely leak a preference, it lets the model start
+    // paid renders on THIS client's credits.
+    httpRequestMock.mockResolvedValue({ 'commandEve.agentVideoGenerateEnabled': true });
+    const bag = await readCommandEveSettingsFromBackend(['commandEve.agentVideoGenerateEnabled']);
+    // OMITTED, not inherited → the resolver applies its fail-closed default (off).
+    expect('commandEve.agentVideoGenerateEnabled' in bag).toBe(false);
+  });
+
+  it('CEVE-18205: a real seat DOES read its OWN scoped agentVideoGenerateEnabled', async () => {
+    const seatId = 'seat-acme-gmbh';
+    setActiveSeatId(seatId);
+    httpRequestMock.mockResolvedValue({
+      [seatScopedKey('commandEve.agentVideoGenerateEnabled', seatId)]: true,
+      'commandEve.agentVideoGenerateEnabled': false, // a stray legacy value must not interfere either way
+    });
+    const bag = await readCommandEveSettingsFromBackend(['commandEve.agentVideoGenerateEnabled']);
+    expect(bag['commandEve.agentVideoGenerateEnabled']).toBe(true);
+  });
+
   it('reads an INSTALL-GLOBAL key verbatim (no seat prefix even under a real seat)', async () => {
     setActiveSeatId('seat-acme-gmbh');
     // localModelTierId is NOT seat-scoped → read under the un-prefixed key.

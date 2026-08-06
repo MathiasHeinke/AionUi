@@ -27,8 +27,11 @@
  *
  * WHAT ACTUALLY BOUNDS THIS LANE, then, and what this file pins:
  *
- *   1. THE FLAG. Default-off, exactly `'1'`, plus licence eligibility. It is the
- *      whole containment, so it is tested in both directions.
+ *   1. THE GATE. Default-off and, since CEVE-18205-FLAG, a PER-SEAT config
+ *      release read fresh on every call (kill-switch + licence + persisted
+ *      consent — see `agentVideoGenerateSeatResolver.test.ts` for the resolver
+ *      itself). It is the whole containment, so it is tested in both directions
+ *      AND across a revocation mid-session.
  *   2. THE GRANT. The conversation is read off OUR grant, never off a
  *      `conversation_id` the model supplies — the handle store's own rule.
  *   3. THE PINNED AXES. Tier and duration are chosen app-side; a model that
@@ -102,7 +105,7 @@ function deps(overrides: Partial<ArtifactCapabilityLoopbackDeps> = {}): Artifact
       artifact: {} as never,
       conversationArtifact: artifact(),
     })),
-    isVideoGenerateEnabled: () => true,
+    isVideoGenerateEnabled: async () => true,
     ...overrides,
   };
 }
@@ -134,7 +137,7 @@ describe('CEVE-18205 T9 — the video_generate loopback operation', () => {
     const generate = vi.fn();
     const result = await artifactCapabilityCallHandler(
       { operation: 'video_generate', handle: HANDLE, prompt: 'x' },
-      deps({ isVideoGenerateEnabled: () => false, videoGenerate: generate })
+      deps({ isVideoGenerateEnabled: async () => false, videoGenerate: generate })
     );
     expect(result.status).toBe(403);
     expect((result.payload as { reason: string }).reason).toBe('agent-video-generate-disabled');
@@ -150,11 +153,55 @@ describe('CEVE-18205 T9 — the video_generate loopback operation', () => {
     const result = await artifactCapabilityCallHandler(
       { operation: 'artifact_get', handle: HANDLE },
       deps({
-        isVideoGenerateEnabled: () => false,
+        isVideoGenerateEnabled: async () => false,
         listArtifactRecords: () => [{ ...artifact(), id: GRANT.artifact_id }],
       })
     );
     expect(result.status).toBe(200);
+  });
+
+  it('re-asks the per-seat gate on EVERY call, and a revoked release closes it', async () => {
+    // CEVE-18205-FLAG. The gate is an async per-seat config read, not a boot-time
+    // constant: an operator who unticks the box must close the tool on the next
+    // call. A cached decision would keep spending after the release was revoked.
+    let released = true;
+    const gate = vi.fn(async () => released);
+    const generate = vi.fn(async () => ({
+      ok: true as const,
+      artifact: {} as never,
+      conversationArtifact: artifact(),
+    }));
+    const d = deps({ isVideoGenerateEnabled: gate, videoGenerate: generate });
+
+    const first = await artifactCapabilityCallHandler({ operation: 'video_generate', handle: HANDLE, prompt: 'x' }, d);
+    expect(first.status).toBe(200);
+
+    released = false;
+    const second = await artifactCapabilityCallHandler({ operation: 'video_generate', handle: HANDLE, prompt: 'x' }, d);
+    expect(second.status).toBe(403);
+    expect((second.payload as { reason: string }).reason).toBe('agent-video-generate-disabled');
+
+    expect(gate).toHaveBeenCalledTimes(2);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('a gate that rejects is refused, not crashed into a 500', async () => {
+    // The production gate swallows its own errors, but the loopback must not
+    // depend on that politeness: a rejected promise here still has to mean OFF.
+    const generate = vi.fn();
+    await expect(
+      artifactCapabilityCallHandler(
+        { operation: 'video_generate', handle: HANDLE, prompt: 'x' },
+        deps({
+          isVideoGenerateEnabled: async () => {
+            throw new Error('backend unreachable');
+          },
+          videoGenerate: generate,
+        })
+      )
+    ).rejects.toThrow('backend unreachable');
+    // What matters for money: nothing was spent on the way out.
+    expect(generate).not.toHaveBeenCalled();
   });
 
   it('refuses a handle it did not mint — the conversation must be ours to state', async () => {

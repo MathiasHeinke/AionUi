@@ -112,6 +112,12 @@ export const SEAT_SCOPED_CONFIG_KEYS: ReadonlySet<string> = new Set<string>([
   // works inside another client's seat. Install-global here would silently make
   // "per seat" false.
   'commandEve.authority',
+  // CEVE-18205: the agent-initiated video GENERATE release. Per seat for the same
+  // reason as `maxEntitled` and `egressRedactionMode`, and with the sharpest edge
+  // of the three: it lets the MODEL start a paid render on its own. A founder seat
+  // that turned it on must never hand that authority to a client seat, so the value
+  // is physically scoped and (see `NO_LEGACY_INHERIT_KEYS`) never legacy-inherited.
+  'commandEve.agentVideoGenerateEnabled',
 ]);
 
 /** True when this key must be routed through `seatScopedKey`. */

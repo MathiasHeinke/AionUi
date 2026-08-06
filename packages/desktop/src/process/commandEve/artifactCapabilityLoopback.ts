@@ -49,11 +49,8 @@ import {
   resolveAgentVideoEditAdvertisement,
 } from './agentVideoEditFlag';
 import { isAgentImageEditAdvertisingEnabled } from './agentImageEditFlag';
-import {
-  AGENT_VIDEO_GENERATE_DURATION_SECONDS,
-  AGENT_VIDEO_GENERATE_TIER_ID,
-  isAgentVideoGenerateAdvertisingEnabled,
-} from './agentVideoGenerateFlag';
+import { AGENT_VIDEO_GENERATE_DURATION_SECONDS, AGENT_VIDEO_GENERATE_TIER_ID } from './agentVideoGenerateFlag';
+import { productionAgentVideoGenerateGate } from './agentVideoGenerateGateMain';
 import { readArtifactCapabilityGrant } from './artifactCapabilityHandleStore';
 import { listVideoArtifactRecords } from './videoArtifactStore';
 
@@ -116,10 +113,16 @@ export interface ArtifactCapabilityLoopbackDeps {
   /**
    * CEVE-18205 — the paid video GENERATE. Optional for the same reason every
    * MAT-1747 dep is optional: existing test literals must stay valid. Absent
-   * falls back to the production handler and the production flag.
+   * falls back to the production handler and the production gate.
+   *
+   * `isVideoGenerateEnabled` is ASYNC, unlike its two edit siblings, because the
+   * release it reads is a PER-SEAT config value in the backend settings store —
+   * an HTTP read, deliberately performed fresh per call so a flip takes effect on
+   * the next call rather than at the next boot. See
+   * `agentVideoGenerateSeatResolver.ts` for the fail-closed direction.
    */
   videoGenerate?: typeof handleCommandEveVideoGenerate;
-  isVideoGenerateEnabled?: () => boolean;
+  isVideoGenerateEnabled?: () => Promise<boolean>;
 }
 
 const productionDeps: ArtifactCapabilityLoopbackDeps = {
@@ -131,7 +134,7 @@ const productionDeps: ArtifactCapabilityLoopbackDeps = {
   imageEdit: handleCommandEveImageEdit,
   isImageEditEnabled: () => isAgentImageEditAdvertisingEnabled(getDataPath()),
   videoGenerate: handleCommandEveVideoGenerate,
-  isVideoGenerateEnabled: () => isAgentVideoGenerateAdvertisingEnabled(getDataPath()),
+  isVideoGenerateEnabled: productionAgentVideoGenerateGate,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -261,9 +264,12 @@ export async function artifactCapabilityCallHandler(
   }
 
   if (operation === 'video_generate') {
-    const isVideoGenerateEnabled =
-      deps.isVideoGenerateEnabled ?? (() => isAgentVideoGenerateAdvertisingEnabled(deps.getDataPath()));
-    if (!isVideoGenerateEnabled()) {
+    const isVideoGenerateEnabled = deps.isVideoGenerateEnabled ?? productionAgentVideoGenerateGate;
+    // AWAITED, unlike the two edit gates: the release is a per-seat config value
+    // read fresh from the backend settings store, so this is an HTTP round trip.
+    // It is deliberately not cached — an operator who unticks the box closes the
+    // tool on the very next call, not at the next boot.
+    if (!(await isVideoGenerateEnabled())) {
       // 403, not 404 — same doctrine as the two edit branches: the capability
       // exists and is deliberately closed, and "unknown" would teach the model
       // to retry a path that will never open on its own.
