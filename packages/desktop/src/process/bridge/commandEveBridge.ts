@@ -386,17 +386,32 @@ async function readMySeatsWire(): Promise<unknown | null> {
  *
  * BEST-EFFORT, unchanged: the local runtime switch already succeeded before this
  * runs, so neither write may roll it back (applySeatSwitch treats a throw as
- * persist_failed, not a switch failure). `writeActiveSeatPointer` returns a
- * boolean rather than throwing, for exactly that reason.
+ * persist_failed, not a switch failure).
+ *
+ * WHAT CHANGED (CEVE-18205 fix pack, S4): `writeActiveSeatPointer` returns
+ * `'written' | 'cleared' | 'failed'` and this function THROWS on `'failed'`.
+ * Both halves were previously silent — the store returned a boolean and this
+ * caller discarded it — so a write that never landed (full disk, permissions,
+ * read-only volume) reported a clean switch and the next boot came up on the
+ * legacy seat reading every seat-scoped key un-namespaced. That is the bug the
+ * pointer exists to close, silently reintroduced. Throwing is the RIGHT signal
+ * here precisely because applySeatSwitch already catches it into `persist_failed`
+ * without failing the switch: the operator learns the pointer did not stick, and
+ * the working local switch stands.
  */
 async function persistActiveSeatPointer(seatId: string, label?: string, kind?: string): Promise<void> {
   // The LOCAL pointer: survives a restart, needs no network, and is the only
   // thing that can restore the seat before the boot env bake runs.
-  writeActiveSeatPointer(getDataPath(), {
+  const result = writeActiveSeatPointer(getDataPath(), {
     seatId,
     ...(label === undefined ? {} : { label }),
     ...(kind === undefined ? {} : { kind }),
   });
+  if (result === 'failed') {
+    // 'cleared' is a SUCCESS (legacy target ⇒ absence is the correct state);
+    // only 'failed' means the next boot will disagree with this switch.
+    throw new Error(`Command EVE: active-seat pointer write failed for seat ${seatId}.`);
+  }
   // PREPARED: no set-active-seat function deployed yet ⇒ server half is a no-op.
 }
 
@@ -4352,11 +4367,18 @@ export function initCommandEveBridge(): void {
               // best-effort: the runtime is already on the new seat.
             }
           },
-          persistActiveSeat: async (seatId) => {
+          persistActiveSeat: async (seatId, label, kind) => {
             // Label + kind ride the SAME wire seat record the switch already
             // resolved, so a restored boot reproduces id → label → kind exactly as
             // this switch left them — no second fetch, no drift between the two.
-            await persistActiveSeatPointer(seatId, targetLabel, targetKind);
+            //
+            // FORWARDED, not closed over: applySeatSwitch now persists from three
+            // points, and the ROLLBACK one passes the PRIOR seat. Hardcoding
+            // targetLabel/targetKind here would have written the prior seat's id
+            // under the failed target's label — a pointer describing a seat that
+            // never existed. `?? target…` keeps the happy path byte-identical for
+            // any caller that still omits them.
+            await persistActiveSeatPointer(seatId, label ?? targetLabel, kind ?? targetKind);
           },
         },
         targetLabel,

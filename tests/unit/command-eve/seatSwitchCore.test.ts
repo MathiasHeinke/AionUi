@@ -100,9 +100,17 @@ describe('applySeatSwitch — ordering + env re-home (the keystone)', () => {
     expect(result.active_seat_id).toBe(SEAT_A);
     expect(result.rolled_back).toBe(false);
 
-    // ORDER: setActiveSeatId happens inside applySeatSwitch BEFORE prepareEnv;
-    // we observe prepareEnv → restartBackend → rebindConfig → reseed → persist.
+    // ORDER: setActiveSeatId happens inside applySeatSwitch BEFORE prepareEnv; we
+    // observe persist → prepareEnv → restartBackend → rebindConfig → reseed →
+    // persist.
+    //
+    // The LEADING persist is the CEVE-18205 durability write: the pointer is
+    // written the instant the seat lands, not only at step (f), so a switch that
+    // dies mid-restart still heals on the next boot instead of needing a manual
+    // re-switch. It is deliberately BEFORE prepareEnv — that is the whole point,
+    // and the sibling test below pins that the crash window is covered.
     expect(h.calls).toEqual([
+      `persist:${SEAT_A}`,
       'prepareEnv',
       'restartBackend',
       `rebindConfig:${SEAT_A}`,
@@ -378,7 +386,10 @@ describe('K2 applySeatSwitch — kind holder threading (set / restore)', () => {
 describe('applySeatSwitch — persist is BEST-EFFORT (local switch still succeeds)', () => {
   it('a failed persistActiveSeat does NOT fail or roll back the local switch', async () => {
     const h = makeHarness();
-    h.mocks.persistActiveSeat.mockImplementationOnce(() => {
+    // BOTH writes fail — the real shape of a broken disk / read-only volume. (A
+    // `mockImplementationOnce` would now only hit the early durability write,
+    // which is swallowed by design; see the recovery case below.)
+    h.mocks.persistActiveSeat.mockImplementation(() => {
       throw new Error('network down');
     });
     const result = await applySeatSwitch(SEAT_A, h.deps);
@@ -386,6 +397,20 @@ describe('applySeatSwitch — persist is BEST-EFFORT (local switch still succeed
     expect(result.persist_failed).toBe(true);
     expect(result.rolled_back).toBe(false);
     expect(getActiveSeatId()).toBe(SEAT_A);
+  });
+
+  it('a TRANSIENT failure on the early write is recovered by the confirmation write', async () => {
+    // CEVE-18205: the early write is best-effort precisely so a hiccup on it
+    // cannot abort a live switch. Step (f) writes the same value moments later,
+    // so the pointer still lands and the operator is told nothing is wrong.
+    const h = makeHarness();
+    h.mocks.persistActiveSeat.mockImplementationOnce(() => {
+      throw new Error('transient');
+    });
+    const result = await applySeatSwitch(SEAT_A, h.deps);
+    expect(result.ok).toBe(true);
+    expect(result.persist_failed).toBeUndefined();
+    expect(h.mocks.persistActiveSeat).toHaveBeenCalledTimes(2);
   });
 });
 

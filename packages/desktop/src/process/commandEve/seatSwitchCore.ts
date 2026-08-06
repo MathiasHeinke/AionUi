@@ -118,15 +118,32 @@ export interface SeatSwitchDeps {
   rebindConfig: (seatId: string) => void | Promise<void>;
   /** Re-read the per-seat company-brain seed status (best-effort, informational). */
   reseedStatus?: (seatId: string) => void | Promise<void>;
-  /** Persist the B3 active-seat pointer (best-effort; a failure does NOT roll back). */
-  persistActiveSeat?: (seatId: string) => void | Promise<void>;
+  /**
+   * Persist the active-seat pointer (best-effort; a failure does NOT roll back).
+   *
+   * Takes the label and kind explicitly because it is now called from THREE
+   * points, and two of them are not the target seat: the land-time write below,
+   * the rollback (which must persist the PRIOR seat's label/kind, not the failed
+   * target's), and the step-(f) confirmation. A caller that closed over the
+   * target's label would have written seat A's id with seat B's label on rollback.
+   */
+  persistActiveSeat?: (seatId: string, label?: string, kind?: string) => void | Promise<void>;
 }
 
 /**
  * Perform a full, ordered, fail-safe seat switch.
  *
- * ORDERING (asserted by tests): setActiveSeatId → prepareEnv → restartBackend →
- * rebindConfig → reseedStatus → persistActiveSeat.
+ * ORDERING (asserted by tests): setActiveSeatId → persistActiveSeat (the EARLY,
+ * swallowed durability write) → prepareEnv → restartBackend → rebindConfig →
+ * reseedStatus → persistActiveSeat (the CONFIRMATION write, the only one that
+ * reports `persist_failed`).
+ *
+ * The pointer is written TWICE on purpose. The early write makes the seat durable
+ * from the instant the holder moves, so a switch that dies before step (f) — a
+ * crashed re-spawn, a force-quit, a power cut — still leaves a truthful pointer
+ * and the next boot heals with no manual switch. The confirmation write is the
+ * one whose outcome the caller hears about, and a rollback rewrites the pointer to
+ * the seat we actually ended on, so the early write can never outlive its switch.
  *
  * @param newSeatId the target seat (sanitized via assertSeatId — a path-traversal
  *   / separator / NUL id THROWS BEFORE anything mutates, so a crafted id can never
@@ -189,7 +206,7 @@ export async function applySeatSwitch(
     let persistFailed = false;
     if (deps.persistActiveSeat) {
       try {
-        await deps.persistActiveSeat(targetSeatId);
+        await deps.persistActiveSeat(targetSeatId, targetLabel ?? undefined, targetKind ?? undefined);
       } catch {
         persistFailed = true;
       }
@@ -230,6 +247,19 @@ export async function applySeatSwitch(
       // holder pointing at the failed target.
       clearActiveSeat();
     }
+    // REWRITE THE POINTER TO WHERE WE ACTUALLY ARE. The land-time write above
+    // persisted the TARGET, and this switch did not survive — so without this the
+    // on-disk pointer would outlive the rollback and the next boot would come up
+    // on a seat the operator never reached. `getActiveSeatId()` (not priorSeatId)
+    // is the truth here, because the catch above may have fallen back to legacy;
+    // a legacy id CLEARS the pointer, which is the correct end state.
+    if (deps.persistActiveSeat) {
+      try {
+        await deps.persistActiveSeat(getActiveSeatId(), priorSeatLabel, priorSeatKind);
+      } catch {
+        /* best-effort: the holder is already correct; the pointer retries next switch */
+      }
+    }
     try {
       await deps.prepareEnv();
     } catch {
@@ -251,6 +281,8 @@ export async function applySeatSwitch(
   // (b) Make the target active, then (c) re-home env, then (d) re-spawn.
   try {
     setActiveSeatId(targetSeatId); // (a→b boundary: holder now points at target
+    // ^ THE SEAT HAS LANDED. Everything below can still fail and roll back, but
+    // from this instant the process IS on the target seat.
     // Seat-Context-Bridge (B1): capture the target label from the wire seat record
     // the caller threaded (access.seats[].name). Done HERE, alongside the id set,
     // so the prepareEnv bake immediately below carries the NEW label. A legacy/
@@ -261,6 +293,27 @@ export async function applySeatSwitch(
     // carry the NEW kind. A legacy/founder target folds to DEFAULT ('client');
     // the legacy branch never consults kind. Pure: no network.
     setActiveSeatKind(isLegacySeatId(targetSeatId) ? DEFAULT_SEAT_KIND : targetKind);
+    // PERSIST THE POINTER THE MOMENT THE SEAT LANDS, not only at step (f).
+    //
+    // Step (f) runs at the very END of a fully successful switch, so a switch that
+    // landed on the target and then died in prepareEnv/restartBackend/rebindConfig
+    // — or one whose (f) write silently failed — left NO pointer at all. The next
+    // launch came up on the legacy seat and read every seat-scoped key
+    // un-namespaced, and the operator had to notice and switch AGAIN by hand to
+    // repair it. Writing here makes the pointer durable from the instant the
+    // holder moves, so that install heals on its next boot with no manual switch.
+    //
+    // SWALLOWED, unlike step (f): this is an early durability write, not the
+    // switch's report. A bookkeeping failure here must not abort a switch that is
+    // otherwise proceeding — step (f) is the one that surfaces `persist_failed`,
+    // and the rollback below rewrites the pointer if this switch does not survive.
+    if (deps.persistActiveSeat) {
+      try {
+        await deps.persistActiveSeat(targetSeatId, targetLabel ?? undefined, targetKind ?? undefined);
+      } catch {
+        /* early write is best-effort; (f) reports, rollback corrects */
+      }
+    }
     await deps.prepareEnv(); // (b) env.HERMES_HOME → seats/<target>/home
     await deps.restartBackend(); // (c) stop + re-spawn so the agent re-homes
     await deps.rebindConfig(targetSeatId); // (d) config cache re-reads under target
@@ -303,10 +356,16 @@ export async function applySeatSwitch(
 
   // (f) Persist the B3 pointer — BEST-EFFORT. The local switch already
   // succeeded; a network failure here must NOT roll back a working local switch.
+  //
+  // The land-time write in the structural phase above already put this seat on
+  // disk, so this is the CONFIRMATION write: same value, and the one whose
+  // outcome the caller actually hears about. It is the only persist call that
+  // feeds `persist_failed`, so an operator learns the pointer did not stick
+  // (S4) without an early bookkeeping hiccup ever aborting a live switch.
   let persistFailed = false;
   if (deps.persistActiveSeat) {
     try {
-      await deps.persistActiveSeat(targetSeatId);
+      await deps.persistActiveSeat(targetSeatId, targetLabel ?? undefined, targetKind ?? undefined);
     } catch {
       persistFailed = true;
     }

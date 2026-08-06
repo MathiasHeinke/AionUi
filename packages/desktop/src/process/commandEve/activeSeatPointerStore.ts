@@ -80,28 +80,61 @@ export interface ActiveSeatPointer {
 }
 
 /**
- * Persist the pointer. BEST-EFFORT by contract: a seat switch that already
- * succeeded locally must never be failed by a bookkeeping write, so this returns
- * `false` instead of throwing. The cost of a lost write is one boot on the legacy
- * seat — the same state as before this module existed.
+ * The outcome of a pointer write. THREE states, not a boolean, because the two
+ * non-written ones mean opposite things and the caller must be able to tell them
+ * apart:
+ *
+ *   - `'written'` — a real seat's pointer is on disk;
+ *   - `'cleared'` — the target was the legacy seat, so the pointer was REMOVED.
+ *     That is a success: absence is how the next boot resolves to legacy;
+ *   - `'failed'`  — the write did not happen (full disk, permissions, a read-only
+ *     volume). The switch still stands, but the NEXT BOOT will come up on the
+ *     legacy seat and read every seat-scoped key un-namespaced — the exact bug
+ *     this module exists to close, silently reintroduced.
+ *
+ * A single `false` conflated the last two, and the only caller discarded it, so a
+ * failed write was invisible. `'failed'` is now mapped onto the switch result's
+ * existing `persist_failed` flag.
+ *
+ * Still BEST-EFFORT: this never throws. A seat switch that already succeeded
+ * locally must not be failed by a bookkeeping write.
+ */
+export type ActiveSeatPointerWriteResult = 'written' | 'cleared' | 'failed';
+
+/**
+ * Persist the pointer.
  *
  * A legacy/unsafe id CLEARS the pointer rather than writing one: switching back to
  * the founder seat must not leave a stale client-seat pointer that the next boot
  * would restore.
  */
-export function writeActiveSeatPointer(dataPath: string, pointer: ActiveSeatPointer): boolean {
+export function writeActiveSeatPointer(dataPath: string, pointer: ActiveSeatPointer): ActiveSeatPointerWriteResult {
   try {
     const file = activeSeatPointerFilePath(dataPath);
-    const sanitized = sanitizeSeatId(pointer.seatId);
-    if (sanitized === null || isLegacySeatId(sanitized)) {
-      // Back on the legacy seat (or handed something unsafe): remove the pointer so
-      // the next boot resolves to legacy by ABSENCE, not by a failed parse.
+    /** Remove any existing pointer so the next boot resolves to legacy by ABSENCE. */
+    const removePointer = (): boolean => {
       try {
         fs.rmSync(file, { force: true });
+        return true;
       } catch {
-        /* best-effort */
+        // A pointer we cannot REMOVE is as dangerous as one we cannot write: the
+        // next boot would restore a seat the operator has already left.
+        return false;
       }
-      return false;
+    };
+    const sanitized = sanitizeSeatId(pointer.seatId);
+    if (sanitized === null) {
+      // An id that fails the allowlist is REFUSED, not "cleared on purpose": the
+      // caller asked for a pointer and is not getting one, which is exactly what
+      // 'failed' means. We still drop any existing pointer — a caller handing us a
+      // traversal id is not a state we want to keep a stale seat through.
+      removePointer();
+      return 'failed';
+    }
+    if (isLegacySeatId(sanitized)) {
+      // Back on the founder seat: absence IS the desired end state, so a successful
+      // removal is a success, not a failure.
+      return removePointer() ? 'cleared' : 'failed';
     }
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const body = {
@@ -118,9 +151,9 @@ export function writeActiveSeatPointer(dataPath: string, pointer: ActiveSeatPoin
     } catch {
       /* best-effort: the write already carried the mode */
     }
-    return true;
+    return 'written';
   } catch {
-    return false;
+    return 'failed';
   }
 }
 

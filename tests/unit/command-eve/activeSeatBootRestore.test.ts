@@ -87,7 +87,7 @@ afterEach(() => {
 
 describe('the local active-seat pointer', () => {
   it('round-trips a real seat id, 0600, under command-eve-runtime/', () => {
-    expect(writeActiveSeatPointer(tmpRoot, { seatId: SEAT, label: 'Mathias', kind: 'own_company' })).toBe(true);
+    expect(writeActiveSeatPointer(tmpRoot, { seatId: SEAT, label: 'Mathias', kind: 'own_company' })).toBe('written');
     const file = activeSeatPointerFilePath(tmpRoot);
     expect(file.endsWith(path.join('command-eve-runtime', 'active-seat-pointer.json'))).toBe(true);
     // A pointer is not a secret, but it lives beside files that are; same posture.
@@ -99,14 +99,19 @@ describe('the local active-seat pointer', () => {
     writeActiveSeatPointer(tmpRoot, { seatId: SEAT });
     expect(readActiveSeatPointer(tmpRoot)).not.toBeNull();
     // Switching back to the founder seat must not leave a stale client pointer that
-    // the next boot would restore.
-    expect(writeActiveSeatPointer(tmpRoot, { seatId: LEGACY_SEAT_ID })).toBe(false);
+    // the next boot would restore. 'cleared' is a SUCCESS: absence is the state we
+    // wanted (S4 — it used to share `false` with a genuine write failure).
+    expect(writeActiveSeatPointer(tmpRoot, { seatId: LEGACY_SEAT_ID })).toBe('cleared');
     expect(readActiveSeatPointer(tmpRoot)).toBeNull();
   });
 
   it('never writes an unsafe id', () => {
     for (const bad of ['../../etc/passwd', 'seat/../../x', 'a\0b', ' lead', '.hidden']) {
-      expect(writeActiveSeatPointer(tmpRoot, { seatId: bad }), `${JSON.stringify(bad)} must not persist`).toBe(false);
+      // 'failed', not 'cleared': the caller asked for a pointer and is not getting
+      // one. Only a LEGACY target is an intentional clear.
+      expect(writeActiveSeatPointer(tmpRoot, { seatId: bad }), `${JSON.stringify(bad)} must not persist`).toBe(
+        'failed'
+      );
       expect(readActiveSeatPointer(tmpRoot)).toBeNull();
     }
   });
@@ -188,5 +193,145 @@ describe('CEVE-18205 REGRESSION — maxEntitled is read in the right namespace',
     httpRequestMock.mockResolvedValue({ [MAX_KEY]: true, [SELECTION_KEY]: 'command-eve-inference:eve-max' });
     const state = await readInferenceLaneStateFromBackendStrict();
     expect(state.maxEntitled).toBe(true);
+  });
+});
+
+/**
+ * S4 — A POINTER THAT DID NOT LAND MUST SAY SO.
+ *
+ * The store returned a bare boolean and its only caller discarded it, so a write
+ * that never happened (full disk, permissions, read-only volume) reported a clean
+ * switch — and the next boot came up on the legacy seat reading every seat-scoped
+ * key un-namespaced, which is the bug this whole module exists to close. Worse,
+ * `false` also meant "cleared on purpose", so the two could not be told apart.
+ */
+describe('S4 — writeActiveSeatPointer reports written / cleared / failed', () => {
+  it("returns 'written' for a real seat", () => {
+    expect(writeActiveSeatPointer(tmpRoot, { seatId: SEAT, label: 'Mathias' })).toBe('written');
+    expect(readActiveSeatPointer(tmpRoot)).not.toBeNull();
+  });
+
+  it("returns 'cleared' for the legacy seat — absence is the CORRECT end state, not a failure", () => {
+    writeActiveSeatPointer(tmpRoot, { seatId: SEAT });
+    expect(writeActiveSeatPointer(tmpRoot, { seatId: LEGACY_SEAT_ID })).toBe('cleared');
+    expect(readActiveSeatPointer(tmpRoot)).toBeNull();
+  });
+
+  it("returns 'failed' when the write genuinely cannot happen", () => {
+    // Put a FILE where `command-eve-runtime/` must be a directory, so mkdirSync
+    // and the write below it both fail for a real filesystem reason.
+    const blocked = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-seat-blocked-'));
+    fs.writeFileSync(path.join(blocked, 'command-eve-runtime'), 'not a directory');
+    try {
+      expect(writeActiveSeatPointer(blocked, { seatId: SEAT })).toBe('failed');
+    } finally {
+      fs.rmSync(blocked, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * S3 — THE POINTER IS WRITTEN WHEN THE SEAT LANDS, NOT ONLY WHEN THE SWITCH ENDS.
+ *
+ * Step (f) is the LAST thing a switch does. A switch that put the holder on the
+ * target and then died before (f) — a crashed re-spawn, a force-quit, a power cut
+ * mid-restart — left no pointer at all, so the next launch came up on the legacy
+ * seat and the operator had to notice and switch again BY HAND to repair it.
+ *
+ * The pointer is now written the instant the holder moves, so that install heals
+ * on its next boot with no manual switch. The rollback case is the other half of
+ * the contract: a switch that does NOT survive must not leave the target's
+ * pointer behind.
+ */
+describe('S3 — the active-seat pointer survives a switch that never finished', () => {
+  /** applySeatSwitch wired to the REAL pointer store under the temp root. */
+  const persistToDisk = async (seatId: string, label?: string, kind?: string) => {
+    const result = writeActiveSeatPointer(tmpRoot, {
+      seatId,
+      ...(label === undefined ? {} : { label }),
+      ...(kind === undefined ? {} : { kind }),
+    });
+    if (result === 'failed') throw new Error('pointer write failed');
+  };
+
+  it('persists the seat BEFORE the env re-home, so a crash mid-restart still heals', async () => {
+    const { applySeatSwitch } = await import('@/process/commandEve/seatSwitchCore');
+    let pointerAtPrepareEnv: string | null = null;
+
+    await applySeatSwitch(
+      SEAT,
+      {
+        prepareEnv: () => {
+          // The process could die HERE. What is on disk at this instant is what
+          // the next boot gets — under the old ordering, nothing.
+          pointerAtPrepareEnv = readActiveSeatPointer(tmpRoot)?.seatId ?? null;
+        },
+        restartBackend: () => {},
+        rebindConfig: () => {},
+        persistActiveSeat: persistToDisk,
+      },
+      'Mathias',
+      'own_company'
+    );
+
+    expect(pointerAtPrepareEnv).toBe(SEAT);
+
+    // Next boot: a brand-new process, holder back on legacy, no manual switch.
+    __resetActiveSeatForTests();
+    expect(getActiveSeatId()).toBe(LEGACY_SEAT_ID);
+    const restored = restoreActiveSeatFromPointer(tmpRoot);
+    expect(restored).toEqual({ seatId: SEAT, source: 'pointer' });
+    expect(getActiveSeatId()).toBe(SEAT);
+    expect(getActiveSeatLabel()).toBe('Mathias');
+  });
+
+  it('a ROLLED-BACK switch does not leave the target on disk', async () => {
+    const { applySeatSwitch } = await import('@/process/commandEve/seatSwitchCore');
+
+    const result = await applySeatSwitch(
+      SEAT,
+      {
+        // Structural failure AFTER the seat landed ⇒ rollback to the prior
+        // (legacy) seat. The early write must be undone, not outlive the switch.
+        prepareEnv: () => {
+          throw new Error('env bake failed');
+        },
+        restartBackend: () => {},
+        rebindConfig: () => {},
+        persistActiveSeat: persistToDisk,
+      },
+      'Mathias',
+      'own_company'
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.rolled_back).toBe(true);
+    // Prior seat was legacy ⇒ the pointer is CLEARED, so the next boot resolves
+    // to legacy by absence rather than restoring a seat never reached.
+    expect(readActiveSeatPointer(tmpRoot)).toBeNull();
+  });
+
+  it('surfaces persist_failed when the confirmation write cannot land (S4 end-to-end)', async () => {
+    const { applySeatSwitch } = await import('@/process/commandEve/seatSwitchCore');
+
+    const result = await applySeatSwitch(
+      SEAT,
+      {
+        prepareEnv: () => {},
+        restartBackend: () => {},
+        rebindConfig: () => {},
+        persistActiveSeat: () => {
+          // What persistActiveSeatPointer now does on a 'failed' store result.
+          throw new Error('pointer write failed');
+        },
+      },
+      'Mathias'
+    );
+
+    // The LOCAL switch still stands — bookkeeping never rolls back a live switch…
+    expect(result.ok).toBe(true);
+    expect(result.active_seat_id).toBe(SEAT);
+    // …but the operator is told the pointer did not stick.
+    expect(result.persist_failed).toBe(true);
   });
 });

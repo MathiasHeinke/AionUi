@@ -63,8 +63,16 @@ export function useImageArtifactReconcileRelay(): void {
       inFlight.add(conversationId);
       // MAT-1773 (Package B): the same turn-end trigger also hydrates remote
       // video directives — the agent lane hands back a CDN URL and nothing
-      // else downloads it. Both reconciles are idempotent and fail-quiet, so
-      // racing them against the list-time call is a normal no-op.
+      // else downloads it. Both reconciles are fail-quiet.
+      //
+      // `inFlight` guards relay-against-relay only. It does NOT guard against
+      // the LIST-time call in main, which runs on its own trigger — this comment
+      // used to call that race "a normal no-op", which it was not: both sides
+      // read the same not-yet-hydrated snapshot and saved under different random
+      // ids, producing two records for one clip. Main now derives the artifact id
+      // from the origin URL, so the overlap collapses onto one record
+      // (`videoArtifactHydrationMain.hydratedVideoArtifactId`). The redundant
+      // download is accepted; the duplicate card is not.
       const reconcileImages = ipcBridge.commandEve.imageArtifactReconcile.invoke({ conversationId }).catch(() => {
         // Fail-quiet — the list-time reconcile recovers on the next load.
       });
