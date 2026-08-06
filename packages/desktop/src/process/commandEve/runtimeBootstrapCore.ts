@@ -47,6 +47,10 @@ import { provisionArtifactCapabilityBearerFile } from './artifactCapabilityLoopb
 import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG, isAgentVideoEditAdvertisingEnabled } from './agentVideoEditFlag';
 import { COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG, isAgentImageEditAdvertisingEnabled } from './agentImageEditFlag';
 import {
+  COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG,
+  isAgentVideoGenerateAdvertisingEnabled,
+} from './agentVideoGenerateFlag';
+import {
   eveHonchoMemoryDirective,
   resolveHonchoRenderForSeat,
   type HonchoRenderInput,
@@ -1852,6 +1856,17 @@ export function buildCommandEveArtifactContextHermesMcpServer(input: {
    * darkens the other.
    */
   imageEditEnabled?: boolean;
+  /**
+   * CEVE-18205 — whether THIS seat may additionally be told about the paid video
+   * GENERATE tool. Its OWN carrier (`COMMAND_EVE_ENABLE_AGENT_VIDEO_GENERATE`)
+   * and its own resolver (`agentVideoGenerateFlag.ts`), so the three paid tools
+   * are advertised independently and closing one never darkens the others.
+   *
+   * The posture differs from its two siblings on purpose: generate is DEFAULT-OFF
+   * and requires an explicit per-seat `'1'`, because it has no turn-bound spend
+   * permit (the edit lanes do). The resolver states the full argument.
+   */
+  videoGenerateEnabled?: boolean;
 }): CommandEveHermesMcpServer | undefined {
   const nodeExecutable = input.nodeExecutable.trim();
   const scriptPath = input.scriptPath.trim();
@@ -1870,6 +1885,7 @@ export function buildCommandEveArtifactContextHermesMcpServer(input: {
       AIONUI_EVE_ARTIFACT_BEARER_FILE: bearerFile,
       ...(input.videoEditEnabled === true ? { [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' } : {}),
       ...(input.imageEditEnabled === true ? { [COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]: '1' } : {}),
+      ...(input.videoGenerateEnabled === true ? { [COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG]: '1' } : {}),
     },
   };
 }
@@ -5806,6 +5822,11 @@ function writeHermesRuntimeFiles(
           videoEditEnabled: isAgentVideoEditAdvertisingEnabled(paths.userDataPath),
           // 1.820.3 — the image half of POLICY F, from ITS OWN resolver.
           imageEditEnabled: isAgentImageEditAdvertisingEnabled(paths.userDataPath),
+          // CEVE-18205 — the GENERATE third, from ITS OWN resolver, against the
+          // same userData root. Default-off: this stays false until a seat sets
+          // the flag to exactly '1', so an upgraded seat publishes no new
+          // spending tool until someone decides it should.
+          videoGenerateEnabled: isAgentVideoGenerateAdvertisingEnabled(paths.userDataPath),
         })
       : undefined;
   // COMPA-624 Inc.3 — the per-seat Honcho MCP server, or undefined when Honcho is

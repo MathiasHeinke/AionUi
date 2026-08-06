@@ -41,11 +41,13 @@
 
 import { isAgentVideoEditEnabled } from '@process/commandEve/agentVideoEditFlag';
 import { isAgentImageEditEnabled } from '@process/commandEve/agentImageEditFlag';
+import { isAgentVideoGenerateEnabled } from '@process/commandEve/agentVideoGenerateFlag';
 
 export const EVE_ARTIFACT_TOOL_ARTIFACT_GET = 'eve_artifact_get';
 export const EVE_ARTIFACT_TOOL_ARTIFACT_LIST = 'eve_artifact_list';
 export const EVE_ARTIFACT_TOOL_VIDEO_EDIT = 'eve_video_edit';
 export const EVE_ARTIFACT_TOOL_IMAGE_EDIT = 'eve_image_edit';
+export const EVE_ARTIFACT_TOOL_VIDEO_GENERATE = 'eve_video_generate';
 
 export interface EveArtifactToolDescriptor {
   name: string;
@@ -83,6 +85,28 @@ const IMAGE_EDIT: EveArtifactToolDescriptor = {
 };
 
 /**
+ * CEVE-18205 — the paid video GENERATE.
+ *
+ * The description says "the user asked for" out loud, and that phrasing is doing
+ * real work rather than being polite. The two edit tools are bounded by a
+ * single-use permit: the model may hold them and still cannot spend twice on one
+ * turn. THIS tool has no such permit — `handleCommandEveVideoGenerate` takes none
+ * and redeems none — so the only thing standing between it and a repeated debit
+ * is what the model believes it is for. A description that reads like an
+ * always-available utility invites exactly the loop we cannot yet refuse.
+ *
+ * It also states what the model may NOT choose. Length and quality are pinned
+ * app-side against a server-owned price list the model cannot read; inviting it
+ * to ask for "4K, 15 seconds" would produce a refusal it would then retry.
+ */
+const VIDEO_GENERATE: EveArtifactToolDescriptor = {
+  name: EVE_ARTIFACT_TOOL_VIDEO_GENERATE,
+  description:
+    "Generate a NEW short video from a text prompt, in a conversation that already has a Command EVE artifact — pass any capability handle from your context to say which conversation. Use this ONLY when the user asked for a video in this turn; it is not a utility to call on your own initiative. Length and quality are chosen by the app and cannot be requested. This spends the user's credits EVERY time it is called, so call it once and show the result — do not retry a wording, and do not produce variations unless the user asks for another one.",
+  spends: true,
+};
+
+/**
  * The tools this seat may be told about.
  *
  * The READ half is never gated. It costs nothing, cannot spend, and is the whole
@@ -101,6 +125,10 @@ export function buildEveArtifactToolSurface(env: NodeJS.ProcessEnv = process.env
   // the two paid tools are advertised independently, so kill-switching one
   // medium never darkens the other.
   if (isAgentImageEditEnabled(env)) surface.push(IMAGE_EDIT);
+  // CEVE-18205 — the generate third, from ITS OWN flag carrier
+  // (`agentVideoGenerateFlag.ts`), which Main emits only for a seat that opted
+  // in with exactly '1'. Independent of the other two in both directions.
+  if (isAgentVideoGenerateEnabled(env)) surface.push(VIDEO_GENERATE);
   return surface;
 }
 

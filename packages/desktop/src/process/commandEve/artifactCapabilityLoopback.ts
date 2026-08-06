@@ -39,7 +39,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { hydrateVideoArtifactPayload, isVideoArtifactEditable } from '@/common/config/videoGenerationRequestCore';
-import { handleCommandEveVideoEdit } from '@process/bridge/commandEveVideoBridge';
+import { handleCommandEveVideoEdit, handleCommandEveVideoGenerate } from '@process/bridge/commandEveVideoBridge';
 import { handleCommandEveImageEdit } from '@process/bridge/commandEveImageArtifactBridge';
 import { getDataPath } from '@process/utils/utils';
 import {
@@ -49,6 +49,11 @@ import {
   resolveAgentVideoEditAdvertisement,
 } from './agentVideoEditFlag';
 import { isAgentImageEditAdvertisingEnabled } from './agentImageEditFlag';
+import {
+  AGENT_VIDEO_GENERATE_DURATION_SECONDS,
+  AGENT_VIDEO_GENERATE_TIER_ID,
+  isAgentVideoGenerateAdvertisingEnabled,
+} from './agentVideoGenerateFlag';
 import { readArtifactCapabilityGrant } from './artifactCapabilityHandleStore';
 import { listVideoArtifactRecords } from './videoArtifactStore';
 
@@ -108,6 +113,13 @@ export interface ArtifactCapabilityLoopbackDeps {
    */
   imageEdit?: typeof handleCommandEveImageEdit;
   isImageEditEnabled?: () => boolean;
+  /**
+   * CEVE-18205 — the paid video GENERATE. Optional for the same reason every
+   * MAT-1747 dep is optional: existing test literals must stay valid. Absent
+   * falls back to the production handler and the production flag.
+   */
+  videoGenerate?: typeof handleCommandEveVideoGenerate;
+  isVideoGenerateEnabled?: () => boolean;
 }
 
 const productionDeps: ArtifactCapabilityLoopbackDeps = {
@@ -118,6 +130,8 @@ const productionDeps: ArtifactCapabilityLoopbackDeps = {
   isVideoEditEnabled: () => isAgentVideoEditAdvertisingEnabled(getDataPath()),
   imageEdit: handleCommandEveImageEdit,
   isImageEditEnabled: () => isAgentImageEditAdvertisingEnabled(getDataPath()),
+  videoGenerate: handleCommandEveVideoGenerate,
+  isVideoGenerateEnabled: () => isAgentVideoGenerateAdvertisingEnabled(getDataPath()),
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -242,6 +256,80 @@ export async function artifactCapabilityCallHandler(
         // generation, which is what puts its card in the chat.
         artifact_id: result.artifactHandle,
         parent_artifact_id: result.parentArtifactId,
+      },
+    };
+  }
+
+  if (operation === 'video_generate') {
+    const isVideoGenerateEnabled =
+      deps.isVideoGenerateEnabled ?? (() => isAgentVideoGenerateAdvertisingEnabled(deps.getDataPath()));
+    if (!isVideoGenerateEnabled()) {
+      // 403, not 404 — same doctrine as the two edit branches: the capability
+      // exists and is deliberately closed, and "unknown" would teach the model
+      // to retry a path that will never open on its own.
+      //
+      // This branch is closed by DEFAULT, unlike the edit ones. See
+      // `agentVideoGenerateFlag.ts`: generate has no turn-bound spend permit —
+      // `handleCommandEveVideoGenerate` takes none and redeems none — so
+      // nothing on this side bounds how many times a model may spend. The flag
+      // is the whole containment until that permit exists.
+      return { status: 403, payload: { ok: false, reason: 'agent-video-generate-disabled' } };
+    }
+    const prompt = typeof body.prompt === 'string' ? body.prompt : '';
+    if (prompt.trim().length === 0) {
+      return { status: 400, payload: { ok: false, reason: 'prompt-required' } };
+    }
+
+    // THE CONVERSATION IS OURS TO STATE, NEVER THE MODEL'S TO CLAIM.
+    //
+    // The handle store says it in its own words: "A handle must resolve without
+    // anyone's claim about where it belongs — the grant it resolves to is what
+    // states the conversation, and that statement is ours." So this branch takes
+    // no `conversation_id` field. It resolves an opaque handle the model already
+    // holds and reads the conversation off OUR grant. A `conversation_id`
+    // parameter would let a model aim a paid render at any conversation whose id
+    // it could guess or had seen, and bind the artifact there.
+    //
+    // THE COST OF THAT CHOICE, STATED RATHER THAN HIDDEN: a conversation with no
+    // EVE artifact yet has no handle, so the agent cannot generate in it. The
+    // first clip in any conversation still comes from the renderer lane, where a
+    // human picks the tier in front of the price. That is a real product
+    // limitation of this slice, not a solved problem — closing it needs the
+    // envelope to mint a conversation-scoped generate grant, which is the same
+    // change that would give this lane its missing spend permit.
+    const grant = deps.readGrant(deps.getDataPath(), handle);
+    if (!grant) return { status: 404, payload: { ok: false, reason: 'handle-unknown' } };
+
+    // The expensive axes are PINNED (see `agentVideoGenerateFlag.ts`): the model
+    // names a prompt, never a tier, model, duration or resolution. Those live in
+    // a server-owned frozen catalog the model cannot read and must not quote.
+    const result = await (deps.videoGenerate ?? handleCommandEveVideoGenerate)({
+      prompt,
+      tierId: AGENT_VIDEO_GENERATE_TIER_ID,
+      durationSeconds: AGENT_VIDEO_GENERATE_DURATION_SECONDS,
+      conversationId: grant.conversation_id,
+    });
+    if (result.ok === false) {
+      return { status: 400, payload: { ok: false, reason: result.reasonCode, message: result.message } };
+    }
+    // `conversationArtifact` is OPTIONAL on the success branch: the handler skips
+    // the durable save rather than faking one. Reaching here without it means the
+    // clip was rendered AND BILLED upstream but has no record to name, so the
+    // honest answer is a distinct reason — not `ok: true` with a fabricated id,
+    // and not `ok: false`, which would tell the user nothing was spent.
+    if (!result.conversationArtifact) {
+      return { status: 200, payload: { ok: true, artifact_id: null, reason: 'artifact-not-persisted' } };
+    }
+    return {
+      status: 200,
+      payload: {
+        ok: true,
+        // No `media` line and no path, for the reason the edit branch states at
+        // length: a path handed to a model contradicts the envelope's no-paths
+        // rule and ships the account name to a third-party API. The same known
+        // display consequence applies — a clip produced through THIS lane does
+        // not render inline in chat the way a renderer-lane one does.
+        artifact_id: result.conversationArtifact.id,
       },
     };
   }

@@ -54,6 +54,7 @@ import {
   EVE_ARTIFACT_TOOL_ARTIFACT_LIST,
   EVE_ARTIFACT_TOOL_IMAGE_EDIT,
   EVE_ARTIFACT_TOOL_VIDEO_EDIT,
+  EVE_ARTIFACT_TOOL_VIDEO_GENERATE,
   isToolAdvertised,
 } from './eveArtifactToolSurface';
 
@@ -226,6 +227,35 @@ async function main() {
         const result = await callMain('image_edit', { handle, permit, instruction });
         // Main answers with a staged reference (`img_h_…`) and a parent id —
         // never a path — so nothing here can leak one into the transcript.
+        return textResult(result, result.ok !== true);
+      }
+    );
+  }
+
+  // CEVE-18205 — the paid video GENERATE, from ITS OWN env carrier. Note what is
+  // NOT in this schema: no permit, because none exists for generate (Main's
+  // `handleCommandEveVideoGenerate` takes none), and no tier, model, duration or
+  // resolution, because those are pinned app-side against a server-owned price
+  // list this process cannot read. The handle is required and says only WHICH
+  // CONVERSATION — Main reads the conversation off its own grant rather than
+  // trusting a conversation id from here.
+  if (isToolAdvertised(surface, EVE_ARTIFACT_TOOL_VIDEO_GENERATE)) {
+    server.tool(
+      EVE_ARTIFACT_TOOL_VIDEO_GENERATE,
+      describeEveArtifactTool(surface, EVE_ARTIFACT_TOOL_VIDEO_GENERATE),
+      {
+        handle: handleSchema,
+        prompt: z
+          .string()
+          .min(1)
+          .max(2000)
+          .describe("What the video should show, in the user's own terms — subject, motion, style."),
+      },
+      async ({ handle, prompt }) => {
+        const result = await callMain('video_generate', { handle, prompt });
+        // Same path-free doctrine as the two edit tools: Main answers with an
+        // artifact id and no `MEDIA:` line, so nothing here can put a home
+        // directory name into a transcript or an upstream API.
         return textResult(result, result.ok !== true);
       }
     );
