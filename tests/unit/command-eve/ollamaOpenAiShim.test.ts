@@ -9,6 +9,7 @@ import {
   getCommandEveOllamaOpenAiShimBaseUrl,
   isCommandEveWarmupRequest,
   localOpenAiPayload,
+  recoverQuotaExhaustedBody,
   resolveCommandEveShimContextPolicy,
   resolveCommandEveShimListenPort,
   startCommandEveOllamaOpenAiShim,
@@ -24,6 +25,52 @@ describe('resolveCommandEveShimListenPort', () => {
     expect(resolveCommandEveShimListenPort(undefined, {})).toBe(25811);
     expect(resolveCommandEveShimListenPort(undefined, { AIONUI_E2E_TEST: '1' })).toBe(0);
     expect(resolveCommandEveShimListenPort(31000, { AIONUI_E2E_TEST: '1' })).toBe(31000);
+  });
+});
+
+describe('recoverQuotaExhaustedBody — 402 credit-wall contract (MAT-1773)', () => {
+  it('passes a top-level quota_exhausted contract through verbatim', () => {
+    const body = {
+      error: 'quota_exhausted',
+      credits_needed: 41,
+      packs: [{ id: 'pack-25', price_eur_cents: 2500, total_credits: 25000 }],
+    };
+    expect(JSON.parse(recoverQuotaExhaustedBody(JSON.stringify(body)) as string)).toEqual(body);
+  });
+
+  it('flattens the wallet-style {error:{error:…}} wrapper to the top-level contract the renderer expects', () => {
+    const contract = { error: 'quota_exhausted', credits_needed: 41, packs: [] };
+    // Shape 2: upstream answers `{ error: { error:'quota_exhausted', … } }`.
+    const wrapped = JSON.stringify({ error: contract });
+    const out = recoverQuotaExhaustedBody(wrapped);
+    expect(out).not.toBeNull();
+    expect(JSON.parse(out as string)).toEqual(contract);
+  });
+
+  it('recovers the contract when it is embedded in an OpenAI-style error.message string', () => {
+    const contract = { error: 'quota_exhausted', credits_needed: 41, packs: [] };
+    const wrapped = JSON.stringify({
+      error: { message: `HTTP 402: ${JSON.stringify(contract)}` },
+    });
+    const out = recoverQuotaExhaustedBody(wrapped);
+    expect(out).not.toBeNull();
+    expect(JSON.parse(out as string)).toEqual(contract);
+  });
+
+  it('returns null for a non-quota body — the caller must use the warm wall, never the raw provider text', () => {
+    expect(recoverQuotaExhaustedBody(JSON.stringify({ error: { message: 'server exploded' } }))).toBeNull();
+    expect(recoverQuotaExhaustedBody('not json at all')).toBeNull();
+  });
+
+  it('never leaks the upstream provider name even on a malformed body', () => {
+    const sneaky = JSON.stringify({
+      error: { message: 'openrouter.ai quota exhausted — our internal account is empty' },
+    });
+    const out = recoverQuotaExhaustedBody(sneaky);
+    // Either a clean contract or null — never the raw message that names the provider.
+    if (out !== null) {
+      expect(out).not.toContain('openrouter');
+    }
   });
 });
 
@@ -924,8 +971,9 @@ describe('Command EVE shim — EVE cloud routing', () => {
       status: 402,
       responseBody: {
         error: {
-          type: 'payment_required',
-          message: 'Synthetic upstream reserved 65536 output tokens but the test balance is smaller.',
+          error: 'quota_exhausted',
+          credits_needed: 41,
+          packs: [],
         },
       },
     },
@@ -960,7 +1008,16 @@ describe('Command EVE shim — EVE cloud routing', () => {
       });
 
       expect(response.status).toBe(status);
-      expect(await response.json()).toEqual(responseBody);
+      if (status === 402) {
+        // The 402 credit-wall is handed back WARM and structured (the renderer
+        // shows the "credits aufgebraucht" wall), not the raw provider text.
+        const json = await response.json();
+        // Top-level Lane-1 contract: `error` is the string discriminator.
+        expect(json.error).toBe('quota_exhausted');
+        expect(JSON.stringify(json)).not.toContain('Synthetic');
+      } else {
+        expect(await response.json()).toEqual(responseBody);
+      }
       expect(fnSeen.attempts).toBe(1);
       expect(fnSeen.body).not.toHaveProperty('max_tokens');
       expect(fnSeen.body).not.toHaveProperty('max_completion_tokens');

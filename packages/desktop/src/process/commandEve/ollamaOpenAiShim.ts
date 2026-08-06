@@ -536,6 +536,48 @@ export function scrubUpstreamErrorBody(text: string, upstreamOk: boolean): strin
   return scrubModelIdentifiers(text, EVE_SERVED_MODEL_IDENTIFIERS);
 }
 
+/**
+ * Recover the structured Lane-1 `quota_exhausted` contract from a raw 402 body.
+ *
+ * The wallet answers `{error:'quota_exhausted', credits_needed, packs}` directly,
+ * or wraps it inside `error.message` as embedded JSON (OpenAI-style). Returns the
+ * verbatim structured body when recoverable, otherwise `null` — the caller then
+ * falls back to the warm, provider-independent credit wall. NEVER returns the raw
+ * upstream text, so an exhausted OpenRouter/upstream account can never leak into
+ * the user-facing message (the user's own credit balance is the only thing shown).
+ */
+export function recoverQuotaExhaustedBody(text: string): string | null {
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const err = parsed?.error;
+    // Shape 1: the wallet answers `{error:'quota_exhausted', credits_needed, packs}`
+    // directly (top-level `error` is the STRING discriminator).
+    if (err === 'quota_exhausted') {
+      return JSON.stringify(parsed);
+    }
+    // Shape 2: `error` is an OBJECT — either `{error:'quota_exhausted', …}` (flatten it
+    // to top-level) or `{message:'…quota_exhausted…'}` (recover embedded JSON).
+    if (err && typeof err === 'object') {
+      const errObj = err as Record<string, unknown>;
+      if (errObj.error === 'quota_exhausted') {
+        // Drop the outer wrapper so the renderer's parseQuotaExhaustedBody sees the
+        // top-level contract it expects.
+        return JSON.stringify(errObj);
+      }
+      const errMsg =
+        typeof errObj.message === 'string' ? errObj.message : typeof parsed.message === 'string' ? (parsed.message as string) : '';
+      const embedded = errMsg.match(/\{[\s\S]*\}/)?.[0];
+      if (embedded) {
+        const direct = JSON.parse(embedded) as Record<string, unknown>;
+        if (direct.error === 'quota_exhausted') return JSON.stringify(direct);
+      }
+    }
+  } catch {
+    /* not JSON / no contract → null */
+  }
+  return null;
+}
+
 export function buildEveCloudRoute(args: {
   /** True iff the active picker selection is an EVE Inference (cloud) tier. */
   isEveSelection: boolean;
@@ -1607,6 +1649,41 @@ async function handleEveCloudCompletions(
       // what the user is told. It is naming debt, and it is named as such rather than
       // half-renamed: what the user READS is fixed above and in DailyCapWall.
       response.end(JSON.stringify({ error: { message: friendly, type: 'eve_daily_cap', code: 429 } }));
+      return;
+    }
+
+    // HTTP 402 quota_exhausted — the metered-credits wallet is empty (Lane-1
+    // credit-wall contract, NOT an UpstreamError). Mirror the 429 handling: a
+    // warm, structured body the renderer's credit wall switches on, and never
+    // leak that it was OUR upstream provider (OpenRouter) that is empty. The
+    // user's own credit balance is the only thing they should be told about.
+    if (upstream.status === 402) {
+      // The upstream body IS the `{error:'quota_exhausted', credits_needed, packs}`
+      // shape (or embedded in it). Forward it verbatim so the renderer's
+      // creditsCore.detectQuotaExhausted + useQuotaWall can surface the framed
+      // "buy credits" wall instead of an UNKNOWN_UPSTREAM_ERROR chat bubble.
+      response.writeHead(402, { 'content-type': 'application/json' });
+      // Try to recover the structured quota_exhausted contract from the raw body
+      // (the wallet responds with `{error:'quota_exhausted', credits_needed, packs}`,
+      // sometimes wrapped in `error.message` as embedded JSON). If we cannot, hand
+      // back a warm minimal quota_exhausted so the renderer still shows the credit
+      // wall — never the raw provider text, and never a leak that OUR OpenRouter
+      // account is empty.
+      const structured = recoverQuotaExhaustedBody(text);
+      response.end(
+        structured ||
+          JSON.stringify({
+            // Top-level Lane-1 contract the renderer's parseQuotaExhaustedBody reads:
+            // `{ error:'quota_exhausted', credits_needed, packs }`. The wall renders
+            // this as the "buy credits" surface; the message below is the warm fallback
+            // copy shown by the wall when the wall body has no user-visible text.
+            error: 'quota_exhausted',
+            credits_needed: 1,
+            packs: [],
+            message:
+              'Deine Command-EVE-Credits sind aufgebraucht. Lade in den Einstellungen neue Credits auf, um weiterzumachen.',
+          }),
+      );
       return;
     }
 
