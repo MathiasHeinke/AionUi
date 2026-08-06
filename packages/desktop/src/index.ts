@@ -87,6 +87,7 @@ import {
 import { shouldRestartWindowsBackendAfterRuntimeBootstrap } from './process/commandEve/windows/runtimeActivationCore';
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatContextRevision, getActiveSeatId } from './process/commandEve/seatContextCore';
+import { restoreActiveSeatFromPointer } from './process/commandEve/activeSeatPointerStore';
 import {
   readInferenceSelectionFromBackendStrict,
   resolveEveCloudRouteFromBackend,
@@ -1818,16 +1819,33 @@ const handleAppReady = async (): Promise<void> => {
     );
     commandEveOllamaShimStartFailure = undefined;
     mark(`commandEveOllamaShim (${shimUrl})`);
+    // CEVE-18205 — THE BOOT-TIME SEAT RESTORE, and it must run HERE: the bake
+    // below reads getActiveSeatId()/getActiveSeatLabel() to home HERMES_HOME and
+    // the seat env trio for every child process, so a restore that happened after
+    // it would describe one seat while the children ran in another.
+    //
+    // This is the restore the comment below used to say did not exist. Without it
+    // every launch came up on LEGACY_SEAT_ID, and because `seatScopedKey` returns
+    // the key UNCHANGED on the legacy seat, main read `commandEve.maxEntitled`
+    // UN-NAMESPACED while the renderer had written `seat:<uuid>:commandEve.maxEntitled`.
+    // The value existed and was simply not looked at, so `maxEntitled` resolved to
+    // `undefined` and the turn parked on "Berechtigung wird geprüft" instead of
+    // routing MAX or Standard. The renderer could not compensate: it asks MAIN for
+    // the id over `command-eve.active-seat`, so both sides agreed on the wrong seat.
+    //
+    // FAIL-CLOSED: an absent/unreadable/malformed pointer leaves the holder on the
+    // legacy seat — byte-identical to the previous behaviour. See
+    // `activeSeatPointerStore.restoreActiveSeatFromPointer`.
+    const restoredSeat = restoreActiveSeatFromPointer(getDataPath());
+    if (restoredSeat.source === 'pointer') {
+      mark(`commandEveActiveSeatRestore (${restoredSeat.seatId})`);
+    }
     // Seat-Context-Bridge (B1): this bakes the env trio (COMMAND_EVE_ACTIVE_SEAT /
-    // _SEAT_LABEL / HERMES_KANBAN_BOARD) alongside HERMES_HOME. At BOOT the active
-    // seat is ALWAYS the legacy/founder home: nothing calls setActiveSeatId before
-    // this point (the persist pointer is a no-op — commandEveBridge.persistActive-
-    // SeatPointer — and there is no boot-time restore of a saved seat), so
-    // getActiveSeatId() === LEGACY_SEAT_ID and getActiveSeatLabel() === 'Founder'
-    // here. The label default 'Founder' is therefore correct for boot; a real
-    // seat's label is captured later, at applySeatSwitch, and re-baked on the
-    // switch re-spawn. If a boot-time seat-restore is ever added, it MUST call
-    // setActiveSeatId + setActiveSeatLabel BEFORE this bake.
+    // _SEAT_LABEL / HERMES_KANBAN_BOARD) alongside HERMES_HOME. The active seat is
+    // whatever the restore above resolved: a saved seat when this install has one,
+    // otherwise the legacy/founder home with the 'Founder' label default. A real
+    // seat's label/kind ride the same pointer, and are re-captured at
+    // applySeatSwitch and re-baked on the switch re-spawn.
     prepareCommandEveRuntimeProcessEnv(getDataPath());
     // S9 #5 store-split fix: `localModelTierId` is a RENDERER-written key (the
     // local-model tier picker persists it to the BACKEND store, not the

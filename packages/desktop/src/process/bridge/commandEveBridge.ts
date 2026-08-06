@@ -209,6 +209,7 @@ import {
   resolveSeatHermesHome,
   sanitizeSeatId,
 } from '@process/commandEve/seatContextCore';
+import { writeActiveSeatPointer } from '@process/commandEve/activeSeatPointerStore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore, type MySeatsWireFailure } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
@@ -368,17 +369,35 @@ async function readMySeatsWire(): Promise<unknown | null> {
 }
 
 /**
- * Persist the B3 active-seat pointer via the set-active-seat edge function.
- * BEST-EFFORT: the local runtime switch already succeeded before this runs, so a
- * failure here must NOT roll back a working local switch (applySeatSwitch treats
- * a throw as persist_failed, not a switch failure). PREPARED: the set-active-seat
- * function is AUTHORED-not-deployed, so this is a no-op today (the next launch
- * re-derives the active seat). The server-side IDOR guard (target in the
- * caller's authorized set) is enforced by the function, not here.
+ * Persist the active-seat pointer.
+ *
+ * TWO POINTERS, ONE OF WHICH IS NOW REAL:
+ *
+ *   - the B3 SERVER pointer (set-active-seat edge function) stays PREPARED and
+ *     not deployed — the server-side IDOR guard lives in that function, not here;
+ *   - the LOCAL pointer (CEVE-18205) is written HERE, and it is what makes the
+ *     next launch come up on this seat instead of the legacy one.
+ *
+ * The local write closes the boot gap this comment used to describe as "the next
+ * launch re-derives the active seat" — nothing re-derived it. `seatContextCore`
+ * reset to LEGACY_SEAT_ID on every start, so main read every seat-scoped key
+ * un-namespaced (`commandEve.maxEntitled` among them) and the MAX turn parked on
+ * "Berechtigung wird geprüft". See `activeSeatPointerStore`.
+ *
+ * BEST-EFFORT, unchanged: the local runtime switch already succeeded before this
+ * runs, so neither write may roll it back (applySeatSwitch treats a throw as
+ * persist_failed, not a switch failure). `writeActiveSeatPointer` returns a
+ * boolean rather than throwing, for exactly that reason.
  */
-async function persistActiveSeatPointer(seatId: string): Promise<void> {
-  // PREPARED: no set-active-seat function deployed yet ⇒ no-op (local switch stands).
-  void seatId;
+async function persistActiveSeatPointer(seatId: string, label?: string, kind?: string): Promise<void> {
+  // The LOCAL pointer: survives a restart, needs no network, and is the only
+  // thing that can restore the seat before the boot env bake runs.
+  writeActiveSeatPointer(getDataPath(), {
+    seatId,
+    ...(label === undefined ? {} : { label }),
+    ...(kind === undefined ? {} : { kind }),
+  });
+  // PREPARED: no set-active-seat function deployed yet ⇒ server half is a no-op.
 }
 
 /**
@@ -4334,7 +4353,10 @@ export function initCommandEveBridge(): void {
             }
           },
           persistActiveSeat: async (seatId) => {
-            await persistActiveSeatPointer(seatId);
+            // Label + kind ride the SAME wire seat record the switch already
+            // resolved, so a restored boot reproduces id → label → kind exactly as
+            // this switch left them — no second fetch, no drift between the two.
+            await persistActiveSeatPointer(seatId, targetLabel, targetKind);
           },
         },
         targetLabel,
