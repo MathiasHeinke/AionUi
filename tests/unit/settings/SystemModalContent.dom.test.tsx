@@ -87,6 +87,23 @@ vi.mock('@/common/config/configService', () => ({
 }));
 void notifyConfigKey;
 
+// CEVE-18205 — the agent video-generate row is offered only to an ENTITLED seat,
+// so the entitlement read is a mocked seam rather than a live bridge call. The
+// default is the fail-closed one (null = still loading / no bridge); individual
+// tests opt into an entitled seat.
+const { entitlementStatusMock } = vi.hoisted(() => ({
+  entitlementStatusMock: vi.fn<() => { state: string } | null>(() => null),
+}));
+
+vi.mock('@/renderer/hooks/useEntitlementGate', () => ({
+  useEntitlementGate: () => ({
+    loading: false,
+    status: entitlementStatusMock(),
+    blocked: false,
+    refresh: vi.fn(),
+  }),
+}));
+
 vi.mock('@/common', () => ({
   ipcBridge: {
     application: {
@@ -341,5 +358,119 @@ describe('SystemModalContent — PII/DSGVO egress toggle (S11)', () => {
     await waitFor(() => {
       expect(configSetMock).toHaveBeenCalledWith('commandEve.egressRedactionMode', 'on');
     });
+  });
+});
+
+/**
+ * CEVE-18205 — "Eve darf selbst Videos generieren".
+ *
+ * Two claims, and the first one is the one that costs money if it is wrong.
+ *
+ *   1. THE ROW IS NOT OFFERED to a seat the main-process gate would refuse.
+ *      An advertised control the product will not honour teaches the operator
+ *      the app is broken, and for a paid capability it teaches them they have
+ *      something they do not. Every non-entitled state hides it, including the
+ *      null window before the first entitlement read resolves.
+ *   2. THE SWITCH IS OFF BY DEFAULT and writes the per-seat key. Default-off is
+ *      the whole containment for this lane (generate has no turn-bound spend
+ *      permit), so "absent ⇒ off" is asserted directly rather than assumed.
+ */
+describe('SystemModalContent — agent video generate release (CEVE-18205)', () => {
+  const findRowSwitch = async () => {
+    const label = await screen.findByText('settings.commandEveAgentVideoGenerate');
+    const row = label.closest('[data-testid="system-preference-commandEveAgentVideoGenerate"]');
+    expect(row).not.toBeNull();
+    return within(row as HTMLElement).getByRole('switch');
+  };
+
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    // Same environment the directory-settings describe builds: this block has its
+    // own beforeEach (the other one is scoped to its describe), so the modal needs
+    // matchMedia and a resolved systemInfo here too or it never finishes rendering.
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    systemInfoMock.mockResolvedValue(defaultSystemInfo);
+    updateSystemInfoMock.mockResolvedValue(undefined);
+    restartMock.mockResolvedValue({ restarted: true, manualRestartRequired: false });
+    showOpenMock.mockResolvedValue(['/new-logs']);
+    configGetMock.mockImplementation(() => undefined);
+    entitlementStatusMock.mockReturnValue({ state: 'entitled' });
+  });
+
+  it('is OFF by default — an absent per-seat value must never read as granted', async () => {
+    renderContent();
+    const sw = await findRowSwitch();
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('reads an explicit true as granted', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.agentVideoGenerateEnabled' ? true : undefined
+    );
+    renderContent();
+    const sw = await findRowSwitch();
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('persists the grant to the per-seat key', async () => {
+    const user = userEvent.setup();
+    renderContent();
+    const sw = await findRowSwitch();
+
+    await user.click(sw);
+
+    await waitFor(() => {
+      expect(configSetMock).toHaveBeenCalledWith('commandEve.agentVideoGenerateEnabled', true);
+    });
+  });
+
+  it('persists a revocation too — the switch is not one-way', async () => {
+    const user = userEvent.setup();
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.agentVideoGenerateEnabled' ? true : undefined
+    );
+    renderContent();
+    const sw = await findRowSwitch();
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+
+    await user.click(sw);
+
+    await waitFor(() => {
+      expect(configSetMock).toHaveBeenCalledWith('commandEve.agentVideoGenerateEnabled', false);
+    });
+  });
+
+  // One case per state rather than a loop: each needs its own render + cleanup,
+  // and a failure should name the state that broke rather than the whole set.
+  it.each(['unconfigured', 'unregistered', 'registered_unlicensed', 'expired'])(
+    'is NOT offered to a seat in state "%s"',
+    async (state) => {
+      entitlementStatusMock.mockReturnValue({ state });
+      renderContent();
+      // Positive control: the modal really rendered, so this is a hidden ROW and
+      // not an empty render that would pass for the wrong reason.
+      await screen.findByText('settings.commandEveKanbanAutoApprove');
+      expect(screen.queryByText('settings.commandEveAgentVideoGenerate')).toBeNull();
+    }
+  );
+
+  it('is NOT offered while the entitlement read is still in flight (fail-closed)', async () => {
+    entitlementStatusMock.mockReturnValue(null);
+    renderContent();
+    await screen.findByText('settings.commandEveKanbanAutoApprove');
+    expect(screen.queryByText('settings.commandEveAgentVideoGenerate')).toBeNull();
   });
 });

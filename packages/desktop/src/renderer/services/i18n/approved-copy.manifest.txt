@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7086
+# entries: 7092
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -2439,6 +2439,7 @@ copy	1	de-DE/settings.json	Assistenten-Beschreibung
 copy	1	de-DE/settings.json	Assistenten-Details
 copy	1	de-DE/settings.json	Auf Kopieren klicken, um das Passwort zu erhalten
 copy	1	de-DE/settings.json	Auf Standardstil zurückgesetzt
+copy	1	de-DE/settings.json	Aus (Standard): Videos entstehen nur, wenn du sie selbst über die Video-Auswahl startest — dort siehst du vorher Qualität, Länge und Kosten. An: EVE darf im Gespräch selbst ein kurzes Video erzeugen, wenn du im selben Zug eines verlangst. Jeder Lauf kostet Credits. Länge und Qualität legt die App fest, nicht das Modell. Gilt nur für diesen Seat.
 copy	1	de-DE/settings.json	Aus Assistent entfernen
 copy	1	de-DE/settings.json	Aus JSON importieren
 copy	1	de-DE/settings.json	Aus Sicherheitsgründen können WebUI-Einstellungen nur in der Desktop-Anwendung verwaltet werden. Bitte öffne das Einstellungsfenster in der Command-EVE-Desktop-App zur Konfiguration.
@@ -2737,6 +2738,7 @@ copy	1	de-DE/settings.json	Erweiterungs-Assistenten sind schreibgeschützt. Du k
 copy	1	de-DE/settings.json	Erzähl EVE dein Geschäft — sie merkt es sich und arbeitet damit.
 copy	1	de-DE/settings.json	Es können mehrere Server gleichzeitig importiert werden.
 copy	1	de-DE/settings.json	Es wird nur das Protokoll http/https unterstützt
+copy	1	de-DE/settings.json	Eve darf selbst Videos generieren
 copy	2	de-DE/settings.json	Experimentell
 copy	1	de-DE/settings.json	Feedback
 copy	2	de-DE/settings.json	Fehler
@@ -2749,6 +2751,7 @@ copy	1	de-DE/settings.json	Finde deinen Bot in WeChat und sende ihm eine Nachric
 copy	1	de-DE/settings.json	Firma
 copy	1	de-DE/settings.json	Folge dem Tutorial
 copy	1	de-DE/settings.json	Fortsetzen & aktivieren
+copy	1	de-DE/settings.json	Freigabe konnte nicht gespeichert werden — Änderung nicht übernommen. Bitte erneut versuchen.
 copy	1	de-DE/settings.json	Freigaben
 copy	1	de-DE/settings.json	Frosted Gallery
 copy	1	de-DE/settings.json	Fähigkeit
@@ -6137,6 +6140,7 @@ copy	1	en-US/settings.json	Copy Link
 copy	1	en-US/settings.json	Copy MCP config
 copy	2	en-US/settings.json	Copy pairing code
 copy	1	en-US/settings.json	Copy the JSON configuration from the MCP service introduction page (preferably NPX or UVX configuration) and paste it into the input box below.
+copy	1	en-US/settings.json	Could not save the release — the change was not applied. Please try again.
 copy	1	en-US/settings.json	Couldn't send {{name}} because the file is outside the allowed send directories
 copy	1	en-US/settings.json	Cover
 copy	1	en-US/settings.json	Create Assistant
@@ -6420,6 +6424,7 @@ copy	1	en-US/settings.json	Latest check in Tools settings: Available
 copy	1	en-US/settings.json	Latest check in Tools settings: Failed
 copy	1	en-US/settings.json	Launch Command EVE automatically when you sign in to macOS or Windows.
 copy	1	en-US/settings.json	Learned by EVE
+copy	1	en-US/settings.json	Let EVE generate videos on her own
 copy	2	en-US/settings.json	Light
 copy	1	en-US/settings.json	List preferred tools/skills for the assistant.
 copy	1	en-US/settings.json	Loaded {{count}} tools
@@ -6554,6 +6559,7 @@ copy	2	en-US/settings.json	Notifications
 copy	1	en-US/settings.json	OAuth login failed
 copy	1	en-US/settings.json	OAuth login successful
 copy	1	en-US/settings.json	Obsidian Atrium
+copy	1	en-US/settings.json	Off (default): videos are only created when you start one yourself from the video picker, where you see quality, length and cost beforehand. On: EVE may create a short video during the conversation when you ask for one in that same turn. Every run costs credits. Length and quality are set by the app, not by the model. Applies to this seat only.
 copy	1	en-US/settings.json	Off by default. Sends redacted crash diagnostics and structural log metadata only — never raw log text.
 copy	1	en-US/settings.json	Off by default. Your choice is stored locally; voice output is only processed through EVE Cloud after you allow it.
 copy	1	en-US/settings.json	Off: content goes UNREDACTED to the cloud model (this seat only). Personal data (phone, IBAN, addresses, health/financial data) will NO LONGER be automatically removed before it leaves your Mac.
