@@ -14,13 +14,34 @@
  * machine deps (Homebrew/Postgres) which is heavy and slow, so the caller runs it
  * in the BACKGROUND behind the operator opt-in — never blocking first value.
  *
- * FACT BOUNDARY (honest): the exact system command STRINGS in buildHonchoCommandSet
- * and the dep-detection probes are the ONE part that must be VERIFIED ON A REAL MAC
- * against the live honcho-ai wheel (there is no honcho/postgres in a headless CI).
- * They are marked MAC-VERIFY-PENDING. Everything else here — the wiring, the
- * opt-in/consent gate, the fail-safety (a Honcho miss is always 'skip', never
- * blocks) — is unit-tested with fakes, so the Mac step is "verify the strings +
- * flip the opt-in", not "build the orchestration".
+ * MEASURED ON A REAL MAC, 2026-08-07 — AND THE PREMISE DID NOT HOLD.
+ *
+ * The open work was described here as "verify the strings + flip the opt-in".
+ * That framing is now measurably wrong, and leaving it would send the next
+ * measurement down the same path:
+ *
+ *   `honcho-ai` 2.2.0 is the "Official DX Optimized Python SDK for Honcho"
+ *   (PyPI metadata), and its only runtime dependencies are httpx and pydantic.
+ *   It is a CLIENT. It ships no server, no ASGI runner, no database driver —
+ *   there is no uvicorn, fastapi, sqlalchemy or psycopg anywhere in its
+ *   dependency set. `honcho-cli` 0.1.2 ("a terminal for Honcho") is a client too.
+ *
+ * So HONCHO_STEP_PACKAGE installs a client and HONCHO_STEP_PROCESS then tries to
+ * `serve` with it, and the Postgres/pgvector steps exist for a server this venv
+ * never receives. The Honcho SERVER lives in the plastic-labs/honcho repository
+ * and is deployed separately; it is not a `pip install` away.
+ *
+ * That is a wrong PREMISE, not a wrong string, so the strings below are left
+ * exactly as they are rather than repaired on a guess — see each step's note for
+ * what was verified and what it depends on. The wiring, the opt-in/consent gate
+ * and the fail-safety (a Honcho miss is always 'skip', never blocks) remain
+ * unit-tested and unaffected; this path is still not spliced into boot, so
+ * nothing here can fire today.
+ *
+ * WHAT THE NEXT SLICE HAS TO DECIDE, before any string is worth fixing: how the
+ * server is obtained at all (vendored container, repo checkout, or dropping the
+ * local-server idea and pointing the SDK at a hosted instance). Everything below
+ * follows from that answer.
  */
 
 import fs from 'fs';
@@ -53,19 +74,47 @@ import { ensureCommandEveShimAuthToken } from './ollamaOpenAiShim';
 import type { RuntimeBootstrapRunner, RuntimeBootstrapDetachedSpawner } from './runtimeBootstrapCore';
 
 /**
- * MAC-VERIFY-PENDING — the exact provisioning commands. Structure is FACT (the
- * step order + the venv/db targets come from the config); the precise brew formula
- * names + the honcho serve/mcp invocation must be confirmed against the installed
- * honcho-ai wheel on a real machine before this path is opt-in-enabled for users.
- * Until then a wrong string fails its step → the chain stops → Honcho stays not-ready
- * → memory falls back to Company Brain (never a crash, never a blocked boot).
+ * MEASURED 2026-08-07 on the founder's Mac (Homebrew 6.0.9, Apple Silicon).
+ * Nothing was installed; every line below is a read.
+ *
+ * VERIFIED: `brew` exists at /opt/homebrew/bin/brew. Both formula NAMES resolve —
+ * `postgresql@16` (stable 16.14) and `pgvector` (stable 0.8.6) exist in
+ * homebrew-core today, so neither name has rotted.
+ *
+ * WRONG, and provable without installing:
+ *
+ *  1. VERSION MISMATCH. `pgvector` 0.8.6 declares its build dependencies as
+ *     postgresql@17 and postgresql@18 — NOT @16. Installing this pair yields a
+ *     vector extension built for a server generation the @16 cluster cannot load,
+ *     so `CREATE EXTENSION vector` fails after both steps report success.
+ *
+ *  2. `createdb` WILL NOT BE ON PATH. `postgresql@16` is keg-only (brew info says
+ *     so, and `brew --prefix postgresql@16` is /opt/homebrew/opt/postgresql@16),
+ *     so Homebrew never links its binaries into /opt/homebrew/bin. Confirmed on
+ *     this machine: createdb, psql, initdb and pg_ctl are all absent from PATH.
+ *     The DB step below would fail with ENOENT even after a perfect install.
+ *
+ * Both are left UNCHANGED on purpose. The right postgres generation and the right
+ * absolute binary path both follow from which Honcho SERVER we end up running, and
+ * that question is open (see the module header). Correcting them now would mean
+ * guessing twice and calling it verification.
+ *
+ * Fail-safety is unaffected either way: a wrong string fails its step → the chain
+ * stops → Honcho stays not-ready → memory falls back to Company Brain.
  */
 /**
- * MAC-VERIFY-PENDING — the env-var NAMES honcho-ai's deriver reads for its LLM
- * route. The VALUES are FACT (cfg.deriver.baseUrl already resolves to the loopback
- * Ollama /v1 for the local branch, the loopback shim /v1 for cloud); only these key
- * names must be confirmed against the installed wheel (OpenAI-style is the guess).
- * Gated behind one constant so the wheel-verified literal is a one-line correction.
+ * STILL OPEN, and now for a clearer reason — the env-var NAMES a Honcho DERIVER
+ * reads for its LLM route.
+ *
+ * This could not be settled on 2026-08-07: the names belong to the SERVER, and
+ * `honcho-ai` is the client SDK (see the module header), so installing it would
+ * not have answered the question either. Reading them off a wheel was never going
+ * to work; they have to come from whichever server deployment we choose.
+ *
+ * The VALUES remain FACT: cfg.deriver.baseUrl already resolves to loopback Ollama
+ * /v1 on the local branch and the loopback shim /v1 on cloud. Only the key names
+ * are a guess (OpenAI-style), and they stay behind this one constant so the
+ * correction remains a single line whenever the server is decided.
  */
 export const HONCHO_DERIVER_ENV_KEYS = {
   baseUrl: 'OPENAI_BASE_URL',
@@ -100,9 +149,10 @@ export function buildHonchoCommandSet(input: { cfg: HonchoRuntimeConfig; hermesV
   const venvPip = `${input.hermesVenv}/bin/pip`;
   const dbName = input.cfg.dbName || '';
   return {
-    // Presence/install of the package manager. brew's own bootstrap is a curl
-    // script (needs its own consent) — MAC-VERIFY-PENDING whether we detect-only or
-    // run the official install here.
+    // VERIFIED 2026-08-07: `brew --version` answers on this machine (Homebrew
+    // 6.0.9, /opt/homebrew/bin/brew). Still OPEN by policy, not by measurement:
+    // whether we ever run brew's own curl bootstrap for an operator who has no
+    // Homebrew — that needs its own consent and is not decided here.
     [HONCHO_STEP_HOMEBREW]: { command: 'brew', args: ['--version'], timeoutMs: 20000 },
     [HONCHO_STEP_POSTGRES]: { command: 'brew', args: ['install', 'postgresql@16'], timeoutMs: 300000 },
     [HONCHO_STEP_PGVECTOR]: { command: 'brew', args: ['install', 'pgvector'], timeoutMs: 300000 },
@@ -114,10 +164,15 @@ export function buildHonchoCommandSet(input: { cfg: HonchoRuntimeConfig; hermesV
     // errors "already exists" (handled as pass by the runner's own idempotency, or
     // detection marks dbProvisioned=true so this step is skipped as satisfied).
     [HONCHO_STEP_DB]: { command: 'createdb', args: [dbName], timeoutMs: 60000 },
-    // The long-running local Honcho server (detached — no result awaited). The exact
-    // `honcho serve` flags (port, --db-url) are MAC-VERIFY-PENDING; the deriver LLM
-    // route rides the per-step env overlay (buildHonchoDeriverEnv) so honcho derives
-    // against the LOCAL Ollama (local branch) and never the cloud unless mode=cloud.
+    // BLOCKED, measured 2026-08-07: this cannot work as written, and not because
+    // of a flag. `honcho-ai` is the Honcho CLIENT SDK (httpx + pydantic, no server
+    // stack), so the package the step above installs provides nothing to `serve`.
+    // The flags were never the open question; the server's origin is. Left as-is
+    // rather than replaced by a guess — see the module header.
+    //
+    // The deriver env overlay (buildHonchoDeriverEnv) is unaffected and stays
+    // correct for whatever server we end up running: it points the deriver at the
+    // LOCAL Ollama on the local branch and never at the cloud unless mode=cloud.
     [HONCHO_STEP_PROCESS]: {
       command: venvPython,
       args: ['-m', 'honcho', 'serve'],
