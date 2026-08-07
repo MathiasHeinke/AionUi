@@ -84,6 +84,35 @@ const normalizeWatchPath = (value: string): string => {
  * Exported additively — like {@link isAutoOpenEligible} — so the ordering is
  * testable without mounting the hook. The hook's own signature is unchanged.
  */
+/**
+ * Fold the workspace baseline INTO whatever the live watcher already recorded.
+ *
+ * THE RACE THIS CLOSES. The baseline is built asynchronously (start the watcher,
+ * then list the workspace), while the `fileAdded` subscription is live from the
+ * moment the effect runs. A file dropped in that window opens correctly and is
+ * recorded — and the baseline then REPLACED the whole set with `new Set(...)`,
+ * dropping that record. A second event for the same file found an empty memory
+ * and opened it again.
+ *
+ * Union, not replace, so nothing recorded in the gap is lost. The baseline is
+ * still filtered by the same eligibility predicate the live path uses, so this
+ * cannot smuggle an ineligible path in through the back door.
+ *
+ * Pure, and exported additively like its two neighbours: the merge is the whole
+ * behaviour, so it is where the test belongs.
+ */
+export const mergeWorkspaceBaseline = (
+  alreadyKnown: ReadonlySet<string>,
+  workspaceFilePaths: readonly string[]
+): Set<string> => {
+  const merged = new Set(alreadyKnown);
+  for (const raw of workspaceFilePaths) {
+    const normalized = normalizeWatchPath(raw);
+    if (isAutoOpenEligible(normalized, getFileTypeInfo(normalized).contentType)) merged.add(normalized);
+  }
+  return merged;
+};
+
 export const decideWatchedFileOpen = (
   event: { file_path: string; workspace: string },
   normalizedWorkspace: string,
@@ -158,11 +187,15 @@ export const useAutoPreviewOfficeFiles = (
         await ipcBridge.workspaceOfficeWatch.start.invoke({ workspace });
         const currentFiles = await ipcBridge.fs.listWorkspaceFiles.invoke({ root: workspace });
         if (cancelled) return;
-        knownOfficeFilesRef.current = new Set(
-          currentFiles
-            .map((file) => file.fullPath)
-            .map((file_path) => normalizeWatchPath(file_path))
-            .filter((file_path) => isAutoOpenEligible(file_path, getFileTypeInfo(file_path).contentType))
+        // UNION, never replace: a file that arrived while the two awaits above
+        // were in flight is already recorded, and overwriting the set would make
+        // the next event for it look new. `cancelled` still guards the write, so
+        // a torn-down effect never touches the ref; and the effect head resets it
+        // to an empty set, so a re-run starts clean and no path crosses between
+        // conversations.
+        knownOfficeFilesRef.current = mergeWorkspaceBaseline(
+          knownOfficeFilesRef.current,
+          currentFiles.map((file) => file.fullPath)
         );
       } catch {
         // Ignore watcher/bootstrap failures; the hook should stay inert rather than noisy.
