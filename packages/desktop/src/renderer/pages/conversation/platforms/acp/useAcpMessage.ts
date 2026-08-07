@@ -12,12 +12,19 @@ import {
   collectBrowserNavigationFromToolCallUpdate,
   shouldOpenBrowserPreview,
 } from '@/common/config/browserNavigationBindCore';
+import {
+  collectHtmlWriteFromToolCallStart,
+  isCompletedToolCallUpdate,
+  shouldOpenHtmlPreview,
+} from '@/common/config/htmlArtifactPreviewCore';
 import { collectImageBindFromToolCallUpdate } from '@/common/config/imageArtifactBindCore';
 import { classifyAcpExternalWriteBlock } from '@/renderer/pages/conversation/Messages/acp/externalWriteRecoveryPolicy';
 import type { AvailableCommand, IMessageThinking } from '@/common/chat/chatLib';
 import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
 import { resolveAcpAutoApprove } from './acpAutoApprove';
 import { addEventListener, emitter } from '@/renderer/utils/emitter';
+import { getFileTypeInfo } from '@renderer/utils/file/fileType';
+import { usePreviewLauncher } from '@renderer/hooks/file/usePreviewLauncher';
 import type { SlashCommandItem } from '@/common/chat/slash/types';
 import { mapAcpCommandsToSlashCommands } from '@/common/chat/slash/acpMapping';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
@@ -154,6 +161,8 @@ function extractAcpToolActivity(message: IResponseMessage): { callId: string; ac
 
 export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: boolean }): UseAcpMessageReturn => {
   const addOrUpdateMessage = useAddOrUpdateMessage();
+  // B7 — opens an html artifact from DISK once its write completes.
+  const { launchPreview } = usePreviewLauncher();
   const [running, setRunning] = useState(false);
   const [hasHydratedRunningState, setHasHydratedRunningState] = useState(false);
   const [thought, setThought] = useState<ThoughtData>({
@@ -209,6 +218,12 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // url; re-opening for each of those would yank the panel out from under the user
   // mid-read. Per-hook, so two conversations never dedupe against each other.
   const lastBrowserPreviewUrlRef = useRef<string | undefined>(undefined);
+  // B7 — html writes seen on this turn, keyed by tool-call id, spent when that id
+  // completes. Two phases because the path is only on the START update: the
+  // completion carries tool_call_id/kind/status/content and nothing else
+  // (acp_adapter/tools.py:1305-1329).
+  const pendingHtmlWritesRef = useRef<Map<string, string>>(new Map());
+  const lastHtmlPreviewPathRef = useRef<string | undefined>(undefined);
 
   // Track whether current turn has content output
   const hasContentInTurnRef = useRef(false);
@@ -847,6 +862,36 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           const browserNav = collectBrowserNavigationFromToolCallUpdate(
             (message.data as AcpToolActivityWire | undefined)?.update
           );
+          // B7 (CEVE-1821) — SHOW what EVE builds. Phase one: remember the path an
+          // html `write_file` START names. The file is not on disk yet and the
+          // approval may still be pending, so nothing is opened here.
+          const htmlWrite = collectHtmlWriteFromToolCallStart(
+            (message.data as AcpToolActivityWire | undefined)?.update,
+            (fileName) => getFileTypeInfo(fileName).contentType
+          );
+          if (htmlWrite) pendingHtmlWritesRef.current.set(htmlWrite.toolCallId, htmlWrite.path);
+          // Phase two: that tool call COMPLETED, so the file exists. Open it from
+          // DISK via launchPreview rather than from the diff on the wire — the diff
+          // can be truncated, the file is the truth.
+          const completedCallId = isCompletedToolCallUpdate((message.data as AcpToolActivityWire | undefined)?.update);
+          if (completedCallId) {
+            const writtenPath = pendingHtmlWritesRef.current.get(completedCallId);
+            pendingHtmlWritesRef.current.delete(completedCallId);
+            if (writtenPath && shouldOpenHtmlPreview(writtenPath, lastHtmlPreviewPathRef.current)) {
+              lastHtmlPreviewPathRef.current = writtenPath;
+              const info = getFileTypeInfo(writtenPath);
+              void launchPreview({
+                relativePath: writtenPath,
+                originalPath: writtenPath,
+                file_name: writtenPath.split(/[\\/]/).pop() || writtenPath,
+                contentType: info.contentType,
+                editable: info.editable,
+                language: info.language,
+              }).catch(() => {
+                // A preview that cannot open costs the panel, never the turn.
+              });
+            }
+          }
           if (browserNav && shouldOpenBrowserPreview(browserNav.url, lastBrowserPreviewUrlRef.current)) {
             lastBrowserPreviewUrlRef.current = browserNav.url;
             emitter.emit('preview.open', {

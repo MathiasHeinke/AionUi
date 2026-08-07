@@ -64,6 +64,17 @@ vi.mock('@/renderer/pages/conversation/Messages/hooks', () => ({
   useAddOrUpdateMessage: () => addOrUpdateMessageMock,
 }));
 
+// B7 (CEVE-1821): the hook now opens an html artifact from disk once its write
+// completes, via usePreviewLauncher. That hook reads PreviewContext and THROWS
+// without a PreviewProvider — in production the provider is app-level
+// (main.tsx:246) and useAcpMessage's only caller sits under it (AcpChat.tsx:102),
+// but this suite renders the hook bare. Mocked rather than wrapped: these tests
+// are about the message lifecycle, and a real preview launcher would drag the
+// whole conversation context in with it.
+vi.mock('@renderer/hooks/file/usePreviewLauncher', () => ({
+  usePreviewLauncher: () => ({ launchPreview: vi.fn(async () => undefined), loading: false, errorKind: null }),
+}));
+
 vi.mock('@renderer/hooks/useQuotaWall', () => ({
   useQuotaWall: () => ({
     body: null,
