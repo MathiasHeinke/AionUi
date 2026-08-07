@@ -20,6 +20,8 @@ import {
   ensureCommandEveRuntimeBootstrap as ensureCommandEveRuntimeBootstrapCore,
   loadCommandEveCapabilityPack,
   loadCommandEveRuntimeBootstrapManifest,
+  COMMAND_EVE_ACP_PLATFORM_TOOLSETS,
+  COMMAND_EVE_CLI_PLATFORM_TOOLSETS,
   parseOllamaListHasModel,
   parseOllamaModelfileBlobSha256,
   pickCommandEveLocalVisionModel,
@@ -63,6 +65,7 @@ import {
   type ResolvedClaudeDelegate,
 } from '@/common/config/eveWorkerAssignmentCore';
 import { isCommandEveLocalVisionModel } from '@/process/commandEve/ollamaOpenAiShim';
+import { findRawKanbanLeaks } from '@/process/commandEve/kanbanAcpToolsetGateCore';
 import packageJson from '../../../package.json';
 import { registerTenant } from '@/process/commandEve/entitlementCore';
 import { sha256FileIfPresent } from '@/process/commandEve/windows/runtimeProvenanceCore';
@@ -808,6 +811,70 @@ describe('Command EVE runtime bootstrap core', () => {
     }
   });
 
+  /**
+   * 1.821.0 — THE GUARD NOW GUARDS WHAT SHIPS.
+   *
+   * COMPA-626's leak guard runs over COMMAND_EVE_ACP_PLATFORM_TOOLSETS, and its
+   * own comment calls that "the REAL consumer". It was not: the config.yaml
+   * emitter carried its own hardcoded `- hermes-acp` literal, so the constant and
+   * the shipped file were free to disagree and the guard would never have noticed.
+   * The emitter reads the constant now, and this test parses the list back OUT of
+   * the emitted file so the kanban check is applied to the bytes that ship.
+   */
+  itM('emits the ACP toolsets FROM the guarded constant — kanban stays out of the shipped file', async () => {
+    const harness = makeHarness();
+    await withOllamaServer(async (baseUrl) => {
+      const receipt = await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath: writeManifest(harness.root, baseUrl),
+        runner: harness.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        ollamaBinaryCandidates: [],
+        env: {},
+      });
+      expect(receipt.status).toBe('ready');
+      const configYaml = fs.readFileSync(
+        path.join(resolveCommandEveRuntimeBootstrapPaths(harness.root).hermesHome, 'config.yaml'),
+        'utf8'
+      );
+
+      // Read the two lists back out of the EMITTED file, not out of the source.
+      const lane = (name: 'cli' | 'acp'): string[] => {
+        const block = new RegExp(`\\n {2}${name}:\\n((?: {4}- \\S+\\n)+)`).exec(configYaml)?.[1];
+        expect(block, `platform_toolsets.${name} missing from the emitted config`).toBeTruthy();
+        return (block as string)
+          .split('\n')
+          .map((line) => line.replace(/^ {4}- /, '').trim())
+          .filter(Boolean);
+      };
+
+      // Emitter and guarded constant are ONE list. If they ever drift again, the
+      // guard below is measuring a file nobody ships.
+      expect(lane('acp')).toEqual([...COMMAND_EVE_ACP_PLATFORM_TOOLSETS]);
+      expect(lane('cli')).toEqual([...COMMAND_EVE_CLI_PLATFORM_TOOLSETS]);
+
+      // COMPA-626 applied to the SHIPPED bytes: no raw kanban toolset, no raw write
+      // tool, no dispatch marker. This is the lock that stays shut — it protects the
+      // Confirm-Card, which is the only thing standing between EVE and un-gated
+      // writes on a user's board.
+      expect(findRawKanbanLeaks(lane('acp'))).toEqual([]);
+      expect(findRawKanbanLeaks(lane('cli'))).toEqual([]);
+
+      // The emitter writes PLAIN scalars, so every key must be quoting-safe. A value
+      // needing quotes would silently emit broken YAML.
+      for (const toolset of [...lane('acp'), ...lane('cli')]) {
+        expect(toolset, `${toolset} would need YAML quoting`).toMatch(/^[a-z][a-z0-9_-]*$/);
+      }
+
+      // And the locks that were pure self-restriction are open.
+      for (const toolset of ['computer_use', 'vision', 'clarify']) {
+        expect(lane('acp'), `the ACP lane lost ${toolset}`).toContain(toolset);
+      }
+    });
+  });
+
   itM('emits auxiliary.vision at the SHIM when the local vision model is installed', async () => {
     const harness = makeHarness();
     await withOllamaServer(
@@ -919,7 +986,7 @@ describe('Command EVE runtime bootstrap core', () => {
       // named `vision` no aux route could ever take effect. It was self-restriction,
       // not protection: nothing about it guarded money or a user confirmation.
       expect(configYaml).not.toContain('disabled_toolsets');
-      expect(configYaml).not.toMatch(/- vision/);
+      expect(configYaml).not.toMatch(/disabled_toolsets:\s*\n\s*- vision/);
       // This box has NO local vision model installed (the fake runtime reports an
       // empty /api/tags), so the aux route must be OMITTED entirely — the emitted
       // config stays byte-identical to a pre-1.821.0 one apart from the dropped ban.
@@ -953,6 +1020,16 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).toContain('- hermes-acp');
       expect(configYaml).not.toContain('cli: []');
       expect(configYaml).not.toContain('acp: []');
+      // 1.821.0 — the ACP lane is no longer just the IDE-plugin composite. Upstream
+      // describes hermes-acp as "coding-focused tools without messaging, audio, or
+      // clarify UI" (toolsets.py:406-407); shipping only that ran Command EVE as a
+      // VS Code plugin. Desktop control, vision and the ask-back UI are the product.
+      for (const toolset of ['computer_use', 'vision', 'clarify']) {
+        expect(configYaml, `the ACP lane lost ${toolset}`).toContain(`    - ${toolset}`);
+      }
+      // COMPA-626 STAYS SHUT: kanban is the one entry that would hand EVE un-gated
+      // write tools plus dispatch, past the Confirm-Card the user actually sees.
+      expect(configYaml).not.toMatch(/^ {4}- kanban\b/m);
       // The previously-disabled off-topic / regional skills are re-enabled.
       expect(configYaml).not.toContain('"blockchain"');
       expect(configYaml).not.toContain('"gaming"');
@@ -1085,7 +1162,10 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(reconciliation.prompt_label_skill_ids).toEqual([]);
       expect(reconciliation.hermes_config.skills_external_dirs).toEqual(['${HERMES_HOME}/skills-command-eve']);
       expect(reconciliation.hermes_config.mcp_servers).toEqual([]);
-      expect(reconciliation.hermes_config.platform_toolsets).toEqual({ cli: ['hermes-cli'], acp: ['hermes-acp'] });
+      expect(reconciliation.hermes_config.platform_toolsets).toEqual({
+        cli: ['hermes-cli'],
+        acp: ['hermes-acp', 'computer_use', 'vision', 'clarify'],
+      });
       expect(reconciliation.hermes_config.kanban_dispatch_in_gateway).toBe(false);
       expect(reconciliation.hermes_config.kanban_auto_decompose).toBe(true);
       expect(reconciliation.blocked_external_mcp_transports).toEqual(['http', 'sse']);

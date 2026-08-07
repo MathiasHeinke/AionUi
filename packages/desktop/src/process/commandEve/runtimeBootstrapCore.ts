@@ -3026,14 +3026,38 @@ function writeCommandEveManagedSkills(
 }
 
 /**
- * The Hermes composite toolsets emitted per platform. COMPA-626: the ACP list must NEVER
- * carry the raw wheel "kanban" toolset (which would give EVE the un-gated in-process
- * kanban write tools + dispatch, bypassing the Confirm-Card). `hermes-acp` is a
- * coding-focused composite with NO kanban tools (verified against the bundled wheel);
- * a leak guard test asserts findRawKanbanLeaks stays empty over this list.
+ * The Hermes composite toolsets emitted per platform — THE source of truth. The
+ * config.yaml emitter reads these constants; it used to carry its own hardcoded
+ * literals, which meant the leak guard below was guarding the receipt while the
+ * shipped config went its own way. One list, one guard, one behaviour.
+ *
+ * COMPA-626 — WHAT THE NARROWNESS IS FOR: the ACP list must NEVER carry the raw
+ * wheel "kanban" toolset. That one hands EVE the un-gated in-process kanban write
+ * tools plus dispatch, straight past the Confirm-Card the user actually sees. The
+ * leak guard (findRawKanbanLeaks over this list) exists for that single reason.
+ *
+ * It is narrow AGAINST KANBAN — not against everything, which is what it had
+ * quietly become. `hermes-acp` alone is described upstream as "Editor integration
+ * (VS Code, Zed, JetBrains) — coding-focused tools without messaging, audio, or
+ * clarify UI" (FACT toolsets.py:406-407). Shipping only that meant running Command
+ * EVE as an IDE plugin, which is not the product. So, 1.821.0:
+ *
+ *   - computer_use (FACT toolsets.py:177-185, "Works with any tool-capable model",
+ *     itself gated on the cua-driver) — desktop control, an explicit founder ask.
+ *   - vision (FACT toolsets.py:128) — the other half of the aux route; without the
+ *     toolset the `auxiliary.vision` wiring is only half connected.
+ *   - clarify (FACT toolsets.py:260) — the ask-back UI hermes-acp explicitly lacks.
+ *
+ * None of these three touches kanban, money, or the confirmation boundary; the
+ * guard below proves the first of those on every run.
  */
 export const COMMAND_EVE_CLI_PLATFORM_TOOLSETS: readonly string[] = Object.freeze(['hermes-cli']);
-export const COMMAND_EVE_ACP_PLATFORM_TOOLSETS: readonly string[] = Object.freeze(['hermes-acp']);
+export const COMMAND_EVE_ACP_PLATFORM_TOOLSETS: readonly string[] = Object.freeze([
+  'hermes-acp',
+  'computer_use',
+  'vision',
+  'clarify',
+]);
 
 /**
  * Exported for MAT-1747 so the `mcp_servers` half of the receipt can be tested
@@ -6280,11 +6304,21 @@ function writeHermesRuntimeFiles(
     // terminal, file ops, vision, skills, full browser automation, todo/memory,
     // session search, code-exec + delegation. Execution is gated by the
     // permission modes, not by withholding the capability.
+    //
+    // READ FROM THE CONSTANTS, not from literals repeated here (1.821.0). These
+    // lines used to be their own hardcoded copy, so the COMPA-626 kanban leak
+    // guard — which runs over COMMAND_EVE_ACP_PLATFORM_TOOLSETS — was checking a
+    // list the shipped config did not have to agree with. A guard that measures
+    // something other than what ships is worse than none, because it is believed.
+    // Plain scalars, not yamlStringList: that helper JSON-quotes, which would
+    // rewrite every existing entry for no reason. Toolset keys are frozen internal
+    // identifiers that never need quoting — and a test pins that shape, so a value
+    // that WOULD need it cannot arrive here unquoted.
     'platform_toolsets:',
     '  cli:',
-    '    - hermes-cli',
+    ...COMMAND_EVE_CLI_PLATFORM_TOOLSETS.map((toolset) => `    - ${toolset}`),
     '  acp:',
-    '    - hermes-acp',
+    ...COMMAND_EVE_ACP_PLATFORM_TOOLSETS.map((toolset) => `    - ${toolset}`),
     // mcp_servers is the EXTERNAL MCP surface. Browser / web-search / desktop /
     // fetch are NATIVE Hermes toolsets (enabled above), NOT MCP servers, so
     // nothing is emitted here by default. Real connectors (e.g. Supabase) are
