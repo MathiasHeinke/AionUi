@@ -8,6 +8,10 @@ import { ipcBridge } from '@/common';
 import { conversation as conversationBridge } from '@/common/adapter/ipcBridge';
 import { transformMessage } from '@/common/chat/chatLib';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
+import {
+  collectBrowserNavigationFromToolCallUpdate,
+  shouldOpenBrowserPreview,
+} from '@/common/config/browserNavigationBindCore';
 import { collectImageBindFromToolCallUpdate } from '@/common/config/imageArtifactBindCore';
 import { classifyAcpExternalWriteBlock } from '@/renderer/pages/conversation/Messages/acp/externalWriteRecoveryPolicy';
 import type { AvailableCommand, IMessageThinking } from '@/common/chat/chatLib';
@@ -200,6 +204,11 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // is terminal and non-idempotent at the renderer boundary (cancel + stage), so
   // each tool call id is consumed once for the lifetime of this conversation.
   const recoveredExternalWriteCallIdsRef = useRef<Set<string>>(new Set());
+  // B1 — the last url this conversation opened in the preview panel. A page visit
+  // is one navigation followed by a stream of snapshots/clicks/scrolls on the SAME
+  // url; re-opening for each of those would yank the panel out from under the user
+  // mid-read. Per-hook, so two conversations never dedupe against each other.
+  const lastBrowserPreviewUrlRef = useRef<string | undefined>(undefined);
 
   // Track whether current turn has content output
   const hasContentInTurnRef = useRef(false);
@@ -826,6 +835,26 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             (message.data as AcpToolActivityWire | undefined)?.update
           );
           if (imageBind) pendingImageBindsRef.current.set(imageBind.toolCallId, imageBind.handle);
+          // B1 (CEVE-1821) — SHOW the browser arm. EVE has had the browser tools
+          // on this lane all along (`hermes-acp` in the bundled wheel) and the
+          // URL-preview panel has been fully built and never once told to open.
+          //
+          // BOUND ON ARRIVAL, deliberately unlike the image bind above: a
+          // navigation is live state, and a page the user only sees after the
+          // turn finishes is a log entry, not a browser. The parser is pure and
+          // returns undefined on every miss, and it accepts only http/https —
+          // this url goes straight into a real <webview>.
+          const browserNav = collectBrowserNavigationFromToolCallUpdate(
+            (message.data as AcpToolActivityWire | undefined)?.update
+          );
+          if (browserNav && shouldOpenBrowserPreview(browserNav.url, lastBrowserPreviewUrlRef.current)) {
+            lastBrowserPreviewUrlRef.current = browserNav.url;
+            emitter.emit('preview.open', {
+              content: browserNav.url,
+              contentType: 'url',
+              metadata: { title: browserNav.title, conversation_id },
+            });
+          }
           setRuntimeActivity((prev) => ({
             ...prev,
             phase: activeToolName ? 'tool_wait' : 'streaming',
