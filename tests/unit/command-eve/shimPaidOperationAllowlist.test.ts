@@ -189,6 +189,7 @@ describe('MAT-1749 registry — membership is the only way to the paid lane', ()
       'kanban_estimator',
       'profile_describer',
       'triage_specifier',
+      'memory_query_rewrite',
       'eve_auxiliary',
       'iteration_limit_summary',
     ]);

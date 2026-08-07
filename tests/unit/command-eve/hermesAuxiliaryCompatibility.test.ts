@@ -54,17 +54,68 @@ const PINNED_WHEEL_SHA256 = '9f80183e4db0486bb40f6fa3878b7f7994f81656a42e1c38861
 const WHEEL_TASK_NAME = /task\s*=\s*["']([a-z_][a-z0-9_]*)["']|["']task["']\s*:\s*["']([a-z_][a-z0-9_]*)["']/;
 
 /**
+ * `task=SOME_CONSTANT` — a task passed by NAME, not by literal. The literal
+ * regex above is blind to this form, which is how `memory_query_rewrite`
+ * (plugins/memory/query_rewrite.py: TASK_KEY at :16, call_llm at :118) slipped
+ * past the pin while the pin claimed completeness. Resolved per file against
+ * the module-level constant table below.
+ */
+const WHEEL_TASK_IDENTIFIER = /(?<![A-Za-z0-9_])task\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*[,)\n]/;
+
+/** Module-level `CONSTANT = "string"` assignments (Python constant style). */
+const MODULE_STRING_CONSTANT = /^\s*([A-Z][A-Z0-9_]*)\s*=\s*["']([a-z_][a-z0-9_]*)["']\s*$/;
+
+/**
+ * The STATIC RESOLUTION BOUNDARY, pinned honestly instead of claiming
+ * completeness the scanner cannot deliver:
+ *
+ *   - `task=task` parameter FORWARDING is runtime-dynamic. Verified against the
+ *     0.20 bytes: `agent/oneshot.py:139` forwards run_oneshot's `task`
+ *     parameter (default 'title_generation'), and `tui_gateway/
+ *     methods_session.py:1043` feeds it from an RPC param with the same
+ *     default. A gateway client can pass ANY name there — statically not
+ *     enumerable. Cost-covered by design: an unregistered name resolves
+ *     local_only/unregistered (paidOperationRegistryCore resolve path), so the
+ *     residual risk is classification completeness, not money.
+ *   - `None` is the task-less escape hatch (agent/plugin_llm.py:949
+ *     `task=None`), classified as `eve_auxiliary` by the declaration patch.
+ *
+ * Any identifier site NOT in this allowlist reddens: a new dynamic channel or
+ * a cross-module constant must be looked at by a human, never skipped.
+ */
+const KNOWN_DYNAMIC_TASK_IDENTIFIERS = new Set(['task', 'None']);
+
+/**
+ * Line-based scanning cannot see WHICH function a `task=` kwarg belongs to, so
+ * a `task=` on a non-LLM function is indistinguishable from a call_llm site.
+ * Each entry here was verified at the bytes to be NO call_llm call:
+ *
+ *   - tools/delegate_tool.py — `_memory_manager.on_delegation(task=task_goal)`:
+ *     a delegation MEMORY record; task_goal is the delegated goal TEXT, not an
+ *     auxiliary task name (verified 0.20, :2672).
+ *
+ * A new site reddens and must be reviewed, then either classified or added
+ * here with its verification.
+ */
+const KNOWN_NON_CALL_LLM_TASK_KWARG_SITES = ['tools/delegate_tool.py'];
+
+type WheelTaskScan = { names: Set<string>; unresolvedIdentifierSites: string[] };
+
+/**
  * Read every task name the bundled wheel mentions, straight out of the archive.
  *
- * Deliberately over-inclusive: it also catches config defaults and docstrings, which
- * is fine because the SET of names is what matters, not the site count. Being noisy
- * in this direction is safe — it can only demand that MORE names be accounted for.
+ * Deliberately over-inclusive on LITERALS (config defaults and docstrings count
+ * too — noise in this direction can only demand that MORE names be accounted
+ * for), and constant-resolving on IDENTIFIERS within one module. Deliberate
+ * limits, named above: cross-module constants and computed names are NOT
+ * resolved — they land in `unresolvedIdentifierSites` and redden unless pinned.
  */
-async function deriveTaskNamesFromWheel(): Promise<Set<string>> {
+async function deriveTaskNamesFromWheel(): Promise<WheelTaskScan> {
   const yauzl = await import('yauzl');
   const buffer = fs.readFileSync(WHEEL_PATH);
-  return new Promise<Set<string>>((resolve, reject) => {
+  return new Promise<WheelTaskScan>((resolve, reject) => {
     const found = new Set<string>();
+    const unresolvedIdentifierSites: string[] = [];
     yauzl.fromBuffer(buffer, { lazyEntries: true }, (openErr, zip) => {
       if (openErr || !zip) return reject(openErr ?? new Error('wheel could not be opened'));
       zip.on('entry', (entry: { fileName: string }) => {
@@ -74,16 +125,37 @@ async function deriveTaskNamesFromWheel(): Promise<Set<string>> {
           const chunks: Buffer[] = [];
           stream.on('data', (c: Buffer) => chunks.push(c));
           stream.on('end', () => {
-            for (const line of Buffer.concat(chunks).toString('utf8').split('\n')) {
-              const match = WHEEL_TASK_NAME.exec(line);
-              if (match) found.add(match[1] ?? match[2]);
+            const lines = Buffer.concat(chunks).toString('utf8').split('\n');
+            // Pass 1: this module's string constants.
+            const constants = new Map<string, string>();
+            for (const line of lines) {
+              const constant = MODULE_STRING_CONSTANT.exec(line);
+              if (constant) constants.set(constant[1], constant[2]);
+            }
+            // Pass 2: literal sites, then identifier sites resolved against pass 1.
+            for (const [index, line] of lines.entries()) {
+              const literal = WHEEL_TASK_NAME.exec(line);
+              if (literal) {
+                found.add(literal[1] ?? literal[2]);
+                continue;
+              }
+              const identifier = WHEEL_TASK_IDENTIFIER.exec(line);
+              if (!identifier) continue;
+              const name = identifier[1];
+              if (constants.has(name)) found.add(constants.get(name) as string);
+              else if (
+                !KNOWN_DYNAMIC_TASK_IDENTIFIERS.has(name) &&
+                !KNOWN_NON_CALL_LLM_TASK_KWARG_SITES.some((site) => entry.fileName.startsWith(site))
+              ) {
+                unresolvedIdentifierSites.push(`${entry.fileName}:${index + 1} task=${name}`);
+              }
             }
             zip.readEntry();
           });
           stream.on('error', reject);
         });
       });
-      zip.on('end', () => resolve(found));
+      zip.on('end', () => resolve({ names: found, unresolvedIdentifierSites }));
       zip.on('error', reject);
       zip.readEntry();
     });
@@ -100,11 +172,25 @@ describe('MAT-1749 — the auxiliary classification is pinned to the wheel it ca
     // bundled wheel and requires every task name it finds to be in EXACTLY ONE of two
     // lists: classified, or acknowledged as a non-task with a reason. A task a future
     // wheel introduces is in neither, so it fails here instead of shipping unclassified.
-    const derived = await deriveTaskNamesFromWheel();
+    const scan = await deriveTaskNamesFromWheel();
+    const derived = scan.names;
 
     // The scan must actually find things: a scanner returning nothing would satisfy
     // every loop below while proving nothing at all.
     expect(derived.size, 'the wheel scan found no task names — the scanner is broken').toBeGreaterThan(5);
+    // Constant resolution must be ALIVE, not decorative: memory_query_rewrite
+    // only exists as `task=TASK_KEY` — if it disappears from the derived set,
+    // the identifier pass silently died and the pin is back to literals-only.
+    expect(
+      derived.has('memory_query_rewrite'),
+      'the constant-resolving pass no longer sees task=TASK_KEY — the scanner regressed to literal-only'
+    ).toBe(true);
+    // Every identifier site the scanner could NOT resolve must be a pinned,
+    // human-reviewed dynamic channel. A new one reddens here.
+    expect(
+      scan.unresolvedIdentifierSites,
+      `unreviewed dynamic task sites: ${scan.unresolvedIdentifierSites.join('; ')}`
+    ).toEqual([]);
 
     const classified = new Set(COMMAND_EVE_HERMES_AUXILIARY_TASKS);
     const excluded = new Set(COMMAND_EVE_WHEEL_NON_TASK_NAMES);
@@ -138,10 +224,11 @@ describe('MAT-1749 — the auxiliary classification is pinned to the wheel it ca
     const registered = commandEveRegisteredOperations();
     const paid = commandEvePaidOperations();
 
-    // 16 in the 0.20 wheel: the nine 0.17 tasks, the two MoA halves, the four
-    // former direct clients #35566 routed through call_llm, and the genuinely
-    // new kanban_estimator.
-    expect(COMMAND_EVE_HERMES_AUXILIARY_TASKS).toHaveLength(16);
+    // 17 in the 0.20 wheel: the nine 0.17 tasks, the two MoA halves, the four
+    // former direct clients #35566 routed through call_llm, the genuinely new
+    // kanban_estimator, and memory_query_rewrite (passed by CONSTANT — found
+    // only once the scanner resolved identifiers).
+    expect(COMMAND_EVE_HERMES_AUXILIARY_TASKS).toHaveLength(17);
     for (const task of COMMAND_EVE_HERMES_AUXILIARY_TASKS) {
       expect(registered, `${task} is reachable in the bundled wheel but is not classified`).toContain(task);
       expect(paid, `${task} must never be payable — no hidden auxiliary charges`).not.toContain(task);

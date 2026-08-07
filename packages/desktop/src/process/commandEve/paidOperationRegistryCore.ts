@@ -233,6 +233,8 @@ const COMMAND_EVE_OPERATION_REGISTRY: ReadonlyMap<string, CommandEveOperationEnt
   ['kanban_estimator', { lane: 'local_only', clientDeclarable: true }],
   ['profile_describer', { lane: 'local_only', clientDeclarable: true }],
   ['triage_specifier', { lane: 'local_only', clientDeclarable: true }],
+  // Passed by CONSTANT in the wheel (TASK_KEY) — see the FACT block above.
+  ['memory_query_rewrite', { lane: 'local_only', clientDeclarable: true }],
   // Hermes has auxiliary call sites that pass NO task at all — FACT(whl
   // agent/plugin_llm.py:949-950, `task=None`) and FACT(whl trajectory_compressor.py:
   // 649-655, no task kwarg). With no name of their own they would arrive ABSENT and
@@ -290,6 +292,16 @@ const COMMAND_EVE_OPERATION_REGISTRY: ReadonlyMap<string, CommandEveOperationEnt
  *   kanban_estimator  FACT(whl 0.20 plugins/kanban/dashboard/plugin_api.py:1854)
  *   profile_describer FACT(whl 0.20 hermes_cli/profile_describer.py:232)
  *   triage_specifier  FACT(whl 0.20 hermes_cli/kanban_specify.py:181)
+ *   memory_query_rewrite
+ *                     FACT(whl 0.20 plugins/memory/query_rewrite.py:16,118) —
+ *                     passed BY CONSTANT (`TASK_KEY = "memory_query_rewrite"`,
+ *                     `call_llm(task=TASK_KEY)`), which the literal-only wheel
+ *                     scan could not see: the pin claimed a completeness it did
+ *                     not deliver for constants. Found by an AST scan over all
+ *                     call_llm sites with module-constant resolution; the test
+ *                     scanner now resolves this form too. Memory-query
+ *                     rewriting before retrieval — an LLM helper inside the
+ *                     user's turn, local_only like every other auxiliary.
  *
  * DELIBERATELY ABSENT: `session_search` and `skills_hub`. Both are named in the
  * `call_llm` docstring (whl agent/auxiliary_client.py:5189-5191) but neither appears
@@ -318,6 +330,7 @@ export const COMMAND_EVE_HERMES_AUXILIARY_TASKS: readonly string[] = [
   'kanban_estimator',
   'profile_describer',
   'triage_specifier',
+  'memory_query_rewrite',
 ];
 
 /**
