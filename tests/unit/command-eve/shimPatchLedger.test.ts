@@ -138,7 +138,20 @@ describe('G1 — the shim patch ledger is complete and consumed', () => {
     const shim = emittedShim();
     const tuple = /_COMMAND_EVE_EXPECTED_PATCHES = \(([\s\S]*?)\)/.exec(shim);
     expect(tuple, '_COMMAND_EVE_EXPECTED_PATCHES not emitted').not.toBeNull();
-    const expected = new Set(Array.from(tuple![1].matchAll(/"([a-z_]+)"/g), (m) => m[1]));
+    // The ledger has TWO scopes. Boot-scoped patches must exist after import; the
+    // turn-scoped one is installed on the first ACP turn and is absent before it BY
+    // DESIGN (proven by the 0.20 smoke test, where driving one turn moved the ledger
+    // from 11 to 12). Both together must still cover every installer, or a patch can
+    // be dropped from the report by quietly relabelling it.
+    const turnTuple = /_COMMAND_EVE_TURN_SCOPED_PATCHES = \(([\s\S]*?)\)/.exec(shim);
+    expect(turnTuple, '_COMMAND_EVE_TURN_SCOPED_PATCHES not emitted').not.toBeNull();
+    const bootScoped = new Set(Array.from(tuple![1].matchAll(/"([a-z_]+)"/g), (m) => m[1]));
+    const turnScoped = new Set(Array.from(turnTuple![1].matchAll(/"([a-z_]+)"/g), (m) => m[1]));
+    expect(
+      [...bootScoped].filter((n) => turnScoped.has(n)),
+      'a patch cannot be both scopes'
+    ).toEqual([]);
+    const expected = new Set([...bootScoped, ...turnScoped]);
 
     const bodies = topLevelFunctionBodies(shim);
     const installers = [...bodies.keys()].filter((name) => name.startsWith('_install_command_eve_'));
@@ -168,6 +181,9 @@ describe('G1 — the shim patch ledger is complete and consumed', () => {
     // The whole point of G1: a missing non-authority patch degrades a feature,
     // it does not abort the turn.
     expect(verify, 'the verifier must report, never raise').not.toMatch(/\braise\b/);
+    // …and it must NOT fold the turn-scoped set in, or every runtime that has not
+    // served an ACP turn yet reports a phantom miss.
+    expect(verify, 'the verifier must not report turn-scoped patches').not.toMatch(/_COMMAND_EVE_TURN_SCOPED_PATCHES/);
 
     // …while the authority patch stays hard. That asymmetry IS the design.
     const requireGate = bodies.get('_require_command_eve_permission_authority_patch');
