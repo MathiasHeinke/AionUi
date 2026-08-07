@@ -3585,6 +3585,69 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     'from providers.base import ProviderProfile',
     '',
     '',
+    '# ── Patch-installation ledger (G1, CEVE-18205) ────────────────────────────',
+    '#',
+    '# Every installer below records itself here on success. The difference against',
+    '# _COMMAND_EVE_EXPECTED_PATCHES becomes a REPORT, never an exception: a missing',
+    '# non-authority patch degrades one feature, it does not make the turn unsafe, and',
+    '# raising here would brick contexts that never use that feature at all. Only the',
+    '# permission-authority patch stays hard — see _require_command_eve_permission_…',
+    '#',
+    '# WHY A LEDGER AND NOT per-object markers: the four pre-existing markers live on',
+    '# three DIFFERENT host classes (HermesACPAgent, ContextCompressor, AIAgent), so',
+    '# nothing could enumerate them. Eleven installers had no marker at all and failed',
+    '# indistinguishably from success. One flat set is what makes the gap countable.',
+    '_COMMAND_EVE_EXPECTED_PATCHES = (',
+    '    "auxiliary_auth",',
+    '    "operation_declaration",',
+    '    "main_owned_title",',
+    '    "iteration_summary_declaration",',
+    '    "permission_authority",',
+    '    "context_policy",',
+    '    "compression_call",',
+    '    "compression_runtime",',
+    '    "stop_continuation",',
+    '    "turn_failure_capture",',
+    '    "acp_session_recovery",',
+    '    "acp_session_restore",',
+    ')',
+    '_COMMAND_EVE_INSTALLED_PATCHES: set[str] = set()',
+    '',
+    '',
+    'def _command_eve_mark_patch(name: str) -> None:',
+    '    """Record a successfully installed patch. Called at each installer tail."""',
+    '    _COMMAND_EVE_INSTALLED_PATCHES.add(name)',
+    '',
+    '',
+    'def _verify_command_eve_patches() -> list[str]:',
+    '    """Patches that were expected but never marked installed."""',
+    '    return sorted(set(_COMMAND_EVE_EXPECTED_PATCHES) - _COMMAND_EVE_INSTALLED_PATCHES)',
+    '',
+    '',
+    'def _command_eve_write_patch_status() -> None:',
+    '    """Publish the missing-patch list where the receipt builder can read it.',
+    '',
+    '    Best effort by design: this is a diagnostic channel, and failing to write a',
+    '    warning must never take down a model call. The file is rewritten only when',
+    '    the content changes, so the hot path stays free of redundant disk writes.',
+    '    """',
+    '    try:',
+    '        home = os.environ.get("HERMES_HOME", "").strip()',
+    '        if not home:',
+    '            return',
+    '        payload = json.dumps(',
+    '            {"version": "command-eve-shim-patch-status/v1",',
+    '             "missing": _verify_command_eve_patches()},',
+    '            sort_keys=True,',
+    '        )',
+    '        target = Path(home) / "command-eve-patch-status.json"',
+    '        if target.exists() and target.read_text(encoding="utf-8") == payload:',
+    '            return',
+    '        target.write_text(payload, encoding="utf-8")',
+    '    except Exception:',
+    '        pass',
+    '',
+    '',
     'def _command_eve_shim_token() -> str:',
     '    token_file = os.environ.get("COMMAND_EVE_SHIM_AUTH_TOKEN_FILE", "").strip()',
     '    if not token_file or not Path(token_file).is_absolute():',
@@ -3650,6 +3713,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '',
     '    command_eve_resolve_custom_runtime._command_eve_shim_auth_patch = True',
     '    auxiliary_client._resolve_custom_runtime = command_eve_resolve_custom_runtime',
+    '    _command_eve_mark_patch("auxiliary_auth")',
     '',
     '',
     '# MAT-1749: make every Hermes AUXILIARY task DECLARE what it is calling for.',
@@ -3747,6 +3811,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        _original_title, "_command_eve_operation_declaration", False',
     '    ):',
     '        title_generator.call_llm = _command_eve_declare(_original_title)',
+    '    _command_eve_mark_patch("operation_declaration")',
     '',
     '',
     '# 1.820.4: automatic naming is owned by the persistent Main post-turn relay.',
@@ -3768,6 +3833,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '',
     '    command_eve_main_owned_title._command_eve_main_owned_title = True',
     '    title_generator.maybe_auto_title = command_eve_main_owned_title',
+    '    _command_eve_mark_patch("main_owned_title")',
     '',
     '',
     '# MECHANISM 5 — the iteration-cap summary, which bypasses the transport entirely.',
@@ -3849,6 +3915,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '',
     '    command_eve_ensure_primary_openai_client._command_eve_operation_declaration = True',
     '    AIAgent._ensure_primary_openai_client = command_eve_ensure_primary_openai_client',
+    '    _command_eve_mark_patch("iteration_summary_declaration")',
     '',
     '',
     '# C7 authority routing. Hermes modes remain the user-facing policy',
@@ -3881,6 +3948,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    HermesACPAgent._edit_approval_policy_for_state = command_eve_edit_approval_policy',
     '    HermesACPAgent._sync_terminal_approval_mode = command_eve_sync_terminal_approval_mode',
     '    HermesACPAgent._command_eve_permission_authority_patch_installed = True',
+    '    _command_eve_mark_patch("permission_authority")',
     '',
     '',
     '# Dynamic Command EVE context policy. The same Hermes process serves local',
@@ -4030,6 +4098,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    ContextCompressor.should_compress = command_eve_should_compress',
     '    ContextCompressor.should_defer_preflight_to_real_usage = command_eve_should_defer',
     '    ContextCompressor._command_eve_context_policy_patch_installed = True',
+    '    _command_eve_mark_patch("context_policy")',
     '',
     '',
     '# C9a bounded context compression. Compression traffic is allowed to reach',
@@ -4163,6 +4232,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '',
     '    command_eve_call_llm._command_eve_bounded_compression = True',
     '    context_compressor.call_llm = command_eve_call_llm',
+    '    _command_eve_mark_patch("compression_call")',
     '',
     '',
     'def _command_eve_write_compression_receipt(payload: dict[str, Any]) -> None:',
@@ -4318,6 +4388,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '',
     '    command_eve_compress_context._command_eve_compression_runtime_patch = True',
     '    AIAgent._compress_context = command_eve_compress_context',
+    '    _command_eve_mark_patch("compression_runtime")',
     '',
     '',
     '# Command EVE cloud-shim stop continuation patch.',
@@ -4550,6 +4621,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '',
     '    AIAgent._should_treat_stop_as_truncated = command_eve_should_treat_stop_as_truncated',
     '    AIAgent._command_eve_cloud_stop_patch_installed = True',
+    '    _command_eve_mark_patch("stop_continuation")',
     '',
     '',
     '# Command EVE ACP session self-heal (1.819.3).',
@@ -4692,6 +4764,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    handler = _CommandEveTurnFailureHandler()',
     '    handler.setLevel(logging.ERROR)',
     '    logger.addHandler(handler)',
+    '    _command_eve_mark_patch("turn_failure_capture")',
     '',
     '',
     'def _install_command_eve_acp_session_recovery_patch() -> None:',
@@ -4814,6 +4887,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    HermesACPAgent.load_session = command_eve_load_session',
     '    HermesACPAgent._prompt_impl = command_eve_prompt_impl',
     '    HermesACPAgent._command_eve_acp_recovery_patch_installed = True',
+    '    _command_eve_mark_patch("acp_session_recovery")',
     '',
     '',
     '# Stale-endpoint session restore. The wheel freezes model_config.base_url at',
@@ -4928,6 +5002,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '',
     '    command_eve_make_agent._command_eve_session_restore_patch = True',
     '    SessionManager._make_agent = command_eve_make_agent',
+    '    _command_eve_mark_patch("acp_session_restore")',
     '',
     '',
     'class CommandEveCustomProfile(ProviderProfile):',
@@ -4951,6 +5026,9 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        _install_command_eve_acp_session_recovery_patch()',
     '        _install_command_eve_acp_session_restore_patch()',
     '        _require_command_eve_permission_authority_patch()',
+    '        # Every installer has now been retried with the ACP layer importable —',
+    '        # the one moment where a missing patch is a fact rather than a race.',
+    '        _command_eve_write_patch_status()',
     '        extra_body: dict[str, Any] = {}',
     '        top_level: dict[str, Any] = {}',
     '        session_id = str(ctx.get("session_id") or "").strip()',
@@ -6401,6 +6479,39 @@ async function pingOllama(baseUrl: string): Promise<boolean> {
   });
 }
 
+/**
+ * G1 (CEVE-18205) — surface a shim patch that never installed.
+ *
+ * Eleven of the twelve `_install_command_eve_*` patches returned silently when
+ * their import failed, so a missing patch looked exactly like a healthy boot. The
+ * shim now keeps a ledger and publishes the misses here; this turns them into
+ * receipt warnings so a degraded runtime is READABLE instead of merely quiet.
+ *
+ * Deliberately NOT an error path: a missing non-authority patch costs one feature,
+ * it does not make a turn unsafe. The authority patch keeps its own hard gate in
+ * the shim (`_require_command_eve_permission_authority_patch`), which raises at the
+ * model call rather than warning here.
+ *
+ * Unreadable / absent / malformed status file yields NO warning: the file is
+ * written on the first model call, so a runtime that has not served one yet is
+ * simply unknown, and inventing a warning for it would train the reader to ignore
+ * this channel.
+ */
+export function readCommandEveShimPatchWarnings(hermesHome: string): string[] {
+  try {
+    const raw = fs.readFileSync(path.join(hermesHome, 'command-eve-patch-status.json'), 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return [];
+    const missing = (parsed as { missing?: unknown }).missing;
+    if (!Array.isArray(missing) || missing.length === 0) return [];
+    const names = missing.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+    if (names.length === 0) return [];
+    return [`Command EVE runtime patches did not install: ${[...names].toSorted().join(', ')}.`];
+  } catch {
+    return [];
+  }
+}
+
 function buildReceipt(options: {
   paths: RuntimeBootstrapPaths;
   manifest: RuntimeBootstrapManifest;
@@ -6414,6 +6525,7 @@ function buildReceipt(options: {
   completedAt: string;
   stages: RuntimeBootstrapStage[];
   runtimeProvenance: RuntimeBootstrapProvenance;
+  shimPatchWarnings?: string[];
 }): RuntimeBootstrapReceipt {
   const blocked = options.stages.some((stage) => stage.status === 'blocked');
   const failed = options.stages.some((stage) => stage.status === 'failed');
@@ -6444,9 +6556,12 @@ function buildReceipt(options: {
     next_action:
       firstBlocked?.detail ||
       (status === 'ready' ? 'Runtime ready for EVE first session.' : 'Runtime bootstrap skipped.'),
-    warnings: options.stages
-      .filter((stage) => stage.status === 'skip' && stage.detail)
-      .map((stage) => stage.detail as string),
+    warnings: [
+      ...options.stages
+        .filter((stage) => stage.status === 'skip' && stage.detail)
+        .map((stage) => stage.detail as string),
+      ...(options.shimPatchWarnings ?? []),
+    ],
     runtime_provenance: options.runtimeProvenance,
     capabilities: {
       skills: options.capabilityPack?.skills.length ?? 0,
@@ -6770,6 +6885,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   const runtimeProvenance: RuntimeBootstrapProvenance = { platform };
   const finishReceipt = (): RuntimeBootstrapReceipt =>
     buildReceipt({
+      shimPatchWarnings: readCommandEveShimPatchWarnings(paths.hermesHome),
       paths,
       manifest,
       capabilityPack,

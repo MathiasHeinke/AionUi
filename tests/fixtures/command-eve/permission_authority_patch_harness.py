@@ -18,13 +18,26 @@ SOURCE = PROVIDER_PATH.read_text(encoding="utf-8")
 
 def load_patch() -> Any:
     tree = ast.parse(SOURCE, filename=str(PROVIDER_PATH))
-    function = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "_install_command_eve_permission_authority_patch"
-    )
-    module = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
+    # G1 (CEVE-18205): the installer records itself in the shim ledger, so the
+    # ledger has to come along. Taken from the SAME emitted source rather than
+    # stubbed — a stub would let this harness keep passing while the real
+    # `_command_eve_mark_patch` was renamed or dropped.
+    wanted_functions = {
+        "_install_command_eve_permission_authority_patch",
+        "_command_eve_mark_patch",
+    }
+    wanted_globals = {"_COMMAND_EVE_EXPECTED_PATCHES", "_COMMAND_EVE_INSTALLED_PATCHES"}
+    body: list[ast.stmt] = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name in wanted_functions:
+            body.append(node)
+        elif isinstance(node, ast.Assign) and {
+            target.id for target in node.targets if isinstance(target, ast.Name)
+        } & wanted_globals:
+            body.append(node)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id in wanted_globals:
+            body.append(node)
+    module = ast.fix_missing_locations(ast.Module(body=body, type_ignores=[]))
     namespace: dict[str, object] = {"Any": Any, "logging": logging}
     exec(compile(module, str(PROVIDER_PATH), "exec"), namespace)
     return namespace["_install_command_eve_permission_authority_patch"]

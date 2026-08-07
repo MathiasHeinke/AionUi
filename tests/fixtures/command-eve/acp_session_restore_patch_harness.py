@@ -39,7 +39,10 @@ def load_restore_symbols() -> dict[str, object]:
         "_command_eve_resolve_restore_base_url",
         "_command_eve_persist_refreshed_session_base_url",
         "_install_command_eve_acp_session_restore_patch",
+        # G1 (CEVE-18205): the installer records itself in the shim ledger.
+        "_command_eve_mark_patch",
     }
+    selected_globals = {"_COMMAND_EVE_EXPECTED_PATCHES", "_COMMAND_EVE_INSTALLED_PATCHES"}
     allowed_imports = {"json", "logging", "os", "re"}
     allowed_from = {"typing", "urllib.parse", "__future__"}
     body: list[ast.stmt] = []
@@ -49,6 +52,15 @@ def load_restore_symbols() -> dict[str, object]:
         elif isinstance(node, ast.ImportFrom) and node.module in allowed_from:
             body.append(node)
         elif isinstance(node, ast.FunctionDef) and node.name in selected:
+            body.append(node)
+        elif isinstance(node, ast.Assign) and {
+            target.id for target in node.targets if isinstance(target, ast.Name)
+        } & selected_globals:
+            body.append(node)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id in selected_globals:
+            # An ANNOTATED assignment is not an ast.Assign; without this branch the
+            # ledger's backing set never entered the namespace and the installer
+            # raised NameError at the marker call.
             body.append(node)
     module = ast.fix_missing_locations(ast.Module(body=body, type_ignores=[]))
     namespace: dict[str, object] = {}

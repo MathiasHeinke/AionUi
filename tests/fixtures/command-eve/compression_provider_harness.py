@@ -34,12 +34,19 @@ def load_selected_provider_symbols() -> dict[str, object]:
         "_command_eve_write_compression_receipt",
         "_command_eve_start_compression_status",
         "_command_eve_complete_compression_status",
+        # G1 (CEVE-18205): the installers now record themselves in the shim ledger,
+        # so the selected installer cannot be exec'd without it. Pulling it in keeps
+        # this harness a faithful slice of the real shim instead of a version that
+        # only happens to still run.
+        "_command_eve_mark_patch",
     }
     selected_globals = {
         "_COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S",
         "_COMMAND_EVE_COMPRESSION_MAX_ATTEMPTS",
         "_COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S",
         "_command_eve_compression_state",
+        "_COMMAND_EVE_EXPECTED_PATCHES",
+        "_COMMAND_EVE_INSTALLED_PATCHES",
     }
     allowed_imports = {"http.client", "json", "logging", "os", "re", "threading", "time"}
     allowed_from = {
@@ -59,6 +66,12 @@ def load_selected_provider_symbols() -> dict[str, object]:
         elif isinstance(node, ast.Assign):
             targets = {target.id for target in node.targets if isinstance(target, ast.Name)}
             if targets & selected_globals:
+                body.append(node)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            # e.g. `_COMMAND_EVE_INSTALLED_PATCHES: set[str] = set()` — an annotated
+            # assignment is NOT an ast.Assign, so without this branch the ledger's
+            # backing set silently never entered the namespace.
+            if node.target.id in selected_globals:
                 body.append(node)
         elif isinstance(node, ast.ClassDef) and node.name == "_CommandEveCompressionRequestError":
             body.append(node)
