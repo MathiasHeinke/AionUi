@@ -45,6 +45,7 @@ import { getBuiltinMcpScriptPath } from '../utils/builtinMcpPath';
 import { honchoMcpServerForSeat } from './honchoMcpServerCore';
 import { provisionArtifactCapabilityBearerFile } from './artifactCapabilityLoopback';
 import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG, isAgentVideoEditAdvertisingEnabled } from './agentVideoEditFlag';
+import { backupHermesStateDbsBeforeUpgrade } from './hermesStateDbBackup';
 import { COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG, isAgentImageEditAdvertisingEnabled } from './agentImageEditFlag';
 import { COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG } from './agentVideoGenerateFlag';
 import { productionAgentVideoGenerateGate } from './agentVideoGenerateGateMain';
@@ -774,6 +775,12 @@ export type RuntimeBootstrapProvenance = {
     wheel_sha256_verified?: boolean;
     installed_wheel_sha256?: string;
     installed_wheel_verified?: boolean;
+    /**
+     * Per-seat `state.db` backups taken before a version-crossing Hermes
+     * install (the 0.20 migration is one-way; see hermesStateDbBackup.ts).
+     * Absent when no cross-version install ran or no seat home existed.
+     */
+    state_db_backups?: Array<{ seat_home: string; backup: string; status: string; detail?: string }>;
     dependency_resolution: 'pypi_tls_on_first_boot';
     package_snapshot_status: 'pending' | 'captured' | 'unavailable';
     resolved_packages: string[];
@@ -2360,6 +2367,23 @@ export function prepareCommandEveRuntimeProcessEnv(
   // invocation in this process tree resolve the active seat without relying on
   // the bake.
   env.HERMES_HOME = paths.hermesHome;
+
+  // Hermes locale root, pinned with the SAME env-inheritance doctrine as
+  // HERMES_HOME above — on the env the backend subtree inherits, not on the
+  // shim bake, so a running agent can never be retroactively re-pointed and
+  // every hermes child (gateway, slash-exec, terminal approval prompt) sees it.
+  // WHY: Hermes ≤0.17 resolved its bundled locales three ways (this env var →
+  // `<repo>/locales` → the sysconfig data path); 0.20 REMOVED the sysconfig
+  // branch, and in a wheel install neither remaining branch matches — 17
+  // languages then silently fall back to English or the bare key. The wheel
+  // ships locales as `hermes_agent-<v>.data/data/locales`, which pip lands at
+  // the venv's data root, i.e. `<venv>/locales` (verified against a live
+  // install). The path is DERIVED, never probed: it is already correct on a
+  // first run BEFORE the venv exists — Hermes treats a not-yet-existing
+  // directory as "no override" until the install creates it — so an early bake
+  // cannot crash a boot, and no empty string is ever pinned that a later
+  // resolver would silently prefer.
+  env.HERMES_BUNDLED_LOCALES = path.join(paths.hermesVenv, 'locales');
 
   // The venv is based on the bundled interpreter under the signed app bundle.
   // Every Python descendant must keep bytecode out of Contents/Resources/python,
@@ -7003,6 +7027,31 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     const sameVersionWheelRepair = Boolean(
       bundledHermesWheel && hermesInstalled && hermesVersionMatches && !installedHermesWheelMatches
     );
+    // ONE-WAY-DOOR GUARD (Hermes-0.20 preparation): a version-CROSSING install
+    // is about to run, and the incoming Hermes may migrate every seat's
+    // `state.db` forward with no downgrade branch on the other side
+    // (hermes_state_schema has no `current_version > SCHEMA_VERSION` handling
+    // — a rollback runs unwarned against the newer schema). So the DBs are
+    // copied aside HERE, before pip touches the venv: once per seat, origin
+    // and target version in the name, idempotent, missing DB = first run =
+    // no-op. Best-effort by contract — a failed copy is recorded in the
+    // provenance receipt below but must not brick the upgrade boot. A
+    // same-version wheel repair does not migrate and takes no backup.
+    if (hermesInstalled && Boolean(installedHermesVersion) && !hermesVersionMatches) {
+      const stateDbBackups = backupHermesStateDbsBeforeUpgrade({
+        hermesRoot: paths.hermesRoot,
+        fromVersion: installedHermesVersion,
+        toVersion: manifest.hermes.version,
+      });
+      if (runtimeProvenance.hermes && stateDbBackups.length > 0) {
+        runtimeProvenance.hermes.state_db_backups = stateDbBackups.map((result) => ({
+          seat_home: result.seatHome,
+          backup: path.basename(result.backupPath),
+          status: result.status,
+          ...(result.detail ? { detail: result.detail } : {}),
+        }));
+      }
+    }
     const pipUpgrade = sameVersionWheelRepair
       ? { command: '', args: [], ok: true }
       : await runner(pythonBinary(paths), ['-m', 'pip', 'install', '--upgrade', 'pip'], {
