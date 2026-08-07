@@ -78,6 +78,13 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
   commandEve: {
     licenseWireStatus: { invoke: vi.fn(async () => ({ success: true, data: { available: true } })) },
   },
+  // BYOK (Baustein 2): the hook reads the operator's own provider rows to build
+  // the connected picker group. Empty here on purpose — this suite is about the
+  // ENTITLEMENT write-hold, and an operator with no provider configured is the
+  // shape that keeps that subject isolated.
+  mode: {
+    listProviders: { invoke: vi.fn(async () => []) },
+  },
 }));
 
 vi.mock('@renderer/utils/platform', () => ({ isElectronDesktop: () => true }));

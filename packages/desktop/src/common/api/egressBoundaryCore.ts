@@ -91,6 +91,15 @@ export type CommandEveEgressBoundaryReceipt = {
    */
   redaction?: CommandEveEgressRedactionStatus;
   /**
+   * BYOK lane (Baustein 2) — HOW the turn left the machine. `https` is the rule
+   * for a public host; `http_private_network` records that the operator's own
+   * RFC1918 box was called in CLEARTEXT. That case is allowed on purpose (an
+   * operator must be able to test their own LAN), and this field is the evidence
+   * that makes it allowed rather than merely unnoticed. Absent on every lane that
+   * does not egress to an operator-named host.
+   */
+  transport?: 'https' | 'http_private_network';
+  /**
    * S12 — the MAX sensitivity class present in this request (S0–S3). Present
    * whenever a toggle context was passed (i.e. the class-aware path ran). Omitted
    * on the pure-legacy path (no toggle context) to keep those receipts byte-stable.

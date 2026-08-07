@@ -99,6 +99,12 @@ import { type EveRememberedCommand } from '@/common/config/eveRememberedCommands
 import { rememberedCommandsFromSettings } from '@/common/config/eveAuthorityStoreCore';
 import { createTeamWorkerStatusResolver } from './process/commandEve/teamWorkerStatusResolverCore';
 import { EVE_AUTHORITY_FAIL_CLOSED, readEveAuthorityGrant } from './common/config/eveAuthorityCore';
+import { parseConnectedSelection, repairInferenceSelection } from './common/config/eveInferenceCore';
+import { resolveConnectedProviderRoute } from './common/config/eveConnectedProviderCore';
+import { readInferenceLaneStateFromBackendStrict } from './process/commandEve/inferenceSelectionBackendRead';
+import { httpRequest } from './common/adapter/httpBridge';
+import type { IProvider } from './common/config/storage';
+import type { CommandEveConnectedProviderRoute } from './process/commandEve/ollamaOpenAiShim';
 import { renderEveAuthorityRuntime, type EveAuthorityRuntime } from './common/config/eveAuthorityRuntimeCore';
 import { createEgressRedactionModeResolver } from './process/commandEve/egressRedactionModeResolverCore';
 import {
@@ -818,6 +824,44 @@ function buildCommandEveShimActiveSeatIdResolver(): () => string {
  * whose rendering answers `ask` to everything. There is no last-known-good here
  * on purpose — "what this seat allowed a minute ago" is not authority.
  */
+/**
+ * Build the BYOK provider-route resolver passed to the shim (Baustein 2).
+ *
+ * Runs per turn, reads the ACTIVE picker selection and the operator's own
+ * `/api/providers` rows FRESH, and returns the route only when the selection is
+ * a connected one that still resolves. The operator's key is read HERE, in main,
+ * and handed straight to the shim — it never crosses the bridge and never enters
+ * a renderer, a log or a conversation record.
+ *
+ * FAIL-CLOSED to `{ active: false }`: an unreadable store, a deleted row or a
+ * model that no longer exists means "not this lane", and the shim then takes the
+ * lanes it always took. It does NOT mean "run it somewhere else" — that decision
+ * belongs to the send path, which refuses out loud.
+ */
+function buildCommandEveShimConnectedProviderResolver(): () => Promise<CommandEveConnectedProviderRoute> {
+  return async () => {
+    try {
+      const laneState = await readInferenceLaneStateFromBackendStrict();
+      const selection = repairInferenceSelection(laneState.selection).selection;
+      const parsed = parseConnectedSelection(selection);
+      if (!parsed) return { active: false };
+      const rows = (await httpRequest<IProvider[]>('GET', '/api/providers')) || [];
+      const route = resolveConnectedProviderRoute(parsed, rows);
+      if (!route) return { active: false };
+      return {
+        active: true,
+        baseUrl: route.baseUrl,
+        model: route.model,
+        apiKey: route.apiKey,
+        providerName: route.providerName,
+      };
+    } catch (error) {
+      console.warn('[Command EVE] Connected provider route read failed; lane inactive:', error);
+      return { active: false };
+    }
+  };
+}
+
 function buildCommandEveShimApprovalResolver(): () => Promise<EveAuthorityRuntime> {
   return async () => {
     try {
@@ -1211,6 +1255,7 @@ function registerCommandEveRuntimeBridge(): void {
             // would fall back to the fail-closed default and silently pin that seat
             // to "always ask" for the whole session, with no other symptom.
             commandEveApproval: buildCommandEveShimApprovalResolver(),
+            connectedProviderRouting: buildCommandEveShimConnectedProviderResolver(),
             // MAT-1747: the app-owned artifact capability. Injected at EVERY shim
             // start site — the bearer is per-boot, so a site that forgets it would
             // 404 the route for the whole session with no other symptom.
@@ -1290,6 +1335,7 @@ function registerCommandEveRuntimeBridge(): void {
             // would fall back to the fail-closed default and silently pin that seat
             // to "always ask" for the whole session, with no other symptom.
             commandEveApproval: buildCommandEveShimApprovalResolver(),
+            connectedProviderRouting: buildCommandEveShimConnectedProviderResolver(),
             // MAT-1747: the app-owned artifact capability. Injected at EVERY shim
             // start site — the bearer is per-boot, so a site that forgets it would
             // 404 the route for the whole session with no other symptom.
@@ -1850,6 +1896,7 @@ const handleAppReady = async (): Promise<void> => {
         kanbanAcpPropose: kanbanAcpProposeHandler,
         kanbanAcpRead: readKanbanAcpBoard,
         commandEveApproval: buildCommandEveShimApprovalResolver(),
+        connectedProviderRouting: buildCommandEveShimConnectedProviderResolver(),
         artifactCapabilityBearer: resolveArtifactCapabilityBearer,
         artifactCapabilityCall: artifactCapabilityCallHandler,
       })

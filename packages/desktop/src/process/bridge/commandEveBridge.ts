@@ -4663,11 +4663,13 @@ export function initCommandEveBridge(): void {
         // returned WITHOUT it (same discipline as the EVE wire above, which is
         // also verified here and stripped before it crosses).
         //
-        // THIS RESOLVES BUT DOES NOT YET SEND. The shim has no lane to a
-        // third-party host (see BYOK_PICKER_VISIBLE), so nothing offers this
-        // selection yet; a persisted or hand-edited one now gets an honest,
-        // nameable answer instead of being silently answered with the local
-        // Gemma row.
+        // IT SENDS since 1.821.0. The conversation still talks to the loopback
+        // SHIM — that is the only endpoint the agent ever addresses — and the
+        // shim's fourth lane carries the turn onward to the operator's provider,
+        // resolving the row and the key itself per turn. So what this branch
+        // returns is the shim provider with the BYOK model name on it; the
+        // credential is verified here and deliberately NOT handed back, exactly
+        // like the EVE wire above.
         if (isConnectedSelection(selection)) {
           const rows = (await httpRequest<IProvider[]>('GET', '/api/providers')) || [];
           const route = resolveConnectedProviderRoute(parseConnectedSelection(selection), rows);
@@ -4678,13 +4680,20 @@ export function initCommandEveBridge(): void {
             // and falling back to local would be the very lie this fixes.
             return { success: false, msg: 'CONNECTED_PROVIDER_UNAVAILABLE', data: undefined };
           }
+          // Re-prove the shim row before handing it back, same as the local lane:
+          // the agent addresses the shim, so a stale/rewritten row here would
+          // become an opaque upstream failure at send time.
+          await ensureCommandEveLocalRuntimeProvider();
+          const shimProvider = getCommandEveLocalRuntimeProvider();
           return {
-            success: false,
-            // NOT sendable yet, and it says so with its own reason code rather
-            // than a generic failure — the day the shim lane lands, this branch
-            // returns the provider instead and nothing else has to move.
-            msg: 'CONNECTED_PROVIDER_NO_WIRE',
-            data: undefined,
+            success: true,
+            data: {
+              // The model NAME travels so the conversation record is honest about
+              // what ran; the base_url stays the shim and the operator's key never
+              // leaves main.
+              provider: { ...shimProvider, use_model: route.model },
+              lane: 'connected' as const,
+            },
           };
         }
 

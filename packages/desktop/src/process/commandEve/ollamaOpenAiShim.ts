@@ -187,6 +187,29 @@ export type CommandEveLocalOpenAiRoutingResolver = (
 ) => CommandEveLocalOpenAiRoute | undefined | Promise<CommandEveLocalOpenAiRoute | undefined>;
 
 /**
+ * The operator's OWN provider (BYOK), resolved in main from `/api/providers`.
+ *
+ * Unlike {@link CommandEveLocalOpenAiRoute} this one leaves the machine, so the
+ * base URL is NOT loopback and the key is the operator's real credential. It
+ * rides here and nowhere else: never in a body, never in a log, never in an
+ * error message.
+ */
+export type CommandEveConnectedProviderRoute = {
+  active: boolean;
+  /** Non-loopback OpenAI-compatible base URL. See {@link classifyConnectedProviderHost}. */
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+  /** Display label for the receipt. Never a user-facing backend selector. */
+  providerName?: string;
+};
+
+export type CommandEveConnectedProviderRoutingResolver = () =>
+  | CommandEveConnectedProviderRoute
+  | undefined
+  | Promise<CommandEveConnectedProviderRoute | undefined>;
+
+/**
  * Per-request resolver for the persisted "Dein Team" worker-status map
  * (`commandEve.teamWorkerStatus`). Injected at shim startup (main process) so
  * the shim can READ the live pause/throttle/fire state and actually gate a
@@ -409,6 +432,13 @@ export type CommandEveOllamaShimOptions = {
   kanbanAcpBearer?: CommandEveTeamManageBearerResolver;
   kanbanAcpPropose?: CommandEveTeamManageProposeHandler;
   kanbanAcpRead?: CommandEveKanbanAcpReadResolver;
+  /**
+   * BYOK (Baustein 2): the operator's OWN provider for the active selection, or
+   * inactive. Resolved in MAIN from `/api/providers` so the credential never
+   * crosses the bridge. Omitted ⇒ the lane is inert and every turn takes the
+   * lanes it took before.
+   */
+  connectedProviderRouting?: CommandEveConnectedProviderRoutingResolver;
   /**
    * CEVE-1821 — the seat's LIVE approval authority, for `GET
    * /v1/command-eve/approval`.
@@ -655,6 +685,68 @@ function isStrictIpv4LoopbackOpenAiBaseUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Why a BYOK base URL was refused. Named so the operator can read what happened. */
+export type ConnectedHostRefusal =
+  | 'CONNECTED_HOST_UNPARSEABLE'
+  | 'CONNECTED_HOST_LOOPBACK'
+  | 'CONNECTED_HOST_INSECURE_PUBLIC';
+
+export type ConnectedHostVerdict =
+  | { ok: true; transport: 'https' | 'http_private_network' }
+  | { ok: false; reason: ConnectedHostRefusal };
+
+/** RFC1918 + link-local: the operator's own LAN, where cleartext is their call. */
+function isPrivateNetworkHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  const match = /^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(host);
+  if (match) {
+    const second = Number(match[1]);
+    return second >= 16 && second <= 31;
+  }
+  return false;
+}
+
+/**
+ * MAY THIS BYOK BASE URL BE CALLED? Three rules, and each is a different kind of
+ * reason — which is why they are three checks and not one allowlist.
+ *
+ * 1. LOOPBACK IS REFUSED, and not out of caution. The shim itself listens on
+ *    loopback, so a loopback BYOK target can point the shim at ITSELF and spin
+ *    the lane in a loop. Loopback is `handleLocalOpenAiCompletions`' job; this
+ *    check is the exact inverse of `isStrictIpv4LoopbackOpenAiBaseUrl`, widened
+ *    to every loopback spelling because the loop does not care about the port.
+ * 2. A PUBLIC HOST MUST BE `https:`. A cleartext turn to a third party is OUR
+ *    OWN data loss — the conversation, and the key in the Authorization header.
+ *    This one protects us, not a hypothetical future user, so it does not fall
+ *    with the visibility gate.
+ * 3. A PRIVATE NETWORK (RFC1918) MAY USE `http:`. An operator running their own
+ *    box in the LAN has to be able to test. The receipt records that the turn
+ *    went out in cleartext — evidence, not a veto.
+ */
+export function classifyConnectedProviderHost(value: string): ConnectedHostVerdict {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return { ok: false, reason: 'CONNECTED_HOST_UNPARSEABLE' };
+  }
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const isLoopback =
+    host === 'localhost' ||
+    host === '::1' ||
+    host === '0.0.0.0' ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    host.endsWith('.localhost');
+  if (isLoopback) return { ok: false, reason: 'CONNECTED_HOST_LOOPBACK' };
+  if (url.protocol === 'https:') return { ok: true, transport: 'https' };
+  if (url.protocol === 'http:' && isPrivateNetworkHostname(host)) {
+    return { ok: true, transport: 'http_private_network' };
+  }
+  return { ok: false, reason: 'CONNECTED_HOST_INSECURE_PUBLIC' };
 }
 
 function jsonResponse(response: ServerResponse, status: number, payload: unknown): void {
@@ -2051,6 +2143,153 @@ async function handleLocalOpenAiCompletions(
   }
 }
 
+/**
+ * BYOK LANE (Baustein 2). The operator's own provider, their own key, their own
+ * bill — funding-neutral for us, which is why the ladder never gates it.
+ *
+ * Shaped after `handleLocalOpenAiCompletions` (guard, upstream scope,
+ * redirect:'error', stream passthrough, F-14 upstream-error marking, dispose in
+ * finally) and after the CLOUD lane for its egress boundary, because that is what
+ * this is: a turn that leaves the machine.
+ *
+ * IT REFUSES OUT LOUD. There is no warm-up, no fallback to local, no fallback to
+ * cloud. Every refusal carries its own reason code so the operator can read what
+ * happened instead of guessing at a 502 — silently routing a BYOK turn somewhere
+ * else would be the exact falsehood this whole chain has been removing.
+ */
+async function handleConnectedProviderCompletions(
+  request: IncomingMessage,
+  body: Record<string, unknown>,
+  response: ServerResponse,
+  options: Required<CommandEveOllamaShimOptions>,
+  route: CommandEveConnectedProviderRoute
+): Promise<void> {
+  const baseUrl = typeof route.baseUrl === 'string' ? route.baseUrl.trim() : '';
+  const apiKey = typeof route.apiKey === 'string' ? route.apiKey.trim() : '';
+  const model = typeof route.model === 'string' ? route.model.trim() : '';
+  if (!baseUrl || !apiKey || !model) {
+    jsonResponse(response, 503, {
+      error: { code: 'CONNECTED_PROVIDER_INCOMPLETE', message: 'The selected provider is not fully configured.' },
+    });
+    return;
+  }
+  const host = classifyConnectedProviderHost(baseUrl);
+  if (host.ok !== true) {
+    // A named refusal, never a generic failure and never a reroute.
+    const reason = host.reason;
+    jsonResponse(response, 502, {
+      error: {
+        code: reason,
+        message:
+          reason === 'CONNECTED_HOST_LOOPBACK'
+            ? 'A loopback address is handled by the local lane, not by a connected provider.'
+            : reason === 'CONNECTED_HOST_INSECURE_PUBLIC'
+              ? 'A connected provider on a public host must use https.'
+              : 'The connected provider base URL could not be read.',
+      },
+    });
+    return;
+  }
+
+  // THE BOUNDARY RUNS BEFORE A BYTE LEAVES. Same guarantee as the cloud lane and
+  // for the same reason — this egresses to a third party. `kind: 'cloud'` is the
+  // honest classification: it is not our cloud, but it is not this machine either.
+  const outboundMessages = asMessages(body.messages).map((message) => stripUnsupportedImageContent(message));
+  const egressBoundary = await evaluateCommandEveEgressBoundary({
+    text: outboundMessages.map(messageText).join('\n\n'),
+    provider: {
+      kind: 'cloud',
+      name: route.providerName || 'connected-provider',
+      model,
+      baseUrl,
+    },
+    policyAction: options.egressPolicyAction,
+  });
+  // `transport` is the cleartext evidence rule 3 owes the operator: a private-network
+  // turn is allowed to be http, and the receipt says so rather than staying quiet.
+  const egressReceipt = { ...egressBoundary.receipt, transport: host.transport };
+  try {
+    writeCommandEveEgressBoundaryReceipt(options.egressReceiptPath, egressReceipt);
+  } catch (error) {
+    console.warn('[Command EVE] Failed to write egress boundary receipt:', error);
+  }
+  response.setHeader('x-command-eve-egress-decision', egressBoundary.decision);
+  response.setHeader('x-command-eve-connected-transport', host.transport);
+  if (egressBoundary.decision === 'block') {
+    jsonResponse(response, 451, {
+      error: {
+        code: 'CONNECTED_EGRESS_BLOCKED',
+        message:
+          'Command EVE blocked sensitive data before model egress. Move secrets into settings, an env file, or an approved vault flow.',
+        receipt: egressReceipt,
+      },
+    });
+    return;
+  }
+  const sendMessages =
+    egressBoundary.decision === 'redact'
+      ? outboundMessages.map((message) => redactMessageContent(message, 'S1', false))
+      : outboundMessages;
+
+  const upstreamScope = createUpstreamRequestScope(request, response, options);
+  try {
+    const upstream = await fetch(chatCompletionsUrl(baseUrl), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        // The ONLY place the operator's key appears.
+        authorization: `Bearer ${apiKey}`,
+      },
+      // A 30x from an upstream must never re-POST this body — with the key on it —
+      // to a host the operator did not name.
+      redirect: 'error',
+      body: JSON.stringify({ ...body, model, messages: sendMessages }),
+      signal: upstreamScope.signal,
+    });
+    upstreamScope.markActivity();
+
+    const contentType = upstream.headers.get('content-type') || 'application/json';
+    if (Boolean(body.stream) && upstream.body) {
+      response.writeHead(upstream.status || 502, {
+        'content-type': contentType,
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      const reader = upstream.body.getReader();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        upstreamScope.markActivity();
+        response.write(value);
+      }
+      response.end();
+      return;
+    }
+
+    const text = await upstream.text();
+    upstreamScope.markActivity();
+    if (!upstream.ok) upstreamScope.markUpstreamError();
+    response.writeHead(upstream.status || 502, { 'content-type': contentType });
+    response.end(
+      text ||
+        JSON.stringify({ error: { code: 'CONNECTED_PROVIDER_EMPTY', message: 'The provider returned no result.' } })
+    );
+  } catch {
+    const abortReason = upstreamScope.reason();
+    if (abortReason) {
+      writeUpstreamAbortResponse(response, abortReason);
+    } else {
+      upstreamScope.markUpstreamError();
+      // Unreachable is unreachable. It is NOT a reason to run the turn locally.
+      jsonResponse(response, 502, {
+        error: { code: 'CONNECTED_PROVIDER_UNREACHABLE', message: 'The selected provider could not be reached.' },
+      });
+    }
+  } finally {
+    upstreamScope.dispose();
+  }
+}
+
 async function handleChatCompletions(
   request: IncomingMessage,
   response: ServerResponse,
@@ -2123,6 +2362,30 @@ async function handleChatCompletions(
         COMMAND_EVE_OPERATION_DECISION_HEADER,
         seam.reason ? `local_only:${seam.reason}:${seam.operation}` : `local_only:${seam.operation}`
       );
+    }
+  }
+
+  // BYOK lane, resolved BEFORE the local block on purpose: it runs its own
+  // cloud-class egress boundary, and letting the local block run first would
+  // classify a third-party turn as `kind: 'local'` — a receipt that says the
+  // opposite of what happened. A warm-up ping is never BYOK.
+  if (!isCommandEveWarmupRequest(body) && !forceLocalVision) {
+    let connectedRoute: CommandEveConnectedProviderRoute | undefined;
+    try {
+      connectedRoute = await options.connectedProviderRouting();
+    } catch (error) {
+      console.warn('[Command EVE] Connected provider route failed:', error);
+      // Refusing is a valid answer; falling through to a local turn the operator
+      // did not choose is not.
+      jsonResponse(response, 503, {
+        error: { code: 'CONNECTED_PROVIDER_UNRESOLVED', message: 'The selected provider could not be resolved.' },
+      });
+      return;
+    }
+    if (connectedRoute?.active) {
+      response.setHeader('x-command-eve-inference-lane', 'connected');
+      await handleConnectedProviderCompletions(request, body, response, options, connectedRoute);
+      return;
     }
   }
 
@@ -2592,6 +2855,9 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
         payload: { error: { message: 'kanban_manage is not available on this seat.' } },
       })),
     kanbanAcpRead: shimOptions.kanbanAcpRead || ((): unknown => ({ ok: false, reason: 'not-available' })),
+    // Inert default: no BYOK route ⇒ nothing changes for any existing lane.
+    connectedProviderRouting:
+      shimOptions.connectedProviderRouting || ((): CommandEveConnectedProviderRoute => ({ active: false })),
     // Fail-CLOSED default: the fail-closed grant answers every question with
     // "ask", so an un-wired shim asks about everything.
     commandEveApproval:

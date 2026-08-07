@@ -29,6 +29,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { classifyConnectedProviderHost } from '@/process/commandEve/ollamaOpenAiShim';
 import {
   buildEvePickerGroups,
   BYOK_PICKER_VISIBLE,
@@ -213,31 +214,204 @@ describe('Baustein 3 — resolving one selection against the rows', () => {
   });
 });
 
-describe('THE CONDITION: no offer without a wire', () => {
-  it('BYOK_PICKER_VISIBLE is OFF, and that is a decision with a reason next to it', () => {
-    expect(BYOK_PICKER_VISIBLE).toBe(false);
+describe('THE CONDITION, ONE COMMIT LATER: the wire exists, so the row is offered', () => {
+  /**
+   * REWRITTEN VISIBLY, NOT DELETED. This block pinned `BYOK_PICKER_VISIBLE ===
+   * false`, and that was right: there was no lane to a third-party host, so an
+   * offered row could not have carried a turn, and a picker entry that cannot be
+   * taken is the same falsehood in a new place.
+   *
+   * `handleConnectedProviderCompletions` is that lane. The constant flips with
+   * it — which is what the previous assertion was protecting: not the `false`,
+   * but the rule that the two move together.
+   *
+   * What did NOT move: https to a public host, the loopback refusal, the
+   * no-redirect policy, the egress boundary and its receipt, and named refusals
+   * instead of silent reroutes. None of those protect a hypothetical future
+   * stranger; they protect this install, today. They are asserted below.
+   */
+  it('the gate is OPEN, and it moved together with the lane', () => {
+    expect(BYOK_PICKER_VISIBLE).toBe(true);
+    const shim = read('packages/desktop/src/process/commandEve/ollamaOpenAiShim.ts');
+    expect(shim, 'the gate opened without the lane it depends on').toContain(
+      'async function handleConnectedProviderCompletions('
+    );
+  });
+
+  it('the justification no longer claims the wire is missing', () => {
     const core = read('packages/desktop/src/common/config/eveInferenceCore.ts');
-    // Normalise the JSDoc frame away: the phrases are load-bearing, the line
-    // breaks and leading asterisks the formatter inserts are not.
     const doc = core
       .slice(core.indexOf('MAY A BYOK ROW BE OFFERED'), core.indexOf('export const BYOK_PICKER_VISIBLE'))
       .replace(/[\s*]+/g, ' ');
-    expect(doc).toContain('NETWORK BOUNDARY');
-    expect(doc).toContain('handleLocalOpenAiCompletions');
+    expect(doc).not.toContain('What does NOT exist is the wire');
+    expect(doc).toContain('handleConnectedProviderCompletions');
   });
 
-  it('the gate is the ONLY thing off — the wire underneath it works', () => {
-    // Proven by handing the groups straight to the picker builder: it appends
-    // them. So when the shim lane lands, one constant flips and nothing else has
-    // to be re-derived.
+  it('an operator with a provider actually gets the group', () => {
     const groups = buildEvePickerGroups(null, buildConnectedProviderGroups([row()]));
     expect(groups.map((g) => g.kind)).toEqual(['local', 'eve', 'connected']);
   });
 
-  it('the hook applies the gate at the one place the groups reach the picker', () => {
+  it('the hook still reads the gate, so one line can close it again', () => {
     const hook = read('packages/desktop/src/renderer/hooks/agent/useEveInferenceSelection.ts');
     expect(hook).toContain('BYOK_PICKER_VISIBLE ? buildConnectedProviderGroups(connectedRows) : []');
-    expect(hook).toContain('buildEvePickerGroups(pickerEntitlement, connectedProviderGroups)');
+  });
+});
+
+describe('the host rule — three different reasons, three different checks', () => {
+  it('LOOPBACK IS REFUSED: the shim listens there and the lane would loop', () => {
+    for (const base of [
+      'http://127.0.0.1:11434/v1',
+      'http://127.0.0.2:8080/v1',
+      'https://localhost:8443/v1',
+      'http://[::1]:9000/v1',
+      'http://0.0.0.0:25811/v1',
+      'https://api.localhost/v1',
+    ]) {
+      const verdict = classifyConnectedProviderHost(base);
+      expect(verdict.ok, `${base} was accepted — loopback risk`).toBe(false);
+      expect(verdict.ok === false && verdict.reason).toBe('CONNECTED_HOST_LOOPBACK');
+    }
+  });
+
+  it('A PUBLIC HOST MUST BE https — cleartext there is OUR data loss', () => {
+    expect(classifyConnectedProviderHost('https://api.openai.com/v1')).toEqual({ ok: true, transport: 'https' });
+    expect(classifyConnectedProviderHost('https://openrouter.ai/api/v1')).toEqual({ ok: true, transport: 'https' });
+    for (const base of ['http://api.openai.com/v1', 'http://8.8.8.8/v1', 'http://models.example.com:8080/v1']) {
+      const verdict = classifyConnectedProviderHost(base);
+      expect(verdict.ok, `${base} was accepted in cleartext`).toBe(false);
+      expect(verdict.ok === false && verdict.reason).toBe('CONNECTED_HOST_INSECURE_PUBLIC');
+    }
+  });
+
+  it('A PRIVATE NETWORK MAY USE http, and the receipt records that it was cleartext', () => {
+    for (const base of ['http://192.168.1.50:8000/v1', 'http://10.0.0.7/v1', 'http://172.16.4.4:1234/v1']) {
+      expect(classifyConnectedProviderHost(base), base).toEqual({ ok: true, transport: 'http_private_network' });
+    }
+    // 172.32 is NOT RFC1918 — the range check has to be a range, not a prefix.
+    expect(classifyConnectedProviderHost('http://172.32.0.1/v1').ok).toBe(false);
+    const shim = read('packages/desktop/src/process/commandEve/ollamaOpenAiShim.ts');
+    expect(shim, 'the cleartext evidence is not written to the receipt').toContain(
+      'const egressReceipt = { ...egressBoundary.receipt, transport: host.transport };'
+    );
+  });
+
+  it('an unparseable base URL is named, not guessed', () => {
+    const verdict = classifyConnectedProviderHost('not a url');
+    expect(verdict.ok).toBe(false);
+    expect(verdict.ok === false && verdict.reason).toBe('CONNECTED_HOST_UNPARSEABLE');
+  });
+});
+
+describe('the lane itself — what must never be softened', () => {
+  const shim = read('packages/desktop/src/process/commandEve/ollamaOpenAiShim.ts');
+  const lane = shim.slice(
+    shim.indexOf('async function handleConnectedProviderCompletions('),
+    shim.indexOf('async function handleChatCompletions(')
+  );
+
+  it('a 30x must not re-POST the body and the key to a host nobody named', () => {
+    expect(lane.length).toBeGreaterThan(0);
+    expect(lane).toContain("redirect: 'error'");
+    expect(lane, 'redirect following would leak the turn to an unnamed host').not.toContain("redirect: 'follow'");
+  });
+
+  it('the egress boundary runs BEFORE the fetch, not after', () => {
+    const boundaryAt = lane.indexOf('evaluateCommandEveEgressBoundary');
+    const fetchAt = lane.indexOf('await fetch(');
+    expect(boundaryAt, 'the egress boundary was skipped').toBeGreaterThan(-1);
+    expect(boundaryAt, 'bytes would leave before the boundary decided').toBeLessThan(fetchAt);
+    expect(lane).toContain('writeCommandEveEgressBoundaryReceipt');
+    expect(lane, 'a blocked turn must not be sent anyway').toContain("egressBoundary.decision === 'block'");
+    expect(lane, 'a redact decision must actually redact the outbound messages').toContain(
+      "egressBoundary.decision === 'redact'"
+    );
+  });
+
+  it('it is classified as a CLOUD egress, because that is what it is', () => {
+    expect(lane).toContain("kind: 'cloud'");
+    expect(lane, 'a third-party turn recorded as local would be a receipt that lies').not.toContain("kind: 'local'");
+  });
+
+  it('the key rides in the authorization header and nowhere else', () => {
+    expect(lane).toContain('authorization: `Bearer ${apiKey}`');
+    // Exactly once, and only there.
+    expect([...lane.matchAll(/\$\{apiKey\}/g)]).toHaveLength(1);
+    // Not in the outbound body.
+    const bodyLine = lane.slice(lane.indexOf('body: JSON.stringify('), lane.indexOf('signal: upstreamScope.signal'));
+    expect(bodyLine, 'the key was serialised into the request body').not.toContain('apiKey');
+    // Not in a query string, and never interpolated into anything user-visible.
+    expect(lane).not.toMatch(/[?&][a-z_]*key=/i);
+    expect(lane, 'the key must never reach a message or a log').not.toMatch(
+      /(message|console\.(warn|info|error))[^\n]*apiKey/
+    );
+  });
+
+  it('every refusal is a NAMED reason, and none of them reroutes', () => {
+    for (const code of [
+      'CONNECTED_PROVIDER_INCOMPLETE',
+      'CONNECTED_HOST_LOOPBACK',
+      'CONNECTED_HOST_INSECURE_PUBLIC',
+      'CONNECTED_EGRESS_BLOCKED',
+      'CONNECTED_PROVIDER_UNREACHABLE',
+    ]) {
+      expect(lane, `refusal ${code} is missing`).toContain(code);
+    }
+    // The whole point: a failure here ends the turn. It never warms a local model
+    // and never falls back to the metered cloud lane.
+    expect(lane).not.toContain('warmLocalModel');
+    expect(lane).not.toContain('handleEveCloudCompletions');
+    expect(lane).not.toContain('handleLocalOpenAiCompletions');
+    expect(lane).not.toContain('fetchOllama');
+  });
+
+  it('it marks a non-OK upstream and disposes its scope (F-14, same as its template)', () => {
+    expect(lane).toContain('upstreamScope.markUpstreamError()');
+    expect(lane).toContain('upstreamScope.dispose()');
+  });
+});
+
+describe('the dispatch — a BYOK turn never gets classified as local first', () => {
+  const shim = read('packages/desktop/src/process/commandEve/ollamaOpenAiShim.ts');
+  const dispatch = shim.slice(shim.indexOf('async function handleChatCompletions('));
+
+  it('the connected route is resolved BEFORE the local egress block', () => {
+    const connectedAt = dispatch.indexOf('await options.connectedProviderRouting()');
+    const localEgressAt = dispatch.indexOf("kind: 'local',");
+    expect(connectedAt, 'the connected lane is never dispatched').toBeGreaterThan(-1);
+    expect(connectedAt, 'a third-party turn would be receipted as a local one').toBeLessThan(localEgressAt);
+  });
+
+  it('a resolver failure refuses instead of falling through to a local turn', () => {
+    const block = dispatch.slice(
+      dispatch.indexOf('await options.connectedProviderRouting()') - 400,
+      dispatch.indexOf('let localOpenAiRoute')
+    );
+    expect(block).toContain('CONNECTED_PROVIDER_UNRESOLVED');
+    expect(block).toContain('return;');
+  });
+
+  it('the shim default is INERT, so an un-wired shim behaves exactly as before', () => {
+    expect(shim).toContain(
+      'shimOptions.connectedProviderRouting || ((): CommandEveConnectedProviderRoute => ({ active: false }))'
+    );
+  });
+
+  it('main injects the resolver at every shim start site, and keeps the key', () => {
+    const main = read('packages/desktop/src/index.ts');
+    const starts = [...main.matchAll(/kanbanAcpRead: readKanbanAcpBoard,/g)].length;
+    const injected = [...main.matchAll(/connectedProviderRouting: buildCommandEveShimConnectedProviderResolver\(\),/g)]
+      .length;
+    expect(starts).toBeGreaterThan(0);
+    expect(injected, 'a shim start site would silently have no BYOK lane').toBe(starts);
+    const resolver = main.slice(
+      main.indexOf('function buildCommandEveShimConnectedProviderResolver'),
+      main.indexOf('function buildCommandEveShimApprovalResolver')
+    );
+    expect(resolver).toContain("httpRequest<IProvider[]>('GET', '/api/providers')");
+    expect(resolver, 'an unreadable store must mean "not this lane", never "run it elsewhere"').toContain(
+      'return { active: false }'
+    );
   });
 });
 
@@ -273,9 +447,21 @@ describe('the main process resolves it, and keeps the key', () => {
     expect(bridge).toContain('resolveConnectedProviderRoute(parseConnectedSelection(selection), rows)');
   });
 
-  it('it answers with its own reason codes instead of a generic failure', () => {
+  it('it answers with its own reason code when the row cannot be used', () => {
     expect(bridge).toContain('CONNECTED_PROVIDER_UNAVAILABLE');
-    expect(bridge).toContain('CONNECTED_PROVIDER_NO_WIRE');
+  });
+
+  it('and it now RESOLVES: the shim provider with the BYOK model name on it', () => {
+    // The agent only ever addresses the loopback shim; the shim's fourth lane
+    // carries the turn onward. So the resolved provider is the shim row, and the
+    // model name travels so the conversation record is honest about what ran.
+    const branch = bridge.slice(
+      bridge.indexOf('if (isConnectedSelection(selection)) {'),
+      bridge.indexOf('// Privat (lokal) lane')
+    );
+    expect(branch).toContain("lane: 'connected' as const");
+    expect(branch).toContain('use_model: route.model');
+    expect(branch, 'the wire-missing refusal outlived the wire').not.toContain('CONNECTED_PROVIDER_NO_WIRE');
   });
 
   it('the resolved route never crosses the bridge', () => {

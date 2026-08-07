@@ -478,10 +478,10 @@ export function isLocalSelection(value: string | null | undefined): boolean {
  * provider and model inside the value, {@link resolveCommandEveActiveLane} returns
  * a `connected` lane instead of silently falling back to the local default tier,
  * and the main process resolves the operator's own row for it. What is still
- * missing is the WIRE — the shim has exactly three upstreams (EVE's metered Edge
- * Function, strict-IPv4-loopback OpenAI, loopback Ollama) and no path to a
- * third-party host. Until that lane exists the picker must not OFFER a BYOK row;
- * see {@link BYOK_PICKER_VISIBLE}.
+ * the main process resolves the operator's own row for it. Since 1.821.0 the wire
+ * exists too — `handleConnectedProviderCompletions` in the shim — so a BYOK row is
+ * offered and a BYOK turn actually reaches the operator's provider. See
+ * {@link BYOK_PICKER_VISIBLE} for what guards that lane and why none of it fell.
  *
  * Giving BYOK a NAMEABLE identity is what makes "never repaired onto the metered
  * lane" implementable rather than merely asserted.
@@ -1558,29 +1558,29 @@ export function buildEvePickerGroups(
 }
 
 /**
- * MAY A BYOK ROW BE OFFERED IN THE PICKER YET? No — and this constant is the
- * reason it stays that way rather than an oversight.
+ * MAY A BYOK ROW BE OFFERED IN THE PICKER? Yes, since 1.821.0 — the lane exists.
  *
- * Everything around it is built: the selection has a name, the lane has a kind,
- * `repairInferenceSelection` refuses to convert it onto the metered lane, and the
- * main process resolves the operator's own row for it. What does NOT exist is the
- * wire. The Command EVE shim reaches exactly three upstreams — EVE's metered Edge
- * Function, a STRICT-IPv4-loopback OpenAI server, and loopback Ollama — and
- * `handleLocalOpenAiCompletions` answers 503 for any non-loopback base URL. A
- * fourth lane to an operator-named third-party host (HTTPS-only, redirect:'error',
- * its own upstream scope, egress redaction, a boundary-receipt entry) is a NETWORK
- * BOUNDARY decision and is being put to the founder separately.
+ * It was false for exactly one commit, and for a reason that has since been
+ * built away: there was no wire. The shim reached three upstreams (EVE's metered
+ * Edge Function, a strict-IPv4-loopback OpenAI server, loopback Ollama) and
+ * nothing could carry a turn to an operator-named host, so offering the row
+ * would have put an entry in the picker that could not be taken.
+ * `handleConnectedProviderCompletions` is that fourth lane, and the constant
+ * flips with it — one line, exactly as it was designed to.
  *
- * Offering the row before that lane exists would put an entry in the picker that
- * cannot carry a turn. That is not a smaller version of the feature — it is the
- * exact defect this release has been removing: a control that claims one thing and
- * does another. So the group is BUILT and WIRED and simply not shown, and the day
- * the lane lands this flips in one place.
+ * WHAT DID NOT FALL WITH IT, because none of it protects a hypothetical future
+ * stranger — it protects us, today: `https:` is mandatory to a public host, a
+ * loopback target is REFUSED (the shim listens on loopback and would loop),
+ * `redirect: 'error'` keeps a 30x from re-POSTing the body and the key to a host
+ * nobody named, the egress boundary and its receipt run before a byte leaves,
+ * and every refusal is a named reason code rather than a silent reroute. Those
+ * are not a gate around the feature; they are the feature built correctly.
  *
- * A test pins that it is false, and pins that flipping it does produce the groups —
- * so this stays a decision, not a forgotten line.
+ * The one deliberate permission: an RFC1918 host may use `http:`, so an operator
+ * can test their own box in the LAN. The receipt records `transport:
+ * http_private_network` — the cleartext is evidenced, not overlooked.
  */
-export const BYOK_PICKER_VISIBLE = false;
+export const BYOK_PICKER_VISIBLE = true;
 
 // ---------------------------------------------------------------------------
 // THERE IS NO FREE LANE, SO THERE IS NO FREE LANE MODEL (1.820.1).

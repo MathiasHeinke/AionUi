@@ -423,10 +423,9 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   // resolves credentials, this side gets id/label/model only.
   const [connectedRows, setConnectedRows] = useState<ConnectedProviderRow[]>([]);
   useEffect(() => {
-    // Building it while it cannot be OFFERED is deliberate — the wire is missing,
-    // not the model (see BYOK_PICKER_VISIBLE). Reading nothing until the lane
-    // lands would leave the whole path unexercised, which is how a wire rots
-    // before it is ever used.
+    // The lane exists now (see BYOK_PICKER_VISIBLE), so this list is what the
+    // operator is actually offered. The gate is still read rather than removed:
+    // one constant is what turns the row off again if the lane ever has to.
     if (!isElectronDesktop() || !BYOK_PICKER_VISIBLE) return;
     let cancelled = false;
     void ipcMode.listProviders
@@ -445,8 +444,8 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   }, []);
 
   const connectedProviderGroups = useMemo(
-    // The gate is applied HERE, at the one place the groups reach the picker, so
-    // there is exactly one line to flip when the shim lane lands.
+    // The gate is applied HERE, at the one place the groups reach the picker —
+    // which is what made opening it a one-line change once the lane landed.
     () => (BYOK_PICKER_VISIBLE ? buildConnectedProviderGroups(connectedRows) : []),
     [connectedRows]
   );

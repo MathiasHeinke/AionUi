@@ -260,21 +260,32 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
       // the falsehood; skipping the warmup is only half the fix, naming it is the
       // other half.
       //
-      // It REFUSES rather than sends, because the wire does not exist yet: the
-      // Command EVE shim reaches EVE's metered Edge Function, a strict-loopback
-      // OpenAI server and loopback Ollama, and nothing else (see
-      // BYOK_PICKER_VISIBLE). Nothing offers this selection today, so reaching
-      // here means a persisted or hand-edited value — and the honest answer to
-      // "I cannot route this" is to say so, not to quietly run something else.
+      // It SENDS now. The shim's fourth lane
+      // (`handleConnectedProviderCompletions`) carries the turn to the operator's
+      // own provider, and main resolves the row + key per turn, so nothing has to
+      // be resolved or carried here. What this branch still owes is the one thing
+      // it always owed: not falling into the local warmup.
+      //
+      // The resolver is asked anyway, so an unusable row (deleted, disabled, key
+      // removed, model gone) is refused OUT LOUD here rather than becoming an
+      // opaque failure three layers down.
       const useConnected = !useEveCloud && isConnectedSelection(inferenceSelection);
       if (useConnected) {
-        Message.error(
-          t(
-            'conversation.eveInference.connectedNotRoutable',
-            'Dieser Anbieter ist noch nicht angebunden. Wähle in den Einstellungen eine EVE- oder lokale Stufe.'
-          )
-        );
-        return false;
+        const resolvedConnected = await ipcBridge.commandEve.resolveInferenceProvider
+          .invoke({ selection: inferenceSelection as string })
+          .catch((): undefined => undefined);
+        if (!resolvedConnected?.success) {
+          Message.error(
+            t(
+              'conversation.eveInference.connectedNotRoutable',
+              'Dieser Anbieter ist nicht verfügbar. Prüfe Schlüssel und Modell in den Einstellungen.'
+            )
+          );
+          return false;
+        }
+        commandEveRuntimeModel = resolvedConnected.data?.provider;
+        commandEveRuntimeModelId = commandEveRuntimeModel?.use_model;
+        // Skip local warmup: this turn leaves the machine.
       }
       if (!useEveCloud && !useConnected) {
         const tierId = normalizeCommandEveLocalModelTierId(configService.get('commandEve.localModelTierId'));
