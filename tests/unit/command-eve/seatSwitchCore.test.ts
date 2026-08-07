@@ -347,13 +347,50 @@ describe('K2 applySeatSwitch — kind holder threading (set / restore)', () => {
     expect(getActiveSeatKind()).toBe('own_company');
   });
 
-  it('a legacy/founder target folds the kind holder to the default (client)', async () => {
+  it('REWRITTEN: a legacy/founder target KEEPS its kind — the fold withheld the board from its own owner', async () => {
+    // WHAT THIS USED TO PIN, AND WHY IT WAS RIGHT AT THE TIME: "a legacy/founder
+    // target folds the kind holder to the default (client)", because "the legacy
+    // branch never consults kind". While nothing read the holder on that branch,
+    // folding cost nothing.
+    //
+    // IT STOPPED BEING TRUE. `runtimeBootstrapCore` provisions the kanban-ACP
+    // bearer file with `getActiveSeatKind() === 'client'`, and `kanbanAcpMain`
+    // DELETES that file on a client seat. So the fold quietly classified the
+    // founder's own seat as a customer seat and withheld the Kanban board — and
+    // the team-manage channel on the same thread — from the one seat that owns
+    // them. A default applied to a seat whose kind is actually known is not a
+    // default; it is an override.
+    //
+    // Pinning the old behaviour now would pin the defect, so the assertion is
+    // inverted rather than deleted.
     const h = makeHarness();
     await applySeatSwitch(SEAT_A, h.deps, 'FYN Labs', 'own_company');
     expect(getActiveSeatKind()).toBe('own_company');
-    // Switching home resets kind (legacy never consults kind, folds to default).
     await applySeatSwitch(LEGACY_SEAT_ID, h.deps, 'Founder', 'own_company');
+    expect(getActiveSeatKind()).toBe('own_company');
+  });
+
+  it('WEG A IS NARROW: a real client seat is still client, legacy id or not', async () => {
+    // The founder chose the narrow path deliberately: only the founder/legacy
+    // fold falls. Nothing here widens what a customer seat may reach — a seat
+    // that threads 'client' lands on 'client', and so does one that threads
+    // nothing (setActiveSeatKind default-denies anything it does not recognise).
+    const h = makeHarness();
+    await applySeatSwitch(SEAT_A, h.deps, 'Klinik Salem', 'client');
     expect(getActiveSeatKind()).toBe('client');
+    await applySeatSwitch(LEGACY_SEAT_ID, h.deps, 'Founder', 'client');
+    expect(getActiveSeatKind()).toBe('client');
+  });
+
+  it('the in-place re-select path carries the same truth as the structural one', async () => {
+    // :204 folded exactly like :295 did. Both had to move, or a re-select would
+    // have silently undone what a switch just got right.
+    const h = makeHarness();
+    await applySeatSwitch(LEGACY_SEAT_ID, h.deps, 'Founder', 'own_company');
+    expect(getActiveSeatKind()).toBe('own_company');
+    // Re-selecting the seat that is already active takes the in-place branch.
+    await applySeatSwitch(LEGACY_SEAT_ID, h.deps, 'Founder', 'own_company');
+    expect(getActiveSeatKind()).toBe('own_company');
   });
 
   it('a failed re-spawn ROLLS BACK the kind holder to the prior seat kind', async () => {

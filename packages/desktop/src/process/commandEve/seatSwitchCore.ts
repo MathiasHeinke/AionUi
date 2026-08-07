@@ -63,7 +63,6 @@
  */
 
 import {
-  DEFAULT_SEAT_KIND,
   DEFAULT_SEAT_LABEL,
   LEGACY_SEAT_ID,
   assertSeatId,
@@ -198,10 +197,23 @@ export async function applySeatSwitch(
     }
     // K2: refresh the kind holder alongside the label on the in-place re-select
     // (a seat re-classified server-side then re-selected picks up the new kind).
-    // A legacy/founder target folds to the DEFAULT ('client') — the legacy branch
-    // never consults kind. Only touched when a kind was actually threaded.
+    // Only touched when a kind was actually threaded.
+    //
+    // THE LEGACY FOLD IS GONE (1.821.0). This used to read
+    // `isLegacySeatId(targetSeatId) ? DEFAULT_SEAT_KIND : targetKind`, on the
+    // reasoning that "the legacy branch never consults kind". That stopped being
+    // true: `runtimeBootstrapCore` provisions the kanban-ACP bearer file with
+    // `getActiveSeatKind() === 'client'`, and `kanbanAcpMain` DELETES that file on
+    // a client seat — so folding the founder's own seat onto the client default
+    // silently withheld the board from the one seat that owns it. A default that
+    // is applied to a seat whose kind is actually known is not a default, it is an
+    // override.
+    //
+    // Client seats are untouched: they thread 'client' (or nothing, which
+    // `setActiveSeatKind` default-denies to 'client' anyway) and land where they
+    // always did.
     if (targetKind !== undefined) {
-      setActiveSeatKind(isLegacySeatId(targetSeatId) ? DEFAULT_SEAT_KIND : targetKind);
+      setActiveSeatKind(targetKind);
     }
     let persistFailed = false;
     if (deps.persistActiveSeat) {
@@ -290,9 +302,15 @@ export async function applySeatSwitch(
     setActiveSeatLabel(isLegacySeatId(targetSeatId) ? DEFAULT_SEAT_LABEL : targetLabel);
     // K2: set the kind at the SAME set-point (after the label), from the wire
     // record the caller threaded, so the prepareEnv bake + the tier stamp below
-    // carry the NEW kind. A legacy/founder target folds to DEFAULT ('client');
-    // the legacy branch never consults kind. Pure: no network.
-    setActiveSeatKind(isLegacySeatId(targetSeatId) ? DEFAULT_SEAT_KIND : targetKind);
+    // carry the NEW kind. Pure: no network.
+    //
+    // NO LEGACY FOLD (1.821.0) — same reason as the in-place path above: the
+    // founder/legacy seat's kind is now whatever the wire record says it is, and
+    // the kanban/team-manage bearer provisioning reads that holder. Note this is
+    // the SWITCH set-point only; a plain boot never calls it (there is no
+    // boot-restore of a saved seat), so the process still starts on the module
+    // default — see seatContextCore.ts:394.
+    setActiveSeatKind(targetKind);
     // PERSIST THE POINTER THE MOMENT THE SEAT LANDS, not only at step (f).
     //
     // Step (f) runs at the very END of a fully successful switch, so a switch that

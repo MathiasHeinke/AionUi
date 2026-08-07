@@ -2845,8 +2845,18 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
         status: 404,
         payload: { error: { message: 'team_manage is not available on this seat.' } },
       })),
-    // COMPA-626: default kanban-ACP is UNPROVISIONED — empty bearer + inert propose/read,
-    // so the routes are 404 until main injects them on an operator seat.
+    // COMPA-626: default kanban-ACP is UNPROVISIONED — empty bearer + inert
+    // propose/read, so the routes are 404 until main injects them.
+    //
+    // "ON AN OPERATOR SEAT" WAS THE MISLEADING HALF (corrected 1.821.0). Main
+    // injects these unconditionally at every shim start site; what actually
+    // decided whether they answered was the BEARER FILE, and that file is deleted
+    // on a seat whose kind reads 'client' (kanbanAcpMain.ts:86). Until now the
+    // founder's own seat folded to 'client' on every switch
+    // (seatSwitchCore.ts:204/:295), so the routes were dark on the one seat that
+    // owns the board — and the comment pointed the reader at an injection that
+    // was never missing. The fold is gone; the defaults below stay, because an
+    // un-wired shim must still answer 404 rather than guess.
     kanbanAcpBearer: shimOptions.kanbanAcpBearer || ((): string => ''),
     kanbanAcpPropose:
       shimOptions.kanbanAcpPropose ||
