@@ -98,6 +98,8 @@ import { readCommandEveCloudVisualPolicy } from './process/commandEve/visual/clo
 import { type EveRememberedCommand } from '@/common/config/eveRememberedCommandsCore';
 import { rememberedCommandsFromSettings } from '@/common/config/eveAuthorityStoreCore';
 import { createTeamWorkerStatusResolver } from './process/commandEve/teamWorkerStatusResolverCore';
+import childProcess from 'node:child_process';
+import { startCuratorTickTimer } from './process/commandEve/curatorTickCore';
 import { EVE_AUTHORITY_FAIL_CLOSED, readEveAuthorityGrant } from './common/config/eveAuthorityCore';
 import { parseConnectedSelection, repairInferenceSelection } from './common/config/eveInferenceCore';
 import { resolveConnectedProviderRoute } from './common/config/eveConnectedProviderCore';
@@ -838,6 +840,42 @@ function buildCommandEveShimActiveSeatIdResolver(): () => string {
  * lanes it always took. It does NOT mean "run it somewhere else" — that decision
  * belongs to the send path, which refuses out loud.
  */
+/**
+ * CURATOR TICK (CEVE-1821) — the trigger the desktop chat lane never had.
+ *
+ * `curator: enabled: true` is emitted into the Hermes config, but on this lane
+ * `maybe_run_curator` has no caller at all: in the bundled 0.20.0 wheel it is
+ * invoked only from `cli.py:15052` and `gateway/run.py:25952`, and `acp_adapter/`
+ * never mentions the curator. So the capability was declared and dead.
+ *
+ * Spawned detached, best-effort, after the runtime reports ready — the tick may
+ * never delay or break a start. `curatorTickCore` explains why it runs
+ * `curator run` rather than `maybe_run_curator`, and why it costs nothing.
+ */
+function startCommandEveCuratorTick(paths: {
+  hermesVenv: string;
+  hermesHome: string;
+  platform: NodeJS.Platform;
+}): void {
+  try {
+    startCuratorTickTimer(paths, {
+      spawnDetached: (command, args, options) => {
+        const child = childProcess.spawn(command, [...args], {
+          env: { ...process.env, ...options.env },
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
+      },
+      binaryExists: (file) => fs.existsSync(file),
+      log: (message, error) => console.debug(message, error),
+    });
+  } catch (error) {
+    // A tick that cannot even be scheduled is a debug line, never a boot failure.
+    console.debug('[Command EVE] curator tick not scheduled', error);
+  }
+}
+
 function buildCommandEveShimConnectedProviderResolver(): () => Promise<CommandEveConnectedProviderRoute> {
   return async () => {
     try {
@@ -1991,6 +2029,7 @@ const handleAppReady = async (): Promise<void> => {
       const receipt = await ensureCommandEveRuntimeBootstrap(bootstrapOptions);
       mark(`commandEveRuntimeBootstrap (${receipt.status})`);
       scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark);
+      startCommandEveCuratorTick(runtimePaths);
     } else {
       const hermesReadyBeforeBootstrap = fs.existsSync(runtimePaths.hermesShim);
       runDeferredCommandEveRuntimeBootstrap = () => {
@@ -2013,6 +2052,9 @@ const handleAppReady = async (): Promise<void> => {
                 mark('commandEveBackendRestartAfterRuntimeBootstrap');
               }
               scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark);
+              // Same call as the awaited branch above; the starter is idempotent
+              // so whichever branch this install takes, exactly one timer runs.
+              startCommandEveCuratorTick(runtimePaths);
             })
             .catch((error) => {
               console.error('[Command EVE] Runtime bootstrap failed:', error);
