@@ -50,8 +50,7 @@ const contrast = (a: Rgb, b: Rgb): number => {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 };
-const hex = ([r, g, b]: Rgb): string =>
-  `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+const hex = ([r, g, b]: Rgb): string => `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
 /**
  * Shipped theme inputs — read from command-eve-visual.css / default-color-
@@ -69,6 +68,14 @@ const THEME = {
     hover: { base: '#111827', share: 0.05 }, // --eve-row-hover-bg
     // --eve-max-accent light = mix(accent 70%, shell-text); shipped accent #2563eb
     accent: mix(parse('#2563eb'), parse('#111827'), 0.7),
+    // The COMPOSER stack the pills sit on: the reading glass over the app
+    // background, then the composer glass over that. Both layers are surface
+    // colour, which is why the pill lane is MORE surface-dominated than the
+    // portaled menu, not less.
+    shellBg: '#f7f8fb',
+    readingShare: 0.7061,
+    composerShare: 0.5429,
+    rowSelected: { base: '#111827', share: 0.06 }, // --eve-row-selected-bg
   },
   dark: {
     surface: '#171a1e',
@@ -80,8 +87,34 @@ const THEME = {
     hover: { base: '#ffffff', share: 0.05 },
     // --eve-max-accent dark = mix(accent 44%, static-white)
     accent: mix(parse('#2563eb'), parse('#ffffff'), 0.44),
+    shellBg: '#101214',
+    readingShare: 0.7224,
+    composerShare: 0.5755,
+    rowSelected: { base: '#ffffff', share: 0.07 },
   },
 } as const;
+
+/**
+ * The selection tint SHARES are read out of the shipped stylesheet, never
+ * retyped here: a value nudged in billing.css must move this table with it.
+ */
+const billingCss = fs.readFileSync(
+  path.resolve(process.cwd(), 'packages/desktop/src/renderer/components/billing/billing.css'),
+  'utf8'
+);
+function tintShare(selector: string): number {
+  const rule = billingCss.slice(billingCss.indexOf(`${selector} {`));
+  const match = rule
+    .slice(0, rule.indexOf('}'))
+    .match(/background:\s*color-mix\(in srgb, var\(--eve-max-accent\)\s*(\d+)%, transparent\)/);
+  expect(match, `${selector} carries no accent tint to measure`).not.toBeNull();
+  return Number((match as RegExpMatchArray)[1]) / 100;
+}
+const TINT = {
+  pill: tintShare('.video-quality-pill__option.is-selected'),
+  pillMax: tintShare('.image-model-pill__option--max.is-selected'),
+  entry: tintShare('.video-quality-pill__model-entry.is-selected'),
+};
 
 const BACKDROPS: Record<string, string> = { shell: '', midGrey: '#808080' };
 
@@ -172,6 +205,110 @@ describe('resolved dropdown colours — readable in BOTH themes over BOTH backdr
   });
 });
 
+/**
+ * RING-FREE SELECTION, MEASURED (founder, 1.821.0). The menus stopped marking
+ * selection with an enclosing border and mark it with a tinted surface plus
+ * accent text instead. Two things must therefore hold that a border never had
+ * to answer for: the accent text must stay legible ON its own tint, and the
+ * tint must be a visible step away from the unselected surface — on both
+ * themes, over both backdrops. This is the suite that decides whether the tint
+ * value was chosen or guessed.
+ */
+describe('the tinted selection is legible AND unmistakable', () => {
+  const composerStack = (theme: 'light' | 'dark', backdropName: string): Rgb => {
+    const t = THEME[theme];
+    const backdrop = parse(BACKDROPS[backdropName] || t.surface);
+    const reading = over(parse(t.shellBg), t.readingShare, backdrop);
+    return over(parse(t.surface), t.composerShare, reading);
+  };
+
+  const cases = (['light', 'dark'] as const).flatMap((theme) =>
+    Object.keys(BACKDROPS).map((backdrop) => {
+      const t = THEME[theme];
+      const composerBg = composerStack(theme, backdrop);
+      const listBg = over(parse(t.surface), t.overlayShare, parse(BACKDROPS[backdrop] || t.surface));
+      return {
+        name: `${theme}/${backdrop}`,
+        accent: t.accent as Rgb,
+        composerBg,
+        listBg,
+        pill: over(t.accent as Rgb, TINT.pill, composerBg),
+        pillMax: over(t.accent as Rgb, TINT.pillMax, composerBg),
+        entry: over(t.accent as Rgb, TINT.entry, listBg),
+        // What the SHIPPED EVE row selection measures under the same model —
+        // the yardstick the pill tint has to stand next to.
+        rowRef: over(parse(t.rowSelected.base), t.rowSelected.share, composerBg),
+      };
+    })
+  );
+
+  it('prints the tint acceptance table (surface step vs. the shipped .eve-row step)', () => {
+    for (const c of cases) {
+      console.info(
+        `[${c.name}] pill=${hex(c.pill)} step=${contrast(c.pill, c.composerBg).toFixed(3)} ` +
+          `max=${hex(c.pillMax)} step=${contrast(c.pillMax, c.composerBg).toFixed(3)} ` +
+          `| .eve-row--selected step=${contrast(c.rowRef, c.composerBg).toFixed(3)} ` +
+          `| accent on pill=${contrast(c.accent, c.pill).toFixed(2)}:1 ` +
+          `on entry=${contrast(c.accent, c.entry).toFixed(2)}:1`
+      );
+    }
+    expect(cases).toHaveLength(4);
+  });
+
+  it.each(cases.map((c) => [c.name, c] as const))(
+    '%s: the accent label stays AA ON its own tint — the fill must not eat the text',
+    (_name, c) => {
+      // A tint under same-hue text costs contrast; that cost is the price of
+      // losing the ring and it has to stay inside AA, not merely "look fine".
+      expect(contrast(c.accent, c.pill), 'selected pill label below AA').toBeGreaterThanOrEqual(4.5);
+      expect(contrast(c.accent, c.pillMax), 'selected MAX pill label below AA').toBeGreaterThanOrEqual(4.5);
+      expect(contrast(c.accent, c.entry), 'selected dropdown row label below AA').toBeGreaterThanOrEqual(4.5);
+    }
+  );
+
+  it.each(cases.map((c) => [c.name, c] as const))(
+    '%s: the tint is a VISIBLE step, and the MAX tier stays the quieter one',
+    (_name, c) => {
+      // Floor, not a fit: the shipped .eve-row selection step measures ~1.13
+      // (light) to ~1.22 (dark) under this model, an untinted surface measures
+      // exactly 1.000. 1.10 sits well clear of "no tint at all" and below the
+      // established step, so it cannot be satisfied by a tint nobody can see.
+      expect(contrast(c.pill, c.composerBg), 'the selection fill is invisible here').toBeGreaterThanOrEqual(1.1);
+      expect(contrast(c.pillMax, c.composerBg), 'the MAX selection fill is invisible here').toBeGreaterThanOrEqual(
+        1.06
+      );
+      expect(contrast(c.entry, c.listBg), 'the selected row fill is invisible here').toBeGreaterThanOrEqual(1.06);
+      // The gradation the border strengths used to carry (55% vs 40%) must
+      // survive as fill strength, in the same direction.
+      expect(
+        contrast(c.pillMax, c.composerBg),
+        'the MAX tier is no longer quieter than the standard tier'
+      ).toBeLessThan(contrast(c.pill, c.composerBg));
+    }
+  );
+
+  it('the composer/row inputs above match the shipped stylesheet (no invented numbers)', () => {
+    const visual = fs.readFileSync(
+      path.resolve(process.cwd(), 'packages/desktop/src/renderer/styles/themes/command-eve-visual.css'),
+      'utf8'
+    );
+    for (const needle of [
+      '--eve-shell-bg: #f7f8fb',
+      '--eve-shell-bg: #101214',
+      '--eve-glass-reading-opacity: 70.61%',
+      '--eve-glass-reading-opacity: 72.24%',
+      '--eve-glass-composer-opacity: 54.29%',
+      '--eve-glass-composer-opacity: 57.55%',
+      '--eve-row-selected-bg: color-mix(in srgb, var(--eve-shell-text) 6%, transparent)',
+      '--eve-row-selected-bg: color-mix(in srgb, #ffffff 7%, transparent)',
+      '--glass-reading-bg: color-mix(in srgb, var(--eve-shell-bg) var(--eve-glass-reading-opacity), transparent)',
+      '--glass-composer-bg: color-mix(in srgb, var(--eve-shell-surface) var(--eve-glass-composer-opacity), transparent)',
+    ]) {
+      expect(visual.includes(needle), `theme drifted from the modelled input: ${needle}`).toBe(true);
+    }
+  });
+});
+
 describe('image/video parity — identical class literals against one declaration site', () => {
   const classesOf = (relative: string): string[] => {
     const source = fs.readFileSync(path.resolve(process.cwd(), relative), 'utf8');
@@ -190,7 +327,11 @@ describe('image/video parity — identical class literals against one declaratio
       expect(image, `image pill lost ${cls}`).toContain(cls);
       expect(video, `video pill lost ${cls}`).toContain(cls);
     }
-    for (const cls of ['video-quality-pill__model-list', 'video-quality-pill__model-trigger', 'video-quality-pill__chevron']) {
+    for (const cls of [
+      'video-quality-pill__model-list',
+      'video-quality-pill__model-trigger',
+      'video-quality-pill__chevron',
+    ]) {
       expect(shared, `shared dropdown lost ${cls}`).toContain(cls);
     }
     // CONTENT deltas are legitimate (the video menu carries a note line the
@@ -207,7 +348,10 @@ describe('image/video parity — identical class literals against one declaratio
       ...modelClasses(video).filter((c) => !modelClasses(image).includes(c) && !shared.includes(c)),
     ];
     for (const cls of laneOnly) {
-      expect(billingCss.includes(`.${cls}`), `${cls} is lane-only AND not declared in the shared stylesheet — that is a style fork`).toBe(true);
+      expect(
+        billingCss.includes(`.${cls}`),
+        `${cls} is lane-only AND not declared in the shared stylesheet — that is a style fork`
+      ).toBe(true);
     }
   });
 });

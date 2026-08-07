@@ -64,11 +64,11 @@ describe('dropdown rules CONSUME the EVE glass tokens (not merely coexist with t
     ],
     ['.video-quality-pill__section-label', ['var(--eve-shell-text-secondary)']],
     ['.video-quality-pill__divider', ['var(--glass-overlay-border)']],
-    ['.video-quality-pill__model-trigger', ['var(--eve-composer-border)']],
-    [
-      '.video-quality-pill__model-entry:hover:not(:disabled)',
-      ['var(--glass-overlay-border)', 'var(--eve-row-hover-bg)'],
-    ],
+    // The trigger and the hovered row are SURFACES now, not framed boxes
+    // (founder, 1.821.0) — so what they must consume is the row tint.
+    ['.video-quality-pill__model-trigger', ['var(--eve-row-hover-bg)']],
+    ['.video-quality-pill__model-trigger:hover', ['var(--eve-row-selected-bg)']],
+    ['.video-quality-pill__model-entry:hover:not(:disabled)', ['var(--eve-row-hover-bg)']],
     ['.video-quality-pill__model-entry:focus-visible', ['var(--eve-focus-ring)']],
     [
       '.video-quality-pill__chip',
@@ -119,10 +119,10 @@ describe('the LEGACY FALLBACK radios speak EVE too — they render exactly when 
   // selectedSpec is available) kept the foreign vocabulary — a bright
   // #2563eb/#e5e7eb moment at precisely the time something is already wrong.
   const RADIO_CONSUMPTION: Array<[string, string[]]> = [
-    ['.video-quality-pill__option:hover', ['var(--eve-composer-border)']],
+    ['.video-quality-pill__option:hover', ['var(--eve-row-hover-bg)']],
     ['.video-quality-pill__option:focus-visible', ['var(--eve-focus-ring)']],
     ['.video-quality-pill__option.is-selected', ['var(--eve-max-accent)']],
-    ['.image-model-pill__option:hover', ['var(--eve-composer-border)']],
+    ['.image-model-pill__option:hover', ['var(--eve-row-hover-bg)']],
     ['.image-model-pill__option:focus-visible', ['var(--eve-focus-ring)']],
     ['.image-model-pill__option.is-selected', ['var(--eve-max-accent)']],
   ];
@@ -139,14 +139,16 @@ describe('the LEGACY FALLBACK radios speak EVE too — they render exactly when 
 
   it('focus stays an OUTLINE, visually distinct from is-selected (the priced-control argument)', () => {
     // The comment above these rules is load-bearing: focused is not chosen, an
-    // outline cannot be confused with the selected border treatment and does
+    // outline cannot be confused with the selected SURFACE treatment and does
     // not participate in layout. Both families keep that shape.
     for (const family of ['.video-quality-pill__option', '.image-model-pill__option']) {
       const focus = ruleBody(`${family}:focus-visible`);
       expect(focus).toMatch(/outline:\s*2px solid var\(--eve-focus-ring\)/);
-      expect(focus, 'focus must not restyle the border — that is the selected treatment').not.toMatch(/border-color:/);
+      expect(focus, 'focus must not paint a surface — that is the selected treatment').not.toMatch(/background/);
       const selected = ruleBody(`${family}.is-selected`);
-      expect(selected).toMatch(/border-color:/);
+      expect(selected, 'selected is a tinted surface, not a ring').toMatch(
+        /background:\s*color-mix\(in srgb, var\(--eve-max-accent\)/
+      );
       expect(selected, 'selected must not claim the outline — that is the focus treatment').not.toMatch(/outline:/);
     }
   });
@@ -156,6 +158,136 @@ describe('the LEGACY FALLBACK radios speak EVE too — they render exactly when 
     // more. The token is always declared — a #2563eb fallback is dead weight
     // that doubles as foreign vocabulary.
     expect(css.includes('var(--eve-max-accent, var(--color-primary-6')).toBe(false);
+  });
+});
+
+describe('SELECTION IS A SURFACE, NEVER A RING (founder, 1.821.0)', () => {
+  // "das umrahmen, das wirkt altbacken, und eigentlich haben wir solche rahmen
+  //  auch nirgendsmehr bei uns in command eve" — and he is right: the shipped
+  // EVE selection idiom is a tinted surface plus a left inset hairline, never
+  // an enclosing outline. These assertions encode THAT contract; they are not
+  // satisfiable by re-tinting a border back into existence.
+
+  /** Every interactive state of the two media menus. */
+  const STATE_RULES = [
+    '.video-quality-pill__option:hover',
+    '.video-quality-pill__option.is-selected',
+    '.video-quality-pill__model-trigger',
+    '.video-quality-pill__model-trigger:hover',
+    ".video-quality-pill__model-trigger[aria-expanded='true']",
+    '.video-quality-pill__model-trigger.is-active',
+    '.video-quality-pill__model-entry:hover:not(:disabled)',
+    '.video-quality-pill__model-entry.is-selected',
+    '.image-model-pill__option:hover',
+    '.image-model-pill__option.is-selected',
+    '.image-model-pill__option--max.is-selected',
+  ];
+
+  it.each(STATE_RULES)('%s paints no border-colour at all', (selector) => {
+    expect(ruleBody(selector), `${selector} draws a frame again — that is the look the founder rejected`).not.toMatch(
+      /border-color:/
+    );
+  });
+
+  it('the whole stylesheet is free of border-colour state painting', () => {
+    // A blunt second lock: a new state rule elsewhere in the file cannot
+    // reintroduce the idiom without this test going red first.
+    expect(css).not.toMatch(/border-color:/);
+  });
+
+  it('the ONE surviving edge is the floating overlay against the backdrop, not a selection', () => {
+    // This is the same hairline every other EVE overlay uses; it separates the
+    // portaled menu from whatever is behind it and was never a selection mark.
+    expect(ruleBody('.video-quality-pill__model-list')).toMatch(/border:\s*1px solid var\(--glass-overlay-border\)/);
+  });
+
+  it('the transparent 1px reserve stays, so removing the ring shifts no layout', () => {
+    for (const base of [
+      '.video-quality-pill__option',
+      '.video-quality-pill__model-entry',
+      '.image-model-pill__option',
+    ]) {
+      expect(ruleBody(base), `${base} lost its layout reserve — pills will jump on select`).toMatch(
+        /border:\s*1px solid transparent/
+      );
+    }
+  });
+
+  it('selection = accent text + accent tint, on every selectable surface', () => {
+    for (const selector of [
+      '.video-quality-pill__option.is-selected',
+      '.image-model-pill__option.is-selected',
+      '.image-model-pill__option--max.is-selected',
+      '.video-quality-pill__model-entry.is-selected',
+    ]) {
+      const body = ruleBody(selector);
+      expect(body, `${selector} lost the accent text`).toContain('color: var(--eve-max-accent)');
+      expect(body, `${selector} lost the tinted surface`).toMatch(
+        /background:\s*color-mix\(in srgb, var\(--eve-max-accent\)\s*\d+%, transparent\)/
+      );
+    }
+  });
+
+  it('the dropdown row speaks the .eve-row--selected shape verbatim (tint + LEFT inset hairline)', () => {
+    expect(ruleBody('.video-quality-pill__model-entry.is-selected')).toMatch(
+      /box-shadow:\s*inset 2px 0 0 var\(--eve-max-accent\)/
+    );
+    // Evidence anchor: the idiom being copied is the shipped one, by SYMBOL.
+    const visual = read('packages/desktop/src/renderer/styles/themes/command-eve-visual.css');
+    expect(visual, 'the .eve-row selection idiom moved — re-anchor this claim').toContain(
+      'box-shadow: inset 2px 0 0 var(--eve-row-selected-hairline)'
+    );
+  });
+
+  it('the premium tier stays the QUIETER of the two — the gradation survived the ring removal', () => {
+    const share = (selector: string): number => {
+      const match = ruleBody(selector).match(
+        /background:\s*color-mix\(in srgb, var\(--eve-max-accent\)\s*(\d+)%, transparent\)/
+      );
+      expect(match, `${selector} has no accent tint to weigh`).not.toBeNull();
+      return Number((match as RegExpMatchArray)[1]);
+    };
+    const standard = share('.image-model-pill__option.is-selected');
+    const max = share('.image-model-pill__option--max.is-selected');
+    expect(max, 'the MAX tier is no longer the quieter treatment').toBeLessThan(standard);
+    expect(max, 'the quieter tier fell below the established row-selected step (light 6%)').toBeGreaterThanOrEqual(6);
+  });
+
+  it('the trigger ladder is pinned in the order that MAKES it a ladder', () => {
+    // `.is-active`, `:hover` and `[aria-expanded]` all weigh the same, so their
+    // source order is not a formatting detail — it is the behaviour. Reorder
+    // them and a pinned trigger stops answering the pointer, or opening the
+    // menu starts looking quieter than not opening it.
+    const rungs = [
+      '.video-quality-pill__model-trigger {',
+      '.video-quality-pill__model-trigger.is-active {',
+      '.video-quality-pill__model-trigger:hover {',
+      ".video-quality-pill__model-trigger[aria-expanded='true'] {",
+    ].map((rung) => {
+      const at = css.indexOf(rung);
+      expect(at, `trigger rung missing: ${rung}`).toBeGreaterThan(-1);
+      return at;
+    });
+    for (let i = 1; i < rungs.length; i += 1) {
+      expect(rungs[i], 'the trigger state ladder is out of order').toBeGreaterThan(rungs[i - 1]);
+    }
+  });
+
+  it('every rung of the trigger ladder is a distinct surface — no dead state', () => {
+    const surface = (selector: string): string => {
+      const match = ruleBody(selector).match(/background:\s*([^;]+);/);
+      expect(match, `${selector} paints no surface at all`).not.toBeNull();
+      return (match as RegExpMatchArray)[1].trim();
+    };
+    const painted = [
+      surface('.video-quality-pill__model-trigger'),
+      surface('.video-quality-pill__model-trigger.is-active'),
+      surface('.video-quality-pill__model-trigger:hover'),
+      surface(".video-quality-pill__model-trigger[aria-expanded='true']"),
+    ];
+    expect(new Set(painted).size, `two trigger states paint the same surface: ${painted.join(' | ')}`).toBe(
+      painted.length
+    );
   });
 });
 
