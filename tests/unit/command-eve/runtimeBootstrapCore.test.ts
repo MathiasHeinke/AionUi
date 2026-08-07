@@ -1321,9 +1321,17 @@ describe('Command EVE runtime bootstrap core', () => {
         permissionAuthorityHarness.status,
         permissionAuthorityHarness.stderr || permissionAuthorityHarness.stdout
       ).toBe(0);
+      // CEVE-1821 — the harness now proves BOTH halves against the real emitted
+      // patch: unreachable authority still fails closed to "ask", the ACP mode no
+      // longer decides (state.mode is dont_ask throughout), and the policy follows
+      // the grant once the authority answers. The session-wide bypass stays
+      // disabled for every mode.
       expect(JSON.parse(permissionAuthorityHarness.stdout)).toEqual({
-        edit_policy: 'ask',
+        edit_policy_when_unreachable: 'ask',
+        edit_policy_follows_grant: true,
+        mode_channel_dead: true,
         terminal_yolo_disabled: ['session-auto'],
+        session_cwd_recorded: true,
         idempotent_install: true,
       });
       // ACP session-restore endpoint contract: a base_url frozen at session

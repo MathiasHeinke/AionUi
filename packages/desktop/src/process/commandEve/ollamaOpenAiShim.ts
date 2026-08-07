@@ -24,6 +24,12 @@ import {
 } from './paidOperationRegistryCore';
 import { isLegacySeatId, sanitizeSeatId } from './seatContextCore';
 import { isCommandEveShimPublicError } from './shimPublicError';
+import { EVE_AUTHORITY_FAIL_CLOSED } from '../../common/config/eveAuthorityCore';
+import {
+  decideCommandApproval,
+  renderEveAuthorityRuntime,
+  type EveAuthorityRuntime,
+} from '../../common/config/eveAuthorityRuntimeCore';
 import { evaluateWorkerDispatch, type EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
 import { EVE_INFERENCE_SERVER_ALLOWED_WIRE_TIERS } from '../../common/config/eveInferenceCore';
 import { scrubModelIdentifiers } from '../../common/config/modelIdentifierScrub';
@@ -268,6 +274,8 @@ export type CommandEveTeamManageProposeHandler = (proposal: unknown) => Promise<
  * NO write path, no intent, no mutation hash — so exposing read can never grant write.
  */
 export type CommandEveKanbanAcpReadResolver = () => unknown;
+/** CEVE-1821 — the seat's live approval authority, rendered from the stored grant. */
+export type CommandEveApprovalResolver = () => EveAuthorityRuntime | Promise<EveAuthorityRuntime>;
 
 /**
  * COMPA-624 — the Honcho DERIVER cloud lane route resolver. The local Honcho
@@ -401,6 +409,20 @@ export type CommandEveOllamaShimOptions = {
   kanbanAcpBearer?: CommandEveTeamManageBearerResolver;
   kanbanAcpPropose?: CommandEveTeamManageProposeHandler;
   kanbanAcpRead?: CommandEveKanbanAcpReadResolver;
+  /**
+   * CEVE-1821 — the seat's LIVE approval authority, for `GET
+   * /v1/command-eve/approval`.
+   *
+   * The Hermes-side approval patch cannot read Electron settings and must not
+   * carry a second copy of the ladder, so it asks here and obeys the answer.
+   * Routing the question through the loopback shim (rather than baking the
+   * grant into a file at provisioning) is what makes a ladder change take
+   * effect on the next approval instead of the next boot.
+   *
+   * Omitted ⇒ the fail-closed grant, i.e. every answer is `ask`. A shim that
+   * main has not wired must never be more permissive than one it has.
+   */
+  commandEveApproval?: CommandEveApprovalResolver;
   /**
    * Optional Honcho deriver cloud-lane route resolver (COMPA-624). Provides the
    * eve-inference URL + license for the picker-independent `POST /honcho/deriver`
@@ -2358,6 +2380,37 @@ async function handleKanbanAcpPropose(
  * inert on a client seat / when unprovisioned). Returns the READ-ONLY board digest. There
  * is NO mutation handler on this path — reading the board can never grant a write.
  */
+/**
+ * Answer ONE approval question, by calling the same `decideAuthority` machinery
+ * the settings panel writes for. No policy lives here; this is a transport.
+ *
+ * Fail-closed on every unclear input: a missing command, an unreadable grant or
+ * a thrown resolver all answer `ask`. The caller (the Hermes patch) also treats
+ * any non-200 as `ask`, so there are two independent ways to end up asking and
+ * none to accidentally end up allowing.
+ */
+async function handleApprovalDecision(
+  requestUrl: URL,
+  response: ServerResponse,
+  options: Required<CommandEveOllamaShimOptions>
+): Promise<void> {
+  const command = requestUrl.searchParams.get('command') ?? '';
+  // Absent/anything-but-0 means "inside" is NOT established ⇒ treated as outside,
+  // which is the stricter reading.
+  const insideWorkspace = requestUrl.searchParams.get('inside') === '1';
+  try {
+    const runtime = await options.commandEveApproval();
+    const decision = decideCommandApproval({ command, insideWorkspace }, runtime);
+    jsonResponse(response, 200, {
+      decision,
+      edit_policy: runtime.edit_policy,
+      ladder: runtime.ladder,
+    });
+  } catch {
+    jsonResponse(response, 200, { decision: 'ask', edit_policy: 'ask', ladder: 0 });
+  }
+}
+
 async function handleKanbanAcpRead(
   request: IncomingMessage,
   response: ServerResponse,
@@ -2539,6 +2592,11 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
         payload: { error: { message: 'kanban_manage is not available on this seat.' } },
       })),
     kanbanAcpRead: shimOptions.kanbanAcpRead || ((): unknown => ({ ok: false, reason: 'not-available' })),
+    // Fail-CLOSED default: the fail-closed grant answers every question with
+    // "ask", so an un-wired shim asks about everything.
+    commandEveApproval:
+      shimOptions.commandEveApproval ||
+      ((): EveAuthorityRuntime => renderEveAuthorityRuntime(EVE_AUTHORITY_FAIL_CLOSED)),
     // COMPA-624: default is an INERT deriver lane (503) until main injects the
     // METERED cloud route on a seat where Honcho is provisioned — purely additive.
     honchoDeriverRoute: shimOptions.honchoDeriverRoute || ((): CommandEveHonchoDeriverRoute => ({ active: false })),
@@ -2569,6 +2627,14 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
       if (request.method === 'GET' && requestPath === '/v1/command-eve/context-policy') {
         if (!requireShimAuth(request, response, options.authToken)) return;
         await handleContextPolicy(requestUrl, response, options);
+        return;
+      }
+      // CEVE-1821 — the approval question. Authenticated like every other
+      // /v1/command-eve/* route, so an unauthenticated caller cannot ask the
+      // product what it is allowed to do, let alone be told "allow".
+      if (request.method === 'GET' && requestPath === '/v1/command-eve/approval') {
+        if (!requireShimAuth(request, response, options.authToken)) return;
+        await handleApprovalDecision(requestUrl, response, options);
         return;
       }
       if (request.method === 'POST' && requestPath === '/v1/chat/completions') {

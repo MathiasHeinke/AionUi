@@ -194,35 +194,56 @@ export function withoutRememberedCommand(grant: EveAuthorityGrant, command: stri
 }
 
 /**
- * The rungs 1.820 actually ENFORCES, and the backend mode each becomes.
+ * The ACP mode a rung ALSO writes, where the wheel happens to have one.
  *
- * AionCore decides against three modes — `default`, `accept_edits`, `dont_ask`
- * (COMMAND_EVE_BACKEND_MODE_ORDER) — so exactly three rungs can be honoured
- * today. Rungs 0, 4 and 5 exist in the model and are tested, but nothing
- * classifies "reversible outside the workspace" versus "irreversible" yet, so
- * offering them would be a switch that does nothing.
+ * This is a compatibility mirror, not the enforcement. Until 1.821.0 it was
+ * both, and that is why only three rungs existed in the UI: the wheel decides
+ * against three modes (`default`, `accept_edits`, `dont_ask`), so rungs 0, 4
+ * and 5 had nowhere to go and were hidden rather than shipped inert.
  *
- * That is the whole reason this map exists instead of a comment: the panel
- * renders what is in here, so a rung cannot reach the UI before something
- * enforces it.
+ * The enforcement now lives where all six rungs mean something — the approval
+ * patch asks `decideAuthority` through the loopback shim on every decision
+ * (eveAuthorityRuntimeCore, runtimeBootstrapCore's approval-class patch). A rung
+ * with no mode here is therefore NOT an unenforced rung; it is a rung the wheel
+ * has no word for.
+ *
+ * `dont_ask` is mapped for rung 3 for legacy readers only. It never reaches the
+ * wheel's session-wide bypass: the shim replaces `_sync_terminal_approval_mode`
+ * with one that disables that bypass for every mode, and grants rung 3 its
+ * commands one operation at a time instead.
  */
 const LADDER_TO_BACKEND_MODE: Partial<Record<EveLadderRung, string>> = {
+  0: 'default',
   1: 'default',
   2: 'accept_edits',
   3: 'dont_ask',
 };
 
-/** The rungs the settings panel may offer, in order. */
-export const ENFORCED_LADDER_RUNGS: readonly EveLadderRung[] = [1, 2, 3];
+/**
+ * The rungs the settings panel offers, in order — all six.
+ *
+ * Each one now changes what EVE does: 0 and 1 answer `ask` to everything (they
+ * differ in whether EVE may offer to act at all, see `mayOfferToAct`), 2 admits
+ * workspace edits, 3 adds workspace commands, 4 reaches outside the working
+ * folder, 5 adds irreversible actions. The five seals stay outside the ladder at
+ * every rung, including 5.
+ */
+export const ENFORCED_LADDER_RUNGS: readonly EveLadderRung[] = EVE_LADDER_RUNGS;
 
-/** The backend mode a rung becomes, or null when nothing enforces it yet. */
+/** The legacy ACP mode a rung mirrors, or null when the wheel has no word for it. */
 export function ladderToBackendMode(rung: EveLadderRung): string | null {
   return LADDER_TO_BACKEND_MODE[rung] ?? null;
 }
 
-/** True when this rung can actually be honoured today. */
+/**
+ * True when this rung is one the product enforces.
+ *
+ * Every rung is, since 1.821.0 — the approval path reads the grant itself. The
+ * function stays because callers ask the question, and because the honest answer
+ * is no longer "does the wheel have a mode for it".
+ */
 export function isEnforcedLadderRung(rung: EveLadderRung): boolean {
-  return ladderToBackendMode(rung) !== null;
+  return EVE_LADDER_RUNGS.includes(rung);
 }
 
 /**
@@ -256,11 +277,22 @@ export function rememberedCommandsFromSettings(bag: Record<string, unknown> | nu
   return readRememberedCommands(grant.rememberedCommands);
 }
 
-/** The rung a backend mode corresponds to, or null when it is not one we enforce. */
+/**
+ * The rung a legacy ACP mode corresponds to, or null.
+ *
+ * Deliberately reads its OWN map, not ENFORCED_LADDER_RUNGS: since rung 0 and
+ * rung 1 both mirror `default`, iterating the rungs in order would resolve
+ * `default` to rung 0 and silently DEMOTE anyone whose in-chat pill said "ask"
+ * to the hard off-switch. The inverse of a non-injective map has to be written
+ * down, not derived. Rungs with no mode of their own stay unreachable from a
+ * mode string — which is correct: a mode cannot express them.
+ */
+const BACKEND_MODE_TO_LADDER: Readonly<Record<string, EveLadderRung>> = {
+  default: 1,
+  accept_edits: 2,
+  dont_ask: 3,
+};
+
 export function ladderFromBackendMode(mode: string | null | undefined): EveLadderRung | null {
-  const value = String(mode ?? '').trim();
-  for (const rung of ENFORCED_LADDER_RUNGS) {
-    if (ladderToBackendMode(rung) === value) return rung;
-  }
-  return null;
+  return BACKEND_MODE_TO_LADDER[String(mode ?? '').trim()] ?? null;
 }

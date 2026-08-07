@@ -16,19 +16,28 @@
  */
 
 import { configService } from '@/common/config/configService';
-import { type EveAuthorityGrant, type EveLadderRung } from '@/common/config/eveAuthorityCore';
+import {
+  EVE_SEALED_CAPABILITIES,
+  type EveAuthorityGrant,
+  type EveLadderRung,
+  type EveSealedCapability,
+} from '@/common/config/eveAuthorityCore';
 import { readRememberedCommands } from '@/common/config/eveRememberedCommandsCore';
 import {
+  classifyDailyBudget,
   ENFORCED_LADDER_RUNGS,
+  grantNeedsAttention,
   isUnconfirmedGrant,
   resolveStoredGrant,
+  withDailyBudget,
   withLadder,
   withoutRememberedCommand,
+  withSeal,
 } from '@/common/config/eveAuthorityStoreCore';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import SettingsSection from '@/renderer/components/settings/SettingsSection';
 import { useConfig } from '@/renderer/hooks/config/useConfig';
-import { Button, Radio } from '@arco-design/web-react';
+import { Button, InputNumber, Radio, Switch } from '@arco-design/web-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -40,6 +49,15 @@ const RUNG_KEYS: Record<EveLadderRung, string> = {
   3: 'authority.rung.work',
   4: 'authority.rung.independent',
   5: 'authority.rung.full',
+};
+
+/** i18n keys per seal. Same arrangement as the rungs, for the same reason. */
+const SEAL_KEYS: Record<EveSealedCapability, string> = {
+  'spend.money': 'authority.seal.money',
+  'publish.outward': 'authority.seal.publish',
+  'delete.outside': 'authority.seal.delete',
+  'credentials.read': 'authority.seal.credentials',
+  'deploy.production': 'authority.seal.deploy',
 };
 
 const AuthorityModalContent: React.FC = () => {
@@ -106,6 +124,20 @@ const AuthorityModalContent: React.FC = () => {
     void persist(withoutRememberedCommand(grant, command));
   };
 
+  const onSeal = (capability: EveSealedCapability, open: boolean): void => {
+    void persist(withSeal(grant, capability, open, new Date().toISOString()));
+  };
+
+  const onBudget = (value: number | undefined): void => {
+    // A rejected amount leaves the grant alone (`withDailyBudget`), so a
+    // half-typed number never becomes a ceiling nobody agreed to.
+    if (typeof value !== 'number') return;
+    void persist(withDailyBudget(grant, Math.round(value * 100)));
+  };
+
+  const dailyCents = grant.limits?.['spend.money']?.dailyCents;
+  const moneyOpen = grant.capabilities['spend.money'] === true;
+
   return (
     <AionScrollArea>
       <div className='flex flex-col gap-24px pb-24px'>
@@ -118,12 +150,13 @@ const AuthorityModalContent: React.FC = () => {
           description={t('commandEve.authority.ladderDescription')}
         >
           {/*
-            A stored rung the product does not enforce (rung 4, inherited from a
-            legacy `yolo` value) has no option to sit on. Showing it as the
-            selected value would present a state nobody chose — and which has no
-            effect, since `backendModeForGrant` returns null for it — as the
-            human's decision. Nothing is preselected instead, and the
-            "not confirmed yet" banner above says why (P2, Kimi).
+            All six rungs render now, because all six bind. The old guard here
+            existed for a real reason — a stored rung 4 inherited from a legacy
+            `yolo` value had no option to sit on, and showing it would have
+            presented an inert state as the human's decision. That reason is
+            gone: `ENFORCED_LADDER_RUNGS` is the full ladder and the approval
+            path reads the rung itself. The fallback stays anyway, for a grant
+            whose stored value is not a rung at all.
           */}
           <Radio.Group
             direction='vertical'
@@ -141,13 +174,73 @@ const AuthorityModalContent: React.FC = () => {
         </SettingsSection>
 
         {/*
-          The sealed capability switches (money, outward publishing, deletion
-          outside the workspace, credentials, production deploys) are modelled
-          and tested in eveAuthorityCore, but NOTHING enforces them yet: no
-          production code calls grantAllows/decideAuthority. Rendering them would
-          ship five switches that store a preference and change nothing. They
-          land together with the classification that makes them real.
+          The five seals. They are NOT the top of the ladder — they hang off no
+          rung at all, and stay shut on rung 5 until each one is switched on
+          here. That separation is the whole point: raising the ladder is a
+          convenience decision, unsealing one of these is a trust decision, and
+          nobody who meant "just get on with it" should also buy "and spend my
+          money".
+
+          They render now because they finally BIND: the approval path asks
+          `decideAuthority` through the loopback shim on every decision, and a
+          closed seal beats every rung there (eveAuthorityRuntimeCore).
         */}
+        <SettingsSection
+          title={t('commandEve.authority.sealsTitle')}
+          description={t('commandEve.authority.sealsDescription')}
+        >
+          <div className='flex flex-col gap-12px'>
+            {EVE_SEALED_CAPABILITIES.map((capability) => (
+              <div key={capability} className='flex flex-col gap-8px' data-testid={`seal-row-${capability}`}>
+                <div className='flex items-start justify-between gap-16px'>
+                  <div className='min-w-0'>
+                    <div className='font-medium'>{t(`commandEve.${SEAL_KEYS[capability]}.title`)}</div>
+                    <div className='text-13px op-70'>{t(`commandEve.${SEAL_KEYS[capability]}.body`)}</div>
+                  </div>
+                  <Switch
+                    checked={grant.capabilities[capability] === true}
+                    onChange={(open) => onSeal(capability, open)}
+                    data-testid={`seal-switch-${capability}`}
+                  />
+                </div>
+                {capability === 'spend.money' && moneyOpen && (
+                  <div className='flex flex-col gap-4px pl-4px'>
+                    <div className='flex items-center gap-8px'>
+                      <span className='text-13px op-70'>{t('commandEve.authority.dailyBudget')}</span>
+                      <InputNumber
+                        size='small'
+                        min={0.01}
+                        step={1}
+                        precision={2}
+                        style={{ width: 120 }}
+                        value={typeof dailyCents === 'number' ? dailyCents / 100 : undefined}
+                        onChange={onBudget}
+                        data-testid='seal-budget-money'
+                      />
+                    </div>
+                    {/*
+                      An open money seal with no usable ceiling is REFUSED at
+                      decision time (`spendWithinDailyLimit`), never read as
+                      unlimited. Saying so here is what stops the user seeing a
+                      switch that is on, an EVE that never spends, and concluding
+                      the feature is broken.
+                    */}
+                    {grantNeedsAttention(grant) === 'money-without-budget' && (
+                      <div className='text-13px text-orange-6' data-testid='budget-missing'>
+                        {t('commandEve.authority.budgetMissing')}
+                      </div>
+                    )}
+                    {classifyDailyBudget(dailyCents) === 'confirm' && (
+                      <div className='text-13px text-orange-6' data-testid='budget-high'>
+                        {t('commandEve.authority.budgetHigh')}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </SettingsSection>
 
         <SettingsSection
           title={t('commandEve.authority.rememberedTitle')}

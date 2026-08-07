@@ -5,17 +5,19 @@
  */
 
 /**
- * Settings → Freigaben, as it actually ships in 1.820.
+ * Settings → Freigaben, as it actually ships in 1.821.
  *
- * The panel deliberately renders ONLY what something enforces: the three rungs
- * AionCore decides against, and the commands this seat remembered. The sealed
- * capability switches are modelled and tested in eveAuthorityCore, but no
- * production code calls grantAllows yet — shipping them would be five switches
- * that store a preference and change nothing.
+ * WHAT CHANGED AND WHY THE ASSERTIONS BELOW MOVED WITH IT. In 1.820 the panel
+ * rendered three rungs and no seals, and this suite pinned that — correctly:
+ * nothing called `grantAllows`, so the other three rungs and all five seals
+ * would have been switches that store a preference and change nothing.
  *
- * The load-bearing test is "writes the record AND the key the session-opening
- * path reads". A setting that only records an intention is the defect this whole
- * change exists to remove.
+ * The approval path now asks `decideAuthority` on every decision, so all six
+ * rungs and all five seals BIND. Pinning the old shape would pin the defect.
+ *
+ * The load-bearing property is unchanged and is the reason the whole layer
+ * exists: nothing may be offered here that does not take effect, and a new seat
+ * starts fail-closed.
  */
 
 import React from 'react';
@@ -116,6 +118,32 @@ vi.mock('@arco-design/web-react', () => {
         {children}
       </button>
     ),
+    Switch: ({
+      checked,
+      onChange,
+      ...rest
+    }: {
+      checked: boolean;
+      onChange: (next: boolean) => void;
+      'data-testid'?: string;
+    }) => (
+      <button data-testid={rest['data-testid']} data-checked={String(checked)} onClick={() => onChange(!checked)} />
+    ),
+    InputNumber: ({
+      value,
+      onChange,
+      ...rest
+    }: {
+      value?: number;
+      onChange: (next: number | undefined) => void;
+      'data-testid'?: string;
+    }) => (
+      <input
+        data-testid={rest['data-testid']}
+        value={value ?? ''}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    ),
   };
 });
 
@@ -135,19 +163,67 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Settings → Freigaben offers only what something enforces', () => {
-  it('renders exactly the three rungs AionCore decides against', async () => {
+  it('renders ALL SIX rungs — each one now binds', async () => {
     store['commandEve.authority'] = { ladder: 2, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
     render(<Panel />);
 
-    expect(await screen.findByTestId('rung-1')).toBeTruthy();
-    expect(screen.getByTestId('rung-2')).toBeTruthy();
-    expect(screen.getByTestId('rung-3')).toBeTruthy();
-    // 0, 4 and 5 exist in the model but nothing classifies them yet.
-    expect(screen.queryByTestId('rung-0')).toBeNull();
-    expect(screen.queryByTestId('rung-4')).toBeNull();
-    expect(screen.queryByTestId('rung-5')).toBeNull();
+    for (const rung of [0, 1, 2, 3, 4, 5]) {
+      expect(await screen.findByTestId(`rung-${rung}`), `rung ${rung} is missing from the panel`).toBeTruthy();
+    }
     expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('2');
+  });
+
+  it('renders the five seals, and a fresh seat has every one of them shut', async () => {
+    // No stored grant at all: the fail-closed default. This is the state a new
+    // seat starts in, and it is the one that must never quietly be permissive.
+    const Panel = await importPanel();
+    render(<Panel />);
+    for (const capability of [
+      'spend.money',
+      'publish.outward',
+      'delete.outside',
+      'credentials.read',
+      'deploy.production',
+    ]) {
+      const seal = await screen.findByTestId(`seal-switch-${capability}`);
+      expect(seal.getAttribute('data-checked'), `${capability} is open on a fresh seat`).toBe('false');
+    }
+    // The money amount only appears once the seal is open — an amount field on a
+    // shut seal invites typing a budget that grants nothing.
+    expect(screen.queryByTestId('seal-budget-money')).toBeNull();
+  });
+
+  it('opening a seal writes it — and moving the ladder never opens one', async () => {
+    store['commandEve.authority'] = { ladder: 1, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+    // Resolve OUTSIDE act: the panel renders null until `whenReady` settles, and
+    // awaiting that inside act never lets the effect flush.
+    const seal = await screen.findByTestId('seal-switch-publish.outward');
+    await act(async () => {
+      seal.click();
+    });
+    const written = lastWrite('commandEve.authority') as EveAuthorityGrant;
+    expect(written.capabilities['publish.outward']).toBe(true);
+    expect(written.grantedAt?.['publish.outward'], 'an unsealing with no date cannot be reviewed later').toBeTruthy();
+    // The ladder is untouched by a seal, and vice versa — they are separate
+    // decisions and must never share a control.
+    expect(written.ladder).toBe(1);
+  });
+
+  it('an open money seal without an amount SAYS so instead of looking live', async () => {
+    store['commandEve.authority'] = {
+      ladder: 3,
+      capabilities: { 'spend.money': true },
+      updatedBy: 'user',
+    } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+    expect(await screen.findByTestId('seal-budget-money')).toBeTruthy();
+    // Without this the user sees a switch that is on, an EVE that never spends,
+    // and concludes the feature is broken. It is refused at decision time.
+    expect(screen.getByTestId('budget-missing')).toBeTruthy();
   });
 
   it('says plainly when the stored value was migrated and never confirmed', async () => {
@@ -216,15 +292,31 @@ describe('choosing a rung actually takes effect', () => {
     expect(setSpy.mock.calls.some((call) => call[0] === 'acp.config')).toBe(false);
   });
 
-  it('does not present a rung it cannot enforce as the human choice', async () => {
-    // A legacy `yolo` install migrates to rung 4, which has no radio option and
-    // no backend mode. Showing it as the selected value would dress a state
-    // nobody chose — and which does nothing — as a decision (P2, Kimi).
+  it('shows a migrated rung 4 as selected — and still says nobody confirmed it', async () => {
+    // A legacy `yolo` install migrates to rung 4. In 1.820 that rung had no radio
+    // option and no backend mode, so showing it as selected would have dressed an
+    // inert state as a decision (P2, Kimi) — and this test pinned that it did not.
+    //
+    // Rung 4 binds now, so hiding the stored value would be the lie instead: the
+    // seat really does act at rung 4, and the panel would be showing nothing
+    // selected while it did. The "not confirmed yet" banner is what carries the
+    // honest half — this value came from a migration, not from a person.
     store['commandEve.authority'] = { ladder: 4, capabilities: {}, updatedBy: 'migration' } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
     render(<Panel />);
     expect(await screen.findByText('commandEve.authority.notConfirmedYet')).toBeTruthy();
-    expect(screen.getByTestId('ladder').getAttribute('data-value')).toBeNull();
+    expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('4');
+  });
+
+  it('a stored value that is not a rung at all still selects nothing', async () => {
+    // The fallback the old guard existed for, kept: garbage on disk must not be
+    // presented as a human's choice.
+    store['commandEve.authority'] = { ladder: 9, capabilities: {}, updatedBy: 'migration' } as unknown;
+    const Panel = await importPanel();
+    render(<Panel />);
+    expect(await screen.findByText('commandEve.authority.notConfirmedYet')).toBeTruthy();
+    // An unreadable grant resolves to the fail-closed default, which IS a rung.
+    expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('1');
   });
 
   it('opens no sealed capability by moving the ladder', async () => {

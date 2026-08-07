@@ -98,6 +98,8 @@ import { readCommandEveCloudVisualPolicy } from './process/commandEve/visual/clo
 import { type EveRememberedCommand } from '@/common/config/eveRememberedCommandsCore';
 import { rememberedCommandsFromSettings } from '@/common/config/eveAuthorityStoreCore';
 import { createTeamWorkerStatusResolver } from './process/commandEve/teamWorkerStatusResolverCore';
+import { EVE_AUTHORITY_FAIL_CLOSED, readEveAuthorityGrant } from './common/config/eveAuthorityCore';
+import { renderEveAuthorityRuntime, type EveAuthorityRuntime } from './common/config/eveAuthorityRuntimeCore';
 import { createEgressRedactionModeResolver } from './process/commandEve/egressRedactionModeResolverCore';
 import {
   buildCompanyOsRootCandidates,
@@ -803,6 +805,32 @@ function buildCommandEveShimActiveSeatIdResolver(): () => string {
 }
 
 /**
+ * Build the LIVE approval-authority resolver passed to the shim (CEVE-1821).
+ *
+ * Runs PER approval question and reads `commandEve.authority` FRESH from the
+ * backend settings store — the same store the Freigaben panel writes. That
+ * freshness is the point: a ladder or seal the human just changed has to bind on
+ * the next decision, not on the next boot. A grant that is stored and only takes
+ * effect after a restart is the same defect as one that never takes effect.
+ *
+ * FAIL-CLOSED in every direction: an unreadable store, a malformed grant or a
+ * thrown read all resolve to `EVE_AUTHORITY_FAIL_CLOSED` (rung 1, no seals),
+ * whose rendering answers `ask` to everything. There is no last-known-good here
+ * on purpose — "what this seat allowed a minute ago" is not authority.
+ */
+function buildCommandEveShimApprovalResolver(): () => Promise<EveAuthorityRuntime> {
+  return async () => {
+    try {
+      const bag = await readCommandEveSettingsFromBackend(['commandEve.authority']);
+      return renderEveAuthorityRuntime(readEveAuthorityGrant(bag['commandEve.authority']));
+    } catch (error) {
+      console.warn('[Command EVE] approval-authority backend read failed; failing CLOSED (ask):', error);
+      return renderEveAuthorityRuntime(EVE_AUTHORITY_FAIL_CLOSED);
+    }
+  };
+}
+
+/**
  * CLI-Keystone runtime glue (the wiring the audit found MISSING). Reads the
  * PERSISTED worker assignments + the live team-status map and resolves them into
  * the two bootstrap inputs that make the keystone ALIVE:
@@ -1179,6 +1207,10 @@ function registerCommandEveRuntimeBridge(): void {
             kanbanAcpBearer: resolveKanbanAcpBearer,
             kanbanAcpPropose: kanbanAcpProposeHandler,
             kanbanAcpRead: readKanbanAcpBoard,
+            // CEVE-1821 — injected at EVERY shim start site. A site that forgot it
+            // would fall back to the fail-closed default and silently pin that seat
+            // to "always ask" for the whole session, with no other symptom.
+            commandEveApproval: buildCommandEveShimApprovalResolver(),
             // MAT-1747: the app-owned artifact capability. Injected at EVERY shim
             // start site — the bearer is per-boot, so a site that forgets it would
             // 404 the route for the whole session with no other symptom.
@@ -1254,6 +1286,10 @@ function registerCommandEveRuntimeBridge(): void {
             kanbanAcpBearer: resolveKanbanAcpBearer,
             kanbanAcpPropose: kanbanAcpProposeHandler,
             kanbanAcpRead: readKanbanAcpBoard,
+            // CEVE-1821 — injected at EVERY shim start site. A site that forgot it
+            // would fall back to the fail-closed default and silently pin that seat
+            // to "always ask" for the whole session, with no other symptom.
+            commandEveApproval: buildCommandEveShimApprovalResolver(),
             // MAT-1747: the app-owned artifact capability. Injected at EVERY shim
             // start site — the bearer is per-boot, so a site that forgets it would
             // 404 the route for the whole session with no other symptom.
@@ -1813,6 +1849,7 @@ const handleAppReady = async (): Promise<void> => {
         kanbanAcpBearer: resolveKanbanAcpBearer,
         kanbanAcpPropose: kanbanAcpProposeHandler,
         kanbanAcpRead: readKanbanAcpBoard,
+        commandEveApproval: buildCommandEveShimApprovalResolver(),
         artifactCapabilityBearer: resolveArtifactCapabilityBearer,
         artifactCapabilityCall: artifactCapabilityCallHandler,
       })

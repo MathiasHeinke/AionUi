@@ -247,14 +247,42 @@ describe('the grants reach the runtime from the store alone', () => {
   });
 });
 
-describe('a rung only reaches the UI when something enforces it', () => {
-  it('maps the three enforced rungs and refuses the rest', () => {
+/**
+ * CEVE-1821 — this block used to say "a rung only reaches the UI when something
+ * enforces it", and it pinned the ACP mode map as that something. That was true
+ * while the approval path answered "ask" unconditionally: three rungs had a
+ * wheel mode, the other three had nowhere to go, and offering them would have
+ * shipped switches that stored a preference and changed nothing.
+ *
+ * The enforcement moved. It is now the approval patch asking `decideAuthority`
+ * through the loopback shim on every decision, and that reads the RUNG, not a
+ * mode string. So the mode map demoted itself to a legacy mirror — and "has a
+ * mode" stopped being the same question as "is enforced".
+ */
+describe('the ACP mode is a legacy mirror, no longer the thing that enforces', () => {
+  it('mirrors the three rungs the wheel has a word for', () => {
     expect(backendModeForGrant({ ladder: 1, capabilities: {}, updatedBy: 'user' })).toBe('default');
     expect(backendModeForGrant({ ladder: 2, capabilities: {}, updatedBy: 'user' })).toBe('accept_edits');
     expect(backendModeForGrant({ ladder: 3, capabilities: {}, updatedBy: 'user' })).toBe('dont_ask');
-    for (const ladder of [0, 4, 5] as const) {
+    // Rung 0 mirrors `default` too — it is stricter than rung 1, and the wheel
+    // has no stricter mode, so the mirror rounds DOWN in the safe direction
+    // while the real enforcement keeps them apart.
+    expect(backendModeForGrant({ ladder: 0, capabilities: {}, updatedBy: 'user' })).toBe('default');
+  });
+
+  it('the rungs the wheel cannot express are still enforced', () => {
+    for (const ladder of [4, 5] as const) {
       expect(backendModeForGrant({ ladder, capabilities: {}, updatedBy: 'user' })).toBeNull();
-      expect(isEnforcedLadderRung(ladder)).toBe(false);
+      // The old assertion here was `isEnforcedLadderRung(ladder) === false`.
+      // Keeping it would now pin the defect: a rung that binds at the approval
+      // path but hides from the panel.
+      expect(isEnforcedLadderRung(ladder)).toBe(true);
+    }
+  });
+
+  it('every rung is offered, and none of them is inert', () => {
+    for (const ladder of [0, 1, 2, 3, 4, 5] as const) {
+      expect(isEnforcedLadderRung(ladder)).toBe(true);
     }
   });
 });
