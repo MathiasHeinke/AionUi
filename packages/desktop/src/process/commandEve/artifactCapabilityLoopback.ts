@@ -216,12 +216,22 @@ export async function artifactCapabilityCallHandler(
         // to a third-party API. The clip is saved and reachable by artifact id;
         // the renderer resolves it from the local artifact store.
         //
-        // KNOWN CONSEQUENCE, stated rather than hidden: a clip produced through
-        // THIS lane does not render inline in the chat the way one produced
-        // through the renderer lane does. It used to regress nothing because the
-        // paid path shipped default-off; since 1.820.2 eligible seats reach this
-        // lane by default, so the gap is live — an open display gap, not a
-        // solved problem.
+        // CLOSED IN 1.821.0 — and the record of what it cost is kept here on
+        // purpose. This comment used to end with an admitted, live display gap:
+        // a clip finished through this lane was saved and then never shown,
+        // because Main told nobody. Measured before the fix it was worse than
+        // the admission said — `videoEdit` has ZERO renderer callers, so this
+        // lane is not one path among two, it is the only way a video edit
+        // happens, and the gap was every edit rather than an edge case.
+        //
+        // What closed it is NOT a path in this payload. The shared handler
+        // (`handleCommandEveVideoEdit`, which both lanes funnel through) emits
+        // `command-eve.image-artifacts-changed` with a conversation id and
+        // nothing else, once, after the durable write and never on a refusal;
+        // the renderer's existing handler reloads the artifact list and finds
+        // the clip by id. The no-paths rule above therefore still holds by
+        // construction, not by restraint — see `artifactsChangedEmitter.ts` and
+        // `tests/unit/command-eve/videoEditDisplayRefresh.test.ts`.
         replayed: result.replayed === true,
       },
     };

@@ -3136,7 +3136,12 @@ export function buildCommandEveRuntimeReconciliation(
     warnings: [
       'Department capabilities with default_state=available are prompt labels until a real SKILL.md binding exists.',
       'HTTP/SSE MCP transports are blocked by default for the cloud lane because they can egress outside the model proxy; vetted connectors are added via the catalog preflight/HumanGate flow.',
-      'Hermes Kanban auto_decompose is ON so EVE can break goals into child work-items (vision -> versions -> milestones -> child); the dispatcher, cron and worker auto-spawn remain off, and kanban_* tools are not yet on the hermes-acp lane (invisible-to-chat until that toolset is added). Per-client HERMES_HOME isolation remains the GATE-NULL keystone before paid reseller decompose-on-a-client-board.',
+      // CORRECTED 1.821.0 — this warning SHIPS to operators, so its wrong half
+      // was the worst copy of the claim: it said the board was invisible to chat.
+      // The raw wheel kanban toolset really is withheld (COMPA-626), but EVE
+      // reads and proposes over the app's bearer-gated loopback endpoints and the
+      // system prompt names them. Confirm-Card-gated, not invisible.
+      'Hermes Kanban auto_decompose is ON so EVE can break goals into child work-items (vision -> versions -> milestones -> child); the dispatcher, cron and worker auto-spawn remain off. The raw wheel kanban toolset stays off the hermes-acp lane (COMPA-626): EVE reads and proposes over the app-owned, bearer-gated /eve/kanban endpoints instead, where every write waits for an operator confirm card. Per-client HERMES_HOME isolation remains the GATE-NULL keystone before paid reseller decompose-on-a-client-board.',
     ],
   };
 }
@@ -6570,12 +6575,25 @@ function writeHermesRuntimeFiles(
     // auto_decompose flipped ON so EVE can break a goal into child work-items
     // (the plan-system / VISION -> VERSIONS -> MILESTONES -> child decomposition
     // that the doctrine reasons from). Hermes' own default is True
-    // (FACT config.py:1733). NOTE: kanban_* tools are NOT yet on the hermes-acp
-    // lane, so this is invisible-to-chat until the kanban toolset is added; it is
-    // safe to turn on here because it cannot widen the autonomous-action surface
-    // on a client board without that separate toolset change. Per-client
-    // isolation (HERMES_HOME scoping) remains the GATE-NULL keystone before the
-    // paid reseller SKUs claim decompose-on-a-client-board.
+    // (FACT config.py:1733).
+    //
+    // CORRECTED 1.821.0 — this used to end "kanban_* tools are NOT yet on the
+    // hermes-acp lane, so this is invisible-to-chat until the kanban toolset is
+    // added". The first half is still true and deliberate: the raw wheel `kanban`
+    // toolset stays OUT of COMMAND_EVE_ACP_PLATFORM_TOOLSETS (COMPA-626 — it
+    // carries un-gated write tools plus dispatch, past the Confirm-Card). The
+    // conclusion was wrong. EVE reaches the board through the app's OWN loopback
+    // endpoints instead — `GET /eve/kanban/read` and `POST /eve/kanban/propose`,
+    // both bearer-gated, both injected by main, and the system prompt spells the
+    // route out. So this is NOT invisible to chat; it is visible over a channel
+    // where every write still stops at an operator confirm card.
+    //
+    // Left standing as written it would send the next reader looking for a
+    // missing toolset instead of at the endpoint that already works — which is
+    // the more expensive kind of wrong.
+    //
+    // Per-client isolation (HERMES_HOME scoping) remains the GATE-NULL keystone
+    // before the paid reseller SKUs claim decompose-on-a-client-board.
     '  auto_decompose: true',
     'inference:',
     '  provider: ollama',

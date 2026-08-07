@@ -60,6 +60,7 @@ import {
   releaseVideoEditInflightLock,
   revokeVideoEditSpendOnUserSteer,
 } from '@process/commandEve/videoEditSpendPermitStore';
+import { emitCommandEveArtifactsChanged } from '@process/commandEve/artifactsChangedEmitter';
 import { hasVisibleCharacters } from '@/common/config/eveOpaqueTokenCore';
 import { isAgentVideoEditAdvertisingEnabled, readVideoSeatCapabilities } from '@process/commandEve/agentVideoEditFlag';
 import {
@@ -131,6 +132,21 @@ export interface CommandEveVideoBridgeDeps {
    * existing construction of this object valid.
    */
   ensureCapabilityHandle?: typeof ensureVideoEditCapabilityHandle;
+  /**
+   * THE DISPLAY-GAP FIX. Called once, in Main, AFTER a finished edit is durably
+   * on disk — never before it and never on a refusal.
+   *
+   * Why it lives here and not in either lane: `artifactCapabilityLoopback` (the
+   * agent/MCP lane) and the renderer IPC provider both funnel through THIS
+   * handler, so one call site is one refresh per edit. Emitting in the lanes
+   * instead would mean two places to keep honest and, the day both are used, two
+   * refreshes for one clip.
+   *
+   * Optional like every MAT-1747 member above, for the same stated reason: a
+   * required dep would break fifteen-plus existing test literals at once. Absent
+   * ⇒ no emission ⇒ byte-identical to the prior behaviour.
+   */
+  emitArtifactsChanged?: (conversationId: string) => void;
   listArtifactRecords?: typeof listVideoArtifactRecords;
   readCapabilityGrant?: typeof readArtifactCapabilityGrant;
   resolveCapability?: typeof resolveVideoEditCapability;
@@ -183,6 +199,7 @@ const productionDeps: CommandEveVideoBridgeDeps = {
   saveArtifactRecord: saveVideoArtifactRecord,
   getVideoSeatCapabilities: () => readVideoSeatCapabilities(),
   ensureCapabilityHandle: ensureVideoEditCapabilityHandle,
+  emitArtifactsChanged: emitCommandEveArtifactsChanged,
   listArtifactRecords: listVideoArtifactRecords,
   readCapabilityGrant: readArtifactCapabilityGrant,
   resolveCapability: resolveVideoEditCapability,
@@ -1618,6 +1635,32 @@ export async function handleCommandEveVideoEdit(
         parentArtifactId: source.id,
       });
       deps.saveArtifactRecord(dataPath, conversationArtifact);
+      // THE EDIT IS NOW ON DISK — tell the renderer, or the user pays for a clip
+      // they cannot see.
+      //
+      // Placed exactly here and nowhere else: after the durable write, and after
+      // `if (outcome.ok === false) return outcome` above, so a refusal can never
+      // reach it. A refresh for an edit that did not happen is a second lie, not
+      // a smaller one.
+      //
+      // ON THE CHANNEL NAME, deliberately reused rather than quietly abused: the
+      // channel is called `image-artifacts-changed`, but the renderer's only
+      // handler for it calls `loadArtifacts()`, which re-reads remote artifacts,
+      // `videoArtifactsList` AND `imageArtifactsList` (artifacts.tsx). It is
+      // already an "all artifacts changed" signal in everything but its name, and
+      // one refresh channel is what keeps a single edit from producing two
+      // refreshes once both lanes are in use. Renaming it would touch the
+      // channel, the renderer and every bridge mock for a cosmetic gain; stating
+      // it here is the honest alternative to renaming, and to silence.
+      //
+      // NO PATH TRAVELS. The payload is a conversation id and nothing else, so
+      // the no-paths contract of the model-facing envelope is untouched — this
+      // event goes to the renderer, never toward a model.
+      try {
+        deps.emitArtifactsChanged?.(grant.conversation_id);
+      } catch {
+        /* the clip is saved; a failed notify costs the same-turn refresh only */
+      }
       // Its OWN try/catch, like the handle mint below: the receipt is what makes
       // a retry free, but failing to write it must not turn a saved clip into a
       // reported failure.

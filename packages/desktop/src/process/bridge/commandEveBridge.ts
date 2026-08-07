@@ -5,6 +5,7 @@
  */
 
 import { bridge } from '@office-ai/platform';
+import { getCommandEveArtifactsChangedEmitter } from '@process/commandEve/artifactsChangedEmitter';
 import { app } from 'electron';
 import { buildCommandCenterReadModel } from '@process/commandEve/commandCenterReadModelCore';
 import {
@@ -883,22 +884,12 @@ async function fetchConversationTranscriptFull(conversationId: string, window: n
  * swallowed.
  */
 /**
- * The Main→renderer fresh-bind event for the managed image lane. LAZY by
- * design: a module-load-time `bridge.buildEmitter` would fire in every test
- * harness that mocks the platform bridge with a buildProvider-only fake (ten
- * bridge-registration suites), long before any bind exists. The one shared
- * instance is created on first use — the renderer subscribes to the channel
- * NAME, never to an instance, so the lazy timing is invisible to it.
+ * MOVED to `commandEve/artifactsChangedEmitter.ts` (1.821.0) so the video-edit
+ * lanes can fire the SAME channel instance instead of minting a second one. The
+ * local alias keeps every call site below unchanged; the doc on why the channel
+ * is named for images but means "all artifacts" now lives with the emitter.
  */
-let imageArtifactsChangedEmitter: { emit: (payload: { conversation_id: string }) => void } | undefined;
-function getImageArtifactsChangedEmitter(): { emit: (payload: { conversation_id: string }) => void } {
-  if (!imageArtifactsChangedEmitter) {
-    imageArtifactsChangedEmitter = bridge.buildEmitter<{ conversation_id: string }>(
-      'command-eve.image-artifacts-changed'
-    );
-  }
-  return imageArtifactsChangedEmitter;
-}
+const getImageArtifactsChangedEmitter = getCommandEveArtifactsChangedEmitter;
 
 async function hydrateRemoteVideosForConversation(conversationId: string) {
   const { reconcileConversationRemoteVideos } = await import('../commandEve/videoArtifactHydrationMain');
