@@ -2375,15 +2375,28 @@ export function prepareCommandEveRuntimeProcessEnv(
   // WHY: Hermes ≤0.17 resolved its bundled locales three ways (this env var →
   // `<repo>/locales` → the sysconfig data path); 0.20 REMOVED the sysconfig
   // branch, and in a wheel install neither remaining branch matches — 17
-  // languages then silently fall back to English or the bare key. The wheel
-  // ships locales as `hermes_agent-<v>.data/data/locales`, which pip lands at
-  // the venv's data root, i.e. `<venv>/locales` (verified against a live
-  // install). The path is DERIVED, never probed: it is already correct on a
-  // first run BEFORE the venv exists — Hermes treats a not-yet-existing
-  // directory as "no override" until the install creates it — so an early bake
-  // cannot crash a boot, and no empty string is ever pinned that a later
-  // resolver would silently prefer.
-  env.HERMES_BUNDLED_LOCALES = path.join(paths.hermesVenv, 'locales');
+  // languages then silently fall back to English or the bare key.
+  //
+  // WHERE THE FILES ACTUALLY LAND — measured, not assumed (this line first
+  // shipped with `<venv>/locales` and was WRONG): the 0.20 pyproject declares
+  // `tool.setuptools.data-files` with target `data/locales`, so pip installs
+  // to `sys.prefix/data/locales` = `<venv>/data/locales`. Proof against a real
+  // 0.20 install: the dist-info RECORD lists `../../../data/locales/de.yaml`
+  // relative to site-packages (= three up to the venv root, then
+  // data/locales), and `<venv>/locales` does not exist there at all. (0.17
+  // used the wheel-native `.data/data/` category instead, which lands at the
+  // venv ROOT — that layout is found by 0.17's own sysconfig fallback, so
+  // pinning the 0.20 target here is harmless while 0.17 is still bundled.)
+  // The layout-truth test in hermesBundledLocalesEnv.test.ts derives this
+  // path from the bundled wheel's actual entries, so a future layout change
+  // goes red instead of silently pinning the wrong directory again.
+  //
+  // The path is DERIVED, never probed: it is already correct on a first run
+  // BEFORE the venv exists — Hermes checks `candidate.is_dir()` and treats a
+  // not-yet-existing directory as "no override" (with a warning) until the
+  // install creates it — so an early bake cannot crash a boot, and no empty
+  // string is ever pinned that a later resolver would silently prefer.
+  env.HERMES_BUNDLED_LOCALES = path.join(paths.hermesVenv, 'data', 'locales');
 
   // The venv is based on the bundled interpreter under the signed app bundle.
   // Every Python descendant must keep bytecode out of Contents/Resources/python,
