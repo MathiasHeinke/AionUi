@@ -45,7 +45,22 @@ const PATHS = {
 
 describe('the argv is the whole cost decision', () => {
   it('runs `curator run`, NOT the gated maybe_run_curator path', () => {
-    expect([...CURATOR_TICK_ARGS]).toEqual(['curator', 'run', '--background']);
+    expect([...CURATOR_TICK_ARGS]).toEqual(['curator', 'run', '--synchronous']);
+  });
+
+  it('--synchronous, because --background silently dropped the run receipt', () => {
+    // This shipped as `--background` for one commit. `synchronous =
+    // bool(args.synchronous) or not background` (hermes_cli/curator.py:221), and
+    // with --background the SECOND state write runs in a daemon thread
+    // (curator.py:1747) that the exiting CLI kills — measured, both
+    // last_run_duration_seconds and last_report_path came back null.
+    //
+    // It costs nothing to switch: with consolidation off the prune-only branch
+    // (curator.py:1598-1638) writes its report, saves state and RETURNS before any
+    // model call. And it cannot hang us, because the spawn is detached with
+    // stdio ignore.
+    expect(CURATOR_TICK_ARGS).toContain('--synchronous');
+    expect(CURATOR_TICK_ARGS, 'the receipt-dropping flag is back').not.toContain('--background');
   });
 
   it('NEVER passes --consolidate — that is the one flag that would cost money', () => {
@@ -100,7 +115,7 @@ describe('the spawn: seat-correct, best-effort, never twice in a row', () => {
     expect(spawnDetached).toHaveBeenCalledTimes(1);
     const [command, args, options] = spawnDetached.mock.calls[0];
     expect(command).toBe('/data/command-eve-runtime/hermes/venv/bin/hermes');
-    expect([...(args as string[])]).toEqual(['curator', 'run', '--background']);
+    expect([...(args as string[])]).toEqual(['curator', 'run', '--synchronous']);
     // The seat home is TAKEN from the caller's already seat-aware path set, never
     // assembled here — a second place that composes seat homes is a second place
     // that can point at the wrong seat.

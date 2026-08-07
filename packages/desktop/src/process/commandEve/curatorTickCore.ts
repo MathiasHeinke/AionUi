@@ -23,6 +23,20 @@
  * gate: `_cmd_run` (`hermes_cli/curator.py:213-245`) calls `run_curator_review`
  * directly and never consults `should_run_now`.
  *
+ * WHY `--synchronous` AND NOT `--background`. This shipped with `--background`
+ * for one commit, on the reasoning that the call must not hang our process. That
+ * reasoning does not apply: the spawn is detached with `stdio: 'ignore'`, so
+ * nothing here waits on it either way — and `--background` cost a receipt.
+ *
+ * `synchronous = bool(args.synchronous) or not background`
+ * (`hermes_cli/curator.py:221`), and with `--background` the run's SECOND state
+ * write happens inside a daemon thread started at `curator.py:1747`, which the
+ * exiting CLI kills. Measured: `last_run_duration_seconds` and
+ * `last_report_path` both came back null. `--synchronous` keeps them, and it
+ * costs exactly nothing, because with consolidation off the prune-only branch
+ * (`curator.py:1598-1638`) writes its report, saves state and RETURNS before any
+ * model call — its own `llm_meta` records an empty model and provider.
+ *
  * WHY IT COSTS NOTHING. `--consolidate` is deliberately NOT passed, so the run
  * reads `curator.consolidate` from config, which is OFF by default
  * (`curator.py:204-212`). With it off the run does only the deterministic
@@ -59,11 +73,12 @@ export function curatorTickBinary(paths: CuratorTickPaths): string {
 /**
  * The argv, as its own exported constant so a test can prove what is NOT in it.
  *
- * `--background` returns the CLI as soon as the deterministic prune and the state
- * write are done (`curator.py:1577-1583` happen before the thread starts at
- * :1747). `--consolidate` is absent by construction, not by accident.
+ * `--synchronous` runs the whole pass in the spawned process, which is what keeps
+ * `last_run_duration_seconds` and `last_report_path` — see the header for why it
+ * is free. `--consolidate` is absent by construction, not by accident: it is the
+ * single flag that would turn this tick into a cost item.
  */
-export const CURATOR_TICK_ARGS: readonly string[] = ['curator', 'run', '--background'];
+export const CURATOR_TICK_ARGS: readonly string[] = ['curator', 'run', '--synchronous'];
 
 export interface CuratorTickDecisionInput {
   /** Wall clock now, injected so the decision is testable without a clock. */
