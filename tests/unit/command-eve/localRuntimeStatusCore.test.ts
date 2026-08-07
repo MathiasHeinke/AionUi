@@ -34,7 +34,7 @@ const manifest = {
   release: '1.0.0-alpha.5',
   hermes: {
     package: 'hermes-agent',
-    version: '0.17.0',
+    version: '0.20.0',
     extras: ['acp'],
   },
   local_runtime: {
@@ -95,7 +95,7 @@ describe('Command EVE local runtime status core', () => {
     expect(result.ok).toBe(true);
     expect(result.status).toBe('ready');
     expect(result.model?.release).toBe('1.0.0-alpha.5');
-    expect(result.model?.hermes.version).toBe('0.17.0');
+    expect(result.model?.hermes.version).toBe('0.20.0');
     expect(result.model?.provider.base_url).toBe('http://127.0.0.1:11434');
     expect(result.model?.selected_tier_id).toBe('gemma-4-e4b-local-default');
     expect(result.model?.selected_model_ref).toBe('command-eve-gemma4-e4b-64k:latest');

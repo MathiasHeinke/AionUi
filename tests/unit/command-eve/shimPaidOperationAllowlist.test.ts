@@ -179,6 +179,16 @@ describe('MAT-1749 registry — membership is the only way to the paid lane', ()
       'tts_audio_tags',
       'monitor',
       'call',
+      // Hermes 0.20 (CEVE-18205): the two MoA halves, the four former direct
+      // clients #35566 routed through call_llm, and the new kanban estimator —
+      // all local_only, classified with wheel FACTs in the registry.
+      'moa_reference',
+      'moa_aggregator',
+      'goal_judge',
+      'kanban_decomposer',
+      'kanban_estimator',
+      'profile_describer',
+      'triage_specifier',
       'eve_auxiliary',
       'iteration_limit_summary',
     ]);

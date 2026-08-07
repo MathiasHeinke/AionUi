@@ -55,7 +55,7 @@ function readWheelEntry(wheelPath: string, entryName: string): Promise<string> {
 
 describe('bundled Hermes ACP approval timeout', () => {
   it('keeps a recovered permission actionable beyond one minute', async () => {
-    const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
     expect(fs.existsSync(wheelPath)).toBe(true);
 
     const source = await readWheelEntry(wheelPath, 'acp_adapter/permissions.py');

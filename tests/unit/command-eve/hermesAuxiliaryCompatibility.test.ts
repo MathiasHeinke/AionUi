@@ -38,7 +38,7 @@ import {
 } from '@/process/commandEve/paidOperationRegistryCore';
 
 const WHEEL_PATH = fileURLToPath(
-  new URL('../../../resources/bundled-hermes/hermes_agent-0.17.0-py3-none-any.whl', import.meta.url)
+  new URL('../../../resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl', import.meta.url)
 );
 
 /**
@@ -48,7 +48,7 @@ const WHEEL_PATH = fileURLToPath(
  * response is to re-enumerate `task=` call sites in the new wheel, classify anything
  * new, and update this constant — never to relax the assertion.
  */
-const PINNED_WHEEL_SHA256 = 'a0a5427f6025474288af4399fa277e871813d6b409ad253fd5154bb30d7e62d9';
+const PINNED_WHEEL_SHA256 = '9f80183e4db0486bb40f6fa3878b7f7994f81656a42e1c388613e2e3483c8602';
 
 /** Matches a task name in either form Hermes uses: `task="x"` or `"task": "x"`. */
 const WHEEL_TASK_NAME = /task\s*=\s*["']([a-z_][a-z0-9_]*)["']|["']task["']\s*:\s*["']([a-z_][a-z0-9_]*)["']/;
@@ -138,7 +138,10 @@ describe('MAT-1749 — the auxiliary classification is pinned to the wheel it ca
     const registered = commandEveRegisteredOperations();
     const paid = commandEvePaidOperations();
 
-    expect(COMMAND_EVE_HERMES_AUXILIARY_TASKS).toHaveLength(9);
+    // 16 in the 0.20 wheel: the nine 0.17 tasks, the two MoA halves, the four
+    // former direct clients #35566 routed through call_llm, and the genuinely
+    // new kanban_estimator.
+    expect(COMMAND_EVE_HERMES_AUXILIARY_TASKS).toHaveLength(16);
     for (const task of COMMAND_EVE_HERMES_AUXILIARY_TASKS) {
       expect(registered, `${task} is reachable in the bundled wheel but is not classified`).toContain(task);
       expect(paid, `${task} must never be payable — no hidden auxiliary charges`).not.toContain(task);
@@ -161,12 +164,16 @@ describe('MAT-1749 — the auxiliary classification is pinned to the wheel it ca
     // not in that population, so it could never have seen them, and four shipped
     // features hard-failed on a cloud tier. Both populations are pinned now, and the
     // wheel sha above is what forces either to be re-derived on a bump.
-    expect(COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS).toEqual([
-      'goal_judge',
-      'kanban_decomposer',
-      'triage_specifier',
-      'profile_describer',
-    ]);
+    //
+    // 0.20 EMPTIED THIS POPULATION: upstream #35566 routed all four former
+    // direct clients through call_llm(task=…), so they moved into the
+    // AUXILIARY_TASKS population (with 0.20 FACTs in the registry). Verified by
+    // a full wheel scan for `.chat.completions.create(` call sites — the only
+    // remaining direct callers are the auxiliary client substrate, the
+    // task-less trajectory compressor (eve_auxiliary) and the pinned
+    // transport-bypass. The empty pin stays load-bearing: a future wheel that
+    // reintroduces a direct client must land here or redden.
+    expect(COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS).toEqual([]);
 
     const decision = resolveCommandEvePaidSeam(COMMAND_EVE_DIRECT_AUXILIARY_OPERATION);
     expect(decision.disposition).toBe('local_only');

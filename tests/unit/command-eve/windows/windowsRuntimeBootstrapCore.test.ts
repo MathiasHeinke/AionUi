@@ -175,13 +175,13 @@ describe('Command EVE Windows runtime paths', () => {
   });
 
   it('pins the committed Hermes wheel bytes', () => {
-    const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
 
     expect(sha256FileIfPresent(wheelPath)).toBe(COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256);
   });
 
   it('pins the model-hidden ACP transport contract inside the committed Hermes wheel', async () => {
-    const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
     const [delegateTool, runAgent, auth] = await Promise.all([
       readWheelEntry(wheelPath, 'tools/delegate_tool.py'),
       readWheelEntry(wheelPath, 'run_agent.py'),
@@ -206,7 +206,7 @@ describe('Command EVE Windows runtime paths', () => {
   });
 
   it("binds ACP Don't Ask to session-scoped command approvals without bypassing hardline guards", async () => {
-    const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
     const [server, approval] = await Promise.all([
       readWheelEntry(wheelPath, 'acp_adapter/server.py'),
       readWheelEntry(wheelPath, 'tools/approval.py'),
@@ -308,7 +308,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
         source_url: 'https://example.invalid/python.tar.gz',
       })
     );
-    const bundledHermesWheel = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    const bundledHermesWheel = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
     writeFile(bundledHermesWheel, 'hermes-wheel-fixture');
     writeArtifactPythonSiteFixture(resourcesPath);
     const expectedHermesWheelSha256 = sha256FileIfPresent(bundledHermesWheel)!;
@@ -330,7 +330,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
           args,
           ok: true,
           status: 0,
-          stdout: 'hermes-agent==0.17.0\npip==25.1\n',
+          stdout: 'hermes-agent==0.20.0\npip==25.1\n',
         };
       }
       if (
@@ -338,7 +338,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
         args[0] === '-c' &&
         args[1]?.includes("version('hermes-agent')")
       ) {
-        return { command, args, ok: true, status: 0, stdout: '0.17.0\n' };
+        return { command, args, ok: true, status: 0, stdout: '0.20.0\n' };
       }
       if (
         command.endsWith(path.join('Scripts', 'python.exe')) &&
@@ -392,7 +392,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
       wheel_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
       dependency_resolution: 'pypi_tls_on_first_boot',
       package_snapshot_status: 'captured',
-      resolved_packages: ['hermes-agent==0.17.0', 'pip==25.1'],
+      resolved_packages: ['hermes-agent==0.20.0', 'pip==25.1'],
     });
     expect(receipt.stages.find((stage) => stage.id === 'python')?.status).toBe('pass');
     expect(receipt.stages.find((stage) => stage.id === 'hermes')?.status).toBe('pass');
@@ -435,7 +435,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
     const conversationFixture = path.join(root, 'conversations', 'customer-work.json');
     writeFile(bundledPython, 'windows-python-fixture');
     writeFile(conversationFixture, '{"keep":true}');
-    const bundledHermesWheel = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    const bundledHermesWheel = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
     writeFile(bundledHermesWheel, 'hermes-wheel-fixture');
     writeArtifactPythonSiteFixture(resourcesPath);
     const expectedHermesWheelSha256 = sha256FileIfPresent(bundledHermesWheel)!;
@@ -473,7 +473,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
         return { command, args, ok: true, status: 0, stdout: 'Python 3.12.13\n' };
       }
       if (command.endsWith(path.join('Scripts', 'python.exe')) && args.join(' ') === '-m pip freeze --all') {
-        return { command, args, ok: true, status: 0, stdout: 'hermes-agent==0.17.0\n' };
+        return { command, args, ok: true, status: 0, stdout: 'hermes-agent==0.20.0\n' };
       }
       if (command.endsWith(path.join('Scripts', 'python.exe')) && args.includes('pip')) {
         if (/hermes[_-]agent/i.test(args.at(-1) || '')) {
@@ -524,7 +524,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
     const bundledPython = path.join(resourcesPath, 'python', 'python.exe');
     writeFile(bundledPython, 'windows-python-fixture');
     writeFile(
-      path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl'),
+      path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl'),
       'tampered-hermes-wheel-fixture'
     );
     const commands: string[] = [];

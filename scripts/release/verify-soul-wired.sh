@@ -60,7 +60,7 @@ else
     GATE="$TMP/agent/system_prompt.py"
     SESS="$TMP/acp_adapter/session.py"
     # 2. the load gate exists.
-    # load_soul_md may take args (0.17.0 made it context-length-aware: load_soul_md(_ctx_len));
+    # load_soul_md may take args (0.20.0 made it context-length-aware: load_soul_md(_ctx_len));
     # match the call with any argument list, not just empty parens.
     if grep -q "if agent.load_soul_identity or not agent.skip_context_files:" "$GATE" 2>/dev/null \
        && grep -qE "load_soul_md\(" "$GATE" 2>/dev/null; then

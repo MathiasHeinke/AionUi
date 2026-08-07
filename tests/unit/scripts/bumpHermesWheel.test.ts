@@ -95,7 +95,11 @@ function makeFixtureRepo(): string {
       "const DEFAULT_HERMES_VERSION = '0.17.0';",
       "export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =",
       `  '${OLD_SHA}';`,
-      "// wheel: hermes_agent-0.17.0-py3-none-any.whl",
+      // Computed, not spelled out: the real bump's residue scan sweeps tests/
+      // for the compound `hermes_agent-<old>` literal, and a hardcoded spelling
+      // HERE would read as residue after every real flip. The WRITTEN fixture
+      // file still carries the compound name (that is the point of the count).
+      `// wheel: ${wheelFileNameForVersion('0.17.0')}`,
       '',
     ].join('\n')
   );

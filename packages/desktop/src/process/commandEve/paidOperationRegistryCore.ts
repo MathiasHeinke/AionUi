@@ -82,7 +82,7 @@
  *
  * The brief asked for the existing `X-EVE-Dispatch` header unless there is a
  * concrete reason it cannot carry this. There are two, both verified against the
- * bundled wheel (`resources/bundled-hermes/hermes_agent-0.17.0-py3-none-any.whl`):
+ * bundled wheel (`resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl`):
  *
  *   1. OPPOSITE DEFAULTS ON ONE CARRIER. `X-EVE-Dispatch` answers WHO (roster
  *      attribution) and is fail-OPEN by written contract — "any token that does not
@@ -222,6 +222,17 @@ const COMMAND_EVE_OPERATION_REGISTRY: ReadonlyMap<string, CommandEveOperationEnt
   ['tts_audio_tags', { lane: 'local_only', clientDeclarable: true }],
   ['monitor', { lane: 'local_only', clientDeclarable: true }],
   ['call', { lane: 'local_only', clientDeclarable: true }],
+  // --- new call_llm tasks in the 0.20 wheel (see the FACT block above) ----------
+  // The two MoA halves (usage folded into the main loop by Hermes itself), the
+  // four former direct clients #35566 routed through call_llm, and the new
+  // kanban estimator. Same doctrine: named, local_only, never payable.
+  ['moa_reference', { lane: 'local_only', clientDeclarable: true }],
+  ['moa_aggregator', { lane: 'local_only', clientDeclarable: true }],
+  ['goal_judge', { lane: 'local_only', clientDeclarable: true }],
+  ['kanban_decomposer', { lane: 'local_only', clientDeclarable: true }],
+  ['kanban_estimator', { lane: 'local_only', clientDeclarable: true }],
+  ['profile_describer', { lane: 'local_only', clientDeclarable: true }],
+  ['triage_specifier', { lane: 'local_only', clientDeclarable: true }],
   // Hermes has auxiliary call sites that pass NO task at all — FACT(whl
   // agent/plugin_llm.py:949-950, `task=None`) and FACT(whl trajectory_compressor.py:
   // 649-655, no task kwarg). With no name of their own they would arrive ABSENT and
@@ -260,6 +271,25 @@ const COMMAND_EVE_OPERATION_REGISTRY: ReadonlyMap<string, CommandEveOperationEnt
  *   tts_audio_tags    FACT(whl tools/tts_tool.py:1151)
  *   monitor           FACT(whl cron/scripts/classify_items.py:167)
  *   call              FACT(whl plugins/teams_pipeline/pipeline.py:513)
+ *   moa_reference     FACT(whl 0.20 agent/moa_loop.py:540) — NEW IN 0.20:
+ *                     Mixture-of-Agents reference answers, a real call_llm
+ *                     site. Hermes' own aux accounting EXCLUDES both MoA tasks
+ *                     from separate usage recording because their tokens/cost
+ *                     are folded into the main conversation loop's counters
+ *                     (whl accounting: _EXCLUDED_TASKS) — same doctrine as
+ *                     here: covered by the seam, never separately payable.
+ *   moa_aggregator    FACT(whl 0.20 agent/moa_loop.py:1315,1789) — NEW IN
+ *                     0.20, the aggregation half of the same MoA loop.
+ *   goal_judge        FACT(whl 0.20 hermes_cli/goals.py:951,1021) — NEW IN
+ *                     0.20. The next five are all verified `call_llm(task=…)`
+ *                     sites (0.20 routed several former direct-create paths
+ *                     through call_llm so auxiliary.<task>.* config applies,
+ *                     upstream #35566) — the exact mechanism this registry
+ *                     exists to cover.
+ *   kanban_decomposer FACT(whl 0.20 hermes_cli/kanban_decompose.py:320)
+ *   kanban_estimator  FACT(whl 0.20 plugins/kanban/dashboard/plugin_api.py:1854)
+ *   profile_describer FACT(whl 0.20 hermes_cli/profile_describer.py:232)
+ *   triage_specifier  FACT(whl 0.20 hermes_cli/kanban_specify.py:181)
  *
  * DELIBERATELY ABSENT: `session_search` and `skills_hub`. Both are named in the
  * `call_llm` docstring (whl agent/auxiliary_client.py:5189-5191) but neither appears
@@ -281,6 +311,13 @@ export const COMMAND_EVE_HERMES_AUXILIARY_TASKS: readonly string[] = [
   'tts_audio_tags',
   'monitor',
   'call',
+  'moa_reference',
+  'moa_aggregator',
+  'goal_judge',
+  'kanban_decomposer',
+  'kanban_estimator',
+  'profile_describer',
+  'triage_specifier',
 ];
 
 /**
@@ -305,28 +342,29 @@ export const COMMAND_EVE_WHEEL_NON_TASK_NAMES: readonly string[] = ['__reset__']
  *
  * COMMAND_EVE_HERMES_AUXILIARY_TASKS above enumerates `call_llm` tasks. That is A
  * population, not THE population, so a wheel pin built on it could only ever force
- * re-classification for that one mechanism. These four clients take a client from
- * `get_text_auxiliary_client()` and call `chat.completions.create()` themselves —
- * invisible to any `task=` enumeration. Neither the classification nor the pin ever
- * saw them, and all four hard-failed with a 403 on a cloud tier. A pin that measures
- * the wrong population is this module's own defect one level up.
+ * re-classification for that one mechanism. Through 0.17, FOUR clients took a
+ * client from `get_text_auxiliary_client()` and called
+ * `chat.completions.create()` themselves — invisible to any `task=` enumeration.
+ * Neither the classification nor the pin ever saw them, and all four hard-failed
+ * with a 403 on a cloud tier. A pin that measures the wrong population is this
+ * module's own defect one level up.
  *
- *   goal_judge         FACT(whl hermes_cli/goals.py:411, :440, :449)
- *   kanban_decomposer  FACT(whl hermes_cli/kanban_decompose.py:310, :327, :336)
- *   triage_specifier   FACT(whl hermes_cli/kanban_specify.py:171, :188, :197)
- *   profile_describer  FACT(whl hermes_cli/profile_describer.py:222, :240, :249)
+ * IN 0.20 THIS POPULATION IS EMPTY. Upstream #35566 routed all four former
+ * direct clients (goal_judge, kanban_decomposer, triage_specifier,
+ * profile_describer) through `call_llm(task=…)` so their auxiliary.<task>.*
+ * config applies — they now live in COMMAND_EVE_HERMES_AUXILIARY_TASKS above,
+ * with their 0.20 call sites as FACTs. Verified by a full wheel scan for
+ * `.chat.completions.create(` call sites: the only remaining direct callers are
+ * the auxiliary client itself (the call_llm substrate), the task-less
+ * trajectory compressor (declares {@link COMMAND_EVE_DIRECT_AUXILIARY_OPERATION},
+ * see the escape-hatch contract) and the pinned transport-bypass in
+ * chat_completion_helpers (Mechanism 5 below).
  *
- * These are the labels passed to `get_text_auxiliary_client`, NOT the declared
- * operation: the body comes from `get_auxiliary_extra_body()`, which is fetched
- * independently of the label, so all four declare the generic
- * {@link COMMAND_EVE_DIRECT_AUXILIARY_OPERATION} — local_only, never payable.
+ * The list STAYS, empty on purpose: it is the pinned population for this
+ * mechanism, and the compatibility test asserts its exact contents — a future
+ * wheel that reintroduces a direct client must land here or redden.
  */
-export const COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS: readonly string[] = [
-  'goal_judge',
-  'kanban_decomposer',
-  'triage_specifier',
-  'profile_describer',
-];
+export const COMMAND_EVE_HERMES_DIRECT_AUXILIARY_CLIENTS: readonly string[] = [];
 
 /** What every direct auxiliary client declares. Registered local_only. */
 export const COMMAND_EVE_DIRECT_AUXILIARY_OPERATION = 'eve_auxiliary';

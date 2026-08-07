@@ -197,10 +197,10 @@ const makeHarness = (
     if (command.endsWith('/bin/python') && args.includes('pip')) {
       const installTarget = args.at(-1) || '';
       if (
-        installTarget === 'hermes-agent[acp,mcp]==0.17.0' ||
-        installTarget.endsWith('hermes_agent-0.17.0-py3-none-any.whl[acp,mcp]')
+        installTarget === 'hermes-agent[acp,mcp]==0.20.0' ||
+        installTarget.endsWith('hermes_agent-0.20.0-py3-none-any.whl[acp,mcp]')
       ) {
-        hermesVersion = '0.17.0';
+        hermesVersion = '0.20.0';
         fs.writeFileSync(path.join(path.dirname(command), 'hermes'), '#!/usr/bin/env bash\n');
         fs.chmodSync(path.join(path.dirname(command), 'hermes'), 0o755);
       }
@@ -1467,7 +1467,7 @@ describe('Command EVE runtime bootstrap core', () => {
   it('installs Hermes from a bundled wheel when packaged resources provide one', async () => {
     const harness = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
     const resourcesPath = path.join(harness.root, 'Resources');
-    const wheelPath = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    const wheelPath = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
     fs.mkdirSync(path.dirname(wheelPath), { recursive: true });
     fs.writeFileSync(wheelPath, 'fake wheel\n');
 
@@ -1486,7 +1486,7 @@ describe('Command EVE runtime bootstrap core', () => {
 
       expect(receipt.status).toBe('ready');
       expect(harness.commands.some((command) => command.includes(`${wheelPath}[acp,mcp]`))).toBe(true);
-      expect(harness.commands.some((command) => command.includes('hermes-agent[acp,mcp]==0.17.0'))).toBe(false);
+      expect(harness.commands.some((command) => command.includes('hermes-agent[acp,mcp]==0.20.0'))).toBe(false);
     });
   });
 
@@ -1494,7 +1494,7 @@ describe('Command EVE runtime bootstrap core', () => {
     const harness = makeHarness({
       ollamaInitiallyInstalled: true,
       modelInitiallyPulled: true,
-      hermesInitiallyInstalled: '0.17.0',
+      hermesInitiallyInstalled: '0.20.0',
     });
     const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
     fs.mkdirSync(path.join(paths.hermesVenv, 'bin'), { recursive: true });
@@ -1504,7 +1504,7 @@ describe('Command EVE runtime bootstrap core', () => {
     fs.chmodSync(path.join(paths.hermesVenv, 'bin', 'hermes'), 0o755);
 
     const resourcesPath = path.join(harness.root, 'Resources');
-    const wheelPath = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    const wheelPath = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
     fs.mkdirSync(path.dirname(wheelPath), { recursive: true });
     fs.writeFileSync(wheelPath, 'patched Hermes wheel\n');
     const wheelSha256 = sha256FileIfPresent(wheelPath)!;
@@ -1524,7 +1524,7 @@ describe('Command EVE runtime bootstrap core', () => {
 
       expect(firstReceipt.status).toBe('ready');
       expect(firstReceipt.stages.find((stage) => stage.id === 'hermes')?.detail).toContain(
-        'Repaired hermes-agent 0.17.0'
+        'Repaired hermes-agent 0.20.0'
       );
       expect(
         harness.commands.some((command) => command.includes(`pip install --force-reinstall ${wheelPath}[acp,mcp]`))
@@ -1536,7 +1536,7 @@ describe('Command EVE runtime bootstrap core', () => {
       );
       expect(installReceipt).toMatchObject({
         version: 'command-eve-hermes-wheel-receipt/v2',
-        package_version: '0.17.0',
+        package_version: '0.20.0',
         wheel_sha256: wheelSha256,
         extras: ['acp', 'mcp'],
       });
@@ -1582,10 +1582,10 @@ describe('Command EVE runtime bootstrap core', () => {
       });
 
       expect(receipt.status).toBe('ready');
-      expect(receipt.stages.find((stage) => stage.id === 'hermes')?.detail).toContain('Updated hermes-agent 0.17.0');
+      expect(receipt.stages.find((stage) => stage.id === 'hermes')?.detail).toContain('Updated hermes-agent 0.20.0');
       expect(harness.commands.some((command) => command.endsWith('/bin/hermes --version'))).toBe(false);
       expect(harness.commands.some((command) => command.includes("version('hermes-agent')"))).toBe(true);
-      expect(harness.commands.some((command) => command.includes('0.17.0') && command.includes('pip install'))).toBe(
+      expect(harness.commands.some((command) => command.includes('0.20.0') && command.includes('pip install'))).toBe(
         true
       );
     });

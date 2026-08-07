@@ -118,7 +118,7 @@ describe('MAT-1751 wiring: the chief-of-staff skill is really bundled', () => {
   });
 
   it('is deliberately NOT on the explicit-invocation-only list', () => {
-    // The bundled Hermes 0.17.0 wheel contains ZERO occurrences of
+    // The bundled Hermes 0.20.0 wheel contains ZERO occurrences of
     // `disable_model_invocation` — the key is a REPO-SIDE curation contract enforced by
     // this list, not a Hermes runtime switch. Keeping the permanent seat off the list is
     // the intended state; the assertion stops it drifting on.

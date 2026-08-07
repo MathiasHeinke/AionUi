@@ -98,10 +98,10 @@ const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 const DEFAULT_EGRESS_PROXY_URL = 'http://127.0.0.1:25811';
 const COMMAND_EVE_EGRESS_PROXY_URL_ENV = 'COMMAND_EVE_EGRESS_PROXY_URL';
 const DEFAULT_MODEL_REF = 'hf.co/tripolskypetr/Gemma-4-Uncensored-Aggressive-GGUF:Q5_K_M';
-const DEFAULT_HERMES_VERSION = '0.17.0';
+const DEFAULT_HERMES_VERSION = '0.20.0';
 const DEFAULT_HERMES_PACKAGE = 'hermes-agent';
 export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =
-  'a0a5427f6025474288af4399fa277e871813d6b409ad253fd5154bb30d7e62d9';
+  '9f80183e4db0486bb40f6fa3878b7f7994f81656a42e1c388613e2e3483c8602';
 const COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE = 'bundled-wheel-receipt.json';
 const DEFAULT_FAST_CONTEXT_LENGTH = 65_536;
 const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
@@ -160,7 +160,7 @@ export const EVE_STRATEGY_SKILL_IDS = [
   // instead of sleeping blind, let a governed CEO coordinate bounded workers plus an
   // independent audit arm, judge the evidence, and return ONE decision card.
   // It carries NO disable_model_invocation. Honest scope of that (FACT, verified
-  // against resources/bundled-hermes/hermes_agent-0.17.0-py3-none-any.whl: ZERO
+  // against resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl: ZERO
   // occurrences of the string): the bundled Hermes does not read that key at all, so
   // its absence is not what makes the skill reachable — it is a REPO-SIDE curation
   // contract, enforced by SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION in
@@ -4554,7 +4554,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '',
     '# Command EVE ACP session self-heal (1.819.3).',
     '#',
-    '# Hermes 0.17.0 answers a prompt for an unresolvable session with',
+    '# Hermes 0.20.0 answers a prompt for an unresolvable session with',
     '# PromptResponse(stop_reason="refusal") BEFORE any model or provider is chosen',
     '# (acp_adapter/server.py:1429-1432), and its session/load returns None instead',
     '# of an ACP SessionNotFound error (server.py:1239-1241). AionCore therefore',

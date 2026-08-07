@@ -71,7 +71,7 @@ const CATALOG_GATED_SKILL_IDS = [
  * Hermes wheel — the runtime that actually loads these SKILL.md files at run time.
  */
 const hermesWheelOccurrences = (needle: string): number => {
-  const whl = path.join(REPO_ROOT, 'resources/bundled-hermes/hermes_agent-0.17.0-py3-none-any.whl');
+  const whl = path.join(REPO_ROOT, 'resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl');
   expect(fs.existsSync(whl), 'the bundled Hermes 0.17 wheel must be present for this proof').toBe(true);
   const sources = execFileSync('unzip', ['-p', whl, '*.py'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   return sources.split(needle).length - 1;
@@ -237,7 +237,7 @@ describe('Command EVE 1.819 skill curation', () => {
   });
 
   it('records that disable_model_invocation is a REPO-ONLY curation key, never a Hermes runtime control (MAT-1751 correction 11d)', () => {
-    // FACT, executed against resources/bundled-hermes/hermes_agent-0.17.0-py3-none-any.whl —
+    // FACT, executed against resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl —
     // the runtime that actually loads these SKILL.md files: the string
     // `disable_model_invocation` occurs ZERO times in the entire wheel. Hermes 0.17 parses
     // frontmatter (parse_frontmatter) and honours `name`, `description`, `platforms`,

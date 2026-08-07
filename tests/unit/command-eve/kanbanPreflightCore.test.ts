@@ -284,6 +284,25 @@ describe('Command EVE Kanban preflight core', () => {
     expect(result.model?.hermes.version_ok).toBe(false);
   });
 
+  it('compares versions NUMERICALLY: Hermes 0.20.0 clears the 0.16.0 floor', () => {
+    // The classic string-compare trap, pinned with the real bump at hand:
+    // lexicographically '0.20.0' < '0.16.0' (because '2' < '6'), so a naive
+    // comparison would BLOCK the 0.20 wheel as "too old". compareSemver parses
+    // each segment numerically (20 > 16); this case keeps it that way.
+    const root = makeRoot();
+    makePython(root);
+    writeLockedReconciliation(root);
+
+    const result = runKanbanPreflight({
+      userDataPath: root,
+      commandRunner: runnerWithPayload(probePayload('0.20.0')),
+    });
+
+    expect(result.reason_code).not.toBe('KANBAN_HERMES_VERSION_TOO_OLD');
+    expect(result.model?.hermes.version_ok).toBe(true);
+    expect(result.model?.hermes.installed_version).toBe('0.20.0');
+  });
+
   it('blocks when Kanban governance is not locked read-first (dispatcher on)', () => {
     const root = makeRoot();
     makePython(root);
