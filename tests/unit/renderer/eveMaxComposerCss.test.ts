@@ -302,6 +302,60 @@ describe('MAX composer state — the CSS-variable seam', () => {
     const outsideKeyframes = css.replace(/@keyframes [\s\S]*?\n\}/g, '');
     expect((outsideKeyframes.match(/--eve-max-sheen-x\s*:/g) ?? []).length).toBe(0);
   });
+
+  it('every keyframe-animated custom property is CONSUMED by the rule that runs it — an unread animation is a visually dead effect', () => {
+    // THE HOLE THIS CLOSES, found by founder sabotage: replacing the armed
+    // rule's `--eve-spotlight-position: var(--eve-max-sheen-x) …` with a
+    // constant kept eve-composer-max-sheen RUNNING — duration checks green,
+    // no-static-declaration checks green — while the wandering light stood
+    // perfectly still. Animating a custom property does nothing unless the
+    // SAME rule's element reads it; this derives that consumption contract
+    // from the keyframes instead of trusting any single line.
+    const source = stripCssComments(css);
+
+    // 1) Which custom properties does each MAX keyframes block animate?
+    const animatedProps = new Map<string, string[]>();
+    for (const block of source.matchAll(/@keyframes (eve-composer-max-[a-z-]+) \{([\s\S]*?)\n\}/g)) {
+      const props = [...new Set([...block[2].matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]))];
+      if (props.length > 0) animatedProps.set(block[1], props);
+    }
+    expect(
+      animatedProps.size,
+      'no custom-property keyframes found — the sheen model changed shape, re-derive this guard'
+    ).toBeGreaterThanOrEqual(3);
+
+    // 2) Every rule that RUNS one of those keyframes must read every property
+    //    it animates. (Reduced blocks declare `animation: none` and are skipped
+    //    by construction; rules animating only opacity/transform carry no
+    //    custom properties and are skipped via the map.)
+    const withoutKeyframes = source.replace(/@keyframes [\s\S]*?\n\}/g, '');
+    let checkedRules = 0;
+    for (const rule of withoutKeyframes.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+      const runs = rule[2].match(/animation(?:-name)?:\s*(eve-composer-max-[a-z-]+)/);
+      if (!runs) continue;
+      const props = animatedProps.get(runs[1]);
+      if (!props) continue;
+      checkedRules += 1;
+      const selector = rule[1].trim().split('\n').pop();
+      for (const prop of props) {
+        expect(
+          rule[2].includes(`var(${prop}`),
+          `${selector} runs ${runs[1]} but never reads ${prop} — the animation would keep running while the effect is visually dead`
+        ).toBe(true);
+      }
+    }
+    expect(
+      checkedRules,
+      'no consuming rules found — the selector shapes changed, re-derive this guard'
+    ).toBeGreaterThanOrEqual(4);
+
+    // 3) SECOND HOP of the same chain: the re-pointed position/radius are only
+    //    alive because the base hairline gradient reads them. A hardcoded
+    //    position there would kill the sheen just as silently.
+    const baseBefore = ruleBody(source, '.eve-composer-surface::before');
+    expect(baseBefore).toContain('var(--eve-spotlight-position)');
+    expect(baseBefore).toContain('var(--eve-spotlight-radius)');
+  });
 });
 
 // ── THE FOCUS CASCADE (1.820.6, CEVE-18205) ─────────────────────────────────
