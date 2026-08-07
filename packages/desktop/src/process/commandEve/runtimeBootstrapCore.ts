@@ -2728,9 +2728,17 @@ export function commandEveOnboardingSkillMarkdown(): string {
 // as a baseline artifact so the proven preview-click chain (a written `.html` opens
 // in the preview panel's HTML renderer) always has a clean, no-script, no-secret
 // page to surface. It starts with the `<!-- eve-onboarding-step -->` marker so the
-// best-effort auto-open bonus (useAutoPreviewOfficeFiles) can recognise it; that
-// auto-open is inert without a backend watcher, so the page is primarily a
-// click-to-open step-screen. The page is static instructions + one external LINK the
+// best-effort auto-open bonus (useAutoPreviewOfficeFiles) can recognise it.
+//
+// CORRECTED 2026-08-07 — this used to add "that auto-open is inert without a
+// backend watcher". The watcher exists: the pinned aioncore binary (sha256
+// 83a4e743...2d3a8a) carries `workspaceOfficeWatch.fileAdded` next to
+// `crates/aionui-file/src/watch_service.rs:98`, plus the
+// `/api/fs/office-watch/start` and `/stop` routes, and the hook calls both and
+// subscribes. Still UNPROVEN is whether an event ever arrives at runtime — that
+// needs a live packaged app, so the click chain remains the path we can vouch
+// for, and auto-open is a bonus whose live behaviour is unverified rather than
+// one we know to be dead. The page is static instructions + one external LINK the
 // operator clicks themselves — no <script>, no form, no command to paste, no secret.
 export const COMMAND_EVE_ONBOARDING_STEP_MARKER = '<!-- eve-onboarding-step -->';
 

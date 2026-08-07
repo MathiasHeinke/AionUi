@@ -14,8 +14,31 @@ import { useCallback, useEffect, useRef } from 'react';
 const OFFICE_OPEN_DELAY_MS = 1000;
 // 'html' is included for the Guided Onboarding S3 step-screen bonus only. The proven
 // PRIMARY path for an EVE-authored onboarding.html is the click chain (FileChangesPanel
-// -> launchPreview -> HTMLRenderer), which needs no change here. Auto-open is a
-// best-effort BONUS and is inert in this worktree (no backend watcher emits fileAdded).
+// -> launchPreview -> HTMLRenderer), which needs no change here.
+//
+// CORRECTED 2026-08-07 — this used to say auto-open "is inert in this worktree (no
+// backend watcher emits fileAdded)". That is false: the sender exists and both ends
+// are wired. Measured against the pinned binary
+// _aioncore-pinned/darwin-arm64/aioncore, sha256
+// 83a4e7432f280995c9681bab559684f8ad747270b3f5c6b6c2f28c94bc2d3a8a:
+//
+//   - `strings` finds `workspaceOfficeWatch.fileAdded` sitting directly beside
+//     `crates/aionui-file/src/watch_service.rs:98` and the literals
+//     `create` / `change` / `remove` — that Rust watcher IS the emitter.
+//   - The routes `/api/fs/office-watch/start` and `/api/fs/office-watch/stop` are
+//     both in the binary's route table.
+//   - This hook calls both (`:108` start, `:144` stop) and subscribes at `:124`;
+//     MessageList.tsx:299 mounts it.
+//
+// WHAT IS STILL UNPROVEN, and the reason this note does not claim it works: nobody
+// has watched an event arrive. `strings` proves the symbols are compiled in, not
+// that the watcher fires, matches, and reaches this listener at runtime. That is a
+// live test on a packaged app, not something the source can settle. So: wired end
+// to end, live behaviour unverified.
+//
+// One caveat the strings cannot resolve either: the literal `docx / pptx / xlsx`
+// is present in the binary, but `strings` cannot show which code path filters on
+// it, so the extension set is evidence, not proof.
 const OFFICE_CONTENT_TYPES = new Set(['ppt', 'word', 'excel', 'html']);
 
 // Marker-gate for the html auto-open bonus: only auto-open HTML files that follow the
