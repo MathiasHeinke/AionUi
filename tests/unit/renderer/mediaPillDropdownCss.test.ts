@@ -113,6 +113,52 @@ describe('the foreign vocabulary is BANNED from the dropdown section', () => {
   });
 });
 
+describe('the LEGACY FALLBACK radios speak EVE too — they render exactly when the catalog fetch failed', () => {
+  // The catalog path went EVE-glass in the dropdown fix; the legacy radios
+  // (VideoQualityPill / ImageModelPill else-branches, shown when no catalog or
+  // selectedSpec is available) kept the foreign vocabulary — a bright
+  // #2563eb/#e5e7eb moment at precisely the time something is already wrong.
+  const RADIO_CONSUMPTION: Array<[string, string[]]> = [
+    ['.video-quality-pill__option:hover', ['var(--eve-composer-border)']],
+    ['.video-quality-pill__option:focus-visible', ['var(--eve-focus-ring)']],
+    ['.video-quality-pill__option.is-selected', ['var(--eve-max-accent)']],
+    ['.image-model-pill__option:hover', ['var(--eve-composer-border)']],
+    ['.image-model-pill__option:focus-visible', ['var(--eve-focus-ring)']],
+    ['.image-model-pill__option.is-selected', ['var(--eve-max-accent)']],
+  ];
+
+  it.each(RADIO_CONSUMPTION)('%s reads its EVE tokens and none of the foreign ones', (selector, tokens) => {
+    const body = ruleBody(selector);
+    for (const token of tokens) {
+      expect(body.includes(token), `${selector} no longer reads ${token}`).toBe(true);
+    }
+    for (const foreign of ['--border-secondary', '--color-primary-6', '#e5e7eb', '#2563eb']) {
+      expect(body.includes(foreign), `${selector} carries foreign vocabulary again: ${foreign}`).toBe(false);
+    }
+  });
+
+  it('focus stays an OUTLINE, visually distinct from is-selected (the priced-control argument)', () => {
+    // The comment above these rules is load-bearing: focused is not chosen, an
+    // outline cannot be confused with the selected border treatment and does
+    // not participate in layout. Both families keep that shape.
+    for (const family of ['.video-quality-pill__option', '.image-model-pill__option']) {
+      const focus = ruleBody(`${family}:focus-visible`);
+      expect(focus).toMatch(/outline:\s*2px solid var\(--eve-focus-ring\)/);
+      expect(focus, 'focus must not restyle the border — that is the selected treatment').not.toMatch(/border-color:/);
+      const selected = ruleBody(`${family}.is-selected`);
+      expect(selected).toMatch(/border-color:/);
+      expect(selected, 'selected must not claim the outline — that is the focus treatment').not.toMatch(/outline:/);
+    }
+  });
+
+  it('no dead --eve-max-accent fallback chains anywhere in the pill families', () => {
+    // The dropdown cleanup removed eight of these; the radios carried three
+    // more. The token is always declared — a #2563eb fallback is dead weight
+    // that doubles as foreign vocabulary.
+    expect(css.includes('var(--eve-max-accent, var(--color-primary-6')).toBe(false);
+  });
+});
+
 describe('content-wide geometry (the ellipsis-with-free-space fix)', () => {
   it('the list is content-wide in CSS; floors and caps arrive via the placement style', () => {
     const body = ruleBody('.video-quality-pill__model-list');

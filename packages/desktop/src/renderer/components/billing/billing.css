@@ -262,7 +262,7 @@
   cursor: pointer;
 }
 .video-quality-pill__option:hover {
-  border-color: var(--border-secondary, #e5e7eb);
+  border-color: var(--eve-composer-border);
 }
 /* Keyboard focus has to be VISIBLE on a control that decides what a video
    costs. Without this, tabbing through the options moved an invisible focus and
@@ -271,12 +271,12 @@
    be confused with `.is-selected` (focused is not chosen), and an outline does
    not participate in layout, so nothing shifts as focus moves. */
 .video-quality-pill__option:focus-visible {
-  outline: 2px solid var(--color-primary-6, #2563eb);
+  outline: 2px solid var(--eve-focus-ring);
   outline-offset: 2px;
 }
 .video-quality-pill__option.is-selected {
-  border-color: var(--color-primary-6, #2563eb);
-  color: var(--color-primary-6, #2563eb);
+  border-color: color-mix(in srgb, var(--eve-max-accent) 55%, transparent);
+  color: var(--eve-max-accent);
   font-weight: 600;
 }
 .video-quality-pill__resolution {
@@ -590,25 +590,25 @@
   cursor: pointer;
 }
 .image-model-pill__option:hover {
-  border-color: var(--border-secondary, #e5e7eb);
+  border-color: var(--eve-composer-border);
 }
 /* Same argument as the video pill: on a control that decides what an image
    costs, keyboard focus must be VISIBLE and must not be confusable with the
    selected state — so an outline, never a border-colour change. */
 .image-model-pill__option:focus-visible {
-  outline: 2px solid var(--color-primary-6, #2563eb);
+  outline: 2px solid var(--eve-focus-ring);
   outline-offset: 2px;
 }
 .image-model-pill__option.is-selected {
-  border-color: var(--color-primary-6, #2563eb);
-  color: var(--color-primary-6, #2563eb);
+  border-color: color-mix(in srgb, var(--eve-max-accent) 55%, transparent);
+  color: var(--eve-max-accent);
   font-weight: 600;
 }
 /* The premium tier, selected: a whisper of the MAX accent, deliberately below
    the reasoning toggle's treatment — colour and border only, no fill. */
 .image-model-pill__option--max.is-selected {
-  border-color: color-mix(in srgb, var(--eve-max-accent, var(--color-primary-6, #2563eb)) 40%, transparent);
-  color: var(--eve-max-accent, var(--color-primary-6, #2563eb));
+  border-color: color-mix(in srgb, var(--eve-max-accent) 40%, transparent);
+  color: var(--eve-max-accent);
 }
 /* The server-pinned model name next to the tier label (e.g. Nano Banana 2). */
 .image-model-pill__model {
