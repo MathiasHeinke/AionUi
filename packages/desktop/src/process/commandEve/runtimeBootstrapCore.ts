@@ -2377,26 +2377,31 @@ export function prepareCommandEveRuntimeProcessEnv(
   // branch, and in a wheel install neither remaining branch matches — 17
   // languages then silently fall back to English or the bare key.
   //
-  // WHERE THE FILES ACTUALLY LAND — measured, not assumed (this line first
-  // shipped with `<venv>/locales` and was WRONG): the 0.20 pyproject declares
-  // `tool.setuptools.data-files` with target `data/locales`, so pip installs
-  // to `sys.prefix/data/locales` = `<venv>/data/locales`. Proof against a real
-  // 0.20 install: the dist-info RECORD lists `../../../data/locales/de.yaml`
-  // relative to site-packages (= three up to the venv root, then
-  // data/locales), and `<venv>/locales` does not exist there at all. (0.17
-  // used the wheel-native `.data/data/` category instead, which lands at the
-  // venv ROOT — that layout is found by 0.17's own sysconfig fallback, so
-  // pinning the 0.20 target here is harmless while 0.17 is still bundled.)
-  // The layout-truth test in hermesBundledLocalesEnv.test.ts derives this
-  // path from the bundled wheel's actual entries, so a future layout change
-  // goes red instead of silently pinning the wrong directory again.
+  // WHERE THE FILES ACTUALLY LAND — measured against the VALID 0.20 wheel
+  // (build020h, sha256 9f80183e…) and cross-checked against the official
+  // upstream 0.17 and 0.19 wheels: all of them ship the locales through the
+  // WHEEL-NATIVE data category (`hermes_agent-<v>.data/data/locales/…`,
+  // RECORD `../../../locales/af.yaml`), which pip installs at the venv ROOT —
+  // `<venv>/locales`. A fresh 0.20 install proves it: 17 files in
+  // `venv/locales`, and `venv/data/locales` does not exist at all.
+  //
+  // HISTORY OF THIS LINE, kept on purpose: it briefly pointed at
+  // `<venv>/data/locales`. That detour was measured against an INTERIM
+  // SELF-BUILT wheel (build020g) whose pyproject mistakenly declared
+  // setuptools data-files with a `data/locales` target — doubling the data
+  // segment. That was OUR packaging bug, not upstream behaviour, and it is
+  // fixed in the pyproject. THE SAFEGUARD, so this cannot repeat: every
+  // self-built wheel is DIFFED AGAINST THE UPSTREAM WHEEL LAYOUT before it is
+  // bundled, and the layout-truth test in hermesBundledLocalesEnv.test.ts
+  // derives this path from the bundled wheel's actual zip entries — a wheel
+  // with any other layout goes red instead of silently mis-pinning again.
   //
   // The path is DERIVED, never probed: it is already correct on a first run
   // BEFORE the venv exists — Hermes checks `candidate.is_dir()` and treats a
   // not-yet-existing directory as "no override" (with a warning) until the
   // install creates it — so an early bake cannot crash a boot, and no empty
   // string is ever pinned that a later resolver would silently prefer.
-  env.HERMES_BUNDLED_LOCALES = path.join(paths.hermesVenv, 'data', 'locales');
+  env.HERMES_BUNDLED_LOCALES = path.join(paths.hermesVenv, 'locales');
 
   // The venv is based on the bundled interpreter under the signed app bundle.
   // Every Python descendant must keep bytecode out of Contents/Resources/python,
