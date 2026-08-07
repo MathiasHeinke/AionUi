@@ -194,8 +194,8 @@ describe('MAX composer state — the CSS-variable seam', () => {
   });
 
   it('MOTION is a state model: the base layer stays transition-only, loops live ONLY on state selectors', () => {
-    // The 1.820.5 founder-approved state model ADDS infinite animations — but
-    // scoped to the five states, never to the base MAX layer.
+    // The B+A+C redesign keeps the 1.820.5 protective frame: motion is added —
+    // but scoped to explicit state selectors, never to the base MAX layer.
     const motion = ruleBody(
       css,
       ".eve-composer-surface[data-eve-max='true']::before,\n.eve-composer-surface[data-eve-max='true']::after"
@@ -212,29 +212,247 @@ describe('MAX composer state — the CSS-variable seam', () => {
       }
     }
 
-    // The five states exist as selectors, and the ignition sweep is one-shot.
+    // The five states exist as selectors; ignition is one EVENT on two layers
+    // (B's sweep on ::before, A's pressure surge on ::after), both one-shot.
     for (const state of ['armed', 'start-stau', 'denk-puls', 'stream']) {
       expect(css).toContain(`.eve-composer-surface[data-eve-max='true'][data-eve-glow='${state}']`);
     }
-    expect(css).toContain(".eve-composer-surface[data-eve-max-ignition='true']::after");
-    const ignition = ruleBody(css, ".eve-composer-surface[data-eve-max-ignition='true']::after");
-    expect(ignition).toMatch(/animation:\s*eve-composer-max-ignition\s+300ms[^;]*\s1[;\s]/);
-    expect(ignition).not.toMatch(/infinite/);
+    const ignitionSweep = ruleBody(
+      css,
+      ".eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::before"
+    );
+    expect(ignitionSweep).toMatch(/animation:\s*eve-composer-max-ignition-sweep\s+380ms\s+cubic-bezier\(0\.16, 1, 0\.3, 1\)\s+1[;\s]/);
+    expect(ignitionSweep).not.toMatch(/infinite/);
+    const ignitionSurge = ruleBody(
+      css,
+      ".eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::after"
+    );
+    expect(ignitionSurge).toMatch(/animation:\s*eve-composer-max-ignition-surge\s+420ms\s+cubic-bezier\(0\.16, 1, 0\.3, 1\)\s+1[;\s]/);
+    expect(ignitionSurge).not.toMatch(/infinite/);
 
-    // Calm bounds: every loop is slower than a nervous flicker (>= 1.5s).
-    for (const loop of ['eve-composer-max-breath 4s', 'eve-composer-max-orbit 3s', 'eve-composer-max-flow 2.8s']) {
-      expect(css).toContain(loop);
-    }
+    // REST stays slow, never nervous: the wandering sheen must keep at least a
+    // 6s period (founder floor) and the depth-field breath stays >= 4s. The
+    // ACTIVE start-stau scan is allowed to be fast (1.1s) — but only against
+    // the 3s orbit, and the two periods must stay incommensurable so the
+    // composite never repeats (that is what separates "searching" from
+    // "spinner").
+    const sheen = ruleBody(css, ".eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']::before");
+    const sheenPeriod = Number(sheen.match(/eve-composer-max-sheen\s+([\d.]+)s/)![1]);
+    expect(sheenPeriod).toBeGreaterThanOrEqual(6);
+    const field = ruleBody(css, ".eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']::after");
+    const fieldPeriod = Number(field.match(/eve-composer-max-field-breath\s+([\d.]+)s/)![1]);
+    expect(fieldPeriod).toBeGreaterThanOrEqual(4);
+    expect(css).toMatch(/eve-composer-max-scan\s+1\.1s/);
+    expect(css).toMatch(/eve-composer-max-orbit\s+3s/);
+    const ratio = 3 / 1.1;
+    expect(Math.abs(ratio - Math.round(ratio))).toBeGreaterThan(0.2);
+    // The orbit is SEARCHING, not spinning: non-linear angular velocity.
+    const stauRing = ruleBody(css, ".eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau']::after");
+    expect(stauRing).toMatch(/eve-composer-max-orbit\s+3s\s+linear\(0, 0\.35 30%, 0\.42 55%, 1\)\s+infinite/);
     expect(css).toMatch(/eve-composer-max-heartbeat\s+1\.8s/);
+    expect(css).toContain('eve-composer-max-flow 2.8s');
 
-    // The restrained ambient bloom: idle 8px/10%, working 16px/25%.
-    const armedBloom = ruleBody(css, ".eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']");
-    expect(armedBloom).toMatch(/0 0 22px 2px\s+color-mix\(in srgb, var\(--eve-max-glow\) 20%/);
+    // A's depth field: the max light lives on ::after (wide, soft, token-driven,
+    // light theme at roughly half the dark share), working blooms unchanged.
+    expect(field).toMatch(/0 12px 64px 10px var\(--eve-max-field\)/);
+    expect(css).toMatch(/--eve-max-field:\s*color-mix\(in srgb, var\(--eve-max-glow\) 8%/);
+    expect(css).toMatch(/--eve-max-field:\s*color-mix\(in srgb, var\(--eve-max-glow\) 16%/);
     const workingBloom = ruleBody(
       css,
       ".eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau'],\n.eve-composer-surface[data-eve-max='true'][data-eve-glow='stream']"
     );
     expect(workingBloom).toMatch(/0 0 16px color-mix\(in srgb, var\(--eve-max-glow\) 25%/);
+  });
+
+  it('HARD RULE: no keyframe in the MAX lane animates a blur — filter/box-shadow/backdrop stay static', () => {
+    // Animating a blur radius re-rasterizes the layer every frame on the
+    // backdrop-filter glass and stutters in the packaged build. Only opacity,
+    // transform and the registered sheen properties may move.
+    const keyframeBlocks = css.match(/@keyframes eve-composer-max-[a-z-]+ \{[\s\S]*?\n\}/g) ?? [];
+    expect(keyframeBlocks.length).toBeGreaterThanOrEqual(5);
+    for (const block of keyframeBlocks) {
+      expect(block, `a blur-animating keyframe shipped: ${block.slice(0, 60)}`).not.toMatch(
+        /filter:|box-shadow:|backdrop-filter:/
+      );
+      const declared = (block.match(/^\s*([a-z-]+|--[a-z0-9-]+)\s*:/gim) ?? []).map((m) =>
+        m.replace(/[\s:]/g, '')
+      );
+      for (const property of declared) {
+        expect(
+          ['opacity', 'transform', '--eve-max-sheen-x', '--eve-max-radius', '--eve-composer-angle', 'padding', 'background-position'].includes(property),
+          `keyframe animates unexpected property: ${property}`
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('the sheen properties are REGISTERED — without @property the position snaps instead of gliding', () => {
+    for (const name of ['--eve-max-sheen-x', '--eve-max-radius']) {
+      const at = css.indexOf(`@property ${name}`);
+      expect(at, `${name} is not registered`).toBeGreaterThan(-1);
+      const block = css.slice(at, css.indexOf('}', at));
+      expect(block).toMatch(/syntax:\s*'<(percentage|length)>'/);
+      expect(block).toMatch(/initial-value:/);
+    }
+    // The initial 50% doubles as the reduced-motion standstill: NO static
+    // declaration of the sheen position may exist outside @keyframes, or the
+    // reduced state would freeze at whatever that rule says instead of centre.
+    // (@property declares via `initial-value:`, so zero `--eve-max-sheen-x:`
+    // declarations must remain once the keyframes are stripped.)
+    const outsideKeyframes = css.replace(/@keyframes [\s\S]*?\n\}/g, '');
+    expect((outsideKeyframes.match(/--eve-max-sheen-x\s*:/g) ?? []).length).toBe(0);
+  });
+});
+
+// ── THE FOCUS CASCADE (1.820.6, CEVE-18205) ─────────────────────────────────
+/**
+ * THE DEFECT: with MAX engaged, the composer was DARKER while focused than the
+ * standard lane was. Two independent causes, both of which had to be fixed:
+ *
+ *   1. A running keyframe animation outranks every normal author declaration
+ *      (the animation origin sits above normal author rules), so
+ *      `:focus-within::before { opacity: 0.72 }` never reached the MAX hairline
+ *      and MAX stayed on its animated 0.30–0.62.
+ *   2. Under `prefers-reduced-motion` no animation runs at all, but the MAX stop
+ *      is (0,3,1) and beats the focus rules at (0,2,1), while the STANDARD stop
+ *      is only (0,1,1) and loses to them. Same inversion, plain specificity.
+ *
+ * These tests assert the OUTCOME (MAX is never dimmer than OFF in the same
+ * state) and the two properties that outcome must not be bought with — a killed
+ * breath, or a re-declared period. A string-equality test would pass for an
+ * `!important` fix that freezes the animation, which is why none is used here.
+ */
+describe('MAX composer glow — MAX is never dimmer than the standard lane (CEVE-18205)', () => {
+  /** Comments legitimately contain selector and opacity text; only rules count. */
+  const rules = stripCssComments(css);
+
+  /** The brace-balanced body of the block that starts at/after `from`. */
+  function blockAt(source: string, from: number): string {
+    const start = source.indexOf('{', from);
+    if (start === -1) throw new Error('no block found');
+    let depth = 0;
+    for (let i = start; i < source.length; i += 1) {
+      if (source[i] === '{') depth += 1;
+      else if (source[i] === '}') {
+        depth -= 1;
+        if (depth === 0) return source.slice(start + 1, i);
+      }
+    }
+    throw new Error('unbalanced block');
+  }
+
+  function rawMediaBlock(condition: string): string {
+    const at = rules.indexOf(`@media ${condition} {`);
+    if (at === -1) throw new Error(`@media not found: ${condition}`);
+    return blockAt(rules, at);
+  }
+
+  const reducedMotionRaw = rawMediaBlock('(prefers-reduced-motion: reduce)');
+  /** Nested rules are indented; unindent so `ruleBody` sees plain selectors. */
+  const reducedMotion = reducedMotionRaw.replace(/^[ \t]+/gm, '');
+  /**
+   * The stylesheet WITHOUT the reduced-motion block. The two fixes use the SAME
+   * selectors, so a search over the whole file would find the reduced-motion
+   * copy and report the animated path as covered when it is not — the two paths
+   * must be asserted against disjoint sources or neither assertion means
+   * anything. (Caught by sabotage: removing a selector from the animated group
+   * alone left the naive whole-file search green.)
+   */
+  const animatedPath = rules.replace(reducedMotionRaw, '');
+
+  const opacityOf = (body: string): number => {
+    const found = body.match(/opacity:\s*([\d.]+)/);
+    if (!found) throw new Error(`no opacity declared in: ${body.trim()}`);
+    return parseFloat(found[1]);
+  };
+
+  const STANDARD_FOCUS = [
+    ".eve-composer-surface[data-keyboard-focus='true']::before",
+    '.eve-composer-surface:focus-within::before',
+    '.eve-composer-surface:has(:focus-visible)::before',
+  ].join(',\n');
+
+  const MAX_ARMED_FOCUS = [
+    ".eve-composer-surface[data-eve-max='true'][data-eve-glow='armed'][data-keyboard-focus='true']::before",
+    ".eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']:focus-within::before",
+    ".eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']:has(:focus-visible)::before",
+  ].join(',\n');
+
+  /** The standard lane's focused hairline — the floor MAX must never fall below. */
+  const standardFocusOpacity = opacityOf(ruleBody(rules, STANDARD_FOCUS));
+
+  it('ANIMATED PATH: focused MAX sits ABOVE the standard focus value, by a declaration that actually wins', () => {
+    // The redesign removes the cascade conflict at the ROOT: the armed sheen
+    // animates only the registered position/radius properties, NEVER opacity —
+    // so a plain focused opacity declaration wins by ordinary cascade rules.
+    // Both halves are asserted, because either alone can silently regress:
+    const sheenKeyframes = rules.slice(rules.indexOf('@keyframes eve-composer-max-sheen'));
+    expect(blockAt(sheenKeyframes, 0), 'the sheen must never animate opacity — that re-opens the animation-origin trap').not.toMatch(
+      /opacity:/
+    );
+    const body = ruleBody(animatedPath, MAX_ARMED_FOCUS);
+    expect(opacityOf(body)).toBeGreaterThanOrEqual(standardFocusOpacity);
+    // A hairline pinned at full opacity reads as a border, not as a glow.
+    expect(opacityOf(body)).toBeLessThan(1);
+  });
+
+  it('the fix does NOT kill the motion: focus PAUSES the wandering light instead', () => {
+    const body = ruleBody(animatedPath, MAX_ARMED_FOCUS);
+    // B's statement: the light stops wandering WHILE you type and resumes when
+    // you leave. A pause, not a kill — `animation: none` here would throw away
+    // the resumability, and `!important` would freeze any future opacity
+    // animation dead. Both stay forbidden on this rule specifically.
+    expect(body).toMatch(/animation-play-state:\s*paused/);
+    expect(body, 'an !important here is the frozen-forever failure mode').not.toMatch(/!important/);
+    expect(body, 'animation: none kills instead of pausing').not.toMatch(/animation:\s*none/);
+  });
+
+  it('the focused sheen CANNOT drift from the resting one: no shorthand, no re-timing in the focus rule', () => {
+    const body = ruleBody(animatedPath, MAX_ARMED_FOCUS);
+    // The `animation` SHORTHAND would reset duration/timing/iteration-count and
+    // let the focused period drift away from the resting cycle. Only play-state
+    // (and the winning opacity) may appear; everything else is inherited from
+    // the armed rule by construction.
+    expect(body, 'the animation shorthand resets the period').not.toMatch(/(^|[;{\s])animation:\s/);
+    expect(body).not.toMatch(/animation-duration:/);
+    expect(body).not.toMatch(/animation-name:/);
+  });
+
+  it('covers ALL THREE focus modalities — pointer, keyboard and :has fallback', () => {
+    // Fixing only `:focus-within` would leave the keyboard-navigation path
+    // inverted, which is the path the accessibility contract cares about most.
+    // Both the animated fix and the reduced-motion fix must carry all three,
+    // asserted against disjoint sources so one cannot cover for the other.
+    for (const variant of ["[data-keyboard-focus='true']", ':focus-within', ':has(:focus-visible)']) {
+      const selector = `.eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']${variant}::before`;
+      expect(animatedPath, `animated fix is missing the ${variant} modality`).toContain(selector);
+      expect(reducedMotion, `reduced-motion fix is missing the ${variant} modality`).toContain(selector);
+    }
+  });
+
+  it('REDUCED MOTION: the same inversion is closed on the no-animation path too', () => {
+    const maxFocus = ruleBody(reducedMotion, MAX_ARMED_FOCUS);
+    // The whole point: MAX focused must not sit below the standard lane focused.
+    expect(opacityOf(maxFocus)).toBeGreaterThanOrEqual(standardFocusOpacity);
+    // …without smuggling the motion back in. This block's contract is
+    // "state stays, motion goes", and the animated fix above is MORE specific
+    // than this block's `animation: none`, so the name must be stopped again.
+    expect(maxFocus).toMatch(/animation-name:\s*none/);
+  });
+
+  it('REDUCED EFFECTS: verified to NOT have the inversion — MAX stays ahead of standard', () => {
+    // Recorded as a contract rather than a comment: here BOTH lanes lose their
+    // focus response (the `:root[…]` prefix outranks the focus rules for both),
+    // so the lane distinction is carried by the resting values alone. If a
+    // future edit re-specifies one side only, this catches it.
+    const standard = opacityOf(ruleBody(rules, ":root[data-eve-reduced-effects='true'] .eve-composer-surface::before"));
+    const maxArmed = opacityOf(
+      ruleBody(
+        rules,
+        ":root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']::before"
+      )
+    );
+    expect(maxArmed).toBeGreaterThanOrEqual(standard);
   });
 });
 
@@ -712,7 +930,12 @@ describe('MAX composer state — reduced motion keeps the state, drops the motio
     const stateSelectors = [
       ".eve-composer-surface[data-eve-max='true'][data-eve-glow]::before",
       ".eve-composer-surface[data-eve-max='true'][data-eve-glow]::after",
-      ".eve-composer-surface[data-eve-max-ignition='true']::after",
+      // Ignition moved to the stronger [data-eve-max][data-eve-max-ignition]
+      // compound in the redesign (it must OUTRANK the armed rules), so the
+      // stops must carry the SAME compound on BOTH pseudos — a weaker stop
+      // would lose the specificity war it is there to win.
+      ".eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::before",
+      ".eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::after",
     ];
     const appLevel = `:root[data-eve-reduced-effects='true'] `;
     const mediaStart = css.indexOf('@media (prefers-reduced-motion: reduce)');

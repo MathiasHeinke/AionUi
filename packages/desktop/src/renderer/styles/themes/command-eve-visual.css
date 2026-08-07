@@ -150,6 +150,11 @@
      Light: the composer surface is bright, so the brand orange takes a small
      step toward the shell text for legibility — warmth kept, glare removed. */
   --eve-max-glow: color-mix(in srgb, var(--eve-brand-logo) 82%, var(--eve-shell-text));
+  /* The ambient depth FIELD under the MAX composer (concept A). On a bright
+     surface with a background image a warm wide field tips into "smudge" fast,
+     so light runs at ROUGHLY HALF the dark share — same asymmetry the spotlight
+     opacities above already encode. */
+  --eve-max-field: color-mix(in srgb, var(--eve-max-glow) 8%, transparent);
 
   /* Local background-image readability */
   --eve-bg-image-intensity: 100%;
@@ -285,6 +290,9 @@
      the brand orange needs almost no lift to read as lit, so it takes 12% white
      instead of 56%: luminous, still unmistakably warm, and still not neon. */
   --eve-max-glow: color-mix(in srgb, var(--eve-brand-logo) 88%, var(--eve-static-white));
+  /* Dark half of the field split — the dark composer can carry twice the light
+     share before it reads as dirt (see the light block). */
+  --eve-max-field: color-mix(in srgb, var(--eve-max-glow) 16%, transparent);
 }
 
 .eve-message-surface,
@@ -2103,30 +2111,42 @@
 }
 
 /* The MAX hairline stays legible at rest, not only on hover/focus — the lane is
-   a state the user must be able to SEE they are in. This is the whole contrast
-   to OFF: the standard composer shows its spotlight ONLY on hover (::before
-   opacity 0 → --eve-spotlight-max), MAX carries it permanently and breathes.
-   Raised 0.34 → 0.42 to sit at the low end of the new breath range rather than
-   below it, so engaging MAX is a visible step even before the animation moves. */
+   a state the user must be able to SEE they are in. Constant, deliberately: in
+   the B+A+C redesign the hairline no longer breathes — the PULSE comes from the
+   traveling sheen and the depth field below, both of which survive retinal
+   adaptation in a way a slow luminance ramp measurably does not. */
 .eve-composer-surface[data-eve-max='true']::before {
   opacity: 0.42;
 }
 
 /* ---------------------------------------------------------------------------
-   1.820.5 (MAT-1773) — the MAX composer glow STATE MODEL.
+   1.820.6 (CEVE-18205) — the MAX composer glow, redesign B+A+C.
 
-   Five states, one attribute (`data-eve-glow`, stamped by AcpSendBox from the
-   SAME runtimeActivity phase the status footer reads; `data-eve-max-ignition`
-   is the one-shot toggle edge from EveMaxToggle):
+   The founder rejected the previous glow twice as boring; the design report
+   (opus-maxglow-concepts.md) traced that to three perceptual dead zones at
+   once: a 1px band (wrong spatial frequency), 0.25Hz opacity breathing (wrong
+   temporal frequency — retinal adaptation subtracts it), and luminance-only
+   modulation (the one channel peripheral vision is worst at). The redesign
+   answers all three WITHOUT touching geometry:
 
      off        no attribute          standard composer, untouched
-     armed      MAX on, nothing runs  slow breath + 8px/10% bloom
-     start-stau submitted, no frames  gold shimmer orbits the border (~3s/rev)
-     denk-puls  thinking/tool_wait/…  heartbeat double-pulse, ring swells ~2px
-     stream     streaming/ui_backlog  calm left-to-right flow
+     armed      MAX on, nothing runs  B: sheen wanders 85%↔15% (14s, pauses in
+                                      focus) over A: a wide ambient depth field
+                                      on ::after breathing at 5.5s
+     ignition   toggle-ON edge        A: pressure surge (~3x rest, 420ms
+                                      expo-out) + B: one fast sweep 15%→85%
+                                      (380ms, radius 220→340px)
+     start-stau submitted, no frames  orbit (3s, C: non-linear angular speed)
+                                      + B: tight scan 40%↔60% at 1.1s —
+                                      deliberately incommensurable periods
+     denk-puls  thinking/tool_wait/…  heartbeat double-pulse (unchanged)
+     stream     streaming/ui_backlog  calm left-to-right flow (unchanged)
 
-   CSS-only keyframes, absolute pseudos and box-shadow only — the composer
-   geometry never changes and there is no JS animation loop.
+   HARD RULES: only opacity, transform and the two registered properties are
+   animated — NEVER a blur radius (blur re-rasterizes every frame on the
+   backdrop-filter glass and stutters in the packaged build). All motion lives
+   on the pseudos of explicit state selectors, inside the reduced-motion and
+   reduced-effects stop contract. No !important anywhere in this lane.
 --------------------------------------------------------------------------- */
 
 /* The orbiting highlight needs an animatable angle (registered custom
@@ -2138,14 +2158,33 @@
   initial-value: 0deg;
 }
 
+/* B: the traveling sheen position. Registered so the gradient position
+   interpolates instead of jumping; the 50% initial-value is ALSO the
+   reduced-motion standstill — with animations stopped nothing else declares
+   this property, so the sheen rests centered instead of at a random frame. */
+@property --eve-max-sheen-x {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 50%;
+}
+
+/* B: the sheen radius. Rest 220px (the spotlight default), ignition widens it
+   to 340px, the start-stau scan narrows it to 140px. */
+@property --eve-max-radius {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 220px;
+}
+
 .eve-composer-surface[data-eve-max='true'] {
   --eve-composer-angle: 0deg;
 }
 
 /* Shared ring geometry for the gradient-carrying states: the same
    content-box exclusion mask the spotlight hairline uses, so the gradient
-   paints ONLY the border band — never the surface, never the layout. */
-.eve-composer-surface[data-eve-max-ignition='true']::after,
+   paints ONLY the border band — never the surface, never the layout.
+   (Ignition left this group in the redesign: its ::after is now the ambient
+   FIELD, not a border ring.) */
 .eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau']::after,
 .eve-composer-surface[data-eve-max='true'][data-eve-glow='stream']::after {
   inset: 0;
@@ -2163,63 +2202,163 @@
   mask-composite: exclude;
 }
 
-/* 1) IGNITION — one ~300ms gold sweep around the border on toggle-ON, then it
-   hands over to the armed state. The attribute is removed by the toggle after
-   350ms, so this never loops. */
-.eve-composer-surface[data-eve-max-ignition='true']::after {
-  background: conic-gradient(
-    from var(--eve-composer-angle),
-    transparent 0deg,
-    transparent 245deg,
-    color-mix(in srgb, var(--eve-max-glow) 85%, transparent) 305deg,
-    var(--eve-max-glow) 330deg,
-    transparent 360deg
-  );
-  animation: eve-composer-max-ignition 300ms ease-out 1;
-}
+/* 1) ARMED — B's wandering light over A's depth field.
 
-@keyframes eve-composer-max-ignition {
-  from {
-    --eve-composer-angle: 0deg;
-  }
-  to {
-    --eve-composer-angle: 360deg;
-  }
-}
-
-/* 2) ARMED IDLE BREATH — a slow luminance oscillation of the hairline plus the
-   restrained idle bloom. Visibly more awake than standard, calm. */
+   The surface keeps depth only; ALL max light now lives on the pseudos, which
+   is what keeps every moving part inside the reduced-motion stop contract. */
 .eve-composer-surface[data-eve-max='true'][data-eve-glow='armed'] {
   box-shadow:
     0 18px 42px color-mix(in srgb, #0f172a 12%, transparent),
-    inset 0 1px 0 var(--glass-edge-highlight),
-    /* Presence through DEPTH, not brightness: a wide, soft, low-opacity bloom
-       reads as expensive; a tight bright rim reads as cheap. So the radius grows
-       8px → 22px with a 2px spread and the opacity goes 10% → 20% — roughly
-       double the light, spread over ~7x the area, which is felt rather than
-       stared at. Deliberately NOT changed: border width, saturation, geometry. */
-    0 0 22px 2px color-mix(in srgb, var(--eve-max-glow) 20%, transparent);
+    inset 0 1px 0 var(--glass-edge-highlight);
 }
 
+/* B: the sheen. The hairline gradient itself is untouched — it simply reads
+   the animated position/radius instead of the mouse spotlight (in MAX the
+   composer owns its light source; the cursor does not fight it, because this
+   re-point replaces the cursor variables entirely on this lane). 14s per
+   cycle (7s per crossing) with a strong ease that dwells at the ends: slow
+   enough to be calm, moving enough that adaptation cannot subtract it. The
+   cycle STARTS at 85% — exactly where the ignition sweep ends — so the
+   ignition→armed handoff continues the motion instead of snapping. */
 .eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']::before {
-  animation: eve-composer-max-breath 4s ease-in-out infinite;
+  opacity: 0.5;
+  --eve-spotlight-position: var(--eve-max-sheen-x) var(--eve-spotlight-y);
+  --eve-spotlight-radius: var(--eve-max-radius);
+  animation: eve-composer-max-sheen 14s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 
-/* Breath widened 0.34–0.52 → 0.30–0.62. The old 0.18 span was below the
-   perceptual threshold at this colour, so the lane looked static; 0.32 is
-   visible when you look at it and still invisible while you type. */
-@keyframes eve-composer-max-breath {
+@keyframes eve-composer-max-sheen {
+  0%,
+  100% {
+    --eve-max-sheen-x: 85%;
+  }
+  50% {
+    --eve-max-sheen-x: 15%;
+  }
+}
+
+/* A: the ambient depth field — a wide, soft, warm bed the composer floats on.
+   STATIC shadow, animated OPACITY only (the blur radius never moves): the
+   perceptual gain of animating blur is nil and the cost is per-frame
+   re-rasterization on glass. The breath is small and slow — presence through
+   depth, not brightness. */
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']::after {
+  inset: -2px;
+  opacity: 0.32;
+  box-shadow:
+    0 12px 64px 10px var(--eve-max-field),
+    0 4px 30px 6px var(--eve-max-field);
+  animation: eve-composer-max-field-breath 5.5s ease-in-out infinite;
+}
+
+@keyframes eve-composer-max-field-breath {
   0%,
   100% {
     opacity: 0.3;
   }
   50% {
-    opacity: 0.62;
+    opacity: 0.4;
   }
 }
 
-/* 3) START-STAU — the gold shimmer circles the border continuously while the
-   turn is submitted and no frame has arrived yet. */
+/* FOCUS BEATS THE REST STATE — the cascade fix, carried into the redesign
+ * (1.820.6, CEVE-18205).
+ *
+ * The old breath animated OPACITY, and a running keyframe animation outranks
+ * every normal author declaration — so `:focus-within { opacity: 0.72 }`
+ * never reached the MAX hairline and MAX sat DARKER IN FOCUS than the
+ * standard lane. The redesign removes that conflict at the ROOT: the sheen
+ * animates only the registered position/radius properties, never opacity, so
+ * a plain focused opacity declaration wins again by ordinary cascade rules.
+ *
+ * Two declarations, both load-bearing:
+ *   - opacity 0.76 keeps the standard lane's focus value (0.72) BELOW the MAX
+ *     lane in the same state — the inversion that started all of this stays
+ *     closed, with the same +0.04 lane lead the reduced-motion block uses;
+ *   - `animation-play-state: paused` is B's answer to "don't disturb typing":
+ *     the light STOPS WANDERING while the cursor is in the field and resumes
+ *     when you leave. A pause, not a kill — the state (and the field's slow
+ *     breath underneath) stays alive.
+ * No !important: it was measured against the old design and rejected — an
+ * !important opacity would also freeze any future opacity animation dead. */
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='armed'][data-keyboard-focus='true']::before,
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']:focus-within::before,
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']:has(:focus-visible)::before {
+  opacity: 0.76;
+  animation-play-state: paused;
+}
+
+/* 2) IGNITION — one event, two layers (A's pressure + B's sweep). The toggle
+   stamps the attribute for COMPOSER_MAX_IGNITION_MS (350ms) and removes it;
+   both curves are expo-out and ≥97% complete at that cut, and the base 260ms
+   opacity transition carries the settle back into the armed rest — so the
+   handoff reads as one continuous release, never a snap. Placed AFTER the
+   armed rules on purpose: equal specificity, later in the file, so the
+   one-shot wins while the attribute is present. */
+.eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::before {
+  opacity: 0.6;
+  --eve-spotlight-position: var(--eve-max-sheen-x) var(--eve-spotlight-y);
+  --eve-spotlight-radius: var(--eve-max-radius);
+  animation: eve-composer-max-ignition-sweep 380ms cubic-bezier(0.16, 1, 0.3, 1) 1;
+}
+
+/* B: the filament run — 15%→85% while the radius widens 220→340px. */
+@keyframes eve-composer-max-ignition-sweep {
+  from {
+    --eve-max-sheen-x: 15%;
+    --eve-max-radius: 220px;
+  }
+  to {
+    --eve-max-sheen-x: 85%;
+    --eve-max-radius: 340px;
+  }
+}
+
+/* A: the pressure surge — the field jumps to ~3x its 0.3 rest opacity with a
+   whisper of scale, so it reads as air pressure, not as a lamp turning on. */
+.eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::after {
+  inset: -2px;
+  opacity: 0.9;
+  box-shadow:
+    0 12px 64px 10px var(--eve-max-field),
+    0 4px 30px 6px var(--eve-max-field);
+  animation: eve-composer-max-ignition-surge 420ms cubic-bezier(0.16, 1, 0.3, 1) 1;
+}
+
+@keyframes eve-composer-max-ignition-surge {
+  from {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0.9;
+    transform: scale(1.02);
+  }
+}
+
+/* 3) START-STAU — searching, not spinning. The gold orbit keeps its 3s round
+   but gets C's non-linear angular velocity: it hesitates and catches up, which
+   reads as LOOKING instead of loading. Over it, B's sheen tightens into a
+   fast narrow scan around the centre (40%↔60%, radius 140px). 1.1s against 3s
+   is deliberately incommensurable — the composite never repeats, and
+   unpredictability is precisely what separates "live process" from "spinner". */
+.eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau']::before {
+  opacity: 0.55;
+  --eve-spotlight-position: var(--eve-max-sheen-x) var(--eve-spotlight-y);
+  --eve-spotlight-radius: 140px;
+  animation: eve-composer-max-scan 1.1s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes eve-composer-max-scan {
+  0%,
+  100% {
+    --eve-max-sheen-x: 40%;
+  }
+  50% {
+    --eve-max-sheen-x: 60%;
+  }
+}
+
 .eve-composer-surface[data-eve-max='true'][data-eve-glow='start-stau']::after {
   background: conic-gradient(
     from var(--eve-composer-angle),
@@ -2229,7 +2368,7 @@
     var(--eve-max-glow) 330deg,
     transparent 360deg
   );
-  animation: eve-composer-max-orbit 3s linear infinite;
+  animation: eve-composer-max-orbit 3s linear(0, 0.35 30%, 0.42 55%, 1) infinite;
 }
 
 @keyframes eve-composer-max-orbit {
@@ -2638,7 +2777,8 @@
    stop. The STATE (warm tint, bloom, border) stays; only the motion stops. */
 :root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true'][data-eve-glow]::before,
 :root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true'][data-eve-glow]::after,
-:root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max-ignition='true']::after {
+:root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::before,
+:root[data-eve-reduced-effects='true'] .eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::after {
   animation: none;
   transition: none;
 }
@@ -3041,13 +3181,42 @@
      own stop inside this media query — same contract: state stays, motion goes. */
   .eve-composer-surface[data-eve-max='true'][data-eve-glow]::before,
   .eve-composer-surface[data-eve-max='true'][data-eve-glow]::after,
-  .eve-composer-surface[data-eve-max-ignition='true']::after {
+  .eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::before,
+  .eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::after {
     animation: none;
     transition: none;
   }
 
   .eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']::before {
     opacity: 0.34;
+  }
+
+  /* THE SAME DEFECT, REACHED WITHOUT ANY ANIMATION (1.820.6, CEVE-18205).
+     Checked because the cascade fix above only covers the animated path.
+
+     The MAX stop directly above is (0,3,1) and OUTRANKS the focus rules at
+     (0,2,1). The STANDARD reduced-motion stop in this same block
+     (`.eve-composer-surface::before`, opacity 0.3) is only (0,1,1) and LOSES to
+     them. So under reduced motion the standard lane focused to 0.72 while MAX
+     focused to 0.34 — under half the brightness, the identical inversion, this
+     time produced by plain specificity instead of by the animation origin.
+
+     Resolved statically, motion still off: MAX keeps the same +0.04 lane lead it
+     already has at rest here (0.34 against the standard 0.30), applied to the
+     focus floor. `animation-name: none` is restated because the fix above is
+     (0,4,1) and would otherwise re-introduce a name into this block, where
+     `animation: none` sits at only (0,3,1). This rule is (0,4,1) AND later in
+     the file, so it wins on both counts.
+
+     The `data-eve-reduced-effects` branch was checked for the same symptom and
+     does NOT have it: its standard clamp carries the `:root[…]` prefix and lands
+     at (0,3,1), so BOTH lanes lose focus response there and MAX stays ahead at
+     0.34 vs 0.30. Nothing to fix — the asymmetry is unique to this block. */
+  .eve-composer-surface[data-eve-max='true'][data-eve-glow='armed'][data-keyboard-focus='true']::before,
+  .eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']:focus-within::before,
+  .eve-composer-surface[data-eve-max='true'][data-eve-glow='armed']:has(:focus-visible)::before {
+    animation-name: none;
+    opacity: 0.76;
   }
 
   .company-brain-settings__disclosure-icon {
