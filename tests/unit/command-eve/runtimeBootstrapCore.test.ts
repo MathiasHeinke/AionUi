@@ -22,6 +22,7 @@ import {
   loadCommandEveRuntimeBootstrapManifest,
   parseOllamaListHasModel,
   parseOllamaModelfileBlobSha256,
+  pickCommandEveLocalVisionModel,
   prepareCommandEveRuntimeProcessEnv,
   resolveCommandEveFirstRunProfile,
   resolveCommandEveCapabilityManifestPath,
@@ -61,6 +62,7 @@ import {
   CLAUDE_SEAT_RUNTIME_ROUTE,
   type ResolvedClaudeDelegate,
 } from '@/common/config/eveWorkerAssignmentCore';
+import { isCommandEveLocalVisionModel } from '@/process/commandEve/ollamaOpenAiShim';
 import packageJson from '../../../package.json';
 import { registerTenant } from '@/process/commandEve/entitlementCore';
 import { sha256FileIfPresent } from '@/process/commandEve/windows/runtimeProvenanceCore';
@@ -255,10 +257,15 @@ const makeHarness = (
   return { root, commands, runner };
 };
 
-const withOllamaServer = async <T>(run: (baseUrl: string) => Promise<T>): Promise<T> => {
+const withOllamaServer = async <T>(
+  run: (baseUrl: string) => Promise<T>,
+  // Installed model names the fake runtime reports on /api/tags. Default [] keeps
+  // every existing caller byte-identical to the old always-empty server.
+  installedModels: readonly string[] = []
+): Promise<T> => {
   const server = http.createServer((_request, response) => {
     response.writeHead(200, { 'content-type': 'application/json' });
-    response.end('{"models":[]}');
+    response.end(JSON.stringify({ models: installedModels.map((name) => ({ name })) }));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -765,6 +772,84 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(runtimeReceiptAllowsLocalModelWarmup(receipt)).toBe(true);
   });
 
+  /**
+   * 1.821.0 — THE AUX VISION ROUTE, end to end.
+   *
+   * Two self-imposed locks used to sit in front of this: `disabled_toolsets:
+   * [vision]` (applied LAST in the wheel, so it beat any route) and the simple
+   * fact that `auxiliary.vision` was never emitted at all. Neither protected
+   * money or a user confirmation — they only kept a text-only chat model blind.
+   *
+   * This drives the REAL resolver against the REAL fake runtime (no injected
+   * stub): the probe reads /api/tags, and what it finds decides whether the key
+   * is emitted. Both directions are gated, because the OMITTED direction is what
+   * keeps a box without the model byte-identical instead of 502-ing per image.
+   */
+  it('resolves the installed local vision model from /api/tags, deterministically and fail-safe', () => {
+    expect(pickCommandEveLocalVisionModel('{"models":[{"name":"minicpm-v:8b"}]}')).toBe('minicpm-v:8b');
+    // Deterministic pick: Ollama does not promise a tag order, but the same box
+    // must emit the same config.yaml on every boot.
+    expect(pickCommandEveLocalVisionModel('{"models":[{"name":"minicpm-v:8b"},{"name":"minicpm-v:4b"}]}')).toBe(
+      pickCommandEveLocalVisionModel('{"models":[{"name":"minicpm-v:4b"},{"name":"minicpm-v:8b"}]}')
+    );
+    // A non-vision runtime is "no model", never a guess.
+    expect(pickCommandEveLocalVisionModel('{"models":[{"name":"gemma3:4b"}]}')).toBe('');
+    // Unreadable probe => '' => key omitted. Never a throw during bootstrap.
+    for (const junk of ['', 'not json', '{}', '{"models":"nope"}', '{"models":[null]}']) {
+      expect(pickCommandEveLocalVisionModel(junk)).toBe('');
+    }
+    // ONE membership rule, shared with the shim. If these two ever disagreed, the
+    // config would advertise a route the shim refuses to keep local — and the
+    // screenshots would quietly go down the paid lane.
+    for (const name of ['minicpm-v:8b', 'minicpm-v', 'gemma3:4b', 'llava:13b']) {
+      expect(pickCommandEveLocalVisionModel(JSON.stringify({ models: [{ name }] })) !== '').toBe(
+        isCommandEveLocalVisionModel(name)
+      );
+    }
+  });
+
+  itM('emits auxiliary.vision at the SHIM when the local vision model is installed', async () => {
+    const harness = makeHarness();
+    await withOllamaServer(
+      async (baseUrl) => {
+        const manifestPath = writeManifest(harness.root, baseUrl);
+        const receipt = await ensureCommandEveRuntimeBootstrap({
+          userDataPath: harness.root,
+          manifestPath,
+          runner: harness.runner,
+          detachedSpawner: () => {},
+          statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+          totalMemoryBytes: 32 * 1024 ** 3,
+          ollamaBinaryCandidates: [],
+          env: {},
+        });
+        expect(receipt.status).toBe('ready');
+        const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+        const configYaml = fs.readFileSync(path.join(paths.hermesHome, 'config.yaml'), 'utf8');
+
+        // The aux route is present, under `auxiliary:`, with all four keys the
+        // wheel's _explicit_aux_vision_override reads as EXPLICIT (anything but
+        // empty/"auto"). A partial block would resolve back to "auto" and route
+        // images at the main model again.
+        expect(configYaml).toMatch(
+          /auxiliary:[\s\S]*\n {2}vision:\n {4}provider: custom\n {4}model: minicpm-v:8b\n {4}base_url: \S+\n {4}timeout: \d+\n/
+        );
+        // THE MONEY CLAIM: the route points at the loopback SHIM, which is what
+        // forces the local lane (eveRoute {active:false} — no CEVE bearer, no
+        // credits). Pointing it straight at Ollama would work too, but only that
+        // detour keeps the image out of COMMAND_EVE_IMAGE_OMITTED_TEXT redaction.
+        expect(configYaml).toMatch(/\n {2}vision:\n {4}provider: custom\n {4}model: \S+\n {4}base_url: \S+\/v1\n/);
+        expect(isCommandEveLocalVisionModel('minicpm-v:8b')).toBe(true);
+        // A screenshot needs far more than the 14s text-compression budget.
+        const timeout = Number(/\n {2}vision:[\s\S]*?\n {4}timeout: (\d+)\n/.exec(configYaml)?.[1]);
+        expect(timeout).toBeGreaterThanOrEqual(60);
+        // And the ban that would have overridden all of this is gone.
+        expect(configYaml).not.toContain('disabled_toolsets');
+      },
+      ['gemma3:4b', 'minicpm-v:8b']
+    );
+  });
+
   itM('installs Hermes, installs Ollama via Homebrew, pulls the default model, and writes receipts', async () => {
     const harness = makeHarness();
     await withOllamaServer(async (baseUrl) => {
@@ -824,14 +909,21 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).not.toContain('reasoning_effort: none');
       expect(configYaml).toMatch(/reasoning_effort: (low|medium|high|xhigh)/);
       // Web tool-loop hang fix (self-detection): the convergence backstop +
-      // the cloud-lane vision drop + the shrunk per-tool timeouts must ship.
-      // Dropping any of these silently re-opens the ~30-min "tool use never
-      // finishes" hang on internet-bound calls.
+      // the shrunk per-tool timeouts must ship. Dropping either silently re-opens
+      // the ~30-min "tool use never finishes" hang on internet-bound calls.
       expect(configYaml).toMatch(/max_turns: \d+/);
       expect(configYaml).toMatch(/max_turns: ([1-9]\d?)\b/); // bounded well under Hermes' 90 default
       expect(configYaml).toContain('image_input_mode: native');
-      expect(configYaml).toContain('disabled_toolsets:');
-      expect(configYaml).toMatch(/disabled_toolsets:\s*\n\s*- vision/);
+      // 1.821.0 — THE BAN IS GONE. `agent.disabled_toolsets` is applied LAST in the
+      // wheel and overrides everything (tools_config.py:2483-2490), so as long as it
+      // named `vision` no aux route could ever take effect. It was self-restriction,
+      // not protection: nothing about it guarded money or a user confirmation.
+      expect(configYaml).not.toContain('disabled_toolsets');
+      expect(configYaml).not.toMatch(/- vision/);
+      // This box has NO local vision model installed (the fake runtime reports an
+      // empty /api/tags), so the aux route must be OMITTED entirely — the emitted
+      // config stays byte-identical to a pre-1.821.0 one apart from the dropped ban.
+      expect(configYaml).not.toMatch(/^ {2}vision:$/m);
       // Context auto-compaction threshold: the dynamic provider patch raises
       // cloud turns to 256K and compacts at 75% (196608), while local turns keep
       // the hardware-safe 64K cap.

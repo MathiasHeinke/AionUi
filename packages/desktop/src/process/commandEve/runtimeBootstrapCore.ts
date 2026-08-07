@@ -40,7 +40,11 @@ import {
 } from './seatContextCore';
 import { provisionTeamManageBearerFile } from './eveTeamManageMain';
 import { provisionKanbanAcpBearerFile } from './kanbanAcpMain';
-import { commandEveShimAuthTokenFilePath, provisionCommandEveShimAuthTokenFile } from './ollamaOpenAiShim';
+import {
+  commandEveShimAuthTokenFilePath,
+  isCommandEveLocalVisionModel,
+  provisionCommandEveShimAuthTokenFile,
+} from './ollamaOpenAiShim';
 import { getBuiltinMcpScriptPath } from '../utils/builtinMcpPath';
 import { honchoMcpServerForSeat } from './honchoMcpServerCore';
 import { provisionArtifactCapabilityBearerFile } from './artifactCapabilityLoopback';
@@ -480,6 +484,11 @@ const DEFAULT_COMMAND_EVE_TERMINAL_TIMEOUT_S = 45;
 // eve-inference -> the chat model, so a slow inference makes the tool slow; the wheel
 // default is ~30s (auxiliary.web_extract.timeout, _DEFAULT_AUX_TIMEOUT).
 const DEFAULT_COMMAND_EVE_WEB_EXTRACT_TIMEOUT_S = 20;
+// auxiliary.vision timeout (seconds). Deliberately far above the 14s compression
+// budget: that one bounds a TEXT summary on a warm lane, this one bounds an 8B
+// multimodal model decoding a full screenshot on Apple Silicon, cold. Too tight
+// here does not degrade — it turns every screenshot into a timeout.
+const DEFAULT_COMMAND_EVE_LOCAL_VISION_TIMEOUT_S = 60;
 // C9a: context compaction must never inherit Hermes' broad auxiliary retry /
 // fallback fan-out. Each summary attempt is an authenticated loopback request,
 // hard-stopped after 14s; at most two attempts fit inside a 29s wall budget.
@@ -6024,7 +6033,19 @@ function writeHermesRuntimeFiles(
   // the reverse (advertised here, refused at the gate) is the dishonest direction
   // POLICY F exists to prevent, and it cannot happen because both ends read the
   // same gate and this one defaults closed.
-  agentVideoGenerateSeatEnabled = false
+  agentVideoGenerateSeatEnabled = false,
+  // 1.821.0 — the INSTALLED local vision model ref (e.g. `minicpm-v:8b`), or ''.
+  //
+  // Same pre-resolved shape as `agentVideoGenerateSeatEnabled` above and for the
+  // same reason: this writer is synchronous and the answer lives behind an async
+  // probe of the local runtime. The async bootstrap resolves it and passes it in;
+  // the synchronous seat-switch path passes nothing and lands on this '' default.
+  //
+  // '' OMITS the whole `auxiliary.vision` key, which is why a box WITHOUT the
+  // model emits a byte-identical config to today. Hard-wiring the route instead
+  // would point every screenshot at a model that is not there — a 502 per image
+  // rather than the graceful "no aux vision configured" the wheel already handles.
+  localVisionModelRef = ''
 ): string[] {
   const trustedClaudeSeatDelegate = isClaudeSeatDelegateRoute(claudeDelegate) ? claudeDelegate : null;
   ensureDir(paths.hermesHome);
@@ -6152,10 +6173,13 @@ function writeHermesRuntimeFiles(
     // can never run away for ~30 min on an unreadable target. Hermes reads it from
     // here (cli.py:3257 -> max_iterations) — its own default is 90.
     `  max_turns: ${DEFAULT_COMMAND_EVE_MAX_TURNS}`,
-    // Disable Hermes' implicit vision pre-analysis path. Routine image/PPTX input
-    // is prepared by AionUI's managed, consent-gated presentation lane before the
-    // turn starts. Letting Hermes auto-call vision_analyze would bypass that product
-    // contract and can still hard-502 on a non-vision chat model.
+    // How images ENTER the turn — not whether the vision toolset exists. Routine
+    // image/PPTX input is prepared by AionUI's managed, consent-gated presentation
+    // lane before the turn starts, and `native` keeps that prepared form intact.
+    // The former `disabled_toolsets: [vision]` ban that used to sit below this line
+    // was removed in 1.821.0: it was pure self-restriction, and while it stood, the
+    // `auxiliary.vision` route below could never take effect (agent.disabled_toolsets
+    // is applied LAST and overrides everything — FACT tools_config.py:2483-2490).
     '  image_input_mode: native',
     // T4 YOU-ARE-HERE: `agent.environment_hint` is appended VERBATIM to the system
     // prompt's environment-hints block (FACT prompt_builder.py:989-1000
@@ -6170,11 +6194,6 @@ function writeHermesRuntimeFiles(
     // it). Omitted when empty so the config stays byte-identical for a degenerate
     // seat context.
     ...(environmentHint ? [`  environment_hint: ${yamlDoubleQuote(environmentHint)}`] : []),
-    // Drop implicit vision_analyze / browser_vision. AionUI owns routine attachments
-    // and the explicit local-vision-qa skill owns only deliberate offline requests;
-    // neither path should silently depend on the selected chat model's image support.
-    '  disabled_toolsets:',
-    '    - vision',
     // Context auto-compaction threshold (Claude-Code-style: compact LATER, keep
     // more working memory). Hermes reads the TOP-LEVEL `compression.threshold` key
     // (FACT run_agent.py:1142 `_agent_cfg.get("compression")` -> :1145
@@ -6380,6 +6399,30 @@ function writeHermesRuntimeFiles(
     '    fallback_chain: []',
     '  web_extract:',
     `    timeout: ${DEFAULT_COMMAND_EVE_WEB_EXTRACT_TIMEOUT_S}`,
+    // 1.821.0 — THE AUX VISION ROUTE. With this key present, Hermes sends every
+    // image to the auxiliary model and hands the MAIN model text (FACT
+    // tools/computer_use/vision_routing.py:1-46, which decides fail-closed toward
+    // aux; agent/image_routing.py:361-385 `_explicit_aux_vision_override` treats
+    // anything but empty/"auto" as explicit). That is what lets a text-only chat
+    // model answer about a screenshot at all.
+    //
+    // It points at the SHIM (`hermesBaseUrl`), not at Ollama directly, and that is
+    // load-bearing: the shim recognises this model ref and forces the local lane
+    // (FACT ollamaOpenAiShim.ts `isCommandEveLocalVisionModel` -> forceLocalVision
+    // -> eveRoute {active:false}), so no CEVE bearer is attached and no credits are
+    // spent — AND it is the only path on which the image survives redaction instead
+    // of being replaced by COMMAND_EVE_IMAGE_OMITTED_TEXT.
+    //
+    // Emitted ONLY when the model is actually installed; see the parameter note.
+    ...(localVisionModelRef
+      ? [
+          '  vision:',
+          '    provider: custom',
+          `    model: ${localVisionModelRef}`,
+          `    base_url: ${hermesBaseUrl}`,
+          `    timeout: ${DEFAULT_COMMAND_EVE_LOCAL_VISION_TIMEOUT_S}`,
+        ]
+      : []),
     '',
   ].join('\n');
   fs.writeFileSync(path.join(paths.hermesHome, 'config.yaml'), config, { mode: 0o600 });
@@ -6595,6 +6638,70 @@ function streamOllamaPull(
     req.on('error', () => resolve({ ok: false }));
     req.write(payload);
     req.end();
+  });
+}
+
+/**
+ * Pick the installed local-vision model out of an Ollama `/api/tags` body.
+ *
+ * The membership test is IMPORTED from the shim, never re-expressed here: the
+ * emitted config and the shim's routing decision have to agree, and the only way
+ * to guarantee that is to ask the same function.
+ *
+ * Deterministic on purpose (sorted, first match): the same box must emit the same
+ * config.yaml on every boot, and Ollama does not promise a stable tag order.
+ * Returns '' for anything unparseable — an unreadable probe is "no model", never
+ * a throw and never a guess.
+ */
+export function pickCommandEveLocalVisionModel(tagsBody: string): string {
+  try {
+    const parsed: unknown = JSON.parse(tagsBody);
+    const models = (parsed as { models?: unknown } | null)?.models;
+    if (!Array.isArray(models)) return '';
+    const matches = models
+      .map((entry) => compact((entry as { name?: unknown } | null)?.name as string))
+      .filter((name) => name.length > 0 && isCommandEveLocalVisionModel(name));
+    return matches.length > 0 ? matches.toSorted()[0] : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Probe the local runtime for an installed vision model. FAIL-SAFE in every
+ * direction — unreachable, slow, non-2xx, or malformed all resolve to '', which
+ * omits the key and keeps the emitted config byte-identical to today. A bootstrap
+ * must never fail because an optional model is missing.
+ */
+async function resolveLocalVisionModelRef(baseUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    let url: URL;
+    try {
+      url = new URL('/api/tags', baseUrl);
+    } catch {
+      resolve('');
+      return;
+    }
+    const request = http.get(url, { timeout: 2000 }, (response) => {
+      const status = response.statusCode ?? 0;
+      if (status < 200 || status >= 300) {
+        response.resume();
+        resolve('');
+        return;
+      }
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => {
+        body += chunk;
+      });
+      response.on('end', () => resolve(pickCommandEveLocalVisionModel(body)));
+      response.on('error', () => resolve(''));
+    });
+    request.on('timeout', () => {
+      request.destroy();
+      resolve('');
+    });
+    request.on('error', () => resolve(''));
   });
 }
 
@@ -7597,6 +7704,10 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   const agentVideoGenerateSeatEnabled = await (
     options.resolveAgentVideoGenerateRelease ?? productionAgentVideoGenerateGate
   )();
+  // 1.821.0 — same "await here, hand the answer to the synchronous writer" shape:
+  // probe the local runtime for an installed vision model so `auxiliary.vision` is
+  // emitted only where it can actually resolve. Fail-safe: '' on any trouble.
+  const localVisionModelRef = await resolveLocalVisionModelRef(manifest.local_runtime.base_url);
   const bundledSkillFailures = writeHermesRuntimeFiles(
     paths,
     manifest,
@@ -7639,7 +7750,9 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     // the one path that may advertise the paid generate tool. The gate itself is
     // fail-closed in every direction (kill-switch, licence, config, backend error),
     // so a `false` here is always the deliberate answer and never a missing one.
-    agentVideoGenerateSeatEnabled
+    agentVideoGenerateSeatEnabled,
+    // 1.821.0 — the resolved local vision model, or '' when this box has none.
+    localVisionModelRef
   );
   if (bundledSkillFailures.length) {
     // VISIBLE preflight break (founder-self-detection): a skip-status stage with a

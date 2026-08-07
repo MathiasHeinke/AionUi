@@ -565,7 +565,11 @@ export function recoverQuotaExhaustedBody(text: string): string | null {
         return JSON.stringify(errObj);
       }
       const errMsg =
-        typeof errObj.message === 'string' ? errObj.message : typeof parsed.message === 'string' ? (parsed.message as string) : '';
+        typeof errObj.message === 'string'
+          ? errObj.message
+          : typeof parsed.message === 'string'
+            ? (parsed.message as string)
+            : '';
       const embedded = errMsg.match(/\{[\s\S]*\}/)?.[0];
       if (embedded) {
         const direct = JSON.parse(embedded) as Record<string, unknown>;
@@ -979,7 +983,16 @@ function redactMessageContent(
   return nextMessage;
 }
 
-function isCommandEveLocalVisionModel(model: string): boolean {
+/**
+ * THE single source of truth for "is this model ref the local vision lane?".
+ *
+ * Exported (1.821.0) so the runtime bootstrapper can decide whether to emit
+ * `auxiliary.vision` WITHOUT copying the pattern. Two copies of this regex would
+ * drift, and the failure mode of drift here is silent: the config advertises a
+ * vision route the shim then refuses to keep local, which sends screenshots down
+ * the paid lane instead of to the local model.
+ */
+export function isCommandEveLocalVisionModel(model: string): boolean {
   return COMMAND_EVE_LOCAL_VISION_MODEL.test(model.trim());
 }
 
@@ -1682,7 +1695,7 @@ async function handleEveCloudCompletions(
             packs: [],
             message:
               'Deine Command-EVE-Credits sind aufgebraucht. Lade in den Einstellungen neue Credits auf, um weiterzumachen.',
-          }),
+          })
       );
       return;
     }
