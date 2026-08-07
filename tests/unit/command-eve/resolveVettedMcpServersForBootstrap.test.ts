@@ -95,21 +95,45 @@ afterEach(() => {
   for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe('resolveVettedMcpServersForBootstrap — the flag-false safety gate (arch §8/§12)', () => {
-  it('returns [] when the flag is OFF (default) — byte-identical mcp_servers: {}', () => {
-    // Flag NOT set (default false). Even with real deps present, the feeder MUST
-    // short-circuit to [] — this is the safety regression that must never break.
+describe('resolveVettedMcpServersForBootstrap — the kill switch (arch §8/§12)', () => {
+  /**
+   * REWRITTEN IN 1.821.0, AND THE REWRITE IS THE POINT. This block opened with
+   * "returns [] when the flag is OFF (default)", set no override, and asserted
+   * `[]`. After the flip that test still PASSED — but only because the temp vault
+   * it pointed at was empty. It would have gone on reporting a short-circuit that
+   * no longer happens, which is worse than failing.
+   *
+   * So the default case now proves the OPPOSITE, with a real record present, and
+   * the genuine short-circuit is proven where it actually lives: with the kill
+   * switch set and a record that WOULD otherwise be emitted.
+   */
+  it('DEFAULT (switch unset): a vetted record IS emitted — the surface is live', () => {
+    setSafeStorageForTesting(makeAvailableAdapter());
+    const userDataPath = makeTmpRoot();
+    writeVaultRecord(founderVaultDir(userDataPath), record({ env_refs: { NOTION_TOKEN: ref('live-token') } }));
+    const servers = resolveVettedMcpServersForBootstrap(DEFAULT_COMMAND_EVE_CAPABILITY_PACK, 'seat-1', {
+      userDataPath,
+      configRoot: makeTmpRoot(),
+      mcpInvocationFor: resolver,
+    });
+    expect(servers).toHaveLength(1);
+    expect(servers[0].id).toBe('notion-workspace');
+    expect(renderHermesMcpServersYaml(servers).join('\n')).toContain('"NOTION_TOKEN": "live-token"');
+  });
+
+  it('an install with an EMPTY vault is unchanged — mcp_servers: {} either way', () => {
+    // The flip only reaches seats that actually approved something. Nothing about
+    // it turns a bare install into one that spawns processes.
     const servers = resolveVettedMcpServersForBootstrap(DEFAULT_COMMAND_EVE_CAPABILITY_PACK, 'seat-1', {
       userDataPath: makeTmpRoot(),
       configRoot: makeTmpRoot(),
       mcpInvocationFor: resolver,
     });
     expect(servers).toEqual([]);
-    // The load-bearing proof: the emitted config block is the exact prior literal.
     expect(renderHermesMcpServersYaml(servers)).toEqual(['mcp_servers: {}']);
   });
 
-  it('returns [] when the flag is explicitly OFF via the test override', () => {
+  it('THE KILL SWITCH: a record that would otherwise be emitted is short-circuited', () => {
     setMcpVaultEnabledForTests(false);
     setSafeStorageForTesting(makeAvailableAdapter());
     const userDataPath = makeTmpRoot();

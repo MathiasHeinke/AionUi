@@ -156,7 +156,9 @@ const connectorPreflightBridge = bridge.buildProvider<
 
 // S5-P2 guided_auth_setup (arch §6): the API-key setup handler. secrets never
 // leave the handler in plaintext (they are encrypted main-side). The card can
-// SHOW this, but the actual MCP enable stays behind COMMAND_EVE_MCP_VAULT_ENABLED.
+// SHOW this, and since 1.821.0 the actual MCP enable follows: the
+// COMMAND_EVE_MCP_VAULT_ENABLED gate became a kill switch, so an approved
+// connector is spawned rather than merely recorded.
 type GuidedAuthSetupResult = {
   version: 'command-eve-guided-auth-setup/v0';
   ok: boolean;

@@ -1071,7 +1071,8 @@ export function initCommandEveBridge(): void {
   // WITH a human_gate_receipt) → reconcile so the card flips to `connected`.
   //
   // The card can SHOW "connect", but the actual ENABLE stays behind
-  // COMMAND_EVE_MCP_VAULT_ENABLED (default false): the record is written + vetted,
+  // COMMAND_EVE_MCP_VAULT_ENABLED (a kill switch since 1.821.0, unset = on): the
+  // record is written + vetted,
   // but the reconcile re-render emits it into config.yaml ONLY when the flag flips
   // (the separate GATE-NULL slice). connectorCatalogCore's global
   // mcp_enable_allowed / connector_write_allowed stay FALSE (no global flip).
@@ -4332,7 +4333,8 @@ export function initCommandEveBridge(): void {
             // from the vault BEFORE applySeatSwitch's own restartBackend — so a seat's
             // Founder-connectors are present on entry. respawnAfter:false because the
             // switch lifecycle already owns the single respawn (the step right after
-            // this prepareEnv). Behind COMMAND_EVE_MCP_VAULT_ENABLED (default false):
+            // this prepareEnv). Behind COMMAND_EVE_MCP_VAULT_ENABLED (a kill
+            // switch since 1.821.0, unset = on):
             // while off, the reRenderConfig closure is a no-op returning 0, so seat
             // switch behavior stays BYTE-IDENTICAL to today (no extra bootstrap run).
             // Runs AFTER the base provisioning above so, once the flag is on, the vault

@@ -1035,11 +1035,14 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).not.toContain('"gaming"');
       expect(configYaml).not.toContain('"weixin"');
       expect(configYaml).toContain('mcp_servers: {}');
-      // Soul-wiring: memory stays ON, but Hermes' skill-creation background
-      // review must default OFF. A >0 creation_nudge_interval silently spawns
-      // auxiliary 50k-token model calls in the user's chat lane.
-      expect(configYaml).toContain('creation_nudge_interval: 0');
-      expect(configYaml).not.toContain('creation_nudge_interval: 10');
+      // Soul-wiring: memory stays ON, and since 1.821.0 so does Hermes'
+      // skill-creation background review — EVE writes herself skills while she
+      // works. It used to be pinned at 0 to keep hidden ~50k-token calls out of a
+      // stranger's chat and off a stranger's bill; there is no stranger, and the
+      // cost lands on the person who decided to run it. `COMMAND_EVE_CREATION_
+      // NUDGE_INTERVAL=0` pulls it off again without a rebuild.
+      expect(configYaml).toContain('creation_nudge_interval: 10');
+      expect(configYaml).not.toContain('creation_nudge_interval: 0');
       expect(configYaml).toContain('memory:');
       expect(configYaml).toContain('memory_enabled: true');
       expect(configYaml).toContain('user_profile_enabled: true');

@@ -31,7 +31,8 @@
  * no live `mcp_invocation` until that decision is made.
  *
  * NONE of this flips any posture: the whole vault feeder is behind
- * COMMAND_EVE_MCP_VAULT_ENABLED (default false); this is reference data only.
+ * COMMAND_EVE_MCP_VAULT_ENABLED, which is a kill switch since 1.821.0 rather
+ * than an opt-in; this is reference data only.
  */
 
 import type { CommandEveConnectorMcpInvocation } from './connectorCatalogCore';

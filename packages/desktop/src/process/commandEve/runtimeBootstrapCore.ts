@@ -436,11 +436,32 @@ const COMMAND_EVE_HERMES_DISABLED_SKILLS = ['red-teaming/godmode'];
 // (run_agent.py:420), which sets agent._skill_nudge_interval from
 // skills.creation_nudge_interval (agent_init.py:1190-1193, default 10), and the
 // conversation loop/finalizer spawns the background review once the interval is
-// reached. In Command EVE 1.7.x this must default OFF: otherwise the app silently
-// emits hidden 50k-token skill-review/model calls during real user work, can overlap
-// with the next prompt, and makes OpenRouter logs look like normal chat truncation.
-// Re-enable only behind an explicit settings/onboarding gate with a visible cost and
-// activity indicator.
+// reached.
+//
+// IT IS ON (1.821.0), at Hermes' own default of 10.
+//
+// It shipped at 0 with the note "must default OFF … re-enable only behind an
+// explicit settings/onboarding gate with a visible cost and activity indicator".
+// That reasoning was about a STRANGER: hidden ~50k-token calls appearing in
+// somebody else's chat, on somebody else's bill, with no way for them to see or
+// stop it. There is no such person. Every seat today is the founder's, and the
+// cost of a background review lands on the person who decided to run it — which
+// is what makes an unasked call a judgement instead of an imposition.
+//
+// So the gate is not built. Building a settings switch, an onboarding step and
+// an activity indicator around a capability nobody has yet complained about is
+// the self-restriction this release exists to remove — same category and same
+// treatment as the `disabled_toolsets: [vision]` ban dropped a few commits ago.
+// EVE writes herself skills while she works, and we watch what that does.
+//
+// The ONE affordance kept is a kill switch, not a ceremony:
+// `COMMAND_EVE_CREATION_NUDGE_INTERVAL=0` in the environment pulls it back to
+// off without a rebuild, for the evening the nudges turn out to be noise in a
+// real conversation.
+//
+// WHEN THIS FALLS BACK: the first seat that belongs to someone else and bills to
+// someone else's cost centre. At that moment the original argument becomes true
+// again — and it needs the gate it always described, not this line.
 //
 // reasoning_effort: the config.yaml `agent.reasoning_effort` key is honored by the CLI
 // lane, but the ACP (chat) lane the user talks to inits AIAgent WITHOUT a reasoning_config
@@ -454,7 +475,18 @@ const COMMAND_EVE_HERMES_DISABLED_SKILLS = ['red-teaming/godmode'];
 // reasoning_config into the session.py kwargs) — flagged as a founder-gated follow-up.
 export type CommandEveReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 const DEFAULT_COMMAND_EVE_REASONING_EFFORT: CommandEveReasoningEffort = 'low';
-const DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL = 0;
+const DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL = 10;
+/** The kill switch: set to 0 to pull background skill review off without a rebuild. */
+export const COMMAND_EVE_CREATION_NUDGE_INTERVAL_ENV = 'COMMAND_EVE_CREATION_NUDGE_INTERVAL';
+
+/**
+ * The interval to emit. Env wins when it parses as a non-negative integer;
+ * anything else is not an override, it is a typo, and falls back to the default.
+ */
+export function commandEveCreationNudgeInterval(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env[COMMAND_EVE_CREATION_NUDGE_INTERVAL_ENV]);
+  return Number.isInteger(raw) && raw >= 0 ? raw : DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL;
+}
 const DEFAULT_COMMAND_EVE_DELEGATION_CONCURRENCY = 3;
 const COMMAND_EVE_LOW_MEMORY_MAX_BYTES = 10 * 1024 ** 3;
 
@@ -1988,13 +2020,13 @@ export interface ResolveVettedMcpServersDeps {
  * The FEEDER (arch §8) — supplies the HumanGate-approved, vault-backed,
  * seat-scoped vetted MCP connectors for a seat's config.yaml.
  *
- * SAFETY GATE (arch §8/§9/§11.5): behind `COMMAND_EVE_MCP_VAULT_ENABLED`
- * (default FALSE). While the flag is false this returns `[]` — BYTE-IDENTICAL to
- * the prior hardcoded `return []`, so `renderHermesMcpServersYaml([])` emits
- * `mcp_servers: {}` and NO live posture changes. The flip to true is the separate
- * GATE-NULL-gated slice; this function NEVER flips it.
+ * LIVE since 1.821.0. The `COMMAND_EVE_MCP_VAULT_ENABLED` gate that used to hold
+ * this shut defaulted to false to protect per-client isolation between paying
+ * clients who do not exist yet; it is now a kill switch, and unset means on. An
+ * install with an empty vault still emits `mcp_servers: {}`, so a seat that has
+ * approved nothing is unchanged.
  *
- * When the flag is TRUE it:
+ * What it does:
  *   1. reads the vetted records = founderVault ∪ seatVault(seatId) (S5-P1
  *      readVettedConnectorsForSeat) — a seat-A record can NEVER appear in seat-B's
  *      set because the read is a file POSITION, not a filter;
@@ -2016,7 +2048,7 @@ export function resolveVettedMcpServersForBootstrap(
   seatId: string | null = getActiveSeatId(),
   deps: ResolveVettedMcpServersDeps = {}
 ): CommandEveHermesMcpServer[] {
-  // SAFETY GATE: default-false → byte-identical empty result → mcp_servers: {}.
+  // The kill switch, not a default. Off ⇒ empty result ⇒ mcp_servers: {}.
   if (!isMcpVaultEnabled()) return [];
 
   const readVetted = deps.readVetted ?? readVettedConnectorsForSeat;
@@ -2056,8 +2088,8 @@ export function resolveVettedMcpServersForBootstrap(
 /**
  * Public, informational count of the vetted MCP servers a seat WOULD emit — used
  * by the reconcile receipt (arch §7 `connector_count`). Behind the same
- * COMMAND_EVE_MCP_VAULT_ENABLED gate as the feeder, so it returns 0 while the flag
- * is off (byte-identical to today). Does NOT write anything; the real emission is
+ * COMMAND_EVE_MCP_VAULT_ENABLED kill switch as the feeder, so it returns 0 when
+ * that switch is set. Does NOT write anything; the real emission is
  * inside the bootstrap re-render.
  */
 export function countVettedMcpServersForSeat(
@@ -6169,7 +6201,7 @@ function writeHermesRuntimeFiles(
   // future user-visible skills/onboarding gate can pass a >0 interval here, but
   // the default must not silently emit hidden model calls.
   reasoningEffort: CommandEveReasoningEffort = DEFAULT_COMMAND_EVE_REASONING_EFFORT,
-  creationNudgeInterval = DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL,
+  creationNudgeInterval = commandEveCreationNudgeInterval(),
   // The resolved bundled-skills snapshot dir (Contents/Resources/bundled-skills in
   // a packaged build; resources/bundled-skills in dev). When set, the real
   // strategy skills are copied additively into managedSkillsRoot. '' = no-op (a
@@ -6205,9 +6237,9 @@ function writeHermesRuntimeFiles(
   teamRoles: RuntimeBootstrapOptions['teamRoles'] = null,
   // S5-P2 MCP-vault feeder deps (arch §8). Threaded so the vetted-connector
   // emitter has the two vault roots + the manifest `mcp_invocation` resolver READY
-  // for the GATE-NULL flip. Behind COMMAND_EVE_MCP_VAULT_ENABLED (default false),
-  // so with the default `{}` (or the flag off) the feeder returns [] and the
-  // emitted config.yaml stays byte-identical (`mcp_servers: {}`).
+  // LIVE since 1.821.0. With the default `{}` (or the kill switch set) the feeder
+  // returns [] and the emitted config.yaml is `mcp_servers: {}` — an install with
+  // nothing approved is unchanged either way.
   mcpVaultDeps: ResolveVettedMcpServersDeps = {},
   // COMPA-624 Inc.3 — the per-seat Honcho render input (resolveHonchoRenderForSeat),
   // computed by BOTH cadence callers with the TARGET seatId. Default not-ready ⇒
@@ -6458,12 +6490,11 @@ function writeHermesRuntimeFiles(
     'approvals:',
     '  mode: manual',
     'skills:',
-    // creation_nudge_interval > 0 re-enables the background skill-review fork.
-    // 0 is an explicit kill-switch and overrides Hermes' own default 10 (FACT
-    // agent/agent_init.py:1224-1227). Keep it OFF by default in Command EVE:
-    // hidden background review calls showed up as repeated ~50k-token OpenRouter
-    // requests and can overlap with the next real prompt. A future skills hub can
-    // opt this back in with visible consent, cost, and progress UI.
+    // creation_nudge_interval > 0 enables the background skill-review fork, and
+    // since 1.821.0 Command EVE ships it ON at Hermes' own default of 10 (FACT
+    // agent/agent_init.py:1224-1227). The reason it used to be 0 was a stranger's
+    // chat and a stranger's bill; there is no stranger. `COMMAND_EVE_CREATION_
+    // NUDGE_INTERVAL=0` still pulls it off without a rebuild. See the constant.
     `  creation_nudge_interval: ${creationNudgeInterval}`,
     // external_dirs ADDS the EVE-managed skills on top of Hermes' own primary
     // skills dir (${HERMES_HOME}/skills). It does NOT replace or restrict the
@@ -7231,7 +7262,7 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
       capabilityPack,
       runtimeModelRef,
       DEFAULT_COMMAND_EVE_REASONING_EFFORT,
-      DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL,
+      commandEveCreationNudgeInterval(env),
       bundledSkillsDir,
       options.uiLanguage ?? '',
       founderOpsSkillsDir,
@@ -7239,8 +7270,8 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
       options.claudeDelegate ?? null,
       options.teamRoles ?? null,
       // MCP-vault feeder deps (arch §8) — READY for the GATE-NULL flip but INERT
-      // today (COMMAND_EVE_MCP_VAULT_ENABLED default false), so the emitted
-      // config.yaml stays byte-identical to the boot path's `mcp_servers: {}`.
+      // LIVE since 1.821.0; a seat with an empty vault still emits the boot
+      // path's `mcp_servers: {}`.
       {
         userDataPath: paths.userDataPath,
         configRoot: paths.hermesRoot,
@@ -7929,7 +7960,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     capabilityPack,
     runtimeModelRef,
     DEFAULT_COMMAND_EVE_REASONING_EFFORT,
-    DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL,
+    commandEveCreationNudgeInterval(env),
     bundledSkillsDir,
     options.uiLanguage ?? '',
     founderOpsSkillsDir,
@@ -7941,10 +7972,9 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     options.claudeDelegate ?? null,
     // 1.6.3 Team-Realität: the resolved roster for the SOUL team directive.
     options.teamRoles ?? null,
-    // S5-P2 MCP-vault feeder deps (arch §8) — READY for the GATE-NULL flip but
-    // INERT today: the feeder is gated by COMMAND_EVE_MCP_VAULT_ENABLED (default
-    // false), so with the flag off it returns [] regardless of these and the
-    // emitted config.yaml stays byte-identical (`mcp_servers: {}`). Founder vault =
+    // S5-P2 MCP-vault feeder deps (arch §8) — LIVE since 1.821.0. A seat with an
+    // empty vault still emits `mcp_servers: {}`, so nothing changes until a
+    // connector is actually approved through the guided flow. Founder vault =
     // userData-rooted; seat vault = hermesRoot-scoped; invocation from the manifest.
     {
       userDataPath: paths.userDataPath,

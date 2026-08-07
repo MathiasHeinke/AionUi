@@ -24,7 +24,9 @@
  *      config.yaml.
  *
  * SAFETY GATE (arch §7/§8/§11.5): the feeder inside the re-render is behind
- * `COMMAND_EVE_MCP_VAULT_ENABLED` (default false). With the flag off the re-render
+ * `COMMAND_EVE_MCP_VAULT_ENABLED`, now a kill switch rather than an opt-in
+ * (1.821.0: the per-client isolation it guarded protects clients that do not
+ * exist yet). With the switch set the re-render
  * emits an EMPTY vetted set → `mcp_servers: {}` (a no-op in practice today — the
  * config.yaml stays byte-identical to what the last bootstrap wrote). Reconcile is
  * therefore SAFE to wire NOW: it changes nothing observable until the flag flips.

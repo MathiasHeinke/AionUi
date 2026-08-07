@@ -12,7 +12,8 @@
  * each re-deriving the closure.
  *
  * SAFETY GATE (arch §7/§8/§11.5): the whole re-render is behind
- * `COMMAND_EVE_MCP_VAULT_ENABLED` (default false). While the flag is off the
+ * `COMMAND_EVE_MCP_VAULT_ENABLED`, now a kill switch rather than an opt-in
+ * (1.821.0). While that switch is set the
  * `reRenderConfig` closure is a NO-OP that returns 0 — it does NOT run the (heavy)
  * bootstrap, so seat-switch / approve / revoke behavior stays BYTE-IDENTICAL to
  * today (no extra config.yaml write, no behavior change). Only when the flag flips

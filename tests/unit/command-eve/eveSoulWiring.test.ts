@@ -180,13 +180,31 @@ describe('EVE soul-wiring: config.yaml emission self-detection', () => {
     expect(RUNTIME_SOURCE_CODE).toContain('`  creation_nudge_interval: ${creationNudgeInterval}`');
   });
 
-  it('ships Hermes background skill review OFF by default', () => {
-    // creation_nudge_interval IS read on the ACP chat lane and >0 spawns hidden
-    // background review model calls. Command EVE must not emit those calls without
-    // an explicit user-visible settings/onboarding gate.
+  it('ships Hermes background skill review ON, at the wheel default', () => {
+    // REWRITTEN IN 1.821.0, NOT DELETED. This pinned `= 0` with the note that
+    // Command EVE "must not emit those calls without an explicit user-visible
+    // settings/onboarding gate". That argument was about a STRANGER: hidden
+    // ~50k-token calls in somebody else's chat, on somebody else's bill. There is
+    // no such person — every seat is the founder's, and the cost lands on whoever
+    // decided to run it. Building the gate before anyone is behind it is the
+    // self-restriction this release removes.
     const m = RUNTIME_SOURCE_CODE.match(/DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL\s*=\s*(\d+)/);
     expect(m, 'DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL must be a numeric literal').not.toBeNull();
-    expect(Number(m![1]), 'background skill review must default OFF').toBe(0);
+    expect(Number(m![1]), 'background skill review is on at Hermes own default').toBe(10);
+  });
+
+  it('the kill switch is a switch, not a ceremony', () => {
+    // The one affordance kept instead of a settings gate: an env var that pulls
+    // the value to 0 without a rebuild. It must be a STRICT integer parse — a
+    // typo has to fall back to the default rather than silently disabling
+    // something, or the switch becomes a second, invisible default.
+    expect(RUNTIME_SOURCE_CODE).toContain(
+      "export const COMMAND_EVE_CREATION_NUDGE_INTERVAL_ENV = 'COMMAND_EVE_CREATION_NUDGE_INTERVAL'"
+    );
+    expect(RUNTIME_SOURCE_CODE).toMatch(/Number\.isInteger\(raw\) && raw >= 0/);
+    // And the emitter reads the resolver, not the raw constant — otherwise the
+    // switch would exist and change nothing.
+    expect(RUNTIME_SOURCE_CODE).toContain('creationNudgeInterval = commandEveCreationNudgeInterval()');
   });
 
   it('emits the memory block ON (memory_enabled + user_profile_enabled + nudge_interval)', () => {
