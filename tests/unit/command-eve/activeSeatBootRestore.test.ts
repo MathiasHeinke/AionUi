@@ -56,9 +56,12 @@ import {
 } from '@/process/commandEve/activeSeatPointerStore';
 import {
   __resetActiveSeatForTests,
+  DEFAULT_SEAT_KIND,
   getActiveSeatId,
+  getActiveSeatKind,
   getActiveSeatLabel,
   LEGACY_SEAT_ID,
+  LEGACY_SEAT_KIND,
 } from '@/process/commandEve/seatContextCore';
 import { readInferenceLaneStateFromBackendStrict } from '@/process/commandEve/inferenceSelectionBackendRead';
 
@@ -148,10 +151,73 @@ describe('the boot restore', () => {
     expect(getActiveSeatLabel()).toBe('Mathias');
   });
 
-  it('leaves a pointer-less install on the legacy seat (byte-identical to before)', () => {
+  it('leaves a pointer-less install on the legacy seat', () => {
     const result = restoreActiveSeatFromPointer(tmpRoot);
     expect(result).toEqual({ seatId: LEGACY_SEAT_ID, source: 'legacy' });
     expect(getActiveSeatId()).toBe(LEGACY_SEAT_ID);
+  });
+
+  it('THE BOOT SET-POINT: a pointer-less install is the FOUNDER home, and now says so', () => {
+    // THE DEFECT THIS PINS. The founder/legacy home deliberately never has a
+    // pointer — the writer clears it for a legacy id (activeSeatPointerStore.ts:134)
+    // and the reader refuses to return one (:177), because absence IS how "back on
+    // the founder seat" is stored. But the restore then returned early and set
+    // NOTHING, so the process stayed on the module initialiser
+    // (`let activeSeatKind = DEFAULT_SEAT_KIND`, seatContextCore.ts:394) and the
+    // founder booted classified as a CUSTOMER seat.
+    //
+    // That is what `kanbanAcpMain.ts:86` reads before deleting the kanban-ACP
+    // bearer file, and what `runtimeBootstrapCore.ts:5631` reads to decide whether
+    // EVE is even told the board exists. Dropping the same fold in applySeatSwitch
+    // (0541ab5f) fixed the switch path and nothing else: it did not survive a
+    // restart, because a restart never goes through applySeatSwitch.
+    expect(getActiveSeatKind(), 'the process starts on the module default').toBe(DEFAULT_SEAT_KIND);
+
+    restoreActiveSeatFromPointer(tmpRoot);
+
+    expect(getActiveSeatKind(), 'the founder still boots as a customer seat').not.toBe('client');
+    expect(getActiveSeatKind()).toBe(LEGACY_SEAT_KIND);
+  });
+
+  it('WEG A STAYS NARROW: a saved CLIENT seat still restores as client', () => {
+    // The founder chose the narrow path: only the founder/legacy case changes.
+    // A real customer seat must be unaffected in both spellings — an explicit
+    // 'client' kind, and a pointer that carries no kind at all.
+    writeActiveSeatPointer(tmpRoot, { seatId: SEAT, label: 'Klinik Salem', kind: 'client' });
+    restoreActiveSeatFromPointer(tmpRoot);
+    expect(getActiveSeatKind()).toBe('client');
+
+    __resetActiveSeatForTests();
+    writeActiveSeatPointer(tmpRoot, { seatId: SEAT, label: 'Klinik Salem' });
+    restoreActiveSeatFromPointer(tmpRoot);
+    expect(getActiveSeatKind()).toBe('client');
+  });
+
+  it('a THROWN restore does NOT claim the founder kind — that direction is the dangerous one', () => {
+    // Reaching the catch means a pointer EXISTED and restoring it failed, so this
+    // install is not known to be the founder home at all. Claiming 'own_company'
+    // on a guess is the one direction that would hand a customer seat the
+    // founder's reach, so the catch deliberately leaves the default standing.
+    const result = restoreActiveSeatFromPointer(tmpRoot, {
+      readPointer: () => {
+        throw new Error('disk on fire');
+      },
+    });
+    expect(result.source).toBe('legacy');
+    expect(getActiveSeatKind()).toBe(DEFAULT_SEAT_KIND);
+  });
+
+  it('the founder kind is ONE fact, not three literals', () => {
+    // `seatSwitchCore` already spelled it out twice for the founder chip. The
+    // constant exists so a third copy cannot drift away from them.
+    const seatSwitchSource = fs.readFileSync(
+      path.join(__dirname, '../../../packages/desktop/src/process/commandEve/seatSwitchCore.ts'),
+      'utf8'
+    );
+    expect(seatSwitchSource).toContain("kind: 'own_company',");
+    expect(seatSwitchSource).toContain("kind: legacy ? 'own_company' : 'client',");
+    expect(LEGACY_SEAT_KIND).toBe('own_company');
+    expect(LEGACY_SEAT_KIND, 'the founder home is not an unknown seat').not.toBe(DEFAULT_SEAT_KIND);
   });
 
   it('never dies on a bad pointer — a boot must not be brickable by one file', () => {

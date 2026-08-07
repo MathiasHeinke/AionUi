@@ -391,6 +391,21 @@ let activeSeatLabel: string = DEFAULT_SEAT_LABEL;
  */
 export type SeatKind = 'client' | 'own_company' | 'department';
 export const DEFAULT_SEAT_KIND: SeatKind = 'client';
+
+/**
+ * The kind of the founder/legacy home itself.
+ *
+ * NOT a new fact — the product already states it wherever it describes the
+ * founder chip (`seatSwitchCore.ts:566` and `resolveDegradedAdminAccess` :615,
+ * `kind: legacy ? 'own_company' : 'client'`). It is named here because the boot
+ * restore needs it too, and a third inline literal is how three places start
+ * disagreeing. `activeSeatPointerStoreCore.test.ts` pins that the chip sites and
+ * this constant still say the same thing.
+ *
+ * It is deliberately NOT the same as {@link DEFAULT_SEAT_KIND}: the default is
+ * what an UNKNOWN seat gets, this is what a KNOWN one is.
+ */
+export const LEGACY_SEAT_KIND: SeatKind = 'own_company';
 let activeSeatKind: SeatKind = DEFAULT_SEAT_KIND;
 
 /** Get the currently-active seat id (defaults to the legacy seat). */

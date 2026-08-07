@@ -54,6 +54,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  LEGACY_SEAT_KIND,
   isLegacySeatId,
   sanitizeSeatId,
   setActiveSeatId,
@@ -205,6 +206,21 @@ export interface RestoreActiveSeatResult {
  * boot and a fresh switch leave the holder in the SAME shape. `setActiveSeatId`
  * throws on an unsafe id; the id was already sanitized by the reader, and the
  * throw is caught here anyway so a boot can never die on a bad pointer.
+ *
+ * NO POINTER IS ALSO AN ANSWER (1.821.0). The founder/legacy home deliberately
+ * never has one — the writer clears it for a legacy id (:134) and the reader
+ * refuses to return one (:177), because absence IS how "back on the founder seat"
+ * is stored. But the restore then returned early and set NOTHING, so the process
+ * stayed on the module initialiser `let activeSeatKind = DEFAULT_SEAT_KIND`
+ * ('client', seatContextCore.ts:394) — and the founder's own seat booted
+ * classified as a customer seat. That is what made `applySeatSwitch` dropping the
+ * same fold (0541ab5f) survive only until the next restart.
+ *
+ * So the legacy branch now names the founder kind explicitly. It is not a new
+ * fact: the code already states it in both places that describe the founder chip
+ * (`seatSwitchCore.ts:566` and `resolveDegradedAdminAccess` :615,
+ * `kind: legacy ? 'own_company' : 'client'`). Absence of a pointer stays the
+ * storage contract; the kind is set BESIDE it, never through it.
  */
 export function restoreActiveSeatFromPointer(
   dataPath: string,
@@ -221,7 +237,12 @@ export function restoreActiveSeatFromPointer(
   const setKind = deps.setSeatKind ?? setActiveSeatKind;
   try {
     const pointer = read(dataPath);
-    if (!pointer) return { seatId: 'seat-1', source: 'legacy' };
+    if (!pointer) {
+      // The founder/legacy home. Its kind is known — say it, rather than leaving
+      // the process on a default that describes a customer.
+      setKind(LEGACY_SEAT_KIND);
+      return { seatId: 'seat-1', source: 'legacy' };
+    }
     setId(pointer.seatId);
     setLabel(pointer.label);
     setKind(pointer.kind);
@@ -230,6 +251,12 @@ export function restoreActiveSeatFromPointer(
     // A restore that cannot complete leaves the process on the legacy seat —
     // today's behaviour, and the only safe direction: a half-restored context
     // (id set, label/kind not) would bake an env that describes no real seat.
+    //
+    // DELIBERATELY NOT the founder kind here, unlike the no-pointer branch above.
+    // Reaching this means a pointer EXISTED and something about restoring it
+    // threw, so this install is not known to be the founder home at all — it may
+    // be a client seat whose pointer went bad. Claiming 'own_company' on a guess
+    // is the one direction that hands a customer seat the founder's reach.
     return { seatId: 'seat-1', source: 'legacy' };
   }
 }

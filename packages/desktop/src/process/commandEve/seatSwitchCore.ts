@@ -306,10 +306,17 @@ export async function applySeatSwitch(
     //
     // NO LEGACY FOLD (1.821.0) — same reason as the in-place path above: the
     // founder/legacy seat's kind is now whatever the wire record says it is, and
-    // the kanban/team-manage bearer provisioning reads that holder. Note this is
-    // the SWITCH set-point only; a plain boot never calls it (there is no
-    // boot-restore of a saved seat), so the process still starts on the module
-    // default — see seatContextCore.ts:394.
+    // the kanban/team-manage bearer provisioning reads that holder.
+    //
+    // CORRECTION (same release): an earlier version of this comment claimed "a
+    // plain boot never calls it — there is no boot-restore of a saved seat". That
+    // was wrong and it was the more expensive kind of wrong, because it pointed
+    // the next reader away from the place that actually mattered. There IS a boot
+    // restore: `index.ts:1923` calls `restoreActiveSeatFromPointer` BEFORE
+    // `prepareCommandEveRuntimeProcessEnv` (:1933), and it sets the kind at
+    // `activeSeatPointerStore.ts:227`. What was missing was the FOUNDER case —
+    // that home deliberately has no pointer, so the restore returned early and
+    // set nothing; it now names the founder kind on that branch.
     setActiveSeatKind(targetKind);
     // PERSIST THE POINTER THE MOMENT THE SEAT LANDS, not only at step (f).
     //
