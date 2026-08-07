@@ -471,9 +471,17 @@ export function isLocalSelection(value: string | null | undefined): boolean {
  * it carried NEITHER prefix. {@link repairInferenceSelection} treats "neither
  * prefix" as corrupt and rewrites it to {@link EVE_DEFAULT_INFERENCE_SELECTION} —
  * a METERED rung. So a persisted BYOK selection would have been silently converted
- * into a metered turn. It is dead code today (the only production caller of
- * {@link buildEvePickerGroups} passes no connected groups), and the correct time to
- * close a money hole is before something walks into it.
+ * into a metered turn, and closing that money hole before anything walked into it
+ * was the right order.
+ *
+ * As of 1.821.0 it is no longer dead: {@link parseConnectedSelection} names the
+ * provider and model inside the value, {@link resolveCommandEveActiveLane} returns
+ * a `connected` lane instead of silently falling back to the local default tier,
+ * and the main process resolves the operator's own row for it. What is still
+ * missing is the WIRE — the shim has exactly three upstreams (EVE's metered Edge
+ * Function, strict-IPv4-loopback OpenAI, loopback Ollama) and no path to a
+ * third-party host. Until that lane exists the picker must not OFFER a BYOK row;
+ * see {@link BYOK_PICKER_VISIBLE}.
  *
  * Giving BYOK a NAMEABLE identity is what makes "never repaired onto the metered
  * lane" implementable rather than merely asserted.
@@ -488,6 +496,41 @@ export function connectedSelectionValue(id: string): string {
 /** True iff a picker selection value belongs to a connected (BYOK) provider group. */
 export function isConnectedSelection(value: string | null | undefined): boolean {
   return typeof value === 'string' && value.startsWith(CONNECTED_SELECTION_PREFIX);
+}
+
+/** The id half of a connected selection: `<providerId>:<model>`. */
+export function connectedSelectionId(providerId: string, model: string): string {
+  return `${providerId}:${model}`;
+}
+
+/** Stable selection value for one model of one operator-owned provider row. */
+export function connectedProviderSelectionValue(providerId: string, model: string): string {
+  return connectedSelectionValue(connectedSelectionId(providerId, model));
+}
+
+/**
+ * Read the provider row and model back out of a connected selection.
+ *
+ * Splits on the FIRST colon and not the last, because the two halves have very
+ * different alphabets: a provider row id is a uuid fragment or an app slug and
+ * never contains a colon, while a model name routinely does (`qwen/qwen3:8b`).
+ * Splitting from the right would silently hand back a truncated model.
+ *
+ * Returns null for anything that is not a connected value or is missing either
+ * half — an unusable selection must be nameable as unusable, never guessed into
+ * a working one.
+ */
+export function parseConnectedSelection(
+  value: string | null | undefined
+): { providerId: string; model: string } | null {
+  if (!isConnectedSelection(value)) return null;
+  const id = (value as string).slice(CONNECTED_SELECTION_PREFIX.length);
+  const separator = id.indexOf(':');
+  if (separator <= 0) return null;
+  const providerId = id.slice(0, separator).trim();
+  const model = id.slice(separator + 1).trim();
+  if (!providerId || !model) return null;
+  return { providerId, model };
 }
 
 /**
@@ -1044,7 +1087,18 @@ export function resolveCommandEveWarmupLane(persisted: string | null | undefined
 
 export type CommandEveActiveLane =
   | { kind: 'eve'; tierId: EveInferenceTierId; tierLabel: string; wireTier: EveInferenceWireTier }
-  | { kind: 'local'; tierId: string; modelLabel: string };
+  | { kind: 'local'; tierId: string; modelLabel: string }
+  /**
+   * The operator's OWN provider row (BYOK). Funding-neutral for us: it costs the
+   * operator at their provider and never reaches EVE's metered lane.
+   *
+   * It exists as its own kind precisely so it stops being answered with `local`.
+   * Before 1.821.0 a connected selection fell through the "unknown non-EVE value"
+   * branch below and was reported as the local default tier — so the composer
+   * painted Gemma while the send path warmed Gemma, and the operator's choice
+   * silently evaporated. A lane the product cannot name is a lane it cannot route.
+   */
+  | { kind: 'connected'; providerId: string; model: string; providerName?: string };
 
 /**
  * Resolve the ACTIVE inference lane from the persisted picker selection (the
@@ -1074,6 +1128,15 @@ export function resolveCommandEveActiveLane(
       findEveInferenceTier(parsed)?.tier === 'max' && !mayPaintEveMax(seat) ? EVE_INFERENCE_STANDARD_TIER_ID : parsed;
     const tier = findEveInferenceTier(tierId) ?? EVE_INFERENCE_TIERS[0];
     return { kind: 'eve', tierId: tier.id, tierLabel: tier.label, wireTier: tier.tier };
+  }
+
+  const connected = parseConnectedSelection(selection);
+  if (connected) {
+    // BEFORE the local fallback, deliberately: this branch is the whole reason
+    // the fallback stopped being a lie. It answers with the operator's provider
+    // and model, so every caller that paints or routes a lane can tell BYOK from
+    // local instead of being handed the default Gemma tier.
+    return { kind: 'connected', providerId: connected.providerId, model: connected.model };
   }
 
   const localTier = parseLocalTierFromSelection(selection);
@@ -1136,6 +1199,13 @@ export function describeCommandEveActiveLane(
     return de
       ? `EVE Cloud, ${lane.tierLabel}-Stufe${blurb ? ` (${blurb})` : ''}`
       : `EVE Cloud, ${lane.tierLabel} tier${blurb ? ` (${blurb})` : ''}`;
+  }
+
+  if (lane.kind === 'connected') {
+    const label = lane.providerName ? `${lane.providerName} · ${lane.model}` : lane.model;
+    return de
+      ? `Eigener Anbieter · ${label} (dein Schlüssel, keine EVE-Credits)`
+      : `Your own provider · ${label} (your key, no EVE credits)`;
   }
 
   return de
@@ -1486,6 +1556,31 @@ export function buildEvePickerGroups(
 
   return [localGroup, eveGroup, ...connectedGroups];
 }
+
+/**
+ * MAY A BYOK ROW BE OFFERED IN THE PICKER YET? No — and this constant is the
+ * reason it stays that way rather than an oversight.
+ *
+ * Everything around it is built: the selection has a name, the lane has a kind,
+ * `repairInferenceSelection` refuses to convert it onto the metered lane, and the
+ * main process resolves the operator's own row for it. What does NOT exist is the
+ * wire. The Command EVE shim reaches exactly three upstreams — EVE's metered Edge
+ * Function, a STRICT-IPv4-loopback OpenAI server, and loopback Ollama — and
+ * `handleLocalOpenAiCompletions` answers 503 for any non-loopback base URL. A
+ * fourth lane to an operator-named third-party host (HTTPS-only, redirect:'error',
+ * its own upstream scope, egress redaction, a boundary-receipt entry) is a NETWORK
+ * BOUNDARY decision and is being put to the founder separately.
+ *
+ * Offering the row before that lane exists would put an entry in the picker that
+ * cannot carry a turn. That is not a smaller version of the feature — it is the
+ * exact defect this release has been removing: a control that claims one thing and
+ * does another. So the group is BUILT and WIRED and simply not shown, and the day
+ * the lane lands this flips in one place.
+ *
+ * A test pins that it is false, and pins that flipping it does produce the groups —
+ * so this stays a decision, not a forgotten line.
+ */
+export const BYOK_PICKER_VISIBLE = false;
 
 // ---------------------------------------------------------------------------
 // THERE IS NO FREE LANE, SO THERE IS NO FREE LANE MODEL (1.820.1).

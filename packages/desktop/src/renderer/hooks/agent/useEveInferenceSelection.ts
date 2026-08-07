@@ -45,12 +45,14 @@
  * start screen) and Settings → Modell cannot drift apart.
  */
 
-import { commandEve } from '@/common/adapter/ipcBridge';
+import { commandEve, mode as ipcMode } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
 import { isPaidPlanForSeat } from '@/common/config/creditsCore';
+import { buildConnectedProviderGroups, type ConnectedProviderRow } from '@/common/config/eveConnectedProviderCore';
 import {
   buildEveEntitlementView,
   buildEvePickerGroups,
+  BYOK_PICKER_VISIBLE,
   EVE_DEFAULT_INFERENCE_SELECTION,
   EVE_INFERENCE_MAX_TIER_ID,
   EVE_INFERENCE_STANDARD_TIER_ID,
@@ -416,7 +418,43 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     return () => window.removeEventListener('focus', onFocus);
   }, [refreshBearer]);
 
-  const groups = useMemo(() => buildEvePickerGroups(pickerEntitlement), [pickerEntitlement]);
+  // The operator's OWN provider rows, read through the same bridge shape as the
+  // other main-owned truth this hook reads. No key ever crosses: the main process
+  // resolves credentials, this side gets id/label/model only.
+  const [connectedRows, setConnectedRows] = useState<ConnectedProviderRow[]>([]);
+  useEffect(() => {
+    // Building it while it cannot be OFFERED is deliberate — the wire is missing,
+    // not the model (see BYOK_PICKER_VISIBLE). Reading nothing until the lane
+    // lands would leave the whole path unexercised, which is how a wire rots
+    // before it is ever used.
+    if (!isElectronDesktop() || !BYOK_PICKER_VISIBLE) return;
+    let cancelled = false;
+    void ipcMode.listProviders
+      .invoke()
+      .then((rows) => {
+        if (!cancelled) setConnectedRows(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => {
+        // A row list we could not read is NOT "the operator has no providers" for
+        // any purpose other than display, and display is all this is.
+        if (!cancelled) setConnectedRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const connectedProviderGroups = useMemo(
+    // The gate is applied HERE, at the one place the groups reach the picker, so
+    // there is exactly one line to flip when the shim lane lands.
+    () => (BYOK_PICKER_VISIBLE ? buildConnectedProviderGroups(connectedRows) : []),
+    [connectedRows]
+  );
+
+  const groups = useMemo(
+    () => buildEvePickerGroups(pickerEntitlement, connectedProviderGroups),
+    [pickerEntitlement, connectedProviderGroups]
+  );
   const items = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 
   // A destructive fallback is only justified once both independent funding

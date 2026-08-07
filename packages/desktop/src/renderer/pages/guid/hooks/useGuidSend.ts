@@ -15,7 +15,11 @@ import {
   normalizeCommandEveLocalModelTierId,
 } from '@/common/config/commandEveShell';
 import { configService } from '@/common/config/configService';
-import { isEveInferenceSelection, resolveEffectiveInferenceSelection } from '@/common/config/eveInferenceCore';
+import {
+  isConnectedSelection,
+  isEveInferenceSelection,
+  resolveEffectiveInferenceSelection,
+} from '@/common/config/eveInferenceCore';
 import { isCommandEveManagedImageMcp } from '@/common/config/eveManagedMcpCore';
 import type { IMcpServer, TProviderWithModel } from '@/common/config/storage';
 import { buildAgentConversationParams } from '@/common/utils/buildAgentConversationParams';
@@ -246,7 +250,33 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         commandEveRuntimeModelId = commandEveRuntimeModel?.use_model;
         // Skip local warmup: this is the cloud lane.
       }
-      if (!useEveCloud) {
+      // Connected (BYOK) lane — BEFORE the local warmup, and that order is the
+      // whole point of this branch.
+      //
+      // This block had exactly two branches: EVE cloud, and "everything else is
+      // local". A connected selection therefore fell into the second one and
+      // started a Gemma warm-up — the operator picked their own provider and got
+      // the local model, with the local model's name painted next to it. That is
+      // the falsehood; skipping the warmup is only half the fix, naming it is the
+      // other half.
+      //
+      // It REFUSES rather than sends, because the wire does not exist yet: the
+      // Command EVE shim reaches EVE's metered Edge Function, a strict-loopback
+      // OpenAI server and loopback Ollama, and nothing else (see
+      // BYOK_PICKER_VISIBLE). Nothing offers this selection today, so reaching
+      // here means a persisted or hand-edited value — and the honest answer to
+      // "I cannot route this" is to say so, not to quietly run something else.
+      const useConnected = !useEveCloud && isConnectedSelection(inferenceSelection);
+      if (useConnected) {
+        Message.error(
+          t(
+            'conversation.eveInference.connectedNotRoutable',
+            'Dieser Anbieter ist noch nicht angebunden. Wähle in den Einstellungen eine EVE- oder lokale Stufe.'
+          )
+        );
+        return false;
+      }
+      if (!useEveCloud && !useConnected) {
         const tierId = normalizeCommandEveLocalModelTierId(configService.get('commandEve.localModelTierId'));
         const expectedModel = getCommandEveAcpModelIdForTier(tierId);
         const expectedRuntimeModel = toCommandEveRuntimeModelId(expectedModel);

@@ -86,10 +86,15 @@ import { resolveEveCloudRouteFromBackend } from '@process/commandEve/inferenceSe
 import { isCommandEveMaxEntitlementHoldError } from '@process/commandEve/shimPublicError';
 import {
   buildEveInferenceProvider,
+  isConnectedSelection,
   isEveInferenceSelection,
+  parseConnectedSelection,
   parseEveTierIdFromSelection,
   type EveInferenceTierId,
 } from '@/common/config/eveInferenceCore';
+import { resolveConnectedProviderRoute } from '@/common/config/eveConnectedProviderCore';
+import { httpRequest } from '@/common/adapter/httpBridge';
+import type { IProvider } from '@/common/config/storage';
 import {
   COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
   COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
@@ -4648,6 +4653,39 @@ export function initCommandEveBridge(): void {
           });
           const provider = { ...providerWithoutWire, api_key: '' };
           return { success: true, data: { provider, lane: 'eve' as const, tierId: eveTierId } };
+        }
+
+        // Connected (BYOK) lane — the operator's OWN provider row.
+        //
+        // Baustein 3. Resolved HERE and not in the renderer because the row's
+        // `api_key` is the operator's credential: it is read from the backend in
+        // main, matched against the persisted selection, and the result is
+        // returned WITHOUT it (same discipline as the EVE wire above, which is
+        // also verified here and stripped before it crosses).
+        //
+        // THIS RESOLVES BUT DOES NOT YET SEND. The shim has no lane to a
+        // third-party host (see BYOK_PICKER_VISIBLE), so nothing offers this
+        // selection yet; a persisted or hand-edited one now gets an honest,
+        // nameable answer instead of being silently answered with the local
+        // Gemma row.
+        if (isConnectedSelection(selection)) {
+          const rows = (await httpRequest<IProvider[]>('GET', '/api/providers')) || [];
+          const route = resolveConnectedProviderRoute(parseConnectedSelection(selection), rows);
+          if (!route) {
+            // The row was deleted, disabled, lost its key, or no longer offers
+            // this model. Refusing is the only honest answer: substituting the
+            // row's first model would be a different turn at a different price,
+            // and falling back to local would be the very lie this fixes.
+            return { success: false, msg: 'CONNECTED_PROVIDER_UNAVAILABLE', data: undefined };
+          }
+          return {
+            success: false,
+            // NOT sendable yet, and it says so with its own reason code rather
+            // than a generic failure — the day the shim lane lands, this branch
+            // returns the provider instead and nothing else has to move.
+            msg: 'CONNECTED_PROVIDER_NO_WIRE',
+            data: undefined,
+          };
         }
 
         // Privat (lokal) lane — reuse the bundled local-runtime provider. The
