@@ -6,6 +6,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  COMMAND_EVE_HERMES_WHEEL,
   COMMAND_EVE_PRESENTATION_PYTHON_WHEELS,
   COMMAND_EVE_PUBLIC_KEY_FILES,
   verifyPackagedCommandEveResources,
@@ -34,6 +35,13 @@ describe('packaged Command EVE resource truth', () => {
       path.resolve('resources/bundled-hermes/presentation'),
       path.join(resourcesPath, 'bundled-hermes', 'presentation'),
       { recursive: true }
+    );
+
+    // G2 (CEVE-18205): the Hermes wheel is now pinned like the presentation
+    // wheels, so the fake packaged app has to carry the real bytes.
+    fs.cpSync(
+      path.resolve(`resources/bundled-hermes/${COMMAND_EVE_HERMES_WHEEL.filename}`),
+      path.join(resourcesPath, 'bundled-hermes', COMMAND_EVE_HERMES_WHEEL.filename)
     );
 
     const artifactManifestBytes = fs.readFileSync(sourceArtifactManifestPath);
@@ -176,6 +184,56 @@ describe('packaged Command EVE resource truth', () => {
     expect(() => verify({}, { listArchiveEntries: () => ['pptx/__init__.py', 'pptx/native/bridge.so'] })).toThrow(
       /unexpectedly contains native binaries/
     );
+  });
+
+  // ── G2 (CEVE-18205): the Hermes wheel gets the SAME three checks ──────────
+  //
+  // Before this, `hermes_agent` appeared NOWHERE in the verifier: the one wheel
+  // carrying the agent runtime shipped unverified while eleven presentation
+  // wheels were pinned to the byte. These three mirror the presentation cases so
+  // the two can never drift into different levels of rigour.
+
+  it('reports the packaged Hermes wheel with its pinned identity', () => {
+    const result = verify();
+    expect(result.hermes_wheel).toMatchObject({
+      package: 'hermes-agent',
+      version: COMMAND_EVE_HERMES_WHEEL.version,
+      file: COMMAND_EVE_HERMES_WHEEL.filename,
+      sha256: COMMAND_EVE_HERMES_WHEEL.sha256,
+      native_entries: 0,
+    });
+    expect(result.hermes_wheel.bytes).toBeGreaterThan(0);
+  });
+
+  it('fails closed when the Hermes wheel is absent from the packaged app', () => {
+    fs.rmSync(path.join(resourcesPath, 'bundled-hermes', COMMAND_EVE_HERMES_WHEEL.filename));
+
+    expect(() => verify()).toThrow(/packaged hermes_agent-.*\.whl is missing/);
+  });
+
+  it('fails closed when the Hermes wheel differs from its SHA-256 pin', () => {
+    // One appended byte is the whole point: a wheel that is merely the right NAME
+    // is exactly the failure mode an unpinned check could not see.
+    fs.appendFileSync(path.join(resourcesPath, 'bundled-hermes', COMMAND_EVE_HERMES_WHEEL.filename), 'tampered');
+
+    expect(() => verify()).toThrow(/hermes_agent-.*failed its SHA-256 pin/);
+  });
+
+  it('rejects a Hermes wheel that contains a native binary — the notarization tripwire', () => {
+    // electron-builder.yml drops resources/bundled-hermes/web/** because Apple
+    // notarytool inspects INSIDE .whl files. A native payload here would fail
+    // notarization only AFTER a full signed build; this fails it at pack time.
+    expect(() =>
+      verify(
+        {},
+        {
+          listArchiveEntries: (archive: string) =>
+            archive.endsWith(COMMAND_EVE_HERMES_WHEEL.filename)
+              ? ['hermes_agent/__init__.py', 'hermes_agent/_relay.abi3.so']
+              : ['pptx/__init__.py'],
+        }
+      )
+    ).toThrow(/hermes_agent-.*unexpectedly contains native binaries/);
   });
 
   it('fails closed when the signed Artifact Python receipt is stale', () => {

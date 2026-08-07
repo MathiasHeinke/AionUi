@@ -13,6 +13,28 @@ export const COMMAND_EVE_PUBLIC_KEY_FILES = Object.freeze([
   'command-eve-license-public-key-server.pem',
 ]);
 
+/**
+ * G2 (CEVE-18205) — the Hermes wheel is the ONE bundled wheel nothing verified.
+ *
+ * The eleven presentation wheels below are pinned by filename AND SHA-256 AND a
+ * zero-native-binaries assertion. `hermes_agent-*.whl` — by far the largest and the
+ * only one that carries the agent runtime itself — was pinned by nothing: a readiness
+ * sweep found zero occurrences of `hermes_agent` in this file. A wrong, stale or
+ * corrupted Hermes wheel shipped without a single check failing.
+ *
+ * The zero-native-binaries assertion is not decoration here. electron-builder.yml
+ * excludes resources/bundled-hermes/web/** precisely because Apple notarytool
+ * inspects INSIDE .whl files and rejects unsigned Mach-O payloads; a Hermes wheel that
+ * ever grew a native binary would fail notarization AFTER a full signed build. This
+ * catches it at pack time instead.
+ */
+export const COMMAND_EVE_HERMES_WHEEL = Object.freeze({
+  name: 'hermes-agent',
+  version: '0.20.0',
+  filename: 'hermes_agent-0.20.0-py3-none-any.whl',
+  sha256: '9f80183e4db0486bb40f6fa3878b7f7994f81656a42e1c388613e2e3483c8602',
+});
+
 export const COMMAND_EVE_PRESENTATION_PYTHON_WHEELS = Object.freeze([
   {
     name: 'python-pptx',
@@ -446,6 +468,33 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
     };
   });
 
+  // The Hermes wheel itself — same three checks the presentation wheels get.
+  const hermesWheelPath = path.join(resourcesPath, 'bundled-hermes', COMMAND_EVE_HERMES_WHEEL.filename);
+  const hermesWheelBytes = readRequiredRegularFile(
+    hermesWheelPath,
+    `packaged ${COMMAND_EVE_HERMES_WHEEL.filename}`,
+    deps
+  );
+  if (sha256(hermesWheelBytes) !== COMMAND_EVE_HERMES_WHEEL.sha256) {
+    throw new Error(`PACKAGED-RESOURCES: packaged ${COMMAND_EVE_HERMES_WHEEL.filename} failed its SHA-256 pin`);
+  }
+  const hermesNativeEntries = deps
+    .listArchiveEntries(hermesWheelPath)
+    .filter((entry) => NATIVE_ARCHIVE_ENTRY_PATTERN.test(entry));
+  if (hermesNativeEntries.length > 0) {
+    throw new Error(
+      `PACKAGED-RESOURCES: packaged ${COMMAND_EVE_HERMES_WHEEL.filename} unexpectedly contains native binaries: ${hermesNativeEntries.join(', ')}`
+    );
+  }
+  const hermesWheel = {
+    package: COMMAND_EVE_HERMES_WHEEL.name,
+    version: COMMAND_EVE_HERMES_WHEEL.version,
+    file: COMMAND_EVE_HERMES_WHEEL.filename,
+    bytes: hermesWheelBytes.length,
+    sha256: COMMAND_EVE_HERMES_WHEEL.sha256,
+    native_entries: 0,
+  };
+
   const artifactPython = verifyPackagedArtifactPython({
     resourcesPath,
     sourceArtifactManifestPath,
@@ -480,6 +529,7 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
       offline_only: true,
       wheels: presentationPython,
     },
+    hermes_wheel: hermesWheel,
     artifact_python: artifactPython,
     private_key_findings: 0,
   };
