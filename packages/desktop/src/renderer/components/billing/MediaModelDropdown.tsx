@@ -35,6 +35,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { CheckSmall } from '@icon-park/react';
 import {
+  clampPillDropdownLeft,
   resolvePillDropdownPlacement,
   type PillDropdownPlacement,
 } from '@/renderer/components/billing/pillDropdownPlacement';
@@ -91,10 +92,27 @@ export const MediaPillDropdown: React.FC<{
       resolvePillDropdownPlacement({
         triggerRect: { top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width },
         viewportHeight: window.innerHeight,
+        viewportWidth: window.innerWidth,
         estimatedListHeight: estimatedRows * ROW_HEIGHT_PX + 48,
       })
     );
   }, [open, estimatedRows]);
+
+  // SECOND GEOMETRY PASS: the list is content-wide (`width: max-content`), so
+  // its real width is only known after the browser sized it. Slide it left if
+  // the content ran past the right viewport edge; converges in one step (the
+  // clamped value re-enters and clamps to itself).
+  useLayoutEffect(() => {
+    if (!open || !placement) return;
+    const listRect = listRef.current?.getBoundingClientRect();
+    if (!listRect) return;
+    const clampedLeft = clampPillDropdownLeft({
+      left: placement.left,
+      measuredWidth: listRect.width,
+      viewportWidth: window.innerWidth,
+    });
+    if (clampedLeft !== placement.left) setPlacement({ ...placement, left: clampedLeft });
+  }, [open, placement]);
 
   // Outside click closes — the portal is outside the pill's DOM subtree, so
   // this listens on the document and exempts trigger + list explicitly.
@@ -141,7 +159,8 @@ export const MediaPillDropdown: React.FC<{
             style={{
               top: placement.top,
               left: placement.left,
-              width: placement.width,
+              minWidth: placement.minWidth,
+              maxWidth: placement.maxWidth,
               maxHeight: placement.maxHeight,
             }}
           >

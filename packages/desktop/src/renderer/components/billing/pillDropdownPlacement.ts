@@ -24,8 +24,15 @@ export type PillDropdownPlacement = {
   top: number;
   /** Fixed-position left edge (viewport px). */
   left: number;
-  /** List width (the trigger's width, min a readable floor). */
-  width: number;
+  /**
+   * Width FLOOR (trigger width, min a readable floor). The list itself sizes
+   * to its CONTENT (`width: max-content` in CSS) — inheriting the trigger
+   * width as the *actual* width was why "Grok I…", "Google Veo …" ellipsed
+   * while free space sat right next to the list (founder screenshot).
+   */
+  minWidth: number;
+  /** Hard cap: content may widen the list up to the viewport edge, never past it. */
+  maxWidth: number;
   /** Capped list height; the list scrolls beyond it. */
   maxHeight: number;
 };
@@ -39,6 +46,7 @@ export function resolvePillDropdownPlacement(input: {
   /** The trigger's viewport rect (only the used fields). */
   triggerRect: { top: number; bottom: number; left: number; width: number };
   viewportHeight: number;
+  viewportWidth: number;
   /** The list's expected content height before capping. */
   estimatedListHeight: number;
   gap?: number;
@@ -64,11 +72,31 @@ export function resolvePillDropdownPlacement(input: {
   const height = Math.min(input.estimatedListHeight, maxHeight);
   const top = direction === 'down' ? triggerRect.bottom + gap : triggerRect.top - gap - height;
 
+  const minWidth = Math.max(triggerRect.width, PILL_DROPDOWN_MIN_WIDTH_PX);
   return {
     direction,
     top: Math.max(gap, top),
     left: triggerRect.left,
-    width: Math.max(triggerRect.width, PILL_DROPDOWN_MIN_WIDTH_PX),
+    minWidth,
+    // Never smaller than the floor (a pathological viewport should not squash
+    // the floor away), never past the viewport minus a gap on each side.
+    maxWidth: Math.max(minWidth, input.viewportWidth - 2 * gap),
     maxHeight,
   };
+}
+
+/**
+ * Second geometry pass, after the browser has sized the content-wide list:
+ * keep the measured list inside the right viewport edge by sliding it left
+ * (never squashing it), floored at the left gap. Pure for the same reason as
+ * the resolver above.
+ */
+export function clampPillDropdownLeft(input: {
+  left: number;
+  measuredWidth: number;
+  viewportWidth: number;
+  gap?: number;
+}): number {
+  const gap = input.gap ?? PILL_DROPDOWN_GAP_PX;
+  return Math.max(gap, Math.min(input.left, input.viewportWidth - gap - input.measuredWidth));
 }

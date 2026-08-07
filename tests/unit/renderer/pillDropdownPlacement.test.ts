@@ -5,13 +5,24 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { resolvePillDropdownPlacement } from '@/renderer/components/billing/pillDropdownPlacement';
+import {
+  clampPillDropdownLeft,
+  resolvePillDropdownPlacement,
+} from '@/renderer/components/billing/pillDropdownPlacement';
 
 const rect = (top: number, bottom: number) => ({ top, bottom, left: 10, width: 120 });
+const VIEWPORT_WIDTH = 1280;
+
+const resolve = (input: {
+  triggerRect: { top: number; bottom: number; left: number; width: number };
+  viewportHeight: number;
+  estimatedListHeight: number;
+  viewportWidth?: number;
+}) => resolvePillDropdownPlacement({ viewportWidth: VIEWPORT_WIDTH, ...input });
 
 describe('resolvePillDropdownPlacement (MAT-1773 P1)', () => {
   it('opens downward when there is room below', () => {
-    const placement = resolvePillDropdownPlacement({
+    const placement = resolve({
       triggerRect: rect(100, 130),
       viewportHeight: 768,
       estimatedListHeight: 400,
@@ -23,7 +34,7 @@ describe('resolvePillDropdownPlacement (MAT-1773 P1)', () => {
 
   it('opens UPWARD when the space below cannot fit the minimum', () => {
     // Trigger near the bottom edge: 20px below, plenty above.
-    const placement = resolvePillDropdownPlacement({
+    const placement = resolve({
       triggerRect: rect(340, 374),
       viewportHeight: 400,
       estimatedListHeight: 400,
@@ -35,7 +46,7 @@ describe('resolvePillDropdownPlacement (MAT-1773 P1)', () => {
   });
 
   it('caps the height to the available space so the list is ALWAYS fully visible', () => {
-    const placement = resolvePillDropdownPlacement({
+    const placement = resolve({
       triggerRect: rect(160, 190),
       viewportHeight: 400,
       estimatedListHeight: 500,
@@ -47,7 +58,7 @@ describe('resolvePillDropdownPlacement (MAT-1773 P1)', () => {
   });
 
   it('opens upward at the smallest supported window height when below is cramped', () => {
-    const placement = resolvePillDropdownPlacement({
+    const placement = resolve({
       triggerRect: rect(280, 310),
       viewportHeight: 320,
       estimatedListHeight: 380,
@@ -57,12 +68,51 @@ describe('resolvePillDropdownPlacement (MAT-1773 P1)', () => {
     expect(placement.top + Math.min(380, placement.maxHeight)).toBeLessThanOrEqual(310 - 6);
   });
 
-  it('enforces the readable minimum width', () => {
-    const placement = resolvePillDropdownPlacement({
+  it('the trigger width is a FLOOR, not the width: content may grow to the viewport cap', () => {
+    // THE FOUNDER SCREENSHOT: "Grok I…", "Google Veo …", "OpenAI Sora…"
+    // ellipsed while free space sat right next to the list, because the list
+    // INHERITED the trigger width. The contract is now minWidth (readable
+    // floor) + maxWidth (viewport edge) — the content decides in between.
+    const placement = resolve({
       triggerRect: { top: 10, bottom: 40, left: 5, width: 90 },
       viewportHeight: 768,
       estimatedListHeight: 200,
     });
-    expect(placement.width).toBe(280);
+    expect(placement.minWidth).toBe(280);
+    expect(placement.maxWidth).toBe(VIEWPORT_WIDTH - 12); // viewport minus a gap each side
+    expect(placement.maxWidth).toBeGreaterThan(placement.minWidth);
+  });
+
+  it('a wide trigger raises the floor; a pathological viewport never squashes it away', () => {
+    const wide = resolve({
+      triggerRect: { top: 10, bottom: 40, left: 5, width: 420 },
+      viewportHeight: 768,
+      estimatedListHeight: 200,
+    });
+    expect(wide.minWidth).toBe(420);
+
+    const tiny = resolve({
+      triggerRect: { top: 10, bottom: 40, left: 5, width: 90 },
+      viewportHeight: 768,
+      viewportWidth: 200,
+      estimatedListHeight: 200,
+    });
+    // Floor wins over an impossible viewport: never report maxWidth < minWidth.
+    expect(tiny.maxWidth).toBe(tiny.minWidth);
+  });
+});
+
+describe('clampPillDropdownLeft (second pass over the measured content width)', () => {
+  it('leaves a list alone that fits where it opened', () => {
+    expect(clampPillDropdownLeft({ left: 100, measuredWidth: 300, viewportWidth: 1280 })).toBe(100);
+  });
+
+  it('slides a content-wide list left instead of letting it run off the right edge', () => {
+    // left 1000 + width 360 = 1360 > 1280 - 6 → slide to 1280 - 6 - 360.
+    expect(clampPillDropdownLeft({ left: 1000, measuredWidth: 360, viewportWidth: 1280 })).toBe(914);
+  });
+
+  it('floors at the left gap when the list is wider than the viewport allows', () => {
+    expect(clampPillDropdownLeft({ left: 40, measuredWidth: 2000, viewportWidth: 1280 })).toBe(6);
   });
 });

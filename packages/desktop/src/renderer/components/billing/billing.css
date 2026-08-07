@@ -305,17 +305,17 @@
   min-width: 0;
 }
 .video-quality-pill__model-trigger {
-  border-color: var(--border-secondary, #e5e7eb);
+  border-color: var(--eve-composer-border);
   font-variant-numeric: tabular-nums;
   backdrop-filter: var(--glass-composer-filter, none);
 }
 .video-quality-pill__model-trigger[aria-expanded='true'] {
-  border-color: var(--eve-max-accent, var(--color-primary-6, #2563eb));
-  color: var(--eve-max-accent, var(--color-primary-6, #2563eb));
+  border-color: var(--eve-max-accent);
+  color: var(--eve-max-accent);
 }
 .video-quality-pill__model-trigger.is-active {
-  border-color: color-mix(in srgb, var(--eve-max-accent, var(--color-primary-6, #2563eb)) 45%, transparent);
-  background: color-mix(in srgb, var(--eve-max-accent, var(--color-primary-6, #2563eb)) 8%, transparent);
+  border-color: color-mix(in srgb, var(--eve-max-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--eve-max-accent) 8%, transparent);
 }
 .video-quality-pill__chevron {
   display: inline-block;
@@ -330,15 +330,26 @@
   z-index: 1400;
   display: flex;
   flex-direction: column;
-  min-width: 280px;
-  max-width: 380px;
+  width: max-content;
+  /* CONTENT-WIDE: the inline style carries the trigger-derived minWidth and
+     the viewport-derived maxWidth (pillDropdownPlacement); the content sets
+     the actual width, so model names stop ellipsing while space sits free. */
+
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 4px;
-  border: 1px solid var(--border-secondary, #e5e7eb);
+  padding: 6px;
+  /* EVE GLASS, not a foreign light panel: the menu floats over the dark glass
+     composer, so it speaks the SAME overlay language every other EVE overlay
+     uses — overlay glass + soft shadow + lit top edge, both themes for free. */
+  border: 1px solid var(--glass-overlay-border);
   border-radius: 10px;
-  background: var(--bg-2, var(--color-bg-2, #fff));
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+  background: var(--glass-overlay-bg);
+  -webkit-backdrop-filter: var(--glass-overlay-filter);
+  backdrop-filter: var(--glass-overlay-filter);
+  color: var(--eve-shell-text);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge-highlight),
+    var(--glass-shadow-soft);
   animation: eve-pill-dropdown-open 180ms ease-out;
 }
 .video-quality-pill__model-list--up {
@@ -365,29 +376,31 @@
   }
 }
 .video-quality-pill__section-label {
-  padding: 6px 10px 2px;
+  padding: 8px 12px 3px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-tertiary, #9ca3af);
+  color: var(--eve-shell-text-secondary);
 }
 .video-quality-pill__divider {
   height: 1px;
-  margin: 4px 6px;
-  background: var(--border-secondary, #e5e7eb);
+  margin: 5px 8px;
+  background: var(--glass-overlay-border);
 }
 .video-quality-pill__model-entry {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  padding: 6px 10px;
+  /* 8/12 at 13px: the 6/10-at-12px rhythm read cramped on the real screen. */
+  padding: 8px 12px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
   color: inherit;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.35;
   text-align: left;
   cursor: pointer;
   transition:
@@ -396,17 +409,18 @@
     background-color 120ms ease;
 }
 .video-quality-pill__model-entry:hover:not(:disabled) {
-  border-color: var(--border-secondary, #e5e7eb);
+  border-color: var(--glass-overlay-border);
+  background: var(--eve-row-hover-bg);
   transform: translateY(-1px);
 }
 .video-quality-pill__model-entry:focus-visible {
-  outline: 2px solid var(--color-primary-6, #2563eb);
+  outline: 2px solid var(--eve-focus-ring);
   outline-offset: 2px;
 }
 .video-quality-pill__model-entry.is-selected {
-  border-color: color-mix(in srgb, var(--eve-max-accent, var(--color-primary-6, #2563eb)) 55%, transparent);
-  background: color-mix(in srgb, var(--eve-max-accent, var(--color-primary-6, #2563eb)) 7%, transparent);
-  color: var(--eve-max-accent, var(--color-primary-6, #2563eb));
+  border-color: color-mix(in srgb, var(--eve-max-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--eve-max-accent) 7%, transparent);
+  color: var(--eve-max-accent);
   font-weight: 600;
   animation: eve-pill-option-settle 240ms ease-out;
 }
@@ -427,14 +441,18 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
-  color: #fff;
-  background: var(--text-tertiary, #9ca3af);
+  /* Provider BRAND colours below are identity and stay literal on purpose;
+     only the frame speaks EVE: token text/fallback plus a glass hairline so
+     the chips sit IN the overlay instead of on top of it. */
+  color: var(--eve-static-white);
+  background: var(--eve-shell-text-secondary);
+  box-shadow: inset 0 0 0 1px var(--glass-overlay-border);
 }
 .video-quality-pill__chip[data-provider='xai'] {
   background: #8b5cf6;
@@ -466,17 +484,19 @@
 .video-quality-pill__model-name {
   flex: 1 1 auto;
   min-width: 0;
+  /* Ellipsis stays as the LAST resort only: the list is content-wide now, so
+     this fires solely when the viewport cap genuinely bites. */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .video-quality-pill__model-price {
   flex: none;
-  padding: 1px 6px;
+  padding: 1px 7px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--text-tertiary, #9ca3af) 12%, transparent);
+  background: color-mix(in srgb, var(--eve-shell-text) 8%, transparent);
+  color: var(--eve-shell-text-secondary);
   font-variant-numeric: tabular-nums;
-  opacity: 0.9;
 }
 .video-quality-pill__model-estimate {
   flex: none;
@@ -485,29 +505,29 @@
 }
 .video-quality-pill__check {
   flex: none;
-  color: var(--eve-max-accent, var(--color-primary-6, #2563eb));
+  color: var(--eve-max-accent);
 }
 .video-quality-pill__model-show-more {
-  padding: 6px 10px;
+  padding: 8px 12px;
   border: none;
-  border-top: 1px solid var(--border-secondary, #e5e7eb);
+  border-top: 1px solid var(--glass-overlay-border);
   border-radius: 0 0 8px 8px;
   background: transparent;
-  color: var(--color-primary-6, #2563eb);
+  color: var(--eve-accent, var(--primary));
   font-size: 12px;
   font-weight: 600;
   text-align: left;
   cursor: pointer;
 }
 .video-quality-pill__model-show-more:focus-visible {
-  outline: 2px solid var(--color-primary-6, #2563eb);
+  outline: 2px solid var(--eve-focus-ring);
   outline-offset: 2px;
 }
 .video-quality-pill__model-note {
-  padding: 6px 10px 4px;
-  border-top: 1px solid var(--border-secondary, #e5e7eb);
+  padding: 8px 12px 5px;
+  border-top: 1px solid var(--glass-overlay-border);
+  color: var(--eve-shell-text-secondary);
   font-size: 11px;
-  opacity: 0.7;
 }
 
 @media (prefers-reduced-motion: reduce) {
