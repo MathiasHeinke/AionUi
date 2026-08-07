@@ -27,7 +27,7 @@ const OFFICE_OPEN_DELAY_MS = 1000;
 //     `create` / `change` / `remove` — that Rust watcher IS the emitter.
 //   - The routes `/api/fs/office-watch/start` and `/api/fs/office-watch/stop` are
 //     both in the binary's route table.
-//   - This hook calls both (`:108` start, `:144` stop) and subscribes at `:124`;
+//   - This hook calls both (`:158` start, `:191` stop) and subscribes at `:174`;
 //     MessageList.tsx:299 mounts it.
 //
 // WHAT IS STILL UNPROVEN, and the reason this note does not claim it works: nobody
@@ -67,6 +67,33 @@ const normalizeWatchPath = (value: string): string => {
   if (normalized.startsWith('/private/tmp/')) return normalized.slice('/private'.length);
 
   return normalized;
+};
+
+/**
+ * The whole decision for ONE incoming `fileAdded` event, in the order that
+ * matters: is it my workspace, may it be auto-opened at all, and have I seen it
+ * already? Returns the normalized path to open, or null.
+ *
+ * ELIGIBILITY BEFORE DEDUPE, and that order is the point. The check used to be
+ * missing here entirely (it ran only when the baseline was built), so every
+ * event opened whatever the backend reported and the marker gate below never
+ * applied to a live file. Putting it AFTER the dedupe would fix the opening and
+ * still leave a hole: an ineligible path would be recorded as "known", and a
+ * later, eligible event for that same path would be swallowed as a repeat.
+ *
+ * Exported additively — like {@link isAutoOpenEligible} — so the ordering is
+ * testable without mounting the hook. The hook's own signature is unchanged.
+ */
+export const decideWatchedFileOpen = (
+  event: { file_path: string; workspace: string },
+  normalizedWorkspace: string,
+  known: ReadonlySet<string>
+): string | null => {
+  if (normalizeWatchPath(event.workspace) !== normalizedWorkspace) return null;
+  const normalizedFilePath = normalizeWatchPath(event.file_path);
+  if (!isAutoOpenEligible(normalizedFilePath, getFileTypeInfo(normalizedFilePath).contentType)) return null;
+  if (known.has(normalizedFilePath)) return null;
+  return normalizedFilePath;
 };
 
 /**
@@ -146,11 +173,8 @@ export const useAutoPreviewOfficeFiles = (
 
     const unsubscribeFileAdded = ipcBridge.workspaceOfficeWatch.fileAdded.on((event) => {
       try {
-        const normalizedEventWorkspace = normalizeWatchPath(event.workspace);
-        if (normalizedEventWorkspace !== normalizedWorkspace) return;
-
-        const normalizedFilePath = normalizeWatchPath(event.file_path);
-        if (knownOfficeFilesRef.current.has(normalizedFilePath)) return;
+        const normalizedFilePath = decideWatchedFileOpen(event, normalizedWorkspace, knownOfficeFilesRef.current);
+        if (normalizedFilePath === null) return;
 
         knownOfficeFilesRef.current.add(normalizedFilePath);
         openOfficePreview(event.file_path);
