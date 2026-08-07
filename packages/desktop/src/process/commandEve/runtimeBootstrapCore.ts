@@ -440,7 +440,9 @@ const COMMAND_EVE_HERMES_DISABLED_SKILLS = ['red-teaming/godmode'];
 //
 // reasoning_effort: the config.yaml `agent.reasoning_effort` key is honored by the CLI
 // lane, but the ACP (chat) lane the user talks to inits AIAgent WITHOUT a reasoning_config
-// (acp_adapter/session.py:596-624), so reasoning_config falls back to the provider default
+// (acp_adapter/session.py::_make_agent builds the AIAgent kwargs and passes no
+// reasoning_config — verified against the 0.20 wheel, where session.py contains
+// no reasoning key at all), so reasoning_config falls back to the provider default
 // ("medium for OpenRouter" when None, agent_init.py:70) — i.e. our knob does NOT control
 // ACP reasoning; the underlying model/provider does. We keep the key for the CLI lane and
 // for honesty the soul states reasoning as a behavioral posture, not a controlled runtime
@@ -5109,7 +5111,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '# The authority patch is the ONE that must not fail quietly. Without it the',
     '# wheel routes approvals itself: _sync_terminal_approval_mode turns the',
     '# session-wide bypass ON whenever the session mode is dont_ask',
-    '# (FACT whl:acp_adapter/server.py:654-663). Every installer above returns',
+    '# (FACT whl:acp_adapter/server.py::_sync_terminal_approval_mode). Every installer above returns',
     '# silently when its import fails, so a missing patch looked exactly like a',
     '# successful one (P3, Kimi). Assert the marker instead of assuming it.',
     '#',
