@@ -1079,6 +1079,21 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('_COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S = 14.0');
       expect(providerOverride).toContain('_COMMAND_EVE_COMPRESSION_MAX_ATTEMPTS = 2');
       expect(providerOverride).toContain('_COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S = 29.0');
+      // F3 (CEVE-18205) — the budget is LANE-AWARE. The shim numbers above are
+      // unchanged on purpose; only a direct local endpoint gets the long pair.
+      expect(providerOverride).toContain('_COMMAND_EVE_COMPRESSION_LOCAL_ATTEMPT_TIMEOUT_S = 180.0');
+      expect(providerOverride).toContain('_COMMAND_EVE_COMPRESSION_LOCAL_TOTAL_BUDGET_S = 420.0');
+      expect(providerOverride).toContain('def _command_eve_compression_budget(compressor: Any)');
+      // Port-agnostic BY CONSTRUCTION: the shim binds an OS-assigned port outside
+      // packaged launches, so a URL comparison would mis-lane every E2E run.
+      expect(providerOverride).toContain('_command_eve_context_policy_error');
+      expect(providerOverride).not.toContain('_COMMAND_EVE_SHIM_BASE_URL');
+      // The deadline and the per-attempt cap must both come from the RESOLVED budget,
+      // or the lane split is decorative.
+      expect(providerOverride).toContain('deadline = time.monotonic() + total_budget');
+      expect(providerOverride).toContain('attempt_timeout = min(attempt_budget, remaining)');
+      // The receipt must state which lane was chosen and what it actually cost.
+      expect(providerOverride).toContain('"compression_lane": str(');
       expect(providerOverride).toContain(
         'connection = http.client.HTTPConnection(host, port, timeout=attempt_timeout)'
       );
@@ -1113,6 +1128,18 @@ describe('Command EVE runtime bootstrap core', () => {
         status_events: ['tool', 'step'],
         receipt_mode: '0600',
       });
+      // F3: BOTH lanes resolved by the emitted function itself, executed for real.
+      const compressionBudgets = JSON.parse(compressionHarness.stdout) as {
+        budget_eve_shim: [string, number, number];
+        budget_local_direct: [string, number, number];
+        budget_never_probed: [string, number, number];
+      };
+      expect(compressionBudgets.budget_eve_shim[0]).toBe('eve_shim');
+      expect(compressionBudgets.budget_local_direct).toEqual(['local_direct', 180, 420]);
+      // Never probed must be indistinguishable from the shim lane: widening is opt-in
+      // on positive evidence, never a default. (The harness shortens the shim numbers
+      // to keep its timeout cases fast, which is why they are compared, not pinned.)
+      expect(compressionBudgets.budget_never_probed).toEqual(compressionBudgets.budget_eve_shim);
       const permissionAuthorityHarness = spawnSync(
         'python3',
         [path.resolve('tests/fixtures/command-eve/permission_authority_patch_harness.py'), providerOverridePath],

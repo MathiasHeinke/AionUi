@@ -39,11 +39,15 @@ def load_selected_provider_symbols() -> dict[str, object]:
         # this harness a faithful slice of the real shim instead of a version that
         # only happens to still run.
         "_command_eve_mark_patch",
+        # F3 (CEVE-18205): the lane-aware compression budget resolver.
+        "_command_eve_compression_budget",
     }
     selected_globals = {
         "_COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S",
         "_COMMAND_EVE_COMPRESSION_MAX_ATTEMPTS",
         "_COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S",
+        "_COMMAND_EVE_COMPRESSION_LOCAL_ATTEMPT_TIMEOUT_S",
+        "_COMMAND_EVE_COMPRESSION_LOCAL_TOTAL_BUDGET_S",
         "_command_eve_compression_state",
         "_COMMAND_EVE_EXPECTED_PATCHES",
         "_COMMAND_EVE_INSTALLED_PATCHES",
@@ -329,6 +333,16 @@ with tempfile.TemporaryDirectory() as receipt_home:
     assert json.loads(receipt_path.read_text(encoding="utf-8")) == receipt
     assert stat.S_IMODE(receipt_path.stat().st_mode) == 0o600
 
+class _ShimLaneCompressor:
+    """The EVE shim answered the context-policy probe: no recorded error."""
+    _command_eve_context_policy_error = ""
+
+
+class _LocalLaneCompressor:
+    """A direct local endpoint does not serve /command-eve/context-policy."""
+    _command_eve_context_policy_error = "OSError"
+
+
 print(
     json.dumps(
         {
@@ -347,6 +361,19 @@ print(
             ),
             "status_events": [kind for kind, _ in events],
             "receipt_mode": "0600",
+            # F3: the budget the resolver ACTUALLY returns for each lane, computed
+            # by the emitted function rather than restated by this harness.
+            # F3: the budget the resolver ACTUALLY returns per lane, computed by the
+            # emitted function against compressor state — never restated here.
+            "budget_eve_shim": list(
+                NAMESPACE["_command_eve_compression_budget"](_ShimLaneCompressor())
+            ),
+            "budget_local_direct": list(
+                NAMESPACE["_command_eve_compression_budget"](_LocalLaneCompressor())
+            ),
+            "budget_never_probed": list(
+                NAMESPACE["_command_eve_compression_budget"](object())
+            ),
         }
     )
 )

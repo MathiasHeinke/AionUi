@@ -487,6 +487,18 @@ const DEFAULT_COMMAND_EVE_WEB_EXTRACT_TIMEOUT_S = 20;
 const DEFAULT_COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S = 14;
 const DEFAULT_COMMAND_EVE_COMPRESSION_MAX_ATTEMPTS = 2;
 const DEFAULT_COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S = 29;
+// F3 (CEVE-18205) — one budget cannot serve both lanes.
+//
+// Measured against the real 0.20 wheel on a direct local Ollama lane: summarizing
+// ~52k tokens on command-eve-gemma4-e4b-64k took 82s. The 14s/29s budget aborted it
+// twice and gave up — it fails SAFE (no message is dropped) but the feature is inert
+// there, and the user waits 29 seconds for nothing. Raising only the budget let the
+// identical code path complete in 82.2s, which is how we know the path was fine.
+//
+// The EVE shim lane keeps 14s/29s exactly: there a slow answer means a stuck proxy,
+// not a busy local GPU, and a long wait would hide it.
+const DEFAULT_COMMAND_EVE_COMPRESSION_LOCAL_ATTEMPT_TIMEOUT_S = 180;
+const DEFAULT_COMMAND_EVE_COMPRESSION_LOCAL_TOTAL_BUDGET_S = 420;
 // Preserve roughly half of the active threshold instead of collapsing a ~200k
 // conversation to the wheel default of ~40-50k. The receipt still reports the
 // measured rough before/after counts rather than promising this target as fact.
@@ -4140,6 +4152,38 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     `_COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S = ${DEFAULT_COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S}.0`,
     `_COMMAND_EVE_COMPRESSION_MAX_ATTEMPTS = ${DEFAULT_COMMAND_EVE_COMPRESSION_MAX_ATTEMPTS}`,
     `_COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S = ${DEFAULT_COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S}.0`,
+    `_COMMAND_EVE_COMPRESSION_LOCAL_ATTEMPT_TIMEOUT_S = ${DEFAULT_COMMAND_EVE_COMPRESSION_LOCAL_ATTEMPT_TIMEOUT_S}.0`,
+    `_COMMAND_EVE_COMPRESSION_LOCAL_TOTAL_BUDGET_S = ${DEFAULT_COMMAND_EVE_COMPRESSION_LOCAL_TOTAL_BUDGET_S}.0`,
+    '',
+    '',
+    'def _command_eve_compression_budget(compressor: Any) -> tuple[str, float, float]:',
+    '    """Pick the compression budget for the lane this turn is actually on.',
+    '',
+    '    NOT port-based. The EVE shim and a direct local model are BOTH loopback, and',
+    '    the shim deliberately binds an OS-assigned port outside packaged launches, so',
+    '    comparing against a baked URL would hand the LONG budget to a stuck shim on',
+    '    every E2E/multi-instance run — the exact failure this budget exists to bound.',
+    '',
+    '    The discriminator is the Command EVE CONTRACT: only the shim serves',
+    '    /command-eve/context-policy, and the context-policy patch already records a',
+    '    non-empty error on the compressor when that fetch fails. A recorded failure is',
+    '    POSITIVE evidence of a non-EVE endpoint.',
+    '',
+    '    Success, or never probed, keeps the shim budget — exactly today. Widening is',
+    '    opt-in on evidence and is never the default.',
+    '    """',
+    '    error = str(getattr(compressor, "_command_eve_context_policy_error", "") or "")',
+    '    if not error:',
+    '        return (',
+    '            "eve_shim",',
+    '            _COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S,',
+    '            _COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S,',
+    '        )',
+    '    return (',
+    '        "local_direct",',
+    '        _COMMAND_EVE_COMPRESSION_LOCAL_ATTEMPT_TIMEOUT_S,',
+    '        _COMMAND_EVE_COMPRESSION_LOCAL_TOTAL_BUDGET_S,',
+    '    )',
     '_command_eve_compression_state = threading.local()',
     '',
     '',
@@ -4179,14 +4223,31 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    if kwargs.get("temperature") is not None:',
     '        payload["temperature"] = kwargs["temperature"]',
     '    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")',
-    '    deadline = time.monotonic() + _COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S',
+    '    # Budget resolved by the wrapper, the only frame holding the compressor.',
+    '    # Defaults are the SHIM values, so a call that reaches here unresolved stays',
+    '    # bounded exactly as it is today.',
+    '    attempt_budget = float(',
+    '        getattr(',
+    '            _command_eve_compression_state,',
+    '            "attempt_timeout_seconds",',
+    '            _COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S,',
+    '        )',
+    '    )',
+    '    total_budget = float(',
+    '        getattr(',
+    '            _command_eve_compression_state,',
+    '            "total_budget_seconds",',
+    '            _COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S,',
+    '        )',
+    '    )',
+    '    deadline = time.monotonic() + total_budget',
     '    last_error: Exception | None = None',
     '',
     '    for attempt in range(1, _COMMAND_EVE_COMPRESSION_MAX_ATTEMPTS + 1):',
     '        remaining = deadline - time.monotonic()',
     '        if remaining <= 0:',
     '            break',
-    '        attempt_timeout = min(_COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S, remaining)',
+    '        attempt_timeout = min(attempt_budget, remaining)',
     '        _command_eve_compression_state.attempts = attempt',
     '        connection = http.client.HTTPConnection(host, port, timeout=attempt_timeout)',
     '        timer = threading.Timer(attempt_timeout, connection.close)',
@@ -4350,6 +4411,12 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        _command_eve_compression_state.attempts = 0',
     '        _command_eve_compression_state.last_error = ""',
     '        _command_eve_compression_state.effective_lane = "unknown"',
+    '        _lane, _attempt_budget, _total_budget = _command_eve_compression_budget(',
+    '            getattr(self, "context_compressor", None)',
+    '        )',
+    '        _command_eve_compression_state.compression_lane = _lane',
+    '        _command_eve_compression_state.attempt_timeout_seconds = _attempt_budget',
+    '        _command_eve_compression_state.total_budget_seconds = _total_budget',
     '        _command_eve_compression_state.egress_decision = "unknown"',
     '        _command_eve_start_compression_status(self, int(before_tokens or 0))',
     '        try:',
@@ -4401,8 +4468,23 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '            "outcome": outcome,',
     '            "elapsed_ms": elapsed_ms,',
     '            "attempts": int(getattr(_command_eve_compression_state, "attempts", 0) or 0),',
-    '            "attempt_timeout_seconds": _COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S,',
-    '            "total_budget_seconds": _COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S,',
+    '            "compression_lane": str(',
+    '                getattr(_command_eve_compression_state, "compression_lane", "eve_shim")',
+    '            ),',
+    '            "attempt_timeout_seconds": float(',
+    '                getattr(',
+    '                    _command_eve_compression_state,',
+    '                    "attempt_timeout_seconds",',
+    '                    _COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S,',
+    '                )',
+    '            ),',
+    '            "total_budget_seconds": float(',
+    '                getattr(',
+    '                    _command_eve_compression_state,',
+    '                    "total_budget_seconds",',
+    '                    _COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S,',
+    '                )',
+    '            ),',
     '            "estimated_before_tokens": int(before_tokens or 0),',
     '            "estimated_after_tokens": int(after_tokens or 0),',
     '            "provider_reported_after_tokens": None,',
@@ -6286,6 +6368,13 @@ function writeHermesRuntimeFiles(
     // the native Hermes timeout aligned as defense-in-depth for any future
     // compressor that bypasses that patch; an empty fallback chain prevents a
     // configured per-task provider fan-out from silently reappearing.
+    //
+    // NOT lane-aware on purpose (F3, CEVE-18205). This file is written at
+    // provisioning time, when model.base_url IS the EVE shim, so the shim-lane number
+    // is the right backstop for the lane this config describes. The lane-aware budget
+    // lives in the patch, which sees the endpoint a call actually goes to. Residual:
+    // an operator who later re-points model.base_url at a direct local endpoint keeps
+    // a 14s backstop for any compressor that bypasses the patch.
     '  compression:',
     `    timeout: ${DEFAULT_COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S}`,
     '    fallback_chain: []',
