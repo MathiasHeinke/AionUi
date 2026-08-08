@@ -70,21 +70,6 @@ const normalizeWatchPath = (value: string): string => {
 };
 
 /**
- * The whole decision for ONE incoming `fileAdded` event, in the order that
- * matters: is it my workspace, may it be auto-opened at all, and have I seen it
- * already? Returns the normalized path to open, or null.
- *
- * ELIGIBILITY BEFORE DEDUPE, and that order is the point. The check used to be
- * missing here entirely (it ran only when the baseline was built), so every
- * event opened whatever the backend reported and the marker gate below never
- * applied to a live file. Putting it AFTER the dedupe would fix the opening and
- * still leave a hole: an ineligible path would be recorded as "known", and a
- * later, eligible event for that same path would be swallowed as a repeat.
- *
- * Exported additively — like {@link isAutoOpenEligible} — so the ordering is
- * testable without mounting the hook. The hook's own signature is unchanged.
- */
-/**
  * Fold the workspace baseline INTO whatever the live watcher already recorded.
  *
  * THE RACE THIS CLOSES. The baseline is built asynchronously (start the watcher,
@@ -113,6 +98,36 @@ export const mergeWorkspaceBaseline = (
   return merged;
 };
 
+/**
+ * The whole decision for ONE incoming `fileAdded` event, in the order that
+ * matters: is it my workspace, may it be auto-opened at all, and have I seen it
+ * already? Returns the normalized path to open, or null.
+ *
+ * WHAT THE ELIGIBILITY CHECK BEING HERE FIXES. It used to be missing from this
+ * path entirely — it ran only when the baseline was built — so every event
+ * opened whatever the backend reported and the marker gate never applied to a
+ * single live file. That is the defect this function closed.
+ *
+ * ELIGIBILITY BEFORE DEDUPE is intentional, and it is NOT observable from
+ * outside. Measured, not assumed: swap the two guards and every return value is
+ * unchanged. Both answer `null`; `getFileTypeInfo` is total (fileType.ts:59-62 —
+ * a map lookup with a fallback, no throw path), so not even an exception can
+ * order them; and the `fileAdded` handler below records ONLY a non-null return,
+ * so an ineligible path cannot enter the known set under either order. Every
+ * suite covering this stays green with the lines swapped.
+ *
+ * An earlier version of this comment claimed the reverse order would leave a
+ * hole — an ineligible path recorded as "known", a later eligible event for it
+ * swallowed as a repeat. It cannot happen, for the reason above, and ade6d6a2's
+ * own message already said the ordering was unobservable while this comment
+ * asserted the opposite. Two claims from one commit, one of them wrong; this is
+ * the wrong one. The order states what the function MEANS, and that is all it
+ * is — which is why the test block is named after the property that does hold
+ * (nothing ineligible reaches the set), not after the ordering.
+ *
+ * Exported additively — like {@link isAutoOpenEligible} — so the decision is
+ * testable without mounting the hook. The hook's own signature is unchanged.
+ */
 export const decideWatchedFileOpen = (
   event: { file_path: string; workspace: string },
   normalizedWorkspace: string,
