@@ -1,0 +1,56 @@
+{
+  // STRICT-NULL STAGE 4 — packages/web-host/src only.
+  //
+  // Same shape as stages 1-3, with one difference that matters: this one extends
+  // `packages/web-host/tsconfig.json`, NOT the repo root. web-host is not in the
+  // root program at all — the root `include` is `packages/desktop/src/**/*` plus
+  // four named files — so extending the root would have type-checked web-host
+  // under desktop's path aliases and rootDir. Extending the package's own config
+  // keeps the stage measuring the thing the package actually builds.
+  //
+  //   bunx tsc --noEmit -p tsconfig.strictnull.webhost.json
+  //
+  // NO `types.d.ts` ENTRY, and that is deliberate rather than forgotten. Stage 2
+  // shipped a config whose narrow `include` dropped `src/types.d.ts` and then
+  // invented a TS7016 the real build does not have. web-host has no `.d.ts` of
+  // its own (`find packages/web-host -name '*.d.ts'` is empty), so there is
+  // nothing to lose here — and that was verified, not assumed: the same config
+  // WITHOUT `strictNullChecks` reports 0 errors, so every error this stage shows
+  // is one the flag introduced and none is an artefact of the fence.
+  //
+  // `include` is written out rather than inherited so the fence is readable at
+  // this file; `exclude` (node_modules, dist, **/*.test.ts) comes from the
+  // package config, which is also what its own build uses.
+  // THE GATE, and it is the short one — this stage has NO CAP:
+  //
+  //   bunx tsc --noEmit -p tsconfig.strictnull.webhost.json 2>&1 \
+  //     | grep -c "error TS"        # must print 0
+  //
+  // Stages 1-3 each needed a `grep -v` for errors they could not repair, plus a
+  // count pin so the excluded set could not grow unnoticed. Here there is nothing
+  // to exclude: `packages/web-host/src` was already clean under `strictNullChecks`
+  // when this stage started. 0 in the cap, 0 outside it, because the cap is empty.
+  //
+  // MEASURED, NOT ASSUMED — a gate that reports 0 is worth exactly as much as the
+  // proof that it looked at anything. Three checks, all repeatable:
+  //   1. `--showConfig` resolves `strictNullChecks: true` and 5 files.
+  //   2. The same config WITHOUT the flag also reports 0, so nothing here is an
+  //      artefact of the fence (this is the check stage 2 lacked when its narrow
+  //      include invented a TS7016).
+  //   3. A deliberately planted `x.length` on a `string | null` parameter WAS
+  //      caught (TS18047), so the flag reaches the files.
+  //
+  // WHAT IS OUT OF SCOPE, on purpose. The package's own config excludes
+  // `**/*.test.ts`, and this stage inherits that rather than widening it — the
+  // fence should measure what the package builds. Type-checking the three test
+  // files as well would add two errors, only ONE of which this flag causes:
+  //   static-server.unit.test.ts:411  TS2769 — appears only with the flag;
+  //   backend-launcher.test.ts:90     TS2540 — a readonly assignment, present
+  //                                   with and without it, so not this stage's.
+  // Both are reported rather than folded in; widening the fence is its own call.
+  "extends": "./packages/web-host/tsconfig.json",
+  "include": ["packages/web-host/src/**/*"],
+  "compilerOptions": {
+    "strictNullChecks": true
+  }
+}
