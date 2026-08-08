@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -34,6 +34,7 @@ const writeJson = (filePath: string, value: unknown): void => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  vi.restoreAllMocks();
   __resetActiveSeatForTests();
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -450,6 +451,154 @@ describe('Command EVE assistant bootstrap', () => {
     // The destructive recreate must NOT happen — it is the soft-delete source.
     expect(sigs).not.toContain(`DELETE /api/assistants/${COMMAND_EVE_ASSISTANT_ID}`);
     expect(calls.filter((call) => call.method === 'POST' && call.path === '/api/assistants')).toHaveLength(0);
+  });
+
+  it('accepts a missing preset projection only when the projected Hermes agent_id matches', async () => {
+    const projectedAssistant = {
+      id: COMMAND_EVE_ASSISTANT_ID,
+      name: 'EVE',
+      agent_id: 'agent-hermes-acp',
+      enabled_skills: [],
+      custom_skill_names: [],
+    };
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const fetchMock = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = new URL(String(input));
+      const method = String(init?.method || 'GET').toUpperCase();
+
+      if (url.pathname === '/api/agents/management') {
+        return jsonResponse({
+          success: true,
+          data: [{ id: 'agent-hermes-acp', backend: 'hermes', agent_type: 'acp', available: true }],
+        });
+      }
+      if (url.pathname === '/api/assistants' && method === 'GET') {
+        return jsonResponse({ success: true, data: [projectedAssistant] });
+      }
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'PUT') {
+        return jsonResponse({ success: true, data: projectedAssistant });
+      }
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state` && method === 'PATCH') {
+        return jsonResponse({ success: true, data: projectedAssistant });
+      }
+      if (url.pathname.startsWith('/api/skills/assistant-') && method === 'POST') {
+        return jsonResponse({ success: true, data: true });
+      }
+      throw new Error(`Unexpected request ${method} ${url.pathname}`);
+    };
+
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(ensureCommandEveAssistant(25809, '1.822.0')).resolves.toMatchObject({
+      preset_agent_type: 'hermes',
+      agent_id: 'agent-hermes-acp',
+    });
+    expect(warnSpy.mock.calls.flat().join(' ')).not.toContain('did not fully reconcile');
+    expect(warnSpy.mock.calls.flat().join(' ')).not.toContain('not fully reconciled after setup');
+
+    warnSpy.mockRestore();
+  });
+
+  it('classifies a confirmed Hermes agent_id with a missing preset projection without calling it a runtime mismatch', async () => {
+    const root = makeRoot();
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    const managedSkillDir = path.join(root, 'skills-command-eve');
+    fs.mkdirSync(path.join(managedSkillDir, 'first-run-company-discovery'), { recursive: true });
+    fs.writeFileSync(path.join(managedSkillDir, 'first-run-company-discovery', 'SKILL.md'), '# First run\n');
+    writeJson(paths.runtimeReconciliation, {
+      version: 'command-eve-runtime-reconciliation/v0',
+      managed_skill_dir: managedSkillDir,
+      executable_skill_ids: ['first-run-company-discovery'],
+    });
+    const projectedAssistant = {
+      id: COMMAND_EVE_ASSISTANT_ID,
+      name: 'EVE',
+      agent_id: 'agent-hermes-acp',
+      enabled_skills: [],
+      custom_skill_names: [],
+    };
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const fetchMock = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = new URL(String(input));
+      const method = String(init?.method || 'GET').toUpperCase();
+
+      if (url.pathname === '/api/agents/management') {
+        return jsonResponse({
+          success: true,
+          data: [{ id: 'agent-hermes-acp', backend: 'hermes', agent_type: 'acp', available: true }],
+        });
+      }
+      if (url.pathname === '/api/assistants' && method === 'GET') {
+        return jsonResponse({ success: true, data: [projectedAssistant] });
+      }
+      if (url.pathname === '/api/skills/import' && method === 'POST') {
+        return jsonResponse({ success: true, data: { skill_name: 'first-run-company-discovery' } });
+      }
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'PUT') {
+        return jsonResponse({ success: true, data: projectedAssistant });
+      }
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state` && method === 'PATCH') {
+        return jsonResponse({ success: true, data: projectedAssistant });
+      }
+      if (url.pathname.startsWith('/api/skills/assistant-') && method === 'POST') {
+        return jsonResponse({ success: true, data: true });
+      }
+      throw new Error(`Unexpected request ${method} ${url.pathname}`);
+    };
+
+    globalThis.fetch = fetchMock as typeof fetch;
+    await expect(ensureCommandEveAssistant(25809, '1.822.0', { userDataPath: root })).resolves.toBeDefined();
+
+    const warnings = warnSpy.mock.calls.flat().join(' ');
+    expect(warnings).toContain('classification=projection_missing_preset');
+    expect(warnings).not.toContain('classification=runtime_mismatch');
+
+    warnSpy.mockRestore();
+  });
+
+  it('keeps a missing preset projection as a runtime mismatch when Hermes agent_id is not confirmed', async () => {
+    const projectedAssistant = {
+      id: COMMAND_EVE_ASSISTANT_ID,
+      name: 'EVE',
+      agent_id: 'different-agent',
+      enabled_skills: [],
+      custom_skill_names: [],
+    };
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const fetchMock = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = new URL(String(input));
+      const method = String(init?.method || 'GET').toUpperCase();
+
+      if (url.pathname === '/api/agents/management') {
+        return jsonResponse({
+          success: true,
+          data: [{ id: 'agent-hermes-acp', backend: 'hermes', agent_type: 'acp', available: true }],
+        });
+      }
+      if (url.pathname === '/api/assistants' && method === 'GET') {
+        return jsonResponse({ success: true, data: [projectedAssistant] });
+      }
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'PUT') {
+        return jsonResponse({ success: true, data: projectedAssistant });
+      }
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state` && method === 'PATCH') {
+        return jsonResponse({ success: true, data: projectedAssistant });
+      }
+      if (url.pathname.startsWith('/api/skills/assistant-') && method === 'POST') {
+        return jsonResponse({ success: true, data: true });
+      }
+      throw new Error(`Unexpected request ${method} ${url.pathname}`);
+    };
+
+    globalThis.fetch = fetchMock as typeof fetch;
+    await expect(ensureCommandEveAssistant(25809, '1.822.0')).resolves.toBeDefined();
+
+    expect(warnSpy.mock.calls.flat().join(' ')).toContain('classification=runtime_mismatch');
+
+    warnSpy.mockRestore();
   });
 });
 

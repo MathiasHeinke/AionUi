@@ -477,14 +477,29 @@ function includesAll(values: string[] | undefined, expected: string[]): boolean 
   return expected.every((value) => actual.has(value));
 }
 
+function hasConfirmedHermesAgentProjection(
+  assistant: CommandEveAssistantRecord,
+  presetAgentType: string,
+  agentId: string | undefined
+): boolean {
+  const expectedAgentId = String(agentId || '').trim();
+  const projectedAgentId = String(assistant.agent_id || '').trim();
+  return presetAgentType.toLowerCase() === 'hermes' && Boolean(expectedAgentId) && projectedAgentId === expectedAgentId;
+}
+
 function commandEveAssistantIsReconciled(
   assistant: CommandEveAssistantRecord | undefined,
   presetAgentType: string,
+  agentId: string | undefined,
   customSkillNames: string[]
 ): boolean {
   if (!assistant) return false;
+  const projectedPresetAgentType = String(assistant.preset_agent_type || '').trim();
+  const presetProjectionMatches = projectedPresetAgentType
+    ? projectedPresetAgentType === presetAgentType
+    : hasConfirmedHermesAgentProjection(assistant, presetAgentType, agentId);
   return (
-    assistant.preset_agent_type === presetAgentType &&
+    presetProjectionMatches &&
     includesAll(assistant.enabled_skills, customSkillNames) &&
     includesAll(assistant.custom_skill_names, customSkillNames)
   );
@@ -497,13 +512,25 @@ async function loadCommandEveAssistant(backendPort: number): Promise<CommandEveA
 function commandEveAssistantReconciliationError(
   assistant: CommandEveAssistantRecord | undefined,
   presetAgentType: string,
+  agentId: string | undefined,
   customSkillNames: string[]
 ): string {
   const enabledMissing = customSkillNames.filter((skill) => !(assistant?.enabled_skills || []).includes(skill));
   const customMissing = customSkillNames.filter((skill) => !(assistant?.custom_skill_names || []).includes(skill));
+  const projectedPresetAgentType = String(assistant?.preset_agent_type || '').trim();
+  const projectionMissingPreset =
+    assistant !== undefined &&
+    !projectedPresetAgentType &&
+    hasConfirmedHermesAgentProjection(assistant, presetAgentType, agentId);
+  const classification = projectionMissingPreset
+    ? 'projection_missing_preset'
+    : projectedPresetAgentType !== presetAgentType
+      ? 'runtime_mismatch'
+      : 'skills_mismatch';
   return [
-    `expected preset_agent_type=${presetAgentType}`,
-    `actual preset_agent_type=${assistant?.preset_agent_type || 'missing'}`,
+    `classification=${classification}`,
+    projectionMissingPreset ? `confirmed agent_id=${agentId}` : `expected preset_agent_type=${presetAgentType}`,
+    projectionMissingPreset ? '' : `actual preset_agent_type=${projectedPresetAgentType || 'missing'}`,
     enabledMissing.length > 0 ? `missing enabled_skills=${enabledMissing.join(',')}` : '',
     customMissing.length > 0 ? `missing custom_skill_names=${customMissing.join(',')}` : '',
   ]
@@ -571,7 +598,7 @@ export async function ensureCommandEveAssistant(
   await requestJson(backendPort, path, { method, body });
 
   const reconciledAssistant = await loadCommandEveAssistant(backendPort);
-  if (!commandEveAssistantIsReconciled(reconciledAssistant, presetAgentType, customSkillNames)) {
+  if (!commandEveAssistantIsReconciled(reconciledAssistant, presetAgentType, agentId, customSkillNames)) {
     // The merge-only PUT did not fully reconcile — in practice the preset_agent_type
     // (the backend keeps the assistant's stored agent on PUT; the runtime resolves the
     // live agent for the conversation regardless, so the mismatch is cosmetic).
@@ -589,6 +616,7 @@ export async function ensureCommandEveAssistant(
       `[CommandEVE] EVE assistant did not fully reconcile via PUT (${commandEveAssistantReconciliationError(
         reconciledAssistant,
         presetAgentType,
+        agentId,
         customSkillNames
       )}); keeping the merged assistant (no destructive DELETE+POST recreate).`
     );
@@ -655,7 +683,7 @@ export async function ensureCommandEveAssistant(
   ]);
 
   const readyAssistant = await loadCommandEveAssistant(backendPort);
-  if (!commandEveAssistantIsReconciled(readyAssistant, presetAgentType, customSkillNames)) {
+  if (!commandEveAssistantIsReconciled(readyAssistant, presetAgentType, agentId, customSkillNames)) {
     // Non-fatal: do not throw (a throw would abort the re-seed and skip the enable +
     // resource writes already done above, and bricking the seed over a cosmetic preset
     // mismatch is worse than shipping a present-and-usable EVE). EVE is enabled, has its
@@ -664,6 +692,7 @@ export async function ensureCommandEveAssistant(
       `[CommandEVE] EVE assistant not fully reconciled after setup (${commandEveAssistantReconciliationError(
         readyAssistant,
         presetAgentType,
+        agentId,
         customSkillNames
       )}); proceeding — EVE is present and usable.`
     );

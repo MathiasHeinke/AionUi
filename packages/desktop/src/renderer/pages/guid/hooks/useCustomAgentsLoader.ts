@@ -73,18 +73,16 @@ export const useCustomAgentsLoader = ({
       if (!COMMAND_EVE_SHELL_ENABLED) return list;
 
       const readiness = await ipcBridge.commandEve.ensureAssistant.invoke().catch((): undefined => undefined);
-      const skills = readiness?.success ? readiness.data?.enabled_skills || [] : [];
-      if (!skills.length) return list;
+      if (!readiness?.success || !readiness.data) return list;
+      const skills = readiness.data.enabled_skills || [];
 
       return list.map((assistant) =>
         assistant.id === COMMAND_EVE_ASSISTANT_ID
           ? {
               ...assistant,
-              preset_agent_type: readiness?.data?.preset_agent_type || assistant.preset_agent_type,
+              preset_agent_type: readiness.data.preset_agent_type || assistant.preset_agent_type,
               enabled_skills: skills,
-              custom_skill_names: readiness?.data?.custom_skill_names?.length
-                ? readiness.data.custom_skill_names
-                : assistant.custom_skill_names,
+              custom_skill_names: readiness.data.custom_skill_names ?? assistant.custom_skill_names,
             }
           : assistant
       );

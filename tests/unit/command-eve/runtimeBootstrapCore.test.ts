@@ -2600,6 +2600,25 @@ describe('resolveCommandEveFirstRunProfile registration seed (COMPA-596)', () =>
     expect(profile.needs_confirmation).toBe(false);
   });
 
+  it('keeps a verified company-only registration ahead of macOS and env name guesses', () => {
+    const profile = resolveCommandEveFirstRunProfile({
+      env: { COMMAND_EVE_FOUNDER_NAME: 'Env Guess', USER: 'local-user' },
+      now,
+      displayNameLookup: () => 'macOS Guess',
+      registration: {
+        founder_name: 'Jane Doe',
+        founder_name_source: 'email_fallback',
+        company_name: 'Example',
+        email: 'jane.doe@example.test',
+      },
+    });
+    expect(profile.founder_name).toBeUndefined();
+    expect(profile.company_name).toBe('Example');
+    expect(profile.source).toBe('registration');
+    expect(profile.confidence).toBe('verified');
+    expect(profile.needs_confirmation).toBe(false);
+  });
+
   it('falls back to the macOS display name when there is no registration (backward compatible)', () => {
     const profile = resolveCommandEveFirstRunProfile({
       env: {},

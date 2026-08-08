@@ -3248,6 +3248,14 @@ export function resolveCommandEveFirstRunProfile(options: {
     source = 'registration';
     confidence = 'verified';
     needsConfirmation = false;
+  } else if (hasRegistrationCompany) {
+    // A registration-confirmed company outranks every local identity guess even
+    // when the account name itself is only an email-derived fallback. Keep the
+    // founder unset so EVE can learn it naturally; never replace the verified
+    // registration profile with a macOS display-name guess.
+    source = 'registration';
+    confidence = 'verified';
+    needsConfirmation = false;
   } else if (founderFromEnv && !isPlaceholderIdentityName(founderFromEnv)) {
     founderName = founderFromEnv;
     source = 'env';

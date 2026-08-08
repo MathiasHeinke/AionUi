@@ -267,7 +267,7 @@ export function loadProductOnboardingSkill(projectRoot, deps = {}) {
   );
   const program = [
     `import { commandEveOnboardingSkillMarkdown } from ${JSON.stringify(pathToFileURL(generatorFile).href)};`,
-    'process.stdout.write(commandEveOnboardingSkillMarkdown());',
+    'process.stdout.write(commandEveOnboardingSkillMarkdown(), () => process.exit(0));',
   ].join(' ');
   const command = spawn(bunBinary, ['-e', program], {
     cwd: projectRoot,
@@ -278,7 +278,10 @@ export function loadProductOnboardingSkill(projectRoot, deps = {}) {
     const stderr = text(command.stderr);
     throw new Error(`Product first-run generator failed${stderr ? `: ${stderr}` : ''}`);
   }
-  return command.stdout;
+  const skillMarker = '---\nname: eve-onboarding-awareness\n';
+  const skillStart = command.stdout.indexOf(skillMarker);
+  if (skillStart < 0) throw new Error('Product first-run generator did not emit the onboarding skill frontmatter');
+  return command.stdout.slice(skillStart);
 }
 
 export function verifyCommandEveFirstRunBundle(options = {}, deps = {}) {
