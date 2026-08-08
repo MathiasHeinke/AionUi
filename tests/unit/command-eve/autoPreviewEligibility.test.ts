@@ -15,10 +15,27 @@
  * opened whatever the backend reported and the marker gate never applied to a
  * single real file.
  *
- * ORDER IS PART OF THE FIX, not decoration. Eligibility runs BEFORE the dedupe:
- * putting it after would stop the wrong file from opening but still record it as
- * "known", and a later legitimate event for that same path would be swallowed as
- * a repeat.
+ * THE ORDER IS NOT PART OF THE FIX, and this comment used to say it was. It
+ * claimed that running eligibility AFTER the dedupe would stop the wrong file
+ * from opening but still record it as "known", swallowing a later legitimate
+ * event for that path as a repeat. That cannot happen:
+ *
+ *   - `decideWatchedFileOpen` is pure and both guards answer `null`, so
+ *     swapping two independent null-guards changes no return value;
+ *   - `getFileTypeInfo` is total (fileType.ts:59-62 — a map lookup with a
+ *     fallback), so not even a throw can order them;
+ *   - the `fileAdded` handler records ONLY a non-null return, so an ineligible
+ *     path never enters the known set under either order.
+ *
+ * Measured, not argued: swap the two lines and every suite covering this path
+ * stays green. The same sentence was disproved and removed twice already
+ * (c591f2d3, ae0ec327); it survived here because this file was outside the
+ * paths those sweeps touched. Third time, same answer.
+ *
+ * What IS the fix is the paragraph above: the predicate being consulted on the
+ * live path at all. The order states what the function means, nothing more —
+ * which is why the describe block below is named after the property that does
+ * hold, not after the ordering.
  */
 
 import { describe, expect, it } from 'vitest';
