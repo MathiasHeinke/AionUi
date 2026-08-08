@@ -153,6 +153,7 @@ type KanbanPreflightResult = {
       dispatcher_disabled: boolean;
       auto_decompose_disabled: boolean;
       mcp_servers_disabled: boolean;
+      mcp_allowlist_satisfied: boolean;
     };
     warnings: string[];
   };
@@ -599,11 +600,11 @@ const LocalRuntimePage: React.FC = () => {
                       </span>
                       <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.protection')}</span>
                       <span className='text-t-secondary'>
-                        {/* Write-governance lock = dispatcher off + external MCP off. auto_decompose
+                        {/* Write-governance lock = dispatcher off + MCP list inside the bundled allowlist. auto_decompose
                           is intentionally ON (tree-building, not execution) — see
                           isKanbanWriteGovernanceLocked in kanbanPreflightCore (Founder 2026-07-05). */}
                         {kanbanResult.model.governance.dispatcher_disabled &&
-                        kanbanResult.model.governance.mcp_servers_disabled
+                        kanbanResult.model.governance.mcp_allowlist_satisfied
                           ? t('localRuntime.kanban.governanceLocked')
                           : t('localRuntime.kanban.governanceOpen')}
                       </span>

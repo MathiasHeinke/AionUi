@@ -27,6 +27,7 @@ export const COMMAND_EVE_KANBAN_MARKETING_DRAFT_GENERATE_BRIDGE_VERSION =
 
 const MIN_HERMES_KANBAN_VERSION = '0.16.0';
 const RUNTIME_RECONCILIATION_VERSION = 'command-eve-runtime-reconciliation/v0';
+const COMMAND_EVE_INTERNAL_KANBAN_SAFE_MCP_SERVERS = new Set(['aionui-image-generation', 'aionui-eve-artifacts']);
 const MARKETING_BOARD_TENANT = 'command-eve-marketing';
 const MARKETING_BOARD_WORKFLOW = 'command-eve-marketing';
 const MARKETING_PROOF_IDEMPOTENCY_KEY = 'command-eve-marketing-board-proof-v0';
@@ -75,7 +76,10 @@ export type CommandEveKanbanGovernanceStatus = {
   runtime_reconciliation_path: string;
   dispatcher_disabled: boolean;
   auto_decompose_disabled: boolean;
+  /** Literal legacy signal: true only when the configured MCP array is valid and empty. */
   mcp_servers_disabled: boolean;
+  /** True only for an empty list or exact members of the bundled positive allowlist. */
+  mcp_allowlist_satisfied: boolean;
 };
 
 export type CommandEveKanbanPreflightModel = {
@@ -3134,6 +3138,7 @@ function readRuntimeReconciliation(filePath: string): {
     dispatcher_disabled: false,
     auto_decompose_disabled: false,
     mcp_servers_disabled: false,
+    mcp_allowlist_satisfied: false,
   };
   if (!fs.existsSync(filePath)) {
     return {
@@ -3149,15 +3154,22 @@ function readRuntimeReconciliation(filePath: string): {
         warnings: ['runtime_reconciliation_schema_mismatch'],
       };
     }
-    const mcpServers = Array.isArray(raw.hermes_config.mcp_servers) ? raw.hermes_config.mcp_servers : [];
+    const mcpServers = raw.hermes_config.mcp_servers;
+    const mcpServersShapeValid = Array.isArray(mcpServers);
+    const noExternalMcpServers =
+      mcpServersShapeValid &&
+      mcpServers.every(
+        (server) => typeof server === 'string' && COMMAND_EVE_INTERNAL_KANBAN_SAFE_MCP_SERVERS.has(server)
+      );
     return {
       governance: {
         runtime_reconciliation_path: filePath,
         dispatcher_disabled: raw.hermes_config.kanban_dispatch_in_gateway === false,
         auto_decompose_disabled: raw.hermes_config.kanban_auto_decompose === false,
-        mcp_servers_disabled: mcpServers.length === 0,
+        mcp_servers_disabled: mcpServersShapeValid && mcpServers.length === 0,
+        mcp_allowlist_satisfied: noExternalMcpServers,
       },
-      warnings: [],
+      warnings: mcpServersShapeValid ? [] : ['runtime_reconciliation_mcp_servers_invalid'],
     };
   } catch {
     return {
@@ -3171,22 +3183,25 @@ function readRuntimeReconciliation(filePath: string): {
  * Kanban WRITE-governance lock (Founder decision 2026-07-05: auto_decompose stays ON).
  *
  * A kanban DB write is governed by two runtime invariants: the gateway dispatcher is
- * OFF and no external MCP servers are enabled. It deliberately does NOT require
+ * OFF and no external MCP servers are enabled. The two bundled Command EVE MCPs
+ * (`aionui-image-generation`, `aionui-eve-artifacts`) are local product infrastructure,
+ * not an external execution escape hatch, and therefore do not open this gate. Every
+ * unknown, additional, or malformed MCP entry fails closed. It deliberately does NOT require
  * `auto_decompose_disabled`: `kanban_auto_decompose` is intentionally ON so EVE can
  * build the work-item tree (vision -> versions -> milestones -> child; see the intent
  * note in runtimeBootstrapCore's writeCommandEveRuntimeReconciliation) — that is tree-
  * BUILDING, not execution autonomy. Execution autonomy stays gated elsewhere: the
- * dispatcher, cron and worker auto-spawn remain off (dispatcher_disabled), external MCP
- * stays off (mcp_servers_disabled), and raw kanban tool access is closed by the
+ * dispatcher, cron and worker auto-spawn remain off (dispatcher_disabled), the MCP
+ * list stays inside the positive bundled allowlist (mcp_allowlist_satisfied), and raw kanban tool access is closed by the
  * COMPA-626 toolset gate (kanbanAcpToolsetGateCore). `auto_decompose_disabled` is still
  * derived and reported for transparency; it is simply not part of the write predicate.
  * Do NOT re-add it here — that would re-block every kanban write (regression 3d2a51b3b).
  */
 function isKanbanWriteGovernanceLocked(governance: {
   dispatcher_disabled: boolean;
-  mcp_servers_disabled: boolean;
+  mcp_allowlist_satisfied: boolean;
 }): boolean {
-  return governance.dispatcher_disabled && governance.mcp_servers_disabled;
+  return governance.dispatcher_disabled && governance.mcp_allowlist_satisfied;
 }
 
 function buildPythonProbe(): string {

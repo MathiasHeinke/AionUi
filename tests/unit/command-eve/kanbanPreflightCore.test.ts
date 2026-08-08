@@ -341,6 +341,51 @@ describe('Command EVE Kanban preflight core', () => {
     expect(result.model?.governance.auto_decompose_disabled).toBe(false);
     expect(result.model?.governance.dispatcher_disabled).toBe(true);
     expect(result.model?.governance.mcp_servers_disabled).toBe(true);
+    expect(result.model?.governance.mcp_allowlist_satisfied).toBe(true);
+  });
+
+  it('stays locked with exactly the two bundled Command EVE MCP servers', () => {
+    const root = makeRoot();
+    makePython(root);
+    writeLockedReconciliation(root, {
+      mcp_servers: ['aionui-image-generation', 'aionui-eve-artifacts'],
+      kanban_auto_decompose: true,
+    });
+
+    const result = runKanbanPreflight({
+      userDataPath: root,
+      commandRunner: runnerWithPayload(probePayload('0.20.0')),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe('ready');
+    expect(result.reason_code).not.toBe('KANBAN_GOVERNANCE_NOT_LOCKED');
+    expect(result.model?.governance.mcp_servers_disabled).toBe(false);
+    expect(result.model?.governance.mcp_allowlist_satisfied).toBe(true);
+  });
+
+  it.each([
+    ['an unknown external MCP', ['aionui-image-generation', 'external-browser-control']],
+    ['a malformed MCP entry', ['aionui-eve-artifacts', { name: 'aionui-image-generation' }]],
+    ['a malformed MCP collection', { 'aionui-image-generation': {} }],
+    ['a missing MCP collection', undefined],
+  ])('fails closed for %s', (_caseName, mcpServers) => {
+    const root = makeRoot();
+    makePython(root);
+    writeLockedReconciliation(root, {
+      mcp_servers: mcpServers,
+    });
+
+    const result = runKanbanPreflight({
+      userDataPath: root,
+      commandRunner: runnerWithPayload(probePayload('0.20.0')),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('blocked');
+    expect(result.reason_code).toBe('KANBAN_GOVERNANCE_NOT_LOCKED');
+    expect(result.model?.governance.mcp_servers_disabled).toBe(false);
+    expect(result.model?.governance.mcp_allowlist_satisfied).toBe(false);
   });
 
   it('blocks when the Hermes Python runtime is not installed', () => {
@@ -425,7 +470,9 @@ finally:
 
   it('creates one governed proof card and one linked append-only audit event', () => {
     const root = makeRoot();
-    writeLockedReconciliation(root);
+    writeLockedReconciliation(root, {
+      mcp_servers: ['aionui-image-generation', 'aionui-eve-artifacts'],
+    });
     const eventLedgerPath = path.join(root, 'agent-events.jsonl');
 
     const result = createKanbanMarketingProofCard({
@@ -500,6 +547,24 @@ finally:
     const root = makeRoot();
     writeLockedReconciliation(root, {
       kanban_dispatch_in_gateway: true,
+    });
+
+    const result = createKanbanMarketingProofCard({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath: path.join(root, 'agent-events.jsonl'),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('blocked');
+    expect(result.reason_code).toBe('KANBAN_GOVERNANCE_NOT_LOCKED');
+    expect(fs.existsSync(marketingBoardPath(root))).toBe(false);
+  });
+
+  it('blocks proof-card provisioning when a third-party MCP is mixed into the bundled pair', () => {
+    const root = makeRoot();
+    writeLockedReconciliation(root, {
+      mcp_servers: ['aionui-image-generation', 'aionui-eve-artifacts', 'external-browser-control'],
     });
 
     const result = createKanbanMarketingProofCard({
