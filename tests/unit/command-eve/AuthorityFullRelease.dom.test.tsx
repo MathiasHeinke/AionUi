@@ -406,3 +406,63 @@ describe('full release — the state it reports afterwards', () => {
     expect(screen.queryByTestId('full-release-confirm')).toBeNull();
   });
 });
+
+describe('the panel does not claim more than the runtime holds', () => {
+  it('names what this page does NOT decide', async () => {
+    store['commandEve.authority'] = { ladder: 5, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    const limits = await screen.findByTestId('authority-limits');
+    // Six measured gaps, each its own line. Asserting the COUNT is what stops a
+    // later edit from quietly dropping one and leaving the section looking
+    // complete.
+    expect(limits.querySelectorAll('li').length).toBe(6);
+    for (const key of [
+      'authority.limitScreen',
+      'authority.limitScanner',
+      'authority.limitMemory',
+      'authority.limitWebsites',
+      'authority.limitTimeout',
+      'authority.limitMoney',
+    ]) {
+      expect(limits.textContent).toContain(key);
+    }
+  });
+
+  it('the money caveat appears in BOTH places, from the same key', async () => {
+    // Two surfaces describing money differently is how one of them ends up
+    // lying. Same key, both places — that is the property under test.
+    store['commandEve.authority'] = {
+      ladder: 1,
+      capabilities: { 'spend.money': true },
+      limits: { 'spend.money': { dailyCents: 5000 } },
+      updatedBy: 'user',
+    } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    // 1. under the budget field in the seals section
+    expect((await screen.findByTestId('budget-not-enforced')).textContent).toBe(
+      'commandEve.authority.budgetNotEnforced'
+    );
+
+    // 2. inside the full-release confirmation
+    (await screen.findByTestId('full-release-open')).click();
+    expect((await screen.findByTestId('full-release-budget-not-enforced')).textContent).toBe(
+      'commandEve.authority.budgetNotEnforced'
+    );
+  });
+
+  it('drops the money caveat when money is not part of the act', async () => {
+    // Nothing is being promised about money, so there is nothing to caveat.
+    store['commandEve.authority'] = { ladder: 1, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    await openConfirmation();
+    (await screen.findByTestId('full-release-money-switch')).click();
+
+    await waitFor(() => expect(screen.queryByTestId('full-release-budget-not-enforced')).toBeNull());
+  });
+});

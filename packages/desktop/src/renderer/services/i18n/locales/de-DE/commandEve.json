@@ -17,9 +17,10 @@
     "sealsTitle": "Was EVE nur mit ausdrücklicher Erlaubnis darf",
     "sealsDescription": "Diese fünf hängen an keiner Stufe. Auch auf „Voll“ bleiben sie aus, bis du sie einzeln anschaltest.",
     "grantedAt": "Von dir freigegeben am {{date}}",
-    "dailyBudget": "Höchstens pro Tag",
+    "dailyBudget": "Festgehaltene Obergrenze",
     "budgetMissing": "Ohne Betrag gibt EVE nichts aus",
     "budgetHigh": "Das ist ein hoher Tagesbetrag. Er ist gespeichert — sieh bitte kurz nach, ob du dich vertippt hast.",
+    "budgetNotEnforced": "Ohne Betrag bleibt das Geld-Siegel geschlossen — das wird technisch erzwungen. Der Betrag selbst wird in dieser Version noch nicht gegen tatsächliche Ausgaben gezählt und nicht an EVE übermittelt. Er ist deine festgehaltene Obergrenze; durchgesetzt wird sie erst mit einer kommenden Version.",
     "rung": {
       "watch": {
         "title": "Nur zusehen",
@@ -49,7 +50,7 @@
     "seal": {
       "money": {
         "title": "Geld ausgeben",
-        "body": "Bezahlte Modelle und Dienste — bis zu dem Betrag, den du hier festlegst."
+        "body": "Bezahlte Modelle und Dienste. Den Betrag, den du dafür festhältst, nennst du beim Anschalten."
       },
       "publish": {
         "title": "Veröffentlichen und senden",
@@ -71,19 +72,27 @@
     "fullReleaseTitle": "Vollfreigabe für diese Maschine",
     "fullReleaseDescription": "Für einen Rechner, der dir gehört und auf dem EVE einfach arbeiten soll. Setzt die Stufe auf „Voll“ und öffnet alle fünf Freigaben unten — in einem Schritt statt in sieben.",
     "fullReleaseButton": "Vollfreigabe einrichten",
-    "fullReleaseActive": "Vollfreigabe ist aktiv. Stufe „Voll“, alle fünf Freigaben offen. Der eingetragene Betrag ({{amount}}) schaltet „Geld ausgeben“ überhaupt erst frei — als laufende Ausgabengrenze wird er derzeit nicht durchgesetzt. Einzelne Punkte nimmst du oben jederzeit wieder zurück.",
+    "fullReleaseActive": "Vollfreigabe ist aktiv. Stufe „Voll“, alle fünf Freigaben offen, festgehaltene Obergrenze {{amount}}. Einzelne Punkte nimmst du oben jederzeit wieder zurück.",
     "fullReleaseConfirmIntro": "Das passiert, wenn du bestätigst:",
     "fullReleaseMoneyLabel": "Geld ausgeben freigeben — Betrag erforderlich",
     "fullReleaseLadder": "Stufe: von „{{from}}“ auf „{{to}}“",
     "fullReleaseLadderUnchanged": "Stufe: bleibt auf „{{rung}}“",
     "fullReleaseOpens": "Geht auf: {{seal}}",
     "fullReleaseAlreadyOpen": "Schon offen: {{seal}}",
-    "fullReleaseMoneyLimit": "Geld ausgeben: geht auf. Der Betrag {{amount}} ist die Bedingung dafür, dass diese Freigabe überhaupt greift; er wird nicht gegen tatsächliche Ausgaben gerechnet.",
+    "fullReleaseMoneyLimit": "Geld ausgeben: geht auf, mit {{amount}} als festgehaltener Obergrenze.",
     "fullReleaseMoneyUntouched": "Geld ausgeben: bleibt, wie es ist — diese Freigabe fasst die Vollfreigabe nicht an.",
     "fullReleaseBudgetMissing": "Geld ausgeben: ohne Betrag bleibt Geld zu. Nenne eine Zahl oder schalte den Punkt ab.",
     "fullReleaseNothingToDo": "Daran würde sich nichts ändern — das steht alles schon so.",
     "fullReleaseApply": "Ja, alles freigeben",
     "fullReleaseCancel": "Abbrechen",
+    "limitsTitle": "Was diese Seite nicht entscheidet",
+    "limitsDescription": "Diese Seite regelt Terminal-Befehle und Datei-Änderungen. Sechs Dinge entscheidet sie nicht — hier stehen sie, damit du sie kennst, bevor du dich auf die Stufen verlässt.",
+    "limitScreen": "Bildschirmsteuerung: Klicken, Tippen und Tastenkürzel laufen an dieser Seite vorbei. Zerstörerische Tastenkombinationen sind fest gesperrt, der Rest wird nicht von deiner Stufe entschieden.",
+    "limitScanner": "Befehls-Scanner: Der zusätzliche Sicherheits-Scanner lässt durch, wenn er selbst nicht läuft oder nicht installiert ist. Er ist eine zweite Meinung, keine Sperre.",
+    "limitMemory": "Notizen und Fähigkeiten: Was EVE sich merkt und welche Fähigkeiten sie sich selbst schreibt, läuft ohne Rückfrage. Dafür gibt es hier keinen Schalter.",
+    "limitWebsites": "Webseiten-Sperrliste: Ist sie fehlerhaft eingerichtet, gilt sie als leer und alles ist erreichbar.",
+    "limitTimeout": "Unbeantwortete Anfragen: Eine Freigabe-Karte, die du fünf Minuten lang nicht beantwortest, gilt als abgelehnt — nicht als erteilt.",
+    "limitMoney": "Tagesbetrag: Der Betrag bei „Geld ausgeben“ öffnet dieses Siegel. Gegen tatsächliche Ausgaben gezählt wird er in dieser Version nicht.",
     "rememberedTitle": "Was EVE sich gemerkt hat",
     "rememberedDescription": "Befehle, die du für diesen Seat dauerhaft erlaubt hast. EVE fragt danach nicht mehr — bis du sie hier zurücknimmst.",
     "rememberedEmpty": "Noch nichts gemerkt. EVE fragt bei jedem Befehl.",

@@ -17,9 +17,10 @@
     "sealsTitle": "What EVE may only do with explicit permission",
     "sealsDescription": "These five hang off no rung. Even on “Full” they stay off until you switch each one on.",
     "grantedAt": "Granted by you on {{date}}",
-    "dailyBudget": "At most per day",
+    "dailyBudget": "Recorded upper bound",
     "budgetMissing": "Without an amount EVE spends nothing",
     "budgetHigh": "That is a high daily amount. It is saved — please check you did not mistype.",
+    "budgetNotEnforced": "Without an amount the money seal stays closed — that is technically enforced. The amount itself is not yet counted against actual spending in this version, and it is not transmitted to EVE. It is your recorded upper bound; enforcing it comes in a future version.",
     "rung": {
       "watch": {
         "title": "Watch only",
@@ -49,7 +50,7 @@
     "seal": {
       "money": {
         "title": "Spend money",
-        "body": "Paid models and services — up to the amount you set here."
+        "body": "Paid models and services. You name the amount you record for it when you switch this on."
       },
       "publish": {
         "title": "Publish and send",
@@ -71,19 +72,27 @@
     "fullReleaseTitle": "Full release for this machine",
     "fullReleaseDescription": "For a machine that is yours and where EVE should simply get on with it. Sets the rung to “Full” and opens all five permissions below — in one step instead of seven.",
     "fullReleaseButton": "Set up full release",
-    "fullReleaseActive": "Full release is active. Rung “Full”, all five permissions open. The amount you entered ({{amount}}) is what unlocks “Spend money” in the first place — it is not currently enforced as a running spending limit. You can withdraw any single one above at any time.",
+    "fullReleaseActive": "Full release is active. Rung “Full”, all five permissions open, recorded upper bound {{amount}}. You can withdraw any single one above at any time.",
     "fullReleaseConfirmIntro": "Here is what happens when you confirm:",
     "fullReleaseMoneyLabel": "Release spending — an amount is required",
     "fullReleaseLadder": "Rung: from “{{from}}” to “{{to}}”",
     "fullReleaseLadderUnchanged": "Rung: stays at “{{rung}}”",
     "fullReleaseOpens": "Opens: {{seal}}",
     "fullReleaseAlreadyOpen": "Already open: {{seal}}",
-    "fullReleaseMoneyLimit": "Spend money: opens. The amount {{amount}} is the condition for this permission to take effect at all; it is not counted against actual spending.",
+    "fullReleaseMoneyLimit": "Spend money: opens, with {{amount}} as the recorded upper bound.",
     "fullReleaseMoneyUntouched": "Spend money: stays as it is — the full release does not touch this one.",
     "fullReleaseBudgetMissing": "Spend money: without an amount, money stays closed. Name a number, or switch this item off.",
     "fullReleaseNothingToDo": "Nothing would change — all of this is already set that way.",
     "fullReleaseApply": "Yes, release everything",
     "fullReleaseCancel": "Cancel",
+    "limitsTitle": "What this page does not decide",
+    "limitsDescription": "This page governs terminal commands and file changes. Six things it does not decide — listed here so you know them before you rely on the rungs.",
+    "limitScreen": "Screen control: clicks, typing and key combinations bypass this page. Destructive key combinations are hard-blocked; the rest is not decided by your rung.",
+    "limitScanner": "Command scanner: the extra security scanner lets things through when it is not running or not installed. It is a second opinion, not a lock.",
+    "limitMemory": "Notes and skills: what EVE remembers, and which skills it writes for itself, run without asking. There is no switch for it here.",
+    "limitWebsites": "Website blocklist: if it is misconfigured it counts as empty, and everything is reachable.",
+    "limitTimeout": "Unanswered requests: a permission card you leave unanswered for five minutes counts as denied — not as granted.",
+    "limitMoney": "Daily amount: the amount under “Spend money” opens that seal. It is not counted against actual spending in this version.",
     "rememberedTitle": "What EVE has remembered",
     "rememberedDescription": "Commands you allowed permanently for this seat. EVE stops asking for them — until you withdraw one here.",
     "rememberedEmpty": "Nothing remembered yet. EVE asks for every command.",

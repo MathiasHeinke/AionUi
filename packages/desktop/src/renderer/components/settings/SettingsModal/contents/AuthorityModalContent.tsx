@@ -220,9 +220,18 @@ const AuthorityModalContent: React.FC = () => {
           nobody who meant "just get on with it" should also buy "and spend my
           money".
 
-          They render now because they finally BIND: the approval path asks
-          `decideAuthority` through the loopback shim on every decision, and a
-          closed seal beats every rung there (eveAuthorityRuntimeCore).
+          They render now because they finally BIND — but not by the route this
+          comment used to claim. It said "the approval path asks
+          `decideAuthority` on every decision"; `decideAuthority` has no
+          production caller at all. What actually runs: a terminal command goes
+          through `decideCommandApproval`, which consults `runtime.seals` FIRST,
+          so a closed seal beats every rung including 5
+          (eveAuthorityRuntimeCore:164-165). The seal booleans themselves come
+          from `renderEveAuthorityRuntime`, i.e. from `grantAllows`.
+
+          The honest limit of that: it binds for shell commands the seal
+          matcher recognises. See the "what this ladder does not decide"
+          section below for what it does not reach.
         */}
         <SettingsSection
           title={t('commandEve.authority.sealsTitle')}
@@ -274,6 +283,37 @@ const AuthorityModalContent: React.FC = () => {
                         {t('commandEve.authority.budgetHigh')}
                       </div>
                     )}
+                    {/*
+                      The line that keeps this field from being a lie.
+
+                      Half of it IS enforced and the sentence says which half:
+                      no amount means the seal reads shut, because
+                      `spendWithinDailyLimit` returns false on a missing or
+                      non-positive ceiling (eveAuthorityCore:202-203) and
+                      `renderEveAuthorityRuntime` therefore emits
+                      `seals['spend.money'] = false`.
+
+                      The other half is not enforced and must not be dressed up
+                      as if it were. There is no day counter anywhere:
+                      `spentTodayCents` exists only as a type (:126) and a read
+                      (:206), with no store, no day boundary and no rollover
+                      behind it — and the number never reaches EVE at all, since
+                      the approval endpoint answers with exactly
+                      `{decision, edit_policy, ladder}` (ollamaOpenAiShim:2667-2671).
+
+                      Building the counter was considered and deliberately not
+                      done here: it needs durable per-seat daily state with
+                      rollover, crash safety and replay semantics, wired into two
+                      lanes, one of which replays idempotently
+                      (artifactCapabilityLoopback:235) so a naive counter would
+                      double-count. Failing closed on a broken counter would take
+                      video generation down — not a release-worthy single point
+                      of failure for a paid feature. So: label it honestly now,
+                      enforce it deliberately later.
+                    */}
+                    <div className='text-13px op-70' data-testid='budget-not-enforced'>
+                      {t('commandEve.authority.budgetNotEnforced')}
+                    </div>
                   </div>
                 )}
               </div>
@@ -365,6 +405,14 @@ const AuthorityModalContent: React.FC = () => {
                 </li>
               </ul>
 
+              {/* Identical wording to the seals section, from the same key: the
+                  two surfaces must not be able to describe money differently. */}
+              {!releasePreview.moneyLeftAsIs && (
+                <div className='text-13px op-70' data-testid='full-release-budget-not-enforced'>
+                  {t('commandEve.authority.budgetNotEnforced')}
+                </div>
+              )}
+
               {releasePreview.changesNothing && (
                 <div className='text-13px op-70' data-testid='full-release-noop'>
                   {t('commandEve.authority.fullReleaseNothingToDo')}
@@ -392,6 +440,53 @@ const AuthorityModalContent: React.FC = () => {
               {t('commandEve.authority.fullReleaseButton')}
             </Button>
           )}
+        </SettingsSection>
+
+        {/*
+          WHAT THIS PAGE DOES NOT DECIDE.
+          
+          Every line here was measured against the installed wheel, not quoted
+          from a design note. A panel that lists six rungs and five seals reads
+          as a complete account of what EVE may do; it is not one, and the gap
+          is invisible unless it is written down.
+          
+          Five of the six sit upstream and are NOT ours to change from here:
+            - tools/computer_use/tool.py:266-277  `_request_approval` returns
+              None (approved) when no approval callback is registered, and
+              nothing on our side calls `set_approval_callback`. Only
+              `_DESTRUCTIVE_ACTIONS` reach it at all; `_BLOCKED_KEY_COMBOS`
+              (:84-89) is a genuine hard block, hence the second half of the
+              sentence.
+            - tools/tirith_security.py:74  `tirith_fail_open: True` by default,
+              consumed at :720 and :726-729 — an unresolvable binary returns
+              "allow", not "block". We write no `security` config, so the
+              default stands.
+            - tools/write_approval.py:74-82  `write_approval_enabled` defaults
+              to False: memory and skill writes are ungated until opted in.
+            - tools/website_policy.py:253-262  the blocklist logs and returns
+              None on any config error — fail-open by design.
+            - acp_adapter/permissions.py:36 + :159-164  the 300s window. This
+              one is NOT fail-open, which is exactly why it is worth stating:
+              the timeout path returns "deny". Users assume the opposite about
+              a five-minute wait, and the assumption is the risk.
+          
+          The sixth is ours, and it is the one this section exists to keep
+          honest: the daily amount gates nothing but the seal itself
+          (eveAuthorityRuntimeCore:84 probes with a hardcoded `amountCents: 0`;
+          `spend_daily_cents` has no production reader).
+        */}
+        <SettingsSection
+          title={t('commandEve.authority.limitsTitle')}
+          description={t('commandEve.authority.limitsDescription')}
+        >
+          <ul className='flex flex-col gap-8px pl-16px text-13px op-80' data-testid='authority-limits'>
+            <li>{t('commandEve.authority.limitScreen')}</li>
+            <li>{t('commandEve.authority.limitScanner')}</li>
+            <li>{t('commandEve.authority.limitMemory')}</li>
+            <li>{t('commandEve.authority.limitWebsites')}</li>
+            <li>{t('commandEve.authority.limitTimeout')}</li>
+            <li>{t('commandEve.authority.limitMoney')}</li>
+          </ul>
         </SettingsSection>
 
         <SettingsSection

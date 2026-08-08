@@ -338,11 +338,23 @@ export function withoutRememberedCommand(grant: EveAuthorityGrant, command: stri
  * against three modes (`default`, `accept_edits`, `dont_ask`), so rungs 0, 4
  * and 5 had nowhere to go and were hidden rather than shipped inert.
  *
- * The enforcement now lives where all six rungs mean something — the approval
- * patch asks `decideAuthority` through the loopback shim on every decision
- * (eveAuthorityRuntimeCore, runtimeBootstrapCore's approval-class patch). A rung
- * with no mode here is therefore NOT an unenforced rung; it is a rung the wheel
- * has no word for.
+ * The enforcement now lives where all six rungs mean something. Precisely — and
+ * this used to be written down too loosely, as "the approval patch asks
+ * `decideAuthority` on every decision", which is not what happens:
+ *
+ *   - terminal commands go through `decideCommandApproval` (the loopback shim,
+ *     ollamaOpenAiShim's authority endpoint, called from the emitted
+ *     approval-class patch in runtimeBootstrapCore),
+ *   - the edit policy comes from `renderEveAuthorityRuntime` via
+ *     `_edit_approval_policy_for_state`.
+ *
+ * Both resolve through `grantAllows`, which is what makes every rung bind.
+ * `decideAuthority` itself — the wrapper that also weighs `EveJudgmentSignals`
+ * — has NO production caller today; it is reached only from tests. Saying
+ * otherwise made a judgment layer sound live that nothing invokes.
+ *
+ * A rung with no mode here is therefore NOT an unenforced rung; it is a rung the
+ * wheel has no word for.
  *
  * `dont_ask` is mapped for rung 3 for legacy readers only. It never reaches the
  * wheel's session-wide bypass: the shim replaces `_sync_terminal_approval_mode`
