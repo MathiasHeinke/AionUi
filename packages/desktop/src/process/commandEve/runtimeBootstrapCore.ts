@@ -2424,6 +2424,9 @@ export function prepareCommandEveRuntimeProcessEnv(
   // invocation in this process tree resolve the active seat without relying on
   // the bake.
   env.HERMES_HOME = paths.hermesHome;
+  // Enables Hermes' desktop-UI tool registration. Exposure remains fail-closed:
+  // the ACP config below selects only Command EVE's two-tool allowlist.
+  env.HERMES_DESKTOP = '1';
 
   // Hermes locale root, pinned with the SAME env-inheritance doctrine as
   // HERMES_HOME above — on the env the backend subtree inherits, not on the
@@ -3084,14 +3087,17 @@ function writeCommandEveManagedSkills(
  * clarify UI" (FACT toolsets.py:406-407). Shipping only that meant running Command
  * EVE as an IDE plugin, which is not the product. So, 1.821.0:
  *
- *   - computer_use (FACT toolsets.py:177-185, "Works with any tool-capable model",
- *     itself gated on the cua-driver) — desktop control, an explicit founder ask.
+ *   - computer_use (FACT toolsets.py:177-185, itself gated on the cua-driver).
+ *     Presence in config is not a product/runtime proof of computer control.
  *   - vision (FACT toolsets.py:128) — the other half of the aux route; without the
  *     toolset the `auxiliary.vision` wiring is only half connected.
  *   - clarify (FACT toolsets.py:260) — the ask-back UI hermes-acp explicitly lacks.
  *
- * None of these three touches kanban, money, or the confirmation boundary; the
- * guard below proves the first of those on every run.
+ *   - command-eve-desktop — injected by the provider shim as the exact
+ *     {open_preview, focus_pane} pair; focus_pane itself is narrowed to files.
+ *
+ * None of these touches kanban, money, or the confirmation boundary; the guard
+ * below proves the first of those on every run.
  */
 export const COMMAND_EVE_CLI_PLATFORM_TOOLSETS: readonly string[] = Object.freeze(['hermes-cli']);
 export const COMMAND_EVE_ACP_PLATFORM_TOOLSETS: readonly string[] = Object.freeze([
@@ -3099,6 +3105,7 @@ export const COMMAND_EVE_ACP_PLATFORM_TOOLSETS: readonly string[] = Object.freez
   'computer_use',
   'vision',
   'clarify',
+  'command-eve-desktop',
 ]);
 
 /**
@@ -3661,6 +3668,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '',
     'from __future__ import annotations',
     '',
+    'import asyncio',
     'import http.client',
     'import inspect',
     'import json',
@@ -3711,6 +3719,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    "compression_call",',
     '    "compression_runtime",',
     '    "stop_continuation",',
+    '    "desktop_bridge",',
     '    "acp_session_recovery",',
     '    "acp_session_restore",',
     ')',
@@ -5069,6 +5078,94 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        return None',
     '',
     '',
+    'def _command_eve_desktop_payload(event: str, payload: Any) -> dict[str, Any]:',
+    '    """Positive allowlist for the two UI events Command EVE renders."""',
+    '    if not isinstance(payload, dict):',
+    '        raise ValueError("desktop payload must be an object")',
+    '    if event == "preview.open":',
+    '        if set(payload) - {"url", "label"}:',
+    '            raise ValueError("unsupported preview payload")',
+    '        url = str(payload.get("url") or "").strip()',
+    '        label = str(payload.get("label") or "").strip()',
+    '        parsed = urlparse(url)',
+    '        if len(url) > 4096 or parsed.scheme not in {"http", "https"} or not parsed.hostname:',
+    '            raise ValueError("preview url must be http(s)")',
+    '        if parsed.username or parsed.password or len(label) > 200:',
+    '            raise ValueError("preview credentials/label rejected")',
+    '        return {"url": url, "label": label}',
+    '    if event == "pane.reveal":',
+    '        if set(payload) != {"pane"} or payload.get("pane") != "files":',
+    '            raise ValueError("only the files pane is available")',
+    '        return {"pane": "files"}',
+    '    raise ValueError("unsupported desktop event")',
+    '',
+    '',
+    'def _install_command_eve_desktop_bridge_patch() -> None:',
+    '    try:',
+    '        from acp.schema import SessionInfoUpdate',
+    '        from acp_adapter.server import HermesACPAgent',
+    '        from gateway.session_context import get_session_env',
+    '        import toolsets',
+    '        from tools import desktop_ui, focus_pane_tool, open_preview_tool',
+    '    except Exception:',
+    '        return',
+    '',
+    '    # One named toolset, two tools. The raw terminal desktop affordances and',
+    '    # wheel kanban tools never enter the ACP selection list.',
+    '    toolsets.TOOLSETS["command-eve-desktop"] = {',
+    '        "description": "Command EVE bounded preview and files-pane controls",',
+    '        "tools": ["open_preview", "focus_pane"],',
+    '        "includes": [],',
+    '    }',
+    '    focus_pane_tool.PANES = ("files",)',
+    '    focus_pane_tool.FOCUS_PANE_SCHEMA["description"] = "Reveal the Command EVE files pane."',
+    '    focus_pane_tool.FOCUS_PANE_SCHEMA["parameters"]["properties"]["pane"]["enum"] = ["files"]',
+    '    open_preview_tool.OPEN_PREVIEW_SCHEMA["description"] = "Open an http(s) page in the Command EVE preview pane."',
+    '',
+    '    if getattr(HermesACPAgent, "_command_eve_desktop_bridge_patch_installed", False):',
+    '        _command_eve_mark_patch("desktop_bridge")',
+    '        return',
+    '    original_prompt = getattr(HermesACPAgent, "_prompt_impl", None)',
+    '    if not callable(original_prompt):',
+    '        return',
+    '',
+    '    async def command_eve_desktop_prompt(self: Any, *args: Any, **kwargs: Any) -> Any:',
+    '        conn = getattr(self, "_conn", None)',
+    '        if conn is not None:',
+    '            loop = asyncio.get_running_loop()',
+    '            loop_thread_id = threading.get_ident()',
+    '',
+    '            def command_eve_emit(_legacy_ui_id: str, event: str, payload: dict[str, Any]) -> None:',
+    '                session_id = str(get_session_env("HERMES_SESSION_KEY", "") or "").strip()',
+    '                if not session_id:',
+    '                    raise RuntimeError("desktop event has no active ACP session")',
+    '                normalized = _command_eve_desktop_payload(event, payload)',
+    '                update = SessionInfoUpdate(',
+    '                    session_update="session_info_update",',
+    '                    field_meta={',
+    '                        "commandEveDesktop": {',
+    '                            "version": "command-eve-desktop-event/v1",',
+    '                            "sessionId": session_id,',
+    '                            "event": event,',
+    '                            "payload": normalized,',
+    '                        }',
+    '                    },',
+    '                )',
+    '                delivery = conn.session_update(session_id, update)',
+    '                if threading.get_ident() == loop_thread_id:',
+    '                    loop.create_task(delivery)',
+    '                    return',
+    '                future = asyncio.run_coroutine_threadsafe(delivery, loop)',
+    '                future.result(timeout=5)',
+    '',
+    '            desktop_ui.set_emitter(command_eve_emit)',
+    '        return await original_prompt(self, *args, **kwargs)',
+    '',
+    '    HermesACPAgent._prompt_impl = command_eve_desktop_prompt',
+    '    HermesACPAgent._command_eve_desktop_bridge_patch_installed = True',
+    '    _command_eve_mark_patch("desktop_bridge")',
+    '',
+    '',
     '_COMMAND_EVE_TURN_FAILURE_LOCK = threading.Lock()',
     '_COMMAND_EVE_TURN_FAILURE: dict[str, Any] = {"seq": 0, "text": "", "consumed": 0}',
     '',
@@ -5399,6 +5496,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        _install_command_eve_context_policy_patch()',
     '        _install_command_eve_compression_runtime_patch()',
     '        _install_command_eve_stop_continuation_patch()',
+    '        _install_command_eve_desktop_bridge_patch()',
     '        _install_command_eve_acp_session_recovery_patch()',
     '        _install_command_eve_acp_session_restore_patch()',
     '        _require_command_eve_permission_authority_patch()',
@@ -5465,6 +5563,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '_install_command_eve_context_policy_patch()',
     '_install_command_eve_compression_runtime_patch()',
     '_install_command_eve_stop_continuation_patch()',
+    '_install_command_eve_desktop_bridge_patch()',
     '_install_command_eve_acp_session_recovery_patch()',
     '_install_command_eve_acp_session_restore_patch()',
     '',

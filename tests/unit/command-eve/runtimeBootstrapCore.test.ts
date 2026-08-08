@@ -1167,7 +1167,7 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(reconciliation.hermes_config.mcp_servers).toEqual([]);
       expect(reconciliation.hermes_config.platform_toolsets).toEqual({
         cli: ['hermes-cli'],
-        acp: ['hermes-acp', 'computer_use', 'vision', 'clarify'],
+        acp: ['hermes-acp', 'computer_use', 'vision', 'clarify', 'command-eve-desktop'],
       });
       expect(reconciliation.hermes_config.kanban_dispatch_in_gateway).toBe(false);
       expect(reconciliation.hermes_config.kanban_auto_decompose).toBe(true);

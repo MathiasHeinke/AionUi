@@ -346,6 +346,72 @@ describe('useAcpMessage', () => {
     expect(addOrUpdateMessageMock).toHaveBeenCalled();
   });
 
+  it('routes only session-bound Hermes preview/files events and rejects foreign or unknown events', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const previewSpy = vi.spyOn(emitter, 'emit');
+    const workspaceOpen = vi.fn();
+    const railSelect = vi.fn();
+    window.addEventListener('aionui-workspace-open', workspaceOpen);
+    window.addEventListener('command-eve-elements-rail-select', railSelect);
+    renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    const send = (event: string, payload: unknown, sessionId = 'acp-session-1') => {
+      responseStreamHandlerRef.current?.({
+        type: 'acp_session_info',
+        data: {
+          _meta: {
+            commandEveDesktop: {
+              version: 'command-eve-desktop-event/v1',
+              sessionId,
+              event,
+              payload,
+            },
+          },
+        },
+        msg_id: `desktop-${event}`,
+        turn_id: 'turn-desktop-1',
+        conversation_id: 'conv-1',
+      });
+    };
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'acp-session-1' },
+        msg_id: 'desktop-start',
+        turn_id: 'turn-desktop-1',
+        conversation_id: 'conv-1',
+      });
+      send('preview.open', { url: 'https://example.com', label: 'Example' });
+      send('pane.reveal', { pane: 'files' });
+      send('preview.open', { url: 'https://foreign.example' }, 'foreign-session');
+      send('terminal.read', {});
+      send('pane.reveal', { pane: 'terminal' });
+    });
+
+    expect(previewSpy.mock.calls.filter(([name]) => name === 'preview.open')).toEqual([
+      [
+        'preview.open',
+        {
+          content: 'https://example.com',
+          contentType: 'url',
+          metadata: { title: 'Example', conversation_id: 'conv-1' },
+        },
+      ],
+    ]);
+    expect(workspaceOpen).toHaveBeenCalledTimes(1);
+    expect(railSelect).toHaveBeenCalledTimes(1);
+    const railEvent = railSelect.mock.calls[0]?.[0];
+    expect(railEvent).toBeInstanceOf(CustomEvent);
+    if (!(railEvent instanceof CustomEvent)) throw new Error('Expected the elements-rail CustomEvent');
+    expect(railEvent.detail).toBe('context');
+
+    previewSpy.mockRestore();
+    window.removeEventListener('aionui-workspace-open', workspaceOpen);
+    window.removeEventListener('command-eve-elements-rail-select', railSelect);
+  });
+
   it('hydrates ACP usage after warmup and preserves it through the turn lifecycle', async () => {
     conversationGetInvokeMock.mockResolvedValue({
       id: 'conv-1',

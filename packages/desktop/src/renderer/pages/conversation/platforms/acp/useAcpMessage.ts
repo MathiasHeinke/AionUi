@@ -18,6 +18,7 @@ import {
   shouldOpenHtmlPreview,
 } from '@/common/config/htmlArtifactPreviewCore';
 import { collectImageBindFromToolCallUpdate } from '@/common/config/imageArtifactBindCore';
+import { parseCommandEveDesktopEvent } from '@/common/config/hermesDesktopEventCore';
 import { classifyAcpExternalWriteBlock } from '@/renderer/pages/conversation/Messages/acp/externalWriteRecoveryPolicy';
 import type { AvailableCommand, IMessageThinking } from '@/common/chat/chatLib';
 import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
@@ -42,6 +43,10 @@ import {
 } from '@renderer/services/commandEveGenerationActivity';
 import { getConversationRuntimeViewSnapshot } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
+import {
+  dispatchElementsRailSelectEvent,
+  dispatchWorkspaceOpenEvent,
+} from '@/renderer/utils/workspace/workspaceEvents';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 const THINKING_MESSAGE_THROTTLE_MS = 50;
@@ -194,6 +199,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   const lastRendererCommitAtRef = useRef<number | undefined>(undefined);
   const lastPendingBufferedAtRef = useRef<number | undefined>(undefined);
   const activeToolCallsRef = useRef<Map<string, string>>(new Map());
+  // Desktop UI events are accepted only for the concrete ACP session attached
+  // to this conversation. Never derive this from a seat-wide/static id.
+  const activeAcpSessionIdRef = useRef<string | undefined>(undefined);
 
   // Live renderer permission authority for THIS conversation. Plain EVE
   // `dont_ask` leaves escalations gated; the selector publishes the separate,
@@ -499,6 +507,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           'available_commands',
           'slash_commands_updated',
           'agent_status',
+          'acp_session_info',
           'user_content',
           'teammate_message',
         ].includes(message.type);
@@ -547,6 +556,13 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           break;
         }
         case 'start':
+          {
+            const startData = message.data as { session_id?: unknown; sessionId?: unknown } | null;
+            const sessionId = startData?.session_id ?? startData?.sessionId;
+            if (typeof sessionId === 'string' && sessionId.trim()) {
+              activeAcpSessionIdRef.current = sessionId.trim();
+            }
+          }
           // New turn starting — clear the finished guard and content flag
           turnFinishedRef.current = false;
           hasContentInTurnRef.current = false;
@@ -565,6 +581,24 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           }));
           // Don't reset aiProcessing here - let content arrival handle it
           break;
+        case 'acp_session_info': {
+          const desktopEvent = parseCommandEveDesktopEvent(message.data, activeAcpSessionIdRef.current);
+          if (!desktopEvent) break;
+          if (desktopEvent.event === 'preview.open') {
+            emitter.emit('preview.open', {
+              content: desktopEvent.payload.url,
+              contentType: 'url',
+              metadata: {
+                title: desktopEvent.payload.label,
+                conversation_id,
+              },
+            });
+          } else {
+            dispatchWorkspaceOpenEvent();
+            dispatchElementsRailSelectEvent('context');
+          }
+          break;
+        }
         case 'finish':
           {
             // Mark turn as finished to prevent auto-recover from late messages
@@ -1166,6 +1200,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     hasLocalPermissionAuthorityRef.current = false;
     autoApprovedCallIdsRef.current = new Set();
     recoveredExternalWriteCallIdsRef.current = new Set();
+    activeAcpSessionIdRef.current = undefined;
   }, [conversation_id]);
 
   // Keep local permission authority current for the auto-approve path. Restrictive
@@ -1262,6 +1297,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         // acknowledgement, and request_trace provides the same backend truth.
         if (res.type === 'acp' && typeof res.extra?.backend === 'string') {
           permissionBackendRef.current = res.extra.backend;
+        }
+        if (res.type === 'acp' && typeof res.extra?.acp_session_id === 'string' && res.extra.acp_session_id.trim()) {
+          activeAcpSessionIdRef.current = res.extra.acp_session_id.trim();
         }
         if (
           res.type === 'acp' &&
