@@ -1,0 +1,51 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 2px;
+  gap: 1px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--glass-panel-bg, var(--bg-2)) 58%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--glass-panel-border) 54%, transparent);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--eve-shell-text-tertiary, var(--color-text-3));
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.button:hover {
+  color: var(--eve-shell-text, var(--color-text-1));
+  background: var(--eve-row-hover-bg, var(--color-fill-2));
+}
+
+.button[data-active='true'] {
+  color: var(--eve-focus-ring, var(--color-primary-6));
+  background: color-mix(in srgb, var(--eve-focus-ring, var(--color-primary-6)) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--eve-focus-ring, var(--color-primary-6)) 34%, transparent);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+  }
+}

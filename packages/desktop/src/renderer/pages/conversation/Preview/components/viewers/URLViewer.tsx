@@ -5,6 +5,8 @@
  */
 
 import React from 'react';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import WorkbenchLayoutControls from '@/renderer/components/layout/Titlebar/WorkbenchLayoutControls';
 import WebviewHost from '@/renderer/components/media/WebviewHost';
 
 interface URLViewerProps {
@@ -21,7 +23,14 @@ interface URLViewerProps {
  * Delegates to the shared WebviewHost with navigation bar enabled.
  */
 const URLViewer: React.FC<URLViewerProps> = ({ url }) => {
-  return <WebviewHost url={url} showNavBar className='bg-bg-1' />;
+  return (
+    <WebviewHost
+      url={url}
+      showNavBar
+      className='bg-bg-1'
+      toolbarActions={COMMAND_EVE_SHELL_ENABLED ? <WorkbenchLayoutControls /> : undefined}
+    />
+  );
 };
 
 export default URLViewer;

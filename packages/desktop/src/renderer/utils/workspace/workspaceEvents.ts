@@ -2,10 +2,12 @@ export const WORKSPACE_TOGGLE_EVENT = 'aionui-workspace-toggle';
 export const WORKSPACE_OPEN_EVENT = 'aionui-workspace-open';
 export const WORKSPACE_STATE_EVENT = 'aionui-workspace-state';
 export const WORKSPACE_HAS_FILES_EVENT = 'aionui-workspace-has-files';
+export const WORKSPACE_TAB_SELECT_EVENT = 'command-eve-workspace-tab-select';
 export const ELEMENTS_RAIL_SELECT_EVENT = 'command-eve-elements-rail-select';
 export const ELEMENTS_RAIL_REVEAL_EVENT = 'command-eve-elements-rail-reveal';
 
 export type ElementsRailTab = 'activity' | 'artifacts' | 'context';
+export type WorkspaceSurfaceTab = 'files' | 'changes';
 
 export interface WorkspaceStateDetail {
   collapsed: boolean;
@@ -13,6 +15,7 @@ export interface WorkspaceStateDetail {
 
 export interface ElementsRailRevealDetail {
   tab: ElementsRailTab;
+  workspaceTab?: WorkspaceSurfaceTab;
 }
 
 export interface WorkspaceHasFilesDetail {
@@ -40,6 +43,11 @@ export function dispatchWorkspaceOpenEvent() {
   window.dispatchEvent(new CustomEvent(WORKSPACE_OPEN_EVENT));
 }
 
+export function dispatchWorkspaceTabSelectEvent(tab: WorkspaceSurfaceTab) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent<WorkspaceSurfaceTab>(WORKSPACE_TAB_SELECT_EVENT, { detail: tab }));
+}
+
 export function dispatchElementsRailSelectEvent(tab: ElementsRailTab) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent<ElementsRailTab>(ELEMENTS_RAIL_SELECT_EVENT, { detail: tab }));
@@ -50,11 +58,11 @@ export function dispatchElementsRailSelectEvent(tab: ElementsRailTab) {
  * ChatLayout owns both pieces of state, so Hermes desktop tools never depend on
  * two unrelated fire-and-forget events being observed in the same order.
  */
-export function dispatchElementsRailRevealEvent(tab: ElementsRailTab) {
+export function dispatchElementsRailRevealEvent(tab: ElementsRailTab, workspaceTab?: WorkspaceSurfaceTab) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(
     new CustomEvent<ElementsRailRevealDetail>(ELEMENTS_RAIL_REVEAL_EVENT, {
-      detail: { tab },
+      detail: { tab, workspaceTab },
     })
   );
 }

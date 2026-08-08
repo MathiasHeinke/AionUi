@@ -10,6 +10,7 @@ import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { getWorkspaceDisplayName as getDisplayName } from '@/renderer/utils/workspace/workspace';
+import { WORKSPACE_TAB_SELECT_EVENT, type WorkspaceSurfaceTab } from '@/renderer/utils/workspace/workspaceEvents';
 import { Empty, Message, Tree } from '@arco-design/web-react';
 import { Right } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -92,6 +93,17 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
   });
 
   const searchHook = useWorkspaceSearch({ workspace, loadWorkspace: treeHook.loadWorkspace });
+
+  useEffect(() => {
+    const selectWorkspaceTab = (event: Event) => {
+      const tab = (event as CustomEvent<WorkspaceSurfaceTab>).detail;
+      if (tab !== 'files' && tab !== 'changes') return;
+      setActiveTab(tab);
+      setIsWorkspaceCollapsed(false);
+    };
+    window.addEventListener(WORKSPACE_TAB_SELECT_EVENT, selectWorkspaceTab);
+    return () => window.removeEventListener(WORKSPACE_TAB_SELECT_EVENT, selectWorkspaceTab);
+  }, [setIsWorkspaceCollapsed]);
 
   const fileOpsHook = useWorkspaceFileOps({
     workspace,

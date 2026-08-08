@@ -8,6 +8,7 @@ import { ipcBridge } from '@/common';
 import { TEAM_MODE_ENABLED } from '@/common/config/constants';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import MobileConversationBrand from './MobileConversationBrand';
+import ShellWorkbenchTabs from './ShellWorkbenchTabs';
 import WindowControls from '../WindowControls';
 import CreditMeterBadge from '@renderer/components/billing/CreditMeterBadge';
 import ProfileAvatar from '@renderer/components/account/ProfileAvatar';
@@ -113,6 +114,13 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
   // 前进/后退仅在桌面端显示（移动端空间有限，保留原有的返回到聊天按钮）
   // Show back/forward on desktop only; mobile keeps the existing back-to-chat button.
   const showHistoryNav = Boolean(navigationHistory) && !layout?.isMobile;
+  const desktopConversationMatch = location.pathname.match(/^\/conversation\/([^/]+)/);
+  const desktopConversationId = desktopConversationMatch?.[1]
+    ? decodeURIComponent(desktopConversationMatch[1])
+    : undefined;
+  const showWorkbenchTabs = Boolean(
+    COMMAND_EVE_SHELL_ENABLED && isDesktopRuntime && !layout?.isMobile && desktopConversationId
+  );
   const historyBackTooltip = t('common.historyBack', { defaultValue: 'Back' });
   const historyForwardTooltip = t('common.forward', { defaultValue: 'Forward' });
 
@@ -243,6 +251,14 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
         '--app-titlebar-mobile-center-offset': `${workspaceAvailable ? mobileCenterOffset : 0}px`,
       } as React.CSSProperties)
     : undefined;
+  const titlebarStyle = {
+    ...mobileCenterStyle,
+    ...(showWorkbenchTabs
+      ? {
+          '--eve-workbench-content-left': `calc(var(--seat-rail-width, 0px) + ${layout?.siderCollapsed ? '0px' : '324px'})`,
+        }
+      : {}),
+  } as React.CSSProperties;
 
   const menuStyle: React.CSSProperties = useMemo(() => {
     if (!isMacRuntime || !showSiderToggle) return {};
@@ -257,7 +273,7 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
   return (
     <div
       ref={containerRef}
-      style={mobileCenterStyle}
+      style={titlebarStyle}
       className={classNames('flex items-center gap-8px app-titlebar bg-2 border-b border-[var(--border-base)]', {
         'app-titlebar--mobile': layout?.isMobile,
         'app-titlebar--mobile-conversation': layout?.isMobile && workspaceAvailable,
@@ -315,11 +331,14 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
       <div
         className={classNames('app-titlebar__brand', {
           'app-titlebar__brand--centered': layout?.isMobile || !location.pathname.match(/^\/(conversation|team)\//),
+          'app-titlebar__brand--workbench': showWorkbenchTabs,
         })}
         aria-label={layout?.isMobile ? mobileCenterTitle : appTitle}
         title={layout?.isMobile ? mobileCenterTitle : appTitle}
       >
-        {layout?.isMobile &&
+        {showWorkbenchTabs && desktopConversationId ? (
+          <ShellWorkbenchTabs conversationId={desktopConversationId} />
+        ) : layout?.isMobile ? (
           (() => {
             const conversationMatch = location.pathname.match(/^\/conversation\/([^/]+)/);
             const conversation_id = conversationMatch?.[1];
@@ -337,7 +356,8 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
                 <span className='app-titlebar__brand-text'>{mobileCenterTitle}</span>
               </span>
             );
-          })()}
+          })()
+        ) : null}
       </div>
       <div ref={toolbarRef} className='app-titlebar__toolbar'>
         {layout?.isMobile && <div id='app-titlebar-actions-slot' className='app-titlebar__actions-slot' />}

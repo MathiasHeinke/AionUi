@@ -6,6 +6,7 @@
 
 import { ipcBridge } from '@/common';
 import { configService } from '@/common/config/configService';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { downloadFileFromPath, downloadTextContent } from '@/renderer/utils/file/download';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { PreviewToolbarExtrasProvider, type PreviewToolbarExtras } from '../../context/PreviewToolbarExtrasContext';
@@ -62,6 +63,8 @@ const PreviewPanel: React.FC = () => {
     closeTab,
     switchTab,
     closePreview,
+    hidePreview,
+    setCloseTabRequestHandler,
     updateContent,
     saveContent,
     addDomSnippet,
@@ -184,6 +187,11 @@ const PreviewPanel: React.FC = () => {
     [tabs, closeTab]
   );
 
+  useEffect(() => {
+    setCloseTabRequestHandler(handleCloseTab);
+    return () => setCloseTabRequestHandler(null);
+  }, [handleCloseTab, setCloseTabRequestHandler]);
+
   // 保存并关闭tab / Save and close tab
   const handleSaveAndCloseTab = useCallback(async () => {
     if (!closeTabConfirm.tabId) return;
@@ -267,10 +275,12 @@ const PreviewPanel: React.FC = () => {
     setContextMenu({ show: false, x: 0, y: 0, tabId: null });
   }, [tabs, closeTab]);
 
-  // 如果预览面板未打开，不渲染 / Don't render if preview panel is not open
-  if (!isOpen || !activeTab) return null;
-
-  const { content, content_type, metadata } = activeTab;
+  // Keep the hook path stable while Command EVE hides (rather than destroys)
+  // the workbench pane. The panel may stay mounted with tabs while `isOpen`
+  // is false, so callbacks below need inert values until the final render guard.
+  const content = activeTab?.content ?? '';
+  const content_type = activeTab?.content_type ?? 'markdown';
+  const metadata = activeTab?.metadata;
   const isMarkdown = content_type === 'markdown';
   const isHTML = content_type === 'html';
   const isEditable = metadata?.editable !== false; // 默认可编辑 / Default editable
@@ -443,6 +453,19 @@ const PreviewPanel: React.FC = () => {
       }
     }
   }, [metadata?.file_path, messageApi, t]);
+
+  const workbenchUrlTabs = useMemo(() => {
+    if (!COMMAND_EVE_SHELL_ENABLED) return [];
+    const conversationId = activeTab?.metadata?.conversation_id;
+    if (!conversationId) return [];
+    return tabs.filter((tab) => tab.content_type === 'url' && tab.metadata?.conversation_id === conversationId);
+  }, [activeTab?.metadata?.conversation_id, tabs]);
+
+  // Every hook above must execute on both visible and hidden renders. Command
+  // EVE keeps the active workbench surface mounted while Chat is selected so
+  // stateful panes (especially the Electron webview) retain their live session.
+  // The parent ChatLayout owns visibility via `display: none`.
+  if (!activeTab || (!COMMAND_EVE_SHELL_ENABLED && !isOpen)) return null;
 
   // 渲染历史下拉菜单 / Render history dropdown
   const renderHistoryDropdown = () => {
@@ -666,6 +689,7 @@ const PreviewPanel: React.FC = () => {
       );
     } else if (content_type === 'url') {
       // URL 预览模式 / URL preview mode
+      if (COMMAND_EVE_SHELL_ENABLED) return null;
       return <URLViewer url={content} title={metadata?.title} />;
     }
 
@@ -681,7 +705,13 @@ const PreviewPanel: React.FC = () => {
 
   return (
     <PreviewToolbarExtrasProvider value={toolbarExtrasContextValue}>
-      <div className='h-full flex flex-col bg-1 rounded-[16px]'>
+      <div
+        className={
+          COMMAND_EVE_SHELL_ENABLED
+            ? 'h-full flex flex-col bg-1 eve-workbench-preview-surface'
+            : 'h-full flex flex-col bg-1 rounded-[16px]'
+        }
+      >
         {messageContextHolder}
 
         {/* 确认对话框 / Confirmation modals */}
@@ -695,16 +725,18 @@ const PreviewPanel: React.FC = () => {
 
         {/* Tab 栏 / Tab bar */}
         {/* eslint-disable-next-line max-len */}
-        <PreviewTabs
-          tabs={previewTabs}
-          activeTabId={activeTabId}
-          tabFadeState={tabFadeState}
-          tabsContainerRef={tabsContainerRef}
-          onSwitchTab={switchTab}
-          onCloseTab={handleCloseTab}
-          onContextMenu={handleTabContextMenu}
-          onClosePanel={closePreview}
-        />
+        {!COMMAND_EVE_SHELL_ENABLED && (
+          <PreviewTabs
+            tabs={previewTabs}
+            activeTabId={activeTabId}
+            tabFadeState={tabFadeState}
+            tabsContainerRef={tabsContainerRef}
+            onSwitchTab={switchTab}
+            onCloseTab={handleCloseTab}
+            onContextMenu={handleTabContextMenu}
+            onClosePanel={closePreview}
+          />
+        )}
 
         {/* 工具栏（URL 类型不显示工具栏，因为不需要下载/编辑等功能）/ Toolbar (hidden for URL type as it doesn't need download/edit features) */}
         {content_type !== 'url' && (
@@ -729,7 +761,7 @@ const PreviewPanel: React.FC = () => {
             onOpenInSystem={handleOpenInSystem}
             onDownload={handleDownload}
             onExport={handleExport}
-            onClose={closePreview}
+            onClose={COMMAND_EVE_SHELL_ENABLED ? hidePreview : closePreview}
             inspectMode={inspectMode}
             onInspectModeToggle={() => setInspectMode(!inspectMode)}
             leftExtra={toolbarExtras?.left}
@@ -744,7 +776,26 @@ const PreviewPanel: React.FC = () => {
         )}
 
         {/* 预览内容 / Preview content */}
-        {renderContent()}
+        {COMMAND_EVE_SHELL_ENABLED ? (
+          <>
+            {content_type !== 'url' && renderContent()}
+            {workbenchUrlTabs.map((tab) => {
+              const isActive = tab.id === activeTabId;
+              return (
+                <div
+                  key={tab.id}
+                  className='flex flex-1 min-h-0 overflow-hidden'
+                  style={{ display: isActive ? 'flex' : 'none' }}
+                  aria-hidden={!isActive}
+                >
+                  <URLViewer url={tab.content} title={tab.metadata?.title} />
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          renderContent()
+        )}
 
         {/* Tab 右键菜单 / Tab context menu */}
         {/* eslint-disable-next-line max-len */}

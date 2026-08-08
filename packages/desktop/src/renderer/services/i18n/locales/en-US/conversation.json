@@ -671,6 +671,30 @@
     "newSession": "New chat",
     "projectFiles": "Project files"
   },
+  "workbench": {
+    "label": "EVE workbench",
+    "chat": "Chat",
+    "review": "Review",
+    "terminal": "Terminal",
+    "browser": "Browser",
+    "files": "Files",
+    "pageChat": "Page chat",
+    "notConnected": "Not connected yet",
+    "addressPlaceholder": "Enter an address or search",
+    "openLauncher": "Open workbench",
+    "closeTab": "Close {{title}}",
+    "unsavedTab": "{{title}}, unsaved changes",
+    "layoutLabel": "Arrange workbench",
+    "focus": "Maximize active surface",
+    "splitRight": "Chat left, workbench right",
+    "splitBottom": "Workbench above, chat below",
+    "sidecar": "Workbench with EVE sidecar",
+    "pinSidecar": "Pin EVE chat",
+    "unpinSidecar": "Unpin EVE chat",
+    "expandChat": "Maximize chat",
+    "closeSidecar": "Close EVE chat",
+    "resizeSplit": "Resize layout"
+  },
   "runtimeStatus": {
     "preparing": "EVE is preparing the task",
     "phase": {

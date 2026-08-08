@@ -7,6 +7,7 @@
 import { iconColors } from '@/renderer/styles/colors';
 import { emitter } from '@/renderer/utils/emitter';
 import { ipcBridge } from '@/common';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import type { ICronJob } from '@/common/adapter/ipcBridge';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { Button, Popover, Tooltip } from '@arco-design/web-react';
@@ -104,7 +105,7 @@ const CronJobManager: React.FC<CronJobManagerProps> = ({ conversation_id, cron_j
 
     return (
       <Popover
-        trigger='hover'
+        trigger={COMMAND_EVE_SHELL_ENABLED ? 'click' : 'hover'}
         position='bottom'
         content={
           <div className='flex flex-col gap-8px p-4px max-w-240px'>

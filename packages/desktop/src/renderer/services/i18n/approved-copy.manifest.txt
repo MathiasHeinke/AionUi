@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7142
+# entries: 7182
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -902,6 +902,7 @@ copy	1	de-DE/conversation.json	API-Fehler aufgetreten. Kein CLI-Agent für den F
 copy	1	de-DE/conversation.json	API-Fehler, automatisch zu {{cli}} CLI gewechselt
 copy	4	de-DE/conversation.json	Abbrechen
 copy	1	de-DE/conversation.json	Abrechnung beim Modellanbieter erforderlich
+copy	1	de-DE/conversation.json	Adresse oder Suche eingeben
 copy	1	de-DE/conversation.json	Agent
 copy	1	de-DE/conversation.json	Agenten-Handshake fehlgeschlagen
 copy	1	de-DE/conversation.json	Agentenbefehl wurde nicht gefunden
@@ -909,6 +910,7 @@ copy	1	de-DE/conversation.json	Agentenname:
 copy	1	de-DE/conversation.json	Agentenprotokollversionen sind inkompatibel
 copy	1	de-DE/conversation.json	Agentenvorlage erfolgreich registriert!
 copy	1	de-DE/conversation.json	Agentenwechsel fehlgeschlagen
+copy	1	de-DE/conversation.json	Aktive Fläche maximieren
 copy	1	de-DE/conversation.json	Aktivierung nötig
 copy	1	de-DE/conversation.json	Aktivität
 copy	1	de-DE/conversation.json	Aktualisiere den Agenten oder behebe die Inkompatibilität der Protokollversion.
@@ -931,6 +933,10 @@ copy	1	de-DE/conversation.json	Antwort streamt
 copy	1	de-DE/conversation.json	Antwort-Stream wurde unterbrochen
 copy	1	de-DE/conversation.json	Anzeige holt auf
 copy	1	de-DE/conversation.json	App
+copy	1	de-DE/conversation.json	Arbeitsfläche anordnen
+copy	1	de-DE/conversation.json	Arbeitsfläche mit EVE-Sidecar
+copy	1	de-DE/conversation.json	Arbeitsfläche oben, Chat unten
+copy	1	de-DE/conversation.json	Arbeitsfläche öffnen
 copy	1	de-DE/conversation.json	Archiv
 copy	1	de-DE/conversation.json	Archivieren
 copy	1	de-DE/conversation.json	Archivieren fehlgeschlagen
@@ -942,6 +948,7 @@ copy	1	de-DE/conversation.json	Audiodatei ist zu groß
 copy	1	de-DE/conversation.json	Audiotranskription fehlgeschlagen
 copy	1	de-DE/conversation.json	Auf die angeforderte Ressource konnte nicht zugegriffen werden
 copy	1	de-DE/conversation.json	Aufnahme stoppen
+copy	1	de-DE/conversation.json	Aufteilung anpassen
 copy	1	de-DE/conversation.json	Aus Ordner entfernen
 copy	1	de-DE/conversation.json	Aus Ordner entfernt
 copy	1	de-DE/conversation.json	Aus Verlauf generieren
@@ -970,8 +977,12 @@ copy	1	de-DE/conversation.json	Bitte gib einen neuen Namen ein
 copy	1	de-DE/conversation.json	Bitte gib nach /btw eine Zwischenfrage ein.
 copy	1	de-DE/conversation.json	Bitte wähle einen Exportordner aus
 copy	1	de-DE/conversation.json	Bitte wähle zuerst Themen aus
+copy	1	de-DE/conversation.json	Browser
 copy	1	de-DE/conversation.json	CLI-Agenten
+copy	1	de-DE/conversation.json	Chat
 copy	1	de-DE/conversation.json	Chat in Ordner verschieben
+copy	1	de-DE/conversation.json	Chat links, Arbeitsfläche rechts
+copy	1	de-DE/conversation.json	Chat maximieren
 copy	1	de-DE/conversation.json	Chat umbenennen
 copy	1	de-DE/conversation.json	Cloud
 copy	1	de-DE/conversation.json	Cloud-OCR für dieses PDF erlauben?
@@ -992,7 +1003,7 @@ copy	1	de-DE/conversation.json	Datei hinzufügen
 copy	1	de-DE/conversation.json	Datei konnte nicht gelesen werden
 copy	1	de-DE/conversation.json	Datei löschen
 copy	1	de-DE/conversation.json	Datei-Explorer
-copy	1	de-DE/conversation.json	Dateien
+copy	2	de-DE/conversation.json	Dateien
 copy	1	de-DE/conversation.json	Dateien durchsuchen ...
 copy	1	de-DE/conversation.json	Dateien einfügen
 copy	1	de-DE/conversation.json	Dateien erscheinen hier, nachdem du Dateien hochgeladen oder einen Ordner geöffnet hast
@@ -1105,6 +1116,10 @@ copy	1	de-DE/conversation.json	EVE konnte dieses Bild nicht sicher vorbereiten. 
 copy	1	de-DE/conversation.json	EVE konnte dieses PDF nicht sicher lesen. Die Nachricht wurde nicht gesendet.
 copy	1	de-DE/conversation.json	EVE verbindet
 copy	1	de-DE/conversation.json	EVE wartet auf eine Freigabe oder Rückfrage.
+copy	1	de-DE/conversation.json	EVE-Arbeitsfläche
+copy	1	de-DE/conversation.json	EVE-Chat anheften
+copy	1	de-DE/conversation.json	EVE-Chat lösen
+copy	1	de-DE/conversation.json	EVE-Chat schließen
 copy	1	de-DE/conversation.json	EVE-Steuerung öffnen
 copy	1	de-DE/conversation.json	Ein Netzwerk- oder DNS-Fehler hat den Zugriff auf den Anbieter verhindert. Überprüfe dein Netzwerk, deinen Proxy und die Base-URL.
 copy	1	de-DE/conversation.json	Eine andere Antwort läuft noch. Warte, bis sie abgeschlossen ist, bevor du eine neue Nachricht sendest.
@@ -1256,6 +1271,7 @@ copy	1	de-DE/conversation.json	Noch kein Projekt gewählt
 copy	1	de-DE/conversation.json	Noch keine Artefakte
 copy	1	de-DE/conversation.json	Noch keine Frage-Antwort-Runden
 copy	1	de-DE/conversation.json	Noch keine Änderungen
+copy	1	de-DE/conversation.json	Noch nicht verbunden
 copy	1	de-DE/conversation.json	OCR einmal erlauben
 copy	1	de-DE/conversation.json	Ordner
 copy	2	de-DE/conversation.json	Ordner entfernen
@@ -1295,6 +1311,7 @@ copy	1	de-DE/conversation.json	Regel erfolgreich geladen
 copy	2	de-DE/conversation.json	Regel/Skill laden
 copy	1	de-DE/conversation.json	Runtime-Fehler
 copy	1	de-DE/conversation.json	Schreib EVE, was du erreichen möchtest ...
+copy	1	de-DE/conversation.json	Seiten-Chat
 copy	1	de-DE/conversation.json	Sende Feedback mit Logs, damit das Team das Problem untersuchen kann.
 copy	1	de-DE/conversation.json	Sendemodus während EVE arbeitet
 copy	1	de-DE/conversation.json	Sensible Daten bereinigt
@@ -1318,7 +1335,7 @@ copy	1	de-DE/conversation.json	Stelle eine kurze Frage zum aktuellen Gespräch
 copy	1	de-DE/conversation.json	Stopp
 copy	1	de-DE/conversation.json	Suchen
 copy	1	de-DE/conversation.json	Temporärer Bereich
-copy	1	de-DE/conversation.json	Terminal
+copy	2	de-DE/conversation.json	Terminal
 copy	1	de-DE/conversation.json	Themen exportieren
 copy	1	de-DE/conversation.json	Tipp: Lege Dateien irgendwo ab, um sie in den ausgewählten Ordner zu importieren.
 copy	1	de-DE/conversation.json	Tippe / für Befehle, @ um Dateien zu referenzieren
@@ -1404,6 +1421,8 @@ copy	1	de-DE/conversation.json	{{count}} ausgewählte Themen exportieren?
 copy	1	de-DE/conversation.json	{{count}} ausgewählte Themen löschen?
 copy	1	de-DE/conversation.json	{{name}} öffnen
 copy	1	de-DE/conversation.json	{{percent}} %
+copy	1	de-DE/conversation.json	{{title}} schließen
+copy	1	de-DE/conversation.json	{{title}}, nicht gespeicherte Änderungen
 copy	2	de-DE/conversation.json	Änderungen
 copy	1	de-DE/conversation.json	Änderungen verwerfen
 copy	1	de-DE/conversation.json	Änderungen zurücksetzen
@@ -1414,6 +1433,7 @@ copy	1	de-DE/conversation.json	Überprüfe Base-URL, API-Pfad, Proxy und API-Kom
 copy	1	de-DE/conversation.json	Überprüfe Guthaben, Credits oder Kontingent des Modellanbieters.
 copy	1	de-DE/conversation.json	Überprüfe den API-Schlüssel des Modellanbieters oder die Kontoanmeldedaten in den Einstellungen.
 copy	1	de-DE/conversation.json	Überprüfe die Agenteninstallation und die lokale Befehlskonfiguration.
+copy	1	de-DE/conversation.json	Überprüfen
 copy	1	de-DE/credits.json	+{{n}} Bonus
 copy	2	de-DE/credits.json	1.000 Credits = 1 € (Pack-Preis)
 copy	2	de-DE/credits.json	Abbrechen
@@ -4488,6 +4508,7 @@ copy	1	en-US/conversation.json	Archive failed
 copy	1	en-US/conversation.json	Archived
 copy	1	en-US/conversation.json	Are you sure you want to delete this chat?
 copy	1	en-US/conversation.json	Are you sure you want to paste '{{name}}' into the selected folder ({{target}})?
+copy	1	en-US/conversation.json	Arrange workbench
 copy	1	en-US/conversation.json	Artifacts
 copy	1	en-US/conversation.json	Ask a quick question about the current conversation
 copy	1	en-US/conversation.json	Audio file is too large
@@ -4496,12 +4517,15 @@ copy	1	en-US/conversation.json	Automatic
 copy	1	en-US/conversation.json	Batch Delete
 copy	1	en-US/conversation.json	Batch Export
 copy	1	en-US/conversation.json	Batch Manage
+copy	1	en-US/conversation.json	Browser
 copy	1	en-US/conversation.json	Busy send mode
 copy	1	en-US/conversation.json	CLI Agents
 copy	4	en-US/conversation.json	Cancel
 copy	1	en-US/conversation.json	Changed Files
 copy	2	en-US/conversation.json	Changes
+copy	1	en-US/conversation.json	Chat
 copy	1	en-US/conversation.json	Chat in Project
+copy	1	en-US/conversation.json	Chat left, workbench right
 copy	1	en-US/conversation.json	Check the agent installation and local command configuration.
 copy	1	en-US/conversation.json	Check the model provider API key or account credentials in settings.
 copy	1	en-US/conversation.json	Check the model provider Base URL, API path, proxy, and API compatibility.
@@ -4510,6 +4534,8 @@ copy	1	en-US/conversation.json	Checking your entitlement
 copy	1	en-US/conversation.json	Choose a model that is available for the current account and supports this request.
 copy	1	en-US/conversation.json	Clear Queue
 copy	1	en-US/conversation.json	Click here to search keywords
+copy	1	en-US/conversation.json	Close EVE chat
+copy	1	en-US/conversation.json	Close {{title}}
 copy	1	en-US/conversation.json	Cloud
 copy	1	en-US/conversation.json	Cloud OCR failed. The message and PDF remain unsent.
 copy	1	en-US/conversation.json	Command EVE Skills
@@ -4575,12 +4601,14 @@ copy	2	en-US/conversation.json	EVE ready
 copy	1	en-US/conversation.json	EVE redacted sensitive data before model egress ({{count}} finding(s)).
 copy	1	en-US/conversation.json	EVE still working
 copy	1	en-US/conversation.json	EVE thinking
+copy	1	en-US/conversation.json	EVE workbench
 copy	1	en-US/conversation.json	Earlier
 copy	1	en-US/conversation.json	Edit
 copy	1	en-US/conversation.json	Edit Name
 copy	1	en-US/conversation.json	Editing
 copy	1	en-US/conversation.json	Enable Vision
 copy	1	en-US/conversation.json	Enable Vision for this image?
+copy	1	en-US/conversation.json	Enter an address or search
 copy	1	en-US/conversation.json	Enter keywords to search messages
 copy	1	en-US/conversation.json	Enter new name
 copy	1	en-US/conversation.json	Error
@@ -4616,7 +4644,7 @@ copy	1	en-US/conversation.json	File changes will appear here when AI modifies fi
 copy	1	en-US/conversation.json	File does not exist or has been deleted.
 copy	1	en-US/conversation.json	File is outside the project sandbox, cannot preview.
 copy	1	en-US/conversation.json	File name
-copy	1	en-US/conversation.json	Files
+copy	2	en-US/conversation.json	Files
 copy	1	en-US/conversation.json	Files will appear here after uploading files or opening a folder
 copy	1	en-US/conversation.json	Findings
 copy	1	en-US/conversation.json	Folder actions
@@ -4665,6 +4693,8 @@ copy	1	en-US/conversation.json	MAX stays remembered for you, but it runs again o
 copy	1	en-US/conversation.json	Main task still running in the background.
 copy	1	en-US/conversation.json	Make sure the current workspace path exists.
 copy	1	en-US/conversation.json	Managed visual analysis could not be authorized. The draft and files remain unsent.
+copy	1	en-US/conversation.json	Maximize active surface
+copy	1	en-US/conversation.json	Maximize chat
 copy	1	en-US/conversation.json	Mic
 copy	1	en-US/conversation.json	Microphone permission was denied
 copy	1	en-US/conversation.json	Model does not support this request
@@ -4714,6 +4744,7 @@ copy	1	en-US/conversation.json	No staged changes
 copy	1	en-US/conversation.json	No unstaged changes
 copy	1	en-US/conversation.json	No valid files detected. Please drag from Finder/Explorer.
 copy	1	en-US/conversation.json	None
+copy	1	en-US/conversation.json	Not connected yet
 copy	1	en-US/conversation.json	Not now
 copy	1	en-US/conversation.json	Open
 copy	1	en-US/conversation.json	Open Connector Catalog
@@ -4721,15 +4752,18 @@ copy	1	en-US/conversation.json	Open EVE controls
 copy	2	en-US/conversation.json	Open Folder
 copy	1	en-US/conversation.json	Open project folder
 copy	1	en-US/conversation.json	Open the Command EVE log folder
+copy	1	en-US/conversation.json	Open workbench
 copy	1	en-US/conversation.json	Open {{name}}
 copy	1	en-US/conversation.json	Original values are not shown.
 copy	1	en-US/conversation.json	PDF processing failed · message was not sent
 copy	1	en-US/conversation.json	PDF read · handing analysis to EVE
 copy	1	en-US/conversation.json	PDF ready · waiting for your OCR approval
 copy	1	en-US/conversation.json	PII protection off
+copy	1	en-US/conversation.json	Page chat
 copy	1	en-US/conversation.json	Paste
 copy	1	en-US/conversation.json	Paste files
 copy	1	en-US/conversation.json	Pin
+copy	1	en-US/conversation.json	Pin EVE chat
 copy	1	en-US/conversation.json	Pin operation failed
 copy	2	en-US/conversation.json	Pinned
 copy	1	en-US/conversation.json	Please enter a name for the preset
@@ -4794,6 +4828,7 @@ copy	1	en-US/conversation.json	Rename request timed out, please try again
 copy	2	en-US/conversation.json	Renamed successfully
 copy	1	en-US/conversation.json	Request failed in the app
 copy	1	en-US/conversation.json	Request sent to agent
+copy	1	en-US/conversation.json	Resize layout
 copy	1	en-US/conversation.json	Response complete
 copy	1	en-US/conversation.json	Response stream was interrupted
 copy	1	en-US/conversation.json	Response streaming
@@ -4804,6 +4839,7 @@ copy	1	en-US/conversation.json	Retry later, or send this message again.
 copy	1	en-US/conversation.json	Retry transcription (your recording is kept)
 copy	1	en-US/conversation.json	Retryable
 copy	1	en-US/conversation.json	Revert Changes
+copy	1	en-US/conversation.json	Review
 copy	1	en-US/conversation.json	Rule (JSON/MD)
 copy	1	en-US/conversation.json	Rule loaded successfully
 copy	1	en-US/conversation.json	Running
@@ -4852,7 +4888,7 @@ copy	1	en-US/conversation.json	Switched to {{model}}.
 copy	1	en-US/conversation.json	Target folder
 copy	1	en-US/conversation.json	Tell EVE what you want to achieve ...
 copy	1	en-US/conversation.json	Temporary Space
-copy	1	en-US/conversation.json	Terminal
+copy	2	en-US/conversation.json	Terminal
 copy	1	en-US/conversation.json	The Command EVE marketing command failed.
 copy	1	en-US/conversation.json	The Command EVE marketing loop is only available in the desktop app.
 copy	1	en-US/conversation.json	The agent cannot resume the previous session. Start a new conversation to continue.
@@ -4932,6 +4968,7 @@ copy	1	en-US/conversation.json	Type / for commands, @ to reference files
 copy	1	en-US/conversation.json	Unknown model
 copy	1	en-US/conversation.json	Unlock MAX
 copy	1	en-US/conversation.json	Unpin
+copy	1	en-US/conversation.json	Unpin EVE chat
 copy	1	en-US/conversation.json	Unstage
 copy	1	en-US/conversation.json	Unstage All Changes
 copy	1	en-US/conversation.json	Unsupported
@@ -4953,6 +4990,8 @@ copy	1	en-US/conversation.json	Voice input is not available in this environment
 copy	1	en-US/conversation.json	Wait for the current response to finish before sending another message.
 copy	1	en-US/conversation.json	What are we working on today?
 copy	1	en-US/conversation.json	What can Command EVE do?
+copy	1	en-US/conversation.json	Workbench above, chat below
+copy	1	en-US/conversation.json	Workbench with EVE sidecar
 copy	1	en-US/conversation.json	Yesterday
 copy	1	en-US/conversation.json	Your choice is remembered and will be applied as soon as your entitlement is confirmed.
 copy	1	en-US/conversation.json	Your decision is needed
@@ -4968,6 +5007,7 @@ copy	1	en-US/conversation.json	{{count}} selected
 copy	1	en-US/conversation.json	{{count}} topics deleted
 copy	1	en-US/conversation.json	{{count}} turns
 copy	1	en-US/conversation.json	{{percent}}%
+copy	1	en-US/conversation.json	{{title}}, unsaved changes
 copy	1	en-US/credits.json	+{{n}} bonus
 copy	2	en-US/credits.json	1,000 credits = €1 (pack price)
 copy	1	en-US/credits.json	Add a seat — {{eur}} € extra, included in Standard

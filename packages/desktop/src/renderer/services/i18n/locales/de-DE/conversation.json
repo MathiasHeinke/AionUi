@@ -647,6 +647,30 @@
     "newSession": "Neuer Chat",
     "projectFiles": "Projektdateien"
   },
+  "workbench": {
+    "label": "EVE-Arbeitsfläche",
+    "chat": "Chat",
+    "review": "Überprüfen",
+    "terminal": "Terminal",
+    "browser": "Browser",
+    "files": "Dateien",
+    "pageChat": "Seiten-Chat",
+    "notConnected": "Noch nicht verbunden",
+    "addressPlaceholder": "Adresse oder Suche eingeben",
+    "openLauncher": "Arbeitsfläche öffnen",
+    "closeTab": "{{title}} schließen",
+    "unsavedTab": "{{title}}, nicht gespeicherte Änderungen",
+    "layoutLabel": "Arbeitsfläche anordnen",
+    "focus": "Aktive Fläche maximieren",
+    "splitRight": "Chat links, Arbeitsfläche rechts",
+    "splitBottom": "Arbeitsfläche oben, Chat unten",
+    "sidecar": "Arbeitsfläche mit EVE-Sidecar",
+    "pinSidecar": "EVE-Chat anheften",
+    "unpinSidecar": "EVE-Chat lösen",
+    "expandChat": "Chat maximieren",
+    "closeSidecar": "EVE-Chat schließen",
+    "resizeSplit": "Aufteilung anpassen"
+  },
   "runtimeStatus": {
     "preparing": "EVE bereitet den Auftrag vor",
     "phase": {

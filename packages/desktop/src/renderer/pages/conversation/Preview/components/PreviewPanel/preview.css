@@ -12,6 +12,18 @@
   will-change: opacity, transform;
 }
 
+.preview-panel.eve-workbench-pane {
+  animation: none;
+  will-change: auto;
+  background: var(--glass-reading-bg, var(--bg-1));
+}
+
+.eve-workbench-preview-surface {
+  min-width: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .preview-toolbar {
   height: 36px;
   min-height: 36px;

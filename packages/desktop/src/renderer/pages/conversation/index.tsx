@@ -13,7 +13,7 @@ const ChatConversationIndex: React.FC = () => {
   const { id } = useParams();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { closePreview } = usePreviewContext();
+  const { hidePreview } = usePreviewContext();
   const { syncTitleFromHistory } = useAutoTitle();
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const notFoundHandledIdRef = useRef<string | undefined>(undefined);
@@ -22,15 +22,14 @@ const ChatConversationIndex: React.FC = () => {
   useEffect(() => {
     if (!id) return;
 
-    // 切换会话时自动关闭预览面板，避免跨会话残留
-    // Close preview on every conversation change, including initial mount
-    // (component may remount via React Router, resetting the ref to undefined)
+    // Hide the visible preview when conversations change, but retain each
+    // conversation's tabs and dirty buffers so returning never loses work.
     if (previousConversationIdRef.current !== id) {
-      closePreview();
+      hidePreview();
     }
 
     previousConversationIdRef.current = id;
-  }, [id, closePreview]);
+  }, [id, hidePreview]);
 
   const { data, isLoading, mutate } = useSWR(id ? `conversation/${id}` : null, () => {
     return getConversationOrNull(id!);

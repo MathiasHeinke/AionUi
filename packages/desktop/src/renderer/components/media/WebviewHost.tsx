@@ -7,6 +7,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Left, Right, Refresh, Loading } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 
 export interface WebviewHostProps {
   /** URL to display */
@@ -25,10 +26,13 @@ export interface WebviewHostProps {
   onDidFinishLoad?: () => void;
   /** Called when the page fails to load */
   onDidFailLoad?: (errorCode: number, errorDescription: string) => void;
+  /** Optional controls rendered at the trailing edge of the navigation bar. */
+  toolbarActions?: React.ReactNode;
 }
 
 const MIN_ZOOM_FACTOR = 0.75;
 const MAX_ZOOM_FACTOR = 1.5;
+const inputValueForUrl = (value: string) => (value === 'about:blank' ? '' : value);
 
 /**
  * Shared webview host component — extracted from URLViewer.
@@ -49,6 +53,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
   style,
   onDidFinishLoad,
   onDidFailLoad,
+  toolbarActions,
 }) => {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -58,7 +63,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
 
   // Navigation state
   const [currentUrl, setCurrentUrl] = useState(url);
-  const [inputUrl, setInputUrl] = useState(url);
+  const [inputUrl, setInputUrl] = useState(inputValueForUrl(url));
   const [isLoading, setIsLoading] = useState(true);
   const [zoomFactor, setZoomFactor] = useState(1);
   const [webviewReady, setWebviewReady] = useState(false);
@@ -90,7 +95,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
     setCanGoBack(false);
     setCanGoForward(false);
     setCurrentUrl(url);
-    setInputUrl(url);
+    setInputUrl(inputValueForUrl(url));
     setIsLoading(true);
     setZoomFactor(1);
     setWebviewReady(false);
@@ -120,7 +125,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
       historyForwardRef.current = [];
 
       setCurrentUrl(targetUrl);
-      setInputUrl(targetUrl);
+      setInputUrl(inputValueForUrl(targetUrl));
       setCanGoBack(historyBackRef.current.length > 0);
       setCanGoForward(false);
 
@@ -221,7 +226,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
       const newUrl = (event as any).url;
       if (newUrl && newUrl !== currentUrl) {
         setCurrentUrl(newUrl);
-        setInputUrl(newUrl);
+        setInputUrl(inputValueForUrl(newUrl));
       }
     };
 
@@ -429,7 +434,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
     setCanGoBack(historyBackRef.current.length > 0);
     setCanGoForward(true);
     setCurrentUrl(prevUrl);
-    setInputUrl(prevUrl);
+    setInputUrl(inputValueForUrl(prevUrl));
     if (webviewRef.current) webviewRef.current.src = prevUrl;
   }, [currentUrl]);
 
@@ -441,7 +446,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
     setCanGoBack(true);
     setCanGoForward(historyForwardRef.current.length > 0);
     setCurrentUrl(nextUrl);
-    setInputUrl(nextUrl);
+    setInputUrl(inputValueForUrl(nextUrl));
     if (webviewRef.current) webviewRef.current.src = nextUrl;
   }, [currentUrl]);
 
@@ -467,7 +472,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
   const handleUrlKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Escape') {
-        setInputUrl(currentUrl);
+        setInputUrl(inputValueForUrl(currentUrl));
         (e.target as HTMLInputElement).blur();
       }
     },
@@ -573,12 +578,78 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               border-color: rgb(var(--primary-6));
               box-shadow: 0 0 0 2px rgba(var(--primary-6), 0.12);
             }
+            .aion-url-viewer-toolbar.aion-url-viewer-toolbar--workbench {
+              height: 44px;
+              padding: 0 12px;
+              gap: 4px;
+              border-bottom: 1px solid var(--glass-chrome-border, var(--color-border-2));
+              background: var(--glass-chrome-bg, var(--bg-2));
+              box-shadow: inset 0 -1px 0 var(--glass-edge-highlight, transparent);
+              -webkit-backdrop-filter: var(--glass-chrome-filter, blur(20px) saturate(150%));
+              backdrop-filter: var(--glass-chrome-filter, blur(20px) saturate(150%));
+            }
+            .aion-url-viewer-toolbar--workbench .toolbar-btn {
+              width: 32px;
+              min-width: 32px;
+              height: 32px;
+              padding: 0;
+              border: 0;
+              border-radius: 9px;
+              background: transparent;
+              transition: background-color 120ms ease, color 120ms ease;
+            }
+            .aion-url-viewer-toolbar--workbench .toolbar-btn:hover:not(:disabled) {
+              border-color: transparent;
+              background: var(--eve-row-hover-bg, var(--color-fill-2));
+            }
+            .aion-url-viewer-toolbar--workbench .toolbar-btn:focus-visible {
+              border-color: transparent;
+              outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+              outline-offset: -2px;
+              box-shadow: none;
+            }
+            .aion-url-viewer-toolbar--workbench .toolbar-input {
+              height: 32px;
+              padding: 0 13px;
+              border: 0;
+              border-radius: 10px;
+              background: color-mix(in srgb, var(--glass-panel-bg, var(--bg-2)) 88%, transparent);
+              box-shadow: inset 0 0 0 1px var(--glass-panel-border, var(--color-border-2));
+              font-size: 13px;
+              line-height: 32px;
+              transition: box-shadow 120ms ease, background-color 120ms ease;
+            }
+            .aion-url-viewer-toolbar--workbench .toolbar-input:hover {
+              border-color: transparent;
+              background: color-mix(in srgb, var(--glass-panel-bg, var(--bg-2)) 96%, transparent);
+            }
+            .aion-url-viewer-toolbar--workbench .toolbar-input:focus {
+              border-color: transparent;
+              outline: none;
+              box-shadow:
+                inset 0 0 0 1px var(--eve-focus-ring, var(--color-primary-6)),
+                0 0 0 2px color-mix(in srgb, var(--eve-focus-ring, var(--color-primary-6)) 13%, transparent);
+            }
+            .aion-url-viewer-toolbar-actions {
+              display: inline-flex;
+              align-items: center;
+              flex: 0 0 auto;
+              margin-left: 6px;
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .aion-url-viewer-toolbar--workbench .toolbar-btn,
+              .aion-url-viewer-toolbar--workbench .toolbar-input {
+                transition: none;
+              }
+            }
           `}
         </style>
       )}
       {/* Navigation bar (optional) */}
       {showNavBar && (
-        <div className='aion-url-viewer-toolbar flex items-center gap-6px h-40px px-10px bg-bg-2 border-b border-border-1 flex-shrink-0'>
+        <div
+          className={`aion-url-viewer-toolbar flex items-center gap-6px h-40px px-10px bg-bg-2 border-b border-border-1 flex-shrink-0 ${COMMAND_EVE_SHELL_ENABLED ? 'aion-url-viewer-toolbar--workbench' : ''}`}
+        >
           <button
             type='button'
             onClick={handleGoBack}
@@ -631,9 +702,10 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               onKeyDown={handleUrlKeyDown}
               onFocus={(e) => e.target.select()}
               className='toolbar-input'
-              placeholder='Enter URL...'
+              placeholder={COMMAND_EVE_SHELL_ENABLED ? t('conversation.workbench.addressPlaceholder') : 'Enter URL...'}
             />
           </form>
+          {toolbarActions && <div className='aion-url-viewer-toolbar-actions'>{toolbarActions}</div>}
         </div>
       )}
 

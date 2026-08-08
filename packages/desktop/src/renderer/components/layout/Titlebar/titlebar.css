@@ -70,6 +70,24 @@
   pointer-events: none;
 }
 
+.app-titlebar__brand--workbench {
+  position: absolute;
+  inset-block: 0;
+  left: var(--eve-workbench-content-left, 324px);
+  right: 112px;
+  justify-content: flex-start;
+  min-width: 0;
+  margin: 0;
+  padding: 0 10px;
+  overflow: visible;
+  pointer-events: auto;
+  text-align: left;
+}
+
+.app-titlebar--desktop:not(.app-titlebar--mac) .app-titlebar__brand--workbench {
+  right: 206px;
+}
+
 .app-titlebar--mobile .app-titlebar__brand {
   position: static;
   flex: 1 1 auto;

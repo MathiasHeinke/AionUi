@@ -51,6 +51,8 @@ export interface OpenPreviewOptions {
   replace?: boolean;
 }
 
+export type WorkbenchLayoutMode = 'focus' | 'split-right' | 'split-bottom' | 'sidecar';
+
 export interface PreviewContextValue {
   // 预览面板状态 / Preview panel state
   isOpen: boolean;
@@ -60,6 +62,12 @@ export interface PreviewContextValue {
   // 获取当前激活的 tab / Get active tab
   activeTab: PreviewTab | null;
 
+  // Command EVE workbench layout / Command EVE Arbeitsflaechen-Layout
+  workbenchLayoutMode: WorkbenchLayoutMode;
+  setWorkbenchLayoutMode: (mode: WorkbenchLayoutMode) => void;
+  isWorkbenchSidecarPinned: boolean;
+  setWorkbenchSidecarPinned: (pinned: boolean) => void;
+
   // 预览面板操作 / Preview panel operations
   openPreview: (
     content: string,
@@ -67,8 +75,15 @@ export interface PreviewContextValue {
     metadata?: PreviewMetadata,
     options?: OpenPreviewOptions
   ) => void;
+  /** Reveal the existing preview surface without creating or replacing tabs. */
+  showPreview: (tabId?: string) => void;
+  /** Hide the preview surface while preserving every open tab and dirty buffer. */
+  hidePreview: () => void;
   closePreview: () => void;
   closeTab: (tabId: string) => void;
+  /** Ask the mounted preview surface to run its dirty-buffer close guard. */
+  requestCloseTab: (tabId: string) => void;
+  setCloseTabRequestHandler: (handler: ((tabId: string) => void) | null) => void;
   switchTab: (tabId: string) => void;
   updateContent: (content: string) => void;
   saveContent: (tabId?: string) => Promise<boolean>; // 保存内容 / Save content
@@ -92,6 +107,28 @@ const PreviewContext = createContext<PreviewContextValue | null>(null);
 const PREVIEW_TABS_KEY = 'aionui_preview_tabs';
 const PREVIEW_ACTIVE_TAB_ID_KEY = 'aionui_preview_active_tab_id';
 const LEGACY_PREVIEW_STATE_KEY = 'aionui_preview_state';
+const WORKBENCH_LAYOUT_MODE_KEY = 'aionui_eve_workbench_layout_mode_v1';
+const WORKBENCH_SIDECAR_PINNED_KEY = 'aionui_eve_workbench_sidecar_pinned_v1';
+
+const WORKBENCH_LAYOUT_MODES = new Set<WorkbenchLayoutMode>(['focus', 'split-right', 'split-bottom', 'sidecar']);
+
+const loadWorkbenchLayoutMode = (): WorkbenchLayoutMode => {
+  try {
+    const stored = localStorage.getItem(WORKBENCH_LAYOUT_MODE_KEY) as WorkbenchLayoutMode | null;
+    if (stored && WORKBENCH_LAYOUT_MODES.has(stored)) return stored;
+  } catch {
+    // Ignore unavailable storage and use the safe single-surface layout.
+  }
+  return 'focus';
+};
+
+const loadWorkbenchSidecarPinned = (): boolean => {
+  try {
+    return localStorage.getItem(WORKBENCH_SIDECAR_PINNED_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+};
 
 // 仅持久化小体积文本预览，避免大文本导致 localStorage 写入卡顿
 // Persist only lightweight text previews to avoid localStorage jank on large files
@@ -188,12 +225,44 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isOpen, setIsOpen] = useState(persistedState.isOpen);
   const [tabs, setTabs] = useState<PreviewTab[]>(persistedState.tabs);
   const [activeTabId, setActiveTabId] = useState<string | null>(persistedState.activeTabId);
+  const [workbenchLayoutMode, setWorkbenchLayoutModeState] = useState<WorkbenchLayoutMode>(loadWorkbenchLayoutMode);
+  const [isWorkbenchSidecarPinned, setWorkbenchSidecarPinnedState] = useState(loadWorkbenchSidecarPinned);
   // Mirror activeTabId in a ref so setTabs updaters can read the latest value
   // without adding activeTabId to their dependencies.
   const activeTabIdRef = useRef<string | null>(persistedState.activeTabId);
+  const pendingActiveTabIdRef = useRef<string | null>(null);
+  const tabsRef = useRef<PreviewTab[]>(persistedState.tabs);
+  const closeTabRequestHandlerRef = useRef<((tabId: string) => void) | null>(null);
   // const [sendBoxHandler, setSendBoxHandlerState] = useState<((text: string) => void) | null>(null);
   const sendBoxHandler = useRef<((text: string) => void) | null>(null);
   const [domSnippets, setDomSnippets] = useState<DomSnippet[]>([]);
+
+  const setWorkbenchLayoutMode = useCallback((mode: WorkbenchLayoutMode) => {
+    setWorkbenchLayoutModeState(mode);
+    try {
+      localStorage.setItem(WORKBENCH_LAYOUT_MODE_KEY, mode);
+    } catch {
+      // Layout remains usable for the current session when persistence is unavailable.
+    }
+  }, []);
+
+  const setWorkbenchSidecarPinned = useCallback((pinned: boolean) => {
+    setWorkbenchSidecarPinnedState(pinned);
+    try {
+      localStorage.setItem(WORKBENCH_SIDECAR_PINNED_KEY, String(pinned));
+    } catch {
+      // Pinning remains usable for the current session when persistence is unavailable.
+    }
+  }, []);
+
+  useEffect(() => {
+    tabsRef.current = tabs;
+    const pendingActiveTabId = pendingActiveTabIdRef.current;
+    if (pendingActiveTabId && tabs.some((tab) => tab.id === pendingActiveTabId)) {
+      pendingActiveTabIdRef.current = null;
+      setActiveTabId(pendingActiveTabId);
+    }
+  }, [tabs]);
 
   // 持久化 tabs 到 localStorage（仅保存小体积文本 tab）
   // Persist tabs to localStorage (only lightweight text tabs)
@@ -310,7 +379,6 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const openPreview = useCallback(
     (new_content: string, type: PreviewContentType, meta?: PreviewMetadata, options?: OpenPreviewOptions) => {
-      let nextActiveTabId: string | null = null;
       const scopedMeta = scopePreviewMetadata(meta);
 
       setTabs((prevTabs) => {
@@ -318,7 +386,7 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const existingTab = findPreviewTabInList(prevTabs, type, new_content, scopedMeta);
 
         if (existingTab) {
-          nextActiveTabId = existingTab.id;
+          pendingActiveTabIdRef.current = existingTab.id;
           return prevTabs.map((tab) => {
             if (tab.id !== existingTab.id) return tab;
 
@@ -371,19 +439,15 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
             : -1;
           const activeTab = activeIdx >= 0 ? prevTabs[activeIdx] : null;
           if (activeTab && !activeTab.isDirty) {
-            nextActiveTabId = activeTab.id;
+            pendingActiveTabIdRef.current = activeTab.id;
             const replacedTab: PreviewTab = { ...newTab, id: activeTab.id };
             return prevTabs.map((tab, idx) => (idx === activeIdx ? replacedTab : tab));
           }
         }
-
-        nextActiveTabId = tabId;
+        pendingActiveTabIdRef.current = tabId;
         return [...prevTabs, newTab];
       });
 
-      if (nextActiveTabId) {
-        setActiveTabId(nextActiveTabId);
-      }
       setIsOpen(true);
     },
     [extractFileName, findPreviewTabInList]
@@ -394,6 +458,15 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setTabs([]);
     setActiveTabId(null);
     setDomSnippets([]);
+  }, []);
+
+  const showPreview = useCallback((tabId?: string) => {
+    if (tabId) setActiveTabId(tabId);
+    setIsOpen(true);
+  }, []);
+
+  const hidePreview = useCallback(() => {
+    setIsOpen(false);
   }, []);
 
   // Track last-known mtime per file path for external change detection
@@ -426,6 +499,29 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
     },
     [activeTabId]
+  );
+
+  const setCloseTabRequestHandler = useCallback((handler: ((tabId: string) => void) | null) => {
+    closeTabRequestHandlerRef.current = handler;
+  }, []);
+
+  const requestCloseTab = useCallback(
+    (tabId: string) => {
+      const tab = tabsRef.current.find((candidate) => candidate.id === tabId);
+      if (!tab) return;
+      if (!tab.isDirty) {
+        closeTab(tabId);
+        return;
+      }
+
+      // A dirty tab must become visible before its confirmation modal opens.
+      // The mounted PreviewPanel owns the save/discard dialog and registers the
+      // same guarded close handler used by its legacy inner tab strip.
+      setActiveTabId(tabId);
+      setIsOpen(true);
+      closeTabRequestHandlerRef.current?.(tabId);
+    },
+    [closeTab]
   );
 
   const closePreviewByIdentity = useCallback(
@@ -748,9 +844,17 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
       tabs,
       activeTabId,
       activeTab,
+      workbenchLayoutMode,
+      setWorkbenchLayoutMode,
+      isWorkbenchSidecarPinned,
+      setWorkbenchSidecarPinned,
       openPreview,
+      showPreview,
+      hidePreview,
       closePreview,
       closeTab,
+      requestCloseTab,
+      setCloseTabRequestHandler,
       switchTab: setActiveTabId,
       updateContent,
       saveContent,
@@ -768,9 +872,17 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
     tabs,
     activeTabId,
     activeTab,
+    workbenchLayoutMode,
+    setWorkbenchLayoutMode,
+    isWorkbenchSidecarPinned,
+    setWorkbenchSidecarPinned,
     openPreview,
+    showPreview,
+    hidePreview,
     closePreview,
     closeTab,
+    requestCloseTab,
+    setCloseTabRequestHandler,
     setActiveTabId,
     updateContent,
     saveContent,

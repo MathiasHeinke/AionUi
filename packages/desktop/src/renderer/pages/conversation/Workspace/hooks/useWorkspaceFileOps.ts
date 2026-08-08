@@ -5,6 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { downloadFileFromPath } from '@/renderer/utils/file/download';
 import type { IDirOrFile } from '@/common/adapter/ipcBridge';
 import type { PreviewContentType } from '@/common/types/office/preview';
@@ -334,8 +335,8 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
           }
         }
 
-        // 打开预览面板并传入文件元数据 / Open preview panel with file metadata.
-        // replace: reuse the single browse preview tab instead of stacking tabs.
+        // Command EVE's app-level workbench keeps one tab per canonical file.
+        // The upstream AionUI shell retains its compact single-preview browse mode.
         openPreview(
           content,
           contentType,
@@ -350,7 +351,7 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
             // Markdown and image files default to read-only mode
             editable: contentType === 'markdown' || contentType === 'image' || isLargeTextTruncated ? false : undefined,
           },
-          { replace: true }
+          { replace: !COMMAND_EVE_SHELL_ENABLED }
         );
       } catch (error) {
         const kind = classifyPreviewError(error);

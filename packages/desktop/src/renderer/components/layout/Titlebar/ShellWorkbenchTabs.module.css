@@ -1,0 +1,280 @@
+.root {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.tablist {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 760px;
+  height: 100%;
+  gap: 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.tablist::-webkit-scrollbar {
+  display: none;
+}
+
+.tabShell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 48px;
+  max-width: 192px;
+  height: 36px;
+  border-radius: 12px;
+  color: var(--eve-shell-text-secondary, var(--color-text-2));
+  transition:
+    color 120ms ease,
+    background-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.tabShell:hover {
+  color: var(--eve-shell-text, var(--color-text-1));
+  background: var(--eve-row-hover-bg, var(--color-fill-2));
+}
+
+.tabShell[data-selected='true'] {
+  color: var(--eve-shell-text, var(--color-text-1));
+  background: color-mix(in srgb, var(--glass-panel-bg, var(--bg-2)) 88%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--eve-row-selected-hairline, var(--glass-panel-border)),
+    inset 0 1px 0 var(--glass-edge-highlight, rgba(255, 255, 255, 0.08));
+}
+
+.tabButton {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  padding: 0 12px;
+  gap: 8px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 560;
+  letter-spacing: 0;
+}
+
+.tabShell:has(.closeButton) .tabButton {
+  padding-right: 30px;
+}
+
+.tabButton svg {
+  flex: 0 0 16px;
+}
+
+.tabButton:focus-visible,
+.closeButton:focus-visible,
+.launcherButton:focus-visible,
+.menuItem:focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: -2px;
+}
+
+.tabLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dirtyDot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 999px;
+  background: var(--eve-focus-ring, var(--color-primary-6));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--eve-focus-ring, var(--color-primary-6)) 68%, transparent);
+}
+
+.closeButton {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease;
+}
+
+.tabShell:hover .closeButton,
+.tabShell[data-selected='true'] .closeButton,
+.closeButton:focus-visible {
+  opacity: 0.72;
+}
+
+.closeButton:hover {
+  opacity: 1;
+  background: var(--eve-row-hover-bg, var(--color-fill-3));
+}
+
+.launcher {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+}
+
+.launcherButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--eve-shell-text-secondary, var(--color-text-2));
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.launcherButton:hover,
+.launcherButton[aria-expanded='true'] {
+  color: var(--eve-shell-text, var(--color-text-1));
+  background: var(--eve-row-hover-bg, var(--color-fill-2));
+}
+
+.launcherMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 2400;
+  width: 280px;
+  padding: 8px;
+  border: 1px solid var(--glass-overlay-border, var(--color-border-2));
+  border-radius: 14px;
+  background: var(--glass-overlay-bg, var(--bg-2));
+  box-shadow: var(--glass-shadow-float, 0 18px 50px rgba(0, 0, 0, 0.24));
+  -webkit-backdrop-filter: var(--glass-overlay-filter, blur(22px) saturate(135%));
+  backdrop-filter: var(--glass-overlay-filter, blur(22px) saturate(135%));
+  animation: workbench-menu-enter 120ms ease-out both;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 7px 10px;
+  gap: 11px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--eve-shell-text, var(--color-text-1));
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--eve-row-hover-bg, var(--color-fill-2));
+}
+
+.menuItem:disabled {
+  color: var(--eve-shell-text-tertiary, var(--color-text-3));
+  cursor: default;
+  opacity: 0.64;
+  background: transparent;
+}
+
+.menuIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+
+.menuCopy {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 10px;
+}
+
+.menuLabel {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 570;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menuDetail {
+  flex: 0 0 auto;
+  color: var(--eve-shell-text-tertiary, var(--color-text-3));
+  font-size: 11px;
+}
+
+@keyframes workbench-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabShell,
+  .closeButton,
+  .launcherButton {
+    transition: none;
+  }
+
+  .launcherMenu {
+    animation: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .tablist {
+    max-width: none;
+  }
+
+  .tabShell {
+    max-width: 148px;
+  }
+}

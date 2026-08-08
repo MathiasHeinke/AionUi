@@ -110,7 +110,11 @@ describe('PreviewContext', () => {
   it('provides all context API methods', () => {
     const { result } = renderHook(() => usePreviewContext(), { wrapper });
     expect(typeof result.current.openPreview).toBe('function');
+    expect(typeof result.current.showPreview).toBe('function');
+    expect(typeof result.current.hidePreview).toBe('function');
     expect(typeof result.current.closePreview).toBe('function');
+    expect(typeof result.current.requestCloseTab).toBe('function');
+    expect(typeof result.current.setCloseTabRequestHandler).toBe('function');
     expect(typeof result.current.updateContent).toBe('function');
     expect(typeof result.current.findPreviewTab).toBe('function');
   });
@@ -126,5 +130,50 @@ describe('PreviewContext', () => {
     });
     expect(result.current.activeTab?.content).toBe('modified');
     expect(result.current.activeTab?.isDirty).toBe(true);
+  });
+
+  it('hides and restores the preview without losing tabs or dirty buffers', () => {
+    const { result } = renderHook(() => usePreviewContext(), { wrapper });
+    act(() => result.current.openPreview('original', 'code', { title: 'draft.ts' }));
+    act(() => result.current.updateContent('edited'));
+    const tabId = result.current.activeTabId;
+
+    act(() => result.current.hidePreview());
+    expect(result.current.isOpen).toBe(false);
+    expect(result.current.tabs).toHaveLength(1);
+    expect(result.current.tabs[0]).toMatchObject({ content: 'edited', isDirty: true });
+
+    act(() => result.current.showPreview(tabId ?? undefined));
+    expect(result.current.isOpen).toBe(true);
+    expect(result.current.activeTabId).toBe(tabId);
+    expect(result.current.activeTab).toMatchObject({ content: 'edited', isDirty: true });
+  });
+
+  it('closes a clean tab directly through the guarded close entrypoint', () => {
+    const { result } = renderHook(() => usePreviewContext(), { wrapper });
+    act(() => result.current.openPreview('clean', 'code', { title: 'clean.ts' }));
+    const tabId = result.current.activeTabId;
+
+    act(() => result.current.requestCloseTab(tabId!));
+    expect(result.current.tabs).toEqual([]);
+    expect(result.current.isOpen).toBe(false);
+  });
+
+  it('routes a dirty tab through the registered confirmation guard', () => {
+    const guard = vi.fn();
+    const { result } = renderHook(() => usePreviewContext(), { wrapper });
+    act(() => result.current.openPreview('original', 'code', { title: 'dirty.ts' }));
+    act(() => result.current.updateContent('edited'));
+    const tabId = result.current.activeTabId;
+    act(() => {
+      result.current.setCloseTabRequestHandler(guard);
+      result.current.hidePreview();
+    });
+
+    act(() => result.current.requestCloseTab(tabId!));
+    expect(guard).toHaveBeenCalledWith(tabId);
+    expect(result.current.isOpen).toBe(true);
+    expect(result.current.activeTabId).toBe(tabId);
+    expect(result.current.tabs).toHaveLength(1);
   });
 });
