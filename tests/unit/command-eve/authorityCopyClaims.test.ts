@@ -5,17 +5,34 @@
  */
 
 /**
- * The authority panel's copy, checked as a CLAIM rather than as a string.
+ * The authority panel's money copy, checked as a CLAIM rather than as a string.
  *
  * A settings page that overstates what it enforces is worse than one that says
- * nothing: the user acts on it. The money field is the sharp case — half of it
- * is genuinely enforced (no amount, no open seal) and half of it is not (the
- * amount is never counted, and never even reaches EVE). Copy that blurs the two
- * is what this suite is here to prevent.
+ * nothing: the user acts on it. Money is the sharp case, because exactly one
+ * part of it is enforced (no amount, no open seal) and the rest is not — the
+ * amount is never counted, and never even reaches EVE.
  *
- * It reads the shipped locale files directly, deliberately. A test against
- * component output would pass while the German string said whatever it liked,
- * because the DOM suite renders i18n KEYS.
+ * HOW THIS SUITE IS BUILT, AND WHY IT CHANGED. The first cut guarded the copy
+ * with a denylist of forbidden phrases. That is the wrong shape for this job: a
+ * denylist can only catch the wordings someone already thought of, and every
+ * paraphrase walks straight through it — "wird nicht überschritten",
+ * "daily cap enforced", "we keep you under" would all have passed a suite that
+ * looked green. A denylist cannot enumerate the ways a sentence can lie.
+ *
+ * So the safeguard is now an ALLOWLIST: all three money-claim strings are
+ * pinned verbatim, in both languages. Any edit to any of them turns this suite
+ * red and forces the new wording to be read. The denylist survives underneath
+ * as a cheap second net for copy this file does not pin, but it is explicitly
+ * no longer the thing being relied on.
+ *
+ * The verbatim pins are deliberately paired with a separate CONTENT test. The
+ * pin catches accidental drift; the content test says what a DELIBERATE
+ * rewording must still carry, so re-pinning a new sentence cannot quietly drop
+ * one of the three claims.
+ *
+ * It reads the shipped locale files directly. A test against component output
+ * would pass while the German string said whatever it liked, because the DOM
+ * suites render i18n KEYS, not translations.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -23,12 +40,65 @@ import deCommandEve from '@/renderer/services/i18n/locales/de-DE/commandEve.json
 import enCommandEve from '@/renderer/services/i18n/locales/en-US/commandEve.json';
 
 /**
- * Formulations that assert an enforced ceiling or a value handed to EVE.
+ * THE SAFEGUARD. Every money claim the panel makes, verbatim, per locale.
  *
- * Every one of these is currently false: `spentTodayCents` has no store behind
- * it (eveAuthorityCore:126 declares it, :206 reads it, nothing writes it), and
- * the approval endpoint answers with `{decision, edit_policy, ladder}` only
- * (ollamaOpenAiShim:2667-2671), so the number never crosses to EVE at all.
+ * Each of these was written against measured behaviour:
+ *   - `budgetMissing`   — what an amount-less money seal actually blocks. It
+ *     may state the SEAL outcome only; the seal matcher is self-declared not a
+ *     security boundary (eveAuthorityRuntimeCore:117-121) and the agent video
+ *     lane spends without consulting the authority layer at all, so no string
+ *     here may claim that EVE spends nothing overall.
+ *   - `budgetNotEnforced` — the enforced half and the unenforced half, named
+ *     separately.
+ *   - `limitMoney`      — the same fact restated in the "what this page does
+ *     not decide" list.
+ */
+const PINNED_CLAIMS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  'de-DE': {
+    budgetMissing:
+      'Ohne Betrag bleibt das Geld-Siegel zu. Geld-Befehle, die EVE als solche erkennt, kommen dann nicht durch.',
+    budgetNotEnforced:
+      'Ohne Betrag bleibt das Geld-Siegel geschlossen — das wird technisch erzwungen. Der Betrag selbst wird in dieser Version noch nicht gegen tatsächliche Ausgaben gezählt und nicht an EVE übermittelt. Er ist deine festgehaltene Obergrenze; durchgesetzt wird sie erst mit einer kommenden Version.',
+    limitMoney:
+      'Tagesbetrag: Der Betrag bei „Geld ausgeben“ öffnet dieses Siegel. Gegen tatsächliche Ausgaben gezählt wird er in dieser Version nicht.',
+  },
+  'en-US': {
+    budgetMissing:
+      'Without an amount the money seal stays shut. Money commands EVE recognises as such do not get through.',
+    budgetNotEnforced:
+      'Without an amount the money seal stays closed — that is technically enforced. The amount itself is not yet counted against actual spending in this version, and it is not transmitted to EVE. It is your recorded upper bound; enforcing it comes in a future version.',
+    limitMoney:
+      'Daily amount: the amount under “Spend money” opens that seal. It is not counted against actual spending in this version.',
+  },
+};
+
+/**
+ * What a rewrite must still SAY, independent of how it is phrased.
+ *
+ * This replaces a `length > 80` check, which measured nothing: a string can be
+ * four hundred characters long and still promise an enforced ceiling. Each
+ * entry below is one of the three claims, named, so a failure points at the
+ * claim that went missing rather than at a character count.
+ */
+const REQUIRED_CLAIMS: Readonly<Record<string, ReadonlyArray<readonly [string, string]>>> = {
+  'de-DE': [
+    ['the seal half IS enforced', 'technisch erzwungen'],
+    ['the amount is not counted', 'nicht gegen tatsächliche Ausgaben gezählt'],
+    ['the amount never reaches EVE', 'nicht an EVE übermittelt'],
+  ],
+  'en-US': [
+    ['the seal half IS enforced', 'technically enforced'],
+    ['the amount is not counted', 'not yet counted against actual spending'],
+    ['the amount never reaches EVE', 'not transmitted to EVE'],
+  ],
+};
+
+/**
+ * A SECOND NET, no longer the safeguard.
+ *
+ * Kept because it costs nothing and covers authority copy this file does not
+ * pin verbatim. It must never again be mistaken for the guarantee: everything
+ * it catches, the pins above catch too, and it misses every paraphrase.
  */
 const FORBIDDEN = [
   'Vorgabe an EVE',
@@ -37,11 +107,13 @@ const FORBIDDEN = [
   'Höchstens',
   'Budget wird eingehalten',
   'pro Tag gedeckelt',
+  'wird nicht überschritten',
   'at most',
   'At most',
   'limit applies',
   'budget is respected',
   'capped per day',
+  'daily cap enforced',
 ];
 
 const LOCALES: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
@@ -49,44 +121,56 @@ const LOCALES: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ['en-US', enCommandEve as unknown as Record<string, unknown>],
 ];
 
-function authorityCopy(bundle: Record<string, unknown>): string {
-  return JSON.stringify((bundle as { authority: unknown }).authority);
+function authority(bundle: Record<string, unknown>): Record<string, string> {
+  return (bundle as { authority: Record<string, string> }).authority;
 }
 
 describe('authority copy claims only what the code enforces', () => {
   for (const [name, bundle] of LOCALES) {
-    it(`${name} asserts no enforced spending ceiling anywhere`, () => {
-      const copy = authorityCopy(bundle);
-      for (const phrase of FORBIDDEN) {
-        expect(copy).not.toContain(phrase);
-      }
-    });
+    describe(name, () => {
+      it('every money claim is the agreed wording, verbatim', () => {
+        // The allowlist. Changing any of these three sentences in either
+        // language must be a deliberate act that someone reads.
+        for (const [key, expected] of Object.entries(PINNED_CLAIMS[name]!)) {
+          expect(authority(bundle)[key], `${name}.${key}`).toBe(expected);
+        }
+      });
 
-    it(`${name} carries the money caveat, and it says all three things`, () => {
-      const note = (bundle as { authority: { budgetNotEnforced?: string } }).authority.budgetNotEnforced;
-      expect(typeof note).toBe('string');
-      expect(note!.length).toBeGreaterThan(80);
+      it('the money caveat still carries all three claims', () => {
+        const note = authority(bundle).budgetNotEnforced;
+        expect(typeof note).toBe('string');
+        for (const [claim, phrase] of REQUIRED_CLAIMS[name]!) {
+          expect(note, `${name}: missing claim — ${claim}`).toContain(phrase);
+        }
+      });
+
+      it('asserts no enforced spending ceiling anywhere else either', () => {
+        const copy = JSON.stringify(authority(bundle));
+        for (const phrase of FORBIDDEN) {
+          expect(copy, `${name} contains "${phrase}"`).not.toContain(phrase);
+        }
+      });
+
+      it('describes the same six things this page does not decide', () => {
+        for (const key of [
+          'limitScreen',
+          'limitScanner',
+          'limitMemory',
+          'limitWebsites',
+          'limitTimeout',
+          'limitMoney',
+        ]) {
+          expect(typeof authority(bundle)[key], `${name}.${key}`).toBe('string');
+        }
+      });
     });
   }
 
-  it('the German caveat is the agreed wording, verbatim', () => {
-    // Pinned in full. This sentence was negotiated against measured behaviour;
-    // a paraphrase is exactly how the enforced half and the unenforced half get
-    // blurred back together.
-    expect((deCommandEve as unknown as { authority: { budgetNotEnforced: string } }).authority.budgetNotEnforced).toBe(
-      'Ohne Betrag bleibt das Geld-Siegel geschlossen — das wird technisch erzwungen. ' +
-        'Der Betrag selbst wird in dieser Version noch nicht gegen tatsächliche Ausgaben gezählt ' +
-        'und nicht an EVE übermittelt. Er ist deine festgehaltene Obergrenze; durchgesetzt wird ' +
-        'sie erst mit einer kommenden Version.'
+  it('both locales pin the same set of money claims', () => {
+    // A pin that exists in one language and not the other is a hole with a
+    // green tick on it.
+    expect(Object.keys(PINNED_CLAIMS['de-DE']!).toSorted()).toStrictEqual(
+      Object.keys(PINNED_CLAIMS['en-US']!).toSorted()
     );
-  });
-
-  it('both locales describe the same six things this page does not decide', () => {
-    for (const [name, bundle] of LOCALES) {
-      const authority = (bundle as { authority: Record<string, unknown> }).authority;
-      for (const key of ['limitScreen', 'limitScanner', 'limitMemory', 'limitWebsites', 'limitTimeout', 'limitMoney']) {
-        expect(typeof authority[key], `${name}.${key}`).toBe('string');
-      }
-    }
   });
 });

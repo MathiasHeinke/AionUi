@@ -16,10 +16,16 @@
  * The property is that a full release is a COMPOSITION of the controls a human
  * could operate one at a time — so it can never grant something no individual
  * control could grant, and can never skip the bookkeeping those controls do.
- * `full_release_equals_the_hand_assembled_grant` proves that by construction:
- * it builds the same grant by hand and demands the two are indistinguishable.
- * If someone later "optimises" `withFullAuthority` into a literal, that test
- * fails even though every field assertion would still pass.
+ * `full_release_equals_the_hand_assembled_grant` builds the same grant by hand
+ * and demands the two are indistinguishable.
+ *
+ * WHAT THAT TEST DOES AND DOES NOT CATCH, stated precisely because the first
+ * version of this paragraph overstated it. `toStrictEqual` is a VALUE
+ * comparison, so it cannot detect that a re-implementation is a literal. What
+ * it catches is a re-implementation whose value DRIFTS from the composed one —
+ * in practice the easy omission, the per-seal `grantedAt` bookkeeping that
+ * `withSeal` does and a hand-rolled object forgets. A literal that reproduces
+ * every field exactly would pass, and would also be correct.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -282,14 +288,23 @@ describe('full release — what the runtime actually receives', () => {
     expect(runtime.seals['spend.money']).toBe(true);
     expect(runtime.spend_daily_cents).toBe(5_000);
 
-    // The honest limit of that claim, pinned so the copy above cannot quietly
-    // start promising enforcement: the ONLY probe is `amountCents: 0`, so an
-    // action costing far more than the ceiling is still admitted by the grant.
-    // Nothing in production passes a real amount (there is no caller of
-    // `decideAuthority`, and `decideCommandApproval` carries no money).
+    // WHERE THE CEILING WORKS, AND WHY THAT IS NOT ENOUGH.
+    //
+    // `grantAllows` enforces it correctly when it is handed a real amount: a
+    // 5000-cent purchase against a 5000-cent ceiling with nothing spent yet is
+    // refused, because `spendWithinDailyLimit` compares the sum. The logic is
+    // not the gap.
+    //
+    // (An earlier version of this comment said the opposite — "an action
+    // costing far more than the ceiling is still admitted by the grant" —
+    // directly above an assertion of `false`. The assertion was right.)
     expect(grantAllows({ class: 'irreversible', sealed: 'spend.money', amountCents: 500_000 }, released)).toBe(false);
-    // ...but the runtime the wheel obeys does not carry the amount at all — it
-    // is handed one boolean, already true.
+    // The gap is that nothing ever reaches that branch. The only probe in
+    // production passes a hardcoded `amountCents: 0`
+    // (eveAuthorityRuntimeCore:84), and what the wheel is handed is one
+    // boolean, already true, with no amount attached. Working enforcement that
+    // is never called is indistinguishable from no enforcement.
     expect(runtime.seals['spend.money']).toBe(true);
+    expect(Object.keys(runtime.seals)).not.toContain('amountCents');
   });
 });
