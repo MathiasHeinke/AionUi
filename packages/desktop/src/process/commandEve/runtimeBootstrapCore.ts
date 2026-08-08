@@ -6929,6 +6929,34 @@ function streamOllamaPull(
  * Returns '' for anything unparseable — an unreadable probe is "no model", never
  * a throw and never a guess.
  */
+/**
+ * Does this candidate carry a C0 control character (or DEL)?
+ *
+ * WHY THIS EXISTS, and why it is not folded into the allowlist regex. The vision
+ * ref is interpolated raw into a config.yaml LINE
+ * (`    model: ${localVisionModelRef}`), and the surrounding lines are joined
+ * with '\n'. A newline inside the value therefore does not produce a strange
+ * model name — it produces additional YAML.
+ *
+ * `isCommandEveLocalVisionModel` did not stop that. Its pattern is
+ * `/^minicpm-v(?::[^/]+)?$/i`, and in JavaScript `[^/]` matches `\n` while `$`
+ * (no `m` flag) sits at the end of the whole string. So
+ * `minicpm-v:8b\nrogue: true` passed the allowlist and reached config.yaml as a
+ * new top-level key. The existing guard case looked like it covered this, but it
+ * used `minicpm-v:8b\n  base_url: http://evil` — rejected for the SLASH in the
+ * URL, not for the newline. `trim()` does not help either; it only touches the
+ * ends.
+ *
+ * REJECT, never repair. A candidate with a control byte is not a model name that
+ * needs tidying; it is a value nobody should be acting on. Both callers fall back
+ * to '' — the same answer as "no vision model installed" — so the failure mode is
+ * an omitted key, which the bootstrap already reports as VISION_OMITTED.
+ */
+function hasControlCharacters(value: string): boolean {
+  // eslint-disable-next-line no-control-regex -- rejecting C0/DEL is the whole point.
+  return /[\u0000-\u001f\u007f]/.test(value);
+}
+
 export function pickCommandEveLocalVisionModel(tagsBody: string): string {
   try {
     const parsed: unknown = JSON.parse(tagsBody);
@@ -6936,7 +6964,11 @@ export function pickCommandEveLocalVisionModel(tagsBody: string): string {
     if (!Array.isArray(models)) return '';
     const matches = models
       .map((entry) => compact((entry as { name?: unknown } | null)?.name as string))
-      .filter((name) => name.length > 0 && isCommandEveLocalVisionModel(name));
+      // `compact` only trims, so a tag with an embedded newline survived to the
+      // emitter. This is the WRITE side and it matters more than the read side:
+      // the bootstrap only spawns `ollama serve` when `pingOllama` fails, so any
+      // local process already listening on the runtime port supplies this list.
+      .filter((name) => name.length > 0 && !hasControlCharacters(name) && isCommandEveLocalVisionModel(name));
     return matches.length > 0 ? matches.toSorted()[0] : '';
   } catch {
     return '';
@@ -6996,6 +7028,7 @@ export function readPersistedLocalVisionModelRef(runtimeRoot: string): string {
     if (typeof ref !== 'string') return '';
     const trimmed = ref.trim();
     if (trimmed.length === 0 || trimmed.length > 128) return '';
+    if (hasControlCharacters(trimmed)) return '';
     return isCommandEveLocalVisionModel(trimmed) ? trimmed : '';
   } catch {
     return '';
@@ -8066,53 +8099,54 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   // (writeHermesRuntimeFiles is idempotent by design), so a cold start still ends
   // the bootstrap with vision in config.yaml instead of silently without it.
   let localVisionModelRef = await resolveLocalVisionModelRef(manifest.local_runtime.base_url);
-  const emitHermesRuntimeFiles = (): string[] => writeHermesRuntimeFiles(
-    paths,
-    manifest,
-    tier,
-    capabilityPack,
-    runtimeModelRef,
-    DEFAULT_COMMAND_EVE_REASONING_EFFORT,
-    commandEveCreationNudgeInterval(env),
-    bundledSkillsDir,
-    options.uiLanguage ?? '',
-    founderOpsSkillsDir,
-    // CLI-Keystone CODEX wiring: DEFERRED — codexRuntimeForConfig always yields ''
-    // (dead key on provider:custom), so this stays '' and the key is never emitted.
-    options.codexRuntime ?? '',
-    // CLI-Keystone CLAUDE wiring (LIVE): the resolved + status-allowed Claude ACP
-    // delegate. Desktop owns its transport; SOUL receives only the role hint.
-    options.claudeDelegate ?? null,
-    // 1.6.3 Team-Realität: the resolved roster for the SOUL team directive.
-    options.teamRoles ?? null,
-    // S5-P2 MCP-vault feeder deps (arch §8) — LIVE since 1.821.0. A seat with an
-    // empty vault still emits `mcp_servers: {}`, so nothing changes until a
-    // connector is actually approved through the guided flow. Founder vault =
-    // userData-rooted; seat vault = hermesRoot-scoped; invocation from the manifest.
-    {
-      userDataPath: paths.userDataPath,
-      configRoot: paths.hermesRoot,
-      mcpInvocationFor: buildMcpInvocationResolver({
-        env,
-        companyOsRoot: compact(env.COMMAND_EVE_COMPANY_OS_ROOT) || undefined,
-      }),
-    },
-    // COMPA-624 Inc.3 — the Honcho render input for the BOOT (legacy/founder) seat.
-    // Reads the seat's readiness snapshot; not-ready (no provisioning yet) ⇒ nothing
-    // Honcho is emitted (byte-identical). Same-seat: paths was resolved with no seatId.
-    resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId: undefined, hermesVenv: paths.hermesVenv }),
-    commandEveDelegationConcurrency(totalMemoryBytes),
-    options.rememberedCommands ?? [],
-    // CEVE-18205-FLAG — THE one path that can await the per-seat release, so it is
-    // the one path that may advertise the paid generate tool. The gate itself is
-    // fail-closed in every direction (kill-switch, licence, config, backend error),
-    // so a `false` here is always the deliberate answer and never a missing one.
-    agentVideoGenerateSeatEnabled,
-    // 1.821.0 — the resolved local vision model, or '' when this box has none.
-    // Read at CALL time (this is a closure over the `let` above), so the
-    // post-Ollama-ready re-emit picks up the re-probed value.
-    localVisionModelRef
-  );
+  const emitHermesRuntimeFiles = (): string[] =>
+    writeHermesRuntimeFiles(
+      paths,
+      manifest,
+      tier,
+      capabilityPack,
+      runtimeModelRef,
+      DEFAULT_COMMAND_EVE_REASONING_EFFORT,
+      commandEveCreationNudgeInterval(env),
+      bundledSkillsDir,
+      options.uiLanguage ?? '',
+      founderOpsSkillsDir,
+      // CLI-Keystone CODEX wiring: DEFERRED — codexRuntimeForConfig always yields ''
+      // (dead key on provider:custom), so this stays '' and the key is never emitted.
+      options.codexRuntime ?? '',
+      // CLI-Keystone CLAUDE wiring (LIVE): the resolved + status-allowed Claude ACP
+      // delegate. Desktop owns its transport; SOUL receives only the role hint.
+      options.claudeDelegate ?? null,
+      // 1.6.3 Team-Realität: the resolved roster for the SOUL team directive.
+      options.teamRoles ?? null,
+      // S5-P2 MCP-vault feeder deps (arch §8) — LIVE since 1.821.0. A seat with an
+      // empty vault still emits `mcp_servers: {}`, so nothing changes until a
+      // connector is actually approved through the guided flow. Founder vault =
+      // userData-rooted; seat vault = hermesRoot-scoped; invocation from the manifest.
+      {
+        userDataPath: paths.userDataPath,
+        configRoot: paths.hermesRoot,
+        mcpInvocationFor: buildMcpInvocationResolver({
+          env,
+          companyOsRoot: compact(env.COMMAND_EVE_COMPANY_OS_ROOT) || undefined,
+        }),
+      },
+      // COMPA-624 Inc.3 — the Honcho render input for the BOOT (legacy/founder) seat.
+      // Reads the seat's readiness snapshot; not-ready (no provisioning yet) ⇒ nothing
+      // Honcho is emitted (byte-identical). Same-seat: paths was resolved with no seatId.
+      resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId: undefined, hermesVenv: paths.hermesVenv }),
+      commandEveDelegationConcurrency(totalMemoryBytes),
+      options.rememberedCommands ?? [],
+      // CEVE-18205-FLAG — THE one path that can await the per-seat release, so it is
+      // the one path that may advertise the paid generate tool. The gate itself is
+      // fail-closed in every direction (kill-switch, licence, config, backend error),
+      // so a `false` here is always the deliberate answer and never a missing one.
+      agentVideoGenerateSeatEnabled,
+      // 1.821.0 — the resolved local vision model, or '' when this box has none.
+      // Read at CALL time (this is a closure over the `let` above), so the
+      // post-Ollama-ready re-emit picks up the re-probed value.
+      localVisionModelRef
+    );
   const bundledSkillFailures = emitHermesRuntimeFiles();
   // CEVE-1821 B2 — mirror what this write just emitted into the seat-independent
   // side file, so the synchronous seat-switch provisioning reuses THIS boot's

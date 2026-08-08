@@ -35,6 +35,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   localVisionModelRefFilePath,
   persistLocalVisionModelRef,
+  pickCommandEveLocalVisionModel,
   provisionSeatRuntimeFiles,
   readPersistedLocalVisionModelRef,
   resolveCommandEveRuntimeBootstrapPaths,
@@ -88,17 +89,55 @@ describe('the persisted last-known-good ref — mirrored, fail-safe, allowlisted
   it('refuses refs outside the vision allowlist — the side file is not a config injection channel', () => {
     // The value is interpolated into config.yaml. A hand-edited side file must
     // not be able to point the vision route at an arbitrary model (or smuggle a
-    // YAML line through a crafted "name"). `isCommandEveLocalVisionModel` is the
-    // single source of truth the emitter already trusts, so anything it refuses
-    // must read as ''.
+    // YAML line through a crafted "name").
+    //
+    // THE NEWLINE CASE HERE USED TO PROVE NOTHING. It read
+    // `minicpm-v:8b\n  base_url: http://evil`, which the allowlist rejects — but
+    // for the SLASH in `http://`, since the pattern's tag part is `[^/]+`. Take
+    // the slash away and the same shape passed: `[^/]` matches `\n`, and `$`
+    // without the `m` flag sits at the end of the whole string. The payloads
+    // below are therefore slash-free on purpose, so the only thing that can
+    // reject them is the control-character guard.
     const root = makeRoot();
-    for (const evil of ['gemma4:12b', 'minicpm-v:8b\n  base_url: http://evil', 'x'.repeat(200)]) {
+    const refused = [
+      'gemma4:12b',
+      'x'.repeat(200),
+      // Newline, no slash: one extra top-level YAML key in config.yaml.
+      'minicpm-v:8b\nrogue_top_level: true',
+      // Newline, no slash, indented: overrides a sibling key of the vision block.
+      'minicpm-v:8b\n    timeout: 99999',
+      // Carriage return counts too — the emitted file is read as text.
+      'minicpm-v:8b\rx: 1',
+      // A tab is equally a C0 byte and equally has no business in a model tag.
+      'minicpm-v:8b\tx',
+    ];
+    for (const evil of refused) {
       fs.writeFileSync(
         localVisionModelRefFilePath(root),
         JSON.stringify({ version: 'command-eve-local-vision-ref/v0', model_ref: evil })
       );
       expect(readPersistedLocalVisionModelRef(root), JSON.stringify(evil.slice(0, 40))).toBe('');
     }
+    // ...and the legitimate ref still reads back, so the guard did not just
+    // reject everything.
+    fs.writeFileSync(
+      localVisionModelRefFilePath(root),
+      JSON.stringify({ version: 'command-eve-local-vision-ref/v0', model_ref: 'minicpm-v:8b' })
+    );
+    expect(readPersistedLocalVisionModelRef(root)).toBe('minicpm-v:8b');
+  });
+
+  it('refuses the same payloads on the WRITE side, where /api/tags is whatever answers the port', () => {
+    // The other end, and the one that does not need write access to the app's
+    // data directory: the bootstrap only spawns `ollama serve` when `pingOllama`
+    // fails, so a local process already listening on the runtime port supplies
+    // this model list. `compact` only trims it.
+    const tags = (name: string) => JSON.stringify({ models: [{ name }] });
+    expect(pickCommandEveLocalVisionModel(tags('minicpm-v:8b\nrogue_top_level: true'))).toBe('');
+    expect(pickCommandEveLocalVisionModel(tags('minicpm-v:8b\n    timeout: 99999'))).toBe('');
+    expect(pickCommandEveLocalVisionModel(tags('minicpm-v:8b\rx: 1'))).toBe('');
+    // The clean tag from the same shape still resolves.
+    expect(pickCommandEveLocalVisionModel(tags('minicpm-v:8b'))).toBe('minicpm-v:8b');
   });
 });
 
