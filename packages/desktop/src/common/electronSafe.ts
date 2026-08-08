@@ -8,11 +8,24 @@
  * @internal
  *
  * Null-safe Electron shim. Import ONLY from:
- *   - src/process/utils/tray.ts
- *   - src/process/services/conversionService.ts
- *   - src/common/platform/ElectronPlatformServices.ts (imports 'electron' directly, not this file)
+ *   - src/process/utils/tray.ts   — today the ONLY importer in the repo.
  *
  * All other modules must use getPlatformServices() from '@/common/platform' instead.
+ *
+ * The list above used to name two more files, and both entries were false.
+ * `src/process/services/conversionService.ts` does not exist anywhere in
+ * `packages/` any more, and `src/common/platform/ElectronPlatformServices.ts` was
+ * annotated in this very list as importing 'electron' directly rather than this
+ * file — so it never belonged on a list of importers of this file at all. An
+ * allowlist that names files which do not import the module cannot be checked
+ * against reality by reading it, which is the only thing an allowlist is for.
+ *
+ * WHAT NULL MEANS HERE, since exactly one file has to act on it. Every export
+ * below is null whenever `process.versions.electron` is unset — that is any load
+ * outside the Electron main process. `tray.ts` handles that in one explicit
+ * branch at the top of `createOrUpdateTray`, proved by
+ * `tests/unit/command-eve/trayWithoutElectron.test.ts`. A second importer would
+ * have to make the same decision for itself; nothing here makes it for them.
  */
 
 // import type is erased at compile time — safe to use in this file

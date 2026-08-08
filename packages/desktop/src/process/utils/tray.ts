@@ -258,9 +258,48 @@ const buildTrayContextMenu = async (): Promise<Electron.Menu> => {
 
 /**
  * Create system tray (idempotent — no-op if already exists).
+ *
+ * THE NULL BRANCH electronSafe NAMES THIS FILE FOR. `electronApp`, `electronMenu`,
+ * `electronNativeImage` and `electronTray` are all `| null`: the shim returns null
+ * for every export when `process.versions.electron` is unset
+ * (electronSafe.ts:57-63), which is any load outside the Electron main process.
+ * The shim's header lists this file as an allowed importer precisely because it is
+ * supposed to deal with that; until now it dereferenced all four unguarded.
+ *
+ * ONE BRANCH, NOT THIRTEEN `?.`. Optional chaining would build half a tray whose
+ * menu handlers silently do nothing — worse than no tray, because it looks like
+ * one. This single early return is a genuine choke point and covers every one of
+ * the thirteen uses:
+ *
+ *   - `getTrayIcon` (:66 `app.isPackaged`, :67 `nativeImage.createFromPath`) is
+ *     called only from inside the `try` below;
+ *   - `buildTrayContextMenu` (:97, :98, :111, :112, :243, :244, :252 on `app`,
+ *     :256 on `Menu`) is reached only from here and from `rebuildTrayMenu`, which
+ *     already returns early on `!tray`;
+ *   - `new Tray(icon)` is this function;
+ *   - the double-click handler (:274, :275 on `app.dock`) is registered only after
+ *     the tray exists.
+ *
+ * So skipping construction closes all of them, and `tray` staying null keeps them
+ * closed for every later call.
+ *
+ * WHAT THIS IS NOT. On the shipped boot path the branch does not fire: this module
+ * is reachable only from `index.ts` and three `process/` modules that themselves
+ * load only in Electron main, and neither `packages/web-host` nor
+ * `packages/web-cli` imports `@process/`. It fires for a non-Electron load — a
+ * test, or any later reuse of this module outside main. Before, that case was
+ * absorbed by the broad `catch` below and reported as
+ * "[Tray] Failed to create tray: TypeError: Cannot read properties of null",
+ * which reads like a tray defect rather than "there is no Electron here". Naming
+ * the branch is the difference between an accident that happens to hold and a
+ * decision. `trayWithoutElectron.test.ts` exercises it.
  */
 export const createOrUpdateTray = (): void => {
   if (tray) {
+    return;
+  }
+  if (!app || !Menu || !nativeImage || !Tray) {
+    console.warn('[Tray] Electron is unavailable in this process — skipping tray creation.');
     return;
   }
   try {
