@@ -81,17 +81,31 @@ export type CommandEveVideoEditResult =
       artifact: VideoGenerationArtifact;
       conversationArtifact: CommandEveVideoConversationArtifact;
       /**
-       * A `MEDIA: <path>` line the chat renderer already turns into a player.
+       * A `MEDIA: <path>` line that is CONSTRUCTED AND READ BY NOBODY.
        *
-       * This crosses Main -> renderer only, and "only" is a property of the
-       * code rather than an intention: the model's single route into this
-       * handler is the MCP loopback, which constructs its success payload from
-       * four named fields and never reads this one
-       * (`process/commandEve/artifactCapabilityLoopback.ts`, the `video_edit`
-       * branch). Nothing under `renderer/` reads it either, so it reaches no
-       * transcript, export or support bundle. A real filesystem path handed to a
-       * model would contradict the envelope's own no-paths rule and leak the
-       * account name out of `/Users/<name>/` into a third-party API.
+       * An earlier version of this sentence claimed the chat renderer "already
+       * turns it into a player". That described a different mechanism: the
+       * renderer's MEDIA-line parser (`hermesMediaDirectiveCore`) consumes
+       * Hermes CHAT TEXT, and nothing ever feeds this field into chat text —
+       * so this field never reaches that parser, and never did.
+       *
+       * What is actually true, verified by search rather than intended: the
+       * model's single route into this handler is the MCP loopback, which
+       * constructs its success payload from named fields and never reads this
+       * one (`process/commandEve/artifactCapabilityLoopback.ts`, the
+       * `video_edit` branch). Nothing under `renderer/` reads it either, so it
+       * reaches no transcript, export or support bundle. The registered IPC
+       * forwarder (`command-eve.video-edit`) would carry it, but has no
+       * production invoker. The user SEES the paid edit through the durable
+       * artifact store plus the `command-eve.image-artifacts-changed` refresh
+       * — never through this field.
+       *
+       * Kept (for now) because the shape is load-bearing for the handler's two
+       * construction sites and their tests; whoever removes it removes those in
+       * the same change. A real filesystem path handed to a model would
+       * contradict the envelope's own no-paths rule and leak the account name
+       * out of `/Users/<name>/` into a third-party API — one more reason this
+       * field must stay away from every model-facing payload.
        */
       mediaDirective: string;
       sourceArtifactId: string;
