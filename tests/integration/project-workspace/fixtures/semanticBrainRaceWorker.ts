@@ -243,4 +243,14 @@ let result: { ok: true } | { ok: false; reason_code: string } = { ok: true };
 if (config.action === 'commit') await commit(config);
 else if (config.action === 'rollback') await rollback(config);
 else result = userUpsert(config);
-process.stdout.write(`${JSON.stringify(result)}\n`);
+await new Promise<void>((resolve, reject) => {
+  process.stdout.write(`EVE_SEMANTIC_BRAIN_RACE_RESULT=${JSON.stringify(result)}\n`, (error) => {
+    if (error) reject(error);
+    else resolve();
+  });
+});
+// This fixture imports the real desktop storage graph, which keeps a Bun handle
+// alive after the one-shot worker has completed. The parent contract waits for
+// process exit (not merely stdout), so terminate only after the JSON receipt is
+// flushed. Without this, every race test leaked orphan workers indefinitely.
+process.exit(0);

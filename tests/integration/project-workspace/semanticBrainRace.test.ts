@@ -14,6 +14,7 @@ const IDS = {
 } as const;
 
 const worker = path.resolve('tests/integration/project-workspace/fixtures/semanticBrainRaceWorker.ts');
+const WORKER_RESULT_PREFIX = 'EVE_SEMANTIC_BRAIN_RACE_RESULT=';
 
 function runWorker(
   config: Record<string, unknown>,
@@ -35,7 +36,11 @@ function runWorker(
     child.on('exit', (code) => {
       if (code !== 0) return reject(new Error(stderr || stdout || `semantic worker exited ${code}`));
       try {
-        expect(JSON.parse(stdout.trim())).toEqual(expected);
+        const receiptLine = stdout
+          .split(/\r?\n/)
+          .find((line) => line.startsWith(WORKER_RESULT_PREFIX));
+        if (!receiptLine) throw new Error(`semantic worker receipt missing from stdout: ${stdout.trim()}`);
+        expect(JSON.parse(receiptLine.slice(WORKER_RESULT_PREFIX.length))).toEqual(expected);
         resolve();
       } catch (error) {
         reject(error);
