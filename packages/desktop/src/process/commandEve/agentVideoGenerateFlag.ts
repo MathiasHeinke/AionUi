@@ -43,6 +43,51 @@ import { readLicenseWire } from '@/common/config/licenseWireAtRest';
  * by analogy with the edit flag until generate has a turn-bound permit of its
  * own. That work is named and not done; this comment is the marker.
  *
+ * THE SECOND OPEN MONEY ITEM: THERE IS NO DAILY COUNTER. Named here for the same
+ * reason as the permit above — so it stays a tracked gap instead of becoming a
+ * parked promise. The settings panel offers a daily amount; nothing in this
+ * codebase counts anything against it.
+ *
+ * What does not exist today. `spentTodayCents` occurs exactly twice in the whole
+ * tree: a type declaration (`eveAuthorityCore.ts:126`) and one read (`:206`).
+ * Nothing writes it, no store holds it, nothing rolls it over at a day boundary.
+ * `spend_daily_cents` (`eveAuthorityRuntimeCore.ts:66`, assigned `:104`) has no
+ * production consumer at all, and the number never even crosses to EVE — the
+ * approval endpoint answers with `{decision, edit_policy, ladder}` and nothing
+ * else (`ollamaOpenAiShim.ts:2667-2671`). The single probe that does run passes
+ * a hardcoded `amountCents: 0` (`eveAuthorityRuntimeCore.ts:84`), which asks "is
+ * a ceiling configured at all", not "does this purchase fit under it".
+ *
+ * What enforcement actually requires, so nobody costs it as incidental:
+ *
+ *   - Durable PER-SEAT daily state, with a day boundary and crash safety. A
+ *     counter that lives in memory is not a ceiling, it is a hint that resets.
+ *   - Replay awareness. `artifactCapabilityLoopback.ts:235` carries a `replayed`
+ *     flag precisely because this path can be redelivered idempotently; a naive
+ *     counter debits the same clip twice.
+ *   - BOTH lanes, not one. The agent lane calls through
+ *     `artifactCapabilityLoopback.ts:322`; the renderer lane arrives via
+ *     `commandEveBridge.ts:2310` and `handleCommandEveVideoGenerateBridge`.
+ *     They do converge on `handleCommandEveVideoGenerate`
+ *     (`commandEveVideoBridge.ts:260`), which is the natural choke point for the
+ *     DEBIT — but not for the DECISION: agent-initiated and user-initiated spend
+ *     are different authority questions, so the check cannot simply be dropped
+ *     at the join and called done.
+ *   - `decideAuthority` invoked with a real `amountCents` and a real
+ *     `spentTodayCents` in place of the zero probe. Neither video lane consults
+ *     the authority layer at all today.
+ *
+ * Why it is not simply built fail-closed first. A counter that is broken or
+ * unavailable would then refuse every generate, and generate is a paid feature.
+ * A single point of failure in front of a paid path is not worth shipping before
+ * the store behind it is real. Fail-closed is the right end state; it is not the
+ * right first step.
+ *
+ * What the user is told MEANWHILE, so the gap is disclosed rather than hidden:
+ * the authority panel carries `commandEve.authority.budgetNotEnforced`, which
+ * says the amount opens the seal and is not counted against actual spending.
+ * That string and this block describe the same gap and have to move together.
+ *
  * WHAT CHANGED IN CEVE-18205-FLAG. The first slice made the release an ENV var,
  * which is not a per-seat release at all: an env var is a property of the
  * PROCESS, so every seat an operator runs out of one install got the same answer.
