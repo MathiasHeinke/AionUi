@@ -23,6 +23,7 @@ import {
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { useConversationArtifactsById } from '@/renderer/pages/conversation/Messages/artifacts';
 import { registerPreviewPageReader } from '@/renderer/pages/conversation/Preview/services/previewReader';
+import { registerConversationTerminalReader } from '@/renderer/pages/conversation/Preview/services/terminalReader';
 
 const {
   addOrUpdateMessageMock,
@@ -32,11 +33,13 @@ const {
   conversationGetUsageInvokeMock,
   confirmMessageInvokeMock,
   respondReadPreviewInvokeMock,
+  respondReadTerminalInvokeMock,
   reportInferenceErrorMock,
   ensureAutoProjectInvokeMock,
   conversationStopInvokeMock,
   reportStageWorkspaceInvokeMock,
   openPreviewMock,
+  previewContextState,
 } = vi.hoisted(() => ({
   addOrUpdateMessageMock: vi.fn(),
   responseStreamOnMock: vi.fn(),
@@ -47,21 +50,13 @@ const {
   conversationGetUsageInvokeMock: vi.fn().mockResolvedValue(null),
   confirmMessageInvokeMock: vi.fn(),
   respondReadPreviewInvokeMock: vi.fn(),
+  respondReadTerminalInvokeMock: vi.fn(),
   conversationStopInvokeMock: vi.fn(),
   reportStageWorkspaceInvokeMock: vi.fn(),
   openPreviewMock: vi.fn(),
-  // Default: NO quota/cap signal recognized → the error path renders the cold bubble
-  // exactly as before. Tests flip this to true to exercise the suppression (M-quotawall).
-  reportInferenceErrorMock: vi.fn((): boolean => false),
-  // 1.820.4 (MAT-1772): the post-turn auto-project IPC hint (fire-and-forget).
-  ensureAutoProjectInvokeMock: vi.fn().mockResolvedValue({ status: 'noop' }),
-}));
-
-vi.mock('@/renderer/pages/conversation/Preview', () => ({
-  usePreviewContext: () => ({
-    activeTabId: 'browser-tab',
+  previewContextState: {
+    activeTabId: 'browser-tab' as string | null,
     isOpen: true,
-    openPreview: openPreviewMock,
     tabs: [
       {
         id: 'browser-tab',
@@ -72,7 +67,21 @@ vi.mock('@/renderer/pages/conversation/Preview', () => ({
         originalContent: 'https://example.com',
         metadata: { conversation_id: 'conv-1', title: 'Browser' },
       },
-    ],
+    ] as Array<Record<string, unknown>>,
+  },
+  // Default: NO quota/cap signal recognized → the error path renders the cold bubble
+  // exactly as before. Tests flip this to true to exercise the suppression (M-quotawall).
+  reportInferenceErrorMock: vi.fn((): boolean => false),
+  // 1.820.4 (MAT-1772): the post-turn auto-project IPC hint (fire-and-forget).
+  ensureAutoProjectInvokeMock: vi.fn().mockResolvedValue({ status: 'noop' }),
+}));
+
+vi.mock('@/renderer/pages/conversation/Preview', () => ({
+  usePreviewContext: () => ({
+    activeTabId: previewContextState.activeTabId,
+    isOpen: previewContextState.isOpen,
+    openPreview: openPreviewMock,
+    tabs: previewContextState.tabs,
   }),
 }));
 
@@ -83,6 +92,9 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
     },
     respondReadPreview: {
       invoke: respondReadPreviewInvokeMock,
+    },
+    respondReadTerminal: {
+      invoke: respondReadTerminalInvokeMock,
     },
   },
 }));
@@ -319,6 +331,20 @@ describe('useAcpMessage', () => {
     responseStreamHandlerRef.current = undefined;
     confirmMessageInvokeMock.mockResolvedValue(undefined);
     respondReadPreviewInvokeMock.mockResolvedValue({ accepted: true });
+    respondReadTerminalInvokeMock.mockResolvedValue({ accepted: true });
+    previewContextState.activeTabId = 'browser-tab';
+    previewContextState.isOpen = true;
+    previewContextState.tabs = [
+      {
+        id: 'browser-tab',
+        title: 'Browser',
+        content: 'https://example.com',
+        content_type: 'url',
+        isDirty: false,
+        originalContent: 'https://example.com',
+        metadata: { conversation_id: 'conv-1', title: 'Browser' },
+      },
+    ];
     reportInferenceErrorMock.mockReturnValue(false);
     conversationStopInvokeMock.mockResolvedValue({
       runtime: {
@@ -493,6 +519,80 @@ describe('useAcpMessage', () => {
     });
     expect(addOrUpdateMessageMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ msg_id: 'preview-request-message-1' })
+    );
+    unregister();
+  });
+
+  it('answers one strict session-bound read_terminal request from the active terminal buffer', async () => {
+    previewContextState.activeTabId = 'terminal-tab';
+    previewContextState.tabs = [
+      {
+        id: 'terminal-tab',
+        title: 'Terminal',
+        content: 'terminal:conv-1',
+        content_type: 'terminal',
+        isDirty: false,
+        originalContent: 'terminal:conv-1',
+        metadata: { conversation_id: 'conv-1', title: 'Terminal' },
+      },
+    ];
+    conversationGetInvokeMock.mockResolvedValue({
+      id: 'conv-1',
+      type: 'acp',
+      status: 'running',
+      extra: { acp_session_id: 'acp-session-1', backend: 'hermes' },
+    });
+    const unregister = registerConversationTerminalReader('conv-1', 'terminal-tab', () => ({
+      total_lines: 42,
+      start: 32,
+      end: 42,
+      viewport_rows: 10,
+      cursor_row: 41,
+      text: 'terminal output',
+    }));
+    renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+    await waitFor(() => expect(conversationGetInvokeMock).toHaveBeenCalled());
+
+    const request: IResponseMessage = {
+      type: 'acp_read_terminal_request',
+      data: {
+        version: 'command-eve-read-terminal/v1',
+        request_id: 'terminal-request-1',
+        session_id: 'acp-session-1',
+        start: 32,
+        count: 10,
+      },
+      msg_id: 'terminal-request-message-1',
+      turn_id: 'turn-terminal-1',
+      conversation_id: 'conv-1',
+    };
+    act(() => {
+      responseStreamHandlerRef.current?.(request);
+      responseStreamHandlerRef.current?.(request);
+      responseStreamHandlerRef.current?.({
+        ...request,
+        data: { ...(request.data as object), request_id: 'foreign-request', session_id: 'foreign-session' },
+      });
+    });
+
+    await waitFor(() => expect(respondReadTerminalInvokeMock).toHaveBeenCalledTimes(1));
+    expect(respondReadTerminalInvokeMock).toHaveBeenCalledWith({
+      conversation_id: 'conv-1',
+      version: 'command-eve-read-terminal/v1',
+      request_id: 'terminal-request-1',
+      session_id: 'acp-session-1',
+      result: {
+        total_lines: 42,
+        start: 32,
+        end: 42,
+        viewport_rows: 10,
+        cursor_row: 41,
+        text: 'terminal output',
+      },
+    });
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ msg_id: 'terminal-request-message-1' })
     );
     unregister();
   });

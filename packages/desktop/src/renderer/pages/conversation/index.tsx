@@ -31,8 +31,11 @@ const ChatConversationIndex: React.FC = () => {
     previousConversationIdRef.current = id;
   }, [id, hidePreview]);
 
-  const { data, isLoading, mutate } = useSWR(id ? `conversation/${id}` : null, () => {
-    return getConversationOrNull(id!);
+  const { data, isLoading, mutate } = useSWR(id ? `conversation/${id}` : null, () => getConversationOrNull(id!), {
+    // Keep the route-local ChatLayout mounted while another conversation is
+    // resolved. Its workbench is deliberately hidden above, but Browser and
+    // Terminal DOM/process state must not be destroyed by a one-frame loader.
+    keepPreviousData: true,
   });
 
   useEffect(() => {
@@ -67,8 +70,25 @@ const ChatConversationIndex: React.FC = () => {
     navigate('/', { replace: true });
   }, [id, isLoading, data, navigate, t]);
 
-  if (isLoading) return <Spin loading></Spin>;
-  return <ChatConversation conversation={data ?? undefined}></ChatConversation>;
+  if (isLoading && !data) return <Spin loading></Spin>;
+
+  const isConversationTransition = Boolean(id && data && data.id !== id);
+  return (
+    <div className='relative size-full'>
+      <div
+        className='size-full'
+        aria-hidden={isConversationTransition || undefined}
+        style={isConversationTransition ? { visibility: 'hidden', pointerEvents: 'none' } : undefined}
+      >
+        <ChatConversation conversation={data ?? undefined}></ChatConversation>
+      </div>
+      {isConversationTransition && (
+        <div className='absolute inset-0 flex items-center justify-center' aria-live='polite'>
+          <Spin loading />
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default ChatConversationIndex;

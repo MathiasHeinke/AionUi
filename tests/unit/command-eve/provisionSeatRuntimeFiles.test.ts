@@ -484,8 +484,9 @@ describe('the authority gate must cover every model provider the seat can be giv
     expect(emitted.size).toBeGreaterThan(0);
 
     const shim = fs.readFileSync(path.join(seatHome, 'plugins', 'model-providers', 'custom', '__init__.py'), 'utf8');
-    const name = /name="([^"]+)"/.exec(shim)?.[1];
-    const aliasBlock = /aliases=\(([^)]*)\)/.exec(shim)?.[1] ?? '';
+    const profileRegistration = shim.slice(shim.indexOf('register_provider('));
+    const name = /name="([^"]+)"/.exec(profileRegistration)?.[1];
+    const aliasBlock = /aliases=\(([^)]*)\)/.exec(profileRegistration)?.[1] ?? '';
     const covered = new Set<string>([
       ...(name ? [name] : []),
       ...Array.from(aliasBlock.matchAll(/"([^"]+)"/g), (m) => m[1]),

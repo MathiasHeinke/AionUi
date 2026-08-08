@@ -286,30 +286,19 @@ const AuthorityModalContent: React.FC = () => {
                     {/*
                       The line that keeps this field from being a lie.
 
-                      Half of it IS enforced and the sentence says which half:
-                      no amount means the seal reads shut, because
-                      `spendWithinDailyLimit` returns false on a missing or
-                      non-positive ceiling (eveAuthorityCore:202-203) and
-                      `renderEveAuthorityRuntime` therefore emits
-                      `seals['spend.money'] = false`.
-
-                      The other half is not enforced and must not be dressed up
-                      as if it were. There is no day counter anywhere:
+                      The stored limit is not dressed up as live enforcement.
+                      There is no day counter anywhere:
                       `spentTodayCents` exists only as a type (:126) and a read
                       (:206), with no store, no day boundary and no rollover
                       behind it — and the number never reaches EVE at all, since
                       the approval endpoint answers with exactly
                       `{decision, edit_policy, ladder}` (ollamaOpenAiShim:2667-2671).
 
-                      Building the counter was considered and deliberately not
-                      done here: it needs durable per-seat daily state with
-                      rollover, crash safety and replay semantics, wired into two
-                      lanes, one of which replays idempotently
-                      (artifactCapabilityLoopback:235) so a naive counter would
-                      double-count. Failing closed on a broken counter would take
-                      video generation down — not a release-worthy single point
-                      of failure for a paid feature. So: label it honestly now,
-                      enforce it deliberately later.
+                      The runtime therefore keeps `spend.money` false for
+                      generic terminal and opaque browser/Desktop operations.
+                      The capability stays installed and the user gets the
+                      normal one-operation approval card. Product-managed
+                      generation keeps its separate credit preflight.
                     */}
                     <div className='text-13px op-70' data-testid='budget-not-enforced'>
                       {t('commandEve.authority.budgetNotEnforced')}
@@ -450,19 +439,22 @@ const AuthorityModalContent: React.FC = () => {
           as a complete account of what EVE may do; it is not one, and the gap
           is invisible unless it is written down.
           
-          Five of the six sit upstream and are NOT ours to change from here:
-            - tools/computer_use/tool.py:266-277  `_request_approval` returns
-              None (approved) when no approval callback is registered, and
-              nothing on our side calls `set_approval_callback`. Only
-              `_DESTRUCTIVE_ACTIONS` reach it at all; `_BLOCKED_KEY_COMBOS`
-              (:84-89) is a genuine hard block, hence the second half of the
-              sentence.
+          Native Hermes tools without their own terminal/file ACP callback now
+          pass through Command EVE's structured pre_tool_call authority hook
+          before their native handlers. User rung + independent seals remain
+          the only product policy.
+          The first remaining boundary is upstream and deliberate:
+            - tools/computer_use/tool.py `_BLOCKED_KEY_COMBOS` is a genuine
+              hard block for session-destroying system shortcuts. The user's
+              rung decides ordinary click/type actions; this survival floor
+              remains even on Full.
             - tools/tirith_security.py:74  `tirith_fail_open: True` by default,
               consumed at :720 and :726-729 — an unresolvable binary returns
               "allow", not "block". We write no `security` config, so the
               default stands.
-            - tools/write_approval.py:74-82  `write_approval_enabled` defaults
-              to False: memory and skill writes are ungated until opted in.
+            - tools/write_approval.py:74-82  upstream write approvals remain
+              optional; Command EVE's structured hook binds memory, skill and
+              schedule changes to the seat grant before dispatch.
             - tools/website_policy.py:253-262  the blocklist logs and returns
               None on any config error — fail-open by design.
             - acp_adapter/permissions.py:36 + :159-164  the 300s window. This
@@ -471,9 +463,9 @@ const AuthorityModalContent: React.FC = () => {
               a five-minute wait, and the assumption is the risk.
           
           The sixth is ours, and it is the one this section exists to keep
-          honest: the daily amount gates nothing but the seal itself
-          (eveAuthorityRuntimeCore:84 probes with a hardcoded `amountCents: 0`;
-          `spend_daily_cents` has no production reader).
+          honest: the daily amount is stored, but generic terminal and opaque
+          browser/Desktop operations do not receive unattended money authority
+          until a structured amount and atomic daily ledger are available.
         */}
         <SettingsSection
           title={t('commandEve.authority.limitsTitle')}

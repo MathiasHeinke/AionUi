@@ -27,6 +27,7 @@ import { isCommandEveShimPublicError } from './shimPublicError';
 import { EVE_AUTHORITY_FAIL_CLOSED } from '../../common/config/eveAuthorityCore';
 import {
   decideCommandApproval,
+  decideHermesToolApproval,
   renderEveAuthorityRuntime,
   type EveAuthorityRuntime,
 } from '../../common/config/eveAuthorityRuntimeCore';
@@ -2644,8 +2645,8 @@ async function handleKanbanAcpPropose(
  * is NO mutation handler on this path — reading the board can never grant a write.
  */
 /**
- * Answer ONE approval question, by calling the same `decideAuthority` machinery
- * the settings panel writes for. No policy lives here; this is a transport.
+ * Answer ONE approval question by reading the same rendered seat grant the
+ * settings panel writes. No policy lives here; this is a transport.
  *
  * Fail-closed on every unclear input: a missing command, an unreadable grant or
  * a thrown resolver all answer `ask`. The caller (the Hermes patch) also treats
@@ -2671,6 +2672,32 @@ async function handleApprovalDecision(
     });
   } catch {
     jsonResponse(response, 200, { decision: 'ask', edit_policy: 'ask', ladder: 0 });
+  }
+}
+
+/**
+ * Structured authority seam for native Hermes tools that do not already have
+ * the terminal/file ACP authority callbacks.
+ * The provider hook sends only the tool/action identity — never typed text,
+ * page content, credentials or screenshots. Unknown/oversized values ask.
+ */
+async function handleHermesToolApprovalDecision(
+  requestUrl: URL,
+  response: ServerResponse,
+  options: Required<CommandEveOllamaShimOptions>
+): Promise<void> {
+  const toolName = requestUrl.searchParams.get('tool') ?? '';
+  const action = requestUrl.searchParams.get('action') ?? '';
+  if (!toolName || toolName.length > 128 || action.length > 128) {
+    jsonResponse(response, 200, { decision: 'ask', ladder: 0 });
+    return;
+  }
+  try {
+    const runtime = await options.commandEveApproval();
+    const decision = decideHermesToolApproval({ toolName, action }, runtime);
+    jsonResponse(response, 200, { decision, ladder: runtime.ladder });
+  } catch {
+    jsonResponse(response, 200, { decision: 'ask', ladder: 0 });
   }
 }
 
@@ -2911,6 +2938,11 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
       if (request.method === 'GET' && requestPath === '/v1/command-eve/approval') {
         if (!requireShimAuth(request, response, options.authToken)) return;
         await handleApprovalDecision(requestUrl, response, options);
+        return;
+      }
+      if (request.method === 'GET' && requestPath === '/v1/command-eve/tool-approval') {
+        if (!requireShimAuth(request, response, options.authToken)) return;
+        await handleHermesToolApprovalDecision(requestUrl, response, options);
         return;
       }
       if (request.method === 'POST' && requestPath === '/v1/chat/completions') {

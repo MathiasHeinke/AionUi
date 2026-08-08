@@ -9,8 +9,9 @@
  *
  * A settings page that overstates what it enforces is worse than one that says
  * nothing: the user acts on it. Money is the sharp case, because exactly one
- * part of it is enforced (no amount, no open seal) and the rest is not — the
- * amount is never counted, and never even reaches EVE.
+ * part of it is enforced (generic money operations never inherit an unattended
+ * boolean) and the rest is not — the amount is not yet counted in a daily
+ * ledger.
  *
  * HOW THIS SUITE IS BUILT, AND WHY IT CHANGED. The first cut guarded the copy
  * with a denylist of forbidden phrases. That is the wrong shape for this job: a
@@ -58,17 +59,17 @@ const PINNED_CLAIMS: Readonly<Record<string, Readonly<Record<string, string>>>> 
     budgetMissing:
       'Ohne Betrag bleibt das Geld-Siegel zu. Geld-Befehle, die EVE als solche erkennt, kommen dann nicht durch.',
     budgetNotEnforced:
-      'Ohne Betrag bleibt das Geld-Siegel geschlossen — das wird technisch erzwungen. Der Betrag selbst wird in dieser Version noch nicht gegen tatsächliche Ausgaben gezählt und nicht an EVE übermittelt. Er ist deine festgehaltene Obergrenze; durchgesetzt wird sie erst mit einer kommenden Version.',
+      'Der Betrag wird gespeichert, aber in dieser Version noch nicht als Tageszähler durchgesetzt. Geldbefehle und nicht sicher einordenbare Bezahlvorgänge fragt EVE deshalb weiterhin einzeln ab. Das eingetragene Limit ist kein Blankoscheck.',
     limitMoney:
-      'Tagesbetrag: Der Betrag bei „Geld ausgeben“ öffnet dieses Siegel. Gegen tatsächliche Ausgaben gezählt wird er in dieser Version nicht.',
+      'Tagesbetrag: Der Betrag wird gespeichert, aber noch nicht gegen einen Tagesverbrauch gebucht. EVE fragt vor Geldbefehlen und nicht sicher einordenbaren Bezahlvorgängen weiterhin einzeln; das Limit erteilt keine pauschale Kaufvollmacht.',
   },
   'en-US': {
     budgetMissing:
       'Without an amount the money seal stays shut. Money commands EVE recognises as such do not get through.',
     budgetNotEnforced:
-      'Without an amount the money seal stays closed — that is technically enforced. The amount itself is not yet counted against actual spending in this version, and it is not transmitted to EVE. It is your recorded upper bound; enforcing it comes in a future version.',
+      'The amount is saved, but this version does not yet enforce it as a daily ledger. EVE therefore still asks separately for money commands and payment steps it cannot classify safely. The configured limit is not a blank cheque.',
     limitMoney:
-      'Daily amount: the amount under “Spend money” opens that seal. It is not counted against actual spending in this version.',
+      'Daily amount: the amount is saved, but is not yet booked against daily usage. EVE still asks separately before money commands and payment steps it cannot classify safely; the limit does not grant blanket purchasing authority.',
   },
 };
 
@@ -82,14 +83,16 @@ const PINNED_CLAIMS: Readonly<Record<string, Readonly<Record<string, string>>>> 
  */
 const REQUIRED_CLAIMS: Readonly<Record<string, ReadonlyArray<readonly [string, string]>>> = {
   'de-DE': [
-    ['the seal half IS enforced', 'technisch erzwungen'],
-    ['the amount is not counted', 'nicht gegen tatsächliche Ausgaben gezählt'],
-    ['the amount never reaches EVE', 'nicht an EVE übermittelt'],
+    ['the amount is stored', 'Betrag wird gespeichert'],
+    ['the daily ledger is not enforced', 'noch nicht als Tageszähler durchgesetzt'],
+    ['money operations still ask', 'weiterhin einzeln ab'],
+    ['the amount is not blanket authority', 'kein Blankoscheck'],
   ],
   'en-US': [
-    ['the seal half IS enforced', 'technically enforced'],
-    ['the amount is not counted', 'not yet counted against actual spending'],
-    ['the amount never reaches EVE', 'not transmitted to EVE'],
+    ['the amount is stored', 'amount is saved'],
+    ['the daily ledger is not enforced', 'does not yet enforce it as a daily ledger'],
+    ['money operations still ask', 'still asks separately'],
+    ['the amount is not blanket authority', 'not a blank cheque'],
   ],
 };
 

@@ -439,11 +439,13 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(workflow).not.toMatch(/Programs\\\\AionUi/i);
   });
 
-  it('does not package native modules that are absent from dependencies', () => {
+  it('packages only native modules that are declared runtime dependencies', () => {
     const builder = read('packages/desktop/electron-builder.yml');
+    const packageJson = JSON.parse(read('package.json')) as { dependencies?: Record<string, string> };
 
     expect(builder).not.toContain('node_modules/bcrypt/');
-    expect(builder).not.toContain('node_modules/node-pty/');
+    expect(packageJson.dependencies?.['node-pty']).toBe('1.1.0');
+    expect(builder).toContain('node_modules/node-pty/');
     expect(builder).toContain('node_modules/better-sqlite3/');
   });
 

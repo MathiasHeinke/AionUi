@@ -5,14 +5,14 @@
  */
 
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
-import { FullScreenOne, LayoutThree, LayoutTwo } from '@icon-park/react';
+import { FullScreenOne, LayoutThree, LayoutTwo, MessageOne } from '@icon-park/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from './WorkbenchLayoutControls.module.css';
 
 const WorkbenchLayoutControls: React.FC = () => {
   const { t } = useTranslation();
-  const { workbenchLayoutMode, setWorkbenchLayoutMode } = usePreviewContext();
+  const { activeTab, hidePreview, workbenchLayoutMode, setWorkbenchLayoutMode } = usePreviewContext();
   const modes = [
     {
       mode: 'focus' as const,
@@ -33,6 +33,23 @@ const WorkbenchLayoutControls: React.FC = () => {
 
   return (
     <div className={styles.root} role='group' aria-label={t('conversation.workbench.layoutLabel')}>
+      <button
+        type='button'
+        className={styles.button}
+        aria-label={t('conversation.workbench.returnToChat')}
+        title={t('conversation.workbench.returnToChat')}
+        onClick={() => {
+          const conversationId = activeTab?.metadata?.conversation_id;
+          hidePreview();
+          window.requestAnimationFrame(() => {
+            if (conversationId)
+              document.getElementById(`eve-chat-pane-${conversationId}`)?.focus({ preventScroll: true });
+          });
+        }}
+      >
+        <MessageOne theme='outline' size={15} fill='currentColor' />
+      </button>
+      <span className={styles.separator} aria-hidden='true' />
       {modes.map((item) => (
         <button
           key={item.mode}

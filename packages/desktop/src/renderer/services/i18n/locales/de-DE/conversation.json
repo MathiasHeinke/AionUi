@@ -660,6 +660,14 @@
     "label": "EVE-Arbeitsfläche",
     "review": "Überprüfen",
     "terminal": "Terminal",
+    "terminalViewport": "Interaktives EVE-Terminal",
+    "terminalClosed": "Prozess beendet",
+    "terminalStatus": {
+      "starting": "Startet",
+      "ready": "Bereit",
+      "closed": "Beendet",
+      "error": "Verbindungsfehler"
+    },
     "browser": "Browser",
     "files": "Dateien",
     "notConnected": "Noch nicht verbunden",
@@ -668,6 +676,7 @@
     "closeTab": "{{title}} schließen",
     "unsavedTab": "{{title}}, nicht gespeicherte Änderungen",
     "layoutLabel": "Arbeitsfläche anordnen",
+    "returnToChat": "Zum Chat zurückkehren",
     "focus": "Aktive Fläche maximieren",
     "splitRight": "Chat links, Arbeitsfläche rechts",
     "splitBottom": "Arbeitsfläche oben, Chat unten",

@@ -1,4 +1,5 @@
 const { execFileSync, spawnSync } = require('child_process');
+const { Arch } = require('builder-util');
 const fs = require('fs');
 const path = require('path');
 
@@ -13,6 +14,12 @@ const {
   prepareArtifactPythonSiteForUpdater,
   rewriteArtifactPythonReceiptPostSign,
 } = require('./signArtifactPythonReceipt_core.js');
+const { normalizeArch } = require('./rebuildNativeModules');
+
+function resolveAfterSignTargetArch(arch, fallbackArch = process.arch) {
+  const rawArch = typeof arch === 'string' ? arch : Arch[arch] || fallbackArch;
+  return normalizeArch(rawArch);
+}
 
 function firstEnv(env, names) {
   for (const name of names) {
@@ -298,25 +305,48 @@ exports.default = async function afterSign(context) {
     return;
   }
 
-  // Lazy-load notarize because @electron/notarize is ESM-only
-  const { notarize } = await import('@electron/notarize');
-
   const appName = context.packager.appInfo.productFilename;
   const appBundleId = context.packager.appInfo.id;
   const appPath = `${appOutDir}/${appName}.app`;
+  const resourcesPath = path.join(appPath, 'Contents', 'Resources');
+  const targetArch = resolveAfterSignTargetArch(context.arch);
+  const notarizeOptions = getNotarizeOptions({ appBundleId, appPath });
+  const releaseSigningRequired = Boolean(notarizeOptions || getPythonSignIdentity());
 
   // Check if app is actually signed before attempting notarization
   try {
-    execFileSync('codesign', ['--verify', '--verbose', appPath], { stdio: 'pipe' });
+    execFileSync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], { stdio: 'pipe' });
     console.log(`App ${appName} is properly code signed`);
   } catch (error) {
+    if (releaseSigningRequired) {
+      throw new Error(
+        `Developer ID release signing was requested, but the packaged app signature is invalid: ${error?.message || String(error)}`
+      );
+    }
     console.log(`App ${appName} is not code signed, applying ad-hoc signature...`);
     try {
       execFileSync('codesign', ['--force', '--deep', '--sign', '-', appPath], { stdio: 'inherit' });
       console.log(`Ad-hoc signature applied successfully to ${appName}`);
+      const { verifyPackagedNodePtySignatures } = await import('./release/verify-packaged-node-pty-core.mjs');
+      verifyPackagedNodePtySignatures({ appPath, resourcesPath, expectedArch: targetArch });
+      console.log('Packaged node-pty native signatures verified after ad-hoc signing');
     } catch (adHocError) {
       console.error('Ad-hoc signing failed:', adHocError.message);
+      throw adHocError;
     }
+    writeFinalAioncoreArtifactReceipt({
+      appPath,
+      outDir: path.dirname(appOutDir),
+      version: context.packager.appInfo.version,
+      productName: appName,
+    });
+    return;
+  }
+
+  if (!releaseSigningRequired) {
+    const { verifyPackagedNodePtySignatures } = await import('./release/verify-packaged-node-pty-core.mjs');
+    verifyPackagedNodePtySignatures({ appPath, resourcesPath, expectedArch: targetArch });
+    console.log('Packaged node-pty native signatures verified for local non-release build');
     writeFinalAioncoreArtifactReceipt({
       appPath,
       outDir: path.dirname(appOutDir),
@@ -348,12 +378,22 @@ exports.default = async function afterSign(context) {
     console.log(`App ${appName} re-verified after bundled-python deep-sign`);
   }
 
-  const notarizeOptions = getNotarizeOptions({ appBundleId, appPath });
+  const { verifyPackagedNodePtySignatures } = await import('./release/verify-packaged-node-pty-core.mjs');
+  verifyPackagedNodePtySignatures({
+    appPath,
+    resourcesPath,
+    expectedArch: targetArch,
+    requireDeveloperId: true,
+  });
+  console.log('Packaged node-pty native signatures verified before notarization');
+
   if (!notarizeOptions) {
     console.log(
       'Skipping notarization - missing Apple notarization credentials. Set NOTARYTOOL_KEYCHAIN_PROFILE, Apple API key env vars, or APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD.'
     );
   } else {
+    // Lazy-load notarize because @electron/notarize is ESM-only.
+    const { notarize } = await import('@electron/notarize');
     console.log(
       `Starting notarization for ${appName} (${appBundleId}) using ${getNotarizeAuthMode(notarizeOptions)}...`
     );
@@ -383,5 +423,6 @@ exports.parseFirstCodesignAuthority = parseFirstCodesignAuthority;
 exports.resolvePythonSignIdentity = resolvePythonSignIdentity;
 exports.resolvePythonEntitlementsPlist = resolvePythonEntitlementsPlist;
 exports.resolveAppEntitlementsPlist = resolveAppEntitlementsPlist;
+exports.resolveAfterSignTargetArch = resolveAfterSignTargetArch;
 exports.deepSignBundledPython = deepSignBundledPython;
 exports.probeMachOWithCodesign = probeMachOWithCodesign;

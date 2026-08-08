@@ -7,8 +7,17 @@ const {
   getNotarizeAuthMode,
   getNotarizeOptions,
   parseFirstCodesignAuthority,
+  resolveAfterSignTargetArch,
   resolvePythonSignIdentity,
 } = require('../../../scripts/afterSign.js');
+
+describe('afterSign target architecture resolution', () => {
+  it('resolves electron-builder enum and string values without host-architecture drift', () => {
+    expect(resolveAfterSignTargetArch(3, 'x64')).toBe('arm64');
+    expect(resolveAfterSignTargetArch(1, 'arm64')).toBe('x64');
+    expect(resolveAfterSignTargetArch('arm64', 'x64')).toBe('arm64');
+  });
+});
 
 describe('afterSign bundled-python signing identity resolution', () => {
   const appPath = '/tmp/Command EVE.app';

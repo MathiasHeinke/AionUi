@@ -57,12 +57,14 @@ export interface EveAuthorityRuntime {
   /** Irreversible actions may run unasked (rung 5). */
   irreversible: boolean;
   /**
-   * Per seal: may EVE use it unasked right now? `spend.money` is false unless a
-   * usable daily ceiling exists — an open seal without a budget is refused, not
-   * read as unlimited (`spendWithinDailyLimit`).
+   * Per seal: may EVE use it unasked right now? `spend.money` remains false in
+   * this boolean-only projection. A real money decision needs the operation's
+   * amount plus atomically persisted spend-today state; neither can be reduced
+   * to one reusable boolean without turning the configured ceiling into a blank
+   * cheque.
    */
   seals: Record<EveSealedCapability, boolean>;
-  /** The ceiling, for display and for the daily accounting. 0 = none configured. */
+  /** The user-configured ceiling for display/future metered calls. 0 = none configured. */
   spend_daily_cents: number;
 }
 
@@ -76,11 +78,12 @@ export interface EveAuthorityRuntime {
  * not the rung — decides. Rung 0 therefore closes everything, which is what
  * "change nothing" has to mean.
  *
- * `amountCents: 0` is the cheapest honest money probe: it asks "is there a
- * ceiling at all", because a zero-cost spend still fails `spendWithinDailyLimit`
- * when `dailyCents` is missing, zero or malformed.
+ * Money is intentionally not probed here. Its grant is amount-dependent, while
+ * this runtime object is reused across many operations. A positive ceiling is
+ * therefore preserved as data but never projected as `spend.money=true`.
  */
 function sealUsable(grant: EveAuthorityGrant, capability: EveSealedCapability): boolean {
+  if (capability === 'spend.money') return false;
   return grantAllows({ class: 'irreversible', sealed: capability, amountCents: 0 }, grant);
 }
 
@@ -94,6 +97,11 @@ export function renderEveAuthorityRuntime(grant: EveAuthorityGrant): EveAuthorit
   const seals = Object.fromEntries(
     EVE_SEALED_CAPABILITIES.map((capability) => [capability, sealUsable(grant, capability)])
   ) as Record<EveSealedCapability, boolean>;
+  const configuredDailyCents = grant.limits?.['spend.money']?.dailyCents;
+  const moneyConfigurationUsable = grantAllows(
+    { class: 'irreversible', sealed: 'spend.money', amountCents: 0 },
+    grant
+  );
   return {
     ladder: grant.ladder,
     edit_policy: editsOutside ? 'session' : editsInWorkspace ? 'workspace_session' : 'ask',
@@ -101,7 +109,10 @@ export function renderEveAuthorityRuntime(grant: EveAuthorityGrant): EveAuthorit
     outside_workspace_command: editsOutside,
     irreversible: grantAllows({ class: 'irreversible' }, grant),
     seals,
-    spend_daily_cents: seals['spend.money'] ? (grant.limits?.['spend.money']?.dailyCents ?? 0) : 0,
+    spend_daily_cents:
+      moneyConfigurationUsable && Number.isSafeInteger(configuredDailyCents) && configuredDailyCents > 0
+        ? configuredDailyCents
+        : 0,
   };
 }
 
@@ -165,4 +176,178 @@ export function decideCommandApproval(
   if (seal) return runtime.seals[seal] === true ? 'allow' : 'ask';
   if (!input.insideWorkspace) return runtime.outside_workspace_command ? 'allow' : 'ask';
   return runtime.workspace_command ? 'allow' : 'ask';
+}
+
+const HERMES_BROWSER_READ_TOOLS = new Set([
+  'browser_snapshot',
+  'browser_get_images',
+  'browser_vision',
+  'browser_console',
+]);
+const HERMES_BROWSER_NAVIGATION_TOOLS = new Set(['browser_navigate', 'browser_scroll', 'browser_back']);
+const HERMES_BROWSER_OPAQUE_ACTION_TOOLS = new Set([
+  'browser_click',
+  'browser_type',
+  'browser_press',
+  'browser_cdp',
+  'browser_dialog',
+]);
+const HERMES_COMPUTER_READ_ACTIONS = new Set(['capture', 'wait', 'list_apps', 'list_windows', 'cua_browser_state']);
+const HERMES_ALWAYS_READ_TOOLS = new Set([
+  'browser_snapshot',
+  'browser_get_images',
+  'browser_vision',
+  'browser_console',
+  'clarify',
+  'feishu_doc_read',
+  'feishu_drive_list_comments',
+  'feishu_drive_list_comment_replies',
+  'focus_pane',
+  'ha_get_state',
+  'ha_list_entities',
+  'ha_list_services',
+  'kanban_attachments',
+  'kanban_list',
+  'kanban_show',
+  'open_preview',
+  'project_list',
+  'read_preview',
+  'read_terminal',
+  'session_search',
+  'skill_view',
+  'skills_list',
+  'vision_analyze',
+  'web_extract',
+  'web_search',
+  'x_search',
+]);
+const HERMES_PRODUCT_MANAGED_TOOLS = new Set([
+  'image_generate',
+  'text_to_speech',
+  'video_generate',
+  'xai_video_edit',
+  'xai_video_extend',
+]);
+const HERMES_PROCESS_READ_ACTIONS = new Set(['list', 'poll', 'log', 'wait']);
+const HERMES_DISCORD_READ_ACTIONS = new Set([
+  'server_info',
+  'list_guilds',
+  'list_channels',
+  'list_roles',
+  'member_info',
+  'search_members',
+  'channel_info',
+  'fetch_messages',
+  'list_pins',
+]);
+const HERMES_OUTWARD_TOOLS = new Set([
+  'feishu_drive_add_comment',
+  'feishu_drive_reply_comment',
+  'react_to_message',
+  'yb_send_dm',
+  'yb_send_sticker',
+]);
+
+/**
+ * Low-level browser/Desktop actions cannot reveal whether a click is opening
+ * an accordion or confirming a purchase. Keep the capability installed, but
+ * auto-run that opaque last mile only after the user deliberately selected
+ * Full AND every independent seal is enforceable for this operation. The
+ * current runtime cannot prove an amount against the daily money ledger, so
+ * opaque actions receive the existing one-operation approval card. Hermes
+ * remains installed and capable; only unattended execution is withheld.
+ */
+function hasFullOpaqueToolAuthority(runtime: EveAuthorityRuntime): boolean {
+  return runtime.irreversible && EVE_SEALED_CAPABILITIES.every((capability) => runtime.seals[capability] === true);
+}
+
+/**
+ * Decide whether a structured native Hermes action may run without a card.
+ * This is deliberately separate from terminal command classification: native
+ * tools have structured names/actions and must not be reverse-engineered into
+ * pretend shell strings.
+ *
+ * Reads remain available at every rung. Local planning/delegation follows the
+ * workspace-command grant, safe browser navigation follows reversible
+ * outside-work, and outward/deleting actions obey their independent seals.
+ * Opaque browser/Desktop interactions stay installed but use the existing
+ * one-operation approval path in this release, because their tool identity
+ * alone cannot prove which seal the final click might spend. Product-managed
+ * image/video/voice calls remain popup-free because the product's credit
+ * preflight is their authority seam.
+ *
+ * The Hermes tool's own hard blocks remain the survival floor after this
+ * decision; this function can only add a user gate, never bypass an upstream
+ * hard block.
+ */
+export function decideHermesToolApproval(
+  input: { toolName: string; action?: string },
+  runtime: EveAuthorityRuntime
+): EveCommandApprovalVerdict {
+  const toolName = String(input.toolName ?? '').trim();
+  const action = String(input.action ?? '')
+    .trim()
+    .toLowerCase();
+
+  if (HERMES_ALWAYS_READ_TOOLS.has(toolName)) return 'allow';
+  if (HERMES_PRODUCT_MANAGED_TOOLS.has(toolName) || toolName.startsWith('bfl_flux3_')) return 'allow';
+  if (HERMES_BROWSER_READ_TOOLS.has(toolName)) return 'allow';
+  if (HERMES_BROWSER_NAVIGATION_TOOLS.has(toolName)) {
+    return runtime.outside_workspace_command ? 'allow' : 'ask';
+  }
+  if (HERMES_BROWSER_OPAQUE_ACTION_TOOLS.has(toolName)) {
+    if (toolName === 'browser_dialog' && action === 'dismiss') {
+      return runtime.outside_workspace_command ? 'allow' : 'ask';
+    }
+    return hasFullOpaqueToolAuthority(runtime) ? 'allow' : 'ask';
+  }
+  if (toolName.startsWith('browser_')) return hasFullOpaqueToolAuthority(runtime) ? 'allow' : 'ask';
+  if (toolName === 'computer_use') {
+    if (HERMES_COMPUTER_READ_ACTIONS.has(action)) return 'allow';
+    if (!action) return 'ask';
+    return hasFullOpaqueToolAuthority(runtime) ? 'allow' : 'ask';
+  }
+  if (toolName === 'todo') {
+    if (action === 'read') return 'allow';
+    return runtime.workspace_command ? 'allow' : 'ask';
+  }
+  if (toolName === 'process') {
+    if (HERMES_PROCESS_READ_ACTIONS.has(action)) return 'allow';
+    if (!action) return 'ask';
+    return runtime.workspace_command ? 'allow' : 'ask';
+  }
+  if (toolName === 'project_create' || toolName === 'project_switch' || toolName === 'delegate_task') {
+    return runtime.workspace_command ? 'allow' : 'ask';
+  }
+  if (toolName === 'execute_code' || toolName === 'close_terminal' || toolName.startsWith('kanban_')) {
+    return runtime.workspace_command ? 'allow' : 'ask';
+  }
+  if (toolName === 'memory') {
+    if (action === 'remove') return runtime.irreversible ? 'allow' : 'ask';
+    return action && runtime.outside_workspace_command ? 'allow' : 'ask';
+  }
+  if (toolName === 'skill_manage') {
+    if (action === 'delete' || action === 'remove_file') {
+      return runtime.seals['delete.outside'] ? 'allow' : 'ask';
+    }
+    return action && runtime.outside_workspace_command ? 'allow' : 'ask';
+  }
+  if (toolName === 'cronjob') {
+    if (action === 'list') return 'allow';
+    if (action === 'remove') return runtime.irreversible ? 'allow' : 'ask';
+    return action && runtime.outside_workspace_command ? 'allow' : 'ask';
+  }
+  if (toolName === 'ha_call_service') return runtime.irreversible ? 'allow' : 'ask';
+  if (toolName === 'discord' || toolName === 'discord_admin') {
+    if (HERMES_DISCORD_READ_ACTIONS.has(action)) return 'allow';
+    if (action === 'delete_message') return runtime.seals['delete.outside'] ? 'allow' : 'ask';
+    return action && runtime.seals['publish.outward'] ? 'allow' : 'ask';
+  }
+  if (HERMES_OUTWARD_TOOLS.has(toolName)) return runtime.seals['publish.outward'] ? 'allow' : 'ask';
+
+  // Capability-open means a new upstream Hermes tool remains installed and can
+  // be used after the existing one-operation approval. It does not inherit
+  // unattended authority until it declares enough metadata to identify the
+  // concrete effect and the relevant independent seal.
+  return hasFullOpaqueToolAuthority(runtime) ? 'allow' : 'ask';
 }

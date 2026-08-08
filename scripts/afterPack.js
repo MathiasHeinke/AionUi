@@ -60,6 +60,38 @@ async function verifyCommandEvePackagedResources({ appOutDir, packager, resource
   );
 }
 
+async function verifyPackagedNodePty({ resourcesDir, targetArch, buildArch }) {
+  const { verifyPackagedNodePty: verify } = await import('./release/verify-packaged-node-pty-core.mjs');
+  const requireElectronSmoke = targetArch === buildArch;
+  const receipt = verify({
+    resourcesPath: resourcesDir,
+    expectedArch: targetArch,
+    platform: 'darwin',
+    electronExecutable: requireElectronSmoke ? require('electron') : undefined,
+    smokeScriptPath: path.resolve(__dirname, 'release', 'smoke-packaged-node-pty.cjs'),
+    requireElectronSmoke,
+  });
+  console.log(
+    `   ✓ Packaged node-pty ${receipt.version} verified (${targetArch}; ${path.relative(resourcesDir, receipt.binaryRoot)}; Electron ABI smoke=${receipt.smoke})`
+  );
+}
+
+async function patchPackagedNodePty({ resourcesDir, targetArch }) {
+  const { patchPackagedNodePty: patch } = await import('./release/patch-packaged-node-pty.mjs');
+  const receipt = patch({ resourcesPath: resourcesDir, expectedArch: targetArch, platform: 'darwin' });
+  console.log(
+    `   ✓ Packaged node-pty ASAR paths normalized (${receipt.version}; changed=${String(receipt.changed)}; helpers=${receipt.helpers.length})`
+  );
+}
+
+async function verifyFinalPackagedState({ appOutDir, packager, resourcesDir, targetArch, buildArch, platform }) {
+  verifyBundledResources(resourcesDir, platform, targetArch);
+  if (platform !== 'darwin') return;
+  await verifyCommandEvePackagedResources({ appOutDir, packager, resourcesDir, targetArch });
+  await patchPackagedNodePty({ resourcesDir, targetArch });
+  await verifyPackagedNodePty({ resourcesDir, targetArch, buildArch });
+}
+
 module.exports = async function afterPack(context) {
   const { arch, electronPlatformName, appOutDir, packager } = context;
   const targetArch = normalizeArch(typeof arch === 'string' ? arch : Arch[arch] || process.arch);
@@ -94,21 +126,22 @@ module.exports = async function afterPack(context) {
     } else {
       console.warn(`   ⚠️  app.asar.unpacked not found`);
     }
-
-    verifyBundledResources(resourcesDir, electronPlatformName, targetArch);
-    if (electronPlatformName === 'darwin') {
-      await verifyCommandEvePackagedResources({ appOutDir, packager, resourcesDir, targetArch });
-    }
   } else {
     throw new Error(`resources directory not found: ${resourcesDir}`);
   }
 
-  // electron-builder currently configures only the original eight V1 fuses.
-  // Apply the complete policy here so Electron upgrades fail closed before the
-  // app is signed when a new fuse is added.
-  await applyPackagedElectronFusePolicy(context, targetArch);
-
   if (!isCrossCompile && !needsSameArchRebuild && !forceRebuild) {
+    await verifyFinalPackagedState({
+      appOutDir,
+      packager,
+      resourcesDir,
+      targetArch,
+      buildArch,
+      platform: electronPlatformName,
+    });
+    // Prove the final packaged runtime before disabling RunAsNode. The ABI
+    // smoke cannot run after this irreversible fuse policy is applied.
+    await applyPackagedElectronFusePolicy(context, targetArch);
     console.log(`   ✓ Same architecture, rebuild skipped (set FORCE_NATIVE_REBUILD=true to override)\n`);
     return;
   }
@@ -253,5 +286,14 @@ module.exports = async function afterPack(context) {
     throw new Error(`Failed to rebuild modules for ${electronPlatformName}-${targetArch}: ${failedModules.join(', ')}`);
   }
 
+  await verifyFinalPackagedState({
+    appOutDir,
+    packager,
+    resourcesDir,
+    targetArch,
+    buildArch,
+    platform: electronPlatformName,
+  });
+  await applyPackagedElectronFusePolicy(context, targetArch);
   console.log(`✅ All native modules rebuilt successfully for ${targetArch}\n`);
 };

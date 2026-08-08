@@ -14,6 +14,7 @@ import WorkbenchLayoutControls from './WorkbenchLayoutControls';
 
 type ShellWorkbenchTabsProps = {
   conversationId: string;
+  workspacePath?: string;
   launcherOnly?: boolean;
 };
 
@@ -23,6 +24,8 @@ const iconForTab = (tab: PreviewTab) => {
   switch (tab.content_type) {
     case 'url':
       return <Browser theme='outline' size={16} fill='currentColor' />;
+    case 'terminal':
+      return <Terminal theme='outline' size={16} fill='currentColor' />;
     case 'image':
       return <ImageFiles theme='outline' size={16} fill='currentColor' />;
     case 'code':
@@ -48,7 +51,7 @@ const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
   buttons[nextIndex]?.focus();
 };
 
-const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId, launcherOnly = false }) => {
+const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId, workspacePath, launcherOnly = false }) => {
   const { t } = useTranslation();
   const { isOpen, tabs, activeTabId, openPreview, showPreview, hidePreview, requestCloseTab, setWorkbenchLayoutMode } =
     usePreviewContext();
@@ -98,11 +101,34 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId,
           focusPane(previewPaneId);
           return;
         }
-        case 'terminal':
+        case 'terminal': {
+          setWorkbenchLayoutMode('split-right');
+          const existingTerminal = conversationTabs.find((tab) => tab.content_type === 'terminal');
+          if (existingTerminal) {
+            showPreviewTab(existingTerminal.id);
+            return;
+          }
+          openPreview(`terminal:${conversationId}`, 'terminal', {
+            title: t('conversation.workbench.terminal'),
+            conversation_id: conversationId,
+            workspace: workspacePath,
+          });
+          focusPane(previewPaneId);
           return;
+        }
       }
     },
-    [conversationId, conversationTabs, focusPane, openPreview, previewPaneId, setWorkbenchLayoutMode, showPreviewTab]
+    [
+      conversationId,
+      conversationTabs,
+      focusPane,
+      openPreview,
+      previewPaneId,
+      setWorkbenchLayoutMode,
+      showPreviewTab,
+      t,
+      workspacePath,
+    ]
   );
 
   useEffect(() => {
@@ -184,9 +210,7 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId,
     {
       target: 'terminal',
       label: t('conversation.workbench.terminal'),
-      detail: t('conversation.workbench.notConnected'),
       icon: <Terminal theme='outline' size={18} fill='currentColor' />,
-      disabled: true,
     },
   ];
 
@@ -256,6 +280,7 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId,
             ref={launcherMenuRef}
             className={styles.launcherMenu}
             role='menu'
+            data-eve-interaction-role='composite-control'
             aria-label={t('conversation.workbench.openLauncher')}
             onKeyDown={handleMenuKeyDown}
           >

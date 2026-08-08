@@ -42,6 +42,13 @@
   outline-offset: -2px;
 }
 
+.separator {
+  width: 1px;
+  height: 14px;
+  margin: 0 2px;
+  background: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 13%, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .button {
     transition: none;

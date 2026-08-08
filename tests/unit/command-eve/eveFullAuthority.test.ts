@@ -255,13 +255,10 @@ describe('isFullAuthority — only true when the runtime would agree', () => {
  * drift. A confirmation dialog can be made to say anything; `renderEveAuthorityRuntime`
  * is what actually crosses the process boundary.
  *
- * It also pins the money asymmetry deliberately, because it is the one place a
- * full release is NOT full: `sealUsable` probes with a hardcoded `amountCents: 0`
- * (eveAuthorityRuntimeCore:84), so a positive `dailyCents` is the whole
- * condition for `seals['spend.money']`. Which means the number functions as the
- * ON-SWITCH for that seal — no production path ever compares a real amount
- * against it. If someone later wires actual spend accounting, this test is where
- * the assumption is written down.
+ * It also pins the money asymmetry deliberately: a reusable boolean cannot
+ * prove an operation-specific amount against an atomically persisted daily
+ * total. The configured ceiling crosses the boundary as data, but unattended
+ * money authority remains false until that metered seam exists.
  */
 describe('full release — what the runtime actually receives', () => {
   it('is fully open in every class, and money alone stays shut without a number', () => {
@@ -281,11 +278,11 @@ describe('full release — what the runtime actually receives', () => {
     expect(runtime.spend_daily_cents).toBe(0);
   });
 
-  it('naming a number is what opens the money seal — that is all the number does today', () => {
+  it('preserves the configured ceiling without turning it into unattended money authority', () => {
     const released = withFullAuthority(FAIL_CLOSED, { dailyCents: 5_000 }, NOW);
     const runtime = renderEveAuthorityRuntime(released);
 
-    expect(runtime.seals['spend.money']).toBe(true);
+    expect(runtime.seals['spend.money']).toBe(false);
     expect(runtime.spend_daily_cents).toBe(5_000);
 
     // WHERE THE CEILING WORKS, AND WHY THAT IS NOT ENOUGH.
@@ -299,12 +296,10 @@ describe('full release — what the runtime actually receives', () => {
     // costing far more than the ceiling is still admitted by the grant" —
     // directly above an assertion of `false`. The assertion was right.)
     expect(grantAllows({ class: 'irreversible', sealed: 'spend.money', amountCents: 500_000 }, released)).toBe(false);
-    // The gap is that nothing ever reaches that branch. The only probe in
-    // production passes a hardcoded `amountCents: 0`
-    // (eveAuthorityRuntimeCore:84), and what the wheel is handed is one
-    // boolean, already true, with no amount attached. Working enforcement that
-    // is never called is indistinguishable from no enforcement.
-    expect(runtime.seals['spend.money']).toBe(true);
+    // The runtime refuses to collapse that amount-dependent decision into a
+    // reusable true/false grant. Generic shell and opaque browser operations
+    // therefore ask for the concrete operation rather than bypassing the cap.
+    expect(runtime.seals['spend.money']).toBe(false);
     expect(Object.keys(runtime.seals)).not.toContain('amountCents');
   });
 });

@@ -397,6 +397,7 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (type === 'diff') return 'Diff';
           if (type === 'code') return `${scopedMeta?.language || 'Code'}`;
           if (type === 'image') return 'Image'; // 图片预览默认标题 / Default title for image preview
+          if (type === 'terminal') return 'Terminal';
           return 'Preview';
         })();
 

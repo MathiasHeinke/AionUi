@@ -21,8 +21,9 @@ describe('Command EVE workbench tab contract', () => {
     expect(titlebar).not.toContain("'--eve-workbench-content-left'");
     expect(titlebarCss).not.toContain('.app-titlebar__brand--workbench');
     expect(chatLayout).toContain("<div className='eve-workbench-pane__tabbar'>");
-    expect(chatLayout).toContain('<ShellWorkbenchTabs conversationId={conversation_id} />');
-    expect(chatLayout).toContain('<ShellWorkbenchTabs conversationId={conversation_id} launcherOnly />');
+    expect(chatLayout).toContain('conversationId={conversation_id}');
+    expect(chatLayout).toContain('workspacePath={workspacePath}');
+    expect(chatLayout).toContain('launcherOnly');
     expect(chatLayout).toContain("'chat-layout-header--eve-launcher overflow-visible'");
     expect(chatLayoutCss).toContain('.chat-layout-header--eve-launcher');
     expect(chatLayoutCss).toContain('contain: none;');
@@ -57,6 +58,8 @@ describe('Command EVE workbench tab contract', () => {
     expect(context).toContain('const requestCloseTab = useCallback(');
     expect(conversationRoute).toContain('const { hidePreview } = usePreviewContext();');
     expect(conversationRoute).toContain('hidePreview();');
+    expect(conversationRoute).toContain('keepPreviousData: true');
+    expect(conversationRoute).toContain("visibility: 'hidden'");
     expect(conversationRoute).not.toContain('closePreview();');
 
     const hiddenRenderGuard = previewPanel.indexOf(
@@ -67,8 +70,15 @@ describe('Command EVE workbench tab contract', () => {
     expect(previewPanel.slice(hiddenRenderGuard)).not.toMatch(/\buse(?:Effect|Memo|Callback|State|Ref)\s*\(/);
     expect(previewPanel).toContain('retain their live session');
     expect(previewPanel).toContain('const workbenchUrlTabs = useMemo(() =>');
+    expect(previewPanel).toContain("return tabs.filter((tab) => tab.content_type === 'url');");
+    expect(previewPanel).toContain("return tabs.filter((tab) => tab.content_type === 'terminal');");
+    expect(previewPanel).not.toContain(
+      "tab.content_type === 'terminal' && tab.metadata?.conversation_id === conversationId"
+    );
     expect(previewPanel).toContain('workbenchUrlTabs.map((tab) =>');
-    expect(previewPanel).toContain("style={{ display: isActive ? 'flex' : 'none' }}");
+    expect(previewPanel).toContain('const isVisible = isOpen && tab.id === activeTabId;');
+    expect(previewPanel).toContain("style={{ display: isVisible ? 'flex' : 'none' }}");
+    expect(previewPanel).toContain('active={isVisible}');
     expect(previewPanel).toContain('if (COMMAND_EVE_SHELL_ENABLED) return null;');
   });
 
@@ -96,7 +106,7 @@ describe('Command EVE workbench tab contract', () => {
     expect(urlViewer).not.toContain('WorkbenchLayoutControls');
     expect(urlViewer).not.toContain('toolbarActions=');
     expect(webviewHost).toContain("{toolbarActions && <div className='aion-url-viewer-toolbar-actions'>");
-    expect(webviewHost).toContain("aria-label={");
+    expect(webviewHost).toContain('aria-label={');
     expect(webviewHost).toContain("t('conversation.workbench.addressPlaceholder')");
     expect(chatLayout).toContain('data-eve-workbench-layout');
     expect(chatLayout.match(/\{props\.children\}/g)).toHaveLength(1);

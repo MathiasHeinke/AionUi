@@ -479,6 +479,24 @@ export const conversation = {
       result: p.result,
     })
   ),
+  respondReadTerminal: httpPost<
+    { accepted: boolean },
+    {
+      conversation_id: string;
+      version: 'command-eve-read-terminal/v1';
+      request_id: string;
+      session_id: string;
+      result: unknown;
+    }
+  >(
+    (p) => `/api/conversations/${p.conversation_id}/acp/read-terminal/respond`,
+    (p) => ({
+      version: p.version,
+      request_id: p.request_id,
+      session_id: p.session_id,
+      result: p.result,
+    })
+  ),
   listArtifacts: httpGet<IConversationArtifact[], { conversation_id: string }>(
     (p) => `/api/conversations/${p.conversation_id}/artifacts`
   ),

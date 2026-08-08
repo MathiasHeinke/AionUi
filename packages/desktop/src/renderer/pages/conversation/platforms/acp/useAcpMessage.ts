@@ -49,6 +49,11 @@ import {
   parseCommandEveReadPreviewRequest,
   readActiveConversationPreview,
 } from '@/renderer/pages/conversation/Preview/services/previewReader';
+import {
+  createCommandEveReadTerminalResponse,
+  parseCommandEveReadTerminalRequest,
+  readActiveConversationTerminal,
+} from '@/renderer/pages/conversation/Preview/services/terminalReader';
 import { dispatchElementsRailRevealEvent } from '@/renderer/utils/workspace/workspaceEvents';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
@@ -207,6 +212,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // reconnect. The AionCore responder is one-shot; answer each request id no
   // more than once from this conversation renderer.
   const handledReadPreviewRequestIdsRef = useRef<Set<string>>(new Set());
+  const handledReadTerminalRequestIdsRef = useRef<Set<string>>(new Set());
 
   // Live renderer permission authority for THIS conversation. Plain EVE
   // `dont_ask` leaves escalations gated; the selector publishes the separate,
@@ -514,6 +520,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           'agent_status',
           'acp_session_info',
           'acp_read_preview_request',
+          'acp_read_terminal_request',
           'user_content',
           'teammate_message',
         ].includes(message.type);
@@ -545,6 +552,23 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             // turn a renderer/transport failure into a visible tool error.
             console.warn('[useAcpMessage] read_preview response failed:', error);
           });
+        return;
+      }
+
+      if (message.type === 'acp_read_terminal_request') {
+        const request = parseCommandEveReadTerminalRequest(message.data, activeAcpSessionIdRef.current);
+        if (!request || handledReadTerminalRequestIdsRef.current.has(request.request_id)) return;
+        handledReadTerminalRequestIdsRef.current.add(request.request_id);
+        const result = readActiveConversationTerminal({
+          activeTabId,
+          conversationId: conversation_id,
+          isOpen: isPreviewOpen,
+          options: { count: request.count, start: request.start },
+        });
+        const response = createCommandEveReadTerminalResponse(request, result);
+        void conversationBridge.respondReadTerminal
+          .invoke({ conversation_id, ...response })
+          .catch((error: unknown) => console.warn('[useAcpMessage] read_terminal response failed:', error));
         return;
       }
 
@@ -1252,6 +1276,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     activeAcpSessionIdRef.current = undefined;
     handledDesktopToolCallIdsRef.current = new Set();
     handledReadPreviewRequestIdsRef.current = new Set();
+    handledReadTerminalRequestIdsRef.current = new Set();
   }, [conversation_id]);
 
   // Keep local permission authority current for the auto-approve path. Restrictive

@@ -25,6 +25,7 @@ import OfficeDocPreview from '../viewers/OfficeDocViewer';
 import PptViewer from '../viewers/PptViewer';
 import CodeEditor from '../editors/CodeEditor';
 import URLViewer from '../viewers/URLViewer';
+import TerminalViewer from '../viewers/TerminalViewer';
 import {
   PreviewTabs,
   PreviewToolbar,
@@ -456,10 +457,16 @@ const PreviewPanel: React.FC = () => {
 
   const workbenchUrlTabs = useMemo(() => {
     if (!COMMAND_EVE_SHELL_ENABLED) return [];
-    const conversationId = activeTab?.metadata?.conversation_id;
-    if (!conversationId) return [];
-    return tabs.filter((tab) => tab.content_type === 'url' && tab.metadata?.conversation_id === conversationId);
-  }, [activeTab?.metadata?.conversation_id, tabs]);
+    // Stateful work surfaces belong to their conversation, but they must stay
+    // mounted when another conversation becomes active. The local tab strip is
+    // filtered by conversation; this host deliberately is not.
+    return tabs.filter((tab) => tab.content_type === 'url');
+  }, [tabs]);
+
+  const workbenchTerminalTabs = useMemo(() => {
+    if (!COMMAND_EVE_SHELL_ENABLED) return [];
+    return tabs.filter((tab) => tab.content_type === 'terminal');
+  }, [tabs]);
 
   // Every hook above must execute on both visible and hidden renders. Command
   // EVE keeps the active workbench surface mounted while Chat is selected so
@@ -739,7 +746,7 @@ const PreviewPanel: React.FC = () => {
         )}
 
         {/* 工具栏（URL 类型不显示工具栏，因为不需要下载/编辑等功能）/ Toolbar (hidden for URL type as it doesn't need download/edit features) */}
-        {content_type !== 'url' && (
+        {content_type !== 'url' && content_type !== 'terminal' && (
           <PreviewToolbar
             content_type={content_type}
             isMarkdown={isMarkdown}
@@ -780,15 +787,37 @@ const PreviewPanel: React.FC = () => {
           <>
             {content_type !== 'url' && renderContent()}
             {workbenchUrlTabs.map((tab) => {
-              const isActive = tab.id === activeTabId;
+              const isVisible = isOpen && tab.id === activeTabId;
               return (
                 <div
                   key={tab.id}
                   className='flex flex-1 min-h-0 overflow-hidden'
-                  style={{ display: isActive ? 'flex' : 'none' }}
-                  aria-hidden={!isActive}
+                  style={{ display: isVisible ? 'flex' : 'none' }}
+                  aria-hidden={!isVisible}
                 >
                   <URLViewer url={tab.content} title={tab.metadata?.title} tabId={tab.id} />
+                </div>
+              );
+            })}
+            {workbenchTerminalTabs.map((tab) => {
+              const isVisible = isOpen && tab.id === activeTabId;
+              return (
+                <div
+                  key={tab.id}
+                  className='flex flex-1 min-h-0 overflow-hidden'
+                  style={
+                    isVisible
+                      ? { position: 'relative', visibility: 'visible' }
+                      : { position: 'absolute', inset: 0, visibility: 'hidden', pointerEvents: 'none' }
+                  }
+                  aria-hidden={!isVisible}
+                >
+                  <TerminalViewer
+                    tabId={tab.id}
+                    conversationId={tab.metadata?.conversation_id || ''}
+                    cwd={tab.metadata?.workspace}
+                    active={isVisible}
+                  />
                 </div>
               );
             })}

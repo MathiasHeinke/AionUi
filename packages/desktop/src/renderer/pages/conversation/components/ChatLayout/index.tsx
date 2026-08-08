@@ -353,7 +353,7 @@ const ChatLayout: React.FC<{
       </FlexFullContainer>
       <div className='flex items-center gap-12px shrink-0'>
         {COMMAND_EVE_SHELL_ENABLED && conversation_id && !isPreviewOpen && (
-          <ShellWorkbenchTabs conversationId={conversation_id} launcherOnly />
+          <ShellWorkbenchTabs conversationId={conversation_id} workspacePath={workspacePath} launcherOnly />
         )}
         {props.headerExtra}
         {isWindowsRuntime && workspaceEnabled && !COMMAND_EVE_SHELL_ENABLED && (
@@ -446,6 +446,7 @@ const ChatLayout: React.FC<{
                 <div
                   className='eve-workbench-divider eve-workbench-divider--horizontal'
                   role='separator'
+                  data-eve-interaction-role='resize-handle'
                   aria-orientation='horizontal'
                   aria-label={t('conversation.workbench.resizeSplit')}
                   aria-valuemin={36}
@@ -513,7 +514,7 @@ const ChatLayout: React.FC<{
                   })}
                 {COMMAND_EVE_SHELL_ENABLED && conversation_id && (
                   <div className='eve-workbench-pane__tabbar'>
-                    <ShellWorkbenchTabs conversationId={conversation_id} />
+                    <ShellWorkbenchTabs conversationId={conversation_id} workspacePath={workspacePath} />
                   </div>
                 )}
                 <div

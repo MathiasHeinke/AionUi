@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7182
+# entries: 7192
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -512,13 +512,15 @@ copy	1	de-DE/commandEve.json	Befehle, die du für diesen Seat dauerhaft erlaubt 
 copy	1	de-DE/commandEve.json	Befehls-Scanner: Der zusätzliche Sicherheits-Scanner lässt durch, wenn er selbst nicht läuft oder nicht installiert ist. Er ist eine zweite Meinung, keine Sperre.
 copy	1	de-DE/commandEve.json	Beim Seat-Wechsel wird die laufende Antwort abgebrochen und verworfen. Trotzdem wechseln?
 copy	1	de-DE/commandEve.json	Bezahlte Modelle und Dienste. Den Betrag, den du dafür festhältst, nennst du beim Anschalten.
-copy	1	de-DE/commandEve.json	Bildschirmsteuerung: Klicken, Tippen und Tastenkürzel laufen an dieser Seite vorbei. Zerstörerische Tastenkombinationen sind fest gesperrt, der Rest wird nicht von deiner Stufe entschieden.
+copy	1	de-DE/commandEve.json	Bildschirmsteuerung: Sicht und Navigation folgen deiner Stufe. Klicken und Tippen bleiben verfügbar. Solange der konkrete Vorgang nicht sicher erkennen lässt, ob er etwa einen Kauf bestätigt, genehmigst du nur diesen letzten Schritt. Einige zerstörerische System-Tastenkombinationen blockiert Hermes weiterhin, damit die laufende Maschine nicht gesperrt oder abgemeldet wird.
 copy	1	de-DE/commandEve.json	Daran würde sich nichts ändern — das steht alles schon so.
 copy	1	de-DE/commandEve.json	Das ist ein hoher Tagesbetrag. Er ist gespeichert — sieh bitte kurz nach, ob du dich vertippt hast.
 copy	1	de-DE/commandEve.json	Das passiert, wenn du bestätigst:
 copy	1	de-DE/commandEve.json	Dateien anfassen, die nicht zum Projekt gehören.
+copy	1	de-DE/commandEve.json	Deine Freigaben und technischen Grenzen
+copy	1	de-DE/commandEve.json	Deine Stufe regelt die Hermes-Werkzeuge — Terminal, Dateien, Browser, Bildschirmsteuerung, Notizen, Fähigkeiten, Prozesse und Zeitpläne. Diese technischen Grenzen bleiben davon getrennt.
+copy	1	de-DE/commandEve.json	Der Betrag wird gespeichert, aber in dieser Version noch nicht als Tageszähler durchgesetzt. Geldbefehle und nicht sicher einordenbare Bezahlvorgänge fragt EVE deshalb weiterhin einzeln ab. Das eingetragene Limit ist kein Blankoscheck.
 copy	1	de-DE/commandEve.json	Diese Einstellung stammt noch aus einer älteren Version und wurde von dir nie bestätigt. Sieh sie einmal durch.
-copy	1	de-DE/commandEve.json	Diese Seite regelt Terminal-Befehle und Datei-Änderungen. Sechs Dinge entscheidet sie nicht — hier stehen sie, damit du sie kennst, bevor du dich auf die Stufen verlässt.
 copy	1	de-DE/commandEve.json	Diese fünf hängen an keiner Stufe. Auch auf „Voll“ bleiben sie aus, bis du sie einzeln anschaltest.
 copy	1	de-DE/commandEve.json	E-Mails, Beiträge, alles, was andere Menschen erreicht.
 copy	1	de-DE/commandEve.json	EVE fragt vor jeder Änderung. Du siehst jeden Schritt, bevor er passiert.
@@ -545,9 +547,8 @@ copy	1	de-DE/commandEve.json	Leiste einklappen
 copy	1	de-DE/commandEve.json	Live-Systeme deployen oder verändern.
 copy	1	de-DE/commandEve.json	Löschen außerhalb des Arbeitsordners
 copy	1	de-DE/commandEve.json	Noch nichts gemerkt. EVE fragt bei jedem Befehl.
-copy	1	de-DE/commandEve.json	Notizen und Fähigkeiten: Was EVE sich merkt und welche Fähigkeiten sie sich selbst schreibt, läuft ohne Rückfrage. Dafür gibt es hier keinen Schalter.
+copy	1	de-DE/commandEve.json	Notizen, Fähigkeiten und Zeitpläne: Änderungen folgen jetzt deiner Stufe. Auf „Voll“ darf EVE sie selbstständig pflegen; auf niedrigeren Stufen erscheint die normale Freigabe-Karte.
 copy	1	de-DE/commandEve.json	Nur zusehen
-copy	1	de-DE/commandEve.json	Ohne Betrag bleibt das Geld-Siegel geschlossen — das wird technisch erzwungen. Der Betrag selbst wird in dieser Version noch nicht gegen tatsächliche Ausgaben gezählt und nicht an EVE übermittelt. Er ist deine festgehaltene Obergrenze; durchgesetzt wird sie erst mit einer kommenden Version.
 copy	1	de-DE/commandEve.json	Ohne Betrag bleibt das Geld-Siegel zu. Geld-Befehle, die EVE als solche erkennt, kommen dann nicht durch.
 copy	1	de-DE/commandEve.json	Routine
 copy	1	de-DE/commandEve.json	Schon offen: {{seal}}
@@ -555,7 +556,7 @@ copy	1	de-DE/commandEve.json	Secrets und Schlüssel im Klartext sehen.
 copy	1	de-DE/commandEve.json	Selbstständig
 copy	1	de-DE/commandEve.json	Stufe: bleibt auf „{{rung}}“
 copy	1	de-DE/commandEve.json	Stufe: von „{{from}}“ auf „{{to}}“
-copy	1	de-DE/commandEve.json	Tagesbetrag: Der Betrag bei „Geld ausgeben“ öffnet dieses Siegel. Gegen tatsächliche Ausgaben gezählt wird er in dieser Version nicht.
+copy	1	de-DE/commandEve.json	Tagesbetrag: Der Betrag wird gespeichert, aber noch nicht gegen einen Tagesverbrauch gebucht. EVE fragt vor Geldbefehlen und nicht sicher einordenbaren Bezahlvorgängen weiterhin einzeln; das Limit erteilt keine pauschale Kaufvollmacht.
 copy	1	de-DE/commandEve.json	Trotzdem wechseln
 copy	1	de-DE/commandEve.json	Unbeantwortete Anfragen: Eine Freigabe-Karte, die du fünf Minuten lang nicht beantwortest, gilt als abgelehnt — nicht als erteilt.
 copy	1	de-DE/commandEve.json	Veröffentlichen und senden
@@ -566,7 +567,6 @@ copy	1	de-DE/commandEve.json	Vollfreigabe ist aktiv. Stufe „Voll“, alle fün
 copy	1	de-DE/commandEve.json	Von dir freigegeben am {{date}}
 copy	1	de-DE/commandEve.json	Was EVE nur mit ausdrücklicher Erlaubnis darf
 copy	1	de-DE/commandEve.json	Was EVE sich gemerkt hat
-copy	1	de-DE/commandEve.json	Was diese Seite nicht entscheidet
 copy	1	de-DE/commandEve.json	Webseiten-Sperrliste: Ist sie fehlerhaft eingerichtet, gilt sie als leer und alles ist erreichbar.
 copy	1	de-DE/commandEve.json	Wie selbstständig EVE arbeitet
 copy	1	de-DE/commandEve.json	Zugangsdaten lesen
@@ -933,8 +933,8 @@ copy	1	de-DE/conversation.json	Antwort streamt
 copy	1	de-DE/conversation.json	Antwort-Stream wurde unterbrochen
 copy	1	de-DE/conversation.json	Anzeige holt auf
 copy	1	de-DE/conversation.json	App
+copy	1	de-DE/conversation.json	Arbeitet
 copy	1	de-DE/conversation.json	Arbeitsfläche anordnen
-copy	1	de-DE/conversation.json	Arbeitsfläche mit EVE-Sidecar
 copy	1	de-DE/conversation.json	Arbeitsfläche oben, Chat unten
 copy	1	de-DE/conversation.json	Arbeitsfläche öffnen
 copy	1	de-DE/conversation.json	Archiv
@@ -956,11 +956,12 @@ copy	1	de-DE/conversation.json	Ausschalten
 copy	1	de-DE/conversation.json	Authentifizierung beim Modellanbieter fehlgeschlagen
 copy	1	de-DE/conversation.json	Automatisch
 copy	1	de-DE/conversation.json	Bearbeiten
+copy	1	de-DE/conversation.json	Beendet
 copy	1	de-DE/conversation.json	Befehle in der Warteschlange
 copy	1	de-DE/conversation.json	Befehle in der Warteschlange dürfen nicht leer sein.
 copy	1	de-DE/conversation.json	Benötigt Aufmerksamkeit
 copy	1	de-DE/conversation.json	Berechtigung wird geprüft
-copy	2	de-DE/conversation.json	Bereit
+copy	3	de-DE/conversation.json	Bereit
 copy	1	de-DE/conversation.json	Bereitgestellte Änderungen
 copy	1	de-DE/conversation.json	Bereitstellen
 copy	1	de-DE/conversation.json	Bereitstellung aller Änderungen aufheben
@@ -979,10 +980,8 @@ copy	1	de-DE/conversation.json	Bitte wähle einen Exportordner aus
 copy	1	de-DE/conversation.json	Bitte wähle zuerst Themen aus
 copy	1	de-DE/conversation.json	Browser
 copy	1	de-DE/conversation.json	CLI-Agenten
-copy	1	de-DE/conversation.json	Chat
 copy	1	de-DE/conversation.json	Chat in Ordner verschieben
 copy	1	de-DE/conversation.json	Chat links, Arbeitsfläche rechts
-copy	1	de-DE/conversation.json	Chat maximieren
 copy	1	de-DE/conversation.json	Chat umbenennen
 copy	1	de-DE/conversation.json	Cloud
 copy	1	de-DE/conversation.json	Cloud-OCR für dieses PDF erlauben?
@@ -1117,9 +1116,6 @@ copy	1	de-DE/conversation.json	EVE konnte dieses PDF nicht sicher lesen. Die Nac
 copy	1	de-DE/conversation.json	EVE verbindet
 copy	1	de-DE/conversation.json	EVE wartet auf eine Freigabe oder Rückfrage.
 copy	1	de-DE/conversation.json	EVE-Arbeitsfläche
-copy	1	de-DE/conversation.json	EVE-Chat anheften
-copy	1	de-DE/conversation.json	EVE-Chat lösen
-copy	1	de-DE/conversation.json	EVE-Chat schließen
 copy	1	de-DE/conversation.json	EVE-Steuerung öffnen
 copy	1	de-DE/conversation.json	Ein Netzwerk- oder DNS-Fehler hat den Zugriff auf den Anbieter verhindert. Überprüfe dein Netzwerk, deinen Proxy und die Base-URL.
 copy	1	de-DE/conversation.json	Eine andere Antwort läuft noch. Warte, bis sie abgeschlossen ist, bevor du eine neue Nachricht sendest.
@@ -1141,9 +1137,10 @@ copy	1	de-DE/conversation.json	Exportieren
 copy	1	de-DE/conversation.json	Exportiert die Gesprächsverläufe des aktuellen Themas (JSON + Markdown) und die Projektdateien in ein ZIP-Paket.
 copy	1	de-DE/conversation.json	Exportiert die Gesprächsverläufe von {{count}} ausgewählten Themen (JSON + Markdown) und die Projektdateien in ein ZIP-Paket.
 copy	1	de-DE/conversation.json	Fallback-Gespräch konnte nicht erstellt werden.
-copy	1	de-DE/conversation.json	Fehler
+copy	2	de-DE/conversation.json	Fehler
 copy	1	de-DE/conversation.json	Fehlercode
 copy	1	de-DE/conversation.json	Fehlgeschlagen
+copy	1	de-DE/conversation.json	Fertig
 copy	1	de-DE/conversation.json	Fertig – ungelesen
 copy	1	de-DE/conversation.json	Folien einmal analysieren
 copy	1	de-DE/conversation.json	Folien werden sicher visuell analysiert
@@ -1156,6 +1153,7 @@ copy	1	de-DE/conversation.json	Geladene Skills
 copy	1	de-DE/conversation.json	Geladenes MCP
 copy	1	de-DE/conversation.json	Generieren
 copy	1	de-DE/conversation.json	Generierung fehlgeschlagen
+copy	1	de-DE/conversation.json	Geplant
 copy	1	de-DE/conversation.json	Gespräch
 copy	1	de-DE/conversation.json	Gespräch durchsuchen
 copy	1	de-DE/conversation.json	Gespräch ist beschäftigt
@@ -1186,6 +1184,7 @@ copy	1	de-DE/conversation.json	In Ordner verschoben
 copy	1	de-DE/conversation.json	Initialisierung des Agentenprotokolls fehlgeschlagen
 copy	1	de-DE/conversation.json	Installiere den fehlenden Befehl oder stelle sicher, dass er zum PATH hinzugefügt wurde.
 copy	1	de-DE/conversation.json	Installiere die von diesem Agenten benötigte CLI oder App und verbinde ihn dann in den Einstellungen erneut.
+copy	1	de-DE/conversation.json	Interaktives EVE-Terminal
 copy	1	de-DE/conversation.json	Jetzt als Korrektur einschieben
 copy	1	de-DE/conversation.json	Kein Chatverlauf
 copy	1	de-DE/conversation.json	Kein Gesprächsverlauf gefunden
@@ -1301,6 +1300,7 @@ copy	1	de-DE/conversation.json	Projektdateien
 copy	1	de-DE/conversation.json	Projekte
 copy	1	de-DE/conversation.json	Projektname
 copy	1	de-DE/conversation.json	Projektordner öffnen
+copy	1	de-DE/conversation.json	Prozess beendet
 copy	1	de-DE/conversation.json	Präsentation bereit · Analyse wird vorbereitet
 copy	1	de-DE/conversation.json	Präsentation konnte nicht verarbeitet werden · Nachricht blieb ungesendet
 copy	1	de-DE/conversation.json	Präsentation verstanden · Analyse wird an EVE übergeben
@@ -1311,7 +1311,6 @@ copy	1	de-DE/conversation.json	Regel erfolgreich geladen
 copy	2	de-DE/conversation.json	Regel/Skill laden
 copy	1	de-DE/conversation.json	Runtime-Fehler
 copy	1	de-DE/conversation.json	Schreib EVE, was du erreichen möchtest ...
-copy	1	de-DE/conversation.json	Seiten-Chat
 copy	1	de-DE/conversation.json	Sende Feedback mit Logs, damit das Team das Problem untersuchen kann.
 copy	1	de-DE/conversation.json	Sendemodus während EVE arbeitet
 copy	1	de-DE/conversation.json	Sensible Daten bereinigt
@@ -1331,8 +1330,12 @@ copy	1	de-DE/conversation.json	Stapelverwaltung
 copy	1	de-DE/conversation.json	Starte den ausgewählten Agenten neu oder verbinde ihn erneut und versuche es dann erneut.
 copy	1	de-DE/conversation.json	Starte ein neues Gespräch, bevor du fortfährst.
 copy	1	de-DE/conversation.json	Starte einen Auftrag oder öffne einen bestehenden Chat.
+copy	1	de-DE/conversation.json	Startet
 copy	1	de-DE/conversation.json	Stelle eine kurze Frage zum aktuellen Gespräch
 copy	1	de-DE/conversation.json	Stopp
+copy	1	de-DE/conversation.json	Subagent
+copy	1	de-DE/conversation.json	Subagent {{number}}
+copy	1	de-DE/conversation.json	Subagenten
 copy	1	de-DE/conversation.json	Suchen
 copy	1	de-DE/conversation.json	Temporärer Bereich
 copy	2	de-DE/conversation.json	Terminal
@@ -1349,6 +1352,7 @@ copy	1	de-DE/conversation.json	Unbenannter Ordner
 copy	1	de-DE/conversation.json	Unbenanntes Gespräch
 copy	1	de-DE/conversation.json	Upstream
 copy	1	de-DE/conversation.json	VS Code
+copy	1	de-DE/conversation.json	Verbindungsfehler
 copy	1	de-DE/conversation.json	Verschieben fehlgeschlagen
 copy	1	de-DE/conversation.json	Verstanden
 copy	1	de-DE/conversation.json	Versuche es später erneut oder sende diese Nachricht noch einmal.
@@ -1395,6 +1399,7 @@ copy	1	de-DE/conversation.json	Zugriff vom Modellanbieter verweigert
 copy	1	de-DE/conversation.json	Zuletzt verwendet
 copy	1	de-DE/conversation.json	Zum Chat hinzufügen
 copy	1	de-DE/conversation.json	Zum Chat hinzugefügt
+copy	1	de-DE/conversation.json	Zum Chat zurückkehren
 copy	1	de-DE/conversation.json	Zum Importieren ablegen
 copy	1	de-DE/conversation.json	Zwischenfrage
 copy	1	de-DE/conversation.json	Zwischenfrage beantwortet.
@@ -4085,7 +4090,7 @@ copy	1	en-US/commandEve.json	Clients
 copy	1	en-US/commandEve.json	Collapse rail
 copy	1	en-US/commandEve.json	Command scanner: the extra security scanner lets things through when it is not running or not installed. It is a second opinion, not a lock.
 copy	1	en-US/commandEve.json	Commands you allowed permanently for this seat. EVE stops asking for them — until you withdraw one here.
-copy	1	en-US/commandEve.json	Daily amount: the amount under “Spend money” opens that seal. It is not counted against actual spending in this version.
+copy	1	en-US/commandEve.json	Daily amount: the amount is saved, but is not yet booked against daily usage. EVE still asks separately before money commands and payment steps it cannot classify safely; the limit does not grant blanket purchasing authority.
 copy	1	en-US/commandEve.json	Decide what EVE may do without asking — and withdraw anything it has remembered, any time.
 copy	1	en-US/commandEve.json	Delete outside the workspace
 copy	1	en-US/commandEve.json	Deploy or change live systems.
@@ -4102,7 +4107,7 @@ copy	1	en-US/commandEve.json	Granted by you on {{date}}
 copy	1	en-US/commandEve.json	Here is what happens when you confirm:
 copy	1	en-US/commandEve.json	How independently EVE works
 copy	1	en-US/commandEve.json	Independent
-copy	1	en-US/commandEve.json	Notes and skills: what EVE remembers, and which skills it writes for itself, run without asking. There is no switch for it here.
+copy	1	en-US/commandEve.json	Memory, skills and schedules: changes now follow your rung. On Full, EVE may maintain them independently; lower rungs use the normal approval card.
 copy	1	en-US/commandEve.json	Nothing remembered yet. EVE asks for every command.
 copy	1	en-US/commandEve.json	Nothing would change — all of this is already set that way.
 copy	1	en-US/commandEve.json	One rung. It governs the everyday decisions — not the delicate ones below.
@@ -4118,7 +4123,7 @@ copy	1	en-US/commandEve.json	Release spending — an amount is required
 copy	1	en-US/commandEve.json	Routine
 copy	1	en-US/commandEve.json	Rung: from “{{from}}” to “{{to}}”
 copy	1	en-US/commandEve.json	Rung: stays at “{{rung}}”
-copy	1	en-US/commandEve.json	Screen control: clicks, typing and key combinations bypass this page. Destructive key combinations are hard-blocked; the rest is not decided by your rung.
+copy	1	en-US/commandEve.json	Screen control: visibility and navigation follow your rung. Clicking and typing stay available. Until the concrete operation can prove that it is not, for example, confirming a purchase, you approve only that final step. Hermes still blocks a few destructive system key combinations so the running machine cannot be locked or logged out.
 copy	1	en-US/commandEve.json	See secrets and keys in clear text.
 copy	1	en-US/commandEve.json	Set up full release
 copy	1	en-US/commandEve.json	Sign in again to load your seats
@@ -4129,8 +4134,8 @@ copy	1	en-US/commandEve.json	Spend money: without an amount, money stays closed.
 copy	1	en-US/commandEve.json	Switch anyway
 copy	1	en-US/commandEve.json	Switching seats aborts and discards the running response. Switch anyway?
 copy	1	en-US/commandEve.json	That is a high daily amount. It is saved — please check you did not mistype.
+copy	1	en-US/commandEve.json	The amount is saved, but this version does not yet enforce it as a daily ledger. EVE therefore still asks separately for money commands and payment steps it cannot classify safely. The configured limit is not a blank cheque.
 copy	1	en-US/commandEve.json	These five hang off no rung. Even on “Full” they stay off until you switch each one on.
-copy	1	en-US/commandEve.json	This page governs terminal commands and file changes. Six things it does not decide — listed here so you know them before you rely on the rungs.
 copy	1	en-US/commandEve.json	This setting came from an older version and you never confirmed it. Have a look.
 copy	1	en-US/commandEve.json	Touch files that do not belong to the project.
 copy	1	en-US/commandEve.json	Unanswered requests: a permission card you leave unanswered for five minutes counts as denied — not as granted.
@@ -4138,13 +4143,13 @@ copy	1	en-US/commandEve.json	Watch only
 copy	1	en-US/commandEve.json	Website blocklist: if it is misconfigured it counts as empty, and everything is reachable.
 copy	1	en-US/commandEve.json	What EVE has remembered
 copy	1	en-US/commandEve.json	What EVE may only do with explicit permission
-copy	1	en-US/commandEve.json	What this page does not decide
 copy	1	en-US/commandEve.json	Withdraw
-copy	1	en-US/commandEve.json	Without an amount the money seal stays closed — that is technically enforced. The amount itself is not yet counted against actual spending in this version, and it is not transmitted to EVE. It is your recorded upper bound; enforcing it comes in a future version.
 copy	1	en-US/commandEve.json	Without an amount the money seal stays shut. Money commands EVE recognises as such do not get through.
 copy	1	en-US/commandEve.json	Working
 copy	1	en-US/commandEve.json	Write to production
 copy	1	en-US/commandEve.json	Yes, release everything
+copy	1	en-US/commandEve.json	Your permissions and technical boundaries
+copy	1	en-US/commandEve.json	Your rung governs Hermes tools — terminal, files, browser, screen control, memory, skills, processes and schedules. These technical boundaries remain separate.
 copy	1	en-US/commandEve.json	{{name}} (active)
 copy	1	en-US/common.json	(optional)
 copy	1	en-US/common.json	A durable operation is incomplete. Use Recover; do not repeat the original action.
@@ -4523,7 +4528,6 @@ copy	1	en-US/conversation.json	CLI Agents
 copy	4	en-US/conversation.json	Cancel
 copy	1	en-US/conversation.json	Changed Files
 copy	2	en-US/conversation.json	Changes
-copy	1	en-US/conversation.json	Chat
 copy	1	en-US/conversation.json	Chat in Project
 copy	1	en-US/conversation.json	Chat left, workbench right
 copy	1	en-US/conversation.json	Check the agent installation and local command configuration.
@@ -4534,11 +4538,12 @@ copy	1	en-US/conversation.json	Checking your entitlement
 copy	1	en-US/conversation.json	Choose a model that is available for the current account and supports this request.
 copy	1	en-US/conversation.json	Clear Queue
 copy	1	en-US/conversation.json	Click here to search keywords
-copy	1	en-US/conversation.json	Close EVE chat
 copy	1	en-US/conversation.json	Close {{title}}
+copy	1	en-US/conversation.json	Closed
 copy	1	en-US/conversation.json	Cloud
 copy	1	en-US/conversation.json	Cloud OCR failed. The message and PDF remain unsent.
 copy	1	en-US/conversation.json	Command EVE Skills
+copy	1	en-US/conversation.json	Connection error
 copy	1	en-US/conversation.json	Connector health is checked in the Connector Catalog. Run read-only preflights there; raw MCP setup stays gated.
 copy	2	en-US/conversation.json	Context
 copy	1	en-US/conversation.json	Context is too large for the model
@@ -4570,6 +4575,7 @@ copy	1	en-US/conversation.json	Discard Changes
 copy	1	en-US/conversation.json	Display catching up
 copy	1	en-US/conversation.json	Do not ask me again
 copy	1	en-US/conversation.json	Documents, images, and other results appear here automatically.
+copy	1	en-US/conversation.json	Done
 copy	1	en-US/conversation.json	Done – unread
 copy	1	en-US/conversation.json	Download
 copy	1	en-US/conversation.json	Download failed
@@ -4625,7 +4631,7 @@ copy	1	en-US/conversation.json	Export succeeded
 copy	1	en-US/conversation.json	Export {{count}} selected topics' conversation records (JSON + Markdown) and project files into one ZIP package.
 copy	1	en-US/conversation.json	Export {{count}} selected topics?
 copy	1	en-US/conversation.json	Exporting...
-copy	1	en-US/conversation.json	Failed
+copy	2	en-US/conversation.json	Failed
 copy	1	en-US/conversation.json	Failed to answer the side question.
 copy	1	en-US/conversation.json	Failed to create conversation
 copy	1	en-US/conversation.json	Failed to create fallback conversation.
@@ -4669,6 +4675,7 @@ copy	1	en-US/conversation.json	Image ready · preparing analysis
 copy	1	en-US/conversation.json	Image understood · handing analysis to EVE
 copy	1	en-US/conversation.json	Install the CLI or app required by this agent, then reconnect it in settings.
 copy	1	en-US/conversation.json	Install the missing command, or confirm it has been added to PATH.
+copy	1	en-US/conversation.json	Interactive EVE terminal
 copy	1	en-US/conversation.json	It's empty
 copy	1	en-US/conversation.json	Last 7 Days
 copy	1	en-US/conversation.json	Last model call had no sensitive findings.
@@ -4694,7 +4701,6 @@ copy	1	en-US/conversation.json	Main task still running in the background.
 copy	1	en-US/conversation.json	Make sure the current workspace path exists.
 copy	1	en-US/conversation.json	Managed visual analysis could not be authorized. The draft and files remain unsent.
 copy	1	en-US/conversation.json	Maximize active surface
-copy	1	en-US/conversation.json	Maximize chat
 copy	1	en-US/conversation.json	Mic
 copy	1	en-US/conversation.json	Microphone permission was denied
 copy	1	en-US/conversation.json	Model does not support this request
@@ -4759,11 +4765,9 @@ copy	1	en-US/conversation.json	PDF processing failed · message was not sent
 copy	1	en-US/conversation.json	PDF read · handing analysis to EVE
 copy	1	en-US/conversation.json	PDF ready · waiting for your OCR approval
 copy	1	en-US/conversation.json	PII protection off
-copy	1	en-US/conversation.json	Page chat
 copy	1	en-US/conversation.json	Paste
 copy	1	en-US/conversation.json	Paste files
 copy	1	en-US/conversation.json	Pin
-copy	1	en-US/conversation.json	Pin EVE chat
 copy	1	en-US/conversation.json	Pin operation failed
 copy	2	en-US/conversation.json	Pinned
 copy	1	en-US/conversation.json	Please enter a name for the preset
@@ -4798,6 +4802,7 @@ copy	1	en-US/conversation.json	Push as correction now
 copy	1	en-US/conversation.json	Push into the current run after the next tool step.
 copy	1	en-US/conversation.json	Queue data is too large to persist safely. Remove some queued commands first.
 copy	1	en-US/conversation.json	Queue is full. Remove a command before adding more.
+copy	1	en-US/conversation.json	Queued
 copy	1	en-US/conversation.json	Queued Commands
 copy	1	en-US/conversation.json	Queued commands cannot be empty.
 copy	1	en-US/conversation.json	Read aloud
@@ -4806,7 +4811,7 @@ copy	1	en-US/conversation.json	Reading PDF with approved cloud OCR
 copy	1	en-US/conversation.json	Reading file timed out. Please retry.
 copy	1	en-US/conversation.json	Reading {{count}} PDF locally
 copy	1	en-US/conversation.json	Reading {{count}} PDFs locally
-copy	2	en-US/conversation.json	Ready
+copy	3	en-US/conversation.json	Ready
 copy	1	en-US/conversation.json	Recents
 copy	1	en-US/conversation.json	Reduce the message content, referenced files, or context size, then retry.
 copy	2	en-US/conversation.json	Refresh
@@ -4838,6 +4843,7 @@ copy	1	en-US/conversation.json	Restored
 copy	1	en-US/conversation.json	Retry later, or send this message again.
 copy	1	en-US/conversation.json	Retry transcription (your recording is kept)
 copy	1	en-US/conversation.json	Retryable
+copy	1	en-US/conversation.json	Return to chat
 copy	1	en-US/conversation.json	Revert Changes
 copy	1	en-US/conversation.json	Review
 copy	1	en-US/conversation.json	Rule (JSON/MD)
@@ -4878,10 +4884,14 @@ copy	1	en-US/conversation.json	Staged Changes
 copy	1	en-US/conversation.json	Start a new conversation before continuing.
 copy	1	en-US/conversation.json	Start a task or open an existing chat.
 copy	1	en-US/conversation.json	Start voice input
+copy	1	en-US/conversation.json	Starting
 copy	1	en-US/conversation.json	Starting side question...
 copy	1	en-US/conversation.json	Stop
 copy	1	en-US/conversation.json	Stop reading
 copy	1	en-US/conversation.json	Stop recording
+copy	1	en-US/conversation.json	Subagent
+copy	1	en-US/conversation.json	Subagent {{number}}
+copy	1	en-US/conversation.json	Subagents
 copy	1	en-US/conversation.json	Suggestion:
 copy	1	en-US/conversation.json	Switched to {{agent}}
 copy	1	en-US/conversation.json	Switched to {{model}}.
@@ -4968,7 +4978,6 @@ copy	1	en-US/conversation.json	Type / for commands, @ to reference files
 copy	1	en-US/conversation.json	Unknown model
 copy	1	en-US/conversation.json	Unlock MAX
 copy	1	en-US/conversation.json	Unpin
-copy	1	en-US/conversation.json	Unpin EVE chat
 copy	1	en-US/conversation.json	Unstage
 copy	1	en-US/conversation.json	Unstage All Changes
 copy	1	en-US/conversation.json	Unsupported
@@ -4991,12 +5000,13 @@ copy	1	en-US/conversation.json	Wait for the current response to finish before se
 copy	1	en-US/conversation.json	What are we working on today?
 copy	1	en-US/conversation.json	What can Command EVE do?
 copy	1	en-US/conversation.json	Workbench above, chat below
-copy	1	en-US/conversation.json	Workbench with EVE sidecar
+copy	1	en-US/conversation.json	Working
 copy	1	en-US/conversation.json	Yesterday
 copy	1	en-US/conversation.json	Your choice is remembered and will be applied as soon as your entitlement is confirmed.
 copy	1	en-US/conversation.json	Your decision is needed
 copy	1	en-US/conversation.json	context used
 copy	1	en-US/conversation.json	e.g. Excel Translator
+copy	1	en-US/conversation.json	process exited
 copy	1	en-US/conversation.json	the selected documents
 copy	1	en-US/conversation.json	the selected image
 copy	1	en-US/conversation.json	the selected presentation

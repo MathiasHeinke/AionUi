@@ -29,6 +29,7 @@ import {
 } from '@/common/config/eveAuthorityCore';
 import {
   decideCommandApproval,
+  decideHermesToolApproval,
   renderEveAuthorityRuntime,
   sealImplicatedByCommand,
 } from '@/common/config/eveAuthorityRuntimeCore';
@@ -50,6 +51,12 @@ const at = (ladder: EveLadderRung, over: Partial<EveAuthorityGrant> = {}): EveAu
   ...over,
 });
 
+const fullRelease = (): EveAuthorityGrant =>
+  at(5, {
+    capabilities: Object.fromEntries(EVE_SEALED_CAPABILITIES.map((capability) => [capability, true])),
+    limits: { 'spend.money': { dailyCents: 5000 } },
+  });
+
 describe('A — the rung decides the class', () => {
   it('edits: ask below 2, inside the workspace at 2-3, anywhere from 4', () => {
     // The three policy strings are the wheel's own vocabulary
@@ -61,6 +68,99 @@ describe('A — the rung decides the class', () => {
     expect(renderEveAuthorityRuntime(at(3)).edit_policy).toBe('workspace_session');
     expect(renderEveAuthorityRuntime(at(4)).edit_policy).toBe('session');
     expect(renderEveAuthorityRuntime(at(5)).edit_policy).toBe('session');
+  });
+
+  it('keeps browser/computer visible, lets navigation follow the ladder and operation-approves opaque acts', () => {
+    for (const rung of EVE_LADDER_RUNGS) {
+      const runtime = renderEveAuthorityRuntime(at(rung));
+      expect(decideHermesToolApproval({ toolName: 'browser_snapshot' }, runtime)).toBe('allow');
+      expect(decideHermesToolApproval({ toolName: 'computer_use', action: 'capture' }, runtime)).toBe('allow');
+    }
+
+    for (const rung of [0, 1, 2, 3] as const) {
+      const runtime = renderEveAuthorityRuntime(at(rung));
+      expect(decideHermesToolApproval({ toolName: 'browser_navigate' }, runtime)).toBe('ask');
+      expect(decideHermesToolApproval({ toolName: 'browser_type' }, runtime)).toBe('ask');
+      expect(decideHermesToolApproval({ toolName: 'computer_use', action: 'click' }, runtime)).toBe('ask');
+    }
+
+    for (const rung of [4, 5] as const) {
+      const runtime = renderEveAuthorityRuntime(at(rung));
+      expect(decideHermesToolApproval({ toolName: 'browser_navigate' }, runtime)).toBe('allow');
+      expect(decideHermesToolApproval({ toolName: 'browser_scroll' }, runtime)).toBe('allow');
+      expect(decideHermesToolApproval({ toolName: 'browser_type' }, runtime)).toBe('ask');
+      expect(decideHermesToolApproval({ toolName: 'computer_use', action: 'click' }, runtime)).toBe('ask');
+    }
+
+    const released = renderEveAuthorityRuntime(fullRelease());
+    expect(decideHermesToolApproval({ toolName: 'browser_type' }, released)).toBe('ask');
+    expect(decideHermesToolApproval({ toolName: 'computer_use', action: 'click' }, released)).toBe('ask');
+  });
+
+  it('keeps ambiguous browser/computer calls and future upstream tools operation-approved', () => {
+    const runtime = renderEveAuthorityRuntime(at(5));
+    expect(decideHermesToolApproval({ toolName: 'browser_unknown' }, runtime)).toBe('ask');
+    expect(decideHermesToolApproval({ toolName: 'computer_use' }, runtime)).toBe('ask');
+    expect(decideHermesToolApproval({ toolName: 'some_future_tool' }, runtime)).toBe('ask');
+    expect(decideHermesToolApproval({ toolName: 'some_future_tool' }, renderEveAuthorityRuntime(fullRelease()))).toBe(
+      'ask'
+    );
+    expect(decideHermesToolApproval({ toolName: 'some_future_tool' }, renderEveAuthorityRuntime(at(4)))).toBe('ask');
+  });
+
+  it('lets harmless browser dialog dismissal follow rung 4 but keeps dialog acceptance opaque', () => {
+    const runtime = renderEveAuthorityRuntime(at(4));
+    expect(decideHermesToolApproval({ toolName: 'browser_dialog', action: 'dismiss' }, runtime)).toBe('allow');
+    expect(decideHermesToolApproval({ toolName: 'browser_dialog', action: 'accept' }, runtime)).toBe('ask');
+  });
+
+  it('binds memory, skills, processes, schedules and product media to the user-selected authority', () => {
+    expect(decideHermesToolApproval({ toolName: 'todo', action: 'read' }, renderEveAuthorityRuntime(at(0)))).toBe(
+      'allow'
+    );
+    expect(decideHermesToolApproval({ toolName: 'todo', action: 'write' }, renderEveAuthorityRuntime(at(2)))).toBe(
+      'ask'
+    );
+    expect(decideHermesToolApproval({ toolName: 'todo', action: 'write' }, renderEveAuthorityRuntime(at(3)))).toBe(
+      'allow'
+    );
+    expect(decideHermesToolApproval({ toolName: 'process', action: 'poll' }, renderEveAuthorityRuntime(at(0)))).toBe(
+      'allow'
+    );
+    expect(decideHermesToolApproval({ toolName: 'process', action: 'submit' }, renderEveAuthorityRuntime(at(3)))).toBe(
+      'allow'
+    );
+    expect(decideHermesToolApproval({ toolName: 'memory', action: 'add' }, renderEveAuthorityRuntime(at(3)))).toBe(
+      'ask'
+    );
+    expect(decideHermesToolApproval({ toolName: 'memory', action: 'add' }, renderEveAuthorityRuntime(at(4)))).toBe(
+      'allow'
+    );
+    expect(decideHermesToolApproval({ toolName: 'memory', action: 'remove' }, renderEveAuthorityRuntime(at(4)))).toBe(
+      'ask'
+    );
+    expect(decideHermesToolApproval({ toolName: 'memory', action: 'remove' }, renderEveAuthorityRuntime(at(5)))).toBe(
+      'allow'
+    );
+    expect(decideHermesToolApproval({ toolName: 'cronjob', action: 'create' }, renderEveAuthorityRuntime(at(4)))).toBe(
+      'allow'
+    );
+    expect(decideHermesToolApproval({ toolName: 'image_generate' }, renderEveAuthorityRuntime(at(0)))).toBe('allow');
+    expect(decideHermesToolApproval({ toolName: 'video_generate' }, renderEveAuthorityRuntime(at(0)))).toBe('allow');
+  });
+
+  it('keeps outward and skill-deletion seals independent even on Full', () => {
+    const closed = renderEveAuthorityRuntime(at(5));
+    expect(decideHermesToolApproval({ toolName: 'discord', action: 'create_thread' }, closed)).toBe('ask');
+    expect(decideHermesToolApproval({ toolName: 'skill_manage', action: 'delete' }, closed)).toBe('ask');
+
+    const opened = renderEveAuthorityRuntime(
+      at(5, {
+        capabilities: { 'publish.outward': true, 'delete.outside': true },
+      })
+    );
+    expect(decideHermesToolApproval({ toolName: 'discord', action: 'create_thread' }, opened)).toBe('allow');
+    expect(decideHermesToolApproval({ toolName: 'skill_manage', action: 'delete' }, opened)).toBe('allow');
   });
 
   it('workspace commands: allowed from rung 3, asked below it', () => {
@@ -137,8 +237,9 @@ describe('A — the five seals beat every rung, including 5', () => {
 
     const budgeted = withDailyBudget(openedButUnbudgeted, 5000);
     const live = renderEveAuthorityRuntime(budgeted);
-    expect(live.seals['spend.money']).toBe(true);
+    expect(live.seals['spend.money']).toBe(false);
     expect(live.spend_daily_cents).toBe(5000);
+    expect(decideCommandApproval({ command: 'stripe charge', insideWorkspace: true }, live)).toBe('ask');
   });
 
   it('closing the money seal drops the budget with it', () => {
@@ -270,6 +371,12 @@ describe('the shim is the ONE place the answer comes from', () => {
     expect(shim).toContain("requestPath === '/v1/command-eve/approval'");
     const route = shim.slice(shim.indexOf("requestPath === '/v1/command-eve/approval'"));
     expect(route.slice(0, 200)).toContain('requireShimAuth');
+  });
+
+  it('the structured Hermes tool route is authenticated too', () => {
+    expect(shim).toContain("requestPath === '/v1/command-eve/tool-approval'");
+    const route = shim.slice(shim.indexOf("requestPath === '/v1/command-eve/tool-approval'"));
+    expect(route.slice(0, 220)).toContain('requireShimAuth');
   });
 
   it('an un-wired shim answers ask, never allow', () => {

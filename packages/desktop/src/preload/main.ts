@@ -9,9 +9,15 @@
 // Bundled into this preload via `externalizeDepsPlugin({ exclude: [...] })` so
 // Electron's sandbox-mode preload doesn't try to resolve it from node_modules.
 import '@sentry/electron/preload';
-import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import { ADAPTER_BRIDGE_EVENT_KEY } from '../common/adapter/constant';
 import { DESKTOP_SHELL_CHANNELS } from '../common/config/desktopShellChannels';
+import {
+  COMMAND_EVE_TERMINAL_CHANNELS,
+  type CommandEveTerminalDataEvent,
+  type CommandEveTerminalExitEvent,
+  type CommandEveTerminalStartRequest,
+} from '../common/config/commandEveTerminalChannels';
 import {
   COMMAND_EVE_APP_UPLOAD_GRANT_CHANNEL,
   COMMAND_EVE_FILE_SELECTION_GRANT_CHANNEL,
@@ -63,6 +69,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openExternal: (url: string) => ipcRenderer.invoke(DESKTOP_SHELL_CHANNELS.openExternal, url),
     openFile: (filePath: string) => ipcRenderer.invoke(DESKTOP_SHELL_CHANNELS.openFile, filePath),
     showItemInFolder: (filePath: string) => ipcRenderer.invoke(DESKTOP_SHELL_CHANNELS.showItemInFolder, filePath),
+  },
+  terminal: {
+    start: (request: CommandEveTerminalStartRequest) =>
+      ipcRenderer.invoke(COMMAND_EVE_TERMINAL_CHANNELS.start, request),
+    write: (terminalId: string, data: string) =>
+      ipcRenderer.invoke(COMMAND_EVE_TERMINAL_CHANNELS.write, { terminalId, data }),
+    resize: (terminalId: string, cols: number, rows: number) =>
+      ipcRenderer.invoke(COMMAND_EVE_TERMINAL_CHANNELS.resize, { terminalId, cols, rows }),
+    close: (terminalId: string) => ipcRenderer.invoke(COMMAND_EVE_TERMINAL_CHANNELS.close, terminalId),
+    onData: (callback: (event: CommandEveTerminalDataEvent) => void) => {
+      const handler = (_event: IpcRendererEvent, payload: CommandEveTerminalDataEvent) => callback(payload);
+      ipcRenderer.on(COMMAND_EVE_TERMINAL_CHANNELS.data, handler);
+      return () => ipcRenderer.off(COMMAND_EVE_TERMINAL_CHANNELS.data, handler);
+    },
+    onExit: (callback: (event: CommandEveTerminalExitEvent) => void) => {
+      const handler = (_event: IpcRendererEvent, payload: CommandEveTerminalExitEvent) => callback(payload);
+      ipcRenderer.on(COMMAND_EVE_TERMINAL_CHANNELS.exit, handler);
+      return () => ipcRenderer.off(COMMAND_EVE_TERMINAL_CHANNELS.exit, handler);
+    },
   },
 });
 

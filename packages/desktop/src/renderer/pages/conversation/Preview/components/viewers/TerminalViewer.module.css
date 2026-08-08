@@ -1,0 +1,99 @@
+.root {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 85% -20%, rgba(65, 113, 210, 0.16), transparent 38%),
+    #0b0e14;
+}
+
+.meta {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  color: rgba(217, 225, 239, 0.58);
+  background: rgba(14, 18, 27, 0.72);
+  backdrop-filter: blur(18px) saturate(125%);
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #71d6a4;
+  box-shadow: 0 0 12px rgba(113, 214, 164, 0.58);
+}
+
+.root[data-terminal-status='starting'] .statusDot {
+  background: #72a7ff;
+  animation: terminal-breathe 1.4s ease-in-out infinite;
+}
+
+.root[data-terminal-status='closed'] .statusDot,
+.root[data-terminal-status='error'] .statusDot {
+  background: #ff7f89;
+  box-shadow: 0 0 12px rgba(255, 127, 137, 0.42);
+}
+
+.statusLabel {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.cwd {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: rgba(217, 225, 239, 0.38);
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewport {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  padding: 12px 14px 14px;
+}
+
+.viewport :global(.xterm) {
+  height: 100%;
+}
+
+.viewport :global(.xterm-viewport) {
+  scrollbar-color: rgba(121, 138, 170, 0.32) transparent;
+  scrollbar-width: thin;
+}
+
+@keyframes terminal-breathe {
+  0%,
+  100% {
+    opacity: 0.58;
+    transform: scale(0.86);
+    box-shadow: 0 0 6px rgba(114, 167, 255, 0.34);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 16px rgba(114, 167, 255, 0.72);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root[data-terminal-status='starting'] .statusDot {
+    animation: none;
+  }
+}

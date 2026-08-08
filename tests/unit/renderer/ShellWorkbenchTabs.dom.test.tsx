@@ -44,7 +44,7 @@ const renderWorkbench = () =>
     <MemoryRouter initialEntries={['/conversation/conv-1']}>
       <PreviewProvider>
         <CapturePreviewApi />
-        <ShellWorkbenchTabs conversationId='conv-1' />
+        <ShellWorkbenchTabs conversationId='conv-1' workspacePath='/tmp/eve-project' />
       </PreviewProvider>
     </MemoryRouter>
   );
@@ -112,16 +112,43 @@ describe('ShellWorkbenchTabs', () => {
     expect(screen.queryByRole('button', { name: 'conversation.workbench.sidecar' })).not.toBeInTheDocument();
   });
 
+  it('returns to the canonical Chat without closing or recreating work surfaces', () => {
+    renderWorkbench();
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.browser' }));
+    const tabId = previewApi?.activeTabId;
+
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.returnToChat' }));
+
+    expect(previewApi?.isOpen).toBe(false);
+    expect(previewApi?.tabs).toHaveLength(1);
+    expect(previewApi?.activeTabId).toBe(tabId);
+  });
+
   it('migrates the retired sidecar preference to the general split layout', () => {
     localStorage.setItem('aionui_eve_workbench_layout_mode_v1', 'sidecar');
     renderLayoutControls();
     expect(previewApi?.workbenchLayoutMode).toBe('split-right');
   });
 
-  it('keeps unproven Terminal disabled and never offers a second Page chat', () => {
+  it('opens one real conversation-scoped Terminal and never offers a second Page chat', () => {
     renderWorkbench();
     fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
-    expect(screen.getByRole('menuitem', { name: /conversation\.workbench\.terminal/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.terminal' }));
+    expect(previewApi?.tabs).toHaveLength(1);
+    expect(previewApi?.tabs[0]).toMatchObject({
+      content_type: 'terminal',
+      content: 'terminal:conv-1',
+      metadata: {
+        title: 'conversation.workbench.terminal',
+        conversation_id: 'conv-1',
+        workspace: '/tmp/eve-project',
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.terminal' }));
+    expect(previewApi?.tabs).toHaveLength(1);
     expect(screen.queryByRole('menuitem', { name: /conversation\.workbench\.pageChat/ })).not.toBeInTheDocument();
   });
 
@@ -131,7 +158,7 @@ describe('ShellWorkbenchTabs', () => {
     expect(screen.queryByRole('menuitem', { name: 'conversation.workbench.files' })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'conversation.workbench.review' })).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'conversation.workbench.browser' })).toBeEnabled();
-    expect(screen.getByRole('menuitem', { name: /conversation\.workbench\.terminal/ })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'conversation.workbench.terminal' })).toBeEnabled();
   });
 
   it('renders launcher-only mode without a duplicate tab strip or layout controls', () => {

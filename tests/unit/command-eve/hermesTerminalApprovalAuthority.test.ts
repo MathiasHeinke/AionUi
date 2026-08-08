@@ -116,7 +116,7 @@ describe("THE REWRITTEN HALF — the seat's grant decides the class, not a const
     // And no other numeric threshold may govern the outcome: the only values
     // this side is allowed to branch on are the literal strings below.
     const branchSubjects = [...client.matchAll(/if\s+([a-z_]+)\s+not in \{/g)].map((m) => m[1]);
-    expect(branchSubjects.toSorted()).toEqual(['decision', 'edit_policy']);
+    expect(branchSubjects.toSorted()).toEqual(['decision', 'decision', 'edit_policy']);
   });
 
   it('every unclear answer fails CLOSED to ask', () => {

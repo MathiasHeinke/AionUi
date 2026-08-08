@@ -36,7 +36,7 @@ export const BUNDLED_HERMES_DIR = 'resources/bundled-hermes';
  */
 export const HERMES_VERSION_SITES = [
   { file: HERMES_PIN_FILE, count: 3 },
-  { file: 'tests/unit/command-eve/runtimeBootstrapCore.test.ts', count: 11 },
+  { file: 'tests/unit/command-eve/runtimeBootstrapCore.test.ts', count: 12 },
   { file: 'tests/unit/command-eve/windows/windowsRuntimeBootstrapCore.test.ts', count: 10 },
   { file: 'tests/unit/command-eve/windows/windowsPhaseALifecycleCore.test.ts', count: 3 },
   { file: 'tests/unit/command-eve/localRuntimeStatusCore.test.ts', count: 2 },

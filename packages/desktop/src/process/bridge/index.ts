@@ -15,6 +15,7 @@ import { initCommandEveBridge } from './commandEveBridge';
 import { initThemeBridge } from './themeBridge';
 import { initProjectWorkspaceBridge } from './projectWorkspaceBridge';
 import { initProjectWorkspaceServiceBridge } from './projectWorkspaceServiceBridge';
+import { initCommandEveTerminalBridge } from './commandEveTerminalBridge';
 
 export type BridgeDependencies = Record<string, never>;
 
@@ -30,6 +31,7 @@ export function initAllBridges(_deps: BridgeDependencies = {}): void {
   initCommandEveBridge();
   initProjectWorkspaceBridge();
   initProjectWorkspaceServiceBridge();
+  initCommandEveTerminalBridge();
 }
 
 export {
@@ -44,6 +46,7 @@ export {
   initCommandEveBridge,
   initProjectWorkspaceBridge,
   initProjectWorkspaceServiceBridge,
+  initCommandEveTerminalBridge,
 };
 export { registerWindowMaximizeListeners } from './windowControlsBridge';
 export const disposeAllTeamSessions = (): Promise<void> => Promise.resolve();

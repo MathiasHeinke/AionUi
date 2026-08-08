@@ -684,6 +684,14 @@
     "label": "EVE workbench",
     "review": "Review",
     "terminal": "Terminal",
+    "terminalViewport": "Interactive EVE terminal",
+    "terminalClosed": "process exited",
+    "terminalStatus": {
+      "starting": "Starting",
+      "ready": "Ready",
+      "closed": "Closed",
+      "error": "Connection error"
+    },
     "browser": "Browser",
     "files": "Files",
     "notConnected": "Not connected yet",
@@ -692,6 +700,7 @@
     "closeTab": "Close {{title}}",
     "unsavedTab": "{{title}}, unsaved changes",
     "layoutLabel": "Arrange workbench",
+    "returnToChat": "Return to chat",
     "focus": "Maximize active surface",
     "splitRight": "Chat left, workbench right",
     "splitBottom": "Workbench above, chat below",
