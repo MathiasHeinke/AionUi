@@ -688,11 +688,6 @@
     "focus": "Maximize active surface",
     "splitRight": "Chat left, workbench right",
     "splitBottom": "Workbench above, chat below",
-    "sidecar": "Workbench with EVE sidecar",
-    "pinSidecar": "Pin EVE chat",
-    "unpinSidecar": "Unpin EVE chat",
-    "expandChat": "Maximize chat",
-    "closeSidecar": "Close EVE chat",
     "resizeSplit": "Resize layout"
   },
   "runtimeStatus": {

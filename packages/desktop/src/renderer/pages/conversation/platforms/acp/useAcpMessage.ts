@@ -44,6 +44,11 @@ import {
 import { getConversationRuntimeViewSnapshot } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
+import {
+  createCommandEveReadPreviewResponse,
+  parseCommandEveReadPreviewRequest,
+  readActiveConversationPreview,
+} from '@/renderer/pages/conversation/Preview/services/previewReader';
 import { dispatchElementsRailRevealEvent } from '@/renderer/utils/workspace/workspaceEvents';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
@@ -99,13 +104,7 @@ export type AcpRuntimeActivity = {
 };
 
 export type AcpStreamWatchdogStatus =
-  | 'idle'
-  | 'streaming'
-  | 'tool_wait'
-  | 'heartbeat_only'
-  | 'ui_backlog'
-  | 'stopped'
-  | 'failed';
+  'idle' | 'streaming' | 'tool_wait' | 'heartbeat_only' | 'ui_backlog' | 'stopped' | 'failed';
 
 export function classifyAcpStreamWatchdog(input: {
   now: number;
@@ -166,7 +165,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   const addOrUpdateMessage = useAddOrUpdateMessage();
   // B7 — opens an html artifact from DISK once its write completes.
   const { launchPreview } = usePreviewLauncher();
-  const { openPreview } = usePreviewContext();
+  const { activeTabId, isOpen: isPreviewOpen, openPreview, tabs: previewTabs } = usePreviewContext();
   const [running, setRunning] = useState(false);
   const [hasHydratedRunningState, setHasHydratedRunningState] = useState(false);
   const [thought, setThought] = useState<ThoughtData>({
@@ -204,6 +203,10 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // Completed native desktop tools are replayable ACP messages. Consume each
   // call once so reconnects never reopen a browser tab or steal panel focus.
   const handledDesktopToolCallIdsRef = useRef<Set<string>>(new Set());
+  // Agent-to-client extension requests can be replayed by the websocket after
+  // reconnect. The AionCore responder is one-shot; answer each request id no
+  // more than once from this conversation renderer.
+  const handledReadPreviewRequestIdsRef = useRef<Set<string>>(new Set());
 
   // Live renderer permission authority for THIS conversation. Plain EVE
   // `dont_ask` leaves escalations gated; the selector publishes the separate,
@@ -510,12 +513,39 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           'slash_commands_updated',
           'agent_status',
           'acp_session_info',
+          'acp_read_preview_request',
           'user_content',
           'teammate_message',
         ].includes(message.type);
 
       if (shouldCompleteThinking) {
         completeActiveThinking(message);
+      }
+
+      if (message.type === 'acp_read_preview_request') {
+        const request = parseCommandEveReadPreviewRequest(message.data, activeAcpSessionIdRef.current);
+        if (!request || handledReadPreviewRequestIdsRef.current.has(request.request_id)) return;
+        handledReadPreviewRequestIdsRef.current.add(request.request_id);
+        void readActiveConversationPreview({
+          activeTabId,
+          conversationId: conversation_id,
+          isOpen: isPreviewOpen,
+          options: { count: request.count, start: request.start },
+          tabs: previewTabs,
+        })
+          .then((result) => createCommandEveReadPreviewResponse(request, result))
+          .then((response) =>
+            conversationBridge.respondReadPreview.invoke({
+              conversation_id,
+              ...response,
+            })
+          )
+          .catch((error: unknown) => {
+            // One bounded attempt only. AionCore owns the 45s timeout and will
+            // turn a renderer/transport failure into a visible tool error.
+            console.warn('[useAcpMessage] read_preview response failed:', error);
+          });
+        return;
       }
 
       const transformedMessage = transformMessage(message);
@@ -1143,6 +1173,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       applyContextUsage,
       reportInferenceError,
       openPreview,
+      activeTabId,
+      isPreviewOpen,
+      previewTabs,
     ]
   );
 
@@ -1218,6 +1251,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     recoveredExternalWriteCallIdsRef.current = new Set();
     activeAcpSessionIdRef.current = undefined;
     handledDesktopToolCallIdsRef.current = new Set();
+    handledReadPreviewRequestIdsRef.current = new Set();
   }, [conversation_id]);
 
   // Keep local permission authority current for the auto-approve path. Restrictive

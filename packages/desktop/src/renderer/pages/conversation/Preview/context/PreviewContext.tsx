@@ -51,7 +51,7 @@ export interface OpenPreviewOptions {
   replace?: boolean;
 }
 
-export type WorkbenchLayoutMode = 'focus' | 'split-right' | 'split-bottom' | 'sidecar';
+export type WorkbenchLayoutMode = 'focus' | 'split-right' | 'split-bottom';
 
 export interface PreviewContextValue {
   // 预览面板状态 / Preview panel state
@@ -65,8 +65,6 @@ export interface PreviewContextValue {
   // Command EVE workbench layout / Command EVE Arbeitsflaechen-Layout
   workbenchLayoutMode: WorkbenchLayoutMode;
   setWorkbenchLayoutMode: (mode: WorkbenchLayoutMode) => void;
-  isWorkbenchSidecarPinned: boolean;
-  setWorkbenchSidecarPinned: (pinned: boolean) => void;
 
   // 预览面板操作 / Preview panel operations
   openPreview: (
@@ -108,26 +106,23 @@ const PREVIEW_TABS_KEY = 'aionui_preview_tabs';
 const PREVIEW_ACTIVE_TAB_ID_KEY = 'aionui_preview_active_tab_id';
 const LEGACY_PREVIEW_STATE_KEY = 'aionui_preview_state';
 const WORKBENCH_LAYOUT_MODE_KEY = 'aionui_eve_workbench_layout_mode_v1';
-const WORKBENCH_SIDECAR_PINNED_KEY = 'aionui_eve_workbench_sidecar_pinned_v1';
 
-const WORKBENCH_LAYOUT_MODES = new Set<WorkbenchLayoutMode>(['focus', 'split-right', 'split-bottom', 'sidecar']);
+const WORKBENCH_LAYOUT_MODES = new Set<WorkbenchLayoutMode>(['focus', 'split-right', 'split-bottom']);
 
 const loadWorkbenchLayoutMode = (): WorkbenchLayoutMode => {
   try {
-    const stored = localStorage.getItem(WORKBENCH_LAYOUT_MODE_KEY) as WorkbenchLayoutMode | null;
-    if (stored && WORKBENCH_LAYOUT_MODES.has(stored)) return stored;
+    const stored = localStorage.getItem(WORKBENCH_LAYOUT_MODE_KEY);
+    // The short-lived sidecar experiment wrapped the real chat in a second
+    // visual shell. Migrate it to the general two-pane layout instead of
+    // preserving product-specific state that Hermes Desktop does not need.
+    if (stored === 'sidecar') return 'split-right';
+    if (stored && WORKBENCH_LAYOUT_MODES.has(stored as WorkbenchLayoutMode)) {
+      return stored as WorkbenchLayoutMode;
+    }
   } catch {
-    // Ignore unavailable storage and use the safe single-surface layout.
+    // Ignore unavailable storage and use the stable two-pane workspace.
   }
-  return 'focus';
-};
-
-const loadWorkbenchSidecarPinned = (): boolean => {
-  try {
-    return localStorage.getItem(WORKBENCH_SIDECAR_PINNED_KEY) !== 'false';
-  } catch {
-    return true;
-  }
+  return 'split-right';
 };
 
 // 仅持久化小体积文本预览，避免大文本导致 localStorage 写入卡顿
@@ -226,7 +221,6 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [tabs, setTabs] = useState<PreviewTab[]>(persistedState.tabs);
   const [activeTabId, setActiveTabId] = useState<string | null>(persistedState.activeTabId);
   const [workbenchLayoutMode, setWorkbenchLayoutModeState] = useState<WorkbenchLayoutMode>(loadWorkbenchLayoutMode);
-  const [isWorkbenchSidecarPinned, setWorkbenchSidecarPinnedState] = useState(loadWorkbenchSidecarPinned);
   // Mirror activeTabId in a ref so setTabs updaters can read the latest value
   // without adding activeTabId to their dependencies.
   const activeTabIdRef = useRef<string | null>(persistedState.activeTabId);
@@ -243,15 +237,6 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
       localStorage.setItem(WORKBENCH_LAYOUT_MODE_KEY, mode);
     } catch {
       // Layout remains usable for the current session when persistence is unavailable.
-    }
-  }, []);
-
-  const setWorkbenchSidecarPinned = useCallback((pinned: boolean) => {
-    setWorkbenchSidecarPinnedState(pinned);
-    try {
-      localStorage.setItem(WORKBENCH_SIDECAR_PINNED_KEY, String(pinned));
-    } catch {
-      // Pinning remains usable for the current session when persistence is unavailable.
     }
   }, []);
 
@@ -846,8 +831,6 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
       activeTab,
       workbenchLayoutMode,
       setWorkbenchLayoutMode,
-      isWorkbenchSidecarPinned,
-      setWorkbenchSidecarPinned,
       openPreview,
       showPreview,
       hidePreview,
@@ -874,8 +857,6 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
     activeTab,
     workbenchLayoutMode,
     setWorkbenchLayoutMode,
-    isWorkbenchSidecarPinned,
-    setWorkbenchSidecarPinned,
     openPreview,
     showPreview,
     hidePreview,

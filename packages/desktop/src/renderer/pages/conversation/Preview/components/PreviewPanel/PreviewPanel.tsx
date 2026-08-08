@@ -690,7 +690,7 @@ const PreviewPanel: React.FC = () => {
     } else if (content_type === 'url') {
       // URL 预览模式 / URL preview mode
       if (COMMAND_EVE_SHELL_ENABLED) return null;
-      return <URLViewer url={content} title={metadata?.title} />;
+      return <URLViewer url={content} title={metadata?.title} tabId={activeTabId ?? undefined} />;
     }
 
     return null;
@@ -788,7 +788,7 @@ const PreviewPanel: React.FC = () => {
                   style={{ display: isActive ? 'flex' : 'none' }}
                   aria-hidden={!isActive}
                 >
-                  <URLViewer url={tab.content} title={tab.metadata?.title} />
+                  <URLViewer url={tab.content} title={tab.metadata?.title} tabId={tab.id} />
                 </div>
               );
             })}

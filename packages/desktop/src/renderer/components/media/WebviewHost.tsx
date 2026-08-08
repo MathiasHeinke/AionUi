@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Left, Right, Refresh, Loading } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import { registerPreviewPageReader } from '@/renderer/pages/conversation/Preview/services/previewReader';
 
 export interface WebviewHostProps {
   /** URL to display */
@@ -28,6 +29,8 @@ export interface WebviewHostProps {
   onDidFailLoad?: (errorCode: number, errorDescription: string) => void;
   /** Optional controls rendered at the trailing edge of the navigation bar. */
   toolbarActions?: React.ReactNode;
+  /** Workbench tab id used by the bounded Hermes read_preview bridge. */
+  previewReaderId?: string;
 }
 
 const MIN_ZOOM_FACTOR = 0.75;
@@ -54,6 +57,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
   onDidFinishLoad,
   onDidFailLoad,
   toolbarActions,
+  previewReaderId,
 }) => {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -111,6 +115,20 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
       // Ignore zoom timing errors
     }
   }, [isStarOffice, zoomFactor, webviewReady]);
+
+  useEffect(() => {
+    if (!previewReaderId) return undefined;
+    return registerPreviewPageReader(previewReaderId, async () => {
+      const webview = webviewRef.current;
+      if (!webview?.executeJavaScript) throw new Error('preview webview is not ready');
+      const text = await webview.executeJavaScript('document.body ? document.body.innerText : ""');
+      return {
+        text: typeof text === 'string' ? text : '',
+        title: webview.getTitle?.() ?? '',
+        url: webview.getURL?.() ?? '',
+      };
+    });
+  }, [previewReaderId]);
 
   // Navigate to new URL (add to history)
   const navigateToWithHistory = useCallback(

@@ -664,11 +664,6 @@
     "focus": "Aktive Fläche maximieren",
     "splitRight": "Chat links, Arbeitsfläche rechts",
     "splitBottom": "Arbeitsfläche oben, Chat unten",
-    "sidecar": "Arbeitsfläche mit EVE-Sidecar",
-    "pinSidecar": "EVE-Chat anheften",
-    "unpinSidecar": "EVE-Chat lösen",
-    "expandChat": "Chat maximieren",
-    "closeSidecar": "EVE-Chat schließen",
     "resizeSplit": "Aufteilung anpassen"
   },
   "runtimeStatus": {

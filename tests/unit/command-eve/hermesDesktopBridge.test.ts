@@ -50,9 +50,9 @@ describe('Hermes desktop bridge', () => {
     );
 
     expect(config).toContain('    - command-eve-desktop');
-    expect(shim).toContain('"tools": ["open_preview", "focus_pane"]');
+    expect(shim).toContain('"tools": ["open_preview", "read_preview", "focus_pane"]');
     expect(shim).toContain('acp_toolset = toolsets.TOOLSETS.get("hermes-acp")');
-    expect(shim).toContain('for tool_name in ("open_preview", "focus_pane")');
+    expect(shim).toContain('for tool_name in ("open_preview", "read_preview", "focus_pane")');
     expect(shim).toContain('clear_tool_cache = getattr(model_tools, "_clear_tool_defs_cache", None)');
     expect(shim).toContain('get_session_env("HERMES_SESSION_KEY", "")');
     expect(shim).toContain('SessionInfoUpdate(');
@@ -62,5 +62,29 @@ describe('Hermes desktop bridge', () => {
     expect(shim).not.toContain('get_session_env("HERMES_UI_SESSION_ID"');
     expect(shim).not.toContain('"tools": ["read_terminal"');
     expect(shim).not.toContain('for tool_name in ("read_terminal"');
+  });
+
+  it('backports only the strict session-bound Hermes read_preview contract', () => {
+    const userData = root();
+    setActiveSeatId(SEAT_ID);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(userData, SEAT_ID);
+    expect(provisionSeatRuntimeFiles({ userDataPath: userData, seatId: SEAT_ID }).ok).toBe(true);
+    const shim = fs.readFileSync(
+      path.join(paths.hermesHome, 'plugins', 'model-providers', 'custom', '__init__.py'),
+      'utf8'
+    );
+
+    expect(shim).toContain('_COMMAND_EVE_READ_PREVIEW_VERSION = "command-eve-read-preview/v1"');
+    expect(shim).toContain('_COMMAND_EVE_READ_PREVIEW_MAX_CHARS = 24_000');
+    expect(shim).toContain('_COMMAND_EVE_READ_PREVIEW_MAX_RESPONSE_BYTES = 32 * 1024');
+    expect(shim).toContain('_COMMAND_EVE_READ_PREVIEW_TIMEOUT_SECONDS = 45');
+    expect(shim).toContain('conn.ext_method("command_eve/read_preview", params)');
+    expect(shim).toContain('set(response) != {"version", "request_id", "session_id", "result"}');
+    expect(shim).toContain('response.get("request_id") != request_id');
+    expect(shim).toContain('response.get("session_id") != session_id');
+    expect(shim).toContain('future.cancel()');
+    expect(shim).toContain('_COMMAND_EVE_DESKTOP_CONNECTIONS.pop(session_id, None)');
+    expect(shim).not.toMatch(/conn\.ext_method\((event|method|name)/);
+    expect(shim).not.toContain('command_eve/execute');
   });
 });

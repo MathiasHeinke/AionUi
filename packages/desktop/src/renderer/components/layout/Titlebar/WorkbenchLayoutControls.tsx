@@ -5,7 +5,7 @@
  */
 
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
-import { FullScreenOne, LayoutThree, LayoutTwo, RightBar } from '@icon-park/react';
+import { FullScreenOne, LayoutThree, LayoutTwo } from '@icon-park/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from './WorkbenchLayoutControls.module.css';
@@ -28,11 +28,6 @@ const WorkbenchLayoutControls: React.FC = () => {
       mode: 'split-bottom' as const,
       label: t('conversation.workbench.splitBottom'),
       icon: <LayoutThree theme='outline' size={15} fill='currentColor' />,
-    },
-    {
-      mode: 'sidecar' as const,
-      label: t('conversation.workbench.sidecar'),
-      icon: <RightBar theme='outline' size={15} fill='currentColor' />,
     },
   ];
 

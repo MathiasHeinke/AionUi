@@ -32,7 +32,7 @@ import {
   calcLayoutMetrics,
 } from '@/renderer/pages/conversation/utils/layoutCalc';
 import { Layout as ArcoLayout } from '@arco-design/web-react';
-import { CloseSmall, ExpandLeft, ExpandRight, FullScreenOne, Pin } from '@icon-park/react';
+import { ExpandLeft, ExpandRight } from '@icon-park/react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
@@ -102,17 +102,7 @@ const ChatLayout: React.FC<{
   const pendingWorkspaceTabRef = useRef<WorkspaceSurfaceTab | null>(null);
 
   // Preview panel state
-  const {
-    isOpen: isPreviewOpen,
-    tabs: previewTabs,
-    activeTabId,
-    activeTab,
-    hidePreview,
-    workbenchLayoutMode,
-    setWorkbenchLayoutMode,
-    isWorkbenchSidecarPinned,
-    setWorkbenchSidecarPinned,
-  } = usePreviewContext();
+  const { isOpen: isPreviewOpen, tabs: previewTabs, activeTabId, activeTab, workbenchLayoutMode } = usePreviewContext();
   const keepPreviewMounted = COMMAND_EVE_SHELL_ENABLED && previewTabs.length > 0;
   const [bottomPreviewRatio, setBottomPreviewRatio] = useState(loadBottomPreviewRatio);
 
@@ -167,8 +157,6 @@ const ChatLayout: React.FC<{
     (!conversation_id || activeTab?.metadata?.conversation_id === conversation_id);
   const activeWorkbenchLayout = isEveWorkbenchActive ? workbenchLayoutMode : 'focus';
   const showChatBesideWorkbench = isEveWorkbenchActive && activeWorkbenchLayout !== 'focus';
-  const isPinnedSidecar = isEveWorkbenchActive && activeWorkbenchLayout === 'sidecar' && isWorkbenchSidecarPinned;
-  const isFloatingSidecar = isEveWorkbenchActive && activeWorkbenchLayout === 'sidecar' && !isWorkbenchSidecarPinned;
 
   // --- Hook C: title rename ---
   const { editingTitle, setEditingTitle, titleDraft, setTitleDraft, renameLoading, canRenameTitle, submitTitleRename } =
@@ -201,16 +189,6 @@ const ChatLayout: React.FC<{
     maxWidth: MAX_WORKSPACE_PANEL_PX,
     storageKey: 'chat-workspace-width-px',
   });
-
-  const { splitRatio: sidecarWidthPx, createDragHandle: createSidecarDragHandle } = useResizableSplit({
-    unit: 'px',
-    defaultWidth: 360,
-    minWidth: 320,
-    maxWidth: 520,
-    storageKey: 'eve-workbench-sidecar-width-px',
-  });
-
-  const effectiveSidecarWidthPx = Math.min(sidecarWidthPx, Math.max(320, containerWidth * 0.46 || sidecarWidthPx));
 
   const handleBottomDividerPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -271,10 +249,10 @@ const ChatLayout: React.FC<{
     setSplitRatio: setChatSplitRatio,
     createDragHandle: createPreviewDragHandle,
   } = useResizableSplit({
-    defaultWidth: 60,
+    defaultWidth: COMMAND_EVE_SHELL_ENABLED ? 42 : 60,
     minWidth: dynamicChatMinRatio,
     maxWidth: dynamicChatMaxRatio,
-    storageKey: 'chat-preview-split-ratio',
+    storageKey: COMMAND_EVE_SHELL_ENABLED ? 'eve-workbench-chat-preview-ratio-v2' : 'chat-preview-split-ratio',
   });
 
   // Full metrics with real chatSplitRatio
@@ -370,9 +348,7 @@ const ChatLayout: React.FC<{
 
   const headerBlock = (
     <>
-      {layout?.isMobile
-        ? mobileActionsSlot && props.headerExtra && createPortal(props.headerExtra, mobileActionsSlot)
-        : !isEveWorkbenchActive && desktopHeader}
+      {layout?.isMobile && mobileActionsSlot && props.headerExtra && createPortal(props.headerExtra, mobileActionsSlot)}
       {props.tabsSlot}
     </>
   );
@@ -384,9 +360,7 @@ const ChatLayout: React.FC<{
       ? `${chatSplitRatio}%`
       : activeWorkbenchLayout === 'split-bottom'
         ? `${100 - bottomPreviewRatio}%`
-        : activeWorkbenchLayout === 'sidecar'
-          ? `${effectiveSidecarWidthPx}px`
-          : 0
+        : 0
     : isPreviewOpen && isDesktop && !COMMAND_EVE_SHELL_ENABLED
       ? `${chatFlex}%`
       : 0;
@@ -415,8 +389,7 @@ const ChatLayout: React.FC<{
             className={classNames(
               'flex flex-1 min-h-0 relative',
               isEveWorkbenchActive && 'eve-workbench-layout',
-              isEveWorkbenchActive && `eve-workbench-layout--${activeWorkbenchLayout}`,
-              isFloatingSidecar && 'eve-workbench-layout--floating-sidecar'
+              isEveWorkbenchActive && `eve-workbench-layout--${activeWorkbenchLayout}`
             )}
             data-eve-workbench-layout={isEveWorkbenchActive ? activeWorkbenchLayout : undefined}
           >
@@ -433,44 +406,20 @@ const ChatLayout: React.FC<{
               className={classNames(
                 'flex flex-col relative',
                 isEveWorkbenchActive && showChatBesideWorkbench && 'eve-chat-pane--workbench',
-                isPinnedSidecar && 'eve-chat-pane--sidecar-pinned',
-                isFloatingSidecar && 'eve-chat-pane--sidecar-floating',
                 isEveWorkbenchActive && activeWorkbenchLayout === 'split-bottom' && 'eve-chat-pane--split-bottom'
               )}
               style={{
-                flexGrow: isEveWorkbenchActive
-                  ? activeWorkbenchLayout === 'focus' || isFloatingSidecar
-                    ? 0
-                    : activeWorkbenchLayout === 'split-right' || activeWorkbenchLayout === 'split-bottom'
-                      ? 0
-                      : 0
-                  : isPreviewOpen && isDesktop && !COMMAND_EVE_SHELL_ENABLED
-                    ? 0
-                    : 1,
+                flexGrow: isEveWorkbenchActive ? 0 : isPreviewOpen && isDesktop && !COMMAND_EVE_SHELL_ENABLED ? 0 : 1,
                 flexShrink: 0,
                 flexBasis: chatPaneFlexBasis,
                 display: chatPaneDisplay,
                 minWidth: '240px',
-                width: isFloatingSidecar ? `${effectiveSidecarWidthPx}px` : undefined,
-                order: isEveWorkbenchActive
-                  ? activeWorkbenchLayout === 'sidecar' || activeWorkbenchLayout === 'split-bottom'
-                    ? 2
-                    : 1
-                  : undefined,
+                order: isEveWorkbenchActive && activeWorkbenchLayout === 'split-bottom' ? 2 : 1,
               }}
               onClick={() => {
                 if (window.innerWidth < 768 && !rightSiderCollapsed) setRightSiderCollapsed(true);
               }}
             >
-              {isPinnedSidecar &&
-                createSidecarDragHandle({
-                  className: 'eve-workbench-divider eve-workbench-divider--sidecar',
-                  style: { left: '-6px', width: '12px' },
-                  reverse: true,
-                  linePlacement: 'end',
-                  lineClassName: 'eve-workbench-divider__line',
-                  lineStyle: { width: '1px' },
-                })}
               {isEveWorkbenchActive && activeWorkbenchLayout === 'split-bottom' && (
                 <div
                   className='eve-workbench-divider eve-workbench-divider--horizontal'
@@ -490,49 +439,7 @@ const ChatLayout: React.FC<{
                   <span aria-hidden='true' />
                 </div>
               )}
-              {isEveWorkbenchActive && activeWorkbenchLayout === 'sidecar' && (
-                <div className='eve-chat-sidecar-header'>
-                  <div className='eve-chat-sidecar-title'>{props.title || t('conversation.workbench.chat')}</div>
-                  <div className='eve-chat-sidecar-actions'>
-                    <button
-                      type='button'
-                      className='eve-chat-sidecar-action'
-                      aria-label={
-                        isWorkbenchSidecarPinned
-                          ? t('conversation.workbench.unpinSidecar')
-                          : t('conversation.workbench.pinSidecar')
-                      }
-                      aria-pressed={isWorkbenchSidecarPinned}
-                      title={
-                        isWorkbenchSidecarPinned
-                          ? t('conversation.workbench.unpinSidecar')
-                          : t('conversation.workbench.pinSidecar')
-                      }
-                      onClick={() => setWorkbenchSidecarPinned(!isWorkbenchSidecarPinned)}
-                    >
-                      <Pin theme={isWorkbenchSidecarPinned ? 'filled' : 'outline'} size={15} fill='currentColor' />
-                    </button>
-                    <button
-                      type='button'
-                      className='eve-chat-sidecar-action'
-                      aria-label={t('conversation.workbench.expandChat')}
-                      title={t('conversation.workbench.expandChat')}
-                      onClick={hidePreview}
-                    >
-                      <FullScreenOne theme='outline' size={15} fill='currentColor' />
-                    </button>
-                    <button
-                      type='button'
-                      className='eve-chat-sidecar-action'
-                      aria-label={t('conversation.workbench.closeSidecar')}
-                      title={t('conversation.workbench.closeSidecar')}
-                      onClick={() => setWorkbenchLayoutMode('focus')}
-                    >
-                      <CloseSmall theme='outline' size={16} fill='currentColor' />
-                    </button>
-                  </div>
-                </div>
-              )}
+              {!layout?.isMobile && desktopHeader}
               <ArcoLayout.Content className='flex flex-col flex-1 overflow-hidden chat-layout-content'>
                 {props.children}
               </ArcoLayout.Content>

@@ -461,6 +461,24 @@ export const conversation = {
     (p) => `/api/conversations/${p.conversation_id}/confirmations/${encodeURIComponent(p.call_id)}/confirm`,
     (p) => ({ msg_id: p.msg_id, data: p.confirm_key })
   ),
+  respondReadPreview: httpPost<
+    { accepted: boolean },
+    {
+      conversation_id: string;
+      version: 'command-eve-read-preview/v1';
+      request_id: string;
+      session_id: string;
+      result: unknown;
+    }
+  >(
+    (p) => `/api/conversations/${p.conversation_id}/acp/read-preview/respond`,
+    (p) => ({
+      version: p.version,
+      request_id: p.request_id,
+      session_id: p.session_id,
+      result: p.result,
+    })
+  ),
   listArtifacts: httpGet<IConversationArtifact[], { conversation_id: string }>(
     (p) => `/api/conversations/${p.conversation_id}/artifacts`
   ),
@@ -781,13 +799,7 @@ export interface ICommandEveCommandCenterReadModelResult {
 }
 
 export type ICommandEveConnectorEvidenceState =
-  | 'installed'
-  | 'available'
-  | 'needs_auth'
-  | 'unverified'
-  | 'gated'
-  | 'connected'
-  | 'blocked';
+  'installed' | 'available' | 'needs_auth' | 'unverified' | 'gated' | 'connected' | 'blocked';
 
 export interface ICommandEveConnectorCatalogCard {
   id: string;
@@ -1273,11 +1285,7 @@ export interface ICommandEveCrmConsentLocalResult {
 export type ICommandEveLicenseEdition = 'pilot' | 'standard';
 
 export type ICommandEveEntitlementGateState =
-  | 'unconfigured'
-  | 'unregistered'
-  | 'registered_unlicensed'
-  | 'entitled'
-  | 'expired';
+  'unconfigured' | 'unregistered' | 'registered_unlicensed' | 'entitled' | 'expired';
 
 export interface ICommandEveEntitlementStatusResult {
   version: 'command-eve-entitlement/v0';
@@ -1685,11 +1693,7 @@ export interface ICommandEveCreditsSpendCapResult {
 export type ICommandEveOnboardingItemState = 'ok' | 'blocked' | 'skipped';
 
 export type ICommandEveOnboardingRemediationKind =
-  | 'none'
-  | 'external-link'
-  | 'html-screen'
-  | 'cloud-redirect'
-  | 'reinstall';
+  'none' | 'external-link' | 'html-screen' | 'cloud-redirect' | 'reinstall';
 
 export type ICommandEveOnboardingItemId = 'registration' | 'license' | 'cloud-lane' | 'local-lane' | 'identity';
 
@@ -3636,13 +3640,7 @@ export interface IConversationTurnCompletedEvent {
   turn_id: string;
   status: 'pending' | 'running' | 'finished';
   state:
-    | 'ai_generating'
-    | 'ai_waiting_input'
-    | 'ai_waiting_confirmation'
-    | 'initializing'
-    | 'stopped'
-    | 'error'
-    | 'unknown';
+    'ai_generating' | 'ai_waiting_input' | 'ai_waiting_confirmation' | 'initializing' | 'stopped' | 'error' | 'unknown';
   detail: string;
   can_send_message: boolean;
   /** Explicit AionCore proof for this logical turn; absent/unknown wire data maps to false. */

@@ -22,6 +22,7 @@ import {
   resetConversationRuntimeViewStoreForTest,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { useConversationArtifactsById } from '@/renderer/pages/conversation/Messages/artifacts';
+import { registerPreviewPageReader } from '@/renderer/pages/conversation/Preview/services/previewReader';
 
 const {
   addOrUpdateMessageMock,
@@ -30,6 +31,7 @@ const {
   conversationGetInvokeMock,
   conversationGetUsageInvokeMock,
   confirmMessageInvokeMock,
+  respondReadPreviewInvokeMock,
   reportInferenceErrorMock,
   ensureAutoProjectInvokeMock,
   conversationStopInvokeMock,
@@ -44,6 +46,7 @@ const {
   conversationGetInvokeMock: vi.fn(),
   conversationGetUsageInvokeMock: vi.fn().mockResolvedValue(null),
   confirmMessageInvokeMock: vi.fn(),
+  respondReadPreviewInvokeMock: vi.fn(),
   conversationStopInvokeMock: vi.fn(),
   reportStageWorkspaceInvokeMock: vi.fn(),
   openPreviewMock: vi.fn(),
@@ -55,13 +58,31 @@ const {
 }));
 
 vi.mock('@/renderer/pages/conversation/Preview', () => ({
-  usePreviewContext: () => ({ openPreview: openPreviewMock }),
+  usePreviewContext: () => ({
+    activeTabId: 'browser-tab',
+    isOpen: true,
+    openPreview: openPreviewMock,
+    tabs: [
+      {
+        id: 'browser-tab',
+        title: 'Browser',
+        content: 'https://example.com',
+        content_type: 'url',
+        isDirty: false,
+        originalContent: 'https://example.com',
+        metadata: { conversation_id: 'conv-1', title: 'Browser' },
+      },
+    ],
+  }),
 }));
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
   conversation: {
     confirmMessage: {
       invoke: confirmMessageInvokeMock,
+    },
+    respondReadPreview: {
+      invoke: respondReadPreviewInvokeMock,
     },
   },
 }));
@@ -297,6 +318,7 @@ describe('useAcpMessage', () => {
     resetConversationRuntimeViewStoreForTest();
     responseStreamHandlerRef.current = undefined;
     confirmMessageInvokeMock.mockResolvedValue(undefined);
+    respondReadPreviewInvokeMock.mockResolvedValue({ accepted: true });
     reportInferenceErrorMock.mockReturnValue(false);
     conversationStopInvokeMock.mockResolvedValue({
       runtime: {
@@ -413,6 +435,66 @@ describe('useAcpMessage', () => {
     expect(railEvent.detail).toEqual({ tab: 'context' });
 
     window.removeEventListener('command-eve-elements-rail-reveal', railReveal);
+  });
+
+  it('answers one strict session-bound read_preview request from the visibly active browser', async () => {
+    conversationGetInvokeMock.mockResolvedValue({
+      id: 'conv-1',
+      type: 'acp',
+      status: 'running',
+      extra: { acp_session_id: 'acp-session-1', backend: 'hermes' },
+    });
+    const unregister = registerPreviewPageReader('browser-tab', async () => ({
+      text: 'Visible page text',
+      title: 'Live page',
+      url: 'https://example.com/live',
+    }));
+    renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+    await waitFor(() => expect(conversationGetInvokeMock).toHaveBeenCalled());
+
+    const request: IResponseMessage = {
+      type: 'acp_read_preview_request',
+      data: {
+        version: 'command-eve-read-preview/v1',
+        request_id: 'preview-request-1',
+        session_id: 'acp-session-1',
+        start: 0,
+        count: 100,
+      },
+      msg_id: 'preview-request-message-1',
+      turn_id: 'turn-preview-1',
+      conversation_id: 'conv-1',
+    };
+    act(() => {
+      responseStreamHandlerRef.current?.(request);
+      responseStreamHandlerRef.current?.(request);
+      responseStreamHandlerRef.current?.({
+        ...request,
+        data: { ...(request.data as object), request_id: 'foreign-request', session_id: 'foreign-session' },
+      });
+    });
+
+    await waitFor(() => expect(respondReadPreviewInvokeMock).toHaveBeenCalledTimes(1));
+    expect(respondReadPreviewInvokeMock).toHaveBeenCalledWith({
+      conversation_id: 'conv-1',
+      version: 'command-eve-read-preview/v1',
+      request_id: 'preview-request-1',
+      session_id: 'acp-session-1',
+      result: {
+        kind: 'url',
+        url: 'https://example.com/live',
+        title: 'Live page',
+        text: 'Visible page text',
+        start: 0,
+        end: 17,
+        total_chars: 17,
+      },
+    });
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ msg_id: 'preview-request-message-1' })
+    );
+    unregister();
   });
 
   it('uses completed standard ACP desktop tool frames when transient session metadata is not delivered', async () => {

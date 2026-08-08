@@ -56,8 +56,8 @@
   border-left-color: var(--glass-panel-border) !important;
 }
 
-/* Command EVE workbench: the active artifact stays dominant while chat can be
-   docked beside or below it. Separation is a single hairline, never a card
+/* Command EVE workbench: the one canonical chat surface and the active work
+   surface share a pane layout. Separation is a single hairline, never a card
    frame, so the workspace reads as one continuous professional canvas. */
 .eve-workbench-layout {
   isolation: isolate;
@@ -75,95 +75,8 @@
   backdrop-filter: var(--glass-panel-filter, blur(18px) saturate(125%));
 }
 
-.eve-chat-pane--sidecar-pinned {
-  z-index: 2;
-  border-left: 1px solid color-mix(in srgb, var(--glass-panel-border) 78%, transparent);
-}
-
-.eve-chat-pane--sidecar-floating {
-  position: absolute !important;
-  top: 10px;
-  right: 10px;
-  bottom: 10px;
-  z-index: 80;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--glass-overlay-border, var(--glass-panel-border)) 82%, transparent);
-  border-radius: 16px;
-  background: var(--glass-chrome-bg-solid, var(--bg-2));
-  box-shadow: var(--glass-shadow-float, 0 20px 54px rgba(0, 0, 0, 0.3));
-  -webkit-backdrop-filter: blur(24px) saturate(110%);
-  backdrop-filter: blur(24px) saturate(110%);
-}
-
-.eve-chat-pane--sidecar-floating > .chat-layout-content {
-  background: color-mix(in srgb, var(--glass-chrome-bg-solid, var(--bg-2)) 96%, transparent) !important;
-}
-
 .eve-chat-pane--split-bottom {
   border-top: 1px solid color-mix(in srgb, var(--glass-panel-border) 78%, transparent);
-}
-
-.eve-chat-sidecar-header {
-  display: flex;
-  align-items: center;
-  flex: 0 0 43px;
-  min-width: 0;
-  height: 43px;
-  padding: 0 8px 0 14px;
-  gap: 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--glass-panel-border) 70%, transparent);
-  background: color-mix(in srgb, var(--glass-chrome-bg, var(--bg-2)) 72%, transparent);
-}
-
-.eve-chat-sidecar-title {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  color: var(--eve-shell-text, var(--color-text-1));
-  font-size: 12px;
-  font-weight: 620;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.eve-chat-sidecar-actions {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 2px;
-}
-
-.eve-chat-sidecar-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--eve-shell-text-tertiary, var(--color-text-3));
-  cursor: pointer;
-  transition:
-    color 120ms ease,
-    background-color 120ms ease;
-}
-
-.eve-chat-sidecar-action:hover,
-.eve-chat-sidecar-action:focus-visible {
-  color: var(--eve-shell-text, var(--color-text-1));
-  background: var(--eve-row-hover-bg, var(--color-fill-2));
-}
-
-.eve-chat-sidecar-action[aria-pressed='true'] {
-  color: var(--eve-focus-ring, var(--color-primary-6));
-  background: color-mix(in srgb, var(--eve-focus-ring, var(--color-primary-6)) 12%, transparent);
-}
-
-.eve-chat-sidecar-action:focus-visible {
-  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
-  outline-offset: -2px;
 }
 
 .eve-workbench-divider {
@@ -240,16 +153,9 @@
     display: none;
   }
 
-  .eve-chat-sidecar-action,
   .eve-workbench-divider__line,
   .eve-workbench-divider--horizontal > span {
     transition: none;
-  }
-}
-
-@media (max-width: 980px) {
-  .eve-chat-pane--sidecar-pinned {
-    flex-basis: 330px !important;
   }
 }
 

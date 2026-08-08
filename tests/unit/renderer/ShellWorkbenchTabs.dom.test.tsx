@@ -82,11 +82,10 @@ describe('ShellWorkbenchTabs', () => {
     fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.browser' }));
     expect(previewApi?.tabs).toHaveLength(1);
-    expect(previewApi?.workbenchLayoutMode).toBe('sidecar');
-    expect(previewApi?.isWorkbenchSidecarPinned).toBe(true);
+    expect(previewApi?.workbenchLayoutMode).toBe('split-right');
   });
 
-  it('switches between the four real workbench layouts and persists the choice', () => {
+  it('switches between the three real workbench layouts and persists the choice', () => {
     renderLayoutControls();
 
     const splitRight = screen.getByRole('button', { name: 'conversation.workbench.splitRight' });
@@ -100,9 +99,13 @@ describe('ShellWorkbenchTabs', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.focus' }));
     expect(previewApi?.workbenchLayoutMode).toBe('focus');
+    expect(screen.queryByRole('button', { name: 'conversation.workbench.sidecar' })).not.toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.sidecar' }));
-    expect(previewApi?.workbenchLayoutMode).toBe('sidecar');
+  it('migrates the retired sidecar preference to the general split layout', () => {
+    localStorage.setItem('aionui_eve_workbench_layout_mode_v1', 'sidecar');
+    renderLayoutControls();
+    expect(previewApi?.workbenchLayoutMode).toBe('split-right');
   });
 
   it('keeps unproven Terminal and Page chat actions visibly disabled', () => {

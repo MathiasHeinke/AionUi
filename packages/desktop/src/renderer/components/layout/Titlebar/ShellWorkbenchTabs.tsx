@@ -46,17 +46,8 @@ const iconForTab = (tab: PreviewTab) => {
 
 const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId }) => {
   const { t } = useTranslation();
-  const {
-    isOpen,
-    tabs,
-    activeTabId,
-    openPreview,
-    showPreview,
-    hidePreview,
-    requestCloseTab,
-    setWorkbenchLayoutMode,
-    setWorkbenchSidecarPinned,
-  } = usePreviewContext();
+  const { isOpen, tabs, activeTabId, openPreview, showPreview, hidePreview, requestCloseTab, setWorkbenchLayoutMode } =
+    usePreviewContext();
   const [launcherOpen, setLauncherOpen] = useState(false);
   const launcherButtonRef = useRef<HTMLButtonElement | null>(null);
   const launcherMenuRef = useRef<HTMLDivElement | null>(null);
@@ -104,8 +95,7 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId 
           dispatchElementsRailRevealEvent('context', 'files');
           return;
         case 'browser': {
-          setWorkbenchLayoutMode('sidecar');
-          setWorkbenchSidecarPinned(true);
+          setWorkbenchLayoutMode('split-right');
           const existingBrowser = conversationTabs.find(
             (tab) => tab.content_type === 'url' && tab.metadata?.title === 'Browser'
           );
@@ -122,16 +112,7 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId 
           return;
       }
     },
-    [
-      conversationId,
-      conversationTabs,
-      focusPane,
-      openPreview,
-      previewPaneId,
-      setWorkbenchLayoutMode,
-      setWorkbenchSidecarPinned,
-      showPreviewTab,
-    ]
+    [conversationId, conversationTabs, focusPane, openPreview, previewPaneId, setWorkbenchLayoutMode, showPreviewTab]
   );
 
   useEffect(() => {

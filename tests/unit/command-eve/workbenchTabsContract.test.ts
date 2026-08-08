@@ -63,7 +63,7 @@ describe('Command EVE workbench tab contract', () => {
     expect(previewPanel).toContain('if (COMMAND_EVE_SHELL_ENABLED) return null;');
   });
 
-  it('ships the founder-selected dominant-canvas layout with a pinnable EVE sidecar', () => {
+  it('keeps one canonical chat surface beside the selected work surface', () => {
     const context = read('packages/desktop/src/renderer/pages/conversation/Preview/context/PreviewContext.tsx');
     const workbench = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.tsx');
     const layoutControls = read('packages/desktop/src/renderer/components/layout/Titlebar/WorkbenchLayoutControls.tsx');
@@ -74,17 +74,20 @@ describe('Command EVE workbench tab contract', () => {
     const urlViewer = read('packages/desktop/src/renderer/pages/conversation/Preview/components/viewers/URLViewer.tsx');
     const webviewHost = read('packages/desktop/src/renderer/components/media/WebviewHost.tsx');
 
-    expect(context).toContain("export type WorkbenchLayoutMode = 'focus' | 'split-right' | 'split-bottom' | 'sidecar'");
-    expect(workbench).toContain("setWorkbenchLayoutMode('sidecar')");
+    expect(context).toContain("export type WorkbenchLayoutMode = 'focus' | 'split-right' | 'split-bottom'");
+    expect(context).toContain("if (stored === 'sidecar') return 'split-right'");
+    expect(workbench).toContain("setWorkbenchLayoutMode('split-right')");
     expect(layoutControls).toContain("mode: 'split-right' as const");
     expect(layoutControls).toContain("mode: 'split-bottom' as const");
+    expect(layoutControls).not.toContain("mode: 'sidecar' as const");
     expect(urlViewer).toContain('toolbarActions={COMMAND_EVE_SHELL_ENABLED ? <WorkbenchLayoutControls /> : undefined}');
     expect(webviewHost).toContain("{toolbarActions && <div className='aion-url-viewer-toolbar-actions'>");
     expect(chatLayout).toContain('data-eve-workbench-layout');
-    expect(chatLayout).toContain('eve-chat-pane--sidecar-pinned');
-    expect(chatLayout).toContain('setWorkbenchSidecarPinned(!isWorkbenchSidecarPinned)');
-    expect(chatLayout).toContain("onClick={() => setWorkbenchLayoutMode('focus')}");
-    expect(chatLayoutCss).toContain('.eve-chat-pane--sidecar-pinned');
+    expect(chatLayout.match(/\{props\.children\}/g)).toHaveLength(1);
+    expect(chatLayout).toContain('{!layout?.isMobile && desktopHeader}');
+    expect(chatLayout).not.toContain('eve-chat-sidecar-header');
+    expect(chatLayout).not.toContain('setWorkbenchSidecarPinned');
+    expect(chatLayoutCss).not.toContain('.eve-chat-pane--sidecar-pinned');
     expect(chatLayoutCss).toContain('.eve-workbench-layout--split-bottom');
   });
 

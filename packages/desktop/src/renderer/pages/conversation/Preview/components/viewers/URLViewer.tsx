@@ -14,6 +14,8 @@ interface URLViewerProps {
   url: string;
   /** Optional title for the page */
   title?: string;
+  /** Stable workbench tab id for the Hermes preview reader. */
+  tabId?: string;
 }
 
 /**
@@ -22,13 +24,14 @@ interface URLViewerProps {
  *
  * Delegates to the shared WebviewHost with navigation bar enabled.
  */
-const URLViewer: React.FC<URLViewerProps> = ({ url }) => {
+const URLViewer: React.FC<URLViewerProps> = ({ url, tabId }) => {
   return (
     <WebviewHost
       url={url}
       showNavBar
       className='bg-bg-1'
       toolbarActions={COMMAND_EVE_SHELL_ENABLED ? <WorkbenchLayoutControls /> : undefined}
+      previewReaderId={tabId}
     />
   );
 };
