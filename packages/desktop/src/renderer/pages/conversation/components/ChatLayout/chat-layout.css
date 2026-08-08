@@ -19,6 +19,11 @@
   backdrop-filter: var(--glass-chrome-filter);
 }
 
+.chat-layout-header--eve-launcher {
+  z-index: 90;
+  contain: none;
+}
+
 .chat-layout-header--glass::after {
   content: '';
   position: absolute;
@@ -132,13 +137,42 @@
 }
 
 .eve-workbench-pane {
+  min-width: 0;
+  overflow: visible;
   background: var(--glass-reading-bg, var(--bg-1));
+}
+
+.eve-workbench-pane__tabbar {
+  position: relative;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  flex: 0 0 42px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 3px 8px 3px 10px;
+  border-bottom: 1px solid var(--glass-chrome-border, var(--color-border-2));
+  background: var(--glass-chrome-bg, var(--bg-2));
+  box-shadow: inset 0 1px 0 var(--glass-edge-highlight, transparent);
+  -webkit-backdrop-filter: var(--glass-chrome-filter, blur(20px) saturate(150%));
+  backdrop-filter: var(--glass-chrome-filter, blur(20px) saturate(150%));
+}
+
+.eve-workbench-pane__surface {
+  min-width: 0;
+  min-height: 0;
 }
 
 @supports ((-webkit-backdrop-filter: blur(6px)) or (backdrop-filter: blur(6px))) {
   .chat-layout-header--glass {
     -webkit-backdrop-filter: var(--glass-chrome-filter);
     backdrop-filter: var(--glass-chrome-filter);
+  }
+
+  .eve-workbench-pane__tabbar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--glass-chrome-bg-solid, var(--bg-2));
   }
 }
 

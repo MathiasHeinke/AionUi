@@ -10,7 +10,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ShellWorkbenchTabs from '@/renderer/components/layout/Titlebar/ShellWorkbenchTabs';
 import WorkbenchLayoutControls from '@/renderer/components/layout/Titlebar/WorkbenchLayoutControls';
 import { PreviewProvider, usePreviewContext } from '@/renderer/pages/conversation/Preview';
-import { ELEMENTS_RAIL_REVEAL_EVENT, type ElementsRailRevealDetail } from '@/renderer/utils/workspace/workspaceEvents';
 
 vi.mock('@/common', () => ({
   ipcBridge: {
@@ -46,6 +45,16 @@ const renderWorkbench = () =>
       <PreviewProvider>
         <CapturePreviewApi />
         <ShellWorkbenchTabs conversationId='conv-1' />
+      </PreviewProvider>
+    </MemoryRouter>
+  );
+
+const renderLauncher = () =>
+  render(
+    <MemoryRouter initialEntries={['/conversation/conv-1']}>
+      <PreviewProvider>
+        <CapturePreviewApi />
+        <ShellWorkbenchTabs conversationId='conv-1' launcherOnly />
       </PreviewProvider>
     </MemoryRouter>
   );
@@ -108,47 +117,60 @@ describe('ShellWorkbenchTabs', () => {
     expect(previewApi?.workbenchLayoutMode).toBe('split-right');
   });
 
-  it('keeps unproven Terminal and Page chat actions visibly disabled', () => {
+  it('keeps unproven Terminal disabled and never offers a second Page chat', () => {
     renderWorkbench();
     fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
     expect(screen.getByRole('menuitem', { name: /conversation\.workbench\.terminal/ })).toBeDisabled();
-    expect(screen.getByRole('menuitem', { name: /conversation\.workbench\.pageChat/ })).toBeDisabled();
+    expect(screen.queryByRole('menuitem', { name: /conversation\.workbench\.pageChat/ })).not.toBeInTheDocument();
   });
 
-  it('reveals the existing files rail instead of inventing a second file browser', () => {
-    const events: ElementsRailRevealDetail[] = [];
-    const listener = (event: Event) => {
-      events.push((event as CustomEvent<ElementsRailRevealDetail>).detail);
-    };
-    window.addEventListener(ELEMENTS_RAIL_REVEAL_EVENT, listener);
-    renderWorkbench();
+  it('keeps Files and Review in the inspector instead of pretending they are new work surfaces', () => {
+    renderLauncher();
     fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.files' }));
-    expect(events).toEqual([{ tab: 'context', workspaceTab: 'files' }]);
-    window.removeEventListener(ELEMENTS_RAIL_REVEAL_EVENT, listener);
+    expect(screen.queryByRole('menuitem', { name: 'conversation.workbench.files' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'conversation.workbench.review' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'conversation.workbench.browser' })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: /conversation\.workbench\.terminal/ })).toBeDisabled();
   });
 
-  it('opens the real workspace changes surface for Review', () => {
-    const railEvents: ElementsRailRevealDetail[] = [];
-    const recordRail = (event: Event) => railEvents.push((event as CustomEvent<ElementsRailRevealDetail>).detail);
-    window.addEventListener(ELEMENTS_RAIL_REVEAL_EVENT, recordRail);
-
-    renderWorkbench();
-    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.review' }));
-
-    expect(railEvents).toEqual([{ tab: 'context', workspaceTab: 'changes' }]);
-    window.removeEventListener(ELEMENTS_RAIL_REVEAL_EVENT, recordRail);
+  it('renders launcher-only mode without a duplicate tab strip or layout controls', () => {
+    renderLauncher();
+    act(() => previewApi?.openPreview('# Notes', 'markdown', { title: 'notes.md', conversation_id: 'conv-1' }));
+    expect(screen.queryByRole('tablist', { name: 'conversation.workbench.label' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'conversation.workbench.layoutLabel' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' })).toBeInTheDocument();
   });
 
-  it('switches back to Chat without deleting the active preview', () => {
+  it('does not register work-surface keyboard shortcuts from launcher-only mode', () => {
+    renderLauncher();
+    act(() => previewApi?.openPreview('# Notes', 'markdown', { title: 'notes.md', conversation_id: 'conv-1' }));
+    act(() => previewApi?.openPreview('const answer = 42;', 'code', { title: 'answer.ts', conversation_id: 'conv-1' }));
+    expect(previewApi?.activeTabId).toBe(previewApi?.tabs[1]?.id);
+
+    fireEvent.keyDown(document, { key: 'Tab', ctrlKey: true });
+
+    expect(previewApi?.activeTabId).toBe(previewApi?.tabs[1]?.id);
+  });
+
+  it('keeps the canonical Chat out of the work-surface tab strip', () => {
     renderWorkbench();
     act(() => previewApi?.openPreview('# Notes', 'markdown', { title: 'notes.md', conversation_id: 'conv-1' }));
     expect(screen.getByRole('tab', { name: 'notes.md' })).toHaveAttribute('aria-selected', 'true');
-
-    fireEvent.click(screen.getByRole('tab', { name: 'conversation.workbench.chat' }));
-    expect(previewApi?.isOpen).toBe(false);
+    expect(screen.queryByRole('tab', { name: 'conversation.workbench.chat' })).not.toBeInTheDocument();
+    expect(previewApi?.isOpen).toBe(true);
     expect(previewApi?.tabs).toHaveLength(1);
-    expect(screen.getByRole('tab', { name: 'conversation.workbench.chat' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('cycles only real work surfaces without hiding the canonical Chat', () => {
+    renderWorkbench();
+    act(() => previewApi?.openPreview('# Notes', 'markdown', { title: 'notes.md', conversation_id: 'conv-1' }));
+    act(() => previewApi?.openPreview('const answer = 42;', 'code', { title: 'answer.ts', conversation_id: 'conv-1' }));
+    expect(screen.getByRole('tab', { name: 'answer.ts' })).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(document, { key: 'Tab', ctrlKey: true });
+
+    expect(screen.getByRole('tab', { name: 'notes.md' })).toHaveAttribute('aria-selected', 'true');
+    expect(previewApi?.isOpen).toBe(true);
+    expect(previewApi?.tabs).toHaveLength(2);
   });
 });

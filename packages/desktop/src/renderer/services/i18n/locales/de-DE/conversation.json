@@ -649,12 +649,10 @@
   },
   "workbench": {
     "label": "EVE-Arbeitsfläche",
-    "chat": "Chat",
     "review": "Überprüfen",
     "terminal": "Terminal",
     "browser": "Browser",
     "files": "Dateien",
-    "pageChat": "Seiten-Chat",
     "notConnected": "Noch nicht verbunden",
     "addressPlaceholder": "Adresse oder Suche eingeben",
     "openLauncher": "Arbeitsfläche öffnen",

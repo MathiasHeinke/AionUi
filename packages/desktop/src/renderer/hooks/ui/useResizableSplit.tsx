@@ -205,7 +205,7 @@ export const useResizableSplit = (options: UseResizableSplitOptions = {}) => {
           try {
             dragHandle.setPointerCapture(pointerId);
             dragHandle.addEventListener('lostpointercapture', handleLostPointerCapture);
-          } catch (error) {
+          } catch {
             // 忽略 pointer capture 失败，继续使用备用逻辑 / Ignore failures silently
           }
         }
@@ -237,6 +237,7 @@ export const useResizableSplit = (options: UseResizableSplitOptions = {}) => {
     linePlacement,
     lineClassName,
     lineStyle,
+    ariaLabel,
   }: {
     className?: string;
     style?: CSSProperties;
@@ -244,6 +245,7 @@ export const useResizableSplit = (options: UseResizableSplitOptions = {}) => {
     linePlacement?: 'start' | 'end';
     lineClassName?: string;
     lineStyle?: CSSProperties;
+    ariaLabel?: string;
   } = {}) => (
     <div
       className={classNames(
@@ -258,7 +260,34 @@ export const useResizableSplit = (options: UseResizableSplitOptions = {}) => {
         className
       )}
       style={{ width: '12px', ...style }}
+      role={ariaLabel ? 'separator' : undefined}
+      aria-label={ariaLabel}
+      aria-orientation={ariaLabel ? 'vertical' : undefined}
+      aria-valuemin={ariaLabel ? minWidth : undefined}
+      aria-valuemax={ariaLabel ? maxWidth : undefined}
+      aria-valuenow={ariaLabel ? Math.round(splitRatio) : undefined}
+      tabIndex={ariaLabel ? 0 : undefined}
       onPointerDown={handleDragStart(reverse)}
+      onKeyDown={
+        ariaLabel
+          ? (event) => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const keyboardStep = isPx ? 16 : 2;
+              const horizontalDelta = event.key === 'ArrowRight' ? keyboardStep : -keyboardStep;
+              const nextRatio =
+                event.key === 'Home'
+                  ? minWidth
+                  : event.key === 'End'
+                    ? maxWidth
+                    : Math.max(
+                        minWidth,
+                        Math.min(maxWidth, splitRatio + (reverse ? -horizontalDelta : horizontalDelta))
+                      );
+              setSplitRatio(nextRatio);
+            }
+          : undefined
+      }
       onDoubleClick={() => setSplitRatio(defaultWidth)}
     >
       <span

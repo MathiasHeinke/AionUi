@@ -673,12 +673,10 @@
   },
   "workbench": {
     "label": "EVE workbench",
-    "chat": "Chat",
     "review": "Review",
     "terminal": "Terminal",
     "browser": "Browser",
     "files": "Files",
-    "pageChat": "Page chat",
     "notConnected": "Not connected yet",
     "addressPlaceholder": "Enter an address or search",
     "openLauncher": "Open workbench",

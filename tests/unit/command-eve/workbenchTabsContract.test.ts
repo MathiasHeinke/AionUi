@@ -6,17 +6,29 @@ const root = process.cwd();
 const read = (relativePath: string) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
 describe('Command EVE workbench tab contract', () => {
-  it('has one app-level tab strip and removes the nested preview strip in EVE', () => {
+  it('keeps the app titlebar global and mounts one local strip inside the work surface', () => {
     const titlebar = read('packages/desktop/src/renderer/components/layout/Titlebar/index.tsx');
     const titlebarCss = read('packages/desktop/src/renderer/components/layout/Titlebar/titlebar.css');
+    const chatLayout = read('packages/desktop/src/renderer/pages/conversation/components/ChatLayout/index.tsx');
+    const chatLayoutCss = read(
+      'packages/desktop/src/renderer/pages/conversation/components/ChatLayout/chat-layout.css'
+    );
     const preview = read(
       'packages/desktop/src/renderer/pages/conversation/Preview/components/PreviewPanel/PreviewPanel.tsx'
     );
 
-    expect(titlebar).toContain('<ShellWorkbenchTabs conversationId={desktopConversationId} />');
-    expect(titlebar).toContain("'--eve-workbench-content-left'");
-    expect(titlebarCss).toContain('left: var(--eve-workbench-content-left, 324px);');
-    expect(titlebarCss).toContain('right: 112px;');
+    expect(titlebar).not.toContain('ShellWorkbenchTabs');
+    expect(titlebar).not.toContain("'--eve-workbench-content-left'");
+    expect(titlebarCss).not.toContain('.app-titlebar__brand--workbench');
+    expect(chatLayout).toContain("<div className='eve-workbench-pane__tabbar'>");
+    expect(chatLayout).toContain('<ShellWorkbenchTabs conversationId={conversation_id} />');
+    expect(chatLayout).toContain('<ShellWorkbenchTabs conversationId={conversation_id} launcherOnly />');
+    expect(chatLayout).toContain("'chat-layout-header--eve-launcher overflow-visible'");
+    expect(chatLayoutCss).toContain('.chat-layout-header--eve-launcher');
+    expect(chatLayoutCss).toContain('contain: none;');
+    expect(chatLayout).toContain("ariaLabel: t('conversation.workbench.resizeSplit')");
+    expect(chatLayout).toContain('aria-valuenow={Math.round(bottomPreviewRatio)}');
+    expect(chatLayoutCss).toContain('.eve-workbench-pane__tabbar');
     expect(preview).toContain('!COMMAND_EVE_SHELL_ENABLED && (');
     expect(preview).toContain('<PreviewTabs');
   });
@@ -26,16 +38,13 @@ describe('Command EVE workbench tab contract', () => {
     expect(fileOps).toContain('{ replace: !COMMAND_EVE_SHELL_ENABLED }');
   });
 
-  it('routes Review to the existing workspace changes surface', () => {
+  it('keeps inspector destinations out of the add-work-surface launcher', () => {
     const workbench = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.tsx');
-    const chatLayout = read('packages/desktop/src/renderer/pages/conversation/components/ChatLayout/index.tsx');
-    const workspace = read('packages/desktop/src/renderer/pages/conversation/Workspace/index.tsx');
-    expect(workbench).toContain("dispatchElementsRailRevealEvent('context', 'changes')");
-    expect(workbench).toContain("dispatchElementsRailRevealEvent('context', 'files')");
-    expect(chatLayout).toContain('pendingWorkspaceTabRef');
-    expect(chatLayout).toContain('dispatchWorkspaceTabSelectEvent(pendingTab)');
-    expect(workspace).toContain('WORKSPACE_TAB_SELECT_EVENT');
-    expect(workspace).toContain('setActiveTab(tab);');
+    const elementsRail = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellElementsRail.tsx');
+    expect(workbench).toContain("type WorkbenchTarget = 'browser' | 'terminal'");
+    expect(workbench).not.toContain('dispatchElementsRailRevealEvent');
+    expect(elementsRail).toContain("{ key: 'artifacts'");
+    expect(elementsRail).toContain("{ key: 'context'");
   });
 
   it('separates hiding a pane from destructive close-all behavior', () => {
@@ -77,6 +86,9 @@ describe('Command EVE workbench tab contract', () => {
     expect(context).toContain("export type WorkbenchLayoutMode = 'focus' | 'split-right' | 'split-bottom'");
     expect(context).toContain("if (stored === 'sidecar') return 'split-right'");
     expect(workbench).toContain("setWorkbenchLayoutMode('split-right')");
+    expect(workbench).not.toContain('conversation.workbench.chat');
+    expect(workbench).not.toContain("target: 'page-chat'");
+    expect(workbench).not.toContain("const orderedIds = ['chat'");
     expect(layoutControls).toContain("mode: 'split-right' as const");
     expect(layoutControls).toContain("mode: 'split-bottom' as const");
     expect(layoutControls).not.toContain("mode: 'sidecar' as const");
@@ -85,6 +97,7 @@ describe('Command EVE workbench tab contract', () => {
     expect(chatLayout).toContain('data-eve-workbench-layout');
     expect(chatLayout.match(/\{props\.children\}/g)).toHaveLength(1);
     expect(chatLayout).toContain('{!layout?.isMobile && desktopHeader}');
+    expect(chatLayout).not.toContain('eve-workbench-tab-chat-');
     expect(chatLayout).not.toContain('eve-chat-sidecar-header');
     expect(chatLayout).not.toContain('setWorkbenchSidecarPinned');
     expect(chatLayoutCss).not.toContain('.eve-chat-pane--sidecar-pinned');

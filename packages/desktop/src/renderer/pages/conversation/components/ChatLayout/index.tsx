@@ -2,6 +2,7 @@ import { AgentLogoIcon } from '@/renderer/components/agent/AgentBadge';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import type { PresetAssistantInfo } from '@/renderer/hooks/agent/usePresetAssistantInfo';
 import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
+import ShellWorkbenchTabs from '@/renderer/components/layout/Titlebar/ShellWorkbenchTabs';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { useResizableSplit } from '@/renderer/hooks/ui/useResizableSplit';
 import ChatTitleEditor from '@/renderer/pages/conversation/components/ChatTitleEditor';
@@ -230,6 +231,25 @@ const ChatLayout: React.FC<{
     },
     [bottomPreviewRatio]
   );
+  const handleBottomDividerKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const nextRatio =
+        event.key === 'Home'
+          ? 36
+          : event.key === 'End'
+            ? 72
+            : Math.max(36, Math.min(72, bottomPreviewRatio + (event.key === 'ArrowDown' ? 2 : -2)));
+      setBottomPreviewRatio(nextRatio);
+      try {
+        localStorage.setItem(BOTTOM_SPLIT_STORAGE_KEY, String(nextRatio));
+      } catch {
+        // The current split remains active even when persistence is unavailable.
+      }
+    },
+    [bottomPreviewRatio]
+  );
   const effectiveWorkspaceWidthPx = elementsRailEnabled ? 308 : workspaceWidthPxPref;
 
   // Pre-hook metrics: compute dynamic min/max for the chat-preview split hook
@@ -302,7 +322,8 @@ const ChatLayout: React.FC<{
   const desktopHeader = (
     <ArcoLayout.Header
       className={classNames(
-        'min-h-44px flex items-center justify-between px-16px pt-8px pb-10px gap-16px chat-layout-header chat-layout-header--glass overflow-hidden'
+        'min-h-44px flex items-center justify-between px-16px pt-8px pb-10px gap-16px chat-layout-header chat-layout-header--glass',
+        COMMAND_EVE_SHELL_ENABLED ? 'chat-layout-header--eve-launcher overflow-visible' : 'overflow-hidden'
       )}
     >
       <FlexFullContainer className='h-full min-w-0' containerClassName='flex items-center'>
@@ -331,6 +352,9 @@ const ChatLayout: React.FC<{
         />
       </FlexFullContainer>
       <div className='flex items-center gap-12px shrink-0'>
+        {COMMAND_EVE_SHELL_ENABLED && conversation_id && !isPreviewOpen && (
+          <ShellWorkbenchTabs conversationId={conversation_id} launcherOnly />
+        )}
         {props.headerExtra}
         {isWindowsRuntime && workspaceEnabled && !COMMAND_EVE_SHELL_ENABLED && (
           <button
@@ -370,9 +394,11 @@ const ChatLayout: React.FC<{
   return (
     <ArcoLayout
       className='size-full color-black chat-layout-shell'
-      style={{
-        // fontFamily: `cursive,"anthropicSans","anthropicSans Fallback",system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif`,
-      }}
+      style={
+        {
+          // fontFamily: `cursive,"anthropicSans","anthropicSans Fallback",system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif`,
+        }
+      }
     >
       <div ref={containerRef} className='flex flex-1 relative w-full overflow-hidden'>
         {/* Unified layout: single DOM structure prevents children unmount/remount on preview toggle */}
@@ -397,10 +423,6 @@ const ChatLayout: React.FC<{
             <div
               id={COMMAND_EVE_SHELL_ENABLED && conversation_id ? `eve-chat-pane-${conversation_id}` : undefined}
               data-eve-interaction-role='focus-surface'
-              role={COMMAND_EVE_SHELL_ENABLED ? 'tabpanel' : undefined}
-              aria-labelledby={
-                COMMAND_EVE_SHELL_ENABLED && conversation_id ? `eve-workbench-tab-chat-${conversation_id}` : undefined
-              }
               aria-hidden={COMMAND_EVE_SHELL_ENABLED ? isPreviewOpen && !showChatBesideWorkbench : undefined}
               tabIndex={COMMAND_EVE_SHELL_ENABLED ? -1 : undefined}
               className={classNames(
@@ -426,7 +448,12 @@ const ChatLayout: React.FC<{
                   role='separator'
                   aria-orientation='horizontal'
                   aria-label={t('conversation.workbench.resizeSplit')}
+                  aria-valuemin={36}
+                  aria-valuemax={72}
+                  aria-valuenow={Math.round(bottomPreviewRatio)}
+                  tabIndex={0}
                   onPointerDown={handleBottomDividerPointerDown}
+                  onKeyDown={handleBottomDividerKeyDown}
                   onDoubleClick={() => {
                     setBottomPreviewRatio(DEFAULT_BOTTOM_PREVIEW_RATIO);
                     try {
@@ -447,10 +474,9 @@ const ChatLayout: React.FC<{
             {/* Preview panel - conditionally rendered */}
             {(isPreviewOpen || keepPreviewMounted) && (
               <div
-                id={COMMAND_EVE_SHELL_ENABLED && conversation_id ? `eve-workbench-pane-${conversation_id}` : undefined}
                 className={classNames(
                   'preview-panel flex flex-col relative',
-                  COMMAND_EVE_SHELL_ENABLED ? 'eve-workbench-pane overflow-hidden' : 'overflow-visible rounded-[15px]',
+                  COMMAND_EVE_SHELL_ENABLED ? 'eve-workbench-pane' : 'overflow-visible rounded-[15px]',
                   !COMMAND_EVE_SHELL_ENABLED && (isDesktop ? 'mb-[12px] mr-[12px] ml-[8px]' : 'm-[8px]')
                 )}
                 style={{
@@ -465,14 +491,6 @@ const ChatLayout: React.FC<{
                   boxSizing: 'border-box',
                   order: isEveWorkbenchActive && activeWorkbenchLayout === 'split-right' ? 2 : 1,
                 }}
-                role={COMMAND_EVE_SHELL_ENABLED ? 'tabpanel' : undefined}
-                aria-labelledby={
-                  COMMAND_EVE_SHELL_ENABLED && isPreviewOpen && previewTabs.some((tab) => tab.id === activeTabId)
-                    ? `eve-workbench-tab-${activeTabId}`
-                    : undefined
-                }
-                aria-hidden={COMMAND_EVE_SHELL_ENABLED ? !isPreviewOpen : undefined}
-                tabIndex={COMMAND_EVE_SHELL_ENABLED ? -1 : undefined}
               >
                 {isDesktop &&
                   !COMMAND_EVE_SHELL_ENABLED &&
@@ -491,12 +509,29 @@ const ChatLayout: React.FC<{
                     linePlacement: 'end',
                     lineClassName: 'eve-workbench-divider__line',
                     lineStyle: { width: '1px' },
+                    ariaLabel: t('conversation.workbench.resizeSplit'),
                   })}
+                {COMMAND_EVE_SHELL_ENABLED && conversation_id && (
+                  <div className='eve-workbench-pane__tabbar'>
+                    <ShellWorkbenchTabs conversationId={conversation_id} />
+                  </div>
+                )}
                 <div
+                  id={
+                    COMMAND_EVE_SHELL_ENABLED && conversation_id ? `eve-workbench-pane-${conversation_id}` : undefined
+                  }
                   className={classNames(
-                    'h-full w-full overflow-hidden',
+                    'flex flex-1 min-h-0 w-full overflow-hidden eve-workbench-pane__surface',
                     !COMMAND_EVE_SHELL_ENABLED && 'rounded-[15px]'
                   )}
+                  role={COMMAND_EVE_SHELL_ENABLED ? 'tabpanel' : undefined}
+                  aria-labelledby={
+                    COMMAND_EVE_SHELL_ENABLED && isPreviewOpen && previewTabs.some((tab) => tab.id === activeTabId)
+                      ? `eve-workbench-tab-${activeTabId}`
+                      : undefined
+                  }
+                  aria-hidden={COMMAND_EVE_SHELL_ENABLED ? !isPreviewOpen : undefined}
+                  tabIndex={COMMAND_EVE_SHELL_ENABLED ? -1 : undefined}
                 >
                   <PreviewPanel />
                 </div>
