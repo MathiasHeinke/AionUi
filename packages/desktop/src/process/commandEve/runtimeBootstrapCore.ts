@@ -642,7 +642,9 @@ export type RuntimeBootstrapStageId =
   | 'ollama'
   | 'model'
   | 'identity'
-  | 'memory-seed';
+  | 'memory-seed'
+  /** CEVE-1821 B2 — only ever pushed as `skip` when `auxiliary.vision` is omitted. */
+  | 'vision';
 
 export type RuntimeBootstrapIdentitySource = 'registration' | 'env' | 'macos_full_name' | 'os_user' | 'unverified';
 
@@ -6274,7 +6276,8 @@ function writeHermesRuntimeFiles(
   // The async bootstrap path (`ensureCommandEveRuntimeBootstrapUnlocked`) awaits
   // the gate and passes the answer in. The SYNCHRONOUS provisioning path
   // (`provisionSeatRuntimeFiles`, used on seat switch) cannot await and therefore
-  // passes nothing — which lands on this `false` default and emits no carrier.
+  // passes an explicit `false` — same value as this default, named at the call
+  // site since CEVE-1821 B2 so the vision parameter behind it can be reached.
   //
   // That asymmetry is deliberate and it is the SAFE direction: advertisement can
   // only ever be NARROWER than the loopback gate, never wider. A seat provisioned
@@ -6287,8 +6290,10 @@ function writeHermesRuntimeFiles(
   //
   // Same pre-resolved shape as `agentVideoGenerateSeatEnabled` above and for the
   // same reason: this writer is synchronous and the answer lives behind an async
-  // probe of the local runtime. The async bootstrap resolves it and passes it in;
-  // the synchronous seat-switch path passes nothing and lands on this '' default.
+  // probe of the local runtime. The async bootstrap resolves it and passes it in,
+  // then persists it (`persistLocalVisionModelRef`); the synchronous seat-switch
+  // path passes the persisted last-known-good back in (CEVE-1821 B2), so a
+  // switch no longer strips `auxiliary.vision` until the next app launch.
   //
   // '' OMITS the whole `auxiliary.vision` key, which is why a box WITHOUT the
   // model emits a byte-identical config to today. Hard-wiring the route instead
@@ -6939,12 +6944,75 @@ export function pickCommandEveLocalVisionModel(tagsBody: string): string {
 }
 
 /**
+ * CEVE-1821 B2 — the LAST vision ref a bootstrap actually emitted, persisted as a
+ * side file so the SYNCHRONOUS seat-switch provisioning can read it without a
+ * probe. Lives in the seat-INDEPENDENT `runtimeRoot`, deliberately next to
+ * `modelPullProgressPath`: the vision model is a property of this BOX (one Ollama
+ * install serves every seat), so one file serves every seat too.
+ *
+ * WHY THIS EXISTS. `provisionSeatRuntimeFiles` is synchronous and cannot await
+ * the probe, so it used to land on the `''` default — and `''` omits the whole
+ * `auxiliary.vision` key. Every seat switch therefore rewrote the target seat's
+ * config.yaml WITHOUT vision (including switching BACK to the founder seat), and
+ * the lane stayed dead until the next app launch. This is the same
+ * last-known-good pattern the switch path already uses for its other inputs
+ * (commandEveBridge F7): reuse what the last real resolution said instead of
+ * silently degrading.
+ *
+ * The file always mirrors the config the bootstrap just wrote — including `''`
+ * when this box has no vision model — so a switch can never advertise MORE than
+ * the boot did. Reads are fail-safe AND allowlisted: anything unreadable, any
+ * non-string, and any ref that does not pass `isCommandEveLocalVisionModel`
+ * resolves to `''`. The allowlist matters — this value is interpolated into
+ * config.yaml, and a hand-edited side file must not become a YAML injection
+ * channel or point the vision route at an arbitrary model.
+ */
+export const COMMAND_EVE_LOCAL_VISION_REF_FILE = 'local-vision-model-ref.json';
+
+export function localVisionModelRefFilePath(runtimeRoot: string): string {
+  return path.join(runtimeRoot, COMMAND_EVE_LOCAL_VISION_REF_FILE);
+}
+
+/** Best-effort: a failed persist must never fail a bootstrap. */
+export function persistLocalVisionModelRef(runtimeRoot: string, modelRef: string): void {
+  try {
+    ensureDir(runtimeRoot);
+    fs.writeFileSync(
+      localVisionModelRefFilePath(runtimeRoot),
+      JSON.stringify({ version: 'command-eve-local-vision-ref/v0', model_ref: modelRef }, null, 2) + '\n',
+      { mode: 0o600 }
+    );
+  } catch {
+    // Best-effort by design: the boot path resolved its own value already, and
+    // the seat-switch reader fails safe to '' when this file is absent.
+  }
+}
+
+/** Fail-safe + allowlisted read; see the doc block above. */
+export function readPersistedLocalVisionModelRef(runtimeRoot: string): string {
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(localVisionModelRefFilePath(runtimeRoot), 'utf8'));
+    const ref = (parsed as { model_ref?: unknown } | null)?.model_ref;
+    if (typeof ref !== 'string') return '';
+    const trimmed = ref.trim();
+    if (trimmed.length === 0 || trimmed.length > 128) return '';
+    return isCommandEveLocalVisionModel(trimmed) ? trimmed : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Probe the local runtime for an installed vision model. FAIL-SAFE in every
  * direction — unreachable, slow, non-2xx, or malformed all resolve to '', which
  * omits the key and keeps the emitted config byte-identical to today. A bootstrap
  * must never fail because an optional model is missing.
+ *
+ * Exported additively (CEVE-1821 B2) so the cold-start re-probe behaviour is
+ * testable directly; production callers are the bootstrap's first probe and its
+ * post-Ollama-ready re-probe.
  */
-async function resolveLocalVisionModelRef(baseUrl: string): Promise<string> {
+export async function resolveLocalVisionModelRef(baseUrl: string): Promise<string> {
   return new Promise((resolve) => {
     let url: URL;
     try {
@@ -7310,7 +7378,19 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
       // resolved above). Same seat as `paths`, so no active-seat drift on switch.
       resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId, hermesVenv: paths.hermesVenv }),
       commandEveDelegationConcurrency(options.totalMemoryBytes ?? os.totalmem()),
-      options.rememberedCommands ?? []
+      options.rememberedCommands ?? [],
+      // CEVE-18205-FLAG — deliberately `false` on this synchronous path: the paid
+      // generate release lives behind an async backend read this writer cannot
+      // await, and false is the SAFE direction (see the parameter doc).
+      false,
+      // CEVE-1821 B2 — last-known-good instead of ''. This synchronous path
+      // cannot probe, but the async bootstrap persists the ref it actually
+      // emitted (seat-independent runtimeRoot side file), so a seat switch keeps
+      // `auxiliary.vision` exactly as the last boot wrote it instead of
+      // stripping it from every switched-to seat until the next app launch.
+      // Fail-safe: an absent/invalid side file reads as '' and omits the key,
+      // which mirrors a boot on a box without the model.
+      readPersistedLocalVisionModelRef(paths.runtimeRoot)
     );
 
     return {
@@ -7978,8 +8058,15 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   // 1.821.0 — same "await here, hand the answer to the synchronous writer" shape:
   // probe the local runtime for an installed vision model so `auxiliary.vision` is
   // emitted only where it can actually resolve. Fail-safe: '' on any trouble.
-  const localVisionModelRef = await resolveLocalVisionModelRef(manifest.local_runtime.base_url);
-  const bundledSkillFailures = writeHermesRuntimeFiles(
+  //
+  // CEVE-1821 B2 — `let`, not `const`, and the write lives in a named closure:
+  // this first probe runs BEFORE the `ollama serve` spawn further down, so on a
+  // cold start it answers '' even though Ollama comes up seconds later. The
+  // post-Ollama-ready block below re-probes once and calls the same closure again
+  // (writeHermesRuntimeFiles is idempotent by design), so a cold start still ends
+  // the bootstrap with vision in config.yaml instead of silently without it.
+  let localVisionModelRef = await resolveLocalVisionModelRef(manifest.local_runtime.base_url);
+  const emitHermesRuntimeFiles = (): string[] => writeHermesRuntimeFiles(
     paths,
     manifest,
     tier,
@@ -8022,8 +8109,17 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     // so a `false` here is always the deliberate answer and never a missing one.
     agentVideoGenerateSeatEnabled,
     // 1.821.0 — the resolved local vision model, or '' when this box has none.
+    // Read at CALL time (this is a closure over the `let` above), so the
+    // post-Ollama-ready re-emit picks up the re-probed value.
     localVisionModelRef
   );
+  const bundledSkillFailures = emitHermesRuntimeFiles();
+  // CEVE-1821 B2 — mirror what this write just emitted into the seat-independent
+  // side file, so the synchronous seat-switch provisioning reuses THIS boot's
+  // answer instead of falling back to '' and stripping `auxiliary.vision` from
+  // every switched-to seat. Persisted again below if the re-probe upgrades it —
+  // the file always matches the config that is actually on disk.
+  persistLocalVisionModelRef(paths.runtimeRoot, localVisionModelRef);
   if (bundledSkillFailures.length) {
     // VISIBLE preflight break (founder-self-detection): a skip-status stage with a
     // detail surfaces in receipt.warnings so oversight sees a strategy skill the
@@ -8248,6 +8344,33 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         : 'Ollama exists but its local API is not reachable.',
     })
   );
+  // CEVE-1821 B2 — the vision probe at the top of this function ran BEFORE the
+  // `ollama serve` spawn above, so a cold start answered '' while the model was
+  // merely not awake yet. Now that Ollama is (or is not) ready, settle vision for
+  // real: one re-probe, one re-emit through the SAME closure the first write
+  // used, and — either way — a receipt line whenever vision ends up omitted. A
+  // silent omission was the actual defect: the config simply lacked a key, and
+  // nothing anywhere said so.
+  if (!localVisionModelRef && ollamaReady) {
+    localVisionModelRef = await resolveLocalVisionModelRef(manifest.local_runtime.base_url);
+    if (localVisionModelRef) {
+      emitHermesRuntimeFiles();
+      persistLocalVisionModelRef(paths.runtimeRoot, localVisionModelRef);
+    }
+  }
+  if (!localVisionModelRef) {
+    // `skip` + detail is the shape `buildReceipt` lifts into `receipt.warnings`
+    // (same mechanism as the bundled-skills warning), so the omission is readable
+    // in the receipt instead of being an absent YAML key nobody misses.
+    pushStage(
+      makeStage('vision', 'skip', {
+        code: 'VISION_OMITTED',
+        detail: ollamaReady
+          ? 'auxiliary.vision omitted: no local vision model is installed (ollama has no minicpm-v tag).'
+          : 'auxiliary.vision omitted: the local runtime is not reachable, so no vision model could be resolved.',
+      })
+    );
+  }
   if (!ollamaReady) {
     return finishReceipt();
   }
