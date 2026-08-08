@@ -7,10 +7,28 @@
 /**
  * @internal
  *
- * Null-safe Electron shim. Import ONLY from:
- *   - src/process/utils/tray.ts   — today the ONLY importer in the repo.
+ * Null-safe Electron shim.
+ *
+ * PRODUCTION IMPORTERS — exactly one:
+ *   - src/process/utils/tray.ts
+ *
+ * TEST IMPORTERS — exactly one:
+ *   - tests/unit/command-eve/trayWithoutElectron.test.ts, via dynamic import, and
+ *     only to pin the premise the branch in tray.ts rests on: that in a
+ *     non-Electron process these exports really are null.
  *
  * All other modules must use getPlatformServices() from '@/common/platform' instead.
+ *
+ * Both lines above are checkable in one command, which is the only reason to write
+ * an allowlist down at all:
+ *
+ *   rg -n "electronSafe'" packages/ tests/
+ *
+ * The previous wording said "today the ONLY importer in the repo" and was untrue
+ * the moment it was committed — the same commit added the test importer. A
+ * corrected allowlist that is itself false is worse than the stale one it
+ * replaced, because it has just been vouched for. Splitting production from test
+ * is what makes the claim survive its own grep.
  *
  * The list above used to name two more files, and both entries were false.
  * `src/process/services/conversionService.ts` does not exist anywhere in

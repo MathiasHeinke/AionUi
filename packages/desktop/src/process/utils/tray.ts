@@ -277,11 +277,27 @@ const buildTrayContextMenu = async (): Promise<Electron.Menu> => {
  *     :256 on `Menu`) is reached only from here and from `rebuildTrayMenu`, which
  *     already returns early on `!tray`;
  *   - `new Tray(icon)` is this function;
- *   - the double-click handler (:274, :275 on `app.dock`) is registered only after
- *     the tray exists.
+ *   - the `tray.on('double-click', …)` handler, with its two `app.dock` uses, is
+ *     registered only after the tray exists.
  *
  * So skipping construction closes all of them, and `tray` staying null keeps them
  * closed for every later call.
+ *
+ * WHY THE LAST TWO ENTRIES NAME CODE INSTEAD OF LINES. The ten citations above
+ * sit ABOVE this comment and cannot move. The last three sit below it, so they
+ * shift by however many lines this block gains or loses — and they have, twice:
+ * the first version cited :274/:275, which by then were two lines of this very
+ * comment, and the correction to :313/:314 was invalidated by the six lines the
+ * correction itself added. A number that the act of fixing it falsifies is not a
+ * citation, it is a moving target. Both anchors occur exactly once as CODE, which
+ * this confirms — two hits, no more:
+ *
+ *   grep -nE "^    (tray = new Tray\(icon\);|tray\.on\('double-click')" \
+ *     packages/desktop/src/process/utils/tray.ts
+ *
+ * The `^    ` matters: without it the bullet above matches too. Even a rule about
+ * untrue citations needs a command that was actually run — the first draft of
+ * this sentence guessed the unanchored count and guessed wrong.
  *
  * WHAT THIS IS NOT. On the shipped boot path the branch does not fire: this module
  * is reachable only from `index.ts` and three `process/` modules that themselves
