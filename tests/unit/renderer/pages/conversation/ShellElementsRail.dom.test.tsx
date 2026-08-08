@@ -133,6 +133,20 @@ describe('ShellElementsRail', () => {
     await waitFor(() => expect(listArtifactsInvokeMock).toHaveBeenCalledWith({ conversation_id: 'conv-1' }));
   });
 
+  it('exposes one keyboard-operable tablist and labels its panel', () => {
+    render(<ShellElementsRail conversationId='conv-1' />);
+
+    const activityTab = screen.getByTestId('elements-rail-tab-activity');
+    const artifactsTab = screen.getByTestId('elements-rail-tab-artifacts');
+    const panel = screen.getByRole('tabpanel');
+
+    expect(activityTab).toHaveAttribute('aria-controls', 'elements-rail-panel');
+    expect(panel).toHaveAttribute('aria-labelledby', 'elements-rail-tab-activity');
+    fireEvent.keyDown(activityTab, { key: 'ArrowRight' });
+    expect(artifactsTab).toHaveAttribute('aria-selected', 'true');
+    expect(panel).toHaveAttribute('aria-labelledby', 'elements-rail-tab-artifacts');
+  });
+
   it('lists shared conversation artifacts and opens a managed image through the preview path', async () => {
     const onRequestClose = vi.fn();
     listArtifactsInvokeMock.mockResolvedValue([managedImageArtifact]);

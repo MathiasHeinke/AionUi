@@ -87,6 +87,7 @@ describe('ShellWorkbenchTabs', () => {
       content: 'about:blank',
       metadata: { title: 'Browser', conversation_id: 'conv-1' },
     });
+    expect(screen.getByRole('group', { name: 'conversation.workbench.layoutLabel' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.browser' }));

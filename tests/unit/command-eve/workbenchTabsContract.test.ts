@@ -92,8 +92,12 @@ describe('Command EVE workbench tab contract', () => {
     expect(layoutControls).toContain("mode: 'split-right' as const");
     expect(layoutControls).toContain("mode: 'split-bottom' as const");
     expect(layoutControls).not.toContain("mode: 'sidecar' as const");
-    expect(urlViewer).toContain('toolbarActions={COMMAND_EVE_SHELL_ENABLED ? <WorkbenchLayoutControls /> : undefined}');
+    expect(workbench).toContain('isOpen && visibleActiveTab && <WorkbenchLayoutControls />');
+    expect(urlViewer).not.toContain('WorkbenchLayoutControls');
+    expect(urlViewer).not.toContain('toolbarActions=');
     expect(webviewHost).toContain("{toolbarActions && <div className='aion-url-viewer-toolbar-actions'>");
+    expect(webviewHost).toContain("aria-label={");
+    expect(webviewHost).toContain("t('conversation.workbench.addressPlaceholder')");
     expect(chatLayout).toContain('data-eve-workbench-layout');
     expect(chatLayout.match(/\{props\.children\}/g)).toHaveLength(1);
     expect(chatLayout).toContain('{!layout?.isMobile && desktopHeader}');
@@ -102,6 +106,20 @@ describe('Command EVE workbench tab contract', () => {
     expect(chatLayout).not.toContain('setWorkbenchSidecarPinned');
     expect(chatLayoutCss).not.toContain('.eve-chat-pane--sidecar-pinned');
     expect(chatLayoutCss).toContain('.eve-workbench-layout--split-bottom');
+  });
+
+  it('keeps workbench chrome and the inspector on one continuous canvas', () => {
+    const layoutControlsCss = read(
+      'packages/desktop/src/renderer/components/layout/Titlebar/WorkbenchLayoutControls.module.css'
+    );
+    const elementsRailCss = read(
+      'packages/desktop/src/renderer/components/layout/Titlebar/ShellElementsRail.module.css'
+    );
+
+    expect(layoutControlsCss).not.toContain('box-shadow: inset 0 0 0 1px');
+    expect(elementsRailCss).not.toMatch(/\.rail\s*\{[^}]*border-left:/s);
+    expect(elementsRailCss).toMatch(/\.activityCard,\s*\n\.contextCard,\s*\n\.metaBlock\s*\{[^}]*border:\s*0;/s);
+    expect(elementsRailCss).toMatch(/\.artifactButton,[\s\S]*?background:\s*transparent !important;/);
   });
 
   it('prevents an unrelated scheduled-task hover card from appearing after chat maximization', () => {

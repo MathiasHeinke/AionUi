@@ -281,9 +281,7 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId,
         )}
       </div>
 
-      {!launcherOnly && isOpen && visibleActiveTab && visibleActiveTab.content_type !== 'url' && (
-        <WorkbenchLayoutControls />
-      )}
+      {!launcherOnly && isOpen && visibleActiveTab && <WorkbenchLayoutControls />}
     </div>
   );
 };

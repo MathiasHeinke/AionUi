@@ -720,6 +720,9 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               onKeyDown={handleUrlKeyDown}
               onFocus={(e) => e.target.select()}
               className='toolbar-input'
+              aria-label={
+                COMMAND_EVE_SHELL_ENABLED ? t('conversation.workbench.addressPlaceholder') : 'Enter URL or search'
+              }
               placeholder={COMMAND_EVE_SHELL_ENABLED ? t('conversation.workbench.addressPlaceholder') : 'Enter URL...'}
             />
           </form>

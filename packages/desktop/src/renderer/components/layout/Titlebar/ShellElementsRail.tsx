@@ -270,6 +270,21 @@ const ShellElementsRail: React.FC<ShellElementsRailProps> = ({
     { key: 'artifacts', label: t('conversation.elementsRail.artifacts') },
     { key: 'context', label: t('conversation.elementsRail.context') },
   ];
+  const panelId = 'elements-rail-panel';
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentTab: ElementsRailTab) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const currentIndex = tabItems.findIndex((tab) => tab.key === currentTab);
+    const nextIndex =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? tabItems.length - 1
+          : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabItems.length) % tabItems.length;
+    const nextTab = tabItems[nextIndex];
+    event.preventDefault();
+    selectTab(nextTab.key);
+    window.requestAnimationFrame(() => document.getElementById(`elements-rail-tab-${nextTab.key}`)?.focus());
+  };
 
   return (
     <aside className={styles.rail} data-testid='shell-elements-rail'>
@@ -277,11 +292,15 @@ const ShellElementsRail: React.FC<ShellElementsRailProps> = ({
         {tabItems.map((tab) => (
           <Button
             key={tab.key}
+            id={`elements-rail-tab-${tab.key}`}
             type='text'
             className={`${styles.tab} ${activeTab === tab.key ? styles.tabActive : ''}`}
             role='tab'
             aria-selected={activeTab === tab.key}
+            aria-controls={panelId}
+            tabIndex={activeTab === tab.key ? 0 : -1}
             onClick={() => selectTab(tab.key)}
+            onKeyDown={(event) => handleTabKeyDown(event, tab.key)}
             data-testid={`elements-rail-tab-${tab.key}`}
           >
             {tab.label}
@@ -289,7 +308,12 @@ const ShellElementsRail: React.FC<ShellElementsRailProps> = ({
         ))}
       </div>
 
-      <div className={styles.content} role='tabpanel'>
+      <div
+        id={panelId}
+        className={styles.content}
+        role='tabpanel'
+        aria-labelledby={`elements-rail-tab-${activeTab}`}
+      >
         {activeTab === 'activity' ? (
           <section className={styles.section}>
             <div className={`${styles.activityCard} ${styles[`activityCard_${activity.tone}`]}`}>

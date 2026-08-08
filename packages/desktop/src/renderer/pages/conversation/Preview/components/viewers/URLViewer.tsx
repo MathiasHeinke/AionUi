@@ -5,8 +5,6 @@
  */
 
 import React from 'react';
-import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
-import WorkbenchLayoutControls from '@/renderer/components/layout/Titlebar/WorkbenchLayoutControls';
 import WebviewHost from '@/renderer/components/media/WebviewHost';
 
 interface URLViewerProps {
@@ -30,7 +28,6 @@ const URLViewer: React.FC<URLViewerProps> = ({ url, tabId }) => {
       url={url}
       showNavBar
       className='bg-bg-1'
-      toolbarActions={COMMAND_EVE_SHELL_ENABLED ? <WorkbenchLayoutControls /> : undefined}
       previewReaderId={tabId}
     />
   );

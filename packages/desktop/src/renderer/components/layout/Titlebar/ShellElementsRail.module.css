@@ -5,7 +5,6 @@
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
-  border-left: 1px solid color-mix(in srgb, var(--glass-panel-border) 80%, transparent);
   background: color-mix(in srgb, var(--eve-shell-surface) 68%, transparent);
   color: var(--eve-shell-text, var(--color-text-1));
   -webkit-backdrop-filter: blur(calc(var(--eve-glass-chrome-blur) + 8px)) saturate(128%);
@@ -82,11 +81,17 @@
   min-width: 0;
   align-items: flex-start;
   gap: 11px;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 78%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--eve-shell-surface) 36%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-shell-text) 6%, transparent);
+  padding: 10px 2px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.section > .activityCard:not(:last-child),
+.section > .contextCard:not(:last-child),
+.section > .metaBlock:not(:last-child) {
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--glass-panel-border) 62%, transparent);
 }
 
 .activityIcon,
@@ -183,7 +188,7 @@
 .artifactList {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .artifactButton,
@@ -196,11 +201,17 @@
   align-items: center !important;
   gap: 10px;
   padding: 10px 12px !important;
-  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 72%, transparent) !important;
+  border: 0 !important;
   border-radius: 8px !important;
-  background: color-mix(in srgb, var(--eve-shell-surface) 34%, transparent) !important;
+  background: transparent !important;
   color: var(--eve-shell-text, var(--color-text-1)) !important;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--glass-panel-border) 62%, transparent) !important;
   text-align: left !important;
+}
+
+.artifactButton:last-child,
+.artifactButton.arco-btn:last-child {
+  box-shadow: none !important;
 }
 
 .artifactButton .arco-btn-content {
@@ -209,7 +220,6 @@
 
 .artifactButton:hover,
 .artifactButton:focus-visible {
-  border-color: color-mix(in srgb, var(--eve-accent) 28%, var(--glass-panel-border)) !important;
   background: color-mix(in srgb, var(--eve-shell-surface) 52%, transparent) !important;
 }
 
