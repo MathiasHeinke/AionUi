@@ -18,7 +18,7 @@
     "sealsDescription": "Diese fünf hängen an keiner Stufe. Auch auf „Voll“ bleiben sie aus, bis du sie einzeln anschaltest.",
     "grantedAt": "Von dir freigegeben am {{date}}",
     "dailyBudget": "Festgehaltene Obergrenze",
-    "budgetMissing": "Ohne Betrag gibt EVE nichts aus",
+    "budgetMissing": "Ohne Betrag bleibt das Geld-Siegel zu. Geld-Befehle, die EVE als solche erkennt, kommen dann nicht durch.",
     "budgetHigh": "Das ist ein hoher Tagesbetrag. Er ist gespeichert — sieh bitte kurz nach, ob du dich vertippt hast.",
     "budgetNotEnforced": "Ohne Betrag bleibt das Geld-Siegel geschlossen — das wird technisch erzwungen. Der Betrag selbst wird in dieser Version noch nicht gegen tatsächliche Ausgaben gezählt und nicht an EVE übermittelt. Er ist deine festgehaltene Obergrenze; durchgesetzt wird sie erst mit einer kommenden Version.",
     "rung": {

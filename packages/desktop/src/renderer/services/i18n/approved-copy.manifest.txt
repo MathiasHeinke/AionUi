@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7092
+# entries: 7142
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -505,14 +505,20 @@ copy	1	de-DE/commandCenter.json	wartet auf Controller
 copy	1	de-DE/commandCenter.json	wartet auf Dispatch-Check
 copy	1	de-DE/commandCenter.json	z. B. LinkedIn-Post zu Command EVE
 copy	1	de-DE/commandCenter.json	Öffnen
+copy	1	de-DE/commandEve.json	Abbrechen
 copy	1	de-DE/commandEve.json	Antwort läuft noch
 copy	1	de-DE/commandEve.json	Arbeiten
 copy	1	de-DE/commandEve.json	Befehle, die du für diesen Seat dauerhaft erlaubt hast. EVE fragt danach nicht mehr — bis du sie hier zurücknimmst.
+copy	1	de-DE/commandEve.json	Befehls-Scanner: Der zusätzliche Sicherheits-Scanner lässt durch, wenn er selbst nicht läuft oder nicht installiert ist. Er ist eine zweite Meinung, keine Sperre.
 copy	1	de-DE/commandEve.json	Beim Seat-Wechsel wird die laufende Antwort abgebrochen und verworfen. Trotzdem wechseln?
-copy	1	de-DE/commandEve.json	Bezahlte Modelle und Dienste — bis zu dem Betrag, den du hier festlegst.
+copy	1	de-DE/commandEve.json	Bezahlte Modelle und Dienste. Den Betrag, den du dafür festhältst, nennst du beim Anschalten.
+copy	1	de-DE/commandEve.json	Bildschirmsteuerung: Klicken, Tippen und Tastenkürzel laufen an dieser Seite vorbei. Zerstörerische Tastenkombinationen sind fest gesperrt, der Rest wird nicht von deiner Stufe entschieden.
+copy	1	de-DE/commandEve.json	Daran würde sich nichts ändern — das steht alles schon so.
 copy	1	de-DE/commandEve.json	Das ist ein hoher Tagesbetrag. Er ist gespeichert — sieh bitte kurz nach, ob du dich vertippt hast.
+copy	1	de-DE/commandEve.json	Das passiert, wenn du bestätigst:
 copy	1	de-DE/commandEve.json	Dateien anfassen, die nicht zum Projekt gehören.
 copy	1	de-DE/commandEve.json	Diese Einstellung stammt noch aus einer älteren Version und wurde von dir nie bestätigt. Sieh sie einmal durch.
+copy	1	de-DE/commandEve.json	Diese Seite regelt Terminal-Befehle und Datei-Änderungen. Sechs Dinge entscheidet sie nicht — hier stehen sie, damit du sie kennst, bevor du dich auf die Stufen verlässt.
 copy	1	de-DE/commandEve.json	Diese fünf hängen an keiner Stufe. Auch auf „Voll“ bleiben sie aus, bis du sie einzeln anschaltest.
 copy	1	de-DE/commandEve.json	E-Mails, Beiträge, alles, was andere Menschen erreicht.
 copy	1	de-DE/commandEve.json	EVE fragt vor jeder Änderung. Du siehst jeden Schritt, bevor er passiert.
@@ -520,10 +526,17 @@ copy	1	de-DE/commandEve.json	EVE liest und schreibt in deinem Arbeitsordner. Fü
 copy	1	de-DE/commandEve.json	EVE liest, denkt mit und schlägt vor. Sie ändert nichts, auch nichts Freigegebenes.
 copy	1	de-DE/commandEve.json	Eine Stufe. Sie regelt die alltäglichen Entscheidungen — nicht die heiklen darunter.
 copy	1	de-DE/commandEve.json	Erneut anmelden, um Kundenplätze zu laden
+copy	1	de-DE/commandEve.json	Festgehaltene Obergrenze
 copy	1	de-DE/commandEve.json	Fragen
+copy	1	de-DE/commandEve.json	Für einen Rechner, der dir gehört und auf dem EVE einfach arbeiten soll. Setzt die Stufe auf „Voll“ und öffnet alle fünf Freigaben unten — in einem Schritt statt in sieben.
+copy	1	de-DE/commandEve.json	Geht auf: {{seal}}
 copy	1	de-DE/commandEve.json	Geld ausgeben
-copy	1	de-DE/commandEve.json	Höchstens pro Tag
+copy	1	de-DE/commandEve.json	Geld ausgeben freigeben — Betrag erforderlich
+copy	1	de-DE/commandEve.json	Geld ausgeben: bleibt, wie es ist — diese Freigabe fasst die Vollfreigabe nicht an.
+copy	1	de-DE/commandEve.json	Geld ausgeben: geht auf, mit {{amount}} als festgehaltener Obergrenze.
+copy	1	de-DE/commandEve.json	Geld ausgeben: ohne Betrag bleibt Geld zu. Nenne eine Zahl oder schalte den Punkt ab.
 copy	1	de-DE/commandEve.json	In Produktion schreiben
+copy	1	de-DE/commandEve.json	Ja, alles freigeben
 copy	1	de-DE/commandEve.json	Kunde hinzufügen
 copy	1	de-DE/commandEve.json	Kunden
 copy	1	de-DE/commandEve.json	Lege fest, was EVE ohne Rückfrage tun darf — und nimm jederzeit zurück, was sie sich gemerkt hat.
@@ -532,17 +545,29 @@ copy	1	de-DE/commandEve.json	Leiste einklappen
 copy	1	de-DE/commandEve.json	Live-Systeme deployen oder verändern.
 copy	1	de-DE/commandEve.json	Löschen außerhalb des Arbeitsordners
 copy	1	de-DE/commandEve.json	Noch nichts gemerkt. EVE fragt bei jedem Befehl.
+copy	1	de-DE/commandEve.json	Notizen und Fähigkeiten: Was EVE sich merkt und welche Fähigkeiten sie sich selbst schreibt, läuft ohne Rückfrage. Dafür gibt es hier keinen Schalter.
 copy	1	de-DE/commandEve.json	Nur zusehen
-copy	1	de-DE/commandEve.json	Ohne Betrag gibt EVE nichts aus
+copy	1	de-DE/commandEve.json	Ohne Betrag bleibt das Geld-Siegel geschlossen — das wird technisch erzwungen. Der Betrag selbst wird in dieser Version noch nicht gegen tatsächliche Ausgaben gezählt und nicht an EVE übermittelt. Er ist deine festgehaltene Obergrenze; durchgesetzt wird sie erst mit einer kommenden Version.
+copy	1	de-DE/commandEve.json	Ohne Betrag bleibt das Geld-Siegel zu. Geld-Befehle, die EVE als solche erkennt, kommen dann nicht durch.
 copy	1	de-DE/commandEve.json	Routine
+copy	1	de-DE/commandEve.json	Schon offen: {{seal}}
 copy	1	de-DE/commandEve.json	Secrets und Schlüssel im Klartext sehen.
 copy	1	de-DE/commandEve.json	Selbstständig
+copy	1	de-DE/commandEve.json	Stufe: bleibt auf „{{rung}}“
+copy	1	de-DE/commandEve.json	Stufe: von „{{from}}“ auf „{{to}}“
+copy	1	de-DE/commandEve.json	Tagesbetrag: Der Betrag bei „Geld ausgeben“ öffnet dieses Siegel. Gegen tatsächliche Ausgaben gezählt wird er in dieser Version nicht.
 copy	1	de-DE/commandEve.json	Trotzdem wechseln
+copy	1	de-DE/commandEve.json	Unbeantwortete Anfragen: Eine Freigabe-Karte, die du fünf Minuten lang nicht beantwortest, gilt als abgelehnt — nicht als erteilt.
 copy	1	de-DE/commandEve.json	Veröffentlichen und senden
 copy	1	de-DE/commandEve.json	Voll
+copy	1	de-DE/commandEve.json	Vollfreigabe einrichten
+copy	1	de-DE/commandEve.json	Vollfreigabe für diese Maschine
+copy	1	de-DE/commandEve.json	Vollfreigabe ist aktiv. Stufe „Voll“, alle fünf Freigaben offen, festgehaltene Obergrenze {{amount}}. Einzelne Punkte nimmst du oben jederzeit wieder zurück.
 copy	1	de-DE/commandEve.json	Von dir freigegeben am {{date}}
 copy	1	de-DE/commandEve.json	Was EVE nur mit ausdrücklicher Erlaubnis darf
 copy	1	de-DE/commandEve.json	Was EVE sich gemerkt hat
+copy	1	de-DE/commandEve.json	Was diese Seite nicht entscheidet
+copy	1	de-DE/commandEve.json	Webseiten-Sperrliste: Ist sie fehlerhaft eingerichtet, gilt sie als leer und alles ist erreichbar.
 copy	1	de-DE/commandEve.json	Wie selbstständig EVE arbeitet
 copy	1	de-DE/commandEve.json	Zugangsdaten lesen
 copy	1	de-DE/commandEve.json	Zurücknehmen
@@ -4033,11 +4058,14 @@ copy	1	en-US/commandCenter.json	waiting for controller
 copy	1	en-US/commandCenter.json	waiting for dispatch check
 copy	1	en-US/commandEve.json	A response is still running
 copy	1	en-US/commandEve.json	Add client
+copy	1	en-US/commandEve.json	Already open: {{seal}}
 copy	1	en-US/commandEve.json	Ask me
-copy	1	en-US/commandEve.json	At most per day
+copy	1	en-US/commandEve.json	Cancel
 copy	1	en-US/commandEve.json	Clients
 copy	1	en-US/commandEve.json	Collapse rail
+copy	1	en-US/commandEve.json	Command scanner: the extra security scanner lets things through when it is not running or not installed. It is a second opinion, not a lock.
 copy	1	en-US/commandEve.json	Commands you allowed permanently for this seat. EVE stops asking for them — until you withdraw one here.
+copy	1	en-US/commandEve.json	Daily amount: the amount under “Spend money” opens that seal. It is not counted against actual spending in this version.
 copy	1	en-US/commandEve.json	Decide what EVE may do without asking — and withdraw anything it has remembered, any time.
 copy	1	en-US/commandEve.json	Delete outside the workspace
 copy	1	en-US/commandEve.json	Deploy or change live systems.
@@ -4046,35 +4074,57 @@ copy	1	en-US/commandEve.json	EVE reads and writes inside your workspace. For com
 copy	1	en-US/commandEve.json	EVE reads, thinks along and suggests. It changes nothing, not even what you granted.
 copy	1	en-US/commandEve.json	Emails, posts, anything that reaches other people.
 copy	1	en-US/commandEve.json	Expand rail
+copy	1	en-US/commandEve.json	For a machine that is yours and where EVE should simply get on with it. Sets the rung to “Full” and opens all five permissions below — in one step instead of seven.
 copy	1	en-US/commandEve.json	Full
+copy	1	en-US/commandEve.json	Full release for this machine
+copy	1	en-US/commandEve.json	Full release is active. Rung “Full”, all five permissions open, recorded upper bound {{amount}}. You can withdraw any single one above at any time.
 copy	1	en-US/commandEve.json	Granted by you on {{date}}
+copy	1	en-US/commandEve.json	Here is what happens when you confirm:
 copy	1	en-US/commandEve.json	How independently EVE works
 copy	1	en-US/commandEve.json	Independent
+copy	1	en-US/commandEve.json	Notes and skills: what EVE remembers, and which skills it writes for itself, run without asking. There is no switch for it here.
 copy	1	en-US/commandEve.json	Nothing remembered yet. EVE asks for every command.
+copy	1	en-US/commandEve.json	Nothing would change — all of this is already set that way.
 copy	1	en-US/commandEve.json	One rung. It governs the everyday decisions — not the delicate ones below.
-copy	1	en-US/commandEve.json	Paid models and services — up to the amount you set here.
+copy	1	en-US/commandEve.json	Opens: {{seal}}
+copy	1	en-US/commandEve.json	Paid models and services. You name the amount you record for it when you switch this on.
 copy	1	en-US/commandEve.json	Plus everything reversible, including outside the workspace.
 copy	1	en-US/commandEve.json	Plus irreversible work. The five below still stay off.
 copy	1	en-US/commandEve.json	Plus routine commands: tests, builds, read-only git.
 copy	1	en-US/commandEve.json	Publish and send
 copy	1	en-US/commandEve.json	Read credentials
+copy	1	en-US/commandEve.json	Recorded upper bound
+copy	1	en-US/commandEve.json	Release spending — an amount is required
 copy	1	en-US/commandEve.json	Routine
+copy	1	en-US/commandEve.json	Rung: from “{{from}}” to “{{to}}”
+copy	1	en-US/commandEve.json	Rung: stays at “{{rung}}”
+copy	1	en-US/commandEve.json	Screen control: clicks, typing and key combinations bypass this page. Destructive key combinations are hard-blocked; the rest is not decided by your rung.
 copy	1	en-US/commandEve.json	See secrets and keys in clear text.
+copy	1	en-US/commandEve.json	Set up full release
 copy	1	en-US/commandEve.json	Sign in again to load your seats
 copy	1	en-US/commandEve.json	Spend money
+copy	1	en-US/commandEve.json	Spend money: opens, with {{amount}} as the recorded upper bound.
+copy	1	en-US/commandEve.json	Spend money: stays as it is — the full release does not touch this one.
+copy	1	en-US/commandEve.json	Spend money: without an amount, money stays closed. Name a number, or switch this item off.
 copy	1	en-US/commandEve.json	Switch anyway
 copy	1	en-US/commandEve.json	Switching seats aborts and discards the running response. Switch anyway?
 copy	1	en-US/commandEve.json	That is a high daily amount. It is saved — please check you did not mistype.
 copy	1	en-US/commandEve.json	These five hang off no rung. Even on “Full” they stay off until you switch each one on.
+copy	1	en-US/commandEve.json	This page governs terminal commands and file changes. Six things it does not decide — listed here so you know them before you rely on the rungs.
 copy	1	en-US/commandEve.json	This setting came from an older version and you never confirmed it. Have a look.
 copy	1	en-US/commandEve.json	Touch files that do not belong to the project.
+copy	1	en-US/commandEve.json	Unanswered requests: a permission card you leave unanswered for five minutes counts as denied — not as granted.
 copy	1	en-US/commandEve.json	Watch only
+copy	1	en-US/commandEve.json	Website blocklist: if it is misconfigured it counts as empty, and everything is reachable.
 copy	1	en-US/commandEve.json	What EVE has remembered
 copy	1	en-US/commandEve.json	What EVE may only do with explicit permission
+copy	1	en-US/commandEve.json	What this page does not decide
 copy	1	en-US/commandEve.json	Withdraw
-copy	1	en-US/commandEve.json	Without an amount EVE spends nothing
+copy	1	en-US/commandEve.json	Without an amount the money seal stays closed — that is technically enforced. The amount itself is not yet counted against actual spending in this version, and it is not transmitted to EVE. It is your recorded upper bound; enforcing it comes in a future version.
+copy	1	en-US/commandEve.json	Without an amount the money seal stays shut. Money commands EVE recognises as such do not get through.
 copy	1	en-US/commandEve.json	Working
 copy	1	en-US/commandEve.json	Write to production
+copy	1	en-US/commandEve.json	Yes, release everything
 copy	1	en-US/commandEve.json	{{name}} (active)
 copy	1	en-US/common.json	(optional)
 copy	1	en-US/common.json	A durable operation is incomplete. Use Recover; do not repeat the original action.

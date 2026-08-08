@@ -18,7 +18,7 @@
     "sealsDescription": "These five hang off no rung. Even on “Full” they stay off until you switch each one on.",
     "grantedAt": "Granted by you on {{date}}",
     "dailyBudget": "Recorded upper bound",
-    "budgetMissing": "Without an amount EVE spends nothing",
+    "budgetMissing": "Without an amount the money seal stays shut. Money commands EVE recognises as such do not get through.",
     "budgetHigh": "That is a high daily amount. It is saved — please check you did not mistype.",
     "budgetNotEnforced": "Without an amount the money seal stays closed — that is technically enforced. The amount itself is not yet counted against actual spending in this version, and it is not transmitted to EVE. It is your recorded upper bound; enforcing it comes in a future version.",
     "rung": {
