@@ -54,10 +54,32 @@ export async function cleanupRegisteredAgentProcesses(dataDir?: string): Promise
 async function readRegistry(registryPath: string): Promise<AgentProcessRegistry> {
   try {
     const raw = await readFile(registryPath, 'utf8');
-    const parsed = JSON.parse(raw) as Partial<AgentProcessRegistry>;
+    // CHECK THE ROOT, do not cast it. This used to read
+    // `JSON.parse(raw) as Partial<AgentProcessRegistry>`, and a cast is not a
+    // check — it only tells the compiler to stop asking. `JSON.parse` may hand
+    // back null, a number, a string or an array, and the entries were already
+    // validated one by one (`isRegisteredProcess`) while the object holding them
+    // was not.
+    //
+    // Two things went wrong, both reproducible from a file on disk:
+    //   - a file containing `null` made `parsed.version` throw a TypeError.
+    //     `isNotFound` does not recognise it, so `readRegistry` rethrew — and both
+    //     callers await this without a try/catch (backend-launcher.ts:875, :892),
+    //     so `stop()` aborted before the capability-file cleanup, before clearing
+    //     `childProcess`, and before signalling a single orphaned ACP child. The
+    //     one function whose job is killing orphans was stopped by one bad byte.
+    //   - `version` is typed `number`, but `?? 1` only replaces null/undefined,
+    //     so `"evil"` passed through and `writeRegistry` persisted it again.
+    //
+    // A malformed registry is treated as an empty one, which is the same answer
+    // this function already gives for a missing file: nothing to clean up.
+    const parsed: unknown = JSON.parse(raw);
+    const record = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : undefined;
+    const version = record?.version;
+    const processes = record?.processes;
     return {
-      version: parsed.version ?? 1,
-      processes: Array.isArray(parsed.processes) ? parsed.processes.filter(isRegisteredProcess) : [],
+      version: typeof version === 'number' ? version : 1,
+      processes: Array.isArray(processes) ? processes.filter(isRegisteredProcess) : [],
     };
   } catch (error) {
     if (isNotFound(error)) {
