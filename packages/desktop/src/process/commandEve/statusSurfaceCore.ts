@@ -67,7 +67,11 @@ const DEFAULT_MAX_RUNS = 8;
 const STATUS_SURFACE_CLI = 'scripts/operator-shell/command-eve-status-surface.mjs';
 
 function normalizeMaxRuns(value: number | undefined): number {
-  if (!Number.isFinite(value)) return DEFAULT_MAX_RUNS;
+  // `Number.isFinite(undefined)` is already false, so the runtime answer does not
+  // change — but `Number.isFinite` is typed `(x: unknown) => boolean` and narrows
+  // nothing, which is why the compiler still saw `undefined` at `Math.trunc`. The
+  // `typeof` half is what makes the existing guard legible to the type system.
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_MAX_RUNS;
   return Math.min(100, Math.max(1, Math.trunc(value)));
 }
 

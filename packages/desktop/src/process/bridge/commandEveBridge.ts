@@ -4846,12 +4846,18 @@ export function initCommandEveBridge(): void {
     .provider(async (request?: { month?: string } | CommandEveBridgeEnvelope<{ month?: string }>) => {
       const payload = unwrapBridgeRequest<{ month?: string }>(request);
       const month = isValidUsageMonth(payload?.month) ? (payload!.month as string) : currentUsageMonth();
+      // Spread FIRST, then state the refusal. The old order put `ok: false` before
+      // `...emptySeatUsage(month)`, so the spread overwrote it — harmless only
+      // because `emptySeatUsage` also returns `ok: false` (seatUsageCore.ts:349).
+      // A refusal helper whose refusal is decided by a different function is one
+      // edit away from quietly reporting success. `emptySeatUsage` carries no
+      // `version`, `reason_code` or `message`, so nothing else changes hands.
       const quiet = (reasonCode: string, message?: string) => ({
+        ...emptySeatUsage(month),
         version: 'command-eve-seat-usage/v0' as const,
         ok: false,
         reason_code: reasonCode,
         ...(message ? { message } : {}),
-        ...emptySeatUsage(month),
       });
 
       try {

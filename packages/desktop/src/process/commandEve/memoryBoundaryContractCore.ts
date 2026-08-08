@@ -174,9 +174,16 @@ export function enforceMemoryBoundary(input: MemoryBoundaryInput): MemoryBoundar
   // 'read' default), any provided store MUST be known, and a non-read MUST name a known
   // (therefore seat-scoped, per-client) store. This closes every "unknown op/store skips
   // a gate" and "undefined input allows" bypass.
-  if (KNOWN_OPERATIONS.indexOf(operation) < 0) return deny(MEMORY_BOUNDARY_MALFORMED);
+  // `undefined` is spelled out rather than left to `indexOf`. It already denied —
+  // `indexOf(undefined)` is -1 — so this changes nothing at runtime; what it
+  // changes is that the deny for a MISSING operation or store is now visible in
+  // the code instead of being an accident of a lookup's return value. On a gate
+  // whose whole comment above promises "no silent default", that distinction is
+  // the point.
+  if (operation === undefined || KNOWN_OPERATIONS.indexOf(operation) < 0) return deny(MEMORY_BOUNDARY_MALFORMED);
   if (store !== undefined && KNOWN_STORES.indexOf(store) < 0) return deny(MEMORY_BOUNDARY_MALFORMED);
-  if (operation !== 'read' && KNOWN_STORES.indexOf(store) < 0) return deny(MEMORY_BOUNDARY_MALFORMED);
+  if (operation !== 'read' && (store === undefined || KNOWN_STORES.indexOf(store) < 0))
+    return deny(MEMORY_BOUNDARY_MALFORMED);
 
   // (1) SEAT ISOLATION — a read may be seatless (recall resolves its own seat), but any
   // WRITE / DERIVE (to a now-guaranteed known, per-seat store) must target the ACTIVE

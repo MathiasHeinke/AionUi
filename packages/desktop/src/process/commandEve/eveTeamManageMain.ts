@@ -183,7 +183,17 @@ export async function applyTeamManageIntent(
     writeReceipt({ event: 'apply-refused', intent_id, seat_id: seatId, reason, ts: now });
     return { ok: false, reason };
   }
-  const intent: TeamManageIntent = consumed.intent;
+  // Same shape as the kanban confirm path, same refusal. `intent` is OPTIONAL on
+  // the result (eveTeamManageBridgeCore.ts:204) while `ok` is a plain boolean, so
+  // "approved, nothing attached" is representable. Applying a team-management
+  // change without the intent that was confirmed is not something to paper over
+  // with `!`. The result type wants to be a discriminated union; that file is
+  // mid-edit in the working tree, so the branch lives here for now.
+  const intent = consumed.intent;
+  if (!intent) {
+    writeReceipt({ event: 'apply-refused', intent_id, seat_id: seatId, reason: 'no-intent', ts: now });
+    return { ok: false, reason: 'no-intent' };
+  }
   // The intent is now consumed (single-use — no double-apply). Everything past this
   // point is wrapped: a throw after consume must NEVER silently drop the intent
   // (review fix) — it writes a terminal apply-error receipt and reports failure so

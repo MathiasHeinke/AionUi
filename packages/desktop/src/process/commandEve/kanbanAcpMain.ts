@@ -362,6 +362,23 @@ export async function applyKanbanAcpIntent(
     return { ok: false, reason: consumed.reason };
   }
   const intent = consumed.intent;
+  // REFUSE, do not assume. `ConsumeKanbanResult` declares `ok: boolean` beside an
+  // OPTIONAL `intent` (kanbanAcpConfirmStore.ts:278-281), so "approved but no
+  // intent attached" is a representable value, and the compiler is right to say
+  // so. Every convenient answer here is wrong in the same direction: `intent!`
+  // asserts a guarantee the type does not give, and a fabricated default would
+  // apply SOME write on the strength of a confirmation for another one — the
+  // bait-and-switch the confirm store exists to prevent (its own comment,
+  // :286-288). A confirmation without the thing confirmed is not a confirmation.
+  //
+  // The proper repair is a discriminated union on ConsumeKanbanResult, so that
+  // `ok: true` carries the intent by construction. That file is mid-edit in the
+  // working tree and was out of bounds for this change; this branch holds the
+  // line locally until it can be done there.
+  if (!intent) {
+    writeReceipt({ event: 'apply-refused', intent_id, seat_id: seatId, reason: 'no-intent', ts: now });
+    return { ok: false, reason: 'no-intent' };
+  }
   // K18: prove the authoritative receipt is writable BEFORE the kanban write. If it is
   // not, refuse the write — a confirmed mutation must never happen without an audit row.
   if (

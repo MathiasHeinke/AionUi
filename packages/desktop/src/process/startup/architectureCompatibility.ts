@@ -6,7 +6,18 @@
 
 import { execFileSync as defaultExecFileSync } from 'node:child_process';
 
-type ExecFileSync = (command: string, args: string[], options?: { encoding: 'utf8'; timeout: number }) => string;
+/**
+ * OPTIONS ARE REQUIRED, and that is the fix rather than a cast.
+ *
+ * Node's `execFileSync` returns a Buffer when no encoding is given and a string
+ * when `encoding: 'utf8'` is. Declaring `options?` here promised a `string` for
+ * the no-options call shape too, which is why the real `execFileSync` was not
+ * assignable to this type — the seam was claiming something the platform does
+ * not do. The single caller (`readSysctlInt`) always passes both fields, so
+ * requiring them describes the seam accurately and keeps the `string` return
+ * honest.
+ */
+type ExecFileSync = (command: string, args: string[], options: { encoding: 'utf8'; timeout: number }) => string;
 
 type StartupArchitectureCompatibilityEnv = {
   arch?: string;

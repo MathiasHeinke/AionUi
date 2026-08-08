@@ -1,0 +1,52 @@
+{
+  // STRICT-NULL STAGE 2 — packages/desktop/src/process only.
+  //
+  // Same shape and same rules as stage 1 (tsconfig.strictnull.common.json).
+  // The root config stays untouched; the fence is the `include` below.
+  //
+  //   bunx tsc --noEmit -p tsconfig.strictnull.process.json
+  //
+  // Stage 1 fixed `common`, so this stage inherits a directory whose nullability
+  // is already honest. That matters: `process` reads the authority and config
+  // cores, and a null that stage 1 removed cannot resurface here.
+  // THE GATE COMMAND, in the same two halves as stage 1:
+  //
+  //   CAP='eveMultimodalGatewayCore|evePdfIntelligenceCore|licenseWireAtRest'
+  //   CAP="$CAP|artifactContractCore|companyBrainStoreCore|eveTeamManageBridgeCore"
+  //   CAP="$CAP|kanbanPreflightCore|multimodalTtsConsentCore|runtimeGateCore|DocumentConverter"
+  //
+  //   bunx tsc --noEmit -p tsconfig.strictnull.process.json 2>&1 | grep "error TS" \
+  //     | grep -vE "$CAP" | wc -l          # must print 0
+  //   bunx tsc --noEmit -p tsconfig.strictnull.process.json 2>&1 | grep "error TS" \
+  //     | grep -cE "$CAP"                  # must print exactly 21
+  //
+  // WHAT THE CAP HOLDS, counted rather than waved at — 21 errors, none of them
+  // repairable from inside this stage:
+  //
+  //   17  the `Set<string>` / `readonly T[]` refactor in flight (TS2740 + TS2339),
+  //       already 11 of the root baseline plus the 6 common/ ones stage 1 capped;
+  //    2  eveTeamManageBridgeCore:272,281 — real strictNull errors, but the file
+  //       is uncommitted work belonging to someone else;
+  //    1  kanbanPreflightCore:4338 — same, same reason;
+  //    1  DocumentConverter.ts:22 — TS7016 for 'turndown-plugin-gfm', and it lives
+  //       in common/, outside this stage's remit.
+  //
+  // The count pin is the half that matters. `grep -v` alone would let a NEW error
+  // in any of those ten files disappear from the verdict — the gate would stay
+  // green while its coverage shrank, which is the failure mode of every
+  // exclusion that is never counted.
+  //
+  // RETIREMENT: the 17 go when the Set refactor lands; the other 4 go when their
+  // files are free and a later stage covers common/ imports.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strictNullChecks": true
+  },
+  // `types.d.ts` is listed EXPLICITLY. `extends` does not inherit `include`, so a
+  // narrowed include silently drops the repo's ambient module declarations — and
+  // the first symptom was a TS7016 for 'pdfjs-dist/legacy/build/pdf.worker.mjs'
+  // that the root config does not report, because the root include reaches
+  // src/types.d.ts:4 where that module is declared. A staged config that invents
+  // errors the real build does not have would train people to ignore it.
+  "include": ["packages/desktop/src/process/**/*", "packages/desktop/src/types.d.ts"]
+}

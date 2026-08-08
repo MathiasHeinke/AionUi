@@ -17,12 +17,41 @@ import { COMMAND_EVE_APP_NAME, COMMAND_EVE_SHELL_ENABLED } from '@/common/config
 import i18n from '@process/services/i18n';
 
 let tray: TrayInstance | null = null;
+/** Set with `tray`, cleared with it. Non-null exactly while a tray exists. */
+let trayDeps: ElectronTrayDeps | null = null;
 let closeToTrayEnabled = false;
 let isQuitting = false;
 let mainWindowRef: BrowserWindow | null = null;
 let cachedActiveCount = 0;
 /** Version of the downloaded update awaiting a restart, null when none is ready. */
 let updateReadyVersion: string | null = null;
+
+/**
+ * The four shim exports, proven present — or null, once, for the whole process.
+ *
+ * WHY A BUNDLE AND NOT `?.` AT THIRTEEN SITES. The runtime branch in
+ * `createOrUpdateTray` already decides the null case correctly, but a runtime
+ * branch proves nothing to the compiler: `app` and friends are module-level
+ * bindings, and narrowing one inside `createOrUpdateTray` says nothing inside
+ * `getTrayIcon`. Answering that with optional chaining would have made twelve
+ * silent no-ops out of twelve real calls.
+ *
+ * Resolving them into ONE value instead makes the fact checkable. Electron is
+ * either present for this whole process or absent for all of it — there is no
+ * state where `app` exists and `Menu` does not — so a single nullable bundle is
+ * a truer model than four independent nullable bindings, and one guard narrows
+ * all four at once. Every function below that needs them takes the narrowed
+ * bundle as an argument, so the compiler carries the proof instead of the reader.
+ */
+type ElectronTrayDeps = {
+  app: NonNullable<typeof app>;
+  Menu: NonNullable<typeof Menu>;
+  nativeImage: NonNullable<typeof nativeImage>;
+  Tray: NonNullable<typeof Tray>;
+};
+
+const electronTrayDeps: ElectronTrayDeps | null =
+  app && Menu && nativeImage && Tray ? { app, Menu, nativeImage, Tray } : null;
 
 const isSecondaryTrayClick = (event: unknown): boolean => {
   if (!event || typeof event !== 'object') return false;
@@ -62,9 +91,9 @@ export const setTrayUpdateReady = (version: string | null): void => {
  * Get tray icon.
  * macOS uses Template image to adapt to dark/light menu bar.
  */
-const getTrayIcon = (): Electron.NativeImage => {
-  const resourcesPath = app.isPackaged ? process.resourcesPath : path.join(process.cwd(), 'resources');
-  const icon = nativeImage.createFromPath(path.join(resourcesPath, 'app.png'));
+const getTrayIcon = (deps: ElectronTrayDeps): Electron.NativeImage => {
+  const resourcesPath = deps.app.isPackaged ? process.resourcesPath : path.join(process.cwd(), 'resources');
+  const icon = deps.nativeImage.createFromPath(path.join(resourcesPath, 'app.png'));
   if (process.platform === 'darwin') {
     return icon.resize({ width: 16, height: 16 });
   }
@@ -74,7 +103,7 @@ const getTrayIcon = (): Electron.NativeImage => {
 /**
  * Build tray context menu (async to support dynamic content).
  */
-const buildTrayContextMenu = async (): Promise<Electron.Menu> => {
+const buildTrayContextMenu = async (deps: ElectronTrayDeps): Promise<Electron.Menu> => {
   const getRecentConversations = async (): Promise<Array<{ id: string; title: string }>> => {
     try {
       const result = await ipcBridge.database.getUserConversations.invoke({ limit: 5 });
@@ -94,8 +123,8 @@ const buildTrayContextMenu = async (): Promise<Electron.Menu> => {
 
   const showAndFocus = () => {
     if (mainWindowRef && !mainWindowRef.isDestroyed()) {
-      if (process.platform === 'darwin' && app.dock) {
-        void app.dock.show();
+      if (process.platform === 'darwin' && deps.app.dock) {
+        void deps.app.dock.show();
       }
       if (mainWindowRef.isMinimized()) {
         mainWindowRef.restore();
@@ -108,8 +137,8 @@ const buildTrayContextMenu = async (): Promise<Electron.Menu> => {
   const hideToTray = () => {
     if (mainWindowRef && !mainWindowRef.isDestroyed()) {
       mainWindowRef.hide();
-      if (process.platform === 'darwin' && app.dock) {
-        void app.dock.hide();
+      if (process.platform === 'darwin' && deps.app.dock) {
+        void deps.app.dock.hide();
       }
     }
   };
@@ -240,8 +269,8 @@ const buildTrayContextMenu = async (): Promise<Electron.Menu> => {
     label: i18n.t('common.tray.restart'),
     click: () => {
       isQuitting = true;
-      app.relaunch();
-      app.exit(0);
+      deps.app.relaunch();
+      deps.app.exit(0);
     },
   });
   template.push({ type: 'separator' });
@@ -249,11 +278,11 @@ const buildTrayContextMenu = async (): Promise<Electron.Menu> => {
     label: i18n.t('common.tray.quit'),
     click: () => {
       isQuitting = true;
-      app.quit();
+      deps.app.quit();
     },
   });
 
-  return Menu.buildFromTemplate(template);
+  return deps.Menu.buildFromTemplate(template);
 };
 
 /**
@@ -268,36 +297,33 @@ const buildTrayContextMenu = async (): Promise<Electron.Menu> => {
  *
  * ONE BRANCH, NOT THIRTEEN `?.`. Optional chaining would build half a tray whose
  * menu handlers silently do nothing — worse than no tray, because it looks like
- * one. This single early return is a genuine choke point and covers every one of
- * the thirteen uses:
+ * one. This single early return is a genuine choke point, and every use of the
+ * four shim exports sits behind it:
  *
- *   - `getTrayIcon` (:66 `app.isPackaged`, :67 `nativeImage.createFromPath`) is
- *     called only from inside the `try` below;
- *   - `buildTrayContextMenu` (:97, :98, :111, :112, :243, :244, :252 on `app`,
- *     :256 on `Menu`) is reached only from here and from `rebuildTrayMenu`, which
- *     already returns early on `!tray`;
- *   - `new Tray(icon)` is this function;
+ *   - `getTrayIcon` (`app.isPackaged`, `nativeImage.createFromPath`) is called
+ *     only from inside the `try` below;
+ *   - `buildTrayContextMenu` (seven `app` uses, one `Menu.buildFromTemplate`) is
+ *     reached only from here and from `rebuildTrayMenu`, which returns early
+ *     unless a tray already exists;
+ *   - `new deps.Tray(icon)` is this function;
  *   - the `tray.on('double-click', …)` handler, with its two `app.dock` uses, is
  *     registered only after the tray exists.
  *
  * So skipping construction closes all of them, and `tray` staying null keeps them
  * closed for every later call.
  *
- * WHY THE LAST TWO ENTRIES NAME CODE INSTEAD OF LINES. The ten citations above
- * sit ABOVE this comment and cannot move. The last three sit below it, so they
- * shift by however many lines this block gains or loses — and they have, twice:
- * the first version cited :274/:275, which by then were two lines of this very
- * comment, and the correction to :313/:314 was invalidated by the six lines the
- * correction itself added. A number that the act of fixing it falsifies is not a
- * citation, it is a moving target. Both anchors occur exactly once as CODE, which
- * this confirms — two hits, no more:
+ * NO LINE NUMBERS IN THIS LIST, DELIBERATELY. It carried thirteen of them and
+ * they went wrong three times in a row, each time for the same mechanical
+ * reason: every site listed here lives in the same file as the list, so editing
+ * the list moves them. The first version cited :274/:275, which by then were two
+ * lines of this very comment; the correction to :313/:314 was invalidated by the
+ * six lines the correction itself added; introducing `ElectronTrayDeps` above
+ * then moved the remaining ten. A citation that the act of writing it falsifies
+ * is not a citation. Function names do not move, and `grep` finds them.
  *
- *   grep -nE "^    (tray = new Tray\(icon\);|tray\.on\('double-click')" \
- *     packages/desktop/src/process/utils/tray.ts
- *
- * The `^    ` matters: without it the bullet above matches too. Even a rule about
- * untrue citations needs a command that was actually run — the first draft of
- * this sentence guessed the unanchored count and guessed wrong.
+ * The compiler now carries the same fact independently: `getTrayIcon` and
+ * `buildTrayContextMenu` take `ElectronTrayDeps` as an argument, so there is no
+ * longer a path to them that has not been through this branch.
  *
  * WHAT THIS IS NOT. On the shipped boot path the branch does not fire: this module
  * is reachable only from `index.ts` and three `process/` modules that themselves
@@ -314,20 +340,22 @@ export const createOrUpdateTray = (): void => {
   if (tray) {
     return;
   }
-  if (!app || !Menu || !nativeImage || !Tray) {
+  const deps = electronTrayDeps;
+  if (!deps) {
     console.warn('[Tray] Electron is unavailable in this process — skipping tray creation.');
     return;
   }
+  trayDeps = deps;
   try {
-    const icon = getTrayIcon();
-    tray = new Tray(icon);
+    const icon = getTrayIcon(deps);
+    tray = new deps.Tray(icon);
     tray.setToolTip(COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_APP_NAME : 'AionUi');
-    void buildTrayContextMenu().then((menu) => tray?.setContextMenu(menu));
+    void buildTrayContextMenu(deps).then((menu) => tray?.setContextMenu(menu));
 
     tray.on('double-click', () => {
       if (mainWindowRef && !mainWindowRef.isDestroyed()) {
-        if (process.platform === 'darwin' && app.dock) {
-          void app.dock.show();
+        if (process.platform === 'darwin' && deps.app.dock) {
+          void deps.app.dock.show();
         }
         if (mainWindowRef.isMinimized()) {
           mainWindowRef.restore();
@@ -339,7 +367,7 @@ export const createOrUpdateTray = (): void => {
 
     tray.on('click', (event: unknown) => {
       if (isSecondaryTrayClick(event)) {
-        void buildTrayContextMenu().then((menu) => tray?.setContextMenu(menu));
+        void buildTrayContextMenu(deps).then((menu) => tray?.setContextMenu(menu));
       }
     });
 
@@ -353,8 +381,12 @@ export const createOrUpdateTray = (): void => {
  * Rebuild tray menu with current cached state (synchronous wrapper).
  */
 const rebuildTrayMenu = (): void => {
-  if (!tray) return;
-  void buildTrayContextMenu().then((menu) => tray?.setContextMenu(menu));
+  // `trayDeps` is set in lockstep with `tray` and cleared with it, so in practice
+  // the second half of this guard never decides anything. It is still written out
+  // rather than asserted away: the pairing is an invariant of two module-level
+  // bindings, and nothing but this line makes the compiler check that it holds.
+  if (!tray || !trayDeps) return;
+  void buildTrayContextMenu(trayDeps).then((menu) => tray?.setContextMenu(menu));
 };
 
 /**
@@ -388,5 +420,6 @@ export const destroyTray = (): void => {
   if (tray) {
     tray.destroy();
     tray = null;
+    trayDeps = null;
   }
 };

@@ -1,4 +1,17 @@
-import childProcess, { type ChildProcessWithoutNullStreams } from 'node:child_process';
+import childProcess, { type ChildProcessByStdio } from 'node:child_process';
+import type { Readable } from 'node:stream';
+
+/**
+ * What `childProcess.spawn(..., { stdio: ['ignore', 'pipe', 'pipe'] })` actually
+ * returns: no stdin, readable stdout and stderr.
+ *
+ * The handle used to be typed `SpawnedServerProcess`, which promises a
+ * WRITABLE stdin this process was never given — `'ignore'` is the first stdio
+ * slot. Nothing wrote to it, so nothing broke; but the declared type invited a
+ * `server.process.stdin.write(...)` that would have thrown on null at runtime.
+ * Naming the real shape removes the invitation instead of casting it away.
+ */
+type SpawnedServerProcess = ChildProcessByStdio<null, Readable, Readable>;
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -50,12 +63,12 @@ export type BonsaiServerOptions = Readonly<{
 }>;
 
 type ActiveServer = BonsaiPilotServer & {
-  process: ChildProcessWithoutNullStreams;
+  process: SpawnedServerProcess;
   paths: BonsaiPilotPaths;
 };
 
 type StartingServer = Readonly<{
-  process: ChildProcessWithoutNullStreams;
+  process: SpawnedServerProcess;
   paths: BonsaiPilotPaths;
 }>;
 
@@ -220,13 +233,35 @@ function writeStartingProcessReceipt(paths: BonsaiPilotPaths, pid: number, start
   );
 }
 
-function processCommand(pid: number): string {
-  if (!Number.isSafeInteger(pid) || pid <= 1) return '';
+/**
+ * ACCEPTS `undefined`, because the caller genuinely may not have a pid: a spawn
+ * that never started has none. Widening the parameter rather than guarding at
+ * four call sites keeps the check in the one place that already performs it —
+ * the `Number.isSafeInteger` line below, which `undefined` fails, so the
+ * behaviour is exactly what it already was. The narrower signature was the part
+ * that did not match the implementation.
+ */
+function processCommand(pid: number | undefined): string {
+  // The `typeof` half is what narrows: `Number.isSafeInteger` is typed
+  // `(x: unknown) => boolean`, so it rejects `undefined` at runtime but tells
+  // the compiler nothing. Same guard, now legible to both.
+  if (typeof pid !== 'number' || !Number.isSafeInteger(pid) || pid <= 1) return '';
   return runText('/bin/ps', ['-p', String(pid), '-o', 'command=']).trim();
 }
 
-function killProcessGroup(pid: number, signal: NodeJS.Signals): void {
-  if (!Number.isSafeInteger(pid) || pid <= 1) return;
+/**
+ * ACCEPTS `undefined`, because the caller genuinely may not have a pid: a spawn
+ * that never started has none. Widening the parameter rather than guarding at
+ * four call sites keeps the check in the one place that already performs it —
+ * the `Number.isSafeInteger` line below, which `undefined` fails, so the
+ * behaviour is exactly what it already was. The narrower signature was the part
+ * that did not match the implementation.
+ */
+function killProcessGroup(pid: number | undefined, signal: NodeJS.Signals): void {
+  // The `typeof` half is what narrows: `Number.isSafeInteger` is typed
+  // `(x: unknown) => boolean`, so it rejects `undefined` at runtime but tells
+  // the compiler nothing. Same guard, now legible to both.
+  if (typeof pid !== 'number' || !Number.isSafeInteger(pid) || pid <= 1) return;
   try {
     process.kill(-pid, signal);
   } catch {
@@ -300,7 +335,7 @@ function parseListeningPort(line: string): number | undefined {
 }
 
 async function waitForHealthyServer(args: {
-  child: ChildProcessWithoutNullStreams;
+  child: SpawnedServerProcess;
   paths: BonsaiPilotPaths;
   apiKey: string;
 }): Promise<number> {

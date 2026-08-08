@@ -46,9 +46,23 @@
   // reports exactly those six and nothing else, so none of them carries a
   // strictNullChecks error today.
   //
-  // RETIREMENT CONDITION: delete the second `grep` from the command as soon as
-  // the Set/array refactor lands and the root baseline drops below 19. The gate
-  // then covers all of `common` with no exception at all.
+  // THE CAP IS PINNED, so it cannot quietly grow. A `grep -v` alone would swallow
+  // a genuinely NEW error appearing in one of those three files, and the gate
+  // would stay green while coverage silently shrank. Second half of the gate:
+  //
+  //   bunx tsc --noEmit -p tsconfig.strictnull.common.json 2>&1 \
+  //     | grep "error TS" \
+  //     | grep -E 'eveMultimodalGatewayCore|evePdfIntelligenceCore|licenseWireAtRest' \
+  //     | grep -cE 'TS2740|TS2339'      # must print exactly 6
+  //
+  // Measured: 6. Both conditions have to hold — 0 outside the cap AND exactly 6
+  // inside it. The error-code filter is what makes the number mean something: a
+  // new error of a different kind in a capped file lowers the count below 6 even
+  // if it displaced one, so it cannot hide behind a coincidental total.
+  //
+  // RETIREMENT CONDITION: delete both `grep`s from the command as soon as the
+  // Set/array refactor lands and the root baseline drops below 19. The gate then
+  // covers all of `common` with no exception at all.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "strictNullChecks": true

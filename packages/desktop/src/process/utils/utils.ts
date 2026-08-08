@@ -177,7 +177,12 @@ export async function readDirectoryRecursive(
       process?: { file: number; dir: number };
     };
   }
-): Promise<IDirOrFile> {
+  // NULLABLE, because the two `return null` paths below are real: the directory
+  // may be gone (a cleaned-up temp workspace) or may not be a directory at all.
+  // The recursive call inside already guards with `if (child && ...)`, so this
+  // widening documents how the function is used rather than changing it — and it
+  // stops any future caller from dereferencing a tree that was never built.
+): Promise<IDirOrFile | null> {
   const { root = dirPath, maxDepth = 1, fileService, search, abortController } = options || {};
   const { text: searchText, onProcess: onSearchProcess = () => {}, process = { file: 0, dir: 1 } } = search || {};
 
@@ -196,7 +201,14 @@ export async function readDirectoryRecursive(
     // Directory may have been deleted (e.g. cleaned-up temp workspace)
     return null;
   }
-  const result: IDirOrFile = {
+  // `IDirOrFile.children` is optional (ipcBridge.ts:3521) and that is right for
+  // the shared shape — a file node has none. This function, though, always builds
+  // a directory node and always fills `children`, and the seven pushes/sorts below
+  // depend on it. Stating that in a LOCAL type keeps the guarantee where it is
+  // actually true, instead of either weakening the shared interface or writing
+  // `result.children?.push(...)` seven times — which would silently drop entries
+  // rather than build a tree.
+  const result: IDirOrFile & { children: IDirOrFile[] } = {
     name: path.basename(dirPath),
     fullPath: dirPath,
     relativePath: path.relative(root, dirPath),
@@ -239,18 +251,39 @@ export async function readDirectoryRecursive(
         ...options,
         maxDepth: searchText ? maxDepth : maxDepth - 1,
         root,
-        search: {
-          ...search,
-          process,
-          onProcess(searchResult) {
-            if (searchResult.match) {
-              if (!result.children.find((v) => v.fullPath === searchResult.match.fullPath)) {
-                result.children.push(searchResult.match);
-              }
-              onSearchProcess({ ...process, match: result });
+        // `search` is handed down ONLY when there is something to search for.
+        //
+        // The old form spread `...search` unconditionally, so with no search
+        // active it built `{ text: undefined, ... }` — a search option object
+        // describing no search, which is what made `text` optional and broke the
+        // contract the parameter declares. `text: searchText ?? ''` would have
+        // silenced that in one character and left the same nonsense object in
+        // place.
+        //
+        // Behaviour is unchanged: `matchSearch` is built from `searchText`, and
+        // both `undefined` and `''` are falsy, so the child matched nothing
+        // either way. The `process` counters are only ever read back through
+        // `search.onProcess`, which does not exist when there is no search.
+        ...(searchText
+          ? {
+              search: {
+                text: searchText,
+                process,
+                onProcess(searchResult: { file: number; dir: number; match?: IDirOrFile }) {
+                  // Bound before the closure below: narrowing `searchResult.match` in
+                  // the `if` does not survive into the `find` callback, because that
+                  // runs later and the property is mutable.
+                  const match = searchResult.match;
+                  if (match) {
+                    if (!result.children.find((v) => v.fullPath === match.fullPath)) {
+                      result.children.push(match);
+                    }
+                    onSearchProcess({ ...process, match: result });
+                  }
+                },
+              },
             }
-          },
-        },
+          : {}),
       });
       if (child && !searchText) {
         result.children.push(child);
