@@ -9,6 +9,88 @@
   },
   "exceptions": [
     {
+      "advisoryId": 1124279,
+      "package": "app-builder-lib",
+      "severity": "high",
+      "url": "https://github.com/advisories/GHSA-7g7r-gx96-252g",
+      "vulnerableVersions": "<26.15.0",
+      "installedVersions": ["26.8.1", "26.15.3"],
+      "owner": "Command EVE Security / CTO",
+      "reachability": {
+        "classification": "not-reachable",
+        "rationale": "The vulnerable 26.8.1 copy exists only below the optional Windows Squirrel builder toolchain. Command EVE 1.822.0 is built as a macOS arm64 app; its packaged app.asar contains neither app-builder-lib nor electron-builder-squirrel-windows. The active macOS builder is app-builder-lib 26.15.3, which is outside the advisory range. The advisory's AppImage search-path behavior is therefore not present in this release runtime or its macOS build path.",
+        "evidence": [
+          "bun pm why app-builder-lib --all",
+          "out/mac-arm64/Command EVE.app/Contents/Resources/app.asar",
+          "package.json: electron-builder 26.15.3"
+        ]
+      },
+      "mitigation": {
+        "controls": [
+          "The release pipeline builds only the macOS arm64 target for this artifact.",
+          "The packaged app is inspected and must not contain app-builder-lib or electron-builder-squirrel-windows.",
+          "The production audit gate remains fail-closed and will reject metadata drift or expiry."
+        ],
+        "verification": [
+          "bun run security:audit:production",
+          "bun pm why app-builder-lib --all",
+          "Inspect app.asar package list: app-builder-lib and electron-builder-squirrel-windows have zero hits"
+        ]
+      },
+      "remediation": {
+        "target": "Remove the stale 26.8.1 Windows Squirrel peer subtree when electron-builder or Bun resolves the optional peer to 26.15.3 without an incorrect-peer split.",
+        "trigger": "Remove this exception when the lockfile no longer contains app-builder-lib 26.8.1, or before producing any Linux AppImage or Windows release from this lockfile."
+      },
+      "reviewedAt": "2026-08-08T16:40:00.000Z",
+      "expiresAt": "2026-09-07T16:40:00.000Z",
+      "evidence": [
+        "https://github.com/advisories/GHSA-7g7r-gx96-252g",
+        "bun.lock",
+        "out/release-receipts/Command-EVE-1.822.0-mac-arm64-runtime.json"
+      ]
+    },
+    {
+      "advisoryId": 1124278,
+      "package": "builder-util-runtime",
+      "severity": "high",
+      "url": "https://github.com/advisories/GHSA-p2f4-r6v6-j797",
+      "vulnerableVersions": "<9.7.0",
+      "installedVersions": ["9.5.1", "9.7.0"],
+      "owner": "Command EVE Security / CTO",
+      "reachability": {
+        "classification": "not-reachable",
+        "rationale": "The vulnerable 9.5.1 copy is confined to the optional electron-builder-squirrel-windows 26.8.1 build subtree. The packaged Command EVE app contains builder-util-runtime 9.7.0 exactly, and contains no 9.5.1 copy or Windows Squirrel builder package. Consequently the vulnerable redirect credential handling is absent from the shipped runtime.",
+        "evidence": [
+          "bun pm why builder-util-runtime --all",
+          "app.asar node_modules/builder-util-runtime/package.json reports version 9.7.0",
+          "app.asar contains no electron-builder-squirrel-windows package"
+        ]
+      },
+      "mitigation": {
+        "controls": [
+          "Packaged runtime inspection pins builder-util-runtime to 9.7.0.",
+          "The vulnerable 9.5.1 subtree is build-only and excluded from app.asar.",
+          "The production audit gate remains fail-closed and will reject metadata drift or expiry."
+        ],
+        "verification": [
+          "bun run security:audit:production",
+          "bun pm why builder-util-runtime --all",
+          "Extract app.asar node_modules/builder-util-runtime/package.json and assert version 9.7.0"
+        ]
+      },
+      "remediation": {
+        "target": "Remove the stale builder-util-runtime 9.5.1 subtree together with the obsolete Windows Squirrel peer split.",
+        "trigger": "Remove this exception when the lockfile no longer contains builder-util-runtime 9.5.1, or before changing the packaged updater/runtime dependency graph."
+      },
+      "reviewedAt": "2026-08-08T16:40:00.000Z",
+      "expiresAt": "2026-09-07T16:40:00.000Z",
+      "evidence": [
+        "https://github.com/advisories/GHSA-p2f4-r6v6-j797",
+        "bun.lock",
+        "out/mac-arm64/Command EVE.app/Contents/Resources/app.asar"
+      ]
+    },
+    {
       "advisoryId": 1124006,
       "package": "@hono/node-server",
       "severity": "moderate",
