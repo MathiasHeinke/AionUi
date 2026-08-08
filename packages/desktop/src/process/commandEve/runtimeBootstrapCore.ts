@@ -5117,6 +5117,25 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        "tools": ["open_preview", "focus_pane"],',
     '        "includes": [],',
     '    }',
+    '    # Hermes ACP currently constructs each agent with the literal',
+    '    # ``hermes-acp`` toolset before it consults platform_toolsets. The custom',
+    '    # provider loads before AIAgent resolves that named toolset, so merge the',
+    '    # same two bounded tools into its existing definition as the native ACP',
+    '    # compatibility seam. Do not replace or broaden any other ACP tools.',
+    '    acp_toolset = toolsets.TOOLSETS.get("hermes-acp")',
+    '    if isinstance(acp_toolset, dict):',
+    '        acp_tools = list(acp_toolset.get("tools") or [])',
+    '        for tool_name in ("open_preview", "focus_pane"):',
+    '            if tool_name not in acp_tools:',
+    '                acp_tools.append(tool_name)',
+    '        acp_toolset["tools"] = acp_tools',
+    '        try:',
+    '            import model_tools',
+    '            clear_tool_cache = getattr(model_tools, "_clear_tool_defs_cache", None)',
+    '            if callable(clear_tool_cache):',
+    '                clear_tool_cache()',
+    '        except Exception:',
+    '            pass',
     '    focus_pane_tool.PANES = ("files",)',
     '    focus_pane_tool.FOCUS_PANE_SCHEMA["description"] = "Reveal the Command EVE files pane."',
     '    focus_pane_tool.FOCUS_PANE_SCHEMA["parameters"]["properties"]["pane"]["enum"] = ["files"]',
@@ -7961,6 +7980,16 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   } else {
     pushStage(makeStage('hermes', 'pass', { detail: `Hermes ${installedHermesVersion} already installed.` }));
   }
+
+  // Cold-install liveness: prepareCommandEveRuntimeProcessEnv runs before the
+  // deferred bootstrap and cannot write this shim while the venv is still
+  // absent. AionCore already inherited hermesRoot at the front of PATH, so make
+  // the stable command materialize immediately after the Hermes console entry
+  // point exists. This must happen before any later, independent capability
+  // gate can return (for example a missing/invalid signed document runtime), or
+  // the first session remains stuck on `command 'hermes' not found in PATH`
+  // until the whole desktop app is restarted.
+  if (mode !== 'check') writeHermesCliShim(paths);
 
   // DOCUMENT ARTIFACT RUNTIME (P0, 1.819). PPTX/DOCX/PDF/XLSX/QR work is a
   // product capability, not a reason for an agent to run `pip install` during a

@@ -1700,6 +1700,53 @@ describe('Command EVE runtime bootstrap core', () => {
     });
   });
 
+  itM('keeps the Hermes PATH shim usable when a later packaged artifact gate fails on cold install', async () => {
+    const harness = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
+    const resourcesPath = path.join(harness.root, 'Resources');
+    const bundledPython = path.join(resourcesPath, 'python', 'bin', 'python3.12');
+    fs.mkdirSync(path.dirname(bundledPython), { recursive: true });
+    fs.writeFileSync(bundledPython, '#!/usr/bin/env bash\n');
+    fs.chmodSync(bundledPython, 0o755);
+
+    const wheelPath = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
+    fs.mkdirSync(path.dirname(wheelPath), { recursive: true });
+    fs.writeFileSync(wheelPath, 'fake wheel\n');
+
+    const runner: RuntimeBootstrapRunner = async (command, args, options) => {
+      if (command === bundledPython && args[0] === '--version') {
+        return commandResult(command, args, true, 'Python 3.12.10\n');
+      }
+      if (command === bundledPython && args[0] === '-m' && args[1] === 'venv') {
+        const venv = args[2];
+        fs.mkdirSync(path.join(venv, 'bin'), { recursive: true });
+        fs.writeFileSync(path.join(venv, 'bin', 'python'), '#!/usr/bin/env bash\n');
+        fs.chmodSync(path.join(venv, 'bin', 'python'), 0o755);
+        return commandResult(command, args);
+      }
+      return harness.runner(command, args, options);
+    };
+
+    await withOllamaServer(async (baseUrl) => {
+      const receipt = await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath: writeManifest(harness.root, baseUrl),
+        resourcesPath,
+        expectedHermesWheelSha256: sha256FileIfPresent(wheelPath),
+        runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+      });
+
+      const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+      expect(receipt.status).toBe('failed');
+      expect(receipt.stages.some((stage) => stage.code === 'PRESENTATION_PYTHON_SIGNED_SITE_INVALID')).toBe(true);
+      expect(fs.existsSync(paths.hermesShim)).toBe(true);
+      expect(fs.statSync(paths.hermesShim).mode & 0o777).toBe(0o700);
+      expect(fs.readFileSync(paths.hermesShim, 'utf8')).toContain(path.join(paths.hermesVenv, 'bin', 'hermes'));
+    });
+  });
+
   it('repairs a same-version Hermes install when its bundled wheel receipt is missing', async () => {
     const harness = makeHarness({
       ollamaInitiallyInstalled: true,

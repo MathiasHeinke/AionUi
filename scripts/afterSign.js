@@ -95,6 +95,55 @@ function getPythonSignIdentity(env = process.env) {
   return firstEnv(env, ['APPLE_DEVELOPER_IDENTITY', 'CSC_NAME', 'APPLE_DMG_SIGN_IDENTITY']);
 }
 
+function parseFirstCodesignAuthority(output) {
+  for (const line of String(output || '').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('Authority=')) continue;
+
+    const authority = trimmed.slice('Authority='.length).trim();
+    return authority || undefined;
+  }
+
+  return undefined;
+}
+
+function resolvePythonSignIdentity(appPath, env = process.env, deps = {}) {
+  const configuredIdentity = getPythonSignIdentity(env);
+  if (configuredIdentity) return configuredIdentity;
+
+  const runCodesignInspection =
+    deps.runCodesignInspection ||
+    ((args) =>
+      spawnSync('codesign', args, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }));
+  const result = runCodesignInspection(['--display', '--verbose=4', appPath]);
+
+  if (!result || result.error) {
+    const detail = result?.error?.code || result?.error?.message || 'codesign did not return a result';
+    throw new Error(`Bundled-python deep-sign could not inspect the signed app identity: ${detail}`);
+  }
+  if (result.status !== 0) {
+    const status = result.signal ? `signal ${result.signal}` : `status ${String(result.status)}`;
+    throw new Error(
+      `Bundled-python deep-sign could not inspect the signed app identity: codesign exited with ${status}`
+    );
+  }
+
+  // codesign writes --display output to stderr. Keep stdout as a defensive
+  // fallback for wrappers, but preserve stderr-first ordering so the first
+  // Authority is always the leaf signing identity used for the .app itself.
+  const authority = parseFirstCodesignAuthority(`${result.stderr || ''}\n${result.stdout || ''}`);
+  if (!authority) {
+    throw new Error(
+      'Bundled-python deep-sign could not derive a signing identity from the signed app (no Authority entry; ad-hoc or unsigned signatures are not accepted).'
+    );
+  }
+
+  return authority;
+}
+
 // Locate the python-only entitlements plist (allow-jit / unsigned-exec-mem /
 // disable-library-validation). Default sits next to the app entitlements.plist
 // at the repo root (electron-builder runs with directories.app: ".", so that is
@@ -172,13 +221,7 @@ function deepSignBundledPython(appPath, env = process.env, deps = {}) {
     return false;
   }
 
-  const identity = getPythonSignIdentity(env);
-  if (!identity) {
-    console.log(
-      'Skipping bundled-python deep-sign - missing signing identity (APPLE_DEVELOPER_IDENTITY / CSC_NAME / APPLE_DMG_SIGN_IDENTITY).'
-    );
-    return false;
-  }
+  const identity = resolvePythonSignIdentity(appPath, env, deps);
 
   const pythonEntitlements = resolvePythonEntitlementsPlist(env);
   const appEntitlements = resolveAppEntitlementsPlist(env);
@@ -336,6 +379,8 @@ exports.default = async function afterSign(context) {
 exports.getNotarizeOptions = getNotarizeOptions;
 exports.getNotarizeAuthMode = getNotarizeAuthMode;
 exports.getPythonSignIdentity = getPythonSignIdentity;
+exports.parseFirstCodesignAuthority = parseFirstCodesignAuthority;
+exports.resolvePythonSignIdentity = resolvePythonSignIdentity;
 exports.resolvePythonEntitlementsPlist = resolvePythonEntitlementsPlist;
 exports.resolveAppEntitlementsPlist = resolveAppEntitlementsPlist;
 exports.deepSignBundledPython = deepSignBundledPython;

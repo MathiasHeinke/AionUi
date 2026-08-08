@@ -3,7 +3,102 @@ import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { getNotarizeAuthMode, getNotarizeOptions } = require('../../../scripts/afterSign.js');
+const {
+  getNotarizeAuthMode,
+  getNotarizeOptions,
+  parseFirstCodesignAuthority,
+  resolvePythonSignIdentity,
+} = require('../../../scripts/afterSign.js');
+
+describe('afterSign bundled-python signing identity resolution', () => {
+  const appPath = '/tmp/Command EVE.app';
+  const identity = 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)';
+
+  it('parses the exact first Authority from codesign display output', () => {
+    expect(
+      parseFirstCodesignAuthority(`Executable=${appPath}/Contents/MacOS/Command EVE
+Identifier=com.fynlabs.commandeve
+Authority=${identity}
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA`)
+    ).toBe(identity);
+  });
+
+  it('prefers an explicitly configured identity without inspecting the app', () => {
+    let inspected = false;
+
+    expect(
+      resolvePythonSignIdentity(
+        appPath,
+        { CSC_NAME: identity },
+        {
+          runCodesignInspection: () => {
+            inspected = true;
+            throw new Error('must not inspect');
+          },
+        }
+      )
+    ).toBe(identity);
+    expect(inspected).toBe(false);
+  });
+
+  it('derives the identity from the already-signed app when env configuration is absent', () => {
+    const calls: string[][] = [];
+
+    expect(
+      resolvePythonSignIdentity(
+        appPath,
+        {},
+        {
+          runCodesignInspection: (args: string[]) => {
+            calls.push(args);
+            return {
+              status: 0,
+              signal: null,
+              stdout: '',
+              stderr: `Authority=${identity}\nAuthority=Developer ID Certification Authority\n`,
+            };
+          },
+        }
+      )
+    ).toBe(identity);
+    expect(calls).toEqual([['--display', '--verbose=4', appPath]]);
+  });
+
+  it('fails explicitly when codesign output has no certificate Authority', () => {
+    expect(() =>
+      resolvePythonSignIdentity(
+        appPath,
+        {},
+        {
+          runCodesignInspection: () => ({
+            status: 0,
+            signal: null,
+            stdout: '',
+            stderr: `Executable=${appPath}/Contents/MacOS/Command EVE\nSignature=adhoc\n`,
+          }),
+        }
+      )
+    ).toThrow(/no Authority entry; ad-hoc or unsigned signatures are not accepted/);
+  });
+
+  it('fails explicitly when codesign inspection itself fails', () => {
+    expect(() =>
+      resolvePythonSignIdentity(
+        appPath,
+        {},
+        {
+          runCodesignInspection: () => ({
+            status: 1,
+            signal: null,
+            stdout: '',
+            stderr: 'irrelevant diagnostic',
+          }),
+        }
+      )
+    ).toThrow(/codesign exited with status 1/);
+  });
+});
 
 describe('afterSign notarization credential resolution', () => {
   const appBundleId = 'com.fynlabs.commandeve';

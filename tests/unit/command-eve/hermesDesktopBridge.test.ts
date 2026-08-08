@@ -51,6 +51,9 @@ describe('Hermes desktop bridge', () => {
 
     expect(config).toContain('    - command-eve-desktop');
     expect(shim).toContain('"tools": ["open_preview", "focus_pane"]');
+    expect(shim).toContain('acp_toolset = toolsets.TOOLSETS.get("hermes-acp")');
+    expect(shim).toContain('for tool_name in ("open_preview", "focus_pane")');
+    expect(shim).toContain('clear_tool_cache = getattr(model_tools, "_clear_tool_defs_cache", None)');
     expect(shim).toContain('get_session_env("HERMES_SESSION_KEY", "")');
     expect(shim).toContain('SessionInfoUpdate(');
     expect(shim).toContain('"version": "command-eve-desktop-event/v1"');
@@ -58,5 +61,6 @@ describe('Hermes desktop bridge', () => {
     expect(shim).toContain('focus_pane_tool.PANES = ("files",)');
     expect(shim).not.toContain('get_session_env("HERMES_UI_SESSION_ID"');
     expect(shim).not.toContain('"tools": ["read_terminal"');
+    expect(shim).not.toContain('for tool_name in ("read_terminal"');
   });
 });
