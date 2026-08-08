@@ -113,8 +113,27 @@ vi.mock('@arco-design/web-react', () => {
   Radio.Group = RadioGroup;
   return {
     Radio,
-    Button: ({ children, onClick }: { children: React.ReactNode; onClick: () => void }) => (
-      <button data-testid='forget' onClick={onClick}>
+    // `data-testid` passes THROUGH, falling back to 'forget'.
+    //
+    // It used to be hardcoded, which made every Button in the panel answer to
+    // the same id — so `findAllByTestId('forget')[0]` silently meant "whichever
+    // Button renders first", and adding one anywhere above the remembered list
+    // broke a test about withdrawing a command. That is a selector pinned to
+    // layout order, not to the control it names. The panel's own buttons carry
+    // real testids; honouring them here is what lets each test address the one
+    // it means.
+    Button: ({
+      children,
+      onClick,
+      disabled,
+      ...rest
+    }: {
+      children: React.ReactNode;
+      onClick: () => void;
+      disabled?: boolean;
+      'data-testid'?: string;
+    }) => (
+      <button data-testid={rest['data-testid'] ?? 'forget'} disabled={disabled} onClick={onClick}>
         {children}
       </button>
     ),

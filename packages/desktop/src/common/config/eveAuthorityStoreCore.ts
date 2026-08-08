@@ -22,6 +22,7 @@ import {
   readEveAuthorityGrant,
   EVE_AUTHORITY_FAIL_CLOSED,
   EVE_LADDER_RUNGS,
+  EVE_SEALED_CAPABILITIES,
   isEveAuthorityGrant,
   ladderFromLegacyMode,
   type EveAuthorityGrant,
@@ -158,6 +159,142 @@ export function grantNeedsAttention(grant: EveAuthorityGrant): 'money-without-bu
   return classifyDailyBudget(daily) === 'ok' || classifyDailyBudget(daily) === 'confirm'
     ? null
     : 'money-without-budget';
+}
+
+/**
+ * The rung a full release lands on. Named rather than inlined so the one place
+ * that means "as high as the ladder goes" is greppable.
+ */
+export const FULL_AUTHORITY_RUNG: EveLadderRung = 5;
+
+/**
+ * "Full release for this machine" — the one-act version of a decision that
+ * otherwise takes seven separate hands: pick rung 5, open five seals, name a
+ * budget. Someone who means "just get on with it, this box is mine" should not
+ * have to perform that as a chore, and today they do.
+ *
+ * WHY THIS IS NOT A SEVENTH RUNG, which is the obvious shape and the wrong one:
+ *
+ *   - Rung 5 already admits every action class (`RUNG_ADMITS`). A rung 6 would
+ *     add nothing on the ladder's own axis; its entire content would be "and
+ *     open the seals", which is the other axis.
+ *   - `grantAllows` reads the seal BEFORE the rung, on purpose: the human who
+ *     unsealed a capability IS the authority for it. A rung that opened seals
+ *     would have to invert that rule, and `sealUsable` (eveAuthorityRuntimeCore)
+ *     probes seals with an irreversible action precisely because they hang off
+ *     no rung.
+ *   - It would be PARTLY INERT. `spendWithinDailyLimit` still refuses money with
+ *     no ceiling, so a rung 6 would store "everything" and quietly not do one
+ *     fifth of it — the exact defect class the 1.821 work exists to remove.
+ *   - A rung-shaped grant carries no `grantedAt` per seal, so nothing could be
+ *     reviewed later; and "revoke one seal" would have no representable state.
+ *
+ * So this is a COMPOSITION, not a new kind of grant: it calls `withLadder`,
+ * `withSeal` and `withDailyBudget` — the same functions the individual controls
+ * call. The record it produces is indistinguishable from one assembled by hand,
+ * which is what stops this path from ever drifting away from that one.
+ */
+
+/**
+ * What a full release should do about money.
+ *
+ * Deliberately not a boolean. `spendWithinDailyLimit` refuses an open money seal
+ * that has no ceiling, so opening it blind would manufacture exactly the one
+ * incoherent grant `grantNeedsAttention` exists to report: a switch that is on
+ * and an EVE that never spends. Either a number is named here, or money is left
+ * out of the act and the confirmation says so in as many words.
+ */
+export type FullAuthorityMoney = { readonly dailyCents: number } | 'keep-sealed';
+
+/**
+ * Exactly what a full release would change, computed BEFORE anything is written.
+ *
+ * This exists so the confirmation step can list the real consequences rather
+ * than a generic warning. A confirmation that says "this grants full access" and
+ * a confirmation that names the five things it opens are not the same product:
+ * only the second one can be read and disagreed with.
+ */
+export interface FullAuthorityPreview {
+  ladderFrom: EveLadderRung;
+  ladderTo: EveLadderRung;
+  ladderChanges: boolean;
+  /** Seals this act turns from shut to open. */
+  sealsToOpen: readonly EveSealedCapability[];
+  /** Seals the human already opened. Listed so the confirmation is a full picture, not a diff. */
+  sealsAlreadyOpen: readonly EveSealedCapability[];
+  /** True when money is deliberately not part of this act; whatever it is now, it stays. */
+  moneyLeftAsIs: boolean;
+  /** The ceiling this act would write, in cents. Null when `moneyLeftAsIs`. */
+  dailyCents: number | null;
+  budgetChanges: boolean;
+  /** Set when the act cannot run as asked. `withFullAuthority` then changes nothing at all. */
+  blocked: 'invalid-budget' | null;
+  /** True when the grant already says all of this. The button is then a no-op, and says so. */
+  changesNothing: boolean;
+}
+
+export function previewFullAuthority(grant: EveAuthorityGrant, money: FullAuthorityMoney): FullAuthorityPreview {
+  const moneyLeftAsIs = money === 'keep-sealed';
+  const blocked = !moneyLeftAsIs && classifyDailyBudget(money.dailyCents) === 'invalid' ? 'invalid-budget' : null;
+
+  // Money is in the target set only when a number came with it. Everything else
+  // is always in it — that is what "full" means.
+  const targets = EVE_SEALED_CAPABILITIES.filter((capability) => capability !== 'spend.money' || !moneyLeftAsIs);
+  const sealsToOpen = targets.filter((capability) => grant.capabilities[capability] !== true);
+  const sealsAlreadyOpen = targets.filter((capability) => grant.capabilities[capability] === true);
+
+  const dailyCents = moneyLeftAsIs ? null : money.dailyCents;
+  const budgetChanges = dailyCents !== null && grant.limits?.['spend.money']?.dailyCents !== dailyCents;
+  const ladderChanges = grant.ladder !== FULL_AUTHORITY_RUNG;
+
+  return {
+    ladderFrom: grant.ladder,
+    ladderTo: FULL_AUTHORITY_RUNG,
+    ladderChanges,
+    sealsToOpen,
+    sealsAlreadyOpen,
+    moneyLeftAsIs,
+    dailyCents,
+    budgetChanges,
+    blocked,
+    changesNothing: blocked === null && !ladderChanges && sealsToOpen.length === 0 && !budgetChanges,
+  };
+}
+
+/**
+ * Apply the full release.
+ *
+ * ALL OR NOTHING. A refused budget returns the grant untouched rather than
+ * opening the other four seals and skipping money: a half-applied "full release"
+ * is a grant the human never chose, and they would have no way to tell which
+ * half landed.
+ *
+ * Money is never CLOSED here, only opened. A release raises the ceiling; it is
+ * not a channel for taking something back. Withdrawing stays where withdrawing
+ * belongs — the individual switch.
+ */
+export function withFullAuthority(grant: EveAuthorityGrant, money: FullAuthorityMoney, now: string): EveAuthorityGrant {
+  const preview = previewFullAuthority(grant, money);
+  if (preview.blocked !== null) return grant;
+
+  let next = withLadder(grant, FULL_AUTHORITY_RUNG);
+  for (const capability of preview.sealsToOpen) next = withSeal(next, capability, true, now);
+  if (money !== 'keep-sealed') next = withDailyBudget(next, money.dailyCents);
+  return next;
+}
+
+/**
+ * Is this seat actually fully released right now?
+ *
+ * Requires a USABLE money ceiling, not merely an open money seal — because a
+ * grant with money open and no number spends nothing (`spendWithinDailyLimit`),
+ * and a panel that called that state "full" would be the surface promising more
+ * than the runtime holds.
+ */
+export function isFullAuthority(grant: EveAuthorityGrant): boolean {
+  if (grant.ladder !== FULL_AUTHORITY_RUNG) return false;
+  if (!EVE_SEALED_CAPABILITIES.every((capability) => grant.capabilities[capability] === true)) return false;
+  return grantNeedsAttention(grant) === null;
 }
 
 /**

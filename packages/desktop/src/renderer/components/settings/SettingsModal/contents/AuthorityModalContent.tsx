@@ -27,12 +27,16 @@ import {
   classifyDailyBudget,
   ENFORCED_LADDER_RUNGS,
   grantNeedsAttention,
+  isFullAuthority,
   isUnconfirmedGrant,
+  previewFullAuthority,
   resolveStoredGrant,
   withDailyBudget,
+  withFullAuthority,
   withLadder,
   withoutRememberedCommand,
   withSeal,
+  type FullAuthorityMoney,
 } from '@/common/config/eveAuthorityStoreCore';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import SettingsSection from '@/renderer/components/settings/SettingsSection';
@@ -59,6 +63,9 @@ const SEAL_KEYS: Record<EveSealedCapability, string> = {
   'credentials.read': 'authority.seal.credentials',
   'deploy.production': 'authority.seal.deploy',
 };
+
+/** Cents to whole units, for display. No currency symbol: this panel does not know the seat's. */
+const perDay = (cents: number): string => (cents / 100).toFixed(2);
 
 const AuthorityModalContent: React.FC = () => {
   const { t } = useTranslation();
@@ -96,6 +103,19 @@ const AuthorityModalContent: React.FC = () => {
   }, []);
 
   const grant = useMemo(() => resolveStoredGrant(storedGrant, legacyAcpConfig), [storedGrant, legacyAcpConfig]);
+
+  // The full release is a two-step act on purpose: a button that opened five
+  // seals on one click would be the kind of control people press to find out
+  // what it does. Step two lists the concrete consequences and can be walked
+  // away from.
+  const [confirmingRelease, setConfirmingRelease] = useState(false);
+  // Money defaults to IN, because leaving it out quietly is how someone ends up
+  // with a "full release" that cannot pay for a model and no idea why. But it
+  // still needs a number — the toggle alone never opens the seal.
+  const [releaseMoney, setReleaseMoney] = useState(true);
+  const [releaseBudget, setReleaseBudget] = useState<number | undefined>(() =>
+    grant.limits?.['spend.money']?.dailyCents !== undefined ? grant.limits['spend.money'].dailyCents / 100 : undefined
+  );
 
   const persist = useCallback(async (next: EveAuthorityGrant) => {
     // No local mirror of the value: the write notifies, `useConfig` re-reads.
@@ -137,6 +157,25 @@ const AuthorityModalContent: React.FC = () => {
 
   const dailyCents = grant.limits?.['spend.money']?.dailyCents;
   const moneyOpen = grant.capabilities['spend.money'] === true;
+
+  // NaN when the toggle is on and no number has been typed. That is deliberate:
+  // it flows into `previewFullAuthority` as `blocked: 'invalid-budget'`, so the
+  // "no amount named" case travels down exactly the same path as a typo and
+  // cannot end up silently opening the money seal.
+  const releaseMoneyChoice: FullAuthorityMoney = releaseMoney
+    ? { dailyCents: typeof releaseBudget === 'number' ? Math.round(releaseBudget * 100) : Number.NaN }
+    : 'keep-sealed';
+  const releasePreview = previewFullAuthority(grant, releaseMoneyChoice);
+  const fullyReleased = isFullAuthority(grant);
+
+  const onRelease = (): void => {
+    // `withFullAuthority` re-checks and returns the grant untouched if the
+    // budget is refused; the disabled button is the courtesy, not the guard.
+    void persist(withFullAuthority(grant, releaseMoneyChoice, new Date().toISOString()));
+    setConfirmingRelease(false);
+  };
+
+  const sealName = (capability: EveSealedCapability): string => t(`commandEve.${SEAL_KEYS[capability]}.title`);
 
   return (
     <AionScrollArea>
@@ -240,6 +279,119 @@ const AuthorityModalContent: React.FC = () => {
               </div>
             ))}
           </div>
+        </SettingsSection>
+
+        {/*
+          THE ONE-ACT PATH TO "just get on with it".
+
+          Deliberately NOT a sixth-and-a-half rung. Rung 5 already admits every
+          action class, and the seals hang off no rung at all — that separation
+          is the reason `grantAllows` reads the seal before the ladder. So this
+          control does not introduce a new kind of grant; it performs the same
+          writes the individual controls above perform, in one confirmed act
+          (`withFullAuthority` is literally a composition of them).
+
+          The confirmation step is not ceremony. A button that opened five seals
+          on one press is a button people press to find out what it does, and
+          the list below is what makes the answer available BEFORE the press.
+        */}
+        <SettingsSection
+          title={t('commandEve.authority.fullReleaseTitle')}
+          description={t('commandEve.authority.fullReleaseDescription')}
+        >
+          {fullyReleased && !confirmingRelease ? (
+            <div className='text-13px' data-testid='full-release-active'>
+              {t('commandEve.authority.fullReleaseActive', {
+                amount: perDay(grant.limits?.['spend.money']?.dailyCents ?? 0),
+              })}
+            </div>
+          ) : confirmingRelease ? (
+            <div className='flex flex-col gap-12px' data-testid='full-release-confirm'>
+              <div className='text-13px'>{t('commandEve.authority.fullReleaseConfirmIntro')}</div>
+
+              {/*
+                Money is asked for, never assumed. `spendWithinDailyLimit`
+                refuses an open money seal with no ceiling, so a full release
+                that skipped this question would produce a switch that is on and
+                an EVE that never spends — the exact state this panel already has
+                a warning for.
+              */}
+              <div className='flex items-center gap-8px'>
+                <Switch checked={releaseMoney} onChange={setReleaseMoney} data-testid='full-release-money-switch' />
+                <span className='text-13px'>{t('commandEve.authority.fullReleaseMoneyLabel')}</span>
+                {releaseMoney && (
+                  <InputNumber
+                    size='small'
+                    min={0.01}
+                    step={1}
+                    precision={2}
+                    style={{ width: 120 }}
+                    value={releaseBudget}
+                    onChange={setReleaseBudget}
+                    data-testid='full-release-budget'
+                  />
+                )}
+              </div>
+
+              <ul className='flex flex-col gap-4px pl-16px text-13px' data-testid='full-release-effects'>
+                <li>
+                  {releasePreview.ladderChanges
+                    ? t('commandEve.authority.fullReleaseLadder', {
+                        from: t(`commandEve.${RUNG_KEYS[releasePreview.ladderFrom]}.title`),
+                        to: t(`commandEve.${RUNG_KEYS[releasePreview.ladderTo]}.title`),
+                      })
+                    : t('commandEve.authority.fullReleaseLadderUnchanged', {
+                        rung: t(`commandEve.${RUNG_KEYS[releasePreview.ladderTo]}.title`),
+                      })}
+                </li>
+                {releasePreview.sealsToOpen.map((capability) => (
+                  <li key={capability} data-testid={`full-release-opens-${capability}`}>
+                    {t('commandEve.authority.fullReleaseOpens', { seal: sealName(capability) })}
+                  </li>
+                ))}
+                {releasePreview.sealsAlreadyOpen.map((capability) => (
+                  <li key={capability} className='op-70'>
+                    {t('commandEve.authority.fullReleaseAlreadyOpen', { seal: sealName(capability) })}
+                  </li>
+                ))}
+                <li data-testid='full-release-money-line'>
+                  {releasePreview.moneyLeftAsIs
+                    ? t('commandEve.authority.fullReleaseMoneyUntouched')
+                    : releasePreview.blocked === 'invalid-budget'
+                      ? t('commandEve.authority.fullReleaseBudgetMissing')
+                      : t('commandEve.authority.fullReleaseMoneyLimit', {
+                          amount: perDay(releasePreview.dailyCents ?? 0),
+                        })}
+                </li>
+              </ul>
+
+              {releasePreview.changesNothing && (
+                <div className='text-13px op-70' data-testid='full-release-noop'>
+                  {t('commandEve.authority.fullReleaseNothingToDo')}
+                </div>
+              )}
+
+              <div className='flex items-center gap-8px'>
+                <Button
+                  size='small'
+                  type='primary'
+                  status='warning'
+                  disabled={releasePreview.blocked !== null}
+                  onClick={onRelease}
+                  data-testid='full-release-apply'
+                >
+                  {t('commandEve.authority.fullReleaseApply')}
+                </Button>
+                <Button size='small' onClick={() => setConfirmingRelease(false)} data-testid='full-release-cancel'>
+                  {t('commandEve.authority.fullReleaseCancel')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button size='small' onClick={() => setConfirmingRelease(true)} data-testid='full-release-open'>
+              {t('commandEve.authority.fullReleaseButton')}
+            </Button>
+          )}
         </SettingsSection>
 
         <SettingsSection
