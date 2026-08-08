@@ -5,6 +5,7 @@
  */
 
 import type { IMessageAcpToolCall } from '@/common/chat/chatLib';
+import { projectDelegatedTasks } from '@/common/chat/delegationActivity';
 import { eveTeamWorkerLabel } from '@/common/config/eveTeamRoster';
 import FileChangesPanel from '@/renderer/components/base/FileChangesPanel';
 import { useDiffPreviewHandlers } from '@/renderer/hooks/file/useDiffPreviewHandlers';
@@ -13,23 +14,6 @@ import { Card, Tag } from '@arco-design/web-react';
 import { createTwoFilesPatch } from 'diff';
 import React, { useMemo } from 'react';
 import MarkdownView from '@renderer/components/Markdown';
-
-/**
- * "Dein Team verteilt die Arbeit" — when a tool call is a delegation
- * (delegate_task), its rawInput carries the role's stable agent_id. Extract it
- * (best-effort, accepts `agent_id` / `agentId` / `role`) so we can show WHICH
- * worker is on the sub-task. Returns undefined for non-delegation tool calls,
- * so the normal tool-call rendering is unaffected.
- */
-function extractDelegatedAgentId(kind: string, rawInput: unknown): string | undefined {
-  // Only annotate delegations; other tool kinds (edit/read/execute) are unchanged.
-  const isDelegation = kind === 'delegate_task' || kind === 'delegate' || kind === 'task';
-  if (!isDelegation) return undefined;
-  if (!rawInput || typeof rawInput !== 'object') return undefined;
-  const input = rawInput as Record<string, unknown>;
-  const candidate = input.agent_id ?? input.agentId ?? input.role;
-  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate.trim() : undefined;
-}
 
 const StatusTag: React.FC<{ status: string }> = ({ status }) => {
   const getTagProps = () => {
@@ -101,31 +85,38 @@ const ContentView: React.FC<{ content: NonNullable<IMessageAcpToolCall['content'
   return null;
 };
 
+const getKindDisplayName = (toolKind: string): string => {
+  switch (toolKind) {
+    case 'edit':
+      return 'File Edit';
+    case 'read':
+      return 'File Read';
+    case 'execute':
+      return 'Shell Command';
+    default:
+      return toolKind;
+  }
+};
+
 const MessageAcpToolCall: React.FC<{ message: IMessageAcpToolCall }> = ({ message }) => {
-  const { content } = message;
-  if (!content?.update) {
+  const messageContent = message.content;
+  if (!messageContent?.update) {
     return null;
   }
-  const { update } = content;
+  const { update } = messageContent;
   const { tool_call_id, kind, title, status, rawInput, content: diffContent } = update;
 
   // "Dein Team verteilt die Arbeit": for a delegation tool call, surface which
   // roster worker is on the sub-task (label resolved from the stable agent_id).
-  const delegatedAgentId = extractDelegatedAgentId(kind, rawInput);
+  const delegatedAgentId = projectDelegatedTasks({
+    toolCallId: tool_call_id,
+    toolName: kind,
+    title,
+    status,
+    rawInput,
+    createdAt: message.created_at,
+  }).find((task) => task.agentId)?.agentId;
   const delegatedWorkerLabel = delegatedAgentId ? eveTeamWorkerLabel(delegatedAgentId) : undefined;
-
-  const getKindDisplayName = (kind: string) => {
-    switch (kind) {
-      case 'edit':
-        return 'File Edit';
-      case 'read':
-        return 'File Read';
-      case 'execute':
-        return 'Shell Command';
-      default:
-        return kind;
-    }
-  };
 
   return (
     <Card className='eve-message-tool-card w-full mb-2' size='small' bordered>
@@ -151,8 +142,8 @@ const MessageAcpToolCall: React.FC<{ message: IMessageAcpToolCall }> = ({ messag
           )}
           {diffContent && diffContent.length > 0 && (
             <div>
-              {diffContent.map((content, index) => (
-                <ContentView key={index} content={content} />
+              {diffContent.map((item, index) => (
+                <ContentView key={index} content={item} />
               ))}
             </div>
           )}

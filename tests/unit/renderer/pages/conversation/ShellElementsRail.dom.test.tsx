@@ -8,6 +8,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
+import type { IMessageAcpToolCall } from '@/common/chat/chatLib';
 import { ELEMENTS_RAIL_SELECT_EVENT } from '@/renderer/utils/workspace/workspaceEvents';
 
 const {
@@ -76,6 +77,10 @@ vi.mock('@/renderer/pages/conversation/Preview', () => ({
 
 import ShellElementsRail from '@/renderer/components/layout/Titlebar/ShellElementsRail';
 import { stageConversationArtifact } from '@/renderer/pages/conversation/Messages/artifacts';
+import {
+  publishConversationDelegationActivity,
+  resetConversationDelegationActivityForTest,
+} from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 
 const managedImageArtifact: IConversationArtifact = {
   id: 'img-1',
@@ -121,6 +126,7 @@ describe('ShellElementsRail', () => {
     readGeneratedArtifactPreviewInvokeMock.mockResolvedValue(null);
     shellOpenFileInvokeMock.mockResolvedValue(undefined);
     shellOpenExternalInvokeMock.mockResolvedValue(undefined);
+    resetConversationDelegationActivityForTest();
   });
 
   it('shows truthful ready state and an empty artifact state without invented work', async () => {
@@ -145,6 +151,39 @@ describe('ShellElementsRail', () => {
     fireEvent.keyDown(activityTab, { key: 'ArrowRight' });
     expect(artifactsTab).toHaveAttribute('aria-selected', 'true');
     expect(panel).toHaveAttribute('aria-labelledby', 'elements-rail-tab-artifacts');
+  });
+
+  it("shows only this conversation's real Hermes delegation activity without creating a second chat", () => {
+    const delegateMessage = (conversationId: string, toolCallId: string, goal: string) =>
+      ({
+        id: `${toolCallId}-message`,
+        type: 'acp_tool_call',
+        conversation_id: conversationId,
+        created_at: 100,
+        content: {
+          session_id: conversationId,
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: toolCallId,
+            status: 'in_progress',
+            title: `delegate: ${goal}`,
+            kind: 'execute',
+            rawInput: { goal },
+          },
+        },
+      }) as IMessageAcpToolCall;
+
+    act(() => {
+      publishConversationDelegationActivity('conv-1', [delegateMessage('conv-1', 'tc-1', 'Prüfe den Browser')]);
+      publishConversationDelegationActivity('conv-2', [delegateMessage('conv-2', 'tc-2', 'Fremder Auftrag')]);
+    });
+
+    render(<ShellElementsRail conversationId='conv-1' />);
+
+    expect(screen.getByText('Prüfe den Browser')).toBeTruthy();
+    expect(screen.queryByText('Fremder Auftrag')).toBeNull();
+    expect(screen.getByText('conversation.elementsRail.delegationStatus.in_progress')).toBeTruthy();
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 
   it('lists shared conversation artifacts and opens a managed image through the preview path', async () => {

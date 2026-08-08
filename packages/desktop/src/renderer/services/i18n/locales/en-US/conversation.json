@@ -662,6 +662,15 @@
     "needsInputDetail": "EVE is waiting for an approval or answer.",
     "ready": "EVE is ready",
     "readyDetail": "Start a task or open an existing chat.",
+    "subagents": "Subagents",
+    "subagent": "Subagent",
+    "subagentNumber": "Subagent {{number}}",
+    "delegationStatus": {
+      "pending": "Queued",
+      "in_progress": "Working",
+      "completed": "Done",
+      "failed": "Failed"
+    },
     "noArtifacts": "No artifacts yet",
     "noArtifactsDetail": "Documents, images, and other results appear here automatically.",
     "openArtifact": "Open {{name}}",

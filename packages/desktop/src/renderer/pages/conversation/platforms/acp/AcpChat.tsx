@@ -20,10 +20,11 @@ import {
 import { usePendingConfirmationsRecovery } from '@renderer/pages/conversation/Messages/usePendingConfirmationsRecovery';
 import { useConversationRuntimeSnapshot } from '@renderer/pages/conversation/runtime/useConversationRuntimeView';
 import { useConversationDocumentPreparation } from '@renderer/pages/conversation/runtime/conversationDocumentPreparationStore';
+import { publishConversationDelegationActivity } from '@renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 import HOC from '@renderer/utils/ui/HOC';
 import QuotaExhaustedWall from '@renderer/components/billing/QuotaExhaustedWall';
 import DailyCapWall from '@renderer/components/billing/DailyCapWall';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import AcpE2EStreamInjector from './AcpE2EStreamInjector';
 import AcpRuntimeStatus from './AcpRuntimeStatus';
@@ -96,6 +97,7 @@ const AcpChat: React.FC<{
   loadedMcpStatuses,
   waitForWarmup,
 }) => {
+  const messages = useMessageList();
   const historyPagination = useMessageLstCache(conversation_id);
   usePendingConfirmationsRecovery(conversation_id);
   const teamPermission = useTeamPermission();
@@ -107,6 +109,13 @@ const AcpChat: React.FC<{
   const runtimeView = useConversationRuntimeSnapshot(conversation_id);
   const isPreparingDocument = useConversationDocumentPreparation(conversation_id);
   const egressBoundary = useEgressBoundaryStatus(messageState.running || messageState.aiProcessing);
+
+  // The elements rail stays outside MessageListProvider so it cannot turn into
+  // a second chat. Publish only a bounded, conversation-bound projection of
+  // Hermes' persisted delegate_task calls to that sibling surface.
+  useEffect(() => {
+    publishConversationDelegationActivity(conversation_id, messages);
+  }, [conversation_id, messages]);
 
   return (
     <ConversationProvider

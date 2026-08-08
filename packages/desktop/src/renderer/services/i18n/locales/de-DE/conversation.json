@@ -638,6 +638,15 @@
     "needsInputDetail": "EVE wartet auf eine Freigabe oder Rückfrage.",
     "ready": "EVE ist bereit",
     "readyDetail": "Starte einen Auftrag oder öffne einen bestehenden Chat.",
+    "subagents": "Subagenten",
+    "subagent": "Subagent",
+    "subagentNumber": "Subagent {{number}}",
+    "delegationStatus": {
+      "pending": "Geplant",
+      "in_progress": "Arbeitet",
+      "completed": "Fertig",
+      "failed": "Fehler"
+    },
     "noArtifacts": "Noch keine Artefakte",
     "noArtifactsDetail": "Dokumente, Bilder und andere Ergebnisse erscheinen hier automatisch.",
     "openArtifact": "{{name}} öffnen",
