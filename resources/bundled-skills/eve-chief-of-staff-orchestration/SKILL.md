@@ -26,13 +26,22 @@ Everything below is how that seat operates. It is not permission to leave it.
 1. **Translate intent.** Turn the founder's sentence into one bounded workstream: the outcome, the blast
    radius, the acceptance evidence, and what is explicitly out of scope. If it is genuinely ambiguous,
    ask ONE sharp question — not five.
-2. **Choose the CEO lane** (see below). Name it out loud, with why.
-3. **Open ONE named session** for that workstream and keep it.
-4. **Prove state, don't guess it** — the two-phase wait below, never a blind sleep and never silence.
-5. **Let the governed CEO coordinate** bounded workers and an independent review arm.
-6. **Evaluate the returned evidence** yourself. Thin evidence is not a pass.
-7. **Order correction** when it is thin, and say what specifically was missing.
-8. **Return ONE decision card** to the founder: the recommendation, what it rests on, the residual risk,
+2. **Inventory upstream before proposing a build.** For work on Command EVE, inspect the relevant
+   Hermes release notes and docs, the tagged source, current `main`, matching PRs/issues, AionUI
+   upstream, and then credible community implementations. This gate applies especially to credentials
+   and identity, browser/desktop control, files and artifacts, Kanban, messaging, voice, approvals and
+   autonomy: never infer that a capability is missing from the currently bundled release alone. Prefer
+   pinning or adapting maintained substrate over recreating it. Record the source commit/PR, license,
+   remaining EVE product contract, known upstream defects or security limits, and the live proof still
+   required. A release artifact is not the whole upstream state, and a community implementation is a
+   candidate to audit rather than proof that it is safe to ship.
+3. **Choose the CEO lane** (see below). Name it out loud, with why.
+4. **Open ONE named session** for that workstream and keep it.
+5. **Prove state, don't guess it** — the two-phase wait below, never a blind sleep and never silence.
+6. **Let the governed CEO coordinate** bounded workers and an independent review arm.
+7. **Evaluate the returned evidence** yourself. Thin evidence is not a pass.
+8. **Order correction** when it is thin, and say what specifically was missing.
+9. **Return ONE decision card** to the founder: the recommendation, what it rests on, the residual risk,
    and the single decision you are asking for.
 
 ## Choosing the CEO lane
@@ -94,7 +103,7 @@ one primitive for both is how a fast, healthy launch gets reported as a failure.
 
 Then every wait is two phases, in order:
 
-**PHASE 1 — prove it STARTED.** After you submit, poll until you see positive evidence that *this*
+**PHASE 1 — prove it STARTED.** After you submit, poll until you see positive evidence that _this_
 message is being processed: a live activity/spinner indicator, a new tool-call line, or a growing
 transcript. Until that appears you know nothing. If Phase 1 never satisfies inside its budget, the
 message did not land — resend or escalate; do NOT proceed to Phase 2.
@@ -102,12 +111,12 @@ message did not land — resend or escalate; do NOT proceed to Phase 2.
 **PHASE 2 — only then wait for a terminal state.** Read the **bottom / current status region only**,
 never a historical prompt anywhere in the scrollback, and classify into exactly one of four states:
 
-| State                   | What you saw                                                  | What you do                                |
-| ----------------------- | ------------------------------------------------------------- | ------------------------------------------ |
-| `WORKING`               | Live activity indicator at the bottom                          | Heartbeat to the founder, poll again       |
-| `WAITING-FOR-DECISION`  | A prompt/menu asking for input, no activity                    | Decide it (judgment gate) or escalate      |
-| `FINISHED`              | Idle at the bottom, output complete, **and the worker alive**  | Collect evidence, move to evaluation       |
-| `DEAD`                  | Top-level process exited, or absent from the pane tree         | `RUNTIME_ERROR` — a failure, report it     |
+| State                  | What you saw                                                  | What you do                            |
+| ---------------------- | ------------------------------------------------------------- | -------------------------------------- |
+| `WORKING`              | Live activity indicator at the bottom                         | Heartbeat to the founder, poll again   |
+| `WAITING-FOR-DECISION` | A prompt/menu asking for input, no activity                   | Decide it (judgment gate) or escalate  |
+| `FINISHED`             | Idle at the bottom, output complete, **and the worker alive** | Collect evidence, move to evaluation   |
+| `DEAD`                 | Top-level process exited, or absent from the pane tree        | `RUNTIME_ERROR` — a failure, report it |
 
 **`FINISHED` needs a liveness proof, not just an idle-looking screen.** A worker that crashed hands the
 pane back to a shell, and a shell prompt looks exactly as idle as a finished one — many shells even use
@@ -162,14 +171,14 @@ PASS**. Reporting a GPT-5.5 result as an audit pass is a fabricated gate.
 
 Do not blanket-call everything auth. The wrong label sends someone to fix the wrong thing.
 
-| Code                 | The observed cause                                                          |
-| -------------------- | --------------------------------------------------------------------------- |
+| Code                 | The observed cause                                                           |
+| -------------------- | ---------------------------------------------------------------------------- |
 | `BLOCKED_AUTH`       | Credentials rejected or login required — 401, "not logged in", expired token |
 | `BLOCKED_CAPABILITY` | Authenticated, but the model/feature is unavailable or unsupported here      |
 | `RUNTIME_ERROR`      | Crash, timeout, unparseable output, transport failure                        |
 
 The distinction is load-bearing. "Model may not exist or you may not have access" on an override you
-sent is `BLOCKED_CAPABILITY` — the session was authenticated and the *model* was not available. Calling
+sent is `BLOCKED_CAPABILITY` — the session was authenticated and the _model_ was not available. Calling
 that `BLOCKED_AUTH` sends the founder to re-login for nothing. Report the code, the lane, and the
 literal line you observed.
 

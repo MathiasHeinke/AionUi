@@ -34,6 +34,7 @@ const {
   ensureAutoProjectInvokeMock,
   conversationStopInvokeMock,
   reportStageWorkspaceInvokeMock,
+  openPreviewMock,
 } = vi.hoisted(() => ({
   addOrUpdateMessageMock: vi.fn(),
   responseStreamOnMock: vi.fn(),
@@ -45,11 +46,16 @@ const {
   confirmMessageInvokeMock: vi.fn(),
   conversationStopInvokeMock: vi.fn(),
   reportStageWorkspaceInvokeMock: vi.fn(),
+  openPreviewMock: vi.fn(),
   // Default: NO quota/cap signal recognized → the error path renders the cold bubble
   // exactly as before. Tests flip this to true to exercise the suppression (M-quotawall).
   reportInferenceErrorMock: vi.fn((): boolean => false),
   // 1.820.4 (MAT-1772): the post-turn auto-project IPC hint (fire-and-forget).
   ensureAutoProjectInvokeMock: vi.fn().mockResolvedValue({ status: 'noop' }),
+}));
+
+vi.mock('@/renderer/pages/conversation/Preview', () => ({
+  usePreviewContext: () => ({ openPreview: openPreviewMock }),
 }));
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
@@ -348,11 +354,8 @@ describe('useAcpMessage', () => {
 
   it('routes only session-bound Hermes preview/files events and rejects foreign or unknown events', async () => {
     conversationGetInvokeMock.mockResolvedValue(null);
-    const previewSpy = vi.spyOn(emitter, 'emit');
-    const workspaceOpen = vi.fn();
-    const railSelect = vi.fn();
-    window.addEventListener('aionui-workspace-open', workspaceOpen);
-    window.addEventListener('command-eve-elements-rail-select', railSelect);
+    const railReveal = vi.fn();
+    window.addEventListener('command-eve-elements-rail-reveal', railReveal);
     renderHook(() => useAcpMessage('conv-1'));
     await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
 
@@ -360,6 +363,11 @@ describe('useAcpMessage', () => {
       responseStreamHandlerRef.current?.({
         type: 'acp_session_info',
         data: {
+          // Real ACP SessionInfoUpdate frames preserve unset optional fields
+          // as null after AionCore's projection.
+          title: null,
+          updated_at: null,
+          session_id: sessionId,
           _meta: {
             commandEveDesktop: {
               version: 'command-eve-desktop-event/v1',
@@ -376,6 +384,11 @@ describe('useAcpMessage', () => {
     };
 
     act(() => {
+      // AionCore's canonical top-level session_id makes these events
+      // self-binding even when reconnect ordering delivers session_info before
+      // the transient Start frame.
+      send('preview.open', { url: 'https://example.com', label: 'Example' });
+      send('pane.reveal', { pane: 'files' });
       responseStreamHandlerRef.current?.({
         type: 'start',
         data: { session_id: 'acp-session-1' },
@@ -383,33 +396,68 @@ describe('useAcpMessage', () => {
         turn_id: 'turn-desktop-1',
         conversation_id: 'conv-1',
       });
-      send('preview.open', { url: 'https://example.com', label: 'Example' });
-      send('pane.reveal', { pane: 'files' });
       send('preview.open', { url: 'https://foreign.example' }, 'foreign-session');
       send('terminal.read', {});
       send('pane.reveal', { pane: 'terminal' });
     });
 
-    expect(previewSpy.mock.calls.filter(([name]) => name === 'preview.open')).toEqual([
-      [
-        'preview.open',
-        {
-          content: 'https://example.com',
-          contentType: 'url',
-          metadata: { title: 'Example', conversation_id: 'conv-1' },
-        },
-      ],
-    ]);
-    expect(workspaceOpen).toHaveBeenCalledTimes(1);
-    expect(railSelect).toHaveBeenCalledTimes(1);
-    const railEvent = railSelect.mock.calls[0]?.[0];
+    expect(openPreviewMock).toHaveBeenCalledTimes(1);
+    expect(openPreviewMock).toHaveBeenCalledWith('https://example.com', 'url', {
+      title: 'Example',
+      conversation_id: 'conv-1',
+    });
+    expect(railReveal).toHaveBeenCalledTimes(1);
+    const railEvent = railReveal.mock.calls[0]?.[0];
     expect(railEvent).toBeInstanceOf(CustomEvent);
     if (!(railEvent instanceof CustomEvent)) throw new Error('Expected the elements-rail CustomEvent');
-    expect(railEvent.detail).toBe('context');
+    expect(railEvent.detail).toEqual({ tab: 'context' });
 
-    previewSpy.mockRestore();
-    window.removeEventListener('aionui-workspace-open', workspaceOpen);
-    window.removeEventListener('command-eve-elements-rail-select', railSelect);
+    window.removeEventListener('command-eve-elements-rail-reveal', railReveal);
+  });
+
+  it('uses completed standard ACP desktop tool frames when transient session metadata is not delivered', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const railReveal = vi.fn();
+    window.addEventListener('command-eve-elements-rail-reveal', railReveal);
+    renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    const sendCompletedTool = (toolCallId: string, title: string, rawInput: Record<string, unknown>) => {
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'acp-session-1',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: toolCallId,
+            status: 'completed',
+            kind: 'execute',
+            title,
+            raw_input: rawInput,
+          },
+        },
+        msg_id: toolCallId,
+        turn_id: 'turn-desktop-tool-1',
+        conversation_id: 'conv-1',
+      });
+    };
+
+    act(() => {
+      sendCompletedTool('open-tool-1', 'open_preview', { url: 'https://example.com/fallback', label: 'Fallback' });
+      sendCompletedTool('focus-tool-1', 'focus_pane', { pane: 'files' });
+      // Reconnect replay: neither visible action may run twice.
+      sendCompletedTool('open-tool-1', 'open_preview', { url: 'https://example.com/fallback', label: 'Fallback' });
+      sendCompletedTool('focus-tool-1', 'focus_pane', { pane: 'files' });
+    });
+
+    expect(openPreviewMock).toHaveBeenCalledTimes(1);
+    expect(openPreviewMock).toHaveBeenCalledWith('https://example.com/fallback', 'url', {
+      title: 'Fallback',
+      conversation_id: 'conv-1',
+    });
+    expect(railReveal).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener('command-eve-elements-rail-reveal', railReveal);
   });
 
   it('hydrates ACP usage after warmup and preserves it through the turn lifecycle', async () => {

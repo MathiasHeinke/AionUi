@@ -56,12 +56,30 @@ describe('renderHermesMcpServersYaml', () => {
       '      - "@upstash/context7-mcp"',
       '    env:',
       '      "LOG_LEVEL": "info"',
+      '      "PYTHONDONTWRITEBYTECODE": "1"',
     ]);
   });
 
-  it('emits empty inline collections for a connector without args or env', () => {
+  it('guards the signed app bundle for a connector without args or caller-supplied env', () => {
     const lines = renderHermesMcpServersYaml([{ id: 'bare', command: 'run-bare' }]);
-    expect(lines).toEqual(['mcp_servers:', '  "bare":', '    command: "run-bare"', '    args: []', '    env: {}']);
+    expect(lines).toEqual([
+      'mcp_servers:',
+      '  "bare":',
+      '    command: "run-bare"',
+      '    args: []',
+      '    env:',
+      '      "PYTHONDONTWRITEBYTECODE": "1"',
+    ]);
+  });
+
+  it('fails closed when a connector attempts to re-enable Python bytecode writes', () => {
+    const lines = renderHermesMcpServersYaml([
+      { id: 'unsafe-python', command: 'python', env: { PYTHONDONTWRITEBYTECODE: '0' } },
+    ]);
+
+    expect(lines.filter((line) => line.includes('PYTHONDONTWRITEBYTECODE'))).toEqual([
+      '      "PYTHONDONTWRITEBYTECODE": "1"',
+    ]);
   });
 
   it('renders multiple connectors in order', () => {
@@ -69,7 +87,7 @@ describe('renderHermesMcpServersYaml', () => {
       { id: 'a', command: 'cmd-a' },
       { id: 'b', command: 'cmd-b' },
     ]);
-    expect(lines.filter((line) => line.endsWith(':') && line.startsWith('  '))).toEqual(['  "a":', '  "b":']);
+    expect(lines.filter((line) => /^  ".*":$/.test(line))).toEqual(['  "a":', '  "b":']);
   });
 
   it('quote-escapes ids and values that contain special characters (no YAML injection)', () => {

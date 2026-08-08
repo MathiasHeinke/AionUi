@@ -38,6 +38,8 @@ export type ShellElementsRailProps = {
   contextContent?: React.ReactNode;
   onRequestClose?: () => void;
   initialTab?: ElementsRailTab;
+  activeTab?: ElementsRailTab;
+  onTabChange?: (tab: ElementsRailTab) => void;
 };
 
 const workspaceNameFromPath = (path?: string): string => {
@@ -142,9 +144,12 @@ const ShellElementsRail: React.FC<ShellElementsRailProps> = ({
   contextContent,
   onRequestClose,
   initialTab = 'activity',
+  activeTab: controlledActiveTab,
+  onTabChange,
 }) => {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<ElementsRailTab>(initialTab);
+  const [uncontrolledActiveTab, setUncontrolledActiveTab] = useState<ElementsRailTab>(initialTab);
+  const activeTab = controlledActiveTab ?? uncontrolledActiveTab;
   const runtime = useConversationRuntimeView(conversationId || '');
   const preview = usePreviewContext();
   // MAT-1773 — the SAME shared store the chat tray renders from
@@ -222,11 +227,18 @@ const ShellElementsRail: React.FC<ShellElementsRailProps> = ({
   useEffect(() => {
     const selectTab = (event: Event) => {
       const tab = (event as CustomEvent<ElementsRailTab>).detail;
-      if (tab === 'activity' || tab === 'artifacts' || tab === 'context') setActiveTab(tab);
+      if (tab !== 'activity' && tab !== 'artifacts' && tab !== 'context') return;
+      if (controlledActiveTab === undefined) setUncontrolledActiveTab(tab);
+      onTabChange?.(tab);
     };
     window.addEventListener(ELEMENTS_RAIL_SELECT_EVENT, selectTab);
     return () => window.removeEventListener(ELEMENTS_RAIL_SELECT_EVENT, selectTab);
-  }, []);
+  }, [controlledActiveTab, onTabChange]);
+
+  const selectTab = (tab: ElementsRailTab) => {
+    if (controlledActiveTab === undefined) setUncontrolledActiveTab(tab);
+    onTabChange?.(tab);
+  };
 
   const activity = useMemo(() => {
     if (runtime.view.pendingConfirmations > 0) {
@@ -269,7 +281,7 @@ const ShellElementsRail: React.FC<ShellElementsRailProps> = ({
             className={`${styles.tab} ${activeTab === tab.key ? styles.tabActive : ''}`}
             role='tab'
             aria-selected={activeTab === tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => selectTab(tab.key)}
             data-testid={`elements-rail-tab-${tab.key}`}
           >
             {tab.label}

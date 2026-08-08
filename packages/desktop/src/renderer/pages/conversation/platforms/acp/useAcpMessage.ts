@@ -18,7 +18,7 @@ import {
   shouldOpenHtmlPreview,
 } from '@/common/config/htmlArtifactPreviewCore';
 import { collectImageBindFromToolCallUpdate } from '@/common/config/imageArtifactBindCore';
-import { parseCommandEveDesktopEvent } from '@/common/config/hermesDesktopEventCore';
+import { parseCommandEveDesktopEvent, parseCommandEveDesktopToolCall } from '@/common/config/hermesDesktopEventCore';
 import { classifyAcpExternalWriteBlock } from '@/renderer/pages/conversation/Messages/acp/externalWriteRecoveryPolicy';
 import type { AvailableCommand, IMessageThinking } from '@/common/chat/chatLib';
 import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
@@ -43,10 +43,8 @@ import {
 } from '@renderer/services/commandEveGenerationActivity';
 import { getConversationRuntimeViewSnapshot } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
-import {
-  dispatchElementsRailSelectEvent,
-  dispatchWorkspaceOpenEvent,
-} from '@/renderer/utils/workspace/workspaceEvents';
+import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
+import { dispatchElementsRailRevealEvent } from '@/renderer/utils/workspace/workspaceEvents';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 const THINKING_MESSAGE_THROTTLE_MS = 50;
@@ -168,6 +166,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   const addOrUpdateMessage = useAddOrUpdateMessage();
   // B7 — opens an html artifact from DISK once its write completes.
   const { launchPreview } = usePreviewLauncher();
+  const { openPreview } = usePreviewContext();
   const [running, setRunning] = useState(false);
   const [hasHydratedRunningState, setHasHydratedRunningState] = useState(false);
   const [thought, setThought] = useState<ThoughtData>({
@@ -202,6 +201,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // Desktop UI events are accepted only for the concrete ACP session attached
   // to this conversation. Never derive this from a seat-wide/static id.
   const activeAcpSessionIdRef = useRef<string | undefined>(undefined);
+  // Completed native desktop tools are replayable ACP messages. Consume each
+  // call once so reconnects never reopen a browser tab or steal panel focus.
+  const handledDesktopToolCallIdsRef = useRef<Set<string>>(new Set());
 
   // Live renderer permission authority for THIS conversation. Plain EVE
   // `dont_ask` leaves escalations gated; the selector publishes the separate,
@@ -585,17 +587,15 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           const desktopEvent = parseCommandEveDesktopEvent(message.data, activeAcpSessionIdRef.current);
           if (!desktopEvent) break;
           if (desktopEvent.event === 'preview.open') {
-            emitter.emit('preview.open', {
-              content: desktopEvent.payload.url,
-              contentType: 'url',
-              metadata: {
+            if (shouldOpenBrowserPreview(desktopEvent.payload.url, lastBrowserPreviewUrlRef.current)) {
+              lastBrowserPreviewUrlRef.current = desktopEvent.payload.url;
+              openPreview(desktopEvent.payload.url, 'url', {
                 title: desktopEvent.payload.label,
                 conversation_id,
-              },
-            });
+              });
+            }
           } else {
-            dispatchWorkspaceOpenEvent();
-            dispatchElementsRailSelectEvent('context');
+            dispatchElementsRailRevealEvent('context');
           }
           break;
         }
@@ -905,6 +905,21 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           const browserNav = collectBrowserNavigationFromToolCallUpdate(
             (message.data as AcpToolActivityWire | undefined)?.update
           );
+          const desktopToolCall = parseCommandEveDesktopToolCall(
+            (message.data as AcpToolActivityWire | undefined)?.update
+          );
+          if (desktopToolCall && !handledDesktopToolCallIdsRef.current.has(desktopToolCall.toolCallId)) {
+            handledDesktopToolCallIdsRef.current.add(desktopToolCall.toolCallId);
+            if (desktopToolCall.desktopEvent.event === 'preview.open') {
+              const { url, label } = desktopToolCall.desktopEvent.payload;
+              if (shouldOpenBrowserPreview(url, lastBrowserPreviewUrlRef.current)) {
+                lastBrowserPreviewUrlRef.current = url;
+                openPreview(url, 'url', { title: label, conversation_id });
+              }
+            } else {
+              dispatchElementsRailRevealEvent('context');
+            }
+          }
           // B7 (CEVE-1821) — SHOW what EVE builds. Phase one: remember the path an
           // html `write_file` START names. The file is not on disk yet and the
           // approval may still be pending, so nothing is opened here.
@@ -1127,6 +1142,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       setAcpStatus,
       applyContextUsage,
       reportInferenceError,
+      openPreview,
     ]
   );
 
@@ -1201,6 +1217,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     autoApprovedCallIdsRef.current = new Set();
     recoveredExternalWriteCallIdsRef.current = new Set();
     activeAcpSessionIdRef.current = undefined;
+    handledDesktopToolCallIdsRef.current = new Set();
   }, [conversation_id]);
 
   // Keep local permission authority current for the auto-approve path. Restrictive

@@ -13,7 +13,12 @@ import { useLayoutConstraints } from '@/renderer/pages/conversation/hooks/useLay
 import { useTitleRename } from '@/renderer/pages/conversation/hooks/useTitleRename';
 import { useWorkspaceCollapse } from '@/renderer/pages/conversation/hooks/useWorkspaceCollapse';
 import { PreviewPanel, usePreviewContext } from '@/renderer/pages/conversation/Preview';
-import { dispatchWorkspaceToggleEvent } from '@/renderer/utils/workspace/workspaceEvents';
+import {
+  ELEMENTS_RAIL_REVEAL_EVENT,
+  dispatchWorkspaceToggleEvent,
+  type ElementsRailRevealDetail,
+  type ElementsRailTab,
+} from '@/renderer/utils/workspace/workspaceEvents';
 import { useConversationAgents } from '@/renderer/pages/conversation/hooks/useConversationAgents';
 import classNames from 'classnames';
 import { isMacEnvironment, isWindowsEnvironment } from '@/renderer/pages/conversation/utils/detectPlatform';
@@ -76,6 +81,7 @@ const ChatLayout: React.FC<{
   const isMobile = Boolean(layout?.isMobile);
   const elementsRailEnabled = COMMAND_EVE_SHELL_ENABLED && isDesktop;
   const desktopPanelEnabled = elementsRailEnabled || workspaceEnabled;
+  const [elementsRailTab, setElementsRailTab] = useState<ElementsRailTab>('activity');
 
   // Preview panel state
   const { isOpen: isPreviewOpen } = usePreviewContext();
@@ -88,6 +94,21 @@ const ChatLayout: React.FC<{
     preferenceKey: workspacePreferenceKey ?? conversation_id,
     isTemporaryWorkspace,
   });
+
+  // Hermes desktop tools must reveal the files surface as one state change.
+  // Keeping visibility and selection here prevents a green tool receipt from
+  // racing two independent window events owned by different components.
+  useEffect(() => {
+    if (!elementsRailEnabled || typeof window === 'undefined') return undefined;
+    const revealElementsRail = (event: Event) => {
+      const tab = (event as CustomEvent<ElementsRailRevealDetail>).detail?.tab;
+      if (tab !== 'activity' && tab !== 'artifacts' && tab !== 'context') return;
+      setElementsRailTab(tab);
+      setRightSiderCollapsed(false);
+    };
+    window.addEventListener(ELEMENTS_RAIL_REVEAL_EVENT, revealElementsRail);
+    return () => window.removeEventListener(ELEMENTS_RAIL_REVEAL_EVENT, revealElementsRail);
+  }, [elementsRailEnabled, setRightSiderCollapsed]);
 
   // --- Hook B: container width ---
   const { containerRef, containerWidth } = useContainerWidth();
@@ -346,6 +367,8 @@ const ChatLayout: React.FC<{
                 workspacePath={workspacePath}
                 contextContent={props.sider}
                 onRequestClose={() => setRightSiderCollapsed(true)}
+                activeTab={elementsRailTab}
+                onTabChange={setElementsRailTab}
               />
             ) : (
               <>

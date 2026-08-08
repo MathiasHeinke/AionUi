@@ -954,6 +954,10 @@ describe('Command EVE runtime bootstrap core', () => {
       // The fallback value is the (legacy) home for this no-seat install.
       expect(shimText).toContain(paths.hermesHome);
       expect(wrapperText).toContain(paths.hermesHome);
+      expect(shimText).toContain(`'${path.join(paths.hermesVenv, 'bin', 'python')}' -B`);
+      expect(wrapperText).toContain(`'${path.join(paths.hermesVenv, 'bin', 'python')}' -B`);
+      expect(shimText).toContain(path.join(paths.hermesVenv, 'bin', 'hermes'));
+      expect(wrapperText).toContain(path.join(paths.hermesVenv, 'bin', 'hermes'));
       // It must NOT be the old hard assignment form.
       expect(shimText).not.toMatch(/export HERMES_HOME='[^$]/);
       expect(wrapperText).not.toMatch(/export HERMES_HOME='[^$]/);

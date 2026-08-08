@@ -1965,9 +1965,13 @@ export function buildCommandEveArtifactContextHermesMcpServer(input: {
  * Render the Hermes `mcp_servers:` config block from vetted connectors. An empty
  * list renders the inline empty map `mcp_servers: {}` — IDENTICAL to the prior
  * hardcoded literal, so first-run output is unchanged until v1.4 populates the
- * vetted list behind the OAuth-vault + HumanGate flow. This is the writer half of
- * the keystone: the literal is now data-driven + testable, no security posture is
- * flipped (default empty).
+ * vetted list behind the OAuth-vault + HumanGate flow. Every emitted stdio server
+ * receives `PYTHONDONTWRITEBYTECODE=1`: Hermes launches its MCP watchdog through
+ * the packaged Python interpreter and otherwise lets that child create `.pyc`
+ * files inside the signed app bundle, invalidating the macOS code seal after the
+ * first real tool call. The guard belongs in this adapter because Hermes merges a
+ * connector's declared env into the watchdog environment, while its own safe-env
+ * filter intentionally drops undeclared parent variables.
  */
 export function renderHermesMcpServersYaml(servers: CommandEveHermesMcpServer[]): string[] {
   if (!servers.length) return ['mcp_servers: {}'];
@@ -1982,13 +1986,13 @@ export function renderHermesMcpServersYaml(servers: CommandEveHermesMcpServer[])
       lines.push('    args:');
       for (const arg of args) lines.push(`      - ${yamlScalar(arg)}`);
     }
-    const envEntries = Object.entries(server.env ?? {});
-    if (!envEntries.length) {
-      lines.push('    env: {}');
-    } else {
-      lines.push('    env:');
-      for (const [key, value] of envEntries) lines.push(`      ${yamlScalar(key)}: ${yamlScalar(value)}`);
-    }
+    const envEntries = Object.entries({
+      ...server.env,
+      // Fail closed even if an imported connector tries to opt back into bytecode writes.
+      PYTHONDONTWRITEBYTECODE: '1',
+    });
+    lines.push('    env:');
+    for (const [key, value] of envEntries) lines.push(`      ${yamlScalar(key)}: ${yamlScalar(value)}`);
   }
   return lines;
 }
@@ -3645,7 +3649,11 @@ function writeHermesCliShim(paths: RuntimeBootstrapPaths): void {
     // is harmless because every backend-spawned process already carries its seat
     // home explicitly.
     ...renderHermesHomeExport(paths.hermesHome),
-    `exec ${shellQuote(consoleBinary)} "$@"`,
+    // Invoke the console script through the managed interpreter with -B. The
+    // environment also sets PYTHONDONTWRITEBYTECODE, but -B is the executable
+    // contract that keeps first-run imports from writing __pycache__ into the
+    // signed base interpreter under Contents/Resources/python.
+    `exec ${shellQuote(pythonBinary(paths))} -B ${shellQuote(consoleBinary)} "$@"`,
     '',
   ].join('\n');
   fs.writeFileSync(paths.hermesShim, shim, { mode: 0o700 });
@@ -6853,7 +6861,8 @@ function writeHermesRuntimeFiles(
       // the fallback for a bare invocation (legacy-equal for no-seat). Same
       // env-inheritance-pinning contract as the shim — see renderHermesHomeExport.
       ...renderHermesHomeExport(paths.hermesHome),
-      `exec ${shellQuote(hermesConsoleBinary(paths))} "$@"`,
+      // Keep the signed bundled interpreter immutable on every entry point.
+      `exec ${shellQuote(pythonBinary(paths))} -B ${shellQuote(hermesConsoleBinary(paths))} "$@"`,
       '',
     ].join('\n');
     fs.writeFileSync(paths.hermesWrapper, wrapper, { mode: 0o700 });

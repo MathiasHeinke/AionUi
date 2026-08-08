@@ -67,6 +67,39 @@ describe('local backend capability transport', () => {
     ).toBeUndefined();
   });
 
+  it('normalizes the packaged file websocket origin only for the authorized main frame', () => {
+    const mainFrame = { routingId: 1 };
+    const subFrame = { routingId: 2 };
+    const mainContents = { id: 7, mainFrame };
+    const mainWindow = { webContents: mainContents } as never;
+
+    expect(
+      authorizeRendererBackendRequest(
+        {
+          url: 'ws://127.0.0.1:43123/ws',
+          webContentsId: 7,
+          frame: mainFrame,
+          requestHeaders: { Origin: 'file://' },
+        },
+        mainWindow,
+        resolver
+      )
+    ).toEqual({ Origin: 'null', [LOCAL_BACKEND_CAPABILITY_HEADER]: 'capability-secret' });
+
+    expect(
+      authorizeRendererBackendRequest(
+        {
+          url: 'ws://127.0.0.1:43123/ws',
+          webContentsId: 7,
+          frame: subFrame,
+          requestHeaders: { Origin: 'file://', 'X-AionUI-Local-Capability': 'forged' },
+        },
+        mainWindow,
+        resolver
+      )
+    ).toEqual({ Origin: 'file://' });
+  });
+
   it('strips forged renderer capability from backend subframes without authorizing them', () => {
     const mainFrame = { routingId: 1 };
     const subFrame = { routingId: 2 };

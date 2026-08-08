@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   COMMAND_EVE_DESKTOP_EVENT_VERSION,
   parseCommandEveDesktopEvent,
+  parseCommandEveDesktopToolCall,
 } from '../../../packages/desktop/src/common/config/hermesDesktopEventCore';
 
 const wire = (event: string, payload: unknown, sessionId = 'acp-session-1') => ({
+  session_id: sessionId,
   _meta: {
     commandEveDesktop: {
       version: COMMAND_EVE_DESKTOP_EVENT_VERSION,
@@ -13,6 +15,44 @@ const wire = (event: string, payload: unknown, sessionId = 'acp-session-1') => (
       payload,
     },
   },
+});
+
+const completedToolCall = (title: string, rawInput: unknown, overrides: Record<string, unknown> = {}) => ({
+  session_update: 'tool_call_update',
+  tool_call_id: 'tool-desktop-1',
+  status: 'completed',
+  title,
+  raw_input: rawInput,
+  ...overrides,
+});
+
+describe('parseCommandEveDesktopToolCall', () => {
+  it('recovers the two bounded commands from real completed ACP tool frames', () => {
+    expect(
+      parseCommandEveDesktopToolCall(
+        completedToolCall('open_preview', { url: 'https://example.com/live', label: 'Live' })
+      )
+    ).toEqual({
+      toolCallId: 'tool-desktop-1',
+      desktopEvent: { event: 'preview.open', payload: { url: 'https://example.com/live', label: 'Live' } },
+    });
+    expect(parseCommandEveDesktopToolCall(completedToolCall('focus_pane', { pane: 'files' }))).toEqual({
+      toolCallId: 'tool-desktop-1',
+      desktopEvent: { event: 'pane.reveal', payload: { pane: 'files' } },
+    });
+  });
+
+  it.each([
+    ['pending', completedToolCall('open_preview', { url: 'https://example.com' }, { status: 'in_progress' })],
+    ['failed', completedToolCall('open_preview', { url: 'https://example.com' }, { status: 'failed' })],
+    ['wrong tool', completedToolCall('terminal', { url: 'https://example.com' })],
+    ['unsafe url', completedToolCall('open_preview', { url: 'file:///etc/passwd' })],
+    ['extra input', completedToolCall('open_preview', { url: 'https://example.com', execute: true })],
+    ['wrong pane', completedToolCall('focus_pane', { pane: 'terminal' })],
+    ['missing id', completedToolCall('focus_pane', { pane: 'files' }, { tool_call_id: '' })],
+  ])('rejects %s', (_label, update) => {
+    expect(parseCommandEveDesktopToolCall(update)).toBeNull();
+  });
 });
 
 describe('parseCommandEveDesktopEvent', () => {
@@ -36,17 +76,56 @@ describe('parseCommandEveDesktopEvent', () => {
         'acp-session-1'
       )
     ).toEqual({ event: 'pane.reveal', payload: { pane: 'files' } });
+    expect(
+      parseCommandEveDesktopEvent(
+        { ...wire('pane.reveal', { pane: 'files' }), title: null, updated_at: null },
+        'acp-session-1'
+      )
+    ).toEqual({ event: 'pane.reveal', payload: { pane: 'files' } });
+    expect(
+      parseCommandEveDesktopEvent(
+        {
+          ...wire('pane.reveal', { pane: 'files' }),
+          updated_at: null,
+          _meta: {
+            commandEveDesktop: {
+              version: COMMAND_EVE_DESKTOP_EVENT_VERSION,
+              event: 'pane.reveal',
+              payload: { pane: 'files' },
+            },
+          },
+        },
+        undefined
+      )
+    ).toEqual({ event: 'pane.reveal', payload: { pane: 'files' } });
   });
 
   it.each([
     ['unknown event', wire('terminal.read', {})],
-    ['foreign session', wire('preview.open', { url: 'https://example.com' }, 'foreign')],
+    ['foreign active session', { ...wire('preview.open', { url: 'https://example.com' }), session_id: 'foreign' }],
+    [
+      'nested session mismatch',
+      {
+        ...wire('preview.open', { url: 'https://example.com' }),
+        _meta: {
+          commandEveDesktop: {
+            ...wire('preview.open', { url: 'https://example.com' })._meta.commandEveDesktop,
+            sessionId: 'foreign',
+          },
+        },
+      },
+    ],
+    ['missing canonical session', { ...wire('pane.reveal', { pane: 'files' }), session_id: undefined }],
+    ['non-string canonical session', { ...wire('pane.reveal', { pane: 'files' }), session_id: 7 }],
     ['unsafe scheme', wire('preview.open', { url: 'javascript:alert(1)' })],
     ['credentialed url', wire('preview.open', { url: 'https://user:secret@example.com' })],
     ['extra preview key', wire('preview.open', { url: 'https://example.com', execute: true })],
     ['other pane', wire('pane.reveal', { pane: 'terminal' })],
     ['pre-relay discriminator', { ...wire('pane.reveal', { pane: 'files' }), sessionUpdate: 'session_info_update' }],
     ['unknown top-level key', { ...wire('pane.reveal', { pane: 'files' }), authority: 'seat' }],
+    ['non-protocol title type', { ...wire('pane.reveal', { pane: 'files' }), title: 7 }],
+    ['non-protocol timestamp type', { ...wire('pane.reveal', { pane: 'files' }), updated_at: false }],
+    ['internal camelCase relay shape', { ...wire('pane.reveal', { pane: 'files' }), updatedAt: null }],
     [
       'extra envelope key',
       {
@@ -76,7 +155,12 @@ describe('parseCommandEveDesktopEvent', () => {
   });
 
   it('rejects a missing binding and oversized values', () => {
-    expect(parseCommandEveDesktopEvent(wire('preview.open', { url: 'https://example.com' }), undefined)).toBeNull();
+    expect(
+      parseCommandEveDesktopEvent(
+        { ...wire('preview.open', { url: 'https://example.com' }), session_id: '' },
+        undefined
+      )
+    ).toBeNull();
     expect(
       parseCommandEveDesktopEvent(
         wire('preview.open', { url: `https://example.com/${'x'.repeat(4096)}` }),

@@ -107,6 +107,11 @@ export function authorizeRendererBackendRequest(
     return strippedReservedCapability ? requestHeaders : undefined;
   }
 
+  const originHeaderName = Object.keys(requestHeaders).find((name) => name.toLowerCase() === 'origin');
+  if (originHeaderName && requestHeaders[originHeaderName] === 'file://') {
+    requestHeaders[originHeaderName] = 'null';
+  }
+
   const capability = resolver.getCapability();
   if (capability) requestHeaders[LOCAL_BACKEND_CAPABILITY_HEADER] = capability;
   return requestHeaders;
@@ -119,6 +124,30 @@ export function configureMainRendererBackendCapability(
 ): void {
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
     const requestHeaders = authorizeRendererBackendRequest(details, mainWindow, resolver);
+    if (
+      process.env.AIONUI_LOCAL_CAPABILITY_DIAGNOSTICS === '1' &&
+      details.resourceType === 'webSocket' &&
+      /^wss?:\/\//i.test(details.url)
+    ) {
+      const mainContents = mainWindow.webContents;
+      const requestOrigin =
+        Object.entries(details.requestHeaders).find(([name]) => name.toLowerCase() === 'origin')?.[1] ?? null;
+      console.info('[local-backend-capability] websocket authorization', {
+        url: details.url,
+        requestOrigin,
+        resourceType: details.resourceType,
+        webContentsId: details.webContentsId ?? null,
+        ownsWebContents:
+          details.webContentsId === mainContents.id || details.webContents === mainContents,
+        frame: details.frame === null ? 'null' : details.frame === undefined ? 'undefined' : 'present',
+        ownsMainFrame: details.frame === mainContents.mainFrame,
+        exactLiveOrigin: isCurrentLocalBackendUrl(details.url, resolver.getPort()),
+        capabilityInjected: Boolean(
+          requestHeaders &&
+            Object.keys(requestHeaders).some((name) => name.toLowerCase() === LOCAL_BACKEND_CAPABILITY_HEADER)
+        ),
+      });
+    }
     callback(requestHeaders ? { requestHeaders } : {});
   });
 }
