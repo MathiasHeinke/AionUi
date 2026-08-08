@@ -22,7 +22,7 @@ interface CodeEditorProps {
   language?: string; // 来自 metadata.language / From metadata.language
   fileName?: string; // 用于扩展名兜底推断语言 / Extension-based fallback
   readOnly?: boolean; // 是否只读 / Whether read-only
-  containerRef?: React.RefObject<HTMLDivElement>; // 滚动同步容器 / Scroll sync container
+  containerRef?: React.RefObject<HTMLDivElement | null>; // 滚动同步容器 / Scroll sync container
   onScroll?: (scrollTop: number, scrollHeight: number, clientHeight: number) => void; // 滚动回调 / Scroll callback
 }
 

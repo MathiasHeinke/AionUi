@@ -60,7 +60,7 @@ interface PreviewTabsProps {
    * Tabs 容器引用
    * Tabs container ref
    */
-  tabsContainerRef: React.RefObject<HTMLDivElement>;
+  tabsContainerRef: React.RefObject<HTMLDivElement | null>;
 
   /**
    * 切换 Tab 回调

@@ -371,7 +371,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
       // Reconciliation cards (the ~18 with state) — same provider the standalone
       // Skill Library page uses. Non-fatal on failure.
       try {
-        const libResponse = await skillLibraryBridge.invoke(undefined);
+        const libResponse = await skillLibraryBridge.invoke({});
         setLibraryModel(libResponse?.data?.model ?? null);
       } catch (libError) {
         console.warn('Failed to load skill library reconciliation:', libError);

@@ -309,16 +309,22 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
           content = '';
         } else if (contentType === 'image') {
           // 图片: 读取为 Base64 格式 / Image: Read as Base64 format
-          content = await ipcBridge.fs.getImageBase64.invoke({ path: nodeData.fullPath, workspace });
-          if (content == null) {
+          // Check BEFORE assigning. `content` is a `string`, the invoke answers
+          // `string | null`, and the old order stored the null first and tested it
+          // afterwards — so the variable briefly held a value its type forbade, and
+          // any code added between the two lines would have read it.
+          const imageBase64 = await ipcBridge.fs.getImageBase64.invoke({ path: nodeData.fullPath, workspace });
+          if (imageBase64 == null) {
             throw null;
           }
+          content = imageBase64;
         } else {
           // 文本文件：使用 UTF-8 编码读取 / Text files: Read using UTF-8 encoding
-          content = await ipcBridge.fs.readFile.invoke({ path: nodeData.fullPath, workspace });
-          if (content == null) {
+          const fileText = await ipcBridge.fs.readFile.invoke({ path: nodeData.fullPath, workspace });
+          if (fileText == null) {
             throw null;
           }
+          content = fileText;
 
           // 大文本仅保留前一段预览内容，避免切换/关闭 tab 时卡顿
           // Keep only first chunk for large text preview to reduce tab switch/close jank

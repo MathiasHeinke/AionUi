@@ -155,7 +155,12 @@ const AboutModalContent: React.FC = () => {
               data-testid={item.testId}
               className='eve-settings-link-row'
               onClick={() => {
-                if ('url' in item) {
+                // `'url' in item` does NOT discriminate here: the other union member
+                // declares `url?: never`, so the key is optional-present on both and
+                // the narrowing leaves `string | undefined`. Testing the VALUE picks
+                // the right member, and behaves identically — a member with
+                // `url?: never` can only ever be falsy.
+                if (item.url) {
                   openLink(item.url).catch((error) => console.error('Failed to open link:', error));
                 } else {
                   item.onClick();

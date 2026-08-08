@@ -305,7 +305,13 @@ const AionModal: React.FC<AionModalProps> = ({
             </Button>
             <Button
               type='primary'
-              onClick={props.onOk}
+              // Wrapped, not cast. Arco's Button hands its handler a DOM `Event`;
+              // `onOk` is declared to take an optional `MouseEvent` and may return a
+              // promise. The two signatures are genuinely different, and the honest
+              // bridge is to call `onOk` with no event — which its own `e?` says is
+              // allowed — and to drop the promise deliberately with `void` rather
+              // than hand Arco a return value it does not await.
+              onClick={props.onOk ? () => void props.onOk?.() : undefined}
               loading={props.confirmLoading}
               className='px-20px min-w-80px'
               style={{ borderRadius: 'var(--eve-control-radius)' }}

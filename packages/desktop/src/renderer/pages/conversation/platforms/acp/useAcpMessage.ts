@@ -618,19 +618,28 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             activeThinkingRef.current = null;
             setHasThinkingMessage(false);
             // Log request completion
-            if (requestTraceRef.current) {
-              const duration = Date.now() - requestTraceRef.current.startTime;
+            // Snapshot the trace before the updater. `setRuntimeActivity`'s callback
+            // runs LATER, after React schedules it, so the `if` above narrows nothing
+            // inside it — and a ref is mutable, so by the time it runs
+            // `requestTraceRef.current` may legitimately be a different object or
+            // null. Reading the fields off a captured const is not just what makes
+            // this type-check; it is what makes the reported activity belong to the
+            // request that finished, rather than to whichever one is current when
+            // React gets round to it.
+            const finishedTrace = requestTraceRef.current;
+            if (finishedTrace) {
+              const duration = Date.now() - finishedTrace.startTime;
               setRuntimeActivity((prev) => ({
                 ...prev,
                 phase: 'done',
-                backend: requestTraceRef.current.backend,
-                modelId: requestTraceRef.current.model_id,
-                startedAt: requestTraceRef.current.startTime,
+                backend: finishedTrace.backend,
+                modelId: finishedTrace.model_id,
+                startedAt: finishedTrace.startTime,
                 updatedAt: Date.now(),
                 elapsedMs: duration,
               }));
               console.log(
-                `%c[RequestTrace]%c FINISH | ${requestTraceRef.current.backend} → ${requestTraceRef.current.model_id} | ${duration}ms | ${new Date().toISOString()}`,
+                `%c[RequestTrace]%c FINISH | ${finishedTrace.backend} → ${finishedTrace.model_id} | ${duration}ms | ${new Date().toISOString()}`,
                 'color: #52c41a; font-weight: bold',
                 'color: inherit'
               );
@@ -980,12 +989,16 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         case 'request_trace':
           {
             const trace = message.data as Record<string, unknown>;
-            requestTraceRef.current = {
+            // Bound as well as stored: the updater below reads the trace that this
+            // event carries, not "whatever the ref holds when React runs the
+            // callback". Same reasoning as the 'done' branch above.
+            const startedTrace = {
               startTime: Number(trace.timestamp) || Date.now(),
               backend: String(trace.backend || 'unknown'),
               model_id: String(trace.model_id || 'unknown'),
               session_mode: trace.session_mode as string | undefined,
             };
+            requestTraceRef.current = startedTrace;
             if (typeof trace.backend === 'string') {
               permissionBackendRef.current = trace.backend;
             }
@@ -995,9 +1008,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             setRuntimeActivity((prev) => ({
               ...prev,
               phase: 'thinking',
-              backend: requestTraceRef.current.backend,
-              modelId: requestTraceRef.current.model_id,
-              startedAt: requestTraceRef.current.startTime,
+              backend: startedTrace.backend,
+              modelId: startedTrace.model_id,
+              startedAt: startedTrace.startTime,
               updatedAt: Date.now(),
             }));
             console.log(
@@ -1035,20 +1048,21 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           activeThinkingRef.current = null;
           if (!suppressColdError) commitMessage(transformedMessage);
           // Log request error
-          if (requestTraceRef.current) {
-            const duration = Date.now() - requestTraceRef.current.startTime;
+          const failedTrace = requestTraceRef.current;
+          if (failedTrace) {
+            const duration = Date.now() - failedTrace.startTime;
             setRuntimeActivity((prev) => ({
               ...prev,
               phase: 'error',
-              backend: requestTraceRef.current.backend,
-              modelId: requestTraceRef.current.model_id,
-              startedAt: requestTraceRef.current.startTime,
+              backend: failedTrace.backend,
+              modelId: failedTrace.model_id,
+              startedAt: failedTrace.startTime,
               updatedAt: Date.now(),
               elapsedMs: duration,
               detail: typeof message.data === 'string' ? message.data : undefined,
             }));
             console.log(
-              `%c[RequestTrace]%c ERROR | ${requestTraceRef.current.backend} → ${requestTraceRef.current.model_id} | ${duration}ms | ${new Date().toISOString()}`,
+              `%c[RequestTrace]%c ERROR | ${failedTrace.backend} → ${failedTrace.model_id} | ${duration}ms | ${new Date().toISOString()}`,
               'color: #ff4d4f; font-weight: bold',
               'color: inherit',
               message.data

@@ -483,7 +483,11 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
         recorder.onerror = null;
         recorder.onstop = null;
       }
-      if (recorder?.state !== 'inactive') {
+      // `recorder?.state !== 'inactive'` is TRUE when there is no recorder at all —
+      // `undefined !== 'inactive'`. So the guard admitted exactly the case the body
+      // cannot handle, and only the surrounding try/catch kept it quiet. Ask for the
+      // recorder first, then for its state.
+      if (recorder && recorder.state !== 'inactive') {
         try {
           recorder.stop();
         } catch {

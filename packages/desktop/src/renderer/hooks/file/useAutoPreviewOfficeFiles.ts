@@ -192,7 +192,11 @@ export const useAutoPreviewOfficeFiles = (
     knownOfficeFilesRef.current = new Set();
     clearPendingOpenTimers();
 
-    if (!enabled || !workspace) {
+    // `normalizedWorkspace` is derived from `workspace` and is therefore set at
+    // exactly the same times. Naming it in the guard costs one condition and lets
+    // the compiler see the pairing, which is cheaper than deriving it a second
+    // time inside the effect and cannot drift from the value in the dep array.
+    if (!enabled || !workspace || !normalizedWorkspace) {
       return;
     }
 

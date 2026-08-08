@@ -142,7 +142,7 @@ const tryCloudReadAloud = async (text: string, options: ReadAloudOptions | undef
   }
 
   try {
-    const statusResponse = await ipcBridge.commandEve.multimodalTtsStatus.invoke(undefined);
+    const statusResponse = await ipcBridge.commandEve.multimodalTtsStatus.invoke({});
     if (
       runId !== activeReadAloudRunId ||
       !statusResponse.success ||

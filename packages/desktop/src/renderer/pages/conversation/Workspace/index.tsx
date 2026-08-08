@@ -136,7 +136,11 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
   });
 
   // Context menu calculations
-  const hasOriginalFiles = treeHook.files.length > 0 && treeHook.files[0]?.children?.length > 0;
+  // `Boolean(...)` rather than `(... ?? 0) > 0`: the question is "are there any",
+  // and optional chaining already yields undefined for both "no first entry" and
+  // "no children". Comparing a possibly-undefined length against 0 was the type
+  // error; inventing a 0 to compare would have been a default nobody needs.
+  const hasOriginalFiles = treeHook.files.length > 0 && Boolean(treeHook.files[0]?.children?.length);
   const rootName = treeHook.files[0]?.name ?? '';
 
   // Hide root directory when there's a single root with children, as Toolbar serves as the first-level directory
@@ -369,10 +373,18 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
                 }}
                 multiple
                 renderTitle={(node) => {
-                  const relativePath = node.dataRef.relativePath;
-                  const isFile = node.dataRef.isFile;
+                  // `dataRef` is OPTIONAL on Arco's node props. Every node this tree
+                  // renders is built by `treeHook` with one attached, but that is our
+                  // invariant, not Arco's type — and a node without it has no path,
+                  // so there is nothing here to draw. Rendering the plain title is the
+                  // honest fallback; casting the absence away would have produced
+                  // `undefined.relativePath` at runtime instead.
+                  const dataRef = node.dataRef as IDirOrFile | undefined;
+                  if (!dataRef) return node.title ?? null;
+                  const relativePath = dataRef.relativePath;
+                  const isFile = dataRef.isFile;
                   const isPasteTarget = !isFile && pasteHook.pasteTargetFolder === relativePath;
-                  const nodeData = node.dataRef as IDirOrFile;
+                  const nodeData = dataRef;
 
                   return (
                     <div
@@ -462,8 +474,14 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
                   treeHook.setExpandedKeys(keys);
                 }}
                 loadMore={(treeNode) => {
-                  const path = treeNode.props.dataRef.fullPath;
-                  const targetRelPath = treeNode.props.dataRef.relativePath;
+                  // Same optional `dataRef`, same reasoning. Without it there is no
+                  // path to expand, so the correct answer is "nothing more to load"
+                  // rather than an invoke with `path: undefined`, which would have
+                  // asked the backend for the whole workspace.
+                  const nodeRef = treeNode.props.dataRef as IDirOrFile | undefined;
+                  if (!nodeRef) return Promise.resolve();
+                  const path = nodeRef.fullPath;
+                  const targetRelPath = nodeRef.relativePath;
                   return ipcBridge.conversation.getWorkspace
                     .invoke({ conversation_id, workspace, path })
                     .then((res) => {

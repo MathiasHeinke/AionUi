@@ -101,8 +101,11 @@ const getProcessedItemAnchorId = (item: IProcessedItem): string => {
 };
 
 const getProcessedItemCreatedAt = (item: IProcessedItem): number => {
+  // Both branches read the same optional field; only the second one said so. The
+  // first returned it raw into a `number` return type, so a summary or artifact
+  // without a timestamp would have sorted as `undefined`. Same fallback, both ways.
   if ('type' in item && ['file_summary', 'tool_summary', 'artifact'].includes(item.type)) {
-    return item.created_at;
+    return item.created_at ?? 0;
   }
   return item.created_at ?? 0;
 };

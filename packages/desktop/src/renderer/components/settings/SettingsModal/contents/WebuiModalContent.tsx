@@ -241,7 +241,10 @@ const WebuiModalContent: React.FC = () => {
           allowRemote,
           localUrl,
           networkUrl: allowRemote && responseIP ? `http://${responseIP}:${port}` : undefined,
-          lanIP: responseIP,
+          // `responseIP` is `string | null`; `IWebUIStatus.lanIP` is optional, i.e.
+          // `string | undefined`. This bridges two spellings of "there is none" — no
+          // value is invented and no branch reads it differently afterwards.
+          lanIP: responseIP ?? undefined,
           initialPassword: responsePassword || cachedPassword || prev?.initialPassword,
         }));
 

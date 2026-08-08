@@ -26,7 +26,11 @@ const useTimeline = () => {
   return createTimelineGrouper(t);
 };
 
-const useScrollIntoView = (id: string) => {
+// ACCEPTS `undefined`: the only caller passes `useParams().id`, which react-router
+// types as `string | undefined`, and the first line of the effect already returns on
+// a missing id. The narrow parameter was the half that did not match — widening it
+// keeps the check in the one place that performs it rather than adding a second.
+const useScrollIntoView = (id: string | undefined) => {
   useEffect(() => {
     if (!id) return;
     const el = document.getElementById('c-' + id);

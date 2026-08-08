@@ -17,7 +17,7 @@ import { useCodeMirrorScroll, useScrollSyncTarget } from '../../hooks/useScrollS
 interface HTMLEditorProps {
   value: string;
   onChange: (value: string) => void;
-  containerRef?: React.RefObject<HTMLDivElement>;
+  containerRef?: React.RefObject<HTMLDivElement | null>;
   onScroll?: (scrollTop: number, scrollHeight: number, clientHeight: number) => void;
   file_path?: string; // 用于生成稳定的 key / Used to generate stable key
 }

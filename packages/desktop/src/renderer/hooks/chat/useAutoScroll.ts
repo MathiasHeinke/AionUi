@@ -7,7 +7,7 @@
 import { useEffect } from 'react';
 
 interface UseAutoScrollOptions {
-  containerRef: React.RefObject<HTMLDivElement>; // 容器引用 / Container ref
+  containerRef: React.RefObject<HTMLDivElement | null>; // 容器引用 / Container ref
   content: string; // 内容（用于监听变化）/ Content (for watching changes)
   enabled?: boolean; // 是否启用自动滚动 / Whether to enable auto-scroll
   threshold?: number; // 触发自动滚动的距离底部阈值（px）/ Distance from bottom threshold to trigger auto-scroll (px)

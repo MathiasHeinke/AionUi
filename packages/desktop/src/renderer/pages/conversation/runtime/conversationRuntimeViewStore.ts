@@ -271,7 +271,14 @@ const staleRuntimeSummaryConversationRuntimeView = (
   conversation_id: string,
   event: ConversationRuntimeViewLogEvent,
   source: string,
-  turn_id: string,
+  /**
+   * `| null` because callers pass `runtime.turn_id`, which is nullable, and because
+   * nothing here decides on it: it lands in the log entry beside
+   * `runtime_turn_id: runtime.turn_id`, the very same value under another name.
+   * Requiring a string forced a caller to invent one for a record that is meant to
+   * say "there was no turn id".
+   */
+  turn_id: string | null,
   runtime: TConversationRuntimeSummary,
   msg_id?: string
 ): ConversationRuntimeSnapshot => {

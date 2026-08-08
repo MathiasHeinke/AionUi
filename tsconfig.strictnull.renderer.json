@@ -1,0 +1,63 @@
+{
+  // STRICT-NULL STAGE 3 — packages/desktop/src/renderer only.
+  //
+  // Same shape as stages 1 and 2. The root config stays untouched; the fence is
+  // the `include` below.
+  //
+  // `types.d.ts` IS LISTED, and that is not decoration. Stage 2 shipped a config
+  // whose narrow `include` dropped it, and the stage promptly invented a TS7016
+  // for a module `src/types.d.ts` declares — an error the real build does not
+  // have. A staged gate that reports errors the build does not have teaches
+  // people to ignore the gate. `extends` does not inherit `include`, so every
+  // staged config has to name it again.
+  // THE GATE COMMAND, in the same two halves as stages 1 and 2:
+  //
+  //   CAP='TS2722|src/common/|Messages/types.ts|ChatConversation.tsx|AcpSendBox.tsx|AionrsSendBox.tsx'
+  //
+  //   bunx tsc --noEmit -p tsconfig.strictnull.renderer.json 2>&1 | grep "error TS" \
+  //     | grep -vE "$CAP" | wc -l      # must print 0
+  //   bunx tsc --noEmit -p tsconfig.strictnull.renderer.json 2>&1 | grep "error TS" \
+  //     | grep -cE "$CAP"              # must print exactly 127
+  //
+  // WHAT THE CAP HOLDS — 127, counted, each group with a reason it could not be
+  // closed from inside this stage:
+  //
+  //  118  TS2722 "Cannot invoke an object which is possibly 'undefined'" on Arco's
+  //       `Message.useMessage()` / `Modal.useModal()` hook results, across 21 files.
+  //       This is an UPSTREAM DECLARATION DEFECT, not nullability in this repo:
+  //       `MessageHookReturnType` and `ModalHookReturnType` mark all their methods
+  //       optional (Message/interface.d.ts:76-82, Modal/interface.d.ts:183-189)
+  //       while the implementations assign every one of them unconditionally
+  //       (Message/useMessage.js:62-68 loops over the five names;
+  //       Modal/useModal/index.js:52-60 sets `confirm` and loops the other four).
+  //       It cannot be repaired by declaration merging — both are TYPE ALIASES, and
+  //       TypeScript merges interfaces, not aliases. The only in-repo repairs left
+  //       are 118 `?.`/`!` at the call sites, or a wrapper hook swapped into 21
+  //       files. The first is the carpet this work exists to avoid; the second is a
+  //       refactor that deserves its own review rather than a line in a type stage.
+  //
+  //    4  `common/` errors reaching here through imports (the Set/array refactor in
+  //       flight). Outside this stage's remit and already capped by stage 1.
+  //
+  //    2  `renderer/pages/conversation/Messages/types.ts` — same Set/array refactor,
+  //       and the file is uncommitted work belonging to someone else.
+  //
+  //    3  Left deliberately, reported rather than forced:
+  //         ChatConversation.tsx:331  TS2367 — `conversation.type` has no 'aionrs'
+  //           member, so the branch is unreachable. Whether the union is missing a
+  //           member or the branch is dead is a product question, not a null fix.
+  //         AcpSendBox.tsx:241 / AionrsSendBox.tsx:97 — `createSetUploadFile`
+  //           declares `mutate` over `Record<string, unknown>` while the callers
+  //           hold SWR mutators typed to concrete drafts. Reconciling it means
+  //           making the helper generic, which changes a shared signature; that is
+  //           a refactor, not a null fix.
+  //
+  // Started at 185 (181 renderer + 4 common). 176 of the 179 in-scope errors are
+  // closed. The count pin is the half that matters: `grep -v` alone would let a NEW
+  // error inside any capped group vanish from the verdict.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strictNullChecks": true
+  },
+  "include": ["packages/desktop/src/renderer/**/*", "packages/desktop/src/types.d.ts"]
+}

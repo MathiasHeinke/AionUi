@@ -22,13 +22,24 @@ interface UseScrollSyncOptions {
    * 编辑器容器引用
    * Editor container ref
    */
-  editorContainerRef: React.RefObject<HTMLDivElement>;
+  /**
+   * `| null` because that is what `useRef<HTMLDivElement>(null)` produces, and
+   * what the ref actually holds until React attaches the node.
+   *
+   * Declaring `RefObject<HTMLDivElement>` here promised a container that is
+   * always mounted — the callers pass exactly such a ref, so the two sides
+   * disagreed and the assignment was rejected. Widening the PARAMETER cannot
+   * force any caller to change; it just stops the contract from claiming a
+   * guarantee React does not give. The same correction is applied to the other
+   * eleven container-ref props in the preview and mention trees.
+   */
+  editorContainerRef: React.RefObject<HTMLDivElement | null>;
 
   /**
    * 预览容器引用
    * Preview container ref
    */
-  previewContainerRef: React.RefObject<HTMLDivElement>;
+  previewContainerRef: React.RefObject<HTMLDivElement | null>;
 }
 
 /**

@@ -100,6 +100,11 @@ const ExtensionSettingsPage: React.FC = () => {
 
       try {
         const snapshot = await extensionsIpc.getAgentActivitySnapshot.invoke();
+        // An iframe that never mounted, or was torn down while the snapshot was in
+        // flight, has no contentWindow. Posting into it with `!` would not deliver
+        // the message either — it would throw. Skipping is the same outcome, said
+        // out loud, and the requester simply gets no reply.
+        if (!frameWindow) return;
         frameWindow.postMessage(
           {
             type: 'star-office:activity-snapshot',

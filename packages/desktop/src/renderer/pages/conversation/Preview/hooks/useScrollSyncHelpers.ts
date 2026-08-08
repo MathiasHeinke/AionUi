@@ -17,7 +17,7 @@ import { useEffect, useCallback, useRef } from 'react';
  * @param onTargetScroll - 目标滚动百分比回调 / Target scroll percentage callback
  */
 export const useScrollSyncTarget = (
-  containerRef: React.RefObject<HTMLElement> | undefined,
+  containerRef: React.RefObject<HTMLElement | null> | undefined,
   onTargetScroll: (targetPercent: number) => void
 ): void => {
   useEffect(() => {
@@ -52,7 +52,7 @@ export const useScrollSyncTarget = (
  * @returns setScrollPercent - 设置滚动百分比的函数 / Function to set scroll percentage
  */
 export const useCodeMirrorScroll = (
-  wrapperRef: React.RefObject<HTMLDivElement>,
+  wrapperRef: React.RefObject<HTMLDivElement | null>,
   onScroll?: (scrollTop: number, scrollHeight: number, clientHeight: number) => void
 ): { setScrollPercent: (percent: number) => void } => {
   // 监听 CodeMirror 内部滚动容器的滚动事件
@@ -121,7 +121,7 @@ export const useCodeMirrorScroll = (
  * @param onScroll - 滚动回调 / Scroll callback
  */
 export const useContainerScroll = (
-  containerRef: React.RefObject<HTMLElement>,
+  containerRef: React.RefObject<HTMLElement | null>,
   onScroll?: (scrollTop: number, scrollHeight: number, clientHeight: number) => void
 ): void => {
   useEffect(() => {
@@ -143,7 +143,7 @@ export const useContainerScroll = (
  *
  * @param containerRef - 容器引用 / Container ref
  */
-export const useContainerScrollTarget = (containerRef: React.RefObject<HTMLElement>): void => {
+export const useContainerScrollTarget = (containerRef: React.RefObject<HTMLElement | null>): void => {
   const handleTargetScroll = useCallback(
     (targetPercent: number) => {
       const container = containerRef.current;

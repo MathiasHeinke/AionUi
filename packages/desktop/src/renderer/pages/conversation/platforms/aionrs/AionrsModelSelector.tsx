@@ -79,7 +79,15 @@ const AionrsModelSelector: React.FC<{
                   <Menu.Item
                     key={`${provider.id}-${modelName}`}
                     data-testid={`aionrs-model-option-${modelName}`}
-                    className={current_model?.id + current_model?.use_model === provider.id + modelName ? '!bg-2' : ''}
+                    // Compare the two fields SEPARATELY. The old form concatenated both sides and
+                    // compared the strings, which is why `current_model?.id` being undefined was a
+                    // type error at all — and it was also wrong on its own terms: id 'a' + model
+                    // 'bc' and id 'ab' + model 'c' produce the same string, so an unrelated model
+                    // could render as the selected one. Field-wise comparison is both null-safe and
+                    // correct.
+                    className={
+                      current_model?.id === provider.id && current_model?.use_model === modelName ? '!bg-2' : ''
+                    }
                     onClick={() => void handleSelectModel(provider, modelName)}
                   >
                     <div className='flex items-center gap-8px w-full'>

@@ -21,7 +21,7 @@ export interface SelectionPosition {
  * @param containerRef - 容器引用 / Container reference
  * @returns 选中的文本、位置信息和清除函数 / Selected text, position info, and clear function
  */
-export const useTextSelection = (containerRef: React.RefObject<HTMLElement>, enabled = true) => {
+export const useTextSelection = (containerRef: React.RefObject<HTMLElement | null>, enabled = true) => {
   const [selectedText, setSelectedText] = useState('');
   const [selectionPosition, setSelectionPosition] = useState<SelectionPosition | null>(null);
 

@@ -18,7 +18,7 @@ interface MarkdownEditorProps {
   value: string; // 编辑器内容 / Editor content
   onChange: (value: string) => void; // 内容变化回调 / Content change callback
   readOnly?: boolean; // 是否只读 / Whether read-only
-  containerRef?: React.RefObject<HTMLDivElement>; // 容器引用，用于滚动同步 / Container ref for scroll sync
+  containerRef?: React.RefObject<HTMLDivElement | null>; // 容器引用，用于滚动同步 / Container ref for scroll sync
   onScroll?: (scrollTop: number, scrollHeight: number, clientHeight: number) => void; // 滚动回调 / Scroll callback
 }
 

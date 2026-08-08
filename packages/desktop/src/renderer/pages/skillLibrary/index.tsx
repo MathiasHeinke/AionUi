@@ -185,7 +185,7 @@ const SkillLibraryPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await skillLibraryBridge.invoke(undefined);
+      const response = await skillLibraryBridge.invoke({});
       const data = response.data;
       setResult(data ?? null);
       if (!response.success) {

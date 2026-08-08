@@ -221,9 +221,12 @@ const OneClickImportModal: React.FC<OneClickImportModalProps> = ({
     if (onBatchImport && fetchedServers.length > 0) {
       const serversToImport = importableFetchedServers.map((server) => {
         // 为CLI导入的服务器生成标准的JSON格式
-        const serverConfig: Record<string, string | string[] | Record<string, string>> = {
-          description: server.description,
-        };
+        // A server without a description gets NO description key, rather than one
+        // whose value is `undefined`. The record's value type has no `undefined` in
+        // it, and `JSON.stringify` would have dropped the key anyway — this just
+        // stops the object from briefly disagreeing with its own type.
+        const serverConfig: Record<string, string | string[] | Record<string, string>> = {};
+        if (server.description) serverConfig.description = server.description;
 
         if (server.transport.type === 'stdio') {
           serverConfig.command = server.transport.command;

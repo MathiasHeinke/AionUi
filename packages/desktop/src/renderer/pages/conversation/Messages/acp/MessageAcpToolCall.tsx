@@ -76,7 +76,9 @@ const DiffContentView: React.FC<{ old_text: string; new_text: string; path: stri
   );
 };
 
-const ContentView: React.FC<{ content: IMessageAcpToolCall['content']['update']['content'][0] }> = ({ content }) => {
+const ContentView: React.FC<{ content: NonNullable<IMessageAcpToolCall['content']['update']['content']>[0] }> = ({
+  content,
+}) => {
   if (content.type === 'diff') {
     return (
       <DiffContentView old_text={content.old_text || ''} new_text={content.new_text || ''} path={content.path || ''} />

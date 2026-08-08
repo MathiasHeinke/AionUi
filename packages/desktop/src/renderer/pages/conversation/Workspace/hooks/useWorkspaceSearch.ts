@@ -60,7 +60,7 @@ export function useWorkspaceSearch({ workspace, loadWorkspace }: UseWorkspaceSea
       const seq = ++searchSeqRef.current;
       void loadWorkspace(workspace, value).then((files) => {
         if (seq !== searchSeqRef.current) return;
-        setShowSearch(files.length > 0 && files[0]?.children?.length > 0);
+        setShowSearch(files.length > 0 && Boolean(files[0]?.children?.length));
       });
     },
     200,

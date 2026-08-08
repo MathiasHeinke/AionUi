@@ -226,7 +226,13 @@ const ConfirmationDetails: React.FC<{
             })}
           </Radio.Group>
           <div className='flex justify-start pl-20px'>
-            <Button type='primary' size='mini' disabled={!selected} onClick={() => onConfirm(selected)}>
+            {/*
+              `disabled={!selected}` already keeps this unclickable without a choice,
+              but that is a rendering property, not a guarantee the handler can rely
+              on. Repeating the condition where the value is used costs one `&&` and
+              removes the need to trust the button.
+            */}
+            <Button type='primary' size='mini' disabled={!selected} onClick={() => selected && onConfirm(selected)}>
               {t('messages.confirm')}
             </Button>
           </div>

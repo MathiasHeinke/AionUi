@@ -74,7 +74,15 @@ const SpeechToTextSettingsSection: React.FC<{
     (field: keyof NonNullable<SpeechToTextConfig['openai']>, value: string) => {
       onChange((current) => ({
         ...current,
+        // Start from the declared defaults. `current.openai` is optional, so editing
+        // one field of a sub-config the user has never touched produced an object
+        // with only that field — missing the required `api_key`/`model`, which is
+        // why this did not type-check. `normalizeSpeechToTextConfig` filled them
+        // back in on the next read, so nothing was broken; writing them now means
+        // the stored value is a valid config at the moment it is stored, rather
+        // than one that only becomes valid when something else repairs it.
         openai: {
+          ...DEFAULT_SPEECH_TO_TEXT_CONFIG.openai,
           ...current.openai,
           [field]: value,
         },
@@ -87,7 +95,15 @@ const SpeechToTextSettingsSection: React.FC<{
     (field: keyof NonNullable<SpeechToTextConfig['deepgram']>, value: string | boolean) => {
       onChange((current) => ({
         ...current,
+        // Start from the declared defaults. `current.deepgram` is optional, so editing
+        // one field of a sub-config the user has never touched produced an object
+        // with only that field — missing the required `api_key`/`model`, which is
+        // why this did not type-check. `normalizeSpeechToTextConfig` filled them
+        // back in on the next read, so nothing was broken; writing them now means
+        // the stored value is a valid config at the moment it is stored, rather
+        // than one that only becomes valid when something else repairs it.
         deepgram: {
+          ...DEFAULT_SPEECH_TO_TEXT_CONFIG.deepgram,
           ...current.deepgram,
           [field]: value,
         },
@@ -349,11 +365,12 @@ const ModalMcpManagementSection: React.FC<{
     const loadAgents = async () => {
       try {
         const agents = await getAgents();
+        // Drop agents with no backend instead of widening the state to allow one.
+        // `detectedAgents` exists to offer "import from <backend>" entries, and an
+        // entry without a backend has nothing to import from — it would render a
+        // menu item that cannot work. Filtering is what the list already meant.
         setDetectedAgents(
-          agents.map((agent) => ({
-            backend: agent.backend,
-            name: agent.name,
-          }))
+          agents.flatMap((agent) => (agent.backend ? [{ backend: agent.backend, name: agent.name }] : []))
         );
       } catch (error) {
         console.error('Failed to load agents:', error);

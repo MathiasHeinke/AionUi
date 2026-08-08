@@ -27,7 +27,7 @@ interface HTMLRendererProps {
   content: string;
   file_path?: string;
   workspace?: string;
-  containerRef?: React.RefObject<HTMLDivElement>;
+  containerRef?: React.RefObject<HTMLDivElement | null>;
   onScroll?: (scrollTop: number, scrollHeight: number, clientHeight: number) => void;
   inspectMode?: boolean; // 是否开启检查模式 / Whether inspect mode is enabled
   copySuccessMessage?: string;

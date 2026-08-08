@@ -23,7 +23,7 @@ interface MarkdownPreviewProps {
   viewMode?: 'source' | 'preview'; // 外部控制的视图模式 / External view mode
   onViewModeChange?: (mode: 'source' | 'preview') => void; // 视图模式改变回调（保留以兼容调用方，暂未使用）/ View mode change callback (kept for call-site compatibility, currently unused)
   onContentChange?: (content: string) => void; // 内容改变回调 / Content change callback
-  containerRef?: React.RefObject<HTMLDivElement>; // 容器引用，用于滚动同步 / Container ref for scroll sync
+  containerRef?: React.RefObject<HTMLDivElement | null>; // 容器引用，用于滚动同步 / Container ref for scroll sync
   onScroll?: (scrollTop: number, scrollHeight: number, clientHeight: number) => void; // 滚动回调 / Scroll callback
   file_path?: string; // 当前 Markdown 文件的绝对路径 / Absolute file path of current markdown
   workspace?: string;

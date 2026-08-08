@@ -33,6 +33,11 @@ const AddModelModal = ModalHOC<{ data?: IProvider; onSubmit: (model: IProvider) 
 
     const handleConfirm = useCallback(() => {
       if (!model) return;
+      // Refuse rather than fabricate. `data` is an optional prop, and spreading
+      // `undefined` produced an object with every required `IProvider` field
+      // missing — an "updated provider" that was never a provider. There is
+      // nothing to add a model TO in that state.
+      if (!data) return;
       const updatedData: IProvider = { ...data, models: [...existingModels, model] };
 
       // new-api 平台：添加模型协议配置 / new-api platform: add model protocol config

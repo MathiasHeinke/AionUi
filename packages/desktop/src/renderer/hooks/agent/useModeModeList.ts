@@ -31,7 +31,11 @@ const sortGeminiModels = (models: { label: string; value: string }[]) => {
 };
 
 const useModeModeList = (
-  platform: string,
+  // Optional, because the caller's provider is: `AddModelModal` passes
+  // `data?.platform`. Widening keeps today's behaviour exactly — the value only
+  // ever reaches an SWR cache key and the request body — whereas defaulting it to
+  // '' at the call site would silently change that key.
+  platform: string | undefined,
   base_url?: string,
   api_key?: string,
   try_fix?: boolean,
@@ -58,7 +62,12 @@ const useModeModeList = (
           base_url,
           api_key: api_key ?? '',
           try_fix,
-          platform,
+          // The request needs a platform string; the SWR key above does not, which
+          // is why widening the parameter surfaced here and not there. `''` is what
+          // "no platform selected" already meant to this call — `hasUsableCredentials`
+          // gates it, and the backend rejects an empty platform the same way it
+          // rejected the literal string 'undefined' that used to arrive.
+          platform: platform ?? '',
           bedrock_config,
         });
         let modelList = res.models.map((v) => {

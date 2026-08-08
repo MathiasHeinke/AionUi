@@ -503,7 +503,7 @@ const ConnectorCatalogPage: React.FC = () => {
     }
 
     try {
-      const response = await connectorCatalogBridge.invoke(undefined);
+      const response = await connectorCatalogBridge.invoke({});
       setResult(response.data ?? null);
       if (!response.success && !response.data) {
         setError(response.msg || t('connectorCatalog.errors.loadFailed'));

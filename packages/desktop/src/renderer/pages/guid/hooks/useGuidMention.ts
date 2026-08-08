@@ -24,7 +24,7 @@ export type GuidMentionResult = {
   mentionOptions: MentionOption[];
   filteredMentionOptions: MentionOption[];
   selectMentionAgent: (key: string) => void;
-  mentionMenuRef: React.RefObject<HTMLDivElement>;
+  mentionMenuRef: React.RefObject<HTMLDivElement | null>;
   mentionMatchRegex: RegExp;
   selectedAgentLabel: string;
   mentionMenuSelectedKey: string;

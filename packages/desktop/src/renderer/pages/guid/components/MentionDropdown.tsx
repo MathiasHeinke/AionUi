@@ -12,7 +12,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 type MentionDropdownProps = {
-  menuRef: React.RefObject<HTMLDivElement>;
+  menuRef: React.RefObject<HTMLDivElement | null>;
   options: MentionOption[];
   selectedKey: string;
   onSelect: (key: string) => void;

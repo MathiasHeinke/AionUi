@@ -390,7 +390,7 @@ const LocalRuntimePage: React.FC = () => {
     setError(null);
     setKanbanError(null);
     try {
-      const response = await localRuntimeBridge.invoke(undefined);
+      const response = await localRuntimeBridge.invoke({});
       if (!mountedRef.current) return;
       const data = response.data;
       setResult(data ?? null);
