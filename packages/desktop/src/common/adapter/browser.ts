@@ -53,13 +53,19 @@ const win = window as CustomWindow;
  * 适配electron的API到浏览器中,建立renderer和main的通信桥梁, 与preload.ts中的注入对应
  * */
 if (win.electronAPI) {
+  // Bind the narrowed reference once. `win.electronAPI` is a mutable global, so
+  // the `if` above does not narrow it inside these callbacks — they run later.
+  // The file already hedged that with `?.` on `on` but not on `emit`, which is
+  // the inconsistency, not the fix: if the bridge is installed at all, both are
+  // there. Capturing the value states that, and cannot silently drop an emit.
+  const electronAPI = win.electronAPI;
   // Electron 环境 - 使用 IPC 通信
   bridge.adapter({
     emit(name, data) {
-      return win.electronAPI.emit(name, data);
+      return electronAPI.emit(name, data);
     },
     on(emitter) {
-      win.electronAPI?.on((event) => {
+      electronAPI.on((event) => {
         try {
           const { value } = event;
           const { name, data } = JSON.parse(value);

@@ -195,7 +195,7 @@ export async function executeImageGeneration(
     let imageUris: string[] = [];
     if (params.image_uris) {
       if (typeof params.image_uris === 'string') {
-        const parsed = safeJsonParse<string[]>(params.image_uris, null);
+        const parsed = safeJsonParse<string[] | null>(params.image_uris, null);
         imageUris = Array.isArray(parsed) ? parsed : [params.image_uris];
       } else if (Array.isArray(params.image_uris)) {
         imageUris = params.image_uris;

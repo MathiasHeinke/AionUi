@@ -15,8 +15,19 @@ export interface UnifiedChatCompletionResponse {
   choices: Array<{
     index: number;
     message: {
+      /**
+       * NULLABLE, because the upstream response is. The OpenAI SDK types
+       * `ChatCompletion.choices[].message.content` as `string | null` — null is
+       * what comes back when the model answered with tool calls only, or
+       * refused. This interface used to declare plain `string`, which made the
+       * unified shape unassignable from the very SDK response it wraps and, more
+       * to the point, promised callers a string the wire does not guarantee.
+       * Every reader in this repo already coped (`imageGenCore` uses
+       * `content || <fallback>`), so this widening documents the existing
+       * behaviour rather than changing any.
+       */
+      content: string | null;
       role: string;
-      content: string;
       images?: Array<{
         type: 'image_url';
         image_url: { url: string };
@@ -122,6 +133,13 @@ export abstract class RotatingApiClient<T> {
     const apiError = error as ApiError;
     const status = apiError.status || apiError.code;
 
+    // An error we cannot classify is NOT retried. That is the existing runtime
+    // behaviour made explicit rather than changed: `undefined >= 500` is already
+    // false, so every comparison below already answered "no". Stating it matters
+    // because a retry re-issues a request that may cost money — the safe default
+    // for an unknown error is one attempt, not another.
+    if (typeof status !== 'number') return false;
+
     // Retry on 401 (unauthorized), 429 (rate limit), 503 (service unavailable), and 5xx errors
     return status === 401 || status === 429 || status === 503 || (status >= 500 && status < 600);
   }
@@ -144,9 +162,14 @@ export abstract class RotatingApiClient<T> {
         lastError = error;
 
         const isLastAttempt = attempt === this.options.maxRetries - 1;
-        const canRotateKey = this.apiKeyManager?.hasMultipleKeys() && this.isRetryableError(error) && !isLastAttempt;
+        // Bound once so the guard and the use cannot disagree: the old code
+        // asked `this.apiKeyManager?.` and then called `this.apiKeyManager.`
+        // unguarded, which is only safe as long as nothing clears the field in
+        // between.
+        const keyManager = this.apiKeyManager;
+        const canRotateKey = keyManager?.hasMultipleKeys() === true && this.isRetryableError(error) && !isLastAttempt;
 
-        if (canRotateKey && this.apiKeyManager.rotateKey()) {
+        if (canRotateKey && keyManager.rotateKey()) {
           this.initializeClient();
           await this.delay(this.options.retryDelay * (attempt + 1));
           continue;

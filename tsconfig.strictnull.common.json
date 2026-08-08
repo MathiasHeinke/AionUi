@@ -1,0 +1,57 @@
+{
+  // STRICT-NULL STAGE 1 — packages/desktop/src/common only.
+  //
+  // The root config stays untouched on purpose. Flipping `strictNullChecks`
+  // there surfaces 297 errors at once, which is not a thing anyone reviews; it
+  // is a thing people suppress. This is the first fenced step, and the fence is
+  // the `include` below.
+  //
+  // WHY common FIRST, and not the directory with the most errors. The authority
+  // and config cores live here. A null error in `eveAuthorityCore` or
+  // `eveAuthorityStoreCore` is not a typing detail — it decides whether a seal
+  // is open, whether an amount is a ceiling, whether a grant is trusted. The
+  // rule for this directory is therefore: no `?? default` where a decision about
+  // authority, money or permission is made, because a default silences the
+  // compiler and turns the decision fail-OPEN. Narrow type corrections are right
+  // only where the value is genuinely interop noise.
+  //
+  // THE GATE COMMAND, and why it is not a bare `tsc`:
+  //
+  //   bunx tsc --noEmit -p tsconfig.strictnull.common.json 2>&1 \
+  //     | grep "error TS" \
+  //     | grep -vE 'eveMultimodalGatewayCore|evePdfIntelligenceCore|licenseWireAtRest' \
+  //     | wc -l          # must print 0
+  //
+  // Those three names are a CAP, and it is written into the command so it cannot
+  // be missed at the point of use. They account for SIX errors, none of which is
+  // a strictNullChecks error: all six are already part of the root baseline (6 of
+  // its 19) and all six are one shape — a `Set<string>` assigned to a
+  // `readonly T[]`, then `.has()` called on it.
+  //
+  //   eveMultimodalGatewayCore.ts:395 TS2740, :408 TS2339
+  //   evePdfIntelligenceCore.ts:109   TS2740, :122 TS2339
+  //   licenseWireAtRest.ts:92         TS2740, :103 TS2339
+  //
+  // That is a refactor in flight in the working tree. All three files are
+  // uncommitted work belonging to someone else and were off limits for this
+  // stage, so the errors are excluded from the VERDICT, never from the OUTPUT —
+  // running the plain `tsc` line above still prints all six, every time.
+  //
+  // A `"exclude"` entry was tried first and is deliberately absent: it silenced
+  // only `licenseWireAtRest`, because the other two are pulled in transitively by
+  // files the `include` does cover. A fence that works on one of three files is
+  // worse than none — it reads as complete.
+  //
+  // Nothing null-related hides behind the cap: with all three files in scope, tsc
+  // reports exactly those six and nothing else, so none of them carries a
+  // strictNullChecks error today.
+  //
+  // RETIREMENT CONDITION: delete the second `grep` from the command as soon as
+  // the Set/array refactor lands and the root baseline drops below 19. The gate
+  // then covers all of `common` with no exception at all.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strictNullChecks": true
+  },
+  "include": ["packages/desktop/src/common/**/*"]
+}

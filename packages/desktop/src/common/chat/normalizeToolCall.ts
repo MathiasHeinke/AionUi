@@ -71,14 +71,20 @@ export function normalizeToolGroup(message: IMessageToolGroup): NormalizedToolCa
   if (!Array.isArray(message.content)) return [];
   return message.content.map(({ name, call_id, description, confirmationDetails, status, result_display }) => {
     let desc = typeof description === 'string' ? description.slice(0, 100) : '';
-    const type = confirmationDetails?.type;
-    if (type === 'edit') desc = confirmationDetails.file_name;
-    if (type === 'exec') desc = confirmationDetails.command;
-    if (type === 'info') desc = confirmationDetails.urls?.join(';') || confirmationDetails.title;
-    if (type === 'mcp') desc = confirmationDetails.server_name + ':' + confirmationDetails.tool_name;
-
     let input: string | undefined;
+
+    // Narrow the OBJECT once, not a field derived from it. `const type =
+    // confirmationDetails?.type` cannot tell the compiler that
+    // `confirmationDetails` is present — the six accesses below were reachable
+    // with it undefined as far as the types were concerned. Folding them into
+    // the block that already existed for `input` removes the duplication too.
     if (confirmationDetails) {
+      const type = confirmationDetails.type;
+      if (type === 'edit') desc = confirmationDetails.file_name;
+      if (type === 'exec') desc = confirmationDetails.command;
+      if (type === 'info') desc = confirmationDetails.urls?.join(';') || confirmationDetails.title;
+      if (type === 'mcp') desc = confirmationDetails.server_name + ':' + confirmationDetails.tool_name;
+
       const { title: _title, type: _type, ...rest } = confirmationDetails;
       if (Object.keys(rest).length) input = formatValue(rest);
     } else if (description) {
