@@ -22,6 +22,24 @@ import type { MessageApi, RenameModalState, DeleteModalState } from '../types';
 import type { FileOrFolderItem } from '@/renderer/utils/file/fileTypes';
 import { getPathSeparator, replacePathInList, updateTreeForRename } from '../utils/treeHelpers';
 
+const WORKSPACE_MEDIA_PREVIEW_MAX_BYTES = 47 * 1024 * 1024;
+
+const mediaMimeFromFileName = (fileName: string): string | undefined => {
+  const ext = fileName.toLowerCase().split('.').pop();
+  const mimeByExtension: Record<string, string> = {
+    mp4: 'video/mp4',
+    mov: 'video/quicktime',
+    webm: 'video/webm',
+    m4v: 'video/x-m4v',
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+    m4a: 'audio/mp4',
+    ogg: 'audio/ogg',
+    aac: 'audio/aac',
+  };
+  return ext ? mimeByExtension[ext] : undefined;
+};
+
 interface UseWorkspaceFileOpsOptions {
   workspace: string;
   eventPrefix: 'acp' | 'codex' | 'aionrs';
@@ -319,6 +337,17 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
             throw null;
           }
           content = imageBase64;
+        } else if (contentType === 'video' || contentType === 'audio') {
+          const metadata = await ipcBridge.fs.getFileMetadata.invoke({ path: nodeData.fullPath, workspace });
+          if (!metadata || metadata.isDirectory || metadata.is_directory) throw null;
+          if (metadata.size > WORKSPACE_MEDIA_PREVIEW_MAX_BYTES) {
+            await ipcBridge.shell.openFile.invoke(nodeData.fullPath);
+            return;
+          }
+          const encoded = await ipcBridge.fs.readFileBuffer.invoke({ path: nodeData.fullPath, workspace });
+          const mimeType = mediaMimeFromFileName(nodeData.name);
+          if (!encoded || !mimeType || !mimeType.startsWith(`${contentType}/`)) throw null;
+          content = `data:${mimeType};base64,${encoded}`;
         } else {
           // 文本文件：使用 UTF-8 编码读取 / Text files: Read using UTF-8 encoding
           const fileText = await ipcBridge.fs.readFile.invoke({ path: nodeData.fullPath, workspace });
@@ -349,7 +378,14 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
             truncated: isLargeTextTruncated,
             // Markdown 和图片文件默认为只读模式
             // Markdown and image files default to read-only mode
-            editable: contentType === 'markdown' || contentType === 'image' || isLargeTextTruncated ? false : undefined,
+            editable:
+              contentType === 'markdown' ||
+              contentType === 'image' ||
+              contentType === 'video' ||
+              contentType === 'audio' ||
+              isLargeTextTruncated
+                ? false
+                : undefined,
           },
           { replace: !COMMAND_EVE_SHELL_ENABLED }
         );

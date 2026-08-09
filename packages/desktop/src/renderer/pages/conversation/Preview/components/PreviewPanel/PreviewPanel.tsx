@@ -18,6 +18,7 @@ import ExcelPreview from '../viewers/ExcelViewer';
 import HTMLEditor from '../editors/HTMLEditor';
 import HTMLRenderer from '../renderers/HTMLRenderer';
 import ImagePreview from '../viewers/ImageViewer';
+import MediaPreview from '../viewers/MediaViewer';
 import MarkdownEditor from '../editors/MarkdownEditor';
 import MarkdownPreview from '../viewers/MarkdownViewer';
 import PDFPreview from '../viewers/PDFViewer';
@@ -26,6 +27,7 @@ import PptViewer from '../viewers/PptViewer';
 import CodeEditor from '../editors/CodeEditor';
 import URLViewer from '../viewers/URLViewer';
 import TerminalViewer from '../viewers/TerminalViewer';
+import ChatWorkspace from '@/renderer/pages/conversation/Workspace';
 import {
   PreviewTabs,
   PreviewToolbar,
@@ -284,6 +286,7 @@ const PreviewPanel: React.FC = () => {
   const metadata = activeTab?.metadata;
   const isMarkdown = content_type === 'markdown';
   const isHTML = content_type === 'html';
+  const isWorkspaceSurface = content_type === 'workspace-files' || content_type === 'workspace-review';
   const isEditable = metadata?.editable !== false; // 默认可编辑 / Default editable
 
   // 检查文件类型是否已有内置的打开按钮（Word、PPT、PDF、Excel 组件内部已提供）
@@ -653,7 +656,20 @@ const PreviewPanel: React.FC = () => {
     }
 
     // 其他类型：全屏预览 / Other types: Full-screen preview
-    if (content_type === 'diff') {
+    if (isWorkspaceSurface) {
+      const workspace = metadata?.workspace;
+      const conversationId = metadata?.conversation_id;
+      if (!workspace || !conversationId) return null;
+      return (
+        <ChatWorkspace
+          conversation_id={conversationId}
+          workspace={workspace}
+          isTemporaryWorkspace={metadata?.is_temporary_workspace}
+          eventPrefix={metadata?.workspace_event_prefix ?? 'acp'}
+          fixedTab={content_type === 'workspace-review' ? 'changes' : 'files'}
+        />
+      );
+    } else if (content_type === 'diff') {
       return (
         <DiffPreview
           content={content}
@@ -694,6 +710,8 @@ const PreviewPanel: React.FC = () => {
           workspace={metadata?.workspace}
         />
       );
+    } else if (content_type === 'video' || content_type === 'audio') {
+      return <MediaPreview type={content_type} source={content} title={metadata?.file_name || metadata?.title} />;
     } else if (content_type === 'url') {
       // URL 预览模式 / URL preview mode
       if (COMMAND_EVE_SHELL_ENABLED) return null;
@@ -746,7 +764,7 @@ const PreviewPanel: React.FC = () => {
         )}
 
         {/* 工具栏（URL 类型不显示工具栏，因为不需要下载/编辑等功能）/ Toolbar (hidden for URL type as it doesn't need download/edit features) */}
-        {content_type !== 'url' && content_type !== 'terminal' && (
+        {content_type !== 'url' && content_type !== 'terminal' && !isWorkspaceSurface && (
           <PreviewToolbar
             content_type={content_type}
             isMarkdown={isMarkdown}

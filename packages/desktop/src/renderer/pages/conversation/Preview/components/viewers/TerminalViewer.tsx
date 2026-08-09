@@ -61,16 +61,23 @@ const resolveTerminalTheme = (mode: 'light' | 'dark') => {
     cursor: accent,
     cursorAccent: background,
     selectionBackground: dark ? '#356ee055' : '#165dff26',
+    selectionInactiveBackground: dark ? '#356ee02e' : '#165dff18',
     black: dark ? '#202635' : '#111827',
     brightBlack: dark ? '#697386' : '#596273',
     blue: dark ? '#72a7ff' : '#165dff',
     brightBlue: dark ? '#9bc0ff' : '#3f7cff',
     cyan: dark ? '#65d1d4' : '#087f8c',
+    brightCyan: dark ? '#93e4e6' : '#0b7180',
     green: dark ? '#71d6a4' : '#147d52',
+    brightGreen: dark ? '#9ae7bf' : '#116b47',
     magenta: dark ? '#b89cff' : '#7a4fbd',
+    brightMagenta: dark ? '#d1c0ff' : '#6942a8',
     red: dark ? '#ff7f89' : '#c83b4d',
+    brightRed: dark ? '#ffa2aa' : '#aa2f40',
     white: dark ? '#d9e1ef' : '#596273',
+    brightWhite: dark ? '#f7f8fa' : '#111827',
     yellow: dark ? '#e7c66b' : '#8a6500',
+    brightYellow: dark ? '#f3d98f' : '#765600',
   };
 };
 

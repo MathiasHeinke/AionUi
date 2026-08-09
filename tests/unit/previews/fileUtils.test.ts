@@ -69,6 +69,11 @@ describe('fileUtils', () => {
       expect(getContentTypeByExtension('photo.png')).toBe('image');
     });
 
+    it('returns native media types for video and audio files', () => {
+      expect(getContentTypeByExtension('demo.mp4')).toBe('video');
+      expect(getContentTypeByExtension('briefing.m4a')).toBe('audio');
+    });
+
     it('returns diff for .diff', () => {
       expect(getContentTypeByExtension('changes.diff')).toBe('diff');
     });

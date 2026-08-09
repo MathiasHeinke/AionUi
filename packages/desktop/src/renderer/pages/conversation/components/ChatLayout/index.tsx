@@ -71,6 +71,8 @@ const ChatLayout: React.FC<{
   tabsSlot?: React.ReactNode;
   /** Workspace path for opening in external tools */
   workspacePath?: string;
+  /** Workspace event namespace follows the conversation transport, never the selected model/backend. */
+  workspaceEventPrefix?: 'acp' | 'codex' | 'aionrs';
   /** Authoritative temp-workspace flag from `conversation.extra.is_temporary_workspace`. */
   isTemporaryWorkspace?: boolean;
   /**
@@ -87,6 +89,7 @@ const ChatLayout: React.FC<{
   const { t } = useTranslation();
   const { conversation_id, workspacePath, isTemporaryWorkspace } = props;
   const { backend, presetAssistant, agent_name, workspaceEnabled = true, workspacePreferenceKey } = props;
+  const workspaceEventPrefix = props.workspaceEventPrefix ?? 'acp';
   // Command EVE: the EVE logo here duplicates the macOS window title-bar brand, so the
   // chat-header logo icon is suppressed throughout the branded EVE shell. Older
   // conversations can lack preset-assistant metadata and must not fall back to a
@@ -156,6 +159,9 @@ const ChatLayout: React.FC<{
     isPreviewOpen &&
     Boolean(activeTab) &&
     (!conversation_id || activeTab?.metadata?.conversation_id === conversation_id);
+  const isWorkspaceWorkbenchSurface =
+    isEveWorkbenchActive &&
+    (activeTab?.content_type === 'workspace-files' || activeTab?.content_type === 'workspace-review');
   const activeWorkbenchLayout = isEveWorkbenchActive ? workbenchLayoutMode : 'focus';
   const showChatBesideWorkbench = isEveWorkbenchActive && activeWorkbenchLayout !== 'focus';
 
@@ -353,7 +359,13 @@ const ChatLayout: React.FC<{
       </FlexFullContainer>
       <div className='flex items-center gap-12px shrink-0'>
         {COMMAND_EVE_SHELL_ENABLED && conversation_id && !isPreviewOpen && (
-          <ShellWorkbenchTabs conversationId={conversation_id} workspacePath={workspacePath} launcherOnly />
+          <ShellWorkbenchTabs
+            conversationId={conversation_id}
+            workspacePath={workspacePath}
+            workspaceEventPrefix={workspaceEventPrefix}
+            isTemporaryWorkspace={isTemporaryWorkspace}
+            launcherOnly
+          />
         )}
         {props.headerExtra}
         {isWindowsRuntime && workspaceEnabled && !COMMAND_EVE_SHELL_ENABLED && (
@@ -394,11 +406,9 @@ const ChatLayout: React.FC<{
   return (
     <ArcoLayout
       className='size-full color-black chat-layout-shell'
-      style={
-        {
-          // fontFamily: `cursive,"anthropicSans","anthropicSans Fallback",system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif`,
-        }
-      }
+      style={{
+        // fontFamily: `cursive,"anthropicSans","anthropicSans Fallback",system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif`,
+      }}
     >
       <div ref={containerRef} className='flex flex-1 relative w-full overflow-hidden'>
         {/* Unified layout: single DOM structure prevents children unmount/remount on preview toggle */}
@@ -514,7 +524,12 @@ const ChatLayout: React.FC<{
                   })}
                 {COMMAND_EVE_SHELL_ENABLED && conversation_id && (
                   <div className='eve-workbench-pane__tabbar'>
-                    <ShellWorkbenchTabs conversationId={conversation_id} workspacePath={workspacePath} />
+                    <ShellWorkbenchTabs
+                      conversationId={conversation_id}
+                      workspacePath={workspacePath}
+                      workspaceEventPrefix={workspaceEventPrefix}
+                      isTemporaryWorkspace={isTemporaryWorkspace}
+                    />
                   </div>
                 )}
                 <div
@@ -565,7 +580,7 @@ const ChatLayout: React.FC<{
                 conversationId={conversation_id}
                 conversationTitle={props.title}
                 workspacePath={workspacePath}
-                contextContent={props.sider}
+                contextContent={isWorkspaceWorkbenchSurface ? undefined : props.sider}
                 onRequestClose={() => setRightSiderCollapsed(true)}
                 activeTab={elementsRailTab}
                 onTabChange={setElementsRailTab}

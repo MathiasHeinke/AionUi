@@ -193,6 +193,7 @@ const AionrsConversationPanel: React.FC<{ conversation: AionrsConversation; slid
     isTemporaryWorkspace: (conversation.extra as { is_temporary_workspace?: boolean } | undefined)
       ?.is_temporary_workspace,
     backend: 'aionrs' as const,
+    workspaceEventPrefix: 'aionrs' as const,
     presetAssistant: presetAssistantInfo ? { ...presetAssistantInfo, id: aionrsAssistantId } : undefined,
   };
 
@@ -371,6 +372,9 @@ const ChatConversation: React.FC<{
       sider={<ChatSlider conversation={conversation} />}
       workspaceEnabled={workspaceEnabled}
       workspacePath={conversation?.extra?.workspace}
+      workspaceEventPrefix={
+        conversation?.type === 'codex' ? 'codex' : conversation?.type === 'aionrs' ? 'aionrs' : 'acp'
+      }
       isTemporaryWorkspace={
         (conversation?.extra as { is_temporary_workspace?: boolean } | undefined)?.is_temporary_workspace
       }

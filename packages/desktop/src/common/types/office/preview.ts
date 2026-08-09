@@ -14,8 +14,12 @@ export type PreviewContentType =
   | 'word'
   | 'excel'
   | 'image'
+  | 'video'
+  | 'audio'
   | 'url'
-  | 'terminal';
+  | 'terminal'
+  | 'workspace-files'
+  | 'workspace-review';
 
 export interface PreviewHistoryTarget {
   contentType: PreviewContentType;

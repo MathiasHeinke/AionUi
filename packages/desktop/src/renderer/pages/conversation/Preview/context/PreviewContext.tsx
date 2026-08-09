@@ -29,6 +29,8 @@ export interface PreviewMetadata {
   editable?: boolean; // 是否可编辑 / Whether editable
   truncated?: boolean; // 预览内容是否被截断 / Whether preview content was truncated
   conversation_id?: string; // Owning conversation when the preview was opened from chat
+  workspace_event_prefix?: 'acp' | 'codex' | 'aionrs'; // Backend event namespace for workspace operations
+  is_temporary_workspace?: boolean; // Preserve generated workspace identity inside workbench surfaces
 }
 
 export interface PreviewTab {
@@ -398,6 +400,8 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (type === 'code') return `${scopedMeta?.language || 'Code'}`;
           if (type === 'image') return 'Image'; // 图片预览默认标题 / Default title for image preview
           if (type === 'terminal') return 'Terminal';
+          if (type === 'workspace-files') return 'Files';
+          if (type === 'workspace-review') return 'Review';
           return 'Preview';
         })();
 

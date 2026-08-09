@@ -25,6 +25,8 @@ export interface WorkspaceProps {
    */
   isTemporaryWorkspace?: boolean;
   eventPrefix?: 'acp' | 'codex' | 'aionrs';
+  /** Lock this instance to one workbench surface and hide its inner tab strip. */
+  fixedTab?: WorkspaceTab;
   messageApi?: MessageApi;
 }
 

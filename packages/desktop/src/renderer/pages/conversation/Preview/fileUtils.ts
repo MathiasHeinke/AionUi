@@ -18,10 +18,14 @@ export const FILE_EXTENSION_MAP: Record<PreviewContentType, readonly string[]> =
   ppt: ['ppt', 'pptx', 'odp'],
   excel: ['xls', 'xlsx', 'ods', 'csv'],
   image: ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tif', 'tiff', 'avif'],
+  video: ['mp4', 'mov', 'webm', 'm4v'],
+  audio: ['mp3', 'wav', 'm4a', 'ogg', 'aac'],
   code: [], // code 作为默认类型，不需要显式映射 / code is the default type, no explicit mapping needed
   diff: ['diff', 'patch'],
   url: [], // url 类型用于网页预览，无扩展名映射 / url type for web preview, no extension mapping
   terminal: [], // interactive workbench surface, not a file extension
+  'workspace-files': [], // interactive workspace surface, not a file extension
+  'workspace-review': [], // interactive review surface, not a file extension
 };
 
 /**

@@ -39,13 +39,75 @@ describe('Command EVE workbench tab contract', () => {
     expect(fileOps).toContain('{ replace: !COMMAND_EVE_SHELL_ENABLED }');
   });
 
-  it('keeps inspector destinations out of the add-work-surface launcher', () => {
+  it('mounts Files and Review as native workbench surfaces without a second chat', () => {
     const workbench = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.tsx');
-    const elementsRail = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellElementsRail.tsx');
-    expect(workbench).toContain("type WorkbenchTarget = 'browser' | 'terminal'");
+    const previewTypes = read('packages/desktop/src/common/types/office/preview.ts');
+    const previewPanel = read(
+      'packages/desktop/src/renderer/pages/conversation/Preview/components/PreviewPanel/PreviewPanel.tsx'
+    );
+    const chatLayout = read('packages/desktop/src/renderer/pages/conversation/components/ChatLayout/index.tsx');
+    const chatConversation = read('packages/desktop/src/renderer/pages/conversation/components/ChatConversation.tsx');
+    const workspace = read('packages/desktop/src/renderer/pages/conversation/Workspace/index.tsx');
+    expect(workbench).toContain("type WorkbenchTarget = 'browser' | 'terminal' | 'files' | 'review'");
+    expect(workbench).toContain("openPreview(workspacePath, 'workspace-files'");
+    expect(workbench).toContain("openPreview(workspacePath, 'workspace-review'");
     expect(workbench).not.toContain('dispatchElementsRailRevealEvent');
-    expect(elementsRail).toContain("{ key: 'artifacts'");
-    expect(elementsRail).toContain("{ key: 'context'");
+    expect(previewTypes).toContain("| 'workspace-files'");
+    expect(previewTypes).toContain("| 'workspace-review'");
+    expect(previewPanel).toContain("fixedTab={content_type === 'workspace-review' ? 'changes' : 'files'}");
+    expect(previewPanel).toContain('isTemporaryWorkspace={metadata?.is_temporary_workspace}');
+    expect(workbench).toContain('is_temporary_workspace: isTemporaryWorkspace');
+    expect(chatLayout).toContain("const workspaceEventPrefix = props.workspaceEventPrefix ?? 'acp';");
+    expect(chatLayout).not.toContain("backend === 'codex' || backend === 'aionrs'");
+    expect(chatConversation).toContain("conversation?.type === 'codex' ? 'codex'");
+    expect(chatLayout).toContain('contextContent={isWorkspaceWorkbenchSurface ? undefined : props.sider}');
+    expect(workspace).toContain('{!fixedTab && (');
+  });
+
+  it('routes generated documents and media into existing workbench viewers', () => {
+    const rail = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellElementsRail.tsx');
+    const previewTypes = read('packages/desktop/src/common/types/office/preview.ts');
+    const previewPanel = read(
+      'packages/desktop/src/renderer/pages/conversation/Preview/components/PreviewPanel/PreviewPanel.tsx'
+    );
+
+    expect(rail).toContain('artifactWorkbenchTypeOf');
+    expect(rail).toContain("showPreview(urlSource, 'url')");
+    expect(rail).toContain("contentType === 'pdf' || contentType === 'word'");
+    expect(rail).toContain("contentType === 'video' || contentType === 'audio'");
+    expect(previewTypes).toContain("| 'video'");
+    expect(previewTypes).toContain("| 'audio'");
+    expect(previewPanel).toContain("content_type === 'video' || content_type === 'audio'");
+    expect(previewPanel).toContain('<MediaPreview');
+  });
+
+  it('uses the EVE theme contract for the terminal shell in light and dark mode', () => {
+    const terminal = read(
+      'packages/desktop/src/renderer/pages/conversation/Preview/components/viewers/TerminalViewer.tsx'
+    );
+    const terminalCss = read(
+      'packages/desktop/src/renderer/pages/conversation/Preview/components/viewers/TerminalViewer.module.css'
+    );
+
+    expect(terminal).toContain('selectionInactiveBackground');
+    expect(terminal).toContain('brightWhite:');
+    expect(terminal).toContain('brightYellow:');
+    expect(terminalCss).not.toContain('#0b0e14');
+    expect(terminalCss).not.toContain('rgba(217, 225, 239');
+    expect(terminalCss).toContain('var(--eve-shell-bg');
+    expect(terminalCss).toContain('background-color: var(--eve-shell-bg, var(--bg-1)) !important;');
+    expect(terminalCss).toMatch(
+      /\.viewport :global\(\.xterm \.composition-view\)\s*\{[^}]*background:\s*var\(--eve-shell-bg/s
+    );
+    expect(terminalCss).toMatch(
+      /\.viewport :global\(\.xterm \.composition-view\)\s*\{[^}]*color:\s*var\(--eve-shell-text/s
+    );
+    expect(terminalCss).toMatch(/\.viewport\s*\{[^}]*box-sizing:\s*border-box;/s);
+    expect(terminalCss).toMatch(/\.viewport\s*\{[^}]*overflow:\s*hidden;/s);
+    expect(terminalCss).toMatch(/\.viewport :global\(\.xterm\)\s*\{[^}]*width:\s*100%;/s);
+    expect(terminalCss).toContain('var(--glass-chrome-bg-solid');
+    expect(terminalCss).toContain('var(--eve-status-completed');
+    expect(terminalCss).toContain('var(--eve-status-error');
   });
 
   it('separates hiding a pane from destructive close-all behavior', () => {

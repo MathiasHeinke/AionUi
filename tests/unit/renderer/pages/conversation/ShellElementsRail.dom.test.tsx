@@ -19,6 +19,10 @@ const {
   imageArtifactsListInvokeMock,
   imageArtifactPreviewInvokeMock,
   readGeneratedArtifactPreviewInvokeMock,
+  getFileMetadataInvokeMock,
+  getImageBase64InvokeMock,
+  readFileBufferInvokeMock,
+  readFileInvokeMock,
   shellOpenFileInvokeMock,
   shellOpenExternalInvokeMock,
 } = vi.hoisted(() => ({
@@ -32,6 +36,10 @@ const {
   imageArtifactsListInvokeMock: vi.fn(),
   imageArtifactPreviewInvokeMock: vi.fn(),
   readGeneratedArtifactPreviewInvokeMock: vi.fn(),
+  getFileMetadataInvokeMock: vi.fn(),
+  getImageBase64InvokeMock: vi.fn(),
+  readFileBufferInvokeMock: vi.fn(),
+  readFileInvokeMock: vi.fn(),
   shellOpenFileInvokeMock: vi.fn(),
   shellOpenExternalInvokeMock: vi.fn(),
 }));
@@ -56,6 +64,12 @@ vi.mock('@/common', () => ({
     },
     application: {
       readGeneratedArtifactPreview: { invoke: readGeneratedArtifactPreviewInvokeMock },
+    },
+    fs: {
+      getFileMetadata: { invoke: getFileMetadataInvokeMock },
+      getImageBase64: { invoke: getImageBase64InvokeMock },
+      readFileBuffer: { invoke: readFileBufferInvokeMock },
+      readFile: { invoke: readFileInvokeMock },
     },
     shell: {
       openFile: { invoke: shellOpenFileInvokeMock },
@@ -124,6 +138,10 @@ describe('ShellElementsRail', () => {
       data: { mime_type: 'image/png', data_base64: 'aGVsbG8=' },
     });
     readGeneratedArtifactPreviewInvokeMock.mockResolvedValue(null);
+    getFileMetadataInvokeMock.mockResolvedValue(null);
+    getImageBase64InvokeMock.mockResolvedValue(null);
+    readFileBufferInvokeMock.mockResolvedValue(null);
+    readFileInvokeMock.mockResolvedValue(null);
     shellOpenFileInvokeMock.mockResolvedValue(undefined);
     shellOpenExternalInvokeMock.mockResolvedValue(undefined);
     resetConversationDelegationActivityForTest();
@@ -199,11 +217,15 @@ describe('ShellElementsRail', () => {
     // Managed images carry no path: bytes are resolved by artifact id, then
     // shown in the SAME preview panel the rail always used.
     await waitFor(() =>
-      expect(openPreviewMock).toHaveBeenCalledWith('data:image/png;base64,aGVsbG8=', 'image', {
-        title: 'Wettbewerbsanalyse.png',
-        file_name: 'Wettbewerbsanalyse.png',
-        conversation_id: 'conv-1',
-      })
+      expect(openPreviewMock).toHaveBeenCalledWith(
+        'data:image/png;base64,aGVsbG8=',
+        'image',
+        expect.objectContaining({
+          title: 'Wettbewerbsanalyse.png',
+          file_name: 'Wettbewerbsanalyse.png',
+          conversation_id: 'conv-1',
+        })
+      )
     );
     expect(imageArtifactPreviewInvokeMock).toHaveBeenCalledWith({ conversationId: 'conv-1', artifactId: 'img-1' });
     expect(onRequestClose).toHaveBeenCalledTimes(1);
@@ -224,9 +246,15 @@ describe('ShellElementsRail', () => {
     expect(screen.queryByText('Wettbewerbsanalyse.png')).toBeNull();
   });
 
-  it('opens a video artifact through the system viewer path chat artifact cards use', async () => {
+  it('opens a generated video inside the conversation workbench', async () => {
     const onRequestClose = vi.fn();
     listArtifactsInvokeMock.mockResolvedValue([videoArtifact]);
+    readGeneratedArtifactPreviewInvokeMock.mockResolvedValue({
+      data: 'AAAAHGZ0eXBpc29t',
+      encoding: 'base64',
+      mimeType: 'video/mp4',
+      size: 12,
+    });
 
     render(<ShellElementsRail conversationId='conv-1' onRequestClose={onRequestClose} />);
     fireEvent.click(screen.getByTestId('elements-rail-tab-artifacts'));
@@ -234,10 +262,116 @@ describe('ShellElementsRail', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Produktvideo.mp4' }));
 
     await waitFor(() =>
-      expect(shellOpenFileInvokeMock).toHaveBeenCalledWith('/tmp/Command EVE Videos/conv-1/video-1.mp4')
+      expect(openPreviewMock).toHaveBeenCalledWith(
+        'data:video/mp4;base64,AAAAHGZ0eXBpc29t',
+        'video',
+        expect.objectContaining({
+          title: 'Produktvideo.mp4',
+          file_name: 'Produktvideo.mp4',
+          file_path: '/tmp/Command EVE Videos/conv-1/video-1.mp4',
+          conversation_id: 'conv-1',
+        })
+      )
     );
-    expect(openPreviewMock).not.toHaveBeenCalled();
+    expect(shellOpenFileInvokeMock).not.toHaveBeenCalled();
     expect(onRequestClose).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [
+      'inline HTML',
+      {
+        ...managedImageArtifact,
+        id: 'html-1',
+        kind: 'html' as const,
+        payload: { artifact_type: 'html', title: 'Report.html', html: '<main>Report</main>' },
+      },
+      '<main>Report</main>',
+      'html',
+    ],
+    [
+      'inline Markdown',
+      {
+        ...managedImageArtifact,
+        id: 'markdown-1',
+        kind: 'file' as const,
+        payload: { artifact_type: 'file', title: 'Notes.md', content: '# Notes' },
+      },
+      '# Notes',
+      'markdown',
+    ],
+    [
+      'remote audio',
+      {
+        ...managedImageArtifact,
+        id: 'audio-1',
+        kind: 'audio' as const,
+        payload: { artifact_type: 'audio', title: 'Briefing.mp3', audio_url: 'https://cdn.example/briefing.mp3' },
+      },
+      'https://cdn.example/briefing.mp3',
+      'audio',
+    ],
+    [
+      'remote report',
+      {
+        ...managedImageArtifact,
+        id: 'remote-1',
+        kind: 'file' as const,
+        payload: { artifact_type: 'file', title: 'Research', url: 'https://example.com/research' },
+      },
+      'https://example.com/research',
+      'url',
+    ],
+  ])('routes %s artifacts into a workbench tab', async (_label, artifact, content, contentType) => {
+    listArtifactsInvokeMock.mockResolvedValue([artifact]);
+
+    render(<ShellElementsRail conversationId='conv-1' />);
+    fireEvent.click(screen.getByTestId('elements-rail-tab-artifacts'));
+    fireEvent.click(await screen.findByRole('button', { name: (artifact.payload as { title: string }).title }));
+
+    await waitFor(() =>
+      expect(openPreviewMock).toHaveBeenCalledWith(
+        content,
+        contentType,
+        expect.objectContaining({ conversation_id: 'conv-1' })
+      )
+    );
+  });
+
+  it('opens PDF and Office artifacts in their existing workbench viewers', async () => {
+    const artifacts: IConversationArtifact[] = [
+      {
+        ...managedImageArtifact,
+        id: 'pdf-1',
+        kind: 'file',
+        payload: { artifact_type: 'file', title: 'Report.pdf', path: '/tmp/Report.pdf' },
+      },
+      {
+        ...managedImageArtifact,
+        id: 'word-1',
+        kind: 'file',
+        payload: { artifact_type: 'file', title: 'Brief.docx', path: '/tmp/Brief.docx' },
+      },
+    ];
+    listArtifactsInvokeMock.mockResolvedValue(artifacts);
+
+    render(<ShellElementsRail conversationId='conv-1' />);
+    fireEvent.click(screen.getByTestId('elements-rail-tab-artifacts'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Report.pdf' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Brief.docx' }));
+
+    expect(openPreviewMock).toHaveBeenNthCalledWith(
+      1,
+      '',
+      'pdf',
+      expect.objectContaining({ file_path: '/tmp/Report.pdf' })
+    );
+    expect(openPreviewMock).toHaveBeenNthCalledWith(
+      2,
+      '',
+      'word',
+      expect.objectContaining({ file_path: '/tmp/Brief.docx' })
+    );
   });
 
   it('switches to project context when the composer requests it', () => {

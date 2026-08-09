@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -39,12 +39,12 @@ const CapturePreviewApi = () => {
   return null;
 };
 
-const renderWorkbench = () =>
+const renderWorkbench = (props: Partial<React.ComponentProps<typeof ShellWorkbenchTabs>> = {}) =>
   render(
     <MemoryRouter initialEntries={['/conversation/conv-1']}>
       <PreviewProvider>
         <CapturePreviewApi />
-        <ShellWorkbenchTabs conversationId='conv-1' workspacePath='/tmp/eve-project' />
+        <ShellWorkbenchTabs conversationId='conv-1' workspacePath='/tmp/eve-project' {...props} />
       </PreviewProvider>
     </MemoryRouter>
   );
@@ -54,7 +54,7 @@ const renderLauncher = () =>
     <MemoryRouter initialEntries={['/conversation/conv-1']}>
       <PreviewProvider>
         <CapturePreviewApi />
-        <ShellWorkbenchTabs conversationId='conv-1' launcherOnly />
+        <ShellWorkbenchTabs conversationId='conv-1' workspacePath='/tmp/eve-project' launcherOnly />
       </PreviewProvider>
     </MemoryRouter>
   );
@@ -152,13 +152,46 @@ describe('ShellWorkbenchTabs', () => {
     expect(screen.queryByRole('menuitem', { name: /conversation\.workbench\.pageChat/ })).not.toBeInTheDocument();
   });
 
-  it('keeps Files and Review in the inspector instead of pretending they are new work surfaces', () => {
-    renderLauncher();
+  it('opens Files and Review as real conversation-scoped workbench surfaces', async () => {
+    const previewPane = document.createElement('div');
+    previewPane.id = 'eve-workbench-pane-conv-1';
+    previewPane.tabIndex = -1;
+    document.body.append(previewPane);
+    renderWorkbench({ isTemporaryWorkspace: true });
     fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
-    expect(screen.queryByRole('menuitem', { name: 'conversation.workbench.files' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: 'conversation.workbench.review' })).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'conversation.workbench.browser' })).toBeEnabled();
     expect(screen.getByRole('menuitem', { name: 'conversation.workbench.terminal' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.files' }));
+    expect(previewApi?.tabs).toHaveLength(1);
+    expect(previewApi?.tabs[0]).toMatchObject({
+      content_type: 'workspace-files',
+      content: '/tmp/eve-project',
+      metadata: {
+        title: 'conversation.workbench.files',
+        conversation_id: 'conv-1',
+        workspace: '/tmp/eve-project',
+        workspace_event_prefix: 'acp',
+        is_temporary_workspace: true,
+      },
+    });
+    await waitFor(() => expect(previewPane).toHaveFocus());
+
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.review' }));
+    expect(previewApi?.tabs).toHaveLength(2);
+    expect(previewApi?.tabs[1]).toMatchObject({
+      content_type: 'workspace-review',
+      content: '/tmp/eve-project',
+      metadata: {
+        title: 'conversation.workbench.review',
+        conversation_id: 'conv-1',
+        workspace: '/tmp/eve-project',
+        workspace_event_prefix: 'acp',
+        is_temporary_workspace: true,
+      },
+    });
+    expect(screen.getByRole('tab', { name: 'conversation.workbench.review' })).toHaveAttribute('aria-selected', 'true');
+    previewPane.remove();
   });
 
   it('renders launcher-only mode without a duplicate tab strip or layout controls', () => {

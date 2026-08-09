@@ -8,7 +8,7 @@ import { ipcBridge } from '@/common';
 import type { IDirOrFile } from '@/common/adapter/ipcBridge';
 import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
-import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
+import { usePreviewContext } from '@/renderer/pages/conversation/Preview/context/PreviewContext';
 import { getWorkspaceDisplayName as getDisplayName } from '@/renderer/utils/workspace/workspace';
 import { WORKSPACE_TAB_SELECT_EVENT, type WorkspaceSurfaceTab } from '@/renderer/utils/workspace/workspaceEvents';
 import { Empty, Message, Tree } from '@arco-design/web-react';
@@ -47,6 +47,7 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
   workspace,
   isTemporaryWorkspace: isTemporaryWorkspaceProp,
   eventPrefix = 'acp',
+  fixedTab,
   messageApi: externalMessageApi,
 }) => {
   const { t } = useTranslation();
@@ -60,7 +61,7 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
   const shouldRenderLocalMessageContext = !externalMessageApi;
 
   // Tab state and file changes
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>('files');
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>(fixedTab ?? 'files');
   const fileChangesHook = useFileChanges({ workspace });
 
   // Bind workspace uploads to the conversation lifecycle: switching the
@@ -95,7 +96,15 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
   const searchHook = useWorkspaceSearch({ workspace, loadWorkspace: treeHook.loadWorkspace });
 
   useEffect(() => {
+    if (fixedTab) {
+      setActiveTab(fixedTab);
+      setIsWorkspaceCollapsed(false);
+    }
+  }, [fixedTab, setIsWorkspaceCollapsed]);
+
+  useEffect(() => {
     const selectWorkspaceTab = (event: Event) => {
+      if (fixedTab) return;
       const tab = (event as CustomEvent<WorkspaceSurfaceTab>).detail;
       if (tab !== 'files' && tab !== 'changes') return;
       setActiveTab(tab);
@@ -103,7 +112,7 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
     };
     window.addEventListener(WORKSPACE_TAB_SELECT_EVENT, selectWorkspaceTab);
     return () => window.removeEventListener(WORKSPACE_TAB_SELECT_EVENT, selectWorkspaceTab);
-  }, [setIsWorkspaceCollapsed]);
+  }, [fixedTab, setIsWorkspaceCollapsed]);
 
   const fileOpsHook = useWorkspaceFileOps({
     workspace,
@@ -291,13 +300,15 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
         />
 
         {/* Tab bar */}
-        <WorkspaceTabBar
-          t={t}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          changeCount={fileChangesHook.changeCount}
-          branch={fileChangesHook.snapshotInfo?.branch ?? null}
-        />
+        {!fixedTab && (
+          <WorkspaceTabBar
+            t={t}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            changeCount={fileChangesHook.changeCount}
+            branch={fileChangesHook.snapshotInfo?.branch ?? null}
+          />
+        )}
 
         {/* Toolbar: search input + directory name + action buttons */}
         {activeTab === 'files' && (

@@ -218,6 +218,14 @@
   background: transparent;
 }
 
+.menuDivider {
+  display: block;
+  height: 1px;
+  margin: 6px 10px;
+  background: var(--glass-overlay-border, var(--color-border-2));
+  opacity: 0.72;
+}
+
 .menuIcon {
   display: inline-flex;
   align-items: center;

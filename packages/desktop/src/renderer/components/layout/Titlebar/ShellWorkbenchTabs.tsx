@@ -6,7 +6,19 @@
 
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import type { PreviewTab } from '@/renderer/pages/conversation/Preview/context/PreviewContext';
-import { Browser, CloseSmall, Code, FileText, ImageFiles, Plus, Terminal } from '@icon-park/react';
+import {
+  Browser,
+  CheckOne,
+  CloseSmall,
+  Code,
+  FileText,
+  FolderOpen,
+  ImageFiles,
+  Music,
+  Plus,
+  Terminal,
+  Video,
+} from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from './ShellWorkbenchTabs.module.css';
@@ -15,10 +27,12 @@ import WorkbenchLayoutControls from './WorkbenchLayoutControls';
 type ShellWorkbenchTabsProps = {
   conversationId: string;
   workspacePath?: string;
+  workspaceEventPrefix?: 'acp' | 'codex' | 'aionrs';
+  isTemporaryWorkspace?: boolean;
   launcherOnly?: boolean;
 };
 
-type WorkbenchTarget = 'browser' | 'terminal';
+type WorkbenchTarget = 'browser' | 'terminal' | 'files' | 'review';
 
 const iconForTab = (tab: PreviewTab) => {
   switch (tab.content_type) {
@@ -26,8 +40,16 @@ const iconForTab = (tab: PreviewTab) => {
       return <Browser theme='outline' size={16} fill='currentColor' />;
     case 'terminal':
       return <Terminal theme='outline' size={16} fill='currentColor' />;
+    case 'workspace-files':
+      return <FolderOpen theme='outline' size={16} fill='currentColor' />;
+    case 'workspace-review':
+      return <CheckOne theme='outline' size={16} fill='currentColor' />;
     case 'image':
       return <ImageFiles theme='outline' size={16} fill='currentColor' />;
+    case 'video':
+      return <Video theme='outline' size={16} fill='currentColor' />;
+    case 'audio':
+      return <Music theme='outline' size={16} fill='currentColor' />;
     case 'code':
     case 'diff':
       return <Code theme='outline' size={16} fill='currentColor' />;
@@ -51,7 +73,13 @@ const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
   buttons[nextIndex]?.focus();
 };
 
-const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId, workspacePath, launcherOnly = false }) => {
+const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
+  conversationId,
+  workspacePath,
+  workspaceEventPrefix = 'acp',
+  isTemporaryWorkspace = false,
+  launcherOnly = false,
+}) => {
   const { t } = useTranslation();
   const { isOpen, tabs, activeTabId, openPreview, showPreview, hidePreview, requestCloseTab, setWorkbenchLayoutMode } =
     usePreviewContext();
@@ -116,6 +144,42 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId,
           focusPane(previewPaneId);
           return;
         }
+        case 'files': {
+          if (!workspacePath) return;
+          setWorkbenchLayoutMode('split-right');
+          const existingFiles = conversationTabs.find((tab) => tab.content_type === 'workspace-files');
+          if (existingFiles) {
+            showPreviewTab(existingFiles.id);
+            return;
+          }
+          openPreview(workspacePath, 'workspace-files', {
+            title: t('conversation.workbench.files'),
+            conversation_id: conversationId,
+            workspace: workspacePath,
+            workspace_event_prefix: workspaceEventPrefix,
+            is_temporary_workspace: isTemporaryWorkspace,
+          });
+          focusPane(previewPaneId);
+          return;
+        }
+        case 'review': {
+          if (!workspacePath) return;
+          setWorkbenchLayoutMode('split-right');
+          const existingReview = conversationTabs.find((tab) => tab.content_type === 'workspace-review');
+          if (existingReview) {
+            showPreviewTab(existingReview.id);
+            return;
+          }
+          openPreview(workspacePath, 'workspace-review', {
+            title: t('conversation.workbench.review'),
+            conversation_id: conversationId,
+            workspace: workspacePath,
+            workspace_event_prefix: workspaceEventPrefix,
+            is_temporary_workspace: isTemporaryWorkspace,
+          });
+          focusPane(previewPaneId);
+          return;
+        }
       }
     },
     [
@@ -128,6 +192,8 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId,
       showPreviewTab,
       t,
       workspacePath,
+      workspaceEventPrefix,
+      isTemporaryWorkspace,
     ]
   );
 
@@ -212,6 +278,20 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId,
       label: t('conversation.workbench.terminal'),
       icon: <Terminal theme='outline' size={18} fill='currentColor' />,
     },
+    {
+      target: 'files',
+      label: t('conversation.workbench.files'),
+      detail: workspacePath ? undefined : t('conversation.workbench.notConnected'),
+      icon: <FolderOpen theme='outline' size={18} fill='currentColor' />,
+      disabled: !workspacePath,
+    },
+    {
+      target: 'review',
+      label: t('conversation.workbench.review'),
+      detail: workspacePath ? undefined : t('conversation.workbench.notConnected'),
+      icon: <CheckOne theme='outline' size={18} fill='currentColor' />,
+      disabled: !workspacePath,
+    },
   ];
 
   return (
@@ -285,22 +365,24 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({ conversationId,
             onKeyDown={handleMenuKeyDown}
           >
             {launcherItems.map((item) => (
-              <button
-                key={item.target}
-                type='button'
-                role='menuitem'
-                className={styles.menuItem}
-                disabled={item.disabled}
-                onClick={() => activateTarget(item.target)}
-              >
-                <span className={styles.menuIcon} aria-hidden='true'>
-                  {item.icon}
-                </span>
-                <span className={styles.menuCopy}>
-                  <span className={styles.menuLabel}>{item.label}</span>
-                  {item.detail && <span className={styles.menuDetail}>{item.detail}</span>}
-                </span>
-              </button>
+              <React.Fragment key={item.target}>
+                {item.target === 'files' && <span className={styles.menuDivider} role='separator' />}
+                <button
+                  type='button'
+                  role='menuitem'
+                  className={styles.menuItem}
+                  disabled={item.disabled}
+                  onClick={() => activateTarget(item.target)}
+                >
+                  <span className={styles.menuIcon} aria-hidden='true'>
+                    {item.icon}
+                  </span>
+                  <span className={styles.menuCopy}>
+                    <span className={styles.menuLabel}>{item.label}</span>
+                    {item.detail && <span className={styles.menuDetail}>{item.detail}</span>}
+                  </span>
+                </button>
+              </React.Fragment>
             ))}
           </div>
         )}
