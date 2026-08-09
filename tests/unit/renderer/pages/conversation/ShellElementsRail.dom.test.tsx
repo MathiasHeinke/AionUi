@@ -117,7 +117,7 @@ const videoArtifact: IConversationArtifact = {
   status: 'active',
   payload: {
     artifact_type: 'video',
-    title: 'Produktvideo.mp4',
+    title: 'Video 720p',
     path: '/tmp/Command EVE Videos/conv-1/video-1.mp4',
     mime_type: 'video/mp4',
   },
@@ -242,7 +242,7 @@ describe('ShellElementsRail', () => {
       stageConversationArtifact('conv-2', { ...managedImageArtifact, conversation_id: 'conv-2' });
     });
 
-    expect(await screen.findByText('Produktvideo.mp4')).toBeTruthy();
+    expect(await screen.findByText('Video 720p')).toBeTruthy();
     expect(screen.queryByText('Wettbewerbsanalyse.png')).toBeNull();
   });
 
@@ -259,15 +259,15 @@ describe('ShellElementsRail', () => {
     render(<ShellElementsRail conversationId='conv-1' onRequestClose={onRequestClose} />);
     fireEvent.click(screen.getByTestId('elements-rail-tab-artifacts'));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Produktvideo.mp4' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Video 720p' }));
 
     await waitFor(() =>
       expect(openPreviewMock).toHaveBeenCalledWith(
         'data:video/mp4;base64,AAAAHGZ0eXBpc29t',
         'video',
         expect.objectContaining({
-          title: 'Produktvideo.mp4',
-          file_name: 'Produktvideo.mp4',
+          title: 'Video 720p',
+          file_name: 'Video 720p.mp4',
           file_path: '/tmp/Command EVE Videos/conv-1/video-1.mp4',
           conversation_id: 'conv-1',
         })

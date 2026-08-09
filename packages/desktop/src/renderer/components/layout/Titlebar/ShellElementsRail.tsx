@@ -325,12 +325,10 @@ const ShellElementsRail: React.FC<ShellElementsRailProps> = ({
     const urlSource = readPayloadString(payload, ARTIFACT_SOURCE_URL_KEYS);
     const pathValue = readPayloadString(payload, ARTIFACT_SOURCE_PATH_KEYS);
     const path = resolveArtifactPath(pathValue, workspacePath);
-    const fileName =
-      readPayloadString(payload, ['file_name']) ||
-      (fileExtensionOf(title) ? title : undefined) ||
-      fileNameOf(pathValue) ||
-      fileNameOf(urlSource) ||
-      title;
+    const sourceFileName = fileNameOf(pathValue) || fileNameOf(urlSource);
+    const sourceExtension = fileExtensionOf(sourceFileName);
+    const titledFileName = fileExtensionOf(title) ? title : sourceExtension ? `${title}.${sourceExtension}` : undefined;
+    const fileName = readPayloadString(payload, ['file_name']) || titledFileName || sourceFileName || title;
     const contentType = artifactWorkbenchTypeOf(type, payload, fileName);
     const inlineContent = readPayloadContent(payload, ARTIFACT_INLINE_CONTENT_KEYS);
     const metadata = {
