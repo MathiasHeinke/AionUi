@@ -129,6 +129,7 @@ function previewKindFor(tab: PreviewTab): 'url' | 'file' | 'artifact' {
 }
 
 const readers = new Map<string, PreviewPageReader>();
+const DIRECT_TEXT_TYPES = new Set<PreviewTab['content_type']>(['markdown', 'html', 'code', 'diff']);
 
 export function registerPreviewPageReader(tabId: string, reader: PreviewPageReader): () => void {
   readers.set(tabId, reader);
@@ -207,6 +208,22 @@ export async function readActiveConversationPreview(input: {
       // identity so the model can retry without turning a UI race into a turn
       // failure.
     }
+  }
+
+  if (DIRECT_TEXT_TYPES.has(tab.content_type)) {
+    const { note: _note, ...identity } = identityFor(tab);
+    return windowText(
+      {
+        ...identity,
+        ...(tab.metadata?.truncated
+          ? {
+              note: 'The visible preview is truncated. total_chars describes only the loaded preview; use read_file for the complete workspace file.',
+            }
+          : {}),
+      },
+      tab.content,
+      options
+    );
   }
 
   return windowText(identityFor(tab), '', options);

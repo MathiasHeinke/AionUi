@@ -32,7 +32,7 @@ vi.mock('@/renderer/services/FileService', () => ({
 vi.mock('@/renderer/utils/emitter', () => ({ emitter: { emit: mocks.emit } }));
 vi.mock('@/common/config/commandEveShell', () => ({ COMMAND_EVE_SHELL_ENABLED: true }));
 
-describe('FileAttachButton skill capabilities', () => {
+describe('FileAttachButton interaction contract', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.listAvailableSkills.mockResolvedValue([
@@ -53,25 +53,25 @@ describe('FileAttachButton skill capabilities', () => {
     ]);
   });
 
-  it('shows the existing-chat runtime snapshot with the shared count and invokes only an active skill', async () => {
+  it('keeps the desktop paperclip a direct file action when skills are loaded', async () => {
+    const openFileSelector = vi.fn();
     render(
       <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
         <MemoryRouter>
-          <FileAttachButton openFileSelector={vi.fn()} loadedSkills={['runtime-active']} loadedMcpStatuses={[]} />
+          <FileAttachButton
+            openFileSelector={openFileSelector}
+            loadedSkills={['runtime-active']}
+            loadedMcpStatuses={[]}
+          />
         </MemoryRouter>
       </SWRConfig>
     );
 
     await waitFor(() => expect(mocks.listAvailableSkills).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByTestId('aionrs-attach-folder-btn'));
-    const count = await screen.findByTestId('skill-capability-count');
-    expect(count.textContent).toBe('common.skills (1/2)');
-
-    fireEvent.mouseEnter(count);
-    const activeSkill = await screen.findByText('runtime-active');
-    expect(screen.queryByText('runtime-inactive')).toBeNull();
-    fireEvent.click(activeSkill);
-    expect(mocks.emit).toHaveBeenCalledWith('sendbox.fill', '/runtime-active ');
+    expect(openFileSelector).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('skill-capability-count')).toBeNull();
+    expect(mocks.emit).not.toHaveBeenCalled();
   });
 
   it('does not expose the app-owned image generator as an unsupported user connector', () => {

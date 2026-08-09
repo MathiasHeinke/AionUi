@@ -11,6 +11,7 @@ import { useEffect } from 'react';
 import type { FileOrFolderItem } from '@/renderer/utils/file/fileTypes';
 import type { PreviewContentType } from '@/common/types/office/preview';
 import type { TConversationRuntimeSummary } from '@/common/config/storage';
+import type { CommandEvePane } from '@/common/config/hermesDesktopEventCore';
 
 export type ReplyQuote = {
   messageId: string;
@@ -53,6 +54,10 @@ interface EventTypes {
   // `chat.history.refresh` fires at send-ACCEPTANCE — far too early for an
   // agent-lane artifact (e.g. an eve_video_edit child) to exist on disk.
   'commandEve.artifacts.refresh': [{ conversation_id: string }];
+  // Native Hermes Desktop `focus_pane` is routed into the canonical EVE shell
+  // instead of opening the unrelated elements inspector. Conversation scope is
+  // mandatory so a late frame cannot move another chat's workbench.
+  'commandEve.workbench.reveal': [{ conversation_id: string; pane: CommandEvePane }];
   // Durable conversation recovery signals. The database/runtime are the source
   // of truth when a renderer misses a realtime user/terminal frame.
   'conversation.messages.refresh': [{ conversation_id: string; expectedTerminalMessageId?: string }];

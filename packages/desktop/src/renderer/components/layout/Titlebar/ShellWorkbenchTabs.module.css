@@ -1,5 +1,7 @@
 .root {
   -webkit-app-region: no-drag;
+  container-name: eve-workbench-tabs;
+  container-type: inline-size;
   display: flex;
   align-items: center;
   min-width: 0;
@@ -288,5 +290,35 @@
 
   .tabShell {
     max-width: 148px;
+  }
+}
+
+/* Compact Safari-style tab treatment for a narrow split. The selected
+   surface keeps its name; inactive surfaces collapse to centered, titled
+   icons instead of rendering five unreadable ellipses. */
+@container eve-workbench-tabs (max-width: 620px) {
+  .tabShell:not([data-selected='true']) {
+    flex: 0 0 36px;
+    min-width: 36px;
+    max-width: 36px;
+  }
+
+  .tabShell:not([data-selected='true']) .tabButton,
+  .tabShell:not([data-selected='true']):has(.closeButton) .tabButton {
+    width: 36px;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+  }
+
+  .tabShell:not([data-selected='true']) .tabLabel,
+  .tabShell:not([data-selected='true']) .closeButton {
+    display: none;
+  }
+
+  .tabShell[data-selected='true'] {
+    flex: 1 1 104px;
+    min-width: 76px;
+    max-width: 156px;
   }
 }

@@ -17,6 +17,27 @@ export interface UseDragUploadOptions {
   conversation_id?: string;
 }
 
+type DragUploadEvent = {
+  preventDefault: () => void;
+  stopPropagation: () => void;
+  dataTransfer?: DataTransfer | null;
+  nativeEvent?: { dataTransfer?: DataTransfer | null };
+};
+
+const getDragDataTransfer = (event: DragUploadEvent): DataTransfer | null | undefined =>
+  event.nativeEvent?.dataTransfer ?? event.dataTransfer;
+
+/**
+ * The upload target may cover the complete conversation column. Only claim a
+ * drag when the platform says it contains files; text selections, links and
+ * app-internal drags must retain their native behaviour.
+ */
+const isFileDrag = (event: DragUploadEvent): boolean => {
+  const dataTransfer = getDragDataTransfer(event);
+  if (!dataTransfer) return false;
+  return Array.from(dataTransfer.types ?? []).includes('Files') || dataTransfer.files.length > 0;
+};
+
 export const useDragUpload = ({ supportedExts = [], onFilesAdded, conversation_id }: UseDragUploadOptions) => {
   const { t } = useTranslation();
   const [isFileDragging, setIsFileDragging] = useState(false);
@@ -24,20 +45,19 @@ export const useDragUpload = ({ supportedExts = [], onFilesAdded, conversation_i
   // 拖拽计数器，防止状态闪烁
   const dragCounter = useRef(0);
 
-  const handleDragOver = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+  const handleDragOver = useCallback((e: DragUploadEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
 
-      if (!isFileDragging) {
-        setIsFileDragging(true);
-        dragCounter.current += 1;
-      }
-    },
-    [isFileDragging]
-  );
+    // `dragover` fires continuously. Nesting belongs exclusively to the
+    // paired enter/leave events or the counter can grow without a matching
+    // leave and keep the overlay stuck on screen.
+    setIsFileDragging(true);
+  }, []);
 
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
+  const handleDragEnter = useCallback((e: DragUploadEvent) => {
+    if (!isFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -45,7 +65,8 @@ export const useDragUpload = ({ supportedExts = [], onFilesAdded, conversation_i
     setIsFileDragging(true);
   }, []);
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
+  const handleDragLeave = useCallback((e: DragUploadEvent) => {
+    if (!isFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -58,7 +79,8 @@ export const useDragUpload = ({ supportedExts = [], onFilesAdded, conversation_i
   }, []);
 
   const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
+    async (e: DragUploadEvent) => {
+      if (!isFileDrag(e)) return;
       e.preventDefault();
       e.stopPropagation();
 
@@ -69,17 +91,29 @@ export const useDragUpload = ({ supportedExts = [], onFilesAdded, conversation_i
       if (!onFilesAdded) return;
 
       try {
-        const droppedFiles = e.nativeEvent.dataTransfer!.files;
+        const droppedFiles = getDragDataTransfer(e)?.files;
+        if (!droppedFiles) return;
 
         // 第一步：先校验文件类型，筛选出支持的文件
         const validFiles: File[] = [];
+        let unsupportedCount = 0;
 
         for (let i = 0; i < droppedFiles.length; i++) {
           const file = droppedFiles[i];
           if (supportedExts.length === 0 || isSupportedFile(file.name, supportedExts)) {
             validFiles.push(file);
+          } else {
+            unsupportedCount += 1;
           }
-          // 注意：不支持的文件会被静默过滤，与原逻辑保持一致
+        }
+
+        if (unsupportedCount > 0) {
+          Message.warning(
+            t('common.fileAttach.unsupported', {
+              count: unsupportedCount,
+              defaultValue: '{{count}} file(s) not supported',
+            })
+          );
         }
 
         // 第二步：只处理校验通过的文件

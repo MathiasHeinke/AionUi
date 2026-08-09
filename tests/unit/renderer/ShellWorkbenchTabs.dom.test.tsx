@@ -9,7 +9,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ShellWorkbenchTabs from '@/renderer/components/layout/Titlebar/ShellWorkbenchTabs';
 import WorkbenchLayoutControls from '@/renderer/components/layout/Titlebar/WorkbenchLayoutControls';
+import { LayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { PreviewProvider, usePreviewContext } from '@/renderer/pages/conversation/Preview';
+import { emitter } from '@/renderer/utils/emitter';
 
 vi.mock('@/common', () => ({
   ipcBridge: {
@@ -24,8 +26,6 @@ vi.mock('@/common', () => ({
   },
 }));
 
-vi.mock('@/renderer/utils/emitter', () => ({ emitter: { on: vi.fn(), off: vi.fn() } }));
-
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: { title?: string }) => (options?.title ? `${key}:${options.title}` : key),
@@ -33,6 +33,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 let previewApi: ReturnType<typeof usePreviewContext> | null = null;
+const setSiderCollapsedMock = vi.fn();
 
 const CapturePreviewApi = () => {
   previewApi = usePreviewContext();
@@ -42,10 +43,14 @@ const CapturePreviewApi = () => {
 const renderWorkbench = (props: Partial<React.ComponentProps<typeof ShellWorkbenchTabs>> = {}) =>
   render(
     <MemoryRouter initialEntries={['/conversation/conv-1']}>
-      <PreviewProvider>
-        <CapturePreviewApi />
-        <ShellWorkbenchTabs conversationId='conv-1' workspacePath='/tmp/eve-project' {...props} />
-      </PreviewProvider>
+      <LayoutContext.Provider
+        value={{ isMobile: false, siderCollapsed: false, setSiderCollapsed: setSiderCollapsedMock }}
+      >
+        <PreviewProvider>
+          <CapturePreviewApi />
+          <ShellWorkbenchTabs conversationId='conv-1' workspacePath='/tmp/eve-project' {...props} />
+        </PreviewProvider>
+      </LayoutContext.Provider>
     </MemoryRouter>
   );
 
@@ -74,6 +79,7 @@ describe('ShellWorkbenchTabs', () => {
     vi.clearAllMocks();
     localStorage.clear();
     previewApi = null;
+    setSiderCollapsedMock.mockReset();
     window.location.hash = '#/conversation/conv-1';
   });
 
@@ -152,6 +158,25 @@ describe('ShellWorkbenchTabs', () => {
     expect(screen.queryByRole('menuitem', { name: /conversation\.workbench\.pageChat/ })).not.toBeInTheDocument();
   });
 
+  it('opens one native Hermes Kanban tab and reuses it', () => {
+    renderWorkbench();
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'kanban.title' }));
+
+    expect(previewApi?.tabs).toHaveLength(1);
+    expect(previewApi?.tabs[0]).toMatchObject({
+      content_type: 'kanban',
+      content: 'kanban:default',
+      metadata: { title: 'kanban.title', conversation_id: 'conv-1' },
+    });
+    expect(screen.getByRole('tab', { name: 'kanban.title' })).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'kanban.title' }));
+    expect(previewApi?.tabs).toHaveLength(1);
+    expect(previewApi?.workbenchLayoutMode).toBe('split-right');
+  });
+
   it('opens Files and Review as real conversation-scoped workbench surfaces', async () => {
     const previewPane = document.createElement('div');
     previewPane.id = 'eve-workbench-pane-conv-1';
@@ -194,12 +219,81 @@ describe('ShellWorkbenchTabs', () => {
     previewPane.remove();
   });
 
+  it('routes native Hermes pane focus into the canonical workbench, Chat, and session list', async () => {
+    const previewPane = document.createElement('div');
+    previewPane.id = 'eve-workbench-pane-conv-1';
+    previewPane.tabIndex = -1;
+    const sessionsPane = document.createElement('div');
+    sessionsPane.dataset.commandEvePane = 'sessions';
+    sessionsPane.tabIndex = -1;
+    const chatPane = document.createElement('div');
+    chatPane.id = 'eve-chat-pane-conv-1';
+    chatPane.tabIndex = -1;
+    document.body.append(previewPane, sessionsPane, chatPane);
+    renderWorkbench();
+
+    act(() => emitter.emit('commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'terminal' }));
+    expect(previewApi?.tabs).toHaveLength(1);
+    expect(previewApi?.tabs[0]?.content_type).toBe('terminal');
+
+    act(() => emitter.emit('commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'files' }));
+    act(() => emitter.emit('commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'review' }));
+    expect(previewApi?.tabs.map((tab) => tab.content_type)).toEqual([
+      'terminal',
+      'workspace-files',
+      'workspace-review',
+    ]);
+
+    act(() => emitter.emit('commandEve.workbench.reveal', { conversation_id: 'foreign', pane: 'terminal' }));
+    expect(previewApi?.tabs).toHaveLength(3);
+
+    act(() => emitter.emit('commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'chat' }));
+    expect(previewApi?.isOpen).toBe(false);
+    await waitFor(() => expect(chatPane).toHaveFocus());
+
+    act(() => emitter.emit('commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'sessions' }));
+    expect(setSiderCollapsedMock).toHaveBeenCalledWith(false);
+    await waitFor(() => expect(sessionsPane).toHaveFocus());
+
+    previewPane.remove();
+    sessionsPane.remove();
+    chatPane.remove();
+  });
+
   it('renders launcher-only mode without a duplicate tab strip or layout controls', () => {
     renderLauncher();
     act(() => previewApi?.openPreview('# Notes', 'markdown', { title: 'notes.md', conversation_id: 'conv-1' }));
     expect(screen.queryByRole('tablist', { name: 'conversation.workbench.label' })).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'conversation.workbench.layoutLabel' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' })).toBeInTheDocument();
+  });
+
+  it('lets the launcher-only header create the first Hermes-requested workbench tab', () => {
+    renderLauncher();
+
+    act(() => emitter.emit('commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'terminal' }));
+
+    expect(previewApi?.tabs).toHaveLength(1);
+    expect(previewApi?.tabs[0]).toMatchObject({
+      content_type: 'terminal',
+      metadata: { conversation_id: 'conv-1' },
+    });
+    expect(previewApi?.isOpen).toBe(true);
+  });
+
+  it('reveals an honest Files surface when Hermes asks before a workspace exists', () => {
+    renderWorkbench({ workspacePath: undefined });
+
+    act(() => emitter.emit('commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'files' }));
+
+    expect(previewApi?.tabs).toHaveLength(1);
+    expect(previewApi?.tabs[0]).toMatchObject({
+      content: 'workspace:unavailable',
+      content_type: 'workspace-files',
+      metadata: { conversation_id: 'conv-1' },
+    });
+    expect(previewApi?.tabs[0]?.metadata).not.toHaveProperty('workspace');
+    expect(previewApi?.isOpen).toBe(true);
   });
 
   it('does not register work-surface keyboard shortcuts from launcher-only mode', () => {
@@ -227,6 +321,7 @@ describe('ShellWorkbenchTabs', () => {
     act(() => previewApi?.openPreview('# Notes', 'markdown', { title: 'notes.md', conversation_id: 'conv-1' }));
     act(() => previewApi?.openPreview('const answer = 42;', 'code', { title: 'answer.ts', conversation_id: 'conv-1' }));
     expect(screen.getByRole('tab', { name: 'answer.ts' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'answer.ts' })).toHaveAttribute('title', 'answer.ts');
 
     fireEvent.keyDown(document, { key: 'Tab', ctrlKey: true });
 

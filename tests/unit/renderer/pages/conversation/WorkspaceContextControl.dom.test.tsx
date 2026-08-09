@@ -129,15 +129,18 @@ describe('WorkspaceContextControl', () => {
     const control = screen.getByTestId('workspace-context-control');
     expect(control).toHaveTextContent('Q3 Planung');
     expect(control).not.toHaveTextContent('hermes-temp');
-    expect(control.getAttribute('aria-label')).toBe('Q3 Planung');
+    expect(control.getAttribute('aria-label')).toBe('conversation.elementsRail.context: Q3 Planung');
   });
 
-  it('falls back to the workspace basename when no project artifact title exists', () => {
+  it('hides an internal temporary workspace slug behind an honest project label', () => {
     render(<WorkspaceContextControl workspacePath='/Users/founder/.command-eve/workspaces/hermes-temp-6969007f' />);
 
     const control = screen.getByTestId('workspace-context-control');
-    expect(control).toHaveTextContent('hermes-temp-6969007f');
-    expect(control.getAttribute('aria-label')).toBe('hermes-temp-6969007f');
+    expect(control).toHaveTextContent('conversation.workspace.temporarySpace');
+    expect(control).not.toHaveTextContent('hermes-temp-6969007f');
+    expect(control.getAttribute('aria-label')).toBe(
+      'conversation.elementsRail.context: conversation.workspace.temporarySpace'
+    );
   });
 
   it('ignores a blank project name and keeps the basename', () => {

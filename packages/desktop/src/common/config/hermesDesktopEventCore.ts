@@ -1,9 +1,11 @@
 export const COMMAND_EVE_DESKTOP_EVENT_META_KEY = 'commandEveDesktop' as const;
 export const COMMAND_EVE_DESKTOP_EVENT_VERSION = 'command-eve-desktop-event/v1' as const;
 
+export type CommandEvePane = 'chat' | 'files' | 'terminal' | 'review' | 'sessions';
+
 export type CommandEveDesktopEvent =
   | { event: 'preview.open'; payload: { url: string; label?: string } }
-  | { event: 'pane.reveal'; payload: { pane: 'files' } };
+  | { event: 'pane.reveal'; payload: { pane: CommandEvePane } };
 
 export type CommandEveDesktopToolCall = {
   toolCallId: string;
@@ -37,8 +39,10 @@ function parsePreviewPayload(value: unknown): CommandEveDesktopEvent | null {
 
 function parsePanePayload(value: unknown): CommandEveDesktopEvent | null {
   const payload = asRecord(value);
-  if (!payload || !hasOnlyKeys(payload, ['pane']) || payload.pane !== 'files') return null;
-  return { event: 'pane.reveal', payload: { pane: 'files' } };
+  if (!payload || !hasOnlyKeys(payload, ['pane']) || typeof payload.pane !== 'string') return null;
+  const panes: readonly CommandEvePane[] = ['chat', 'files', 'terminal', 'review', 'sessions'];
+  if (!panes.includes(payload.pane as CommandEvePane)) return null;
+  return { event: 'pane.reveal', payload: { pane: payload.pane as CommandEvePane } };
 }
 
 /**

@@ -21,6 +21,7 @@ import { useThemeDetection } from '../../hooks';
 import { readXtermBuffer, registerConversationTerminalReader } from '../../services/terminalReader';
 import { createTerminalStartupEventBuffer } from '../../services/terminalStartupEvents';
 import styles from './TerminalViewer.module.css';
+import { resolveTerminalTheme } from './terminalTheme';
 
 type CommandEveTerminalRendererBridge = {
   start: (request: CommandEveTerminalStartRequest) => Promise<CommandEveTerminalStartResult>;
@@ -42,43 +43,6 @@ type TerminalViewerProps = {
   conversationId: string;
   cwd?: string;
   active: boolean;
-};
-
-const resolveThemeToken = (name: string, fallback: string): string => {
-  if (typeof document === 'undefined') return fallback;
-  const value = window.getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return /^(?:#|rgb\(|rgba\(|hsl\(|hsla\(|oklch\(|color\()/.test(value) ? value : fallback;
-};
-
-const resolveTerminalTheme = (mode: 'light' | 'dark') => {
-  const dark = mode === 'dark';
-  const background = resolveThemeToken('--eve-shell-bg', dark ? '#101214' : '#f7f8fb');
-  const foreground = resolveThemeToken('--eve-shell-text', dark ? '#f7f8fa' : '#111827');
-  const accent = resolveThemeToken('--color-primary-6', dark ? '#72a7ff' : '#165dff');
-  return {
-    background,
-    foreground,
-    cursor: accent,
-    cursorAccent: background,
-    selectionBackground: dark ? '#356ee055' : '#165dff26',
-    selectionInactiveBackground: dark ? '#356ee02e' : '#165dff18',
-    black: dark ? '#202635' : '#111827',
-    brightBlack: dark ? '#697386' : '#596273',
-    blue: dark ? '#72a7ff' : '#165dff',
-    brightBlue: dark ? '#9bc0ff' : '#3f7cff',
-    cyan: dark ? '#65d1d4' : '#087f8c',
-    brightCyan: dark ? '#93e4e6' : '#0b7180',
-    green: dark ? '#71d6a4' : '#147d52',
-    brightGreen: dark ? '#9ae7bf' : '#116b47',
-    magenta: dark ? '#b89cff' : '#7a4fbd',
-    brightMagenta: dark ? '#d1c0ff' : '#6942a8',
-    red: dark ? '#ff7f89' : '#c83b4d',
-    brightRed: dark ? '#ffa2aa' : '#aa2f40',
-    white: dark ? '#d9e1ef' : '#596273',
-    brightWhite: dark ? '#f7f8fa' : '#111827',
-    yellow: dark ? '#e7c66b' : '#8a6500',
-    brightYellow: dark ? '#f3d98f' : '#765600',
-  };
 };
 
 const TerminalViewer: React.FC<TerminalViewerProps> = ({ tabId, conversationId, cwd, active }) => {
@@ -123,10 +87,14 @@ const TerminalViewer: React.FC<TerminalViewerProps> = ({ tabId, conversationId, 
     const fitAddon = new FitAddon();
     const terminal = new XtermTerminal({
       allowProposedApi: false,
+      allowTransparency: true,
       cursorBlink: true,
       cursorStyle: 'bar',
       fontFamily: 'SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
       fontSize: 13,
+      fontWeight: 450,
+      fontWeightBold: 650,
+      letterSpacing: 0.1,
       lineHeight: 1.35,
       screenReaderMode: true,
       scrollback: 5000,
@@ -227,7 +195,12 @@ const TerminalViewer: React.FC<TerminalViewerProps> = ({ tabId, conversationId, 
   const statusLabel = t(`conversation.workbench.terminalStatus.${status}`);
 
   return (
-    <section className={styles.root} aria-label={t('conversation.workbench.terminal')} data-terminal-status={status}>
+    <section
+      className={styles.root}
+      aria-label={t('conversation.workbench.terminal')}
+      data-terminal-status={status}
+      data-terminal-theme={currentTheme}
+    >
       <div className={styles.meta}>
         <span className={styles.statusDot} aria-hidden='true' />
         <span className={styles.statusLabel} aria-live='polite'>

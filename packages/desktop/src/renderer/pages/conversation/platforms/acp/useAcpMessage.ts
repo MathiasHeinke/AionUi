@@ -54,7 +54,6 @@ import {
   parseCommandEveReadTerminalRequest,
   readActiveConversationTerminal,
 } from '@/renderer/pages/conversation/Preview/services/terminalReader';
-import { dispatchElementsRailRevealEvent } from '@/renderer/utils/workspace/workspaceEvents';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 const THINKING_MESSAGE_THROTTLE_MS = 50;
@@ -649,7 +648,10 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
               });
             }
           } else {
-            dispatchElementsRailRevealEvent('context');
+            emitter.emit('commandEve.workbench.reveal', {
+              conversation_id,
+              pane: desktopEvent.payload.pane,
+            });
           }
           break;
         }
@@ -971,7 +973,10 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
                 openPreview(url, 'url', { title: label, conversation_id });
               }
             } else {
-              dispatchElementsRailRevealEvent('context');
+              emitter.emit('commandEve.workbench.reveal', {
+                conversation_id,
+                pane: desktopToolCall.desktopEvent.payload.pane,
+              });
             }
           }
           // B7 (CEVE-1821) — SHOW what EVE builds. Phase one: remember the path an

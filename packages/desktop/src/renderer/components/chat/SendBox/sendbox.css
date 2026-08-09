@@ -128,7 +128,8 @@
 
 /* Input placeholder color */
 .sendbox-panel ::placeholder {
-  color: var(--color-text-4) !important;
+  color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 62%, transparent) !important;
+  opacity: 1;
 }
 
 .sendbox-panel.eve-composer-surface {
@@ -352,6 +353,120 @@
 .sendbox-tools-mobile-compact {
   display: flex;
   align-items: center;
+}
+
+/* A side-by-side workbench can make the chat column narrower than a tablet
+ * without entering the mobile breakpoint. Keep the desktop interaction model,
+ * but remove decorative pressure before controls collide. */
+@container eve-composer (max-width: 400px) {
+  .sendbox-panel.eve-composer-surface {
+    padding: 12px !important;
+    border-radius: 16px !important;
+  }
+
+  .sendbox-composer-input-row {
+    min-width: 0;
+  }
+
+  .sendbox-composer-action-row {
+    gap: 6px !important;
+  }
+
+  .sendbox-composer-action-row > .sendbox-tools {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .sendbox-composer-action-row > .sendbox-actions {
+    gap: 4px !important;
+    flex: 0 0 auto;
+  }
+}
+
+/* The split handle deliberately allows a 240px chat pane. Before controls
+ * begin to feel compressed, the tool clusters become two calm rows rather
+ * than shrinking or overlapping: context/attachment first, execution second. */
+@container eve-composer (max-width: 340px) {
+  .sendbox-composer-action-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    row-gap: 4px !important;
+  }
+
+  .sendbox-composer-action-row > .sendbox-tools {
+    width: 100%;
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: stretch;
+  }
+
+  .sendbox-composer-action-row > .sendbox-actions {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: end;
+  }
+}
+
+.eve-chat-file-drop-overlay {
+  position: absolute;
+  z-index: 48;
+  inset: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 22px;
+  background:
+    radial-gradient(
+      circle at 50% 62%,
+      color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 13%, transparent),
+      transparent 58%
+    ),
+    color-mix(in srgb, var(--eve-shell-surface, var(--color-bg-2)) 72%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+  backdrop-filter: blur(18px) saturate(120%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 22%, transparent);
+  pointer-events: none;
+}
+
+.eve-chat-file-drop-overlay__pill {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 17px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--eve-shell-surface, var(--color-bg-2)) 91%, transparent);
+  color: var(--eve-shell-text, var(--color-text-1));
+  box-shadow:
+    0 18px 48px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 16%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 54%, transparent);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  animation: eve-chat-drop-breathe 1.7s ease-in-out infinite alternate;
+}
+
+@keyframes eve-chat-drop-breathe {
+  from {
+    transform: translateY(1px) scale(0.995);
+    box-shadow:
+      0 14px 38px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 12%, transparent),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 48%, transparent);
+  }
+  to {
+    transform: translateY(-1px) scale(1.005);
+    box-shadow:
+      0 22px 58px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 22%, transparent),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eve-chat-file-drop-overlay__pill {
+    animation: none;
+  }
 }
 
 /* Mobile: allow horizontal scrolling for sendbox tools (model/permission pills) */

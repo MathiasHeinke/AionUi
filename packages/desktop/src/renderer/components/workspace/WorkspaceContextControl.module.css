@@ -68,6 +68,30 @@
   background: var(--glass-overlay-border, var(--color-border-2));
 }
 
+/* In a narrow chat/workbench split the project remains a full accessible
+ * button, but its already-available tooltip carries the label. The visible
+ * control collapses to the same calm icon footprint as Upload instead of
+ * squeezing MAX, voice and Send or exposing an internal temp-workspace slug. */
+@container eve-composer (max-width: 400px) {
+  .control {
+    width: var(--eve-composer-control-size, 32px) !important;
+    min-width: var(--eve-composer-control-size, 32px) !important;
+    max-width: var(--eve-composer-control-size, 32px) !important;
+    padding: 0 !important;
+  }
+
+  .controlContent {
+    width: 100%;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .controlLabel,
+  .controlContent > svg:last-child:not(:first-child) {
+    display: none;
+  }
+}
+
 @media (max-width: 767px) {
   .control {
     max-width: 180px !important;

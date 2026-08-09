@@ -28,6 +28,7 @@ import CodeEditor from '../editors/CodeEditor';
 import URLViewer from '../viewers/URLViewer';
 import TerminalViewer from '../viewers/TerminalViewer';
 import ChatWorkspace from '@/renderer/pages/conversation/Workspace';
+import { Spin } from '@arco-design/web-react';
 import {
   PreviewTabs,
   PreviewToolbar,
@@ -48,6 +49,8 @@ import {
 } from '../../hooks';
 import { useTranslation } from 'react-i18next';
 import './preview.css';
+
+const KanbanBoardHost = React.lazy(() => import('@/renderer/pages/kanban'));
 
 /**
  * 预览面板主组件
@@ -287,6 +290,7 @@ const PreviewPanel: React.FC = () => {
   const isMarkdown = content_type === 'markdown';
   const isHTML = content_type === 'html';
   const isWorkspaceSurface = content_type === 'workspace-files' || content_type === 'workspace-review';
+  const isKanbanSurface = content_type === 'kanban';
   const isEditable = metadata?.editable !== false; // 默认可编辑 / Default editable
 
   // 检查文件类型是否已有内置的打开按钮（Word、PPT、PDF、Excel 组件内部已提供）
@@ -659,7 +663,16 @@ const PreviewPanel: React.FC = () => {
     if (isWorkspaceSurface) {
       const workspace = metadata?.workspace;
       const conversationId = metadata?.conversation_id;
-      if (!workspace || !conversationId) return null;
+      if (!workspace || !conversationId) {
+        return (
+          <div className='flex flex-1 flex-col items-center justify-center gap-8px px-24px text-center'>
+            <div className='text-15px font-500 text-t-primary'>{t('conversation.workbench.notConnected')}</div>
+            <div className='max-w-360px text-13px leading-20px text-t-secondary'>
+              {t('conversation.workspace.emptyDescription')}
+            </div>
+          </div>
+        );
+      }
       return (
         <ChatWorkspace
           conversation_id={conversationId}
@@ -668,6 +681,18 @@ const PreviewPanel: React.FC = () => {
           eventPrefix={metadata?.workspace_event_prefix ?? 'acp'}
           fixedTab={content_type === 'workspace-review' ? 'changes' : 'files'}
         />
+      );
+    } else if (isKanbanSurface) {
+      return (
+        <React.Suspense
+          fallback={
+            <div className='flex flex-1 items-center justify-center' aria-label={t('kanban.title')}>
+              <Spin size={24} />
+            </div>
+          }
+        >
+          <KanbanBoardHost />
+        </React.Suspense>
       );
     } else if (content_type === 'diff') {
       return (
@@ -764,7 +789,7 @@ const PreviewPanel: React.FC = () => {
         )}
 
         {/* 工具栏（URL 类型不显示工具栏，因为不需要下载/编辑等功能）/ Toolbar (hidden for URL type as it doesn't need download/edit features) */}
-        {content_type !== 'url' && content_type !== 'terminal' && !isWorkspaceSurface && (
+        {content_type !== 'url' && content_type !== 'terminal' && !isWorkspaceSurface && !isKanbanSurface && (
           <PreviewToolbar
             content_type={content_type}
             isMarkdown={isMarkdown}

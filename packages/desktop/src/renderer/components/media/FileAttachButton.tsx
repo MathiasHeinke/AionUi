@@ -137,7 +137,10 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   const hasMcpServers = mcpStatuses.length > 0;
   const attachIcon = <Paperclip theme='outline' size='17' strokeWidth={2} fill='currentColor' />;
 
-  if (isDesktop && !hasSkills && !hasMcpServers) {
+  // A paperclip has one stable promise: choose files. Skills and connector
+  // status live in EVE's dedicated control menu, so loaded capabilities must
+  // never silently change this button into a different interaction.
+  if (isDesktop) {
     return (
       <Button
         type='secondary'

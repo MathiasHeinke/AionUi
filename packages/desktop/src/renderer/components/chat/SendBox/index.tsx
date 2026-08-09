@@ -26,10 +26,11 @@ import { filterWorkspaceMentionItems } from '@/renderer/utils/file/workspaceMent
 import { copyText } from '@/renderer/utils/ui/clipboard';
 import { blurActiveElement, shouldBlockMobileInputFocus } from '@/renderer/utils/ui/focus';
 import { Button, Input, Message, Tag } from '@arco-design/web-react';
-import { ArrowUp, CloseSmall, Plus, Quote, SquareSmall } from '@icon-park/react';
+import { ArrowUp, CloseSmall, Plus, Quote, SquareSmall, UploadOne } from '@icon-park/react';
 import type { SlashCommandItem } from '@/common/chat/slash/types';
 import { theme } from '@office-ai/platform';
 import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useCompositionInput } from '@renderer/hooks/chat/useCompositionInput';
 import { useConversationExport } from '@renderer/hooks/file/useConversationExport';
@@ -258,6 +259,7 @@ const SendBox: React.FC<{
   const conversationContext = useConversationContextSafe();
   const teamPermission = useTeamPermission();
   const { t, i18n } = useTranslation();
+  const composerHintId = React.useId();
   const [isLoading, setIsLoading] = useState(false);
   const [isSingleLine, setIsSingleLine] = useState(!effectiveDefaultMultiLine);
   const [isInputFocused, setIsInputFocused] = useState(false);
@@ -413,6 +415,36 @@ const SendBox: React.FC<{
     onFilesAdded,
     conversation_id: conversationContext?.conversation_id,
   });
+  const dragHandlersRef = useLatestRef(dragHandlers);
+  const [chatDropTarget, setChatDropTarget] = useState<HTMLElement | null>(null);
+
+  // Desktop users naturally drop onto the conversation, not a 100px-high
+  // footer. Bind the existing, already-validated upload pipeline to the whole
+  // active chat pane; the start screen safely falls back to the composer.
+  useEffect(() => {
+    const composer = containerRef.current;
+    if (!composer) return undefined;
+    const dropTarget = composer.closest<HTMLElement>('[id^="eve-chat-pane-"]') ?? composer;
+    setChatDropTarget(dropTarget === composer ? null : dropTarget);
+    const onDragOver = (event: DragEvent) => dragHandlersRef.current.onDragOver(event);
+    const onDragEnter = (event: DragEvent) => dragHandlersRef.current.onDragEnter(event);
+    const onDragLeave = (event: DragEvent) => dragHandlersRef.current.onDragLeave(event);
+    const onDrop = (event: DragEvent): void => {
+      void dragHandlersRef.current.onDrop(event);
+    };
+
+    dropTarget.addEventListener('dragover', onDragOver);
+    dropTarget.addEventListener('dragenter', onDragEnter);
+    dropTarget.addEventListener('dragleave', onDragLeave);
+    dropTarget.addEventListener('drop', onDrop);
+    return () => {
+      dropTarget.removeEventListener('dragover', onDragOver);
+      dropTarget.removeEventListener('dragenter', onDragEnter);
+      dropTarget.removeEventListener('dragleave', onDragLeave);
+      dropTarget.removeEventListener('drop', onDrop);
+      setChatDropTarget((current) => (current === dropTarget ? null : current));
+    };
+  }, [conversationContext?.conversation_id, dragHandlersRef]);
 
   const { isUploading } = useUploadState('sendbox');
   // Bind sendbox uploads to the current conversation's lifecycle: switching
@@ -594,6 +626,33 @@ const SendBox: React.FC<{
     const textarea = containerRef.current?.querySelector('textarea');
     return textarea instanceof HTMLTextAreaElement ? textarea : null;
   }, []);
+
+  const focusComposerInput = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+
+      // The composer shell is one generous focus target, but its controls keep
+      // their own click behaviour. Text selection in a quote or attachment also
+      // wins over focus transfer so reviewing a draft never feels sticky.
+      if (
+        target.closest(
+          'button, a, input, textarea, select, [role="button"], [role="menuitem"], [role="option"], [contenteditable="true"]'
+        ) ||
+        window.getSelection()?.isCollapsed === false
+      ) {
+        return;
+      }
+
+      const textarea = getTextareaElement();
+      if (!textarea || textarea.disabled) return;
+      textarea.focus({ preventScroll: true });
+      const caret = textarea.value.length;
+      textarea.setSelectionRange(caret, caret);
+      setCaretPosition(caret);
+    },
+    [getTextareaElement]
+  );
 
   const syncCaretPosition = useCallback(
     (target?: EventTarget | null) => {
@@ -1473,288 +1532,302 @@ const SendBox: React.FC<{
   }, [allAtFileQueries, input]);
 
   return (
-    <div className={className}>
-      <div
-        ref={containerRef}
-        className={`sendbox-panel eve-panel eve-composer-surface relative p-16px b b-solid flex flex-col ${isOverlayOpen ? 'overflow-visible' : 'overflow-hidden'} ${isFileDragging ? 'eve-composer-surface--dragging' : ''}`}
-        style={{
-          transition: 'box-shadow 0.25s ease, border-color 0.25s ease',
-        }}
-        {...composerSpotlightHandlers}
-        {...dragHandlers}
-      >
-        <BtwOverlay
-          answer={btwCommand.answer}
-          anchorEl={containerRef.current}
-          isLoading={btwCommand.isLoading}
-          isOpen={btwCommand.isOpen}
-          onDismiss={btwCommand.dismiss}
-          parentTaskRunning={Boolean(loading || isLoading)}
-          question={btwCommand.question}
-        />
-        {isAtFileMenuOpen && (
-          <div className='absolute left-12px right-12px bottom-[calc(100%+8px)] z-70'>
-            <AtFileMenu
-              activeIndex={atFileMenuActiveIndex}
-              emptyText={
-                deferredAtFileQuery
-                  ? t('conversation.workspace.search.empty', { defaultValue: 'No files found' })
-                  : t('messages.atFile.hint', { defaultValue: 'Type to search for files' })
-              }
-              items={visibleAtFileMenuItems}
-              label={t('messages.atFile.menuLabel', { defaultValue: 'File mentions' })}
-              loading={workspaceMentionLoading}
-              loadingText={t('messages.atFile.loading', { defaultValue: 'Loading...' })}
-              onHoverItem={setAtFileMenuActiveIndex}
-              onSelectItem={insertSelectedAtFile}
-            />
-          </div>
+    <>
+      {isFileDragging &&
+        chatDropTarget &&
+        createPortal(
+          <div className='eve-chat-file-drop-overlay' data-testid='chat-file-drop-overlay' role='status'>
+            <div className='eve-chat-file-drop-overlay__pill'>
+              <UploadOne theme='outline' size={18} strokeWidth={2.4} />
+              <span>{t('conversation.workspace.dragOverlayTitle', { defaultValue: 'Drop to import' })}</span>
+            </div>
+          </div>,
+          chatDropTarget
         )}
-        {isCommandMenuOpen && (
-          <div className='absolute left-12px right-12px bottom-[calc(100%+8px)] z-70'>
-            {conversationExport.step === 'menu' ? (
-              <SlashCommandMenu
-                title={t('messages.export.menuTitle')}
-                hint={t('messages.export.menuHint')}
-                items={conversationExport.menuItems}
-                activeIndex={conversationExport.activeIndex}
-                loading={conversationExport.loading}
-                onHoverItem={conversationExport.setActiveIndex}
-                onSelectItem={(item) => {
-                  conversationExport.onSelectMenuItem(item.key);
-                }}
-                emptyText={t('messages.slash.empty', { defaultValue: 'No commands found' })}
+      <div className={['eve-composer-container', className].filter(Boolean).join(' ')}>
+        <div
+          ref={containerRef}
+          className={`sendbox-panel eve-panel eve-composer-surface relative p-16px b b-solid flex flex-col ${isOverlayOpen ? 'overflow-visible' : 'overflow-hidden'} ${isFileDragging ? 'eve-composer-surface--dragging' : ''}`}
+          data-testid='sendbox-surface'
+          style={{
+            transition: 'box-shadow 0.25s ease, border-color 0.25s ease',
+          }}
+          onClick={focusComposerInput}
+          {...composerSpotlightHandlers}
+        >
+          <BtwOverlay
+            answer={btwCommand.answer}
+            anchorEl={containerRef.current}
+            isLoading={btwCommand.isLoading}
+            isOpen={btwCommand.isOpen}
+            onDismiss={btwCommand.dismiss}
+            parentTaskRunning={Boolean(loading || isLoading)}
+            question={btwCommand.question}
+          />
+          {isAtFileMenuOpen && (
+            <div className='absolute left-12px right-12px bottom-[calc(100%+8px)] z-70'>
+              <AtFileMenu
+                activeIndex={atFileMenuActiveIndex}
+                emptyText={
+                  deferredAtFileQuery
+                    ? t('conversation.workspace.search.empty', { defaultValue: 'No files found' })
+                    : t('messages.atFile.hint', { defaultValue: 'Type to search for files' })
+                }
+                items={visibleAtFileMenuItems}
+                label={t('messages.atFile.menuLabel', { defaultValue: 'File mentions' })}
+                loading={workspaceMentionLoading}
+                loadingText={t('messages.atFile.loading', { defaultValue: 'Loading...' })}
+                onHoverItem={setAtFileMenuActiveIndex}
+                onSelectItem={insertSelectedAtFile}
               />
-            ) : conversationExport.step === 'filename' ? (
-              renderExportFileNamePanel()
-            ) : (
-              <SlashCommandMenu
-                title={t('messages.slash.title', { defaultValue: 'Commands' })}
-                hint={t('messages.slash.hint', { defaultValue: 'Type / to open command menu' })}
-                items={slashMenuItems}
-                activeIndex={slashController.activeIndex}
-                loading={false}
-                onHoverItem={slashController.setActiveIndex}
-                onSelectItem={(item) => {
-                  const targetIndex = slashController.filteredCommands.findIndex(
-                    (command) => command.name === item.key
-                  );
-                  if (targetIndex >= 0) {
-                    slashController.onSelectByIndex(targetIndex);
-                  }
-                }}
-                emptyText={t('messages.slash.empty', { defaultValue: 'No commands found' })}
-              />
+            </div>
+          )}
+          {isCommandMenuOpen && (
+            <div className='absolute left-12px right-12px bottom-[calc(100%+8px)] z-70'>
+              {conversationExport.step === 'menu' ? (
+                <SlashCommandMenu
+                  title={t('messages.export.menuTitle')}
+                  hint={t('messages.export.menuHint')}
+                  items={conversationExport.menuItems}
+                  activeIndex={conversationExport.activeIndex}
+                  loading={conversationExport.loading}
+                  onHoverItem={conversationExport.setActiveIndex}
+                  onSelectItem={(item) => {
+                    conversationExport.onSelectMenuItem(item.key);
+                  }}
+                  emptyText={t('messages.slash.empty', { defaultValue: 'No commands found' })}
+                />
+              ) : conversationExport.step === 'filename' ? (
+                renderExportFileNamePanel()
+              ) : (
+                <SlashCommandMenu
+                  title={t('messages.slash.title', { defaultValue: 'Commands' })}
+                  hint={t('messages.slash.hint', { defaultValue: 'Type / to open command menu' })}
+                  items={slashMenuItems}
+                  activeIndex={slashController.activeIndex}
+                  loading={false}
+                  onHoverItem={slashController.setActiveIndex}
+                  onSelectItem={(item) => {
+                    const targetIndex = slashController.filteredCommands.findIndex(
+                      (command) => command.name === item.key
+                    );
+                    if (targetIndex >= 0) {
+                      slashController.onSelectByIndex(targetIndex);
+                    }
+                  }}
+                  emptyText={t('messages.slash.empty', { defaultValue: 'No commands found' })}
+                />
+              )}
+            </div>
+          )}
+          <div style={{ width: '100%' }}>
+            {prefix}
+            {context}
+            {/* Reply quote preview */}
+            {replyQuote && (
+              <div className='flex items-start gap-10px mb-8px px-12px py-10px rd-8px b-1 b-solid border-[var(--glass-panel-border)] bg-[var(--glass-panel-bg-solid)]'>
+                <div className='flex-shrink-0 mt-2px' style={{ lineHeight: 0 }}>
+                  <Quote theme='filled' size='16' fill='rgb(var(--primary-6))' />
+                </div>
+                <div className='flex-1 min-w-0 text-13px text-t-primary line-clamp-3 lh-20px whitespace-pre-wrap break-all'>
+                  {replyQuote.content}
+                </div>
+                <button
+                  type='button'
+                  aria-label={t('common.close')}
+                  className='flex-shrink-0 mt-2px border-none bg-transparent p-2px rd-full cursor-pointer hover:bg-fill-3 transition-colors'
+                  onClick={() => setReplyQuote(null)}
+                  style={{ lineHeight: 0 }}
+                >
+                  <CloseSmall theme='outline' size='14' />
+                </button>
+              </div>
+            )}
+            {/* DOM 片段标签 / DOM snippet tags */}
+            {domSnippets.length > 0 && (
+              <div className='flex flex-wrap gap-6px mb-8px'>
+                {domSnippets.map((snippet) => (
+                  <Tag
+                    key={snippet.id}
+                    closable
+                    closeIcon={<CloseSmall theme='outline' size='12' />}
+                    onClose={() => removeDomSnippet(snippet.id)}
+                    className='text-12px bg-fill-2 b-1 b-solid b-border-2 rd-4px'
+                  >
+                    {snippet.tag}
+                  </Tag>
+                ))}
+              </div>
+            )}
+            {unmatchedSelectedWorkspaceItems.length > 0 && onSelectedWorkspaceItemsChange && (
+              <div className='flex flex-wrap gap-6px mb-8px'>
+                {unmatchedSelectedWorkspaceItems.map((item) => (
+                  <Tag
+                    key={typeof item === 'string' ? item : item.path}
+                    closable
+                    closeIcon={<CloseSmall theme='outline' size='12' />}
+                    onClose={() => {
+                      const path = getSelectedItemPath(item);
+                      if (!path) {
+                        return;
+                      }
+                      externalOwnedPathsRef.current.delete(path);
+                      const nextItems = buildOwnedSelectionItems(
+                        selectedWorkspaceItems ?? [],
+                        mentionOwnedPathsRef.current,
+                        externalOwnedPathsRef.current,
+                        selectedItemByPathRef.current
+                      );
+                      onSelectedWorkspaceItemsChange(nextItems);
+                    }}
+                    className='text-12px bg-fill-2 b-1 b-solid b-border-2 rd-4px'
+                  >
+                    {getSelectedItemDisplayLabel(item)}
+                  </Tag>
+                ))}
+              </div>
             )}
           </div>
-        )}
-        <div style={{ width: '100%' }}>
-          {prefix}
-          {context}
-          {/* Reply quote preview */}
-          {replyQuote && (
-            <div className='flex items-start gap-10px mb-8px px-12px py-10px rd-8px b-1 b-solid border-[var(--glass-panel-border)] bg-[var(--glass-panel-bg-solid)]'>
-              <div className='flex-shrink-0 mt-2px' style={{ lineHeight: 0 }}>
-                <Quote theme='filled' size='16' fill='rgb(var(--primary-6))' />
-              </div>
-              <div className='flex-1 min-w-0 text-13px text-t-primary line-clamp-3 lh-20px whitespace-pre-wrap break-all'>
-                {replyQuote.content}
-              </div>
-              <button
-                type='button'
-                aria-label={t('common.close')}
-                className='flex-shrink-0 mt-2px border-none bg-transparent p-2px rd-full cursor-pointer hover:bg-fill-3 transition-colors'
-                onClick={() => setReplyQuote(null)}
-                style={{ lineHeight: 0 }}
-              >
-                <CloseSmall theme='outline' size='14' />
-              </button>
-            </div>
-          )}
-          {/* DOM 片段标签 / DOM snippet tags */}
-          {domSnippets.length > 0 && (
-            <div className='flex flex-wrap gap-6px mb-8px'>
-              {domSnippets.map((snippet) => (
-                <Tag
-                  key={snippet.id}
-                  closable
-                  closeIcon={<CloseSmall theme='outline' size='12' />}
-                  onClose={() => removeDomSnippet(snippet.id)}
-                  className='text-12px bg-fill-2 b-1 b-solid b-border-2 rd-4px'
-                >
-                  {snippet.tag}
-                </Tag>
-              ))}
-            </div>
-          )}
-          {unmatchedSelectedWorkspaceItems.length > 0 && onSelectedWorkspaceItemsChange && (
-            <div className='flex flex-wrap gap-6px mb-8px'>
-              {unmatchedSelectedWorkspaceItems.map((item) => (
-                <Tag
-                  key={typeof item === 'string' ? item : item.path}
-                  closable
-                  closeIcon={<CloseSmall theme='outline' size='12' />}
-                  onClose={() => {
-                    const path = getSelectedItemPath(item);
-                    if (!path) {
-                      return;
-                    }
-                    externalOwnedPathsRef.current.delete(path);
-                    const nextItems = buildOwnedSelectionItems(
-                      selectedWorkspaceItems ?? [],
-                      mentionOwnedPathsRef.current,
-                      externalOwnedPathsRef.current,
-                      selectedItemByPathRef.current
-                    );
-                    onSelectedWorkspaceItemsChange(nextItems);
-                  }}
-                  className='text-12px bg-fill-2 b-1 b-solid b-border-2 rd-4px'
-                >
-                  {getSelectedItemDisplayLabel(item)}
-                </Tag>
-              ))}
-            </div>
-          )}
-        </div>
-        <UploadProgressBar source='sendbox' />
-        <div
-          className={isSingleLine ? 'flex items-center gap-2 w-full min-w-0 overflow-hidden' : 'w-full overflow-hidden'}
-        >
-          {isSingleLine && (
-            <div
-              className={
-                isMobileCompact
-                  ? 'flex-shrink-0 sendbox-tools sendbox-tools-mobile-compact'
-                  : isMobile
-                    ? 'sendbox-tools sendbox-tools-scroll-mobile'
-                    : 'flex-shrink-0 sendbox-tools'
-              }
-            >
-              {renderedTools}
-            </div>
-          )}
+          <UploadProgressBar source='sendbox' />
           <div
-            className={`sendbox-highlight-container ${isSingleLine ? 'sendbox-highlight-container--single' : ''}`}
-            style={{
-              width: isSingleLine ? 'auto' : '100%',
-              flex: isSingleLine ? 1 : 'none',
-              minWidth: 0,
-              maxWidth: '100%',
-              marginBottom: isSingleLine ? 0 : '8px',
-              minHeight: isSingleLine ? '20px' : '40px',
-            }}
+            className={
+              isSingleLine
+                ? 'sendbox-composer-input-row flex items-center gap-2 w-full min-w-0 overflow-hidden'
+                : 'sendbox-composer-input-row w-full overflow-hidden'
+            }
           >
+            {isSingleLine && (
+              <div
+                className={
+                  isMobileCompact
+                    ? 'flex-shrink-0 sendbox-tools sendbox-tools-mobile-compact'
+                    : isMobile
+                      ? 'sendbox-tools sendbox-tools-scroll-mobile'
+                      : 'flex-shrink-0 sendbox-tools'
+                }
+              >
+                {renderedTools}
+              </div>
+            )}
             <div
-              ref={highlightScrollRef}
-              aria-hidden='true'
-              className={`sendbox-highlight-layer text-14px ${isMobile ? 'sendbox-input--mobile' : ''} ${isSingleLine ? 'sendbox-highlight-layer--single' : ''}`}
-              data-testid='sendbox-highlight-layer'
-              style={!shouldUseHighlightOverlay ? { visibility: 'hidden' } : undefined}
-            >
-              {renderHighlightedInputValue()}
-            </div>
-            <Input.TextArea
-              autoFocus={!isMobile}
-              // Typing stays available even while a task runs / the parent is
-              // `disabled` for a transient reason — the send button still gates
-              // dispatch. Only a hard "no model selected"-style disable (without
-              // the queue path) blocks composing. (Issue B: never block typing.)
-              disabled={disabled && !keepInputEditable}
-              spellCheck={false}
-              value={input}
-              placeholder={
-                isMobileCompact
-                  ? (placeholder ??
-                    (bottomHint as string | undefined) ??
-                    t('conversation.sendbox.hint', { defaultValue: 'Type / for commands, @ to reference files' }))
-                  : placeholder
-                    ? `${placeholder}  ${bottomHint ?? t('conversation.sendbox.hint', { defaultValue: 'Type / for commands, @ to reference files' })}`
-                    : ((bottomHint as string | undefined) ??
-                      t('conversation.sendbox.hint', { defaultValue: 'Type / for commands, @ to reference files' }))
-              }
-              className={`${shouldUseHighlightOverlay ? 'sendbox-highlight-textarea ' : ''}pl-0 pr-0 !b-none focus:shadow-none m-0 !bg-transparent !focus:bg-transparent !hover:bg-transparent lh-[20px] !resize-none text-14px ${isMobile ? 'sendbox-input--mobile' : ''}`}
-              data-testid='sendbox-input'
+              className={`sendbox-highlight-container ${isSingleLine ? 'sendbox-highlight-container--single' : ''}`}
               style={{
-                width: '100%',
+                width: isSingleLine ? 'auto' : '100%',
                 flex: isSingleLine ? 1 : 'none',
                 minWidth: 0,
                 maxWidth: '100%',
-                marginLeft: 0,
-                marginRight: 0,
-                marginBottom: 0,
-                height: isSingleLine ? (isMobile ? '22px' : '20px') : 'auto',
-                minHeight: isSingleLine ? (isMobile ? '22px' : '20px') : '40px',
-                overflowY: isSingleLine ? 'hidden' : 'auto',
-                overflowX: 'hidden',
-                whiteSpace: isSingleLine ? 'nowrap' : 'pre-wrap',
-                textOverflow: isSingleLine ? 'ellipsis' : 'clip',
-                wordBreak: isSingleLine ? 'normal' : 'break-word',
-                overflowWrap: 'break-word',
+                marginBottom: isSingleLine ? 0 : '8px',
+                minHeight: isSingleLine ? '20px' : '40px',
               }}
-              onChange={handleTextAreaChange}
-              onPaste={onPaste}
-              onTouchStart={markMobileFocusIntent}
-              onMouseDown={markMobileFocusIntent}
-              onClick={(event) => {
-                syncCaretPosition(event.target);
-              }}
-              onFocus={handleInputFocus}
-              onBlur={handleInputBlur}
-              onKeyUp={(event) => {
-                syncCaretPosition(event.currentTarget);
-              }}
-              onSelect={(event) => {
-                syncCaretPosition(event.currentTarget);
-              }}
-              onScroll={(event) => {
-                syncHighlightScroll(event.currentTarget);
-              }}
-              {...compositionHandlers}
-              autoSize={isSingleLine ? false : { minRows: 1, maxRows: 10 }}
-              onKeyDown={createKeyDownHandler(
-                () => void sendMessageHandler(),
-                (event) => {
-                  if (shouldTranscribeSpeechOnEnter(event.key, event.shiftKey, hasActiveSpeechInput)) {
-                    event.preventDefault();
-                    void transcribeSpeechInputWithGuard({ emit: true });
-                    return true;
+            >
+              <div
+                ref={highlightScrollRef}
+                aria-hidden='true'
+                className={`sendbox-highlight-layer text-14px ${isMobile ? 'sendbox-input--mobile' : ''} ${isSingleLine ? 'sendbox-highlight-layer--single' : ''}`}
+                data-testid='sendbox-highlight-layer'
+                style={!shouldUseHighlightOverlay ? { visibility: 'hidden' } : undefined}
+              >
+                {renderHighlightedInputValue()}
+              </div>
+              <Input.TextArea
+                autoFocus={!isMobile}
+                // Typing stays available even while a task runs / the parent is
+                // `disabled` for a transient reason — the send button still gates
+                // dispatch. Only a hard "no model selected"-style disable (without
+                // the queue path) blocks composing. (Issue B: never block typing.)
+                disabled={disabled && !keepInputEditable}
+                spellCheck={false}
+                value={input}
+                placeholder={placeholder ?? t('conversation.welcome.evePlaceholder')}
+                aria-describedby={composerHintId}
+                className={`${shouldUseHighlightOverlay ? 'sendbox-highlight-textarea ' : ''}pl-0 pr-0 !b-none focus:shadow-none m-0 !bg-transparent !focus:bg-transparent !hover:bg-transparent lh-[20px] !resize-none text-14px ${isMobile ? 'sendbox-input--mobile' : ''}`}
+                data-testid='sendbox-input'
+                style={{
+                  width: '100%',
+                  flex: isSingleLine ? 1 : 'none',
+                  minWidth: 0,
+                  maxWidth: '100%',
+                  marginLeft: 0,
+                  marginRight: 0,
+                  marginBottom: 0,
+                  height: isSingleLine ? (isMobile ? '22px' : '20px') : 'auto',
+                  minHeight: isSingleLine ? (isMobile ? '22px' : '20px') : '40px',
+                  overflowY: isSingleLine ? 'hidden' : 'auto',
+                  overflowX: 'hidden',
+                  whiteSpace: isSingleLine ? 'nowrap' : 'pre-wrap',
+                  textOverflow: isSingleLine ? 'ellipsis' : 'clip',
+                  wordBreak: isSingleLine ? 'normal' : 'break-word',
+                  overflowWrap: 'break-word',
+                }}
+                onChange={handleTextAreaChange}
+                onPaste={onPaste}
+                onTouchStart={markMobileFocusIntent}
+                onMouseDown={markMobileFocusIntent}
+                onClick={(event) => {
+                  syncCaretPosition(event.target);
+                }}
+                onFocus={handleInputFocus}
+                onBlur={handleInputBlur}
+                onKeyUp={(event) => {
+                  syncCaretPosition(event.currentTarget);
+                }}
+                onSelect={(event) => {
+                  syncCaretPosition(event.currentTarget);
+                }}
+                onScroll={(event) => {
+                  syncHighlightScroll(event.currentTarget);
+                }}
+                {...compositionHandlers}
+                autoSize={isSingleLine ? false : { minRows: 1, maxRows: 10 }}
+                onKeyDown={createKeyDownHandler(
+                  () => void sendMessageHandler(),
+                  (event) => {
+                    if (shouldTranscribeSpeechOnEnter(event.key, event.shiftKey, hasActiveSpeechInput)) {
+                      event.preventDefault();
+                      void transcribeSpeechInputWithGuard({ emit: true });
+                      return true;
+                    }
+                    return handleAtFileMenuKeyDown(event) || handleOverlayKeyDown(event) || handleHistoryKeyDown(event);
                   }
-                  return handleAtFileMenuKeyDown(event) || handleOverlayKeyDown(event) || handleHistoryKeyDown(event);
-                }
-              )}
-            ></Input.TextArea>
+                )}
+              ></Input.TextArea>
+              <span id={composerHintId} className='sr-only'>
+                {bottomHint ??
+                  t('conversation.sendbox.hint', { defaultValue: 'Type / for commands, @ to reference files' })}
+              </span>
+            </div>
+            {isSingleLine && (
+              <div className='flex items-center gap-2'>
+                {renderedSpeechButton}
+                {sendButtonPrefix}
+                {renderActionButtons()}
+              </div>
+            )}
           </div>
-          {isSingleLine && (
-            <div className='flex items-center gap-2'>
-              {renderedSpeechButton}
-              {sendButtonPrefix}
-              {renderActionButtons()}
+          {!isSingleLine && (
+            <div className='sendbox-composer-action-row flex items-center justify-between gap-2 w-full'>
+              <div
+                className={
+                  isMobileCompact
+                    ? 'flex-shrink-0 sendbox-tools sendbox-tools-mobile-compact'
+                    : isMobile
+                      ? 'sendbox-tools sendbox-tools-scroll-mobile'
+                      : 'sendbox-tools'
+                }
+              >
+                {renderedTools}
+              </div>
+              <div className='sendbox-actions flex items-center gap-2'>
+                {renderedRightTools}
+                {renderedSpeechButton}
+                {sendButtonPrefix}
+                {renderActionButtons()}
+              </div>
             </div>
           )}
         </div>
-        {!isSingleLine && (
-          <div className='flex items-center justify-between gap-2 w-full'>
-            <div
-              className={
-                isMobileCompact
-                  ? 'flex-shrink-0 sendbox-tools sendbox-tools-mobile-compact'
-                  : isMobile
-                    ? 'sendbox-tools sendbox-tools-scroll-mobile'
-                    : 'sendbox-tools'
-              }
-            >
-              {renderedTools}
-            </div>
-            <div className='sendbox-actions flex items-center gap-2'>
-              {renderedRightTools}
-              {renderedSpeechButton}
-              {sendButtonPrefix}
-              {renderActionButtons()}
-            </div>
-          </div>
-        )}
       </div>
-    </div>
+    </>
   );
 };
 

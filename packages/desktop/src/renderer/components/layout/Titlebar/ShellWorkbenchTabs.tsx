@@ -6,6 +6,8 @@
 
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import type { PreviewTab } from '@/renderer/pages/conversation/Preview/context/PreviewContext';
+import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
+import { addEventListener } from '@/renderer/utils/emitter';
 import {
   Browser,
   CheckOne,
@@ -18,6 +20,7 @@ import {
   Plus,
   Terminal,
   Video,
+  ViewGridCard,
 } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -32,7 +35,7 @@ type ShellWorkbenchTabsProps = {
   launcherOnly?: boolean;
 };
 
-type WorkbenchTarget = 'browser' | 'terminal' | 'files' | 'review';
+type WorkbenchTarget = 'browser' | 'terminal' | 'kanban' | 'files' | 'review';
 
 const iconForTab = (tab: PreviewTab) => {
   switch (tab.content_type) {
@@ -40,6 +43,8 @@ const iconForTab = (tab: PreviewTab) => {
       return <Browser theme='outline' size={16} fill='currentColor' />;
     case 'terminal':
       return <Terminal theme='outline' size={16} fill='currentColor' />;
+    case 'kanban':
+      return <ViewGridCard theme='outline' size={16} fill='currentColor' />;
     case 'workspace-files':
       return <FolderOpen theme='outline' size={16} fill='currentColor' />;
     case 'workspace-review':
@@ -81,6 +86,7 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
   launcherOnly = false,
 }) => {
   const { t } = useTranslation();
+  const layout = useLayoutContext();
   const { isOpen, tabs, activeTabId, openPreview, showPreview, hidePreview, requestCloseTab, setWorkbenchLayoutMode } =
     usePreviewContext();
   const [launcherOpen, setLauncherOpen] = useState(false);
@@ -144,18 +150,31 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
           focusPane(previewPaneId);
           return;
         }
+        case 'kanban': {
+          setWorkbenchLayoutMode('split-right');
+          const existingKanban = conversationTabs.find((tab) => tab.content_type === 'kanban');
+          if (existingKanban) {
+            showPreviewTab(existingKanban.id);
+            return;
+          }
+          openPreview('kanban:default', 'kanban', {
+            title: t('kanban.title', { defaultValue: 'Aufgaben' }),
+            conversation_id: conversationId,
+          });
+          focusPane(previewPaneId);
+          return;
+        }
         case 'files': {
-          if (!workspacePath) return;
           setWorkbenchLayoutMode('split-right');
           const existingFiles = conversationTabs.find((tab) => tab.content_type === 'workspace-files');
           if (existingFiles) {
             showPreviewTab(existingFiles.id);
             return;
           }
-          openPreview(workspacePath, 'workspace-files', {
+          openPreview(workspacePath ?? 'workspace:unavailable', 'workspace-files', {
             title: t('conversation.workbench.files'),
             conversation_id: conversationId,
-            workspace: workspacePath,
+            ...(workspacePath ? { workspace: workspacePath } : {}),
             workspace_event_prefix: workspaceEventPrefix,
             is_temporary_workspace: isTemporaryWorkspace,
           });
@@ -163,17 +182,16 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
           return;
         }
         case 'review': {
-          if (!workspacePath) return;
           setWorkbenchLayoutMode('split-right');
           const existingReview = conversationTabs.find((tab) => tab.content_type === 'workspace-review');
           if (existingReview) {
             showPreviewTab(existingReview.id);
             return;
           }
-          openPreview(workspacePath, 'workspace-review', {
+          openPreview(workspacePath ?? 'workspace:unavailable', 'workspace-review', {
             title: t('conversation.workbench.review'),
             conversation_id: conversationId,
-            workspace: workspacePath,
+            ...(workspacePath ? { workspace: workspacePath } : {}),
             workspace_event_prefix: workspaceEventPrefix,
             is_temporary_workspace: isTemporaryWorkspace,
           });
@@ -195,6 +213,33 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
       workspaceEventPrefix,
       isTemporaryWorkspace,
     ]
+  );
+
+  useEffect(
+    () =>
+      addEventListener('commandEve.workbench.reveal', ({ conversation_id, pane }) => {
+        // The launcher-only header is the only workbench component mounted
+        // before the first tab exists. It must therefore be able to create that
+        // first tab; ignoring the event here made Hermes' first focus_pane call
+        // report success while nothing appeared.
+        if (conversation_id !== conversationId) return;
+        if (pane === 'chat') {
+          hidePreview();
+          window.requestAnimationFrame(() => {
+            document.getElementById(`eve-chat-pane-${conversationId}`)?.focus({ preventScroll: true });
+          });
+          return;
+        }
+        if (pane === 'sessions') {
+          layout?.setSiderCollapsed(false);
+          window.requestAnimationFrame(() => {
+            document.querySelector<HTMLElement>('[data-command-eve-pane="sessions"]')?.focus({ preventScroll: true });
+          });
+          return;
+        }
+        activateTarget(pane);
+      }),
+    [activateTarget, conversationId, hidePreview, launcherOnly, layout]
   );
 
   useEffect(() => {
@@ -279,6 +324,11 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
       icon: <Terminal theme='outline' size={18} fill='currentColor' />,
     },
     {
+      target: 'kanban',
+      label: t('kanban.title', { defaultValue: 'Aufgaben' }),
+      icon: <ViewGridCard theme='outline' size={18} fill='currentColor' />,
+    },
+    {
       target: 'files',
       label: t('conversation.workbench.files'),
       detail: workspacePath ? undefined : t('conversation.workbench.notConnected'),
@@ -316,6 +366,7 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
                   aria-selected={selected}
                   aria-controls={previewPaneId}
                   aria-label={accessibleTitle}
+                  title={accessibleTitle}
                   tabIndex={selected ? 0 : -1}
                   className={styles.tabButton}
                   onClick={() => showPreviewTab(tab.id)}

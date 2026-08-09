@@ -7,7 +7,7 @@
   --eve-composer-control-active: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 11%, transparent);
 }
 
-.eve-composer-surface {
+.eve-composer-container {
   container-name: eve-composer;
   container-type: inline-size;
 }
@@ -329,6 +329,21 @@
     grid-row: 2;
     justify-self: end;
     margin-left: 0 !important;
+  }
+
+  /* Active EVE chats pass this component as the right-hand slot, so its left
+     cluster is intentionally empty. Do not reserve a ghost row for it. */
+  .unified-send-bar:has(.unified-send-bar__left:empty) {
+    display: flex !important;
+    gap: 4px !important;
+  }
+
+  .unified-send-bar:has(.unified-send-bar__left:empty) .unified-send-bar__left {
+    display: none;
+  }
+
+  .unified-send-bar:has(.unified-send-bar__left:empty) .unified-send-bar__right {
+    margin-left: auto !important;
   }
 }
 

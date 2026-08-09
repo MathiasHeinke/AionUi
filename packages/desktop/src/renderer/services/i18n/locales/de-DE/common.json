@@ -118,6 +118,7 @@
   "fileAttach.uploading": "Wird hochgeladen...",
   "fileAttach.uploadSuccess": "Hochladen erfolgreich",
   "fileAttach.cancelUpload": "Hochladen abbrechen",
+  "fileAttach.unsupported": "{{count}} Datei(en) nicht unterstützt",
   "expand": "Ausklappen",
   "name": "Name",
   "added": "Hinzugefügt",

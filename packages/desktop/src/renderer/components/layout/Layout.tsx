@@ -368,7 +368,11 @@ const Layout: React.FC<{
                 )}
                 {/* 侧栏折叠改由标题栏统一控制 / Sidebar folding handled by Titlebar toggle */}
               </ArcoLayout.Header>
-              <ArcoLayout.Content className='pt-0 px-8px pb-0 layout-sider-content'>
+              <ArcoLayout.Content
+                className='pt-0 px-8px pb-0 layout-sider-content'
+                data-command-eve-pane='sessions'
+                tabIndex={-1}
+              >
                 {React.isValidElement(sider)
                   ? React.cloneElement(sider, {
                       onSessionClick: () => {

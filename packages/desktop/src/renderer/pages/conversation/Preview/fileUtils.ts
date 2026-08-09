@@ -24,6 +24,7 @@ export const FILE_EXTENSION_MAP: Record<PreviewContentType, readonly string[]> =
   diff: ['diff', 'patch'],
   url: [], // url 类型用于网页预览，无扩展名映射 / url type for web preview, no extension mapping
   terminal: [], // interactive workbench surface, not a file extension
+  kanban: [], // native Hermes board surface, not a file extension
   'workspace-files': [], // interactive workspace surface, not a file extension
   'workspace-review': [], // interactive review surface, not a file extension
 };

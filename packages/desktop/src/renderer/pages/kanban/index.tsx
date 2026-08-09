@@ -907,7 +907,7 @@ const KanbanBoardPage: React.FC = () => {
           </div>
         ) : view.kind === 'unavailable' ? (
           <div
-            className='flex min-h-240px flex-col items-center justify-center gap-8px rounded-12px border border-dashed border-border-2 px-16px py-24px text-center'
+            className='flex min-h-240px flex-col items-center justify-center gap-8px px-16px py-24px text-center'
             data-testid='kanban-unavailable'
           >
             <Empty
@@ -923,7 +923,7 @@ const KanbanBoardPage: React.FC = () => {
           </div>
         ) : view.kind === 'noBoard' ? (
           <div
-            className='flex min-h-240px flex-col items-center justify-center gap-8px rounded-12px border border-dashed border-border-2 px-16px py-24px text-center'
+            className='flex min-h-240px flex-col items-center justify-center gap-8px px-16px py-24px text-center'
             data-testid='kanban-empty-no-board'
           >
             <Empty
@@ -952,7 +952,11 @@ const KanbanBoardPage: React.FC = () => {
               </Tag>
               <Tag color='green'>HG-2.5</Tag>
             </div>
-            <div className='grid gap-12px md:grid-cols-2 xl:grid-cols-5' data-testid='kanban-columns'>
+            <div
+              className='grid gap-12px'
+              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))' }}
+              data-testid='kanban-columns'
+            >
               {view.columns.map((column) => (
                 <KanbanColumnView
                   key={column.key}

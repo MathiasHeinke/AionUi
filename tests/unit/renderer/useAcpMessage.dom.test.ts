@@ -400,10 +400,9 @@ describe('useAcpMessage', () => {
     expect(addOrUpdateMessageMock).toHaveBeenCalled();
   });
 
-  it('routes only session-bound Hermes preview/files events and rejects foreign or unknown events', async () => {
+  it('routes only session-bound Hermes preview and native-pane events', async () => {
     conversationGetInvokeMock.mockResolvedValue(null);
-    const railReveal = vi.fn();
-    window.addEventListener('command-eve-elements-rail-reveal', railReveal);
+    const emitSpy = vi.spyOn(emitter, 'emit');
     renderHook(() => useAcpMessage('conv-1'));
     await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
 
@@ -447,6 +446,7 @@ describe('useAcpMessage', () => {
       send('preview.open', { url: 'https://foreign.example' }, 'foreign-session');
       send('terminal.read', {});
       send('pane.reveal', { pane: 'terminal' });
+      send('pane.reveal', { pane: 'kanban' });
     });
 
     expect(openPreviewMock).toHaveBeenCalledTimes(1);
@@ -454,13 +454,11 @@ describe('useAcpMessage', () => {
       title: 'Example',
       conversation_id: 'conv-1',
     });
-    expect(railReveal).toHaveBeenCalledTimes(1);
-    const railEvent = railReveal.mock.calls[0]?.[0];
-    expect(railEvent).toBeInstanceOf(CustomEvent);
-    if (!(railEvent instanceof CustomEvent)) throw new Error('Expected the elements-rail CustomEvent');
-    expect(railEvent.detail).toEqual({ tab: 'context' });
-
-    window.removeEventListener('command-eve-elements-rail-reveal', railReveal);
+    expect(emitSpy.mock.calls.filter(([event]) => event === 'commandEve.workbench.reveal')).toEqual([
+      ['commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'files' }],
+      ['commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'terminal' }],
+    ]);
+    emitSpy.mockRestore();
   });
 
   it('answers one strict session-bound read_preview request from the visibly active browser', async () => {
@@ -599,8 +597,7 @@ describe('useAcpMessage', () => {
 
   it('uses completed standard ACP desktop tool frames when transient session metadata is not delivered', async () => {
     conversationGetInvokeMock.mockResolvedValue(null);
-    const railReveal = vi.fn();
-    window.addEventListener('command-eve-elements-rail-reveal', railReveal);
+    const emitSpy = vi.spyOn(emitter, 'emit');
     renderHook(() => useAcpMessage('conv-1'));
     await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
 
@@ -637,9 +634,10 @@ describe('useAcpMessage', () => {
       title: 'Fallback',
       conversation_id: 'conv-1',
     });
-    expect(railReveal).toHaveBeenCalledTimes(1);
-
-    window.removeEventListener('command-eve-elements-rail-reveal', railReveal);
+    expect(emitSpy.mock.calls.filter(([event]) => event === 'commandEve.workbench.reveal')).toEqual([
+      ['commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'files' }],
+    ]);
+    emitSpy.mockRestore();
   });
 
   it('hydrates ACP usage after warmup and preserves it through the turn lifecycle', async () => {

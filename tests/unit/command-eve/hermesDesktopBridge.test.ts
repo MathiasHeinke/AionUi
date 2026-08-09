@@ -59,7 +59,9 @@ describe('Hermes desktop bridge', () => {
     expect(shim).toContain('SessionInfoUpdate(');
     expect(shim).toContain('"version": "command-eve-desktop-event/v1"');
     expect(shim).toContain('asyncio.run_coroutine_threadsafe');
-    expect(shim).toContain('focus_pane_tool.PANES = ("files",)');
+    expect(shim).toContain('_COMMAND_EVE_DESKTOP_PANES = {"chat", "files", "terminal", "review", "sessions"}');
+    expect(shim).toContain('pane not in _COMMAND_EVE_DESKTOP_PANES');
+    expect(shim).toContain('focus_pane_tool.PANES = ("chat", "files", "terminal", "review", "sessions")');
     expect(shim).not.toContain('get_session_env("HERMES_UI_SESSION_ID"');
   });
 

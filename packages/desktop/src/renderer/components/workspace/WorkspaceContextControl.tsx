@@ -60,7 +60,12 @@ const WorkspaceContextControl: React.FC<WorkspaceContextControlProps> = ({
   const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => getRecentWorkspaces());
   const durableProjectName = projectName?.trim() ? projectName.trim() : '';
   const workspaceName = durableProjectName || workspaceNameFromPath(workspacePath);
-  const displayLabel = workspaceName || t('guid.workspace.workInProject');
+  const isTemporaryWorkspace = !durableProjectName && workspaceName.startsWith('hermes-temp-');
+  const displayLabel =
+    durableProjectName ||
+    (isTemporaryWorkspace ? t('conversation.workspace.temporarySpace') : workspaceName) ||
+    t('guid.workspace.workInProject');
+  const inspectLabel = `${t('conversation.elementsRail.context')}: ${displayLabel}`;
 
   const inspectContext = useCallback(() => {
     dispatchElementsRailSelectEvent('context');
@@ -135,7 +140,7 @@ const WorkspaceContextControl: React.FC<WorkspaceContextControlProps> = ({
       disabled={disabled}
       onClick={editable ? undefined : inspectContext}
       data-testid='workspace-context-control'
-      aria-label={displayLabel}
+      aria-label={editable ? displayLabel : inspectLabel}
     >
       <span className={styles.controlContent}>
         <FolderOpen size={16} aria-hidden='true' />
@@ -148,11 +153,7 @@ const WorkspaceContextControl: React.FC<WorkspaceContextControlProps> = ({
   return (
     // When a durable project name wins, the tooltip shows THAT name — never
     // the internal temporary workspace path underneath it.
-    <Tooltip
-      content={durableProjectName ? displayLabel : workspacePath || displayLabel}
-      position='top'
-      disabled={!workspacePath && !durableProjectName}
-    >
+    <Tooltip content={editable ? workspacePath || displayLabel : inspectLabel} position='top'>
       {editable ? (
         <Dropdown
           trigger='click'

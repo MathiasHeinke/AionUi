@@ -18,6 +18,7 @@ export type PreviewContentType =
   | 'audio'
   | 'url'
   | 'terminal'
+  | 'kanban'
   | 'workspace-files'
   | 'workspace-review';
 

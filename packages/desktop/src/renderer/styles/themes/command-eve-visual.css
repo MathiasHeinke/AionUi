@@ -2550,9 +2550,16 @@
 }
 
 .eve-composer-surface--dragging {
-  border-color: rgb(var(--primary-4)) !important;
-  border-style: dashed !important;
-  background: var(--color-primary-light-1) !important;
+  border-color: color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 52%, transparent) !important;
+  border-style: solid !important;
+  background: color-mix(
+    in srgb,
+    var(--eve-brand-logo, rgb(var(--primary-6))) 7%,
+    var(--glass-composer-bg-solid, var(--color-bg-2))
+  ) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 14%, transparent),
+    0 18px 46px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 18%, transparent) !important;
 }
 
 /* Runtime status is a footer row, not a second panel. The 51px geometry mirrors

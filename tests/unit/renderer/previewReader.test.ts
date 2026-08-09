@@ -219,4 +219,58 @@ describe('Command EVE preview reader', () => {
       })
     ).resolves.toMatchObject({ kind: 'artifact' });
   });
+
+  it.each(['markdown', 'html', 'code', 'diff'] as const)(
+    'reads the bounded source of an active %s tab instead of returning only its identity',
+    async (contentType) => {
+      const tab: PreviewTab = {
+        ...urlTab(`${contentType}-tab`),
+        content: '0123456789',
+        content_type: contentType,
+        metadata: { conversation_id: 'conv-1', file_path: `/workspace/example.${contentType}` },
+      };
+
+      await expect(
+        readActiveConversationPreview({
+          activeTabId: tab.id,
+          conversationId: 'conv-1',
+          isOpen: true,
+          options: { start: 3, count: 4 },
+          tabs: [tab],
+        })
+      ).resolves.toMatchObject({
+        kind: 'file',
+        path: `/workspace/example.${contentType}`,
+        start: 3,
+        end: 7,
+        text: '3456',
+        total_chars: 10,
+      });
+    }
+  );
+
+  it('marks a truncated direct-text preview so its loaded length is never presented as the complete file', async () => {
+    const tab: PreviewTab = {
+      ...urlTab('truncated-code-tab'),
+      content: 'loaded excerpt',
+      content_type: 'code',
+      metadata: {
+        conversation_id: 'conv-1',
+        file_path: '/workspace/large.ts',
+        truncated: true,
+      },
+    };
+
+    await expect(
+      readActiveConversationPreview({
+        activeTabId: tab.id,
+        conversationId: 'conv-1',
+        isOpen: true,
+        tabs: [tab],
+      })
+    ).resolves.toMatchObject({
+      note: expect.stringContaining('truncated'),
+      total_chars: 'loaded excerpt'.length,
+    });
+  });
 });

@@ -48,9 +48,10 @@ describe('Command EVE workbench tab contract', () => {
     const chatLayout = read('packages/desktop/src/renderer/pages/conversation/components/ChatLayout/index.tsx');
     const chatConversation = read('packages/desktop/src/renderer/pages/conversation/components/ChatConversation.tsx');
     const workspace = read('packages/desktop/src/renderer/pages/conversation/Workspace/index.tsx');
-    expect(workbench).toContain("type WorkbenchTarget = 'browser' | 'terminal' | 'files' | 'review'");
-    expect(workbench).toContain("openPreview(workspacePath, 'workspace-files'");
-    expect(workbench).toContain("openPreview(workspacePath, 'workspace-review'");
+    expect(workbench).toContain("type WorkbenchTarget = 'browser' | 'terminal' | 'kanban' | 'files' | 'review'");
+    expect(workbench).toContain("openPreview(workspacePath ?? 'workspace:unavailable', 'workspace-files'");
+    expect(workbench).toContain("openPreview(workspacePath ?? 'workspace:unavailable', 'workspace-review'");
+    expect(previewPanel).toContain("t('conversation.workbench.notConnected')");
     expect(workbench).not.toContain('dispatchElementsRailRevealEvent');
     expect(previewTypes).toContain("| 'workspace-files'");
     expect(previewTypes).toContain("| 'workspace-review'");
@@ -62,6 +63,26 @@ describe('Command EVE workbench tab contract', () => {
     expect(chatConversation).toContain("conversation?.type === 'codex' ? 'codex'");
     expect(chatLayout).toContain('contextContent={isWorkspaceWorkbenchSurface ? undefined : props.sider}');
     expect(workspace).toContain('{!fixedTab && (');
+  });
+
+  it('reuses the native Hermes Kanban as a container-responsive workbench surface', () => {
+    const workbench = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.tsx');
+    const previewTypes = read('packages/desktop/src/common/types/office/preview.ts');
+    const previewPanel = read(
+      'packages/desktop/src/renderer/pages/conversation/Preview/components/PreviewPanel/PreviewPanel.tsx'
+    );
+    const kanban = read('packages/desktop/src/renderer/pages/kanban/index.tsx');
+
+    expect(workbench).toContain("type WorkbenchTarget = 'browser' | 'terminal' | 'kanban' | 'files' | 'review'");
+    expect(workbench).toContain("openPreview('kanban:default', 'kanban'");
+    expect(workbench).toContain("t('kanban.title', { defaultValue: 'Aufgaben' })");
+    expect(previewTypes).toContain("| 'kanban'");
+    expect(previewPanel).toContain("const KanbanBoardHost = React.lazy(() => import('@/renderer/pages/kanban'))");
+    expect(previewPanel).toContain('<KanbanBoardHost />');
+    expect(previewPanel).toContain('!isKanbanSurface');
+    expect(kanban).toContain('repeat(auto-fit, minmax(min(220px, 100%), 1fr))');
+    expect(kanban).not.toContain('md:grid-cols-2 xl:grid-cols-5');
+    expect(kanban).not.toContain('rounded-12px border border-dashed border-border-2');
   });
 
   it('routes generated documents and media into existing workbench viewers', () => {
@@ -88,24 +109,28 @@ describe('Command EVE workbench tab contract', () => {
     const terminalCss = read(
       'packages/desktop/src/renderer/pages/conversation/Preview/components/viewers/TerminalViewer.module.css'
     );
+    const terminalTheme = read(
+      'packages/desktop/src/renderer/pages/conversation/Preview/components/viewers/terminalTheme.ts'
+    );
 
-    expect(terminal).toContain('selectionInactiveBackground');
-    expect(terminal).toContain('brightWhite:');
-    expect(terminal).toContain('brightYellow:');
+    expect(terminal).toContain('allowTransparency: true');
+    expect(terminal).toContain('data-terminal-theme={currentTheme}');
+    expect(terminalTheme).toContain('selectionInactiveBackground');
+    expect(terminalTheme).toContain('brightWhite:');
+    expect(terminalTheme).toContain('brightYellow:');
+    expect(terminalTheme).toContain('background: transparent');
     expect(terminalCss).not.toContain('#0b0e14');
     expect(terminalCss).not.toContain('rgba(217, 225, 239');
     expect(terminalCss).toContain('var(--eve-shell-bg');
-    expect(terminalCss).toContain('background-color: var(--eve-shell-bg, var(--bg-1)) !important;');
-    expect(terminalCss).toMatch(
-      /\.viewport :global\(\.xterm \.composition-view\)\s*\{[^}]*background:\s*var\(--eve-shell-bg/s
-    );
+    expect(terminalCss).toContain('background-color: transparent !important;');
+    expect(terminalCss).toMatch(/\.viewport :global\(\.xterm \.composition-view\)\s*\{[^}]*background:\s*color-mix/s);
     expect(terminalCss).toMatch(
       /\.viewport :global\(\.xterm \.composition-view\)\s*\{[^}]*color:\s*var\(--eve-shell-text/s
     );
     expect(terminalCss).toMatch(/\.viewport\s*\{[^}]*box-sizing:\s*border-box;/s);
     expect(terminalCss).toMatch(/\.viewport\s*\{[^}]*overflow:\s*hidden;/s);
     expect(terminalCss).toMatch(/\.viewport :global\(\.xterm\)\s*\{[^}]*width:\s*100%;/s);
-    expect(terminalCss).toContain('var(--glass-chrome-bg-solid');
+    expect(terminalCss).not.toContain('border-bottom:');
     expect(terminalCss).toContain('var(--eve-status-completed');
     expect(terminalCss).toContain('var(--eve-status-error');
   });
@@ -181,6 +206,7 @@ describe('Command EVE workbench tab contract', () => {
   });
 
   it('keeps workbench chrome and the inspector on one continuous canvas', () => {
+    const workbenchCss = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.module.css');
     const layoutControlsCss = read(
       'packages/desktop/src/renderer/components/layout/Titlebar/WorkbenchLayoutControls.module.css'
     );
@@ -192,6 +218,8 @@ describe('Command EVE workbench tab contract', () => {
     expect(elementsRailCss).not.toMatch(/\.rail\s*\{[^}]*border-left:/s);
     expect(elementsRailCss).toMatch(/\.activityCard,\s*\n\.contextCard,\s*\n\.metaBlock\s*\{[^}]*border:\s*0;/s);
     expect(elementsRailCss).toMatch(/\.artifactButton,[\s\S]*?background:\s*transparent !important;/);
+    expect(workbenchCss).toContain('@container eve-workbench-tabs (max-width: 620px)');
+    expect(workbenchCss).toContain(".tabShell:not([data-selected='true']) .tabLabel");
   });
 
   it('prevents an unrelated scheduled-task hover card from appearing after chat maximization', () => {

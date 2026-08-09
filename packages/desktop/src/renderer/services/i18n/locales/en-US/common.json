@@ -118,6 +118,7 @@
   "fileAttach.uploading": "Uploading...",
   "fileAttach.uploadSuccess": "Upload successful",
   "fileAttach.cancelUpload": "Cancel upload",
+  "fileAttach.unsupported": "{{count}} file(s) not supported",
   "expand": "Expand",
   "name": "Name",
   "added": "Added",

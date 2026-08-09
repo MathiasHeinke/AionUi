@@ -69,7 +69,21 @@ function renderSendBox(disabled: boolean, onSend: ReturnType<typeof vi.fn>) {
   return {
     unmount: view.unmount,
     button: (): HTMLElement => screen.getByTestId('sendbox-send-btn'),
+    surface: (): HTMLElement => screen.getByTestId('sendbox-surface'),
     textarea: (): HTMLElement => screen.getByTestId('sendbox-input'),
+  };
+}
+
+function renderSendBoxInChatPane() {
+  const onSend = vi.fn().mockResolvedValue(undefined);
+  render(
+    <div id='eve-chat-pane-conv-1' data-testid='chat-pane'>
+      <SendBox value={DRAFT} onChange={() => undefined} onSend={onSend} allowSendWhileLoading />
+    </div>
+  );
+  return {
+    pane: (): HTMLElement => screen.getByTestId('chat-pane'),
+    surface: (): HTMLElement => screen.getByTestId('sendbox-surface'),
   };
 }
 
@@ -121,5 +135,41 @@ describe('SendBox — a held composer cannot submit', () => {
     const onSend = vi.fn().mockResolvedValue(undefined);
     const { textarea } = renderSendBox(true, onSend);
     expect(textarea()).not.toBeDisabled();
+  });
+
+  it('focuses the textarea when the user clicks unused composer surface', () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    const { surface, textarea } = renderSendBox(false, onSend);
+
+    textarea().blur();
+    expect(textarea()).not.toHaveFocus();
+    fireEvent.click(surface());
+    expect(textarea()).toHaveFocus();
+  });
+
+  it('uses the whole active chat pane as the desktop file-drop target', () => {
+    const { pane, surface } = renderSendBoxInChatPane();
+    const dataTransfer = { files: [], types: ['Files'] };
+
+    fireEvent.dragEnter(pane(), { dataTransfer });
+    expect(surface()).toHaveClass('eve-composer-surface--dragging');
+    expect(screen.getByTestId('chat-file-drop-overlay')).toHaveTextContent('conversation.workspace.dragOverlayTitle');
+
+    fireEvent.dragLeave(pane(), { dataTransfer });
+    expect(surface()).not.toHaveClass('eve-composer-surface--dragging');
+    expect(screen.queryByTestId('chat-file-drop-overlay')).not.toBeInTheDocument();
+  });
+
+  it('does not claim text, link, or internal drags from the chat pane', () => {
+    const { pane, surface } = renderSendBoxInChatPane();
+    const dataTransfer = { files: [], types: ['text/plain'] };
+    const dragEnter = new Event('dragenter', { bubbles: true, cancelable: true });
+    Object.defineProperty(dragEnter, 'dataTransfer', { value: dataTransfer });
+
+    pane().dispatchEvent(dragEnter);
+
+    expect(dragEnter.defaultPrevented).toBe(false);
+    expect(surface()).not.toHaveClass('eve-composer-surface--dragging');
+    expect(screen.queryByTestId('chat-file-drop-overlay')).not.toBeInTheDocument();
   });
 });

@@ -481,6 +481,7 @@ export type I18nKey =
   | 'common.file'
   | 'common.fileAttach.addFiles'
   | 'common.fileAttach.cancelUpload'
+  | 'common.fileAttach.unsupported'
   | 'common.fileAttach.failed'
   | 'common.fileAttach.myDevice'
   | 'common.fileAttach.uploadSuccess'
