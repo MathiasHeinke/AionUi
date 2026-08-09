@@ -1002,7 +1002,7 @@ export type RuntimeBootstrapOptions = {
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.822.0',
+  release: '1.822.1',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
@@ -1554,7 +1554,7 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.822.0',
+  release: '1.822.1',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
@@ -2741,7 +2741,7 @@ export function commandEveOnboardingSkillMarkdown(): string {
 //
 // CORRECTED 2026-08-07 — this used to add "that auto-open is inert without a
 // backend watcher". The watcher exists: the pinned aioncore binary (sha256
-// 83a4e743...2d3a8a) carries `workspaceOfficeWatch.fileAdded` next to
+// ccb16ee8...cc5be40) carries `workspaceOfficeWatch.fileAdded` next to
 // `crates/aionui-file/src/watch_service.rs:98`, plus the
 // `/api/fs/office-watch/start` and `/stop` routes, and the hook calls both and
 // subscribes. Still UNPROVEN is whether an event ever arrives at runtime — that
