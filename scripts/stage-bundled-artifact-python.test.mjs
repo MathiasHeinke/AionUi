@@ -14,6 +14,7 @@ import {
   extractWheel,
   inspectWheel,
   readBuildManifest,
+  removePreviouslySpreadFiles,
   resolvePackageSources,
   safeWheelEntryPath,
   stripBytecodeCaches,
@@ -109,6 +110,22 @@ test('bytecode cleanup covers the complete staged Python tree without following 
   assert.equal(fs.existsSync(artifactCache), false);
   assert.equal(fs.existsSync(path.join(pythonRoot, 'lib', 'python3.12', 'pathlib.py')), true);
   assert.equal(fs.readlinkSync(path.join(pythonRoot, 'python3')), 'python3.12');
+});
+
+test('an interrupted stage removes only its pinned spread scripts before retry', (t) => {
+  const pythonRoot = makeTempDir(t);
+  const targetDirectory = path.join(pythonRoot, 'artifact-site-packages');
+  const stagedScript = path.join(pythonRoot, 'bin', 'vba_extract.py');
+  const unrelatedScript = path.join(pythonRoot, 'bin', 'python-tool');
+  fs.mkdirSync(targetDirectory, { recursive: true });
+  fs.mkdirSync(path.dirname(stagedScript), { recursive: true });
+  fs.writeFileSync(stagedScript, 'partial wheel output');
+  fs.writeFileSync(unrelatedScript, 'bundled interpreter tool');
+
+  removePreviouslySpreadFiles(targetDirectory, pythonRoot, new Set(['bin/vba_extract.py']));
+
+  assert.equal(fs.existsSync(stagedScript), false);
+  assert.equal(fs.readFileSync(unrelatedScript, 'utf8'), 'bundled interpreter tool');
 });
 
 // ---------------------------------------------------------------------------

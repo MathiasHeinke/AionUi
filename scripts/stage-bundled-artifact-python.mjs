@@ -666,30 +666,58 @@ export function artifactPythonProbeArgs(packages, targetDirectory) {
   return ['-B', '-I', '-P', '-S', '-c', artifactPythonProbeSource(packages, targetDirectory)];
 }
 
-function removePreviouslySpreadFiles(targetDirectory, pythonRoot) {
-  const receiptPath = path.join(targetDirectory, COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT);
-  if (!fs.existsSync(receiptPath)) return;
-  assertRegularFile(receiptPath, 'Previous Artifact Python receipt');
-  const previousReceipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
-  if (previousReceipt.spread_files === undefined) return;
-  if (!Array.isArray(previousReceipt.spread_files)) {
-    throw new Error('Previous Artifact Python spread-file receipt is invalid.');
+function plannedSpreadFilesForPackages(packages, pythonRoot, platform) {
+  const planned = new Set();
+  for (const entry of packages) {
+    for (const rawName of entry.wheelInspection.filePaths) {
+      const resolved = resolveWheelOutput(rawName, targetDirectorySentinel, pythonRoot, platform);
+      if (!resolved.spread) continue;
+      planned.add(path.relative(pythonRoot, resolved.outputPath));
+    }
   }
-  for (const entry of previousReceipt.spread_files) {
+  return planned;
+}
+
+const targetDirectorySentinel = path.join(REPO_ROOT, '.artifact-python-non-spread-sentinel');
+
+function removeSpreadFiles(pythonRoot, entries, label) {
+  for (const entry of entries) {
     const relativePath = safeWheelEntryPath(
-      String(entry?.path || '')
+      String(entry?.path ?? entry ?? '')
         .split(path.sep)
         .join('/')
     );
     const target = path.resolve(pythonRoot, relativePath);
     const relativeToPython = path.relative(pythonRoot, target);
     if (relativeToPython.startsWith('..') || path.isAbsolute(relativeToPython)) {
-      throw new Error(`Previous Artifact Python spread file escaped the runtime: ${relativePath}`);
+      throw new Error(`${label} escaped the runtime: ${relativePath}`);
     }
     if (!fs.existsSync(target)) continue;
-    assertRegularFile(target, 'Previous Artifact Python spread file');
+    assertRegularFile(target, label);
     fs.rmSync(target);
   }
+}
+
+export function removePreviouslySpreadFiles(targetDirectory, pythonRoot, plannedSpreadFiles = new Set()) {
+  const receiptPath = path.join(targetDirectory, COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT);
+  if (!fs.existsSync(receiptPath)) {
+    // An interrupted extraction can already have written wheel `.data/scripts`
+    // outside artifact-site-packages, while the receipt is emitted only after
+    // the import probe. The dedicated target directory proves staging started;
+    // remove only outputs named by the currently pinned wheels so the next run
+    // self-heals without touching an unrelated interpreter file.
+    if (fs.existsSync(targetDirectory)) {
+      removeSpreadFiles(pythonRoot, plannedSpreadFiles, 'Interrupted Artifact Python spread file');
+    }
+    return;
+  }
+  assertRegularFile(receiptPath, 'Previous Artifact Python receipt');
+  const previousReceipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+  if (previousReceipt.spread_files === undefined) return;
+  if (!Array.isArray(previousReceipt.spread_files)) {
+    throw new Error('Previous Artifact Python spread-file receipt is invalid.');
+  }
+  removeSpreadFiles(pythonRoot, previousReceipt.spread_files, 'Previous Artifact Python spread file');
 }
 
 // ---------------------------------------------------------------------------
@@ -965,7 +993,8 @@ export async function stageBundledArtifactPython(options) {
   const targetDirectory = path.join(pythonRoot, COMMAND_EVE_ARTIFACT_SITE_PACKAGES_DIR);
   if (path.dirname(targetDirectory) !== pythonRoot)
     throw new Error('Artifact Python target escaped the bundled runtime.');
-  removePreviouslySpreadFiles(targetDirectory, pythonRoot);
+  const plannedSpreadFiles = plannedSpreadFilesForPackages(packages, pythonRoot, options.platform);
+  removePreviouslySpreadFiles(targetDirectory, pythonRoot, plannedSpreadFiles);
   fs.rmSync(targetDirectory, { recursive: true, force: true });
   fs.mkdirSync(targetDirectory, { recursive: true, mode: 0o755 });
 
