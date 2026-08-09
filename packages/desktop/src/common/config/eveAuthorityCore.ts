@@ -64,6 +64,9 @@ export type EveLadderRung = 0 | 1 | 2 | 3 | 4 | 5;
 
 export const EVE_LADDER_RUNGS: readonly EveLadderRung[] = [0, 1, 2, 3, 4, 5] as const;
 
+/** Opaque UI auto-run is only meaningful once reversible outside-work is allowed. */
+export const OPAQUE_UI_AUTORUN_MIN_RUNG: EveLadderRung = 4;
+
 /** The highest action class each rung admits without asking. Index = rung. */
 const RUNG_ADMITS: Readonly<Record<EveLadderRung, readonly EveActionClass[]>> = {
   0: ['read'],
@@ -86,6 +89,18 @@ export function mayOfferToAct(rung: EveLadderRung): boolean {
 
 export interface EveAuthorityGrant {
   ladder: EveLadderRung;
+  /**
+   * Explicit escape hatch for the opaque final mile of Browser/Desktop work.
+   *
+   * This is deliberately NOT a sixth sealed capability. The five seals describe
+   * concrete effects; a click cannot reliably reveal whether it will spend,
+   * publish, delete, expose a credential or change production. Turning this on
+   * therefore acknowledges that those effects can be crossed indirectly through
+   * visible UI. Absent means false, so old grants never inherit it.
+   */
+  opaqueUiAutoRun?: boolean;
+  /** ISO timestamp recording when the user explicitly enabled opaque UI auto-run. */
+  opaqueUiAutoRunGrantedAt?: string;
   /**
    * The literal commands this seat's human said EVE may always run.
    *
@@ -116,6 +131,12 @@ export const EVE_AUTHORITY_FAIL_CLOSED: EveAuthorityGrant = {
 
 export interface EveAction {
   class: EveActionClass;
+  /**
+   * True only for the small, enumerated Browser/Desktop action set whose final
+   * effect is opaque (click, type, press, dialog accept, CDP, computer control).
+   * Unknown future tools must never set this merely because they are unknown.
+   */
+  opaqueUiAction?: boolean;
   /** Set when this action needs a sealed capability. The seal alone is the authority (rung 0 aside). */
   sealed?: EveSealedCapability;
   /** Short human-readable description, used in the escalation sentence. */
@@ -170,8 +191,18 @@ function capabilityGranted(grant: EveAuthorityGrant, capability: EveSealedCapabi
  * new grant. `decideAuthority` never calls anything that could make this true.
  */
 export function grantAllows(action: EveAction, grant: EveAuthorityGrant): boolean {
-  // Unknown is not harmless. Nothing admits it, at any rung, ever.
-  if (action.class === 'unclassified') return false;
+  // Unknown is not harmless. Only the deliberately tagged, enumerated UI last
+  // mile may use the separate opaque auto-run override. A generic unknown tool
+  // stays operation-approved forever, including on Full.
+  if (action.class === 'unclassified') {
+    return (
+      action.opaqueUiAction === true &&
+      grant.opaqueUiAutoRun === true &&
+      typeof grant.opaqueUiAutoRunGrantedAt === 'string' &&
+      grant.opaqueUiAutoRunGrantedAt.trim() !== '' &&
+      grant.ladder >= OPAQUE_UI_AUTORUN_MIN_RUNG
+    );
+  }
 
   // Rung 0 is the hard off-switch: "change nothing" would contradict itself if an
   // open seal could still act through it. Every other rung leaves the seals alone.
@@ -301,6 +332,14 @@ export function isEveAuthorityGrant(value: unknown): value is EveAuthorityGrant 
   const candidate = value as Partial<EveAuthorityGrant>;
   if (!EVE_LADDER_RUNGS.includes(candidate.ladder as EveLadderRung)) return false;
   if (candidate.updatedBy !== 'user' && candidate.updatedBy !== 'migration') return false;
+  if (candidate.opaqueUiAutoRun !== undefined && typeof candidate.opaqueUiAutoRun !== 'boolean') return false;
+  if (candidate.opaqueUiAutoRun === true) {
+    if (typeof candidate.opaqueUiAutoRunGrantedAt !== 'string' || candidate.opaqueUiAutoRunGrantedAt.trim() === '') {
+      return false;
+    }
+  } else if (candidate.opaqueUiAutoRunGrantedAt !== undefined) {
+    return false;
+  }
   const capabilities = candidate.capabilities;
   if (!capabilities || typeof capabilities !== 'object') return false;
   for (const [key, flag] of Object.entries(capabilities)) {

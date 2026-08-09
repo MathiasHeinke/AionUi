@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7192
+# entries: 7216
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -505,22 +505,32 @@ copy	1	de-DE/commandCenter.json	wartet auf Controller
 copy	1	de-DE/commandCenter.json	wartet auf Dispatch-Check
 copy	1	de-DE/commandCenter.json	z. B. LinkedIn-Post zu Command EVE
 copy	1	de-DE/commandCenter.json	Öffnen
+copy	1	de-DE/commandEve.json	Ab Stufe „Selbstständig“ verfügbar. Auf einer niedrigeren Stufe bleibt eine bereits erteilte Freigabe gespeichert, aber inaktiv.
 copy	1	de-DE/commandEve.json	Abbrechen
 copy	1	de-DE/commandEve.json	Antwort läuft noch
 copy	1	de-DE/commandEve.json	Arbeiten
+copy	1	de-DE/commandEve.json	Auswahl übernehmen
 copy	1	de-DE/commandEve.json	Befehle, die du für diesen Seat dauerhaft erlaubt hast. EVE fragt danach nicht mehr — bis du sie hier zurücknimmst.
 copy	1	de-DE/commandEve.json	Befehls-Scanner: Der zusätzliche Sicherheits-Scanner lässt durch, wenn er selbst nicht läuft oder nicht installiert ist. Er ist eine zweite Meinung, keine Sperre.
 copy	1	de-DE/commandEve.json	Beim Seat-Wechsel wird die laufende Antwort abgebrochen und verworfen. Trotzdem wechseln?
 copy	1	de-DE/commandEve.json	Bezahlte Modelle und Dienste. Den Betrag, den du dafür festhältst, nennst du beim Anschalten.
-copy	1	de-DE/commandEve.json	Bildschirmsteuerung: Sicht und Navigation folgen deiner Stufe. Klicken und Tippen bleiben verfügbar. Solange der konkrete Vorgang nicht sicher erkennen lässt, ob er etwa einen Kauf bestätigt, genehmigst du nur diesen letzten Schritt. Einige zerstörerische System-Tastenkombinationen blockiert Hermes weiterhin, damit die laufende Maschine nicht gesperrt oder abgemeldet wird.
+copy	1	de-DE/commandEve.json	Bildschirmsteuerung: Sicht und Navigation folgen deiner Stufe. Klicken und Tippen bleiben immer verfügbar. Ohne die breite Browser-/Desktop-Freigabe genehmigst du den letzten Schritt einzeln; mit ihr führt EVE die bekannten UI-Aktionen autonom aus. Einige zerstörerische System-Tastenkombinationen blockiert Hermes weiterhin, damit die laufende Maschine nicht gesperrt oder abgemeldet wird.
+copy	1	de-DE/commandEve.json	Breite Freigabe: Ein Klick kann indirekt bezahlen, veröffentlichen, löschen, Zugangsdaten offenlegen oder Produktion verändern. Die fünf Wirkungssiegel und der gespeicherte Tagesbetrag begrenzen solche Browser-/Desktop-Schritte technisch noch nicht.
+copy	1	de-DE/commandEve.json	Browser & Desktop autonom steuern
+copy	1	de-DE/commandEve.json	Browser & Desktop: Klicks und Eingaben dürfen ohne einzelne Rückfrage laufen.
+copy	1	de-DE/commandEve.json	Browser & Desktop: bleibt, wie es ist — ohne diese eigene Bestätigung wird nichts neu freigegeben.
+copy	1	de-DE/commandEve.json	Browser & Desktop: die breite Freigabe ist bereits aktiv.
+copy	1	de-DE/commandEve.json	Browser & Desktop: die breite Freigabe wird zurückgenommen; EVE fragt für Klicks und Eingaben wieder nach.
+copy	1	de-DE/commandEve.json	Browser-/Desktop-Autonomie ausdrücklich freigeben
 copy	1	de-DE/commandEve.json	Daran würde sich nichts ändern — das steht alles schon so.
 copy	1	de-DE/commandEve.json	Das ist ein hoher Tagesbetrag. Er ist gespeichert — sieh bitte kurz nach, ob du dich vertippt hast.
 copy	1	de-DE/commandEve.json	Das passiert, wenn du bestätigst:
 copy	1	de-DE/commandEve.json	Dateien anfassen, die nicht zum Projekt gehören.
 copy	1	de-DE/commandEve.json	Deine Freigaben und technischen Grenzen
 copy	1	de-DE/commandEve.json	Deine Stufe regelt die Hermes-Werkzeuge — Terminal, Dateien, Browser, Bildschirmsteuerung, Notizen, Fähigkeiten, Prozesse und Zeitpläne. Diese technischen Grenzen bleiben davon getrennt.
-copy	1	de-DE/commandEve.json	Der Betrag wird gespeichert, aber in dieser Version noch nicht als Tageszähler durchgesetzt. Geldbefehle und nicht sicher einordenbare Bezahlvorgänge fragt EVE deshalb weiterhin einzeln ab. Das eingetragene Limit ist kein Blankoscheck.
+copy	1	de-DE/commandEve.json	Der Betrag wird gespeichert, aber in dieser Version noch nicht als Tageszähler durchgesetzt. Erkannte Geldbefehle fragt EVE deshalb weiterhin einzeln ab. Wenn du autonome Browser-/Desktop-Steuerung aktivierst, begrenzt dieser Betrag deren Klicks technisch nicht. Das eingetragene Limit ist kein Blankoscheck.
 copy	1	de-DE/commandEve.json	Diese Einstellung stammt noch aus einer älteren Version und wurde von dir nie bestätigt. Sieh sie einmal durch.
+copy	1	de-DE/commandEve.json	Diese breite Freigabe ist unabhängig von den fünf Wirkungssiegeln und wird nie aus einer alten Einstellung übernommen.
 copy	1	de-DE/commandEve.json	Diese fünf hängen an keiner Stufe. Auch auf „Voll“ bleiben sie aus, bis du sie einzeln anschaltest.
 copy	1	de-DE/commandEve.json	E-Mails, Beiträge, alles, was andere Menschen erreicht.
 copy	1	de-DE/commandEve.json	EVE fragt vor jeder Änderung. Du siehst jeden Schritt, bevor er passiert.
@@ -530,15 +540,17 @@ copy	1	de-DE/commandEve.json	Eine Stufe. Sie regelt die alltäglichen Entscheidu
 copy	1	de-DE/commandEve.json	Erneut anmelden, um Kundenplätze zu laden
 copy	1	de-DE/commandEve.json	Festgehaltene Obergrenze
 copy	1	de-DE/commandEve.json	Fragen
-copy	1	de-DE/commandEve.json	Für einen Rechner, der dir gehört und auf dem EVE einfach arbeiten soll. Setzt die Stufe auf „Voll“ und öffnet alle fünf Freigaben unten — in einem Schritt statt in sieben.
+copy	1	de-DE/commandEve.json	Für einen Rechner, der dir gehört und auf dem EVE einfach arbeiten soll. Setzt die Stufe auf „Voll“, öffnet die fünf Wirkungssiegel und lässt dich Browser-/Desktop-Autonomie separat bestätigen.
 copy	1	de-DE/commandEve.json	Geht auf: {{seal}}
 copy	1	de-DE/commandEve.json	Geld ausgeben
 copy	1	de-DE/commandEve.json	Geld ausgeben freigeben — Betrag erforderlich
 copy	1	de-DE/commandEve.json	Geld ausgeben: bleibt, wie es ist — diese Freigabe fasst die Vollfreigabe nicht an.
 copy	1	de-DE/commandEve.json	Geld ausgeben: geht auf, mit {{amount}} als festgehaltener Obergrenze.
 copy	1	de-DE/commandEve.json	Geld ausgeben: ohne Betrag bleibt Geld zu. Nenne eine Zahl oder schalte den Punkt ab.
+copy	1	de-DE/commandEve.json	Gilt für bekannte Browser-Klicks, Tippen, Tastendrücke, Dialogbestätigungen, CDP und nicht-lesende Bildschirmsteuerung. Neue unbekannte Werkzeuge fragt EVE weiterhin einzeln ab.
+copy	1	de-DE/commandEve.json	Hermes bleibt immer verfügbar. Hier entscheidest du nur, ob EVE den sichtbaren letzten Schritt ohne einzelne Rückfrage ausführt.
 copy	1	de-DE/commandEve.json	In Produktion schreiben
-copy	1	de-DE/commandEve.json	Ja, alles freigeben
+copy	1	de-DE/commandEve.json	Klicks und Eingaben ohne Rückfrage ausführen
 copy	1	de-DE/commandEve.json	Kunde hinzufügen
 copy	1	de-DE/commandEve.json	Kunden
 copy	1	de-DE/commandEve.json	Lege fest, was EVE ohne Rückfrage tun darf — und nimm jederzeit zurück, was sie sich gemerkt hat.
@@ -556,14 +568,14 @@ copy	1	de-DE/commandEve.json	Secrets und Schlüssel im Klartext sehen.
 copy	1	de-DE/commandEve.json	Selbstständig
 copy	1	de-DE/commandEve.json	Stufe: bleibt auf „{{rung}}“
 copy	1	de-DE/commandEve.json	Stufe: von „{{from}}“ auf „{{to}}“
-copy	1	de-DE/commandEve.json	Tagesbetrag: Der Betrag wird gespeichert, aber noch nicht gegen einen Tagesverbrauch gebucht. EVE fragt vor Geldbefehlen und nicht sicher einordenbaren Bezahlvorgängen weiterhin einzeln; das Limit erteilt keine pauschale Kaufvollmacht.
+copy	1	de-DE/commandEve.json	Tagesbetrag: Der Betrag wird gespeichert, aber noch nicht gegen einen Tagesverbrauch gebucht. Erkannte Geldbefehle bleiben einzeln freigabepflichtig. Eine aktivierte Browser-/Desktop-Autonomie kann Bezahlvorgänge über die Oberfläche ausführen, ohne dass dieser Betrag sie technisch begrenzt.
 copy	1	de-DE/commandEve.json	Trotzdem wechseln
 copy	1	de-DE/commandEve.json	Unbeantwortete Anfragen: Eine Freigabe-Karte, die du fünf Minuten lang nicht beantwortest, gilt als abgelehnt — nicht als erteilt.
 copy	1	de-DE/commandEve.json	Veröffentlichen und senden
 copy	1	de-DE/commandEve.json	Voll
 copy	1	de-DE/commandEve.json	Vollfreigabe einrichten
 copy	1	de-DE/commandEve.json	Vollfreigabe für diese Maschine
-copy	1	de-DE/commandEve.json	Vollfreigabe ist aktiv. Stufe „Voll“, alle fünf Freigaben offen, festgehaltene Obergrenze {{amount}}. Einzelne Punkte nimmst du oben jederzeit wieder zurück.
+copy	1	de-DE/commandEve.json	Vollfreigabe ist aktiv. Stufe „Voll“, alle fünf Wirkungssiegel offen, Browser-/Desktop-Autonomie bestätigt, festgehaltene Obergrenze {{amount}}. Einzelne Punkte nimmst du oben jederzeit wieder zurück.
 copy	1	de-DE/commandEve.json	Von dir freigegeben am {{date}}
 copy	1	de-DE/commandEve.json	Was EVE nur mit ausdrücklicher Erlaubnis darf
 copy	1	de-DE/commandEve.json	Was EVE sich gemerkt hat
@@ -4084,13 +4096,22 @@ copy	1	en-US/commandCenter.json	waiting for dispatch check
 copy	1	en-US/commandEve.json	A response is still running
 copy	1	en-US/commandEve.json	Add client
 copy	1	en-US/commandEve.json	Already open: {{seal}}
+copy	1	en-US/commandEve.json	Applies to known browser clicks, typing, key presses, dialog confirmation, CDP and non-reading screen control. EVE still asks separately for new unknown tools.
+copy	1	en-US/commandEve.json	Apply selection
 copy	1	en-US/commandEve.json	Ask me
+copy	1	en-US/commandEve.json	Available from “Independent”. On a lower rung, a previously granted permission stays recorded but inactive.
+copy	1	en-US/commandEve.json	Broad permission: a click may indirectly pay, publish, delete, reveal credentials or change production. The five effect seals and recorded daily amount do not yet technically constrain such Browser/Desktop steps.
+copy	1	en-US/commandEve.json	Browser & Desktop: clicks and input may run without separate prompts.
+copy	1	en-US/commandEve.json	Browser & Desktop: stays as it is — without this separate confirmation, nothing new is allowed.
+copy	1	en-US/commandEve.json	Browser & Desktop: the broad permission is already active.
+copy	1	en-US/commandEve.json	Browser & Desktop: the broad permission is withdrawn; EVE asks again before clicks and input.
 copy	1	en-US/commandEve.json	Cancel
 copy	1	en-US/commandEve.json	Clients
 copy	1	en-US/commandEve.json	Collapse rail
 copy	1	en-US/commandEve.json	Command scanner: the extra security scanner lets things through when it is not running or not installed. It is a second opinion, not a lock.
 copy	1	en-US/commandEve.json	Commands you allowed permanently for this seat. EVE stops asking for them — until you withdraw one here.
-copy	1	en-US/commandEve.json	Daily amount: the amount is saved, but is not yet booked against daily usage. EVE still asks separately before money commands and payment steps it cannot classify safely; the limit does not grant blanket purchasing authority.
+copy	1	en-US/commandEve.json	Control Browser & Desktop autonomously
+copy	1	en-US/commandEve.json	Daily amount: the amount is saved, but is not yet booked against daily usage. Recognised money commands still require a separate approval. Enabled Browser/Desktop autonomy may complete payments through the UI without this amount technically constraining them.
 copy	1	en-US/commandEve.json	Decide what EVE may do without asking — and withdraw anything it has remembered, any time.
 copy	1	en-US/commandEve.json	Delete outside the workspace
 copy	1	en-US/commandEve.json	Deploy or change live systems.
@@ -4099,12 +4120,14 @@ copy	1	en-US/commandEve.json	EVE reads and writes inside your workspace. For com
 copy	1	en-US/commandEve.json	EVE reads, thinks along and suggests. It changes nothing, not even what you granted.
 copy	1	en-US/commandEve.json	Emails, posts, anything that reaches other people.
 copy	1	en-US/commandEve.json	Expand rail
-copy	1	en-US/commandEve.json	For a machine that is yours and where EVE should simply get on with it. Sets the rung to “Full” and opens all five permissions below — in one step instead of seven.
+copy	1	en-US/commandEve.json	Explicitly allow Browser/Desktop autonomy
+copy	1	en-US/commandEve.json	For a machine that is yours and where EVE should simply get on with it. Sets the rung to “Full”, opens the five effect seals and lets you confirm Browser/Desktop autonomy separately.
 copy	1	en-US/commandEve.json	Full
 copy	1	en-US/commandEve.json	Full release for this machine
-copy	1	en-US/commandEve.json	Full release is active. Rung “Full”, all five permissions open, recorded upper bound {{amount}}. You can withdraw any single one above at any time.
+copy	1	en-US/commandEve.json	Full release is active. Rung “Full”, all five effect seals open, Browser/Desktop autonomy confirmed, recorded upper bound {{amount}}. You can withdraw any single item above at any time.
 copy	1	en-US/commandEve.json	Granted by you on {{date}}
 copy	1	en-US/commandEve.json	Here is what happens when you confirm:
+copy	1	en-US/commandEve.json	Hermes remains available at all times. Here you decide only whether EVE may execute the visible final step without a separate prompt.
 copy	1	en-US/commandEve.json	How independently EVE works
 copy	1	en-US/commandEve.json	Independent
 copy	1	en-US/commandEve.json	Memory, skills and schedules: changes now follow your rung. On Full, EVE may maintain them independently; lower rungs use the normal approval card.
@@ -4121,9 +4144,10 @@ copy	1	en-US/commandEve.json	Read credentials
 copy	1	en-US/commandEve.json	Recorded upper bound
 copy	1	en-US/commandEve.json	Release spending — an amount is required
 copy	1	en-US/commandEve.json	Routine
+copy	1	en-US/commandEve.json	Run clicks and input without asking
 copy	1	en-US/commandEve.json	Rung: from “{{from}}” to “{{to}}”
 copy	1	en-US/commandEve.json	Rung: stays at “{{rung}}”
-copy	1	en-US/commandEve.json	Screen control: visibility and navigation follow your rung. Clicking and typing stay available. Until the concrete operation can prove that it is not, for example, confirming a purchase, you approve only that final step. Hermes still blocks a few destructive system key combinations so the running machine cannot be locked or logged out.
+copy	1	en-US/commandEve.json	Screen control: visibility and navigation follow your rung. Clicking and typing always remain available. Without the broad Browser/Desktop permission, you approve the final step separately; with it, EVE runs the known UI actions autonomously. Hermes still blocks a few destructive system key combinations so the running machine cannot be locked or logged out.
 copy	1	en-US/commandEve.json	See secrets and keys in clear text.
 copy	1	en-US/commandEve.json	Set up full release
 copy	1	en-US/commandEve.json	Sign in again to load your seats
@@ -4134,8 +4158,9 @@ copy	1	en-US/commandEve.json	Spend money: without an amount, money stays closed.
 copy	1	en-US/commandEve.json	Switch anyway
 copy	1	en-US/commandEve.json	Switching seats aborts and discards the running response. Switch anyway?
 copy	1	en-US/commandEve.json	That is a high daily amount. It is saved — please check you did not mistype.
-copy	1	en-US/commandEve.json	The amount is saved, but this version does not yet enforce it as a daily ledger. EVE therefore still asks separately for money commands and payment steps it cannot classify safely. The configured limit is not a blank cheque.
+copy	1	en-US/commandEve.json	The amount is saved, but this version does not yet enforce it as a daily ledger. EVE therefore still asks separately for recognised money commands. If you enable autonomous Browser/Desktop control, this amount does not technically constrain its clicks. The configured limit is not a blank cheque.
 copy	1	en-US/commandEve.json	These five hang off no rung. Even on “Full” they stay off until you switch each one on.
+copy	1	en-US/commandEve.json	This broad permission is independent from the five effect seals and is never inherited from an old setting.
 copy	1	en-US/commandEve.json	This setting came from an older version and you never confirmed it. Have a look.
 copy	1	en-US/commandEve.json	Touch files that do not belong to the project.
 copy	1	en-US/commandEve.json	Unanswered requests: a permission card you leave unanswered for five minutes counts as denied — not as granted.
@@ -4147,7 +4172,6 @@ copy	1	en-US/commandEve.json	Withdraw
 copy	1	en-US/commandEve.json	Without an amount the money seal stays shut. Money commands EVE recognises as such do not get through.
 copy	1	en-US/commandEve.json	Working
 copy	1	en-US/commandEve.json	Write to production
-copy	1	en-US/commandEve.json	Yes, release everything
 copy	1	en-US/commandEve.json	Your permissions and technical boundaries
 copy	1	en-US/commandEve.json	Your rung governs Hermes tools — terminal, files, browser, screen control, memory, skills, processes and schedules. These technical boundaries remain separate.
 copy	1	en-US/commandEve.json	{{name}} (active)

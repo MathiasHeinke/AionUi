@@ -183,6 +183,8 @@ export type ConfigKeyMap = {
    * Shape: {@link EveAuthorityGrant} — `ladder` 0..5 plus the sealed capability
    * switches, each unsealed on its own and never by a rung. `limits` carries the
    * daily ceiling that must accompany an unsealed `spend.money`.
+   * `opaqueUiAutoRun` is a separate, explicit Browser/Desktop last-mile
+   * override; absence is false so no stored grant inherits it.
    *
    * Absent ⇒ migrate once from the legacy per-backend `acp.config[*].preferredMode`
    * (see `resolveStoredGrant`). A migrated grant NEVER unseals a capability:

@@ -25,6 +25,8 @@ import {
   EVE_SEALED_CAPABILITIES,
   isEveAuthorityGrant,
   ladderFromLegacyMode,
+  OPAQUE_UI_AUTORUN_MIN_RUNG,
+  grantAllows,
   type EveAuthorityGrant,
   type EveLadderRung,
   type EveSealedCapability,
@@ -77,6 +79,31 @@ function isLadderRung(value: unknown): value is EveLadderRung {
 export function withLadder(grant: EveAuthorityGrant, ladder: unknown): EveAuthorityGrant {
   if (!isLadderRung(ladder)) return grant;
   return { ...grant, ladder, updatedBy: 'user' };
+}
+
+/**
+ * The human explicitly enabled or withdrew opaque Browser/Desktop auto-run.
+ *
+ * It is not a seal: it acknowledges that low-level UI interaction cannot prove
+ * which effect seal a click will cross. Enabling below `Selbstständig` is
+ * refused rather than stored as a switch that looks live but does nothing.
+ * Lowering the ladder later pauses it through `grantAllows` without erasing the
+ * user's separate decision, just like moving the ladder never edits a seal.
+ */
+export function withOpaqueUiAutoRun(grant: EveAuthorityGrant, enabled: boolean, now: string): EveAuthorityGrant {
+  if (enabled && grant.ladder < OPAQUE_UI_AUTORUN_MIN_RUNG) return grant;
+  if (enabled) {
+    return {
+      ...grant,
+      opaqueUiAutoRun: true,
+      opaqueUiAutoRunGrantedAt: now,
+      updatedBy: 'user',
+    };
+  }
+  const next: EveAuthorityGrant = { ...grant, updatedBy: 'user' };
+  delete next.opaqueUiAutoRun;
+  delete next.opaqueUiAutoRunGrantedAt;
+  return next;
 }
 
 /**
@@ -169,9 +196,10 @@ export const FULL_AUTHORITY_RUNG: EveLadderRung = 5;
 
 /**
  * "Full release for this machine" — the one-act version of a decision that
- * otherwise takes seven separate hands: pick rung 5, open five seals, name a
- * budget. Someone who means "just get on with it, this box is mine" should not
- * have to perform that as a chore, and today they do.
+ * otherwise takes eight separate hands: pick rung 5, open five seals, name a
+ * budget, and explicitly acknowledge opaque Browser/Desktop auto-run. Someone
+ * who means "just get on with it, this box is mine" should not have to perform
+ * that as a chore, but the opaque override still needs its own visible choice.
  *
  * WHY THIS IS NOT A SEVENTH RUNG, which is the obvious shape and the wrong one:
  *
@@ -206,6 +234,9 @@ export const FULL_AUTHORITY_RUNG: EveLadderRung = 5;
  */
 export type FullAuthorityMoney = { readonly dailyCents: number } | 'keep-sealed';
 
+/** Full release may enable the opaque UI override only after its own choice. */
+export type FullAuthorityOpaqueUi = 'allow' | 'keep-asking';
+
 /**
  * Exactly what a full release would change, computed BEFORE anything is written.
  *
@@ -227,13 +258,25 @@ export interface FullAuthorityPreview {
   /** The ceiling this act would write, in cents. Null when `moneyLeftAsIs`. */
   dailyCents: number | null;
   budgetChanges: boolean;
+  /** True when this act will explicitly enable opaque Browser/Desktop auto-run. */
+  opaqueUiAutoRunWillEnable: boolean;
+  /** True when the explicit "keep asking" choice withdraws a stored broad UI override. */
+  opaqueUiAutoRunWillDisable: boolean;
+  /** True when the override was already enabled before this act. */
+  opaqueUiAutoRunAlreadyEnabled: boolean;
+  /** True when "keep asking" is already the effective stored state. */
+  opaqueUiAutoRunLeftAsIs: boolean;
   /** Set when the act cannot run as asked. `withFullAuthority` then changes nothing at all. */
   blocked: 'invalid-budget' | null;
   /** True when the grant already says all of this. The button is then a no-op, and says so. */
   changesNothing: boolean;
 }
 
-export function previewFullAuthority(grant: EveAuthorityGrant, money: FullAuthorityMoney): FullAuthorityPreview {
+export function previewFullAuthority(
+  grant: EveAuthorityGrant,
+  money: FullAuthorityMoney,
+  opaqueUi: FullAuthorityOpaqueUi
+): FullAuthorityPreview {
   const moneyLeftAsIs = money === 'keep-sealed';
   const blocked = !moneyLeftAsIs && classifyDailyBudget(money.dailyCents) === 'invalid' ? 'invalid-budget' : null;
 
@@ -246,6 +289,10 @@ export function previewFullAuthority(grant: EveAuthorityGrant, money: FullAuthor
   const dailyCents = moneyLeftAsIs ? null : money.dailyCents;
   const budgetChanges = dailyCents !== null && grant.limits?.['spend.money']?.dailyCents !== dailyCents;
   const ladderChanges = grant.ladder !== FULL_AUTHORITY_RUNG;
+  const opaqueUiAutoRunAlreadyEnabled = grant.opaqueUiAutoRun === true;
+  const opaqueUiAutoRunWillEnable = opaqueUi === 'allow' && !opaqueUiAutoRunAlreadyEnabled;
+  const opaqueUiAutoRunWillDisable = opaqueUi === 'keep-asking' && opaqueUiAutoRunAlreadyEnabled;
+  const opaqueUiAutoRunLeftAsIs = opaqueUi === 'keep-asking' && !opaqueUiAutoRunAlreadyEnabled;
 
   return {
     ladderFrom: grant.ladder,
@@ -256,8 +303,18 @@ export function previewFullAuthority(grant: EveAuthorityGrant, money: FullAuthor
     moneyLeftAsIs,
     dailyCents,
     budgetChanges,
+    opaqueUiAutoRunWillEnable,
+    opaqueUiAutoRunWillDisable,
+    opaqueUiAutoRunAlreadyEnabled,
+    opaqueUiAutoRunLeftAsIs,
     blocked,
-    changesNothing: blocked === null && !ladderChanges && sealsToOpen.length === 0 && !budgetChanges,
+    changesNothing:
+      blocked === null &&
+      !ladderChanges &&
+      sealsToOpen.length === 0 &&
+      !budgetChanges &&
+      !opaqueUiAutoRunWillEnable &&
+      !opaqueUiAutoRunWillDisable,
   };
 }
 
@@ -273,13 +330,19 @@ export function previewFullAuthority(grant: EveAuthorityGrant, money: FullAuthor
  * not a channel for taking something back. Withdrawing stays where withdrawing
  * belongs — the individual switch.
  */
-export function withFullAuthority(grant: EveAuthorityGrant, money: FullAuthorityMoney, now: string): EveAuthorityGrant {
-  const preview = previewFullAuthority(grant, money);
+export function withFullAuthority(
+  grant: EveAuthorityGrant,
+  money: FullAuthorityMoney,
+  opaqueUi: FullAuthorityOpaqueUi,
+  now: string
+): EveAuthorityGrant {
+  const preview = previewFullAuthority(grant, money, opaqueUi);
   if (preview.blocked !== null) return grant;
 
   let next = withLadder(grant, FULL_AUTHORITY_RUNG);
   for (const capability of preview.sealsToOpen) next = withSeal(next, capability, true, now);
   if (money !== 'keep-sealed') next = withDailyBudget(next, money.dailyCents);
+  next = withOpaqueUiAutoRun(next, opaqueUi === 'allow', now);
   return next;
 }
 
@@ -294,6 +357,7 @@ export function withFullAuthority(grant: EveAuthorityGrant, money: FullAuthority
 export function isFullAuthority(grant: EveAuthorityGrant): boolean {
   if (grant.ladder !== FULL_AUTHORITY_RUNG) return false;
   if (!EVE_SEALED_CAPABILITIES.every((capability) => grant.capabilities[capability] === true)) return false;
+  if (!grantAllows({ class: 'unclassified', opaqueUiAction: true }, grant)) return false;
   return grantNeedsAttention(grant) === null;
 }
 

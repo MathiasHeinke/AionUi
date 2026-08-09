@@ -34,14 +34,19 @@ import {
   withDailyBudget,
   withFullAuthority,
   withLadder,
+  withOpaqueUiAutoRun,
   withoutRememberedCommand,
   withSeal,
   type FullAuthorityMoney,
+  type FullAuthorityOpaqueUi,
 } from '@/common/config/eveAuthorityStoreCore';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
+import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
 import SettingsSection from '@/renderer/components/settings/SettingsSection';
 import { useConfig } from '@/renderer/hooks/config/useConfig';
+import { useActiveSeatId } from '@/renderer/hooks/useActiveSeatId';
 import { Button, InputNumber, Radio, Switch } from '@arco-design/web-react';
+import { Browser, Computer, Delete, Key, Ladder, Send, Shield, Unlock, UploadWeb, Wallet } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -64,11 +69,34 @@ const SEAL_KEYS: Record<EveSealedCapability, string> = {
   'deploy.production': 'authority.seal.deploy',
 };
 
+/** One familiar, unboxed glyph per effect. The 24 px slot keeps text baselines aligned. */
+const SEAL_ICONS = {
+  'spend.money': <Wallet theme='outline' size={16} fill='currentColor' />,
+  'publish.outward': <Send theme='outline' size={16} fill='currentColor' />,
+  'delete.outside': <Delete theme='outline' size={16} fill='currentColor' />,
+  'credentials.read': <Key theme='outline' size={16} fill='currentColor' />,
+  'deploy.production': <UploadWeb theme='outline' size={16} fill='currentColor' />,
+} satisfies Record<EveSealedCapability, React.ReactNode>;
+
+const authoritySectionTitle = (icon: React.ReactNode, label: React.ReactNode, testId: string): React.ReactNode => (
+  <span className='inline-flex min-w-0 items-center gap-8px'>
+    <span
+      aria-hidden='true'
+      className='flex h-24px w-24px shrink-0 items-center justify-center text-[var(--eve-shell-text-secondary)]'
+      data-testid={testId}
+    >
+      {icon}
+    </span>
+    <span className='min-w-0'>{label}</span>
+  </span>
+);
+
 /** Cents to whole units, for display. No currency symbol: this panel does not know the seat's. */
 const perDay = (cents: number): string => (cents / 100).toFixed(2);
 
 const AuthorityModalContent: React.FC = () => {
   const { t } = useTranslation();
+  const activeSeatId = useActiveSeatId();
 
   // Read the grant REACTIVELY, not once on mount.
   //
@@ -116,6 +144,21 @@ const AuthorityModalContent: React.FC = () => {
   const [releaseBudget, setReleaseBudget] = useState<number | undefined>(() =>
     grant.limits?.['spend.money']?.dailyCents !== undefined ? grant.limits['spend.money'].dailyCents / 100 : undefined
   );
+  // A fresh full-release confirmation never assumes the broad UI override.
+  // If this seat already enabled it, reflecting that state is not a new grant.
+  const [releaseOpaqueUiAutoRun, setReleaseOpaqueUiAutoRun] = useState(grant.opaqueUiAutoRun === true);
+
+  // A Full Release draft belongs to exactly one seat/grant snapshot. The
+  // settings shell intentionally stays mounted across seat switches; carrying
+  // this local draft would let a choice made on Seat A be applied to Seat B.
+  useEffect(() => {
+    setConfirmingRelease(false);
+    setReleaseMoney(true);
+    setReleaseBudget(
+      grant.limits?.['spend.money']?.dailyCents !== undefined ? grant.limits['spend.money'].dailyCents / 100 : undefined
+    );
+    setReleaseOpaqueUiAutoRun(grant.opaqueUiAutoRun === true);
+  }, [activeSeatId, grant]);
 
   const persist = useCallback(async (next: EveAuthorityGrant) => {
     // No local mirror of the value: the write notifies, `useConfig` re-reads.
@@ -148,6 +191,10 @@ const AuthorityModalContent: React.FC = () => {
     void persist(withSeal(grant, capability, open, new Date().toISOString()));
   };
 
+  const onOpaqueUiAutoRun = (enabled: boolean): void => {
+    void persist(withOpaqueUiAutoRun(grant, enabled, new Date().toISOString()));
+  };
+
   const onBudget = (value: number | undefined): void => {
     // A rejected amount leaves the grant alone (`withDailyBudget`), so a
     // half-typed number never becomes a ceiling nobody agreed to.
@@ -165,28 +212,42 @@ const AuthorityModalContent: React.FC = () => {
   const releaseMoneyChoice: FullAuthorityMoney = releaseMoney
     ? { dailyCents: typeof releaseBudget === 'number' ? Math.round(releaseBudget * 100) : Number.NaN }
     : 'keep-sealed';
-  const releasePreview = previewFullAuthority(grant, releaseMoneyChoice);
+  const releaseOpaqueUiChoice: FullAuthorityOpaqueUi = releaseOpaqueUiAutoRun ? 'allow' : 'keep-asking';
+  const releasePreview = previewFullAuthority(grant, releaseMoneyChoice, releaseOpaqueUiChoice);
   const fullyReleased = isFullAuthority(grant);
 
   const onRelease = (): void => {
     // `withFullAuthority` re-checks and returns the grant untouched if the
     // budget is refused; the disabled button is the courtesy, not the guard.
-    void persist(withFullAuthority(grant, releaseMoneyChoice, new Date().toISOString()));
+    void persist(withFullAuthority(grant, releaseMoneyChoice, releaseOpaqueUiChoice, new Date().toISOString()));
     setConfirmingRelease(false);
+  };
+
+  const openReleaseConfirmation = (): void => {
+    // Never carry a toggle experiment from another seat or a cancelled dialog.
+    setReleaseOpaqueUiAutoRun(grant.opaqueUiAutoRun === true);
+    setConfirmingRelease(true);
   };
 
   const sealName = (capability: EveSealedCapability): string => t(`commandEve.${SEAL_KEYS[capability]}.title`);
 
   return (
     <AionScrollArea>
-      <div className='flex flex-col gap-24px pb-24px'>
+      <div className='flex flex-col pb-24px' data-testid='authority-content'>
         {isUnconfirmedGrant(grant) && (
-          <div className='rd-8px bg-orange-1 p-12px text-14px'>{t('commandEve.authority.notConfirmedYet')}</div>
+          <div className='eve-settings-notice eve-settings-notice--warning text-14px'>
+            {t('commandEve.authority.notConfirmedYet')}
+          </div>
         )}
 
         <SettingsSection
-          title={t('commandEve.authority.ladderTitle')}
+          title={authoritySectionTitle(
+            <Ladder theme='outline' size={18} fill='currentColor' />,
+            t('commandEve.authority.ladderTitle'),
+            'authority-section-icon-ladder'
+          )}
           description={t('commandEve.authority.ladderDescription')}
+          testId='authority-ladder-section'
         >
           {/*
             All six rungs render now, because all six bind. The old guard here
@@ -201,12 +262,18 @@ const AuthorityModalContent: React.FC = () => {
             direction='vertical'
             value={ENFORCED_LADDER_RUNGS.includes(grant.ladder) ? grant.ladder : undefined}
             onChange={onLadder}
-            className='flex flex-col gap-12px'
+            className='eve-settings-list flex flex-col'
           >
             {ENFORCED_LADDER_RUNGS.map((rung) => (
-              <Radio key={rung} value={rung}>
-                <span className='font-medium'>{t(`commandEve.${RUNG_KEYS[rung]}.title`)}</span>
-                <div className='text-13px op-70'>{t(`commandEve.${RUNG_KEYS[rung]}.body`)}</div>
+              <Radio key={rung} value={rung} className='w-full items-start py-12px'>
+                <span className='min-w-0 pl-2px'>
+                  <span className='eve-settings-preference-row__label block'>
+                    {t(`commandEve.${RUNG_KEYS[rung]}.title`)}
+                  </span>
+                  <span className='eve-settings-preference-row__description block'>
+                    {t(`commandEve.${RUNG_KEYS[rung]}.body`)}
+                  </span>
+                </span>
               </Radio>
             ))}
           </Radio.Group>
@@ -234,79 +301,153 @@ const AuthorityModalContent: React.FC = () => {
           section below for what it does not reach.
         */}
         <SettingsSection
-          title={t('commandEve.authority.sealsTitle')}
+          title={authoritySectionTitle(
+            <Shield theme='outline' size={18} fill='currentColor' />,
+            t('commandEve.authority.sealsTitle'),
+            'authority-section-icon-seals'
+          )}
           description={t('commandEve.authority.sealsDescription')}
+          bodyClassName='eve-settings-list'
+          testId='authority-seals-section'
         >
-          <div className='flex flex-col gap-12px'>
-            {EVE_SEALED_CAPABILITIES.map((capability) => (
-              <div key={capability} className='flex flex-col gap-8px' data-testid={`seal-row-${capability}`}>
-                <div className='flex items-start justify-between gap-16px'>
-                  <div className='min-w-0'>
-                    <div className='font-medium'>{t(`commandEve.${SEAL_KEYS[capability]}.title`)}</div>
-                    <div className='text-13px op-70'>{t(`commandEve.${SEAL_KEYS[capability]}.body`)}</div>
+          {EVE_SEALED_CAPABILITIES.map((capability) => (
+            <div key={capability} className='flex flex-col' data-testid={`seal-row-${capability}`}>
+              <PreferenceRow
+                label={
+                  <span className='flex min-w-0 items-start gap-10px'>
+                    <span
+                      aria-hidden='true'
+                      className='flex h-24px w-24px shrink-0 items-center justify-center text-[var(--eve-shell-text-secondary)]'
+                      data-testid={`authority-seal-icon-${capability}`}
+                    >
+                      {SEAL_ICONS[capability]}
+                    </span>
+                    <span className='min-w-0'>
+                      <span className='block'>{t(`commandEve.${SEAL_KEYS[capability]}.title`)}</span>
+                      <span className='eve-settings-preference-row__description block'>
+                        {t(`commandEve.${SEAL_KEYS[capability]}.body`)}
+                      </span>
+                    </span>
+                  </span>
+                }
+              >
+                <Switch
+                  checked={grant.capabilities[capability] === true}
+                  onChange={(open) => onSeal(capability, open)}
+                  data-testid={`seal-switch-${capability}`}
+                />
+              </PreferenceRow>
+              {capability === 'spend.money' && moneyOpen && (
+                <div className='eve-settings-sublist mb-12px ml-34px flex flex-col gap-4px'>
+                  <div className='flex items-center gap-8px'>
+                    <span className='text-13px text-[var(--eve-shell-text-secondary)]'>
+                      {t('commandEve.authority.dailyBudget')}
+                    </span>
+                    <InputNumber
+                      size='small'
+                      min={0.01}
+                      step={1}
+                      precision={2}
+                      style={{ width: 120 }}
+                      value={typeof dailyCents === 'number' ? dailyCents / 100 : undefined}
+                      onChange={onBudget}
+                      data-testid='seal-budget-money'
+                    />
                   </div>
-                  <Switch
-                    checked={grant.capabilities[capability] === true}
-                    onChange={(open) => onSeal(capability, open)}
-                    data-testid={`seal-switch-${capability}`}
-                  />
+                  {/*
+                    An open money seal with no usable ceiling is REFUSED at
+                    decision time (`spendWithinDailyLimit`), never read as
+                    unlimited. Saying so here is what stops the user seeing a
+                    switch that is on, an EVE that never spends, and concluding
+                    the feature is broken.
+                  */}
+                  {grantNeedsAttention(grant) === 'money-without-budget' && (
+                    <div className='text-13px text-orange-6' data-testid='budget-missing'>
+                      {t('commandEve.authority.budgetMissing')}
+                    </div>
+                  )}
+                  {classifyDailyBudget(dailyCents) === 'confirm' && (
+                    <div className='text-13px text-orange-6' data-testid='budget-high'>
+                      {t('commandEve.authority.budgetHigh')}
+                    </div>
+                  )}
+                  {/*
+                    The line that keeps this field from being a lie.
+
+                    The stored limit is not dressed up as live enforcement.
+                    There is no day counter anywhere:
+                    `spentTodayCents` exists only as a type (:126) and a read
+                    (:206), with no store, no day boundary and no rollover
+                    behind it — and the number never reaches EVE at all, since
+                    the approval endpoint answers with exactly
+                    `{decision, edit_policy, ladder}` (ollamaOpenAiShim:2667-2671).
+
+                    The runtime therefore keeps `spend.money` false for
+                    generic terminal commands. Opaque Browser/Desktop actions
+                    use their separate, broad auto-run choice above; when it
+                    is enabled, the saved daily number does not meter those
+                    clicks. Product-managed generation keeps its separate
+                    credit preflight.
+                  */}
+                  <div className='text-13px text-[var(--eve-shell-text-secondary)]' data-testid='budget-not-enforced'>
+                    {t('commandEve.authority.budgetNotEnforced')}
+                  </div>
                 </div>
-                {capability === 'spend.money' && moneyOpen && (
-                  <div className='flex flex-col gap-4px pl-4px'>
-                    <div className='flex items-center gap-8px'>
-                      <span className='text-13px op-70'>{t('commandEve.authority.dailyBudget')}</span>
-                      <InputNumber
-                        size='small'
-                        min={0.01}
-                        step={1}
-                        precision={2}
-                        style={{ width: 120 }}
-                        value={typeof dailyCents === 'number' ? dailyCents / 100 : undefined}
-                        onChange={onBudget}
-                        data-testid='seal-budget-money'
-                      />
-                    </div>
-                    {/*
-                      An open money seal with no usable ceiling is REFUSED at
-                      decision time (`spendWithinDailyLimit`), never read as
-                      unlimited. Saying so here is what stops the user seeing a
-                      switch that is on, an EVE that never spends, and concluding
-                      the feature is broken.
-                    */}
-                    {grantNeedsAttention(grant) === 'money-without-budget' && (
-                      <div className='text-13px text-orange-6' data-testid='budget-missing'>
-                        {t('commandEve.authority.budgetMissing')}
-                      </div>
-                    )}
-                    {classifyDailyBudget(dailyCents) === 'confirm' && (
-                      <div className='text-13px text-orange-6' data-testid='budget-high'>
-                        {t('commandEve.authority.budgetHigh')}
-                      </div>
-                    )}
-                    {/*
-                      The line that keeps this field from being a lie.
+              )}
+            </div>
+          ))}
+        </SettingsSection>
 
-                      The stored limit is not dressed up as live enforcement.
-                      There is no day counter anywhere:
-                      `spentTodayCents` exists only as a type (:126) and a read
-                      (:206), with no store, no day boundary and no rollover
-                      behind it — and the number never reaches EVE at all, since
-                      the approval endpoint answers with exactly
-                      `{decision, edit_policy, ladder}` (ollamaOpenAiShim:2667-2671).
+        {/*
+          OPAQUE UI AUTO-RUN IS ITS OWN AXIS, NOT A SIXTH SEAL.
 
-                      The runtime therefore keeps `spend.money` false for
-                      generic terminal and opaque browser/Desktop operations.
-                      The capability stays installed and the user gets the
-                      normal one-operation approval card. Product-managed
-                      generation keeps its separate credit preflight.
-                    */}
-                    <div className='text-13px op-70' data-testid='budget-not-enforced'>
-                      {t('commandEve.authority.budgetNotEnforced')}
-                    </div>
-                  </div>
-                )}
+          The five seals describe effects. A browser click or Desktop keypress
+          cannot prove its effect before it happens, so this control explicitly
+          acknowledges that the visible last mile may cross those seals
+          indirectly. Hermes stays installed and callable while this is off;
+          only unattended click/type execution changes.
+        */}
+        <SettingsSection
+          title={authoritySectionTitle(
+            <span className='relative block h-24px w-24px'>
+              <Browser theme='outline' size={16} fill='currentColor' className='absolute left-0 top-0 leading-none' />
+              <Computer
+                theme='outline'
+                size={16}
+                fill='currentColor'
+                className='absolute bottom-0 right-0 leading-none'
+              />
+            </span>,
+            t('commandEve.authority.opaqueUiTitle'),
+            'authority-section-icon-opaque-ui'
+          )}
+          description={t('commandEve.authority.opaqueUiDescription')}
+          bodyClassName='eve-settings-list'
+          testId='authority-opaque-ui-section'
+        >
+          <div className='flex flex-col' data-testid='opaque-ui-autorun-row'>
+            <PreferenceRow
+              label={t('commandEve.authority.opaqueUiToggleTitle')}
+              description={t('commandEve.authority.opaqueUiToggleBody')}
+            >
+              <Switch
+                checked={grant.opaqueUiAutoRun === true}
+                disabled={grant.ladder < 4 && grant.opaqueUiAutoRun !== true}
+                onChange={onOpaqueUiAutoRun}
+                data-testid='opaque-ui-autorun-switch'
+              />
+            </PreferenceRow>
+            {grant.ladder < 4 && (
+              <div className='eve-settings-inline-notice mb-10px text-orange-6' data-testid='opaque-ui-rung-required'>
+                {t('commandEve.authority.opaqueUiRungRequired')}
               </div>
-            ))}
+            )}
+            <div
+              className='eve-settings-notice eve-settings-notice--warning mb-12px text-13px'
+              data-testid='opaque-ui-warning'
+            >
+              {t('commandEve.authority.opaqueUiWarning')}
+            </div>
           </div>
         </SettingsSection>
 
@@ -321,22 +462,28 @@ const AuthorityModalContent: React.FC = () => {
           (`withFullAuthority` is literally a composition of them).
 
           The confirmation step is not ceremony. A button that opened five seals
-          on one press is a button people press to find out what it does, and
-          the list below is what makes the answer available BEFORE the press.
+          and opaque UI auto-run on one press is a button people press to find
+          out what it does. The independent switches and list below make every
+          consequence available BEFORE the press.
         */}
         <SettingsSection
-          title={t('commandEve.authority.fullReleaseTitle')}
+          title={authoritySectionTitle(
+            <Unlock theme='outline' size={18} fill='currentColor' />,
+            t('commandEve.authority.fullReleaseTitle'),
+            'authority-section-icon-full-release'
+          )}
           description={t('commandEve.authority.fullReleaseDescription')}
+          testId='authority-full-release-section'
         >
           {fullyReleased && !confirmingRelease ? (
-            <div className='text-13px' data-testid='full-release-active'>
+            <div className='eve-settings-inline-notice' data-testid='full-release-active'>
               {t('commandEve.authority.fullReleaseActive', {
                 amount: perDay(grant.limits?.['spend.money']?.dailyCents ?? 0),
               })}
             </div>
           ) : confirmingRelease ? (
-            <div className='flex flex-col gap-12px' data-testid='full-release-confirm'>
-              <div className='text-13px'>{t('commandEve.authority.fullReleaseConfirmIntro')}</div>
+            <div className='flex flex-col gap-14px' data-testid='full-release-confirm'>
+              <div className='eve-settings-disclosure'>{t('commandEve.authority.fullReleaseConfirmIntro')}</div>
 
               {/*
                 Money is asked for, never assumed. `spendWithinDailyLimit`
@@ -345,24 +492,43 @@ const AuthorityModalContent: React.FC = () => {
                 an EVE that never spends — the exact state this panel already has
                 a warning for.
               */}
-              <div className='flex items-center gap-8px'>
-                <Switch checked={releaseMoney} onChange={setReleaseMoney} data-testid='full-release-money-switch' />
-                <span className='text-13px'>{t('commandEve.authority.fullReleaseMoneyLabel')}</span>
-                {releaseMoney && (
-                  <InputNumber
-                    size='small'
-                    min={0.01}
-                    step={1}
-                    precision={2}
-                    style={{ width: 120 }}
-                    value={releaseBudget}
-                    onChange={setReleaseBudget}
-                    data-testid='full-release-budget'
+              <div className='eve-settings-list' data-testid='full-release-preferences'>
+                <PreferenceRow label={t('commandEve.authority.fullReleaseMoneyLabel')} stackOnMobile>
+                  <div className='flex items-center gap-8px'>
+                    <Switch
+                      checked={releaseMoney}
+                      onChange={setReleaseMoney}
+                      aria-label={t('commandEve.authority.fullReleaseMoneyLabel')}
+                      data-testid='full-release-money-switch'
+                    />
+                    {releaseMoney && (
+                      <InputNumber
+                        size='small'
+                        min={0.01}
+                        step={1}
+                        precision={2}
+                        style={{ width: 120 }}
+                        value={releaseBudget}
+                        onChange={setReleaseBudget}
+                        data-testid='full-release-budget'
+                      />
+                    )}
+                  </div>
+                </PreferenceRow>
+
+                <PreferenceRow
+                  label={t('commandEve.authority.fullReleaseOpaqueUiLabel')}
+                  description={t('commandEve.authority.fullReleaseOpaqueUiBody')}
+                >
+                  <Switch
+                    checked={releaseOpaqueUiAutoRun}
+                    onChange={setReleaseOpaqueUiAutoRun}
+                    data-testid='full-release-opaque-ui-switch'
                   />
-                )}
+                </PreferenceRow>
               </div>
 
-              <ul className='flex flex-col gap-4px pl-16px text-13px' data-testid='full-release-effects'>
+              <ul className='eve-settings-sublist flex flex-col gap-4px text-13px' data-testid='full-release-effects'>
                 <li>
                   {releasePreview.ladderChanges
                     ? t('commandEve.authority.fullReleaseLadder', {
@@ -392,18 +558,36 @@ const AuthorityModalContent: React.FC = () => {
                           amount: perDay(releasePreview.dailyCents ?? 0),
                         })}
                 </li>
+                <li data-testid='full-release-opaque-ui-line'>
+                  {releasePreview.opaqueUiAutoRunWillDisable
+                    ? t('commandEve.authority.fullReleaseOpaqueUiDisables')
+                    : releasePreview.opaqueUiAutoRunLeftAsIs
+                      ? t('commandEve.authority.fullReleaseOpaqueUiUntouched')
+                      : releasePreview.opaqueUiAutoRunAlreadyEnabled
+                        ? t('commandEve.authority.fullReleaseOpaqueUiAlreadyOpen')
+                        : t('commandEve.authority.fullReleaseOpaqueUiEnables')}
+                </li>
               </ul>
+
+              {releaseOpaqueUiAutoRun && (
+                <div
+                  className='eve-settings-notice eve-settings-notice--warning text-13px'
+                  data-testid='full-release-opaque-ui-warning'
+                >
+                  {t('commandEve.authority.opaqueUiWarning')}
+                </div>
+              )}
 
               {/* Identical wording to the seals section, from the same key: the
                   two surfaces must not be able to describe money differently. */}
               {!releasePreview.moneyLeftAsIs && (
-                <div className='text-13px op-70' data-testid='full-release-budget-not-enforced'>
+                <div className='eve-settings-inline-notice' data-testid='full-release-budget-not-enforced'>
                   {t('commandEve.authority.budgetNotEnforced')}
                 </div>
               )}
 
               {releasePreview.changesNothing && (
-                <div className='text-13px op-70' data-testid='full-release-noop'>
+                <div className='eve-settings-inline-notice' data-testid='full-release-noop'>
                   {t('commandEve.authority.fullReleaseNothingToDo')}
                 </div>
               )}
@@ -425,7 +609,7 @@ const AuthorityModalContent: React.FC = () => {
               </div>
             </div>
           ) : (
-            <Button size='small' onClick={() => setConfirmingRelease(true)} data-testid='full-release-open'>
+            <Button size='small' onClick={openReleaseConfirmation} data-testid='full-release-open'>
               {t('commandEve.authority.fullReleaseButton')}
             </Button>
           )}
@@ -441,8 +625,8 @@ const AuthorityModalContent: React.FC = () => {
           
           Native Hermes tools without their own terminal/file ACP callback now
           pass through Command EVE's structured pre_tool_call authority hook
-          before their native handlers. User rung + independent seals remain
-          the only product policy.
+          before their native handlers. User rung, independent effect seals and
+          the explicit opaque-UI override are the three product-policy axes.
           The first remaining boundary is upstream and deliberate:
             - tools/computer_use/tool.py `_BLOCKED_KEY_COMBOS` is a genuine
               hard block for session-destroying system shortcuts. The user's
@@ -463,15 +647,19 @@ const AuthorityModalContent: React.FC = () => {
               a five-minute wait, and the assumption is the risk.
           
           The sixth is ours, and it is the one this section exists to keep
-          honest: the daily amount is stored, but generic terminal and opaque
-          browser/Desktop operations do not receive unattended money authority
-          until a structured amount and atomic daily ledger are available.
+          honest: the daily amount is stored, but generic terminal money
+          commands still ask because no atomic ledger exists. If the user opens
+          opaque Browser/Desktop auto-run, UI clicks can indirectly pay without
+          that amount constraining them; the warning above states this plainly.
         */}
         <SettingsSection
           title={t('commandEve.authority.limitsTitle')}
           description={t('commandEve.authority.limitsDescription')}
         >
-          <ul className='flex flex-col gap-8px pl-16px text-13px op-80' data-testid='authority-limits'>
+          <ul
+            className='eve-settings-sublist flex flex-col gap-8px text-13px text-[var(--eve-shell-text-secondary)]'
+            data-testid='authority-limits'
+          >
             <li>{t('commandEve.authority.limitScreen')}</li>
             <li>{t('commandEve.authority.limitScanner')}</li>
             <li>{t('commandEve.authority.limitMemory')}</li>
@@ -484,31 +672,25 @@ const AuthorityModalContent: React.FC = () => {
         <SettingsSection
           title={t('commandEve.authority.rememberedTitle')}
           description={t('commandEve.authority.rememberedDescription')}
+          bodyClassName={remembered.length === 0 ? undefined : 'eve-settings-list'}
         >
           {remembered.length === 0 ? (
-            <div className='text-13px op-70'>{t('commandEve.authority.rememberedEmpty')}</div>
+            <div className='eve-settings-muted'>{t('commandEve.authority.rememberedEmpty')}</div>
           ) : (
-            <div className='flex flex-col gap-8px'>
-              {remembered.map((entry) => (
-                <div
-                  key={entry.command}
-                  className='flex items-center justify-between gap-16px'
-                  data-testid='remembered-row'
-                >
-                  <div className='min-w-0'>
-                    <code className='text-13px break-all'>{entry.command}</code>
-                    <div className='text-12px op-60'>
-                      {t('commandEve.authority.grantedAt', {
-                        date: new Date(entry.grantedAt).toLocaleDateString(),
-                      })}
-                    </div>
-                  </div>
-                  <Button size='mini' status='danger' onClick={() => onForget(entry.command)}>
-                    {t('commandEve.authority.forget')}
-                  </Button>
-                </div>
-              ))}
-            </div>
+            remembered.map((entry) => (
+              <PreferenceRow
+                key={entry.command}
+                label={<code className='break-all text-13px'>{entry.command}</code>}
+                description={t('commandEve.authority.grantedAt', {
+                  date: new Date(entry.grantedAt).toLocaleDateString(),
+                })}
+                testId='remembered-row'
+              >
+                <Button size='mini' status='danger' onClick={() => onForget(entry.command)}>
+                  {t('commandEve.authority.forget')}
+                </Button>
+              </PreferenceRow>
+            ))
           )}
         </SettingsSection>
       </div>

@@ -59,17 +59,21 @@ const PINNED_CLAIMS: Readonly<Record<string, Readonly<Record<string, string>>>> 
     budgetMissing:
       'Ohne Betrag bleibt das Geld-Siegel zu. Geld-Befehle, die EVE als solche erkennt, kommen dann nicht durch.',
     budgetNotEnforced:
-      'Der Betrag wird gespeichert, aber in dieser Version noch nicht als Tageszähler durchgesetzt. Geldbefehle und nicht sicher einordenbare Bezahlvorgänge fragt EVE deshalb weiterhin einzeln ab. Das eingetragene Limit ist kein Blankoscheck.',
+      'Der Betrag wird gespeichert, aber in dieser Version noch nicht als Tageszähler durchgesetzt. Erkannte Geldbefehle fragt EVE deshalb weiterhin einzeln ab. Wenn du autonome Browser-/Desktop-Steuerung aktivierst, begrenzt dieser Betrag deren Klicks technisch nicht. Das eingetragene Limit ist kein Blankoscheck.',
     limitMoney:
-      'Tagesbetrag: Der Betrag wird gespeichert, aber noch nicht gegen einen Tagesverbrauch gebucht. EVE fragt vor Geldbefehlen und nicht sicher einordenbaren Bezahlvorgängen weiterhin einzeln; das Limit erteilt keine pauschale Kaufvollmacht.',
+      'Tagesbetrag: Der Betrag wird gespeichert, aber noch nicht gegen einen Tagesverbrauch gebucht. Erkannte Geldbefehle bleiben einzeln freigabepflichtig. Eine aktivierte Browser-/Desktop-Autonomie kann Bezahlvorgänge über die Oberfläche ausführen, ohne dass dieser Betrag sie technisch begrenzt.',
+    opaqueUiWarning:
+      'Breite Freigabe: Ein Klick kann indirekt bezahlen, veröffentlichen, löschen, Zugangsdaten offenlegen oder Produktion verändern. Die fünf Wirkungssiegel und der gespeicherte Tagesbetrag begrenzen solche Browser-/Desktop-Schritte technisch noch nicht.',
   },
   'en-US': {
     budgetMissing:
       'Without an amount the money seal stays shut. Money commands EVE recognises as such do not get through.',
     budgetNotEnforced:
-      'The amount is saved, but this version does not yet enforce it as a daily ledger. EVE therefore still asks separately for money commands and payment steps it cannot classify safely. The configured limit is not a blank cheque.',
+      'The amount is saved, but this version does not yet enforce it as a daily ledger. EVE therefore still asks separately for recognised money commands. If you enable autonomous Browser/Desktop control, this amount does not technically constrain its clicks. The configured limit is not a blank cheque.',
     limitMoney:
-      'Daily amount: the amount is saved, but is not yet booked against daily usage. EVE still asks separately before money commands and payment steps it cannot classify safely; the limit does not grant blanket purchasing authority.',
+      'Daily amount: the amount is saved, but is not yet booked against daily usage. Recognised money commands still require a separate approval. Enabled Browser/Desktop autonomy may complete payments through the UI without this amount technically constraining them.',
+    opaqueUiWarning:
+      'Broad permission: a click may indirectly pay, publish, delete, reveal credentials or change production. The five effect seals and recorded daily amount do not yet technically constrain such Browser/Desktop steps.',
   },
 };
 
@@ -144,6 +148,18 @@ describe('authority copy claims only what the code enforces', () => {
         expect(typeof note).toBe('string');
         for (const [claim, phrase] of REQUIRED_CLAIMS[name]!) {
           expect(note, `${name}: missing claim — ${claim}`).toContain(phrase);
+        }
+      });
+
+      it('says that opaque UI auto-run can cross every effect boundary', () => {
+        const warning = authority(bundle).opaqueUiWarning;
+        expect(typeof warning).toBe('string');
+        const required =
+          name === 'de-DE'
+            ? ['bezahlen', 'veröffentlichen', 'löschen', 'Zugangsdaten', 'Produktion', 'technisch noch nicht']
+            : ['pay', 'publish', 'delete', 'credentials', 'production', 'do not yet technically'];
+        for (const phrase of required) {
+          expect(warning, name + ': missing opaque effect ' + phrase).toContain(phrase);
         }
       });
 

@@ -27,6 +27,8 @@ import type { EveAuthorityGrant } from '@/common/config/eveAuthorityCore';
 
 const store: Record<string, unknown> = {};
 const subscribers = new Map<string, Set<() => void>>();
+const seatSubscribers = new Set<(seatId: string) => void>();
+let currentSeatId = 'seat-a';
 
 function notifyKey(key: string): void {
   for (const callback of subscribers.get(key) ?? []) callback();
@@ -59,6 +61,11 @@ vi.mock('@/common/config/configService', () => ({
       subscribers.set(key, forKey);
       return () => forKey.delete(callback);
     },
+    getCurrentSeatId: () => currentSeatId,
+    onSeatRebind: (callback: (seatId: string) => void) => {
+      seatSubscribers.add(callback);
+      return () => seatSubscribers.delete(callback);
+    },
     whenReady: async () => {},
   },
 }));
@@ -80,10 +87,20 @@ vi.mock('@/renderer/components/base/AionScrollArea', () => ({
 }));
 
 vi.mock('@/renderer/components/settings/SettingsSection', () => ({
-  default: ({ title, children }: { title: React.ReactNode; children: React.ReactNode }) => (
-    <section>
+  default: ({
+    title,
+    children,
+    bodyClassName,
+    testId,
+  }: {
+    title: React.ReactNode;
+    children: React.ReactNode;
+    bodyClassName?: string;
+    testId?: string;
+  }) => (
+    <section data-testid={testId}>
       <h2>{title}</h2>
-      {children}
+      <div className={bodyClassName}>{children}</div>
     </section>
   ),
 }));
@@ -140,13 +157,23 @@ vi.mock('@arco-design/web-react', () => {
     Switch: ({
       checked,
       onChange,
+      disabled,
+      size,
       ...rest
     }: {
       checked: boolean;
       onChange: (next: boolean) => void;
+      disabled?: boolean;
+      size?: string;
       'data-testid'?: string;
     }) => (
-      <button data-testid={rest['data-testid']} data-checked={String(checked)} onClick={() => onChange(!checked)} />
+      <button
+        data-testid={rest['data-testid']}
+        data-checked={String(checked)}
+        data-size={size ?? 'default'}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+      />
     ),
     InputNumber: ({
       value,
@@ -175,6 +202,8 @@ const lastWrite = (key: string): unknown => setSpy.mock.calls.filter((call) => c
 beforeEach(() => {
   for (const key of Object.keys(store)) delete store[key];
   subscribers.clear();
+  seatSubscribers.clear();
+  currentSeatId = 'seat-a';
   setSpy.mockClear();
   vi.resetModules();
 });
@@ -182,6 +211,45 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Settings → Freigaben offers only what something enforces', () => {
+  it('uses the shared settings rhythm, unboxed icons and standard switches', async () => {
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    const sectionIcons = [
+      ['authority-section-icon-ladder', '18'],
+      ['authority-section-icon-seals', '18'],
+      ['authority-section-icon-full-release', '18'],
+    ] as const;
+    for (const [testId, size] of sectionIcons) {
+      const slot = await screen.findByTestId(testId);
+      expect(slot.className).toContain('h-24px');
+      expect(slot.className).toContain('w-24px');
+      expect(slot.querySelector('svg')?.getAttribute('width')).toBe(size);
+    }
+
+    const opaqueSlot = screen.getByTestId('authority-section-icon-opaque-ui');
+    expect(opaqueSlot.querySelectorAll('svg')).toHaveLength(2);
+    for (const icon of opaqueSlot.querySelectorAll('svg')) expect(icon.getAttribute('width')).toBe('16');
+
+    for (const capability of [
+      'spend.money',
+      'publish.outward',
+      'delete.outside',
+      'credentials.read',
+      'deploy.production',
+    ]) {
+      const iconSlot = screen.getByTestId(`authority-seal-icon-${capability}`);
+      expect(iconSlot.className).toContain('h-24px');
+      expect(iconSlot.querySelector('svg')?.getAttribute('width')).toBe('16');
+      expect(screen.getByTestId(`seal-row-${capability}`).querySelector('.eve-settings-preference-row')).toBeTruthy();
+      expect(screen.getByTestId(`seal-switch-${capability}`).getAttribute('data-size')).toBe('default');
+    }
+
+    expect(screen.getByTestId('authority-content').className).not.toContain('gap-24px');
+    expect(screen.getByTestId('opaque-ui-warning').className).toContain('eve-settings-notice--warning');
+    expect(screen.getAllByText('commandEve.authority.opaqueUiRungRequired')).toHaveLength(1);
+  });
+
   it('renders ALL SIX rungs — each one now binds', async () => {
     store['commandEve.authority'] = { ladder: 2, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
@@ -211,6 +279,38 @@ describe('Settings → Freigaben offers only what something enforces', () => {
     // The money amount only appears once the seal is open — an amount field on a
     // shut seal invites typing a budget that grants nothing.
     expect(screen.queryByTestId('seal-budget-money')).toBeNull();
+    const opaqueUi = screen.getByTestId('opaque-ui-autorun-switch');
+    expect(opaqueUi.getAttribute('data-checked')).toBe('false');
+    expect(opaqueUi.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('opaque-ui-warning')).toBeTruthy();
+  });
+
+  it('lets a Selbstständig seat explicitly enable and withdraw opaque UI auto-run', async () => {
+    store['commandEve.authority'] = { ladder: 4, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    const toggle = await screen.findByTestId('opaque-ui-autorun-switch');
+    expect(toggle.hasAttribute('disabled')).toBe(false);
+    await act(async () => {
+      toggle.click();
+    });
+    const enabled = lastWrite('commandEve.authority') as EveAuthorityGrant;
+    expect(enabled.opaqueUiAutoRun).toBe(true);
+    expect(enabled.opaqueUiAutoRunGrantedAt).toBeTruthy();
+    expect(enabled.capabilities).toEqual({});
+
+    store['commandEve.authority'] = enabled;
+    notifyKey('commandEve.authority');
+    await waitFor(() =>
+      expect(screen.getByTestId('opaque-ui-autorun-switch').getAttribute('data-checked')).toBe('true')
+    );
+    await act(async () => {
+      screen.getByTestId('opaque-ui-autorun-switch').click();
+    });
+    const withdrawn = lastWrite('commandEve.authority') as EveAuthorityGrant;
+    expect(withdrawn.opaqueUiAutoRun).toBeUndefined();
+    expect(withdrawn.opaqueUiAutoRunGrantedAt).toBeUndefined();
   });
 
   it('opening a seal writes it — and moving the ladder never opens one', async () => {
@@ -255,6 +355,28 @@ describe('Settings → Freigaben offers only what something enforces', () => {
 });
 
 describe('the page states the ACTIVE seat, not the one you came from', () => {
+  it('does not carry opaque UI auto-run into a different seat', async () => {
+    store['commandEve.authority'] = {
+      ladder: 4,
+      capabilities: {},
+      opaqueUiAutoRun: true,
+      opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
+      updatedBy: 'user',
+    } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+    expect((await screen.findByTestId('opaque-ui-autorun-switch')).getAttribute('data-checked')).toBe('true');
+
+    await act(async () => {
+      delete store['commandEve.authority'];
+      notifyKey('commandEve.authority');
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('opaque-ui-autorun-switch').getAttribute('data-checked')).toBe('false')
+    );
+  });
+
   it('follows a seat switch without being remounted', async () => {
     // Seat A chose "arbeiten".
     store['commandEve.authority'] = { ladder: 3, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;

@@ -15,6 +15,7 @@ import {
   resolveStoredGrant,
   withDailyBudget,
   withLadder,
+  withOpaqueUiAutoRun,
   backendModeForGrant,
   isEnforcedLadderRung,
   rememberedCommandsFromSettings,
@@ -48,11 +49,18 @@ describe('one record, resolved the same way everywhere', () => {
         expect(resolved.capabilities[sealed]).toBeUndefined();
         expect(grantAllows({ class: 'irreversible', sealed, amountCents: 1 }, resolved)).toBe(false);
       }
+      expect(resolved.opaqueUiAutoRun).toBeUndefined();
     }
   });
 
   it('falls closed on malformed stored state instead of repairing it', () => {
-    for (const bad of [null, 42, 'ladder: 5', { ladder: 9, capabilities: {}, updatedBy: 'user' }]) {
+    for (const bad of [
+      null,
+      42,
+      'ladder: 5',
+      { ladder: 9, capabilities: {}, updatedBy: 'user' },
+      { ladder: 4, capabilities: {}, opaqueUiAutoRun: true, updatedBy: 'user' },
+    ]) {
       expect(resolveStoredGrant(bad, null)).toBe(EVE_AUTHORITY_FAIL_CLOSED);
     }
     expect(resolveStoredGrant(undefined, {})).toBe(EVE_AUTHORITY_FAIL_CLOSED);
@@ -76,6 +84,15 @@ describe('moving the ladder never touches a seal', () => {
     expect(moved.ladder).toBe(5);
     expect(moved.capabilities['publish.outward']).toBe(true);
     expect(moved.grantedAt?.['publish.outward']).toBe(NOW);
+  });
+
+  it('keeps the separate opaque UI choice when the rung changes', () => {
+    const enabled = withOpaqueUiAutoRun({ ladder: 4, capabilities: {}, updatedBy: 'user' }, true, NOW);
+    const paused = withLadder(enabled, 1);
+    expect(paused.opaqueUiAutoRun).toBe(true);
+    expect(paused.opaqueUiAutoRunGrantedAt).toBe(NOW);
+    expect(grantAllows({ class: 'unclassified', opaqueUiAction: true }, paused)).toBe(false);
+    expect(grantAllows({ class: 'unclassified', opaqueUiAction: true }, withLadder(paused, 4))).toBe(true);
   });
 
   it('opens no seal when the rung goes to the top', () => {
@@ -123,6 +140,37 @@ describe('a seal records when it was given, and leaves no trace when revoked', (
     grant = withSeal(grant, 'publish.outward', false, NOW);
     expect(grant.capabilities['publish.outward']).toBeUndefined();
     expect(grant.capabilities['credentials.read']).toBe(true);
+  });
+});
+
+describe('opaque Browser/Desktop auto-run is explicit, reversible and fail-closed', () => {
+  it('cannot be enabled below Selbstständig', () => {
+    for (const ladder of [0, 1, 2, 3] as const) {
+      const grant: EveAuthorityGrant = { ladder, capabilities: {}, updatedBy: 'user' };
+      expect(withOpaqueUiAutoRun(grant, true, NOW)).toBe(grant);
+    }
+  });
+
+  it('records its own consent moment and can be withdrawn immediately', () => {
+    const base: EveAuthorityGrant = { ladder: 4, capabilities: {}, updatedBy: 'migration' };
+    const enabled = withOpaqueUiAutoRun(base, true, NOW);
+    expect(enabled.opaqueUiAutoRun).toBe(true);
+    expect(enabled.opaqueUiAutoRunGrantedAt).toBe(NOW);
+    expect(enabled.updatedBy).toBe('user');
+    expect(grantAllows({ class: 'unclassified', opaqueUiAction: true }, enabled)).toBe(true);
+
+    const withdrawn = withOpaqueUiAutoRun(enabled, false, NOW);
+    expect(withdrawn.opaqueUiAutoRun).toBeUndefined();
+    expect(withdrawn.opaqueUiAutoRunGrantedAt).toBeUndefined();
+    expect(grantAllows({ class: 'unclassified', opaqueUiAction: true }, withdrawn)).toBe(false);
+  });
+
+  it('never opens a concrete effect seal', () => {
+    const enabled = withOpaqueUiAutoRun({ ladder: 5, capabilities: {}, updatedBy: 'user' }, true, NOW);
+    expect(enabled.capabilities).toEqual({});
+    for (const sealed of EVE_SEALED_CAPABILITIES) {
+      expect(grantAllows({ class: 'irreversible', sealed, amountCents: 1 }, enabled)).toBe(false);
+    }
   });
 });
 

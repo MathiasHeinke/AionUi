@@ -57,7 +57,15 @@ function allGrants(): EveAuthorityGrant[] {
   const grants: EveAuthorityGrant[] = [];
   for (const ladder of EVE_LADDER_RUNGS) {
     for (const capabilities of allCapabilitySets()) {
-      grants.push({ ladder, capabilities, updatedBy: 'user' });
+      for (const opaqueUiAutoRun of [false, true]) {
+        grants.push({
+          ladder,
+          capabilities,
+          opaqueUiAutoRun,
+          ...(opaqueUiAutoRun ? { opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z' } : {}),
+          updatedBy: 'user',
+        });
+      }
     }
   }
   return grants;
@@ -71,6 +79,7 @@ function allActions(): EveAction[] {
       actions.push({ class: actionClass, sealed });
     }
   }
+  actions.push({ class: 'unclassified', opaqueUiAction: true });
   return actions;
 }
 
@@ -156,6 +165,8 @@ describe('the sealed set never hangs off a rung', () => {
       ladder: 0,
       capabilities: Object.fromEntries(EVE_SEALED_CAPABILITIES.map((c) => [c, true])),
       limits: { 'spend.money': { dailyCents: 100000 } },
+      opaqueUiAutoRun: true,
+      opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
       updatedBy: 'user',
     };
     expect(grantAllows({ class: 'read' }, watchWithEverything)).toBe(true);
@@ -165,6 +176,7 @@ describe('the sealed set never hangs off a rung', () => {
         `${sealed} must not act through rung 0`
       ).toBe(false);
     }
+    expect(grantAllows({ class: 'unclassified', opaqueUiAction: true }, watchWithEverything)).toBe(false);
   });
 });
 
@@ -236,6 +248,28 @@ describe('unknown is not harmless', () => {
       expect(decideAuthority({ class: 'unclassified' }, grant).decision).toBe('ask');
     }
   });
+
+  it('admits only the explicitly tagged UI last mile, from rung 4, after the separate grant', () => {
+    for (const ladder of EVE_LADDER_RUNGS) {
+      const grant: EveAuthorityGrant = {
+        ladder,
+        capabilities: {},
+        opaqueUiAutoRun: true,
+        opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
+        updatedBy: 'user',
+      };
+      const expected = ladder >= 4;
+      expect(grantAllows({ class: 'unclassified', opaqueUiAction: true }, grant)).toBe(expected);
+      expect(decideAuthority({ class: 'unclassified', opaqueUiAction: true }, grant).decision).toBe(
+        expected ? 'allow' : 'ask'
+      );
+      // The same grant never turns an arbitrary unknown into a trusted action.
+      expect(grantAllows({ class: 'unclassified' }, grant)).toBe(false);
+    }
+    expect(
+      grantAllows({ class: 'unclassified', opaqueUiAction: true }, { ladder: 5, capabilities: {}, updatedBy: 'user' })
+    ).toBe(false);
+  });
 });
 
 describe('migration is input, never authority', () => {
@@ -247,6 +281,7 @@ describe('migration is input, never authority', () => {
         expect(grant.capabilities[sealed]).toBeUndefined();
         expect(grantAllows({ class: 'irreversible', sealed }, grant)).toBe(false);
       }
+      expect(grant.opaqueUiAutoRun).toBeUndefined();
     }
   });
 
@@ -284,6 +319,16 @@ describe('stored state that cannot be trusted fails closed', () => {
       { ladder: 3, capabilities: {}, updatedBy: 'somebody-else' },
       { ladder: 3, capabilities: { 'spend.money': 'yes' }, updatedBy: 'user' },
       { ladder: 3, capabilities: { 'invent.capability': true }, updatedBy: 'user' },
+      { ladder: 4, capabilities: {}, opaqueUiAutoRun: 'yes', updatedBy: 'user' },
+      { ladder: 4, capabilities: {}, opaqueUiAutoRun: true, updatedBy: 'user' },
+      {
+        ladder: 4,
+        capabilities: {},
+        opaqueUiAutoRun: false,
+        opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
+        updatedBy: 'user',
+      },
+      { ladder: 4, capabilities: {}, opaqueUiAutoRun: true, opaqueUiAutoRunGrantedAt: '', updatedBy: 'user' },
       { ladder: 3, updatedBy: 'user' },
     ];
     for (const value of bad) {

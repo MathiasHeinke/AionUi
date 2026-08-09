@@ -57,6 +57,11 @@ export interface EveAuthorityRuntime {
   /** Irreversible actions may run unasked (rung 5). */
   irreversible: boolean;
   /**
+   * The user explicitly allowed the enumerated opaque Browser/Desktop last mile
+   * to run without one-operation cards. False for old grants and below rung 4.
+   */
+  opaque_ui_autorun: boolean;
+  /**
    * Per seal: may EVE use it unasked right now? `spend.money` remains false in
    * this boolean-only projection. A real money decision needs the operation's
    * amount plus atomically persisted spend-today state; neither can be reduced
@@ -98,16 +103,14 @@ export function renderEveAuthorityRuntime(grant: EveAuthorityGrant): EveAuthorit
     EVE_SEALED_CAPABILITIES.map((capability) => [capability, sealUsable(grant, capability)])
   ) as Record<EveSealedCapability, boolean>;
   const configuredDailyCents = grant.limits?.['spend.money']?.dailyCents;
-  const moneyConfigurationUsable = grantAllows(
-    { class: 'irreversible', sealed: 'spend.money', amountCents: 0 },
-    grant
-  );
+  const moneyConfigurationUsable = grantAllows({ class: 'irreversible', sealed: 'spend.money', amountCents: 0 }, grant);
   return {
     ladder: grant.ladder,
     edit_policy: editsOutside ? 'session' : editsInWorkspace ? 'workspace_session' : 'ask',
     workspace_command: grantAllows({ class: 'workspace_command' }, grant),
     outside_workspace_command: editsOutside,
     irreversible: grantAllows({ class: 'irreversible' }, grant),
+    opaque_ui_autorun: grantAllows({ class: 'unclassified', opaqueUiAction: true }, grant),
     seals,
     spend_daily_cents:
       moneyConfigurationUsable && Number.isSafeInteger(configuredDailyCents) && configuredDailyCents > 0
@@ -193,6 +196,29 @@ const HERMES_BROWSER_OPAQUE_ACTION_TOOLS = new Set([
   'browser_dialog',
 ]);
 const HERMES_COMPUTER_READ_ACTIONS = new Set(['capture', 'wait', 'list_apps', 'list_windows', 'cua_browser_state']);
+// Mirrored from the bundled Hermes 0.20.0 wheel's finite
+// tools/computer_use/tool.py::_DESTRUCTIVE_ACTIONS. A new upstream action does
+// NOT inherit unattended authority merely because it shares the tool name.
+const HERMES_COMPUTER_OPAQUE_ACTIONS = new Set([
+  'click',
+  'double_click',
+  'right_click',
+  'middle_click',
+  'drag',
+  'scroll',
+  'type',
+  'key',
+  'set_value',
+  'focus_app',
+  'cua_browser_prepare',
+  'cua_browser_navigate',
+  'cua_browser_click',
+  'cua_browser_type',
+  'cua_browser_pointer',
+  'cua_browser_dialog',
+  'cua_browser_set_input_files',
+  'cua_browser_download',
+]);
 const HERMES_ALWAYS_READ_TOOLS = new Set([
   'browser_snapshot',
   'browser_get_images',
@@ -249,19 +275,6 @@ const HERMES_OUTWARD_TOOLS = new Set([
 ]);
 
 /**
- * Low-level browser/Desktop actions cannot reveal whether a click is opening
- * an accordion or confirming a purchase. Keep the capability installed, but
- * auto-run that opaque last mile only after the user deliberately selected
- * Full AND every independent seal is enforceable for this operation. The
- * current runtime cannot prove an amount against the daily money ledger, so
- * opaque actions receive the existing one-operation approval card. Hermes
- * remains installed and capable; only unattended execution is withheld.
- */
-function hasFullOpaqueToolAuthority(runtime: EveAuthorityRuntime): boolean {
-  return runtime.irreversible && EVE_SEALED_CAPABILITIES.every((capability) => runtime.seals[capability] === true);
-}
-
-/**
  * Decide whether a structured native Hermes action may run without a card.
  * This is deliberately separate from terminal command classification: native
  * tools have structured names/actions and must not be reverse-engineered into
@@ -270,11 +283,12 @@ function hasFullOpaqueToolAuthority(runtime: EveAuthorityRuntime): boolean {
  * Reads remain available at every rung. Local planning/delegation follows the
  * workspace-command grant, safe browser navigation follows reversible
  * outside-work, and outward/deleting actions obey their independent seals.
- * Opaque browser/Desktop interactions stay installed but use the existing
- * one-operation approval path in this release, because their tool identity
- * alone cannot prove which seal the final click might spend. Product-managed
- * image/video/voice calls remain popup-free because the product's credit
- * preflight is their authority seam.
+ * Opaque browser/Desktop interactions stay installed. Their exact enumerated
+ * action set may auto-run only when the user enabled the separate opaque UI
+ * override; that warning is honest that a click can indirectly cross any of the
+ * five effect seals. Unknown future tools never inherit that override.
+ * Product-managed image/video/voice calls remain popup-free because the
+ * product's credit preflight is their authority seam.
  *
  * The Hermes tool's own hard blocks remain the survival floor after this
  * decision; this function can only add a user gate, never bypass an upstream
@@ -299,13 +313,16 @@ export function decideHermesToolApproval(
     if (toolName === 'browser_dialog' && action === 'dismiss') {
       return runtime.outside_workspace_command ? 'allow' : 'ask';
     }
-    return hasFullOpaqueToolAuthority(runtime) ? 'allow' : 'ask';
+    return runtime.opaque_ui_autorun ? 'allow' : 'ask';
   }
-  if (toolName.startsWith('browser_')) return hasFullOpaqueToolAuthority(runtime) ? 'allow' : 'ask';
+  // A new browser_* tool is not automatically a click/type equivalent. It
+  // remains available behind the one-operation card until explicitly classified.
+  if (toolName.startsWith('browser_')) return 'ask';
   if (toolName === 'computer_use') {
     if (HERMES_COMPUTER_READ_ACTIONS.has(action)) return 'allow';
     if (!action) return 'ask';
-    return hasFullOpaqueToolAuthority(runtime) ? 'allow' : 'ask';
+    if (!HERMES_COMPUTER_OPAQUE_ACTIONS.has(action)) return 'ask';
+    return runtime.opaque_ui_autorun ? 'allow' : 'ask';
   }
   if (toolName === 'todo') {
     if (action === 'read') return 'allow';
@@ -349,5 +366,5 @@ export function decideHermesToolApproval(
   // be used after the existing one-operation approval. It does not inherit
   // unattended authority until it declares enough metadata to identify the
   // concrete effect and the relevant independent seal.
-  return hasFullOpaqueToolAuthority(runtime) ? 'allow' : 'ask';
+  return 'ask';
 }

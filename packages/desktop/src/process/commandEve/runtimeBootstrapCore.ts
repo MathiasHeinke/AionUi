@@ -4080,7 +4080,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '# emitted shim for that name.)',
     '# CEVE-1821 — WHERE THE LADDER BECOMES REAL.',
     '#',
-    '# The six-rung ladder and the five seals were modelled and tested in',
+    '# The six-rung ladder, five effect seals and explicit opaque-UI override were modelled and tested in',
     '# TypeScript (eveAuthorityCore) and then never asked, so the product fell back',
     '# to "always ask" and every rung above 3 stored a preference that changed',
     '# nothing. The cure is NOT to reimplement the ladder here: two copies of a',

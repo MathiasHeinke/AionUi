@@ -37,6 +37,8 @@ import { grantNeedsAttention } from '@/common/config/eveAuthorityStoreCore';
 
 const store: Record<string, unknown> = {};
 const subscribers = new Map<string, Set<() => void>>();
+const seatSubscribers = new Set<(seatId: string) => void>();
+let currentSeatId = 'seat-a';
 
 function notifyKey(key: string): void {
   for (const callback of subscribers.get(key) ?? []) callback();
@@ -69,6 +71,11 @@ vi.mock('@/common/config/configService', () => ({
       subscribers.set(key, forKey);
       return () => forKey.delete(callback);
     },
+    getCurrentSeatId: () => currentSeatId,
+    onSeatRebind: (callback: (seatId: string) => void) => {
+      seatSubscribers.add(callback);
+      return () => seatSubscribers.delete(callback);
+    },
     whenReady: async () => {},
   },
 }));
@@ -90,10 +97,20 @@ vi.mock('@/renderer/components/base/AionScrollArea', () => ({
 }));
 
 vi.mock('@/renderer/components/settings/SettingsSection', () => ({
-  default: ({ title, children }: { title: React.ReactNode; children: React.ReactNode }) => (
-    <section>
+  default: ({
+    title,
+    children,
+    bodyClassName,
+    testId,
+  }: {
+    title: React.ReactNode;
+    children: React.ReactNode;
+    bodyClassName?: string;
+    testId?: string;
+  }) => (
+    <section data-testid={testId}>
       <h2>{title}</h2>
-      {children}
+      <div className={bodyClassName}>{children}</div>
     </section>
   ),
 }));
@@ -150,13 +167,20 @@ vi.mock('@arco-design/web-react', () => {
     Switch: ({
       checked,
       onChange,
+      size,
       ...rest
     }: {
       checked: boolean;
       onChange: (next: boolean) => void;
+      size?: string;
       'data-testid'?: string;
     }) => (
-      <button data-testid={rest['data-testid']} data-checked={String(checked)} onClick={() => onChange(!checked)} />
+      <button
+        data-testid={rest['data-testid']}
+        data-checked={String(checked)}
+        data-size={size ?? 'default'}
+        onClick={() => onChange(!checked)}
+      />
     ),
     InputNumber: ({
       value,
@@ -185,6 +209,8 @@ const lastWrite = (key: string): unknown => setSpy.mock.calls.filter((call) => c
 beforeEach(() => {
   for (const key of Object.keys(store)) delete store[key];
   subscribers.clear();
+  seatSubscribers.clear();
+  currentSeatId = 'seat-a';
   setSpy.mockClear();
   vi.resetModules();
 });
@@ -207,6 +233,21 @@ async function openConfirmation(): Promise<void> {
 }
 
 describe('full release — the confirmation step', () => {
+  it('keeps its confirmation on shared preference rows and standard switches', async () => {
+    store['commandEve.authority'] = { ladder: 1, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    await openConfirmation();
+
+    const preferences = screen.getByTestId('full-release-preferences');
+    expect(preferences.className).toContain('eve-settings-list');
+    expect(preferences.querySelectorAll('.eve-settings-preference-row')).toHaveLength(2);
+    expect(screen.getByTestId('full-release-money-switch').getAttribute('data-size')).toBe('default');
+    expect(screen.getByTestId('full-release-opaque-ui-switch').getAttribute('data-size')).toBe('default');
+    expect(screen.getByTestId('full-release-effects').className).toContain('eve-settings-sublist');
+  });
+
   it('writes nothing until the act is confirmed', async () => {
     store['commandEve.authority'] = { ladder: 1, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
@@ -230,6 +271,35 @@ describe('full release — the confirmation step', () => {
 
     expect(setSpy).not.toHaveBeenCalled();
     await screen.findByTestId('full-release-open');
+  });
+
+  it('drops an in-flight Full Release draft across a fresh-seat absent-to-absent switch', async () => {
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    await openConfirmation();
+    await act(async () => {
+      (await screen.findByTestId('full-release-opaque-ui-switch')).click();
+    });
+    expect(await screen.findByTestId('full-release-opaque-ui-warning')).toBeTruthy();
+
+    // Both seats have no stored grant. The logical key therefore remains
+    // undefined -> undefined and its value subscriber never fires; only the
+    // explicit seat-rebind signal can destroy Seat A's local draft.
+    await act(async () => {
+      currentSeatId = 'seat-b';
+      for (const callback of seatSubscribers) callback(currentSeatId);
+    });
+    await waitFor(() => expect(screen.queryByTestId('full-release-confirm')).toBeNull());
+
+    await openConfirmation();
+    expect((await screen.findByTestId('full-release-opaque-ui-switch')).getAttribute('data-checked')).toBe('false');
+    await typeBudget('50');
+    (await screen.findByTestId('full-release-apply')).click();
+    await waitFor(() => expect(setSpy).toHaveBeenCalled());
+    const written = lastWrite('commandEve.authority') as EveAuthorityGrant;
+    expect(written.ladder).toBe(5);
+    expect(written.opaqueUiAutoRun).toBeUndefined();
   });
 
   it('confirmation_lists_what_the_act_will_open', async () => {
@@ -272,6 +342,10 @@ describe('full release — the confirmation step', () => {
 
     await openConfirmation();
     await typeBudget('50');
+    await act(async () => {
+      (await screen.findByTestId('full-release-opaque-ui-switch')).click();
+    });
+    expect(await screen.findByTestId('full-release-opaque-ui-warning')).toBeTruthy();
     (await screen.findByTestId('full-release-apply')).click();
 
     await waitFor(() => expect(setSpy).toHaveBeenCalled());
@@ -280,7 +354,56 @@ describe('full release — the confirmation step', () => {
     expect(written.ladder).toBe(5);
     for (const capability of EVE_SEALED_CAPABILITIES) expect(written.capabilities[capability]).toBe(true);
     expect(written.limits?.['spend.money']?.dailyCents).toBe(5000);
+    expect(written.opaqueUiAutoRun).toBe(true);
+    expect(written.opaqueUiAutoRunGrantedAt).toBeTruthy();
     expect(written.updatedBy).toBe('user');
+  });
+
+  it('does not infer opaque UI auto-run from the words full release', async () => {
+    store['commandEve.authority'] = { ladder: 1, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    await openConfirmation();
+    await typeBudget('50');
+    expect(screen.getByTestId('full-release-opaque-ui-line').textContent).toContain(
+      'authority.fullReleaseOpaqueUiUntouched'
+    );
+    expect(screen.queryByTestId('full-release-opaque-ui-warning')).toBeNull();
+    (await screen.findByTestId('full-release-apply')).click();
+
+    await waitFor(() => expect(setSpy).toHaveBeenCalled());
+    const written = lastWrite('commandEve.authority') as EveAuthorityGrant;
+    expect(written.opaqueUiAutoRun).toBeUndefined();
+    expect(written.opaqueUiAutoRunGrantedAt).toBeUndefined();
+  });
+
+  it('shows and applies an explicit withdrawal when a paused broad UI grant is switched off', async () => {
+    store['commandEve.authority'] = {
+      ladder: 3,
+      capabilities: {},
+      opaqueUiAutoRun: true,
+      opaqueUiAutoRunGrantedAt: '2026-01-01T00:00:00.000Z',
+      updatedBy: 'user',
+    } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    await openConfirmation();
+    await act(async () => {
+      (await screen.findByTestId('full-release-money-switch')).click();
+      (await screen.findByTestId('full-release-opaque-ui-switch')).click();
+    });
+    expect(screen.getByTestId('full-release-opaque-ui-line').textContent).toContain(
+      'authority.fullReleaseOpaqueUiDisables'
+    );
+
+    (await screen.findByTestId('full-release-apply')).click();
+    await waitFor(() => expect(setSpy).toHaveBeenCalled());
+    const written = lastWrite('commandEve.authority') as EveAuthorityGrant;
+    expect(written.ladder).toBe(5);
+    expect(written.opaqueUiAutoRun).toBeUndefined();
+    expect(written.opaqueUiAutoRunGrantedAt).toBeUndefined();
   });
 });
 
@@ -320,9 +443,33 @@ describe('full release — money is asked for, never assumed', () => {
 
     expect(written.ladder).toBe(5);
     expect(written.capabilities['spend.money']).toBeUndefined();
+    expect(written.opaqueUiAutoRun).toBeUndefined();
     for (const capability of EVE_SEALED_CAPABILITIES.filter((c) => c !== 'spend.money')) {
       expect(written.capabilities[capability]).toBe(true);
     }
+  });
+
+  it('allows Money OFF plus explicit Browser/Desktop autonomy without conflating them', async () => {
+    store['commandEve.authority'] = { ladder: 1, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    await openConfirmation();
+    await act(async () => {
+      (await screen.findByTestId('full-release-money-switch')).click();
+      (await screen.findByTestId('full-release-opaque-ui-switch')).click();
+    });
+    expect(await screen.findByTestId('full-release-opaque-ui-warning')).toBeTruthy();
+
+    (await screen.findByTestId('full-release-apply')).click();
+    await waitFor(() => expect(setSpy).toHaveBeenCalled());
+    const written = lastWrite('commandEve.authority') as EveAuthorityGrant;
+
+    expect(written.ladder).toBe(5);
+    expect(written.capabilities['spend.money']).toBeUndefined();
+    expect(written.limits?.['spend.money']).toBeUndefined();
+    expect(written.opaqueUiAutoRun).toBe(true);
+    expect(written.opaqueUiAutoRunGrantedAt).toBeTruthy();
   });
 
   it('never produces the "switch on, spends nothing" grant', async () => {
@@ -354,6 +501,8 @@ describe('full release — the state it reports afterwards', () => {
         'deploy.production': true,
       },
       limits: { 'spend.money': { dailyCents: 5000 } },
+      opaqueUiAutoRun: true,
+      opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
       updatedBy: 'user',
     } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
@@ -375,6 +524,8 @@ describe('full release — the state it reports afterwards', () => {
         'credentials.read': true,
         'deploy.production': true,
       },
+      opaqueUiAutoRun: true,
+      opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
       updatedBy: 'user',
     } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
@@ -396,6 +547,8 @@ describe('full release — the state it reports afterwards', () => {
         'deploy.production': true,
       },
       limits: { 'spend.money': { dailyCents: 5000 } },
+      opaqueUiAutoRun: true,
+      opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
       updatedBy: 'user',
     } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
@@ -404,6 +557,26 @@ describe('full release — the state it reports afterwards', () => {
     // Already full: the section reports the state rather than offering the act.
     await screen.findByTestId('full-release-active');
     expect(screen.queryByTestId('full-release-confirm')).toBeNull();
+  });
+
+  it('does not call a legacy five-seal grant fully released', async () => {
+    store['commandEve.authority'] = {
+      ladder: 5,
+      capabilities: {
+        'spend.money': true,
+        'publish.outward': true,
+        'delete.outside': true,
+        'credentials.read': true,
+        'deploy.production': true,
+      },
+      limits: { 'spend.money': { dailyCents: 5000 } },
+      updatedBy: 'user',
+    } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    expect(screen.queryByTestId('full-release-active')).toBeNull();
+    await screen.findByTestId('full-release-open');
   });
 });
 

@@ -55,6 +55,8 @@ const fullRelease = (): EveAuthorityGrant =>
   at(5, {
     capabilities: Object.fromEntries(EVE_SEALED_CAPABILITIES.map((capability) => [capability, true])),
     limits: { 'spend.money': { dailyCents: 5000 } },
+    opaqueUiAutoRun: true,
+    opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
   });
 
 describe('A — the rung decides the class', () => {
@@ -70,7 +72,7 @@ describe('A — the rung decides the class', () => {
     expect(renderEveAuthorityRuntime(at(5)).edit_policy).toBe('session');
   });
 
-  it('keeps browser/computer visible, lets navigation follow the ladder and operation-approves opaque acts', () => {
+  it('keeps Browser/Desktop visible and lets only an explicit opaque UI grant auto-run the final mile', () => {
     for (const rung of EVE_LADDER_RUNGS) {
       const runtime = renderEveAuthorityRuntime(at(rung));
       expect(decideHermesToolApproval({ toolName: 'browser_snapshot' }, runtime)).toBe('allow');
@@ -93,14 +95,21 @@ describe('A — the rung decides the class', () => {
     }
 
     const released = renderEveAuthorityRuntime(fullRelease());
-    expect(decideHermesToolApproval({ toolName: 'browser_type' }, released)).toBe('ask');
-    expect(decideHermesToolApproval({ toolName: 'computer_use', action: 'click' }, released)).toBe('ask');
+    expect(released.opaque_ui_autorun).toBe(true);
+    expect(decideHermesToolApproval({ toolName: 'browser_type' }, released)).toBe('allow');
+    expect(decideHermesToolApproval({ toolName: 'computer_use', action: 'click' }, released)).toBe('allow');
   });
 
   it('keeps ambiguous browser/computer calls and future upstream tools operation-approved', () => {
     const runtime = renderEveAuthorityRuntime(at(5));
     expect(decideHermesToolApproval({ toolName: 'browser_unknown' }, runtime)).toBe('ask');
     expect(decideHermesToolApproval({ toolName: 'computer_use' }, runtime)).toBe('ask');
+    expect(
+      decideHermesToolApproval(
+        { toolName: 'computer_use', action: 'future_destructive_action' },
+        renderEveAuthorityRuntime(fullRelease())
+      )
+    ).toBe('ask');
     expect(decideHermesToolApproval({ toolName: 'some_future_tool' }, runtime)).toBe('ask');
     expect(decideHermesToolApproval({ toolName: 'some_future_tool' }, renderEveAuthorityRuntime(fullRelease()))).toBe(
       'ask'
@@ -112,6 +121,10 @@ describe('A — the rung decides the class', () => {
     const runtime = renderEveAuthorityRuntime(at(4));
     expect(decideHermesToolApproval({ toolName: 'browser_dialog', action: 'dismiss' }, runtime)).toBe('allow');
     expect(decideHermesToolApproval({ toolName: 'browser_dialog', action: 'accept' }, runtime)).toBe('ask');
+    const enabled = renderEveAuthorityRuntime(
+      at(4, { opaqueUiAutoRun: true, opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z' })
+    );
+    expect(decideHermesToolApproval({ toolName: 'browser_dialog', action: 'accept' }, enabled)).toBe('allow');
   });
 
   it('binds memory, skills, processes, schedules and product media to the user-selected authority', () => {
@@ -163,6 +176,16 @@ describe('A — the rung decides the class', () => {
     expect(decideHermesToolApproval({ toolName: 'skill_manage', action: 'delete' }, opened)).toBe('allow');
   });
 
+  it('does not let the opaque UI override open structured effect tools', () => {
+    const runtime = renderEveAuthorityRuntime(
+      at(5, { opaqueUiAutoRun: true, opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z' })
+    );
+    expect(decideHermesToolApproval({ toolName: 'discord', action: 'create_thread' }, runtime)).toBe('ask');
+    expect(decideHermesToolApproval({ toolName: 'skill_manage', action: 'delete' }, runtime)).toBe('ask');
+    expect(decideCommandApproval({ command: 'stripe charge', insideWorkspace: true }, runtime)).toBe('ask');
+    expect(decideCommandApproval({ command: 'vercel deploy', insideWorkspace: true }, runtime)).toBe('ask');
+  });
+
   it('workspace commands: allowed from rung 3, asked below it', () => {
     for (const rung of [0, 1, 2] as const) {
       expect(
@@ -192,12 +215,15 @@ describe('A — the rung decides the class', () => {
     const everySealOpen = at(0, {
       capabilities: Object.fromEntries(EVE_SEALED_CAPABILITIES.map((c) => [c, true])),
       limits: { 'spend.money': { dailyCents: 5000 } },
+      opaqueUiAutoRun: true,
+      opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
     });
     const runtime = renderEveAuthorityRuntime(everySealOpen);
     for (const capability of EVE_SEALED_CAPABILITIES) {
       expect(runtime.seals[capability], `${capability} survived the off-switch`).toBe(false);
     }
     expect(runtime.spend_daily_cents).toBe(0);
+    expect(runtime.opaque_ui_autorun).toBe(false);
   });
 });
 
@@ -216,6 +242,17 @@ describe('A — the five seals beat every rung, including 5', () => {
     expect(sealImplicatedByCommand(command)).toBe(capability);
     // Rung 5 is the top of the ladder and it changes nothing here.
     expect(decideCommandApproval({ command, insideWorkspace: true }, renderEveAuthorityRuntime(at(5)))).toBe('ask');
+  });
+
+  it.each(SEALED_COMMANDS)('%s stays sealed when only opaque UI auto-run is open', (command, capability) => {
+    expect(sealImplicatedByCommand(command)).toBe(capability);
+    const runtime = renderEveAuthorityRuntime(
+      at(5, {
+        opaqueUiAutoRun: true,
+        opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
+      })
+    );
+    expect(decideCommandApproval({ command, insideWorkspace: true }, runtime)).toBe('ask');
   });
 
   it('an opened seal allows its own command — and only its own', () => {
@@ -360,6 +397,7 @@ describe('C — the panel renders the seals, and a new seat stays fail-closed', 
     const runtime = renderEveAuthorityRuntime(EVE_AUTHORITY_FAIL_CLOSED);
     expect(runtime.edit_policy).toBe('ask');
     expect(Object.values(runtime.seals).every((open) => open === false)).toBe(true);
+    expect(runtime.opaque_ui_autorun).toBe(false);
   });
 });
 

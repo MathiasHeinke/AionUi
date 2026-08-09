@@ -36,6 +36,8 @@ const fullRelease = (): EveAuthorityGrant => ({
   ladder: 5,
   capabilities: Object.fromEntries(EVE_SEALED_CAPABILITIES.map((capability) => [capability, true])),
   limits: { 'spend.money': { dailyCents: 5000 } },
+  opaqueUiAutoRun: true,
+  opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
   updatedBy: 'user',
 });
 
@@ -59,7 +61,13 @@ describe('Hermes structured tool authority route', () => {
     await expect(decision(baseUrl, 'computer_use', 'capture')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
   });
 
-  it('lets self-directed seats navigate while opaque actions stay operation-approved until spend is metered', async () => {
+  it('keeps product-managed image and video generation popup-free at rung 0', async () => {
+    const baseUrl = await startAt(0);
+    await expect(decision(baseUrl, 'image_generate')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
+    await expect(decision(baseUrl, 'video_generate')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
+  });
+
+  it('lets self-directed seats navigate and enables opaque actions only after their own grant', async () => {
     const baseUrl = await startAt(5);
     await expect(decision(baseUrl, 'browser_navigate')).resolves.toMatchObject({ decision: 'allow', ladder: 5 });
     await expect(decision(baseUrl, 'browser_click')).resolves.toMatchObject({ decision: 'ask', ladder: 5 });
@@ -67,9 +75,9 @@ describe('Hermes structured tool authority route', () => {
 
     await stopCommandEveOllamaOpenAiShimForTest();
     const releasedBaseUrl = await startWith(fullRelease());
-    await expect(decision(releasedBaseUrl, 'browser_click')).resolves.toMatchObject({ decision: 'ask', ladder: 5 });
+    await expect(decision(releasedBaseUrl, 'browser_click')).resolves.toMatchObject({ decision: 'allow', ladder: 5 });
     await expect(decision(releasedBaseUrl, 'computer_use', 'type')).resolves.toMatchObject({
-      decision: 'ask',
+      decision: 'allow',
       ladder: 5,
     });
   });
@@ -83,6 +91,12 @@ describe('Hermes structured tool authority route', () => {
     await stopCommandEveOllamaOpenAiShimForTest();
     const releasedBaseUrl = await startWith(fullRelease());
     await expect(decision(releasedBaseUrl, 'future_destructive_tool')).resolves.toMatchObject({ decision: 'ask' });
+    await expect(decision(releasedBaseUrl, 'browser_future_destructive_action')).resolves.toMatchObject({
+      decision: 'ask',
+    });
+    await expect(decision(releasedBaseUrl, 'computer_use', 'future_destructive_action')).resolves.toMatchObject({
+      decision: 'ask',
+    });
 
     await stopCommandEveOllamaOpenAiShimForTest();
     const lowerBaseUrl = await startAt(4);
@@ -98,9 +112,35 @@ describe('Hermes structured tool authority route', () => {
     await expect(decision(baseUrl, 'discord', 'create_thread')).resolves.toMatchObject({ decision: 'allow' });
   });
 
+  it('keeps structured effect tools sealed when only opaque UI auto-run is open', async () => {
+    const baseUrl = await startWith({
+      ladder: 5,
+      capabilities: {},
+      opaqueUiAutoRun: true,
+      opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
+      updatedBy: 'user',
+    });
+    await expect(decision(baseUrl, 'browser_click')).resolves.toMatchObject({ decision: 'allow' });
+    await expect(decision(baseUrl, 'discord', 'create_thread')).resolves.toMatchObject({ decision: 'ask' });
+    await expect(decision(baseUrl, 'skill_manage', 'delete')).resolves.toMatchObject({ decision: 'ask' });
+    await expect(decision(baseUrl, 'future_destructive_tool')).resolves.toMatchObject({ decision: 'ask' });
+  });
+
+  it('pauses a stored opaque UI grant below rung 4', async () => {
+    const baseUrl = await startWith({
+      ladder: 3,
+      capabilities: {},
+      opaqueUiAutoRun: true,
+      opaqueUiAutoRunGrantedAt: '2026-08-08T00:00:00.000Z',
+      updatedBy: 'user',
+    });
+    await expect(decision(baseUrl, 'browser_click')).resolves.toMatchObject({ decision: 'ask', ladder: 3 });
+    await expect(decision(baseUrl, 'computer_use', 'click')).resolves.toMatchObject({ decision: 'ask', ladder: 3 });
+  });
+
   it('keeps the route authenticated', async () => {
     const baseUrl = await startWith(fullRelease());
-    await expect(decision(baseUrl, 'browser_click')).resolves.toMatchObject({ decision: 'ask', ladder: 5 });
+    await expect(decision(baseUrl, 'browser_click')).resolves.toMatchObject({ decision: 'allow', ladder: 5 });
     const response = await fetch(`${baseUrl}/v1/command-eve/tool-approval?tool=browser_click`);
     expect(response.status).toBe(401);
   });
