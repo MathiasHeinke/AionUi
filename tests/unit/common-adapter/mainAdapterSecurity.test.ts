@@ -430,20 +430,19 @@ describe('main adapter IPC trust boundary', () => {
     }
   );
 
-  it.each([
-    'command-eve.kanban-acp-peek',
-    'command-eve.kanban-acp-apply',
-    'command-eve.kanban-acp-reject',
-  ] as const)('allows governed Kanban confirmation transport in packaged operator mode: %s', async (providerKey) => {
-    state.isPackaged = true;
-    const { webContents, handler } = await setup();
-    const event = { sender: webContents, senderFrame: webContents.mainFrame };
-    const payload = validProviderPayload(providerKey);
-    const expectedEnvelope = (JSON.parse(payload) as { data: unknown }).data;
+  it.each(['command-eve.kanban-acp-peek', 'command-eve.kanban-acp-apply', 'command-eve.kanban-acp-reject'] as const)(
+    'allows governed Kanban confirmation transport in packaged operator mode: %s',
+    async (providerKey) => {
+      state.isPackaged = true;
+      const { webContents, handler } = await setup();
+      const event = { sender: webContents, senderFrame: webContents.mainFrame };
+      const payload = validProviderPayload(providerKey);
+      const expectedEnvelope = (JSON.parse(payload) as { data: unknown }).data;
 
-    await handler(event, payload);
-    expect(state.emitter.emit).toHaveBeenCalledWith(`subscribe-${providerKey}`, expectedEnvelope);
-  });
+      await handler(event, payload);
+      expect(state.emitter.emit).toHaveBeenCalledWith(`subscribe-${providerKey}`, expectedEnvelope);
+    }
+  );
 
   it('never promotes a packaged customer build through COMMAND_EVE_FOUNDER_BUILD', async () => {
     state.isPackaged = true;

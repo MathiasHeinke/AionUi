@@ -83,9 +83,7 @@ describe('KanbanAcpConfirmCard (COMPA-626 K11)', () => {
       })
     );
     await waitFor(() =>
-      expect(dispatchSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'command-eve:kanban-acp-applied' })
-      )
+      expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'command-eve:kanban-acp-applied' }))
     );
     dispatchSpy.mockRestore();
   });

@@ -92,48 +92,51 @@ const sendIfAlive = <T>(sender: WebContents, channel: string, payload: T): void 
 };
 
 export function initCommandEveTerminalBridge(): void {
-  ipcMain.handle(COMMAND_EVE_TERMINAL_CHANNELS.start, async (event, value: unknown): Promise<CommandEveTerminalStartResult> => {
-    if (!isTrustedAdapterIpcSender(event)) throw new Error('Blocked untrusted terminal sender.');
-    const ownerId = event.sender.id;
-    if (countSessionsForOwner(ownerId) >= COMMAND_EVE_TERMINAL_MAX_SESSIONS_PER_RENDERER) {
-      throw new Error('Terminal session limit reached.');
-    }
-
-    const request = parseCommandEveTerminalStartRequest(value);
-    const cwd = resolveCommandEveTerminalCwd(request.cwd, os.homedir(), isDirectory);
-    const shell = shellForPlatform();
-    const terminalId = randomUUID();
-    // Keep the native addon off the main startup path. A missing or mismatched
-    // PTY must disable only this workbench tab, never make the whole app dark.
-    const pty = await import('node-pty');
-    const terminalProcess = pty.spawn(shell.executable, shell.args, {
-      name: 'xterm-256color',
-      cols: request.cols,
-      rows: request.rows,
-      cwd,
-      env: createCommandEveTerminalEnvironment(process.env),
-    });
-    sessions.set(terminalId, { ownerId, process: terminalProcess });
-
-    if (!observedRenderers.has(ownerId)) {
-      observedRenderers.add(ownerId);
-      event.sender.once('destroyed', () => disposeOwnerSessions(ownerId));
-    }
-
-    terminalProcess.onData((data) => {
-      for (const chunk of chunkCommandEveTerminalOutput(data)) {
-        const payload: CommandEveTerminalDataEvent = { terminalId, data: chunk };
-        sendIfAlive(event.sender, COMMAND_EVE_TERMINAL_CHANNELS.data, payload);
+  ipcMain.handle(
+    COMMAND_EVE_TERMINAL_CHANNELS.start,
+    async (event, value: unknown): Promise<CommandEveTerminalStartResult> => {
+      if (!isTrustedAdapterIpcSender(event)) throw new Error('Blocked untrusted terminal sender.');
+      const ownerId = event.sender.id;
+      if (countSessionsForOwner(ownerId) >= COMMAND_EVE_TERMINAL_MAX_SESSIONS_PER_RENDERER) {
+        throw new Error('Terminal session limit reached.');
       }
-    });
-    terminalProcess.onExit(({ exitCode, signal }) => {
-      sessions.delete(terminalId);
-      const payload: CommandEveTerminalExitEvent = { terminalId, exitCode, signal };
-      sendIfAlive(event.sender, COMMAND_EVE_TERMINAL_CHANNELS.exit, payload);
-    });
 
-    return { terminalId, cwd, shell: shell.executable };
-  });
+      const request = parseCommandEveTerminalStartRequest(value);
+      const cwd = resolveCommandEveTerminalCwd(request.cwd, os.homedir(), isDirectory);
+      const shell = shellForPlatform();
+      const terminalId = randomUUID();
+      // Keep the native addon off the main startup path. A missing or mismatched
+      // PTY must disable only this workbench tab, never make the whole app dark.
+      const pty = await import('node-pty');
+      const terminalProcess = pty.spawn(shell.executable, shell.args, {
+        name: 'xterm-256color',
+        cols: request.cols,
+        rows: request.rows,
+        cwd,
+        env: createCommandEveTerminalEnvironment(process.env),
+      });
+      sessions.set(terminalId, { ownerId, process: terminalProcess });
+
+      if (!observedRenderers.has(ownerId)) {
+        observedRenderers.add(ownerId);
+        event.sender.once('destroyed', () => disposeOwnerSessions(ownerId));
+      }
+
+      terminalProcess.onData((data) => {
+        for (const chunk of chunkCommandEveTerminalOutput(data)) {
+          const payload: CommandEveTerminalDataEvent = { terminalId, data: chunk };
+          sendIfAlive(event.sender, COMMAND_EVE_TERMINAL_CHANNELS.data, payload);
+        }
+      });
+      terminalProcess.onExit(({ exitCode, signal }) => {
+        sessions.delete(terminalId);
+        const payload: CommandEveTerminalExitEvent = { terminalId, exitCode, signal };
+        sendIfAlive(event.sender, COMMAND_EVE_TERMINAL_CHANNELS.exit, payload);
+      });
+
+      return { terminalId, cwd, shell: shell.executable };
+    }
+  );
 
   ipcMain.handle(COMMAND_EVE_TERMINAL_CHANNELS.write, (event, value: unknown): boolean => {
     if (!isTrustedAdapterIpcSender(event)) throw new Error('Blocked untrusted terminal sender.');

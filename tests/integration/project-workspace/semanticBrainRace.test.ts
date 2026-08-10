@@ -36,9 +36,7 @@ function runWorker(
     child.on('exit', (code) => {
       if (code !== 0) return reject(new Error(stderr || stdout || `semantic worker exited ${code}`));
       try {
-        const receiptLine = stdout
-          .split(/\r?\n/)
-          .find((line) => line.startsWith(WORKER_RESULT_PREFIX));
+        const receiptLine = stdout.split(/\r?\n/).find((line) => line.startsWith(WORKER_RESULT_PREFIX));
         if (!receiptLine) throw new Error(`semantic worker receipt missing from stdout: ${stdout.trim()}`);
         expect(JSON.parse(receiptLine.slice(WORKER_RESULT_PREFIX.length))).toEqual(expected);
         resolve();

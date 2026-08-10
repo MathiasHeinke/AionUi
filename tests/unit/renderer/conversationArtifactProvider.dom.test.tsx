@@ -32,7 +32,9 @@ const {
   imageArtifactsChangedCallback,
   imageArtifactsChangedUnsubscribeMock,
 } = vi.hoisted(() => {
-  const callbackHolder: { current: undefined | ((event: { conversation_id: string }) => void) } = { current: undefined };
+  const callbackHolder: { current: undefined | ((event: { conversation_id: string }) => void) } = {
+    current: undefined,
+  };
   // The unsubscribe mirrors the REAL emitter contract: it detaches the
   // listener, so a post-unmount event never reaches the callback at all.
   const unsubscribeMock = vi.fn(() => {

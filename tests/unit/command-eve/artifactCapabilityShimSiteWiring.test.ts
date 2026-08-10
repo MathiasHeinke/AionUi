@@ -200,7 +200,8 @@ describe('MAT-1747 round 6 — every shim start site in the app entrypoint provi
     const lastCall = source.indexOf('artifactCapabilityCall: artifactCapabilityCallHandler,', lastBearer);
     expect(lastCall).toBeGreaterThan(lastBearer);
     const sabotaged =
-      source.slice(0, lastBearer) + source.slice(lastCall + 'artifactCapabilityCall: artifactCapabilityCallHandler,'.length);
+      source.slice(0, lastBearer) +
+      source.slice(lastCall + 'artifactCapabilityCall: artifactCapabilityCallHandler,'.length);
 
     expect(everySiteProvisionsCapability(sabotaged)).toBe(false);
   });

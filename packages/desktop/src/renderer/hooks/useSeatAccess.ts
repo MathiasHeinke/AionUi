@@ -409,5 +409,15 @@ export function useSeatAccess(): SeatAccessState {
     [access, refresh, flagSwitchError]
   );
 
-  return { loading, access, mySeatsSource, mySeatsWireError, switching, lastSwitchError, switchErrorNonce, refresh, switchTo };
+  return {
+    loading,
+    access,
+    mySeatsSource,
+    mySeatsWireError,
+    switching,
+    lastSwitchError,
+    switchErrorNonce,
+    refresh,
+    switchTo,
+  };
 }

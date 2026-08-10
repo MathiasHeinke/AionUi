@@ -817,7 +817,13 @@ export interface ICommandEveCommandCenterReadModelResult {
 }
 
 export type ICommandEveConnectorEvidenceState =
-  'installed' | 'available' | 'needs_auth' | 'unverified' | 'gated' | 'connected' | 'blocked';
+  | 'installed'
+  | 'available'
+  | 'needs_auth'
+  | 'unverified'
+  | 'gated'
+  | 'connected'
+  | 'blocked';
 
 export interface ICommandEveConnectorCatalogCard {
   id: string;
@@ -1303,7 +1309,11 @@ export interface ICommandEveCrmConsentLocalResult {
 export type ICommandEveLicenseEdition = 'pilot' | 'standard';
 
 export type ICommandEveEntitlementGateState =
-  'unconfigured' | 'unregistered' | 'registered_unlicensed' | 'entitled' | 'expired';
+  | 'unconfigured'
+  | 'unregistered'
+  | 'registered_unlicensed'
+  | 'entitled'
+  | 'expired';
 
 export interface ICommandEveEntitlementStatusResult {
   version: 'command-eve-entitlement/v0';
@@ -1725,7 +1735,11 @@ export interface ICommandEveCreditsSpendCapResult {
 export type ICommandEveOnboardingItemState = 'ok' | 'blocked' | 'skipped';
 
 export type ICommandEveOnboardingRemediationKind =
-  'none' | 'external-link' | 'html-screen' | 'cloud-redirect' | 'reinstall';
+  | 'none'
+  | 'external-link'
+  | 'html-screen'
+  | 'cloud-redirect'
+  | 'reinstall';
 
 export type ICommandEveOnboardingItemId = 'registration' | 'license' | 'cloud-lane' | 'local-lane' | 'identity';
 
@@ -3675,7 +3689,13 @@ export interface IConversationTurnCompletedEvent {
   turn_id: string;
   status: 'pending' | 'running' | 'finished';
   state:
-    'ai_generating' | 'ai_waiting_input' | 'ai_waiting_confirmation' | 'initializing' | 'stopped' | 'error' | 'unknown';
+    | 'ai_generating'
+    | 'ai_waiting_input'
+    | 'ai_waiting_confirmation'
+    | 'initializing'
+    | 'stopped'
+    | 'error'
+    | 'unknown';
   detail: string;
   can_send_message: boolean;
   /** Explicit AionCore proof for this logical turn; absent/unknown wire data maps to false. */

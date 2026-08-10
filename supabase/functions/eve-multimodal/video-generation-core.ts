@@ -37,18 +37,15 @@
 // its 720p second costs $0.14 — double the base model'"'"'s $0.07. Quoting the tier
 // rate for a reference render would under-bill it by half, every time.
 
-import crypto from "node:crypto";
+import crypto from 'node:crypto';
 
-export type VideoQualityTier = "sd" | "fast" | "hd";
-export type VideoResolution = "480p" | "720p" | "1080p";
-export type VideoModelId = "grok-imagine-video" | "grok-imagine-video-1.5";
-export const VIDEO_MODEL_IDS: readonly VideoModelId[] = Object.freeze([
-  "grok-imagine-video",
-  "grok-imagine-video-1.5",
-]);
+export type VideoQualityTier = 'sd' | 'fast' | 'hd';
+export type VideoResolution = '480p' | '720p' | '1080p';
+export type VideoModelId = 'grok-imagine-video' | 'grok-imagine-video-1.5';
+export const VIDEO_MODEL_IDS: readonly VideoModelId[] = Object.freeze(['grok-imagine-video', 'grok-imagine-video-1.5']);
 
 /** The four MUTUALLY EXCLUSIVE ways a clip can be produced. */
-export type VideoModeKind = "text" | "image" | "reference" | "edit";
+export type VideoModeKind = 'text' | 'image' | 'reference' | 'edit';
 
 /**
  * A tier is now nothing but a NAME FOR A RESOLUTION.
@@ -89,13 +86,11 @@ export function deriveVideoCreditsPerSecond(usdPerSecond: number): number {
   return rawCents * VIDEO_MARKUP_FACTOR * VIDEO_CREDITS_PER_EUR_CENT;
 }
 
-export const VIDEO_TIERS: readonly VideoTierSpec[] = Object.freeze(
-  [
-    { id: "sd", resolution: "480p", isDefault: false },
-    { id: "fast", resolution: "720p", isDefault: true },
-    { id: "hd", resolution: "1080p", isDefault: false },
-  ] as const,
-);
+export const VIDEO_TIERS: readonly VideoTierSpec[] = Object.freeze([
+  { id: 'sd', resolution: '480p', isDefault: false },
+  { id: 'fast', resolution: '720p', isDefault: true },
+  { id: 'hd', resolution: '1080p', isDefault: false },
+] as const);
 
 /**
  * Provider list price per generated second, USD, keyed by (model, resolution) —
@@ -108,16 +103,16 @@ export const VIDEO_TIERS: readonly VideoTierSpec[] = Object.freeze(
 export const VIDEO_MODEL_USD_PER_SECOND: Readonly<
   Record<VideoModelId, Readonly<Partial<Record<VideoResolution, number>>>>
 > = Object.freeze({
-  "grok-imagine-video": Object.freeze({ "480p": 0.05, "720p": 0.07 }),
-  "grok-imagine-video-1.5": Object.freeze({
-    "480p": 0.08,
-    "720p": 0.14,
-    "1080p": 0.25,
+  'grok-imagine-video': Object.freeze({ '480p': 0.05, '720p': 0.07 }),
+  'grok-imagine-video-1.5': Object.freeze({
+    '480p': 0.08,
+    '720p': 0.14,
+    '1080p': 0.25,
   }),
 });
 
-export const DEFAULT_VIDEO_TIER_ID: VideoQualityTier = "fast";
-export const REFERENCE_VIDEO_TIER_ID: VideoQualityTier = "fast";
+export const DEFAULT_VIDEO_TIER_ID: VideoQualityTier = 'fast';
+export const REFERENCE_VIDEO_TIER_ID: VideoQualityTier = 'fast';
 export const MIN_VIDEO_DURATION_SECONDS = 1;
 export const MAX_VIDEO_DURATION_SECONDS = 15;
 /**
@@ -135,8 +130,7 @@ export const MAX_VIDEO_REFERENCE_AUDIOS = 3;
 export const MAX_REFERENCE_VIDEO_SECONDS = 15;
 
 export function getVideoTier(id: VideoQualityTier | undefined): VideoTierSpec {
-  return VIDEO_TIERS.find((tier) => tier.id === id) ??
-    VIDEO_TIERS.find((tier) => tier.isDefault)!;
+  return VIDEO_TIERS.find((tier) => tier.id === id) ?? VIDEO_TIERS.find((tier) => tier.isDefault)!;
 }
 
 /**
@@ -146,14 +140,9 @@ export function getVideoTier(id: VideoQualityTier | undefined): VideoTierSpec {
  *
  * It never asks whether an image is present, because the model does not.
  */
-export function videoModelFor(
-  modeKind: VideoModeKind,
-  resolution: VideoResolution,
-): VideoModelId {
-  if (modeKind === "reference") return "grok-imagine-video-1.5";
-  return resolution === "1080p"
-    ? "grok-imagine-video-1.5"
-    : "grok-imagine-video";
+export function videoModelFor(modeKind: VideoModeKind, resolution: VideoResolution): VideoModelId {
+  if (modeKind === 'reference') return 'grok-imagine-video-1.5';
+  return resolution === '1080p' ? 'grok-imagine-video-1.5' : 'grok-imagine-video';
 }
 
 export type VideoSeatCapabilities = {
@@ -164,10 +153,10 @@ export type VideoSeatCapabilities = {
 };
 
 export type VideoPlanRefusal =
-  | "video-tier-unavailable"
-  | "video-model-unavailable"
-  | "reference-model-unavailable"
-  | "video-edit-resolution-refused";
+  | 'video-tier-unavailable'
+  | 'video-model-unavailable'
+  | 'reference-model-unavailable'
+  | 'video-edit-resolution-refused';
 
 export type VideoPlan = {
   modeKind: VideoModeKind;
@@ -183,13 +172,11 @@ export type VideoPlan = {
   clampedFromTierId?: VideoQualityTier;
 };
 
-export type VideoPlanResult =
-  | { ok: true; plan: VideoPlan }
-  | { ok: false; reason: VideoPlanRefusal };
+export type VideoPlanResult = { ok: true; plan: VideoPlan } | { ok: false; reason: VideoPlanRefusal };
 
 function tiersForMode(modeKind: VideoModeKind): readonly VideoTierSpec[] {
-  if (modeKind === "reference" || modeKind === "edit") {
-    return VIDEO_TIERS.filter((tier) => tier.resolution !== "1080p");
+  if (modeKind === 'reference' || modeKind === 'edit') {
+    return VIDEO_TIERS.filter((tier) => tier.resolution !== '1080p');
   }
   return VIDEO_TIERS;
 }
@@ -215,19 +202,15 @@ export function resolveVideoPlan(input: {
 }): VideoPlanResult {
   const requestedTier = getVideoTier(input.tierId);
   const hd15 = input.capabilities?.hd15Available === true;
-  if (input.modeKind === "reference" && !hd15) {
-    return { ok: false, reason: "reference-model-unavailable" };
+  if (input.modeKind === 'reference' && !hd15) {
+    return { ok: false, reason: 'reference-model-unavailable' };
   }
 
   let tier = requestedTier;
   let clampedFromTierId: VideoQualityTier | undefined;
-  if (
-    !tiersForMode(input.modeKind).some((candidate) =>
-      candidate.id === requestedTier.id
-    )
-  ) {
-    if (input.modeKind === "edit") {
-      return { ok: false, reason: "video-edit-resolution-refused" };
+  if (!tiersForMode(input.modeKind).some((candidate) => candidate.id === requestedTier.id)) {
+    if (input.modeKind === 'edit') {
+      return { ok: false, reason: 'video-edit-resolution-refused' };
     }
     tier = getVideoTier(REFERENCE_VIDEO_TIER_ID);
     clampedFromTierId = requestedTier.id;
@@ -235,14 +218,14 @@ export function resolveVideoPlan(input: {
 
   const automaticModel = videoModelFor(input.modeKind, tier.resolution);
   const model = input.modelId ?? automaticModel;
-  if (input.modeKind === "reference" && model !== "grok-imagine-video-1.5") {
-    return { ok: false, reason: "video-model-unavailable" };
+  if (input.modeKind === 'reference' && model !== 'grok-imagine-video-1.5') {
+    return { ok: false, reason: 'video-model-unavailable' };
   }
-  if (input.modeKind === "edit" && model !== automaticModel) {
-    return { ok: false, reason: "video-model-unavailable" };
+  if (input.modeKind === 'edit' && model !== automaticModel) {
+    return { ok: false, reason: 'video-model-unavailable' };
   }
-  if (model === "grok-imagine-video-1.5" && !hd15) {
-    return { ok: false, reason: "video-tier-unavailable" };
+  if (model === 'grok-imagine-video-1.5' && !hd15) {
+    return { ok: false, reason: 'video-tier-unavailable' };
   }
   const usdPerSecond = VIDEO_MODEL_USD_PER_SECOND[model][tier.resolution];
   // Unreachable for every pair the routing above produces, and checked anyway: a
@@ -250,19 +233,15 @@ export function resolveVideoPlan(input: {
   if (usdPerSecond === undefined) {
     return {
       ok: false,
-      reason: input.modelId === undefined
-        ? "video-tier-unavailable"
-        : "video-model-unavailable",
+      reason: input.modelId === undefined ? 'video-tier-unavailable' : 'video-model-unavailable',
     };
   }
 
-  const maxDurationSeconds = input.modeKind === "reference"
-    ? MAX_REFERENCE_VIDEO_SECONDS
-    : MAX_VIDEO_DURATION_SECONDS;
-  const requested = typeof input.durationSeconds === "number" &&
-      Number.isFinite(input.durationSeconds)
-    ? Math.max(MIN_VIDEO_DURATION_SECONDS, Math.ceil(input.durationSeconds))
-    : MIN_VIDEO_DURATION_SECONDS;
+  const maxDurationSeconds = input.modeKind === 'reference' ? MAX_REFERENCE_VIDEO_SECONDS : MAX_VIDEO_DURATION_SECONDS;
+  const requested =
+    typeof input.durationSeconds === 'number' && Number.isFinite(input.durationSeconds)
+      ? Math.max(MIN_VIDEO_DURATION_SECONDS, Math.ceil(input.durationSeconds))
+      : MIN_VIDEO_DURATION_SECONDS;
   const durationSeconds = Math.min(requested, maxDurationSeconds);
   const creditsPerSecond = deriveVideoCreditsPerSecond(usdPerSecond);
 
@@ -289,30 +268,20 @@ export type VideoTierAvailability = {
   capabilities?: VideoSeatCapabilities;
 };
 
-export function listAvailableVideoTiers(
-  availability: VideoTierAvailability,
-): readonly VideoTierSpec[] {
-  return tiersForMode(availability.modeKind).filter((tier) =>
-    resolveVideoPlan({
-      modeKind: availability.modeKind,
-      tierId: tier.id,
-      ...(availability.modelId === undefined
-        ? {}
-        : { modelId: availability.modelId }),
-      ...(availability.capabilities === undefined
-        ? {}
-        : { capabilities: availability.capabilities }),
-    }).ok
+export function listAvailableVideoTiers(availability: VideoTierAvailability): readonly VideoTierSpec[] {
+  return tiersForMode(availability.modeKind).filter(
+    (tier) =>
+      resolveVideoPlan({
+        modeKind: availability.modeKind,
+        tierId: tier.id,
+        ...(availability.modelId === undefined ? {} : { modelId: availability.modelId }),
+        ...(availability.capabilities === undefined ? {} : { capabilities: availability.capabilities }),
+      }).ok
   );
 }
 
-export function isVideoTierAvailable(
-  tierId: VideoQualityTier,
-  availability: VideoTierAvailability,
-): boolean {
-  return listAvailableVideoTiers(availability).some((tier) =>
-    tier.id === tierId
-  );
+export function isVideoTierAvailable(tierId: VideoQualityTier, availability: VideoTierAvailability): boolean {
+  return listAvailableVideoTiers(availability).some((tier) => tier.id === tierId);
 }
 
 /**
@@ -348,13 +317,13 @@ export type VideoAssetInput = {
  * the same reason — a voice on a text-to-video job cannot be written down.
  */
 export type VideoRequestMode =
-  | { kind: "text" }
-  | { kind: "image"; image: VideoAssetInput }
+  | { kind: 'text' }
+  | { kind: 'image'; image: VideoAssetInput }
   | {
-    kind: "reference";
-    referenceImages: readonly VideoAssetInput[];
-    presetVoiceIds: readonly string[];
-  };
+      kind: 'reference';
+      referenceImages: readonly VideoAssetInput[];
+      presetVoiceIds: readonly string[];
+    };
 
 export type EveMultimodalVideoInput = {
   prompt: string;
@@ -387,7 +356,7 @@ const MAX_VIDEO_PROMPT_CHARS = 4_000;
 const MAX_VIDEO_IMAGE_BASE64_CHARS = 12_000_000; // ~9 MB of image bytes
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -395,14 +364,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * not a well-formed, in-range request — the caller turns that into a 400 rather
  * than forwarding a half-understood body to a paid provider.
  */
-export function extractEveMultimodalVideoInput(
-  body: unknown,
-): EveMultimodalVideoInput | null {
+export function extractEveMultimodalVideoInput(body: unknown): EveMultimodalVideoInput | null {
   if (!isRecord(body)) return null;
   const raw = isRecord(body.video_generation) ? body.video_generation : null;
   if (!raw) return null;
 
-  const prompt = typeof raw.prompt === "string" ? raw.prompt.trim() : "";
+  const prompt = typeof raw.prompt === 'string' ? raw.prompt.trim() : '';
   if (prompt.length === 0 || prompt.length > MAX_VIDEO_PROMPT_CHARS) {
     return null;
   }
@@ -415,13 +382,12 @@ export function extractEveMultimodalVideoInput(
   // id is refused there, before any money moves. Anything else — a number, a
   // bare word, a url — is refused here.
   const modelId = raw.model;
-  const isLegacyModel = modelId === undefined ||
-    modelId === "grok-imagine-video" ||
-    modelId === "grok-imagine-video-1.5";
+  const isLegacyModel =
+    modelId === undefined || modelId === 'grok-imagine-video' || modelId === 'grok-imagine-video-1.5';
   let catalogModelId: string | undefined;
   if (!isLegacyModel) {
     if (
-      typeof modelId !== "string" ||
+      typeof modelId !== 'string' ||
       !/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/i.test(modelId) ||
       modelId.length > 128
     ) {
@@ -431,7 +397,7 @@ export function extractEveMultimodalVideoInput(
   }
 
   const tierId = raw.tier;
-  const tierValid = tierId === "sd" || tierId === "fast" || tierId === "hd";
+  const tierValid = tierId === 'sd' || tierId === 'fast' || tierId === 'hd';
   if (tierId !== undefined && !tierValid) return null;
   // Legacy requests REQUIRE the tier — the tier owns the resolution there.
   if (catalogModelId === undefined && !tierValid) return null;
@@ -442,28 +408,20 @@ export function extractEveMultimodalVideoInput(
   const resolutionRaw = raw.resolution;
   if (resolutionRaw !== undefined) {
     if (catalogModelId === undefined) return null;
-    if (
-      typeof resolutionRaw !== "string" || resolutionRaw.length === 0 ||
-      resolutionRaw.length > 8
-    ) {
+    if (typeof resolutionRaw !== 'string' || resolutionRaw.length === 0 || resolutionRaw.length > 8) {
       return null;
     }
   }
 
   const durationRaw = raw.duration_seconds;
-  if (typeof durationRaw !== "number" || !Number.isFinite(durationRaw)) {
+  if (typeof durationRaw !== 'number' || !Number.isFinite(durationRaw)) {
     return null;
   }
   const durationSeconds = Math.ceil(durationRaw);
   // Legacy keeps the flat 15s cap; catalog requests get the hard transport
   // ceiling here and the ENTRY's own bound downstream (supported_durations).
-  const maxDuration = catalogModelId === undefined
-    ? MAX_VIDEO_DURATION_SECONDS
-    : MAX_CATALOG_VIDEO_DURATION_SECONDS;
-  if (
-    durationSeconds < MIN_VIDEO_DURATION_SECONDS ||
-    durationSeconds > maxDuration
-  ) return null;
+  const maxDuration = catalogModelId === undefined ? MAX_VIDEO_DURATION_SECONDS : MAX_CATALOG_VIDEO_DURATION_SECONDS;
+  if (durationSeconds < MIN_VIDEO_DURATION_SECONDS || durationSeconds > maxDuration) return null;
 
   // REFUSE a present-but-wrong-typed image_base64; never silently drop it.
   //
@@ -479,20 +437,13 @@ export function extractEveMultimodalVideoInput(
   // `null` is refused alongside the rest, deliberately: an explicit null is a
   // client that built the field and failed to fill it, which is precisely the case
   // worth surfacing. Only an ABSENT key means "no image".
-  if (raw.image_base64 !== undefined && typeof raw.image_base64 !== "string") {
+  if (raw.image_base64 !== undefined && typeof raw.image_base64 !== 'string') {
     return null;
   }
-  const imageBase64 = typeof raw.image_base64 === "string"
-    ? raw.image_base64
-    : undefined;
+  const imageBase64 = typeof raw.image_base64 === 'string' ? raw.image_base64 : undefined;
   if (imageBase64 !== undefined) {
-    if (
-      imageBase64.length === 0 ||
-      imageBase64.length > MAX_VIDEO_IMAGE_BASE64_CHARS
-    ) return null;
-    if (
-      typeof raw.image_sha256 !== "string" || raw.image_sha256.length !== 64
-    ) {
+    if (imageBase64.length === 0 || imageBase64.length > MAX_VIDEO_IMAGE_BASE64_CHARS) return null;
+    if (typeof raw.image_sha256 !== 'string' || raw.image_sha256.length !== 64) {
       return null;
     }
   }
@@ -512,25 +463,24 @@ export function extractEveMultimodalVideoInput(
   if (imageBase64 !== undefined && references.length > 0) return null;
   if (voices.length > 0 && references.length === 0) return null;
 
-  const mode: VideoRequestMode = references.length > 0
-    ? {
-      kind: "reference",
-      referenceImages: references,
-      presetVoiceIds: voices,
-    }
-    : imageBase64 === undefined
-    ? { kind: "text" }
-    : {
-      kind: "image",
-      image: { base64: imageBase64, sha256: raw.image_sha256 as string },
-    };
+  const mode: VideoRequestMode =
+    references.length > 0
+      ? {
+          kind: 'reference',
+          referenceImages: references,
+          presetVoiceIds: voices,
+        }
+      : imageBase64 === undefined
+        ? { kind: 'text' }
+        : {
+            kind: 'image',
+            image: { base64: imageBase64, sha256: raw.image_sha256 as string },
+          };
 
   return {
     prompt,
     ...(tierValid ? { tierId: tierId as VideoQualityTier } : {}),
-    ...(isLegacyModel && modelId !== undefined
-      ? { modelId: modelId as VideoModelId }
-      : {}),
+    ...(isLegacyModel && modelId !== undefined ? { modelId: modelId as VideoModelId } : {}),
     ...(catalogModelId === undefined ? {} : { catalogModelId }),
     ...(resolutionRaw === undefined ? {} : { resolution: resolutionRaw as string }),
     durationSeconds,
@@ -545,9 +495,7 @@ export function extractEveMultimodalVideoInput(
  * not ask for reference mode". Truncating an eighth image to seven would render
  * something the user did not ask for and bill them for it.
  */
-function extractVideoReferenceImages(
-  raw: unknown,
-): VideoAssetInput[] | null {
+function extractVideoReferenceImages(raw: unknown): VideoAssetInput[] | null {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) return null;
   if (raw.length === 0) return [];
@@ -557,9 +505,9 @@ function extractVideoReferenceImages(
     if (!isRecord(entry)) return null;
     const base64 = entry.image_base64;
     const sha256 = entry.image_sha256;
-    if (typeof base64 !== "string" || base64.length === 0) return null;
+    if (typeof base64 !== 'string' || base64.length === 0) return null;
     if (base64.length > MAX_VIDEO_IMAGE_BASE64_CHARS) return null;
-    if (typeof sha256 !== "string" || sha256.length !== 64) return null;
+    if (typeof sha256 !== 'string' || sha256.length !== 64) return null;
     assets.push({ base64, sha256 });
   }
   return assets;
@@ -575,7 +523,7 @@ function extractVideoPresetVoiceIds(raw: unknown): string[] | null {
   for (const entry of raw) {
     // A STRING id and nothing else. An object here would be the shape a custom
     // audio payload arrives in, so it is refused rather than partially read.
-    if (typeof entry !== "string") return null;
+    if (typeof entry !== 'string') return null;
     const id = entry.trim();
     if (id.length === 0 || id.length > 64) return null;
     ids.push(id);
@@ -584,24 +532,20 @@ function extractVideoPresetVoiceIds(raw: unknown): string[] | null {
 }
 
 /** The mode a parsed request actually represents. */
-export function videoModeKindOf(
-  input: EveMultimodalVideoInput,
-): VideoModeKind {
+export function videoModeKindOf(input: EveMultimodalVideoInput): VideoModeKind {
   return input.mode.kind;
 }
 
 /** Every source image on a parsed request, whichever mode carried it. */
-export function videoSourceAssetsOf(
-  input: EveMultimodalVideoInput,
-): readonly VideoAssetInput[] {
-  if (input.mode.kind === "image") return [input.mode.image];
-  if (input.mode.kind === "reference") return input.mode.referenceImages;
+export function videoSourceAssetsOf(input: EveMultimodalVideoInput): readonly VideoAssetInput[] {
+  if (input.mode.kind === 'image') return [input.mode.image];
+  if (input.mode.kind === 'reference') return input.mode.referenceImages;
   return [];
 }
 
 /** sha256 of the prompt text, used both by the usage fingerprint and the debit ref. */
 export function videoPromptSha256(prompt: string): string {
-  return crypto.createHash("sha256").update(prompt, "utf8").digest("hex");
+  return crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
 }
 
 export type VideoDebitExternalRefInput = {
@@ -642,22 +586,23 @@ export type VideoDebitExternalRefInput = {
  * must never be assumed interchangeable even though today they hash the same
  * inputs.
  */
-export function videoDebitExternalRef(
-  input: VideoDebitExternalRefInput,
-): string {
-  return crypto.createHash("sha256").update(
-    [
-      "command-eve-video-debit-v2",
-      input.tenantId,
-      input.promptSha256,
-      input.model,
-      input.tierId,
-      String(input.durationSeconds),
-      (input.sourceSha256 ?? []).join(","),
-      (input.presetVoiceIds ?? []).join(","),
-    ].join("\n"),
-    "utf8",
-  ).digest("hex");
+export function videoDebitExternalRef(input: VideoDebitExternalRefInput): string {
+  return crypto
+    .createHash('sha256')
+    .update(
+      [
+        'command-eve-video-debit-v2',
+        input.tenantId,
+        input.promptSha256,
+        input.model,
+        input.tierId,
+        String(input.durationSeconds),
+        (input.sourceSha256 ?? []).join(','),
+        (input.presetVoiceIds ?? []).join(','),
+      ].join('\n'),
+      'utf8'
+    )
+    .digest('hex');
 }
 
 /**
@@ -710,9 +655,7 @@ export const MAX_VIDEO_EDIT_SOURCE_SECONDS = 8.7;
 
 /** Video input is billed per source-second on TOP of the generated output. */
 export const VIDEO_EDIT_INPUT_USD_PER_SECOND = 0.01;
-export const VIDEO_EDIT_INPUT_CREDITS_PER_SECOND = deriveVideoCreditsPerSecond(
-  VIDEO_EDIT_INPUT_USD_PER_SECOND,
-);
+export const VIDEO_EDIT_INPUT_CREDITS_PER_SECOND = deriveVideoCreditsPerSecond(VIDEO_EDIT_INPUT_USD_PER_SECOND);
 
 /**
  * Tiers an edit can actually produce. `hd` is 1080p on grok-imagine-video-1.5;
@@ -720,16 +663,11 @@ export const VIDEO_EDIT_INPUT_CREDITS_PER_SECOND = deriveVideoCreditsPerSecond(
  * question but an impossibility. Refuse it by name instead of downgrading —
  * the same rule the generation lane already applies to 1080p text prompts.
  */
-export const VIDEO_EDIT_ELIGIBLE_TIERS: readonly VideoQualityTier[] = Object
-  .freeze(
-    VIDEO_TIERS.filter((tier) => tier.resolution !== "1080p").map((tier) =>
-      tier.id
-    ),
-  );
+export const VIDEO_EDIT_ELIGIBLE_TIERS: readonly VideoQualityTier[] = Object.freeze(
+  VIDEO_TIERS.filter((tier) => tier.resolution !== '1080p').map((tier) => tier.id)
+);
 
-export function isVideoEditEligibleTier(
-  tierId: VideoQualityTier,
-): boolean {
+export function isVideoEditEligibleTier(tierId: VideoQualityTier): boolean {
   return VIDEO_EDIT_ELIGIBLE_TIERS.includes(tierId);
 }
 
@@ -752,44 +690,33 @@ const MAX_VIDEO_SOURCE_BASE64_CHARS = 40_000_000; // ~30 MB of MP4
  * reachable before the debit — a length check that ran after the charge would
  * bill the user for a rejection.
  */
-export function extractEveMultimodalVideoEditInput(
-  body: unknown,
-): EveMultimodalVideoEditInput | null {
+export function extractEveMultimodalVideoEditInput(body: unknown): EveMultimodalVideoEditInput | null {
   if (!isRecord(body)) return null;
   const raw = isRecord(body.video_edit) ? body.video_edit : null;
   if (!raw) return null;
 
-  const prompt = typeof raw.prompt === "string" ? raw.prompt.trim() : "";
+  const prompt = typeof raw.prompt === 'string' ? raw.prompt.trim() : '';
   if (prompt.length === 0 || prompt.length > MAX_VIDEO_PROMPT_CHARS) {
     return null;
   }
 
   const tierId = raw.tier;
-  if (tierId !== "sd" && tierId !== "fast" && tierId !== "hd") return null;
+  if (tierId !== 'sd' && tierId !== 'fast' && tierId !== 'hd') return null;
   if (!isVideoEditEligibleTier(tierId)) return null;
 
-  const sourceBase64 = typeof raw.source_base64 === "string"
-    ? raw.source_base64
-    : "";
-  if (
-    sourceBase64.length === 0 ||
-    sourceBase64.length > MAX_VIDEO_SOURCE_BASE64_CHARS
-  ) return null;
+  const sourceBase64 = typeof raw.source_base64 === 'string' ? raw.source_base64 : '';
+  if (sourceBase64.length === 0 || sourceBase64.length > MAX_VIDEO_SOURCE_BASE64_CHARS) return null;
 
-  if (
-    typeof raw.source_sha256 !== "string" || raw.source_sha256.length !== 64
-  ) return null;
+  if (typeof raw.source_sha256 !== 'string' || raw.source_sha256.length !== 64) return null;
 
   const durationRaw = raw.source_duration_seconds;
-  if (typeof durationRaw !== "number" || !Number.isFinite(durationRaw)) {
+  if (typeof durationRaw !== 'number' || !Number.isFinite(durationRaw)) {
     return null;
   }
   // NOT ceil()'d. 8.7 is a real boundary with one decimal; rounding a 8.4s
   // source up to 9 would refuse a clip the provider accepts, and rounding a
   // 8.9s source down to 8 would forward one it rejects — after we charged.
-  if (
-    durationRaw <= 0 || durationRaw > MAX_VIDEO_EDIT_SOURCE_SECONDS
-  ) return null;
+  if (durationRaw <= 0 || durationRaw > MAX_VIDEO_EDIT_SOURCE_SECONDS) return null;
 
   return {
     prompt,
@@ -810,17 +737,14 @@ export function extractEveMultimodalVideoEditInput(
  * Ceil ONCE at the end, on the combined figure: two separate ceils would round
  * twice and drift upward against the user.
  */
-export function estimateVideoEditCredits(
-  tierId: VideoQualityTier,
-  sourceDurationSeconds: number,
-): number {
+export function estimateVideoEditCredits(tierId: VideoQualityTier, sourceDurationSeconds: number): number {
   // The output rate comes from the (model, resolution) matrix through the EDIT
   // mode, not from the tier record — a resolution can be served by two models at
   // two different rates. Editing is capped at 720p and therefore always the base
   // model, so this is the same number it has always been; it now arrives by the
   // route that stays correct.
   const resolved = resolveVideoPlan({
-    modeKind: "edit",
+    modeKind: 'edit',
     tierId,
     capabilities: { hd15Available: true },
   });
@@ -828,8 +752,7 @@ export function estimateVideoEditCredits(
   // free edit; callers gate on `isVideoEditEligibleTier` first, and an infinite
   // estimate keeps the arithmetic honest for the one that forgets.
   if (!resolved.ok) return Number.POSITIVE_INFINITY;
-  const perSecond = VIDEO_EDIT_INPUT_CREDITS_PER_SECOND +
-    resolved.plan.creditsPerSecond;
+  const perSecond = VIDEO_EDIT_INPUT_CREDITS_PER_SECOND + resolved.plan.creditsPerSecond;
   return Math.ceil(sourceDurationSeconds * perSecond);
 }
 
@@ -859,19 +782,16 @@ export type VideoEditDebitExternalRefInput = {
  *
  * So: no request id, no channel, no session, no timestamp. Content only.
  */
-export function videoEditDebitExternalRef(
-  input: VideoEditDebitExternalRefInput,
-): string {
-  return crypto.createHash("sha256").update(
-    [
-      "command-eve-video-edit-debit-v1",
-      input.tenantId,
-      input.promptSha256,
-      input.tierId,
-      input.sourceSha256,
-    ].join("\n"),
-    "utf8",
-  ).digest("hex");
+export function videoEditDebitExternalRef(input: VideoEditDebitExternalRefInput): string {
+  return crypto
+    .createHash('sha256')
+    .update(
+      ['command-eve-video-edit-debit-v1', input.tenantId, input.promptSha256, input.tierId, input.sourceSha256].join(
+        '\n'
+      ),
+      'utf8'
+    )
+    .digest('hex');
 }
 
 /**
@@ -893,20 +813,21 @@ export function buildXaiVideoGenerationBody(args: {
   referenceImageDataUrls?: readonly string[];
 }): Record<string, unknown> {
   const mode = args.mode;
-  const modeFields: Record<string, unknown> = mode.kind === "image"
-    ? (args.imageDataUrl ? { image: { url: args.imageDataUrl } } : {})
-    : mode.kind === "reference"
-    ? {
-      reference_images: (args.referenceImageDataUrls ?? []).map((url) => ({
-        url,
-      })),
-      // Preset NAMES the provider already holds. Never bytes, never a url,
-      // never an upload — there is no branch here that could carry one.
-      ...(mode.presetVoiceIds.length === 0
-        ? {}
-        : { reference_audios: [...mode.presetVoiceIds] }),
-    }
-    : {};
+  const modeFields: Record<string, unknown> =
+    mode.kind === 'image'
+      ? args.imageDataUrl
+        ? { image: { url: args.imageDataUrl } }
+        : {}
+      : mode.kind === 'reference'
+        ? {
+            reference_images: (args.referenceImageDataUrls ?? []).map((url) => ({
+              url,
+            })),
+            // Preset NAMES the provider already holds. Never bytes, never a url,
+            // never an upload — there is no branch here that could carry one.
+            ...(mode.presetVoiceIds.length === 0 ? {} : { reference_audios: [...mode.presetVoiceIds] }),
+          }
+        : {};
   return {
     model: args.model,
     prompt: args.prompt,
@@ -956,9 +877,7 @@ export function xaiVideoDataUrlFromBase64(sourceBase64: string): string | null {
     return null;
   }
   const mediaType = xaiVideoMediaType(bytes);
-  return mediaType === null
-    ? null
-    : `data:${mediaType};base64,${sourceBase64}`;
+  return mediaType === null ? null : `data:${mediaType};base64,${sourceBase64}`;
 }
 
 /**
@@ -969,36 +888,42 @@ export function xaiVideoDataUrlFromBase64(sourceBase64: string): string | null {
  * 4..7 are checked.
  */
 export function xaiVideoMediaType(bytes: Uint8Array): string | null {
-  if (
-    bytes.length >= 8 && bytes[4] === 0x66 && bytes[5] === 0x74 &&
-    bytes[6] === 0x79 && bytes[7] === 0x70
-  ) {
-    return "video/mp4";
+  if (bytes.length >= 8 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+    return 'video/mp4';
   }
   return null;
 }
 
 /** Magic-number sniff, limited to the formats the video endpoint accepts. */
 export function xaiImageMediaType(bytes: Uint8Array): string | null {
-  if (
-    bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 &&
-    bytes[2] === 0xff
-  ) {
-    return "image/jpeg";
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
   }
   if (
-    bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 &&
-    bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d &&
-    bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
   ) {
-    return "image/png";
+    return 'image/png';
   }
   if (
-    bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 &&
-    bytes[2] === 0x46 && bytes[3] === 0x46 && bytes[8] === 0x57 &&
-    bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
   ) {
-    return "image/webp";
+    return 'image/webp';
   }
   return null;
 }

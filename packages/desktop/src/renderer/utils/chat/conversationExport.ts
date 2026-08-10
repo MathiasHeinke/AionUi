@@ -1,6 +1,9 @@
 import type { TMessage } from '@/common/chat/chatLib';
 import type { TChatConversation } from '@/common/config/storage';
-import { redactCommandEveCapabilitySecrets, stripCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
+import {
+  redactCommandEveCapabilitySecrets,
+  stripCommandEvePreparedContext,
+} from '@/common/config/evePreparedContextCore';
 
 const INVALID_FILENAME_CHARS_RE = /[<>:"/\\|?*]/g;
 const padTimestampPart = (value: number): string => String(value).padStart(2, '0');

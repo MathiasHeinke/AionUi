@@ -34,7 +34,10 @@ import { describe, expect, it } from 'vitest';
 import { detectQuotaExhausted } from '@/common/config/creditsCore';
 import { stripEmbeddedJsonFromSendFailureText } from '@/renderer/pages/conversation/platforms/acp/useAcpInitialMessage';
 
-const ACP_SEND_BOX = resolve(process.cwd(), 'packages/desktop/src/renderer/pages/conversation/platforms/acp/AcpSendBox.tsx');
+const ACP_SEND_BOX = resolve(
+  process.cwd(),
+  'packages/desktop/src/renderer/pages/conversation/platforms/acp/AcpSendBox.tsx'
+);
 const INITIAL_MESSAGE = resolve(
   process.cwd(),
   'packages/desktop/src/renderer/pages/conversation/platforms/acp/useAcpInitialMessage.ts'
@@ -128,7 +131,7 @@ describe('send-catch quota gate — source contract', () => {
 
   it('useAcpInitialMessage gates its cold card on the same wall feed', () => {
     const source = readWithoutLineComments(INITIAL_MESSAGE);
-    const gate = source.indexOf("reportInferenceError?.(error, { jobInFlight: true })");
+    const gate = source.indexOf('reportInferenceError?.(error, { jobInFlight: true })');
     expect(gate, 'the initial-message catch no longer feeds the quota wall').toBeGreaterThan(-1);
     const card = source.indexOf('const errorMessage: TMessage');
     expect(card).toBeGreaterThan(-1);

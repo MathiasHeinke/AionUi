@@ -62,7 +62,9 @@ export interface ReadMySeatsWireDeps {
   /** Injected in tests; defaults to global fetch. */
   fetch?: typeof fetch;
   /** Resolve a non-expired account session (refreshes as needed). Injected in tests. */
-  getFreshSession?: (userDataPath: string) => Promise<{ ok: boolean; session?: CommandEveAccountSession; reason_code?: string }>;
+  getFreshSession?: (
+    userDataPath: string
+  ) => Promise<{ ok: boolean; session?: CommandEveAccountSession; reason_code?: string }>;
   /** The anon apikey (mirrors the my-license header set). Injected in tests. */
   anonKey?: string;
   /** The desktop's runtime-truth active seat (overrides the wire pointer). Injected in tests. */

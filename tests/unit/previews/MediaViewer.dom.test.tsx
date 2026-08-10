@@ -22,9 +22,7 @@ describe('MediaPreview', () => {
   });
 
   it('renders an audio player and a truthful empty state', () => {
-    const { rerender } = render(
-      <MediaPreview type='audio' source='data:audio/mpeg;base64,SUQz' title='Briefing' />
-    );
+    const { rerender } = render(<MediaPreview type='audio' source='data:audio/mpeg;base64,SUQz' title='Briefing' />);
     expect(screen.getByTestId('workbench-audio-preview')).toHaveAttribute('controls');
     expect(screen.getByText('Briefing')).toBeInTheDocument();
 

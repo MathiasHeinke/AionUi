@@ -33,31 +33,26 @@ function nullableNonNegativeCents(value: unknown): number | null {
 
 export function pickLatestPurchasedCreditCarryover(
   entitlementsNewestFirst: CarryoverEntitlementInput[],
-  balances: CarryoverBalanceInput[],
+  balances: CarryoverBalanceInput[]
 ): PurchasedCreditCarryover | null {
   const purchasedByEntitlement = new Map<string, number>();
   for (const row of balances) {
-    const id = typeof row.entitlement_id === "string" ? row.entitlement_id : "";
+    const id = typeof row.entitlement_id === 'string' ? row.entitlement_id : '';
     if (!id) continue;
     const purchased = nonNegativeCredit(row.purchased_credits_remaining);
     if (purchased <= 0) continue;
-    purchasedByEntitlement.set(
-      id,
-      (purchasedByEntitlement.get(id) ?? 0) + purchased,
-    );
+    purchasedByEntitlement.set(id, (purchasedByEntitlement.get(id) ?? 0) + purchased);
   }
 
   for (const entitlement of entitlementsNewestFirst) {
-    const id = typeof entitlement.id === "string" ? entitlement.id : "";
+    const id = typeof entitlement.id === 'string' ? entitlement.id : '';
     if (!id) continue;
     const purchasedCredits = purchasedByEntitlement.get(id) ?? 0;
     if (purchasedCredits <= 0) continue;
     return {
       entitlementId: id,
       purchasedCredits,
-      spendCapEurCents: nullableNonNegativeCents(
-        entitlement.spend_cap_eur_cents,
-      ),
+      spendCapEurCents: nullableNonNegativeCents(entitlement.spend_cap_eur_cents),
     };
   }
 

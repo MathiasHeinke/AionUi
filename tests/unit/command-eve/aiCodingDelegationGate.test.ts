@@ -42,7 +42,8 @@ import {
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const SKILL_PATH = path.join(REPO_ROOT, 'resources/bundled-skills/ai-coding-delegation/SKILL.md');
 const skillBody = () => fs.readFileSync(SKILL_PATH, 'utf8');
-const bundledSkillBody = (id: string) => fs.readFileSync(path.join(REPO_ROOT, `resources/bundled-skills/${id}/SKILL.md`), 'utf8');
+const bundledSkillBody = (id: string) =>
+  fs.readFileSync(path.join(REPO_ROOT, `resources/bundled-skills/${id}/SKILL.md`), 'utf8');
 const aiCodingSkill = () => DEFAULT_COMMAND_EVE_CAPABILITY_PACK.skills.find((s) => s.id === 'ai-coding-delegation');
 const catalogEntry = (id: string) => DEFAULT_COMMAND_EVE_CAPABILITY_PACK.skills.find((skill) => skill.id === id);
 

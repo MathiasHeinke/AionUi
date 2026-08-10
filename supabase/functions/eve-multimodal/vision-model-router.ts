@@ -10,19 +10,16 @@
 // This mirrors the product's MAX rule: money in the purchased bucket is the
 // authoritative upgrade signal, not a stale local edition badge.
 
-import {
-  type DrawableEntitlementRow,
-  pickDrawableEntitlement,
-} from "../_shared/entitlement-draw-core.ts";
-import { pickLatestPurchasedCreditCarryover } from "../_shared/purchased-credit-carryover-core.ts";
+import { type DrawableEntitlementRow, pickDrawableEntitlement } from '../_shared/entitlement-draw-core.ts';
+import { pickLatestPurchasedCreditCarryover } from '../_shared/purchased-credit-carryover-core.ts';
 
-export const DEFAULT_TRIAL_VISION_MODEL = "qwen/qwen3.7-flash";
-export const DEFAULT_PAID_VISION_MODEL = "google/gemini-3.6-flash";
+export const DEFAULT_TRIAL_VISION_MODEL = 'qwen/qwen3.7-flash';
+export const DEFAULT_PAID_VISION_MODEL = 'google/gemini-3.6-flash';
 
 const MAX_ROUTE_RESPONSE_BYTES = 32 * 1024;
 const ROUTE_TIMEOUT_MS = 5_000;
 
-export type VisionProductLane = "trial" | "paid";
+export type VisionProductLane = 'trial' | 'paid';
 
 export type VisionModelRoute = {
   lane: VisionProductLane;
@@ -50,20 +47,20 @@ export type ResolveVisionModelRouteInput = {
 
 export type LoadVisionModelRouteResult =
   | {
-    ok: true;
-    route: VisionModelRoute;
-    entitlementId: string;
-  }
+      ok: true;
+      route: VisionModelRoute;
+      entitlementId: string;
+    }
   | {
-    ok: false;
-    reason:
-      | "route-not-configured"
-      | "entitlement-unavailable"
-      | "balance-unavailable"
-      | "route-response-invalid"
-      | "route-request-failed"
-      | "route-unsupported-edition";
-  };
+      ok: false;
+      reason:
+        | 'route-not-configured'
+        | 'entitlement-unavailable'
+        | 'balance-unavailable'
+        | 'route-response-invalid'
+        | 'route-request-failed'
+        | 'route-unsupported-edition';
+    };
 
 function finiteNonNegative(value: unknown): number | null {
   const parsed = Number(value);
@@ -78,32 +75,24 @@ function boundedImageCount(value: number): number {
  * Pure product decision. It does not trust the license edition alone:
  * `purchased_credits_remaining > 0` always unlocks the paid Vision lane.
  */
-export function resolveVisionModelRoute(
-  input: ResolveVisionModelRouteInput,
-): VisionModelRoute | null {
-  const purchased = finiteNonNegative(
-    input.balance.purchased_credits_remaining,
-  );
-  const included = finiteNonNegative(
-    input.balance.included_allowance_credits_remaining,
-  );
+export function resolveVisionModelRoute(input: ResolveVisionModelRouteInput): VisionModelRoute | null {
+  const purchased = finiteNonNegative(input.balance.purchased_credits_remaining);
+  const included = finiteNonNegative(input.balance.included_allowance_credits_remaining);
   if (purchased === null || included === null) return null;
 
-  const edition = (input.entitlement.edition ?? "").trim().toLowerCase();
-  const status = (input.entitlement.status ?? "").trim().toLowerCase();
+  const edition = (input.entitlement.edition ?? '').trim().toLowerCase();
+  const status = (input.entitlement.status ?? '').trim().toLowerCase();
   const hasPurchasedCredits = purchased > 0;
-  const hasPaidPlan = status === "active" && edition === "standard";
+  const hasPaidPlan = status === 'active' && edition === 'standard';
 
-  if (!hasPurchasedCredits && !hasPaidPlan && edition !== "pilot") {
+  if (!hasPurchasedCredits && !hasPaidPlan && edition !== 'pilot') {
     return null;
   }
 
-  const lane: VisionProductLane = hasPurchasedCredits || hasPaidPlan
-    ? "paid"
-    : "trial";
+  const lane: VisionProductLane = hasPurchasedCredits || hasPaidPlan ? 'paid' : 'trial';
   const imageCount = boundedImageCount(input.imageCount);
 
-  if (lane === "paid") {
+  if (lane === 'paid') {
     return {
       lane,
       model: DEFAULT_PAID_VISION_MODEL,
@@ -126,20 +115,15 @@ export function resolveVisionModelRoute(
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isVisionEntitlementRow(
-  value: unknown,
-): value is VisionRouteEntitlementRow {
-  return isRecord(value) && typeof value.id === "string" &&
-    typeof value.status === "string";
+function isVisionEntitlementRow(value: unknown): value is VisionRouteEntitlementRow {
+  return isRecord(value) && typeof value.id === 'string' && typeof value.status === 'string';
 }
 
-async function boundedJson(
-  response: Response,
-): Promise<unknown | null> {
-  const declared = Number(response.headers.get("content-length") ?? 0);
+async function boundedJson(response: Response): Promise<unknown | null> {
+  const declared = Number(response.headers.get('content-length') ?? 0);
   if (Number.isFinite(declared) && declared > MAX_ROUTE_RESPONSE_BYTES) {
     return null;
   }
@@ -168,7 +152,7 @@ export async function loadVisionModelRoute(args: {
   const baseUrl = args.supabaseUrl?.trim();
   const serviceRoleKey = args.serviceRoleKey?.trim();
   if (!baseUrl || !serviceRoleKey) {
-    return { ok: false, reason: "route-not-configured" };
+    return { ok: false, reason: 'route-not-configured' };
   }
 
   const fetchFn = args.fetchFn ?? fetch;
@@ -180,78 +164,68 @@ export async function loadVisionModelRoute(args: {
   };
 
   try {
-    const entitlementUrl = new URL("/rest/v1/entitlements", baseUrl);
-    entitlementUrl.searchParams.set("tenant_id", `eq.${args.tenantId}`);
+    const entitlementUrl = new URL('/rest/v1/entitlements', baseUrl);
+    entitlementUrl.searchParams.set('tenant_id', `eq.${args.tenantId}`);
     entitlementUrl.searchParams.set(
-      "select",
-      "id,status,edition,spend_cap_eur_cents,created_at,trial_ends_at,expires_at",
+      'select',
+      'id,status,edition,spend_cap_eur_cents,created_at,trial_ends_at,expires_at'
     );
-    entitlementUrl.searchParams.set("order", "created_at.desc");
+    entitlementUrl.searchParams.set('order', 'created_at.desc');
 
     const entitlementResponse = await fetchFn(entitlementUrl, {
-      method: "GET",
+      method: 'GET',
       signal: controller.signal,
       headers,
     });
     if (!entitlementResponse.ok) {
-      return { ok: false, reason: "entitlement-unavailable" };
+      return { ok: false, reason: 'entitlement-unavailable' };
     }
     const entitlementPayload = await boundedJson(entitlementResponse);
     if (!Array.isArray(entitlementPayload)) {
-      return { ok: false, reason: "route-response-invalid" };
+      return { ok: false, reason: 'route-response-invalid' };
     }
     const rows = entitlementPayload.filter(isVisionEntitlementRow);
-    const balanceUrl = new URL("/rest/v1/credit_balances", baseUrl);
+    const balanceUrl = new URL('/rest/v1/credit_balances', baseUrl);
     const entitlementIds = rows.map((row) => row.id).filter(Boolean);
     if (entitlementIds.length === 0) {
-      return { ok: false, reason: "entitlement-unavailable" };
+      return { ok: false, reason: 'entitlement-unavailable' };
     }
+    balanceUrl.searchParams.set('entitlement_id', `in.(${entitlementIds.join(',')})`);
     balanceUrl.searchParams.set(
-      "entitlement_id",
-      `in.(${entitlementIds.join(",")})`,
-    );
-    balanceUrl.searchParams.set(
-      "select",
-      "entitlement_id,included_allowance_credits_remaining,purchased_credits_remaining",
+      'select',
+      'entitlement_id,included_allowance_credits_remaining,purchased_credits_remaining'
     );
     const balanceResponse = await fetchFn(balanceUrl, {
-      method: "GET",
+      method: 'GET',
       signal: controller.signal,
       headers,
     });
     if (!balanceResponse.ok) {
-      return { ok: false, reason: "balance-unavailable" };
+      return { ok: false, reason: 'balance-unavailable' };
     }
     const balancePayload = await boundedJson(balanceResponse);
     if (!Array.isArray(balancePayload)) {
-      return { ok: false, reason: "balance-unavailable" };
+      return { ok: false, reason: 'balance-unavailable' };
     }
 
     const drawable = pickDrawableEntitlement(rows, args.nowIso);
     const carryover = pickLatestPurchasedCreditCarryover(rows, balancePayload);
-    const selectedEntitlementId = drawable?.entitlementId ??
-      carryover?.entitlementId;
+    const selectedEntitlementId = drawable?.entitlementId ?? carryover?.entitlementId;
     if (!selectedEntitlementId) {
-      return { ok: false, reason: "entitlement-unavailable" };
+      return { ok: false, reason: 'entitlement-unavailable' };
     }
     const entitlement = rows.find((row) => row.id === selectedEntitlementId);
-    const balanceRow = balancePayload.find(
-      (row) => isRecord(row) && row.entitlement_id === selectedEntitlementId,
-    );
+    const balanceRow = balancePayload.find((row) => isRecord(row) && row.entitlement_id === selectedEntitlementId);
     if (!entitlement) {
-      return { ok: false, reason: "route-response-invalid" };
+      return { ok: false, reason: 'route-response-invalid' };
     }
     if (!isRecord(balanceRow)) {
-      return { ok: false, reason: "balance-unavailable" };
+      return { ok: false, reason: 'balance-unavailable' };
     }
-    const purchased = finiteNonNegative(
-      balanceRow.purchased_credits_remaining,
-    );
-    const included = finiteNonNegative(
-      balanceRow.included_allowance_credits_remaining,
-    );
+    const purchased = finiteNonNegative(balanceRow.purchased_credits_remaining);
+    const included = finiteNonNegative(balanceRow.included_allowance_credits_remaining);
     if (purchased === null || included === null) {
-      return { ok: false, reason: "balance-unavailable" };
+      return { ok: false, reason: 'balance-unavailable' };
     }
 
     const route = resolveVisionModelRoute({
@@ -263,11 +237,11 @@ export async function loadVisionModelRoute(args: {
       imageCount: args.imageCount,
     });
     if (!route) {
-      return { ok: false, reason: "route-unsupported-edition" };
+      return { ok: false, reason: 'route-unsupported-edition' };
     }
     return { ok: true, route, entitlementId: selectedEntitlementId };
   } catch {
-    return { ok: false, reason: "route-request-failed" };
+    return { ok: false, reason: 'route-request-failed' };
   } finally {
     clearTimeout(timeout);
   }

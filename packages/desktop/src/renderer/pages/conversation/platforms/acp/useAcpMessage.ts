@@ -108,7 +108,13 @@ export type AcpRuntimeActivity = {
 };
 
 export type AcpStreamWatchdogStatus =
-  'idle' | 'streaming' | 'tool_wait' | 'heartbeat_only' | 'ui_backlog' | 'stopped' | 'failed';
+  | 'idle'
+  | 'streaming'
+  | 'tool_wait'
+  | 'heartbeat_only'
+  | 'ui_backlog'
+  | 'stopped'
+  | 'failed';
 
 export function classifyAcpStreamWatchdog(input: {
   now: number;

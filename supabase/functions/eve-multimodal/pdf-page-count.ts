@@ -38,20 +38,18 @@
 // ===========================================================================
 
 export type PdfPageCountRefusal =
-  | "not-a-pdf"
-  | "startxref-unreadable"
-  | "xref-unreadable"
-  | "encrypted"
-  | "catalog-unreadable"
-  | "page-tree-unreadable"
-  | "page-tree-count-mismatch"
-  | "page-tree-too-large"
-  | "stream-unreadable"
-  | "budget-exhausted";
+  | 'not-a-pdf'
+  | 'startxref-unreadable'
+  | 'xref-unreadable'
+  | 'encrypted'
+  | 'catalog-unreadable'
+  | 'page-tree-unreadable'
+  | 'page-tree-count-mismatch'
+  | 'page-tree-too-large'
+  | 'stream-unreadable'
+  | 'budget-exhausted';
 
-export type PdfPageCountResult =
-  | { ok: true; pageCount: number }
-  | { ok: false; reason: PdfPageCountRefusal };
+export type PdfPageCountResult = { ok: true; pageCount: number } | { ok: false; reason: PdfPageCountRefusal };
 
 // Budgets. A hostile PDF is a hostile input: every walk is bounded, and
 // exhausting a bound is a refusal, never a partial answer.
@@ -68,59 +66,57 @@ const STARTXREF_TAIL_BYTES = 4096;
 // `undefined` means "failed to parse / absent". PDF's own null is a tagged
 // object so the two can never be confused at a call site.
 
-type PdfName = { readonly kind: "name"; readonly value: string };
-type PdfRef = { readonly kind: "ref"; readonly num: number; readonly gen: number };
-type PdfDict = { readonly kind: "dict"; readonly entries: Map<string, PdfValue> };
-type PdfArray = { readonly kind: "array"; readonly items: PdfValue[] };
+type PdfName = { readonly kind: 'name'; readonly value: string };
+type PdfRef = { readonly kind: 'ref'; readonly num: number; readonly gen: number };
+type PdfDict = { readonly kind: 'dict'; readonly entries: Map<string, PdfValue> };
+type PdfArray = { readonly kind: 'array'; readonly items: PdfValue[] };
 type PdfStream = {
-  readonly kind: "stream";
+  readonly kind: 'stream';
   readonly dict: PdfDict;
   readonly dataStart: number;
 };
-type PdfOpaque = { readonly kind: "string" | "null" };
+type PdfOpaque = { readonly kind: 'string' | 'null' };
 
-type PdfValue =
-  | number
-  | boolean
-  | PdfName
-  | PdfRef
-  | PdfDict
-  | PdfArray
-  | PdfStream
-  | PdfOpaque
-  | undefined;
+type PdfValue = number | boolean | PdfName | PdfRef | PdfDict | PdfArray | PdfStream | PdfOpaque | undefined;
 
 function isDict(value: PdfValue): value is PdfDict {
-  return typeof value === "object" && value !== undefined && value.kind === "dict";
+  return typeof value === 'object' && value !== undefined && value.kind === 'dict';
 }
 function isArray(value: PdfValue): value is PdfArray {
-  return typeof value === "object" && value !== undefined && value.kind === "array";
+  return typeof value === 'object' && value !== undefined && value.kind === 'array';
 }
 function isRef(value: PdfValue): value is PdfRef {
-  return typeof value === "object" && value !== undefined && value.kind === "ref";
+  return typeof value === 'object' && value !== undefined && value.kind === 'ref';
 }
 function isStream(value: PdfValue): value is PdfStream {
-  return typeof value === "object" && value !== undefined && value.kind === "stream";
+  return typeof value === 'object' && value !== undefined && value.kind === 'stream';
 }
 function isNamed(value: PdfValue, name: string): boolean {
-  return typeof value === "object" && value !== undefined &&
-    value.kind === "name" && value.value === name;
+  return typeof value === 'object' && value !== undefined && value.kind === 'name' && value.value === name;
 }
 function asInteger(value: PdfValue): number | undefined {
-  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
+  return typeof value === 'number' && Number.isInteger(value) ? value : undefined;
 }
 
 // ── LEXER ──────────────────────────────────────────────────────────────────
 
 function isWhitespaceByte(byte: number): boolean {
-  return byte === 0x00 || byte === 0x09 || byte === 0x0a || byte === 0x0c ||
-    byte === 0x0d || byte === 0x20;
+  return byte === 0x00 || byte === 0x09 || byte === 0x0a || byte === 0x0c || byte === 0x0d || byte === 0x20;
 }
 
 function isDelimiterByte(byte: number): boolean {
-  return byte === 0x28 || byte === 0x29 || byte === 0x3c || byte === 0x3e ||
-    byte === 0x5b || byte === 0x5d || byte === 0x7b || byte === 0x7d ||
-    byte === 0x2f || byte === 0x25;
+  return (
+    byte === 0x28 ||
+    byte === 0x29 ||
+    byte === 0x3c ||
+    byte === 0x3e ||
+    byte === 0x5b ||
+    byte === 0x5d ||
+    byte === 0x7b ||
+    byte === 0x7d ||
+    byte === 0x2f ||
+    byte === 0x25
+  );
 }
 
 function isRegularByte(byte: number): boolean {
@@ -149,10 +145,8 @@ class PdfLexer {
       }
       if (byte === 0x25) {
         // A comment runs to the end of the line.
-        while (
-          this.pos < this.bytes.length && this.bytes[this.pos] !== 0x0a &&
-          this.bytes[this.pos] !== 0x0d
-        ) this.pos += 1;
+        while (this.pos < this.bytes.length && this.bytes[this.pos] !== 0x0a && this.bytes[this.pos] !== 0x0d)
+          this.pos += 1;
         continue;
       }
       return;
@@ -166,8 +160,8 @@ class PdfLexer {
     while (this.pos < this.bytes.length && isRegularByte(this.bytes[this.pos])) {
       this.pos += 1;
     }
-    if (this.pos === start) return "";
-    let token = "";
+    if (this.pos === start) return '';
+    let token = '';
     for (let index = start; index < this.pos; index += 1) {
       token += String.fromCharCode(this.bytes[index]);
     }
@@ -195,7 +189,7 @@ class PdfLexer {
 
   private readName(): PdfName {
     this.pos += 1; // '/'
-    let name = "";
+    let name = '';
     while (this.pos < this.bytes.length && isRegularByte(this.bytes[this.pos])) {
       const byte = this.bytes[this.pos];
       if (byte === 0x23 && this.pos + 2 < this.bytes.length) {
@@ -209,7 +203,7 @@ class PdfLexer {
       name += String.fromCharCode(byte);
       this.pos += 1;
     }
-    return { kind: "name", value: name };
+    return { kind: 'name', value: name };
   }
 
   private skipLiteralString(): PdfValue {
@@ -225,7 +219,7 @@ class PdfLexer {
       if (byte === 0x28) depth += 1;
       else if (byte === 0x29) {
         depth -= 1;
-        if (depth === 0) return { kind: "string" };
+        if (depth === 0) return { kind: 'string' };
       }
     }
     return undefined;
@@ -236,7 +230,7 @@ class PdfLexer {
     while (this.pos < this.bytes.length) {
       if (this.bytes[this.pos] === 0x3e) {
         this.pos += 1;
-        return { kind: "string" };
+        return { kind: 'string' };
       }
       this.pos += 1;
     }
@@ -250,7 +244,7 @@ class PdfLexer {
       this.skipSpace();
       if (this.byteAt(this.pos) === 0x3e && this.byteAt(this.pos + 1) === 0x3e) {
         this.pos += 2;
-        return { kind: "dict", entries };
+        return { kind: 'dict', entries };
       }
       if (this.byteAt(this.pos) !== 0x2f) return undefined;
       const key = this.readName();
@@ -267,7 +261,7 @@ class PdfLexer {
       this.skipSpace();
       if (this.byteAt(this.pos) === 0x5d) {
         this.pos += 1;
-        return { kind: "array", items };
+        return { kind: 'array', items };
       }
       if (this.pos >= this.bytes.length) return undefined;
       const value = this.parseValue(depth + 1);
@@ -280,7 +274,7 @@ class PdfLexer {
   private parseNumberOrRef(): PdfValue {
     const saved = this.pos;
     const token = this.readToken();
-    if (token === "") return undefined;
+    if (token === '') return undefined;
     if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(token)) {
       this.pos = saved;
       return undefined;
@@ -290,11 +284,11 @@ class PdfLexer {
       this.pos = saved;
       return undefined;
     }
-    if (Number.isInteger(value) && value >= 0 && !token.includes(".")) {
+    if (Number.isInteger(value) && value >= 0 && !token.includes('.')) {
       const afterNumber = this.pos;
       const generation = this.readInteger();
-      if (generation !== undefined && generation >= 0 && this.matchKeyword("R")) {
-        return { kind: "ref", num: value, gen: generation };
+      if (generation !== undefined && generation >= 0 && this.matchKeyword('R')) {
+        return { kind: 'ref', num: value, gen: generation };
       }
       this.pos = afterNumber;
     }
@@ -310,28 +304,22 @@ class PdfLexer {
     if (byte === 0x5b) return this.parseArray(depth);
     if (byte === 0x28) return this.skipLiteralString();
     if (byte === 0x3c) {
-      return this.byteAt(this.pos + 1) === 0x3c
-        ? this.parseDict(depth)
-        : this.skipHexString();
+      return this.byteAt(this.pos + 1) === 0x3c ? this.parseDict(depth) : this.skipHexString();
     }
     if (byte === 0x29 || byte === 0x3e || byte === 0x5d || byte === 0x7b || byte === 0x7d) {
       return undefined;
     }
     const saved = this.pos;
     const token = this.readToken();
-    if (token === "true") return true;
-    if (token === "false") return false;
-    if (token === "null") return { kind: "null" };
+    if (token === 'true') return true;
+    if (token === 'false') return false;
+    if (token === 'null') return { kind: 'null' };
     this.pos = saved;
     return this.parseNumberOrRef();
   }
 }
 
-function indexOfSequence(
-  bytes: Uint8Array,
-  needle: readonly number[],
-  from: number,
-): number {
+function indexOfSequence(bytes: Uint8Array, needle: readonly number[], from: number): number {
   const limit = bytes.length - needle.length;
   for (let index = Math.max(0, from); index <= limit; index += 1) {
     let matched = true;
@@ -364,7 +352,7 @@ function asciiBytes(text: string): number[] {
   return Array.from(text, (character) => character.charCodeAt(0));
 }
 
-const ENDSTREAM = asciiBytes("endstream");
+const ENDSTREAM = asciiBytes('endstream');
 
 /**
  * An indirect object at a byte offset. `expectedNum` is REQUIRED at every call
@@ -374,7 +362,7 @@ const ENDSTREAM = asciiBytes("endstream");
 function parseIndirectObjectAt(
   bytes: Uint8Array,
   offset: number,
-  expectedNum: number | undefined,
+  expectedNum: number | undefined
 ): { num: number; value: PdfValue } | undefined {
   if (!Number.isInteger(offset) || offset < 0 || offset >= bytes.length) {
     return undefined;
@@ -382,7 +370,7 @@ function parseIndirectObjectAt(
   const lexer = new PdfLexer(bytes, offset);
   const num = lexer.readInteger();
   const gen = lexer.readInteger();
-  if (num === undefined || gen === undefined || !lexer.matchKeyword("obj")) {
+  if (num === undefined || gen === undefined || !lexer.matchKeyword('obj')) {
     return undefined;
   }
   if (expectedNum !== undefined && num !== expectedNum) return undefined;
@@ -390,13 +378,13 @@ function parseIndirectObjectAt(
   if (value === undefined) return undefined;
   if (isDict(value)) {
     const saved = lexer.pos;
-    if (lexer.matchKeyword("stream")) {
+    if (lexer.matchKeyword('stream')) {
       // The keyword is followed by CRLF or LF, never by CR alone.
       let dataStart = lexer.pos;
       if (bytes[dataStart] === 0x0d && bytes[dataStart + 1] === 0x0a) dataStart += 2;
       else if (bytes[dataStart] === 0x0a) dataStart += 1;
       else return undefined;
-      return { num, value: { kind: "stream", dict: value, dataStart } };
+      return { num, value: { kind: 'stream', dict: value, dataStart } };
     }
     lexer.pos = saved;
   }
@@ -408,7 +396,7 @@ function parseIndirectObjectAt(
 async function inflate(data: Uint8Array): Promise<Uint8Array | undefined> {
   // `deflate` is zlib-wrapped (what /FlateDecode specifies); `deflate-raw`
   // covers producers that omit the two-byte zlib header.
-  for (const format of ["deflate", "deflate-raw"] as const) {
+  for (const format of ['deflate', 'deflate-raw'] as const) {
     try {
       const body = new Response(data.slice()).body;
       if (!body) return undefined;
@@ -437,7 +425,7 @@ function undoPngPredictor(
   data: Uint8Array,
   colors: number,
   bitsPerComponent: number,
-  columns: number,
+  columns: number
 ): Uint8Array | undefined {
   const bytesPerPixel = Math.max(1, Math.ceil((colors * bitsPerComponent) / 8));
   const rowLength = Math.ceil((columns * colors * bitsPerComponent) / 8);
@@ -472,9 +460,7 @@ function undoPngPredictor(
 
 // ── DOCUMENT ───────────────────────────────────────────────────────────────
 
-type XrefEntry =
-  | { kind: "offset"; offset: number }
-  | { kind: "instream"; streamNum: number; index: number };
+type XrefEntry = { kind: 'offset'; offset: number } | { kind: 'instream'; streamNum: number; index: number };
 
 class PdfDocument {
   readonly bytes: Uint8Array;
@@ -500,9 +486,9 @@ class PdfDocument {
     }
     const entry = this.entries.get(num);
     let value: PdfValue = undefined;
-    if (entry?.kind === "offset") {
+    if (entry?.kind === 'offset') {
       value = parseIndirectObjectAt(this.bytes, entry.offset, num)?.value;
-    } else if (entry?.kind === "instream") {
+    } else if (entry?.kind === 'instream') {
       value = await this.getFromObjectStream(entry.streamNum, num);
     }
     this.cache.set(num, value);
@@ -513,10 +499,7 @@ class PdfDocument {
     return isRef(value) ? await this.getObject(value.num) : value;
   }
 
-  private async getFromObjectStream(
-    streamNum: number,
-    wantedNum: number,
-  ): Promise<PdfValue> {
+  private async getFromObjectStream(streamNum: number, wantedNum: number): Promise<PdfValue> {
     if (!this.objectStreams.has(streamNum)) {
       await this.loadObjectStream(streamNum);
     }
@@ -532,28 +515,36 @@ class PdfDocument {
   private async loadObjectStream(streamNum: number): Promise<void> {
     this.objectStreams.set(streamNum, null);
     const entry = this.entries.get(streamNum);
-    if (entry?.kind !== "offset") return;
+    if (entry?.kind !== 'offset') return;
     const parsed = parseIndirectObjectAt(this.bytes, entry.offset, streamNum);
     if (!parsed || !isStream(parsed.value)) return;
     const stream = parsed.value;
-    if (!isNamed(stream.dict.entries.get("Type"), "ObjStm")) return;
+    if (!isNamed(stream.dict.entries.get('Type'), 'ObjStm')) return;
     const data = await this.streamData(stream);
     if (!data) return;
-    const count = asInteger(await this.resolve(stream.dict.entries.get("N")));
-    const first = asInteger(await this.resolve(stream.dict.entries.get("First")));
+    const count = asInteger(await this.resolve(stream.dict.entries.get('N')));
+    const first = asInteger(await this.resolve(stream.dict.entries.get('First')));
     if (
-      count === undefined || first === undefined || count < 0 || first < 0 ||
-      count > MAX_OBJECT_LOADS || first > data.length
-    ) return;
+      count === undefined ||
+      first === undefined ||
+      count < 0 ||
+      first < 0 ||
+      count > MAX_OBJECT_LOADS ||
+      first > data.length
+    )
+      return;
     const header = new PdfLexer(data, 0);
     const offsets = new Map<number, number>();
     for (let index = 0; index < count; index += 1) {
       const objectNumber = header.readInteger();
       const relativeOffset = header.readInteger();
       if (
-        objectNumber === undefined || relativeOffset === undefined ||
-        relativeOffset < 0 || first + relativeOffset >= data.length
-      ) return;
+        objectNumber === undefined ||
+        relativeOffset === undefined ||
+        relativeOffset < 0 ||
+        first + relativeOffset >= data.length
+      )
+        return;
       if (header.pos > first) return; // header must stay inside its own region
       if (!offsets.has(objectNumber)) offsets.set(objectNumber, first + relativeOffset);
     }
@@ -566,21 +557,15 @@ class PdfDocument {
    * for the cross-reference stream itself, which must be readable BEFORE any
    * xref exists to resolve an indirect `/Length` through.
    */
-  async streamData(
-    stream: PdfStream,
-    resolveLength = true,
-  ): Promise<Uint8Array | undefined> {
+  async streamData(stream: PdfStream, resolveLength = true): Promise<Uint8Array | undefined> {
     const lengthValue = resolveLength
-      ? await this.resolve(stream.dict.entries.get("Length"))
-      : stream.dict.entries.get("Length");
+      ? await this.resolve(stream.dict.entries.get('Length'))
+      : stream.dict.entries.get('Length');
     const declared = asInteger(lengthValue);
     let end = -1;
-    if (
-      declared !== undefined && declared >= 0 &&
-      stream.dataStart + declared <= this.bytes.length
-    ) {
+    if (declared !== undefined && declared >= 0 && stream.dataStart + declared <= this.bytes.length) {
       const after = new PdfLexer(this.bytes, stream.dataStart + declared);
-      if (after.matchKeyword("endstream")) end = stream.dataStart + declared;
+      if (after.matchKeyword('endstream')) end = stream.dataStart + declared;
     }
     if (end < 0) {
       // `/Length` was absent, indirect-and-unresolvable, or wrong. Fall back to
@@ -596,36 +581,27 @@ class PdfDocument {
   }
 }
 
-async function applyFilters(
-  raw: Uint8Array,
-  dict: PdfDict,
-): Promise<Uint8Array | undefined> {
-  const filter = dict.entries.get("Filter");
-  const filters: PdfValue[] = filter === undefined
-    ? []
-    : isArray(filter)
-    ? filter.items
-    : [filter];
+async function applyFilters(raw: Uint8Array, dict: PdfDict): Promise<Uint8Array | undefined> {
+  const filter = dict.entries.get('Filter');
+  const filters: PdfValue[] = filter === undefined ? [] : isArray(filter) ? filter.items : [filter];
   let data = raw;
   for (const entry of filters) {
-    if (!isNamed(entry, "FlateDecode")) return undefined; // unknown filter: refuse
+    if (!isNamed(entry, 'FlateDecode')) return undefined; // unknown filter: refuse
     const inflated = await inflate(data);
     if (!inflated) return undefined;
     data = inflated;
   }
   if (filters.length === 0) return data;
 
-  const parms = dict.entries.get("DecodeParms") ?? dict.entries.get("DP");
-  const parmsDict = isArray(parms)
-    ? parms.items.find((item) => isDict(item))
-    : parms;
+  const parms = dict.entries.get('DecodeParms') ?? dict.entries.get('DP');
+  const parmsDict = isArray(parms) ? parms.items.find((item) => isDict(item)) : parms;
   if (!isDict(parmsDict)) return data;
-  const predictor = asInteger(parmsDict.entries.get("Predictor")) ?? 1;
+  const predictor = asInteger(parmsDict.entries.get('Predictor')) ?? 1;
   if (predictor <= 1) return data;
   if (predictor < 10) return undefined; // TIFF predictor: not implemented, refuse
-  const colors = asInteger(parmsDict.entries.get("Colors")) ?? 1;
-  const bitsPerComponent = asInteger(parmsDict.entries.get("BitsPerComponent")) ?? 8;
-  const columns = asInteger(parmsDict.entries.get("Columns")) ?? 1;
+  const colors = asInteger(parmsDict.entries.get('Colors')) ?? 1;
+  const bitsPerComponent = asInteger(parmsDict.entries.get('BitsPerComponent')) ?? 8;
+  const columns = asInteger(parmsDict.entries.get('Columns')) ?? 1;
   if (colors < 1 || colors > 32 || bitsPerComponent < 1 || columns < 1) {
     return undefined;
   }
@@ -642,25 +618,22 @@ type XrefSection = {
   xrefStm?: number;
 };
 
-function parseClassicXrefSection(
-  bytes: Uint8Array,
-  offset: number,
-): XrefSection | undefined {
+function parseClassicXrefSection(bytes: Uint8Array, offset: number): XrefSection | undefined {
   const lexer = new PdfLexer(bytes, offset);
-  if (!lexer.matchKeyword("xref")) return undefined;
+  if (!lexer.matchKeyword('xref')) return undefined;
   const entries = new Map<number, XrefEntry>();
   for (;;) {
     const saved = lexer.pos;
-    if (lexer.matchKeyword("trailer")) {
+    if (lexer.matchKeyword('trailer')) {
       const trailer = lexer.parseValue();
       if (!isDict(trailer)) return undefined;
-      const root = trailer.entries.get("Root");
-      const prev = asInteger(trailer.entries.get("Prev"));
-      const xrefStm = asInteger(trailer.entries.get("XRefStm"));
+      const root = trailer.entries.get('Root');
+      const prev = asInteger(trailer.entries.get('Prev'));
+      const xrefStm = asInteger(trailer.entries.get('XRefStm'));
       return {
         entries,
         ...(isRef(root) ? { root } : {}),
-        encrypted: trailer.entries.has("Encrypt"),
+        encrypted: trailer.entries.has('Encrypt'),
         ...(prev === undefined ? {} : { prev }),
         ...(xrefStm === undefined ? {} : { xrefStm }),
       };
@@ -668,21 +641,16 @@ function parseClassicXrefSection(
     lexer.pos = saved;
     const first = lexer.readInteger();
     const count = lexer.readInteger();
-    if (
-      first === undefined || count === undefined || first < 0 || count < 0 ||
-      count > MAX_OBJECT_LOADS
-    ) return undefined;
+    if (first === undefined || count === undefined || first < 0 || count < 0 || count > MAX_OBJECT_LOADS)
+      return undefined;
     for (let index = 0; index < count; index += 1) {
       const entryOffset = lexer.readInteger();
       const generation = lexer.readInteger();
       const kind = lexer.readToken();
-      if (
-        entryOffset === undefined || generation === undefined ||
-        (kind !== "n" && kind !== "f")
-      ) return undefined;
+      if (entryOffset === undefined || generation === undefined || (kind !== 'n' && kind !== 'f')) return undefined;
       const num = first + index;
-      if (kind === "n" && entryOffset > 0 && !entries.has(num)) {
-        entries.set(num, { kind: "offset", offset: entryOffset });
+      if (kind === 'n' && entryOffset > 0 && !entries.has(num)) {
+        entries.set(num, { kind: 'offset', offset: entryOffset });
       }
     }
   }
@@ -691,22 +659,22 @@ function parseClassicXrefSection(
 async function parseXrefStreamSection(
   document: PdfDocument,
   bytes: Uint8Array,
-  offset: number,
+  offset: number
 ): Promise<XrefSection | undefined> {
   const parsed = parseIndirectObjectAt(bytes, offset, undefined);
   if (!parsed || !isStream(parsed.value)) return undefined;
   const stream = parsed.value;
   const dict = stream.dict;
-  if (!isNamed(dict.entries.get("Type"), "XRef")) return undefined;
-  const widthsValue = dict.entries.get("W");
+  if (!isNamed(dict.entries.get('Type'), 'XRef')) return undefined;
+  const widthsValue = dict.entries.get('W');
   if (!isArray(widthsValue) || widthsValue.items.length !== 3) return undefined;
   const widths = widthsValue.items.map((item) => asInteger(item));
   if (widths.some((width) => width === undefined || width < 0 || width > 8)) {
     return undefined;
   }
   const [typeWidth, secondWidth, thirdWidth] = widths as number[];
-  const size = asInteger(dict.entries.get("Size"));
-  const indexValue = dict.entries.get("Index");
+  const size = asInteger(dict.entries.get('Size'));
+  const indexValue = dict.entries.get('Index');
   const ranges: Array<[number, number]> = [];
   if (isArray(indexValue)) {
     if (indexValue.items.length % 2 !== 0) return undefined;
@@ -748,18 +716,18 @@ async function parseXrefStreamSection(
       const num = start + index;
       if (entries.has(num)) continue;
       if (type === 1 && second > 0) {
-        entries.set(num, { kind: "offset", offset: second });
+        entries.set(num, { kind: 'offset', offset: second });
       } else if (type === 2) {
-        entries.set(num, { kind: "instream", streamNum: second, index: third });
+        entries.set(num, { kind: 'instream', streamNum: second, index: third });
       }
     }
   }
-  const root = dict.entries.get("Root");
-  const prev = asInteger(dict.entries.get("Prev"));
+  const root = dict.entries.get('Root');
+  const prev = asInteger(dict.entries.get('Prev'));
   return {
     entries,
     ...(isRef(root) ? { root } : {}),
-    encrypted: dict.entries.has("Encrypt"),
+    encrypted: dict.entries.has('Encrypt'),
     ...(prev === undefined ? {} : { prev }),
   };
 }
@@ -767,10 +735,10 @@ async function parseXrefStreamSection(
 function findStartXref(bytes: Uint8Array): number | undefined {
   const tailStart = Math.max(0, bytes.length - STARTXREF_TAIL_BYTES);
   const tail = bytes.subarray(tailStart);
-  const found = lastIndexOfSequence(tail, asciiBytes("startxref"));
+  const found = lastIndexOfSequence(tail, asciiBytes('startxref'));
   if (found < 0) return undefined;
   const lexer = new PdfLexer(bytes, tailStart + found);
-  if (!lexer.matchKeyword("startxref")) return undefined;
+  if (!lexer.matchKeyword('startxref')) return undefined;
   const offset = lexer.readInteger();
   if (offset === undefined || offset < 0 || offset >= bytes.length) return undefined;
   return offset;
@@ -801,8 +769,7 @@ async function loadXrefChain(bytes: Uint8Array): Promise<XrefChain | undefined> 
     visited.add(offset);
     sections += 1;
     if (sections > MAX_XREF_SECTIONS) return undefined;
-    const section = parseClassicXrefSection(bytes, offset) ??
-      await parseXrefStreamSection(scratch, bytes, offset);
+    const section = parseClassicXrefSection(bytes, offset) ?? (await parseXrefStreamSection(scratch, bytes, offset));
     if (!section) return undefined;
     // NEWEST WINS: sections are visited youngest-first, so the first definition
     // of an object number is the live one and later (older) ones never override.
@@ -829,10 +796,7 @@ type WalkOutcome =
  * a reachable, resolved leaf object is not counted, and a page hidden inside a
  * compressed object stream is.
  */
-async function walkPageTree(
-  document: PdfDocument,
-  rootRef: PdfRef,
-): Promise<WalkOutcome> {
+async function walkPageTree(document: PdfDocument, rootRef: PdfRef): Promise<WalkOutcome> {
   const stack: Array<{ ref: PdfRef; depth: number }> = [{ ref: rootRef, depth: 0 }];
   const visited = new Set<number>();
   let leaves = 0;
@@ -842,32 +806,32 @@ async function walkPageTree(
     const current = stack.pop();
     if (!current) break;
     nodes += 1;
-    if (nodes > MAX_PAGE_TREE_NODES) return { ok: false, reason: "page-tree-too-large" };
+    if (nodes > MAX_PAGE_TREE_NODES) return { ok: false, reason: 'page-tree-too-large' };
     if (current.depth > MAX_PAGE_TREE_DEPTH) {
-      return { ok: false, reason: "page-tree-unreadable" };
+      return { ok: false, reason: 'page-tree-unreadable' };
     }
     // A node reachable twice is a malformed (or deliberately confusing) tree.
     // Two readers could disagree about it, so it is a refusal, not a guess.
     if (visited.has(current.ref.num)) {
-      return { ok: false, reason: "page-tree-unreadable" };
+      return { ok: false, reason: 'page-tree-unreadable' };
     }
     visited.add(current.ref.num);
     const node = await document.getObject(current.ref.num);
-    if (document.exhausted) return { ok: false, reason: "budget-exhausted" };
-    if (!isDict(node)) return { ok: false, reason: "page-tree-unreadable" };
-    const type = node.entries.get("Type");
-    if (isNamed(type, "Page")) {
+    if (document.exhausted) return { ok: false, reason: 'budget-exhausted' };
+    if (!isDict(node)) return { ok: false, reason: 'page-tree-unreadable' };
+    const type = node.entries.get('Type');
+    if (isNamed(type, 'Page')) {
       leaves += 1;
-      if (leaves > MAX_PAGE_LEAVES) return { ok: false, reason: "page-tree-too-large" };
+      if (leaves > MAX_PAGE_LEAVES) return { ok: false, reason: 'page-tree-too-large' };
       continue;
     }
-    const kids = await document.resolve(node.entries.get("Kids"));
-    if (!isArray(kids)) return { ok: false, reason: "page-tree-unreadable" };
+    const kids = await document.resolve(node.entries.get('Kids'));
+    if (!isArray(kids)) return { ok: false, reason: 'page-tree-unreadable' };
     if (current.depth === 0) {
-      declaredCount = asInteger(await document.resolve(node.entries.get("Count")));
+      declaredCount = asInteger(await document.resolve(node.entries.get('Count')));
     }
     for (const kid of kids.items) {
-      if (!isRef(kid)) return { ok: false, reason: "page-tree-unreadable" };
+      if (!isRef(kid)) return { ok: false, reason: 'page-tree-unreadable' };
       stack.push({ ref: kid, depth: current.depth + 1 });
     }
   }
@@ -883,37 +847,35 @@ async function walkPageTree(
  * sent when this returns `{ ok: false }` — that fallback is the defect this
  * function was written to remove.
  */
-export async function derivePdfPageCount(
-  bytes: Uint8Array,
-): Promise<PdfPageCountResult> {
-  if (bytes.length < 8) return { ok: false, reason: "not-a-pdf" };
+export async function derivePdfPageCount(bytes: Uint8Array): Promise<PdfPageCountResult> {
+  if (bytes.length < 8) return { ok: false, reason: 'not-a-pdf' };
   const header = String.fromCharCode(...bytes.subarray(0, 5));
-  if (header !== "%PDF-") return { ok: false, reason: "not-a-pdf" };
+  if (header !== '%PDF-') return { ok: false, reason: 'not-a-pdf' };
 
   const chain = await loadXrefChain(bytes);
-  if (!chain) return { ok: false, reason: "xref-unreadable" };
+  if (!chain) return { ok: false, reason: 'xref-unreadable' };
   // An encrypted document's page tree may be unreadable or deliberately
   // misleading without the decryption we do not implement. Refuse.
-  if (chain.encrypted) return { ok: false, reason: "encrypted" };
-  if (!chain.root) return { ok: false, reason: "catalog-unreadable" };
-  if (chain.entries.size === 0) return { ok: false, reason: "xref-unreadable" };
+  if (chain.encrypted) return { ok: false, reason: 'encrypted' };
+  if (!chain.root) return { ok: false, reason: 'catalog-unreadable' };
+  if (chain.entries.size === 0) return { ok: false, reason: 'xref-unreadable' };
 
   const document = new PdfDocument(bytes, chain.entries);
   const catalog = await document.getObject(chain.root.num);
-  if (document.exhausted) return { ok: false, reason: "budget-exhausted" };
-  if (!isDict(catalog)) return { ok: false, reason: "catalog-unreadable" };
-  const pagesRef = catalog.entries.get("Pages");
-  if (!isRef(pagesRef)) return { ok: false, reason: "catalog-unreadable" };
+  if (document.exhausted) return { ok: false, reason: 'budget-exhausted' };
+  if (!isDict(catalog)) return { ok: false, reason: 'catalog-unreadable' };
+  const pagesRef = catalog.entries.get('Pages');
+  if (!isRef(pagesRef)) return { ok: false, reason: 'catalog-unreadable' };
 
   const walked = await walkPageTree(document, pagesRef);
   if (!walked.ok) return walked;
-  if (walked.leaves < 1) return { ok: false, reason: "page-tree-unreadable" };
+  if (walked.leaves < 1) return { ok: false, reason: 'page-tree-unreadable' };
   // CORROBORATION, NOT AUTHORITY. `/Count` is what a reader that trusts
   // metadata would bill; the walked leaves are what a reader that traverses
   // would bill. When they disagree the document prices differently depending
   // on who reads it, and the only safe answer is to price it for nobody.
   if (walked.declaredCount !== undefined && walked.declaredCount !== walked.leaves) {
-    return { ok: false, reason: "page-tree-count-mismatch" };
+    return { ok: false, reason: 'page-tree-count-mismatch' };
   }
   return { ok: true, pageCount: walked.leaves };
 }

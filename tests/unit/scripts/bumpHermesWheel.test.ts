@@ -93,7 +93,7 @@ function makeFixtureRepo(): string {
     path.join(root, HERMES_PIN_FILE),
     [
       "const DEFAULT_HERMES_VERSION = '0.17.0';",
-      "export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =",
+      'export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =',
       `  '${OLD_SHA}';`,
       // Computed, not spelled out: the real bump's residue scan sweeps tests/
       // for the compound `hermes_agent-<old>` literal, and a hardcoded spelling
@@ -141,7 +141,10 @@ describe('planHermesWheelBump (fixture)', () => {
     const plan = fixturePlan(root, { wheelPath });
     expect(plan.newSha256).toBe(sha256File(wheelPath));
     expect(plan.oldVersion).toBe('0.17.0');
-    expect(plan.versionEdits.map((edit: { file: string }) => edit.file)).toEqual([HERMES_PIN_FILE, 'public/manifest.json']);
+    expect(plan.versionEdits.map((edit: { file: string }) => edit.file)).toEqual([
+      HERMES_PIN_FILE,
+      'public/manifest.json',
+    ]);
   });
 
   it('aborts on occurrence-count drift instead of half-applying', () => {

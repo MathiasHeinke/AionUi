@@ -2,7 +2,8 @@ import type { TMessage } from '@/common/chat/chatLib';
 import { readMessageContent } from '@/renderer/utils/chat/conversationExport';
 import { hasThinkTags, stripThinkTags } from '@/renderer/utils/chat/thinkTagFilter';
 
-const GREETING_ONLY_TITLE = /^(?:(?:hallo|hello|hi|hey|servus|moin(?:\s+moin)?|guten\s+(?:morgen|tag|abend)|good\s+(?:morning|afternoon|evening)|gr(?:ü|ue)(?:ß|ss)(?:\s+dich|\s+euch)?)(?:\s*[,!?.…–—-]\s*)?)+(?:ich\s+bin\s+da|da\s+bin\s+ich|i\s+am\s+here|here\s+i\s+am|wie\s+geht(?:'|’)?s(?:\s+dir)?)?[\s,!?.…–—-]*$/iu;
+const GREETING_ONLY_TITLE =
+  /^(?:(?:hallo|hello|hi|hey|servus|moin(?:\s+moin)?|guten\s+(?:morgen|tag|abend)|good\s+(?:morning|afternoon|evening)|gr(?:ü|ue)(?:ß|ss)(?:\s+dich|\s+euch)?)(?:\s*[,!?.…–—-]\s*)?)+(?:ich\s+bin\s+da|da\s+bin\s+ich|i\s+am\s+here|here\s+i\s+am|wie\s+geht(?:'|’)?s(?:\s+dir)?)?[\s,!?.…–—-]*$/iu;
 
 /**
  * True for the low-information greetings that must never become the durable

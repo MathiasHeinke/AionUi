@@ -113,7 +113,9 @@ describe('the tier of a pre-registry clip is RECOVERED, never assumed', () => {
     // A model name, a prompt fragment or a title further along must not be able
     // to supply the tier. `grok-720p-experiment` is exactly the shape that would
     // sneak past an unanchored match.
-    expect(resolveVideoArtifactTier(legacyPayload('ein Clip · 5s · ca. 500 Credits · grok-720p-experiment'))).toBeUndefined();
+    expect(
+      resolveVideoArtifactTier(legacyPayload('ein Clip · 5s · ca. 500 Credits · grok-720p-experiment'))
+    ).toBeUndefined();
   });
 
   it('prefers a STORED tier over the description, so a modern record is never re-derived', () => {
@@ -127,7 +129,9 @@ describe('the tier of a pre-registry clip is RECOVERED, never assumed', () => {
 
 describe('the length of a pre-registry clip is recovered on the same terms', () => {
   it('reads the seconds back out of the durable description', () => {
-    expect(hydrateVideoArtifactPayload(legacyPayload('480p · 5s · ca. 500 Credits · grok-imagine-video')).duration_seconds).toBe(5);
+    expect(
+      hydrateVideoArtifactPayload(legacyPayload('480p · 5s · ca. 500 Credits · grok-imagine-video')).duration_seconds
+    ).toBe(5);
   });
 
   it('takes the length only from between the separators, never from a model name', () => {
@@ -144,9 +148,9 @@ describe('the length of a pre-registry clip is recovered on the same terms', () 
   });
 
   it('calls a pre-registry clip a generation, because an edit could not have written it', () => {
-    expect(hydrateVideoArtifactPayload(legacyPayload('480p · 5s · ca. 500 Credits · grok-imagine-video')).origin_capability).toBe(
-      'video_generation'
-    );
+    expect(
+      hydrateVideoArtifactPayload(legacyPayload('480p · 5s · ca. 500 Credits · grok-imagine-video')).origin_capability
+    ).toBe('video_generation');
   });
 });
 

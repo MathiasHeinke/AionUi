@@ -42,15 +42,15 @@ import {
   type VideoModelId,
   type VideoQualityTier,
   type VideoRequestMode,
-} from "./video-generation-core.ts";
+} from './video-generation-core.ts';
 
 /** Date of the catalog snapshot this module pins. Bump on every refresh. */
-export const OPENROUTER_VIDEO_CATALOG_VERSION = "2026-08-05";
+export const OPENROUTER_VIDEO_CATALOG_VERSION = '2026-08-05';
 
 /** The catalog PATH this snapshot was taken from (GET on the gateway host —
  * the host literal itself may appear only in the registry, so it is not
  * repeated here). Never fetched at runtime. */
-export const OPENROUTER_VIDEO_CATALOG_SOURCE = "/api/v1/videos/models";
+export const OPENROUTER_VIDEO_CATALOG_SOURCE = '/api/v1/videos/models';
 
 export type OpenRouterVideoCatalogEntry = {
   /** The OpenRouter model slug sent as `model` in the submit body. */
@@ -72,268 +72,265 @@ export type OpenRouterVideoCatalogEntry = {
  * pricing_skus. Any refresh replaces this block wholesale and bumps
  * OPENROUTER_VIDEO_CATALOG_VERSION.
  */
-export const OPENROUTER_VIDEO_CATALOG: readonly OpenRouterVideoCatalogEntry[] =
-  Object.freeze([
-    {
-      id: "black-forest-labs/flux-3-video",
-      displayName: "Black Forest Labs: FLUX.3 Video",
-      supportedResolutions: ["720p", "1080p"],
-      supportedDurations: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
-      supportedAspectRatios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
-      pricingSkus: {
-        cents_per_second_output: "17",
-        cents_per_second_output_720p: "17",
-        cents_per_second_output_1080p: "29",
-        cents_per_second_video_continuation_720p: "41",
-        cents_per_second_video_continuation_1080p: "53",
-      },
+export const OPENROUTER_VIDEO_CATALOG: readonly OpenRouterVideoCatalogEntry[] = Object.freeze([
+  {
+    id: 'black-forest-labs/flux-3-video',
+    displayName: 'Black Forest Labs: FLUX.3 Video',
+    supportedResolutions: ['720p', '1080p'],
+    supportedDurations: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+    supportedAspectRatios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
+    pricingSkus: {
+      cents_per_second_output: '17',
+      cents_per_second_output_720p: '17',
+      cents_per_second_output_1080p: '29',
+      cents_per_second_video_continuation_720p: '41',
+      cents_per_second_video_continuation_1080p: '53',
     },
-    {
-      id: "minimax/hailuo-3",
-      displayName: "MiniMax: H3",
-      supportedResolutions: ["2K"],
-      supportedDurations: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      supportedAspectRatios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
-      pricingSkus: {
-        duration_seconds: "0.13",
-        reference_images: "0.04",
-      },
+  },
+  {
+    id: 'minimax/hailuo-3',
+    displayName: 'MiniMax: H3',
+    supportedResolutions: ['2K'],
+    supportedDurations: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    supportedAspectRatios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
+    pricingSkus: {
+      duration_seconds: '0.13',
+      reference_images: '0.04',
     },
-    {
-      id: "runway/aleph-2",
-      displayName: "Runway: Aleph 2.0",
-      supportedResolutions: null,
-      supportedDurations: null,
-      supportedAspectRatios: ["16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16", "21:9"],
-      pricingSkus: {
-        cents_per_second_output: "28",
-        minimum_cents_per_generation: "56",
-      },
+  },
+  {
+    id: 'runway/aleph-2',
+    displayName: 'Runway: Aleph 2.0',
+    supportedResolutions: null,
+    supportedDurations: null,
+    supportedAspectRatios: ['16:9', '4:3', '3:2', '1:1', '2:3', '3:4', '9:16', '21:9'],
+    pricingSkus: {
+      cents_per_second_output: '28',
+      minimum_cents_per_generation: '56',
     },
-    {
-      id: "runway/gen-4.5",
-      displayName: "Runway: Gen-4.5",
-      supportedResolutions: ["720p"],
-      supportedDurations: [2, 3, 4, 5, 6, 7, 8, 9, 10],
-      supportedAspectRatios: ["16:9", "9:16"],
-      pricingSkus: {
-        cents_per_second_output: "12",
-      },
+  },
+  {
+    id: 'runway/gen-4.5',
+    displayName: 'Runway: Gen-4.5',
+    supportedResolutions: ['720p'],
+    supportedDurations: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+    supportedAspectRatios: ['16:9', '9:16'],
+    pricingSkus: {
+      cents_per_second_output: '12',
     },
-    {
-      id: "x-ai/grok-imagine-video-1.5",
-      displayName: "SpaceXAI: Grok Imagine Video 1.5",
-      supportedResolutions: ["480p", "720p", "1080p"],
-      supportedDurations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      supportedAspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"],
-      pricingSkus: {
-        cents_per_image_input: "1",
-        cents_per_video_output_second_480p: "8",
-        cents_per_video_output_second_720p: "14",
-        cents_per_video_output_second_1080p: "25",
-      },
+  },
+  {
+    id: 'x-ai/grok-imagine-video-1.5',
+    displayName: 'SpaceXAI: Grok Imagine Video 1.5',
+    supportedResolutions: ['480p', '720p', '1080p'],
+    supportedDurations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    supportedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3'],
+    pricingSkus: {
+      cents_per_image_input: '1',
+      cents_per_video_output_second_480p: '8',
+      cents_per_video_output_second_720p: '14',
+      cents_per_video_output_second_1080p: '25',
     },
-    {
-      id: "alibaba/happyhorse-1.1",
-      displayName: "Alibaba: HappyHorse 1.1",
-      supportedResolutions: ["720p", "1080p"],
-      supportedDurations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      supportedAspectRatios: ["16:9", "9:16", "1:1", "3:4", "4:3", "21:9", "9:21"],
-      pricingSkus: {
-        duration_seconds_720p: "0.0988",
-        duration_seconds_1080p: "0.1278",
-      },
+  },
+  {
+    id: 'alibaba/happyhorse-1.1',
+    displayName: 'Alibaba: HappyHorse 1.1',
+    supportedResolutions: ['720p', '1080p'],
+    supportedDurations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    supportedAspectRatios: ['16:9', '9:16', '1:1', '3:4', '4:3', '21:9', '9:21'],
+    pricingSkus: {
+      duration_seconds_720p: '0.0988',
+      duration_seconds_1080p: '0.1278',
     },
-    {
-      id: "alibaba/happyhorse-1.0",
-      displayName: "Alibaba: HappyHorse 1.0",
-      supportedResolutions: ["720p", "1080p"],
-      supportedDurations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      supportedAspectRatios: ["16:9", "9:16", "1:1", "3:4", "4:3", "21:9", "9:21"],
-      pricingSkus: {
-        duration_seconds_720p: "0.0988",
-        duration_seconds_1080p: "0.1694",
-      },
+  },
+  {
+    id: 'alibaba/happyhorse-1.0',
+    displayName: 'Alibaba: HappyHorse 1.0',
+    supportedResolutions: ['720p', '1080p'],
+    supportedDurations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    supportedAspectRatios: ['16:9', '9:16', '1:1', '3:4', '4:3', '21:9', '9:21'],
+    pricingSkus: {
+      duration_seconds_720p: '0.0988',
+      duration_seconds_1080p: '0.1694',
     },
-    {
-      id: "x-ai/grok-imagine-video",
-      displayName: "SpaceXAI: Grok Imagine Video",
-      supportedResolutions: ["480p", "720p"],
-      supportedDurations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      supportedAspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"],
-      pricingSkus: {
-        cents_per_image_input: "0.2",
-        cents_per_video_output_second_480p: "5",
-        cents_per_video_output_second_720p: "7",
-      },
+  },
+  {
+    id: 'x-ai/grok-imagine-video',
+    displayName: 'SpaceXAI: Grok Imagine Video',
+    supportedResolutions: ['480p', '720p'],
+    supportedDurations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    supportedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3'],
+    pricingSkus: {
+      cents_per_image_input: '0.2',
+      cents_per_video_output_second_480p: '5',
+      cents_per_video_output_second_720p: '7',
     },
-    {
-      id: "kwaivgi/kling-v3.0-pro",
-      displayName: "Kling: Video v3.0 Pro",
-      supportedResolutions: ["720p"],
-      supportedDurations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      supportedAspectRatios: ["16:9", "9:16", "1:1"],
-      pricingSkus: {
-        duration_seconds: "0.112",
-        duration_seconds_with_audio: "0.168",
-        text_to_video_duration_seconds_480p: "0.112",
-        text_to_video_duration_seconds_720p: "0.112",
-        image_to_video_duration_seconds_720p: "0.112",
-        text_to_video_duration_seconds_1080p: "0.112",
-        image_to_video_duration_seconds_1080p: "0.112",
-      },
+  },
+  {
+    id: 'kwaivgi/kling-v3.0-pro',
+    displayName: 'Kling: Video v3.0 Pro',
+    supportedResolutions: ['720p'],
+    supportedDurations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    supportedAspectRatios: ['16:9', '9:16', '1:1'],
+    pricingSkus: {
+      duration_seconds: '0.112',
+      duration_seconds_with_audio: '0.168',
+      text_to_video_duration_seconds_480p: '0.112',
+      text_to_video_duration_seconds_720p: '0.112',
+      image_to_video_duration_seconds_720p: '0.112',
+      text_to_video_duration_seconds_1080p: '0.112',
+      image_to_video_duration_seconds_1080p: '0.112',
     },
-    {
-      id: "kwaivgi/kling-v3.0-std",
-      displayName: "Kling: Video v3.0 Standard",
-      supportedResolutions: ["720p"],
-      supportedDurations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      supportedAspectRatios: ["16:9", "9:16", "1:1"],
-      pricingSkus: {
-        duration_seconds: "0.084",
-        duration_seconds_with_audio: "0.126",
-        text_to_video_duration_seconds_480p: "0.084",
-        text_to_video_duration_seconds_720p: "0.084",
-        image_to_video_duration_seconds_720p: "0.084",
-        text_to_video_duration_seconds_1080p: "0.084",
-        image_to_video_duration_seconds_1080p: "0.084",
-      },
+  },
+  {
+    id: 'kwaivgi/kling-v3.0-std',
+    displayName: 'Kling: Video v3.0 Standard',
+    supportedResolutions: ['720p'],
+    supportedDurations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    supportedAspectRatios: ['16:9', '9:16', '1:1'],
+    pricingSkus: {
+      duration_seconds: '0.084',
+      duration_seconds_with_audio: '0.126',
+      text_to_video_duration_seconds_480p: '0.084',
+      text_to_video_duration_seconds_720p: '0.084',
+      image_to_video_duration_seconds_720p: '0.084',
+      text_to_video_duration_seconds_1080p: '0.084',
+      image_to_video_duration_seconds_1080p: '0.084',
     },
-    {
-      id: "google/veo-3.1-fast",
-      displayName: "Google: Veo 3.1 Fast",
-      supportedResolutions: ["720p", "1080p", "4K"],
-      supportedDurations: [4, 6, 8],
-      supportedAspectRatios: ["16:9", "9:16"],
-      pricingSkus: {
-        duration_seconds_with_audio: "0.12",
-        duration_seconds_with_audio_4k: "0.30",
-        duration_seconds_without_audio: "0.10",
-        duration_seconds_with_audio_720p: "0.10",
-        duration_seconds_without_audio_4k: "0.25",
-        duration_seconds_without_audio_720p: "0.08",
-      },
+  },
+  {
+    id: 'google/veo-3.1-fast',
+    displayName: 'Google: Veo 3.1 Fast',
+    supportedResolutions: ['720p', '1080p', '4K'],
+    supportedDurations: [4, 6, 8],
+    supportedAspectRatios: ['16:9', '9:16'],
+    pricingSkus: {
+      duration_seconds_with_audio: '0.12',
+      duration_seconds_with_audio_4k: '0.30',
+      duration_seconds_without_audio: '0.10',
+      duration_seconds_with_audio_720p: '0.10',
+      duration_seconds_without_audio_4k: '0.25',
+      duration_seconds_without_audio_720p: '0.08',
     },
-    {
-      id: "google/veo-3.1-lite",
-      displayName: "Google: Veo 3.1 Lite",
-      supportedResolutions: ["720p", "1080p"],
-      supportedDurations: [8, 4, 6],
-      supportedAspectRatios: ["16:9", "9:16"],
-      pricingSkus: {
-        duration_seconds_with_audio: "0.08",
-        duration_seconds_without_audio: "0.05",
-        duration_seconds_with_audio_720p: "0.05",
-        duration_seconds_without_audio_720p: "0.03",
-      },
+  },
+  {
+    id: 'google/veo-3.1-lite',
+    displayName: 'Google: Veo 3.1 Lite',
+    supportedResolutions: ['720p', '1080p'],
+    supportedDurations: [8, 4, 6],
+    supportedAspectRatios: ['16:9', '9:16'],
+    pricingSkus: {
+      duration_seconds_with_audio: '0.08',
+      duration_seconds_without_audio: '0.05',
+      duration_seconds_with_audio_720p: '0.05',
+      duration_seconds_without_audio_720p: '0.03',
     },
-    {
-      id: "kwaivgi/kling-video-o1",
-      displayName: "Kling: Video O1",
-      supportedResolutions: ["720p"],
-      supportedDurations: [5, 10],
-      supportedAspectRatios: ["16:9", "9:16", "1:1"],
-      pricingSkus: {
-        duration_seconds: "0.1120",
-      },
+  },
+  {
+    id: 'kwaivgi/kling-video-o1',
+    displayName: 'Kling: Video O1',
+    supportedResolutions: ['720p'],
+    supportedDurations: [5, 10],
+    supportedAspectRatios: ['16:9', '9:16', '1:1'],
+    pricingSkus: {
+      duration_seconds: '0.1120',
     },
-    {
-      id: "minimax/hailuo-2.3",
-      displayName: "MiniMax: Hailuo 2.3",
-      supportedResolutions: ["1080p"],
-      supportedDurations: [6, 10],
-      supportedAspectRatios: ["16:9"],
-      pricingSkus: {
-        duration_seconds: "0.0817",
-      },
+  },
+  {
+    id: 'minimax/hailuo-2.3',
+    displayName: 'MiniMax: Hailuo 2.3',
+    supportedResolutions: ['1080p'],
+    supportedDurations: [6, 10],
+    supportedAspectRatios: ['16:9'],
+    pricingSkus: {
+      duration_seconds: '0.0817',
     },
-    {
-      id: "alibaba/wan-2.7",
-      displayName: "Alibaba: Wan 2.7",
-      supportedResolutions: ["720p", "1080p"],
-      supportedDurations: [2, 3, 4, 5, 6, 7, 8, 9, 10],
-      supportedAspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
-      pricingSkus: {
-        duration_seconds: "0.1",
-      },
+  },
+  {
+    id: 'alibaba/wan-2.7',
+    displayName: 'Alibaba: Wan 2.7',
+    supportedResolutions: ['720p', '1080p'],
+    supportedDurations: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+    supportedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
+    pricingSkus: {
+      duration_seconds: '0.1',
     },
-    {
-      id: "bytedance/seedance-2.0",
-      displayName: "ByteDance: Seedance 2.0",
-      supportedResolutions: ["480p", "720p", "1080p", "4K"],
-      supportedDurations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      supportedAspectRatios: ["1:1", "3:4", "9:16", "4:3", "16:9", "21:9", "9:21"],
-      pricingSkus: {
-        video_tokens: "0.000007",
-        video_tokens_without_audio: "0.000007",
-      },
+  },
+  {
+    id: 'bytedance/seedance-2.0',
+    displayName: 'ByteDance: Seedance 2.0',
+    supportedResolutions: ['480p', '720p', '1080p', '4K'],
+    supportedDurations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    supportedAspectRatios: ['1:1', '3:4', '9:16', '4:3', '16:9', '21:9', '9:21'],
+    pricingSkus: {
+      video_tokens: '0.000007',
+      video_tokens_without_audio: '0.000007',
     },
-    {
-      id: "bytedance/seedance-2.0-fast",
-      displayName: "ByteDance: Seedance 2.0 Fast",
-      supportedResolutions: ["480p", "720p"],
-      supportedDurations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      supportedAspectRatios: ["1:1", "3:4", "9:16", "4:3", "16:9", "21:9", "9:21"],
-      pricingSkus: {
-        video_tokens: "0.0000056",
-        video_tokens_without_audio: "0.0000056",
-      },
+  },
+  {
+    id: 'bytedance/seedance-2.0-fast',
+    displayName: 'ByteDance: Seedance 2.0 Fast',
+    supportedResolutions: ['480p', '720p'],
+    supportedDurations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    supportedAspectRatios: ['1:1', '3:4', '9:16', '4:3', '16:9', '21:9', '9:21'],
+    pricingSkus: {
+      video_tokens: '0.0000056',
+      video_tokens_without_audio: '0.0000056',
     },
-    {
-      id: "alibaba/wan-2.6",
-      displayName: "Alibaba: Wan 2.6",
-      supportedResolutions: ["720p", "1080p"],
-      supportedDurations: [5, 10],
-      supportedAspectRatios: ["16:9", "9:16"],
-      pricingSkus: {
-        text_to_video_duration_seconds_480p: "0.04",
-        text_to_video_duration_seconds_720p: "0.08",
-        image_to_video_duration_seconds_720p: "0.10",
-        text_to_video_duration_seconds_1080p: "0.12",
-        image_to_video_duration_seconds_1080p: "0.15",
-      },
+  },
+  {
+    id: 'alibaba/wan-2.6',
+    displayName: 'Alibaba: Wan 2.6',
+    supportedResolutions: ['720p', '1080p'],
+    supportedDurations: [5, 10],
+    supportedAspectRatios: ['16:9', '9:16'],
+    pricingSkus: {
+      text_to_video_duration_seconds_480p: '0.04',
+      text_to_video_duration_seconds_720p: '0.08',
+      image_to_video_duration_seconds_720p: '0.10',
+      text_to_video_duration_seconds_1080p: '0.12',
+      image_to_video_duration_seconds_1080p: '0.15',
     },
-    {
-      id: "bytedance/seedance-1-5-pro",
-      displayName: "ByteDance: Seedance 1.5 Pro",
-      supportedResolutions: ["480p", "720p", "1080p"],
-      supportedDurations: [4, 5, 6, 7, 8, 9, 10, 11, 12],
-      supportedAspectRatios: ["1:1", "3:4", "9:16", "9:21", "4:3", "21:9", "16:9", "21:9"],
-      pricingSkus: {
-        video_tokens: "0.0000024",
-        video_tokens_without_audio: "0.0000012",
-      },
+  },
+  {
+    id: 'bytedance/seedance-1-5-pro',
+    displayName: 'ByteDance: Seedance 1.5 Pro',
+    supportedResolutions: ['480p', '720p', '1080p'],
+    supportedDurations: [4, 5, 6, 7, 8, 9, 10, 11, 12],
+    supportedAspectRatios: ['1:1', '3:4', '9:16', '9:21', '4:3', '21:9', '16:9', '21:9'],
+    pricingSkus: {
+      video_tokens: '0.0000024',
+      video_tokens_without_audio: '0.0000012',
     },
-    {
-      id: "openai/sora-2-pro",
-      displayName: "OpenAI: Sora 2 Pro",
-      supportedResolutions: ["720p", "1080p"],
-      supportedDurations: [4, 8, 12, 16, 20],
-      supportedAspectRatios: ["16:9", "9:16"],
-      pricingSkus: {
-        duration_seconds_720p: "0.30",
-        duration_seconds_1024p: "0.50",
-        duration_seconds_1080p: "0.50",
-      },
+  },
+  {
+    id: 'openai/sora-2-pro',
+    displayName: 'OpenAI: Sora 2 Pro',
+    supportedResolutions: ['720p', '1080p'],
+    supportedDurations: [4, 8, 12, 16, 20],
+    supportedAspectRatios: ['16:9', '9:16'],
+    pricingSkus: {
+      duration_seconds_720p: '0.30',
+      duration_seconds_1024p: '0.50',
+      duration_seconds_1080p: '0.50',
     },
-    {
-      id: "google/veo-3.1",
-      displayName: "Google: Veo 3.1",
-      supportedResolutions: ["720p", "1080p", "4K"],
-      supportedDurations: [4, 6, 8],
-      supportedAspectRatios: ["16:9", "9:16"],
-      pricingSkus: {
-        duration_seconds_with_audio: "0.40",
-        duration_seconds_with_audio_4k: "0.60",
-        duration_seconds_without_audio: "0.20",
-        duration_seconds_without_audio_4k: "0.40",
-      },
+  },
+  {
+    id: 'google/veo-3.1',
+    displayName: 'Google: Veo 3.1',
+    supportedResolutions: ['720p', '1080p', '4K'],
+    supportedDurations: [4, 6, 8],
+    supportedAspectRatios: ['16:9', '9:16'],
+    pricingSkus: {
+      duration_seconds_with_audio: '0.40',
+      duration_seconds_with_audio_4k: '0.60',
+      duration_seconds_without_audio: '0.20',
+      duration_seconds_without_audio_4k: '0.40',
     },
-  ] as const);
+  },
+] as const);
 
-export function openRouterVideoCatalogEntry(
-  id: string,
-): OpenRouterVideoCatalogEntry | null {
+export function openRouterVideoCatalogEntry(id: string): OpenRouterVideoCatalogEntry | null {
   return OPENROUTER_VIDEO_CATALOG.find((entry) => entry.id === id) ?? null;
 }
 
@@ -343,11 +340,11 @@ export function openRouterVideoCatalogEntry(
 
 export type CatalogVideoSpecRefusal =
   /** The entry HAS a resolution list and the request named none. */
-  | "video-resolution-required"
+  | 'video-resolution-required'
   /** The named (or tier-mapped) resolution is not in the entry's list. */
-  | "video-resolution-unavailable"
+  | 'video-resolution-unavailable'
   /** The duration is not a member of the entry's supported_durations. */
-  | "video-duration-unavailable";
+  | 'video-duration-unavailable';
 
 /**
  * Validate a catalog-model request against ITS catalog entry — resolution
@@ -372,31 +369,25 @@ export function resolveCatalogVideoSpec(args: {
   tierId?: VideoQualityTier;
   resolution?: string;
   durationSeconds: number;
-}): { ok: true; resolution: string | null; durationSeconds: number } | {
-  ok: false;
-  reason: CatalogVideoSpecRefusal;
-} {
-  const fromTier = args.tierId === undefined
-    ? null
-    : getVideoTier(args.tierId).resolution;
+}):
+  | { ok: true; resolution: string | null; durationSeconds: number }
+  | {
+      ok: false;
+      reason: CatalogVideoSpecRefusal;
+    } {
+  const fromTier = args.tierId === undefined ? null : getVideoTier(args.tierId).resolution;
   const requested = args.resolution ?? fromTier;
   let resolution: string | null = null;
   if (requested !== null) {
-    if (
-      args.entry.supportedResolutions !== null &&
-      !args.entry.supportedResolutions.includes(requested)
-    ) {
-      return { ok: false, reason: "video-resolution-unavailable" };
+    if (args.entry.supportedResolutions !== null && !args.entry.supportedResolutions.includes(requested)) {
+      return { ok: false, reason: 'video-resolution-unavailable' };
     }
     resolution = requested;
   } else if (args.entry.supportedResolutions !== null) {
-    return { ok: false, reason: "video-resolution-required" };
+    return { ok: false, reason: 'video-resolution-required' };
   }
-  if (
-    args.entry.supportedDurations !== null &&
-    !args.entry.supportedDurations.includes(args.durationSeconds)
-  ) {
-    return { ok: false, reason: "video-duration-unavailable" };
+  if (args.entry.supportedDurations !== null && !args.entry.supportedDurations.includes(args.durationSeconds)) {
+    return { ok: false, reason: 'video-duration-unavailable' };
   }
   return { ok: true, resolution, durationSeconds: args.durationSeconds };
 }
@@ -406,17 +397,13 @@ export function resolveCatalogVideoSpec(args: {
  * is what lets a 1.820.4 client (which speaks the xAI-shaped contract) be
  * routed over OpenRouter with NO client change.
  */
-export function openRouterSlugForXaiModel(
-  model: VideoModelId,
-): string {
-  return model === "grok-imagine-video-1.5"
-    ? "x-ai/grok-imagine-video-1.5"
-    : "x-ai/grok-imagine-video";
+export function openRouterSlugForXaiModel(model: VideoModelId): string {
+  return model === 'grok-imagine-video-1.5' ? 'x-ai/grok-imagine-video-1.5' : 'x-ai/grok-imagine-video';
 }
 
 function skuNumber(skus: Readonly<Record<string, string>>, key: string): number | null {
   const raw = skus[key];
-  if (typeof raw !== "string") return null;
+  if (typeof raw !== 'string') return null;
   const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) return null;
   return value;
@@ -436,17 +423,14 @@ function skuNumber(skus: Readonly<Record<string, string>>, key: string): number 
 export function openRouterVideoUsdPerSecond(args: {
   entry: OpenRouterVideoCatalogEntry;
   resolution: string | null;
-  mode: "text" | "image";
+  mode: 'text' | 'image';
 }): number | null {
   const skus = args.entry.pricingSkus;
   const res = args.resolution === null ? null : args.resolution.toLowerCase();
-  const modePrefix = args.mode === "image" ? "image" : "text";
+  const modePrefix = args.mode === 'image' ? 'image' : 'text';
 
   if (res !== null) {
-    const centsKeys = [
-      `cents_per_video_output_second_${res}`,
-      `cents_per_second_output_${res}`,
-    ];
+    const centsKeys = [`cents_per_video_output_second_${res}`, `cents_per_second_output_${res}`];
     for (const key of centsKeys) {
       const cents = skuNumber(skus, key);
       if (cents !== null) return cents / 100;
@@ -458,20 +442,20 @@ export function openRouterVideoUsdPerSecond(args: {
       // The OTHER mode's key is a better bound than a flat fallback when the
       // requested mode's own key is absent: both are per-second list prices
       // for this resolution, and taking the one that exists beats taking none.
-      `${args.mode === "image" ? "text" : "image"}_to_video_duration_seconds_${res}`,
+      `${args.mode === 'image' ? 'text' : 'image'}_to_video_duration_seconds_${res}`,
     ];
     for (const key of usdKeys) {
       const usd = skuNumber(skus, key);
       if (usd !== null) return usd;
     }
   }
-  const flatCents = skuNumber(skus, "cents_per_second_output");
+  const flatCents = skuNumber(skus, 'cents_per_second_output');
   if (flatCents !== null) return flatCents / 100;
   // Audio defaults to ON upstream (generate_audio defaults true), so the
   // with-audio rate is the one a default request is billed at.
-  const withAudio = skuNumber(skus, "duration_seconds_with_audio");
+  const withAudio = skuNumber(skus, 'duration_seconds_with_audio');
   if (withAudio !== null) return withAudio;
-  const flat = skuNumber(skus, "duration_seconds");
+  const flat = skuNumber(skus, 'duration_seconds');
   if (flat !== null) return flat;
   return null;
 }
@@ -485,9 +469,7 @@ export function openRouterVideoUsdPerSecond(args: {
  * Math.round would round 0.084 DOWN to 8 cents — an under-held reserve,
  * which is the one direction the money path must never take.
  */
-export function deriveOpenRouterVideoCreditsPerSecond(
-  usdPerSecond: number,
-): number {
+export function deriveOpenRouterVideoCreditsPerSecond(usdPerSecond: number): number {
   // Round to 1/100 of a cent FIRST: 0.14 * 100 is 14.000000000000002 in
   // IEEE-754, and a bare ceil() would turn 14 cents into 15 — the same float
   // trap deriveVideoCreditsPerSecond documents, one rung up. Catalog prices
@@ -504,13 +486,12 @@ export function deriveOpenRouterVideoCreditsPerSecond(
 export function estimateOpenRouterVideoCredits(args: {
   entry: OpenRouterVideoCatalogEntry;
   resolution: string | null;
-  mode: "text" | "image";
+  mode: 'text' | 'image';
   durationSeconds: number;
 }): number | null {
   const usdPerSecond = openRouterVideoUsdPerSecond(args);
   if (usdPerSecond === null) return null;
-  return args.durationSeconds *
-    deriveOpenRouterVideoCreditsPerSecond(usdPerSecond);
+  return args.durationSeconds * deriveOpenRouterVideoCreditsPerSecond(usdPerSecond);
 }
 
 /**
@@ -536,31 +517,32 @@ export function buildOpenRouterVideoBody(args: {
   referenceImageDataUrls?: readonly string[];
 }): Record<string, unknown> {
   const mode = args.mode;
-  const modeFields: Record<string, unknown> = mode.kind === "image"
-    ? (args.imageDataUrl
-      ? {
-        frame_images: [{
-          type: "image_url",
-          image_url: { url: args.imageDataUrl },
-          frame_type: "first_frame",
-        }],
-      }
-      : {})
-    : mode.kind === "reference"
-    ? {
-      input_references: (args.referenceImageDataUrls ?? []).map((url) => ({
-        type: "image_url",
-        image_url: { url },
-      })),
-    }
-    : {};
+  const modeFields: Record<string, unknown> =
+    mode.kind === 'image'
+      ? args.imageDataUrl
+        ? {
+            frame_images: [
+              {
+                type: 'image_url',
+                image_url: { url: args.imageDataUrl },
+                frame_type: 'first_frame',
+              },
+            ],
+          }
+        : {}
+      : mode.kind === 'reference'
+        ? {
+            input_references: (args.referenceImageDataUrls ?? []).map((url) => ({
+              type: 'image_url',
+              image_url: { url },
+            })),
+          }
+        : {};
   return {
     model: args.model,
     prompt: args.prompt,
     duration: args.durationSeconds,
-    ...(args.resolution === null || args.resolution === undefined
-      ? {}
-      : { resolution: args.resolution }),
+    ...(args.resolution === null || args.resolution === undefined ? {} : { resolution: args.resolution }),
     ...modeFields,
   };
 }
@@ -569,8 +551,7 @@ export function buildOpenRouterVideoBody(args: {
  * The capabilities/quote wire contract version. This string, not the
  * snapshot date, is what the client pins against.
  */
-export const OPENROUTER_VIDEO_CAPABILITIES_VERSION =
-  "command-eve-video-model-catalog/v1";
+export const OPENROUTER_VIDEO_CAPABILITIES_VERSION = 'command-eve-video-model-catalog/v1';
 
 /**
  * The serializable catalog view for the client dropdown — the answer to
@@ -582,12 +563,10 @@ export const OPENROUTER_VIDEO_CAPABILITIES_VERSION =
  * have no derivable per-second bound; they appear under `unpriceable` with
  * the reason, rather than with an invented number.
  */
-export function publicOpenRouterVideoCapabilities(args: {
-  enabled: boolean;
-}): {
+export function publicOpenRouterVideoCapabilities(args: { enabled: boolean }): {
   version: string;
   enabled: boolean;
-  gateway: "openrouter";
+  gateway: 'openrouter';
   catalog_snapshot: string;
   models: readonly {
     id: string;
@@ -614,20 +593,20 @@ export function publicOpenRouterVideoCapabilities(args: {
       const usd = openRouterVideoUsdPerSecond({
         entry,
         resolution,
-        mode: "text",
+        mode: 'text',
       });
       if (usd === null) {
         priceable = false;
         break;
       }
-      const key = resolution ?? "default";
+      const key = resolution ?? 'default';
       usdPerSecond[key] = usd;
       creditsPerSecond[key] = deriveOpenRouterVideoCreditsPerSecond(usd);
     }
     if (!priceable) {
       unpriceable.push({
         id: entry.id,
-        reason: "token-priced upstream; no per-second bound derivable",
+        reason: 'token-priced upstream; no per-second bound derivable',
       });
       continue;
     }
@@ -644,7 +623,7 @@ export function publicOpenRouterVideoCapabilities(args: {
   return {
     version: OPENROUTER_VIDEO_CAPABILITIES_VERSION,
     enabled: args.enabled,
-    gateway: "openrouter",
+    gateway: 'openrouter',
     catalog_snapshot: OPENROUTER_VIDEO_CATALOG_VERSION,
     models,
     unpriceable,

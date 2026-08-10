@@ -137,14 +137,13 @@ export function configureMainRendererBackendCapability(
         requestOrigin,
         resourceType: details.resourceType,
         webContentsId: details.webContentsId ?? null,
-        ownsWebContents:
-          details.webContentsId === mainContents.id || details.webContents === mainContents,
+        ownsWebContents: details.webContentsId === mainContents.id || details.webContents === mainContents,
         frame: details.frame === null ? 'null' : details.frame === undefined ? 'undefined' : 'present',
         ownsMainFrame: details.frame === mainContents.mainFrame,
         exactLiveOrigin: isCurrentLocalBackendUrl(details.url, resolver.getPort()),
         capabilityInjected: Boolean(
           requestHeaders &&
-            Object.keys(requestHeaders).some((name) => name.toLowerCase() === LOCAL_BACKEND_CAPABILITY_HEADER)
+          Object.keys(requestHeaders).some((name) => name.toLowerCase() === LOCAL_BACKEND_CAPABILITY_HEADER)
         ),
       });
     }

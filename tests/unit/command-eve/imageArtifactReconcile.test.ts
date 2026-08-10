@@ -6,8 +6,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { extractImageBindCandidatesFromTranscript } from '@/common/config/imageArtifactReconcileCore';
 import { reconcileConversationImageArtifactBinds } from '@/process/commandEve/imageArtifactReconcileMain';
-import { bindStagedImageArtifact, countPendingStagedImageArtifacts, readImageArtifactRecordById, stageGeneratedImageArtifact } from '@/process/commandEve/imageArtifactStore';
-import { handleCommandEveImageArtifactBind, handleCommandEveImageArtifactsList } from '@/process/bridge/commandEveImageArtifactBridge';
+import {
+  bindStagedImageArtifact,
+  countPendingStagedImageArtifacts,
+  readImageArtifactRecordById,
+  stageGeneratedImageArtifact,
+} from '@/process/commandEve/imageArtifactStore';
+import {
+  handleCommandEveImageArtifactBind,
+  handleCommandEveImageArtifactsList,
+} from '@/process/bridge/commandEveImageArtifactBridge';
 import { decideImageArtifactReconcileRelay } from '@/renderer/pages/conversation/GroupedHistory/hooks/useImageArtifactReconcileRelay';
 
 const R2_ROW_PATH = 'tests/fixtures/command-eve/r2-row.json';
@@ -58,7 +66,9 @@ describe('extractImageBindCandidatesFromTranscript (strict durable extractor)', 
 
   it('accepts content as a parsed object as well as a JSON string', () => {
     const row = JSON.parse(fs.readFileSync(R2_ROW_PATH, 'utf8')) as Record<string, unknown>;
-    const candidates = extractImageBindCandidatesFromTranscript([{ type: 'acp_tool_call', status: 'completed', content: row }]);
+    const candidates = extractImageBindCandidatesFromTranscript([
+      { type: 'acp_tool_call', status: 'completed', content: row },
+    ]);
     expect(candidates).toHaveLength(1);
   });
 
@@ -75,10 +85,28 @@ describe('extractImageBindCandidatesFromTranscript (strict durable extractor)', 
 
   it('ignores in-flight and failed tool calls, missing ids and malformed handles', () => {
     const base = r2Message();
-    const inFlight = { ...base, content: JSON.stringify({ update: { status: 'in_progress', tool_call_id: 'tc-x', content: [{ content: { text: R2_HANDLE } }] } }) };
-    const failed = { ...base, content: JSON.stringify({ update: { status: 'failed', tool_call_id: 'tc-y', content: [{ content: { text: R2_HANDLE } }] } }) };
-    const noId = { ...base, content: JSON.stringify({ update: { status: 'completed', content: [{ content: { text: R2_HANDLE } }] } }) };
-    const badHandle = { ...base, content: JSON.stringify({ update: { status: 'completed', tool_call_id: 'tc-z', content: [{ content: { text: 'img_h_not-hex-at-all' } }] } }) };
+    const inFlight = {
+      ...base,
+      content: JSON.stringify({
+        update: { status: 'in_progress', tool_call_id: 'tc-x', content: [{ content: { text: R2_HANDLE } }] },
+      }),
+    };
+    const failed = {
+      ...base,
+      content: JSON.stringify({
+        update: { status: 'failed', tool_call_id: 'tc-y', content: [{ content: { text: R2_HANDLE } }] },
+      }),
+    };
+    const noId = {
+      ...base,
+      content: JSON.stringify({ update: { status: 'completed', content: [{ content: { text: R2_HANDLE } }] } }),
+    };
+    const badHandle = {
+      ...base,
+      content: JSON.stringify({
+        update: { status: 'completed', tool_call_id: 'tc-z', content: [{ content: { text: 'img_h_not-hex-at-all' } }] },
+      }),
+    };
     expect(extractImageBindCandidatesFromTranscript([inFlight, failed, noId, badHandle])).toEqual([]);
   });
 
@@ -136,7 +164,11 @@ describe('reconcileConversationImageArtifactBinds (Main orchestration)', () => {
     const logs: string[] = [];
     const rewritten = r2Message();
     rewritten.content = rewritten.content.split(R2_HANDLE).join(staged.handle);
-    const summary = await reconcileConversationImageArtifactBinds(dataRoot, 'other-conversation', depsWith([rewritten], logs));
+    const summary = await reconcileConversationImageArtifactBinds(
+      dataRoot,
+      'other-conversation',
+      depsWith([rewritten], logs)
+    );
     expect(summary.refused).toEqual([{ toolCallId: R2_TOOL_CALL_ID, reason: 'conversation-mismatch' }]);
     const record = readImageArtifactRecordById(dataRoot, staged.record.id);
     expect(record?.status).toBe('active');
@@ -297,7 +329,9 @@ describe('decideImageArtifactReconcileRelay', () => {
       action: 'reconcile',
       conversationId: CONVO,
     });
-    expect(decideImageArtifactReconcileRelay({ session_id: CONVO, state: 'in_progress' })).toEqual({ action: 'ignore' });
+    expect(decideImageArtifactReconcileRelay({ session_id: CONVO, state: 'in_progress' })).toEqual({
+      action: 'ignore',
+    });
     expect(decideImageArtifactReconcileRelay({ session_id: '', state: 'completed' })).toEqual({ action: 'ignore' });
     expect(decideImageArtifactReconcileRelay({})).toEqual({ action: 'ignore' });
   });
@@ -418,7 +452,11 @@ describe('the fresh-bind renderer notification (same-turn insertion trigger)', (
     expect(notifications).toEqual([CONVO]);
 
     const refused = await handleCommandEveImageArtifactBind(
-      { conversationId: CONVO, handle: 'img_h_0000000000000000000000000000000000000000000000000000000000000000', toolCallId: 'tc-x' },
+      {
+        conversationId: CONVO,
+        handle: 'img_h_0000000000000000000000000000000000000000000000000000000000000000',
+        toolCallId: 'tc-x',
+      },
       deps
     );
     expect(refused.ok).toBe(false);

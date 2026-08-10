@@ -418,11 +418,9 @@ const ChatLayout: React.FC<{
   return (
     <ArcoLayout
       className='size-full color-black chat-layout-shell'
-      style={
-        {
-          // fontFamily: `cursive,"anthropicSans","anthropicSans Fallback",system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif`,
-        }
-      }
+      style={{
+        // fontFamily: `cursive,"anthropicSans","anthropicSans Fallback",system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif`,
+      }}
     >
       <div ref={containerRef} className='flex flex-1 relative w-full overflow-hidden'>
         {/* Unified layout: single DOM structure prevents children unmount/remount on preview toggle */}

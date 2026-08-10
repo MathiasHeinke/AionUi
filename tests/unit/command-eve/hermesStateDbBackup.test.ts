@@ -75,7 +75,9 @@ describe('backupHermesStateDbsBeforeUpgrade', () => {
       expect(path.basename(result.backupPath)).toBe('state.db.pre-0.20.0.from-0.17.0.backup');
       expect(fs.existsSync(result.backupPath)).toBe(true);
     }
-    expect(fs.readFileSync(path.join(root, 'seats', 'seat-a', 'home', 'state.db.pre-0.20.0.from-0.17.0.backup'), 'utf8')).toBe('seat-a-bytes');
+    expect(
+      fs.readFileSync(path.join(root, 'seats', 'seat-a', 'home', 'state.db.pre-0.20.0.from-0.17.0.backup'), 'utf8')
+    ).toBe('seat-a-bytes');
   });
 
   it('is idempotent: a second run reports already_backed_up and never overwrites the first copy', () => {
@@ -114,7 +116,11 @@ describe('backupHermesStateDbsBeforeUpgrade', () => {
     const root = makeHermesRoot();
     const home = seedSeat(root, 'home', 'db');
     fs.writeFileSync(path.join(home, 'state.db-wal'), 'wal-frames');
-    const [result] = backupHermesStateDbsBeforeUpgrade({ hermesRoot: root, fromVersion: '0.17.0', toVersion: '0.20.0' });
+    const [result] = backupHermesStateDbsBeforeUpgrade({
+      hermesRoot: root,
+      fromVersion: '0.17.0',
+      toVersion: '0.20.0',
+    });
     expect(result.status).toBe('backed_up');
     expect(fs.readFileSync(`${result.backupPath}-wal`, 'utf8')).toBe('wal-frames');
     expect(fs.existsSync(`${result.backupPath}-shm`)).toBe(false);
@@ -125,7 +131,11 @@ describe('backupHermesStateDbsBeforeUpgrade', () => {
     const home = seedSeat(root, 'home');
     // A DIRECTORY named state.db makes copyFileSync fail deterministically.
     fs.mkdirSync(path.join(home, 'state.db'));
-    const [result] = backupHermesStateDbsBeforeUpgrade({ hermesRoot: root, fromVersion: '0.17.0', toVersion: '0.20.0' });
+    const [result] = backupHermesStateDbsBeforeUpgrade({
+      hermesRoot: root,
+      fromVersion: '0.17.0',
+      toVersion: '0.20.0',
+    });
     expect(result.status).toBe('failed');
     expect(result.detail).toBeTruthy();
   });

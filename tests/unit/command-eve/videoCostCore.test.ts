@@ -129,9 +129,7 @@ describe('VIDEO_TIERS — default + upgrade shape', () => {
       'grok-imagine-video',
       'grok-imagine-video-1.5',
     ]);
-    expect(listAvailableVideoModels({ modeKind: 'reference', capabilities: HD15 })).toEqual([
-      'grok-imagine-video-1.5',
-    ]);
+    expect(listAvailableVideoModels({ modeKind: 'reference', capabilities: HD15 })).toEqual(['grok-imagine-video-1.5']);
   });
 
   it('refuses impossible explicit model and resolution combinations', () => {

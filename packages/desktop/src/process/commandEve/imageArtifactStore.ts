@@ -490,7 +490,13 @@ export type ImageArtifactImportResult =
  */
 export function importLegacyImageArtifact(
   dataPath: string,
-  input: { conversationId: string; legacyWorkspaceId: string; expectedFileName: string; workspaceRoot: string; nowMs?: number },
+  input: {
+    conversationId: string;
+    legacyWorkspaceId: string;
+    expectedFileName: string;
+    workspaceRoot: string;
+    nowMs?: number;
+  },
   deps: ImageArtifactBindDeps = {}
 ): ImageArtifactImportResult {
   const { conversationId, legacyWorkspaceId, expectedFileName, workspaceRoot } = input;

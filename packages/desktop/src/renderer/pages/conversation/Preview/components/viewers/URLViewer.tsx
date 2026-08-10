@@ -23,14 +23,7 @@ interface URLViewerProps {
  * Delegates to the shared WebviewHost with navigation bar enabled.
  */
 const URLViewer: React.FC<URLViewerProps> = ({ url, tabId }) => {
-  return (
-    <WebviewHost
-      url={url}
-      showNavBar
-      className='bg-bg-1'
-      previewReaderId={tabId}
-    />
-  );
+  return <WebviewHost url={url} showNavBar className='bg-bg-1' previewReaderId={tabId} />;
 };
 
 export default URLViewer;

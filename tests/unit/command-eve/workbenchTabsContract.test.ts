@@ -223,9 +223,7 @@ describe('Command EVE workbench tab contract', () => {
     expect(workbench).not.toContain('onPointerDown={(event) => beginTabDock(event, tab.id)}');
     expect(workbench).not.toContain('application/x-command-eve-workbench-tab');
     expect(workbench).not.toContain('draggable=');
-    const workbenchCss = read(
-      'packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.module.css'
-    );
+    const workbenchCss = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.module.css');
     expect(workbenchCss).toMatch(
       /\.root\[data-launcher-only='true'\]\s*\{[^}]*container-type:\s*normal;[^}]*flex:\s*0 0 32px;[^}]*width:\s*32px;/s
     );

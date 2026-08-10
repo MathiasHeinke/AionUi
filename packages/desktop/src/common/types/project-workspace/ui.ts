@@ -82,7 +82,12 @@ export type ProjectWorkspaceReceiptDTO = {
 };
 
 export type ProjectWorkspaceArtifactState =
-  'preview' | 'awaiting_confirmation' | 'committing' | 'completed' | 'rejected' | 'recovery_required';
+  | 'preview'
+  | 'awaiting_confirmation'
+  | 'committing'
+  | 'completed'
+  | 'rejected'
+  | 'recovery_required';
 
 /**
  * Reference to a renderer-owned i18n key plus interpolation params (1.818
@@ -130,7 +135,8 @@ export type ProjectWorkspaceMutationIdentity = {
 };
 
 export type ProjectWorkspaceEnvelope<T> =
-  { ok: true; data: T } | { ok: false; reason_code: ProjectWorkspaceUiReasonCode };
+  | { ok: true; data: T }
+  | { ok: false; reason_code: ProjectWorkspaceUiReasonCode };
 
 export type ProjectWorkspaceExplicitChatIntentRequest = {
   conversation_id: string;

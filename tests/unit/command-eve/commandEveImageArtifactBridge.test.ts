@@ -332,7 +332,11 @@ describe('bind / list / preview / import handlers', () => {
       fs.writeFileSync(path.join(workspaceRoot, 'img-1785796180699.png'), SOURCE_BYTES);
       const deps = { getDataPath: () => dataRoot, workspaceRootForLegacyId: () => workspaceRoot };
       const accepted = await handleCommandEveImageArtifactImportLegacy(
-        { conversationId: '3be29bae', legacyWorkspaceId: 'hermes-temp-3be29bae', expectedFileName: 'img-1785796180699.png' },
+        {
+          conversationId: '3be29bae',
+          legacyWorkspaceId: 'hermes-temp-3be29bae',
+          expectedFileName: 'img-1785796180699.png',
+        },
         deps
       );
       expect(accepted).toMatchObject({ ok: true, alreadyImported: false });
@@ -351,7 +355,11 @@ describe('bind / list / preview / import handlers', () => {
       );
       expect(refused).toEqual({ ok: false, reason: 'invalid-request' });
       const mismatched = await handleCommandEveImageArtifactImportLegacy(
-        { conversationId: '3be29bae', legacyWorkspaceId: 'hermes-temp-other', expectedFileName: 'img-1785796180699.png' },
+        {
+          conversationId: '3be29bae',
+          legacyWorkspaceId: 'hermes-temp-other',
+          expectedFileName: 'img-1785796180699.png',
+        },
         deps
       );
       expect(mismatched).toEqual({ ok: false, reason: 'workspace-id-mismatch' });
@@ -362,7 +370,10 @@ describe('bind / list / preview / import handlers', () => {
         )
       ).toEqual({ ok: false, reason: 'invalid-request' });
       expect(
-        await handleCommandEveImageArtifactImportLegacy({ conversationId: '3be29bae', expectedFileName: 'x.png' } as never, deps)
+        await handleCommandEveImageArtifactImportLegacy(
+          { conversationId: '3be29bae', expectedFileName: 'x.png' } as never,
+          deps
+        )
       ).toEqual({ ok: false, reason: 'invalid-request' });
     } finally {
       fs.rmSync(workspaceRoot, { recursive: true, force: true });

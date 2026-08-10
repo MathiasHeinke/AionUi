@@ -28,12 +28,9 @@ import {
   type CreditLedgerRow,
   creditsToEur,
   netPurchasedSpendCredits,
-} from "../_shared/credits-core.ts";
-import {
-  type DrawableEntitlementRow,
-  pickDrawableEntitlement,
-} from "../_shared/entitlement-draw-core.ts";
-import { pickLatestPurchasedCreditCarryover } from "../_shared/purchased-credit-carryover-core.ts";
+} from '../_shared/credits-core.ts';
+import { type DrawableEntitlementRow, pickDrawableEntitlement } from '../_shared/entitlement-draw-core.ts';
+import { pickLatestPurchasedCreditCarryover } from '../_shared/purchased-credit-carryover-core.ts';
 
 // Re-exported so existing imports (this module's own tests) keep working —
 // the canonical implementation lives in _shared/credits-core.ts because
@@ -42,30 +39,25 @@ export { netPurchasedSpendCredits };
 export type { CreditLedgerRow };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export type VideoDebitOutcome =
   | {
-    status: "applied";
-    entitlementId: string;
-    externalRef: string;
-    fromAllowance: number;
-    fromPurchased: number;
-  }
-  | { status: "already"; entitlementId: string; externalRef: string }
+      status: 'applied';
+      entitlementId: string;
+      externalRef: string;
+      fromAllowance: number;
+      fromPurchased: number;
+    }
+  | { status: 'already'; entitlementId: string; externalRef: string }
   | {
-    status: "insufficient";
-    reason: "insufficient_credits" | "spend_cap_exceeded";
-  }
-  | { status: "unavailable" };
+      status: 'insufficient';
+      reason: 'insufficient_credits' | 'spend_cap_exceeded';
+    }
+  | { status: 'unavailable' };
 
-type CommitDebitRpcResult =
-  | "applied"
-  | "already"
-  | "insufficient"
-  | "no_balance"
-  | "tenant_mismatch";
+type CommitDebitRpcResult = 'applied' | 'already' | 'insufficient' | 'no_balance' | 'tenant_mismatch';
 
 /**
  * PURE: maps a canAfford decision + the atomic RPC's result string to the
@@ -89,27 +81,26 @@ export function resolveCommitDebitOutcome(args: {
 }): VideoDebitOutcome {
   if (!args.decision.ok) {
     return {
-      status: "insufficient",
-      reason: args.decision.reason === "spend_cap_exceeded"
-        ? "spend_cap_exceeded"
-        : "insufficient_credits",
+      status: 'insufficient',
+      reason: args.decision.reason === 'spend_cap_exceeded' ? 'spend_cap_exceeded' : 'insufficient_credits',
     };
   }
   if (
-    !args.entitlementId || args.rpcResult === null ||
-    args.rpcResult === "no_balance" ||
-    args.rpcResult === "tenant_mismatch"
+    !args.entitlementId ||
+    args.rpcResult === null ||
+    args.rpcResult === 'no_balance' ||
+    args.rpcResult === 'tenant_mismatch'
   ) {
-    return { status: "unavailable" };
+    return { status: 'unavailable' };
   }
-  if (args.rpcResult === "already") {
+  if (args.rpcResult === 'already') {
     return {
-      status: "already",
+      status: 'already',
       entitlementId: args.entitlementId,
       externalRef: args.externalRef,
     };
   }
-  if (args.rpcResult === "insufficient") {
+  if (args.rpcResult === 'insufficient') {
     // Almost always a concurrent debit that drained the bucket between our
     // read and the RPC's lock — a fresh, real shortfall at the moment of
     // truth, reported the same as any other insufficient-funds refusal. The
@@ -118,10 +109,10 @@ export function resolveCommitDebitOutcome(args: {
     // module's own well-formed callers (commitVideoDebit always builds the
     // ledger from applyDebit's decision) — it exists as a defense-in-depth
     // guard, not a normal outcome.
-    return { status: "insufficient", reason: "insufficient_credits" };
+    return { status: 'insufficient', reason: 'insufficient_credits' };
   }
   return {
-    status: "applied",
+    status: 'applied',
     entitlementId: args.entitlementId,
     externalRef: args.externalRef,
     fromAllowance: args.decision.from_allowance,
@@ -154,9 +145,7 @@ export type CommitVideoDebitInput = {
   reason?: string;
 };
 
-export type CommitVideoDebitFn = (
-  input: CommitVideoDebitInput,
-) => Promise<VideoDebitOutcome>;
+export type CommitVideoDebitFn = (input: CommitVideoDebitInput) => Promise<VideoDebitOutcome>;
 
 export type ReverseVideoDebitInput = {
   entitlementId: string;
@@ -171,36 +160,34 @@ export type ReverseVideoDebitInput = {
   reason?: string;
 };
 
-export type ReverseVideoDebitFn = (
-  input: ReverseVideoDebitInput,
-) => Promise<{ ok: boolean; reason?: string }>;
+export type ReverseVideoDebitFn = (input: ReverseVideoDebitInput) => Promise<{ ok: boolean; reason?: string }>;
 
 const REST_TIMEOUT_MS = 5_000;
 
 type ServiceConfig = { url: string; serviceRoleKey: string };
 
 function supabaseServiceConfig(): ServiceConfig | null {
-  const url = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !serviceRoleKey) return null;
   return { url, serviceRoleKey };
 }
 
 async function loadDrawableEntitlement(
   config: ServiceConfig,
-  tenantId: string,
+  tenantId: string
 ): Promise<{ entitlementId: string; spendCapEurCents: number | null } | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REST_TIMEOUT_MS);
   try {
     const endpoint = new URL(
-      `/rest/v1/entitlements?tenant_id=eq.${
-        encodeURIComponent(tenantId)
-      }&select=id,status,spend_cap_eur_cents,created_at,trial_ends_at,expires_at&order=created_at.desc`,
-      config.url,
+      `/rest/v1/entitlements?tenant_id=eq.${encodeURIComponent(
+        tenantId
+      )}&select=id,status,spend_cap_eur_cents,created_at,trial_ends_at,expires_at&order=created_at.desc`,
+      config.url
     );
     const response = await fetch(endpoint, {
-      method: "GET",
+      method: 'GET',
       signal: controller.signal,
       headers: {
         apikey: config.serviceRoleKey,
@@ -210,27 +197,19 @@ async function loadDrawableEntitlement(
     if (!response.ok) return null;
     const rows = await response.json();
     if (!Array.isArray(rows)) return null;
-    const picked = pickDrawableEntitlement(
-      rows as DrawableEntitlementRow[],
-      new Date().toISOString(),
-    );
+    const picked = pickDrawableEntitlement(rows as DrawableEntitlementRow[], new Date().toISOString());
     if (picked) return picked;
 
     // Purchased credits are owned ledger value, not a trial permission. Mirror
     // eve-inference's canonical carry-over fallback so a lapsed Pilot with a
     // positive purchased bucket can still spend it.
-    const ids = rows
-      .map((row) => isRecord(row) && typeof row.id === "string" ? row.id : "")
-      .filter(Boolean);
+    const ids = rows.map((row) => (isRecord(row) && typeof row.id === 'string' ? row.id : '')).filter(Boolean);
     if (ids.length === 0) return null;
-    const balanceEndpoint = new URL("/rest/v1/credit_balances", config.url);
-    balanceEndpoint.searchParams.set("entitlement_id", `in.(${ids.join(",")})`);
-    balanceEndpoint.searchParams.set(
-      "select",
-      "entitlement_id,purchased_credits_remaining",
-    );
+    const balanceEndpoint = new URL('/rest/v1/credit_balances', config.url);
+    balanceEndpoint.searchParams.set('entitlement_id', `in.(${ids.join(',')})`);
+    balanceEndpoint.searchParams.set('select', 'entitlement_id,purchased_credits_remaining');
     const balanceResponse = await fetch(balanceEndpoint, {
-      method: "GET",
+      method: 'GET',
       signal: controller.signal,
       headers: {
         apikey: config.serviceRoleKey,
@@ -243,9 +222,9 @@ async function loadDrawableEntitlement(
     const carryover = pickLatestPurchasedCreditCarryover(rows, balances);
     return carryover
       ? {
-        entitlementId: carryover.entitlementId,
-        spendCapEurCents: carryover.spendCapEurCents,
-      }
+          entitlementId: carryover.entitlementId,
+          spendCapEurCents: carryover.spendCapEurCents,
+        }
       : null;
   } catch {
     return null;
@@ -265,19 +244,19 @@ async function loadDrawableEntitlement(
 async function loadEntitlementBalance(
   config: ServiceConfig,
   entitlementId: string,
-  spendCapEurCents: number | null,
+  spendCapEurCents: number | null
 ): Promise<CreditBalance | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REST_TIMEOUT_MS);
   try {
     const balanceEndpoint = new URL(
-      `/rest/v1/credit_balances?entitlement_id=eq.${
-        encodeURIComponent(entitlementId)
-      }&select=included_allowance_credits_remaining,purchased_credits_remaining,period_start&limit=1`,
-      config.url,
+      `/rest/v1/credit_balances?entitlement_id=eq.${encodeURIComponent(
+        entitlementId
+      )}&select=included_allowance_credits_remaining,purchased_credits_remaining,period_start&limit=1`,
+      config.url
     );
     const balanceResponse = await fetch(balanceEndpoint, {
-      method: "GET",
+      method: 'GET',
       signal: controller.signal,
       headers: {
         apikey: config.serviceRoleKey,
@@ -292,9 +271,7 @@ async function loadEntitlementBalance(
     const purchased = Number(row.purchased_credits_remaining);
     if (!Number.isFinite(allowance) || !Number.isFinite(purchased)) return null;
 
-    const periodStart = typeof row.period_start === "string"
-      ? row.period_start
-      : "1970-01-01";
+    const periodStart = typeof row.period_start === 'string' ? row.period_start : '1970-01-01';
     // Pull BOTH the purchased-bucket debits AND every reversal row for the
     // period (a reversal is a single row with bucket=null — see
     // command_eve_reverse_debit — so it cannot be selected by bucket). The
@@ -302,15 +279,15 @@ async function loadEntitlementBalance(
     // whose external_ref has a matching reversal is excluded from spend, so a
     // fully-refunded video does not permanently consume the period spend cap.
     const spentEndpoint = new URL(
-      `/rest/v1/credit_transactions?entitlement_id=eq.${
-        encodeURIComponent(entitlementId)
-      }&created_at=gte.${
-        encodeURIComponent(periodStart)
-      }&or=(kind.eq.reversal,and(kind.eq.debit,bucket.eq.purchased))&select=kind,bucket,credits,external_ref`,
-      config.url,
+      `/rest/v1/credit_transactions?entitlement_id=eq.${encodeURIComponent(
+        entitlementId
+      )}&created_at=gte.${encodeURIComponent(
+        periodStart
+      )}&or=(kind.eq.reversal,and(kind.eq.debit,bucket.eq.purchased))&select=kind,bucket,credits,external_ref`,
+      config.url
     );
     const spentResponse = await fetch(spentEndpoint, {
-      method: "GET",
+      method: 'GET',
       signal: controller.signal,
       headers: {
         apikey: config.serviceRoleKey,
@@ -324,17 +301,15 @@ async function loadEntitlementBalance(
     for (const spentRow of spentRows) {
       if (!isRecord(spentRow)) continue;
       const kind = spentRow.kind;
-      if (kind !== "debit" && kind !== "reversal") continue;
+      if (kind !== 'debit' && kind !== 'reversal') continue;
       const bucket = spentRow.bucket;
       const credits = Number(spentRow.credits);
       if (!Number.isFinite(credits)) continue;
       ledgerRows.push({
         kind,
-        bucket: bucket === "included" || bucket === "purchased" ? bucket : null,
+        bucket: bucket === 'included' || bucket === 'purchased' ? bucket : null,
         credits,
-        external_ref: typeof spentRow.external_ref === "string"
-          ? spentRow.external_ref
-          : null,
+        external_ref: typeof spentRow.external_ref === 'string' ? spentRow.external_ref : null,
       });
     }
     const purchasedCreditsSpent = netPurchasedSpendCredits(ledgerRows);
@@ -343,9 +318,7 @@ async function loadEntitlementBalance(
       included_allowance_credits_remaining: allowance,
       purchased_credits_remaining: purchased,
       spend_cap_eur_cents: spendCapEurCents,
-      purchased_eur_cents_spent_this_period: creditsToEur(
-        purchasedCreditsSpent,
-      ),
+      purchased_eur_cents_spent_this_period: creditsToEur(purchasedCreditsSpent),
     };
   } catch {
     return null;
@@ -363,22 +336,19 @@ async function callCommitDebitRpc(
     fromAllowance: number;
     fromPurchased: number;
     ledger: unknown[];
-  },
+  }
 ): Promise<CommitDebitRpcResult | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REST_TIMEOUT_MS);
   try {
-    const endpoint = new URL(
-      "/rest/v1/rpc/command_eve_commit_debit",
-      config.url,
-    );
+    const endpoint = new URL('/rest/v1/rpc/command_eve_commit_debit', config.url);
     const response = await fetch(endpoint, {
-      method: "POST",
+      method: 'POST',
       signal: controller.signal,
       headers: {
         apikey: config.serviceRoleKey,
         Authorization: `Bearer ${config.serviceRoleKey}`,
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         p_entitlement_id: args.entitlementId,
@@ -391,14 +361,13 @@ async function callCommitDebitRpc(
     });
     if (!response.ok) return null;
     const result = await response.json();
-    const value = typeof result === "string"
-      ? result
-      : Array.isArray(result)
-      ? result[0]
-      : null;
+    const value = typeof result === 'string' ? result : Array.isArray(result) ? result[0] : null;
     if (
-      value === "applied" || value === "already" || value === "insufficient" ||
-      value === "no_balance" || value === "tenant_mismatch"
+      value === 'applied' ||
+      value === 'already' ||
+      value === 'insufficient' ||
+      value === 'no_balance' ||
+      value === 'tenant_mismatch'
     ) {
       return value;
     }
@@ -418,28 +387,19 @@ async function callCommitDebitRpc(
  * "applied". Bounded retry (at most one re-read) absorbs a concurrent-drain
  * 'insufficient' from the RPC, mirroring eve-inference's commitDebit.
  */
-export async function commitVideoDebit(
-  input: CommitVideoDebitInput,
-): Promise<VideoDebitOutcome> {
+export async function commitVideoDebit(input: CommitVideoDebitInput): Promise<VideoDebitOutcome> {
   const config = supabaseServiceConfig();
-  if (!config) return { status: "unavailable" };
+  if (!config) return { status: 'unavailable' };
 
   const entitlement = await loadDrawableEntitlement(config, input.tenantId);
-  if (!entitlement) return { status: "unavailable" };
-  if (
-    input.expectedEntitlementId &&
-    entitlement.entitlementId !== input.expectedEntitlementId
-  ) {
-    return { status: "unavailable" };
+  if (!entitlement) return { status: 'unavailable' };
+  if (input.expectedEntitlementId && entitlement.entitlementId !== input.expectedEntitlementId) {
+    return { status: 'unavailable' };
   }
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const balance = await loadEntitlementBalance(
-      config,
-      entitlement.entitlementId,
-      entitlement.spendCapEurCents,
-    );
-    if (!balance) return { status: "unavailable" };
+    const balance = await loadEntitlementBalance(config, entitlement.entitlementId, entitlement.spendCapEurCents);
+    if (!balance) return { status: 'unavailable' };
 
     const decision = canAfford(balance, input.costEurCents);
     if (!decision.ok) {
@@ -453,9 +413,9 @@ export async function commitVideoDebit(
 
     const applied = applyDebit(balance, input.costEurCents, {
       model: input.model,
-      reason: input.reason ?? "video generation debit",
+      reason: input.reason ?? 'video generation debit',
     });
-    if (!applied.ok || !applied.entries) return { status: "unavailable" };
+    if (!applied.ok || !applied.entries) return { status: 'unavailable' };
 
     const ledger = applied.entries.map((entry) => ({
       credits: entry.credits,
@@ -474,7 +434,7 @@ export async function commitVideoDebit(
       ledger,
     });
 
-    if (rpcResult === "insufficient" && attempt === 0) continue; // concurrent drain -> re-read once
+    if (rpcResult === 'insufficient' && attempt === 0) continue; // concurrent drain -> re-read once
 
     return resolveCommitDebitOutcome({
       decision,
@@ -483,7 +443,7 @@ export async function commitVideoDebit(
       rpcResult,
     });
   }
-  return { status: "unavailable" };
+  return { status: 'unavailable' };
 }
 
 /**
@@ -492,14 +452,12 @@ export async function commitVideoDebit(
  * keeps the video wording byte-identically; a lane passes its own noun
  * through `input.reason` (1.820.3 ledger-truth fix).
  */
-export function buildReverseDebitRpcBody(
-  input: ReverseVideoDebitInput,
-): Record<string, string> {
+export function buildReverseDebitRpcBody(input: ReverseVideoDebitInput): Record<string, string> {
   return {
     p_entitlement_id: input.entitlementId,
     p_tenant_id: input.tenantId,
     p_external_ref: input.externalRef,
-    p_reason: input.reason ?? "video generation not produced",
+    p_reason: input.reason ?? 'video generation not produced',
   };
 }
 
@@ -510,25 +468,20 @@ export function buildReverseDebitRpcBody(
  * prove happened. 'reversed' and 'already_reversed' both count as ok (the
  * latter makes a retried reversal call itself idempotent).
  */
-export async function reverseVideoDebit(
-  input: ReverseVideoDebitInput,
-): Promise<{ ok: boolean; reason?: string }> {
+export async function reverseVideoDebit(input: ReverseVideoDebitInput): Promise<{ ok: boolean; reason?: string }> {
   const config = supabaseServiceConfig();
-  if (!config) return { ok: false, reason: "reversal-not-configured" };
+  if (!config) return { ok: false, reason: 'reversal-not-configured' };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REST_TIMEOUT_MS);
   try {
-    const endpoint = new URL(
-      "/rest/v1/rpc/command_eve_reverse_debit",
-      config.url,
-    );
+    const endpoint = new URL('/rest/v1/rpc/command_eve_reverse_debit', config.url);
     const response = await fetch(endpoint, {
-      method: "POST",
+      method: 'POST',
       signal: controller.signal,
       headers: {
         apikey: config.serviceRoleKey,
         Authorization: `Bearer ${config.serviceRoleKey}`,
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(buildReverseDebitRpcBody(input)),
     });
@@ -536,17 +489,13 @@ export async function reverseVideoDebit(
       return { ok: false, reason: `reversal-http-${response.status}` };
     }
     const result = await response.json();
-    const value = typeof result === "string"
-      ? result
-      : Array.isArray(result)
-      ? result[0]
-      : null;
-    if (value === "reversed" || value === "already_reversed") {
+    const value = typeof result === 'string' ? result : Array.isArray(result) ? result[0] : null;
+    if (value === 'reversed' || value === 'already_reversed') {
       return { ok: true };
     }
     return { ok: false, reason: `reversal-unexpected-result-${String(value)}` };
   } catch {
-    return { ok: false, reason: "reversal-network-error" };
+    return { ok: false, reason: 'reversal-network-error' };
   } finally {
     clearTimeout(timeout);
   }

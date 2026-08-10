@@ -290,10 +290,11 @@ describe('one user turn buys exactly one paid edit', () => {
     expect(second.ok === false && second.reasonCode).toBe('video-edit-permit-consumed');
     // THE assertion that matters: no second provider call, so no second charge.
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(listVideoArtifactRecords(dataRoot, 'conv-1').map((r) => r.id).toSorted()).toEqual([
-      'edit-1',
-      'video-aubergine',
-    ]);
+    expect(
+      listVideoArtifactRecords(dataRoot, 'conv-1')
+        .map((r) => r.id)
+        .toSorted()
+    ).toEqual(['edit-1', 'video-aubergine']);
   });
 
   it('answers a RETRY of the same edit from the receipt instead of charging again', async () => {

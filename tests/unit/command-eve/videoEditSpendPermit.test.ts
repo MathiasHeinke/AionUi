@@ -194,7 +194,9 @@ describe('judging a presented permit', () => {
     expect(verdict.ok === false && verdict.reason).toBe(reason);
     // Every refusal has a sentence of its own. One generic message would leave
     // the user unable to tell "ask again" from "this will never work".
-    expect(describeSpendPermitRefusal(verdict.ok === false ? verdict.reason : 'permit-unknown').length).toBeGreaterThan(20);
+    expect(describeSpendPermitRefusal(verdict.ok === false ? verdict.reason : 'permit-unknown').length).toBeGreaterThan(
+      20
+    );
   });
 });
 
@@ -349,7 +351,12 @@ describe('consuming a permit is a one-shot transaction', () => {
   it('refuses the same permit with a DIFFERENT instruction — the loop, closed', () => {
     const permit = issue();
     expect(
-      consumeVideoEditSpendPermit(dataRoot, { permit, ...turn, instructionSha256: INSTRUCTION_SHA, artifactSha256: CLIP_SHA }).ok
+      consumeVideoEditSpendPermit(dataRoot, {
+        permit,
+        ...turn,
+        instructionSha256: INSTRUCTION_SHA,
+        artifactSha256: CLIP_SHA,
+      }).ok
     ).toBe(true);
     const varied = consumeVideoEditSpendPermit(dataRoot, {
       permit,
@@ -404,7 +411,12 @@ describe('consuming a permit is a one-shot transaction', () => {
     }
     // POSITIVE CONTROL: with the turn named, the same permit spends.
     expect(
-      consumeVideoEditSpendPermit(dataRoot, { permit, ...turn, instructionSha256: INSTRUCTION_SHA, artifactSha256: CLIP_SHA }).ok
+      consumeVideoEditSpendPermit(dataRoot, {
+        permit,
+        ...turn,
+        instructionSha256: INSTRUCTION_SHA,
+        artifactSha256: CLIP_SHA,
+      }).ok
     ).toBe(true);
   });
 });

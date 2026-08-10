@@ -239,9 +239,9 @@ describe('ShellWorkbenchTabs', () => {
       clientY: 20,
     });
     expect(screen.getByTestId('eve-workbench-dock-overlay')).toBeInTheDocument();
-    expect(
-      screen.getAllByTestId(/^eve-workbench-dock-split-/).every((zone) => zone.dataset.active === 'false'),
-    ).toBe(true);
+    expect(screen.getAllByTestId(/^eve-workbench-dock-split-/).every((zone) => zone.dataset.active === 'false')).toBe(
+      true
+    );
     fireEvent.mouseUp(window, {
       button: 0,
       clientX: 40,

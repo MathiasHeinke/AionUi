@@ -93,13 +93,12 @@ export const CREDIT_UNIT_EUR_CENTS = 1 / CREDITS_PER_EUR_CENT; // 0.1
 // the DEFAULT_MARKUP_FACTOR fallback; a ladder test pins that). max simply costs more
 // ABSOLUTELY because it spends more thinking tokens (raw × 2 on a bigger raw). Tunable
 // later vs real usage. Keys mirror eve-inference-core KNOWN_TIERS.
-export const TIER_MARKUP_FACTOR: Readonly<Record<string, number>> = Object
-  .freeze({
-    standard: 10,
-    high: 4,
-    xhigh: 2,
-    max: 2,
-  });
+export const TIER_MARKUP_FACTOR: Readonly<Record<string, number>> = Object.freeze({
+  standard: 10,
+  high: 4,
+  xhigh: 2,
+  max: 2,
+});
 
 // Universal FLOOR / fallback markup. ANY call whose tier we don't recognise —
 // image, video, music, or a brand-new model we haven't explicitly priced — is
@@ -114,14 +113,9 @@ export const DEFAULT_MARKUP_FACTOR = 2;
 // eve-inference-core calls it for BOTH the reserve estimate and the post-call actual
 // cost, and the metered production lane (image/video/music) calls it with an
 // un-tiered key → the floor.
-export function retailCostEurCents(
-  rawCostEurCents: number,
-  tier: string,
-): number {
+export function retailCostEurCents(rawCostEurCents: number, tier: string): number {
   if (!Number.isFinite(rawCostEurCents) || rawCostEurCents < 0) {
-    throw new RangeError(
-      "retailCostEurCents: rawCostEurCents must be a finite >= 0 number",
-    );
+    throw new RangeError('retailCostEurCents: rawCostEurCents must be a finite >= 0 number');
   }
   const factor = TIER_MARKUP_FACTOR[tier] ?? DEFAULT_MARKUP_FACTOR;
   return rawCostEurCents * factor;
@@ -229,10 +223,10 @@ export const MAX_BONUS_FRACTION = 0.15;
 // 1.820.1: the top tier moved 250€ -> 200€ (founder ruling supersedes the older pack
 // table). There is no 250€ pack any more; a Stripe price for it must not be offered.
 export const CREDIT_PACKS: readonly CreditPack[] = Object.freeze([
-  { id: "pack-25", price_eur_cents: 2500, bonus_fraction: 0.0 },
-  { id: "pack-50", price_eur_cents: 5000, bonus_fraction: 0.0 },
-  { id: "pack-100", price_eur_cents: 10000, bonus_fraction: 0.0 },
-  { id: "pack-200", price_eur_cents: 20000, bonus_fraction: 0.0 },
+  { id: 'pack-25', price_eur_cents: 2500, bonus_fraction: 0.0 },
+  { id: 'pack-50', price_eur_cents: 5000, bonus_fraction: 0.0 },
+  { id: 'pack-100', price_eur_cents: 10000, bonus_fraction: 0.0 },
+  { id: 'pack-200', price_eur_cents: 20000, bonus_fraction: 0.0 },
 ]) as readonly CreditPack[];
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -245,7 +239,7 @@ export const CREDIT_PACKS: readonly CreditPack[] = Object.freeze([
 // a grant/pack it is the face € the user paid. The margin is in that factor, not here.
 export function eurToCredits(eurCents: number): number {
   if (!Number.isFinite(eurCents) || eurCents < 0) {
-    throw new RangeError("eurToCredits: eurCents must be a finite >= 0 number");
+    throw new RangeError('eurToCredits: eurCents must be a finite >= 0 number');
   }
   // Integer multiply (float-exact). With integer cents in → integer credits out.
   return eurCents * CREDITS_PER_EUR_CENT;
@@ -254,7 +248,7 @@ export function eurToCredits(eurCents: number): number {
 // Credits → raw-cost € (cents). Inverse of eurToCredits.
 export function creditsToEur(credits: number): number {
   if (!Number.isFinite(credits) || credits < 0) {
-    throw new RangeError("creditsToEur: credits must be a finite >= 0 number");
+    throw new RangeError('creditsToEur: credits must be a finite >= 0 number');
   }
   // Integer divide (float-exact for credit amounts that are multiples of the ratio,
   // which all grant/pack/debit amounts are — see eurToCredits).
@@ -277,7 +271,7 @@ export function packCredits(pack: CreditPack): {
   if (pack.bonus_fraction < 0 || pack.bonus_fraction > MAX_BONUS_FRACTION) {
     // Fail closed: a pack whose bonus exceeds the cap would threaten the margin.
     throw new RangeError(
-      `packCredits: ${pack.id} bonus_fraction ${pack.bonus_fraction} exceeds MAX_BONUS_FRACTION ${MAX_BONUS_FRACTION}`,
+      `packCredits: ${pack.id} bonus_fraction ${pack.bonus_fraction} exceeds MAX_BONUS_FRACTION ${MAX_BONUS_FRACTION}`
     );
   }
   // €-of-raw-cost the pay buys after removing the markup, then → credits.
@@ -333,21 +327,19 @@ export interface MarginInvariantResult {
 
 export function marginInvariant(
   packs: readonly CreditPack[] = CREDIT_PACKS,
-  factors: Readonly<Record<string, number>> = TIER_MARKUP_FACTOR,
+  factors: Readonly<Record<string, number>> = TIER_MARKUP_FACTOR
 ): MarginInvariantResult {
   const face = CREDIT_UNIT_EUR_CENTS; // retail € cents per credit at face value
   const violations: string[] = [];
 
   // (1) MARGIN: every tier factor strictly > 1.
-  const tiers: MarginInvariantTierResult[] = Object.entries(factors).map(
-    ([tier, factor]) => {
-      const ok = Number.isFinite(factor) && factor > 1;
-      if (!ok) {
-        violations.push(`tier ${tier}: markup factor ${factor} must be > 1`);
-      }
-      return { tier, factor, ok };
-    },
-  );
+  const tiers: MarginInvariantTierResult[] = Object.entries(factors).map(([tier, factor]) => {
+    const ok = Number.isFinite(factor) && factor > 1;
+    if (!ok) {
+      violations.push(`tier ${tier}: markup factor ${factor} must be > 1`);
+    }
+    return { tier, factor, ok };
+  });
 
   // (2) FACE VALUE: no pack sells credits below face value.
   const results: MarginInvariantPackResult[] = packs.map((pack) => {
@@ -364,14 +356,10 @@ export function marginInvariant(
     // effective €/credit must be >= face value (allow exact face value). A pack
     // below face (face_ratio < 1) would hand the user more retail credits than they
     // paid for, draining the consumption margin.
-    const packOk = bonusOk &&
-      Number.isFinite(effective) &&
-      effective >= face - 1e-9 &&
-      pack.bonus_fraction <= MAX_BONUS_FRACTION;
+    const packOk =
+      bonusOk && Number.isFinite(effective) && effective >= face - 1e-9 && pack.bonus_fraction <= MAX_BONUS_FRACTION;
     if (!packOk && bonusOk) {
-      violations.push(
-        `${pack.id}: effective ${effective} < face ${face} (face_ratio ${face_ratio})`,
-      );
+      violations.push(`${pack.id}: effective ${effective} < face ${face} (face_ratio ${face_ratio})`);
     }
     return {
       id: pack.id,
@@ -384,8 +372,7 @@ export function marginInvariant(
   });
 
   return {
-    ok: violations.length === 0 && tiers.every((t) => t.ok) &&
-      results.every((r) => r.ok),
+    ok: violations.length === 0 && tiers.every((t) => t.ok) && results.every((r) => r.ok),
     face_eur_cents_per_credit: face,
     max_bonus_fraction: MAX_BONUS_FRACTION,
     tiers,
@@ -397,7 +384,7 @@ export function marginInvariant(
 // ──────────────────────────────────────────────────────────────────────────
 // Monthly allowance grant (Starter / Solo)
 // ──────────────────────────────────────────────────────────────────────────
-export type Plan = "standard" | "starter" | "solo";
+export type Plan = 'standard' | 'starter' | 'solo';
 
 // The credits the bundled monthly allowance grants for a plan. The allowance is
 // expressed as € of RETAIL spending power (Standard 100€ → 100,000 cr / legacy
@@ -406,17 +393,15 @@ export type Plan = "standard" | "starter" | "solo";
 // costs us allowance/factor raw.
 export function allowanceCreditsForPlan(plan: Plan): number {
   switch (plan) {
-    case "standard":
+    case 'standard':
       return eurToCredits(STANDARD_ALLOWANCE_EUR_CENTS);
-    case "starter":
+    case 'starter':
       return eurToCredits(STARTER_ALLOWANCE_EUR_CENTS);
-    case "solo":
+    case 'solo':
       return eurToCredits(SOLO_ALLOWANCE_EUR_CENTS);
     default: {
       const _exhaustive: never = plan;
-      throw new RangeError(
-        `allowanceCreditsForPlan: unknown plan ${_exhaustive}`,
-      );
+      throw new RangeError(`allowanceCreditsForPlan: unknown plan ${_exhaustive}`);
     }
   }
 }
@@ -440,8 +425,7 @@ export interface CreditBalance {
 
 // Total credits available to spend right now (allowance + purchased).
 export function totalCreditsAvailable(balance: CreditBalance): number {
-  return balance.included_allowance_credits_remaining +
-    balance.purchased_credits_remaining;
+  return balance.included_allowance_credits_remaining + balance.purchased_credits_remaining;
 }
 
 // Can this balance afford a job costing `costEurCents` of RETAIL inference (raw
@@ -450,7 +434,7 @@ export function totalCreditsAvailable(balance: CreditBalance): number {
 // Returns a structured decision the wall can render.
 export interface AffordDecision {
   ok: boolean;
-  reason: "ok" | "insufficient_credits" | "spend_cap_exceeded";
+  reason: 'ok' | 'insufficient_credits' | 'spend_cap_exceeded';
   credits_needed: number; // total credits this job needs
   credits_available: number; // total credits on hand
   // The split this job would draw if allowed: from allowance first, then purchased.
@@ -460,14 +444,9 @@ export interface AffordDecision {
   shortfall_credits: number;
 }
 
-export function canAfford(
-  balance: CreditBalance,
-  costEurCents: number,
-): AffordDecision {
+export function canAfford(balance: CreditBalance, costEurCents: number): AffordDecision {
   if (!Number.isFinite(costEurCents) || costEurCents < 0) {
-    throw new RangeError(
-      "canAfford: costEurCents must be a finite >= 0 number",
-    );
+    throw new RangeError('canAfford: costEurCents must be a finite >= 0 number');
   }
   // PER-TOKEN HONESTY (2026-07-01): costEurCents is the PRECISE retail (raw × tier
   // factor, sub-cent possible) — the raw cost is NO LONGER pre-ceiled to a whole
@@ -480,21 +459,15 @@ export function canAfford(
   const credits_available = totalCreditsAvailable(balance);
 
   // Draw allowance first, then purchased.
-  const from_allowance = Math.min(
-    credits_needed,
-    balance.included_allowance_credits_remaining,
-  );
+  const from_allowance = Math.min(credits_needed, balance.included_allowance_credits_remaining);
   const remaining_after_allowance = credits_needed - from_allowance;
-  const from_purchased = Math.min(
-    remaining_after_allowance,
-    balance.purchased_credits_remaining,
-  );
+  const from_purchased = Math.min(remaining_after_allowance, balance.purchased_credits_remaining);
   const shortfall_credits = remaining_after_allowance - from_purchased;
 
   if (shortfall_credits > 1e-9) {
     return {
       ok: false,
-      reason: "insufficient_credits",
+      reason: 'insufficient_credits',
       credits_needed,
       credits_available,
       from_allowance,
@@ -509,12 +482,11 @@ export function canAfford(
   // period's purchased spend would exceed the cap, block.
   if (balance.spend_cap_eur_cents !== null) {
     const purchased_eur_this_job = creditsToEur(from_purchased);
-    const projected = balance.purchased_eur_cents_spent_this_period +
-      purchased_eur_this_job;
+    const projected = balance.purchased_eur_cents_spent_this_period + purchased_eur_this_job;
     if (projected > balance.spend_cap_eur_cents + 1e-9) {
       return {
         ok: false,
-        reason: "spend_cap_exceeded",
+        reason: 'spend_cap_exceeded',
         credits_needed,
         credits_available,
         from_allowance,
@@ -526,7 +498,7 @@ export function canAfford(
 
   return {
     ok: true,
-    reason: "ok",
+    reason: 'ok',
     credits_needed,
     credits_available,
     from_allowance,
@@ -542,13 +514,13 @@ export function canAfford(
 // untouched (the caller turns ok:false into a 402). Allowance is debited before
 // purchased.
 export interface LedgerEntry {
-  kind: "debit";
+  kind: 'debit';
   credits: number; // negative — the EXACT billed unit (0.1 €-cent each)
   eur_value_cents: number; // >= 0, the € cents drawn, ROUNDED to the integer bigint
   // column — a display/audit echo, NOT the accounting source of truth. Sub-cent
   // debits (most calls) round here; the exact amount lives in `credits`. The
   // spend-cap running total is summed from `credits`, never from this rounded field.
-  bucket: "included" | "purchased";
+  bucket: 'included' | 'purchased';
   reason: string;
   model: string | null;
 }
@@ -565,47 +537,44 @@ export interface DebitResult {
 export function applyDebit(
   balance: CreditBalance,
   costEurCents: number,
-  opts: { model?: string | null; reason?: string } = {},
+  opts: { model?: string | null; reason?: string } = {}
 ): DebitResult {
   const decision = canAfford(balance, costEurCents);
   if (!decision.ok) {
     return { ok: false, decision };
   }
   const model = opts.model ?? null;
-  const reason = opts.reason ?? "inference debit";
+  const reason = opts.reason ?? 'inference debit';
   const entries: LedgerEntry[] = [];
 
   if (decision.from_allowance > 0) {
     entries.push({
-      kind: "debit",
+      kind: 'debit',
       credits: -decision.from_allowance,
       // Round to the integer bigint column — display echo only; `credits` is exact.
       eur_value_cents: Math.round(creditsToEur(decision.from_allowance)),
-      bucket: "included",
+      bucket: 'included',
       reason,
       model,
     });
   }
   if (decision.from_purchased > 0) {
     entries.push({
-      kind: "debit",
+      kind: 'debit',
       credits: -decision.from_purchased,
       eur_value_cents: Math.round(creditsToEur(decision.from_purchased)),
-      bucket: "purchased",
+      bucket: 'purchased',
       reason,
       model,
     });
   }
 
   const new_balance: CreditBalance = {
-    included_allowance_credits_remaining:
-      balance.included_allowance_credits_remaining - decision.from_allowance,
-    purchased_credits_remaining: balance.purchased_credits_remaining -
-      decision.from_purchased,
+    included_allowance_credits_remaining: balance.included_allowance_credits_remaining - decision.from_allowance,
+    purchased_credits_remaining: balance.purchased_credits_remaining - decision.from_purchased,
     spend_cap_eur_cents: balance.spend_cap_eur_cents,
     purchased_eur_cents_spent_this_period:
-      balance.purchased_eur_cents_spent_this_period +
-      creditsToEur(decision.from_purchased),
+      balance.purchased_eur_cents_spent_this_period + creditsToEur(decision.from_purchased),
   };
 
   return { ok: true, decision, new_balance, entries };
@@ -623,8 +592,8 @@ export function applyDebit(
 // permanently over-count against the tenant's spend cap.
 // ──────────────────────────────────────────────────────────────────────────
 export interface CreditLedgerRow {
-  kind: "debit" | "reversal";
-  bucket: "included" | "purchased" | null;
+  kind: 'debit' | 'reversal';
+  bucket: 'included' | 'purchased' | null;
   credits: number;
   external_ref: string | null;
 }
@@ -641,17 +610,13 @@ export interface CreditLedgerRow {
  * whose external_ref has ANY matching reversal row is excluded from the spend
  * total, regardless of the reversal row's own (null) bucket.
  */
-export function netPurchasedSpendCredits(
-  rows: readonly CreditLedgerRow[],
-): number {
+export function netPurchasedSpendCredits(rows: readonly CreditLedgerRow[]): number {
   const reversedRefs = new Set(
-    rows
-      .filter((row) => row.kind === "reversal" && row.external_ref)
-      .map((row) => row.external_ref as string),
+    rows.filter((row) => row.kind === 'reversal' && row.external_ref).map((row) => row.external_ref as string)
   );
   let total = 0;
   for (const row of rows) {
-    if (row.kind !== "debit" || row.bucket !== "purchased") continue;
+    if (row.kind !== 'debit' || row.bucket !== 'purchased') continue;
     if (row.external_ref && reversedRefs.has(row.external_ref)) continue;
     total += Math.abs(row.credits);
   }
@@ -663,8 +628,8 @@ export function netPurchasedSpendCredits(
 // credit-wall. Built from an AffordDecision (insufficient or cap-exceeded).
 // ──────────────────────────────────────────────────────────────────────────
 export interface QuotaWallBody {
-  error: "quota_exhausted";
-  reason: "insufficient_credits" | "spend_cap_exceeded";
+  error: 'quota_exhausted';
+  reason: 'insufficient_credits' | 'spend_cap_exceeded';
   // Credits this job needs and what is on hand, so the wall can say "needs X, you
   // have Y".
   credits_needed: number;
@@ -683,13 +648,11 @@ export interface QuotaWallBody {
 
 export function buildQuotaWallBody(decision: AffordDecision): QuotaWallBody {
   if (decision.ok) {
-    throw new Error("buildQuotaWallBody: decision is ok; no wall to build");
+    throw new Error('buildQuotaWallBody: decision is ok; no wall to build');
   }
   return {
-    error: "quota_exhausted",
-    reason: decision.reason === "spend_cap_exceeded"
-      ? "spend_cap_exceeded"
-      : "insufficient_credits",
+    error: 'quota_exhausted',
+    reason: decision.reason === 'spend_cap_exceeded' ? 'spend_cap_exceeded' : 'insufficient_credits',
     credits_needed: decision.credits_needed,
     credits_available: decision.credits_available,
     shortfall_credits: decision.shortfall_credits,

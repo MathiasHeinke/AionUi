@@ -139,7 +139,9 @@ export function planHermesWheelBump({ repoRoot, targetVersion, wheelPath, versio
     problems.push(`missing bundled wheel for the CURRENT pin: ${path.relative(repoRoot, oldWheelPath)}`);
   }
   if (problems.length > 0) {
-    throw new Error(`ABORT — the repo does not look like the manifest expects; nothing was changed:\n  - ${problems.join('\n  - ')}`);
+    throw new Error(
+      `ABORT — the repo does not look like the manifest expects; nothing was changed:\n  - ${problems.join('\n  - ')}`
+    );
   }
   return {
     repoRoot,
@@ -189,7 +191,9 @@ export function applyHermesWheelBump(plan, { dryRun }) {
 
   const residue = verifyNoOldVersionResidue(plan);
   if (residue.length > 0) {
-    throw new Error(`BUMP APPLIED BUT VERIFICATION FAILED — fix by hand before committing:\n  - ${residue.join('\n  - ')}`);
+    throw new Error(
+      `BUMP APPLIED BUT VERIFICATION FAILED — fix by hand before committing:\n  - ${residue.join('\n  - ')}`
+    );
   }
   return { dryRun: false, actions, verified: true };
 }
@@ -203,8 +207,10 @@ export function verifyNoOldVersionResidue(plan) {
     if (content.includes(plan.oldSha256)) findings.push(`old wheel sha still present in ${edit.file}`);
   }
   const pin = readCurrentHermesPin(plan.repoRoot);
-  if (pin.version !== plan.targetVersion) findings.push(`DEFAULT_HERMES_VERSION is '${pin.version}', expected '${plan.targetVersion}'`);
-  if (pin.sha256 !== plan.newSha256) findings.push('COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 does not match the computed wheel sha');
+  if (pin.version !== plan.targetVersion)
+    findings.push(`DEFAULT_HERMES_VERSION is '${pin.version}', expected '${plan.targetVersion}'`);
+  if (pin.sha256 !== plan.newSha256)
+    findings.push('COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 does not match the computed wheel sha');
   // Hermes-specific residue scan over the LIVE scope (docs/ excluded on
   // purpose — history keeps its numbers). A bare repo-wide grep for the old
   // X.Y.Z would false-positive on unrelated dependency versions, so the scan

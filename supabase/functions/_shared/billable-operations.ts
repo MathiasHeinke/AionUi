@@ -67,7 +67,7 @@
 // Run the tests with node's native TypeScript type-stripping:
 //   node --test supabase/functions/_shared/billable-operations.test.mjs
 
-import { retailCostEurCents } from "./credits-core.ts";
+import { retailCostEurCents } from './credits-core.ts';
 
 // ──────────────────────────────────────────────────────────────────────────
 // (1) HOSTS — the positive set
@@ -78,10 +78,7 @@ import { retailCostEurCents } from "./credits-core.ts";
  * unreachable through `billedFetch`, and the structural gate reds if a deployed
  * file so much as names one that is not declared.
  */
-export const BILLABLE_PROVIDER_HOSTS: readonly string[] = Object.freeze([
-  "openrouter.ai",
-  "api.x.ai",
-]);
+export const BILLABLE_PROVIDER_HOSTS: readonly string[] = Object.freeze(['openrouter.ai', 'api.x.ai']);
 
 /**
  * Hosts a deployed function may name that do NOT bill us: our own infrastructure
@@ -99,11 +96,11 @@ export const BILLABLE_PROVIDER_HOSTS: readonly string[] = Object.freeze([
  * writing the URL without its scheme.
  */
 export const DECLARED_NON_BILLABLE_HOSTS: readonly string[] = Object.freeze([
-  "command-eve.com",
-  "api.stripe.com",
-  "schemas.command-eve.com",
-  "docs.x.ai",
-  "www.ecb.europa.eu",
+  'command-eve.com',
+  'api.stripe.com',
+  'schemas.command-eve.com',
+  'docs.x.ai',
+  'www.ecb.europa.eu',
   // xAI's Grok Video asset host. It BILLS NOTHING: finished video assets are
   // downloaded from it without a receipt (signed urls), which is why it is
   // here and not in BILLABLE_PROVIDER_HOSTS. It IS fetched — by
@@ -111,7 +108,7 @@ export const DECLARED_NON_BILLABLE_HOSTS: readonly string[] = Object.freeze([
   // entry names it in `assetHosts`. Measured against a live, invoiced xAI
   // render on 2026-08-05 (MAT-1773/F6): Grok Video 1.5 serves finished assets
   // from https://vidgen.x.ai/... .
-  "vidgen.x.ai",
+  'vidgen.x.ai',
 ]);
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -127,9 +124,9 @@ export const DECLARED_NON_BILLABLE_HOSTS: readonly string[] = Object.freeze([
  */
 export type BillableUnit =
   // measured on the VALIDATED INPUT TEXT, because that is what the provider bills
-  | "input_character"
-  | "image" // measured on the returned image count
-  | "video_second"; // measured on the resolved render plan (provider reports none)
+  | 'input_character'
+  | 'image' // measured on the returned image count
+  | 'video_second'; // measured on the resolved render plan (provider reports none)
 
 /**
  * THE PROVIDER-BILLED QUANTITY FOR A TEXT-PRICED ROUTE.
@@ -198,22 +195,21 @@ export type UsdToEurPriceRecord = {
    * "up" — always. Rounding a per-unit cost DOWN under-charges on every call and
    * the error grows with volume; rounding up costs a fraction of a cent.
    */
-  readonly rounding: "up";
+  readonly rounding: 'up';
   readonly evidenceGrade: string;
 };
 
 export const TTS_INPUT_CHARACTER_PRICE: UsdToEurPriceRecord = Object.freeze({
-  version: "2026-08-02",
+  version: '2026-08-02',
   providerUsdPerMillionCharacters: 15.0,
-  providerEndpointSource: "https://docs.x.ai/developers/models/text-to-speech",
-  providerPriceSource: "https://docs.x.ai/developers/pricing",
-  ecbReferenceDate: "2026-07-31",
+  providerEndpointSource: 'https://docs.x.ai/developers/models/text-to-speech',
+  providerPriceSource: 'https://docs.x.ai/developers/pricing',
+  ecbReferenceDate: '2026-07-31',
   ecbUsdPerEur: 1.1485,
-  ecbSource: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+  ecbSource: 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml',
   fxSafetyFactor: 1.1,
-  rounding: "up",
-  evidenceGrade:
-    "official published pricing + official published FX reference; NOT invoice-validated",
+  rounding: 'up',
+  evidenceGrade: 'official published pricing + official published FX reference; NOT invoice-validated',
 });
 
 /**
@@ -227,11 +223,8 @@ export const TTS_INPUT_CHARACTER_PRICE: UsdToEurPriceRecord = Object.freeze({
  *   USD 15.00 / 1,000,000 chars / 1.1485 USD-per-EUR * 100 c/EUR * 1.10
  *     = 0.00143665… EUR cents per character
  */
-export function derivedEurCentsPerInputCharacter(
-  record: UsdToEurPriceRecord,
-): number {
-  const eurPerCharacter = record.providerUsdPerMillionCharacters /
-    1_000_000 / record.ecbUsdPerEur;
+export function derivedEurCentsPerInputCharacter(record: UsdToEurPriceRecord): number {
+  const eurPerCharacter = record.providerUsdPerMillionCharacters / 1_000_000 / record.ecbUsdPerEur;
   return eurPerCharacter * 100 * record.fxSafetyFactor;
 }
 
@@ -266,7 +259,7 @@ export type UnitPricing = {
  * ESTIMATE — that is R7-iii-A, an "actual" that is really the guess, and it
  * over-charges every short call while hiding every dear one.
  */
-export type CostAuthority = "provider_reported" | "registry_priced";
+export type CostAuthority = 'provider_reported' | 'registry_priced';
 
 /**
  * THE ONE FX SEED. Providers quote USD; the ledger is in € cents. This constant
@@ -288,7 +281,7 @@ export const USD_TO_EUR_SEED = 0.92;
 
 /** USD (as providers report it) -> € cents. PRECISE: no ceil, ever. */
 export function usdToEurCents(usd: number): number | null {
-  if (typeof usd !== "number" || !Number.isFinite(usd) || usd < 0) return null;
+  if (typeof usd !== 'number' || !Number.isFinite(usd) || usd < 0) return null;
   return usd * USD_TO_EUR_SEED * 100;
 }
 
@@ -302,7 +295,7 @@ export type BillableOperation = {
   readonly host: string;
   /** Exact endpoint. `billedFetch` refuses a URL that is not this one. */
   readonly endpoint: string;
-  readonly method: "GET" | "POST";
+  readonly method: 'GET' | 'POST';
   readonly costAuthority: CostAuthority;
   /**
    * Markup tier applied to the raw cost. Every lane here is "standard" (10x) —
@@ -369,11 +362,11 @@ export type BillableOperation = {
    * claim the code does not keep, and a THIRD mechanism cannot arrive as a
    * string.
    */
-  readonly enforcedBy: "chokepoint" | "inference-debit-barrier";
+  readonly enforcedBy: 'chokepoint' | 'inference-debit-barrier';
   readonly why: string;
 };
 
-const OPENROUTER_CHAT = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
 
 /**
  * EVERY paid remote operation in the product. An operation that is not in this
@@ -385,321 +378,310 @@ const OPENROUTER_CHAT = "https://openrouter.ai/api/v1/chat/completions";
  * registry a list of "the ones we fixed" rather than the set of paid operations,
  * and the next lane added beside them would inherit the omission.
  */
-export const BILLABLE_OPERATIONS: ReadonlyMap<string, BillableOperation> =
-  new Map<string, BillableOperation>([
-    [
-      "multimodal.tts",
-      {
-        id: "multimodal.tts",
-        host: "api.x.ai",
-        endpoint: "https://api.x.ai/v1/tts",
-        method: "POST",
-        costAuthority: "registry_priced",
-        markupTier: "standard",
-        pricing: {
-          // The DATE THIS REPRICING TOOK EFFECT. The calendar date collides with
-          // the row it replaces, so what distinguishes an old ledger row from a
-          // new one is the UNIT, which the pricing basis also carries:
-          // `registry:2026-08-02:audio_byte:N` vs
-          // `registry:2026-08-02:input_character:N`.
-          version: "2026-08-02",
-          unit: "input_character",
-          // ── PRICED ON THE UNIT THE PROVIDER ACTUALLY BILLS ──────────────────
-          // This row used to price RETURNED AUDIO BYTES. That was the wrong unit,
-          // not merely a mis-tuned rate: xAI bills TTS by INPUT CHARACTER, so no
-          // value on an output-byte unit could have been correct — a short prompt
-          // yielding long audio under-charged, a long prompt yielding short audio
-          // over-charged. The audio-byte path is REMOVED rather than left dormant
-          // beside this one: a retired pricing basis that still resolves is a
-          // basis something can fall back onto after the next refactor.
-          //
-          // DERIVATION (verify it; do not take it on trust). Every term below is
-          // in TTS_INPUT_CHARACTER_PRICE with its date and source, and
-          // `derivedEurCentsPerInputCharacter` recomputes it:
-          //   USD 15.00 / 1,000,000 input characters      (xAI published price)
-          //     = EUR 13.0605 per 1,000,000 characters
-          //       at the ECB euro reference rate of 2026-07-31,
-          //       1 EUR = 1.1485 USD
-          //   x 1.10 explicit FX safety factor
-          //     = EUR 14.3665 per 1,000,000 characters
-          //     = 0.00143665 EUR CENTS per character
-          //   ROUNDED UP to 0.00145 EUR cents per character (this row).
-          //
-          // ROUNDING IS UP, DELIBERATELY. Rounding a per-unit price DOWN
-          // under-charges on every single call and the shortfall grows with
-          // volume; rounding up costs a fraction of a cent. This row is therefore
-          // 0.93% ABOVE the derivation, and a test asserts it can never fall
-          // below it.
-          //
-          // NOTE ON THE ECB DATE: euro reference rates are published only on
-          // TARGET working days. 2026-07-31 is the latest working-day record;
-          // 2026-08-02 is a Sunday and is NOT an ECB rate date. Citing a weekend
-          // as an FX reference would be a false provenance claim in the money
-          // path.
-          //
-          // WHAT THAT COSTS AT THE CEILING: a maximum 15,000-character call is
-          // 15,000 x 0.00145 = 21.75 EUR cents RAW; the standard 10x markup is
-          // applied exactly once, downstream, for 217.5 EUR cents = ~EUR 2.18
-          // retail. The single final ceil happens at credit granularity in
-          // canAfford, never here.
-          //
-          // EVIDENCE GRADE, STATED HONESTLY: this is OFFICIAL PUBLISHED PRICING
-          // plus an OFFICIAL PUBLISHED FX REFERENCE. It is NOT invoice-validated
-          // — no billed xAI invoice has been reconciled against it, and nothing
-          // here claims one has. The 10% FX factor absorbs rate drift between
-          // repricings; it does not turn a published rate into a measured one.
-          //
-          // SOURCES (also machine-readable in TTS_INPUT_CHARACTER_PRICE):
-          //   https://docs.x.ai/developers/models/text-to-speech  (endpoint, 15,000-char max)
-          //   https://docs.x.ai/developers/pricing                (USD 15 / 1M input chars)
-          //   https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml  (EUR/USD)
-          rawEurCentsPerUnit: 0.00145,
-          // The endpoint's own maximum, and the same ceiling the gateway
-          // validates every request against (EVE_MULTIMODAL_TTS_MAX_TEXT_CHARS).
-          // A test pins these two together so they cannot drift apart.
-          boundUnitsCeiling: 15_000,
-        },
-        enforcedBy: "chokepoint",
-        why:
-          "xAI text-to-speech. Reports no cost; priced from the validated input characters it is billed by.",
+export const BILLABLE_OPERATIONS: ReadonlyMap<string, BillableOperation> = new Map<string, BillableOperation>([
+  [
+    'multimodal.tts',
+    {
+      id: 'multimodal.tts',
+      host: 'api.x.ai',
+      endpoint: 'https://api.x.ai/v1/tts',
+      method: 'POST',
+      costAuthority: 'registry_priced',
+      markupTier: 'standard',
+      pricing: {
+        // The DATE THIS REPRICING TOOK EFFECT. The calendar date collides with
+        // the row it replaces, so what distinguishes an old ledger row from a
+        // new one is the UNIT, which the pricing basis also carries:
+        // `registry:2026-08-02:audio_byte:N` vs
+        // `registry:2026-08-02:input_character:N`.
+        version: '2026-08-02',
+        unit: 'input_character',
+        // ── PRICED ON THE UNIT THE PROVIDER ACTUALLY BILLS ──────────────────
+        // This row used to price RETURNED AUDIO BYTES. That was the wrong unit,
+        // not merely a mis-tuned rate: xAI bills TTS by INPUT CHARACTER, so no
+        // value on an output-byte unit could have been correct — a short prompt
+        // yielding long audio under-charged, a long prompt yielding short audio
+        // over-charged. The audio-byte path is REMOVED rather than left dormant
+        // beside this one: a retired pricing basis that still resolves is a
+        // basis something can fall back onto after the next refactor.
+        //
+        // DERIVATION (verify it; do not take it on trust). Every term below is
+        // in TTS_INPUT_CHARACTER_PRICE with its date and source, and
+        // `derivedEurCentsPerInputCharacter` recomputes it:
+        //   USD 15.00 / 1,000,000 input characters      (xAI published price)
+        //     = EUR 13.0605 per 1,000,000 characters
+        //       at the ECB euro reference rate of 2026-07-31,
+        //       1 EUR = 1.1485 USD
+        //   x 1.10 explicit FX safety factor
+        //     = EUR 14.3665 per 1,000,000 characters
+        //     = 0.00143665 EUR CENTS per character
+        //   ROUNDED UP to 0.00145 EUR cents per character (this row).
+        //
+        // ROUNDING IS UP, DELIBERATELY. Rounding a per-unit price DOWN
+        // under-charges on every single call and the shortfall grows with
+        // volume; rounding up costs a fraction of a cent. This row is therefore
+        // 0.93% ABOVE the derivation, and a test asserts it can never fall
+        // below it.
+        //
+        // NOTE ON THE ECB DATE: euro reference rates are published only on
+        // TARGET working days. 2026-07-31 is the latest working-day record;
+        // 2026-08-02 is a Sunday and is NOT an ECB rate date. Citing a weekend
+        // as an FX reference would be a false provenance claim in the money
+        // path.
+        //
+        // WHAT THAT COSTS AT THE CEILING: a maximum 15,000-character call is
+        // 15,000 x 0.00145 = 21.75 EUR cents RAW; the standard 10x markup is
+        // applied exactly once, downstream, for 217.5 EUR cents = ~EUR 2.18
+        // retail. The single final ceil happens at credit granularity in
+        // canAfford, never here.
+        //
+        // EVIDENCE GRADE, STATED HONESTLY: this is OFFICIAL PUBLISHED PRICING
+        // plus an OFFICIAL PUBLISHED FX REFERENCE. It is NOT invoice-validated
+        // — no billed xAI invoice has been reconciled against it, and nothing
+        // here claims one has. The 10% FX factor absorbs rate drift between
+        // repricings; it does not turn a published rate into a measured one.
+        //
+        // SOURCES (also machine-readable in TTS_INPUT_CHARACTER_PRICE):
+        //   https://docs.x.ai/developers/models/text-to-speech  (endpoint, 15,000-char max)
+        //   https://docs.x.ai/developers/pricing                (USD 15 / 1M input chars)
+        //   https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml  (EUR/USD)
+        rawEurCentsPerUnit: 0.00145,
+        // The endpoint's own maximum, and the same ceiling the gateway
+        // validates every request against (EVE_MULTIMODAL_TTS_MAX_TEXT_CHARS).
+        // A test pins these two together so they cannot drift apart.
+        boundUnitsCeiling: 15_000,
       },
-    ],
-    [
-      "multimodal.vision",
-      {
-        id: "multimodal.vision",
-        host: "openrouter.ai",
-        endpoint: OPENROUTER_CHAT,
-        method: "POST",
-        costAuthority: "provider_reported",
-        markupTier: "standard",
-        pricing: {
-          version: "2026-08-02",
-          unit: "image",
-          // Pre-call bound only. OpenRouter reports usage.cost after the call and
-          // that figure settles the charge. 0.30 € cents raw per slide/image is
-          // above the observed Flash vision cost per image, so the bound holds.
-          rawEurCentsPerUnit: 0.3,
-          boundUnitsCeiling: 200, // DEFAULT_VISION_TENANT_SLIDE_CAP
-        },
-        enforcedBy: "chokepoint",
-        why:
-          "OpenRouter vision over presentation slides / images; usage.cost is authoritative.",
+      enforcedBy: 'chokepoint',
+      why: 'xAI text-to-speech. Reports no cost; priced from the validated input characters it is billed by.',
+    },
+  ],
+  [
+    'multimodal.vision',
+    {
+      id: 'multimodal.vision',
+      host: 'openrouter.ai',
+      endpoint: OPENROUTER_CHAT,
+      method: 'POST',
+      costAuthority: 'provider_reported',
+      markupTier: 'standard',
+      pricing: {
+        version: '2026-08-02',
+        unit: 'image',
+        // Pre-call bound only. OpenRouter reports usage.cost after the call and
+        // that figure settles the charge. 0.30 € cents raw per slide/image is
+        // above the observed Flash vision cost per image, so the bound holds.
+        rawEurCentsPerUnit: 0.3,
+        boundUnitsCeiling: 200, // DEFAULT_VISION_TENANT_SLIDE_CAP
       },
-    ],
-    [
-      "multimodal.document_ocr",
-      {
-        id: "multimodal.document_ocr",
-        host: "openrouter.ai",
-        endpoint: OPENROUTER_CHAT,
-        method: "POST",
-        costAuthority: "provider_reported",
-        markupTier: "standard",
-        pricing: {
-          version: "2026-08-02",
-          unit: "image", // one unit per physical page
-          rawEurCentsPerUnit: 0.3,
-          boundUnitsCeiling: 500, // DEFAULT_PDF_OCR_TENANT_PAGE_CAP
-        },
-        enforcedBy: "chokepoint",
-        why:
-          "OpenRouter PDF OCR (mistral-ocr file parser); usage.cost is authoritative.",
+      enforcedBy: 'chokepoint',
+      why: 'OpenRouter vision over presentation slides / images; usage.cost is authoritative.',
+    },
+  ],
+  [
+    'multimodal.document_ocr',
+    {
+      id: 'multimodal.document_ocr',
+      host: 'openrouter.ai',
+      endpoint: OPENROUTER_CHAT,
+      method: 'POST',
+      costAuthority: 'provider_reported',
+      markupTier: 'standard',
+      pricing: {
+        version: '2026-08-02',
+        unit: 'image', // one unit per physical page
+        rawEurCentsPerUnit: 0.3,
+        boundUnitsCeiling: 500, // DEFAULT_PDF_OCR_TENANT_PAGE_CAP
       },
-    ],
-    [
-      "multimodal.image_generation",
-      {
-        id: "multimodal.image_generation",
-        host: "openrouter.ai",
-        // NOT chat/completions. Image generation is its own endpoint, and the
-        // first draft of the OLD metering gate discovered exactly this the hard
-        // way — it listed only completions endpoints and failed against its own
-        // allowlist. Pinning the real endpoint per operation is what stops that
-        // from ever being a judgement call again.
-        endpoint: "https://openrouter.ai/api/v1/images",
-        method: "POST",
-        costAuthority: "provider_reported",
-        markupTier: "standard",
-        pricing: {
-          version: "2026-08-02",
-          unit: "image",
-          // One image per request. The bound is above the observed per-image cost
-          // of the pinned image model so the reserve cannot fall short.
-          rawEurCentsPerUnit: 16,
-          boundUnitsCeiling: 1,
-        },
-        enforcedBy: "chokepoint",
-        why:
-          "OpenRouter image generation; usage.cost is authoritative when present.",
+      enforcedBy: 'chokepoint',
+      why: 'OpenRouter PDF OCR (mistral-ocr file parser); usage.cost is authoritative.',
+    },
+  ],
+  [
+    'multimodal.image_generation',
+    {
+      id: 'multimodal.image_generation',
+      host: 'openrouter.ai',
+      // NOT chat/completions. Image generation is its own endpoint, and the
+      // first draft of the OLD metering gate discovered exactly this the hard
+      // way — it listed only completions endpoints and failed against its own
+      // allowlist. Pinning the real endpoint per operation is what stops that
+      // from ever being a judgement call again.
+      endpoint: 'https://openrouter.ai/api/v1/images',
+      method: 'POST',
+      costAuthority: 'provider_reported',
+      markupTier: 'standard',
+      pricing: {
+        version: '2026-08-02',
+        unit: 'image',
+        // One image per request. The bound is above the observed per-image cost
+        // of the pinned image model so the reserve cannot fall short.
+        rawEurCentsPerUnit: 16,
+        boundUnitsCeiling: 1,
       },
-    ],
-    [
-      "multimodal.video_generation",
-      {
-        id: "multimodal.video_generation",
-        host: "api.x.ai",
-        endpoint: "https://api.x.ai/v1/videos/generations",
-        method: "POST",
-        costAuthority: "registry_priced",
-        markupTier: "standard",
-        pricing: {
-          version: "2026-08-02",
-          unit: "video_second",
-          // The video lane prices from its OWN resolved render plan
-          // (plan.estimatedCredits), which is already tier/duration/model aware
-          // and already unit-tested. This row exists so the operation is
-          // REGISTERED and reachable, not to re-derive that price: the lane passes
-          // its plan cost in as the bound and the settle is exact-equals-bound.
-          rawEurCentsPerUnit: 0,
-          boundUnitsCeiling: 15,
-        },
-        // MP4, because that is what this product's video lanes are: the edit
-        // lane accepts an MP4 source and nothing else (xaiVideoDataUrlFromBase64
-        // refuses anything that is not one), so an MP4 is the only artifact the
-        // pair can round-trip. Pinned here, not read off the wire.
-        assetMediaType: "video/mp4",
-        // Grok Video serves finished assets from vidgen.x.ai, NOT from the API
-        // host — measured against a live, invoiced Grok Video 1.5 render on
-        // 2026-08-05 (MAT-1773/F6): the generation succeeded and was billed by
-        // xAI, and the delivery failed here because this set used to be
-        // api.x.ai only. Exact host strings, https only; the asset download
-        // carries no bearer (see fetchProviderAsset).
-        assetHosts: ["api.x.ai", "vidgen.x.ai"],
-        enforcedBy: "chokepoint",
-        why:
-          "xAI video generation. Already atomically debited before the call via commitVideoDebit.",
+      enforcedBy: 'chokepoint',
+      why: 'OpenRouter image generation; usage.cost is authoritative when present.',
+    },
+  ],
+  [
+    'multimodal.video_generation',
+    {
+      id: 'multimodal.video_generation',
+      host: 'api.x.ai',
+      endpoint: 'https://api.x.ai/v1/videos/generations',
+      method: 'POST',
+      costAuthority: 'registry_priced',
+      markupTier: 'standard',
+      pricing: {
+        version: '2026-08-02',
+        unit: 'video_second',
+        // The video lane prices from its OWN resolved render plan
+        // (plan.estimatedCredits), which is already tier/duration/model aware
+        // and already unit-tested. This row exists so the operation is
+        // REGISTERED and reachable, not to re-derive that price: the lane passes
+        // its plan cost in as the bound and the settle is exact-equals-bound.
+        rawEurCentsPerUnit: 0,
+        boundUnitsCeiling: 15,
       },
-    ],
-    [
-      "multimodal.video_edit",
-      {
-        id: "multimodal.video_edit",
-        host: "api.x.ai",
-        endpoint: "https://api.x.ai/v1/videos/edits",
-        method: "POST",
-        costAuthority: "registry_priced",
-        markupTier: "standard",
-        pricing: {
-          version: "2026-08-02",
-          unit: "video_second",
-          rawEurCentsPerUnit: 0,
-          boundUnitsCeiling: 15,
-        },
-        assetMediaType: "video/mp4",
-        // Same asset host set as video_generation: an edit's finished asset is
-        // served by the same xAI video backend, so it comes from vidgen.x.ai
-        // too. Exact host strings, https only.
-        assetHosts: ["api.x.ai", "vidgen.x.ai"],
-        enforcedBy: "chokepoint",
-        why:
-          "xAI video edit. Already atomically debited before the call via commitVideoDebit.",
+      // MP4, because that is what this product's video lanes are: the edit
+      // lane accepts an MP4 source and nothing else (xaiVideoDataUrlFromBase64
+      // refuses anything that is not one), so an MP4 is the only artifact the
+      // pair can round-trip. Pinned here, not read off the wire.
+      assetMediaType: 'video/mp4',
+      // Grok Video serves finished assets from vidgen.x.ai, NOT from the API
+      // host — measured against a live, invoiced Grok Video 1.5 render on
+      // 2026-08-05 (MAT-1773/F6): the generation succeeded and was billed by
+      // xAI, and the delivery failed here because this set used to be
+      // api.x.ai only. Exact host strings, https only; the asset download
+      // carries no bearer (see fetchProviderAsset).
+      assetHosts: ['api.x.ai', 'vidgen.x.ai'],
+      enforcedBy: 'chokepoint',
+      why: 'xAI video generation. Already atomically debited before the call via commitVideoDebit.',
+    },
+  ],
+  [
+    'multimodal.video_edit',
+    {
+      id: 'multimodal.video_edit',
+      host: 'api.x.ai',
+      endpoint: 'https://api.x.ai/v1/videos/edits',
+      method: 'POST',
+      costAuthority: 'registry_priced',
+      markupTier: 'standard',
+      pricing: {
+        version: '2026-08-02',
+        unit: 'video_second',
+        rawEurCentsPerUnit: 0,
+        boundUnitsCeiling: 15,
       },
-    ],
-    [
-      "multimodal.video_status",
-      {
-        id: "multimodal.video_status",
-        host: "api.x.ai",
-        endpoint: "https://api.x.ai/v1/videos",
-        method: "GET",
-        costAuthority: "registry_priced",
-        markupTier: "standard",
-        pricing: {
-          version: "2026-08-02",
-          unit: "video_second",
-          rawEurCentsPerUnit: 0,
-          boundUnitsCeiling: 0,
-        },
-        settlesAgainst: "multimodal.video_generation",
-        enforcedBy: "chokepoint",
-        why:
-          "Status poll of an already-debited render job. Bills nothing; registered so it cannot be a side door.",
+      assetMediaType: 'video/mp4',
+      // Same asset host set as video_generation: an edit's finished asset is
+      // served by the same xAI video backend, so it comes from vidgen.x.ai
+      // too. Exact host strings, https only.
+      assetHosts: ['api.x.ai', 'vidgen.x.ai'],
+      enforcedBy: 'chokepoint',
+      why: 'xAI video edit. Already atomically debited before the call via commitVideoDebit.',
+    },
+  ],
+  [
+    'multimodal.video_status',
+    {
+      id: 'multimodal.video_status',
+      host: 'api.x.ai',
+      endpoint: 'https://api.x.ai/v1/videos',
+      method: 'GET',
+      costAuthority: 'registry_priced',
+      markupTier: 'standard',
+      pricing: {
+        version: '2026-08-02',
+        unit: 'video_second',
+        rawEurCentsPerUnit: 0,
+        boundUnitsCeiling: 0,
       },
-    ],
-    [
-      "multimodal.openrouter_video_generation",
-      {
-        id: "multimodal.openrouter_video_generation",
-        host: "openrouter.ai",
-        // The ASYNC video contract (official guide, verified 2026-08-05):
-        // submit POST /api/v1/videos -> 202 {id, polling_url, status};
-        // poll GET /api/v1/videos/{id} until completed; download
-        // GET /api/v1/videos/{id}/content?index=0 WITH the bearer — unlike
-        // the xAI asset host, OpenRouter's content endpoint requires the
-        // credential, and fetchProviderAsset presents it only to op.host.
-        endpoint: "https://openrouter.ai/api/v1/videos",
-        method: "POST",
-        costAuthority: "registry_priced",
-        markupTier: "standard",
-        pricing: {
-          version: "2026-08-05",
-          unit: "video_second",
-          // Like the xAI video rows: the lane prices from its own catalog
-          // snapshot (openrouter-video-catalog.ts, dated 2026-08-05), which is
-          // per-model/resolution/mode aware and unit-tested. This row exists
-          // so the operation is REGISTERED and reachable; the lane passes its
-          // estimate in as the bound and the settle is exact-equals-bound.
-          // The ceiling is the catalog's maximum duration (20s, flux-3-video
-          // and sora-2-pro).
-          rawEurCentsPerUnit: 0,
-          boundUnitsCeiling: 20,
-        },
-        assetMediaType: "video/mp4",
-        // The finished asset is served by openrouter.ai itself
-        // (/api/v1/videos/{id}/content). Exact host string, https only.
-        assetHosts: ["openrouter.ai"],
-        enforcedBy: "chokepoint",
-        why:
-          "OpenRouter video generation (F8 default gateway). Already atomically debited before the call via the shared reserve.",
+      settlesAgainst: 'multimodal.video_generation',
+      enforcedBy: 'chokepoint',
+      why: 'Status poll of an already-debited render job. Bills nothing; registered so it cannot be a side door.',
+    },
+  ],
+  [
+    'multimodal.openrouter_video_generation',
+    {
+      id: 'multimodal.openrouter_video_generation',
+      host: 'openrouter.ai',
+      // The ASYNC video contract (official guide, verified 2026-08-05):
+      // submit POST /api/v1/videos -> 202 {id, polling_url, status};
+      // poll GET /api/v1/videos/{id} until completed; download
+      // GET /api/v1/videos/{id}/content?index=0 WITH the bearer — unlike
+      // the xAI asset host, OpenRouter's content endpoint requires the
+      // credential, and fetchProviderAsset presents it only to op.host.
+      endpoint: 'https://openrouter.ai/api/v1/videos',
+      method: 'POST',
+      costAuthority: 'registry_priced',
+      markupTier: 'standard',
+      pricing: {
+        version: '2026-08-05',
+        unit: 'video_second',
+        // Like the xAI video rows: the lane prices from its own catalog
+        // snapshot (openrouter-video-catalog.ts, dated 2026-08-05), which is
+        // per-model/resolution/mode aware and unit-tested. This row exists
+        // so the operation is REGISTERED and reachable; the lane passes its
+        // estimate in as the bound and the settle is exact-equals-bound.
+        // The ceiling is the catalog's maximum duration (20s, flux-3-video
+        // and sora-2-pro).
+        rawEurCentsPerUnit: 0,
+        boundUnitsCeiling: 20,
       },
-    ],
-    [
-      "multimodal.openrouter_video_status",
-      {
-        id: "multimodal.openrouter_video_status",
-        host: "openrouter.ai",
-        endpoint: "https://openrouter.ai/api/v1/videos",
-        method: "GET",
-        costAuthority: "registry_priced",
-        markupTier: "standard",
-        pricing: {
-          version: "2026-08-05",
-          unit: "video_second",
-          rawEurCentsPerUnit: 0,
-          boundUnitsCeiling: 0,
-        },
-        settlesAgainst: "multimodal.openrouter_video_generation",
-        enforcedBy: "chokepoint",
-        why:
-          "Status poll of an already-debited OpenRouter render job. Bills nothing; registered so it cannot be a side door.",
+      assetMediaType: 'video/mp4',
+      // The finished asset is served by openrouter.ai itself
+      // (/api/v1/videos/{id}/content). Exact host string, https only.
+      assetHosts: ['openrouter.ai'],
+      enforcedBy: 'chokepoint',
+      why: 'OpenRouter video generation (F8 default gateway). Already atomically debited before the call via the shared reserve.',
+    },
+  ],
+  [
+    'multimodal.openrouter_video_status',
+    {
+      id: 'multimodal.openrouter_video_status',
+      host: 'openrouter.ai',
+      endpoint: 'https://openrouter.ai/api/v1/videos',
+      method: 'GET',
+      costAuthority: 'registry_priced',
+      markupTier: 'standard',
+      pricing: {
+        version: '2026-08-05',
+        unit: 'video_second',
+        rawEurCentsPerUnit: 0,
+        boundUnitsCeiling: 0,
       },
-    ],
-    [
-      "inference.chat",
-      {
-        id: "inference.chat",
-        host: "openrouter.ai",
-        endpoint: OPENROUTER_CHAT,
-        method: "POST",
-        costAuthority: "provider_reported",
-        markupTier: "standard",
-        pricing: {
-          version: "2026-08-02",
-          unit: "image", // unused: the inference lane prices per token upstream
-          rawEurCentsPerUnit: 0,
-          boundUnitsCeiling: 0,
-        },
-        enforcedBy: "inference-debit-barrier",
-        why:
-          "The metered Standard/MAX text lane. Reserve/commit is enforced by eve-inference-core's debit barrier (commitOrFail); registered here so the host set is complete.",
+      settlesAgainst: 'multimodal.openrouter_video_generation',
+      enforcedBy: 'chokepoint',
+      why: 'Status poll of an already-debited OpenRouter render job. Bills nothing; registered so it cannot be a side door.',
+    },
+  ],
+  [
+    'inference.chat',
+    {
+      id: 'inference.chat',
+      host: 'openrouter.ai',
+      endpoint: OPENROUTER_CHAT,
+      method: 'POST',
+      costAuthority: 'provider_reported',
+      markupTier: 'standard',
+      pricing: {
+        version: '2026-08-02',
+        unit: 'image', // unused: the inference lane prices per token upstream
+        rawEurCentsPerUnit: 0,
+        boundUnitsCeiling: 0,
       },
-    ],
-  ]);
+      enforcedBy: 'inference-debit-barrier',
+      why: "The metered Standard/MAX text lane. Reserve/commit is enforced by eve-inference-core's debit barrier (commitOrFail); registered here so the host set is complete.",
+    },
+  ],
+]);
 
 /** A poll-only operation bills nothing of its own. */
 export function isSettlementPoll(op: BillableOperation): boolean {
-  return typeof op.settlesAgainst === "string";
+  return typeof op.settlesAgainst === 'string';
 }
 
 /**
@@ -755,14 +737,12 @@ function siblingOperationSegments(op: BillableOperation): Set<string> {
     const sibling = new URL(other.endpoint);
     if (sibling.origin !== base.origin) continue;
     if (!sibling.pathname.startsWith(`${base.pathname}/`)) continue;
-    reserved.add(sibling.pathname.slice(base.pathname.length + 1).split("/")[0]);
+    reserved.add(sibling.pathname.slice(base.pathname.length + 1).split('/')[0]);
   }
   return reserved;
 }
 
-type EndpointVerdict =
-  | { ok: true }
-  | { ok: false; code: string; detail: string };
+type EndpointVerdict = { ok: true } | { ok: false; code: string; detail: string };
 
 /**
  * Is this URL the operation's registered endpoint — EXACTLY?
@@ -775,7 +755,7 @@ function endpointVerdict(op: BillableOperation, parsed: URL): EndpointVerdict {
   const registered = new URL(op.endpoint);
   const notRegistered: EndpointVerdict = {
     ok: false,
-    code: "endpoint-not-registered",
+    code: 'endpoint-not-registered',
     detail: `${op.id} is registered for ${op.endpoint}`,
   };
   if (parsed.origin !== registered.origin) return notRegistered;
@@ -784,11 +764,11 @@ function endpointVerdict(op: BillableOperation, parsed: URL): EndpointVerdict {
   // one. Refusing both outright deletes the whole "the path is clean, the extra
   // is in the query" class instead of reasoning about which parts of a URL a
   // provider might route on.
-  if (parsed.search !== "" || parsed.hash !== "") {
+  if (parsed.search !== '' || parsed.hash !== '') {
     return {
       ok: false,
-      code: "endpoint-carries-query",
-      detail: "no registered endpoint takes a query string or a fragment",
+      code: 'endpoint-carries-query',
+      detail: 'no registered endpoint takes a query string or a fragment',
     };
   }
 
@@ -800,7 +780,7 @@ function endpointVerdict(op: BillableOperation, parsed: URL): EndpointVerdict {
   const base = registered.pathname;
   const notARequestId = (detail: string): EndpointVerdict => ({
     ok: false,
-    code: "poll-target-not-a-request-id",
+    code: 'poll-target-not-a-request-id',
     detail: `a poll is ${op.endpoint}/{requestId}; ${detail}`,
   });
   if (!parsed.pathname.startsWith(`${base}/`)) {
@@ -808,17 +788,15 @@ function endpointVerdict(op: BillableOperation, parsed: URL): EndpointVerdict {
   }
   const segment = parsed.pathname.slice(base.length + 1);
   if (!SETTLEMENT_POLL_REQUEST_ID.test(segment)) {
-    return notARequestId(
-      `"${segment}" is not a request id matching ${SETTLEMENT_POLL_REQUEST_ID.source}`,
-    );
+    return notARequestId(`"${segment}" is not a request id matching ${SETTLEMENT_POLL_REQUEST_ID.source}`);
   }
   if (siblingOperationSegments(op).has(segment)) {
     return {
       ok: false,
-      code: "poll-target-is-a-billing-operation",
+      code: 'poll-target-is-a-billing-operation',
       detail:
         `"${segment}" is another registered operation's path, not a request id. ` +
-        "The poll bills nothing and needs no receipt; it may not be aimed at an operation that bills.",
+        'The poll bills nothing and needs no receipt; it may not be aimed at an operation that bills.',
     };
   }
   return { ok: true };
@@ -855,21 +833,18 @@ export type PricedAmount =
  * FAIL CLOSED: a non-finite, negative or unpriceable input yields ok:false, and
  * the caller must then serve NOTHING. There is no "assume zero and continue".
  */
-export function boundEurCentsFor(
-  op: BillableOperation,
-  units: number,
-): PricedAmount {
+export function boundEurCentsFor(op: BillableOperation, units: number): PricedAmount {
   if (!Number.isFinite(units) || units < 0) {
-    return { ok: false, reason: "bound-units-not-measurable" };
+    return { ok: false, reason: 'bound-units-not-measurable' };
   }
   const pricing = op.pricing;
   if (!pricing || !Number.isFinite(pricing.rawEurCentsPerUnit)) {
-    return { ok: false, reason: "route-not-priced" };
+    return { ok: false, reason: 'route-not-priced' };
   }
   const bounded = Math.min(units, pricing.boundUnitsCeiling);
   const rawEurCents = bounded * pricing.rawEurCentsPerUnit;
   if (!Number.isFinite(rawEurCents) || rawEurCents < 0) {
-    return { ok: false, reason: "route-not-priced" };
+    return { ok: false, reason: 'route-not-priced' };
   }
   // ONE markup application. NO ceil here — the single rounding happens at credit
   // granularity inside canAfford. A ceil here would be a per-step ceil (R7-ii).
@@ -903,18 +878,20 @@ export function actualEurCentsFor(
   input: {
     providerReportedRawEurCents?: number | null;
     measuredUnits?: number | null;
-  },
+  }
 ): PricedAmount {
   const reported = input.providerReportedRawEurCents;
   if (
-    op.costAuthority === "provider_reported" && typeof reported === "number" &&
-    Number.isFinite(reported) && reported >= 0
+    op.costAuthority === 'provider_reported' &&
+    typeof reported === 'number' &&
+    Number.isFinite(reported) &&
+    reported >= 0
   ) {
     return {
       ok: true,
       rawEurCents: reported,
       retailEurCents: retailCostEurCents(reported, op.markupTier),
-      basis: "provider-reported",
+      basis: 'provider-reported',
     };
   }
 
@@ -922,8 +899,8 @@ export function actualEurCentsFor(
   // registry price times the units the call ACTUALLY RETURNED — never the
   // reserve estimate, and never a unit count the client asked for.
   const units = input.measuredUnits;
-  if (typeof units !== "number" || !Number.isFinite(units) || units < 0) {
-    return { ok: false, reason: "route-not-priceable" };
+  if (typeof units !== 'number' || !Number.isFinite(units) || units < 0) {
+    return { ok: false, reason: 'route-not-priceable' };
   }
   const priced = boundEurCentsFor(op, units);
   if (!priced.ok) return priced;
@@ -951,8 +928,7 @@ export type ReserveReceipt = {
 const MINTED_RECEIPTS = new WeakSet<object>();
 
 export function isMintedReceipt(value: unknown): value is ReserveReceipt {
-  return typeof value === "object" && value !== null &&
-    MINTED_RECEIPTS.has(value as object);
+  return typeof value === 'object' && value !== null && MINTED_RECEIPTS.has(value as object);
 }
 
 /**
@@ -968,10 +944,10 @@ export type BillingLedgerPort = {
     reason: string;
     expectedEntitlementId?: string;
   }): Promise<
-    | { status: "applied"; entitlementId: string; externalRef?: string }
-    | { status: "already"; entitlementId: string; externalRef?: string }
-    | { status: "insufficient"; reason: "insufficient_credits" | "spend_cap_exceeded" }
-    | { status: "unavailable" }
+    | { status: 'applied'; entitlementId: string; externalRef?: string }
+    | { status: 'already'; entitlementId: string; externalRef?: string }
+    | { status: 'insufficient'; reason: 'insufficient_credits' | 'spend_cap_exceeded' }
+    | { status: 'unavailable' }
   >;
   reverse(input: {
     entitlementId: string;
@@ -983,11 +959,11 @@ export type BillingLedgerPort = {
 };
 
 export type ReserveOutcome =
-  | { status: "reserved"; receipt: ReserveReceipt }
-  | { status: "replayed" }
-  | { status: "insufficient"; reason: "insufficient_credits" | "spend_cap_exceeded" }
-  | { status: "unpriceable"; reason: string }
-  | { status: "unavailable" };
+  | { status: 'reserved'; receipt: ReserveReceipt }
+  | { status: 'replayed' }
+  | { status: 'insufficient'; reason: 'insufficient_credits' | 'spend_cap_exceeded' }
+  | { status: 'unpriceable'; reason: string }
+  | { status: 'unavailable' };
 
 /**
  * DURABLE RESERVE. Prices the bound, then MOVES MONEY through the same atomic
@@ -1016,25 +992,22 @@ export async function reserveBillableOperation(args: {
   explicitBoundRetailEurCents?: number;
 }): Promise<ReserveOutcome> {
   const op = billableOperation(args.operationId);
-  if (!op) return { status: "unpriceable", reason: "operation-not-registered" };
+  if (!op) return { status: 'unpriceable', reason: 'operation-not-registered' };
   if (isSettlementPoll(op)) {
-    return { status: "unpriceable", reason: "operation-bills-nothing" };
+    return { status: 'unpriceable', reason: 'operation-bills-nothing' };
   }
 
   let boundRetail: number;
   let pricingVersion: string;
-  if (typeof args.explicitBoundRetailEurCents === "number") {
-    if (
-      !Number.isFinite(args.explicitBoundRetailEurCents) ||
-      args.explicitBoundRetailEurCents < 0
-    ) {
-      return { status: "unpriceable", reason: "explicit-bound-not-measurable" };
+  if (typeof args.explicitBoundRetailEurCents === 'number') {
+    if (!Number.isFinite(args.explicitBoundRetailEurCents) || args.explicitBoundRetailEurCents < 0) {
+      return { status: 'unpriceable', reason: 'explicit-bound-not-measurable' };
     }
     boundRetail = args.explicitBoundRetailEurCents;
     pricingVersion = `lane:${op.pricing.version}`;
   } else {
     const priced = boundEurCentsFor(op, args.boundUnits);
-    if (!priced.ok) return { status: "unpriceable", reason: priced.reason };
+    if (!priced.ok) return { status: 'unpriceable', reason: priced.reason };
     boundRetail = priced.retailEurCents;
     pricingVersion = op.pricing.version;
   }
@@ -1048,11 +1021,11 @@ export async function reserveBillableOperation(args: {
     expectedEntitlementId: args.expectedEntitlementId,
   });
 
-  if (commit.status === "unavailable") return { status: "unavailable" };
-  if (commit.status === "insufficient") {
-    return { status: "insufficient", reason: commit.reason };
+  if (commit.status === 'unavailable') return { status: 'unavailable' };
+  if (commit.status === 'insufficient') {
+    return { status: 'insufficient', reason: commit.reason };
   }
-  if (commit.status === "already") return { status: "replayed" };
+  if (commit.status === 'already') return { status: 'replayed' };
 
   const receipt: ReserveReceipt = Object.freeze({
     operationId: op.id,
@@ -1066,7 +1039,7 @@ export async function reserveBillableOperation(args: {
     pricingVersion,
   });
   MINTED_RECEIPTS.add(receipt);
-  return { status: "reserved", receipt };
+  return { status: 'reserved', receipt };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1077,7 +1050,7 @@ export class UnbilledCallError extends Error {
   readonly code: string;
   constructor(code: string, message: string) {
     super(message);
-    this.name = "UnbilledCallError";
+    this.name = 'UnbilledCallError';
     this.code = code;
   }
 }
@@ -1118,8 +1091,8 @@ export async function billedFetch(args: {
   const op = billableOperation(args.operationId);
   if (!op) {
     throw new UnbilledCallError(
-      "operation-not-registered",
-      `${args.operationId} is not a registered billable operation. Add a registry entry; a provider call with no entry cannot be made.`,
+      'operation-not-registered',
+      `${args.operationId} is not a registered billable operation. Add a registry entry; a provider call with no entry cannot be made.`
     );
   }
 
@@ -1127,13 +1100,10 @@ export async function billedFetch(args: {
   try {
     parsed = new URL(args.url);
   } catch {
-    throw new UnbilledCallError("endpoint-unparseable", `${args.operationId}: malformed URL`);
+    throw new UnbilledCallError('endpoint-unparseable', `${args.operationId}: malformed URL`);
   }
   if (!isRegisteredProviderHost(parsed.host)) {
-    throw new UnbilledCallError(
-      "host-not-registered",
-      `${parsed.host} is not a registered billable provider host.`,
-    );
+    throw new UnbilledCallError('host-not-registered', `${parsed.host} is not a registered billable provider host.`);
   }
   const verdict = endpointVerdict(op, parsed);
   if (!verdict.ok) {
@@ -1141,30 +1111,27 @@ export async function billedFetch(args: {
     // parser's tidied-up path leaves the reader guessing what was actually asked
     // for, and the probe that found this defect is the one that must be readable
     // in the failure.
-    throw new UnbilledCallError(
-      verdict.code,
-      `${args.operationId} refused ${args.url} — ${verdict.detail}.`,
-    );
+    throw new UnbilledCallError(verdict.code, `${args.operationId} refused ${args.url} — ${verdict.detail}.`);
   }
-  const method = (args.init.method ?? "GET").toUpperCase();
+  const method = (args.init.method ?? 'GET').toUpperCase();
   if (method !== op.method) {
     throw new UnbilledCallError(
-      "method-not-registered",
-      `${args.operationId} is registered for ${op.method}, not ${method}.`,
+      'method-not-registered',
+      `${args.operationId} is registered for ${op.method}, not ${method}.`
     );
   }
 
   if (!isSettlementPoll(op)) {
     if (!isMintedReceipt(args.receipt)) {
       throw new UnbilledCallError(
-        "no-reserve-receipt",
-        `${args.operationId} was called without a minted reserve receipt. No paid provider call may be made before a durable debit has landed.`,
+        'no-reserve-receipt',
+        `${args.operationId} was called without a minted reserve receipt. No paid provider call may be made before a durable debit has landed.`
       );
     }
     if (args.receipt.operationId !== op.id) {
       throw new UnbilledCallError(
-        "receipt-operation-mismatch",
-        `${args.operationId} was called with a receipt minted for ${args.receipt.operationId}.`,
+        'receipt-operation-mismatch',
+        `${args.operationId} was called with a receipt minted for ${args.receipt.operationId}.`
       );
     }
   }
@@ -1225,9 +1192,7 @@ function permittedAssetHosts(op: BillableOperation): readonly string[] {
 
 const IPV4_LITERAL = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
-type AddressClass =
-  | { literal: false }
-  | { literal: true; unroutable: string | null };
+type AddressClass = { literal: false } | { literal: true; unroutable: string | null };
 
 /**
  * IS THIS HOSTNAME A LITERAL ADDRESS, AND IS IT ONE THAT NEVER LEAVES THE HOST
@@ -1254,18 +1219,18 @@ type AddressClass =
  * what was attempted.
  */
 function addressClass(hostname: string): AddressClass {
-  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+  if (hostname.startsWith('[') && hostname.endsWith(']')) {
     const v6 = hostname.slice(1, -1).toLowerCase();
-    if (v6 === "::1") return { literal: true, unroutable: "::1 (IPv6 loopback)" };
-    if (v6 === "::") return { literal: true, unroutable: ":: (IPv6 unspecified)" };
+    if (v6 === '::1') return { literal: true, unroutable: '::1 (IPv6 loopback)' };
+    if (v6 === '::') return { literal: true, unroutable: ':: (IPv6 unspecified)' };
     if (/^f[cd][0-9a-f]*:/.test(v6)) {
-      return { literal: true, unroutable: "fc00::/7 (IPv6 unique-local)" };
+      return { literal: true, unroutable: 'fc00::/7 (IPv6 unique-local)' };
     }
     if (/^fe[89ab][0-9a-f]*:/.test(v6)) {
-      return { literal: true, unroutable: "fe80::/10 (IPv6 link-local)" };
+      return { literal: true, unroutable: 'fe80::/10 (IPv6 link-local)' };
     }
-    if (v6.startsWith("::ffff:")) {
-      return { literal: true, unroutable: "::ffff:0:0/96 (IPv4-mapped IPv6)" };
+    if (v6.startsWith('::ffff:')) {
+      return { literal: true, unroutable: '::ffff:0:0/96 (IPv4-mapped IPv6)' };
     }
     return { literal: true, unroutable: null };
   }
@@ -1276,26 +1241,24 @@ function addressClass(hostname: string): AddressClass {
     return { literal: false };
   }
   if (a === 169 && b === 254) {
-    return { literal: true, unroutable: "169.254.0.0/16 (link-local, cloud metadata)" };
+    return { literal: true, unroutable: '169.254.0.0/16 (link-local, cloud metadata)' };
   }
-  if (a === 127) return { literal: true, unroutable: "127.0.0.0/8 (loopback)" };
-  if (a === 10) return { literal: true, unroutable: "10.0.0.0/8 (private)" };
+  if (a === 127) return { literal: true, unroutable: '127.0.0.0/8 (loopback)' };
+  if (a === 10) return { literal: true, unroutable: '10.0.0.0/8 (private)' };
   if (a === 172 && b >= 16 && b <= 31) {
-    return { literal: true, unroutable: "172.16.0.0/12 (private)" };
+    return { literal: true, unroutable: '172.16.0.0/12 (private)' };
   }
   if (a === 192 && b === 168) {
-    return { literal: true, unroutable: "192.168.0.0/16 (private)" };
+    return { literal: true, unroutable: '192.168.0.0/16 (private)' };
   }
-  if (a === 0) return { literal: true, unroutable: "0.0.0.0/8 (this network)" };
+  if (a === 0) return { literal: true, unroutable: '0.0.0.0/8 (this network)' };
   if (a === 100 && b >= 64 && b <= 127) {
-    return { literal: true, unroutable: "100.64.0.0/10 (carrier-grade NAT)" };
+    return { literal: true, unroutable: '100.64.0.0/10 (carrier-grade NAT)' };
   }
   return { literal: true, unroutable: null };
 }
 
-type AssetUrlVerdict =
-  | { ok: true; parsed: URL }
-  | { ok: false; code: string; message: string };
+type AssetUrlVerdict = { ok: true; parsed: URL } | { ok: false; code: string; message: string };
 
 /**
  * MAY THIS URL BE REQUESTED AT ALL?
@@ -1314,10 +1277,7 @@ type AssetUrlVerdict =
  * parser's tidied-up form leaves the reader guessing what was actually asked
  * for, and what was asked for is the whole evidence.
  */
-function assetUrlVerdict(
-  op: BillableOperation,
-  url: string,
-): AssetUrlVerdict {
+function assetUrlVerdict(op: BillableOperation, url: string): AssetUrlVerdict {
   const refuse = (code: string, why: string): AssetUrlVerdict => ({
     ok: false,
     code,
@@ -1328,18 +1288,15 @@ function assetUrlVerdict(
   try {
     parsed = new URL(url);
   } catch {
-    return refuse("asset-url-unparseable", "it is not a url");
+    return refuse('asset-url-unparseable', 'it is not a url');
   }
 
   // SCHEME FIRST, AND ON `protocol` — NOT ON `origin`. Measured: the WHATWG
   // parser gives `blob:https://api.x.ai/abc` the origin `https://api.x.ai`, so a
   // guard written against the origin would wave a blob url through on the
   // strength of a host it never contacts. `data:` and `file:` parse fine too.
-  if (parsed.protocol !== "https:") {
-    return refuse(
-      "asset-url-scheme-not-https",
-      `its scheme is ${parsed.protocol} and only https: may be fetched`,
-    );
+  if (parsed.protocol !== 'https:') {
+    return refuse('asset-url-scheme-not-https', `its scheme is ${parsed.protocol} and only https: may be fetched`);
   }
 
   // Userinfo BEFORE the host, so the smuggle is named as a smuggle. Measured:
@@ -1347,10 +1304,10 @@ function assetUrlVerdict(
   // provider host demoted to a username, so the host rule alone would refuse it
   // — but it would refuse it as "attacker.com is not the provider", which hides
   // the trick that was played.
-  if (parsed.username !== "" || parsed.password !== "") {
+  if (parsed.username !== '' || parsed.password !== '') {
     return refuse(
-      "asset-url-carries-userinfo",
-      `it carries credentials before the host, so its real host is ${parsed.host}`,
+      'asset-url-carries-userinfo',
+      `it carries credentials before the host, so its real host is ${parsed.host}`
     );
   }
 
@@ -1358,20 +1315,14 @@ function assetUrlVerdict(
   if (address.literal) {
     return address.unroutable === null
       ? refuse(
-        "asset-url-host-is-a-literal-ip",
-        `its host is the literal address ${parsed.hostname}, and a provider host is a name`,
-      )
-      : refuse(
-        "asset-url-host-is-unroutable",
-        `its host is in ${address.unroutable}, which never leaves this network`,
-      );
+          'asset-url-host-is-a-literal-ip',
+          `its host is the literal address ${parsed.hostname}, and a provider host is a name`
+        )
+      : refuse('asset-url-host-is-unroutable', `its host is in ${address.unroutable}, which never leaves this network`);
   }
   const lowered = parsed.hostname.toLowerCase();
-  if (lowered === "localhost" || lowered.endsWith(".localhost")) {
-    return refuse(
-      "asset-url-host-is-unroutable",
-      "its host resolves to this machine",
-    );
+  if (lowered === 'localhost' || lowered.endsWith('.localhost')) {
+    return refuse('asset-url-host-is-unroutable', 'its host resolves to this machine');
   }
 
   // EXACT host equality against the DECLARED SET, and `host` rather than
@@ -1382,10 +1333,8 @@ function assetUrlVerdict(
   const permitted = permittedAssetHosts(op);
   if (!permitted.includes(parsed.host)) {
     return refuse(
-      "asset-url-host-not-the-registered-provider",
-      `its host is ${parsed.host} and ${op.id} serves assets from ${
-        permitted.join(", ")
-      }`,
+      'asset-url-host-not-the-registered-provider',
+      `its host is ${parsed.host} and ${op.id} serves assets from ${permitted.join(', ')}`
     );
   }
 
@@ -1395,13 +1344,10 @@ function assetUrlVerdict(
   // this door for it in the same edit.
   for (const other of BILLABLE_OPERATIONS.values()) {
     const registered = new URL(other.endpoint);
-    if (
-      registered.origin === parsed.origin &&
-      registered.pathname === parsed.pathname
-    ) {
+    if (registered.origin === parsed.origin && registered.pathname === parsed.pathname) {
       return refuse(
-        "asset-url-is-a-registered-operation",
-        `it is ${other.id}'s registered endpoint, and an asset download proves no debit`,
+        'asset-url-is-a-registered-operation',
+        `it is ${other.id}'s registered endpoint, and an asset download proves no debit`
       );
     }
   }
@@ -1459,19 +1405,18 @@ export async function fetchProviderAsset(args: {
   if (!op) {
     return {
       ok: false,
-      code: "operation-not-registered",
-      message:
-        `${args.operationId} is not a registered operation, so it has no asset host to trust.`,
+      code: 'operation-not-registered',
+      message: `${args.operationId} is not a registered operation, so it has no asset host to trust.`,
     };
   }
   const declared = op.assetMediaType;
-  if (typeof declared !== "string" || declared === "") {
+  if (typeof declared !== 'string' || declared === '') {
     return {
       ok: false,
-      code: "operation-declares-no-asset-media-type",
+      code: 'operation-declares-no-asset-media-type',
       message:
         `${op.id} declares no assetMediaType, so an artifact fetched for it could only be ` +
-        "labelled from the response, which is the thing this refuses to do.",
+        'labelled from the response, which is the thing this refuses to do.',
     };
   }
 
@@ -1481,8 +1426,8 @@ export async function fetchProviderAsset(args: {
     if (!verdict.ok) return verdict;
 
     const response = await args.fetchFn(verdict.parsed.toString(), {
-      method: "GET",
-      redirect: "manual",
+      method: 'GET',
+      redirect: 'manual',
       signal: args.signal,
       // The credential rides ONLY to the host it belongs to. A hop to any
       // other host — even one the operation also permits for assets — goes
@@ -1498,29 +1443,28 @@ export async function fetchProviderAsset(args: {
       // to detect a DISAGREEMENT, and a disagreement is a refusal: bytes the
       // provider itself says are not the artifact we bought must not be relabelled
       // into it. An ABSENT header contradicts nothing and the declared type stands.
-      const header = response.headers.get("content-type");
-      const essence = (header ?? "").split(";")[0].trim().toLowerCase();
-      if (essence !== "" && essence !== declared) {
+      const header = response.headers.get('content-type');
+      const essence = (header ?? '').split(';')[0].trim().toLowerCase();
+      if (essence !== '' && essence !== declared) {
         await response.body?.cancel().catch(() => {});
         return {
           ok: false,
-          code: "asset-media-type-mismatch",
-          message:
-            `${op.id} expected ${declared} from ${target} and the response declared ${essence}.`,
+          code: 'asset-media-type-mismatch',
+          message: `${op.id} expected ${declared} from ${target} and the response declared ${essence}.`,
         };
       }
       return { ok: true, response, mediaType: declared };
     }
 
-    const location = response.headers.get("location");
+    const location = response.headers.get('location');
     await response.body?.cancel().catch(() => {});
-    if (location === null || location === "") {
+    if (location === null || location === '') {
       return {
         ok: false,
-        code: "asset-redirect-without-location",
+        code: 'asset-redirect-without-location',
         message:
           `${op.id} was redirected from ${target} with HTTP ${response.status} to a location ` +
-          "this runtime would not show, so the next url could not be judged before requesting it.",
+          'this runtime would not show, so the next url could not be judged before requesting it.',
       };
     }
     let next: URL;
@@ -1529,7 +1473,7 @@ export async function fetchProviderAsset(args: {
     } catch {
       return {
         ok: false,
-        code: "asset-redirect-location-unparseable",
+        code: 'asset-redirect-location-unparseable',
         message: `${op.id} was redirected from ${target} to ${location}, which is not a url.`,
       };
     }
@@ -1538,9 +1482,8 @@ export async function fetchProviderAsset(args: {
 
   return {
     ok: false,
-    code: "asset-redirect-limit",
-    message:
-      `${op.id} was redirected more than ${MAX_ASSET_REDIRECTS} times, ending at ${target}.`,
+    code: 'asset-redirect-limit',
+    message: `${op.id} was redirected more than ${MAX_ASSET_REDIRECTS} times, ending at ${target}.`,
   };
 }
 
@@ -1549,10 +1492,10 @@ export async function fetchProviderAsset(args: {
 // ──────────────────────────────────────────────────────────────────────────
 
 export type SettleOutcome =
-  | { status: "settled"; chargedEurCents: number; basis: string; adjusted: boolean }
-  | { status: "reversed"; reason: string }
-  | { status: "reversal-failed"; reason: string }
-  | { status: "unsettled"; reason: string };
+  | { status: 'settled'; chargedEurCents: number; basis: string; adjusted: boolean }
+  | { status: 'reversed'; reason: string }
+  | { status: 'reversal-failed'; reason: string }
+  | { status: 'unsettled'; reason: string };
 
 /**
  * The ledger reason written with a reversal, per operation. Scoped and
@@ -1563,10 +1506,10 @@ export type SettleOutcome =
  * recorded reason string only.
  */
 function reversalReasonFor(operationId: string): string | undefined {
-  if (operationId === "multimodal.image_generation") return "image generation not produced";
-  if (operationId === "multimodal.vision") return "vision analysis not produced";
-  if (operationId === "multimodal.document_ocr") return "document OCR not produced";
-  if (operationId === "multimodal.tts") return "speech synthesis not produced";
+  if (operationId === 'multimodal.image_generation') return 'image generation not produced';
+  if (operationId === 'multimodal.vision') return 'vision analysis not produced';
+  if (operationId === 'multimodal.document_ocr') return 'document OCR not produced';
+  if (operationId === 'multimodal.tts') return 'speech synthesis not produced';
   return undefined;
 }
 
@@ -1597,7 +1540,7 @@ export async function settleBillableOperation(args: {
   model: string;
 }): Promise<SettleOutcome> {
   const op = billableOperation(args.receipt.operationId);
-  if (!op) return { status: "unsettled", reason: "operation-not-registered" };
+  if (!op) return { status: 'unsettled', reason: 'operation-not-registered' };
 
   if (!args.actual.ok) {
     const reversal = await args.port.reverse({
@@ -1607,11 +1550,11 @@ export async function settleBillableOperation(args: {
       reason: reversalReasonFor(args.receipt.operationId),
     });
     return reversal.ok
-      ? { status: "reversed", reason: args.actual.reason }
+      ? { status: 'reversed', reason: args.actual.reason }
       : {
-        status: "reversal-failed",
-        reason: `${args.actual.reason}/${reversal.reason ?? "unknown"}`,
-      };
+          status: 'reversal-failed',
+          reason: `${args.actual.reason}/${reversal.reason ?? 'unknown'}`,
+        };
   }
 
   if (args.actual.retailEurCents > args.receipt.boundEurCents) {
@@ -1622,11 +1565,11 @@ export async function settleBillableOperation(args: {
       reason: reversalReasonFor(args.receipt.operationId),
     });
     return reversal.ok
-      ? { status: "reversed", reason: "actual-exceeds-reserved-bound" }
+      ? { status: 'reversed', reason: 'actual-exceeds-reserved-bound' }
       : {
-        status: "reversal-failed",
-        reason: `actual-exceeds-reserved-bound/${reversal.reason ?? "unknown"}`,
-      };
+          status: 'reversal-failed',
+          reason: `actual-exceeds-reserved-bound/${reversal.reason ?? 'unknown'}`,
+        };
   }
 
   const exact = args.actual.retailEurCents;
@@ -1636,7 +1579,7 @@ export async function settleBillableOperation(args: {
   const ONE_CREDIT_EUR_CENTS = 0.1;
   if (args.receipt.boundEurCents - exact < ONE_CREDIT_EUR_CENTS) {
     return {
-      status: "settled",
+      status: 'settled',
       chargedEurCents: args.receipt.boundEurCents,
       basis: args.actual.basis,
       adjusted: false,
@@ -1654,7 +1597,7 @@ export async function settleBillableOperation(args: {
     // cost, but the artifact IS paid for, so it may be released. Reported, never
     // silent — a human reconciles it.
     return {
-      status: "settled",
+      status: 'settled',
       chargedEurCents: args.receipt.boundEurCents,
       basis: `${args.actual.basis}/down-adjust-unavailable`,
       adjusted: false,
@@ -1669,13 +1612,13 @@ export async function settleBillableOperation(args: {
     reason: `${op.id} actual`,
     expectedEntitlementId: args.receipt.entitlementId,
   });
-  if (commit.status === "applied" || commit.status === "already") {
+  if (commit.status === 'applied' || commit.status === 'already') {
     return {
-      status: "settled",
+      status: 'settled',
       chargedEurCents: exact,
       basis: args.actual.basis,
       adjusted: true,
     };
   }
-  return { status: "unsettled", reason: `exact-commit-${commit.status}` };
+  return { status: 'unsettled', reason: `exact-commit-${commit.status}` };
 }

@@ -144,9 +144,11 @@ function findRegexLiteral(source: string): boolean {
 
 describe('the comment stripper this file depends on', () => {
   it('removes prose that merely MENTIONS a forbidden construct', () => {
-    const prose = ['/** we deliberately never call toLowerCase here */', '// and no .includes( either', 'const x = 1;'].join(
-      '\n'
-    );
+    const prose = [
+      '/** we deliberately never call toLowerCase here */',
+      '// and no .includes( either',
+      'const x = 1;',
+    ].join('\n');
     const stripped = stripComments(prose);
     expect(stripped).not.toContain('toLowerCase');
     expect(stripped).not.toContain('.includes(');

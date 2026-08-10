@@ -29,10 +29,7 @@
  * the paid path, same as `imageArtifactBindCore`).
  */
 
-import {
-  collectImageBindFromToolCallUpdate,
-  type ImageArtifactBindCandidate,
-} from './imageArtifactBindCore';
+import { collectImageBindFromToolCallUpdate, type ImageArtifactBindCandidate } from './imageArtifactBindCore';
 
 const FINISHED_MESSAGE_STATUSES = new Set(['finish', 'finished', 'completed', 'complete', 'done']);
 

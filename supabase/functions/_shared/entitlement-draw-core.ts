@@ -47,15 +47,15 @@ function isPastBound(boundIso: string | null | undefined, nowIso: string): boole
 // with a real (even pre-1970, hence negative-ms) timestamp. Only ever decides
 // WHICH already-drawable row a debit keys against — never whether a draw is allowed.
 function createdAtMs(iso: string | null | undefined): number {
-  const ms = Date.parse(iso ?? "");
+  const ms = Date.parse(iso ?? '');
   return Number.isNaN(ms) ? -Infinity : ms;
 }
 
 /** Is this row entitled to DRAW metered credit at `nowIso`? */
 export function isDrawable(row: DrawableEntitlementRow, nowIso: string): boolean {
-  const status = (row?.status ?? "").toLowerCase();
-  if (status === "active") return true; // trust Stripe's status (see header note).
-  if (status === "trialing") return !isPastBound(row.trial_ends_at, nowIso);
+  const status = (row?.status ?? '').toLowerCase();
+  if (status === 'active') return true; // trust Stripe's status (see header note).
+  if (status === 'trialing') return !isPastBound(row.trial_ends_at, nowIso);
   return false; // canceled | past_due | incomplete | refunded | expired | unknown ⇒ NO.
 }
 
@@ -65,16 +65,11 @@ export function isDrawable(row: DrawableEntitlementRow, nowIso: string): boolean
  * created drawable row. Returns null when NO row is drawable — the fix that
  * stops a canceled/revoked/lapsed tenant from drawing.
  */
-export function pickDrawableEntitlement(
-  rows: DrawableEntitlementRow[],
-  nowIso: string,
-): DrawableEntitlement | null {
+export function pickDrawableEntitlement(rows: DrawableEntitlementRow[], nowIso: string): DrawableEntitlement | null {
   const drawable = (rows ?? []).filter((r) => isDrawable(r, nowIso));
   if (drawable.length === 0) return null;
-  const sorted = [...drawable].sort(
-    (a, b) => createdAtMs(b.created_at) - createdAtMs(a.created_at),
-  );
-  const pick = sorted.find((r) => (r.status ?? "").toLowerCase() === "active") ?? sorted[0];
+  const sorted = [...drawable].sort((a, b) => createdAtMs(b.created_at) - createdAtMs(a.created_at));
+  const pick = sorted.find((r) => (r.status ?? '').toLowerCase() === 'active') ?? sorted[0];
   return {
     entitlementId: pick.id,
     spendCapEurCents: (pick.spend_cap_eur_cents ?? null) as number | null,

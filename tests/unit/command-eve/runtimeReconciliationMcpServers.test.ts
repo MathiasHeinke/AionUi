@@ -51,11 +51,9 @@ describe('hermes_config.mcp_servers reflects what was emitted', () => {
   it('reports every emitted server id', () => {
     // The case the old hardcoded `[]` got wrong. A seat running the image
     // generator, the artifact capability and Honcho reported none of them.
-    expect(reconcile(['aionui-image-generation', 'aionui-eve-artifacts', 'honcho-seat-1']).hermes_config.mcp_servers).toEqual([
-      'aionui-image-generation',
-      'aionui-eve-artifacts',
-      'honcho-seat-1',
-    ]);
+    expect(
+      reconcile(['aionui-image-generation', 'aionui-eve-artifacts', 'honcho-seat-1']).hermes_config.mcp_servers
+    ).toEqual(['aionui-image-generation', 'aionui-eve-artifacts', 'honcho-seat-1']);
   });
 
   it('still reports an empty list when nothing was emitted', () => {

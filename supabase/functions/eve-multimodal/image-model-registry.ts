@@ -51,27 +51,21 @@
 // exact charge at the reserved bound, so a HIGH bound costs the customer
 // nothing after settle and a LOW one is capped — never an unbilled artifact.
 
-import {
-  type PricedAmount,
-  USD_TO_EUR_SEED,
-} from "../_shared/billable-operations.ts";
-import {
-  CREDITS_PER_EUR_CENT,
-  TIER_MARKUP_FACTOR,
-} from "../_shared/credits-core.ts";
+import { type PricedAmount, USD_TO_EUR_SEED } from '../_shared/billable-operations.ts';
+import { CREDITS_PER_EUR_CENT, TIER_MARKUP_FACTOR } from '../_shared/credits-core.ts';
 
-export type ImageModelTierId = "fast" | "quality" | "max";
-export type ImageGenerationResolution = "1K" | "2K";
+export type ImageModelTierId = 'fast' | 'quality' | 'max';
+export type ImageGenerationResolution = '1K' | '2K';
 
 /** The registry-wide date stamp, bumped like every other pricing record. */
-export const IMAGE_MODEL_REGISTRY_VERSION = "2026-08-03";
+export const IMAGE_MODEL_REGISTRY_VERSION = '2026-08-03';
 
 /**
  * The markup tier this lane's settlement applies. Pinned to the
  * BILLABLE_OPERATIONS row for `multimodal.image_generation`; a test asserts
  * the two cannot drift apart.
  */
-export const IMAGE_MARKUP_TIER = "standard";
+export const IMAGE_MARKUP_TIER = 'standard';
 
 /**
  * A versioned per-image USD list price with its provenance — the
@@ -134,71 +128,67 @@ export type ImageModelRegistryEntry = {
   readonly isDefault: boolean;
 };
 
-export const IMAGE_MODEL_REGISTRY: readonly ImageModelRegistryEntry[] = Object
-  .freeze([
-    {
-      tierId: "fast",
-      providerSlug: "x-ai/grok-imagine-image-quality",
-      displayName: "Schnell",
-      price: Object.freeze({
-        version: IMAGE_MODEL_REGISTRY_VERSION,
-        providerUsdPerImage: Object.freeze({ "1K": 0.05, "2K": 0.07 }),
-        providerUsdPerInputReference: 0.01,
-        providerPriceSource:
-          "OpenRouter live page recheck 2026-08-03 (CoS pricing proof): USD 0.05/image 1K, USD 0.07/image 2K, +USD 0.01 per input image",
-        evidenceGrade:
-          "verified provider page recheck 2026-08-03; NOT invoice-validated",
-      }),
-      supportedResolutions: Object.freeze(["1K", "2K"] as const),
-      openRouterProviderOnly: null,
-      supportsReferenceImages: false,
-      isDefault: false,
-    },
-    {
-      tierId: "quality",
-      providerSlug: "google/gemini-3.1-flash-image",
-      displayName: "Nano Banana 2",
-      price: Object.freeze({
-        version: IMAGE_MODEL_REGISTRY_VERSION,
-        // CONSERVATIVE BOUND with a stated rationale, NOT a list price: the
-        // OpenRouter /models listing (2026-08-03) prices this model per token
-        // (USD 0.50/M input, USD 3/M output, USD 60/M image-output), so no
-        // per-image price exists upstream. USD 0.15/image covers up to 2,500
-        // image-output tokens per image at the listed image-output rate.
-        providerUsdPerImage: Object.freeze({ "1K": 0.15, "2K": 0.15 }),
-        providerPriceSource:
-          "OpenRouter /models 2026-08-03: token-priced (0.50/M in, 3/M out, 60/M image-out); USD 0.15 bound covers <= 2,500 image-output tokens/image",
-        evidenceGrade:
-          "conservative bound with stated token rationale; NOT a per-image list price",
-      }),
-      supportedResolutions: Object.freeze(["1K", "2K"] as const),
-      openRouterProviderOnly: Object.freeze(["google-vertex/global"] as const),
-      supportsReferenceImages: true,
-      isDefault: true,
-    },
-    {
-      tierId: "max",
-      providerSlug: "openai/gpt-image-2",
-      displayName: "GPT Image 2",
-      price: Object.freeze({
-        version: IMAGE_MODEL_REGISTRY_VERSION,
-        // CONSERVATIVE BOUND with a stated rationale, NOT a list price: the
-        // OpenRouter live page recheck (2026-08-03, CoS pricing proof) prices
-        // this model per token (USD 8/M input and output, USD 30/M
-        // image-output, USD 2/M cached input). USD 0.25/image covers up to
-        // 8,333 image-output tokens per image at the listed image-output rate.
-        providerUsdPerImage: Object.freeze({ "1K": 0.25, "2K": 0.25 }),
-        providerPriceSource:
-          "OpenRouter live page recheck 2026-08-03 (CoS pricing proof): token-priced (8/M in+out, 30/M image-out, 2/M cached); USD 0.25 bound covers <= 8,333 image-output tokens/image",
-        evidenceGrade:
-          "conservative bound with stated token rationale; NOT a per-image list price",
-      }),
-      supportedResolutions: Object.freeze(["1K", "2K"] as const),
-      openRouterProviderOnly: null,
-      supportsReferenceImages: false,
-      isDefault: false,
-    },
-  ] as const);
+export const IMAGE_MODEL_REGISTRY: readonly ImageModelRegistryEntry[] = Object.freeze([
+  {
+    tierId: 'fast',
+    providerSlug: 'x-ai/grok-imagine-image-quality',
+    displayName: 'Schnell',
+    price: Object.freeze({
+      version: IMAGE_MODEL_REGISTRY_VERSION,
+      providerUsdPerImage: Object.freeze({ '1K': 0.05, '2K': 0.07 }),
+      providerUsdPerInputReference: 0.01,
+      providerPriceSource:
+        'OpenRouter live page recheck 2026-08-03 (CoS pricing proof): USD 0.05/image 1K, USD 0.07/image 2K, +USD 0.01 per input image',
+      evidenceGrade: 'verified provider page recheck 2026-08-03; NOT invoice-validated',
+    }),
+    supportedResolutions: Object.freeze(['1K', '2K'] as const),
+    openRouterProviderOnly: null,
+    supportsReferenceImages: false,
+    isDefault: false,
+  },
+  {
+    tierId: 'quality',
+    providerSlug: 'google/gemini-3.1-flash-image',
+    displayName: 'Nano Banana 2',
+    price: Object.freeze({
+      version: IMAGE_MODEL_REGISTRY_VERSION,
+      // CONSERVATIVE BOUND with a stated rationale, NOT a list price: the
+      // OpenRouter /models listing (2026-08-03) prices this model per token
+      // (USD 0.50/M input, USD 3/M output, USD 60/M image-output), so no
+      // per-image price exists upstream. USD 0.15/image covers up to 2,500
+      // image-output tokens per image at the listed image-output rate.
+      providerUsdPerImage: Object.freeze({ '1K': 0.15, '2K': 0.15 }),
+      providerPriceSource:
+        'OpenRouter /models 2026-08-03: token-priced (0.50/M in, 3/M out, 60/M image-out); USD 0.15 bound covers <= 2,500 image-output tokens/image',
+      evidenceGrade: 'conservative bound with stated token rationale; NOT a per-image list price',
+    }),
+    supportedResolutions: Object.freeze(['1K', '2K'] as const),
+    openRouterProviderOnly: Object.freeze(['google-vertex/global'] as const),
+    supportsReferenceImages: true,
+    isDefault: true,
+  },
+  {
+    tierId: 'max',
+    providerSlug: 'openai/gpt-image-2',
+    displayName: 'GPT Image 2',
+    price: Object.freeze({
+      version: IMAGE_MODEL_REGISTRY_VERSION,
+      // CONSERVATIVE BOUND with a stated rationale, NOT a list price: the
+      // OpenRouter live page recheck (2026-08-03, CoS pricing proof) prices
+      // this model per token (USD 8/M input and output, USD 30/M
+      // image-output, USD 2/M cached input). USD 0.25/image covers up to
+      // 8,333 image-output tokens per image at the listed image-output rate.
+      providerUsdPerImage: Object.freeze({ '1K': 0.25, '2K': 0.25 }),
+      providerPriceSource:
+        'OpenRouter live page recheck 2026-08-03 (CoS pricing proof): token-priced (8/M in+out, 30/M image-out, 2/M cached); USD 0.25 bound covers <= 8,333 image-output tokens/image',
+      evidenceGrade: 'conservative bound with stated token rationale; NOT a per-image list price',
+    }),
+    supportedResolutions: Object.freeze(['1K', '2K'] as const),
+    openRouterProviderOnly: null,
+    supportsReferenceImages: false,
+    isDefault: false,
+  },
+] as const);
 
 /**
  * THE ONE tier -> model+price resolution. `undefined` means the client sent
@@ -206,9 +196,7 @@ export const IMAGE_MODEL_REGISTRY: readonly ImageModelRegistryEntry[] = Object
  * typo can never silently bill the default model against a request that named
  * another one.
  */
-export function resolveImageGenerationModel(
-  tierId: string | undefined,
-): ImageModelRegistryEntry | null {
+export function resolveImageGenerationModel(tierId: string | undefined): ImageModelRegistryEntry | null {
   if (tierId === undefined) {
     return IMAGE_MODEL_REGISTRY.find((entry) => entry.isDefault) ?? null;
   }
@@ -230,28 +218,27 @@ export function deriveImageCreditsPerImage(providerUsdPerImage: number): number 
   const usdCents = Math.round(providerUsdPerImage * 100);
   const fxEurCentsPerUsdCent = Math.round(USD_TO_EUR_SEED * 100);
   const markup = TIER_MARKUP_FACTOR[IMAGE_MARKUP_TIER];
-  return (usdCents * fxEurCentsPerUsdCent * markup * CREDITS_PER_EUR_CENT) /
-    100;
+  return (usdCents * fxEurCentsPerUsdCent * markup * CREDITS_PER_EUR_CENT) / 100;
 }
 
 /** The quote/debit schedule for one entry at one resolution, in both denominations. */
 export function imageModelCreditsPerImage(
   entry: ImageModelRegistryEntry,
-  resolution: ImageGenerationResolution,
+  resolution: ImageGenerationResolution
 ): number {
   return deriveImageCreditsPerImage(entry.price.providerUsdPerImage[resolution]);
 }
 
 export function imageModelRetailEurCentsPerImage(
   entry: ImageModelRegistryEntry,
-  resolution: ImageGenerationResolution,
+  resolution: ImageGenerationResolution
 ): number {
   return imageModelCreditsPerImage(entry, resolution) / CREDITS_PER_EUR_CENT;
 }
 
 export function imageModelRawEurCentsPerImage(
   entry: ImageModelRegistryEntry,
-  resolution: ImageGenerationResolution,
+  resolution: ImageGenerationResolution
 ): number {
   const usdCents = Math.round(entry.price.providerUsdPerImage[resolution] * 100);
   return (usdCents * Math.round(USD_TO_EUR_SEED * 100)) / 100;
@@ -268,14 +255,13 @@ export function imageModelRawEurCentsPerImage(
  */
 export function imageRegistryFallbackActual(
   entry: ImageModelRegistryEntry,
-  resolution: ImageGenerationResolution,
+  resolution: ImageGenerationResolution
 ): PricedAmount {
   return {
     ok: true,
     rawEurCents: imageModelRawEurCentsPerImage(entry, resolution),
     retailEurCents: imageModelRetailEurCentsPerImage(entry, resolution),
-    basis:
-      `image-registry:${entry.price.version}:${entry.tierId}:${resolution}:${entry.providerSlug}:measured:1`,
+    basis: `image-registry:${entry.price.version}:${entry.tierId}:${resolution}:${entry.providerSlug}:measured:1`,
   };
 }
 
@@ -284,8 +270,7 @@ export function imageRegistryFallbackActual(
  * date stamp, is what the client pins against; the date stamp stays on the
  * price records, where a repricing is the thing being dated.
  */
-export const IMAGE_MODEL_CAPABILITIES_VERSION =
-  "command-eve-image-model-registry/v1";
+export const IMAGE_MODEL_CAPABILITIES_VERSION = 'command-eve-image-model-registry/v1';
 
 /**
  * The serializable capabilities/quote view for the client — the answer to
@@ -308,9 +293,7 @@ export const IMAGE_MODEL_CAPABILITIES_VERSION =
  * evidence — so `per_input_reference_credits` stays 0 on every tier rather
  * than quoting a price no lane can charge.
  */
-export function publicImageModelCapabilities(args: {
-  enabled: boolean;
-}): {
+export function publicImageModelCapabilities(args: { enabled: boolean }): {
   version: string;
   enabled: boolean;
   default_tier: ImageModelTierId;
@@ -332,17 +315,17 @@ export function publicImageModelCapabilities(args: {
   return {
     version: IMAGE_MODEL_CAPABILITIES_VERSION,
     enabled: args.enabled,
-    default_tier: defaultTier ? defaultTier.tierId : "quality",
+    default_tier: defaultTier ? defaultTier.tierId : 'quality',
     tiers: IMAGE_MODEL_REGISTRY.map((entry) => {
       const perResolution = Object.freeze({
-        "1K": imageModelCreditsPerImage(entry, "1K"),
-        "2K": imageModelCreditsPerImage(entry, "2K"),
+        '1K': imageModelCreditsPerImage(entry, '1K'),
+        '2K': imageModelCreditsPerImage(entry, '2K'),
       } as Record<ImageGenerationResolution, number>);
       return {
         id: entry.tierId,
         slug: entry.providerSlug,
         display_name: entry.displayName,
-        premium: entry.tierId === "max",
+        premium: entry.tierId === 'max',
         supports_references: entry.supportsReferenceImages,
         resolutions: entry.supportedResolutions,
         quotes: {

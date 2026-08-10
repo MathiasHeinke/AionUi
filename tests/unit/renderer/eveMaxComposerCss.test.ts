@@ -221,13 +221,17 @@ describe('MAX composer state — the CSS-variable seam', () => {
       css,
       ".eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::before"
     );
-    expect(ignitionSweep).toMatch(/animation:\s*eve-composer-max-ignition-sweep\s+380ms\s+cubic-bezier\(0\.16, 1, 0\.3, 1\)\s+1[;\s]/);
+    expect(ignitionSweep).toMatch(
+      /animation:\s*eve-composer-max-ignition-sweep\s+380ms\s+cubic-bezier\(0\.16, 1, 0\.3, 1\)\s+1[;\s]/
+    );
     expect(ignitionSweep).not.toMatch(/infinite/);
     const ignitionSurge = ruleBody(
       css,
       ".eve-composer-surface[data-eve-max='true'][data-eve-max-ignition='true']::after"
     );
-    expect(ignitionSurge).toMatch(/animation:\s*eve-composer-max-ignition-surge\s+420ms\s+cubic-bezier\(0\.16, 1, 0\.3, 1\)\s+1[;\s]/);
+    expect(ignitionSurge).toMatch(
+      /animation:\s*eve-composer-max-ignition-surge\s+420ms\s+cubic-bezier\(0\.16, 1, 0\.3, 1\)\s+1[;\s]/
+    );
     expect(ignitionSurge).not.toMatch(/infinite/);
 
     // REST stays slow, never nervous: the wandering sheen must keep at least a
@@ -274,12 +278,18 @@ describe('MAX composer state — the CSS-variable seam', () => {
       expect(block, `a blur-animating keyframe shipped: ${block.slice(0, 60)}`).not.toMatch(
         /filter:|box-shadow:|backdrop-filter:/
       );
-      const declared = (block.match(/^\s*([a-z-]+|--[a-z0-9-]+)\s*:/gim) ?? []).map((m) =>
-        m.replace(/[\s:]/g, '')
-      );
+      const declared = (block.match(/^\s*([a-z-]+|--[a-z0-9-]+)\s*:/gim) ?? []).map((m) => m.replace(/[\s:]/g, ''));
       for (const property of declared) {
         expect(
-          ['opacity', 'transform', '--eve-max-sheen-x', '--eve-max-radius', '--eve-composer-angle', 'padding', 'background-position'].includes(property),
+          [
+            'opacity',
+            'transform',
+            '--eve-max-sheen-x',
+            '--eve-max-radius',
+            '--eve-composer-angle',
+            'padding',
+            'background-position',
+          ].includes(property),
           `keyframe animates unexpected property: ${property}`
         ).toBe(true);
       }
@@ -441,9 +451,10 @@ describe('MAX composer glow — MAX is never dimmer than the standard lane (CEVE
     // so a plain focused opacity declaration wins by ordinary cascade rules.
     // Both halves are asserted, because either alone can silently regress:
     const sheenKeyframes = rules.slice(rules.indexOf('@keyframes eve-composer-max-sheen'));
-    expect(blockAt(sheenKeyframes, 0), 'the sheen must never animate opacity — that re-opens the animation-origin trap').not.toMatch(
-      /opacity:/
-    );
+    expect(
+      blockAt(sheenKeyframes, 0),
+      'the sheen must never animate opacity — that re-opens the animation-origin trap'
+    ).not.toMatch(/opacity:/);
     const body = ruleBody(animatedPath, MAX_ARMED_FOCUS);
     expect(opacityOf(body)).toBeGreaterThanOrEqual(standardFocusOpacity);
     // A hairline pinned at full opacity reads as a border, not as a glow.

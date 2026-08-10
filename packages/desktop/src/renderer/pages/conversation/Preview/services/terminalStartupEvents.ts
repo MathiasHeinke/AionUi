@@ -10,7 +10,8 @@ import type {
 } from '@/common/config/commandEveTerminalChannels';
 
 export type CommandEveTerminalStartupEvent =
-  { kind: 'data'; event: CommandEveTerminalDataEvent } | { kind: 'exit'; event: CommandEveTerminalExitEvent };
+  | { kind: 'data'; event: CommandEveTerminalDataEvent }
+  | { kind: 'exit'; event: CommandEveTerminalExitEvent };
 
 /**
  * `node-pty` can emit a prompt between spawn() and the IPC start reply. The

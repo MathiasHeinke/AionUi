@@ -23,7 +23,7 @@
 ## The defect
 
 Managed video generation is a direct renderer → IPC → gateway call. In the send
-path's own words, *no message is sent to the agent for a managed video request*.
+path's own words, _no message is sent to the agent for a managed video request_.
 So the clip exists on disk, the renderer can play it, and the agent knows nothing
 about it. A perfectly ordinary follow-up — "gib der Aubergine ein Gesicht" — has
 nothing to refer to.
@@ -39,7 +39,7 @@ its id-based `resolveEditSourceArtifact` which handles superseded — has been
 **deleted**, not left dormant. A rejected design kept in the tree is a design
 someone reaches for later.
 
-**A local keyword classifier.** With the cost wall gone (asking for a video *is*
+**A local keyword classifier.** With the cost wall gone (asking for a video _is_
 the authorisation), a false positive routes an ordinary message into the paid
 lane with nothing behind it to catch the mistake. `videoCostCore` already says
 this about its own regex in its own comments — the fail-safe gate there exists
@@ -93,21 +93,21 @@ through `neutralizeContextBoundaries` so a title cannot forge a delimiter.
 #### C1-bis — what the model may see, and what it may never see
 
 An earlier version of this record wrote "**Not** in it: … credentials", which is
-muddled: two of the things the envelope carries *are* credentials, on purpose.
+muddled: two of the things the envelope carries _are_ credentials, on purpose.
 Stated cleanly, because a reader who believes the wrong half will either treat a
 design decision as a leak or treat a leak as a design decision.
 
 **INTENTIONALLY MODEL-VISIBLE — this is the mechanism, not a leak:**
 
 - `edit_handle` — an opaque capability token per editable clip. The model is
-  *supposed* to hold it and quote it back; that is how a follow-up names a clip
+  _supposed_ to hold it and quote it back; that is how a follow-up names a clip
   without a filesystem path existing anywhere in the conversation. Read-only
   authority, scoped to one conversation and one set of bytes, expiring.
 - the **ephemeral spend capability** (`evespend_…`) — one per turn at most, only
   when a paid capability is actually advertised. Single-use, minutes-long,
   bound to the turn. The model holds it for exactly as long as one turn lasts.
 
-Both are bounded rather than hidden. The defence is what a token can *do* —
+Both are bounded rather than hidden. The defence is what a token can _do_ —
 scope, lifetime, single use, revocability — not who is able to read it.
 
 **FORBIDDEN on any model-visible surface — the real no-list:**
@@ -122,7 +122,7 @@ scope, lifetime, single use, revocability — not who is able to read it.
 
 **Proof, both halves, by name.**
 
-*(a) Redaction of the user-facing artefacts actually strips what it claims to* —
+_(a) Redaction of the user-facing artefacts actually strips what it claims to_ —
 `tests/unit/command-eve/artifactCapabilitySecretsStayPrivate.test.ts` (4 cases)
 covers the three doors that read message content differently: the rendered
 transcript (`stripCommandEvePreparedContext`), the conversation **export**
@@ -134,7 +134,7 @@ the credential really was present before the redaction ran. This is about
 artefacts that outlive the turn and travel to other people — not about hiding
 anything from the model.
 
-*(b) The tool surface is scoped as described* —
+_(b) The tool surface is scoped as described_ —
 `tests/unit/command-eve/eveArtifactToolSurface.test.ts` (16 cases) pins that
 `eve_video_edit` is absent from the advertised tool list whenever the flag is
 off, so the model is never offered a capability the handler would refuse;
@@ -167,7 +167,7 @@ already the statement that the 8.7-second ceiling and the tier eligibility were
 checked.
 
 **Correction, after independent review.** The first build made possession of this
-handle *sufficient* for a paid edit. That was wrong, and the reasoning that
+handle _sufficient_ for a paid edit. That was wrong, and the reasoning that
 produced it — "possession is the proof" — is only sound for a credential that is
 scarce. This one is not: it rides every turn's envelope, is shipped to a
 third-party model API, is persisted in transcripts, lives fourteen days and has no
@@ -183,7 +183,7 @@ now says so.
 ### C2b — the ephemeral single-use SPEND PERMIT
 
 The founder decided there is **no confirmation popup** for image and video
-actions. That decision bounds what a paid action may *ask*; it does not license a
+actions. That decision bounds what a paid action may _ask_; it does not license a
 reusable key to one, and it does not license an unbounded loop. What replaces the
 popup is a permit, not a prompt:
 
@@ -203,7 +203,7 @@ popup is a permit, not a prompt:
   correctly — a field written and never checked is not a binding.);
 - **and a mid-run CORRECTION retires it outright.** See C2d below. This is the
   round-3 correction, and it is here because round 2 wrote "the turn pointer
-  moves on every real send" when it moved on every *enveloped* send. A steer is
+  moves on every real send" when it moved on every _enveloped_ send. A steer is
   real text that the agent reads, and it moved nothing;
 - **TTL 15 minutes**, not 14 days;
 - **one live permit per conversation** — minting retires the previous turn's, so
@@ -213,7 +213,7 @@ popup is a permit, not a prompt:
   mint path for a turn that has already spent yields **no** permit, and two
   permits minted for one turn cannot both be consumed. Round 1 relied on the
   renderer minting once, which is not an enforcement;
-- **consumed atomically** by an exclusive `wx` create *before* the provider call.
+- **consumed atomically** by an exclusive `wx` create _before_ the provider call.
   Not a read-then-write: that pattern is exactly how two concurrent arrivals both
   conclude the permit is unused;
 - **one in flight per conversation**, via a second `wx` lock with a 240s stale-lock
@@ -272,13 +272,13 @@ operations that can fail:
   An earlier version of this line said "raw bytes" and that was **wrong**; see
   C2d-bis.
 - the conversation is **denied** — round 4, see C2e. Deleting a file and writing a
-  pointer are both things that can fail; *not spending* is not.
+  pointer are both things that can fail; _not spending_ is not.
 
 **Nothing is minted here**, and that is the shape of the answer rather than an
 omission. A steer carries no envelope, so a permit minted for it could be shown
 to nobody. After a correction the conversation therefore has **no** spend
 authority at all until the person sends an ordinary message. Asking for a paid
-edit *in* a steer is refused — the user is told to ask again, and asking again
+edit _in_ a steer is refused — the user is told to ask again, and asking again
 mints. Refusing a correction is the cheap direction; charging for one is not.
 
 ### C2d-bis — the raw-byte invariant is TWO invariants, and saying it was one was an overclaim
@@ -286,17 +286,17 @@ mints. Refusing a correction is the cheap direction; charging for one is not.
 **The finding, accepted.** `AcpSendBox.tsx` sends `steerText: normalizedInput` on
 the retirement path — `normalizedInput` is `input.trim()`. Every sentence in this
 record, in the commit message and in the source comments that claimed an
-exact-raw-byte binding *across the board* was therefore false for that path.
+exact-raw-byte binding _across the board_ was therefore false for that path.
 The finding is correct and is not argued away.
 
 **What was chosen, and why.** The claim is **SCOPED**, not unified. The two paths
 were not made byte-identical, because they are answering two different questions
 and one rule for both would make one of them wrong:
 
-| path | mints? | binds | why that is the right binding |
-| --- | --- | --- | --- |
-| ordinary send | **yes** | the **exact raw user-turn bytes**, at mint and at redeem | a permit is the statement "the person asked for THIS". Normalising anywhere would merge two different requests into one authority |
-| correction (steer) | **no — it retires** | the bytes **actually delivered to the runtime** | a retirement is the statement "THIS superseded it in the run". The recorded turn should be the turn the agent read |
+| path               | mints?              | binds                                                    | why that is the right binding                                                                                                     |
+| ------------------ | ------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| ordinary send      | **yes**             | the **exact raw user-turn bytes**, at mint and at redeem | a permit is the statement "the person asked for THIS". Normalising anywhere would merge two different requests into one authority |
+| correction (steer) | **no — it retires** | the bytes **actually delivered to the runtime**          | a retirement is the statement "THIS superseded it in the run". The recorded turn should be the turn the agent read                |
 
 Unifying was rejected on evidence rather than taste. `dispatchSteer` has no raw
 value available to bind: both of its callers reach it through
@@ -320,21 +320,21 @@ pointer is documented as the backstop and not the defence.
 suite) drive the real send box, the real bridge payload, the real Main handlers
 and the real store:
 
-- *ORDINARY TURN: the padded raw bytes reach the mint AND the runtime, and the
-  pointer is those bytes* — `'   Hello   '` arrives at the mint IPC untouched,
+- _ORDINARY TURN: the padded raw bytes reach the mint AND the runtime, and the
+  pointer is those bytes_ — `'   Hello   '` arrives at the mint IPC untouched,
   the string posted to the runtime **ends with** those same padded bytes, and the
   pointer on disk is `sha256('   Hello   ')` and provably not `sha256('Hello')`;
-- *ORDINARY TURN: … spends exactly once — POSITIVE CONTROL* — the permit read out
+- _ORDINARY TURN: … spends exactly once — POSITIVE CONTROL_ — the permit read out
   of the bytes the **model** received reaches the provider fetch and the debit
   once each, so the refusal below is not a broken fixture;
-- *ORDINARY TURN: REDEEM is byte-exact too* — moving the pointer to the trimmed
+- _ORDINARY TURN: REDEEM is byte-exact too_ — moving the pointer to the trimmed
   digest refuses the spend with **zero** fetch and **zero** debit. That is the
   "at BOTH mint and redeem" half;
-- *CORRECTION: the retire and the runtime get the SAME bytes, and they are the
-  trimmed ones* — leg 1 and leg 2 carry one value, and the pointer is its digest;
-- *CORRECTION: a promoted queued command is REWRITTEN* — the delivered string is
+- _CORRECTION: the retire and the runtime get the SAME bytes, and they are the
+  trimmed ones_ — leg 1 and leg 2 carry one value, and the pointer is its digest;
+- _CORRECTION: a promoted queued command is REWRITTEN_ — the delivered string is
   `/steer …`, and the pointer binds that rather than the padded queued text;
-- *CORRECTION: whitespace never buys a spend back* — a whitespace-only variant of
+- _CORRECTION: whitespace never buys a spend back_ — a whitespace-only variant of
   the minting turn still leaves a durable deny and still refuses with zero fetch
   and zero debit.
 
@@ -376,16 +376,16 @@ reading it counts as denied: if the state cannot be established, the answer is n
 
 **Two tiers.**
 
-| tier | where | survives a restart |
-| --- | --- | --- |
-| durable | `spend-permits/deny/<sha256(conversation)>.json` | yes |
-| process | a module-level `Set` in main | **no** |
+| tier    | where                                            | survives a restart |
+| ------- | ------------------------------------------------ | ------------------ |
+| durable | `spend-permits/deny/<sha256(conversation)>.json` | yes                |
+| process | a module-level `Set` in main                     | **no**             |
 
 The process tier is the last resort for the case where writing the durable marker
-is *itself* what failed. Its limit is stated plainly rather than softened: a
+is _itself_ what failed. Its limit is stated plainly rather than softened: a
 process-scoped deny is lost on app restart, and it is not shared with any other
 process. `videoEditSpendDeny.test.ts` asserts that loss instead of describing it
-away. Round 5 removes the *consequence* of that loss rather than the loss itself —
+away. Round 5 removes the _consequence_ of that loss rather than the loss itself —
 after a restart there is no live permit left to revive, because **C2f** deletes
 every one of them and refuses the paid path until it has proven that.
 
@@ -405,7 +405,7 @@ so a steer on an untouched seat still writes nothing at all, which
 
 **What clears a deny — and only this.** `issueVideoEditSpendPermit`, at the very
 end, after the previous permits were provably retired, the turn pointer is
-provably on disk and the new permit record is written. That sequence *is* "a later
+provably on disk and the new permit record is written. That sequence _is_ "a later
 successful ordinary user send establishes fresh turn state and a new valid
 permit". Not a timer: the deny marker lives in a subdirectory and both sweep loops
 take `entry.isFile()` only, so `pruneVideoEditSpendPermits` cannot reach it. Not a
@@ -435,11 +435,11 @@ this store is the premise of the failure.
 
 **The rule instead.** A restart invalidates spend authority outright.
 
-| kind | files | on reinitialization |
-| --- | --- | --- |
-| live authority | `<permit>.json`, `turns/<conv>.active.json`, `inflight/<conv>.lock` | **deleted** |
-| completed receipt | `<permit>.consumed.json`, `<permit>.result.json`, `turns/<conv\|turn>.spent.json` | **kept** |
-| deny marker | `deny/<conv>.json` | **kept** (lives in a subdirectory; every sweep takes `entry.isFile()` only) |
+| kind              | files                                                                             | on reinitialization                                                         |
+| ----------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| live authority    | `<permit>.json`, `turns/<conv>.active.json`, `inflight/<conv>.lock`               | **deleted**                                                                 |
+| completed receipt | `<permit>.consumed.json`, `<permit>.result.json`, `turns/<conv\|turn>.spent.json` | **kept**                                                                    |
+| deny marker       | `deny/<conv>.json`                                                                | **kept** (lives in a subdirectory; every sweep takes `entry.isFile()` only) |
 
 Receipts are kept because they are the double-charge defence: a completed edit
 whose response was lost must be answered from its receipt after a restart, not
@@ -460,7 +460,7 @@ and before the debit. Both lanes enter that function, so neither can walk past i
 exactly two callers: main-process startup (`process/index.ts`, after
 `initStorage`), and `issueVideoEditSpendPermit` when the store is not yet proven —
 which is the contract's "a fresh ordinary user send", implemented so the send
-*proves* the store rather than merely happening. Because the sweep runs before the
+_proves_ the store rather than merely happening. Because the sweep runs before the
 mint writes anything, the permit minted by that send cannot be revived alongside a
 pre-restart one. Not a timer: `pruneVideoEditSpendPermits` never touches health.
 Not a retry of the edit: the edit path only reads it.
@@ -508,7 +508,7 @@ not be data loss. The new artifact appears in the **next** envelope.
 
 The `MEDIA: <path>` line crosses **Main → renderer only**, and that was checked
 rather than assumed when an independent review asked whether the value can reach
-the model by *any* route:
+the model by _any_ route:
 
 - **tool result** — no. `artifactCapabilityLoopback.ts` builds its success
   payload from four named fields (`ok`, `artifact_id`, `parent_artifact_id`,
@@ -527,13 +527,13 @@ So it stays: inline playback in the renderer lane depends on it. `MEDIA:
 no-paths rule and ship the account name to a third-party API, which is why the
 loopback returns an artifact id instead. That leaves a real, named consequence —
 a clip produced through the MCP lane does not render inline in chat the way one
-produced through the renderer lane does. It is listed under *Known gaps* rather
+produced through the renderer lane does. It is listed under _Known gaps_ rather
 than papered over.
 
 ### C7 — one debit per approved edit
 
 The gateway's ledger key is content-only, so the desktop stamps nothing that
-distinguishes *how* the request arrived. The `requestId` is **derived** —
+distinguishes _how_ the request arrived. The `requestId` is **derived** —
 `sha256("command-eve-video-edit-request-v1|promptSha|tier|sourceSha")` — so the
 cost-wall arrival and the Hermes tool-call arrival produce a byte-identical body.
 A test compares the two bodies rather than trusting this paragraph.
@@ -559,7 +559,7 @@ edit and its filesystem path.
 The permit additionally names the exact turn it was minted for, is re-compared
 against that conversation's current turn at redeem, and is single-use. So the
 residual exposure is narrow and specific: a model holding a valid handle for
-conversation A *and* the permit emitted into conversation A's envelope, while A is
+conversation A _and_ the permit emitted into conversation A's envelope, while A is
 still on that turn, can spend A's permit. It cannot spend without one, it cannot
 spend twice, it cannot spend on a clip A never showed, and it cannot spend after
 the person has said something else.
@@ -607,12 +607,12 @@ recorded "a steer has no main-process seam", and that sentence was too broad. A
 correction is TWO transports leaving the SAME renderer function, and only one of
 them is HTTP:
 
-| leg | code path | who observes it |
-| --- | --- | --- |
-| 1 — the retire | `AcpSendBox.tsx:783` `ipcBridge.commandEve.artifactTurnSteer.invoke` → `@office-ai/platform` bridge → `preload/main.ts:24` `electronAPI.emit` → `ipcRenderer.invoke('office-ai-bridge-adapter')` → `common/adapter/main.ts:127` `ipcMain.handle` → provider registered at `process/bridge/commandEveBridge.ts:2155` → `handleCommandEveArtifactTurnSteerBridge` | **MAIN** |
-| 2 — the correction | `AcpSendBox.tsx:818` `ipcBridge.acpConversation.steer.invoke` → `ipcBridge.ts:393` `httpPost` → `http://127.0.0.1:<port>/api/conversations/<id>/steer` | the **aioncore binary** (`process/backend/binaryResolver.ts`), a separate process; main never sees it |
+| leg                | code path                                                                                                                                                                                                                                                                                                                                                       | who observes it                                                                                       |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 1 — the retire     | `AcpSendBox.tsx:783` `ipcBridge.commandEve.artifactTurnSteer.invoke` → `@office-ai/platform` bridge → `preload/main.ts:24` `electronAPI.emit` → `ipcRenderer.invoke('office-ai-bridge-adapter')` → `common/adapter/main.ts:127` `ipcMain.handle` → provider registered at `process/bridge/commandEveBridge.ts:2155` → `handleCommandEveArtifactTurnSteerBridge` | **MAIN**                                                                                              |
+| 2 — the correction | `AcpSendBox.tsx:818` `ipcBridge.acpConversation.steer.invoke` → `ipcBridge.ts:393` `httpPost` → `http://127.0.0.1:<port>/api/conversations/<id>/steer`                                                                                                                                                                                                          | the **aioncore binary** (`process/backend/binaryResolver.ts`), a separate process; main never sees it |
 
-So main *does* observe the correction on the production path — through leg 1, at
+So main _does_ observe the correction on the production path — through leg 1, at
 a named line — and `artifactTurnSteer` is not decoration. What has no main-process
 seam is the RUNTIME telling main a correction arrived, which is leg 2 and is a
 different claim. `AcpSendBox.dom.test.tsx` now drives leg 1 end to end: the send
@@ -621,7 +621,7 @@ that after the correction the old permit produces zero provider fetch and zero
 debit. Removing the `artifactTurnSteer.invoke` call turns that test red with the
 provider fetch it was supposed to prevent.
 
-Round 3 also made the revoke's *failure* best-effort, and that part is now
+Round 3 also made the revoke's _failure_ best-effort, and that part is now
 withdrawn: see **C2e**. A retirement that cannot be stored retires the
 conversation instead, main-side, and the edit path checks that state before any
 provider call or debit. The renderer still never blocks the correction; it simply
@@ -668,7 +668,7 @@ The statement that stays true is a different one and is the one that matters:
 > The file is **NEW IN THIS COMMIT** (`c330f32f`, status `A`) and has **NO PARENT
 > PREDECESSOR**. `git show c330f32f^:packages/desktop/src/process/commandEve/artifactCapabilityHandleStore.ts`
 > exits non-zero — the path does not exist in the parent tree — so there is no
-> earlier *shape* to compare the current one against.
+> earlier _shape_ to compare the current one against.
 
 "Untracked" was a claim about the index and it has been overtaken by events.
 "No predecessor in the parent commit" is a claim about history and it does not
@@ -735,7 +735,7 @@ state.
 
 **It stays off for 1.820.1.** It may be turned on only after a packaged,
 signed-resource first run proves the MCP server actually lands in the emitted
-Hermes config *and* a bounded no-paid dry path works. Neither can be established
+Hermes config _and_ a bounded no-paid dry path works. Neither can be established
 by a unit test, and no test in this repo writes the flag into `process.env` — the
 suite passes an env object per case, or injects the decision as a dep, so the
 default is genuinely the default everywhere.
@@ -814,31 +814,31 @@ tests), which carries no MAT-1747 coverage at all — it is a test-isolation rep
 recorded in "The flake this round closed" below, and is deliberately kept out of
 this table so the slice's coverage number stays a coverage number.
 
-| tests | file | in git at `f2e98d97` |
-| ---: | --- | --- |
-| 54 | `tests/unit/renderer/AcpSendBox.dom.test.tsx` | tracked, modified |
-| 32 | `tests/unit/command-eve/videoEditResolutionIsSemantic.test.ts` | new |
-| 31 | `tests/unit/command-eve/videoEditSpendPermit.test.ts` | new |
-| 28 | `tests/unit/command-eve/commandEveVideoEditBridge.test.ts` | new |
-| 18 | `tests/unit/command-eve/eveArtifactCapabilityHandleCore.test.ts` | new |
-| 16 | `tests/unit/command-eve/eveArtifactContextEnvelope.test.ts` | new |
-| 16 | `tests/unit/command-eve/eveArtifactToolSurface.test.ts` | new |
-| 15 | `tests/unit/command-eve/artifactCapabilityHandleStore.test.ts` | new |
-| 15 | `tests/unit/command-eve/videoEditPermitTurnBinding.test.ts` | new |
-| 14 | `tests/unit/command-eve/artifactCapabilityLoopback.test.ts` | new |
-| 13 | `tests/unit/command-eve/videoEditLegacyTierAuthority.test.ts` | new |
-| 11 | `tests/unit/command-eve/artifactCapabilityShimRoute.test.ts` | new |
-| 10 | `tests/unit/command-eve/commandEveVideoEditBridgeRegistration.test.ts` | new |
-| 10 | `tests/unit/command-eve/videoEditSteerRevokesPermit.test.ts` | new |
-| 10 | `tests/unit/command-eve/videoEditStoreHealthBoundary.test.ts` | new |
-| 9 | `tests/unit/command-eve/videoArtifactStore.test.ts` | tracked, modified |
-| 8 | `tests/unit/command-eve/artifactCapabilityShimSiteWiring.test.ts` | new |
-| 8 | `tests/unit/command-eve/videoGenerateCapabilityMint.test.ts` | new |
-| 7 | `tests/unit/command-eve/videoEditSourceBounds.test.ts` | new |
-| 6 | `tests/unit/command-eve/videoEditSpendDeny.test.ts` | new |
-| 4 | `tests/unit/command-eve/artifactCapabilitySecretsStayPrivate.test.ts` | new |
-| 4 | `tests/unit/command-eve/runtimeReconciliationMcpServers.test.ts` | new |
-| 1 | `tests/unit/command-eve/videoEditStoreStartupWiring.test.ts` | new |
+| tests | file                                                                   | in git at `f2e98d97` |
+| ----: | ---------------------------------------------------------------------- | -------------------- |
+|    54 | `tests/unit/renderer/AcpSendBox.dom.test.tsx`                          | tracked, modified    |
+|    32 | `tests/unit/command-eve/videoEditResolutionIsSemantic.test.ts`         | new                  |
+|    31 | `tests/unit/command-eve/videoEditSpendPermit.test.ts`                  | new                  |
+|    28 | `tests/unit/command-eve/commandEveVideoEditBridge.test.ts`             | new                  |
+|    18 | `tests/unit/command-eve/eveArtifactCapabilityHandleCore.test.ts`       | new                  |
+|    16 | `tests/unit/command-eve/eveArtifactContextEnvelope.test.ts`            | new                  |
+|    16 | `tests/unit/command-eve/eveArtifactToolSurface.test.ts`                | new                  |
+|    15 | `tests/unit/command-eve/artifactCapabilityHandleStore.test.ts`         | new                  |
+|    15 | `tests/unit/command-eve/videoEditPermitTurnBinding.test.ts`            | new                  |
+|    14 | `tests/unit/command-eve/artifactCapabilityLoopback.test.ts`            | new                  |
+|    13 | `tests/unit/command-eve/videoEditLegacyTierAuthority.test.ts`          | new                  |
+|    11 | `tests/unit/command-eve/artifactCapabilityShimRoute.test.ts`           | new                  |
+|    10 | `tests/unit/command-eve/commandEveVideoEditBridgeRegistration.test.ts` | new                  |
+|    10 | `tests/unit/command-eve/videoEditSteerRevokesPermit.test.ts`           | new                  |
+|    10 | `tests/unit/command-eve/videoEditStoreHealthBoundary.test.ts`          | new                  |
+|     9 | `tests/unit/command-eve/videoArtifactStore.test.ts`                    | tracked, modified    |
+|     8 | `tests/unit/command-eve/artifactCapabilityShimSiteWiring.test.ts`      | new                  |
+|     8 | `tests/unit/command-eve/videoGenerateCapabilityMint.test.ts`           | new                  |
+|     7 | `tests/unit/command-eve/videoEditSourceBounds.test.ts`                 | new                  |
+|     6 | `tests/unit/command-eve/videoEditSpendDeny.test.ts`                    | new                  |
+|     4 | `tests/unit/command-eve/artifactCapabilitySecretsStayPrivate.test.ts`  | new                  |
+|     4 | `tests/unit/command-eve/runtimeReconciliationMcpServers.test.ts`       | new                  |
+|     1 | `tests/unit/command-eve/videoEditStoreStartupWiring.test.ts`           | new                  |
 
 **340 tests across 23 files, all passing** — `FILES 23 TOTAL 340 FAILED 0`,
 summed from `--reporter=json` over exactly these 23 paths. Round 7 counted 334;
@@ -892,20 +892,20 @@ the same form the repo already uses in `runtimeBootstrapCore.ts` and
 
 ### Gate results, with the real numbers
 
-| gate | result |
-| --- | --- |
-| `bunx vitest run tests/unit/command-eve/ tests/unit/renderer/` | 367 files: 366 passed, **1 failed**; 4003 tests: 3997 passed, 5 skipped, 1 failed |
-| `bunx vitest run` (full) | 571 files: 567 passed, 2 skipped, **2 failed**; 5722 tests: 5708 passed, 12 skipped, 2 failed |
-| `bunx tsc --noEmit` | exit 0, no output |
-| `git diff --check` | exit 0, no output |
-| `bunx vitest run` over the 23 MAT-1747 files, `--reporter=json` | `FILES 23 TOTAL 340 FAILED 0` |
-| `bunx vitest run tests/unit/renderer/AcpSendBox.dom.test.tsx` | `Tests  54 passed (54)`, exit 0 |
+| gate                                                                                 | result                                                                                                   |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `bunx vitest run tests/unit/command-eve/ tests/unit/renderer/`                       | 367 files: 366 passed, **1 failed**; 4003 tests: 3997 passed, 5 skipped, 1 failed                        |
+| `bunx vitest run` (full)                                                             | 571 files: 567 passed, 2 skipped, **2 failed**; 5722 tests: 5708 passed, 12 skipped, 2 failed            |
+| `bunx tsc --noEmit`                                                                  | exit 0, no output                                                                                        |
+| `git diff --check`                                                                   | exit 0, no output                                                                                        |
+| `bunx vitest run` over the 23 MAT-1747 files, `--reporter=json`                      | `FILES 23 TOTAL 340 FAILED 0`                                                                            |
+| `bunx vitest run tests/unit/renderer/AcpSendBox.dom.test.tsx`                        | `Tests  54 passed (54)`, exit 0                                                                          |
 | `bunx vitest run tests/unit/command-eve/seatRailSwitchRealSeam.test.ts`, 3× isolated | `Tests  11 passed (11)`, exit 0 each; no `/tmp/ce-rail-data` and no `$TMPDIR/ce-rail-data-*` left behind |
-| oxlint, 49 changed/new source files, NUL-delimited `xargs -0` | `Found 37 warnings and 0 errors` / `on 48 files` |
-| oxlint, the **17** previously-existing lintable files (current content) | `Found 37 warnings and 0 errors` / `on 16 files` |
-| oxlint, the 32 NEW files alone | `Found 0 warnings and 0 errors` / `on 32 files` |
-| oxlint, the 11 lintable files touched by the round-8 remediation alone | `Found 0 warnings and 0 errors` / `on 11 files` |
-| `gitnexus detect_changes` (compare, base `f2e98d97`) | 90 changed symbols, 18 files, 11 affected processes, risk **high** |
+| oxlint, 49 changed/new source files, NUL-delimited `xargs -0`                        | `Found 37 warnings and 0 errors` / `on 48 files`                                                         |
+| oxlint, the **17** previously-existing lintable files (current content)              | `Found 37 warnings and 0 errors` / `on 16 files`                                                         |
+| oxlint, the 32 NEW files alone                                                       | `Found 0 warnings and 0 errors` / `on 32 files`                                                          |
+| oxlint, the 11 lintable files touched by the round-8 remediation alone               | `Found 0 warnings and 0 errors` / `on 11 files`                                                          |
+| `gitnexus detect_changes` (compare, base `f2e98d97`)                                 | 90 changed symbols, 18 files, 11 affected processes, risk **high**                                       |
 
 **A count that was wrong and is corrected here.** Round 7 wrote "16 tracked files
 at `f2e98d97` … on 15 files". A fresh enumeration finds **17**: `git diff
@@ -932,8 +932,8 @@ correct. The full state:
 1. and 2. — two **pre-existing** failures, still failing, listed below. Both
    verified failing on the untouched base: a detached worktree at `f2e98d97` with
    `node_modules` symlinked runs the same two files and reports `Test Files 2
-   failed (2) / Tests 2 failed | 13 passed (15)`.
-3. — a **flake**, `seatRailSwitchRealSeam.test.ts`, which rounds 1–6 never named
+failed (2) / Tests 2 failed | 13 passed (15)`.
+2. — a **flake**, `seatRailSwitchRealSeam.test.ts`, which rounds 1–6 never named
    because it only fires under concurrent load. **CLOSED in round 7** — cause and
    evidence in "The flake this round closed" below. Re-verified in round 8: green
    isolated 3× (`Tests  11 passed (11)`, exit 0 each, no `/tmp/ce-rail-data` and
@@ -947,9 +947,9 @@ byte-for-byte the same two names.
 - `tests/unit/command-eve/aiCodingDelegationGate.test.ts` — a skill-catalog
   assertion on `resources/`, untouched by this slice;
 - `tests/integration/i18n-packaged.test.ts` — `out/renderer is missing — run
-  \`bun run package\` first`. An environment precondition: no packaged build
-  exists in this sandbox. It does not appear in the focused run because it lives
-  under `tests/integration/`, which is how round 6 saw one failure where the full
+\`bun run package\` first`. An environment precondition: no packaged build
+exists in this sandbox. It does not appear in the focused run because it lives
+under `tests/integration/`, which is how round 6 saw one failure where the full
   suite has two.
 
 The lint measurement is stated as three numbers rather than one because a single
@@ -988,7 +988,7 @@ files under it in `beforeEach`, and `rm -rf`'d **the whole root** in `afterEach`
 Every AionUi worktree on this machine resolved that same path, so two suites
 running at once seeded and deleted each other's files.
 
-Proven, not inferred. While only a *second* worktree ran the suite, a watcher
+Proven, not inferred. While only a _second_ worktree ran the suite, a watcher
 planted an outside marker in `/tmp/ce-rail-data` and watched the foreign
 `afterEach` remove a file it had never created, then the root itself:
 

@@ -6,3 +6,13 @@ mobile/
 # sha256 pins in scripts/fetch-bundled-skills.mjs and fails the build gate. The bytes
 # are the contract here — the formatter must not have an opinion about them.
 resources/bundled-skills/copywriting/
+
+# Bundled agent skills are product payloads, not repository prose. Several are
+# byte-pinned to upstream provenance and the others carry markdown contracts
+# whose emphasis is tested literally. Format their source before bundling;
+# never rewrite the committed runtime snapshot in place.
+resources/bundled-skills/ai-coding-delegation/
+resources/bundled-skills/eve-chief-of-staff-orchestration/
+resources/bundled-skills/plaud-recording-ingest/
+resources/bundled-skills/seo/
+resources/bundled-skills/seo-aeo-best-practices/
