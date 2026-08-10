@@ -83,7 +83,10 @@ import {
   extractCommandEveManagedVisualTurnToken,
   resolveCommandEveManagedVisualPreferredTier,
 } from '@/common/config/eveManagedVisualTurnCore';
-import type { CommandEveCloudVisualPolicyReceipt } from '@/common/config/visual/cloudVisualPolicyCore';
+import {
+  createCommandEveCloudVisualFlowId,
+  type CommandEveCloudVisualPolicyReceipt,
+} from '@/common/config/visual/cloudVisualPolicyCore';
 import { Message, Modal, Tag } from '@arco-design/web-react';
 import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -639,7 +642,7 @@ const AcpSendBox: React.FC<{
             throw new Error('EVE_MANAGED_VISUAL_DISPATCH_RECIPE_INVALID');
           }
 
-          const flowId = `visual_${uuid().replace(/-/g, '')}`;
+          const flowId = createCommandEveCloudVisualFlowId(uuid(32));
           const receiptResult = await ipcBridge.commandEve.cloudVisualPolicyReceipt.invoke({ flowId });
           if (!receiptResult.success || !receiptResult.data?.ok) {
             // MAT-1769: a DISABLED policy is not an error — it is the one case
@@ -1742,7 +1745,7 @@ Please check your local CLI tool authentication status`,
         return false;
       }
 
-      const flowId = visualSourceCount > 0 ? `visual_${uuid().replace(/-/g, '')}` : undefined;
+      const flowId = visualSourceCount > 0 ? createCommandEveCloudVisualFlowId(uuid(32)) : undefined;
       // MAT-1769 tri-state: 'disabled' reaches the caller WITHOUT a toast so it
       // can raise the one-time in-chat enablement prompt; 'unavailable' gets the
       // honest unavailable notice here (no prompt — a toggle cannot fix a seat

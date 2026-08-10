@@ -1237,6 +1237,7 @@ describe('AcpSendBox', () => {
     await waitFor(() => expect(presentationPrepareInvokeMock).toHaveBeenCalledTimes(1));
     expect(cloudVisualPolicyReceiptInvokeMock).toHaveBeenCalledTimes(1);
     const { flowId } = cloudVisualPolicyReceiptInvokeMock.mock.calls[0][0] as { flowId: string };
+    expect(flowId).toMatch(/^visual_flow_[A-Za-z0-9_-]{16,64}$/);
     const authority = {
       flowId,
       visualPolicyReceipt: expect.objectContaining({
@@ -1393,6 +1394,7 @@ describe('AcpSendBox', () => {
     await waitFor(() => expect(imagePrepareInvokeMock).toHaveBeenCalledTimes(1));
     expect(cloudVisualPolicyReceiptInvokeMock).toHaveBeenCalledTimes(1);
     const { flowId } = cloudVisualPolicyReceiptInvokeMock.mock.calls[0][0] as { flowId: string };
+    expect(flowId).toMatch(/^visual_flow_[A-Za-z0-9_-]{16,64}$/);
     expect(imagePrepareInvokeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         filePaths: ['/tmp/screenshot.png'],

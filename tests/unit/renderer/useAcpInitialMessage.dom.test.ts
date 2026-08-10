@@ -117,4 +117,33 @@ describe('useAcpInitialMessage', () => {
 
     expect(sendInitialMessage).toHaveBeenCalledWith('Erstelle ein Video: Aubergine.', [], undefined);
   });
+
+  it('releases the fresh-chat loading state when the shared submission fails closed', async () => {
+    const sendInitialMessage = vi.fn().mockResolvedValue(false);
+    const resetState = vi.fn();
+    sessionStorage.setItem(
+      'acp_initial_message_conversation-1',
+      JSON.stringify({
+        input: 'Analysiere dieses Bild.',
+        files: ['/tmp/source.png'],
+      })
+    );
+
+    renderHook(() =>
+      useAcpInitialMessage({
+        conversation_id: 'conversation-1',
+        sendInitialMessage,
+        resetState,
+        addOrUpdateMessage: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(sendInitialMessage).toHaveBeenCalledTimes(1);
+    expect(resetState).toHaveBeenCalledTimes(1);
+  });
 });

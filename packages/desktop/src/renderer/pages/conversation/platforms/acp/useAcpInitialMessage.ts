@@ -121,7 +121,12 @@ export const useAcpInitialMessage = ({
 
         // The fresh-chat handoff must use the exact same preparation, cost-wall,
         // queue, runtime, and recovery path as an in-chat send.
-        await sendInitialMessage(input, files, videoSelection);
+        const accepted = await sendInitialMessage(input, files, videoSelection);
+        // A shared submission can fail closed without throwing (for example a
+        // visual-policy receipt or local preparation failure). The start-chat
+        // surface has no stream event in that case, so it must explicitly
+        // release its loading state instead of showing "EVE denkt" forever.
+        if (!accepted) resetState();
       } catch (error) {
         // SCRUBBED (MAT-1749) AT THE BINDING: this sentence is rendered into the
         // chat as a `tips` message and handed to `buildSendFailureError`, and it

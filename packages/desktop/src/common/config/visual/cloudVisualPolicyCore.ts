@@ -79,7 +79,29 @@ export type CommandEveCloudVisualPolicyMutationResult = {
 
 /** Conservative renderer-mintable identifier; never used as authority. */
 const FLOW_ID_RE = /^[A-Za-z0-9_-]{16,96}$/;
+const FLOW_ID_RANDOM_PART_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
 export function isCommandEveCloudVisualFlowId(value: unknown): value is string {
   return typeof value === 'string' && FLOW_ID_RE.test(value);
+}
+
+/**
+ * Build the renderer-mintable correlation id used by the visual policy bridge.
+ *
+ * Keep this next to the validator so callers cannot accidentally recreate the
+ * 1.822.1 regression where `visual_` plus the default eight-character `uuid()`
+ * produced a 15-character id that the preload security boundary rejected.
+ * The random part is injected so the shared core stays deterministic in tests;
+ * production callers provide `uuid(32)` (128 bits when Web Crypto is present).
+ */
+export function createCommandEveCloudVisualFlowId(randomPart: string): string {
+  const normalizedRandomPart = randomPart.replace(/-/g, '');
+  if (!FLOW_ID_RANDOM_PART_RE.test(normalizedRandomPart)) {
+    throw new Error('COMMAND_EVE_CLOUD_VISUAL_FLOW_ID_RANDOM_PART_INVALID');
+  }
+  const flowId = `visual_flow_${normalizedRandomPart}`;
+  if (!isCommandEveCloudVisualFlowId(flowId)) {
+    throw new Error('COMMAND_EVE_CLOUD_VISUAL_FLOW_ID_INVALID');
+  }
+  return flowId;
 }

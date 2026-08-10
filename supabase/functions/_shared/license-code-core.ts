@@ -15,19 +15,19 @@
 // Wire format (identical to the canonical core):
 //   CEVE.v1.<base64url(payload-json)>.<base64url(ed25519-sig-over-payload-json)>
 
-import crypto from 'node:crypto';
-import { Buffer } from 'node:buffer';
+import crypto from "node:crypto";
+import { Buffer } from "node:buffer";
 
-export const LICENSE_CODE_VERSION = 'command-eve-license/v1';
+export const LICENSE_CODE_VERSION = "command-eve-license/v1";
 
 // CEVE.v2 — additive superset of v1 (trial_ends_at + seat_count appended). See
 // docs/specs/command-eve-ceve-v2-payload-lock.md. v1 stays frozen; a v2-aware
 // verifier accepts BOTH wire versions, dispatching on the wire-version segment.
-export const LICENSE_CODE_VERSION_V2 = 'command-eve-license/v2';
+export const LICENSE_CODE_VERSION_V2 = "command-eve-license/v2";
 
-export const LICENSE_CODE_PREFIX = 'CEVE';
-export const LICENSE_CODE_WIRE_VERSION = 'v1';
-export const LICENSE_CODE_WIRE_VERSION_V2 = 'v2';
+export const LICENSE_CODE_PREFIX = "CEVE";
+export const LICENSE_CODE_WIRE_VERSION = "v1";
+export const LICENSE_CODE_WIRE_VERSION_V2 = "v2";
 
 // Wire versions a v2-aware verifier accepts. v1-only verifiers (old desktops)
 // keep LICENSE_CODE_WIRE_VERSION as their sole supported version and fail closed
@@ -37,14 +37,29 @@ export const SUPPORTED_WIRE_VERSIONS = Object.freeze([
   LICENSE_CODE_WIRE_VERSION_V2,
 ]) as readonly string[];
 
-export const LICENSE_EDITIONS = Object.freeze(['pilot', 'standard']) as readonly string[];
+// Editions a license payload may carry:
+//   * "pilot"    — the 7-day RICH intro TRIAL (trial_ends_at set, status trialing).
+//   * "standard" — a PAID client-seat subscription (trial_ends_at null, status active).
+//   * "free"     — the PERMANENT FREE operator seat (founder model 2026-06-30): after
+//                  the 7-day rich window the pilot trial CONVERTS to this. It is
+//                  entitled FOREVER (expires_at null, trial_ends_at null, status active)
+//                  but limited (metered cloud turns, NO BYOK/local/client-seat). It is its
+//                  OWN state, distinct from BOTH expired (locked out) and paid (standard).
+//                  The signed edition="free" is the explicit discriminant the desktop +
+//                  eve-inference key off, so a perpetual free seat is NEVER mis-read as
+//                  paid (the has_paid_seat trap): no MAX, no BYOK, no client seats.
+//                  Its cloud turns ARE metered — the "free" in the name is the price of
+//                  the SEAT, not the price of a TURN. The clause that used to close this
+//                  sentence ("NOR routed onto the metered paid lane") contradicted the
+//                  line four rows above it and described a free lane that does not exist.
+export const LICENSE_EDITIONS = Object.freeze(["pilot", "standard", "free"]) as readonly string[];
 
 export const LICENSE_REASON_CODES = Object.freeze({
-  MALFORMED: 'LICENSE_MALFORMED',
-  VERSION_UNSUPPORTED: 'LICENSE_VERSION_UNSUPPORTED',
-  SIGNATURE_INVALID: 'LICENSE_SIGNATURE_INVALID',
-  EXPIRED: 'LICENSE_EXPIRED',
-  NOT_YET_VALID: 'LICENSE_NOT_YET_VALID',
+  MALFORMED: "LICENSE_MALFORMED",
+  VERSION_UNSUPPORTED: "LICENSE_VERSION_UNSUPPORTED",
+  SIGNATURE_INVALID: "LICENSE_SIGNATURE_INVALID",
+  EXPIRED: "LICENSE_EXPIRED",
+  NOT_YET_VALID: "LICENSE_NOT_YET_VALID",
 });
 
 export interface LicensePayload {
@@ -77,17 +92,21 @@ export type BuildResultV2 =
 // ---------------------------------------------------------------------------
 
 function toBase64Url(buffer: Buffer | Uint8Array): string {
-  return Buffer.from(buffer).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return Buffer.from(buffer)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 function fromBase64Url(value: string): Buffer | null {
-  if (typeof value !== 'string' || value.length === 0 || /[^A-Za-z0-9_-]/.test(value)) {
+  if (typeof value !== "string" || value.length === 0 || /[^A-Za-z0-9_-]/.test(value)) {
     return null;
   }
-  const pad = value.length % 4 === 0 ? '' : '='.repeat(4 - (value.length % 4));
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/') + pad;
+  const pad = value.length % 4 === 0 ? "" : "=".repeat(4 - (value.length % 4));
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/") + pad;
   try {
-    return Buffer.from(normalized, 'base64');
+    return Buffer.from(normalized, "base64");
   } catch {
     return null;
   }
@@ -98,34 +117,34 @@ function fromBase64Url(value: string): Buffer | null {
 // ---------------------------------------------------------------------------
 
 const CANONICAL_PAYLOAD_KEYS = Object.freeze([
-  'license_version',
-  'edition',
-  'serial',
-  'tenant_serial',
-  'issued_at',
-  'expires_at',
+  "license_version",
+  "edition",
+  "serial",
+  "tenant_serial",
+  "issued_at",
+  "expires_at",
 ]) as readonly (keyof LicensePayload)[];
 
 // CEVE.v2 canonical key order: the v1 keys UNCHANGED, then the two new keys
 // APPENDED (never reorder, never insert between). This is the v2 signed-bytes
 // contract. trial_ends_at: ISO-8601 string | null. seat_count: integer >= 1.
 const CANONICAL_PAYLOAD_KEYS_V2 = Object.freeze([
-  'license_version',
-  'edition',
-  'serial',
-  'tenant_serial',
-  'issued_at',
-  'expires_at',
-  'trial_ends_at',
-  'seat_count',
+  "license_version",
+  "edition",
+  "serial",
+  "tenant_serial",
+  "issued_at",
+  "expires_at",
+  "trial_ends_at",
+  "seat_count",
 ]) as readonly (keyof LicensePayloadV2)[];
 
 function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
+  return typeof value === "string" && value.length > 0;
 }
 
 function normalizeSerial(serial: unknown): string | null {
-  if (typeof serial === 'number' && Number.isFinite(serial)) return String(serial);
+  if (typeof serial === "number" && Number.isFinite(serial)) return String(serial);
   if (isNonEmptyString(serial)) return serial.trim();
   return null;
 }
@@ -137,7 +156,7 @@ export function buildLicensePayload(
     tenant_serial?: string | number;
     issued_at?: string;
     expires_at?: string | null;
-  } = {}
+  } = {},
 ): BuildResult {
   const { edition, serial, tenant_serial, issued_at, expires_at } = input;
   const evidence: Record<string, unknown> = {};
@@ -166,7 +185,7 @@ export function buildLicensePayload(
   }
 
   let normalizedExpiresAt: string | null = null;
-  if (expires_at !== undefined && expires_at !== null && expires_at !== '') {
+  if (expires_at !== undefined && expires_at !== null && expires_at !== "") {
     if (!isNonEmptyString(expires_at) || Number.isNaN(Date.parse(expires_at))) {
       evidence.expires_at = expires_at;
       return { ok: false, reason_code: LICENSE_REASON_CODES.MALFORMED, evidence };
@@ -187,7 +206,7 @@ export function buildLicensePayload(
 }
 
 function isPositiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1;
+  return typeof value === "number" && Number.isInteger(value) && value >= 1;
 }
 
 /**
@@ -208,7 +227,7 @@ export function buildLicensePayloadV2(
     expires_at?: string | null;
     trial_ends_at?: string | null;
     seat_count?: number;
-  } = {}
+  } = {},
 ): BuildResultV2 {
   const { edition, serial, tenant_serial, issued_at, expires_at, trial_ends_at, seat_count } = input;
 
@@ -221,7 +240,7 @@ export function buildLicensePayloadV2(
   // trial_ends_at is optional: null / undefined / "" means a paid (non-trial)
   // license. When present it must be a valid ISO-8601 string.
   let normalizedTrialEndsAt: string | null = null;
-  if (trial_ends_at !== undefined && trial_ends_at !== null && trial_ends_at !== '') {
+  if (trial_ends_at !== undefined && trial_ends_at !== null && trial_ends_at !== "") {
     if (!isNonEmptyString(trial_ends_at) || Number.isNaN(Date.parse(trial_ends_at))) {
       evidence.trial_ends_at = trial_ends_at;
       return { ok: false, reason_code: LICENSE_REASON_CODES.MALFORMED, evidence };
@@ -261,8 +280,9 @@ export function buildLicensePayloadV2(
  * before this v2 addition existed).
  */
 export function canonicalPayloadJson(payload: Partial<AnyLicensePayload>): string {
-  const keys: readonly string[] =
-    payload.license_version === LICENSE_CODE_VERSION_V2 ? CANONICAL_PAYLOAD_KEYS_V2 : CANONICAL_PAYLOAD_KEYS;
+  const keys: readonly string[] = payload.license_version === LICENSE_CODE_VERSION_V2
+    ? CANONICAL_PAYLOAD_KEYS_V2
+    : CANONICAL_PAYLOAD_KEYS;
   const ordered: Record<string, unknown> = {};
   for (const key of keys) {
     ordered[key] = key in payload ? (payload as Record<string, unknown>)[key] : null;
@@ -275,43 +295,56 @@ export function canonicalPayloadJson(payload: Partial<AnyLicensePayload>): strin
 // ---------------------------------------------------------------------------
 
 function coercePrivateKey(privateKeyPem: string | crypto.KeyObject): crypto.KeyObject {
-  if (privateKeyPem && typeof privateKeyPem === 'object' && (privateKeyPem as crypto.KeyObject).asymmetricKeyType) {
+  if (
+    privateKeyPem &&
+    typeof privateKeyPem === "object" &&
+    (privateKeyPem as crypto.KeyObject).asymmetricKeyType
+  ) {
     return privateKeyPem as crypto.KeyObject;
   }
   return crypto.createPrivateKey(privateKeyPem as string);
 }
 
 function coercePublicKey(publicKeyPem: string | crypto.KeyObject): crypto.KeyObject {
-  if (publicKeyPem && typeof publicKeyPem === 'object' && (publicKeyPem as crypto.KeyObject).asymmetricKeyType) {
+  if (
+    publicKeyPem &&
+    typeof publicKeyPem === "object" &&
+    (publicKeyPem as crypto.KeyObject).asymmetricKeyType
+  ) {
     return publicKeyPem as crypto.KeyObject;
   }
   return crypto.createPublicKey(publicKeyPem as string);
 }
 
-export function signLicenseCode(args: {
-  payload: AnyLicensePayload;
-  privateKeyPem: string | crypto.KeyObject;
-}): string {
+export function signLicenseCode(
+  args: { payload: AnyLicensePayload; privateKeyPem: string | crypto.KeyObject },
+): string {
   const { payload, privateKeyPem } = args ?? ({} as typeof args);
-  if (!payload || typeof payload !== 'object') {
-    throw new Error('signLicenseCode: payload object is required');
+  if (!payload || typeof payload !== "object") {
+    throw new Error("signLicenseCode: payload object is required");
   }
   const key = coercePrivateKey(privateKeyPem);
-  if (key.asymmetricKeyType !== 'ed25519') {
+  if (key.asymmetricKeyType !== "ed25519") {
     throw new Error(`signLicenseCode: expected ed25519 private key, got ${key.asymmetricKeyType}`);
   }
 
   // Wire version is derived from the payload's license_version so v2 payloads
   // get the "v2" wire segment and v1 payloads stay byte-identical to before.
-  const wireVersion =
-    payload.license_version === LICENSE_CODE_VERSION_V2 ? LICENSE_CODE_WIRE_VERSION_V2 : LICENSE_CODE_WIRE_VERSION;
+  const wireVersion = payload.license_version === LICENSE_CODE_VERSION_V2
+    ? LICENSE_CODE_WIRE_VERSION_V2
+    : LICENSE_CODE_WIRE_VERSION;
 
   const payloadJson = canonicalPayloadJson(payload);
-  const payloadBytes = Buffer.from(payloadJson, 'utf8');
+  const payloadBytes = Buffer.from(payloadJson, "utf8");
   // Ed25519: algorithm MUST be null; crypto.sign hashes internally.
   const signature = crypto.sign(null, payloadBytes, key);
 
-  return [LICENSE_CODE_PREFIX, wireVersion, toBase64Url(payloadBytes), toBase64Url(signature)].join('.');
+  return [
+    LICENSE_CODE_PREFIX,
+    wireVersion,
+    toBase64Url(payloadBytes),
+    toBase64Url(signature),
+  ].join(".");
 }
 
 // ---------------------------------------------------------------------------
@@ -327,20 +360,18 @@ function fail(reason_code: string, evidence: Record<string, unknown> = {}): Veri
   return { ok: false, reason_code, evidence };
 }
 
-export function verifyLicenseCode(args: {
-  code: string;
-  publicKeyPem: string | crypto.KeyObject;
-  now?: Date | number | string;
-}): VerifyResult {
+export function verifyLicenseCode(
+  args: { code: string; publicKeyPem: string | crypto.KeyObject; now?: Date | number | string },
+): VerifyResult {
   const { code, publicKeyPem, now } = args ?? ({} as typeof args);
   if (!isNonEmptyString(code)) {
-    return fail(LICENSE_REASON_CODES.MALFORMED, { detail: 'code is empty or not a string' });
+    return fail(LICENSE_REASON_CODES.MALFORMED, { detail: "code is empty or not a string" });
   }
 
-  const parts = code.trim().split('.');
+  const parts = code.trim().split(".");
   if (parts.length !== 4) {
     return fail(LICENSE_REASON_CODES.MALFORMED, {
-      detail: 'expected 4 dot-separated segments',
+      detail: "expected 4 dot-separated segments",
       segments: parts.length,
     });
   }
@@ -348,7 +379,7 @@ export function verifyLicenseCode(args: {
   const [prefix, wireVersion, payloadB64, sigB64] = parts;
 
   if (prefix !== LICENSE_CODE_PREFIX) {
-    return fail(LICENSE_REASON_CODES.MALFORMED, { detail: 'unknown code prefix', prefix });
+    return fail(LICENSE_REASON_CODES.MALFORMED, { detail: "unknown code prefix", prefix });
   }
 
   // Dispatch on the wire-version segment. A v2-aware verifier accepts BOTH "v1"
@@ -358,37 +389,38 @@ export function verifyLicenseCode(args: {
   // keeps a single supported version and fails closed on "v2".
   if (!SUPPORTED_WIRE_VERSIONS.includes(wireVersion)) {
     return fail(LICENSE_REASON_CODES.VERSION_UNSUPPORTED, {
-      detail: 'unsupported wire version',
+      detail: "unsupported wire version",
       wire_version: wireVersion,
       supported: SUPPORTED_WIRE_VERSIONS,
     });
   }
-  const expectedPayloadVersion =
-    wireVersion === LICENSE_CODE_WIRE_VERSION_V2 ? LICENSE_CODE_VERSION_V2 : LICENSE_CODE_VERSION;
+  const expectedPayloadVersion = wireVersion === LICENSE_CODE_WIRE_VERSION_V2
+    ? LICENSE_CODE_VERSION_V2
+    : LICENSE_CODE_VERSION;
 
   const payloadBytes = fromBase64Url(payloadB64);
   const signature = fromBase64Url(sigB64);
   if (!payloadBytes || !signature) {
     return fail(LICENSE_REASON_CODES.MALFORMED, {
-      detail: 'payload or signature is not valid base64url',
+      detail: "payload or signature is not valid base64url",
     });
   }
 
   let payload: AnyLicensePayload;
   try {
-    payload = JSON.parse(payloadBytes.toString('utf8'));
+    payload = JSON.parse(payloadBytes.toString("utf8"));
   } catch {
-    return fail(LICENSE_REASON_CODES.MALFORMED, { detail: 'payload is not valid JSON' });
+    return fail(LICENSE_REASON_CODES.MALFORMED, { detail: "payload is not valid JSON" });
   }
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return fail(LICENSE_REASON_CODES.MALFORMED, { detail: 'payload is not a JSON object' });
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return fail(LICENSE_REASON_CODES.MALFORMED, { detail: "payload is not a JSON object" });
   }
 
   // The payload's license_version MUST match the version pinned by the wire
   // segment. This binds the two together so neither can be swapped independently.
   if (payload.license_version !== expectedPayloadVersion) {
     return fail(LICENSE_REASON_CODES.VERSION_UNSUPPORTED, {
-      detail: 'unsupported payload license_version',
+      detail: "unsupported payload license_version",
       license_version: payload.license_version ?? null,
       wire_version: wireVersion,
       supported: expectedPayloadVersion,
@@ -401,7 +433,7 @@ export function verifyLicenseCode(args: {
   } catch (error) {
     throw new Error(`verifyLicenseCode: invalid public key: ${(error as Error).message}`);
   }
-  if (key.asymmetricKeyType !== 'ed25519') {
+  if (key.asymmetricKeyType !== "ed25519") {
     throw new Error(`verifyLicenseCode: expected ed25519 public key, got ${key.asymmetricKeyType}`);
   }
 
@@ -413,7 +445,7 @@ export function verifyLicenseCode(args: {
   }
   if (!signatureOk) {
     return fail(LICENSE_REASON_CODES.SIGNATURE_INVALID, {
-      detail: 'ed25519 signature did not verify',
+      detail: "ed25519 signature did not verify",
     });
   }
 
@@ -425,13 +457,13 @@ export function verifyLicenseCode(args: {
   const issuedMs = Date.parse(payload.issued_at);
   if (Number.isNaN(issuedMs)) {
     return fail(LICENSE_REASON_CODES.MALFORMED, {
-      detail: 'issued_at is not a valid date',
+      detail: "issued_at is not a valid date",
       issued_at: payload.issued_at ?? null,
     });
   }
   if (nowMs < issuedMs) {
     return fail(LICENSE_REASON_CODES.NOT_YET_VALID, {
-      detail: 'issued_at is in the future',
+      detail: "issued_at is in the future",
       issued_at: payload.issued_at,
       now: new Date(nowMs).toISOString(),
     });
@@ -452,16 +484,22 @@ export function verifyLicenseCode(args: {
     const trialEndsMs = Date.parse(v2.trial_ends_at);
     if (Number.isNaN(trialEndsMs)) {
       return fail(LICENSE_REASON_CODES.MALFORMED, {
-        detail: 'trial_ends_at is not a valid date',
+        detail: "trial_ends_at is not a valid date",
         trial_ends_at: v2.trial_ends_at,
       });
     }
     // Inclusive expiry: at-or-after the trial end instant the trial is over.
     if (nowMs >= trialEndsMs) {
       return fail(LICENSE_REASON_CODES.EXPIRED, {
-        detail: 'trial license is past its trial_ends_at',
+        detail: "trial license is past its trial_ends_at",
         trial_ends_at: v2.trial_ends_at,
         now: new Date(nowMs).toISOString(),
+        // Signature already verified above, so these are authentic lookup keys.
+        // entitlement-status uses them to run the trial->paid conversion guard on
+        // the expired path instead of short-circuiting to a false 'expired'.
+        serial: payload.serial,
+        tenant_serial: payload.tenant_serial,
+        edition: payload.edition,
       });
     }
     return { ok: true, payload };
@@ -471,15 +509,20 @@ export function verifyLicenseCode(args: {
     const expiresMs = Date.parse(payload.expires_at);
     if (Number.isNaN(expiresMs)) {
       return fail(LICENSE_REASON_CODES.MALFORMED, {
-        detail: 'expires_at is not a valid date',
+        detail: "expires_at is not a valid date",
         expires_at: payload.expires_at,
       });
     }
     if (nowMs >= expiresMs) {
       return fail(LICENSE_REASON_CODES.EXPIRED, {
-        detail: 'license is past its expires_at',
+        detail: "license is past its expires_at",
         expires_at: payload.expires_at,
         now: new Date(nowMs).toISOString(),
+        // Signature already verified above — authentic lookup keys for the
+        // entitlement-status conversion guard on the expired path.
+        serial: payload.serial,
+        tenant_serial: payload.tenant_serial,
+        edition: payload.edition,
       });
     }
   }
