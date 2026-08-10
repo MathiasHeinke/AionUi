@@ -198,7 +198,8 @@ export function mergeCommandEvePreparedPdfFiles(
 
 /**
  * Fail closed when MAIN claims that PDFs were prepared but the receipt cannot
- * prove a one-to-one source/sidecar handoff. This guard intentionally performs
+ * prove every source and its content-addressed sidecar handoff. Identical PDF
+ * bytes may legitimately share one sidecar. This guard intentionally performs
  * no filesystem reads in the renderer; AionCore validates the files themselves
  * before forwarding them to Hermes.
  */
@@ -218,7 +219,7 @@ export function validateCommandEvePdfPrepareReceipt(
   }
 
   const seenSources = new Set<string>();
-  const seenSidecars = new Set<string>();
+  const sidecarDocuments = new Map<string, Record<string, unknown>>();
   const documents: CommandEvePreparedPdfDocument[] = [];
   for (const candidate of raw.documents) {
     if (!isRecord(candidate)) return failure();
@@ -228,13 +229,24 @@ export function validateCommandEvePdfPrepareReceipt(
       typeof sourcePath !== 'string' ||
       !expectedSources.has(sourcePath) ||
       seenSources.has(sourcePath) ||
-      !isAbsoluteFilePath(sidecarPath) ||
-      seenSidecars.has(sidecarPath)
+      !isAbsoluteFilePath(sidecarPath)
+    ) {
+      return failure();
+    }
+    const existingSidecar = sidecarDocuments.get(sidecarPath);
+    if (
+      existingSidecar &&
+      (existingSidecar.sha256 !== candidate.sha256 ||
+        existingSidecar.bytes !== candidate.bytes ||
+        existingSidecar.page_count !== candidate.page_count ||
+        existingSidecar.extracted_characters !== candidate.extracted_characters ||
+        existingSidecar.extraction_mode !== candidate.extraction_mode ||
+        existingSidecar.citation_format !== candidate.citation_format)
     ) {
       return failure();
     }
     seenSources.add(sourcePath);
-    seenSidecars.add(sidecarPath);
+    sidecarDocuments.set(sidecarPath, candidate);
     documents.push(candidate as CommandEvePreparedPdfDocument);
   }
 

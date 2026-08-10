@@ -33,8 +33,11 @@ describe('Hermes desktop bridge', () => {
     prepareCommandEveRuntimeProcessEnv(userData, env, 'darwin');
     expect(env.HERMES_DESKTOP).toBe('1');
     expect(COMMAND_EVE_ACP_PLATFORM_TOOLSETS).toEqual(
-      expect.arrayContaining(['hermes-acp', 'computer_use', 'vision', 'clarify', 'command-eve-desktop'])
+      expect.arrayContaining(['hermes-acp', 'computer_use', 'clarify', 'command-eve-desktop'])
     );
+    // Vision is exposed only after a verified local-VLM receipt. Unknown text
+    // models must not inherit Hermes' optimistic vision fallback.
+    expect(COMMAND_EVE_ACP_PLATFORM_TOOLSETS).not.toContain('vision');
     expect(COMMAND_EVE_ACP_PLATFORM_TOOLSETS).not.toContain('kanban');
   });
 

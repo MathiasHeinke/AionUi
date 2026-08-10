@@ -20,6 +20,7 @@ import {
 
 const artifactMock = vi.hoisted(() => ({
   artifacts: [] as IConversationArtifact[],
+  stage: vi.fn(),
 }));
 const conversationContextMock = vi.hoisted(() => ({
   current: { conversation_id: 'conversation-1', workspace: '/tmp' } as {
@@ -95,6 +96,7 @@ vi.mock('@/renderer/pages/conversation/Messages/artifacts', async (importOrigina
   return {
     ...actual,
     useConversationArtifacts: () => artifactMock.artifacts,
+    stageConversationArtifact: artifactMock.stage,
   };
 });
 
@@ -309,6 +311,7 @@ function mockScrollerGeometry(
 describe('MessageList', () => {
   afterEach(() => {
     artifactMock.artifacts = [];
+    artifactMock.stage.mockReset();
     conversationContextMock.current = { conversation_id: 'conversation-1', workspace: '/tmp' };
     ipcMock.readFile.mockReset();
     ipcMock.readFileBuffer.mockReset();
@@ -434,6 +437,20 @@ describe('MessageList', () => {
     });
 
     await waitFor(() => expect(screen.getByTestId('generated-artifact-html')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(artifactMock.stage).toHaveBeenCalledWith(
+        'conversation-1',
+        expect.objectContaining({
+          id: 'hermes-media-message-1-0',
+          conversation_id: 'conversation-1',
+          kind: 'html',
+          payload: expect.objectContaining({
+            artifact_type: 'html',
+            path: '/Users/eve/Downloads/command-eve-report.html',
+          }),
+        })
+      )
+    );
     const htmlArtifact = screen.getByTestId('generated-artifact-html');
     expect(htmlArtifact.getAttribute('srcdoc')).toContain('Content-Security-Policy');
     expect(htmlArtifact.getAttribute('srcdoc')).toContain('<main><h1>Command EVE report</h1></main>');
@@ -462,6 +479,7 @@ describe('MessageList', () => {
     });
 
     expect(screen.queryByTestId('generated-artifact-card')).not.toBeInTheDocument();
+    expect(artifactMock.stage).not.toHaveBeenCalled();
     expect(screen.getByText('MEDIA:/Users/eve/Downloads/user-file.pdf')).toBeInTheDocument();
     expect(screen.getByText('MEDIA:../../private/report.pdf')).toBeInTheDocument();
   });

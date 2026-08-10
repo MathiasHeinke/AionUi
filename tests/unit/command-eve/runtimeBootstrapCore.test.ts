@@ -1195,6 +1195,14 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('auxiliary_client._to_async_client = command_eve_to_async_client');
       expect(providerOverride).toContain('def _install_command_eve_attachment_memory_gate() -> None:');
       expect(providerOverride).toContain('def _install_command_eve_attachment_history_patch() -> None:');
+      const attachmentFailClosedDefault = providerOverride.indexOf(
+        'turn_agent._command_eve_current_turn_has_attachment = True'
+      );
+      const attachmentInspection = providerOverride.indexOf(
+        'turn_agent._command_eve_current_turn_has_attachment = _command_eve_prompt_has_attachment(prompt_blocks)'
+      );
+      expect(attachmentFailClosedDefault).toBeGreaterThan(-1);
+      expect(attachmentInspection).toBeGreaterThan(attachmentFailClosedDefault);
       const visionAuthHarness = spawnSync(
         'python3',
         [
@@ -1431,10 +1439,7 @@ describe('Command EVE runtime bootstrap core', () => {
         [path.resolve('tests/fixtures/command-eve/acp_disabled_toolsets_patch_harness.py'), providerOverridePath],
         { encoding: 'utf8', timeout: 10_000 }
       );
-      expect(
-        disabledToolsetsHarness.status,
-        disabledToolsetsHarness.stderr || disabledToolsetsHarness.stdout
-      ).toBe(0);
+      expect(disabledToolsetsHarness.status, disabledToolsetsHarness.stderr || disabledToolsetsHarness.stdout).toBe(0);
       expect(JSON.parse(disabledToolsetsHarness.stdout)).toEqual({
         fresh: {
           disabled: ['vision'],

@@ -138,6 +138,7 @@ sys.modules.update(
 
 NS["_install_command_eve_acp_disabled_toolsets_patch"]()
 wrapped_once = SessionManager._make_agent
+NS["_COMMAND_EVE_INSTALLED_PATCHES"].clear()
 NS["_install_command_eve_acp_disabled_toolsets_patch"]()
 idempotent = wrapped_once is SessionManager._make_agent
 

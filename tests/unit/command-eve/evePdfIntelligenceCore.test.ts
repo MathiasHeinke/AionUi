@@ -191,6 +191,20 @@ describe('evePdfIntelligenceCore', () => {
     ).toEqual({ ok: true, documents: [local, cloud] });
   });
 
+  it('accepts two source paths with identical bytes sharing one content-addressed sidecar', () => {
+    const first = preparedDocument('/tmp/report.pdf');
+    const copy = preparedDocument('/tmp/report-copy.pdf');
+
+    expect(
+      validateCommandEvePdfPrepareReceipt(['/tmp/report.pdf', '/tmp/report-copy.pdf'], prepareReceipt([first, copy]))
+    ).toEqual({ ok: true, documents: [first, copy] });
+    expect(mergeCommandEvePreparedPdfFiles(['/tmp/report.pdf', '/tmp/report-copy.pdf'], [first, copy])).toEqual([
+      '/tmp/report.pdf',
+      first.sidecar_path,
+      '/tmp/report-copy.pdf',
+    ]);
+  });
+
   it.each([
     ['missing document', ['/tmp/report.pdf', '/tmp/scan.pdf'], prepareReceipt([preparedDocument()])],
     ['foreign source', ['/tmp/report.pdf'], prepareReceipt([preparedDocument('/tmp/other.pdf')])],
@@ -205,9 +219,16 @@ describe('evePdfIntelligenceCore', () => {
       prepareReceipt([preparedDocument('/tmp/report.pdf', `document-intelligence/pdf/${sha256}/document.md`)]),
     ],
     [
-      'duplicate sidecar',
+      'conflicting shared sidecar',
       ['/tmp/report.pdf', '/tmp/scan.pdf'],
-      prepareReceipt([preparedDocument(), preparedDocument('/tmp/scan.pdf')]),
+      prepareReceipt([
+        preparedDocument(),
+        preparedDocument(
+          '/tmp/scan.pdf',
+          `/tmp/hermes/document-intelligence/pdf/${sha256}/document.md`,
+          'b'.repeat(64)
+        ),
+      ]),
     ],
   ])('rejects a %s receipt', (_label, pdfFiles, receipt) => {
     expect(validateCommandEvePdfPrepareReceipt(pdfFiles as string[], receipt)).toEqual({

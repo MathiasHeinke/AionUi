@@ -190,6 +190,9 @@ describe('v1.6 Beat 2 — Session-1-Artefakt-Skill (D6-Merge)', () => {
     expect(md).toContain('even if the operator did not explicitly ask for an artifact');
     expect(md).toContain('images, videos, audio clips, HTML screens, reports, files, markdown tables, code snippets');
     expect(md).toContain('return a visible failure artifact instead of silently stopping');
+    expect(md).toContain('MEDIA: <absolute-local-path-or-https-url>');
+    expect(md).toContain('For local HTML, use the absolute path to the generated .html file');
+    expect(md).toContain('Never use a transient loopback URL such as 127.0.0.1 or localhost');
     expect(md).toContain('Do not paste a bare file path as the only answer');
     expect(md).toContain('create the source FIRST as one relative .md file in the active conversation workspace');
     expect(md).toContain(

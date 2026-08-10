@@ -25,7 +25,7 @@ import './messages.css';
 import HOC from '@renderer/utils/ui/HOC';
 import type { FileChangeInfo } from './MessageFileChanges';
 import MessageFileChanges, { parseDiff } from './MessageFileChanges';
-import { useConversationArtifacts, isVisibleConversationArtifact } from './artifacts';
+import { useConversationArtifacts, isVisibleConversationArtifact, stageConversationArtifact } from './artifacts';
 import {
   emptyMessageHistoryPagination,
   shouldLoadOlderConversationMessages,
@@ -315,6 +315,50 @@ const MessageList: React.FC<{
   } | null>(null);
   const olderLoadInFlightRef = useRef(false);
 
+  // Hermes already has one native, transcript-durable artifact carrier:
+  // `MEDIA: <source>`. Build that projection once, use it for both the chat
+  // card and the shared artifact store, and keep message history as the source
+  // of truth across remounts. This deliberately does not infer artifacts from
+  // preview tabs or successful-looking tool calls.
+  const hermesMediaByMessage = useMemo(() => {
+    const projected = new Map<string, { text: string; artifacts: IGeneratedConversationArtifact[] }>();
+    for (const message of list) {
+      if (message.hidden || message.type !== 'text' || message.position !== 'left') continue;
+      const parsedMedia = parseHermesMediaDirectives(message.content.content);
+      if (!parsedMedia.directives.length) continue;
+      projected.set(message.id, {
+        text: parsedMedia.text,
+        artifacts: parsedMedia.directives.map((directive, index) =>
+          buildGeneratedArtifactFromHermesMediaDirective({
+            conversation_id: message.conversation_id,
+            message_id: message.id,
+            index,
+            created_at: message.created_at,
+            directive,
+          })
+        ),
+      });
+    }
+    return projected;
+  }, [list]);
+
+  useEffect(() => {
+    const existingSourceKeys = new Set(
+      artifacts
+        .filter(isVisibleConversationArtifact)
+        .flatMap(getGeneratedArtifactSourceKeys)
+        .filter((key): key is string => Boolean(key))
+    );
+    for (const { artifacts: projectedArtifacts } of hermesMediaByMessage.values()) {
+      for (const artifact of projectedArtifacts) {
+        const sourceKeys = getGeneratedArtifactSourceKeys(artifact);
+        if (sourceKeys.some((key) => existingSourceKeys.has(key))) continue;
+        sourceKeys.forEach((key) => existingSourceKeys.add(key));
+        stageConversationArtifact(artifact.conversation_id, artifact);
+      }
+    }
+  }, [artifacts, hermesMediaByMessage]);
+
   // Pre-process message list to group tool outputs into summary cards
   const processedList = useMemo(() => {
     const result: IProcessedItem[] = [];
@@ -412,25 +456,19 @@ const MessageList: React.FC<{
       diffsChanges = [];
       diffsSourceMessageIds = [];
       if (message.type === 'text' && message.position === 'left') {
-        const parsedMedia = parseHermesMediaDirectives(message.content.content);
-        if (parsedMedia.directives.length) {
+        const projectedMedia = hermesMediaByMessage.get(message.id);
+        if (projectedMedia) {
           result.push({
             ...message,
             content: {
               ...message.content,
-              content: parsedMedia.text,
+              content: projectedMedia.text,
             },
           });
-          parsedMedia.directives.forEach((directive, index) => {
-            if (generatedArtifactSourceKeys.has(directive.source)) return;
-            generatedArtifactSourceKeys.add(directive.source);
-            const artifact = buildGeneratedArtifactFromHermesMediaDirective({
-              conversation_id: message.conversation_id,
-              message_id: message.id,
-              index,
-              created_at: message.created_at,
-              directive,
-            });
+          projectedMedia.artifacts.forEach((artifact) => {
+            const sourceKeys = getGeneratedArtifactSourceKeys(artifact);
+            if (sourceKeys.some((key) => generatedArtifactSourceKeys.has(key))) return;
+            sourceKeys.forEach((key) => generatedArtifactSourceKeys.add(key));
             result.push({
               type: 'artifact',
               id: artifact.id,
@@ -459,7 +497,7 @@ const MessageList: React.FC<{
     return [...result, ...visibleArtifactItems, ...projectWorkspaceArtifactItems].toSorted(
       (a, b) => getProcessedItemCreatedAt(a) - getProcessedItemCreatedAt(b)
     );
-  }, [artifacts, list, projectWorkspaceArtifacts]);
+  }, [artifacts, hermesMediaByMessage, list, projectWorkspaceArtifacts]);
 
   // Use auto-scroll hook
   const {
