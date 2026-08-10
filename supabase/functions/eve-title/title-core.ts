@@ -119,11 +119,11 @@ export function sanitizeEveGeneratedTitle(raw: unknown): string | null {
     .replace(/\r/g, '')
     .split('\n')
     .map((line) => line.trim())
-    .find((line) => line.length > 0 && !/^```/.test(line));
+    .find((line) => line.length > 0 && !line.startsWith('```'));
   if (!firstLine) return null;
 
   let title = firstLine
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200d\u2060\ufeff]/gu, ' ')
+    .replace(/[\p{Cc}\u200b-\u200d\u2060\ufeff]/gu, ' ')
     .replace(/^\s*(?:[#>*_~`]+\s*)+/u, '')
     .replace(/^\s*(?:[-+•]\s+|\d{1,2}[.)]\s+)/u, '')
     .replace(/^\s*(?:titel|title|sitzungstitel|session\s+title|chat\s+title|conversation\s+title)\s*[:：\-–—]\s*/iu, '')

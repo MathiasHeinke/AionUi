@@ -104,6 +104,15 @@ describe('H2 — the REAL page reads the DEFAULT board (the board EVE writes)', 
       expect((c[0] as { boardSlug?: string }).boardSlug).not.toBe('marketing');
     }
   });
+
+  it('refreshes an already-open board after the governed ACP confirmation applies', async () => {
+    render(<KanbanBoardHost />);
+    await waitFor(() => expect(boardInvoke).toHaveBeenCalledTimes(1));
+
+    window.dispatchEvent(new CustomEvent('command-eve:kanban-acp-applied'));
+
+    await waitFor(() => expect(boardInvoke).toHaveBeenCalledTimes(2));
+  });
 });
 
 describe('test-honesty mirror (d) — the REAL KanbanBoardHost remounts on seat switch', () => {

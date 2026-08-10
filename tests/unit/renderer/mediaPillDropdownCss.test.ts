@@ -306,6 +306,8 @@ describe('content-wide geometry (the ellipsis-with-free-space fix)', () => {
     expect(component).toContain('minWidth: placement.minWidth');
     expect(component).toContain('maxWidth: placement.maxWidth');
     expect(component).toContain('clampPillDropdownLeft({');
+    expect(component).toContain('alignMeasuredPillDropdownTop({');
+    expect(component).toContain('measuredHeight: listRect.height');
     expect(component).toContain('viewportWidth: window.innerWidth');
   });
 });

@@ -20,7 +20,7 @@ const OFFICE_OPEN_DELAY_MS = 1000;
 // backend watcher emits fileAdded)". That is false: the sender exists and both ends
 // are wired. Measured against the pinned binary
 // _aioncore-pinned/darwin-arm64/aioncore, sha256
-// ccb16ee82eee520fdf2612a42be2750a402e13194a33af7f4ade09887cc5be40:
+// 5c76f01f8d8ed1895abed27963a254dda1557384a681e600ce9f65272ac50d00:
 //
 //   - `strings` finds `workspaceOfficeWatch.fileAdded` sitting directly beside
 //     `crates/aionui-file/src/watch_service.rs:98` and the literals

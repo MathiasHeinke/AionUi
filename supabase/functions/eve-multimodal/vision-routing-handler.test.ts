@@ -8,6 +8,7 @@ import {
   signLicenseCode,
 } from "../_shared/license-code-core.ts";
 import {
+  extractOpenRouterVisionMarkdown,
   handleEveMultimodal,
   resetEveMultimodalPublicKeyCacheForTests,
 } from "./index.ts";
@@ -63,6 +64,109 @@ function imageBody(): Record<string, unknown> {
   };
 }
 
+Deno.test("Vision accepts only provider-complete Markdown", () => {
+  const complete = {
+    choices: [{
+      finish_reason: "stop",
+      message: { content: "## Image 1\n\n- Vollständiger Inhalt." },
+    }],
+  };
+  const truncated = {
+    choices: [{
+      finish_reason: "length",
+      message: { content: "## Image 1\n\n- Abgeschnittener Inhalt mit `" },
+    }],
+  };
+
+  assertEquals(
+    extractOpenRouterVisionMarkdown(complete, [1], "image"),
+    "## Image 1\n\n- Vollständiger Inhalt.",
+  );
+  assertEquals(
+    extractOpenRouterVisionMarkdown(truncated, [1], "image"),
+    null,
+  );
+});
+
+Deno.test("Vision refunds and does not retry provider-truncated output", async () => {
+  Deno.env.set("EVE_MULTIMODAL_ENABLE_OPENROUTER_VISION", "true");
+  Deno.env.set("OPENROUTER_API_KEY", "test-openrouter-key");
+  let providerCalls = 0;
+  let reversals = 0;
+
+  try {
+    const response = await handleEveMultimodal(
+      new Request("https://example.supabase.co/functions/v1/eve-multimodal", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${licenseWire()}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          ...imageBody(),
+          requestId: "vision_truncated_probe",
+        }),
+      }),
+      {
+        loadVisionModelRoute: async () => ({
+          ok: true,
+          entitlementId: "entitlement-paid",
+          route: {
+            lane: "paid",
+            model: "google/gemini-3.6-flash",
+            boundRetailEurCentsPerImage: 35,
+            maxOutputTokens: 1_800,
+          },
+        }),
+        commitVideoDebit: async (input) => ({
+          status: "applied",
+          entitlementId: "entitlement-paid",
+          externalRef: input.externalRef,
+          fromAllowance: 0,
+          fromPurchased: 350,
+        }),
+        reverseVideoDebit: async () => {
+          reversals += 1;
+          return { ok: true };
+        },
+        reservePdfOcrUsage: async () => ({
+          ok: true,
+          allowed: true,
+          reason: "reserved",
+          tenantUnits: 1,
+          tenantCap: 200,
+          globalUnits: 1,
+          globalCap: 10_000,
+          replayed: false,
+        }),
+        fetch: async () => {
+          providerCalls += 1;
+          return Response.json({
+            choices: [{
+              finish_reason: "length",
+              message: {
+                content: "## Image 1\n\n- Abgeschnittener Inhalt mit `",
+              },
+            }],
+            usage: { cost: 0.001 },
+          });
+        },
+      },
+    );
+
+    assertEquals(response.status, 502);
+    const payload = await response.json();
+    assertEquals(payload.reason, "provider-output-incomplete");
+    assertEquals(providerCalls, 1);
+    assertEquals(reversals, 1);
+  } finally {
+    Deno.env.delete("EVE_MULTIMODAL_ENABLE_OPENROUTER_VISION");
+    Deno.env.delete("OPENROUTER_API_KEY");
+    Deno.env.delete("COMMAND_EVE_LICENSE_SIGNING_KEY");
+    resetEveMultimodalPublicKeyCacheForTests();
+  }
+});
+
 Deno.test("Vision uses the server-resolved Paid model, bound and output cap for a pilot with purchased credits", async () => {
   Deno.env.set("EVE_MULTIMODAL_ENABLE_OPENROUTER_VISION", "true");
   Deno.env.set("OPENROUTER_API_KEY", "test-openrouter-key");
@@ -117,6 +221,7 @@ Deno.test("Vision uses the server-resolved Paid model, bound and output cap for 
           );
           return Response.json({
             choices: [{
+              finish_reason: "stop",
               message: { content: "## Image 1\n\n- Sichtbarer Testinhalt." },
             }],
             usage: { cost: 0.001 },
@@ -134,6 +239,10 @@ Deno.test("Vision uses the server-resolved Paid model, bound and output cap for 
     assertEquals(commits[0]?.expectedEntitlementId, "entitlement-paid");
     assertEquals(providerBodies[0]?.model, "google/gemini-3.6-flash");
     assertEquals(providerBodies[0]?.max_tokens, 1_800);
+    assertEquals(providerBodies[0]?.reasoning, {
+      effort: "minimal",
+      exclude: true,
+    });
   } finally {
     Deno.env.delete("EVE_MULTIMODAL_ENABLE_OPENROUTER_VISION");
     Deno.env.delete("OPENROUTER_API_KEY");
@@ -199,6 +308,7 @@ Deno.test("Vision uses the cheap Trial model and one-cent bound before purchased
           );
           return Response.json({
             choices: [{
+              finish_reason: "stop",
               message: { content: "## Image 1\n\n- Sichtbarer Trial-Inhalt." },
             }],
             usage: { cost: 0.00001 },
@@ -216,6 +326,10 @@ Deno.test("Vision uses the cheap Trial model and one-cent bound before purchased
     assertEquals(commits[0]?.expectedEntitlementId, "entitlement-trial");
     assertEquals(providerBodies[0]?.model, "qwen/qwen3.7-flash");
     assertEquals(providerBodies[0]?.max_tokens, 1_200);
+    assertEquals(providerBodies[0]?.reasoning, {
+      effort: "minimal",
+      exclude: true,
+    });
   } finally {
     Deno.env.delete("EVE_MULTIMODAL_ENABLE_OPENROUTER_VISION");
     Deno.env.delete("OPENROUTER_API_KEY");

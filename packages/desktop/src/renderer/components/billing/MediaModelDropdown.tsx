@@ -35,6 +35,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { CheckSmall } from '@icon-park/react';
 import {
+  alignMeasuredPillDropdownTop,
   clampPillDropdownLeft,
   resolvePillDropdownPlacement,
   type PillDropdownPlacement,
@@ -98,20 +99,35 @@ export const MediaPillDropdown: React.FC<{
     );
   }, [open, estimatedRows]);
 
-  // SECOND GEOMETRY PASS: the list is content-wide (`width: max-content`), so
-  // its real width is only known after the browser sized it. Slide it left if
-  // the content ran past the right viewport edge; converges in one step (the
-  // clamped value re-enters and clamps to itself).
+  // SECOND GEOMETRY PASS: width and height are content-driven. Keep the list
+  // inside the viewport horizontally and, for upward menus, re-anchor its
+  // measured bottom edge to the trigger. Otherwise the short curated list
+  // inherits the expanded catalog's estimated height and floats too far away.
   useLayoutEffect(() => {
     if (!open || !placement) return;
     const listRect = listRef.current?.getBoundingClientRect();
-    if (!listRect) return;
-    const clampedLeft = clampPillDropdownLeft({
-      left: placement.left,
-      measuredWidth: listRect.width,
-      viewportWidth: window.innerWidth,
+    const triggerRect = triggerRef.current?.getBoundingClientRect();
+    if (!listRect || !triggerRect) return;
+    // The estimated-row effect and this measured pass can run in the same
+    // commit when "Weitere anzeigen" changes the list height. A functional
+    // update guarantees this pass refines the newest geometry instead of
+    // restoring a stale pre-expansion placement captured by this render.
+    setPlacement((current) => {
+      if (!current) return current;
+      const clampedLeft = clampPillDropdownLeft({
+        left: current.left,
+        measuredWidth: listRect.width,
+        viewportWidth: window.innerWidth,
+      });
+      const anchoredTop = alignMeasuredPillDropdownTop({
+        direction: current.direction,
+        currentTop: current.top,
+        triggerTop: triggerRect.top,
+        measuredHeight: listRect.height,
+      });
+      if (clampedLeft === current.left && anchoredTop === current.top) return current;
+      return { ...current, left: clampedLeft, top: anchoredTop };
     });
-    if (clampedLeft !== placement.left) setPlacement({ ...placement, left: clampedLeft });
   }, [open, placement]);
 
   // Outside click closes — the portal is outside the pill's DOM subtree, so

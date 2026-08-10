@@ -100,10 +100,13 @@ describe('managed visual turn authorization', () => {
     ).toMatchObject({ ok: false, reason_code: 'EVE_MANAGED_VISUAL_POLICY_RECEIPT_REQUIRED' });
   });
 
-  it('binds the opaque marker to seat plus monotonic revision and consumes it once', () => {
+  it('binds the opaque marker to seat plus monotonic revision and rejects an identical replay', () => {
     const authorization = authorize({ request: request('max') });
     if (!authorization.marker) throw new Error('expected marker');
-    const body = { messages: [{ role: 'user', content: `${authorization.marker}\nAnalyze the deck.` }] };
+    const body = {
+      session_id: 'hermes-session-a',
+      messages: [{ role: 'user', content: `${authorization.marker}\nAnalyze the deck.` }],
+    };
 
     expect(resolveCommandEveManagedVisualTurn(body, SEAT_B, REVISION_A, 2_000)).toMatchObject({
       status: 'invalid',
@@ -120,7 +123,218 @@ describe('managed visual turn authorization', () => {
     });
     expect(resolveCommandEveManagedVisualTurn(body, SEAT_A, REVISION_A, 2_001)).toMatchObject({
       status: 'invalid',
-      reason_code: 'AUTHORIZATION_UNKNOWN',
+      reason_code: 'AUTHORIZATION_REPLAY',
+    });
+  });
+
+  it('authorizes one unique same-session Hermes tool continuation and rejects cross-session replay', () => {
+    const authorization = authorize();
+    if (!authorization.marker) throw new Error('expected marker');
+    const user = { role: 'user', content: `${authorization.marker}\nAnalyze the image.` };
+    const initial = { session_id: 'hermes-session-a', messages: [user] };
+    expect(resolveCommandEveManagedVisualTurn(initial, SEAT_A, REVISION_A, 2_000)).toMatchObject({
+      status: 'authorized',
+    });
+
+    const continuation = {
+      session_id: 'hermes-session-a',
+      messages: [
+        user,
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'vision_analyze', arguments: '{}' } }],
+        },
+        { role: 'tool', tool_call_id: 'call-1', content: 'The image contains the requested evidence.' },
+      ],
+    };
+    expect(resolveCommandEveManagedVisualTurn(continuation, SEAT_A, REVISION_A, 2_001)).toMatchObject({
+      status: 'authorized',
+    });
+    expect(resolveCommandEveManagedVisualTurn(continuation, SEAT_A, REVISION_A, 2_002)).toMatchObject({
+      status: 'invalid',
+      reason_code: 'AUTHORIZATION_REPLAY',
+    });
+    expect(
+      resolveCommandEveManagedVisualTurn({ ...continuation, session_id: 'hermes-session-b' }, SEAT_A, REVISION_A, 2_003)
+    ).toMatchObject({
+      status: 'invalid',
+      reason_code: 'AUTHORIZATION_SESSION_MISMATCH',
+    });
+
+    const forkedContinuation = {
+      session_id: 'hermes-session-a',
+      messages: [
+        user,
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{ id: 'call-fork', type: 'function', function: { name: 'vision_analyze', arguments: '{}' } }],
+        },
+        { role: 'tool', tool_call_id: 'call-fork', content: 'alternate branch' },
+      ],
+    };
+    expect(resolveCommandEveManagedVisualTurn(forkedContinuation, SEAT_A, REVISION_A, 2_004)).toMatchObject({
+      status: 'invalid',
+      reason_code: 'AUTHORIZATION_CONTINUATION_INVALID',
+    });
+  });
+
+  it('requires a session before the first provider request', () => {
+    const authorization = authorize();
+    if (!authorization.marker) throw new Error('expected marker');
+    expect(
+      resolveCommandEveManagedVisualTurn(
+        { messages: [{ role: 'user', content: `${authorization.marker}\nAnalyze the image.` }] },
+        SEAT_A,
+        REVISION_A,
+        2_000
+      )
+    ).toMatchObject({ status: 'invalid', reason_code: 'AUTHORIZATION_SESSION_REQUIRED' });
+  });
+
+  it('supports parallel tools and a later sequential tool round in the same append-only chain', () => {
+    const authorization = authorize();
+    if (!authorization.marker) throw new Error('expected marker');
+    const user = { role: 'user', content: `${authorization.marker}\nAnalyze the image.` };
+    const messages: Record<string, unknown>[] = [user];
+    expect(
+      resolveCommandEveManagedVisualTurn({ session_id: 'hermes-session-a', messages }, SEAT_A, REVISION_A, 2_000)
+    ).toMatchObject({ status: 'authorized' });
+
+    messages.push(
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          { id: 'call-1', type: 'function', function: { name: 'vision_analyze', arguments: '{}' } },
+          { id: 'call-2', type: 'function', function: { name: 'read_file', arguments: '{}' } },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'call-1', content: 'visual result' },
+      { role: 'tool', tool_call_id: 'call-2', content: 'file result' }
+    );
+    expect(
+      resolveCommandEveManagedVisualTurn({ session_id: 'hermes-session-a', messages }, SEAT_A, REVISION_A, 2_001)
+    ).toMatchObject({ status: 'authorized' });
+
+    messages.push(
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'call-3', type: 'function', function: { name: 'vision_analyze', arguments: '{}' } }],
+      },
+      { role: 'tool', tool_call_id: 'call-3', content: 'second visual result' }
+    );
+    expect(
+      resolveCommandEveManagedVisualTurn({ session_id: 'hermes-session-a', messages }, SEAT_A, REVISION_A, 2_002)
+    ).toMatchObject({ status: 'authorized' });
+  });
+
+  it('allows Hermes to compact history before the marked visual turn without weakening that turn chain', () => {
+    const authorization = authorize();
+    if (!authorization.marker) throw new Error('expected marker');
+    const user = { role: 'user', content: `${authorization.marker}\nAnalyze the image.` };
+    expect(
+      resolveCommandEveManagedVisualTurn(
+        {
+          session_id: 'hermes-session-a',
+          messages: [
+            { role: 'system', content: 'Original system context.' },
+            { role: 'assistant', content: 'Older conversation history.' },
+            user,
+          ],
+        },
+        SEAT_A,
+        REVISION_A,
+        2_000
+      )
+    ).toMatchObject({ status: 'authorized' });
+
+    expect(
+      resolveCommandEveManagedVisualTurn(
+        {
+          session_id: 'hermes-session-a',
+          messages: [
+            { role: 'system', content: 'Compacted system context.' },
+            user,
+            {
+              role: 'assistant',
+              content: '',
+              tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'vision_analyze', arguments: '{}' } }],
+            },
+            { role: 'tool', tool_call_id: 'call-1', content: 'visual result' },
+          ],
+        },
+        SEAT_A,
+        REVISION_A,
+        2_001
+      )
+    ).toMatchObject({ status: 'authorized' });
+  });
+
+  it('caps a single visual turn at sixteen unique provider requests', () => {
+    const authorization = authorize();
+    if (!authorization.marker) throw new Error('expected marker');
+    const messages: Record<string, unknown>[] = [
+      { role: 'user', content: `${authorization.marker}\nAnalyze the image.` },
+    ];
+    const resolve = (nowMs: number) =>
+      resolveCommandEveManagedVisualTurn({ session_id: 'hermes-session-a', messages }, SEAT_A, REVISION_A, nowMs);
+
+    expect(resolve(2_000)).toMatchObject({ status: 'authorized' });
+    for (let round = 1; round <= 15; round += 1) {
+      const callId = `call-${round}`;
+      messages.push(
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{ id: callId, type: 'function', function: { name: 'vision_analyze', arguments: '{}' } }],
+        },
+        { role: 'tool', tool_call_id: callId, content: `result-${round}` }
+      );
+      expect(resolve(2_000 + round)).toMatchObject({ status: 'authorized' });
+    }
+
+    messages.push(
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'call-16', type: 'function', function: { name: 'vision_analyze', arguments: '{}' } }],
+      },
+      { role: 'tool', tool_call_id: 'call-16', content: 'result-16' }
+    );
+    expect(resolve(2_016)).toMatchObject({ status: 'invalid', reason_code: 'AUTHORIZATION_CHAIN_LIMIT' });
+  });
+
+  it('rejects malformed or unmatched tool-result continuations before egress', () => {
+    const authorization = authorize();
+    if (!authorization.marker) throw new Error('expected marker');
+    const user = { role: 'user', content: `${authorization.marker}\nAnalyze the image.` };
+    expect(
+      resolveCommandEveManagedVisualTurn(
+        { session_id: 'hermes-session-a', messages: [user] },
+        SEAT_A,
+        REVISION_A,
+        2_000
+      )
+    ).toMatchObject({ status: 'authorized' });
+
+    const malformed = {
+      session_id: 'hermes-session-a',
+      messages: [
+        user,
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'vision_analyze', arguments: '{}' } }],
+        },
+        { role: 'tool', tool_call_id: 'different-call', content: 'unmatched' },
+      ],
+    };
+    expect(resolveCommandEveManagedVisualTurn(malformed, SEAT_A, REVISION_A, 2_001)).toMatchObject({
+      status: 'invalid',
+      reason_code: 'AUTHORIZATION_CONTINUATION_INVALID',
     });
   });
 
@@ -159,6 +373,7 @@ describe('managed visual turn authorization', () => {
     const authorization = authorize();
     if (!authorization.marker) throw new Error('expected marker');
     const structured = {
+      session_id: 'hermes-session-a',
       messages: [
         {
           role: 'user',

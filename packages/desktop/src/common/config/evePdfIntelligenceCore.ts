@@ -55,6 +55,10 @@ export type CommandEvePdfPrepareFailure = {
 
 export type CommandEvePdfPrepareResult = CommandEvePdfPrepareSuccess | CommandEvePdfPrepareFailure;
 
+export type ValidateCommandEvePdfPrepareReceiptResult =
+  | { ok: true; documents: CommandEvePreparedPdfDocument[] }
+  | { ok: false; reason_code: 'EVE_PDF_PREPARE_RECEIPT_INVALID' };
+
 export type CommandEvePdfOcrEdgeRequest = {
   provider: 'openrouter';
   capability: 'document_ocr';
@@ -148,6 +152,11 @@ function isSha256(value: unknown): value is string {
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 }
 
+function isAbsoluteFilePath(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.includes('\0')) return false;
+  return value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value) || /^\\\\[^\\/]+[\\/]/.test(value);
+}
+
 function isLikelyBase64(value: unknown): value is string {
   return (
     typeof value === 'string' && value.length > 0 && value.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(value)
@@ -185,6 +194,53 @@ export function mergeCommandEvePreparedPdfFiles(
     if (sidecar) merged.push(sidecar);
   }
   return Array.from(new Set(merged));
+}
+
+/**
+ * Fail closed when MAIN claims that PDFs were prepared but the receipt cannot
+ * prove a one-to-one source/sidecar handoff. This guard intentionally performs
+ * no filesystem reads in the renderer; AionCore validates the files themselves
+ * before forwarding them to Hermes.
+ */
+export function validateCommandEvePdfPrepareReceipt(
+  pdfFiles: readonly string[],
+  raw: unknown
+): ValidateCommandEvePdfPrepareReceiptResult {
+  const failure = (): ValidateCommandEvePdfPrepareReceiptResult => ({
+    ok: false,
+    reason_code: 'EVE_PDF_PREPARE_RECEIPT_INVALID',
+  });
+  if (!isRecord(raw) || raw.ok !== true || !Array.isArray(raw.documents)) return failure();
+
+  const expectedSources = new Set(pdfFiles);
+  if (expectedSources.size !== pdfFiles.length || pdfFiles.length === 0 || raw.documents.length !== pdfFiles.length) {
+    return failure();
+  }
+
+  const seenSources = new Set<string>();
+  const seenSidecars = new Set<string>();
+  const documents: CommandEvePreparedPdfDocument[] = [];
+  for (const candidate of raw.documents) {
+    if (!isRecord(candidate)) return failure();
+    const sourcePath = candidate.source_path;
+    const sidecarPath = candidate.sidecar_path;
+    if (
+      typeof sourcePath !== 'string' ||
+      !expectedSources.has(sourcePath) ||
+      seenSources.has(sourcePath) ||
+      !isAbsoluteFilePath(sidecarPath) ||
+      seenSidecars.has(sidecarPath)
+    ) {
+      return failure();
+    }
+    seenSources.add(sourcePath);
+    seenSidecars.add(sidecarPath);
+    documents.push(candidate as CommandEvePreparedPdfDocument);
+  }
+
+  if (seenSources.size !== expectedSources.size) return failure();
+
+  return { ok: true, documents };
 }
 
 export function buildCommandEvePdfOcrRequest(input: {

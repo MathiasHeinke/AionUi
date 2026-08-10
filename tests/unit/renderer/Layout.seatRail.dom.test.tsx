@@ -22,8 +22,12 @@ vi.mock('@renderer/utils/platform', () => ({ isElectronDesktop: () => true }));
 vi.mock('@renderer/components/layout/Titlebar', () => ({ default: () => null }));
 vi.mock('@renderer/components/layout/PwaPullToRefresh', () => ({ default: () => null }));
 vi.mock('@renderer/components/settings/UpdateModal', () => ({ default: () => null }));
-vi.mock('@renderer/components/team/TeamManageConfirmCard', () => ({ default: () => null }));
-vi.mock('@renderer/components/team/KanbanAcpConfirmCard', () => ({ default: () => null }));
+vi.mock('@renderer/components/team/TeamManageConfirmCard', () => ({
+  default: () => <div data-testid='team-manage-confirm-surface' />,
+}));
+vi.mock('@renderer/components/team/KanbanAcpConfirmCard', () => ({
+  default: () => <div data-testid='kanban-confirm-surface' />,
+}));
 vi.mock('@renderer/components/seats/SeatRail', () => ({
   default: ({ compact = false }: { compact?: boolean }) => (
     <nav data-testid='layout-seat-rail' data-compact={String(compact)} />
@@ -100,5 +104,15 @@ describe('Layout — authoritative seat rail reachability', () => {
       expect(screen.getByTestId('layout-seat-rail').getAttribute('data-compact')).toBe('false');
     });
     expect(screen.getByTestId('outlet')).toBeTruthy();
+  });
+
+  it('mounts the seat-governed Kanban confirmation surface in the packaged operator shell', async () => {
+    setViewportWidth(1024);
+    renderLayout();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('kanban-confirm-surface')).toBeTruthy();
+    });
+    expect(screen.queryByTestId('team-manage-confirm-surface')).toBeNull();
   });
 });

@@ -114,10 +114,9 @@ const Layout: React.FC<{
   const [shouldMountUpdateModal, setShouldMountUpdateModal] = useState(false);
   const { onClick } = useDebug();
   const { contextHolder: directorySelectionContextHolder } = useDirectorySelection();
-  // 1.819 R5 (HG-3): team-manage / kanban-ACP confirm cards are founder-only
-  // surfaces. The main-process bridge also denies these providers in customer
-  // mode — this renderer gate keeps customer builds from polling founder-only
-  // endpoints and renders nothing while the flag resolves (fail-closed).
+  // 1.819 R5 (HG-3): team-manage remains an internal founder-only surface.
+  // Kanban confirmation is seat-governed in main (intent, seat, tamper, switch,
+  // receipt and client-seat fences), so packaged operators must be able to see it.
   const { founderBuild } = useCommandEveFounderBuild();
   useDeepLink();
   useNotificationClick();
@@ -432,7 +431,7 @@ const Layout: React.FC<{
               )}
               {/* COMPA-626: the kanban-ACP confirm card — same button-only governance
                   gate for EVE's proposed card changes. */}
-              {COMMAND_EVE_SHELL_ENABLED && founderBuild && (
+              {COMMAND_EVE_SHELL_ENABLED && (
                 <Suspense fallback={null}>
                   <KanbanAcpConfirmCard />
                 </Suspense>

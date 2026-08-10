@@ -678,8 +678,9 @@
     "layoutLabel": "Arbeitsfläche anordnen",
     "returnToChat": "Zum Chat zurückkehren",
     "focus": "Aktive Fläche maximieren",
+    "splitLeft": "Arbeitsfläche links, Chat rechts",
     "splitRight": "Chat links, Arbeitsfläche rechts",
-    "splitBottom": "Arbeitsfläche oben, Chat unten",
+    "splitBottom": "Chat oben, Arbeitsfläche unten",
     "resizeSplit": "Aufteilung anpassen"
   },
   "runtimeStatus": {

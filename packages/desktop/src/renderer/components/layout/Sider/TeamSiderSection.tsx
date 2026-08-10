@@ -156,19 +156,19 @@ const TeamSiderSection: React.FC<TeamSiderSectionProps> = ({
           >
             <button
               type='button'
-              className='sider-section-toggle min-w-0 h-full flex-1 flex items-center px-12px border-none bg-transparent cursor-pointer text-left'
+              className='sider-section-toggle min-w-0 h-full flex-1 flex items-center pl-10px pr-8px gap-8px border-none bg-transparent cursor-pointer text-left'
               onClick={() => setExpanded((v) => !v)}
               aria-expanded={expanded}
             >
-              <span className='text-14px text-t-tertiary sider-section-title group-hover/label:text-t-primary transition-colors font-[500] leading-none'>
-                {t('team.sider.title')}
-              </span>
-              <span className='ml-2px flex items-center justify-center opacity-0 group-hover/label:opacity-100 group-focus-within/label:opacity-100 transition-opacity text-t-tertiary shrink-0'>
+              <span className='size-22px flex items-center justify-center text-t-tertiary shrink-0' aria-hidden='true'>
                 <Right
                   theme='outline'
                   size={12}
                   className={classNames('transition-transform duration-150', { 'rotate-90': expanded })}
                 />
+              </span>
+              <span className='text-14px text-t-tertiary sider-section-title group-hover/label:text-t-primary transition-colors font-[500] leading-none'>
+                {t('team.sider.title')}
               </span>
             </button>
             {/* [E2E SYNC] data-testid="team-create-btn" 是 E2E 测试的入口 selector，不得删除或重命名。

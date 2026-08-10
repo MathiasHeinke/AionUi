@@ -163,13 +163,16 @@ describe('managed visual authorization bridge receipt retirement', () => {
 
     const marker = first.data?.marker;
     if (!marker) throw new Error('expected managed visual marker');
-    const body = { messages: [{ role: 'user', content: `${marker}\nAnalyze the selected files.` }] };
+    const body = {
+      session_id: 'hermes-session-a',
+      messages: [{ role: 'user', content: `${marker}\nAnalyze the selected files.` }],
+    };
     expect(resolveCommandEveManagedVisualTurn(body, SEAT_ID, getActiveSeatContextRevision())).toMatchObject({
       status: 'authorized',
     });
     expect(resolveCommandEveManagedVisualTurn(body, SEAT_ID, getActiveSeatContextRevision())).toMatchObject({
       status: 'invalid',
-      reason_code: 'AUTHORIZATION_UNKNOWN',
+      reason_code: 'AUTHORIZATION_REPLAY',
     });
   });
 });

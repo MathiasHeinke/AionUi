@@ -16,6 +16,7 @@ import AcpSendBox from '@/renderer/pages/conversation/platforms/acp/AcpSendBox';
 import type { UseAcpMessageReturn } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
 import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
 import { stripCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
+import { COMMAND_EVE_PDF_INTELLIGENCE_VERSION } from '@/common/config/evePdfIntelligenceCore';
 import { ConversationArtifactProvider } from '@/renderer/pages/conversation/Messages/artifacts';
 
 const {
@@ -165,6 +166,39 @@ function createDeferred<T>() {
     resolve = resolver;
   });
   return { promise, resolve };
+}
+
+const PDF_SIDECAR_PATH = `/tmp/hermes/document-intelligence/pdf/${'a'.repeat(64)}/document.md`;
+
+function pdfPrepareSuccess(
+  sourcePath = '/tmp/report.pdf',
+  sidecarPath = PDF_SIDECAR_PATH,
+  extractionMode: 'local_text' | 'cloud_ocr' = 'local_text'
+) {
+  return {
+    success: true,
+    data: {
+      version: COMMAND_EVE_PDF_INTELLIGENCE_VERSION,
+      ok: true,
+      documents: [
+        {
+          source_path: sourcePath,
+          source_name: sourcePath.replace(/\\/g, '/').split('/').pop() || 'report.pdf',
+          sha256: 'a'.repeat(64),
+          bytes: 100,
+          page_count: 1,
+          extracted_characters: 100,
+          extraction_mode: extractionMode,
+          sidecar_path: sidecarPath,
+          citation_format: '[PDF p. N]',
+          cache_hit: false,
+        },
+      ],
+      prepared_files: [sidecarPath],
+      cloud_ocr_used: extractionMode === 'cloud_ocr',
+      requires_cloud_ocr_consent: false,
+    },
+  };
 }
 
 vi.mock('@/common', () => ({
@@ -764,18 +798,7 @@ describe('AcpSendBox', () => {
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
 
     await act(async () => {
-      preparation.resolve({
-        success: true,
-        data: {
-          ok: true,
-          documents: [
-            {
-              source_path: '/tmp/report.pdf',
-              sidecar_path: '/tmp/hermes/document-intelligence/report.md',
-            },
-          ],
-        },
-      });
+      preparation.resolve(pdfPrepareSuccess());
     });
 
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
@@ -783,7 +806,7 @@ describe('AcpSendBox', () => {
     expect(sendMessageInvokeMock).toHaveBeenCalledWith({
       input: 'Hello',
       conversation_id: 'conv-1',
-      files: ['/tmp/report.pdf', '/tmp/hermes/document-intelligence/report.md'],
+      files: ['/tmp/report.pdf', PDF_SIDECAR_PATH],
     });
     expect(buildDisplayMessageMock).toHaveBeenCalledWith('Hello', ['/tmp/report.pdf'], '/tmp/workspace');
 
@@ -791,6 +814,30 @@ describe('AcpSendBox', () => {
       send.resolve({});
     });
     await waitFor(() => expect(screen.queryByTestId('acp-document-preparation')).toBeNull());
+  });
+
+  it('rejects an unproven PDF receipt before dispatch and restores the selected file', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/report.pdf'], content: 'Keep this draft' };
+    const malformed = pdfPrepareSuccess();
+    malformed.data.documents[0].sidecar_path = 'relative/document.md';
+    pdfPrepareInvokeMock.mockResolvedValue(malformed);
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(messageErrorMock).toHaveBeenCalledTimes(1));
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(setUploadFileMock).toHaveBeenCalledWith(['/tmp/report.pdf']);
   });
 
   it('keeps a second PDF submit visible instead of silently dropping it', async () => {
@@ -833,18 +880,7 @@ describe('AcpSendBox', () => {
     expect(messageWarningMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      preparation.resolve({
-        success: true,
-        data: {
-          ok: true,
-          documents: [
-            {
-              source_path: '/tmp/report.pdf',
-              sidecar_path: '/tmp/hermes/document-intelligence/report.md',
-            },
-          ],
-        },
-      });
+      preparation.resolve(pdfPrepareSuccess());
     });
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
   });
@@ -886,25 +922,14 @@ describe('AcpSendBox', () => {
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
 
     await act(async () => {
-      preparation.resolve({
-        success: true,
-        data: {
-          ok: true,
-          documents: [
-            {
-              source_path: '/tmp/report.pdf',
-              sidecar_path: '/tmp/hermes/document-intelligence/report.md',
-            },
-          ],
-        },
-      });
+      preparation.resolve(pdfPrepareSuccess());
       await submission;
     });
 
     expect(sendMessageInvokeMock).toHaveBeenCalledWith({
       input: 'Read this PDF',
       conversation_id: 'conv-1',
-      files: ['/tmp/report.pdf', '/tmp/hermes/document-intelligence/report.md'],
+      files: ['/tmp/report.pdf', PDF_SIDECAR_PATH],
     });
     expect(buildDisplayMessageMock).toHaveBeenCalledWith('Read this PDF', ['/tmp/report.pdf'], '/tmp/workspace');
   });
@@ -912,18 +937,7 @@ describe('AcpSendBox', () => {
   it('keeps an internal PDF sidecar out of the visible queued attachment list', async () => {
     draftDataMock.current = { atPath: [], uploadFile: ['/tmp/report.pdf'], content: '' };
     shouldEnqueueMock.mockReturnValue(true);
-    pdfPrepareInvokeMock.mockResolvedValue({
-      success: true,
-      data: {
-        ok: true,
-        documents: [
-          {
-            source_path: '/tmp/report.pdf',
-            sidecar_path: '/tmp/hermes/document-intelligence/report.md',
-          },
-        ],
-      },
-    });
+    pdfPrepareInvokeMock.mockResolvedValue(pdfPrepareSuccess());
 
     render(
       <AcpSendBox
@@ -941,7 +955,7 @@ describe('AcpSendBox', () => {
     await waitFor(() =>
       expect(queueEnqueueMock).toHaveBeenCalledWith({
         input: 'Hello',
-        files: ['/tmp/report.pdf', '/tmp/hermes/document-intelligence/report.md'],
+        files: ['/tmp/report.pdf', PDF_SIDECAR_PATH],
         displayFiles: ['/tmp/report.pdf'],
       })
     );
@@ -1857,18 +1871,13 @@ describe('AcpSendBox', () => {
           documents: [],
         },
       })
-      .mockResolvedValueOnce({
-        success: true,
-        data: {
-          ok: true,
-          documents: [
-            {
-              source_path: '/tmp/scanned.pdf',
-              sidecar_path: '/tmp/hermes/document-intelligence/scanned.md',
-            },
-          ],
-        },
-      });
+      .mockResolvedValueOnce(
+        pdfPrepareSuccess(
+          '/tmp/scanned.pdf',
+          `/tmp/hermes/document-intelligence/pdf/${'a'.repeat(64)}/document.md`,
+          'cloud_ocr'
+        )
+      );
     modalConfirmMock.mockImplementation((options: { onOk?: () => void }) => options.onOk?.());
     sendMessageInvokeMock.mockResolvedValue({});
 

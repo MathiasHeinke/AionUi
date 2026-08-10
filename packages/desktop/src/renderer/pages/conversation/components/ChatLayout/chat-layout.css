@@ -24,6 +24,39 @@
   contain: none;
 }
 
+.chat-layout-header__action-cluster {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.chat-layout-header__workbench-action,
+.chat-layout-header__session-actions {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+}
+
+.chat-layout-header__workbench-action {
+  position: relative;
+  padding-right: 12px;
+}
+
+.chat-layout-header__workbench-action::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  right: 0;
+  bottom: 8px;
+  width: 1px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--glass-chrome-border, var(--color-border-2)) 74%, transparent);
+  pointer-events: none;
+}
+
 .chat-layout-header--glass::after {
   content: '';
   position: absolute;
@@ -80,7 +113,7 @@
   backdrop-filter: var(--glass-panel-filter, blur(18px) saturate(125%));
 }
 
-.eve-chat-pane--split-bottom {
+.eve-workbench-pane--split-bottom {
   border-top: 1px solid color-mix(in srgb, var(--glass-panel-border) 78%, transparent);
 }
 

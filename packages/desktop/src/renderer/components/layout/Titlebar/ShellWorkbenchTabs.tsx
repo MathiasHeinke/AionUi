@@ -5,24 +5,28 @@
  */
 
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
-import type { PreviewTab } from '@/renderer/pages/conversation/Preview/context/PreviewContext';
+import type { PreviewTab, WorkbenchLayoutMode } from '@/renderer/pages/conversation/Preview/context/PreviewContext';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { addEventListener } from '@/renderer/utils/emitter';
 import {
-  Browser,
+  BottomBar,
   CheckOne,
   CloseSmall,
   Code,
+  Earth,
   FileText,
   FolderOpen,
   ImageFiles,
+  LeftBar,
+  ListCheckbox,
   Music,
   Plus,
+  RightBar,
   Terminal,
   Video,
-  ViewGridCard,
 } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import styles from './ShellWorkbenchTabs.module.css';
 import WorkbenchLayoutControls from './WorkbenchLayoutControls';
@@ -33,18 +37,46 @@ type ShellWorkbenchTabsProps = {
   workspaceEventPrefix?: 'acp' | 'codex' | 'aionrs';
   isTemporaryWorkspace?: boolean;
   launcherOnly?: boolean;
+  /** Responsive mode actually rendered by ChatLayout (may stack below 680px). */
+  effectiveLayoutMode?: WorkbenchLayoutMode;
 };
 
 type WorkbenchTarget = 'browser' | 'terminal' | 'kanban' | 'files' | 'review';
+type DockTarget = Exclude<WorkbenchLayoutMode, 'focus'>;
+
+type DockState = {
+  target: DockTarget | null;
+  bounds: { top: number; left: number; width: number; height: number };
+};
+
+const DOCK_OVERLAY_PADDING_PX = 14;
+const DOCK_BOTTOM_MIN_PX = 92;
+const DOCK_BOTTOM_FRACTION = 0.36;
+
+const dockTargetForPoint = (bounds: DockState['bounds'], clientX: number, clientY: number): DockTarget | null => {
+  if (
+    clientX < bounds.left ||
+    clientX > bounds.left + bounds.width ||
+    clientY < bounds.top ||
+    clientY > bounds.top + bounds.height
+  ) {
+    return null;
+  }
+  const innerHeight = Math.max(0, bounds.height - DOCK_OVERLAY_PADDING_PX * 2);
+  const bottomHeight = Math.min(innerHeight, Math.max(DOCK_BOTTOM_MIN_PX, innerHeight * DOCK_BOTTOM_FRACTION));
+  const bottomStart = bounds.top + bounds.height - DOCK_OVERLAY_PADDING_PX - bottomHeight;
+  if (clientY >= bottomStart) return 'split-bottom';
+  return clientX < bounds.left + bounds.width / 2 ? 'split-left' : 'split-right';
+};
 
 const iconForTab = (tab: PreviewTab) => {
   switch (tab.content_type) {
     case 'url':
-      return <Browser theme='outline' size={16} fill='currentColor' />;
+      return <Earth theme='outline' size={16} fill='currentColor' />;
     case 'terminal':
       return <Terminal theme='outline' size={16} fill='currentColor' />;
     case 'kanban':
-      return <ViewGridCard theme='outline' size={16} fill='currentColor' />;
+      return <ListCheckbox theme='outline' size={16} fill='currentColor' />;
     case 'workspace-files':
       return <FolderOpen theme='outline' size={16} fill='currentColor' />;
     case 'workspace-review':
@@ -84,15 +116,27 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
   workspaceEventPrefix = 'acp',
   isTemporaryWorkspace = false,
   launcherOnly = false,
+  effectiveLayoutMode,
 }) => {
   const { t } = useTranslation();
   const layout = useLayoutContext();
-  const { isOpen, tabs, activeTabId, openPreview, showPreview, hidePreview, requestCloseTab, setWorkbenchLayoutMode } =
-    usePreviewContext();
+  const {
+    isOpen,
+    tabs,
+    activeTabId,
+    openPreview,
+    showPreview,
+    hidePreview,
+    requestCloseTab,
+    workbenchLayoutMode,
+    setWorkbenchLayoutMode,
+  } = usePreviewContext();
   const [launcherOpen, setLauncherOpen] = useState(false);
+  const [dockState, setDockState] = useState<DockState | null>(null);
   const launcherButtonRef = useRef<HTMLButtonElement | null>(null);
   const launcherMenuRef = useRef<HTMLDivElement | null>(null);
   const tablistRef = useRef<HTMLDivElement | null>(null);
+  const dockCleanupRef = useRef<(() => void) | null>(null);
 
   const conversationTabs = useMemo(
     () => tabs.filter((tab) => tab.metadata?.conversation_id === conversationId),
@@ -113,6 +157,83 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
     [focusPane, previewPaneId, showPreview]
   );
 
+  const beginTabDock = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>, tabId: string) => {
+      if (event.button !== 0) return;
+      const source = event.currentTarget;
+      const layoutSurface = source.closest<HTMLElement>('[data-eve-workbench-layout]');
+      const rect = layoutSurface?.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+
+      dockCleanupRef.current?.();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const bounds = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+      const renderedLayout = effectiveLayoutMode ?? workbenchLayoutMode;
+      let latestTarget: DockTarget | null = renderedLayout === 'focus' ? 'split-right' : renderedLayout;
+      let dragging = false;
+      let finished = false;
+      const originalUserSelect = document.body.style.userSelect;
+      const originalCursor = document.body.style.cursor;
+
+      const cleanup = () => {
+        if (finished) return;
+        finished = true;
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+        window.removeEventListener('blur', handleWindowBlur);
+        if (dragging) {
+          document.body.style.userSelect = originalUserSelect;
+          document.body.style.cursor = originalCursor;
+        }
+        if (dockCleanupRef.current === cancelDock) dockCleanupRef.current = null;
+      };
+
+      const finishDock = (commit: boolean) => {
+        if (finished) return;
+        if (dragging && commit && latestTarget) setWorkbenchLayoutMode(latestTarget);
+        setDockState(null);
+        cleanup();
+      };
+      const cancelDock = () => finishDock(false);
+
+      function handleMouseMove(moveEvent: MouseEvent) {
+        if (finished) return;
+        if (!dragging && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 6) return;
+        moveEvent.preventDefault();
+        if (!dragging) {
+          dragging = true;
+          document.body.style.userSelect = 'none';
+          document.body.style.cursor = 'grabbing';
+          showPreviewTab(tabId);
+        }
+        latestTarget = dockTargetForPoint(bounds, moveEvent.clientX, moveEvent.clientY);
+        setDockState({ target: latestTarget, bounds });
+      }
+
+      function handleMouseUp() {
+        finishDock(true);
+      }
+      function handleWindowBlur() {
+        finishDock(false);
+      }
+
+      window.addEventListener('mousemove', handleMouseMove, { passive: false });
+      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('blur', handleWindowBlur);
+      dockCleanupRef.current = cancelDock;
+    },
+    [effectiveLayoutMode, setWorkbenchLayoutMode, showPreviewTab, workbenchLayoutMode]
+  );
+
+  useEffect(
+    () => () => {
+      dockCleanupRef.current?.();
+      dockCleanupRef.current = null;
+    },
+    []
+  );
+
   useEffect(() => {
     if (launcherOnly || !isOpen || !activeTabId) return;
     if (!conversationTabs.some((tab) => tab.id === activeTabId)) hidePreview();
@@ -123,7 +244,6 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
       setLauncherOpen(false);
       switch (target) {
         case 'browser': {
-          setWorkbenchLayoutMode('split-right');
           const existingBrowser = conversationTabs.find(
             (tab) => tab.content_type === 'url' && tab.metadata?.title === 'Browser'
           );
@@ -136,7 +256,6 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
           return;
         }
         case 'terminal': {
-          setWorkbenchLayoutMode('split-right');
           const existingTerminal = conversationTabs.find((tab) => tab.content_type === 'terminal');
           if (existingTerminal) {
             showPreviewTab(existingTerminal.id);
@@ -151,7 +270,6 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
           return;
         }
         case 'kanban': {
-          setWorkbenchLayoutMode('split-right');
           const existingKanban = conversationTabs.find((tab) => tab.content_type === 'kanban');
           if (existingKanban) {
             showPreviewTab(existingKanban.id);
@@ -165,7 +283,6 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
           return;
         }
         case 'files': {
-          setWorkbenchLayoutMode('split-right');
           const existingFiles = conversationTabs.find((tab) => tab.content_type === 'workspace-files');
           if (existingFiles) {
             showPreviewTab(existingFiles.id);
@@ -182,7 +299,6 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
           return;
         }
         case 'review': {
-          setWorkbenchLayoutMode('split-right');
           const existingReview = conversationTabs.find((tab) => tab.content_type === 'workspace-review');
           if (existingReview) {
             showPreviewTab(existingReview.id);
@@ -206,7 +322,6 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
       focusPane,
       openPreview,
       previewPaneId,
-      setWorkbenchLayoutMode,
       showPreviewTab,
       t,
       workspacePath,
@@ -316,30 +431,30 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
     {
       target: 'browser',
       label: t('conversation.workbench.browser'),
-      icon: <Browser theme='outline' size={18} fill='currentColor' />,
+      icon: <Earth theme='outline' size={16} fill='currentColor' />,
     },
     {
       target: 'terminal',
       label: t('conversation.workbench.terminal'),
-      icon: <Terminal theme='outline' size={18} fill='currentColor' />,
+      icon: <Terminal theme='outline' size={16} fill='currentColor' />,
     },
     {
       target: 'kanban',
       label: t('kanban.title', { defaultValue: 'Aufgaben' }),
-      icon: <ViewGridCard theme='outline' size={18} fill='currentColor' />,
+      icon: <ListCheckbox theme='outline' size={16} fill='currentColor' />,
     },
     {
       target: 'files',
       label: t('conversation.workbench.files'),
       detail: workspacePath ? undefined : t('conversation.workbench.notConnected'),
-      icon: <FolderOpen theme='outline' size={18} fill='currentColor' />,
+      icon: <FolderOpen theme='outline' size={16} fill='currentColor' />,
       disabled: !workspacePath,
     },
     {
       target: 'review',
       label: t('conversation.workbench.review'),
       detail: workspacePath ? undefined : t('conversation.workbench.notConnected'),
-      icon: <CheckOne theme='outline' size={18} fill='currentColor' />,
+      icon: <CheckOne theme='outline' size={16} fill='currentColor' />,
       disabled: !workspacePath,
     },
   ];
@@ -371,6 +486,7 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
                   className={styles.tabButton}
                   onClick={() => showPreviewTab(tab.id)}
                   onKeyDown={focusSiblingTab}
+                  onMouseDown={(event) => beginTabDock(event, tab.id)}
                 >
                   {iconForTab(tab)}
                   <span className={styles.tabLabel}>{tab.title}</span>
@@ -439,7 +555,48 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
         )}
       </div>
 
-      {!launcherOnly && isOpen && visibleActiveTab && <WorkbenchLayoutControls />}
+      {!launcherOnly && isOpen && visibleActiveTab && <WorkbenchLayoutControls effectiveMode={effectiveLayoutMode} />}
+      {dockState &&
+        createPortal(
+          <div
+            className={styles.dockOverlay}
+            style={dockState.bounds}
+            aria-hidden='true'
+            data-testid='eve-workbench-dock-overlay'
+          >
+            {(
+              [
+                {
+                  target: 'split-left' as const,
+                  label: t('conversation.workbench.splitLeft'),
+                  icon: <LeftBar theme='outline' size={20} />,
+                },
+                {
+                  target: 'split-right' as const,
+                  label: t('conversation.workbench.splitRight'),
+                  icon: <RightBar theme='outline' size={20} />,
+                },
+                {
+                  target: 'split-bottom' as const,
+                  label: t('conversation.workbench.splitBottom'),
+                  icon: <BottomBar theme='outline' size={20} />,
+                },
+              ] satisfies Array<{ target: DockTarget; label: string; icon: React.ReactNode }>
+            ).map((item) => (
+              <div
+                key={item.target}
+                className={styles.dockZone}
+                data-target={item.target}
+                data-active={dockState.target === item.target ? 'true' : 'false'}
+                data-testid={`eve-workbench-dock-${item.target}`}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </div>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

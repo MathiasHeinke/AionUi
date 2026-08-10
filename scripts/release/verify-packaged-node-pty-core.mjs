@@ -6,6 +6,7 @@ import { assertPackagedNodePtyPatch } from './patch-packaged-node-pty.mjs';
 
 export const COMMAND_EVE_NODE_PTY_VERSION = '1.1.0';
 export const COMMAND_EVE_NODE_PTY_SMOKE_SENTINEL = 'COMMAND_EVE_NODE_PTY_OK';
+export const COMMAND_EVE_NODE_PTY_ELECTRON_STARTUP_TIMEOUT_MS = 90_000;
 
 const fail = (message) => {
   throw new Error(`Packaged node-pty verification failed: ${message}`);
@@ -146,7 +147,12 @@ export const verifyPackagedNodePty = ({
       {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 15_000,
+        // A freshly extracted Electron binary and its packaged spawn-helper
+        // can both spend noticeable time in the first macOS trust/AMFI scan.
+        // The smoke script retains its own bounded runtime watchdog, so this
+        // wider outer bound protects cold native-process startup without ever
+        // turning a hung node-pty probe green.
+        timeout: COMMAND_EVE_NODE_PTY_ELECTRON_STARTUP_TIMEOUT_MS,
         env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       },
       'Electron ABI spawn smoke'

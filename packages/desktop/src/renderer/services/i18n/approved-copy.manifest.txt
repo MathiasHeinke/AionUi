@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7216
+# entries: 7220
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -797,6 +797,7 @@ copy	1	de-DE/common.json	ca. {{credits1k}} Credits (1K) · {{credits2k}} (2K)
 copy	1	de-DE/common.json	esc zum Abbrechen
 copy	1	de-DE/common.json	oder
 copy	1	de-DE/common.json	z. B. Markteinführung
+copy	1	de-DE/common.json	{{count}} Datei(en) nicht unterstützt
 copy	1	de-DE/common.json	{{count}} Unterhaltung(en)
 copy	1	de-DE/common.json	Über Command EVE
 copy	1	de-DE/common.json	Über uns
@@ -947,7 +948,7 @@ copy	1	de-DE/conversation.json	Anzeige holt auf
 copy	1	de-DE/conversation.json	App
 copy	1	de-DE/conversation.json	Arbeitet
 copy	1	de-DE/conversation.json	Arbeitsfläche anordnen
-copy	1	de-DE/conversation.json	Arbeitsfläche oben, Chat unten
+copy	1	de-DE/conversation.json	Arbeitsfläche links, Chat rechts
 copy	1	de-DE/conversation.json	Arbeitsfläche öffnen
 copy	1	de-DE/conversation.json	Archiv
 copy	1	de-DE/conversation.json	Archivieren
@@ -994,6 +995,7 @@ copy	1	de-DE/conversation.json	Browser
 copy	1	de-DE/conversation.json	CLI-Agenten
 copy	1	de-DE/conversation.json	Chat in Ordner verschieben
 copy	1	de-DE/conversation.json	Chat links, Arbeitsfläche rechts
+copy	1	de-DE/conversation.json	Chat oben, Arbeitsfläche unten
 copy	1	de-DE/conversation.json	Chat umbenennen
 copy	1	de-DE/conversation.json	Cloud
 copy	1	de-DE/conversation.json	Cloud-OCR für dieses PDF erlauben?
@@ -4389,6 +4391,7 @@ copy	1	en-US/common.json	m
 copy	1	en-US/common.json	or
 copy	1	en-US/common.json	s
 copy	1	en-US/common.json	{{count}} conversation(s)
+copy	1	en-US/common.json	{{count}} file(s) not supported
 copy	2	en-US/connectorCatalog.json	Allowed
 copy	1	en-US/connectorCatalog.json	Approval
 copy	1	en-US/connectorCatalog.json	Approval receipt
@@ -4552,6 +4555,7 @@ copy	1	en-US/conversation.json	CLI Agents
 copy	4	en-US/conversation.json	Cancel
 copy	1	en-US/conversation.json	Changed Files
 copy	2	en-US/conversation.json	Changes
+copy	1	en-US/conversation.json	Chat above, workbench below
 copy	1	en-US/conversation.json	Chat in Project
 copy	1	en-US/conversation.json	Chat left, workbench right
 copy	1	en-US/conversation.json	Check the agent installation and local command configuration.
@@ -5023,7 +5027,7 @@ copy	1	en-US/conversation.json	Voice input is not available in this environment
 copy	1	en-US/conversation.json	Wait for the current response to finish before sending another message.
 copy	1	en-US/conversation.json	What are we working on today?
 copy	1	en-US/conversation.json	What can Command EVE do?
-copy	1	en-US/conversation.json	Workbench above, chat below
+copy	1	en-US/conversation.json	Workbench left, chat right
 copy	1	en-US/conversation.json	Working
 copy	1	en-US/conversation.json	Yesterday
 copy	1	en-US/conversation.json	Your choice is remembered and will be applied as soon as your entitlement is confirmed.

@@ -25,7 +25,7 @@
  */
 
 import { extractImageBindCandidatesFromTranscript } from '@/common/config/imageArtifactReconcileCore';
-import { bindStagedImageArtifact, type ImageArtifactBindResult } from './imageArtifactStore';
+import type { bindStagedImageArtifact, ImageArtifactBindResult } from './imageArtifactStore';
 
 export type ImageArtifactReconcileSummary = {
   conversationId: string;

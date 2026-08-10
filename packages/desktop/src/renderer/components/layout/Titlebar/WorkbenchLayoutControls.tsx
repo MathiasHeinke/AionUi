@@ -5,14 +5,16 @@
  */
 
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
-import { FullScreenOne, LayoutThree, LayoutTwo, MessageOne } from '@icon-park/react';
+import type { WorkbenchLayoutMode } from '@/renderer/pages/conversation/Preview/context/PreviewContext';
+import { BottomBar, FullScreenOne, LeftBar, MessageOne, RightBar } from '@icon-park/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from './WorkbenchLayoutControls.module.css';
 
-const WorkbenchLayoutControls: React.FC = () => {
+const WorkbenchLayoutControls: React.FC<{ effectiveMode?: WorkbenchLayoutMode }> = ({ effectiveMode }) => {
   const { t } = useTranslation();
   const { activeTab, hidePreview, workbenchLayoutMode, setWorkbenchLayoutMode } = usePreviewContext();
+  const displayedMode = effectiveMode ?? workbenchLayoutMode;
   const modes = [
     {
       mode: 'focus' as const,
@@ -20,14 +22,19 @@ const WorkbenchLayoutControls: React.FC = () => {
       icon: <FullScreenOne theme='outline' size={15} fill='currentColor' />,
     },
     {
+      mode: 'split-left' as const,
+      label: t('conversation.workbench.splitLeft'),
+      icon: <LeftBar theme='outline' size={15} fill='currentColor' />,
+    },
+    {
       mode: 'split-right' as const,
       label: t('conversation.workbench.splitRight'),
-      icon: <LayoutTwo theme='outline' size={15} fill='currentColor' />,
+      icon: <RightBar theme='outline' size={15} fill='currentColor' />,
     },
     {
       mode: 'split-bottom' as const,
       label: t('conversation.workbench.splitBottom'),
-      icon: <LayoutThree theme='outline' size={15} fill='currentColor' />,
+      icon: <BottomBar theme='outline' size={15} fill='currentColor' />,
     },
   ];
 
@@ -55,9 +62,9 @@ const WorkbenchLayoutControls: React.FC = () => {
           key={item.mode}
           type='button'
           className={styles.button}
-          data-active={workbenchLayoutMode === item.mode ? 'true' : 'false'}
+          data-active={displayedMode === item.mode ? 'true' : 'false'}
           aria-label={item.label}
-          aria-pressed={workbenchLayoutMode === item.mode}
+          aria-pressed={displayedMode === item.mode}
           title={item.label}
           onClick={() => setWorkbenchLayoutMode(item.mode)}
         >

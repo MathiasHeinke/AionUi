@@ -183,6 +183,12 @@ describe('Command EVE image intelligence', () => {
       sidecar_path: prepared.sidecar_path,
       prompt_context: prepared.prompt_context,
     });
+
+    const manifestPath = path.join(inspection.cacheDirectory, 'manifest.json');
+    const staleManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+    staleManifest.intelligenceVersion = 'command-eve-image-intelligence/v0';
+    fs.writeFileSync(manifestPath, JSON.stringify(staleManifest));
+    expect(inspectLocalImage({ filePath: sourcePath, hermesHome }).cachedDocument).toBeUndefined();
   });
 
   it.each([

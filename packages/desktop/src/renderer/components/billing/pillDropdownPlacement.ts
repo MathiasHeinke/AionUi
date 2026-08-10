@@ -100,3 +100,21 @@ export function clampPillDropdownLeft(input: {
   const gap = input.gap ?? PILL_DROPDOWN_GAP_PX;
   return Math.max(gap, Math.min(input.left, input.viewportWidth - gap - input.measuredWidth));
 }
+
+/**
+ * Re-anchor an upward-opening list after the browser has measured its real
+ * height. The first pass necessarily uses an estimate; keeping that estimated
+ * top after a short curated list renders leaves a conspicuous empty gulf
+ * between trigger and menu. Downward lists already anchor from their top edge.
+ */
+export function alignMeasuredPillDropdownTop(input: {
+  direction: PillDropdownDirection;
+  currentTop: number;
+  triggerTop: number;
+  measuredHeight: number;
+  gap?: number;
+}): number {
+  if (input.direction === 'down') return input.currentTop;
+  const gap = input.gap ?? PILL_DROPDOWN_GAP_PX;
+  return Math.max(gap, input.triggerTop - gap - input.measuredHeight);
+}

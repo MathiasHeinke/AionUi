@@ -16,6 +16,7 @@ import {
 
 const AUTHORIZATION_TTL_MS = 15 * 60 * 1000;
 const MAX_AUTHORIZATIONS = 64;
+const MAX_REQUESTS_PER_AUTHORIZATION = 16;
 
 type AuthorizationRecord = {
   seatId: string;
@@ -24,7 +25,20 @@ type AuthorizationRecord = {
   receiptId: string;
   tier: CommandEveManagedVisualTurnTier;
   expiresAtMs: number;
+  boundSessionId?: string;
+  lastMessageDigests?: string[];
+  requestCount: number;
 };
+
+type AuthorizationFailureReason =
+  | 'AUTHORIZATION_EXPIRED'
+  | 'AUTHORIZATION_SEAT_MISMATCH'
+  | 'AUTHORIZATION_UNKNOWN'
+  | 'AUTHORIZATION_REPLAY'
+  | 'AUTHORIZATION_SESSION_REQUIRED'
+  | 'AUTHORIZATION_SESSION_MISMATCH'
+  | 'AUTHORIZATION_CONTINUATION_INVALID'
+  | 'AUTHORIZATION_CHAIN_LIMIT';
 
 export type CommandEveManagedVisualTurnResolution =
   | { status: 'absent' }
@@ -40,7 +54,7 @@ export type CommandEveManagedVisualTurnResolution =
     }
   | {
       status: 'invalid';
-      reason_code: 'AUTHORIZATION_EXPIRED' | 'AUTHORIZATION_SEAT_MISMATCH' | 'AUTHORIZATION_UNKNOWN';
+      reason_code: AuthorizationFailureReason;
     };
 
 const authorizations = new Map<string, AuthorizationRecord>();
@@ -70,8 +84,17 @@ function messageContentText(content: unknown): string | undefined {
   return text || undefined;
 }
 
-function latestUserText(body: Record<string, unknown>): string | undefined {
+function latestUserTurn(body: Record<string, unknown>):
+  | {
+      index: number;
+      messages: Record<string, unknown>[];
+      text?: string;
+    }
+  | undefined {
   if (!Array.isArray(body.messages)) return undefined;
+  const messages = body.messages.map((message) =>
+    message && typeof message === 'object' && !Array.isArray(message) ? (message as Record<string, unknown>) : {}
+  );
   for (let index = body.messages.length - 1; index >= 0; index -= 1) {
     const message = body.messages[index];
     if (!message || typeof message !== 'object' || Array.isArray(message)) continue;
@@ -79,9 +102,52 @@ function latestUserText(body: Record<string, unknown>): string | undefined {
     if (record.role !== 'user') continue;
     // Stop at the latest user turn even when it has no text. Looking farther
     // back would replay a one-turn authorization from an older visual request.
-    return messageContentText(record.content);
+    return { index, messages, text: messageContentText(record.content) };
   }
   return undefined;
+}
+
+function requestSessionId(body: Record<string, unknown>): string | undefined {
+  const value = body.session_id;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function messageDigests(messages: Record<string, unknown>[]): string[] {
+  return messages.map((message) => crypto.createHash('sha256').update(JSON.stringify(message)).digest('hex'));
+}
+
+function extendsAuthorizedMessageChain(previous: string[], current: string[]): boolean {
+  return current.length > previous.length && previous.every((digest, index) => current[index] === digest);
+}
+
+function validToolContinuation(messages: Record<string, unknown>[], userIndex: number): boolean {
+  let cursor = userIndex + 1;
+  if (cursor >= messages.length) return false;
+
+  while (cursor < messages.length) {
+    const assistant = messages[cursor];
+    if (assistant?.role !== 'assistant' || !Array.isArray(assistant.tool_calls) || assistant.tool_calls.length === 0) {
+      return false;
+    }
+    const expectedIds = new Set<string>();
+    for (const value of assistant.tool_calls) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+      const id = (value as Record<string, unknown>).id;
+      if (typeof id !== 'string' || !id || expectedIds.has(id)) return false;
+      expectedIds.add(id);
+    }
+
+    cursor += 1;
+    const resolvedIds = new Set<string>();
+    while (cursor < messages.length && messages[cursor]?.role === 'tool') {
+      const toolCallId = messages[cursor].tool_call_id;
+      if (typeof toolCallId !== 'string' || !expectedIds.has(toolCallId) || resolvedIds.has(toolCallId)) return false;
+      resolvedIds.add(toolCallId);
+      cursor += 1;
+    }
+    if (resolvedIds.size !== expectedIds.size) return false;
+  }
+  return true;
 }
 
 export function authorizeCommandEveManagedVisualTurn(input: {
@@ -157,6 +223,7 @@ export function authorizeCommandEveManagedVisualTurn(input: {
     receiptId: verifiedReceipt.receiptId,
     tier,
     expiresAtMs,
+    requestCount: 0,
   });
   return {
     version: COMMAND_EVE_MANAGED_VISUAL_TURN_VERSION,
@@ -173,7 +240,8 @@ export function resolveCommandEveManagedVisualTurn(
   seatContextRevision: number,
   nowMs = Date.now()
 ): CommandEveManagedVisualTurnResolution {
-  const token = extractCommandEveManagedVisualTurnToken(body ? latestUserText(body) : undefined);
+  const latestTurn = body ? latestUserTurn(body) : undefined;
+  const token = extractCommandEveManagedVisualTurnToken(latestTurn?.text);
   if (!token) return { status: 'absent' };
   const record = authorizations.get(token);
   if (!record) return { status: 'invalid', reason_code: 'AUTHORIZATION_UNKNOWN' };
@@ -184,10 +252,51 @@ export function resolveCommandEveManagedVisualTurn(
   if (record.seatId !== seatId || record.seatContextRevision !== seatContextRevision) {
     return { status: 'invalid', reason_code: 'AUTHORIZATION_SEAT_MISMATCH' };
   }
-  // One consent marker authorizes exactly one upstream request. Delete before
-  // returning so retries/replays cannot silently spend again; a failed request
-  // must obtain a fresh, user-visible authorization.
-  authorizations.delete(token);
+  if (!body || !latestTurn) return { status: 'invalid', reason_code: 'AUTHORIZATION_CONTINUATION_INVALID' };
+
+  const sessionId = requestSessionId(body);
+  if (!sessionId) return { status: 'invalid', reason_code: 'AUTHORIZATION_SESSION_REQUIRED' };
+  // Hermes may compact older conversation history between tool rounds. Bind
+  // only the marked visual turn and its appended tool chain; that preserves
+  // native compaction while preventing forks or rewrites of the authorized turn.
+  const currentMessageDigests = messageDigests(latestTurn.messages.slice(latestTurn.index));
+
+  if (record.requestCount === 0) {
+    if (latestTurn.index !== latestTurn.messages.length - 1) {
+      return { status: 'invalid', reason_code: 'AUTHORIZATION_CONTINUATION_INVALID' };
+    }
+    record.boundSessionId = sessionId;
+  } else {
+    if (!record.boundSessionId || record.boundSessionId !== sessionId) {
+      return { status: 'invalid', reason_code: 'AUTHORIZATION_SESSION_MISMATCH' };
+    }
+    const previousMessageDigests = record.lastMessageDigests;
+    if (!previousMessageDigests) {
+      return { status: 'invalid', reason_code: 'AUTHORIZATION_CONTINUATION_INVALID' };
+    }
+    if (
+      currentMessageDigests.length === previousMessageDigests.length &&
+      previousMessageDigests.every((digest, index) => currentMessageDigests[index] === digest)
+    ) {
+      return { status: 'invalid', reason_code: 'AUTHORIZATION_REPLAY' };
+    }
+    if (!extendsAuthorizedMessageChain(previousMessageDigests, currentMessageDigests)) {
+      return { status: 'invalid', reason_code: 'AUTHORIZATION_CONTINUATION_INVALID' };
+    }
+    if (!validToolContinuation(latestTurn.messages, latestTurn.index)) {
+      return { status: 'invalid', reason_code: 'AUTHORIZATION_CONTINUATION_INVALID' };
+    }
+  }
+
+  if (record.requestCount >= MAX_REQUESTS_PER_AUTHORIZATION) {
+    return { status: 'invalid', reason_code: 'AUTHORIZATION_CHAIN_LIMIT' };
+  }
+  // A visual user turn may require several native Hermes requests (for example
+  // one tool call plus its result continuation). Bind those requests to one ACP
+  // session and authorize each exact message chain once. Identical retries and
+  // cross-session replays remain fail-closed before any provider egress.
+  record.lastMessageDigests = currentMessageDigests;
+  record.requestCount += 1;
   return {
     status: 'authorized',
     tier: record.tier,

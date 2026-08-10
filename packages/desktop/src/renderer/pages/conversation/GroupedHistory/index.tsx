@@ -78,19 +78,19 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
         <div className='group/label sider-section-label flex items-center h-28px select-none sticky top-0 z-10 mt-8px'>
           <button
             type='button'
-            className='sider-section-toggle min-w-0 h-full flex-1 flex items-center px-12px border-none bg-transparent cursor-pointer text-left'
+            className='sider-section-toggle min-w-0 h-full flex-1 flex items-center pl-10px pr-8px gap-8px border-none bg-transparent cursor-pointer text-left'
             onClick={() => toggleSection(sectionKey)}
             aria-expanded={!isCollapsed}
           >
-            <span className='text-14px text-t-tertiary sider-section-title group-hover/label:text-t-primary transition-colors font-[500] leading-none'>
-              {label}
-            </span>
-            <span className='ml-2px flex items-center justify-center opacity-0 group-hover/label:opacity-100 group-focus-within/label:opacity-100 transition-opacity text-t-tertiary shrink-0'>
+            <span className='size-22px flex items-center justify-center text-t-tertiary shrink-0' aria-hidden='true'>
               <Right
                 theme='outline'
                 size={12}
                 className={classNames('transition-transform duration-150', { 'rotate-90': !isCollapsed })}
               />
+            </span>
+            <span className='text-14px text-t-tertiary sider-section-title group-hover/label:text-t-primary transition-colors font-[500] leading-none'>
+              {label}
             </span>
           </button>
           {trailing && <div className='ml-auto pr-6px'>{trailing}</div>}

@@ -1255,6 +1255,7 @@ export type I18nKey =
   | 'conversation.workbench.returnToChat'
   | 'conversation.workbench.review'
   | 'conversation.workbench.splitBottom'
+  | 'conversation.workbench.splitLeft'
   | 'conversation.workbench.splitRight'
   | 'conversation.workbench.terminal'
   | 'conversation.workbench.terminalClosed'

@@ -32,9 +32,9 @@
 }
 
 .button[data-active='true'] {
-  color: var(--eve-focus-ring, var(--color-primary-6));
-  background: color-mix(in srgb, var(--eve-focus-ring, var(--color-primary-6)) 14%, transparent);
-  box-shadow: none;
+  color: color-mix(in srgb, var(--eve-brand-logo, var(--color-primary-6)) 66%, var(--eve-shell-text));
+  background: color-mix(in srgb, var(--eve-row-selected-bg, var(--color-fill-2)) 68%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--glass-panel-border, var(--color-border-2)) 72%, transparent);
 }
 
 .button:focus-visible {

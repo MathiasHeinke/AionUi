@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  COMMAND_EVE_NODE_PTY_ELECTRON_STARTUP_TIMEOUT_MS,
   COMMAND_EVE_NODE_PTY_SMOKE_SENTINEL,
   verifyPackagedNodePty,
   verifyPackagedNodePtySignatures,
@@ -56,8 +57,8 @@ test('proves the exact package, runtime-first arm64 binaries and Electron ABI sm
     electronExecutable: '/fake/Electron',
     smokeScriptPath: value.smokeScriptPath,
     requireElectronSmoke: true,
-    runCommand: (command, args) => {
-      calls.push([command, args]);
+    runCommand: (command, args, options) => {
+      calls.push([command, args, options]);
       if (command === '/usr/bin/lipo') return { status: 0, stdout: 'arm64\n', stderr: '' };
       return { status: 0, stdout: smokeReceipt(value), stderr: '' };
     },
@@ -68,6 +69,10 @@ test('proves the exact package, runtime-first arm64 binaries and Electron ABI sm
   assert.equal(receipt.electronAbiSmoke.modules, '146');
   assert.equal(calls.filter(([command]) => command === '/usr/bin/lipo').length, 2);
   assert.equal(calls.filter(([command]) => command === '/fake/Electron').length, 1);
+  assert.equal(
+    calls.find(([command]) => command === '/fake/Electron')?.[2]?.timeout,
+    COMMAND_EVE_NODE_PTY_ELECTRON_STARTUP_TIMEOUT_MS
+  );
 });
 
 test('fails closed on a wrong package version, missing helper or wrong architecture', () => {
@@ -169,6 +174,13 @@ test('normalizes x64 Mach-O output and defines the universal architecture contra
 test('keeps the source dependency pinned to the verifier contract', () => {
   const rootManifest = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
   assert.equal(rootManifest.dependencies['node-pty'], '1.1.0');
+});
+
+test('keeps the packaged smoke fail-closed while allowing macOS cold native startup', () => {
+  const smokeSource = fs.readFileSync(new URL('./smoke-packaged-node-pty.cjs', import.meta.url), 'utf8');
+  assert.match(smokeSource, /const SMOKE_TIMEOUT_MS = 60_000;/);
+  assert.match(smokeSource, /}, SMOKE_TIMEOUT_MS\);/);
+  assert.ok(COMMAND_EVE_NODE_PTY_ELECTRON_STARTUP_TIMEOUT_MS > 60_000);
 });
 
 test('runs the final packaged proof after transforms and before fuse hardening', () => {

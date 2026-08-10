@@ -10,6 +10,7 @@ const {
   resolveLocalAioncoreSource,
   verifyAioncoreCliContract,
   verifyFileSha256,
+  verifyLocalAioncoreProvenance,
 } = require('../../../packages/shared-scripts/src/prepare-aioncore.js') as {
   resolveAioncoreArtifactProvenance: (
     projectRoot: string,
@@ -26,6 +27,11 @@ const {
     deps?: { execFileSync?: () => string }
   ) => { requiredArguments: string[] };
   verifyFileSha256: (filePath: string, expected: string) => string;
+  verifyLocalAioncoreProvenance: (
+    projectRoot: string,
+    runtimeKey: string,
+    localSource: { binaryPath: string; binarySha256: string; sourceCommit: string }
+  ) => { binaryPath: string; binarySha256: string; sourceCommit: string };
 };
 
 describe('AionCore build integrity gate', () => {
@@ -127,6 +133,36 @@ describe('AionCore build integrity gate', () => {
       binarySha256: expected,
       sourceCommit: 'abcdef1234567',
     });
+  });
+
+  it('requires a local source build to match its package provenance', () => {
+    const root = makeRoot();
+    const localSource = {
+      binaryPath: join(root, 'aioncore'),
+      binarySha256: 'a'.repeat(64),
+      sourceCommit: 'b'.repeat(40),
+    };
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({
+        aioncoreArtifactProvenance: {
+          'darwin-arm64': {
+            kind: 'command-eve-source-build',
+            repository: 'MathiasHeinke/AionCore',
+            commit: localSource.sourceCommit,
+            sha256: localSource.binarySha256,
+          },
+        },
+      })
+    );
+
+    expect(verifyLocalAioncoreProvenance(root, 'darwin-arm64', localSource)).toBe(localSource);
+    expect(() =>
+      verifyLocalAioncoreProvenance(root, 'darwin-arm64', {
+        ...localSource,
+        binarySha256: 'c'.repeat(64),
+      })
+    ).toThrow(/does not match package provenance/);
   });
 
   it('accepts only an AionCore binary that exposes the local capability contract', () => {

@@ -7,7 +7,7 @@
 import type { CommandEvePrivacyLane } from './eveMultimodalGatewayCore';
 import type { CommandEveCloudVisualPolicyReceipt } from './visual/cloudVisualPolicyCore';
 
-export const COMMAND_EVE_IMAGE_INTELLIGENCE_VERSION = 'command-eve-image-intelligence/v0' as const;
+export const COMMAND_EVE_IMAGE_INTELLIGENCE_VERSION = 'command-eve-image-intelligence/v1' as const;
 export const COMMAND_EVE_IMAGE_MAX_LOCAL_BYTES = 20 * 1024 * 1024;
 export const COMMAND_EVE_IMAGE_MAX_CLOUD_BYTES = 4 * 1024 * 1024;
 export const COMMAND_EVE_IMAGE_MAX_CLOUD_RESPONSE_BYTES = 4 * 1024 * 1024;

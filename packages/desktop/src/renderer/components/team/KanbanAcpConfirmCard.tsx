@@ -20,6 +20,7 @@
  */
 
 import { ipcBridge } from '@/common';
+import { COMMAND_EVE_KANBAN_ACP_APPLIED_EVENT } from '@/common/config/kanbanAcpEvents';
 import { Button, Card, Message, Typography } from '@arco-design/web-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -86,6 +87,7 @@ const KanbanAcpConfirmCard: React.FC = () => {
         mutation_hash: pending.mutation_hash,
       });
       if (res?.data?.ok) {
+        window.dispatchEvent(new CustomEvent(COMMAND_EVE_KANBAN_ACP_APPLIED_EVENT));
         Message.success('Karten-Änderung übernommen.');
       } else {
         Message.info('Die Änderung konnte nicht angewendet werden (evtl. abgelaufen oder bereits geändert).');

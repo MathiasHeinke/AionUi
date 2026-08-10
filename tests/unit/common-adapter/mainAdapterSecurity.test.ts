@@ -430,6 +430,21 @@ describe('main adapter IPC trust boundary', () => {
     }
   );
 
+  it.each([
+    'command-eve.kanban-acp-peek',
+    'command-eve.kanban-acp-apply',
+    'command-eve.kanban-acp-reject',
+  ] as const)('allows governed Kanban confirmation transport in packaged operator mode: %s', async (providerKey) => {
+    state.isPackaged = true;
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+    const payload = validProviderPayload(providerKey);
+    const expectedEnvelope = (JSON.parse(payload) as { data: unknown }).data;
+
+    await handler(event, payload);
+    expect(state.emitter.emit).toHaveBeenCalledWith(`subscribe-${providerKey}`, expectedEnvelope);
+  });
+
   it('never promotes a packaged customer build through COMMAND_EVE_FOUNDER_BUILD', async () => {
     state.isPackaged = true;
     process.env.COMMAND_EVE_FOUNDER_BUILD = '1';
@@ -745,7 +760,11 @@ describe('main adapter source-derived wire registry', () => {
       ].toSorted()
     );
     expect([...CUSTOMER_DEFAULT_KANBAN_PROVIDER_KEYS].every((key) => !FOUNDER_ONLY_PROVIDER_KEYS.has(key))).toBe(true);
-    expect(FOUNDER_ONLY_PROVIDER_KEYS.has('command-eve.kanban-acp-peek')).toBe(true);
+    expect(
+      ['command-eve.kanban-acp-peek', 'command-eve.kanban-acp-apply', 'command-eve.kanban-acp-reject'].every(
+        (key) => !FOUNDER_ONLY_PROVIDER_KEYS.has(key as never)
+      )
+    ).toBe(true);
   });
 
   it('never accepts platform callback or raw emitter directions from the renderer', () => {

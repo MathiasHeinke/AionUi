@@ -15,7 +15,7 @@
  * the existing marketing-board write functions. Never auto-dispatches / spawns / deletes.
  *
  * Codex re-audit hardening: apply re-checks the client seat (K3); move/action prove the
- * target card belongs to the marketing board (K16); apply fails CLOSED if the authoritative
+ * target card belongs to the native seat board (K16); apply fails CLOSED if the authoritative
  * receipt can not be written first (K18); rejected proposals are receipted (K13); the
  * bearer + receipt files are chmod-verified even when preexisting (K3/K13); the create
  * idempotency token is the crypto-random intent id (never the mutation hash).
@@ -41,8 +41,10 @@ import {
   type KanbanAcpIntent,
 } from './kanbanAcpConfirmStore';
 
-/** The board EVE's ACP kanban surface operates on (the marketing board). */
-export const KANBAN_ACP_BOARD_SLUG = 'marketing';
+/** The board EVE's ACP surface operates on. `default` is the native Hermes seat board
+ * shown by the Aufgaben view; keeping both surfaces on this slug prevents split-brain
+ * writes into the legacy marketing-only database. */
+export const KANBAN_ACP_BOARD_SLUG = 'default';
 
 /** The operator opt-in config key: when true, EVE's kanban proposals AUTO-APPLY (no
  * confirm card) — the operator has granted EVE direct clearance for kanban work. Default
@@ -152,11 +154,17 @@ function allBoardCards(
   return out;
 }
 
-/** Is the desktop-mediated surface visible? Operator-only + a REAL, readable board. */
-function resolveVisible(): boolean {
+/** Is the desktop-mediated surface visible? Operator-only + a readable board, except
+ * for the first governed create: that write is the native board bootstrap itself. */
+function resolveVisible(proposal: unknown): boolean {
   if (getActiveSeatKind() === 'client') return false;
   const board = readBoard();
-  if (!board || board.ok !== true) return false; // real preflight, not a hardcoded true
+  const firstCreateMayBootstrap =
+    board?.reason_code === 'KANBAN_MARKETING_BOARD_MISSING' &&
+    Boolean(proposal) &&
+    typeof proposal === 'object' &&
+    (proposal as Record<string, unknown>).op === 'create';
+  if ((!board || board.ok !== true) && !firstCreateMayBootstrap) return false;
   const gate = resolveKanbanAcpToolsetGate({
     preflightReady: true,
     activeSeatId: getActiveSeatId(),
@@ -165,7 +173,7 @@ function resolveVisible(): boolean {
   return gate.visible === true;
 }
 
-/** True when `task_id` is a card that actually lives on the marketing board (K16). */
+/** True when `task_id` is a card that actually lives on the native seat board (K16). */
 function isMarketingCard(task_id: string): boolean {
   if (!task_id) return false;
   const board = readBoard();
@@ -222,7 +230,7 @@ export async function kanbanAcpProposeHandler(proposal: unknown): Promise<{ stat
     return { status: 503, payload: { ok: false, status: 'unavailable', reason: 'seat-switch-in-flight' } };
   }
   const res = buildKanbanProposeResponse(proposal, {
-    visible: resolveVisible(),
+    visible: resolveVisible(proposal),
     boardSlug: KANBAN_ACP_BOARD_SLUG,
     seatId,
     now,
@@ -257,7 +265,9 @@ export async function kanbanAcpProposeHandler(proposal: unknown): Promise<{ stat
         };
       }
     }
-    writeReceipt({ event: 'proposed', intent_id: res.intent_id, seat_id: seatId, summary: res.summary, ts: now });
+    if (!res.reused) {
+      writeReceipt({ event: 'proposed', intent_id: res.intent_id, seat_id: seatId, summary: res.summary, ts: now });
+    }
     return { status: 202, payload: res };
   }
   // K13: a rejected proposal is receipted too (EVE gets a machine-readable reject + an audit row).

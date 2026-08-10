@@ -1461,6 +1461,20 @@ export interface ICommandEveAuthWebLoginResult {
   account?: { name?: string; email: string; company?: string };
 }
 
+/**
+ * Result of a silent account-session reconciliation. MAIN refreshes the stored
+ * session and reuses the existing my-license -> entitlement activation path;
+ * no browser, token, or credential crosses into the renderer.
+ */
+export interface ICommandEveAuthResumeResult {
+  version: 'command-eve-account-auth/v0';
+  ok: boolean;
+  outcome: 'resumed' | 'no-session' | 'refresh-dead' | 'skipped' | 'error';
+  entitled: boolean;
+  reason_code?: string;
+  status?: ICommandEveEntitlementStatusResult;
+}
+
 export interface ICommandEveAuthLogoutResult {
   version: 'command-eve-account-auth/v0';
   ok: boolean;
@@ -2190,6 +2204,9 @@ export const commandEve = {
   authWebLogin: bridge.buildProvider<IBridgeResponse<ICommandEveAuthWebLoginResult>, ICommandEveAuthWebLoginRequest>(
     'command-eve.auth-web-login'
   ),
+  // Silent reconciliation after returning from the web account surface. MAIN
+  // owns the stored session and activation; the renderer receives status only.
+  authResume: bridge.buildProvider<IBridgeResponse<ICommandEveAuthResumeResult>, void>('command-eve.auth-resume'),
   // In-app email/password sign-in (MAIN does the GoTrue grant; tokens/password
   // never cross back). Same result shape as authWebLogin.
   authPasswordLogin: bridge.buildProvider<

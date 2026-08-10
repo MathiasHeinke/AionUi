@@ -27,20 +27,23 @@ const SiderProjectsEntry: React.FC<SiderProjectsEntryProps> = ({
     <Tooltip {...siderTooltipProps} content={label} position='right'>
       <Button
         type='text'
+        htmlType='button'
         aria-current={isActive ? 'page' : undefined}
         aria-label={collapsed ? label : undefined}
         data-testid='sider-projects-entry'
         className={classNames(
-          '!box-border !h-34px !w-full !border-none !bg-transparent !text-t-primary !rd-8px',
+          'box-border !h-34px !w-full !border-none !bg-transparent !text-t-primary !rd-8px cursor-pointer',
           collapsed
-            ? '!px-0 !flex !items-center !justify-center'
-            : '!px-10px !flex !items-center !justify-start !gap-8px',
+            ? '!px-0 flex items-center !justify-center'
+            : '!pl-10px !pr-8px flex items-center !justify-start gap-8px',
           isMobile && 'sider-action-btn-mobile',
-          isActive ? '!bg-fill-3' : 'hover:!bg-fill-3 active:!bg-fill-4'
+          isActive ? '!bg-fill-3' : '!hover:bg-fill-3 !active:bg-fill-4'
         )}
-        icon={<FolderFocus theme='outline' size={collapsed ? '20' : '16'} fill='currentColor' />}
         onClick={onClick}
       >
+        <span className='size-22px flex items-center justify-center shrink-0 line-height-0'>
+          <FolderFocus theme='outline' size={collapsed ? '20' : '16'} fill='currentColor' />
+        </span>
         {collapsed ? null : <span className='text-14px font-[500] leading-24px'>{label}</span>}
       </Button>
     </Tooltip>

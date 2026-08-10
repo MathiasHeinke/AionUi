@@ -13,7 +13,7 @@
  * that a row without a proven estimate is disabled rather than priced.
  */
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 
@@ -57,7 +57,10 @@ const REST: MediaModelRow[] = [
   { id: 'vendor-d/model-4', name: 'Model Four', providerKey: 'vendord', providerLabel: 'VendorD' },
 ];
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const renderDropdown = (overrides: Partial<React.ComponentProps<typeof MediaModelDropdown>> = {}) => {
   const props: React.ComponentProps<typeof MediaModelDropdown> = {
@@ -119,6 +122,62 @@ describe('MediaModelDropdown (shared)', () => {
     const unpriced = screen.getByTestId('media-model-entry-vendor-d/model-4');
     expect(unpriced).toBeDisabled();
     expect(unpriced.textContent).not.toContain('Credits');
+  });
+
+  it('re-anchors the measured short and expanded upward list without restoring stale geometry', async () => {
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(600);
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1200);
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      const element = this as HTMLElement;
+      if (element.dataset.testid === 'media-model-dropdown-trigger') {
+        return {
+          top: 500,
+          bottom: 530,
+          left: 120,
+          right: 340,
+          width: 220,
+          height: 30,
+          x: 120,
+          y: 500,
+          toJSON: () => ({}),
+        } as DOMRect;
+      }
+      if (element.classList?.contains('video-quality-pill__model-list')) {
+        const height = element.querySelector('[data-testid="media-model-section-all"]') ? 310 : 170;
+        return {
+          top: 0,
+          bottom: height,
+          left: 120,
+          right: 500,
+          width: 380,
+          height,
+          x: 120,
+          y: 0,
+          toJSON: () => ({}),
+        } as DOMRect;
+      }
+      return {
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+
+    renderDropdown();
+    const list = screen.getByTestId('media-model-dropdown');
+    await waitFor(() => expect(list.style.top).toBe('324px'));
+
+    fireEvent.click(screen.getByTestId('media-model-show-more'));
+
+    await waitFor(() => expect(list.style.top).toBe('184px'));
+    expect(list.style.maxHeight).toBe('286px');
+    expect(parseFloat(list.style.top) + 310 + 6).toBe(500);
   });
 
   it('reports a pick and closes; outside click closes without a pick', () => {

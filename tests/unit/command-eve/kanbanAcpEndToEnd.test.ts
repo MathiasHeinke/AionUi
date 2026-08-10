@@ -36,6 +36,7 @@ vi.mock('@process/commandEve/commandEveBackendSettingsRead', () => ({
 // Imported AFTER the mock so the handlers capture the mocked getDataPath.
 import { __resetActiveSeatForTests, getActiveSeatKind, setActiveSeatKind } from '@/process/commandEve/seatContextCore';
 import {
+  KANBAN_ACP_BOARD_SLUG,
   applyKanbanAcpIntent,
   kanbanAcpProposeHandler,
   peekKanbanAcpForRenderer,
@@ -45,7 +46,7 @@ import {
 import { __resetKanbanAcpForTest } from '@/process/commandEve/kanbanAcpConfirmStore';
 
 const marketingBoardPath = (root: string): string =>
-  path.join(root, 'command-eve-runtime', 'hermes', 'home', 'kanban', 'boards', 'marketing', 'kanban.db');
+  path.join(root, 'command-eve-runtime', 'hermes', 'home', 'kanban.db');
 
 const writeJson = (filePath: string, value: unknown): void => {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -113,6 +114,10 @@ afterEach(() => {
 });
 
 describe('COMPA-626 K12 — real propose → confirm → kanban.db write', () => {
+  it('targets the same native default board shown by the seat Aufgaben view', () => {
+    expect(KANBAN_ACP_BOARD_SLUG).toBe('default');
+  });
+
   it('the reset seat is an operator seat (not client), so the surface is reachable', () => {
     expect(getActiveSeatKind()).not.toBe('client');
   });
@@ -156,6 +161,50 @@ describe('COMPA-626 K12 — real propose → confirm → kanban.db write', () =>
     expect(fs.readFileSync(receipt, 'utf8')).toContain('"event":"applied"');
   });
 
+  it('the first confirmed create bootstraps a missing seat board instead of rejecting the proposal', async () => {
+    fs.rmSync(marketingBoardPath(ROOT), { force: true });
+    expect(readKanbanAcpBoard()).toMatchObject({
+      ok: false,
+      reason: 'KANBAN_MARKETING_BOARD_MISSING',
+    });
+
+    const proposed = await kanbanAcpProposeHandler({
+      op: 'create',
+      title: 'EVE_KANBAN_OK',
+      reason: 'first card initializes the native seat board',
+    });
+
+    expect(proposed.status).toBe(202);
+    const pending = peekKanbanAcpForRenderer();
+    expect(pending?.summary).toContain('EVE_KANBAN_OK');
+
+    const applied = await applyKanbanAcpIntent(pending!.intent_id, pending!.mutation_hash);
+    expect(applied.ok).toBe(true);
+    expect(readKanbanAcpBoard()).toMatchObject({
+      ok: true,
+      cards: [expect.objectContaining({ title: 'EVE_KANBAN_OK' })],
+    });
+  });
+
+  it('does not replace or re-receipt an identical proposal while confirmation is pending', async () => {
+    const proposal = {
+      op: 'create',
+      title: 'EVE_KANBAN_IDEMPOTENT',
+      reason: 'wait for the existing confirmation',
+    };
+    const first = await kanbanAcpProposeHandler(proposal);
+    const second = await kanbanAcpProposeHandler(proposal);
+
+    expect(first.status).toBe(202);
+    expect(second.status).toBe(202);
+    expect(second.payload).toMatchObject({
+      intent_id: (first.payload as { intent_id: string }).intent_id,
+      reused: true,
+    });
+    const receipt = path.join(ROOT, 'eve-kanban-acp', 'receipts.jsonl');
+    expect(fs.readFileSync(receipt, 'utf8').trim().split('\n')).toHaveLength(1);
+  });
+
   it('with operator AUTO-APPROVE granted, a propose applies DIRECTLY (no confirm card) + audits it', async () => {
     AUTO_APPROVE = true;
     expect(readKanbanAcpBoard().cards.length).toBe(0);
@@ -193,6 +242,40 @@ describe('COMPA-626 K12 — real propose → confirm → kanban.db write', () =>
     // No intent lingers as a confirmable card once the switch settles.
     expect(peekKanbanAcpForRenderer()).toBeNull();
     // And nothing was written to the DB.
+    expect(readKanbanAcpBoard().cards.length).toBe(0);
+  });
+
+  it('a pending intent cannot be applied after a seat switch starts', async () => {
+    const proposed = await kanbanAcpProposeHandler({
+      op: 'create',
+      title: 'Switch-Fence Karte',
+      reason: 'confirm race regression',
+    });
+    expect(proposed.status).toBe(202);
+    const pending = peekKanbanAcpForRenderer();
+    expect(pending).not.toBeNull();
+
+    setKanbanAcpSeatSwitchResolver(() => true);
+    const applied = await applyKanbanAcpIntent(pending!.intent_id, pending!.mutation_hash);
+
+    expect(applied).toEqual({ ok: false, reason: 'seat-switch-in-flight' });
+    expect(readKanbanAcpBoard().cards.length).toBe(0);
+  });
+
+  it('a pending operator intent cannot be applied after the active seat becomes a client seat', async () => {
+    const proposed = await kanbanAcpProposeHandler({
+      op: 'create',
+      title: 'Client-Fence Karte',
+      reason: 'seat kind regression',
+    });
+    expect(proposed.status).toBe(202);
+    const pending = peekKanbanAcpForRenderer();
+    expect(pending).not.toBeNull();
+
+    setActiveSeatKind('client');
+    const applied = await applyKanbanAcpIntent(pending!.intent_id, pending!.mutation_hash);
+
+    expect(applied).toEqual({ ok: false, reason: 'client-seat' });
     expect(readKanbanAcpBoard().cards.length).toBe(0);
   });
 

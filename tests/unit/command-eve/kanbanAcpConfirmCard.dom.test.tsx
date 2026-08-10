@@ -63,6 +63,7 @@ afterEach(() => {
 
 describe('KanbanAcpConfirmCard (COMPA-626 K11)', () => {
   it('surfaces the proposal + honesty text and applies ONLY on the button, carrying the mutation_hash', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
     render(<KanbanAcpConfirmCard />);
     await waitFor(() => expect(screen.getByTestId('kanban-acp-confirm-card')).toBeTruthy());
     const card = screen.getByTestId('kanban-acp-confirm-card');
@@ -81,6 +82,12 @@ describe('KanbanAcpConfirmCard (COMPA-626 K11)', () => {
         mutation_hash: 'k_deadbeef',
       })
     );
+    await waitFor(() =>
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'command-eve:kanban-acp-applied' })
+      )
+    );
+    dispatchSpy.mockRestore();
   });
 
   it('dismiss calls reject and never applies', async () => {

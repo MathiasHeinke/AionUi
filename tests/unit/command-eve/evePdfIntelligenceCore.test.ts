@@ -7,13 +7,56 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildCommandEvePdfOcrRequest,
+  COMMAND_EVE_PDF_INTELLIGENCE_VERSION,
   mergeCommandEvePreparedPdfFiles,
   parseCommandEvePdfOcrResponse,
+  validateCommandEvePdfPrepareReceipt,
   type CommandEvePreparedPdfDocument,
 } from '@/common/config/evePdfIntelligenceCore';
 
 const sha256 = 'a'.repeat(64);
 const pdfBase64 = Buffer.from('%PDF-1.7\nsmall').toString('base64');
+
+function preparedDocument(
+  sourcePath = '/tmp/report.pdf',
+  sidecarPath = `/tmp/hermes/document-intelligence/pdf/${sha256}/document.md`,
+  documentSha256 = sha256
+): CommandEvePreparedPdfDocument {
+  return {
+    source_path: sourcePath,
+    source_name: sourcePath.replace(/\\/g, '/').split('/').pop() || 'report.pdf',
+    sha256: documentSha256,
+    bytes: 100,
+    page_count: 1,
+    extracted_characters: 100,
+    extraction_mode: 'local_text',
+    sidecar_path: sidecarPath,
+    citation_format: '[PDF p. N]',
+    cache_hit: false,
+  };
+}
+
+function prepareReceipt(documents: unknown[] = [preparedDocument()], overrides: Record<string, unknown> = {}) {
+  return {
+    version: COMMAND_EVE_PDF_INTELLIGENCE_VERSION,
+    ok: true,
+    documents,
+    prepared_files: documents.map((document) =>
+      document && typeof document === 'object' && 'sidecar_path' in document
+        ? (document as { sidecar_path?: unknown }).sidecar_path
+        : undefined
+    ),
+    cloud_ocr_used: documents.some(
+      (document) =>
+        document &&
+        typeof document === 'object' &&
+        'extraction_mode' in document &&
+        (document as { extraction_mode?: unknown }).extraction_mode === 'cloud_ocr'
+    ),
+    requires_cloud_ocr_consent: false,
+    ...overrides,
+  };
+}
 
 describe('evePdfIntelligenceCore', () => {
   it('builds a server-only OpenRouter OCR request for the global cloud lane', () => {
@@ -129,5 +172,47 @@ describe('evePdfIntelligenceCore', () => {
       '/tmp/cache/document.md',
       '/tmp/b.txt',
     ]);
+  });
+
+  it('accepts a complete one-to-one PDF preparation receipt', () => {
+    const local = preparedDocument();
+    const cloudSha256 = 'b'.repeat(64);
+    const cloud = {
+      ...preparedDocument(
+        '/tmp/scan.pdf',
+        `/tmp/hermes/document-intelligence/pdf/${cloudSha256}/document.md`,
+        cloudSha256
+      ),
+      extraction_mode: 'cloud_ocr' as const,
+    };
+
+    expect(
+      validateCommandEvePdfPrepareReceipt(['/tmp/report.pdf', '/tmp/scan.pdf'], prepareReceipt([local, cloud]))
+    ).toEqual({ ok: true, documents: [local, cloud] });
+  });
+
+  it.each([
+    ['missing document', ['/tmp/report.pdf', '/tmp/scan.pdf'], prepareReceipt([preparedDocument()])],
+    ['foreign source', ['/tmp/report.pdf'], prepareReceipt([preparedDocument('/tmp/other.pdf')])],
+    [
+      'duplicate source',
+      ['/tmp/report.pdf', '/tmp/scan.pdf'],
+      prepareReceipt([preparedDocument(), preparedDocument('/tmp/report.pdf')]),
+    ],
+    [
+      'relative sidecar',
+      ['/tmp/report.pdf'],
+      prepareReceipt([preparedDocument('/tmp/report.pdf', `document-intelligence/pdf/${sha256}/document.md`)]),
+    ],
+    [
+      'duplicate sidecar',
+      ['/tmp/report.pdf', '/tmp/scan.pdf'],
+      prepareReceipt([preparedDocument(), preparedDocument('/tmp/scan.pdf')]),
+    ],
+  ])('rejects a %s receipt', (_label, pdfFiles, receipt) => {
+    expect(validateCommandEvePdfPrepareReceipt(pdfFiles as string[], receipt)).toEqual({
+      ok: false,
+      reason_code: 'EVE_PDF_PREPARE_RECEIPT_INVALID',
+    });
   });
 });

@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  alignMeasuredPillDropdownTop,
   clampPillDropdownLeft,
   resolvePillDropdownPlacement,
 } from '@/renderer/components/billing/pillDropdownPlacement';
@@ -99,6 +100,30 @@ describe('resolvePillDropdownPlacement (MAT-1773 P1)', () => {
     });
     // Floor wins over an impossible viewport: never report maxWidth < minWidth.
     expect(tiny.maxWidth).toBe(tiny.minWidth);
+  });
+});
+
+describe('alignMeasuredPillDropdownTop (measured-height anchor)', () => {
+  it('keeps a short upward list exactly one gap above its trigger', () => {
+    expect(
+      alignMeasuredPillDropdownTop({
+        direction: 'up',
+        currentTop: 14,
+        triggerTop: 340,
+        measuredHeight: 176,
+      })
+    ).toBe(158);
+  });
+
+  it('does not move a downward list whose top is already trigger-anchored', () => {
+    expect(
+      alignMeasuredPillDropdownTop({
+        direction: 'down',
+        currentTop: 136,
+        triggerTop: 100,
+        measuredHeight: 176,
+      })
+    ).toBe(136);
   });
 });
 

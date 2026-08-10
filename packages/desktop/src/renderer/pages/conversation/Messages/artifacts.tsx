@@ -164,7 +164,7 @@ const EMPTY_ARTIFACTS: IConversationArtifact[] = [];
 const conversationArtifactStores = new Map<string, ConversationArtifactStoreEntry>();
 
 const notifyArtifactListeners = (entry: ConversationArtifactStoreEntry): void => {
-  for (const listener of [...entry.listeners]) listener();
+  for (const listener of Array.from(entry.listeners)) listener();
 };
 
 const replaceStoreArtifacts = (entry: ConversationArtifactStoreEntry, next: IConversationArtifact[]): void => {

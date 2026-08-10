@@ -702,8 +702,9 @@
     "layoutLabel": "Arrange workbench",
     "returnToChat": "Return to chat",
     "focus": "Maximize active surface",
+    "splitLeft": "Workbench left, chat right",
     "splitRight": "Chat left, workbench right",
-    "splitBottom": "Workbench above, chat below",
+    "splitBottom": "Chat above, workbench below",
     "resizeSplit": "Resize layout"
   },
   "runtimeStatus": {

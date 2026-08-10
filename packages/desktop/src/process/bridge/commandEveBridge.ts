@@ -3697,6 +3697,51 @@ export function initCommandEveBridge(): void {
     }
   });
 
+  // Silent account reconciliation for the trial curtain. This is intentionally
+  // a narrow wrapper around the existing startup-resume path: refresh the stored
+  // session, fetch my-license, and activate through the normal entitlement core.
+  // No browser is opened and no token or license wire crosses the bridge.
+  bridge.buildProvider('command-eve.auth-resume').provider(async () => {
+    const version = 'command-eve-account-auth/v0' as const;
+    try {
+      const userDataPath = getDataPath();
+      const result = await silentResumeAccountAuth(userDataPath, {
+        storeLicenseWire: (p, wire) => {
+          try {
+            storeLicenseWire(p, wire);
+          } catch {
+            // Non-fatal: entitlement status remains the source of truth.
+          }
+        },
+      });
+      if (readRegistration(userDataPath)) await syncRegistrationIdentityArtifactsBestEffort(userDataPath);
+
+      return {
+        success: true,
+        data: {
+          version,
+          ok: true,
+          outcome: result.outcome,
+          entitled: result.status?.state === 'entitled',
+          reason_code: result.reason_code,
+          status: result.status,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE auth-resume bridge failed.',
+        data: {
+          version,
+          ok: false,
+          outcome: 'error' as const,
+          entitled: false,
+          reason_code: 'AUTH_RESUME_BRIDGE_FAILED',
+        },
+      };
+    }
+  });
+
   // -------------------------------------------------------------------------
   // In-app email/password auth (founder HG-4, 2026-06-20). Same MAIN-process
   // posture as the loopback: the renderer passes {intent,email,password}; the

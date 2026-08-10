@@ -507,7 +507,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
   }
 
   return (
-    <div ref={containerRef} className={`h-full w-full flex flex-col ${className ?? ''}`} style={style}>
+    <div ref={containerRef} className={`h-full w-full min-w-0 flex flex-col ${className ?? ''}`} style={style}>
       {showNavBar && (
         <style>
           {`
@@ -518,6 +518,10 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               --viewer-bg-hover: var(--color-fill-2);
               --viewer-text: var(--color-text-2);
               --viewer-text-muted: var(--color-text-3);
+              box-sizing: border-box;
+              width: 100%;
+              min-width: 0;
+              overflow: hidden;
             }
             .aion-url-viewer-toolbar .toolbar-btn {
               -webkit-appearance: none;
@@ -577,7 +581,12 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
             .aion-url-viewer-toolbar .toolbar-input {
               -webkit-appearance: none;
               appearance: none;
+              box-sizing: border-box;
+              display: block;
+              flex: 1 1 auto;
               width: 100%;
+              max-width: none;
+              min-width: 0;
               height: 30px;
               padding: 0 12px;
               border-radius: 10px;
@@ -587,6 +596,20 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               font-size: 12px;
               line-height: 30px;
               transition: all 150ms ease;
+            }
+            .aion-url-viewer-toolbar .toolbar-input::placeholder {
+              color: var(--viewer-text-muted);
+              opacity: 0.84;
+            }
+            .aion-url-viewer-toolbar .toolbar-form {
+              display: flex;
+              flex: 1 1 auto;
+              align-items: center;
+              align-self: stretch;
+              width: auto;
+              max-width: none;
+              min-width: 0;
+              margin-left: 2px;
             }
             .aion-url-viewer-toolbar .toolbar-input:hover {
               border-color: var(--viewer-border-hover);
@@ -667,6 +690,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
       {showNavBar && (
         <div
           className={`aion-url-viewer-toolbar flex items-center gap-6px h-40px px-10px bg-bg-2 border-b border-border-1 flex-shrink-0 ${COMMAND_EVE_SHELL_ENABLED ? 'aion-url-viewer-toolbar--workbench' : ''}`}
+          style={{ display: 'flex', alignItems: 'center', width: '100%', minWidth: 0 }}
         >
           <button
             type='button'
@@ -712,7 +736,11 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               <span className='toolbar-chip'>{Math.round(zoomFactor * 100)}%</span>
             </div>
           )}
-          <form onSubmit={handleUrlSubmit} className='flex-1 ml-2px'>
+          <form
+            onSubmit={handleUrlSubmit}
+            className='toolbar-form'
+            style={{ display: 'flex', flex: '1 1 auto', width: 'auto', minWidth: 0, maxWidth: 'none' }}
+          >
             <input
               type='text'
               value={inputUrl}
@@ -720,6 +748,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               onKeyDown={handleUrlKeyDown}
               onFocus={(e) => e.target.select()}
               className='toolbar-input'
+              style={{ display: 'block', flex: '1 1 auto', width: '100%', minWidth: 0, maxWidth: 'none' }}
               aria-label={
                 COMMAND_EVE_SHELL_ENABLED ? t('conversation.workbench.addressPlaceholder') : 'Enter URL or search'
               }
@@ -751,6 +780,8 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
           style={{
             opacity: !showNavBar && isLoading ? 0 : 1,
             transition: 'opacity 150ms ease-in',
+            width: '100%',
+            height: '100%',
           }}
           {...webviewAttrs}
         />

@@ -71,20 +71,12 @@ export function useLayoutConstraints({
 
   // Clamp chat split ratio within dynamic bounds
   useEffect(() => {
-    if (!workspaceEnabled || !isPreviewOpen || !isDesktop) {
+    if (!isPreviewOpen || !isDesktop) {
       return;
     }
     const clampedChat = Math.max(dynamicChatMinRatio, Math.min(dynamicChatMaxRatio, chatSplitRatio));
     if (clampedChat !== chatSplitRatio) {
       setChatSplitRatio(clampedChat);
     }
-  }, [
-    chatSplitRatio,
-    dynamicChatMaxRatio,
-    dynamicChatMinRatio,
-    isDesktop,
-    isPreviewOpen,
-    setChatSplitRatio,
-    workspaceEnabled,
-  ]);
+  }, [chatSplitRatio, dynamicChatMaxRatio, dynamicChatMinRatio, isDesktop, isPreviewOpen, setChatSplitRatio]);
 }

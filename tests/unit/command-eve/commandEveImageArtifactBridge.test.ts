@@ -16,11 +16,11 @@ import {
 } from '@/process/bridge/commandEveImageArtifactBridge';
 import {
   bindStagedImageArtifact,
-  importLegacyImageArtifact,
   readImageArtifactBytes,
   readImageArtifactRecordById,
   stageGeneratedImageArtifact,
 } from '@/process/commandEve/imageArtifactStore';
+import type { importLegacyImageArtifact } from '@/process/commandEve/imageArtifactStore';
 import {
   consumeVideoEditSpendPermit,
   issueVideoEditSpendPermit,

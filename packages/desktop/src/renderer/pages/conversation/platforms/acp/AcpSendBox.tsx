@@ -74,7 +74,11 @@ import { iconColors } from '@/renderer/styles/colors';
 import { emitter, useAddEventListener } from '@/renderer/utils/emitter';
 import { mergeFileSelectionItems } from '@/renderer/utils/file/fileSelection';
 import { buildDisplayMessage } from '@/renderer/utils/file/messageFiles';
-import { isCommandEvePdfPath, mergeCommandEvePreparedPdfFiles } from '@/common/config/evePdfIntelligenceCore';
+import {
+  isCommandEvePdfPath,
+  mergeCommandEvePreparedPdfFiles,
+  validateCommandEvePdfPrepareReceipt,
+} from '@/common/config/evePdfIntelligenceCore';
 import { isCommandEvePresentationPath } from '@/common/config/evePresentationIntelligenceCore';
 import { isCommandEveImagePath } from '@/common/config/eveImageIntelligenceCore';
 import { composeCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
@@ -1362,11 +1366,23 @@ Please check your local CLI tool authentication status`,
           privacyLane: 'cloud_auto',
           requestId: `pdf-${Date.now().toString(36)}`,
         });
+      const acceptPreparedReceipt = (raw: unknown): string[] | null => {
+        const validated = validateCommandEvePdfPrepareReceipt(pdfFiles, raw);
+        if (validated.ok === false) {
+          setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
+          Message.error({
+            content: t('conversation.pdf.prepareFailed'),
+            duration: 6000,
+          });
+          return null;
+        }
+        setDocumentPreparation({ phase: 'handoff', fileCount: pdfFiles.length, startedAt });
+        return mergeCommandEvePreparedPdfFiles(files, validated.documents);
+      };
       try {
         let response = await invoke(false);
         if (response.success && response.data?.ok) {
-          setDocumentPreparation({ phase: 'handoff', fileCount: pdfFiles.length, startedAt });
-          return mergeCommandEvePreparedPdfFiles(files, response.data.documents);
+          return acceptPreparedReceipt(response.data);
         }
 
         const initialFailure = response.data?.ok === false ? response.data : undefined;
@@ -1420,8 +1436,7 @@ Please check your local CLI tool authentication status`,
           });
           return null;
         }
-        setDocumentPreparation({ phase: 'handoff', fileCount: pdfFiles.length, startedAt });
-        return mergeCommandEvePreparedPdfFiles(files, response.data.documents);
+        return acceptPreparedReceipt(response.data);
       } catch (error) {
         setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
         // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream string.

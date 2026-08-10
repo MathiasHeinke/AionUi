@@ -136,6 +136,21 @@ describe('kanban confirm store — propose → peek → confirm flow', () => {
     expect(consumeKanbanIntent('k1', 'seat-a', live!.mutation_hash, NOW + 1000).reason).toBe('wrong-intent');
   });
 
+  it('reuses an identical live proposal instead of replacing the intent', () => {
+    const first = buildKanbanProposeResponse(
+      { op: 'create', title: 'same', reason: 'wait for approval' },
+      { visible: true, boardSlug: 'default', seatId: 'seat-a', now: NOW, randomId: () => 'k1' }
+    );
+    const second = buildKanbanProposeResponse(
+      { op: 'create', title: 'same', reason: 'wait for approval' },
+      { visible: true, boardSlug: 'default', seatId: 'seat-a', now: NOW + 1000, randomId: () => 'k2' }
+    );
+
+    expect(first).toMatchObject({ intent_id: 'k1', reused: false });
+    expect(second).toMatchObject({ intent_id: 'k1', reused: true });
+    expect(peekKanbanIntentForSeat('seat-a', NOW + 2000)?.intent_id).toBe('k1');
+  });
+
   it('clearKanbanPendingIntent removes the pending intent (seat switch)', () => {
     propose({ op: 'create', title: 'x' });
     clearKanbanPendingIntent();

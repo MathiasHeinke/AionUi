@@ -45,6 +45,23 @@ for (const [toolId, version, entrypoint] of [
   chmodSync(localBinary, 0o755);
 }
 
+function writeSourceBuildProvenance(projectRoot: string, sourceCommit: string, sha256: string): void {
+  mkdirSync(projectRoot, { recursive: true });
+  writeFileSync(
+    join(projectRoot, 'package.json'),
+    JSON.stringify({
+      aioncoreArtifactProvenance: {
+        'darwin-arm64': {
+          kind: 'command-eve-source-build',
+          repository: 'MathiasHeinke/AionCore',
+          commit: sourceCommit,
+          sha256,
+        },
+      },
+    })
+  );
+}
+
 describe('prepareAioncore reuse guard', () => {
   let tmp: string;
 
@@ -60,13 +77,14 @@ describe('prepareAioncore reuse guard', () => {
     const projectRoot = join(tmp, 'project');
     const runtimeDir = join(projectRoot, 'resources', 'bundled-aioncore', 'darwin-arm64');
     const localBinary = join(tmp, 'private-build', 'aioncore');
-    const sourceCommit = 'abcdef1234567890';
+    const sourceCommit = 'a'.repeat(40);
     const hookPath = join(tmp, 'hook.cjs');
     const scriptPath = join(tmp, 'run.cjs');
 
     mkdirSync(runtimeDir, { recursive: true });
     writeManagedResourceLocalBinary(localBinary);
     const expectedSha256 = createHash('sha256').update(readFileSync(localBinary)).digest('hex');
+    writeSourceBuildProvenance(projectRoot, sourceCommit, expectedSha256);
     writeFileSync(join(runtimeDir, 'aioncore'), readFileSync(localBinary), { flush: true });
     chmodSync(join(runtimeDir, 'aioncore'), 0o755);
     writeFileSync(
@@ -211,9 +229,10 @@ try {
   itWithPosixExecutable('packages a verified local build without leaking its source path', () => {
     const projectRoot = join(tmp, 'project');
     const localBinary = join(tmp, 'private-build', 'aioncore');
-    const sourceCommit = 'abcdef1234567890';
+    const sourceCommit = 'a'.repeat(40);
     writeManagedResourceLocalBinary(localBinary);
     const expectedSha256 = createHash('sha256').update(readFileSync(localBinary)).digest('hex');
+    writeSourceBuildProvenance(projectRoot, sourceCommit, expectedSha256);
     const scriptPath = join(tmp, 'prepare-local.cjs');
     writeFileSync(
       scriptPath,
@@ -256,9 +275,10 @@ prepareAioncore({
     () => {
       const projectRoot = join(tmp, 'project');
       const localBinary = join(tmp, 'private-build', 'aioncore');
-      const sourceCommit = 'abcdef1234567890';
+      const sourceCommit = 'a'.repeat(40);
       writeManagedResourceLocalBinary(localBinary);
       const expectedSha256 = createHash('sha256').update(readFileSync(localBinary)).digest('hex');
+      writeSourceBuildProvenance(projectRoot, sourceCommit, expectedSha256);
       const scriptPath = join(tmp, 'prepare-local-reuse.cjs');
       writeFileSync(
         scriptPath,
@@ -307,11 +327,12 @@ if (finalSha256 !== options.expectedSha256) {
   it('fails closed when the copied local binary changes before post-copy verification', () => {
     const projectRoot = join(tmp, 'project');
     const localBinary = join(tmp, 'private-build', 'aioncore');
-    const sourceCommit = 'abcdef1234567890';
+    const sourceCommit = 'a'.repeat(40);
     const hookPath = join(tmp, 'tamper-copy-hook.cjs');
     const scriptPath = join(tmp, 'prepare-local-tampered-copy.cjs');
     writeManagedResourceLocalBinary(localBinary);
     const expectedSha256 = createHash('sha256').update(readFileSync(localBinary)).digest('hex');
+    writeSourceBuildProvenance(projectRoot, sourceCommit, expectedSha256);
 
     writeFileSync(
       hookPath,

@@ -778,15 +778,10 @@ describe('Command EVE runtime bootstrap core', () => {
   /**
    * 1.821.0 — THE AUX VISION ROUTE, end to end.
    *
-   * Two self-imposed locks used to sit in front of this: `disabled_toolsets:
-   * [vision]` (applied LAST in the wheel, so it beat any route) and the simple
-   * fact that `auxiliary.vision` was never emitted at all. Neither protected
-   * money or a user confirmation — they only kept a text-only chat model blind.
-   *
    * This drives the REAL resolver against the REAL fake runtime (no injected
    * stub): the probe reads /api/tags, and what it finds decides whether the key
-   * is emitted. Both directions are gated, because the OMITTED direction is what
-   * keeps a box without the model byte-identical instead of 502-ing per image.
+   * is emitted. Without a verified model the native tool is disabled; with one,
+   * the explicit local auxiliary route is enabled.
    */
   it('resolves the installed local vision model from /api/tags, deterministically and fail-safe', () => {
     expect(pickCommandEveLocalVisionModel('{"models":[{"name":"minicpm-v:8b"}]}')).toBe('minicpm-v:8b');
@@ -821,7 +816,7 @@ describe('Command EVE runtime bootstrap core', () => {
    * The emitter reads the constant now, and this test parses the list back OUT of
    * the emitted file so the kanban check is applied to the bytes that ship.
    */
-  itM('emits the ACP toolsets FROM the guarded constant — kanban stays out of the shipped file', async () => {
+  itM('emits the available ACP toolsets from the guarded constant — kanban stays out', async () => {
     const harness = makeHarness();
     await withOllamaServer(async (baseUrl) => {
       const receipt = await ensureCommandEveRuntimeBootstrap({
@@ -850,8 +845,9 @@ describe('Command EVE runtime bootstrap core', () => {
           .filter(Boolean);
       };
 
-      // Emitter and guarded constant are ONE list. If they ever drift again, the
-      // guard below is measuring a file nobody ships.
+      // No verified local vision model is installed in this fixture, so Hermes'
+      // native vision tool must not be advertised. Everything else comes from the
+      // guarded capability list.
       expect(lane('acp')).toEqual([...COMMAND_EVE_ACP_PLATFORM_TOOLSETS]);
       expect(lane('cli')).toEqual([...COMMAND_EVE_CLI_PLATFORM_TOOLSETS]);
 
@@ -868,10 +864,11 @@ describe('Command EVE runtime bootstrap core', () => {
         expect(toolset, `${toolset} would need YAML quoting`).toMatch(/^[a-z][a-z0-9_-]*$/);
       }
 
-      // And the locks that were pure self-restriction are open.
-      for (const toolset of ['computer_use', 'vision', 'clarify']) {
+      for (const toolset of ['computer_use', 'clarify']) {
         expect(lane('acp'), `the ACP lane lost ${toolset}`).toContain(toolset);
       }
+      expect(lane('acp')).not.toContain('vision');
+      expect(configYaml).toMatch(/disabled_toolsets:\s*\n\s*- vision/);
     });
   });
 
@@ -910,8 +907,11 @@ describe('Command EVE runtime bootstrap core', () => {
         // A screenshot needs far more than the 14s text-compression budget.
         const timeout = Number(/\n {2}vision:[\s\S]*?\n {4}timeout: (\d+)\n/.exec(configYaml)?.[1]);
         expect(timeout).toBeGreaterThanOrEqual(60);
-        // And the ban that would have overridden all of this is gone.
-        expect(configYaml).not.toContain('disabled_toolsets');
+        expect(configYaml).not.toMatch(/disabled_toolsets:\s*\n\s*- vision/);
+        const reconciliation = JSON.parse(fs.readFileSync(paths.runtimeReconciliation, 'utf8')) as {
+          hermes_config: { platform_toolsets: { acp: string[] } };
+        };
+        expect(reconciliation.hermes_config.platform_toolsets.acp).toEqual([...COMMAND_EVE_ACP_PLATFORM_TOOLSETS]);
       },
       ['gemma3:4b', 'minicpm-v:8b']
     );
@@ -985,15 +985,10 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).toMatch(/max_turns: \d+/);
       expect(configYaml).toMatch(/max_turns: ([1-9]\d?)\b/); // bounded well under Hermes' 90 default
       expect(configYaml).toContain('image_input_mode: native');
-      // 1.821.0 — THE BAN IS GONE. `agent.disabled_toolsets` is applied LAST in the
-      // wheel and overrides everything (tools_config.py:2483-2490), so as long as it
-      // named `vision` no aux route could ever take effect. It was self-restriction,
-      // not protection: nothing about it guarded money or a user confirmation.
-      expect(configYaml).not.toContain('disabled_toolsets');
-      expect(configYaml).not.toMatch(/disabled_toolsets:\s*\n\s*- vision/);
-      // This box has NO local vision model installed (the fake runtime reports an
-      // empty /api/tags), so the aux route must be OMITTED entirely — the emitted
-      // config stays byte-identical to a pre-1.821.0 one apart from the dropped ban.
+      // This box has no verified local vision model, so Hermes must not advertise
+      // a native tool that would route screenshots into the text model.
+      expect(configYaml).toMatch(/disabled_toolsets:\s*\n\s*- vision/);
+      // The auxiliary route is omitted as well.
       expect(configYaml).not.toMatch(/^ {2}vision:$/m);
       // Context auto-compaction threshold: the dynamic provider patch raises
       // cloud turns to 256K and compacts at 75% (196608), while local turns keep
@@ -1027,8 +1022,9 @@ describe('Command EVE runtime bootstrap core', () => {
       // 1.821.0 — the ACP lane is no longer just the IDE-plugin composite. Upstream
       // describes hermes-acp as "coding-focused tools without messaging, audio, or
       // clarify UI" (toolsets.py:406-407); shipping only that ran Command EVE as a
-      // VS Code plugin. Desktop control, vision and the ask-back UI are the product.
-      for (const toolset of ['computer_use', 'vision', 'clarify']) {
+      // VS Code plugin. Desktop control and the ask-back UI are the product;
+      // native vision lives inside hermes-acp and is gated above by model truth.
+      for (const toolset of ['computer_use', 'clarify']) {
         expect(configYaml, `the ACP lane lost ${toolset}`).toContain(`    - ${toolset}`);
       }
       // COMPA-626 STAYS SHUT: kanban is the one entry that would hand EVE un-gated
@@ -1171,7 +1167,7 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(reconciliation.hermes_config.mcp_servers).toEqual([]);
       expect(reconciliation.hermes_config.platform_toolsets).toEqual({
         cli: ['hermes-cli'],
-        acp: ['hermes-acp', 'computer_use', 'vision', 'clarify', 'command-eve-desktop'],
+        acp: ['hermes-acp', 'computer_use', 'clarify', 'command-eve-desktop'],
       });
       expect(reconciliation.hermes_config.kanban_dispatch_in_gateway).toBe(false);
       expect(reconciliation.hermes_config.kanban_auto_decompose).toBe(true);
@@ -1196,6 +1192,56 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain(
         'auxiliary_client._resolve_custom_runtime = command_eve_resolve_custom_runtime'
       );
+      expect(providerOverride).toContain('auxiliary_client._to_async_client = command_eve_to_async_client');
+      expect(providerOverride).toContain('def _install_command_eve_attachment_memory_gate() -> None:');
+      expect(providerOverride).toContain('def _install_command_eve_attachment_history_patch() -> None:');
+      const visionAuthHarness = spawnSync(
+        'python3',
+        [
+          path.resolve('tests/fixtures/command-eve/vision_auth_v2_patch_harness.py'),
+          providerOverridePath,
+          path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        ],
+        { encoding: 'utf8', timeout: 15_000 }
+      );
+      expect(visionAuthHarness.status, visionAuthHarness.stderr || visionAuthHarness.stdout).toBe(0);
+      expect(JSON.parse(visionAuthHarness.stdout)).toMatchObject({
+        incomplete_import_safe: true,
+        exact_wheel_function_executed: true,
+        local_nonce_rebound: true,
+        external_key_preserved: true,
+        missing_nonce_fails_before_http: true,
+      });
+      const attachmentMemoryHarness = spawnSync(
+        'python3',
+        [path.resolve('tests/fixtures/command-eve/attachment_memory_gate_harness.py'), providerOverridePath],
+        { encoding: 'utf8', timeout: 15_000 }
+      );
+      expect(attachmentMemoryHarness.status, attachmentMemoryHarness.stderr || attachmentMemoryHarness.stdout).toBe(0);
+      expect(JSON.parse(attachmentMemoryHarness.stdout)).toMatchObject({
+        text_memory_allowed: true,
+        attachment_memory_blocked: true,
+        attachment_skill_review_allowed: true,
+      });
+      const attachmentHistoryHarness = spawnSync(
+        'python3',
+        [
+          path.resolve('tests/fixtures/command-eve/attachment_history_harness.py'),
+          providerOverridePath,
+          path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        ],
+        { encoding: 'utf8', timeout: 15_000 }
+      );
+      expect(attachmentHistoryHarness.status, attachmentHistoryHarness.stderr || attachmentHistoryHarness.stdout).toBe(
+        0
+      );
+      expect(JSON.parse(attachmentHistoryHarness.stdout)).toMatchObject({
+        exact_wheel_function_executed: true,
+        baseline_loses_context: true,
+        same_process_replay_preserved: true,
+        native_api_content_used: true,
+        negative_controls_passed: true,
+      });
       expect(providerOverride).toContain('def _install_command_eve_permission_authority_patch()');
       expect(providerOverride).toContain(
         'HermesACPAgent._edit_approval_policy_for_state = command_eve_edit_approval_policy'
@@ -1373,6 +1419,37 @@ describe('Command EVE runtime bootstrap core', () => {
         non_custom_untouched: { call_base_url: 'http://127.0.0.1:41111/v1', no_meta_write: true },
         current_missing_fail_closed: { call_base_url: 'http://127.0.0.1:41111/v1', no_meta_write: true },
         current_remote_fail_closed: { call_base_url: 'http://127.0.0.1:41111/v1', no_meta_write: true },
+      });
+      // Hermes 0.20 ACP drops config.agent.disabled_toolsets when it constructs
+      // AIAgent. The version-bound shim must reuse Hermes' own refresh helper so
+      // an unavailable local vision tool cannot be re-advertised after managed
+      // image evidence was already prepared.
+      expect(providerOverride).toContain('_install_command_eve_acp_disabled_toolsets_patch');
+      expect(providerOverride).toContain('refresh_agent_mcp_tools(agent, disabled_override=disabled');
+      const disabledToolsetsHarness = spawnSync(
+        'python3',
+        [path.resolve('tests/fixtures/command-eve/acp_disabled_toolsets_patch_harness.py'), providerOverridePath],
+        { encoding: 'utf8', timeout: 10_000 }
+      );
+      expect(
+        disabledToolsetsHarness.status,
+        disabledToolsetsHarness.stderr || disabledToolsetsHarness.stdout
+      ).toBe(0);
+      expect(JSON.parse(disabledToolsetsHarness.stdout)).toEqual({
+        fresh: {
+          disabled: ['vision'],
+          vision_absent: true,
+          terminal_present: true,
+          prompt_invalidations: 1,
+        },
+        restored_vision_absent: true,
+        restored_prompt_invalidated: true,
+        db_writes: [['restored', null]],
+        later_refresh_stays_filtered: true,
+        local_vlm_keeps_vision: true,
+        refresh_disabled_args: [['vision'], ['vision'], ['vision']],
+        idempotent_install: true,
+        ledger_marked: true,
       });
       expect(providerOverride).toContain('"local-fallback"');
       expect(providerOverride).toContain('request_host in {"127.0.0.1", "localhost", "::1"}');

@@ -10,8 +10,9 @@
  * Asserts the gate shows the warm "continue" conversion screen (NOT the generic
  * license-error step) only when the main process reports a TRIAL that has expired
  * (`state === 'expired'` AND a non-null `trial_ends_at`), that it leads with the
- * setup-preserved message, that its primary CTA routes OUT to the web checkout
- * (it never resets local data), and that a PAID-license expiry (no
+ * setup-preserved message, that its primary CTA routes OUT to web checkout while
+ * return-focus silently reconciles the existing account entitlement (it never
+ * resets local data), and that a PAID-license expiry (no
  * `trial_ends_at`) still falls through to the existing license step — so the
  * curtain is distinct from the hard error states.
  */
@@ -22,11 +23,20 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 // The component resolves `commandEve.*` providers (which call
 // `bridge.buildProvider` at module load) — hand back invoke stubs.
-const { entitlementRegisterMock, entitlementActivateMock, openExternalMock, changeLanguageMock } = vi.hoisted(() => ({
+const {
+  entitlementRegisterMock,
+  entitlementActivateMock,
+  authResumeMock,
+  openExternalMock,
+  changeLanguageMock,
+  refreshProfileMock,
+} = vi.hoisted(() => ({
   entitlementRegisterMock: vi.fn(),
   entitlementActivateMock: vi.fn(),
+  authResumeMock: vi.fn(),
   openExternalMock: vi.fn(),
   changeLanguageMock: vi.fn(),
+  refreshProfileMock: vi.fn(),
 }));
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
@@ -34,11 +44,16 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
     entitlementStatus: { invoke: vi.fn() },
     entitlementRegister: { invoke: entitlementRegisterMock },
     entitlementActivate: { invoke: entitlementActivateMock },
+    authResume: { invoke: authResumeMock },
   },
 }));
 
 vi.mock('@renderer/services/i18n', () => ({
   changeLanguage: changeLanguageMock,
+}));
+
+vi.mock('@/renderer/components/account/useCommandEveProfile', () => ({
+  refreshCommandEveProfile: refreshProfileMock,
 }));
 
 // APP→WEB AUTH HANDOFF: the curtain CTA now opens via openAccountWeb (MAIN attaches
@@ -105,7 +120,9 @@ const paidExpiredStatus: ICommandEveEntitlementStatusResult = {
 describe('RegistrationGatePage — day-14 trial curtain (T2)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authResumeMock.mockResolvedValue({ data: { ok: true, outcome: 'resumed', entitled: false } });
     openExternalMock.mockResolvedValue(undefined);
+    refreshProfileMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -127,7 +144,7 @@ describe('RegistrationGatePage — day-14 trial curtain (T2)', () => {
     expect(screen.queryByTestId('registration-gate-license-form')).not.toBeInTheDocument();
   });
 
-  it('primary CTA routes OUT to the web checkout and never resets local data', async () => {
+  it('primary CTA routes OUT to web checkout and never resets local data', async () => {
     render(<RegistrationGatePage status={trialExpiredStatus} onEntitled={vi.fn()} />);
 
     fireEvent.click(screen.getByTestId('registration-gate-curtain-continue'));
@@ -138,6 +155,42 @@ describe('RegistrationGatePage — day-14 trial curtain (T2)', () => {
     // The curtain has no reset/wipe path: no activate/register bridge call is made.
     expect(entitlementRegisterMock).not.toHaveBeenCalled();
     expect(entitlementActivateMock).not.toHaveBeenCalled();
+  });
+
+  it('unlocks through silent native reconciliation when the account already owns a current entitlement', async () => {
+    authResumeMock.mockResolvedValueOnce({ data: { ok: true, outcome: 'resumed', entitled: true } });
+    const onEntitled = vi.fn().mockResolvedValue(undefined);
+    render(<RegistrationGatePage status={trialExpiredStatus} onEntitled={onEntitled} />);
+
+    await waitFor(() => expect(onEntitled).toHaveBeenCalledTimes(1));
+    expect(refreshProfileMock).toHaveBeenCalledTimes(1);
+    expect(openExternalMock).not.toHaveBeenCalled();
+    expect(entitlementRegisterMock).not.toHaveBeenCalled();
+    expect(entitlementActivateMock).not.toHaveBeenCalled();
+  });
+
+  it('reconciles again on return-focus without opening another browser window', async () => {
+    authResumeMock
+      .mockResolvedValueOnce({ data: { ok: true, outcome: 'resumed', entitled: false } })
+      .mockResolvedValueOnce({ data: { ok: true, outcome: 'resumed', entitled: true } });
+    const onEntitled = vi.fn().mockResolvedValue(undefined);
+    render(<RegistrationGatePage status={trialExpiredStatus} onEntitled={onEntitled} />);
+
+    await waitFor(() => expect(authResumeMock).toHaveBeenCalledTimes(1));
+    window.dispatchEvent(new Event('focus'));
+
+    await waitFor(() => expect(onEntitled).toHaveBeenCalledTimes(1));
+    expect(authResumeMock).toHaveBeenCalledTimes(2);
+    expect(openExternalMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the curtain fail-closed when silent reconciliation fails', async () => {
+    authResumeMock.mockRejectedValueOnce(new Error('refresh unavailable'));
+    render(<RegistrationGatePage status={trialExpiredStatus} onEntitled={vi.fn()} />);
+
+    await waitFor(() => expect(authResumeMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('registration-gate-curtain')).toBeInTheDocument();
+    expect(openExternalMock).not.toHaveBeenCalled();
   });
 
   it('a PAID-license expiry (no trial_ends_at) falls through to the license step, not the curtain', () => {

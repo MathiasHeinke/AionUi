@@ -3,6 +3,7 @@
 const path = require('node:path');
 
 const SENTINEL = 'COMMAND_EVE_NODE_PTY_OK';
+const SMOKE_TIMEOUT_MS = 60_000;
 const packageRoot = process.argv[2];
 if (!packageRoot || !path.isAbsolute(packageRoot)) {
   process.stderr.write('node-pty package root must be absolute\n');
@@ -18,7 +19,7 @@ const timeout = setTimeout(() => {
   }
   process.stderr.write('node-pty smoke timed out\n');
   process.exit(3);
-}, 10_000);
+}, SMOKE_TIMEOUT_MS);
 
 try {
   const pty = require(packageRoot);

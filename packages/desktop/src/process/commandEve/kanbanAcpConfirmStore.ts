@@ -318,6 +318,7 @@ export interface KanbanProposeResponse {
   status: 'proposed' | 'rejected';
   intent_id?: string;
   summary?: string;
+  reused?: boolean;
   reject_code?: KanbanAcpRejectCode;
   message?: string;
 }
@@ -329,12 +330,22 @@ export function buildKanbanProposeResponse(
 ): KanbanProposeResponse {
   const v = validateKanbanProposal(payload, { visible: ctx.visible, boardSlug: ctx.boardSlug });
   if (v.ok) {
+    const live = peekKanbanIntentForSeat(ctx.seatId, ctx.now);
+    if (live && live.mutation_hash === v.mutation_hash && live.reason === (v.reason || '')) {
+      return {
+        ok: true,
+        status: 'proposed',
+        intent_id: live.intent_id,
+        summary: live.summary,
+        reused: true,
+      };
+    }
     const intent = createKanbanIntent(v, ctx.seatId, 'skill', {
       now: ctx.now,
       ttlMs: ctx.ttlMs,
       randomId: ctx.randomId,
     });
-    return { ok: true, status: 'proposed', intent_id: intent.intent_id, summary: v.summary };
+    return { ok: true, status: 'proposed', intent_id: intent.intent_id, summary: v.summary, reused: false };
   }
   return { ok: false, status: 'rejected', reject_code: v.reject_code, message: v.message };
 }

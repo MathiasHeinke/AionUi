@@ -53,7 +53,7 @@ export interface OpenPreviewOptions {
   replace?: boolean;
 }
 
-export type WorkbenchLayoutMode = 'focus' | 'split-right' | 'split-bottom';
+export type WorkbenchLayoutMode = 'focus' | 'split-left' | 'split-right' | 'split-bottom';
 
 export interface PreviewContextValue {
   // 预览面板状态 / Preview panel state
@@ -109,7 +109,7 @@ const PREVIEW_ACTIVE_TAB_ID_KEY = 'aionui_preview_active_tab_id';
 const LEGACY_PREVIEW_STATE_KEY = 'aionui_preview_state';
 const WORKBENCH_LAYOUT_MODE_KEY = 'aionui_eve_workbench_layout_mode_v1';
 
-const WORKBENCH_LAYOUT_MODES = new Set<WorkbenchLayoutMode>(['focus', 'split-right', 'split-bottom']);
+const WORKBENCH_LAYOUT_MODES = new Set<WorkbenchLayoutMode>(['focus', 'split-left', 'split-right', 'split-bottom']);
 
 const loadWorkbenchLayoutMode = (): WorkbenchLayoutMode => {
   try {

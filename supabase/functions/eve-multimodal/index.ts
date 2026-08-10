@@ -1899,12 +1899,19 @@ function hasExactVisionHeadings(
   );
 }
 
+function hasCompleteOpenRouterVisionStop(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const choices = Array.isArray(value.choices) ? value.choices : [];
+  const firstChoice = choices[0];
+  return isRecord(firstChoice) && firstChoice.finish_reason === "stop";
+}
+
 export function extractOpenRouterVisionMarkdown(
   value: unknown,
   expectedSlideNumbers: readonly number[],
   sourceKind: "presentation" | "image" = "presentation",
 ): string | null {
-  if (!isRecord(value)) return null;
+  if (!isRecord(value) || !hasCompleteOpenRouterVisionStop(value)) return null;
   const choices = Array.isArray(value.choices) ? value.choices : [];
   const firstChoice = choices[0];
   const message = isRecord(firstChoice) && isRecord(firstChoice.message)
@@ -2051,6 +2058,7 @@ export async function callOpenRouterVision(args: {
             ],
             provider: { zdr: true, data_collection: "deny" },
             temperature: 0,
+            reasoning: { effort: "minimal", exclude: true },
             max_tokens: args.maxOutputTokens,
             stream: false,
             usage: { include: true },
@@ -2095,6 +2103,22 @@ export async function callOpenRouterVision(args: {
         accumulatedCostUsd += attemptCost;
         sawProviderCost = true;
       }
+      if (!response.ok) {
+        return {
+          ok: false,
+          status: 502,
+          reason: "provider-error",
+          message: `OpenRouter vision returned HTTP ${response.status}.`,
+        };
+      }
+      if (!hasCompleteOpenRouterVisionStop(responseJson)) {
+        return {
+          ok: false,
+          status: 502,
+          reason: "provider-output-incomplete",
+          message: "OpenRouter vision returned an incomplete response.",
+        };
+      }
       const markdown = extractOpenRouterVisionMarkdown(
         responseJson,
         slideNumbers,
@@ -2109,14 +2133,6 @@ export async function callOpenRouterVision(args: {
           markdown,
           measuredUnits: slideNumbers.length,
           ...(sawProviderCost ? { costUsd: accumulatedCostUsd } : {}),
-        };
-      }
-      if (!response.ok) {
-        return {
-          ok: false,
-          status: 502,
-          reason: "provider-error",
-          message: `OpenRouter vision returned HTTP ${response.status}.`,
         };
       }
     }

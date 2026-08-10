@@ -108,6 +108,20 @@ function resolveAioncoreArtifactProvenance(projectRoot, runtimeKey) {
   throw new Error(`Unsupported AionCore artifact provenance for ${runtimeKey}`);
 }
 
+function verifyLocalAioncoreProvenance(projectRoot, runtimeKey, localSource) {
+  const provenance = resolveAioncoreArtifactProvenance(projectRoot, runtimeKey);
+  if (provenance.kind !== 'command-eve-source-build') return localSource;
+
+  if (provenance.commit !== localSource.sourceCommit || provenance.sha256 !== localSource.binarySha256) {
+    throw new Error(
+      `AionCore local source does not match package provenance for ${runtimeKey}: ` +
+        `expected ${provenance.commit}/${provenance.sha256}, got ${localSource.sourceCommit}/${localSource.binarySha256}`
+    );
+  }
+
+  return localSource;
+}
+
 function resolveExpectedAioncoreSha256(projectRoot, runtimeKey, explicitSha256) {
   const explicit = normalizeSha256(explicitSha256 || process.env.AIONUI_BACKEND_SHA256);
   if (explicit) return explicit;
@@ -336,6 +350,7 @@ function prepareAioncore(options) {
   } = options;
   const runtimeKey = `${platform}-${arch}`;
   const localSource = resolveLocalAioncoreSource(localBinaryPath, explicitSha256, sourceCommit);
+  if (localSource) verifyLocalAioncoreProvenance(projectRoot, runtimeKey, localSource);
   const expectedSha256 = localSource
     ? localSource.binarySha256
     : resolveExpectedAioncoreSha256(projectRoot, runtimeKey, explicitSha256);
@@ -477,4 +492,5 @@ module.exports = {
   sha256File,
   verifyAioncoreCliContract,
   verifyFileSha256,
+  verifyLocalAioncoreProvenance,
 };

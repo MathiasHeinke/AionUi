@@ -9,6 +9,7 @@ import ChatTitleEditor from '@/renderer/pages/conversation/components/ChatTitleE
 import ShellElementsRail from '@/renderer/components/layout/Titlebar/ShellElementsRail';
 import MobileWorkspaceOverlay from './MobileWorkspaceOverlay';
 import WorkspacePanelHeader, { DesktopWorkspaceToggle } from './WorkspacePanelHeader';
+import { beginVerticalSplitDrag } from './verticalSplitDrag';
 import { useContainerWidth } from '@/renderer/pages/conversation/hooks/useContainerWidth';
 import { useLayoutConstraints } from '@/renderer/pages/conversation/hooks/useLayoutConstraints';
 import { useTitleRename } from '@/renderer/pages/conversation/hooks/useTitleRename';
@@ -28,9 +29,12 @@ import { isMacEnvironment, isWindowsEnvironment } from '@/renderer/pages/convers
 import {
   DEFAULT_WORKSPACE_PANEL_PX,
   MAX_WORKSPACE_PANEL_PX,
+  MIN_CHAT_PANEL_PX,
+  MIN_PREVIEW_PANEL_PX,
   MIN_WORKSPACE_PANEL_PX,
   WORKSPACE_HEADER_HEIGHT,
   calcLayoutMetrics,
+  resolveAdaptiveWorkbenchLayout,
 } from '@/renderer/pages/conversation/utils/layoutCalc';
 import { Layout as ArcoLayout } from '@arco-design/web-react';
 import { ExpandLeft, ExpandRight } from '@icon-park/react';
@@ -162,9 +166,6 @@ const ChatLayout: React.FC<{
   const isWorkspaceWorkbenchSurface =
     isEveWorkbenchActive &&
     (activeTab?.content_type === 'workspace-files' || activeTab?.content_type === 'workspace-review');
-  const activeWorkbenchLayout = isEveWorkbenchActive ? workbenchLayoutMode : 'focus';
-  const showChatBesideWorkbench = isEveWorkbenchActive && activeWorkbenchLayout !== 'focus';
-
   // --- Hook C: title rename ---
   const { editingTitle, setEditingTitle, titleDraft, setTitleDraft, renameLoading, canRenameTitle, submitTitleRename } =
     useTitleRename({
@@ -197,43 +198,42 @@ const ChatLayout: React.FC<{
     storageKey: 'chat-workspace-width-px',
   });
 
+  const bottomDividerCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(
+    () => () => {
+      bottomDividerCleanupRef.current?.();
+      bottomDividerCleanupRef.current = null;
+    },
+    []
+  );
+
   const handleBottomDividerPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.pointerType !== 'touch' && event.button !== 0) return;
-      const container = event.currentTarget.parentElement;
+      const container = event.currentTarget.closest<HTMLElement>('.eve-workbench-layout');
       const containerHeight = container?.getBoundingClientRect().height || 0;
       if (!containerHeight) return;
 
       event.preventDefault();
-      const startY = event.clientY;
-      const startRatio = bottomPreviewRatio;
-      const previousCursor = document.body.style.cursor;
-      const previousUserSelect = document.body.style.userSelect;
-      document.body.style.cursor = 'row-resize';
-      document.body.style.userSelect = 'none';
-
-      const ratioAt = (clientY: number) =>
-        Math.max(36, Math.min(72, startRatio + ((clientY - startY) / containerHeight) * 100));
-
-      const onMove = (moveEvent: PointerEvent) => setBottomPreviewRatio(ratioAt(moveEvent.clientY));
-      const finish = (finishEvent?: PointerEvent) => {
-        const finalRatio = finishEvent ? ratioAt(finishEvent.clientY) : bottomPreviewRatio;
-        setBottomPreviewRatio(finalRatio);
-        try {
-          localStorage.setItem(BOTTOM_SPLIT_STORAGE_KEY, String(finalRatio));
-        } catch {
-          // The current split remains active even when persistence is unavailable.
-        }
-        document.body.style.cursor = previousCursor;
-        document.body.style.userSelect = previousUserSelect;
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', finish);
-        window.removeEventListener('pointercancel', finish);
-      };
-
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', finish);
-      window.addEventListener('pointercancel', finish);
+      bottomDividerCleanupRef.current?.();
+      bottomDividerCleanupRef.current = beginVerticalSplitDrag({
+        dragHandle: event.currentTarget,
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startRatio: bottomPreviewRatio,
+        containerHeight,
+        minRatio: 36,
+        maxRatio: 72,
+        onChange: setBottomPreviewRatio,
+        onCommit: (finalRatio) => {
+          try {
+            localStorage.setItem(BOTTOM_SPLIT_STORAGE_KEY, String(finalRatio));
+          } catch {
+            // The current split remains active even when persistence is unavailable.
+          }
+          bottomDividerCleanupRef.current = null;
+        },
+      });
     },
     [bottomPreviewRatio]
   );
@@ -246,7 +246,7 @@ const ChatLayout: React.FC<{
           ? 36
           : event.key === 'End'
             ? 72
-            : Math.max(36, Math.min(72, bottomPreviewRatio + (event.key === 'ArrowDown' ? 2 : -2)));
+            : Math.max(36, Math.min(72, bottomPreviewRatio + (event.key === 'ArrowUp' ? 2 : -2)));
       setBottomPreviewRatio(nextRatio);
       try {
         localStorage.setItem(BOTTOM_SPLIT_STORAGE_KEY, String(nextRatio));
@@ -257,6 +257,16 @@ const ChatLayout: React.FC<{
     [bottomPreviewRatio]
   );
   const effectiveWorkspaceWidthPx = elementsRailEnabled ? 308 : workspaceWidthPxPref;
+  const reservedWorkspaceWidthPx = desktopPanelEnabled && !rightSiderCollapsed ? effectiveWorkspaceWidthPx : 0;
+  const availableWorkbenchWidth = Math.max(0, containerWidth - reservedWorkspaceWidthPx);
+  const requestedWorkbenchLayout = isEveWorkbenchActive ? workbenchLayoutMode : 'focus';
+  const activeWorkbenchLayout = isEveWorkbenchActive
+    ? resolveAdaptiveWorkbenchLayout(requestedWorkbenchLayout, availableWorkbenchWidth)
+    : 'focus';
+  const showChatBesideWorkbench = isEveWorkbenchActive && activeWorkbenchLayout !== 'focus';
+  const hasHorizontalPreviewLayout =
+    isPreviewOpen &&
+    (!isEveWorkbenchActive || activeWorkbenchLayout === 'split-left' || activeWorkbenchLayout === 'split-right');
 
   // Pre-hook metrics: compute dynamic min/max for the chat-preview split hook
   const { dynamicChatMinRatio, dynamicChatMaxRatio } = calcLayoutMetrics({
@@ -265,7 +275,7 @@ const ChatLayout: React.FC<{
     chatSplitRatio: 60, // placeholder; only dynamicChatMinRatio/dynamicChatMaxRatio are used here
     workspaceEnabled: desktopPanelEnabled,
     isDesktop,
-    isPreviewOpen,
+    isPreviewOpen: hasHorizontalPreviewLayout,
     rightSiderCollapsed,
     isMobile,
   });
@@ -288,7 +298,7 @@ const ChatLayout: React.FC<{
     chatSplitRatio,
     workspaceEnabled: desktopPanelEnabled,
     isDesktop,
-    isPreviewOpen,
+    isPreviewOpen: hasHorizontalPreviewLayout,
     rightSiderCollapsed,
     isMobile,
   });
@@ -298,7 +308,7 @@ const ChatLayout: React.FC<{
     containerWidth,
     workspaceEnabled: desktopPanelEnabled,
     isDesktop,
-    isPreviewOpen,
+    isPreviewOpen: hasHorizontalPreviewLayout,
     rightSiderCollapsed,
     setRightSiderCollapsed,
     workspaceWidthPx: effectiveWorkspaceWidthPx,
@@ -357,17 +367,19 @@ const ChatLayout: React.FC<{
           }
         />
       </FlexFullContainer>
-      <div className='flex items-center gap-12px shrink-0'>
+      <div className='chat-layout-header__action-cluster'>
         {COMMAND_EVE_SHELL_ENABLED && conversation_id && !isPreviewOpen && (
-          <ShellWorkbenchTabs
-            conversationId={conversation_id}
-            workspacePath={workspacePath}
-            workspaceEventPrefix={workspaceEventPrefix}
-            isTemporaryWorkspace={isTemporaryWorkspace}
-            launcherOnly
-          />
+          <div className='chat-layout-header__workbench-action'>
+            <ShellWorkbenchTabs
+              conversationId={conversation_id}
+              workspacePath={workspacePath}
+              workspaceEventPrefix={workspaceEventPrefix}
+              isTemporaryWorkspace={isTemporaryWorkspace}
+              launcherOnly
+            />
+          </div>
         )}
-        {props.headerExtra}
+        {props.headerExtra && <div className='chat-layout-header__session-actions'>{props.headerExtra}</div>}
         {isWindowsRuntime && workspaceEnabled && !COMMAND_EVE_SHELL_ENABLED && (
           <button
             type='button'
@@ -392,7 +404,7 @@ const ChatLayout: React.FC<{
   const chatPaneDisplay =
     isPreviewOpen && (isMobile || (COMMAND_EVE_SHELL_ENABLED && !showChatBesideWorkbench)) ? 'none' : 'flex';
   const chatPaneFlexBasis = isEveWorkbenchActive
-    ? activeWorkbenchLayout === 'split-right'
+    ? activeWorkbenchLayout === 'split-right' || activeWorkbenchLayout === 'split-left'
       ? `${chatSplitRatio}%`
       : activeWorkbenchLayout === 'split-bottom'
         ? `${100 - bottomPreviewRatio}%`
@@ -406,9 +418,11 @@ const ChatLayout: React.FC<{
   return (
     <ArcoLayout
       className='size-full color-black chat-layout-shell'
-      style={{
-        // fontFamily: `cursive,"anthropicSans","anthropicSans Fallback",system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif`,
-      }}
+      style={
+        {
+          // fontFamily: `cursive,"anthropicSans","anthropicSans Fallback",system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif`,
+        }
+      }
     >
       <div ref={containerRef} className='flex flex-1 relative w-full overflow-hidden'>
         {/* Unified layout: single DOM structure prevents children unmount/remount on preview toggle */}
@@ -445,38 +459,14 @@ const ChatLayout: React.FC<{
                 flexShrink: 0,
                 flexBasis: chatPaneFlexBasis,
                 display: chatPaneDisplay,
-                minWidth: '240px',
-                order: isEveWorkbenchActive && activeWorkbenchLayout === 'split-bottom' ? 2 : 1,
+                minWidth:
+                  isEveWorkbenchActive && activeWorkbenchLayout !== 'split-bottom' ? `${MIN_CHAT_PANEL_PX}px` : '240px',
+                order: isEveWorkbenchActive && activeWorkbenchLayout === 'split-left' ? 2 : 1,
               }}
               onClick={() => {
                 if (window.innerWidth < 768 && !rightSiderCollapsed) setRightSiderCollapsed(true);
               }}
             >
-              {isEveWorkbenchActive && activeWorkbenchLayout === 'split-bottom' && (
-                <div
-                  className='eve-workbench-divider eve-workbench-divider--horizontal'
-                  role='separator'
-                  data-eve-interaction-role='resize-handle'
-                  aria-orientation='horizontal'
-                  aria-label={t('conversation.workbench.resizeSplit')}
-                  aria-valuemin={36}
-                  aria-valuemax={72}
-                  aria-valuenow={Math.round(bottomPreviewRatio)}
-                  tabIndex={0}
-                  onPointerDown={handleBottomDividerPointerDown}
-                  onKeyDown={handleBottomDividerKeyDown}
-                  onDoubleClick={() => {
-                    setBottomPreviewRatio(DEFAULT_BOTTOM_PREVIEW_RATIO);
-                    try {
-                      localStorage.setItem(BOTTOM_SPLIT_STORAGE_KEY, String(DEFAULT_BOTTOM_PREVIEW_RATIO));
-                    } catch {
-                      // The balanced default remains active for this session.
-                    }
-                  }}
-                >
-                  <span aria-hidden='true' />
-                </div>
-              )}
               {!layout?.isMobile && desktopHeader}
               <ArcoLayout.Content className='flex flex-col flex-1 overflow-hidden chat-layout-content'>
                 {props.children}
@@ -488,6 +478,9 @@ const ChatLayout: React.FC<{
                 className={classNames(
                   'preview-panel flex flex-col relative',
                   COMMAND_EVE_SHELL_ENABLED ? 'eve-workbench-pane' : 'overflow-visible rounded-[15px]',
+                  isEveWorkbenchActive &&
+                    activeWorkbenchLayout === 'split-bottom' &&
+                    'eve-workbench-pane--split-bottom',
                   !COMMAND_EVE_SHELL_ENABLED && (isDesktop ? 'mb-[12px] mr-[12px] ml-[8px]' : 'm-[8px]')
                 )}
                 style={{
@@ -496,11 +489,21 @@ const ChatLayout: React.FC<{
                   flexBasis: previewPaneFlexBasis,
                   display: isPreviewOpen ? 'flex' : 'none',
                   border: COMMAND_EVE_SHELL_ENABLED ? 'none' : '1px solid var(--bg-3)',
-                  minWidth: isDesktop ? '260px' : 0,
+                  minWidth: isDesktop
+                    ? isEveWorkbenchActive
+                      ? activeWorkbenchLayout !== 'split-bottom'
+                        ? `${MIN_PREVIEW_PANEL_PX}px`
+                        : 0
+                      : '260px'
+                    : 0,
                   maxWidth: isMobile && !COMMAND_EVE_SHELL_ENABLED ? 'calc(100% - 16px)' : undefined,
                   width: isMobile && !COMMAND_EVE_SHELL_ENABLED ? 'calc(100% - 16px)' : undefined,
                   boxSizing: 'border-box',
-                  order: isEveWorkbenchActive && activeWorkbenchLayout === 'split-right' ? 2 : 1,
+                  order:
+                    isEveWorkbenchActive &&
+                    (activeWorkbenchLayout === 'split-right' || activeWorkbenchLayout === 'split-bottom')
+                      ? 2
+                      : 1,
                 }}
               >
                 {isDesktop &&
@@ -513,15 +516,44 @@ const ChatLayout: React.FC<{
                     lineStyle: { width: '2px' },
                   })}
                 {isEveWorkbenchActive &&
-                  activeWorkbenchLayout === 'split-right' &&
+                  (activeWorkbenchLayout === 'split-right' || activeWorkbenchLayout === 'split-left') &&
                   createPreviewDragHandle({
-                    className: 'eve-workbench-divider eve-workbench-divider--split-right',
-                    style: { left: '-6px', width: '12px' },
-                    linePlacement: 'end',
+                    className: `eve-workbench-divider eve-workbench-divider--${activeWorkbenchLayout}`,
+                    style:
+                      activeWorkbenchLayout === 'split-left'
+                        ? { right: '-6px', width: '12px' }
+                        : { left: '-6px', width: '12px' },
+                    reverse: activeWorkbenchLayout === 'split-left',
+                    linePlacement: activeWorkbenchLayout === 'split-left' ? 'start' : 'end',
                     lineClassName: 'eve-workbench-divider__line',
                     lineStyle: { width: '1px' },
                     ariaLabel: t('conversation.workbench.resizeSplit'),
                   })}
+                {isEveWorkbenchActive && activeWorkbenchLayout === 'split-bottom' && (
+                  <div
+                    className='eve-workbench-divider eve-workbench-divider--horizontal'
+                    role='separator'
+                    data-eve-interaction-role='resize-handle'
+                    aria-orientation='horizontal'
+                    aria-label={t('conversation.workbench.resizeSplit')}
+                    aria-valuemin={36}
+                    aria-valuemax={72}
+                    aria-valuenow={Math.round(bottomPreviewRatio)}
+                    tabIndex={0}
+                    onPointerDown={handleBottomDividerPointerDown}
+                    onKeyDown={handleBottomDividerKeyDown}
+                    onDoubleClick={() => {
+                      setBottomPreviewRatio(DEFAULT_BOTTOM_PREVIEW_RATIO);
+                      try {
+                        localStorage.setItem(BOTTOM_SPLIT_STORAGE_KEY, String(DEFAULT_BOTTOM_PREVIEW_RATIO));
+                      } catch {
+                        // The balanced default remains active for this session.
+                      }
+                    }}
+                  >
+                    <span aria-hidden='true' />
+                  </div>
+                )}
                 {COMMAND_EVE_SHELL_ENABLED && conversation_id && (
                   <div className='eve-workbench-pane__tabbar'>
                     <ShellWorkbenchTabs
@@ -529,6 +561,7 @@ const ChatLayout: React.FC<{
                       workspacePath={workspacePath}
                       workspaceEventPrefix={workspaceEventPrefix}
                       isTemporaryWorkspace={isTemporaryWorkspace}
+                      effectiveLayoutMode={activeWorkbenchLayout}
                     />
                   </div>
                 )}

@@ -32,6 +32,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Empty, Input, Message, Modal, Select, Spin, Tag } from '@arco-design/web-react';
 import { bridge } from '@office-ai/platform';
+import { COMMAND_EVE_KANBAN_ACP_APPLIED_EVENT } from '@/common/config/kanbanAcpEvents';
 import { useActiveSeatId } from '@renderer/hooks/useActiveSeatId';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
 import { isElectronDesktop } from '@renderer/utils/platform';
@@ -734,6 +735,14 @@ const KanbanBoardPage: React.FC = () => {
   // (see default export), so a seat switch remounts us and re-fires this effect.
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const onGovernedAcpApplied = (): void => {
+      void refresh();
+    };
+    window.addEventListener(COMMAND_EVE_KANBAN_ACP_APPLIED_EVENT, onGovernedAcpApplied);
+    return () => window.removeEventListener(COMMAND_EVE_KANBAN_ACP_APPLIED_EVENT, onGovernedAcpApplied);
   }, [refresh]);
 
   const applyMutationBoard = useCallback(

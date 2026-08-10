@@ -16,6 +16,9 @@ describe('Command EVE workbench tab contract', () => {
     const preview = read(
       'packages/desktop/src/renderer/pages/conversation/Preview/components/PreviewPanel/PreviewPanel.tsx'
     );
+    const previewCss = read(
+      'packages/desktop/src/renderer/pages/conversation/Preview/components/PreviewPanel/preview.css'
+    );
 
     expect(titlebar).not.toContain('ShellWorkbenchTabs');
     expect(titlebar).not.toContain("'--eve-workbench-content-left'");
@@ -32,6 +35,9 @@ describe('Command EVE workbench tab contract', () => {
     expect(chatLayoutCss).toContain('.eve-workbench-pane__tabbar');
     expect(preview).toContain('!COMMAND_EVE_SHELL_ENABLED && (');
     expect(preview).toContain('<PreviewTabs');
+    expect(previewCss).toMatch(
+      /\.eve-workbench-preview-surface\s*\{[^}]*flex:\s*1 1 auto;[^}]*width:\s*100%;[^}]*max-width:\s*100%;/s
+    );
   });
 
   it('preserves file identity tabs in EVE while retaining upstream browse replacement', () => {
@@ -177,24 +183,58 @@ describe('Command EVE workbench tab contract', () => {
     const chatLayoutCss = read(
       'packages/desktop/src/renderer/pages/conversation/components/ChatLayout/chat-layout.css'
     );
+    const verticalSplit = read(
+      'packages/desktop/src/renderer/pages/conversation/components/ChatLayout/verticalSplitDrag.ts'
+    );
     const urlViewer = read('packages/desktop/src/renderer/pages/conversation/Preview/components/viewers/URLViewer.tsx');
     const webviewHost = read('packages/desktop/src/renderer/components/media/WebviewHost.tsx');
 
-    expect(context).toContain("export type WorkbenchLayoutMode = 'focus' | 'split-right' | 'split-bottom'");
+    expect(context).toContain(
+      "export type WorkbenchLayoutMode = 'focus' | 'split-left' | 'split-right' | 'split-bottom'"
+    );
     expect(context).toContain("if (stored === 'sidecar') return 'split-right'");
-    expect(workbench).toContain("setWorkbenchLayoutMode('split-right')");
+    expect(workbench).not.toContain("setWorkbenchLayoutMode('split-right')");
     expect(workbench).not.toContain('conversation.workbench.chat');
     expect(workbench).not.toContain("target: 'page-chat'");
     expect(workbench).not.toContain("const orderedIds = ['chat'");
+    expect(layoutControls).toContain("mode: 'split-left' as const");
     expect(layoutControls).toContain("mode: 'split-right' as const");
     expect(layoutControls).toContain("mode: 'split-bottom' as const");
     expect(layoutControls).not.toContain("mode: 'sidecar' as const");
-    expect(workbench).toContain('isOpen && visibleActiveTab && <WorkbenchLayoutControls />');
+    expect(workbench).toContain('<WorkbenchLayoutControls effectiveMode={effectiveLayoutMode} />');
     expect(urlViewer).not.toContain('WorkbenchLayoutControls');
     expect(urlViewer).not.toContain('toolbarActions=');
     expect(webviewHost).toContain("{toolbarActions && <div className='aion-url-viewer-toolbar-actions'>");
     expect(webviewHost).toContain('aria-label={');
     expect(webviewHost).toContain("t('conversation.workbench.addressPlaceholder')");
+    expect(webviewHost).toContain("className='toolbar-form'");
+    expect(webviewHost).toContain('.aion-url-viewer-toolbar .toolbar-form');
+    expect(webviewHost).toContain('align-self: stretch;');
+    expect(webviewHost).toContain('max-width: none;');
+    expect(webviewHost).toContain("style={{ display: 'flex', alignItems: 'center', width: '100%', minWidth: 0 }}");
+    expect(webviewHost).toContain(
+      "style={{ display: 'flex', flex: '1 1 auto', width: 'auto', minWidth: 0, maxWidth: 'none' }}"
+    );
+    expect(webviewHost).toContain(
+      "style={{ display: 'block', flex: '1 1 auto', width: '100%', minWidth: 0, maxWidth: 'none' }}"
+    );
+    expect(workbench).toContain("data-testid='eve-workbench-dock-overlay'");
+    expect(workbench).toContain('onMouseDown={(event) => beginTabDock(event, tab.id)}');
+    expect(workbench).not.toContain('onPointerDown={(event) => beginTabDock(event, tab.id)}');
+    expect(workbench).not.toContain('application/x-command-eve-workbench-tab');
+    expect(workbench).not.toContain('draggable=');
+    const workbenchCss = read(
+      'packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.module.css'
+    );
+    expect(workbenchCss).toMatch(
+      /\.root\[data-launcher-only='true'\]\s*\{[^}]*container-type:\s*normal;[^}]*flex:\s*0 0 32px;[^}]*width:\s*32px;/s
+    );
+    expect(workbench).toContain('<LeftBar');
+    expect(workbench).toContain('<RightBar');
+    expect(workbench).toContain('<BottomBar');
+    expect(layoutControls).toContain('<LeftBar');
+    expect(layoutControls).toContain('<RightBar');
+    expect(layoutControls).toContain('<BottomBar');
     expect(chatLayout).toContain('data-eve-workbench-layout');
     expect(chatLayout.match(/\{props\.children\}/g)).toHaveLength(1);
     expect(chatLayout).toContain('{!layout?.isMobile && desktopHeader}');
@@ -203,6 +243,13 @@ describe('Command EVE workbench tab contract', () => {
     expect(chatLayout).not.toContain('setWorkbenchSidecarPinned');
     expect(chatLayoutCss).not.toContain('.eve-chat-pane--sidecar-pinned');
     expect(chatLayoutCss).toContain('.eve-workbench-layout--split-bottom');
+    expect(chatLayout).toContain('resolveAdaptiveWorkbenchLayout');
+    expect(chatLayout).toContain('beginVerticalSplitDrag');
+    expect(chatLayout).toContain('bottomDividerCleanupRef.current?.()');
+    expect(verticalSplit).toContain("window.addEventListener('blur', finish)");
+    expect(verticalSplit).toContain("dragHandle.addEventListener('lostpointercapture', finish)");
+    expect(chatLayout).toContain('effectiveLayoutMode={activeWorkbenchLayout}');
+    expect(chatLayout).toContain(": '260px'");
   });
 
   it('keeps workbench chrome and the inspector on one continuous canvas', () => {
@@ -214,12 +261,39 @@ describe('Command EVE workbench tab contract', () => {
       'packages/desktop/src/renderer/components/layout/Titlebar/ShellElementsRail.module.css'
     );
 
-    expect(layoutControlsCss).not.toContain('box-shadow: inset 0 0 0 1px');
+    expect(layoutControlsCss).not.toMatch(/\.button\[data-active='true'\]\s*\{[^}]*--eve-focus-ring/);
     expect(elementsRailCss).not.toMatch(/\.rail\s*\{[^}]*border-left:/s);
     expect(elementsRailCss).toMatch(/\.activityCard,\s*\n\.contextCard,\s*\n\.metaBlock\s*\{[^}]*border:\s*0;/s);
     expect(elementsRailCss).toMatch(/\.artifactButton,[\s\S]*?background:\s*transparent !important;/);
     expect(workbenchCss).toContain('@container eve-workbench-tabs (max-width: 620px)');
     expect(workbenchCss).toContain(".tabShell:not([data-selected='true']) .tabLabel");
+    expect(workbenchCss).toContain('.tabButton > :global(.i-icon)');
+    expect(workbenchCss).not.toMatch(/\.tabShell\[data-selected='true'\][\s\S]*?inset 0 -2px/);
+  });
+
+  it('keeps the narrow chat useful and aligns sidebar labels on one text axis', () => {
+    const layoutCalc = read('packages/desktop/src/renderer/pages/conversation/utils/layoutCalc.ts');
+    const chatLayout = read('packages/desktop/src/renderer/pages/conversation/components/ChatLayout/index.tsx');
+    const groupedHistory = read('packages/desktop/src/renderer/pages/conversation/GroupedHistory/index.tsx');
+    const projectsEntry = read('packages/desktop/src/renderer/components/layout/Sider/SiderNav/SiderProjectsEntry.tsx');
+    const workbench = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.tsx');
+
+    expect(layoutCalc).toContain('export const MIN_CHAT_PANEL_PX = 340;');
+    expect(layoutCalc).toContain('const shouldConstrainChatPreview = workspaceEnabled && isDesktop && isPreviewOpen;');
+    expect(layoutCalc).toContain(
+      'export const MIN_HORIZONTAL_WORKBENCH_PX = MIN_CHAT_PANEL_PX + MIN_PREVIEW_PANEL_PX;'
+    );
+    expect(layoutCalc).toContain('export const resolveAdaptiveWorkbenchLayout =');
+    expect(chatLayout).toContain('`${MIN_CHAT_PANEL_PX}px`');
+    expect(groupedHistory).toContain('pl-10px pr-8px gap-8px');
+    expect(groupedHistory).toContain('size-22px flex items-center justify-center text-t-tertiary shrink-0');
+    expect(projectsEntry).toContain('size-22px flex items-center justify-center shrink-0 line-height-0');
+    expect(projectsEntry).toContain("type='text'");
+    expect(projectsEntry).toContain('!rd-8px');
+    expect(workbench).toContain('<Earth');
+    expect(workbench).toContain('<ListCheckbox');
+    expect(workbench).not.toContain('<Browser');
+    expect(workbench).not.toContain('<ViewGridCard');
   });
 
   it('prevents an unrelated scheduled-task hover card from appearing after chat maximization', () => {

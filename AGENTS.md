@@ -53,6 +53,18 @@ See the `i18n` skill (`.claude/skills/i18n/SKILL.md`) for complete workflow, key
 
 ## Architecture
 
+### Command EVE Native-First Rule
+
+For Command EVE work, inspect the bundled Hermes release notes, documentation
+and exact source version, then existing AionUI/AionCore and maintained
+community solutions before writing custom code. Repair the smallest responsible
+boundary; do not rebuild native Hermes capabilities, duplicate validation across
+layers, or create parallel state/agent paths for a local wiring bug. Keep each
+responsibility easy to locate, document version-bound shims and their deletion
+condition, and prove the real bundled path rather than a substitute harness.
+The extended operating doctrine is maintained in the Company.OS workspace at
+`docs/operations/command-eve-native-first-build-doctrine.md`.
+
 Two process types — never mix their APIs:
 
 | Process  | Path                             | Restriction     |

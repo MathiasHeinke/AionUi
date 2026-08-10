@@ -40,7 +40,10 @@ const CapturePreviewApi = () => {
   return null;
 };
 
-const renderWorkbench = (props: Partial<React.ComponentProps<typeof ShellWorkbenchTabs>> = {}) =>
+const renderWorkbench = (
+  props: Partial<React.ComponentProps<typeof ShellWorkbenchTabs>> = {},
+  container?: HTMLElement
+) =>
   render(
     <MemoryRouter initialEntries={['/conversation/conv-1']}>
       <LayoutContext.Provider
@@ -51,7 +54,8 @@ const renderWorkbench = (props: Partial<React.ComponentProps<typeof ShellWorkben
           <ShellWorkbenchTabs conversationId='conv-1' workspacePath='/tmp/eve-project' {...props} />
         </PreviewProvider>
       </LayoutContext.Provider>
-    </MemoryRouter>
+    </MemoryRouter>,
+    container ? { container } : undefined
   );
 
 const renderLauncher = () =>
@@ -64,12 +68,12 @@ const renderLauncher = () =>
     </MemoryRouter>
   );
 
-const renderLayoutControls = () =>
+const renderLayoutControls = (effectiveMode?: React.ComponentProps<typeof WorkbenchLayoutControls>['effectiveMode']) =>
   render(
     <MemoryRouter initialEntries={['/conversation/conv-1']}>
       <PreviewProvider>
         <CapturePreviewApi />
-        <WorkbenchLayoutControls />
+        <WorkbenchLayoutControls effectiveMode={effectiveMode} />
       </PreviewProvider>
     </MemoryRouter>
   );
@@ -101,8 +105,13 @@ describe('ShellWorkbenchTabs', () => {
     expect(previewApi?.workbenchLayoutMode).toBe('split-right');
   });
 
-  it('switches between the three real workbench layouts and persists the choice', () => {
+  it('switches between the four real workbench layouts and persists the choice', () => {
     renderLayoutControls();
+
+    const splitLeft = screen.getByRole('button', { name: 'conversation.workbench.splitLeft' });
+    fireEvent.click(splitLeft);
+    expect(previewApi?.workbenchLayoutMode).toBe('split-left');
+    expect(splitLeft).toHaveAttribute('aria-pressed', 'true');
 
     const splitRight = screen.getByRole('button', { name: 'conversation.workbench.splitRight' });
     fireEvent.click(splitRight);
@@ -116,6 +125,174 @@ describe('ShellWorkbenchTabs', () => {
     fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.focus' }));
     expect(previewApi?.workbenchLayoutMode).toBe('focus');
     expect(screen.queryByRole('button', { name: 'conversation.workbench.sidecar' })).not.toBeInTheDocument();
+  });
+
+  it('preserves the chosen left or bottom layout when the user switches tools', () => {
+    renderWorkbench();
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.browser' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.splitLeft' }));
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.terminal' }));
+    expect(previewApi?.workbenchLayoutMode).toBe('split-left');
+
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.splitBottom' }));
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'kanban.title' }));
+    expect(previewApi?.workbenchLayoutMode).toBe('split-bottom');
+  });
+
+  it('shows a transient narrow-width bottom fallback without overwriting the preferred side', () => {
+    localStorage.setItem('aionui_eve_workbench_layout_mode_v1', 'split-left');
+    renderLayoutControls('split-bottom');
+
+    expect(previewApi?.workbenchLayoutMode).toBe('split-left');
+    expect(localStorage.getItem('aionui_eve_workbench_layout_mode_v1')).toBe('split-left');
+    expect(screen.getByRole('button', { name: 'conversation.workbench.splitLeft' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+    expect(screen.getByRole('button', { name: 'conversation.workbench.splitBottom' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+  });
+
+  it('docks a mouse-dragged existing tab through the visible left/right/bottom targets', () => {
+    const layout = document.createElement('div');
+    layout.dataset.eveWorkbenchLayout = 'split-right';
+    layout.getBoundingClientRect = () =>
+      ({ top: 40, left: 100, width: 900, height: 640, right: 1000, bottom: 680, x: 100, y: 40 }) as DOMRect;
+    document.body.append(layout);
+    renderWorkbench({}, layout);
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.browser' }));
+
+    const points = {
+      'split-left': { clientX: 280, clientY: 220 },
+      'split-right': { clientX: 820, clientY: 220 },
+      'split-bottom': { clientX: 550, clientY: 560 },
+    } as const;
+
+    for (const target of ['split-left', 'split-right', 'split-bottom'] as const) {
+      const tab = screen.getByRole('tab', { name: 'Browser' });
+      fireEvent.mouseDown(tab, {
+        button: 0,
+        clientX: 520,
+        clientY: 62,
+      });
+      fireEvent.mouseMove(window, {
+        buttons: 1,
+        ...points[target],
+      });
+      expect(screen.getByTestId('eve-workbench-dock-overlay')).toBeInTheDocument();
+      expect(screen.getByTestId(`eve-workbench-dock-${target}`)).toHaveAttribute('data-active', 'true');
+      fireEvent.mouseUp(window, {
+        button: 0,
+        ...points[target],
+      });
+      expect(previewApi?.workbenchLayoutMode).toBe(target);
+      expect(screen.queryByTestId('eve-workbench-dock-overlay')).not.toBeInTheDocument();
+    }
+    layout.remove();
+  });
+
+  it('keeps clicks and out-of-bounds pointer releases from changing the chosen layout', () => {
+    const layout = document.createElement('div');
+    layout.dataset.eveWorkbenchLayout = 'split-right';
+    layout.getBoundingClientRect = () =>
+      ({ top: 40, left: 100, width: 900, height: 640, right: 1000, bottom: 680, x: 100, y: 40 }) as DOMRect;
+    document.body.append(layout);
+    renderWorkbench({}, layout);
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.browser' }));
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.splitBottom' }));
+
+    const tab = screen.getByRole('tab', { name: 'Browser' });
+    fireEvent.mouseDown(tab, {
+      button: 0,
+      clientX: 520,
+      clientY: 62,
+    });
+    fireEvent.mouseMove(window, {
+      buttons: 1,
+      clientX: 523,
+      clientY: 65,
+    });
+    expect(screen.queryByTestId('eve-workbench-dock-overlay')).not.toBeInTheDocument();
+    fireEvent.mouseUp(window, {
+      button: 0,
+      clientX: 523,
+      clientY: 65,
+    });
+    expect(previewApi?.workbenchLayoutMode).toBe('split-bottom');
+
+    fireEvent.mouseDown(tab, {
+      button: 0,
+      clientX: 520,
+      clientY: 62,
+    });
+    fireEvent.mouseMove(window, {
+      buttons: 1,
+      clientX: 40,
+      clientY: 20,
+    });
+    expect(screen.getByTestId('eve-workbench-dock-overlay')).toBeInTheDocument();
+    expect(
+      screen.getAllByTestId(/^eve-workbench-dock-split-/).every((zone) => zone.dataset.active === 'false'),
+    ).toBe(true);
+    fireEvent.mouseUp(window, {
+      button: 0,
+      clientX: 40,
+      clientY: 20,
+    });
+    expect(previewApi?.workbenchLayoutMode).toBe('split-bottom');
+    expect(screen.queryByTestId('eve-workbench-dock-overlay')).not.toBeInTheDocument();
+    layout.remove();
+  });
+
+  it('cleans body drag styles on blur and unmount', () => {
+    const layout = document.createElement('div');
+    layout.dataset.eveWorkbenchLayout = 'split-right';
+    layout.getBoundingClientRect = () =>
+      ({ top: 40, left: 100, width: 900, height: 640, right: 1000, bottom: 680, x: 100, y: 40 }) as DOMRect;
+    document.body.append(layout);
+    const rendered = renderWorkbench({}, layout);
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.workbench.openLauncher' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'conversation.workbench.browser' }));
+    const tab = screen.getByRole('tab', { name: 'Browser' });
+
+    fireEvent.mouseDown(tab, {
+      button: 0,
+      clientX: 520,
+      clientY: 62,
+    });
+    fireEvent.mouseMove(window, {
+      buttons: 1,
+      clientX: 280,
+      clientY: 220,
+    });
+    expect(document.body.style.cursor).toBe('grabbing');
+    expect(document.body.style.userSelect).toBe('none');
+    fireEvent.blur(window);
+    expect(document.body.style.cursor).toBe('');
+    expect(document.body.style.userSelect).toBe('');
+
+    fireEvent.mouseDown(tab, {
+      button: 0,
+      clientX: 520,
+      clientY: 62,
+    });
+    fireEvent.mouseMove(window, {
+      buttons: 1,
+      clientX: 820,
+      clientY: 220,
+    });
+    rendered.unmount();
+    expect(document.body.style.cursor).toBe('');
+    expect(document.body.style.userSelect).toBe('');
+    layout.remove();
   });
 
   it('returns to the canonical Chat without closing or recreating work surfaces', () => {

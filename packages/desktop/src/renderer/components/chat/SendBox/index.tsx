@@ -1553,6 +1553,7 @@ const SendBox: React.FC<{
             transition: 'box-shadow 0.25s ease, border-color 0.25s ease',
           }}
           onClick={focusComposerInput}
+          data-eve-interaction-role='focus-surface'
           {...composerSpotlightHandlers}
         >
           <BtwOverlay

@@ -316,10 +316,8 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
     [authEmail, authPassword, notifyEntitled, resolveAuthError, t]
   );
 
-  // Opening the web checkout is a deliberate, low-risk action — it never touches
-  // local data. Setup (memory, connections, SOPs) is preserved by definition:
-  // the curtain does no reset/wipe, and the structural gate keeps the existing
-  // local entitlement/registration records untouched on disk.
+  // Opening checkout never mutates local state; the silent reconciliation below
+  // detects a newly purchased entitlement when the operator returns to the app.
   const [curtainOpening, setCurtainOpening] = useState(false);
   const handleContinueToCheckout = useCallback(async () => {
     setCurtainOpening(true);
@@ -331,6 +329,42 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
       setCurtainOpening(false);
     }
   }, []);
+
+  // The startup resume already owns the native account/entitlement logic. The
+  // curtain only needs a bounded trigger after the web-account tab returns. Keep
+  // it local to this screen, single-flight, and fail-closed: a failed or pending
+  // resume leaves the curtain in place and opens no extra browser window.
+  const curtainResumeInFlightRef = React.useRef<Promise<void> | null>(null);
+  const resumeCurtainEntitlement = useCallback(async () => {
+    if (!trialExpired) return;
+    const existing = curtainResumeInFlightRef.current;
+    if (existing) return existing;
+
+    const task = (async () => {
+      try {
+        const response = await commandEve.authResume.invoke();
+        if (response.data?.ok && response.data.entitled) await notifyEntitled();
+      } catch (error) {
+        console.error('Silent account entitlement reconciliation failed:', error);
+      }
+    })();
+    curtainResumeInFlightRef.current = task;
+    try {
+      await task;
+    } finally {
+      if (curtainResumeInFlightRef.current === task) curtainResumeInFlightRef.current = null;
+    }
+  }, [notifyEntitled, trialExpired]);
+
+  useEffect(() => {
+    if (!trialExpired) return;
+    const reconcile = (): void => {
+      void resumeCurtainEntitlement();
+    };
+    reconcile();
+    window.addEventListener('focus', reconcile);
+    return () => window.removeEventListener('focus', reconcile);
+  }, [resumeCurtainEntitlement, trialExpired]);
 
   // Registration form state.
   const [name, setName] = useState('');

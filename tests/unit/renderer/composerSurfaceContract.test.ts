@@ -59,6 +59,9 @@ describe('EVE composer surface contract', () => {
     expect(sendBoxCss).toMatch(/@container eve-composer \(max-width: 400px\)/);
     expect(sendBoxCss).toMatch(/\.sendbox-composer-action-row > \.sendbox-actions[\s\S]*?gap:\s*4px !important/);
     expect(sendBoxCss).toMatch(
+      /@container eve-composer \(max-width: 340px\)[\s\S]*?\.sendbox-composer-action-row[\s\S]*?flex-wrap:\s*nowrap !important/
+    );
+    expect(sendBoxCss).not.toMatch(
       /@container eve-composer \(max-width: 340px\)[\s\S]*?\.sendbox-composer-action-row[\s\S]*?grid-template-rows:\s*auto auto/
     );
     expect(sendBoxSource).toContain("data-testid='chat-file-drop-overlay'");

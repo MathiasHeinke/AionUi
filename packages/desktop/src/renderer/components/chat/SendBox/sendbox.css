@@ -383,28 +383,34 @@
   }
 }
 
-/* The split handle deliberately allows a 240px chat pane. Before controls
- * begin to feel compressed, the tool clusters become two calm rows rather
- * than shrinking or overlapping: context/attachment first, execution second. */
+/* The workbench now keeps the chat pane at a useful minimum width. At the
+ * narrow edge the controls become denser, but they remain one predictable
+ * row; a composer must not change its reading order merely because a browser
+ * is open beside it. */
 @container eve-composer (max-width: 340px) {
+  .sendbox-panel.eve-composer-surface {
+    --eve-control-height: 30px;
+    padding: 10px !important;
+  }
+
   .sendbox-composer-action-row {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto;
-    row-gap: 4px !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center;
+    gap: 4px !important;
   }
 
   .sendbox-composer-action-row > .sendbox-tools {
-    width: 100%;
-    grid-column: 1;
-    grid-row: 1;
-    justify-self: stretch;
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .sendbox-composer-action-row > .sendbox-actions {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: end;
+    flex: 0 0 auto;
+    gap: 2px !important;
+    margin-left: auto;
   }
 }
 
