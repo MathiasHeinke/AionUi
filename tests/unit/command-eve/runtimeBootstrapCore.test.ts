@@ -2297,7 +2297,7 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(commands.some((command) => command === '/usr/bin/python3 --version')).toBe(false);
   });
 
-  it('blocks before installing anything when capacity is too small', async () => {
+  it('DISK-CONSTRAINED: provisions Hermes cloud-only and skips the local model', async () => {
     const harness = makeHarness({ ollamaInitiallyInstalled: true });
     const receipt = await ensureCommandEveRuntimeBootstrap({
       userDataPath: harness.root,
@@ -2307,9 +2307,20 @@ describe('Command EVE runtime bootstrap core', () => {
       totalMemoryBytes: 32 * 1024 ** 3,
     });
 
-    expect(receipt.status).toBe('blocked');
-    expect(receipt.stages.some((stage) => stage.code === 'BLOCKED_DISK')).toBe(true);
-    expect(harness.commands.length).toBe(0);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+    const byId = Object.fromEntries(receipt.stages.map((stage) => [stage.id, stage]));
+
+    expect(receipt.status).toBe('ready');
+    expect(fs.existsSync(path.join(paths.hermesHome, 'config.yaml'))).toBe(true);
+    expect(fs.existsSync(paths.hermesShim)).toBe(true);
+    expect(byId.capacity?.status).toBe('skip');
+    expect(byId.capacity?.code).toBe('BLOCKED_DISK');
+    expect(byId.ollama?.status).toBe('skip');
+    expect(byId.ollama?.code).toBe('BLOCKED_DISK');
+    expect(byId.model?.status).toBe('skip');
+    expect(byId.model?.code).toBe('BLOCKED_DISK');
+    expect(harness.commands.length).toBeGreaterThan(0);
+    expect(runtimeReceiptAllowsLocalModelWarmup(receipt)).toBe(false);
   });
 
   it('seeds the macOS display name as unverified first-run context before heavy installs', async () => {
@@ -2327,14 +2338,17 @@ describe('Command EVE runtime bootstrap core', () => {
     const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
     const profile = JSON.parse(fs.readFileSync(paths.firstRunProfile, 'utf8')) as { founder_name: string };
 
-    expect(receipt.status).toBe('blocked');
+    expect(receipt.status).toBe('ready');
     expect(receipt.identity?.founder_name).toBe('Mathias Heinke');
     expect(receipt.identity?.source).toBe('macos_full_name');
     expect(receipt.identity?.confidence).toBe('needs_confirmation');
     expect(receipt.identity?.needs_confirmation).toBe(true);
     expect(profile.founder_name).toBe('Mathias Heinke');
     expect(receipt.stages.find((stage) => stage.id === 'identity')?.status).toBe('pass');
-    expect(harness.commands.length).toBe(0);
+    expect(receipt.stages.find((stage) => stage.id === 'model')).toMatchObject({
+      status: 'skip',
+      code: 'BLOCKED_DISK',
+    });
   });
 
   it('seeds EVE first-run from the gate-confirmed registration so it greets by name (COMPA-596)', async () => {
@@ -2502,7 +2516,12 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(receipt.identity?.confidence).toBe('placeholder');
     expect(receipt.identity?.needs_confirmation).toBe(true);
     expect(receipt.stages.find((stage) => stage.id === 'identity')?.status).toBe('skip');
-    expect(harness.commands.length).toBe(0);
+    expect(receipt.status).toBe('ready');
+    expect(receipt.stages.find((stage) => stage.id === 'model')).toMatchObject({
+      status: 'skip',
+      code: 'BLOCKED_DISK',
+    });
+    expect(harness.commands.length).toBeGreaterThan(0);
   });
 
   it('fails closed when the manifest tries to route local runtime to a non-loopback URL', async () => {

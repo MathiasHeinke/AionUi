@@ -8354,23 +8354,10 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   const freeGb = freeDiskGb(paths.runtimeRoot, options.statfs);
   const totalMemoryBytes = options.totalMemoryBytes ?? os.totalmem();
   const totalMemoryGb = roundGb(totalMemoryBytes);
-  if (freeGb < tier.min_free_disk_gb) {
-    pushStage(
-      makeStage('capacity', 'blocked', {
-        code: 'BLOCKED_DISK',
-        detail: `Need ${tier.min_free_disk_gb}GB free disk for ${tier.label}; found ${freeGb}GB.`,
-      })
-    );
-    return finishReceipt();
-  }
-  // The RAM floor gates ONLY the LOCAL MODEL (Ollama/Gemma), NOT the whole runtime.
-  // EVE runs through the Hermes agent on the CLOUD lane regardless of local memory,
-  // and that lane needs config.yaml/SOUL.md/venv written BELOW (writeHermesRuntimeFiles).
-  // A hard early-return here meant an 8GB Air was told "cloud runs immediately" while
-  // EVE was actually UNPROVISIONED (perf audit, Opus+Codex CRITICAL). So on a low-RAM
-  // machine we DOWNGRADE to cloud-only — mark the local model blocked (skip the Ollama +
-  // model stages later) and CONTINUE the bootstrap. 16GB+ machines are unaffected
-  // (localModelSkip stays null → byte-identical to before).
+  // The capacity floors belong to the LOCAL MODEL, not to Hermes itself.
+  // A cloud-capable EVE must still get its venv, config and CLI shim when this
+  // Mac cannot spare the model's disk or memory budget. The later Ollama/model
+  // stages consume this marker and finish as explicit skips.
   let localModelSkip: { code: string; detail: string } | null =
     runtimeProfile === 'cloud_turn_holder_only'
       ? {
@@ -8378,7 +8365,20 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           detail: 'Phase A runtime profile: Hermes and managed cloud chat enabled; Ollama and local models disabled.',
         }
       : null;
-  if (totalMemoryGb < tier.min_unified_memory_gb) {
+  if (freeGb < tier.min_free_disk_gb) {
+    localModelSkip ??= {
+      code: 'BLOCKED_DISK',
+      detail: 'Local model skipped (insufficient free disk for the local tier); EVE runs on the cloud lane.',
+    };
+    pushStage(
+      makeStage('capacity', 'skip', {
+        code: 'BLOCKED_DISK',
+        detail: `Local model needs ${tier.min_free_disk_gb}GB free disk (${tier.label}); found ${freeGb}GB — running CLOUD-ONLY, local model skipped.`,
+      })
+    );
+  } else if (totalMemoryGb < tier.min_unified_memory_gb) {
+    // The RAM floor likewise gates only Ollama/Gemma. Continuing here writes
+    // the same cloud runtime files as the disk-constrained branch above.
     localModelSkip ??= {
       code: 'BLOCKED_RAM',
       detail: 'Local model skipped (insufficient RAM for the local tier); EVE runs on the cloud lane.',
