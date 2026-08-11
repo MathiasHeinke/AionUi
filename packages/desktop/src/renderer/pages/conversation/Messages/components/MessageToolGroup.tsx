@@ -550,6 +550,7 @@ const MessageToolGroup: React.FC<IMessageToolGroupProps> = ({ message }) => {
           const generatedArtifact = buildGeneratedArtifactFromToolResult({
             conversation_id: message.conversation_id,
             call_id,
+            source_message_id: message.msg_id || message.id,
             created_at: message.created_at,
             name,
             description,

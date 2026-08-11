@@ -37,6 +37,8 @@ import {
   type CommandEveVideoConversationArtifact,
 } from '@/common/config/videoGenerationRequestCore';
 import type { ArtifactCapabilityGrant } from '@/common/config/eveArtifactCapabilityHandleCore';
+import { TYPED_UI_MIME_TYPE } from '@/common/typedUI';
+import { typedUIFixture } from './typed-ui/fixtures';
 
 let tmpRoot: string;
 
@@ -108,6 +110,35 @@ describe('the loopback bearer', () => {
 });
 
 describe('the read half works', () => {
+  it('publishes only a schema/catalog-valid declarative Typed UI envelope', async () => {
+    const envelope = typedUIFixture();
+    const result = await artifactCapabilityCallHandler({ operation: 'typed_ui_publish', envelope }, deps());
+    expect(result.status).toBe(200);
+    expect(result.payload).toMatchObject({
+      ok: true,
+      artifact_type: 'file',
+      mime_type: TYPED_UI_MIME_TYPE,
+      content: JSON.stringify(envelope),
+    });
+
+    const executable = structuredClone(envelope) as unknown as Record<string, unknown>;
+    executable.javascript = 'alert(1)';
+    const refused = await artifactCapabilityCallHandler(
+      { operation: 'typed_ui_publish', envelope: executable },
+      deps()
+    );
+    expect(refused).toMatchObject({ status: 400, payload: { ok: false, reason: 'typed-ui-envelope-invalid' } });
+
+    const oversized = typedUIFixture();
+    oversized.state.payload = 'x'.repeat(512 * 1024);
+    await expect(
+      artifactCapabilityCallHandler({ operation: 'typed_ui_publish', envelope: oversized }, deps())
+    ).resolves.toMatchObject({
+      status: 400,
+      payload: { ok: false, reason: 'typed-ui-envelope-invalid' },
+    });
+  });
+
   it('answers artifact_get for a handle it minted', async () => {
     const result = await artifactCapabilityCallHandler({ operation: 'artifact_get', handle: HANDLE }, deps());
     expect(result.status).toBe(200);

@@ -6,7 +6,12 @@
 
 import { ipcBridge } from '@/common';
 import type { IFileMetadata, IGeneratedArtifactType, IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
-import { TYPED_UI_MIME_TYPE, TYPED_UI_SCHEMA_VERSION } from '@/common/typedUI';
+import {
+  bindTypedUIEnvelopeToArtifact,
+  TYPED_UI_MIME_TYPE,
+  TYPED_UI_SCHEMA_VERSION,
+  validateTypedUIEnvelope,
+} from '@/common/typedUI';
 import MarkdownView from '@/renderer/components/Markdown';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
@@ -87,6 +92,28 @@ function readTypedUIContent(payload: Record<string, unknown>): string | undefine
     }
   }
   return undefined;
+}
+
+function bindTypedUIContentToArtifact(
+  content: string | undefined,
+  artifact: IGeneratedConversationArtifact,
+  sourceMessageId: string | undefined
+): string | undefined {
+  if (!content || !sourceMessageId) return undefined;
+  try {
+    const raw = validateTypedUIEnvelope(JSON.parse(content) as unknown);
+    if (!raw.ok) return undefined;
+    const bound = bindTypedUIEnvelopeToArtifact(raw.value, {
+      artifact_id: artifact.id,
+      conversation_id: artifact.conversation_id,
+      source_message_id: sourceMessageId,
+      created_at: artifact.created_at,
+    });
+    const validation = validateTypedUIEnvelope(bound);
+    return validation.ok ? JSON.stringify(validation.value) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function readNumber(payload: Record<string, unknown>, keys: string[]): number | undefined {
@@ -272,7 +299,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const preview = usePreviewContext();
   const workspace = conversationContext?.workspace?.trim() || undefined;
   const payload = useMemo(() => parsePayload(artifact.payload), [artifact.payload]);
-  const typedUIContent = useMemo(() => readTypedUIContent(payload), [payload]);
+  const rawTypedUIContent = useMemo(() => readTypedUIContent(payload), [payload]);
   const type = inferType(artifact.kind, payload);
   const typeLabel = getTypeLabel(t, type);
   const path = readString(payload, SOURCE_PATH_KEYS);
@@ -298,6 +325,10 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const textContent = type === 'file' ? readString(payload, ['content', 'text']) : undefined;
   const receiptSummary = buildReceiptSummary(t, payload);
   const sourceMessageId = readString(payload, ['source_message_id', 'sourceMessageId']);
+  const typedUIContent = useMemo(
+    () => bindTypedUIContentToArtifact(rawTypedUIContent, artifact, sourceMessageId),
+    [artifact, rawTypedUIContent, sourceMessageId]
+  );
   const openPath = resolvedPath || (source?.startsWith('file:') ? fileUrlToPath(source) : undefined);
   const [pathHtmlContent, setPathHtmlContent] = useState<string>();
   const [pathHtmlLoading, setPathHtmlLoading] = useState(false);

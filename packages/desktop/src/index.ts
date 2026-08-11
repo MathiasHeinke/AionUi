@@ -106,7 +106,13 @@ import { resolveConnectedProviderRoute } from './common/config/eveConnectedProvi
 import { readInferenceLaneStateFromBackendStrict } from './process/commandEve/inferenceSelectionBackendRead';
 import { httpRequest } from './common/adapter/httpBridge';
 import type { IProvider } from './common/config/storage';
+import type { TMessage } from './common/chat/chatLib';
 import type { CommandEveConnectedProviderRoute } from './process/commandEve/ollamaOpenAiShim';
+import {
+  appendMainOwnedTypedUIProviderCompletionReceipt,
+  type MainOwnedTypedUIProviderCompletionInput,
+} from './process/commandEve/typedUIProvenanceAttestationCore';
+import { attestDurableTypedUIArtifact } from './process/commandEve/typedUIArtifactAttestationMain';
 import { renderEveAuthorityRuntime, type EveAuthorityRuntime } from './common/config/eveAuthorityRuntimeCore';
 import { createEgressRedactionModeResolver } from './process/commandEve/egressRedactionModeResolverCore';
 import {
@@ -526,6 +532,18 @@ function commandEveTypedUIProvenanceAuditPath(runtimeRoot: string): string {
 
 function commandEveTypedUIGenerationReceiptPath(runtimeRoot: string): string {
   return path.join(runtimeRoot, 'audit', 'typed-ui-generations.jsonl');
+}
+
+function commandEveTypedUIProviderCompletionReceiptPath(runtimeRoot: string): string {
+  return path.join(runtimeRoot, 'audit', 'typed-ui-provider-completions.jsonl');
+}
+
+function recordCommandEveTypedUIProviderCompletion(input: MainOwnedTypedUIProviderCompletionInput): void {
+  const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+  appendMainOwnedTypedUIProviderCompletionReceipt(
+    commandEveTypedUIProviderCompletionReceiptPath(paths.runtimeRoot),
+    input
+  );
 }
 
 /**
@@ -1298,6 +1316,11 @@ function registerCommandEveRuntimeBridge(): void {
             teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
             egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
             activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
+            activeSeatContext: () => ({
+              seatId: getActiveSeatId(),
+              seatContextRevision: getActiveSeatContextRevision(),
+            }),
+            typedUIProviderCompletion: recordCommandEveTypedUIProviderCompletion,
             attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),
             teamManageBearer: resolveTeamManageBearer,
             teamManagePropose: teamManageProposeHandler,
@@ -1378,6 +1401,11 @@ function registerCommandEveRuntimeBridge(): void {
             teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
             egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
             activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
+            activeSeatContext: () => ({
+              seatId: getActiveSeatId(),
+              seatContextRevision: getActiveSeatContextRevision(),
+            }),
+            typedUIProviderCompletion: recordCommandEveTypedUIProviderCompletion,
             attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),
             teamManageBearer: resolveTeamManageBearer,
             teamManagePropose: teamManageProposeHandler,
@@ -1493,16 +1521,26 @@ function registerCommandEveRuntimeBridge(): void {
     try {
       const { getDataPath } = await import('./process/utils/utils');
       const { resolveCommandEveRuntimeBootstrapPaths } = await import('./process/commandEve/runtimeBootstrapCore');
-      const { appendTypedUIProvenanceAttestation } =
-        await import('./process/commandEve/typedUIProvenanceAttestationCore');
       const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
-      const record = appendTypedUIProvenanceAttestation(
-        commandEveTypedUIProvenanceAuditPath(paths.runtimeRoot),
-        commandEveTypedUIGenerationReceiptPath(paths.runtimeRoot),
+      const record = await attestDurableTypedUIArtifact(
+        {
+          attestationAuditPath: commandEveTypedUIProvenanceAuditPath(paths.runtimeRoot),
+          generationLedgerPath: commandEveTypedUIGenerationReceiptPath(paths.runtimeRoot),
+          providerCompletionLedgerPath: commandEveTypedUIProviderCompletionReceiptPath(paths.runtimeRoot),
+        },
         request?.request,
         {
           activeSeatId: getActiveSeatId(),
           seatContextRevision: getActiveSeatContextRevision(),
+        },
+        {
+          readMessage: (conversationId, sourceMessageId) =>
+            httpRequest<TMessage>(
+              'GET',
+              `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(sourceMessageId)}`,
+              undefined,
+              { timeoutMs: 5000 }
+            ),
         }
       );
       return { success: true, data: record };
@@ -1985,6 +2023,11 @@ const handleAppReady = async (): Promise<void> => {
         teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
         egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
         activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
+        activeSeatContext: () => ({
+          seatId: getActiveSeatId(),
+          seatContextRevision: getActiveSeatContextRevision(),
+        }),
+        typedUIProviderCompletion: recordCommandEveTypedUIProviderCompletion,
         // SG-1 A1: the real seat-partitioned attribution resolver (still yields `eve`
         // in 1.7.0 until the 1.8 header producer, but now wired + testable end-to-end).
         attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),

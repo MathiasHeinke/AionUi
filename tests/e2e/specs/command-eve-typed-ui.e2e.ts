@@ -6,7 +6,7 @@
  * It never calls a model, network service, release path or production system.
  */
 
-import type { TypedUIEnvelope } from '@/common/typedUI';
+import { bindTypedUIEnvelopeToArtifact, type TypedUIEnvelope } from '@/common/typedUI';
 import {
   appendMainOwnedTypedUIProviderCompletionReceipt,
   appendTrustedTypedUIGenerationReceipt,
@@ -124,7 +124,14 @@ test('renders compact in chat and full in the existing Workbench, light and dark
   await openConversation(page, conversationId);
   const createdAt = Date.now();
   const artifactOptions = { artifactId: `e2e-typed-ui-${createdAt}`, createdAt };
-  const envelope = await prepareTypedUIArtifact(page, conversationId, artifactOptions);
+  const rawEnvelope = await prepareTypedUIArtifact(page, conversationId, artifactOptions);
+  const sourceMessageId = `message-${artifactOptions.artifactId}`;
+  const envelope = bindTypedUIEnvelopeToArtifact(rawEnvelope, {
+    artifact_id: artifactOptions.artifactId,
+    conversation_id: conversationId,
+    source_message_id: sourceMessageId,
+    created_at: createdAt,
+  });
   const generationLedgerPath = path.join(
     E2E_USER_DATA_DIR,
     'command-eve',
@@ -142,13 +149,17 @@ test('renders compact in chat and full in the existing Workbench, light and dark
   const completion = appendMainOwnedTypedUIProviderCompletionReceipt(completionLedgerPath, {
     version: TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION,
     session_id: `session-${artifactOptions.artifactId}`,
-    provider: envelope.provenance.provider,
-    model: envelope.provenance.model,
-    request_id: envelope.provenance.request_id,
+    provider: rawEnvelope.provenance.provider,
+    model: rawEnvelope.provenance.model,
+    provider_request_id: `provider-request-${artifactOptions.artifactId}`,
+    tool_call_id: artifactOptions.artifactId,
+    raw_content_sha256: hashTypedUIEnvelope(rawEnvelope),
     route_receipt: {
       receipt_id: `route-${artifactOptions.artifactId}`,
       route: 'provider-free-e2e',
       status: 'completed',
+      terminal: 'openai_json',
+      http_status: 200,
     },
     seat_id: 'seat-1',
     seat_context_revision: 0,
@@ -159,9 +170,11 @@ test('renders compact in chat and full in the existing Workbench, light and dark
     completed_route_receipt_id: completion.completion_receipt_id,
     artifact_id: artifactOptions.artifactId,
     conversation_id: conversationId,
-    source_message_id: `message-${artifactOptions.artifactId}`,
+    source_message_id: sourceMessageId,
     created_at: createdAt,
     content_sha256: hashTypedUIEnvelope(envelope),
+    tool_call_id: artifactOptions.artifactId,
+    raw_content_sha256: hashTypedUIEnvelope(rawEnvelope),
   });
   const artifactId = await emitTypedUIArtifact(page, conversationId, artifactOptions);
 

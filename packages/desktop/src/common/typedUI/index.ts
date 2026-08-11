@@ -5,6 +5,7 @@
  */
 
 export * from './catalog';
+export * from './provenance';
 export * from './schema';
 export * from './stream';
 export * from './types';

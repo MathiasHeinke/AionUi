@@ -185,6 +185,22 @@ describe('Typed UI schema and graph properties', () => {
     });
   });
 
+  it('applies the same byte limit to direct object validation used by the publish tool', () => {
+    const oversized = typedUIFixture();
+    oversized.state.payload = 'x'.repeat(512 * 1024);
+    expect(validateTypedUIEnvelope(oversized)).toMatchObject({
+      ok: false,
+      issues: [{ code: 'envelope.too_large' }],
+    });
+
+    const cyclic = typedUIFixture() as unknown as Record<string, unknown>;
+    cyclic.loop = cyclic;
+    expect(validateTypedUIEnvelope(cyclic)).toMatchObject({
+      ok: false,
+      issues: [{ code: 'envelope.invalid_json' }],
+    });
+  });
+
   it('rejects adversarial JSON depth, element count and action count', () => {
     const deep = cloneFixture();
     let nested: Record<string, unknown> = {};

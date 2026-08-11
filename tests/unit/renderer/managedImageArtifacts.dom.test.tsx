@@ -13,11 +13,13 @@ const {
   videoArtifactsListInvokeMock,
   imageArtifactsListInvokeMock,
   imageArtifactPreviewInvokeMock,
+  previewOpenMock,
 } = vi.hoisted(() => ({
   listArtifactsInvokeMock: vi.fn(),
   videoArtifactsListInvokeMock: vi.fn(),
   imageArtifactsListInvokeMock: vi.fn(),
   imageArtifactPreviewInvokeMock: vi.fn(),
+  previewOpenMock: vi.fn(),
 }));
 
 vi.mock('@/common', () => ({
@@ -41,6 +43,9 @@ vi.mock('@/common', () => ({
 vi.mock('@/renderer/components/Markdown', () => ({ default: () => null }));
 vi.mock('../../Preview/components/viewers/PDFViewer', () => ({ default: () => null }));
 vi.mock('@/renderer/hooks/context/ConversationContext', () => ({ useConversationContextSafe: () => null }));
+vi.mock('@/renderer/pages/conversation/Preview', () => ({
+  usePreviewContext: () => ({ openPreview: previewOpenMock }),
+}));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) => String(options?.defaultValue ?? key),

@@ -4,7 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { TYPED_UI_PROVENANCE_ATTESTATION_VERSION, type TypedUIEnvelope } from '@/common/typedUI';
+import {
+  bindTypedUIEnvelopeToArtifact,
+  TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
+  type TypedUIEnvelope,
+} from '@/common/typedUI';
 import {
   appendMainOwnedTypedUIProviderCompletionReceipt,
   appendTrustedTypedUIGenerationReceipt,
@@ -44,22 +48,32 @@ function artifactRef(envelope: TypedUIEnvelope) {
   };
 }
 
+function hostEnvelope(envelope = typedUIFixture(), artifact = artifactRef(envelope)) {
+  return bindTypedUIEnvelopeToArtifact(envelope, artifact);
+}
+
 function providerCompletion(target: ReturnType<typeof workspace>, envelope = typedUIFixture(), suffix = '') {
-  return appendMainOwnedTypedUIProviderCompletionReceipt(target.completionPath, {
+  const toolCallId = `call-attested${suffix}`;
+  const record = appendMainOwnedTypedUIProviderCompletionReceipt(target.completionPath, {
     version: TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION,
     session_id: `session-attested${suffix}`,
-    provider: envelope.provenance.provider,
-    model: envelope.provenance.model,
-    request_id: `${envelope.provenance.request_id}${suffix}`,
+    provider: `actual-provider${suffix}`,
+    model: `actual-model${suffix}`,
+    provider_request_id: `provider-request${suffix}`,
+    tool_call_id: toolCallId,
+    raw_content_sha256: hashTypedUIEnvelope(envelope),
     route_receipt: {
       receipt_id: `route-receipt-attested${suffix}`,
       route: 'provider-neutral',
       status: 'completed',
+      terminal: 'openai_json',
+      http_status: 200,
     },
     seat_id: seat.activeSeatId,
     seat_context_revision: seat.seatContextRevision,
     completed_at: envelope.provenance.generated_at,
   });
+  return { ...record, toolCallId };
 }
 
 function joinReceipt(
@@ -67,11 +81,14 @@ function joinReceipt(
   envelope: TypedUIEnvelope,
   completion: ReturnType<typeof providerCompletion>
 ) {
+  const artifact = artifactRef(envelope);
   return appendTrustedTypedUIGenerationReceipt(target.generationPath, target.completionPath, {
     version: TYPED_UI_GENERATION_RECEIPT_VERSION,
     completed_route_receipt_id: completion.completion_receipt_id,
-    ...artifactRef(envelope),
-    content_sha256: hashTypedUIEnvelope(envelope),
+    ...artifact,
+    content_sha256: hashTypedUIEnvelope(hostEnvelope(envelope, artifact)),
+    tool_call_id: completion.toolCallId,
+    raw_content_sha256: hashTypedUIEnvelope(envelope),
   });
 }
 
@@ -81,8 +98,8 @@ function trustedReceipt(target: ReturnType<typeof workspace>, envelope = typedUI
 
 function attest(
   target: ReturnType<typeof workspace>,
-  envelope = typedUIFixture(),
-  artifact = artifactRef(envelope),
+  envelope = hostEnvelope(),
+  artifact = artifactRef(typedUIFixture()),
   context = seat
 ) {
   return appendTypedUIProvenanceAttestation(
@@ -131,24 +148,27 @@ describe('Main-owned Typed UI provenance attestation', () => {
     const target = workspace();
     const envelope = typedUIFixture();
     const generation = trustedReceipt(target, envelope);
-    const record = attest(target, envelope);
+    const bound = hostEnvelope(envelope);
+    const record = attest(target, bound);
     expect(record.status).toBe('verified');
     expect(record.source_message_id).toBe(TYPED_UI_TEST_RECEIPT_CONTEXT.sourceMessageId);
     expect(record.action_set_sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(record.receipt_sha256).toBe(generation.route_receipt_sha256);
-    expect(JSON.stringify(record)).not.toContain(envelope.provenance.provider);
-    expect(JSON.stringify(record)).not.toContain(envelope.provenance.model);
+    expect(JSON.stringify(record)).not.toContain('actual-provider');
+    expect(JSON.stringify(record)).not.toContain('actual-model');
 
     const ledgers = `${fs.readFileSync(target.completionPath, 'utf8')}\n${fs.readFileSync(
       target.generationPath,
       'utf8'
     )}\n${fs.readFileSync(target.attestationPath, 'utf8')}`;
-    expect(ledgers).not.toContain(envelope.provenance.provider);
-    expect(ledgers).not.toContain(envelope.provenance.model);
-    expect(ledgers).not.toContain(envelope.provenance.request_id);
+    expect(ledgers).not.toContain('actual-provider');
+    expect(ledgers).not.toContain('actual-model');
+    expect(ledgers).not.toContain('provider-request');
     expect(ledgers).not.toContain('route-receipt-attested');
     expect(fs.readFileSync(target.attestationPath, 'utf8')).not.toContain('artifact_kind');
     expect(fs.readFileSync(target.attestationPath, 'utf8')).not.toContain('run-41');
+    expect(fs.readFileSync(target.attestationPath, 'utf8')).not.toContain('goal_control');
+    expect(fs.readFileSync(target.attestationPath, 'utf8')).not.toContain('worker_control');
   });
 
   it('requires a real private completion record and consumes it for exactly one artifact join', () => {
@@ -159,7 +179,9 @@ describe('Main-owned Typed UI provenance attestation', () => {
         version: TYPED_UI_GENERATION_RECEIPT_VERSION,
         completed_route_receipt_id: `tuipc_${'f'.repeat(64)}`,
         ...artifactRef(envelope),
-        content_sha256: hashTypedUIEnvelope(envelope),
+        content_sha256: hashTypedUIEnvelope(hostEnvelope(envelope)),
+        tool_call_id: 'call-missing',
+        raw_content_sha256: hashTypedUIEnvelope(envelope),
       })
     ).toThrow('attestation.provider_completion_missing');
 
@@ -171,27 +193,59 @@ describe('Main-owned Typed UI provenance attestation', () => {
         completed_route_receipt_id: completion.completion_receipt_id,
         ...artifactRef(envelope),
         artifact_id: 'artifact-other',
-        content_sha256: hashTypedUIEnvelope(envelope),
+        content_sha256: hashTypedUIEnvelope(hostEnvelope(envelope)),
+        tool_call_id: completion.toolCallId,
+        raw_content_sha256: hashTypedUIEnvelope(envelope),
       })
     ).toThrow('attestation.provider_completion_consumed');
   });
 
-  it('fails closed instead of forgetting replay history when a private ledger exceeds its verification bound', () => {
+  it('keeps new receipts usable when old private history exceeds the bounded verification tail', () => {
     const target = workspace();
     fs.mkdirSync(path.dirname(target.completionPath), { recursive: true });
-    fs.writeFileSync(target.completionPath, Buffer.alloc(8 * 1024 * 1024 + 1, 0x20));
-    expect(() => providerCompletion(target)).toThrow('attestation.ledger_too_large');
+    fs.writeFileSync(
+      target.completionPath,
+      Buffer.concat([Buffer.alloc(8 * 1024 * 1024 + 1, 0x20), Buffer.from('\n')])
+    );
+    expect(providerCompletion(target).completion_receipt_id).toMatch(/^tuipc_/);
+  });
+
+  it('keeps a completion consumed when its old generation line falls outside the bounded tail', () => {
+    const target = workspace();
+    const envelope = typedUIFixture();
+    const completion = providerCompletion(target, envelope);
+    const first = joinReceipt(target, envelope, completion);
+    fs.appendFileSync(
+      target.generationPath,
+      Buffer.concat([Buffer.alloc(8 * 1024 * 1024 + 1, 0x20), Buffer.from('\n')])
+    );
+
+    // An identical retry repairs the recent generation view from the durable
+    // consumption marker without creating a different receipt.
+    expect(joinReceipt(target, envelope, completion).receipt_id).toBe(first.receipt_id);
+
+    expect(() =>
+      appendTrustedTypedUIGenerationReceipt(target.generationPath, target.completionPath, {
+        version: TYPED_UI_GENERATION_RECEIPT_VERSION,
+        completed_route_receipt_id: completion.completion_receipt_id,
+        ...artifactRef(envelope),
+        artifact_id: 'artifact-tail-replay',
+        content_sha256: hashTypedUIEnvelope(hostEnvelope(envelope)),
+        tool_call_id: completion.toolCallId,
+        raw_content_sha256: hashTypedUIEnvelope(envelope),
+      })
+    ).toThrow('attestation.provider_completion_consumed');
   });
 
   it.each([
-    ['provider_mismatch', (value: TypedUIEnvelope) => (value.provenance.provider = 'other-provider')],
-    ['model_mismatch', (value: TypedUIEnvelope) => (value.provenance.model = 'other-model')],
+    ['provider_claim_unbound', (value: TypedUIEnvelope) => (value.provenance.provider = 'other-provider')],
+    ['model_claim_unbound', (value: TypedUIEnvelope) => (value.provenance.model = 'other-model')],
     ['request_mismatch', (value: TypedUIEnvelope) => (value.provenance.request_id = 'other-request')],
     ['content_mismatch', (value: TypedUIEnvelope) => (value.elements.heading.props.text = 'mutated after receipt')],
   ] as const)('rejects %s against immutable receipt hashes', (reason, mutate) => {
     const target = workspace();
     trustedReceipt(target);
-    const candidate = typedUIFixture();
+    const candidate = hostEnvelope();
     mutate(candidate);
     expect(attest(target, candidate)).toMatchObject({ status: 'rejected', reason });
   });
@@ -200,19 +254,19 @@ describe('Main-owned Typed UI provenance attestation', () => {
     const sourceTarget = workspace();
     trustedReceipt(sourceTarget);
     expect(
-      attest(sourceTarget, typedUIFixture(), { ...artifactRef(typedUIFixture()), source_message_id: 'other' })
+      attest(sourceTarget, hostEnvelope(), { ...artifactRef(typedUIFixture()), source_message_id: 'other' })
     ).toMatchObject({ status: 'rejected', reason: 'source_message_mismatch' });
 
     const seatTarget = workspace();
     trustedReceipt(seatTarget);
     expect(
-      attest(seatTarget, typedUIFixture(), artifactRef(typedUIFixture()), { ...seat, activeSeatId: 'seat-other' })
+      attest(seatTarget, hostEnvelope(), artifactRef(typedUIFixture()), { ...seat, activeSeatId: 'seat-other' })
     ).toMatchObject({ status: 'rejected', reason: 'seat_mismatch' });
 
     const revisionTarget = workspace();
     trustedReceipt(revisionTarget);
     expect(
-      attest(revisionTarget, typedUIFixture(), artifactRef(typedUIFixture()), {
+      attest(revisionTarget, hostEnvelope(), artifactRef(typedUIFixture()), {
         ...seat,
         seatContextRevision: seat.seatContextRevision + 1,
       })
@@ -221,14 +275,15 @@ describe('Main-owned Typed UI provenance attestation', () => {
     const timeTarget = workspace();
     trustedReceipt(timeTarget);
     expect(
-      attest(timeTarget, typedUIFixture(), { ...artifactRef(typedUIFixture()), created_at: Date.now() })
+      attest(timeTarget, hostEnvelope(), { ...artifactRef(typedUIFixture()), created_at: Date.now() })
     ).toMatchObject({ status: 'rejected', reason: 'artifact_time_mismatch' });
   });
 
   it('revalidates the current content and seat correlation before every action receipt', () => {
     const target = workspace();
-    const envelope = typedUIFixture();
-    trustedReceipt(target, envelope);
+    const rawEnvelope = typedUIFixture();
+    const envelope = hostEnvelope(rawEnvelope);
+    trustedReceipt(target, rawEnvelope);
     const record = attest(target, envelope);
     expect(() =>
       requireVerifiedTypedUIProvenanceAttestation(target.attestationPath, {
@@ -270,8 +325,9 @@ describe('Main-owned Typed UI provenance attestation', () => {
 
   it('binds action id, type and canonical params to the private attestation manifest', () => {
     const target = workspace();
-    const envelope = typedUIFixture();
-    trustedReceipt(target, envelope);
+    const rawEnvelope = typedUIFixture();
+    const envelope = hostEnvelope(rawEnvelope);
+    trustedReceipt(target, rawEnvelope);
     const record = attest(target, envelope);
     const base = {
       attestationId: record.attestation_id,

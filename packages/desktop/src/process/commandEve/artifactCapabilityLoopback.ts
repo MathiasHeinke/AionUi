@@ -39,6 +39,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { hydrateVideoArtifactPayload, isVideoArtifactEditable } from '@/common/config/videoGenerationRequestCore';
+import {
+  TYPED_UI_CATALOG_VERSION,
+  TYPED_UI_MIME_TYPE,
+  TYPED_UI_SCHEMA_VERSION,
+  validateTypedUIEnvelope,
+} from '@/common/typedUI';
 import { handleCommandEveVideoEdit, handleCommandEveVideoGenerate } from '@process/bridge/commandEveVideoBridge';
 import { handleCommandEveImageEdit } from '@process/bridge/commandEveImageArtifactBridge';
 import { getDataPath } from '@process/utils/utils';
@@ -157,6 +163,24 @@ export async function artifactCapabilityCallHandler(
   }
   const operation = typeof body.operation === 'string' ? body.operation : '';
   const handle = body.handle;
+
+  if (operation === 'typed_ui_publish') {
+    const validation = validateTypedUIEnvelope(body.envelope);
+    if (!validation.ok) {
+      return { status: 400, payload: { ok: false, reason: 'typed-ui-envelope-invalid' } };
+    }
+    return {
+      status: 200,
+      payload: {
+        ok: true,
+        artifact_type: 'file',
+        mime_type: TYPED_UI_MIME_TYPE,
+        schema_version: TYPED_UI_SCHEMA_VERSION,
+        catalog_version: TYPED_UI_CATALOG_VERSION,
+        content: JSON.stringify(validation.value),
+      },
+    };
+  }
 
   if (operation === 'artifact_get') {
     const dataPath = deps.getDataPath();

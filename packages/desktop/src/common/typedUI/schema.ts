@@ -448,6 +448,23 @@ function isCompatibleActionBinding(element: TypedUIElement, event: string, actio
 }
 
 export function validateTypedUIEnvelope(input: unknown): TypedUIValidationResult {
+  let serializedBytes: number;
+  try {
+    const serialized = JSON.stringify(input);
+    if (typeof serialized !== 'string') throw new Error('not_json');
+    serializedBytes = new TextEncoder().encode(serialized).byteLength;
+  } catch {
+    return {
+      ok: false,
+      issues: [{ code: 'envelope.invalid_json', path: '$', message: 'Typed UI must be finite JSON data.' }],
+    };
+  }
+  if (serializedBytes > TYPED_UI_MAX_BYTES) {
+    return {
+      ok: false,
+      issues: [{ code: 'envelope.too_large', path: '$', message: `Typed UI exceeds ${TYPED_UI_MAX_BYTES} bytes.` }],
+    };
+  }
   const issues: TypedUIValidationIssue[] = [];
   if (
     !isRecord(input) ||

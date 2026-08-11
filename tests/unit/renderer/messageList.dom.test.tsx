@@ -35,6 +35,7 @@ const ipcMock = vi.hoisted(() => ({
   getFileMetadata: vi.fn(),
   readGeneratedArtifactPreview: vi.fn(),
 }));
+const previewMock = vi.hoisted(() => ({ openPreview: vi.fn() }));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -85,6 +86,10 @@ vi.mock('@/common', () => ({
 
 vi.mock('@/renderer/hooks/context/ConversationContext', () => ({
   useConversationContextSafe: () => conversationContextMock.current,
+}));
+
+vi.mock('@/renderer/pages/conversation/Preview', () => ({
+  usePreviewContext: () => previewMock,
 }));
 
 vi.mock('@/renderer/hooks/file/useAutoPreviewOfficeFiles', () => ({
@@ -1130,5 +1135,27 @@ describe('MessageList', () => {
         },
       })
     ).toBeUndefined();
+  });
+
+  it('carries the backend message identity into a typed tool artifact', () => {
+    const artifact = buildGeneratedArtifactFromToolResult({
+      conversation_id: 'conversation-typed',
+      call_id: 'call-typed',
+      source_message_id: 'message-typed',
+      created_at: 10,
+      name: 'eve_typed_ui_publish',
+      result_display: {
+        ok: true,
+        artifact_type: 'file',
+        mime_type: 'application/vnd.command-eve.typed-ui+json',
+        content: '{"schema_version":"command-eve.typed-ui/v2"}',
+      },
+    });
+
+    expect(artifact).toMatchObject({
+      id: 'tool-artifact-call-typed',
+      conversation_id: 'conversation-typed',
+      payload: { source_message_id: 'message-typed' },
+    });
   });
 });

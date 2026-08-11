@@ -221,6 +221,7 @@ export function hasToolResultGeneratedArtifact(resultDisplay: ToolResultDisplay)
 export function buildGeneratedArtifactFromToolResult(options: {
   conversation_id: string;
   call_id: string;
+  source_message_id?: string;
   created_at?: number;
   name: string;
   description?: string;
@@ -272,6 +273,7 @@ export function buildGeneratedArtifactFromToolResult(options: {
       model: readString(payload, ['model']),
       artifact_id: artifactId,
       request_id: requestId,
+      source_message_id: options.source_message_id,
       source_tool: sourceTool,
       receipt_path: receiptPath,
       receipt,

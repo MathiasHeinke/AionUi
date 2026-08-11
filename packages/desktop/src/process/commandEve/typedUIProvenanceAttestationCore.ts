@@ -5,6 +5,8 @@
  */
 
 import {
+  TYPED_UI_HOST_MODEL_CLAIM,
+  TYPED_UI_HOST_PROVIDER_CLAIM,
   TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
   validateTypedUIEnvelope,
   type TypedUIActionType,
@@ -18,8 +20,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const TYPED_UI_GENERATION_RECEIPT_VERSION = 'command-eve.typed-ui-generation-receipt/v1' as const;
-export const TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION = 'command-eve.typed-ui-provider-completion/v1' as const;
+export const TYPED_UI_GENERATION_RECEIPT_VERSION = 'command-eve.typed-ui-generation-receipt/v2' as const;
+export const TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION = 'command-eve.typed-ui-provider-completion/v2' as const;
+const TYPED_UI_PROVIDER_COMPLETION_CONSUMPTION_VERSION =
+  'command-eve.typed-ui-provider-completion-consumption/v1' as const;
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -41,17 +45,28 @@ const ACTION_TYPES = new Set<TypedUIActionType>([
   'goal_control',
   'worker_control',
 ]);
+const ATTESTABLE_ACTION_TYPES = new Set<TypedUIActionType>([
+  'reply_with_state',
+  'open_artifact',
+  'open_url',
+  'select_option',
+  'request_approval',
+]);
 
 export interface MainOwnedTypedUIProviderCompletionInput {
   version: typeof TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION;
   session_id: string;
   provider: string;
   model: string;
-  request_id: string;
+  provider_request_id: string;
+  tool_call_id: string;
+  raw_content_sha256: string;
   route_receipt: {
     receipt_id: string;
     route: string;
     status: 'completed';
+    terminal: 'openai_json' | 'openai_sse' | 'ollama_json' | 'ollama_jsonl';
+    http_status: 200;
   };
   seat_id: string;
   seat_context_revision: number;
@@ -64,12 +79,23 @@ export interface PersistedTypedUIProviderCompletionReceipt {
   session_id_sha256: string;
   provider_sha256: string;
   model_sha256: string;
-  request_id_sha256: string;
+  provider_request_id_sha256: string;
+  tool_call_id_sha256: string;
+  raw_content_sha256: string;
   route_receipt_sha256: string;
   seat_id_sha256: string;
   seat_context_revision: number;
   status: 'completed';
   completed_at: string;
+  recorded_at: string;
+}
+
+interface PersistedTypedUIProviderCompletionConsumption {
+  version: typeof TYPED_UI_PROVIDER_COMPLETION_CONSUMPTION_VERSION;
+  completion_receipt_id: string;
+  generation_receipt_id: string;
+  generation_binding_sha256: string;
+  status: 'consumed';
   recorded_at: string;
 }
 
@@ -81,6 +107,8 @@ export interface TrustedTypedUIGenerationReceiptInput {
   source_message_id: string;
   created_at: number;
   content_sha256: string;
+  tool_call_id: string;
+  raw_content_sha256: string;
 }
 
 export interface PersistedTypedUIGenerationReceipt {
@@ -92,8 +120,11 @@ export interface PersistedTypedUIGenerationReceipt {
   source_message_id: string;
   created_at: number;
   content_sha256: string;
+  raw_content_sha256: string;
+  tool_call_id_sha256: string;
   provider_sha256: string;
   model_sha256: string;
+  provider_request_id_sha256: string;
   request_id_sha256: string;
   route_receipt_sha256: string;
   seat_id_sha256: string;
@@ -127,8 +158,11 @@ const GENERATION_RECORD_KEYS = new Set([
   'source_message_id',
   'created_at',
   'content_sha256',
+  'raw_content_sha256',
+  'tool_call_id_sha256',
   'provider_sha256',
   'model_sha256',
+  'provider_request_id_sha256',
   'request_id_sha256',
   'route_receipt_sha256',
   'seat_id_sha256',
@@ -142,12 +176,22 @@ const PROVIDER_COMPLETION_RECORD_KEYS = new Set([
   'session_id_sha256',
   'provider_sha256',
   'model_sha256',
-  'request_id_sha256',
+  'provider_request_id_sha256',
+  'tool_call_id_sha256',
+  'raw_content_sha256',
   'route_receipt_sha256',
   'seat_id_sha256',
   'seat_context_revision',
   'status',
   'completed_at',
+  'recorded_at',
+]);
+const PROVIDER_COMPLETION_CONSUMPTION_KEYS = new Set([
+  'version',
+  'completion_receipt_id',
+  'generation_receipt_id',
+  'generation_binding_sha256',
+  'status',
   'recorded_at',
 ]);
 const ATTESTATION_RECORD_KEYS = new Set([
@@ -228,9 +272,11 @@ function buildTypedUIActionBindings(
   envelope: TypedUIEnvelope,
   artifact: TypedUIProvenanceArtifactRef
 ): PersistedTypedUIActionBinding[] {
-  const bindings = Object.entries(envelope.actions).map(([actionId, action]) =>
-    buildTypedUIActionBinding(actionId, action.type, action.params)
-  );
+  // Lifecycle declarations remain renderable as visibly disabled controls,
+  // but no action binding exists until the reviewed Durable composite lands.
+  const bindings = Object.entries(envelope.actions)
+    .filter(([, action]) => ATTESTABLE_ACTION_TYPES.has(action.type))
+    .map(([actionId, action]) => buildTypedUIActionBinding(actionId, action.type, action.params));
   bindings.push(
     buildTypedUIActionBinding(HOST_OPEN_WORKBENCH_ACTION_ID, 'open_artifact', {
       artifact_kind: 'chat',
@@ -247,21 +293,44 @@ export function hashTypedUIEnvelope(envelope: TypedUIEnvelope): string {
 }
 
 function appendPrivateJsonLine(filePath: string, value: unknown): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  fs.appendFileSync(filePath, `${JSON.stringify(value)}\n`, { mode: 0o600 });
+  const directory = path.dirname(filePath);
+  const existed = fs.existsSync(filePath);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  fs.chmodSync(directory, 0o700);
+  const handle = fs.openSync(filePath, 'a', 0o600);
+  try {
+    fs.writeFileSync(handle, `${JSON.stringify(value)}\n`, 'utf8');
+    fs.fsyncSync(handle);
+  } finally {
+    fs.closeSync(handle);
+  }
   fs.chmodSync(filePath, 0o600);
+  if (!existed && process.platform !== 'win32') {
+    const directoryHandle = fs.openSync(directory, 'r');
+    try {
+      fs.fsyncSync(directoryHandle);
+    } finally {
+      fs.closeSync(directoryHandle);
+    }
+  }
 }
 
 function readRecentJsonLines(filePath: string): unknown[] {
   if (!fs.existsSync(filePath)) return [];
   const size = fs.statSync(filePath).size;
   if (size === 0) return [];
-  if (size > MAX_LEDGER_TAIL_BYTES) throw new Error('attestation.ledger_too_large');
+  const start = Math.max(0, size - MAX_LEDGER_TAIL_BYTES);
   const handle = fs.openSync(filePath, 'r');
   try {
-    const buffer = Buffer.alloc(size);
-    const bytesRead = fs.readSync(handle, buffer, 0, buffer.length, 0);
-    const content = buffer.subarray(0, bytesRead).toString('utf8');
+    const buffer = Buffer.alloc(size - start);
+    const bytesRead = fs.readSync(handle, buffer, 0, buffer.length, start);
+    let content = buffer.subarray(0, bytesRead).toString('utf8');
+    // A bounded tail can start in the middle of an old JSON line. Discard that
+    // fragment; every retained record is still parsed and validated strictly.
+    if (start > 0) {
+      const firstNewline = content.indexOf('\n');
+      content = firstNewline < 0 ? '' : content.slice(firstNewline + 1);
+    }
     return content
       .split('\n')
       .filter((line) => line.trim().length > 0)
@@ -313,7 +382,9 @@ function validateProviderCompletionInput(value: unknown): value is MainOwnedType
       'session_id',
       'provider',
       'model',
-      'request_id',
+      'provider_request_id',
+      'tool_call_id',
+      'raw_content_sha256',
       'route_receipt',
       'seat_id',
       'seat_context_revision',
@@ -327,14 +398,19 @@ function validateProviderCompletionInput(value: unknown): value is MainOwnedType
     !safeId(value.session_id) ||
     !boundedString(value.provider) ||
     !boundedString(value.model) ||
-    !boundedString(value.request_id) ||
+    !safeId(value.provider_request_id) ||
+    !safeId(value.tool_call_id, 110) ||
+    typeof value.raw_content_sha256 !== 'string' ||
+    !SHA256.test(value.raw_content_sha256) ||
     !safeId(value.seat_id) ||
     !validRevision(value.seat_context_revision) ||
     !isRecord(value.route_receipt) ||
-    !exactKeys(value.route_receipt, ['receipt_id', 'route', 'status']) ||
+    !exactKeys(value.route_receipt, ['receipt_id', 'route', 'status', 'terminal', 'http_status']) ||
     !safeId(value.route_receipt.receipt_id) ||
     !boundedString(value.route_receipt.route, 128) ||
     value.route_receipt.status !== 'completed' ||
+    !['openai_json', 'openai_sse', 'ollama_json', 'ollama_jsonl'].includes(String(value.route_receipt.terminal)) ||
+    value.route_receipt.http_status !== 200 ||
     typeof value.completed_at !== 'string' ||
     Number.isNaN(Date.parse(value.completed_at))
   ) {
@@ -355,8 +431,12 @@ function validateProviderCompletionRecord(value: unknown): value is PersistedTyp
     SHA256.test(value.provider_sha256) &&
     typeof value.model_sha256 === 'string' &&
     SHA256.test(value.model_sha256) &&
-    typeof value.request_id_sha256 === 'string' &&
-    SHA256.test(value.request_id_sha256) &&
+    typeof value.provider_request_id_sha256 === 'string' &&
+    SHA256.test(value.provider_request_id_sha256) &&
+    typeof value.tool_call_id_sha256 === 'string' &&
+    SHA256.test(value.tool_call_id_sha256) &&
+    typeof value.raw_content_sha256 === 'string' &&
+    SHA256.test(value.raw_content_sha256) &&
     typeof value.route_receipt_sha256 === 'string' &&
     SHA256.test(value.route_receipt_sha256) &&
     typeof value.seat_id_sha256 === 'string' &&
@@ -370,11 +450,75 @@ function validateProviderCompletionRecord(value: unknown): value is PersistedTyp
   );
 }
 
+function validateProviderCompletionConsumption(value: unknown): value is PersistedTypedUIProviderCompletionConsumption {
+  if (!isRecord(value) || Object.keys(value).some((key) => !PROVIDER_COMPLETION_CONSUMPTION_KEYS.has(key))) {
+    return false;
+  }
+  return (
+    value.version === TYPED_UI_PROVIDER_COMPLETION_CONSUMPTION_VERSION &&
+    typeof value.completion_receipt_id === 'string' &&
+    PROVIDER_COMPLETION_RECEIPT_ID.test(value.completion_receipt_id) &&
+    typeof value.generation_receipt_id === 'string' &&
+    GENERATION_RECEIPT_ID.test(value.generation_receipt_id) &&
+    typeof value.generation_binding_sha256 === 'string' &&
+    SHA256.test(value.generation_binding_sha256) &&
+    value.status === 'consumed' &&
+    typeof value.recorded_at === 'string' &&
+    !Number.isNaN(Date.parse(value.recorded_at))
+  );
+}
+
+function readProviderCompletionLedger(filePath: string): {
+  completions: PersistedTypedUIProviderCompletionReceipt[];
+  consumptions: PersistedTypedUIProviderCompletionConsumption[];
+} {
+  const completions: PersistedTypedUIProviderCompletionReceipt[] = [];
+  const consumptions: PersistedTypedUIProviderCompletionConsumption[] = [];
+  for (const value of readRecentJsonLines(filePath)) {
+    if (validateProviderCompletionRecord(value)) {
+      completions.push(value);
+    } else if (validateProviderCompletionConsumption(value)) {
+      consumptions.push(value);
+    } else {
+      throw new Error('attestation.provider_completion_ledger_corrupt');
+    }
+  }
+  return { completions, consumptions };
+}
+
 function readProviderCompletionReceipts(filePath: string): PersistedTypedUIProviderCompletionReceipt[] {
-  return readRecentJsonLines(filePath).map((value) => {
-    if (!validateProviderCompletionRecord(value)) throw new Error('attestation.provider_completion_ledger_corrupt');
-    return value;
-  });
+  return readProviderCompletionLedger(filePath).completions;
+}
+
+/** Resolve one exact private completion without a latest-by-session fallback. */
+export function resolveMainOwnedTypedUIProviderCompletionReceipt(
+  completionLedgerPath: string,
+  input: {
+    toolCallId: string;
+    rawContentSha256: string;
+    activeSeatId: string;
+    seatContextRevision: number;
+  }
+): PersistedTypedUIProviderCompletionReceipt | undefined {
+  if (
+    !safeId(input.toolCallId, 110) ||
+    !SHA256.test(input.rawContentSha256) ||
+    !safeId(input.activeSeatId) ||
+    !validRevision(input.seatContextRevision)
+  ) {
+    throw new Error('attestation.provider_completion_lookup_invalid');
+  }
+  const toolCallIdSha256 = sha256(input.toolCallId);
+  const seatIdSha256 = sha256(input.activeSeatId);
+  const matches = readProviderCompletionReceipts(completionLedgerPath).filter(
+    (record) =>
+      record.tool_call_id_sha256 === toolCallIdSha256 &&
+      record.raw_content_sha256 === input.rawContentSha256 &&
+      record.seat_id_sha256 === seatIdSha256 &&
+      record.seat_context_revision === input.seatContextRevision
+  );
+  if (matches.length > 1) throw new Error('attestation.provider_completion_ambiguous');
+  return matches[0];
 }
 
 function validateGenerationInput(value: unknown): value is TrustedTypedUIGenerationReceiptInput {
@@ -388,6 +532,8 @@ function validateGenerationInput(value: unknown): value is TrustedTypedUIGenerat
       'source_message_id',
       'created_at',
       'content_sha256',
+      'tool_call_id',
+      'raw_content_sha256',
     ])
   ) {
     return false;
@@ -402,7 +548,10 @@ function validateGenerationInput(value: unknown): value is TrustedTypedUIGenerat
     Number.isSafeInteger(value.created_at) &&
     Number(value.created_at) >= 0 &&
     typeof value.content_sha256 === 'string' &&
-    SHA256.test(value.content_sha256)
+    SHA256.test(value.content_sha256) &&
+    safeId(value.tool_call_id, 110) &&
+    typeof value.raw_content_sha256 === 'string' &&
+    SHA256.test(value.raw_content_sha256)
   );
 }
 
@@ -421,10 +570,16 @@ function validateGenerationRecord(value: unknown): value is PersistedTypedUIGene
     Number(value.created_at) >= 0 &&
     typeof value.content_sha256 === 'string' &&
     SHA256.test(value.content_sha256) &&
+    typeof value.raw_content_sha256 === 'string' &&
+    SHA256.test(value.raw_content_sha256) &&
+    typeof value.tool_call_id_sha256 === 'string' &&
+    SHA256.test(value.tool_call_id_sha256) &&
     typeof value.provider_sha256 === 'string' &&
     SHA256.test(value.provider_sha256) &&
     typeof value.model_sha256 === 'string' &&
     SHA256.test(value.model_sha256) &&
+    typeof value.provider_request_id_sha256 === 'string' &&
+    SHA256.test(value.provider_request_id_sha256) &&
     typeof value.request_id_sha256 === 'string' &&
     SHA256.test(value.request_id_sha256) &&
     typeof value.route_receipt_sha256 === 'string' &&
@@ -542,7 +697,9 @@ export function appendMainOwnedTypedUIProviderCompletionReceipt(
       value.session_id,
       value.provider,
       value.model,
-      value.request_id,
+      value.provider_request_id,
+      value.tool_call_id,
+      value.raw_content_sha256,
       routeReceiptSha256,
       value.completed_at,
     ].join('\u0000')
@@ -557,7 +714,9 @@ export function appendMainOwnedTypedUIProviderCompletionReceipt(
     session_id_sha256: sha256(value.session_id),
     provider_sha256: sha256(value.provider),
     model_sha256: sha256(value.model),
-    request_id_sha256: sha256(value.request_id),
+    provider_request_id_sha256: sha256(value.provider_request_id),
+    tool_call_id_sha256: sha256(value.tool_call_id),
+    raw_content_sha256: value.raw_content_sha256,
     route_receipt_sha256: routeReceiptSha256,
     seat_id_sha256: sha256(value.seat_id),
     seat_context_revision: value.seat_context_revision,
@@ -580,22 +739,90 @@ export function appendTrustedTypedUIGenerationReceipt(
   options: { now?: () => Date } = {}
 ): PersistedTypedUIGenerationReceipt {
   if (!validateGenerationInput(value)) throw new Error('attestation.generation_receipt_invalid');
-  const completion = readProviderCompletionReceipts(completionLedgerPath).find(
+  const providerLedger = readProviderCompletionLedger(completionLedgerPath);
+  const completion = providerLedger.completions.find(
     (record) => record.completion_receipt_id === value.completed_route_receipt_id
   );
   if (!completion) throw new Error('attestation.provider_completion_missing');
+  if (completion.tool_call_id_sha256 !== sha256(value.tool_call_id)) {
+    throw new Error('attestation.provider_completion_tool_call_mismatch');
+  }
+  if (completion.raw_content_sha256 !== value.raw_content_sha256) {
+    throw new Error('attestation.provider_completion_content_mismatch');
+  }
   const receiptId = `tuigr_${sha256(
     [
       completion.completion_receipt_id,
       value.conversation_id,
       value.artifact_id,
       value.source_message_id,
+      value.tool_call_id,
+      value.raw_content_sha256,
       value.content_sha256,
     ].join('\u0000')
   )}`;
+  const generationBindingSha256 = sha256(
+    [
+      'command-eve.typed-ui.generation-binding/v1',
+      completion.completion_receipt_id,
+      receiptId,
+      value.conversation_id,
+      value.artifact_id,
+      value.source_message_id,
+      String(value.created_at),
+      value.tool_call_id,
+      value.raw_content_sha256,
+      value.content_sha256,
+    ].join('\u0000')
+  );
   const generationReceipts = readGenerationReceipts(generationLedgerPath);
   const existing = generationReceipts.find((record) => record.receipt_id === receiptId);
-  if (existing) return existing;
+  const consumption = providerLedger.consumptions.find(
+    (record) => record.completion_receipt_id === completion.completion_receipt_id
+  );
+  if (consumption) {
+    if (
+      consumption.generation_receipt_id !== receiptId ||
+      consumption.generation_binding_sha256 !== generationBindingSha256
+    ) {
+      throw new Error('attestation.provider_completion_consumed');
+    }
+    if (existing) return existing;
+    const recovered: PersistedTypedUIGenerationReceipt = {
+      version: TYPED_UI_GENERATION_RECEIPT_VERSION,
+      receipt_id: receiptId,
+      completed_route_receipt_id: completion.completion_receipt_id,
+      artifact_id: value.artifact_id,
+      conversation_id: value.conversation_id,
+      source_message_id: value.source_message_id,
+      created_at: value.created_at,
+      content_sha256: value.content_sha256,
+      raw_content_sha256: value.raw_content_sha256,
+      tool_call_id_sha256: completion.tool_call_id_sha256,
+      provider_sha256: completion.provider_sha256,
+      model_sha256: completion.model_sha256,
+      provider_request_id_sha256: completion.provider_request_id_sha256,
+      request_id_sha256: sha256(value.artifact_id),
+      route_receipt_sha256: completion.route_receipt_sha256,
+      seat_id_sha256: completion.seat_id_sha256,
+      seat_context_revision: completion.seat_context_revision,
+      status: 'completed',
+      recorded_at: consumption.recorded_at,
+    };
+    appendPrivateJsonLine(generationLedgerPath, recovered);
+    return recovered;
+  }
+  if (existing) {
+    appendPrivateJsonLine(completionLedgerPath, {
+      version: TYPED_UI_PROVIDER_COMPLETION_CONSUMPTION_VERSION,
+      completion_receipt_id: completion.completion_receipt_id,
+      generation_receipt_id: receiptId,
+      generation_binding_sha256: generationBindingSha256,
+      status: 'consumed',
+      recorded_at: existing.recorded_at,
+    } satisfies PersistedTypedUIProviderCompletionConsumption);
+    return existing;
+  }
   if (generationReceipts.some((record) => record.completed_route_receipt_id === completion.completion_receipt_id)) {
     throw new Error('attestation.provider_completion_consumed');
   }
@@ -615,9 +842,12 @@ export function appendTrustedTypedUIGenerationReceipt(
     source_message_id: value.source_message_id,
     created_at: value.created_at,
     content_sha256: value.content_sha256,
+    raw_content_sha256: value.raw_content_sha256,
+    tool_call_id_sha256: completion.tool_call_id_sha256,
     provider_sha256: completion.provider_sha256,
     model_sha256: completion.model_sha256,
-    request_id_sha256: completion.request_id_sha256,
+    provider_request_id_sha256: completion.provider_request_id_sha256,
+    request_id_sha256: sha256(value.artifact_id),
     route_receipt_sha256: completion.route_receipt_sha256,
     seat_id_sha256: completion.seat_id_sha256,
     seat_context_revision: completion.seat_context_revision,
@@ -625,6 +855,14 @@ export function appendTrustedTypedUIGenerationReceipt(
     recorded_at: (options.now || (() => new Date()))().toISOString(),
   };
   appendPrivateJsonLine(generationLedgerPath, record);
+  appendPrivateJsonLine(completionLedgerPath, {
+    version: TYPED_UI_PROVIDER_COMPLETION_CONSUMPTION_VERSION,
+    completion_receipt_id: completion.completion_receipt_id,
+    generation_receipt_id: receiptId,
+    generation_binding_sha256: generationBindingSha256,
+    status: 'consumed',
+    recorded_at: record.recorded_at,
+  } satisfies PersistedTypedUIProviderCompletionConsumption);
   return record;
 }
 
@@ -635,8 +873,8 @@ function generationMismatchReason(
 ): string | undefined {
   if (!record) return 'trusted_generation_receipt_missing';
   const { artifact, envelope } = request;
-  if (record.provider_sha256 !== sha256(envelope.provenance.provider)) return 'provider_mismatch';
-  if (record.model_sha256 !== sha256(envelope.provenance.model)) return 'model_mismatch';
+  if (envelope.provenance.provider !== TYPED_UI_HOST_PROVIDER_CLAIM) return 'provider_claim_unbound';
+  if (envelope.provenance.model !== TYPED_UI_HOST_MODEL_CLAIM) return 'model_claim_unbound';
   if (record.request_id_sha256 !== sha256(envelope.provenance.request_id)) return 'request_mismatch';
   if (record.content_sha256 !== hashTypedUIEnvelope(envelope)) return 'content_mismatch';
   if (record.seat_id_sha256 !== sha256(context.activeSeatId)) return 'seat_mismatch';
@@ -649,6 +887,30 @@ function generationMismatchReason(
     return 'generated_time_mismatch';
   }
   return undefined;
+}
+
+/**
+ * Main-only fast path for a previously completed durable join.
+ *
+ * Re-rendering or reopening an artifact must not depend on a second backend
+ * read once the immutable generation receipt already binds the exact content,
+ * artifact, conversation, source message, seat and revision.
+ */
+export function hasMatchingTrustedTypedUIGenerationReceipt(
+  generationLedgerPath: string,
+  value: unknown,
+  context: AttestationContext
+): boolean {
+  if (!safeId(context.activeSeatId) || !validRevision(context.seatContextRevision)) {
+    throw new Error('attestation.seat_context_invalid');
+  }
+  const request = validateAttestationRequest(value);
+  const matches = readGenerationReceipts(generationLedgerPath).filter(
+    (record) =>
+      record.artifact_id === request.artifact.artifact_id && record.conversation_id === request.artifact.conversation_id
+  );
+  if (matches.length > 1) throw new Error('attestation.generation_receipt_ambiguous');
+  return generationMismatchReason(request, matches[0], context) === undefined;
 }
 
 export function appendTypedUIProvenanceAttestation(
@@ -669,7 +931,9 @@ export function appendTypedUIProvenanceAttestation(
   );
   const reason = generationMismatchReason(request, generationRecord, context);
   const receiptSha256 = generationRecord?.route_receipt_sha256 ?? EMPTY_SHA256;
-  const identitySha256 = sha256(`${request.envelope.provenance.provider}\u0000${request.envelope.provenance.model}`);
+  const identitySha256 = generationRecord
+    ? sha256(`${generationRecord.provider_sha256}\u0000${generationRecord.model_sha256}`)
+    : EMPTY_SHA256;
   const requestIdSha256 = sha256(request.envelope.provenance.request_id);
   const actionBindings = buildTypedUIActionBindings(request.envelope, request.artifact);
   const actionSetSha256 = hashJson(actionBindings);

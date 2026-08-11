@@ -3679,6 +3679,7 @@ export type IGeneratedConversationArtifact = IConversationArtifactBase<
     model?: string;
     artifact_id?: string;
     request_id?: string;
+    source_message_id?: string;
     source_tool?: string;
     receipt_path?: string;
     receipt?: Record<string, unknown>;

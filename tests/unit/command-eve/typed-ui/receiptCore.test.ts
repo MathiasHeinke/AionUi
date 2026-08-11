@@ -5,6 +5,7 @@
  */
 
 import {
+  bindTypedUIEnvelopeToArtifact,
   TYPED_UI_ACTION_AUTHORIZATION_VERSION,
   TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
   type TypedUIActionAuthorizeRequest,
@@ -40,17 +41,32 @@ const ACTIVE_SEAT_ID = 'seat-receipt';
 const SEAT_CONTEXT_REVISION = 17;
 
 function createEvidence(directory: string) {
-  const envelope = typedUIFixture();
+  const rawEnvelope = typedUIFixture();
+  const artifact = {
+    artifact_id: TYPED_UI_TEST_RECEIPT_CONTEXT.artifactId,
+    conversation_id: TYPED_UI_TEST_RECEIPT_CONTEXT.conversationId,
+    source_message_id: TYPED_UI_TEST_RECEIPT_CONTEXT.sourceMessageId,
+    created_at: Date.parse(rawEnvelope.provenance.generated_at),
+  };
+  const envelope = bindTypedUIEnvelopeToArtifact(rawEnvelope, artifact);
   const completionLedgerPath = path.join(directory, 'audit', 'provider-completions.jsonl');
   const generationLedgerPath = path.join(directory, 'audit', 'generation.jsonl');
   const attestationAuditPath = path.join(directory, 'audit', 'attestation.jsonl');
   const completion = appendMainOwnedTypedUIProviderCompletionReceipt(completionLedgerPath, {
     version: TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION,
     session_id: 'session-receipt',
-    provider: envelope.provenance.provider,
-    model: envelope.provenance.model,
-    request_id: envelope.provenance.request_id,
-    route_receipt: { receipt_id: 'route-receipt', route: 'provider-neutral', status: 'completed' },
+    provider: 'actual-provider',
+    model: 'actual-model',
+    provider_request_id: 'provider-request',
+    tool_call_id: 'call-receipt',
+    raw_content_sha256: hashTypedUIEnvelope(rawEnvelope),
+    route_receipt: {
+      receipt_id: 'route-receipt',
+      route: 'provider-neutral',
+      status: 'completed',
+      terminal: 'openai_json',
+      http_status: 200,
+    },
     seat_id: ACTIVE_SEAT_ID,
     seat_context_revision: SEAT_CONTEXT_REVISION,
     completed_at: envelope.provenance.generated_at,
@@ -58,11 +74,10 @@ function createEvidence(directory: string) {
   appendTrustedTypedUIGenerationReceipt(generationLedgerPath, completionLedgerPath, {
     version: TYPED_UI_GENERATION_RECEIPT_VERSION,
     completed_route_receipt_id: completion.completion_receipt_id,
-    artifact_id: TYPED_UI_TEST_RECEIPT_CONTEXT.artifactId,
-    conversation_id: TYPED_UI_TEST_RECEIPT_CONTEXT.conversationId,
-    source_message_id: TYPED_UI_TEST_RECEIPT_CONTEXT.sourceMessageId,
-    created_at: Date.parse(envelope.provenance.generated_at),
+    ...artifact,
     content_sha256: hashTypedUIEnvelope(envelope),
+    tool_call_id: 'call-receipt',
+    raw_content_sha256: hashTypedUIEnvelope(rawEnvelope),
   });
   const attestation = appendTypedUIProvenanceAttestation(
     attestationAuditPath,
@@ -70,12 +85,7 @@ function createEvidence(directory: string) {
     {
       version: TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
       envelope,
-      artifact: {
-        artifact_id: TYPED_UI_TEST_RECEIPT_CONTEXT.artifactId,
-        conversation_id: TYPED_UI_TEST_RECEIPT_CONTEXT.conversationId,
-        source_message_id: TYPED_UI_TEST_RECEIPT_CONTEXT.sourceMessageId,
-        created_at: Date.parse(envelope.provenance.generated_at),
-      },
+      artifact,
     },
     { activeSeatId: ACTIVE_SEAT_ID, seatContextRevision: SEAT_CONTEXT_REVISION }
   );

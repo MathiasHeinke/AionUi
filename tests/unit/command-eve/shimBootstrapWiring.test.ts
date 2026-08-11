@@ -93,6 +93,30 @@ describe('production bootstrap wiring — the EVE routing resolver is INSTALLED,
     expect(unwired, 'shim start sites missing eveRouting').toEqual([]);
   });
 
+  it('EVERY shim start site installs the Main-owned Typed UI completion producer', () => {
+    const sites = shimStartCallSites();
+    const unwired = sites
+      .map((site, index) => ({
+        index,
+        hasSeatSnapshot:
+          /activeSeatContext:\s*\(\)\s*=>\s*\(\{[\s\S]*?getActiveSeatId\(\)[\s\S]*?getActiveSeatContextRevision\(\)/.test(
+            site.options
+          ),
+        hasProducer: /typedUIProviderCompletion:\s*recordCommandEveTypedUIProviderCompletion/.test(site.options),
+      }))
+      .filter((site) => !site.hasSeatSnapshot || !site.hasProducer)
+      .map((site) => `site #${site.index}`);
+    expect(unwired, 'shim start sites missing Typed UI producer or immutable seat snapshot').toEqual([]);
+
+    const src = stripComments(INDEX_TS);
+    const producer = src.slice(
+      src.indexOf('function recordCommandEveTypedUIProviderCompletion'),
+      src.indexOf('function buildCommandEveShimRoutingResolver')
+    );
+    expect(producer).toMatch(/appendMainOwnedTypedUIProviderCompletionReceipt\(/);
+    expect(producer).toMatch(/commandEveTypedUIProviderCompletionReceiptPath\(paths\.runtimeRoot\)/);
+  });
+
   it('the NORMAL STARTUP BOOTSTRAP (the unguarded one) installs it', () => {
     // The two IPC-provider sites are lazy: `commandEveOllamaShimUrl || (await
     // start...)`. The bootstrap is the one with NO such guard — it is the call the

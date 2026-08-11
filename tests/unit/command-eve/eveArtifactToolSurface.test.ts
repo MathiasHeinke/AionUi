@@ -40,6 +40,7 @@ import {
   EVE_ARTIFACT_TOOL_ARTIFACT_GET,
   EVE_ARTIFACT_TOOL_ARTIFACT_LIST,
   EVE_ARTIFACT_TOOL_IMAGE_EDIT,
+  EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH,
   EVE_ARTIFACT_TOOL_VIDEO_EDIT,
   isToolAdvertised,
 } from '@/process/resources/builtinMcp/eveArtifactToolSurface';
@@ -53,8 +54,12 @@ const REPO_ROOT = path.resolve(__dirname, '../../..');
 const names = (env: NodeJS.ProcessEnv) => buildEveArtifactToolSurface(env).map((tool) => tool.name);
 
 describe('the MCP tool list is gated on the SAME flag as the envelope', () => {
-  it('advertises only the free read tools when the flag is absent', () => {
-    expect(names({})).toEqual([EVE_ARTIFACT_TOOL_ARTIFACT_GET, EVE_ARTIFACT_TOOL_ARTIFACT_LIST]);
+  it('advertises only the free read/publish tools when the flag is absent', () => {
+    expect(names({})).toEqual([
+      EVE_ARTIFACT_TOOL_ARTIFACT_GET,
+      EVE_ARTIFACT_TOOL_ARTIFACT_LIST,
+      EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH,
+    ]);
     expect(names({})).not.toContain(EVE_ARTIFACT_TOOL_VIDEO_EDIT);
   });
 
@@ -75,6 +80,7 @@ describe('the MCP tool list is gated on the SAME flag as the envelope', () => {
     for (const env of [{}, { [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' }]) {
       expect(isToolAdvertised(buildEveArtifactToolSurface(env), EVE_ARTIFACT_TOOL_ARTIFACT_GET)).toBe(true);
       expect(isToolAdvertised(buildEveArtifactToolSurface(env), EVE_ARTIFACT_TOOL_ARTIFACT_LIST)).toBe(true);
+      expect(isToolAdvertised(buildEveArtifactToolSurface(env), EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH)).toBe(true);
     }
   });
 
@@ -86,7 +92,11 @@ describe('the MCP tool list is gated on the SAME flag as the envelope', () => {
 
   it('1.820.3 — the IMAGE tool has its OWN carrier: each medium advertises independently', () => {
     // Neither flag: free surface only.
-    expect(names({})).toEqual([EVE_ARTIFACT_TOOL_ARTIFACT_GET, EVE_ARTIFACT_TOOL_ARTIFACT_LIST]);
+    expect(names({})).toEqual([
+      EVE_ARTIFACT_TOOL_ARTIFACT_GET,
+      EVE_ARTIFACT_TOOL_ARTIFACT_LIST,
+      EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH,
+    ]);
     // Image only: the image tool appears, the video tool does not.
     const imageOnly = names({ [COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]: '1' });
     expect(imageOnly).toContain(EVE_ARTIFACT_TOOL_IMAGE_EDIT);
@@ -100,6 +110,7 @@ describe('the MCP tool list is gated on the SAME flag as the envelope', () => {
     expect(both).toEqual([
       EVE_ARTIFACT_TOOL_ARTIFACT_GET,
       EVE_ARTIFACT_TOOL_ARTIFACT_LIST,
+      EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH,
       EVE_ARTIFACT_TOOL_VIDEO_EDIT,
       EVE_ARTIFACT_TOOL_IMAGE_EDIT,
     ]);
