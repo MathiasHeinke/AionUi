@@ -62,6 +62,7 @@ let sourcePath: string;
 
 const SOURCE_BYTES = Buffer.from('the founders five second aubergine clip');
 const SOURCE_SHA = crypto.createHash('sha256').update(SOURCE_BYTES).digest('hex');
+const ACTIVE_SEED_ID = 'a2000000-0000-4000-8000-000000000001';
 
 const editedBody = {
   ok: true,
@@ -198,11 +199,12 @@ describe('an edit reaches the gateway from a handle AND a live permit', () => {
       // ACCEPTANCE 3: the caller names NO video keyword, no filename and no
       // artifact id — only the two credentials it read out of its own envelope.
       { handle, permit, instruction: 'gib der Aubergine ein Gesicht' },
-      deps(fetchImpl)
+      deps(fetchImpl, { getActiveSeatId: () => ACTIVE_SEED_ID })
     );
 
     expect(result.ok).toBe(true);
     expect(sentAuth).toBe('Bearer ceve-wire-token');
+    expect(sentBody?.seat_id).toBe(ACTIVE_SEED_ID);
     expect(sentBody?.capability).toBe('video_edit');
     const edit = sentBody?.video_edit as Record<string, unknown>;
     // The tier is INHERITED from the source record, never chosen by the caller.

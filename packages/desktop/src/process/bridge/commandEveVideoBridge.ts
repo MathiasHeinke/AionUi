@@ -18,7 +18,7 @@
 
 import crypto, { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import { EVE_MULTIMODAL_FUNCTION_URL } from '@/common/config/eveMultimodalGatewayCore';
+import { commandEveMediaSeedAttribution, EVE_MULTIMODAL_FUNCTION_URL } from '@/common/config/eveMultimodalGatewayCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { getDataPath } from '@process/utils/utils';
 import { areCommandEveFileSelectionPathsGranted } from '@process/commandEve/fileSelectionGrantCore';
@@ -379,15 +379,18 @@ export async function handleCommandEveVideoGenerate(
         ? { kind: 'reference', referenceImages: assets, presetVoiceIds: pathMode.presetVoiceIds }
         : { kind: 'text' };
 
-  const body = buildVideoGenerationBody({
-    prompt: request.prompt.trim(),
-    tierId: request.tierId,
-    ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
-    ...(request.resolution === undefined ? {} : { resolution: request.resolution }),
-    durationSeconds: request.durationSeconds,
-    mode: wireMode,
-    requestId: deps.newRequestId(),
-  });
+  const body = {
+    ...buildVideoGenerationBody({
+      prompt: request.prompt.trim(),
+      tierId: request.tierId,
+      ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
+      ...(request.resolution === undefined ? {} : { resolution: request.resolution }),
+      durationSeconds: request.durationSeconds,
+      mode: wireMode,
+      requestId: deps.newRequestId(),
+    }),
+    ...commandEveMediaSeedAttribution(deps.getActiveSeatId()),
+  };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VIDEO_REQUEST_TIMEOUT_MS);
@@ -1556,22 +1559,25 @@ export async function handleCommandEveVideoEdit(
       .update(buildVideoEditRequestIdMaterial({ promptSha256, tierId, sourceSha256: observedArtifactSha256 }))
       .digest('hex');
 
-    const body = buildVideoEditBody(
-      {
-        prompt: instruction,
-        tierId,
-        sourceBase64: Buffer.from(sourceBytes).toString('base64'),
-        sourceSha256: observedArtifactSha256,
-        // PROVIDER-REPORTED, never measured from the file. See the honesty note
-        // on `MAX_VIDEO_EDIT_SOURCE_SECONDS` — the desktop pins the BYTES with a
-        // hash but takes the LENGTH on the record's word, so a record claiming
-        // 5s for a 12s clip would pass the ceiling and misprice the preview. The
-        // gateway re-derives the charge, so the money is right; the local
-        // estimate is the part that can be wrong.
-        sourceDurationSeconds: sourcePayload.duration_seconds,
-      },
-      requestId
-    );
+    const body = {
+      ...buildVideoEditBody(
+        {
+          prompt: instruction,
+          tierId,
+          sourceBase64: Buffer.from(sourceBytes).toString('base64'),
+          sourceSha256: observedArtifactSha256,
+          // PROVIDER-REPORTED, never measured from the file. See the honesty note
+          // on `MAX_VIDEO_EDIT_SOURCE_SECONDS` — the desktop pins the BYTES with a
+          // hash but takes the LENGTH on the record's word, so a record claiming
+          // 5s for a 12s clip would pass the ceiling and misprice the preview. The
+          // gateway re-derives the charge, so the money is right; the local
+          // estimate is the part that can be wrong.
+          sourceDurationSeconds: sourcePayload.duration_seconds,
+        },
+        requestId
+      ),
+      ...commandEveMediaSeedAttribution(deps.getActiveSeatId()),
+    };
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), VIDEO_REQUEST_TIMEOUT_MS);

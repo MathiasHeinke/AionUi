@@ -122,6 +122,7 @@ import {
 } from '@/common/config/creditsCore';
 import {
   buildCommandEveMultimodalTtsRequest,
+  commandEveMediaSeedAttribution,
   commandEveMultimodalTtsFailure,
   COMMAND_EVE_MULTIMODAL_TTS_CONSENT_GET_CHANNEL,
   COMMAND_EVE_MULTIMODAL_TTS_CONSENT_SET_CHANNEL,
@@ -2067,7 +2068,7 @@ export function initCommandEveBridge(): void {
             },
             redirect: 'error',
             cache: 'no-store',
-            body: JSON.stringify(built.body),
+            body: JSON.stringify({ ...built.body, ...commandEveMediaSeedAttribution(getActiveSeatId()) }),
             signal: controller.signal,
           });
           const responseText = await readCommandEveLimitedResponseText(
@@ -2246,7 +2247,7 @@ export function initCommandEveBridge(): void {
               },
               redirect: 'error',
               cache: 'no-store',
-              body: JSON.stringify(built.body),
+              body: JSON.stringify({ ...built.body, ...commandEveMediaSeedAttribution(getActiveSeatId()) }),
               signal: controller.signal,
             });
             const responseText = await readCommandEveLimitedResponseText(

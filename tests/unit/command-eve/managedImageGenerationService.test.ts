@@ -84,6 +84,7 @@ function imageLaneSeams(overrides: Record<string, unknown> = {}) {
 }
 
 const prompt = 'Create one cinematic but credible 16:9 presentation direction.';
+const ACTIVE_SEED_ID = 'a2000000-0000-4000-8000-000000000001';
 const referenceBytes = Buffer.from('reference-image');
 const referenceBase64 = referenceBytes.toString('base64');
 const outputBytes = Buffer.from('generated-image');
@@ -152,6 +153,7 @@ describe('managed image generation main-process service', () => {
     const result = await executeCommandEveManagedImageGeneration(request(), {
       fetchFn: fetchFn as typeof fetch,
       dataPath: '/tmp/eve-managed-image-test',
+      getActiveSeatId: () => ACTIVE_SEED_ID,
       ...imageLaneSeams(),
     });
 
@@ -195,6 +197,7 @@ describe('managed image generation main-process service', () => {
       // shim-facing `model` stays command-eve-visual-direction-v1, and the
       // slug never travels — the server owns tier → slug.
       image_model: 'quality',
+      seat_id: ACTIVE_SEED_ID,
     });
     expect(String(body.image_model)).not.toContain('/');
     expect(JSON.stringify(init)).not.toContain('OPENROUTER_API_KEY');

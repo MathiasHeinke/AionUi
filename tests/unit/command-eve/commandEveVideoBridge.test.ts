@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const readLicenseWireMock = vi.fn();
+const ACTIVE_SEED_ID = 'a2000000-0000-4000-8000-000000000001';
 vi.mock('@/common/config/licenseWireAtRest', () => ({
   readLicenseWire: (...args: unknown[]) => readLicenseWireMock(...args),
 }));
@@ -93,11 +94,12 @@ describe('handleCommandEveVideoGenerate', () => {
 
     const result = await handleCommandEveVideoGenerate(
       { prompt: 'ein Produktclip', tierId: 'fast', durationSeconds: 5 },
-      deps(fetchMock as unknown as typeof fetch)
+      deps(fetchMock as unknown as typeof fetch, { getActiveSeatId: () => ACTIVE_SEED_ID })
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(sentAuth).toBe('Bearer ceve-wire-token');
+    expect(sentBody.seat_id).toBe(ACTIVE_SEED_ID);
     expect((sentBody.video_generation as Record<string, unknown>).tier).toBe('fast');
     expect(result.ok).toBe(true);
     if (!result.ok) return;

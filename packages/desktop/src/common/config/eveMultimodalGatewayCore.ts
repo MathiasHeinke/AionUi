@@ -21,6 +21,20 @@
 
 export const EVE_MULTIMODAL_FUNCTION_URL = 'https://unvbeothoimlzlolxucl.supabase.co/functions/v1/eve-multimodal';
 
+const COMMAND_EVE_MEDIA_SEED_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Add the active Seed as attribution to a managed-media request only when it is
+ * a canonical server Seed UUID. Legacy `seat-1`, safe local slugs and malformed
+ * values are omitted: the server may then use the verified licence Seed, but a
+ * client value can never select the Account payer.
+ */
+export function commandEveMediaSeedAttribution(activeSeatId: unknown): { seat_id?: string } {
+  if (typeof activeSeatId !== 'string' || activeSeatId !== activeSeatId.trim()) return {};
+  const candidate = activeSeatId.toLowerCase();
+  return COMMAND_EVE_MEDIA_SEED_ID_RE.test(candidate) ? { seat_id: candidate } : {};
+}
+
 export type CommandEveMultimodalProvider = 'xai' | 'openrouter';
 
 export type CommandEveMultimodalCapability =
