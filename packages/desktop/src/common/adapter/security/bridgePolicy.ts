@@ -6,6 +6,8 @@
 
 import path from 'node:path';
 
+import { validateEveExternalActionProposal } from '@/common/config/eveExternalActionExecutionCore';
+import { validateEveExternalActionPolicyMutation } from '@/common/config/eveExternalActionPolicyCore';
 import {
   CUSTOMER_DEFAULT_KANBAN_PROVIDER_KEYS,
   FOUNDER_ONLY_PROVIDER_KEYS,
@@ -151,6 +153,41 @@ function assertHighRiskProviderPayload(providerKey: RendererProviderKey, payload
       return;
     case 'command-eve.kanban-acp-apply':
       assertExactStringPayload(payload, ['intent_id', 'mutation_hash']);
+      return;
+    case 'command-eve.external-action-execute': {
+      const parsed = validateEveExternalActionProposal(payload);
+      if ('reasonCode' in parsed) throw new Error('Invalid external-action execution payload.');
+      return;
+    }
+    case 'command-eve.external-action-policy-set': {
+      const allowedKeys = new Set(['context_token', 'mutation']);
+      if (!hasOnlyKeys(payload, allowedKeys) || Object.keys(payload).length !== allowedKeys.size) {
+        throw new Error('Invalid external-action policy mutation keys.');
+      }
+      if (!/^policy-context:v1:[a-f0-9]{64}$/.test(String(payload.context_token))) {
+        throw new Error('Invalid external-action policy context.');
+      }
+      const parsed = validateEveExternalActionPolicyMutation(payload.mutation);
+      if ('reasonCode' in parsed) throw new Error('Invalid external-action policy mutation.');
+      return;
+    }
+    case 'command-eve.external-action-policy-kill': {
+      const allowedKeys = new Set(['context_token', 'enabled']);
+      if (
+        !hasOnlyKeys(payload, allowedKeys) ||
+        Object.keys(payload).length !== allowedKeys.size ||
+        !/^policy-context:v1:[a-f0-9]{64}$/.test(String(payload.context_token)) ||
+        typeof payload.enabled !== 'boolean'
+      ) {
+        throw new Error('Invalid external-action kill-switch mutation.');
+      }
+      return;
+    }
+    case 'command-eve.external-action-policy-revoke':
+      assertExactStringPayload(payload, ['context_token']);
+      if (!/^policy-context:v1:[a-f0-9]{64}$/.test(String(payload.context_token))) {
+        throw new Error('Invalid external-action policy context.');
+      }
       return;
     case 'command-eve.cloud-visual-policy-receipt': {
       assertExactStringPayload(payload, ['flowId']);

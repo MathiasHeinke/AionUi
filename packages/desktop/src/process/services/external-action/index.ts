@@ -41,6 +41,12 @@ export function closeExternalActionStoresForTests(): void {
 
 export { ExternalActionStore } from './externalActionStore';
 export { ExternalSecretUseBroker } from './secretUseBroker';
+export { ExternalActionExecutionService } from './externalActionExecutionService';
+export { externalActionBrowserPartition } from './browserProfileScope';
+export { NativeSecretMaterialResolver, registerHermesSecretSourceReadPort } from './nativeSecretMaterialResolver';
+export { resolveExternalActionBinding } from './bindingResolver';
+export { signExternalActionPolicyContext, verifyExternalActionPolicyContext } from './policyContextToken';
+export type { ExternalActionBindingResolution, ExternalActionBindingResolverDeps } from './bindingResolver';
 export type {
   ExternalActionClaimInput,
   ExternalActionClaimResult,
@@ -50,8 +56,20 @@ export type {
   ExternalActionStoreDeps,
   ExternalActionTerminalInput,
   ExternalSecretHandleInput,
+  ExternalSecretHandleAccess,
   ExternalSecretHandleRecord,
+  ExternalSecretShareGrantInput,
 } from './externalActionStore';
+export type {
+  ExternalActionAdapter,
+  ExternalActionAdapterContext,
+  ExternalActionAdapterOutcome,
+  ExternalActionAuthorityResolution,
+  ExternalActionExecutionDeps,
+  ExternalActionAuthMode,
+  ExternalActionAuthProbe,
+} from './externalActionExecutionService';
+export type { HermesSecretSourceReadPort, HermesSecretSourceReadRequest } from './nativeSecretMaterialResolver';
 export type {
   ExternalSecretUseRequest,
   ExternalSecretUseResult,

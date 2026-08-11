@@ -10,8 +10,10 @@ import {
   EVE_EXTERNAL_ACTION_POLICY_VERSION,
   isEveExternalActionKind,
   isEveOpaqueId,
+  isEveSecretHandleSource,
+  isEveSecretHandleType,
   isEveSha256Digest,
-  normalizeEveExternalDomain,
+  normalizeEveExternalOrigin,
   validateEveExternalActionPolicyMutation,
   type EveExternalActionBinding,
   type EveExternalActionKind,
@@ -25,17 +27,12 @@ import {
 } from '@/common/config/eveExternalActionPolicyCore';
 import type { ISqliteDriver } from '@process/services/database/drivers/ISqliteDriver';
 
-const SCHEMA_VERSION = 'command-eve-external-action-ledger/v0';
-const ACTIVE_BUDGET_STATES: readonly EveExternalActionLedgerState[] = ['reserved', 'claimed', 'allowed', 'unknown'];
-const SOURCE_REF_PREFIXES = ['keychain:v1:', 'secret-source:v1:'] as const;
+const SCHEMA_VERSION = 'command-eve-external-action-ledger/v1';
+const ACTIVE_BUDGET_STATES = new Set<EveExternalActionLedgerState>(['reserved', 'claimed', 'allowed', 'unknown']);
+const LEDGER_STATES = new Set<EveExternalActionLedgerState>(['reserved', 'claimed', 'allowed', 'reversed', 'unknown']);
+const KEYCHAIN_REF_PREFIX = 'keychain:v1:';
+const SECRET_SOURCE_REF_PREFIX = 'secret-source:v1:';
 const MONEY_ACTIONS = new Set<EveExternalActionKind>(['purchase', 'recurring_payment']);
-const DOMAIN_ACTIONS = new Set<EveExternalActionKind>([
-  'account_create',
-  'software_install',
-  'purchase',
-  'recurring_payment',
-  'browser_submit',
-]);
 
 export interface ExternalActionStoreDeps {
   now?: () => Date;
@@ -51,7 +48,7 @@ export interface ExternalActionReserveInput {
   classificationDigest: string;
   riskClass: EveExternalActionRiskClass;
   actionKind: EveExternalActionKind;
-  domain?: string;
+  targetOrigin: string;
   intentId: string;
   requestId: string;
   operationDigest: string;
@@ -107,6 +104,9 @@ export interface ExternalActionLedgerRecord {
   currency: string;
   claimId?: string;
   secretUseConsumed: boolean;
+  actionKind: EveExternalActionKind;
+  targetOrigin: string;
+  expiresAt: string;
 }
 
 export interface ExternalSecretHandleInput {
@@ -116,12 +116,26 @@ export interface ExternalSecretHandleInput {
   source: EveSecretHandleSource;
   sourceRef: string;
   actionKinds: readonly EveExternalActionKind[];
-  domains: readonly string[];
+  targetOrigins: readonly string[];
   expiresAt: string;
 }
 
 export interface ExternalSecretHandleRecord extends ExternalSecretHandleInput {
   revokedAt?: string;
+}
+
+export interface ExternalSecretHandleAccess extends ExternalSecretHandleRecord {
+  accessGrantId?: string;
+}
+
+export interface ExternalSecretShareGrantInput {
+  ownerBinding: EveExternalActionBinding;
+  granteeBinding: EveExternalActionBinding;
+  grantId: string;
+  handleId: string;
+  actionKind: EveExternalActionKind;
+  targetOrigin: string;
+  expiresAt: string;
 }
 
 type PolicyRow = {
@@ -161,6 +175,9 @@ type LedgerRow = {
   currency: string;
   claim_id: string | null;
   secret_use_consumed: number;
+  action_kind: EveExternalActionKind;
+  domain: string;
+  expires_at: string;
 };
 
 type SecretHandleRow = {
@@ -177,6 +194,21 @@ type SecretHandleRow = {
   revoked_at: string | null;
 };
 
+type SecretShareGrantRow = {
+  grant_id: string;
+  owner_installation_id: string;
+  owner_account_id: string;
+  owner_seed_id: string;
+  grantee_installation_id: string;
+  grantee_account_id: string;
+  grantee_seed_id: string;
+  handle_id: string;
+  action_kind: EveExternalActionKind;
+  target_origin: string;
+  expires_at: string;
+  revoked_at: string | null;
+};
+
 function bindingArgs(binding: EveExternalActionBinding): readonly string[] {
   return [binding.installationId, binding.accountId, binding.seedId];
 }
@@ -185,7 +217,8 @@ function validBinding(binding: EveExternalActionBinding): boolean {
   return isEveOpaqueId(binding.installationId) && isEveOpaqueId(binding.accountId) && isEveOpaqueId(binding.seedId);
 }
 
-function parseStringArray(value: string): string[] | null {
+function parseStringArray(value: unknown): string[] | null {
+  if (typeof value !== 'string') return null;
   try {
     const parsed: unknown = JSON.parse(value);
     return Array.isArray(parsed) && parsed.every((entry) => typeof entry === 'string') ? parsed : null;
@@ -196,9 +229,37 @@ function parseStringArray(value: string): string[] | null {
 
 function policyFromRow(row: PolicyRow | undefined): EveExternalActionPolicy | null {
   if (!row) return null;
-  const allowedDomains = parseStringArray(row.allowed_domains_json);
+  const allowedOrigins = parseStringArray(row.allowed_domains_json);
   const rawKinds = parseStringArray(row.allowed_action_kinds_json);
-  if (!allowedDomains || !rawKinds || !rawKinds.every(isEveExternalActionKind)) return null;
+  if (
+    !validBinding({ installationId: row.installation_id, accountId: row.account_id, seedId: row.seed_id }) ||
+    !Number.isSafeInteger(row.revision) ||
+    row.revision < 1 ||
+    !Number.isSafeInteger(row.session_epoch) ||
+    row.session_epoch < 1 ||
+    !/^[A-Z]{3}$/.test(row.currency) ||
+    !Number.isSafeInteger(row.per_action_limit_minor) ||
+    !Number.isSafeInteger(row.daily_limit_minor) ||
+    !Number.isSafeInteger(row.monthly_limit_minor) ||
+    row.per_action_limit_minor < 0 ||
+    row.daily_limit_minor < row.per_action_limit_minor ||
+    row.monthly_limit_minor < row.daily_limit_minor ||
+    typeof row.timezone !== 'string' ||
+    !zonedPeriodKeys(new Date(), row.timezone) ||
+    typeof row.expires_at !== 'string' ||
+    !Number.isFinite(Date.parse(row.expires_at)) ||
+    (row.kill_switch !== 0 && row.kill_switch !== 1) ||
+    (row.revoked_at !== null && (typeof row.revoked_at !== 'string' || !Number.isFinite(Date.parse(row.revoked_at)))) ||
+    typeof row.updated_at !== 'string' ||
+    !Number.isFinite(Date.parse(row.updated_at)) ||
+    !allowedOrigins ||
+    allowedOrigins.length === 0 ||
+    !allowedOrigins.every((origin) => normalizeEveExternalOrigin(origin) === origin) ||
+    !rawKinds ||
+    rawKinds.length === 0 ||
+    !rawKinds.every(isEveExternalActionKind)
+  )
+    return null;
   return {
     version: EVE_EXTERNAL_ACTION_POLICY_VERSION,
     binding: {
@@ -213,7 +274,7 @@ function policyFromRow(row: PolicyRow | undefined): EveExternalActionPolicy | nu
     perActionLimitMinor: row.per_action_limit_minor,
     dailyLimitMinor: row.daily_limit_minor,
     monthlyLimitMinor: row.monthly_limit_minor,
-    allowedDomains,
+    allowedOrigins,
     allowedActionKinds: rawKinds as EveExternalActionKind[],
     expiresAt: row.expires_at,
     killSwitch: row.kill_switch === 1,
@@ -224,6 +285,35 @@ function policyFromRow(row: PolicyRow | undefined): EveExternalActionPolicy | nu
 
 function ledgerFromRow(row: LedgerRow | undefined): ExternalActionLedgerRecord | null {
   if (!row) return null;
+  if (
+    !validBinding({ installationId: row.installation_id, accountId: row.account_id, seedId: row.seed_id }) ||
+    !isEveOpaqueId(row.reservation_id) ||
+    !LEDGER_STATES.has(row.state) ||
+    !isEveOpaqueId(row.intent_id) ||
+    !isEveOpaqueId(row.request_id) ||
+    !isEveSha256Digest(row.operation_digest) ||
+    !isEveSha256Digest(row.idempotency_key_digest) ||
+    !isEveSha256Digest(row.execution_contract_digest) ||
+    (row.quote_digest !== null && !isEveSha256Digest(row.quote_digest)) ||
+    !Number.isSafeInteger(row.policy_revision) ||
+    row.policy_revision < 1 ||
+    !Number.isSafeInteger(row.session_epoch) ||
+    row.session_epoch < 1 ||
+    !Number.isSafeInteger(row.amount_minor) ||
+    row.amount_minor < 0 ||
+    typeof row.currency !== 'string' ||
+    !/^(?:[A-Z]{3}|NONE)$/.test(row.currency) ||
+    !isEveExternalActionKind(row.action_kind) ||
+    typeof row.domain !== 'string' ||
+    normalizeEveExternalOrigin(row.domain) !== row.domain ||
+    typeof row.expires_at !== 'string' ||
+    !Number.isFinite(Date.parse(row.expires_at)) ||
+    (row.claim_id !== null && !isEveOpaqueId(row.claim_id)) ||
+    (row.secret_use_consumed !== 0 && row.secret_use_consumed !== 1) ||
+    (['claimed', 'allowed', 'unknown'].includes(row.state) && row.claim_id === null) ||
+    (row.secret_use_consumed === 1 && row.claim_id === null)
+  )
+    return null;
   return {
     reservationId: row.reservation_id,
     state: row.state,
@@ -244,6 +334,9 @@ function ledgerFromRow(row: LedgerRow | undefined): ExternalActionLedgerRecord |
     currency: row.currency,
     ...(row.claim_id ? { claimId: row.claim_id } : {}),
     secretUseConsumed: row.secret_use_consumed === 1,
+    actionKind: row.action_kind,
+    targetOrigin: row.domain,
+    expiresAt: row.expires_at,
   };
 }
 
@@ -264,9 +357,26 @@ function zonedPeriodKeys(now: Date, timezone: string): { dayId: string; monthId:
 }
 
 function validSourceRef(source: EveSecretHandleSource, sourceRef: unknown): sourceRef is string {
-  if (typeof sourceRef !== 'string' || sourceRef.length > 8192) return false;
-  if (source === 'eve_keychain') return sourceRef.startsWith(SOURCE_REF_PREFIXES[0]);
-  return sourceRef.startsWith(SOURCE_REF_PREFIXES[1]);
+  if (typeof sourceRef !== 'string' || sourceRef.length > 512) return false;
+  if (source === 'eve_keychain') {
+    if (!sourceRef.startsWith(KEYCHAIN_REF_PREFIX)) return false;
+    const encoded = sourceRef.slice(KEYCHAIN_REF_PREFIX.length);
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) return false;
+    const decoded = Buffer.from(encoded, 'base64');
+    return decoded.byteLength >= 8 && decoded.toString('base64') === encoded;
+  }
+  const provider = source.slice('hermes_'.length);
+  const expected = `${SECRET_SOURCE_REF_PREFIX}${provider}:`;
+  const alias = sourceRef.startsWith(expected) ? sourceRef.slice(expected.length) : '';
+  return isEveOpaqueId(alias);
+}
+
+function handleTypeAllowsSource(type: EveSecretHandleType, source: EveSecretHandleSource): boolean {
+  if (source === 'eve_keychain') return true;
+  // Hermes 0.19/0.20/current-main SecretSource is startup environment
+  // hydration. It is eligible only for service/API material, never identity,
+  // payment or password fill.
+  return type === 'service_credential' || type === 'oauth_token';
 }
 
 /**
@@ -343,7 +453,7 @@ export class ExternalActionStore {
         policy_revision INTEGER NOT NULL,
         session_epoch INTEGER NOT NULL,
         action_kind TEXT NOT NULL,
-        domain TEXT,
+        domain TEXT NOT NULL,
         amount_minor INTEGER NOT NULL,
         currency TEXT NOT NULL,
         day_id TEXT NOT NULL,
@@ -380,6 +490,26 @@ export class ExternalActionStore {
         created_at TEXT NOT NULL,
         PRIMARY KEY (installation_id, account_id, seed_id, handle_id)
       );
+      CREATE TABLE IF NOT EXISTS external_secret_share_grants (
+        grant_id TEXT PRIMARY KEY,
+        owner_installation_id TEXT NOT NULL,
+        owner_account_id TEXT NOT NULL,
+        owner_seed_id TEXT NOT NULL,
+        grantee_installation_id TEXT NOT NULL,
+        grantee_account_id TEXT NOT NULL,
+        grantee_seed_id TEXT NOT NULL,
+        handle_id TEXT NOT NULL,
+        action_kind TEXT NOT NULL,
+        target_origin TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE (
+          owner_installation_id, owner_account_id, owner_seed_id, handle_id,
+          grantee_installation_id, grantee_account_id, grantee_seed_id,
+          action_kind, target_origin
+        )
+      );
       CREATE TABLE IF NOT EXISTS external_action_audit (
         event_id TEXT PRIMARY KEY,
         installation_id TEXT NOT NULL,
@@ -397,7 +527,10 @@ export class ExternalActionStore {
     const row = this.db.prepare('SELECT installation_id FROM external_action_meta WHERE singleton = 1').get() as
       | { installation_id?: unknown }
       | undefined;
-    if (isEveOpaqueId(row?.installation_id)) return row.installation_id;
+    if (isEveOpaqueId(row?.installation_id)) {
+      this.db.prepare('UPDATE external_action_meta SET schema_version = ? WHERE singleton = 1').run(SCHEMA_VERSION);
+      return row.installation_id;
+    }
     const installationId = `install:${this.randomUUID()}`;
     this.db
       .prepare(
@@ -499,7 +632,7 @@ export class ExternalActionStore {
           validation.value.perActionLimitMinor,
           validation.value.dailyLimitMinor,
           validation.value.monthlyLimitMinor,
-          JSON.stringify(validation.value.allowedDomains),
+          JSON.stringify(validation.value.allowedOrigins),
           JSON.stringify(validation.value.allowedActionKinds),
           validation.value.expiresAt,
           updatedAt
@@ -524,6 +657,7 @@ export class ExternalActionStore {
   ): { ok: true; policy: EveExternalActionPolicy } | { ok: false; reasonCode: string } {
     const current = this.getPolicy(binding);
     if (!current) return { ok: false, reasonCode: 'EXTERNAL_POLICY_NOT_CONFIGURED' };
+    if (current.revokedAt && !enabled) return { ok: false, reasonCode: 'EXTERNAL_POLICY_REVOKED' };
     const transaction = this.db.transaction(() => {
       const revision = current.revision + 1;
       const sessionEpoch = current.sessionEpoch + 1;
@@ -573,6 +707,15 @@ export class ExternalActionStore {
            WHERE installation_id = ? AND account_id = ? AND seed_id = ? AND revoked_at IS NULL`
         )
         .run(nowIso, ...bindingArgs(binding));
+      this.db
+        .prepare(
+          `UPDATE external_secret_share_grants SET revoked_at = ?
+           WHERE revoked_at IS NULL AND (
+             (owner_installation_id = ? AND owner_account_id = ? AND owner_seed_id = ?) OR
+             (grantee_installation_id = ? AND grantee_account_id = ? AND grantee_seed_id = ?)
+           )`
+        )
+        .run(nowIso, ...bindingArgs(binding), ...bindingArgs(binding));
       this.audit(binding, 'policy.revoked', undefined, { revision, session_epoch: sessionEpoch });
       const policy = this.getPolicy(binding);
       if (!policy) throw new Error('EXTERNAL_POLICY_PERSIST_FAILED');
@@ -631,13 +774,10 @@ export class ExternalActionStore {
     if (!policy.allowedActionKinds.includes(input.actionKind)) {
       return { ok: false, reasonCode: 'EXTERNAL_ACTION_KIND_BLOCKED' };
     }
-    const domain = input.domain ? normalizeEveExternalDomain(input.domain) : null;
-    if (DOMAIN_ACTIONS.has(input.actionKind)) {
-      if (!domain || !policy.allowedDomains.includes(domain)) {
-        return { ok: false, reasonCode: 'EXTERNAL_DOMAIN_BLOCKED' };
-      }
-    } else if (input.domain && !domain) {
-      return { ok: false, reasonCode: 'EXTERNAL_DOMAIN_INVALID' };
+    const targetOrigin = normalizeEveExternalOrigin(input.targetOrigin);
+    if (!targetOrigin) return { ok: false, reasonCode: 'EXTERNAL_ORIGIN_INVALID' };
+    if (!policy.allowedOrigins.includes(targetOrigin)) {
+      return { ok: false, reasonCode: 'EXTERNAL_ORIGIN_BLOCKED' };
     }
     if (MONEY_ACTIONS.has(input.actionKind) && input.amountMinor <= 0) {
       return { ok: false, reasonCode: 'EXTERNAL_AMOUNT_REQUIRED' };
@@ -664,10 +804,12 @@ export class ExternalActionStore {
       if (replay) return replay;
       if (input.amountMinor > 0) {
         const dayTotal = this.budgetTotal(input.binding, input.currency, 'day_id', periods.dayId);
+        if (dayTotal === null) return { ok: false, reasonCode: 'EXTERNAL_BUDGET_LEDGER_INVALID' };
         if (dayTotal + input.amountMinor > policy.dailyLimitMinor) {
           return { ok: false, reasonCode: 'EXTERNAL_BUDGET_DAILY_EXCEEDED' };
         }
         const monthTotal = this.budgetTotal(input.binding, input.currency, 'month_id', periods.monthId);
+        if (monthTotal === null) return { ok: false, reasonCode: 'EXTERNAL_BUDGET_LEDGER_INVALID' };
         if (monthTotal + input.amountMinor > policy.monthlyLimitMinor) {
           return { ok: false, reasonCode: 'EXTERNAL_BUDGET_MONTHLY_EXCEEDED' };
         }
@@ -697,7 +839,7 @@ export class ExternalActionStore {
           input.policyRevision,
           input.sessionEpoch,
           input.actionKind,
-          domain,
+          targetOrigin,
           input.amountMinor,
           input.currency,
           periods.dayId,
@@ -729,6 +871,7 @@ export class ExternalActionStore {
       return 'EXTERNAL_POLICY_STALE';
     }
     if (!isEveExternalActionKind(input.actionKind)) return 'EXTERNAL_ACTION_KIND_INVALID';
+    if (!normalizeEveExternalOrigin(input.targetOrigin)) return 'EXTERNAL_ORIGIN_INVALID';
     if (
       !isEveOpaqueId(input.authorityGrantId) ||
       !isEveOpaqueId(input.intentId) ||
@@ -741,15 +884,17 @@ export class ExternalActionStore {
     ) {
       return 'EXTERNAL_INTENT_INVALID';
     }
-    if (MONEY_ACTIONS.has(input.actionKind) && !isEveSha256Digest(input.quoteDigest)) {
-      return 'EXTERNAL_QUOTE_REQUIRED';
-    }
+    const moneyAction = MONEY_ACTIONS.has(input.actionKind);
+    if (moneyAction && !isEveSha256Digest(input.quoteDigest)) return 'EXTERNAL_QUOTE_REQUIRED';
     if (
       !Number.isSafeInteger(input.amountMinor) ||
       input.amountMinor < 0 ||
       !/^(?:[A-Z]{3}|NONE)$/.test(input.currency)
     ) {
       return 'EXTERNAL_AMOUNT_INVALID';
+    }
+    if (!moneyAction && (input.amountMinor !== 0 || input.currency !== 'NONE' || input.quoteDigest !== undefined)) {
+      return 'EXTERNAL_AMOUNT_FORBIDDEN';
     }
     return null;
   }
@@ -778,6 +923,8 @@ export class ExternalActionStore {
       record.idempotencyKeyDigest === input.idempotencyKeyDigest &&
       record.executionContractDigest === input.executionContractDigest &&
       record.quoteDigest === input.quoteDigest &&
+      record.actionKind === input.actionKind &&
+      record.targetOrigin === input.targetOrigin &&
       record.amountMinor === input.amountMinor &&
       record.currency === input.currency;
     return exact
@@ -790,17 +937,32 @@ export class ExternalActionStore {
     currency: string,
     periodColumn: 'day_id' | 'month_id',
     period: string
-  ): number {
-    const states = ACTIVE_BUDGET_STATES.map(() => '?').join(', ');
-    const row = this.db
+  ): number | null {
+    const rows = this.db
       .prepare(
-        `SELECT COALESCE(SUM(amount_minor), 0) AS total
+        `SELECT state, amount_minor
          FROM external_action_reservations
          WHERE installation_id = ? AND account_id = ? AND seed_id = ? AND currency = ?
-           AND ${periodColumn} = ? AND state IN (${states})`
+           AND ${periodColumn} = ?`
       )
-      .get(...bindingArgs(binding), currency, period, ...ACTIVE_BUDGET_STATES) as { total?: unknown } | undefined;
-    return typeof row?.total === 'number' && Number.isSafeInteger(row.total) ? row.total : 0;
+      .all(...bindingArgs(binding), currency, period) as Array<{ state?: unknown; amount_minor?: unknown }>;
+    let total = 0;
+    for (const row of rows) {
+      if (!LEDGER_STATES.has(row.state as EveExternalActionLedgerState)) return null;
+      if (!Number.isSafeInteger(row.amount_minor) || (row.amount_minor as number) < 0) return null;
+      if (!ACTIVE_BUDGET_STATES.has(row.state as EveExternalActionLedgerState)) continue;
+      total += row.amount_minor as number;
+      if (!Number.isSafeInteger(total)) return null;
+    }
+    return total;
+  }
+
+  getBudgetUsedToday(binding: EveExternalActionBinding, currency: string): number {
+    const policy = this.getPolicy(binding);
+    if (!policy || policy.currency !== currency) return 0;
+    const periods = zonedPeriodKeys(this.now(), policy.timezone);
+    if (!periods) return 0;
+    return this.budgetTotal(binding, currency, 'day_id', periods.dayId) ?? Number.MAX_SAFE_INTEGER;
   }
 
   claim(input: ExternalActionClaimInput): ExternalActionClaimResult {
@@ -815,8 +977,11 @@ export class ExternalActionStore {
     }
     const transaction = this.db.transaction((): ExternalActionClaimResult => {
       const policy = this.getPolicy(input.binding);
-      if (!policy || policy.killSwitch || policy.revokedAt || Date.parse(policy.expiresAt) <= this.now().getTime()) {
-        return { ok: false, execute: false, reasonCode: 'EXTERNAL_POLICY_NOT_ACTIVE' };
+      if (!policy) return { ok: false, execute: false, reasonCode: 'EXTERNAL_POLICY_NOT_CONFIGURED' };
+      if (policy.revokedAt) return { ok: false, execute: false, reasonCode: 'EXTERNAL_POLICY_REVOKED' };
+      if (policy.killSwitch) return { ok: false, execute: false, reasonCode: 'EXTERNAL_POLICY_KILLED' };
+      if (Date.parse(policy.expiresAt) <= this.now().getTime()) {
+        return { ok: false, execute: false, reasonCode: 'EXTERNAL_POLICY_EXPIRED' };
       }
       if (policy.revision !== input.policyRevision || policy.sessionEpoch !== input.sessionEpoch) {
         return { ok: false, execute: false, reasonCode: 'EXTERNAL_POLICY_STALE' };
@@ -859,6 +1024,73 @@ export class ExternalActionStore {
       return transaction();
     } catch {
       return { ok: false, execute: false, reasonCode: 'EXTERNAL_CLAIM_FAILED' };
+    }
+  }
+
+  /**
+   * Final Main-side fence immediately before an adapter call. It re-reads the
+   * current policy and the exact claimed operation in one transaction; durable
+   * jobs and stale renderer requests never carry authority across a revoke,
+   * expiry, origin change or seat/policy switch.
+   */
+  private validateClaimForExecution(
+    binding: EveExternalActionBinding,
+    reservationId: string,
+    claimId: string,
+    actionKind: EveExternalActionKind,
+    origin: string
+  ): { ok: true } | { ok: false; reasonCode: string } {
+    const policy = this.getPolicy(binding);
+    if (!policy) return { ok: false, reasonCode: 'EXTERNAL_POLICY_NOT_CONFIGURED' };
+    if (policy.revokedAt) return { ok: false, reasonCode: 'EXTERNAL_POLICY_REVOKED' };
+    if (policy.killSwitch) return { ok: false, reasonCode: 'EXTERNAL_POLICY_KILLED' };
+    if (Date.parse(policy.expiresAt) <= this.now().getTime()) {
+      return { ok: false, reasonCode: 'EXTERNAL_POLICY_EXPIRED' };
+    }
+    if (!policy.allowedActionKinds.includes(actionKind) || !policy.allowedOrigins.includes(origin)) {
+      return { ok: false, reasonCode: 'EXTERNAL_POLICY_SCOPE_BLOCKED' };
+    }
+    const reservation = this.getReservation(binding, reservationId);
+    if (!reservation || reservation.state !== 'claimed' || reservation.claimId !== claimId) {
+      return { ok: false, reasonCode: 'EXTERNAL_EXECUTION_CLAIM_NOT_ACTIVE' };
+    }
+    if (
+      reservation.policyRevision !== policy.revision ||
+      reservation.sessionEpoch !== policy.sessionEpoch ||
+      reservation.actionKind !== actionKind ||
+      reservation.targetOrigin !== origin ||
+      Date.parse(reservation.expiresAt) <= this.now().getTime()
+    ) {
+      return { ok: false, reasonCode: 'EXTERNAL_EXECUTION_CONTRACT_STALE' };
+    }
+    return { ok: true };
+  }
+
+  recheckClaimForExecution(
+    binding: EveExternalActionBinding,
+    reservationId: string,
+    claimId: string,
+    actionKind: EveExternalActionKind,
+    targetOrigin: string
+  ): { ok: true } | { ok: false; reasonCode: string } {
+    if (
+      !validBinding(binding) ||
+      binding.installationId !== this.installationId ||
+      !isEveOpaqueId(reservationId) ||
+      !isEveOpaqueId(claimId) ||
+      !isEveExternalActionKind(actionKind)
+    ) {
+      return { ok: false, reasonCode: 'EXTERNAL_EXECUTION_CLAIM_INVALID' };
+    }
+    const origin = normalizeEveExternalOrigin(targetOrigin);
+    if (!origin) return { ok: false, reasonCode: 'EXTERNAL_ORIGIN_INVALID' };
+    const transaction = this.db.transaction(() =>
+      this.validateClaimForExecution(binding, reservationId, claimId, actionKind, origin)
+    );
+    try {
+      return transaction();
+    } catch {
+      return { ok: false, reasonCode: 'EXTERNAL_EXECUTION_RECHECK_FAILED' };
     }
   }
 
@@ -921,7 +1153,7 @@ export class ExternalActionStore {
            SET state = 'reversed', terminal_at = ?, outcome_digest = ?
            WHERE reservation_id = ? AND installation_id = ? AND account_id = ? AND seed_id = ?
              AND (claim_id = ? OR (claim_id IS NULL AND ? = ''))
-             AND state IN ('reserved', 'claimed', 'allowed', 'unknown')`
+             AND state IN ('reserved', 'claimed', 'unknown')`
         )
         .run(
           this.now().toISOString(),
@@ -963,17 +1195,22 @@ export class ExternalActionStore {
       !validBinding(input.binding) ||
       input.binding.installationId !== this.installationId ||
       !isEveOpaqueId(input.handleId) ||
+      !isEveSecretHandleType(input.type) ||
+      !isEveSecretHandleSource(input.source) ||
       !validSourceRef(input.source, input.sourceRef) ||
+      !handleTypeAllowsSource(input.type, input.source) ||
+      input.actionKinds.length === 0 ||
       !input.actionKinds.every(isEveExternalActionKind)
     ) {
       return { ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_INVALID' };
     }
-    const domains: string[] = [];
-    for (const raw of input.domains) {
-      const domain = normalizeEveExternalDomain(raw);
-      if (!domain) return { ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_DOMAIN_INVALID' };
-      if (!domains.includes(domain)) domains.push(domain);
+    const targetOrigins: string[] = [];
+    for (const raw of input.targetOrigins) {
+      const origin = normalizeEveExternalOrigin(raw);
+      if (!origin) return { ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_ORIGIN_INVALID' };
+      if (!targetOrigins.includes(origin)) targetOrigins.push(origin);
     }
+    if (targetOrigins.length === 0) return { ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_SCOPE_EMPTY' };
     const expiresMs = Date.parse(input.expiresAt);
     if (!Number.isFinite(expiresMs) || expiresMs <= this.now().getTime()) {
       return { ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_EXPIRY_INVALID' };
@@ -1001,7 +1238,7 @@ export class ExternalActionStore {
           input.source,
           input.sourceRef,
           JSON.stringify([...new Set(input.actionKinds)]),
-          JSON.stringify(domains.toSorted()),
+          JSON.stringify(targetOrigins.toSorted()),
           new Date(expiresMs).toISOString(),
           this.now().toISOString()
         );
@@ -1025,8 +1262,24 @@ export class ExternalActionStore {
       .get(...bindingArgs(binding), handleId) as SecretHandleRow | undefined;
     if (!row) return null;
     const actionKinds = parseStringArray(row.action_kinds_json);
-    const domains = parseStringArray(row.domains_json);
-    if (!actionKinds || !actionKinds.every(isEveExternalActionKind) || !domains) return null;
+    const targetOrigins = parseStringArray(row.domains_json);
+    if (
+      !validBinding({ installationId: row.installation_id, accountId: row.account_id, seedId: row.seed_id }) ||
+      !isEveOpaqueId(row.handle_id) ||
+      !isEveSecretHandleType(row.type) ||
+      !isEveSecretHandleSource(row.source) ||
+      !validSourceRef(row.source, row.source_ref) ||
+      !handleTypeAllowsSource(row.type, row.source) ||
+      !actionKinds ||
+      !actionKinds.every(isEveExternalActionKind) ||
+      !targetOrigins ||
+      targetOrigins.length === 0 ||
+      !targetOrigins.every((origin) => normalizeEveExternalOrigin(origin) === origin) ||
+      typeof row.expires_at !== 'string' ||
+      !Number.isFinite(Date.parse(row.expires_at)) ||
+      (row.revoked_at !== null && (typeof row.revoked_at !== 'string' || !Number.isFinite(Date.parse(row.revoked_at))))
+    )
+      return null;
     return {
       binding: {
         installationId: row.installation_id,
@@ -1038,30 +1291,297 @@ export class ExternalActionStore {
       source: row.source,
       sourceRef: row.source_ref,
       actionKinds: actionKinds as EveExternalActionKind[],
-      domains,
+      targetOrigins,
       expiresAt: row.expires_at,
       ...(row.revoked_at ? { revokedAt: row.revoked_at } : {}),
     };
   }
 
-  consumeSecretUsePermit(
-    binding: EveExternalActionBinding,
-    reservationId: string,
-    claimId: string
+  registerSecretShareGrant(input: ExternalSecretShareGrantInput): { ok: true } | { ok: false; reasonCode: string } {
+    if (
+      !validBinding(input.ownerBinding) ||
+      !validBinding(input.granteeBinding) ||
+      input.ownerBinding.installationId !== this.installationId ||
+      input.granteeBinding.installationId !== this.installationId ||
+      !isEveOpaqueId(input.grantId) ||
+      !isEveOpaqueId(input.handleId) ||
+      !isEveExternalActionKind(input.actionKind)
+    ) {
+      return { ok: false, reasonCode: 'EXTERNAL_SECRET_GRANT_INVALID' };
+    }
+    const origin = normalizeEveExternalOrigin(input.targetOrigin);
+    const handle = this.getSecretHandle(input.ownerBinding, input.handleId);
+    const expiresMs = Date.parse(input.expiresAt);
+    if (
+      !origin ||
+      !handle ||
+      handle.revokedAt ||
+      !handle.actionKinds.includes(input.actionKind) ||
+      !handle.targetOrigins.includes(origin) ||
+      !Number.isFinite(expiresMs) ||
+      expiresMs <= this.now().getTime() ||
+      expiresMs > Date.parse(handle.expiresAt)
+    ) {
+      return { ok: false, reasonCode: 'EXTERNAL_SECRET_GRANT_SCOPE_INVALID' };
+    }
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO external_secret_share_grants (
+             grant_id, owner_installation_id, owner_account_id, owner_seed_id,
+             grantee_installation_id, grantee_account_id, grantee_seed_id,
+             handle_id, action_kind, target_origin, expires_at, revoked_at, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+        )
+        .run(
+          input.grantId,
+          ...bindingArgs(input.ownerBinding),
+          ...bindingArgs(input.granteeBinding),
+          input.handleId,
+          input.actionKind,
+          origin,
+          new Date(expiresMs).toISOString(),
+          this.now().toISOString()
+        );
+      this.audit(input.ownerBinding, 'secret_grant.registered', undefined, {
+        grant_id: input.grantId,
+        handle_id: input.handleId,
+      });
+      return { ok: true };
+    } catch {
+      return { ok: false, reasonCode: 'EXTERNAL_SECRET_GRANT_PERSIST_FAILED' };
+    }
+  }
+
+  revokeSecretShareGrant(
+    ownerBinding: EveExternalActionBinding,
+    grantId: string
   ): { ok: true } | { ok: false; reasonCode: string } {
-    if (!validBinding(binding) || !isEveOpaqueId(reservationId) || !isEveOpaqueId(claimId)) {
-      return { ok: false, reasonCode: 'EXTERNAL_SECRET_USE_INVALID' };
+    if (!validBinding(ownerBinding) || !isEveOpaqueId(grantId)) {
+      return { ok: false, reasonCode: 'EXTERNAL_SECRET_GRANT_INVALID' };
     }
     const changed = this.db
       .prepare(
-        `UPDATE external_action_reservations SET secret_use_consumed = 1
-         WHERE reservation_id = ? AND installation_id = ? AND account_id = ? AND seed_id = ?
-           AND claim_id = ? AND state = 'claimed' AND secret_use_consumed = 0`
+        `UPDATE external_secret_share_grants SET revoked_at = ?
+         WHERE grant_id = ? AND owner_installation_id = ? AND owner_account_id = ? AND owner_seed_id = ?
+           AND revoked_at IS NULL`
       )
-      .run(reservationId, ...bindingArgs(binding), claimId).changes;
-    if (changed !== 1) return { ok: false, reasonCode: 'EXTERNAL_SECRET_USE_REPLAY_BLOCKED' };
-    this.audit(binding, 'secret_handle.use_consumed', reservationId, { claim_id: claimId });
+      .run(this.now().toISOString(), grantId, ...bindingArgs(ownerBinding)).changes;
+    if (changed !== 1) return { ok: false, reasonCode: 'EXTERNAL_SECRET_GRANT_NOT_FOUND' };
+    this.audit(ownerBinding, 'secret_grant.revoked', undefined, { grant_id: grantId });
     return { ok: true };
+  }
+
+  revokeSecretHandle(
+    binding: EveExternalActionBinding,
+    handleId: string
+  ): { ok: true } | { ok: false; reasonCode: string } {
+    if (!validBinding(binding) || !isEveOpaqueId(handleId)) {
+      return { ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_INVALID' };
+    }
+    const nowIso = this.now().toISOString();
+    const transaction = this.db.transaction((): boolean => {
+      const changed = this.db
+        .prepare(
+          `UPDATE external_secret_handles SET revoked_at = ?
+           WHERE installation_id = ? AND account_id = ? AND seed_id = ? AND handle_id = ? AND revoked_at IS NULL`
+        )
+        .run(nowIso, ...bindingArgs(binding), handleId).changes;
+      if (changed !== 1) return false;
+      this.db
+        .prepare(
+          `UPDATE external_secret_share_grants SET revoked_at = ?
+           WHERE owner_installation_id = ? AND owner_account_id = ? AND owner_seed_id = ?
+             AND handle_id = ? AND revoked_at IS NULL`
+        )
+        .run(nowIso, ...bindingArgs(binding), handleId);
+      return true;
+    });
+    try {
+      if (!transaction()) return { ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_NOT_FOUND' };
+      this.audit(binding, 'secret_handle.revoked', undefined, { handle_id: handleId });
+      return { ok: true };
+    } catch {
+      return { ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_REVOKE_FAILED' };
+    }
+  }
+
+  resolveSecretHandleAccess(
+    binding: EveExternalActionBinding,
+    handleId: string,
+    actionKind: EveExternalActionKind,
+    targetOrigin: string
+  ): ExternalSecretHandleAccess | null {
+    const origin = normalizeEveExternalOrigin(targetOrigin);
+    if (!validBinding(binding) || !isEveOpaqueId(handleId) || !isEveExternalActionKind(actionKind) || !origin) {
+      return null;
+    }
+    const own = this.getSecretHandle(binding, handleId);
+    if (
+      own &&
+      !own.revokedAt &&
+      Date.parse(own.expiresAt) > this.now().getTime() &&
+      own.actionKinds.includes(actionKind) &&
+      own.targetOrigins.includes(origin)
+    ) {
+      return own;
+    }
+    const grant = this.db
+      .prepare(
+        `SELECT * FROM external_secret_share_grants
+         WHERE grantee_installation_id = ? AND grantee_account_id = ? AND grantee_seed_id = ?
+           AND handle_id = ? AND action_kind = ? AND target_origin = ?
+           AND revoked_at IS NULL AND expires_at > ?
+         LIMIT 1`
+      )
+      .get(...bindingArgs(binding), handleId, actionKind, origin, this.now().toISOString()) as
+      | SecretShareGrantRow
+      | undefined;
+    if (!grant) return null;
+    if (
+      !isEveOpaqueId(grant.grant_id) ||
+      !validBinding({
+        installationId: grant.owner_installation_id,
+        accountId: grant.owner_account_id,
+        seedId: grant.owner_seed_id,
+      }) ||
+      !validBinding({
+        installationId: grant.grantee_installation_id,
+        accountId: grant.grantee_account_id,
+        seedId: grant.grantee_seed_id,
+      }) ||
+      grant.grantee_installation_id !== binding.installationId ||
+      grant.grantee_account_id !== binding.accountId ||
+      grant.grantee_seed_id !== binding.seedId ||
+      !isEveExternalActionKind(grant.action_kind) ||
+      grant.action_kind !== actionKind ||
+      normalizeEveExternalOrigin(grant.target_origin) !== origin ||
+      typeof grant.expires_at !== 'string' ||
+      !Number.isFinite(Date.parse(grant.expires_at)) ||
+      Date.parse(grant.expires_at) <= this.now().getTime() ||
+      grant.revoked_at !== null
+    ) {
+      return null;
+    }
+    const ownerBinding: EveExternalActionBinding = {
+      installationId: grant.owner_installation_id,
+      accountId: grant.owner_account_id,
+      seedId: grant.owner_seed_id,
+    };
+    const shared = this.getSecretHandle(ownerBinding, handleId);
+    if (
+      !shared ||
+      shared.revokedAt ||
+      Date.parse(shared.expiresAt) <= this.now().getTime() ||
+      !shared.actionKinds.includes(actionKind) ||
+      !shared.targetOrigins.includes(origin)
+    ) {
+      return null;
+    }
+    return { ...shared, accessGrantId: grant.grant_id };
+  }
+
+  consumeSecretUsePermit(
+    binding: EveExternalActionBinding,
+    reservationId: string,
+    claimId: string,
+    handleId: string,
+    expectedHandleType: EveSecretHandleType,
+    actionKind: EveExternalActionKind,
+    targetOrigin: string
+  ): { ok: true; handle: ExternalSecretHandleAccess } | { ok: false; reasonCode: string } {
+    const origin = normalizeEveExternalOrigin(targetOrigin);
+    if (
+      !validBinding(binding) ||
+      binding.installationId !== this.installationId ||
+      !isEveOpaqueId(reservationId) ||
+      !isEveOpaqueId(claimId) ||
+      !isEveOpaqueId(handleId) ||
+      !isEveSecretHandleType(expectedHandleType) ||
+      !isEveExternalActionKind(actionKind) ||
+      !origin
+    ) {
+      return { ok: false, reasonCode: 'EXTERNAL_SECRET_USE_INVALID' };
+    }
+    const transaction = this.db.transaction(
+      (): { ok: true; handle: ExternalSecretHandleAccess } | { ok: false; reasonCode: string } => {
+        const preflight = this.validateClaimForExecution(binding, reservationId, claimId, actionKind, origin);
+        if ('reasonCode' in preflight) return preflight;
+        const handle = this.resolveSecretHandleAccess(binding, handleId, actionKind, origin);
+        if (!handle) return { ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_NOT_ACTIVE' };
+        if (handle.type !== expectedHandleType) {
+          return { ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_TYPE_BLOCKED' };
+        }
+        const changed = this.db
+          .prepare(
+            `UPDATE external_action_reservations SET secret_use_consumed = 1
+             WHERE reservation_id = ? AND installation_id = ? AND account_id = ? AND seed_id = ?
+               AND claim_id = ? AND state = 'claimed' AND secret_use_consumed = 0`
+          )
+          .run(reservationId, ...bindingArgs(binding), claimId).changes;
+        if (changed !== 1) return { ok: false, reasonCode: 'EXTERNAL_SECRET_USE_REPLAY_BLOCKED' };
+        this.audit(binding, 'secret_handle.use_consumed', reservationId, {
+          claim_id: claimId,
+          handle_id: handleId,
+          ...(handle.accessGrantId ? { access_grant_id: handle.accessGrantId } : {}),
+        });
+        return { ok: true, handle };
+      }
+    );
+    try {
+      return transaction();
+    } catch {
+      return { ok: false, reasonCode: 'EXTERNAL_SECRET_USE_PERSIST_FAILED' };
+    }
+  }
+
+  recheckSecretUseForInjection(
+    binding: EveExternalActionBinding,
+    reservationId: string,
+    claimId: string,
+    actionKind: EveExternalActionKind,
+    targetOrigin: string,
+    expectedHandle: ExternalSecretHandleAccess
+  ): { ok: true } | { ok: false; reasonCode: string } {
+    const origin = normalizeEveExternalOrigin(targetOrigin);
+    if (
+      !validBinding(binding) ||
+      binding.installationId !== this.installationId ||
+      !isEveOpaqueId(reservationId) ||
+      !isEveOpaqueId(claimId) ||
+      !isEveOpaqueId(expectedHandle.handleId) ||
+      !isEveExternalActionKind(actionKind) ||
+      !origin
+    ) {
+      return { ok: false, reasonCode: 'EXTERNAL_SECRET_USE_INVALID' };
+    }
+    const transaction = this.db.transaction((): { ok: true } | { ok: false; reasonCode: string } => {
+      const preflight = this.validateClaimForExecution(binding, reservationId, claimId, actionKind, origin);
+      if ('reasonCode' in preflight) return preflight;
+      const reservation = this.getReservation(binding, reservationId);
+      if (!reservation?.secretUseConsumed) {
+        return { ok: false, reasonCode: 'EXTERNAL_SECRET_USE_NOT_CONSUMED' };
+      }
+      const current = this.resolveSecretHandleAccess(binding, expectedHandle.handleId, actionKind, origin);
+      if (
+        !current ||
+        current.type !== expectedHandle.type ||
+        current.source !== expectedHandle.source ||
+        current.sourceRef !== expectedHandle.sourceRef ||
+        current.binding.installationId !== expectedHandle.binding.installationId ||
+        current.binding.accountId !== expectedHandle.binding.accountId ||
+        current.binding.seedId !== expectedHandle.binding.seedId ||
+        current.accessGrantId !== expectedHandle.accessGrantId
+      ) {
+        return { ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_NOT_ACTIVE' };
+      }
+      return { ok: true };
+    });
+    try {
+      return transaction();
+    } catch {
+      return { ok: false, reasonCode: 'EXTERNAL_SECRET_USE_RECHECK_FAILED' };
+    }
   }
 
   readAuditEvents(binding: EveExternalActionBinding): readonly Record<string, unknown>[] {

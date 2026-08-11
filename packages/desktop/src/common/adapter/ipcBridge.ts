@@ -14,6 +14,14 @@
 
 import type { IConfirmation } from '@/common/chat/chatLib';
 import type { EveMaxAuthorityReceipt } from '@/common/config/eveMaxAuthorityCore';
+import type {
+  EveExternalActionPolicyMutation,
+  EveExternalActionPolicyView,
+} from '@/common/config/eveExternalActionPolicyCore';
+import type {
+  EveExternalActionExecutionResult,
+  EveExternalActionProposal,
+} from '@/common/config/eveExternalActionExecutionCore';
 import type { AcpSlashCommandApiItem } from '@/common/chat/slash/types';
 import { bridge } from '@office-ai/platform';
 import type { OpenDialogOptions, SaveDialogOptions } from 'electron';
@@ -1877,6 +1885,25 @@ export interface ICommandEveSeedRenameResult {
   reason_code?: string;
 }
 
+// MAT-1777: renderer sends only editable constraints plus a Main-signed stale-
+// context fence. Account, Seed, installation, revision and epoch remain hidden,
+// are reconstructed in Main and are never accepted as authority from IPC.
+export interface ICommandEveExternalActionPolicySetRequest {
+  context_token: string;
+  mutation: EveExternalActionPolicyMutation;
+}
+
+export interface ICommandEveExternalActionPolicyResult {
+  version: 'command-eve-external-action-policy/v0';
+  ok: boolean;
+  policy: EveExternalActionPolicyView;
+  context_token?: string;
+  reason_code?: string;
+}
+
+export type ICommandEveExternalActionExecuteRequest = EveExternalActionProposal;
+export type ICommandEveExternalActionExecuteResult = EveExternalActionExecutionResult;
+
 // v1.5 A3: per-seat usage attribution — one seat's aggregated usage for a month.
 // Opaque seat ids ONLY (never names — H3); the LABEL join happens in the renderer.
 export interface ICommandEveSeatUsageRow {
@@ -2407,6 +2434,25 @@ export const commandEve = {
   // reads it back here so its seat-scoped config keys are prefixed with the SAME
   // id main uses. Read-only, no PII; defaults to the legacy seat.
   activeSeat: bridge.buildProvider<IBridgeResponse<ICommandEveActiveSeatResult>, void>('command-eve.active-seat'),
+  externalActionPolicyGet: bridge.buildProvider<IBridgeResponse<ICommandEveExternalActionPolicyResult>, void>(
+    'command-eve.external-action-policy-get'
+  ),
+  externalActionPolicySet: bridge.buildProvider<
+    IBridgeResponse<ICommandEveExternalActionPolicyResult>,
+    ICommandEveExternalActionPolicySetRequest
+  >('command-eve.external-action-policy-set'),
+  externalActionPolicyKill: bridge.buildProvider<
+    IBridgeResponse<ICommandEveExternalActionPolicyResult>,
+    { context_token: string; enabled: boolean }
+  >('command-eve.external-action-policy-kill'),
+  externalActionPolicyRevoke: bridge.buildProvider<
+    IBridgeResponse<ICommandEveExternalActionPolicyResult>,
+    { context_token: string }
+  >('command-eve.external-action-policy-revoke'),
+  externalActionExecute: bridge.buildProvider<
+    IBridgeResponse<ICommandEveExternalActionExecuteResult>,
+    ICommandEveExternalActionExecuteRequest
+  >('command-eve.external-action-execute'),
   // A5 + B3: list the account's seats (admin SeatSwitcher) / classify role
   // (fail-closed SeatGuard). Read-only; fail-closes to one legacy seat.
   mySeats: bridge.buildProvider<IBridgeResponse<ICommandEveMySeatsResult>, void>('command-eve.my-seats'),

@@ -4,14 +4,30 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { normalizeEveExternalDomain, type EveExternalActionBinding } from '@/common/config/eveExternalActionPolicyCore';
+import type {
+  EveExternalActionBinding,
+  EveExternalActionKind,
+  EveSecretHandleSource,
+  EveSecretHandleType,
+} from '@/common/config/eveExternalActionPolicyCore';
 import type { ExternalActionStore } from './externalActionStore';
 
+export interface SecretMaterialResolveContext {
+  source: EveSecretHandleSource;
+  sourceRef: string;
+  handleType: EveSecretHandleType;
+  ownerBinding: EveExternalActionBinding;
+  useBinding: EveExternalActionBinding;
+  actionKind: EveExternalActionKind;
+  targetOrigin: string;
+}
+
 export interface SecretMaterialResolver {
-  resolve(source: 'eve_keychain' | 'hermes_secret_source', sourceRef: string): Promise<Uint8Array>;
+  resolve(context: SecretMaterialResolveContext): Promise<Uint8Array>;
 }
 
 export interface SecretMaterialInjector {
+  preflight?(): Promise<{ ok: true } | { ok: false; reasonCode: string }>;
   inject(material: Uint8Array): Promise<void>;
 }
 
@@ -20,16 +36,9 @@ export interface ExternalSecretUseRequest {
   reservationId: string;
   claimId: string;
   handleId: string;
-  actionKind:
-    | 'account_create'
-    | 'software_install'
-    | 'purchase'
-    | 'recurring_payment'
-    | 'browser_submit'
-    | 'desktop_action'
-    | 'artifact_modify'
-    | 'communication_send';
-  domain?: string;
+  expectedHandleType: EveSecretHandleType;
+  actionKind: EveExternalActionKind;
+  targetOrigin: string;
 }
 
 export type ExternalSecretUseResult =
@@ -49,6 +58,11 @@ export type ExternalSecretUseResult =
 
 const BROKER_UNKNOWN_DIGEST = 'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
 const BROKER_REVERSED_DIGEST = 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const FIXED_REASON_RE = /^[A-Z][A-Z0-9_]{0,95}$/;
+
+function fixedReason(reasonCode: unknown, fallback: string): string {
+  return typeof reasonCode === 'string' && FIXED_REASON_RE.test(reasonCode) ? reasonCode : fallback;
+}
 
 /**
  * Main-only one-use broker. Secret bytes exist only between resolver and the
@@ -57,24 +71,52 @@ const BROKER_REVERSED_DIGEST = 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
  * adapter exception cannot echo secret material into logs or renderer state.
  */
 export class ExternalSecretUseBroker {
-  constructor(private readonly store: ExternalActionStore) {}
+  constructor(
+    private readonly store: ExternalActionStore,
+    private readonly now: () => Date = () => new Date()
+  ) {}
 
   async use(
     request: ExternalSecretUseRequest,
     resolver: SecretMaterialResolver,
     injector: SecretMaterialInjector
   ): Promise<ExternalSecretUseResult> {
-    const reservation = this.store.getReservation(request.binding, request.reservationId);
-    if (!reservation || reservation.state !== 'claimed' || reservation.claimId !== request.claimId) {
+    const consumed = this.store.consumeSecretUsePermit(
+      request.binding,
+      request.reservationId,
+      request.claimId,
+      request.handleId,
+      request.expectedHandleType,
+      request.actionKind,
+      request.targetOrigin
+    );
+    if ('reasonCode' in consumed) {
+      if (
+        consumed.reasonCode === 'EXTERNAL_SECRET_HANDLE_NOT_ACTIVE' ||
+        consumed.reasonCode === 'EXTERNAL_SECRET_HANDLE_TYPE_BLOCKED'
+      ) {
+        this.store.reverse({
+          binding: request.binding,
+          reservationId: request.reservationId,
+          claimId: request.claimId,
+          outcomeDigest: BROKER_REVERSED_DIGEST,
+        });
+      }
       return {
         ok: false,
-        status: 'blocked',
-        reasonCode: 'EXTERNAL_SECRET_USE_CLAIM_INVALID',
+        status: consumed.reasonCode === 'EXTERNAL_SECRET_USE_REPLAY_BLOCKED' ? 'unknown' : 'blocked',
+        reasonCode: consumed.reasonCode,
         reservationId: request.reservationId,
       };
     }
-    const handle = this.store.getSecretHandle(request.binding, request.handleId);
-    if (!handle || handle.revokedAt || Date.parse(handle.expiresAt) <= Date.now()) {
+    const handle = consumed.handle;
+    if (handle.revokedAt || Date.parse(handle.expiresAt) <= this.now().getTime()) {
+      this.store.reverse({
+        binding: request.binding,
+        reservationId: request.reservationId,
+        claimId: request.claimId,
+        outcomeDigest: BROKER_REVERSED_DIGEST,
+      });
       return {
         ok: false,
         status: 'blocked',
@@ -82,39 +124,18 @@ export class ExternalSecretUseBroker {
         reservationId: request.reservationId,
       };
     }
-    if (!handle.actionKinds.includes(request.actionKind)) {
-      return {
-        ok: false,
-        status: 'blocked',
-        reasonCode: 'EXTERNAL_SECRET_HANDLE_SCOPE_BLOCKED',
-        reservationId: request.reservationId,
-      };
-    }
-    if (request.domain) {
-      const domain = normalizeEveExternalDomain(request.domain);
-      if (!domain || !handle.domains.includes(domain)) {
-        return {
-          ok: false,
-          status: 'blocked',
-          reasonCode: 'EXTERNAL_SECRET_HANDLE_DOMAIN_BLOCKED',
-          reservationId: request.reservationId,
-        };
-      }
-    }
-
-    const consumed = this.store.consumeSecretUsePermit(request.binding, request.reservationId, request.claimId);
-    if ('reasonCode' in consumed) {
-      return {
-        ok: false,
-        status: 'blocked',
-        reasonCode: consumed.reasonCode,
-        reservationId: request.reservationId,
-      };
-    }
 
     let material: Uint8Array | undefined;
     try {
-      material = await resolver.resolve(handle.source, handle.sourceRef);
+      material = await resolver.resolve({
+        source: handle.source,
+        sourceRef: handle.sourceRef,
+        handleType: handle.type,
+        ownerBinding: handle.binding,
+        useBinding: request.binding,
+        actionKind: request.actionKind,
+        targetOrigin: request.targetOrigin,
+      });
       if (!(material instanceof Uint8Array) || material.byteLength === 0) {
         this.store.reverse({
           binding: request.binding,
@@ -145,6 +166,72 @@ export class ExternalSecretUseBroker {
     }
 
     try {
+      const recheckedBeforeAuthority = this.store.recheckSecretUseForInjection(
+        request.binding,
+        request.reservationId,
+        request.claimId,
+        request.actionKind,
+        request.targetOrigin,
+        handle
+      );
+      if ('reasonCode' in recheckedBeforeAuthority) {
+        this.store.reverse({
+          binding: request.binding,
+          reservationId: request.reservationId,
+          claimId: request.claimId,
+          outcomeDigest: BROKER_REVERSED_DIGEST,
+        });
+        return {
+          ok: false,
+          status: 'blocked',
+          reasonCode: recheckedBeforeAuthority.reasonCode,
+          reservationId: request.reservationId,
+        };
+      }
+      if (injector.preflight) {
+        let trustedPreflight: { ok: true } | { ok: false; reasonCode: string };
+        try {
+          trustedPreflight = await injector.preflight();
+        } catch {
+          trustedPreflight = { ok: false, reasonCode: 'EXTERNAL_TRUSTED_PREFLIGHT_UNAVAILABLE' };
+        }
+        if ('reasonCode' in trustedPreflight) {
+          this.store.reverse({
+            binding: request.binding,
+            reservationId: request.reservationId,
+            claimId: request.claimId,
+            outcomeDigest: BROKER_REVERSED_DIGEST,
+          });
+          return {
+            ok: false,
+            status: 'blocked',
+            reasonCode: fixedReason(trustedPreflight.reasonCode, 'EXTERNAL_TRUSTED_PREFLIGHT_BLOCKED'),
+            reservationId: request.reservationId,
+          };
+        }
+      }
+      const recheckedAfterAuthority = this.store.recheckSecretUseForInjection(
+        request.binding,
+        request.reservationId,
+        request.claimId,
+        request.actionKind,
+        request.targetOrigin,
+        handle
+      );
+      if ('reasonCode' in recheckedAfterAuthority) {
+        this.store.reverse({
+          binding: request.binding,
+          reservationId: request.reservationId,
+          claimId: request.claimId,
+          outcomeDigest: BROKER_REVERSED_DIGEST,
+        });
+        return {
+          ok: false,
+          status: 'blocked',
+          reasonCode: recheckedAfterAuthority.reasonCode,
+          reservationId: request.reservationId,
+        };
+      }
       await injector.inject(material);
       return {
         ok: true,

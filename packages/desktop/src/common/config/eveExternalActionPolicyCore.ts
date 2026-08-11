@@ -31,13 +31,37 @@ export type EveExternalActionKind = (typeof EVE_EXTERNAL_ACTION_KINDS)[number];
 export type EveExternalActionRiskClass = 'ordinary' | 'legal_agreement' | 'security_expansion' | 'high_risk_finance';
 export type EveExternalAuthorityDecision = 'allow' | 'ask' | 'block';
 export type EveExternalActionLedgerState = 'reserved' | 'claimed' | 'allowed' | 'reversed' | 'unknown';
+export type EveExternalExecutionStatus =
+  | 'allowed'
+  | 'needs_user'
+  | 'denied'
+  | 'revoked'
+  | 'expired'
+  | 'unknown_outcome';
 export type EveSecretHandleType =
   | 'identity_email'
   | 'identity_phone'
   | 'payment_profile'
   | 'service_credential'
-  | 'account_credential';
-export type EveSecretHandleSource = 'eve_keychain' | 'hermes_secret_source';
+  | 'account_credential'
+  | 'oauth_token';
+export type EveSecretHandleSource = 'eve_keychain' | 'hermes_onepassword' | 'hermes_bitwarden' | 'hermes_command';
+
+export const EVE_SECRET_HANDLE_TYPES: readonly EveSecretHandleType[] = [
+  'identity_email',
+  'identity_phone',
+  'payment_profile',
+  'service_credential',
+  'account_credential',
+  'oauth_token',
+] as const;
+
+export const EVE_SECRET_HANDLE_SOURCES: readonly EveSecretHandleSource[] = [
+  'eve_keychain',
+  'hermes_onepassword',
+  'hermes_bitwarden',
+  'hermes_command',
+] as const;
 
 export interface EveExternalActionBinding {
   installationId: string;
@@ -55,7 +79,7 @@ export interface EveExternalActionPolicy {
   perActionLimitMinor: number;
   dailyLimitMinor: number;
   monthlyLimitMinor: number;
-  allowedDomains: readonly string[];
+  allowedOrigins: readonly string[];
   allowedActionKinds: readonly EveExternalActionKind[];
   expiresAt: string;
   killSwitch: boolean;
@@ -69,7 +93,7 @@ export interface EveExternalActionPolicyMutation {
   perActionLimitMinor: number;
   dailyLimitMinor: number;
   monthlyLimitMinor: number;
-  allowedDomains: readonly string[];
+  allowedOrigins: readonly string[];
   allowedActionKinds: readonly EveExternalActionKind[];
   expiresAt: string;
 }
@@ -83,7 +107,7 @@ export interface EveExternalActionPolicyView {
   perActionLimitMinor: number;
   dailyLimitMinor: number;
   monthlyLimitMinor: number;
-  allowedDomains: readonly string[];
+  allowedOrigins: readonly string[];
   allowedActionKinds: readonly EveExternalActionKind[];
   expiresAt: string | null;
   killSwitch: boolean;
@@ -94,7 +118,17 @@ export interface EveExternalActionPolicyView {
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9:_/-]{0,127}$/;
 const DIGEST_RE = /^sha256:[a-f0-9]{64}$/;
 const DOMAIN_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const HTTPS_DEFAULT_PORT = '443';
 const MAX_POLICY_LIFETIME_MS = 31 * 24 * 60 * 60 * 1000;
+const POLICY_MUTATION_KEYS = [
+  'currency',
+  'perActionLimitMinor',
+  'dailyLimitMinor',
+  'monthlyLimitMinor',
+  'allowedOrigins',
+  'allowedActionKinds',
+  'expiresAt',
+] as const;
 
 export function isEveOpaqueId(value: unknown): value is string {
   return typeof value === 'string' && OPAQUE_ID_RE.test(value);
@@ -108,6 +142,14 @@ export function isEveExternalActionKind(value: unknown): value is EveExternalAct
   return EVE_EXTERNAL_ACTION_KINDS.includes(value as EveExternalActionKind);
 }
 
+export function isEveSecretHandleType(value: unknown): value is EveSecretHandleType {
+  return EVE_SECRET_HANDLE_TYPES.includes(value as EveSecretHandleType);
+}
+
+export function isEveSecretHandleSource(value: unknown): value is EveSecretHandleSource {
+  return EVE_SECRET_HANDLE_SOURCES.includes(value as EveSecretHandleSource);
+}
+
 export function normalizeEveExternalDomain(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const domain = value.trim().toLowerCase().replace(/\.$/, '');
@@ -117,6 +159,35 @@ export function normalizeEveExternalDomain(value: unknown): string | null {
   const labels = domain.split('.');
   if (labels.length < 2 || labels.some((label) => !DOMAIN_LABEL_RE.test(label))) return null;
   return domain;
+}
+
+/**
+ * Exact external origin fence. The first product slice is HTTPS-only: a
+ * browser/API action that needs another scheme must land as an explicitly
+ * reviewed adapter extension instead of widening this parser. Paths, queries,
+ * fragments, credentials and wildcard hosts are rejected.
+ */
+export function normalizeEveExternalOrigin(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 512) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    return null;
+  }
+  if (
+    parsed.protocol !== 'https:' ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== '/' ||
+    parsed.search ||
+    parsed.hash ||
+    normalizeEveExternalDomain(parsed.hostname) === null
+  ) {
+    return null;
+  }
+  const port = parsed.port === HTTPS_DEFAULT_PORT ? '' : parsed.port;
+  return `https://${parsed.hostname.toLowerCase()}${port ? `:${port}` : ''}`;
 }
 
 export type EveExternalPolicyValidationResult =
@@ -136,6 +207,12 @@ export function validateEveExternalActionPolicyMutation(
     return { ok: false, reasonCode: 'EXTERNAL_POLICY_INVALID' };
   }
   const record = input as Record<string, unknown>;
+  if (
+    !POLICY_MUTATION_KEYS.every((key) => Object.hasOwn(record, key)) ||
+    Object.keys(record).some((key) => !POLICY_MUTATION_KEYS.includes(key as (typeof POLICY_MUTATION_KEYS)[number]))
+  ) {
+    return { ok: false, reasonCode: 'EXTERNAL_POLICY_FIELDS_INVALID' };
+  }
   if (typeof record.currency !== 'string' || !/^[A-Z]{3}$/.test(record.currency)) {
     return { ok: false, reasonCode: 'EXTERNAL_POLICY_CURRENCY_INVALID' };
   }
@@ -152,21 +229,23 @@ export function validateEveExternalActionPolicyMutation(
   ) {
     return { ok: false, reasonCode: 'EXTERNAL_POLICY_BUDGET_ORDER_INVALID' };
   }
-  if (!Array.isArray(record.allowedDomains) || !Array.isArray(record.allowedActionKinds)) {
+  if (!Array.isArray(record.allowedOrigins) || !Array.isArray(record.allowedActionKinds)) {
     return { ok: false, reasonCode: 'EXTERNAL_POLICY_SCOPE_INVALID' };
   }
-  const domains: string[] = [];
-  for (const raw of record.allowedDomains) {
-    const domain = normalizeEveExternalDomain(raw);
-    if (!domain) return { ok: false, reasonCode: 'EXTERNAL_POLICY_DOMAIN_INVALID' };
-    if (!domains.includes(domain)) domains.push(domain);
+  const origins: string[] = [];
+  for (const raw of record.allowedOrigins) {
+    const origin = normalizeEveExternalOrigin(raw);
+    if (!origin) return { ok: false, reasonCode: 'EXTERNAL_POLICY_ORIGIN_INVALID' };
+    if (!origins.includes(origin)) origins.push(origin);
   }
   const actionKinds: EveExternalActionKind[] = [];
   for (const raw of record.allowedActionKinds) {
     if (!isEveExternalActionKind(raw)) return { ok: false, reasonCode: 'EXTERNAL_POLICY_ACTION_KIND_INVALID' };
     if (!actionKinds.includes(raw)) actionKinds.push(raw);
   }
-  if (actionKinds.length === 0) return { ok: false, reasonCode: 'EXTERNAL_POLICY_SCOPE_EMPTY' };
+  if (origins.length === 0 || actionKinds.length === 0) {
+    return { ok: false, reasonCode: 'EXTERNAL_POLICY_SCOPE_EMPTY' };
+  }
 
   if (typeof record.expiresAt !== 'string') return { ok: false, reasonCode: 'EXTERNAL_POLICY_EXPIRY_INVALID' };
   const expiresMs = Date.parse(record.expiresAt);
@@ -182,7 +261,7 @@ export function validateEveExternalActionPolicyMutation(
       perActionLimitMinor: record.perActionLimitMinor as number,
       dailyLimitMinor: record.dailyLimitMinor as number,
       monthlyLimitMinor: record.monthlyLimitMinor as number,
-      allowedDomains: domains.toSorted(),
+      allowedOrigins: origins.toSorted(),
       allowedActionKinds: actionKinds,
       expiresAt: new Date(expiresMs).toISOString(),
     },
@@ -199,7 +278,7 @@ export function failClosedEveExternalActionPolicyView(reasonCode?: string): EveE
     perActionLimitMinor: 0,
     dailyLimitMinor: 0,
     monthlyLimitMinor: 0,
-    allowedDomains: [],
+    allowedOrigins: [],
     allowedActionKinds: [],
     expiresAt: null,
     killSwitch: true,
@@ -218,7 +297,7 @@ export function toEveExternalActionPolicyView(policy: EveExternalActionPolicy): 
     perActionLimitMinor: policy.perActionLimitMinor,
     dailyLimitMinor: policy.dailyLimitMinor,
     monthlyLimitMinor: policy.monthlyLimitMinor,
-    allowedDomains: policy.allowedDomains,
+    allowedOrigins: policy.allowedOrigins,
     allowedActionKinds: policy.allowedActionKinds,
     expiresAt: policy.expiresAt,
     killSwitch: policy.killSwitch,

@@ -122,6 +122,38 @@
     "rememberedDescription": "Befehle, die du für diesen Seat dauerhaft erlaubt hast. EVE fragt danach nicht mehr — bis du sie hier zurücknimmst.",
     "rememberedEmpty": "Noch nichts gemerkt. EVE fragt bei jedem Befehl.",
     "forget": "Zurücknehmen",
-    "pageDescription": "Lege fest, was EVE ohne Rückfrage tun darf — und nimm jederzeit zurück, was sie sich gemerkt hat."
+    "pageDescription": "Lege fest, was EVE ohne Rückfrage tun darf — und nimm jederzeit zurück, was sie sich gemerkt hat.",
+    "externalPolicy": {
+      "title": "Externe Aktionen",
+      "description": "Eine engere Richtlinie unter deiner bestehenden Freigabe (aktuelle Stufe {{rung}}). Sie kann EVEs Macht nur verringern.",
+      "nativeNote": "Unterstützte API-Aktionen bevorzugen OAuth. Für unterstützte Browser-Aktionen stellt der Main-Prozess ein eigenes dauerhaftes Profil für dieses Konto, diesen Seed und diese Origin bereit. Passwortmaterial bleibt Main-seitig und ist nur der Rückfall, wenn OAuth und die isolierte Sitzung nicht verfügbar sind. Ohne Main-seitig registrierten Adapter bleibt die Ausführung blockiert.",
+      "perAction": "Pro Aktion (EUR)",
+      "daily": "Pro Tag (EUR)",
+      "monthly": "Pro Monat (EUR)",
+      "origins": "Exakte HTTPS-Origins, eine pro Zeile",
+      "actions": "Erlaubte Aktionstypen",
+      "expiry": "Richtlinie läuft ab nach",
+      "expiryHours": {
+        "1": "1 Stunde",
+        "24": "24 Stunden",
+        "168": "7 Tagen",
+        "720": "30 Tagen"
+      },
+      "save": "Begrenzte Richtlinie speichern",
+      "kill": "EVE-Aktionen stoppen",
+      "revoke": "Richtlinie widerrufen",
+      "status": "Revision {{revision}} · läuft ab {{expiry}}",
+      "notConfigured": "Keine Richtlinie für externe Aktionen aktiv. Externe Ausführung bleibt blockiert.",
+      "action": {
+        "account_create": "Gewöhnliches Konto anlegen",
+        "software_install": "Software installieren (immer HumanGate)",
+        "purchase": "Einmalkauf",
+        "recurring_payment": "Wiederkehrende Zahlung",
+        "browser_submit": "Im Browser absenden",
+        "desktop_action": "Desktop-Aktion",
+        "artifact_modify": "Artefakt ändern",
+        "communication_send": "Kommunikation senden"
+      }
+    }
   }
 }

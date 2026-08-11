@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { EveExternalActionBinding } from '@/common/config/eveExternalActionPolicyCore';
 import { ExternalActionStore } from '@/process/services/external-action/externalActionStore';
@@ -9,6 +9,7 @@ import { ExternalSecretUseBroker } from '@/process/services/external-action/secr
 import { NodeSqliteDriver } from './testSqliteDriver';
 
 const NOW_ISO = '2026-08-11T12:00:00.000Z';
+const PAYMENT_REF = `keychain:v1:${Buffer.from('opaque-ciphertext-only').toString('base64')}`;
 const tmpRoots: string[] = [];
 const stores = new Set<ExternalActionStore>();
 let sequence = 0;
@@ -34,7 +35,7 @@ function openFixture(): { store: ExternalActionStore; file: string; binding: Eve
       perActionLimitMinor: 1_000,
       dailyLimitMinor: 2_000,
       monthlyLimitMinor: 10_000,
-      allowedDomains: ['shop.example'],
+      allowedOrigins: ['https://shop.example'],
       allowedActionKinds: ['purchase'],
       expiresAt: '2026-08-18T12:00:00.000Z',
     },
@@ -55,7 +56,7 @@ function claimedReservation(store: ExternalActionStore, binding: EveExternalActi
     classificationDigest: digest('a'),
     riskClass: 'ordinary',
     actionKind: 'purchase',
-    domain: 'shop.example',
+    targetOrigin: 'https://shop.example',
     intentId: 'intent-a',
     requestId: 'request-a',
     operationDigest: digest('b'),
@@ -85,9 +86,9 @@ function registerHandle(store: ExternalActionStore, binding: EveExternalActionBi
     handleId: 'handle-payment-a',
     type: 'payment_profile',
     source: 'eve_keychain',
-    sourceRef: 'keychain:v1:opaque-ciphertext-only',
+    sourceRef: PAYMENT_REF,
     actionKinds: ['purchase'],
-    domains: ['shop.example'],
+    targetOrigins: ['https://shop.example'],
     expiresAt: '2026-08-18T12:00:00.000Z',
   });
 }
@@ -113,8 +114,9 @@ describe('ExternalSecretUseBroker opaque one-use injection', () => {
         binding,
         ...claim,
         handleId: 'handle-payment-a',
+        expectedHandleType: 'payment_profile',
         actionKind: 'purchase',
-        domain: 'shop.example',
+        targetOrigin: 'https://shop.example',
       },
       { resolve: async () => new TextEncoder().encode(secret) },
       {
@@ -141,13 +143,14 @@ describe('ExternalSecretUseBroker opaque one-use injection', () => {
         binding,
         ...claim,
         handleId: 'handle-payment-a',
+        expectedHandleType: 'payment_profile',
         actionKind: 'purchase',
-        domain: 'shop.example',
+        targetOrigin: 'https://shop.example',
       },
       { resolve: async () => new TextEncoder().encode(secret) },
       { inject: async () => undefined }
     );
-    expect(replay).toMatchObject({ ok: false, status: 'blocked', reasonCode: 'EXTERNAL_SECRET_USE_REPLAY_BLOCKED' });
+    expect(replay).toMatchObject({ ok: false, status: 'unknown', reasonCode: 'EXTERNAL_SECRET_USE_REPLAY_BLOCKED' });
   });
 
   it('rejects plaintext and wrong-source references before any database write', () => {
@@ -161,7 +164,7 @@ describe('ExternalSecretUseBroker opaque one-use injection', () => {
         source: 'eve_keychain',
         sourceRef: synthetic,
         actionKinds: ['purchase'],
-        domains: ['shop.example'],
+        targetOrigins: ['https://shop.example'],
         expiresAt: '2026-08-18T12:00:00.000Z',
       })
     ).toMatchObject({ ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_INVALID' });
@@ -179,13 +182,72 @@ describe('ExternalSecretUseBroker opaque one-use injection', () => {
         binding: otherSeed,
         ...claim,
         handleId: 'handle-payment-a',
+        expectedHandleType: 'payment_profile',
         actionKind: 'purchase',
-        domain: 'shop.example',
+        targetOrigin: 'https://shop.example',
       },
       { resolve: async () => new Uint8Array([1]) },
       { inject: async () => undefined }
     );
     expect(result).toMatchObject({ ok: false, status: 'blocked' });
+  });
+
+  it('rechecks revoke immediately before resolution and never calls the resolver', async () => {
+    const { store, binding } = openFixture();
+    registerHandle(store, binding);
+    const claim = claimedReservation(store, binding);
+    expect(store.revokeSecretHandle(binding, 'handle-payment-a')).toEqual({ ok: true });
+    const resolve = vi.fn(async () => new Uint8Array([1]));
+    const result = await new ExternalSecretUseBroker(store, () => new Date(NOW_ISO)).use(
+      {
+        binding,
+        ...claim,
+        handleId: 'handle-payment-a',
+        expectedHandleType: 'payment_profile',
+        actionKind: 'purchase',
+        targetOrigin: 'https://shop.example',
+      },
+      { resolve },
+      { inject: async () => undefined }
+    );
+    expect(result).toMatchObject({ ok: false, status: 'blocked' });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('rechecks a handle after resolution and blocks a mid-resolution revoke before injection', async () => {
+    const { store, binding } = openFixture();
+    registerHandle(store, binding);
+    const claim = claimedReservation(store, binding);
+    const inject = vi.fn(async () => undefined);
+    let materialReference: Uint8Array | undefined;
+    const result = await new ExternalSecretUseBroker(store).use(
+      {
+        binding,
+        ...claim,
+        handleId: 'handle-payment-a',
+        expectedHandleType: 'payment_profile',
+        actionKind: 'purchase',
+        targetOrigin: 'https://shop.example',
+      },
+      {
+        resolve: async () => {
+          expect(store.revokeSecretHandle(binding, 'handle-payment-a')).toEqual({ ok: true });
+          materialReference = new TextEncoder().encode('synthetic-raced-secret');
+          return materialReference;
+        },
+      },
+      { inject }
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'blocked',
+      reasonCode: 'EXTERNAL_SECRET_HANDLE_NOT_ACTIVE',
+    });
+    expect(inject).not.toHaveBeenCalled();
+    expect(store.getReservation(binding, claim.reservationId)?.state).toBe('reversed');
+    expect(Array.from(materialReference ?? [])).toEqual(
+      Array.from({ length: 'synthetic-raced-secret'.length }, () => 0)
+    );
   });
 
   it('reduces resolver errors to a fixed code and reverses before any injection', async () => {
@@ -200,8 +262,9 @@ describe('ExternalSecretUseBroker opaque one-use injection', () => {
         binding,
         ...claim,
         handleId: 'handle-payment-a',
+        expectedHandleType: 'payment_profile',
         actionKind: 'purchase',
-        domain: 'shop.example',
+        targetOrigin: 'https://shop.example',
       },
       {
         resolve: async () => {
@@ -231,8 +294,9 @@ describe('ExternalSecretUseBroker opaque one-use injection', () => {
         binding,
         ...claim,
         handleId: 'handle-payment-a',
+        expectedHandleType: 'payment_profile',
         actionKind: 'purchase',
-        domain: 'shop.example',
+        targetOrigin: 'https://shop.example',
       },
       { resolve: async () => new TextEncoder().encode(secret) },
       {

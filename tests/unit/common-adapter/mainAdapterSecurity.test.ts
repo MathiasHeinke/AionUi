@@ -86,6 +86,40 @@ function providerPayload(providerKey: string, ...payload: [] | [unknown]): strin
 
 function validProviderPayload(providerKey: RendererProviderKey): string {
   switch (providerKey) {
+    case 'command-eve.external-action-execute':
+      return providerPayload(providerKey, {
+        version: 'command-eve-external-action-proposal/v1',
+        clientRequestId: 'client-request-a',
+        idempotencyKey: 'idempotency-a',
+        action: {
+          kind: 'purchase',
+          targetOrigin: 'https://shop.example',
+          argumentsDigest: `sha256:${'a'.repeat(64)}`,
+          quoteDigest: `sha256:${'b'.repeat(64)}`,
+          amount: { currency: 'EUR', minorUnits: 100 },
+        },
+        oauthHandleId: 'oauth-handle-a',
+      });
+    case 'command-eve.external-action-policy-set':
+      return providerPayload(providerKey, {
+        context_token: `policy-context:v1:${'a'.repeat(64)}`,
+        mutation: {
+          currency: 'EUR',
+          perActionLimitMinor: 100,
+          dailyLimitMinor: 200,
+          monthlyLimitMinor: 300,
+          allowedOrigins: ['https://shop.example'],
+          allowedActionKinds: ['purchase'],
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        },
+      });
+    case 'command-eve.external-action-policy-kill':
+      return providerPayload(providerKey, {
+        context_token: `policy-context:v1:${'a'.repeat(64)}`,
+        enabled: true,
+      });
+    case 'command-eve.external-action-policy-revoke':
+      return providerPayload(providerKey, { context_token: `policy-context:v1:${'a'.repeat(64)}` });
     case 'command-eve.kanban-marketing-board':
       return providerPayload(providerKey, { boardSlug: 'default' });
     case 'command-eve.kanban-marketing-card-create':
@@ -335,15 +369,15 @@ describe('main adapter IPC trust boundary', () => {
     const { webContents, handler } = await setup();
     const event = { sender: webContents, senderFrame: webContents.mainFrame };
 
-    for (const providerKey of [
-      'command-eve.cloud-visual-policy-receipt',
-      'command-eve.cloud-visual-policy-set',
-      'command-eve.image-prepare',
-      'command-eve.presentation-prepare',
-      'command-eve.managed-visual-turn-authorize',
-    ] as const) {
-      await handler(event, validProviderPayload(providerKey));
-    }
+    await Promise.all(
+      [
+        'command-eve.cloud-visual-policy-receipt',
+        'command-eve.cloud-visual-policy-set',
+        'command-eve.image-prepare',
+        'command-eve.presentation-prepare',
+        'command-eve.managed-visual-turn-authorize',
+      ].map((providerKey) => handler(event, validProviderPayload(providerKey as RendererProviderKey)))
+    );
     expect(state.emitter.emit).toHaveBeenCalledTimes(5);
 
     expect(() =>
@@ -380,6 +414,55 @@ describe('main adapter IPC trust boundary', () => {
       )
     ).toThrow('flow id');
     expect(state.emitter.emit).toHaveBeenCalledTimes(5);
+  });
+
+  it('rejects secret-bearing or stale-shape external-action payloads before Main dispatch', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+    await Promise.all(
+      [
+        'command-eve.external-action-execute',
+        'command-eve.external-action-policy-set',
+        'command-eve.external-action-policy-kill',
+        'command-eve.external-action-policy-revoke',
+      ].map((providerKey) => handler(event, validProviderPayload(providerKey as RendererProviderKey)))
+    );
+    expect(state.emitter.emit).toHaveBeenCalledTimes(4);
+
+    const execution = JSON.parse(validProviderPayload('command-eve.external-action-execute')) as {
+      data: { data: Record<string, unknown> };
+    };
+    execution.data.data.secret = 'synthetic-plaintext-secret';
+    expect(() => handler(event, JSON.stringify(execution))).toThrow('external-action execution');
+    expect(() =>
+      handler(
+        event,
+        providerPayload('command-eve.external-action-policy-set', {
+          context_token: `policy-context:v1:${'a'.repeat(64)}`,
+          mutation: {},
+          seedId: 'forged-seed',
+        })
+      )
+    ).toThrow('mutation keys');
+    expect(() =>
+      handler(
+        event,
+        providerPayload('command-eve.external-action-policy-kill', {
+          context_token: `policy-context:v1:${'a'.repeat(64)}`,
+          enabled: 'true',
+        })
+      )
+    ).toThrow('kill-switch');
+    expect(() =>
+      handler(
+        event,
+        providerPayload('command-eve.external-action-policy-revoke', {
+          context_token: `policy-context:v1:${'a'.repeat(64)}`,
+          extra: true,
+        })
+      )
+    ).toThrow('payload keys');
+    expect(state.emitter.emit).toHaveBeenCalledTimes(4);
   });
 
   it('accepts only the exact string-path schema for update-system-info', async () => {

@@ -53,7 +53,7 @@ function configure(store: ExternalActionStore, scoped = binding(store)) {
       perActionLimitMinor: 800,
       dailyLimitMinor: 1_000,
       monthlyLimitMinor: 5_000,
-      allowedDomains: ['shop.example'],
+      allowedOrigins: ['https://shop.example'],
       allowedActionKinds: ['purchase', 'browser_submit'],
       expiresAt: POLICY_EXPIRY,
     },
@@ -79,7 +79,7 @@ function reserveInput(
     classificationDigest: digest('a'),
     riskClass: 'ordinary',
     actionKind: 'purchase',
-    domain: 'shop.example',
+    targetOrigin: 'https://shop.example',
     intentId: 'intent-a',
     requestId: 'request-a',
     operationDigest: digest('b'),
@@ -190,9 +190,75 @@ describe('ExternalActionStore persistent at-most-once ledger', () => {
     expect(reopened.getReservation(scoped, reserved.reservationId!)?.state).toBe('unknown');
     expect(reopened.claim(claim)).toMatchObject({ ok: true, execute: false, replay: true, state: 'unknown' });
   });
+
+  it('fails closed when persisted policy or ledger safety fields are corrupt', () => {
+    const file = databaseFile();
+    const first = openStore(file);
+    const scoped = binding(first);
+    configure(first);
+    const reserved = first.reserve(reserveInput(first));
+    closeStore(first);
+
+    const raw = new NodeSqliteDriver(file);
+    raw.pragma('ignore_check_constraints = ON');
+    raw
+      .prepare(
+        `UPDATE external_action_policies SET kill_switch = 2
+       WHERE installation_id = ? AND account_id = ? AND seed_id = ?`
+      )
+      .run(scoped.installationId, scoped.accountId, scoped.seedId);
+    raw
+      .prepare('UPDATE external_action_reservations SET secret_use_consumed = 2 WHERE reservation_id = ?')
+      .run(reserved.reservationId!);
+    raw.close();
+
+    const reopened = openStore(file);
+    expect(reopened.getPolicy(scoped)).toBeNull();
+    expect(reopened.getReservation(scoped, reserved.reservationId!)).toBeNull();
+  });
 });
 
 describe('ExternalActionStore isolation, authority and budget fences', () => {
+  it('rejects renderer policy payloads with missing or extra authority fields', () => {
+    const store = openStore(databaseFile());
+    const scoped = binding(store);
+    const base = {
+      currency: 'EUR',
+      perActionLimitMinor: 800,
+      dailyLimitMinor: 1_000,
+      monthlyLimitMinor: 5_000,
+      allowedOrigins: ['https://shop.example'],
+      allowedActionKinds: ['purchase'] as const,
+      expiresAt: POLICY_EXPIRY,
+    };
+    expect(
+      store.replacePolicy(scoped, { ...base, seedId: 'renderer-forged-seed' } as typeof base, 'Europe/Berlin')
+    ).toMatchObject({ ok: false, reasonCode: 'EXTERNAL_POLICY_FIELDS_INVALID' });
+    const { expiresAt: _omitted, ...missingExpiry } = base;
+    expect(store.replacePolicy(scoped, missingExpiry as typeof base, 'Europe/Berlin')).toMatchObject({
+      ok: false,
+      reasonCode: 'EXTERNAL_POLICY_FIELDS_INVALID',
+    });
+    expect(store.getPolicy(scoped)).toBeNull();
+  });
+
+  it('binds the exact HTTPS origin and rejects lookalikes, paths and scheme drift', () => {
+    const store = openStore(databaseFile());
+    configure(store);
+    expect(store.reserve(reserveInput(store, { targetOrigin: 'https://shop.example.evil' }))).toMatchObject({
+      ok: false,
+      reasonCode: 'EXTERNAL_ORIGIN_BLOCKED',
+    });
+    expect(store.reserve(reserveInput(store, { targetOrigin: 'http://shop.example' }))).toMatchObject({
+      ok: false,
+      reasonCode: 'EXTERNAL_ORIGIN_INVALID',
+    });
+    expect(store.reserve(reserveInput(store, { targetOrigin: 'https://shop.example/checkout' }))).toMatchObject({
+      ok: false,
+      reasonCode: 'EXTERNAL_ORIGIN_INVALID',
+    });
+  });
+
   it('cannot read or claim a reservation through another account or seed', () => {
     const store = openStore(databaseFile());
     const scoped = binding(store);
@@ -329,5 +395,64 @@ describe('ExternalActionStore isolation, authority and budget fences', () => {
     const revoked = store.revokePolicy(seatB);
     expect(revoked.ok && revoked.policy.revokedAt).toBeTruthy();
     expect(store.getReservation(seatB, b.reservationId!)?.state).toBe('reversed');
+  });
+
+  it('allows cross-account/seed secret access only through an exact explicit grant and revokes it immediately', () => {
+    const store = openStore(databaseFile());
+    const owner = binding(store, 'account-a', 'seed-a');
+    const grantee = binding(store, 'account-b', 'seed-b');
+    expect(
+      store.registerSecretHandle({
+        binding: owner,
+        handleId: 'shared-oauth',
+        type: 'oauth_token',
+        source: 'hermes_onepassword',
+        sourceRef: 'secret-source:v1:onepassword:GOOGLE_REFRESH_TOKEN',
+        actionKinds: ['browser_submit'],
+        targetOrigins: ['https://accounts.example'],
+        expiresAt: POLICY_EXPIRY,
+      })
+    ).toEqual({ ok: true });
+    expect(
+      store.resolveSecretHandleAccess(grantee, 'shared-oauth', 'browser_submit', 'https://accounts.example')
+    ).toBeNull();
+    expect(
+      store.registerSecretShareGrant({
+        ownerBinding: owner,
+        granteeBinding: grantee,
+        grantId: 'grant-shared-oauth',
+        handleId: 'shared-oauth',
+        actionKind: 'browser_submit',
+        targetOrigin: 'https://accounts.example',
+        expiresAt: RESERVATION_EXPIRY,
+      })
+    ).toEqual({ ok: true });
+    expect(
+      store.resolveSecretHandleAccess(grantee, 'shared-oauth', 'browser_submit', 'https://accounts.example')
+    ).toMatchObject({ accessGrantId: 'grant-shared-oauth', binding: owner });
+    expect(store.resolveSecretHandleAccess(grantee, 'shared-oauth', 'purchase', 'https://accounts.example')).toBeNull();
+    expect(store.revokeSecretShareGrant(owner, 'grant-shared-oauth')).toEqual({ ok: true });
+    expect(
+      store.resolveSecretHandleAccess(grantee, 'shared-oauth', 'browser_submit', 'https://accounts.example')
+    ).toBeNull();
+  });
+
+  it('keeps Hermes SecretSource startup hydration out of identity/payment/password handles', () => {
+    const store = openStore(databaseFile());
+    const scoped = binding(store);
+    for (const type of ['identity_email', 'identity_phone', 'payment_profile', 'account_credential'] as const) {
+      expect(
+        store.registerSecretHandle({
+          binding: scoped,
+          handleId: `blocked-${type}`,
+          type,
+          source: 'hermes_bitwarden',
+          sourceRef: 'secret-source:v1:bitwarden:SYNTHETIC_ALIAS',
+          actionKinds: ['browser_submit'],
+          targetOrigins: ['https://accounts.example'],
+          expiresAt: POLICY_EXPIRY,
+        })
+      ).toMatchObject({ ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_INVALID' });
+    }
   });
 });

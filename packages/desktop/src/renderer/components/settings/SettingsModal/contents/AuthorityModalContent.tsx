@@ -49,6 +49,7 @@ import { Button, InputNumber, Radio, Switch } from '@arco-design/web-react';
 import { Browser, Computer, Delete, Key, Ladder, Send, Shield, Unlock, UploadWeb, Wallet } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import ExternalActionPolicySection from './ExternalActionPolicySection';
 
 /** i18n keys per rung. Copy lives in commandEve.json so translators see them together. */
 const RUNG_KEYS: Record<EveLadderRung, string> = {
@@ -614,6 +615,8 @@ const AuthorityModalContent: React.FC = () => {
             </Button>
           )}
         </SettingsSection>
+
+        <ExternalActionPolicySection activeSeatId={activeSeatId} authorityGrant={grant} />
 
         {/*
           WHAT THIS PAGE DOES NOT DECIDE.

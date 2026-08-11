@@ -122,6 +122,38 @@
     "rememberedDescription": "Commands you allowed permanently for this seat. EVE stops asking for them — until you withdraw one here.",
     "rememberedEmpty": "Nothing remembered yet. EVE asks for every command.",
     "forget": "Withdraw",
-    "pageDescription": "Decide what EVE may do without asking — and withdraw anything it has remembered, any time."
+    "pageDescription": "Decide what EVE may do without asking — and withdraw anything it has remembered, any time.",
+    "externalPolicy": {
+      "title": "External actions",
+      "description": "A narrow policy below your existing authority (current rung {{rung}}). It can only reduce what EVE may do.",
+      "nativeNote": "Supported API actions prefer OAuth. For supported browser actions, Main provides a separate persistent profile for this account, Seed and origin. Password material stays Main-only and is only a fallback when OAuth and the isolated session are unavailable. Execution remains blocked without a Main-registered adapter.",
+      "perAction": "Per action (EUR)",
+      "daily": "Per day (EUR)",
+      "monthly": "Per month (EUR)",
+      "origins": "Exact HTTPS origins, one per line",
+      "actions": "Allowed action types",
+      "expiry": "Policy expires after",
+      "expiryHours": {
+        "1": "1 hour",
+        "24": "24 hours",
+        "168": "7 days",
+        "720": "30 days"
+      },
+      "save": "Save scoped policy",
+      "kill": "Stop EVE actions",
+      "revoke": "Revoke policy",
+      "status": "Revision {{revision}} · expires {{expiry}}",
+      "notConfigured": "No external-action policy is active. External execution remains blocked.",
+      "action": {
+        "account_create": "Create ordinary account",
+        "software_install": "Install software (always HumanGate)",
+        "purchase": "One-time purchase",
+        "recurring_payment": "Recurring payment",
+        "browser_submit": "Submit in browser",
+        "desktop_action": "Desktop action",
+        "artifact_modify": "Modify artifact",
+        "communication_send": "Send communication"
+      }
+    }
   }
 }
