@@ -170,6 +170,36 @@ function createDeferred<T>() {
 
 const PDF_SIDECAR_PATH = `/tmp/hermes/document-intelligence/pdf/${'a'.repeat(64)}/document.md`;
 
+const expectedPdfGrounding = () => ({
+  version: 'command-eve-attachment-grounding/v1',
+  entries: [
+    {
+      kind: 'pdf',
+      source_path: '/tmp/report.pdf',
+      source_sha256: 'a'.repeat(64),
+      source_bytes: 100,
+      grounding_path: PDF_SIDECAR_PATH,
+      grounding_sha256: 'c'.repeat(64),
+      grounding_bytes: 128,
+    },
+  ],
+});
+
+const expectedImageGrounding = () => ({
+  version: 'command-eve-attachment-grounding/v1',
+  entries: [
+    {
+      kind: 'image',
+      source_path: '/tmp/screenshot.png',
+      source_sha256: 'd'.repeat(64),
+      source_bytes: 100,
+      grounding_path: '/tmp/hermes/document-intelligence/image/hash/document.md',
+      grounding_sha256: 'e'.repeat(64),
+      grounding_bytes: 128,
+    },
+  ],
+});
+
 function pdfPrepareSuccess(
   sourcePath = '/tmp/report.pdf',
   sidecarPath = PDF_SIDECAR_PATH,
@@ -190,6 +220,8 @@ function pdfPrepareSuccess(
           extracted_characters: 100,
           extraction_mode: extractionMode,
           sidecar_path: sidecarPath,
+          sidecar_sha256: 'c'.repeat(64),
+          sidecar_bytes: 128,
           citation_format: '[PDF p. N]',
           cache_hit: false,
         },
@@ -205,7 +237,21 @@ vi.mock('@/common', () => ({
   ipcBridge: {
     acpConversation: {
       sendMessage: {
-        invoke: sendMessageInvokeMock,
+        invoke: async (params: Record<string, unknown>) => {
+          const raw = (await sendMessageInvokeMock(params)) as Record<string, unknown> | undefined;
+          const grounding = params.attachment_grounding as { entries?: Array<Record<string, unknown>> } | undefined;
+          if (grounding?.entries && raw?.attachment_grounding_receipt === undefined) {
+            return {
+              ...raw,
+              attachment_grounding_receipt: {
+                version: 'command-eve-attachment-grounding-receipt/v1',
+                status: 'verified',
+                entries: grounding.entries.map((entry) => ({ ...entry, grounding_embedded: true })),
+              },
+            };
+          }
+          return raw;
+        },
       },
       steer: {
         invoke: steerInvokeMock,
@@ -807,6 +853,7 @@ describe('AcpSendBox', () => {
       input: 'Hello',
       conversation_id: 'conv-1',
       files: ['/tmp/report.pdf', PDF_SIDECAR_PATH],
+      attachment_grounding: expectedPdfGrounding(),
     });
     expect(buildDisplayMessageMock).toHaveBeenCalledWith('Hello', ['/tmp/report.pdf'], '/tmp/workspace');
 
@@ -838,6 +885,28 @@ describe('AcpSendBox', () => {
     await waitFor(() => expect(messageErrorMock).toHaveBeenCalledTimes(1));
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
     expect(setUploadFileMock).toHaveBeenCalledWith(['/tmp/report.pdf']);
+  });
+
+  it('blocks unsupported image formats instead of sending them without grounding', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/animation.gif'], content: 'Inspect this image' };
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(messageErrorMock).toHaveBeenCalledTimes(1));
+    expect(imagePrepareInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(setUploadFileMock).toHaveBeenCalledWith(['/tmp/animation.gif']);
   });
 
   it('keeps a second PDF submit visible instead of silently dropping it', async () => {
@@ -930,6 +999,7 @@ describe('AcpSendBox', () => {
       input: 'Read this PDF',
       conversation_id: 'conv-1',
       files: ['/tmp/report.pdf', PDF_SIDECAR_PATH],
+      attachment_grounding: expectedPdfGrounding(),
     });
     expect(buildDisplayMessageMock).toHaveBeenCalledWith('Read this PDF', ['/tmp/report.pdf'], '/tmp/workspace');
   });
@@ -953,11 +1023,14 @@ describe('AcpSendBox', () => {
     });
 
     await waitFor(() =>
-      expect(queueEnqueueMock).toHaveBeenCalledWith({
-        input: 'Hello',
-        files: ['/tmp/report.pdf', PDF_SIDECAR_PATH],
-        displayFiles: ['/tmp/report.pdf'],
-      })
+      expect(queueEnqueueMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: 'Hello',
+          files: ['/tmp/report.pdf', PDF_SIDECAR_PATH],
+          displayFiles: ['/tmp/report.pdf'],
+          attachmentGrounding: expectedPdfGrounding(),
+        })
+      )
     );
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });
@@ -1374,8 +1447,16 @@ describe('AcpSendBox', () => {
           {
             source_path: '/tmp/screenshot.png',
             source_name: 'screenshot.png',
+            sha256: 'd'.repeat(64),
+            bytes: 100,
+            extraction_mode: 'cloud_vision',
             sidecar_path: '/tmp/hermes/document-intelligence/image/hash/document.md',
+            sidecar_sha256: 'e'.repeat(64),
+            sidecar_bytes: 128,
             prompt_context: '## Image 1\n\nA screenshot.',
+            citation_format: '[Image 1]',
+            model: 'curated-vision-model',
+            cache_hit: false,
           },
         ],
       },
@@ -1430,6 +1511,7 @@ describe('AcpSendBox', () => {
         input: expect.stringContaining('Hello'),
         conversation_id: 'conv-1',
         files: ['/tmp/screenshot.png', '/tmp/hermes/document-intelligence/image/hash/document.md'],
+        attachment_grounding: expectedImageGrounding(),
       })
     );
     expect(managedVisualTurnAuthorizeInvokeMock).toHaveBeenCalledWith(
@@ -1489,8 +1571,16 @@ describe('AcpSendBox', () => {
             {
               source_path: '/tmp/screenshot.png',
               source_name: 'screenshot.png',
+              sha256: 'd'.repeat(64),
+              bytes: 100,
+              extraction_mode: 'cloud_vision',
               sidecar_path: '/tmp/hermes/document-intelligence/image/hash/document.md',
+              sidecar_sha256: 'e'.repeat(64),
+              sidecar_bytes: 128,
               prompt_context: '## Image 1\n\nA screenshot.',
+              citation_format: '[Image 1]',
+              model: 'curated-vision-model',
+              cache_hit: false,
             },
           ],
         },
@@ -1630,8 +1720,16 @@ describe('AcpSendBox', () => {
             {
               source_path: '/tmp/screenshot.png',
               source_name: 'screenshot.png',
+              sha256: 'd'.repeat(64),
+              bytes: 100,
+              extraction_mode: 'cloud_vision',
               sidecar_path: '/tmp/hermes/document-intelligence/image/hash/document.md',
+              sidecar_sha256: 'e'.repeat(64),
+              sidecar_bytes: 128,
               prompt_context: '## Image 1\n\nA screenshot.',
+              citation_format: '[Image 1]',
+              model: 'curated-vision-model',
+              cache_hit: false,
             },
           ],
         },
@@ -3548,8 +3646,16 @@ describe('AcpSendBox', () => {
             {
               source_path: '/tmp/screenshot.png',
               source_name: 'screenshot.png',
+              sha256: 'd'.repeat(64),
+              bytes: 100,
+              extraction_mode: 'cloud_vision',
               sidecar_path: '/tmp/hermes/document-intelligence/image/hash/document.md',
+              sidecar_sha256: 'e'.repeat(64),
+              sidecar_bytes: 128,
               prompt_context: '## Image 1\n\nA screenshot.',
+              citation_format: '[Image 1]',
+              model: 'curated-vision-model',
+              cache_hit: false,
             },
           ],
         },

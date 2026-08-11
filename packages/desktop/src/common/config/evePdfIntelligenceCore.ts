@@ -29,6 +29,8 @@ export type CommandEvePreparedPdfDocument = {
   extracted_characters: number;
   extraction_mode: CommandEvePdfExtractionMode;
   sidecar_path: string;
+  sidecar_sha256: string;
+  sidecar_bytes: number;
   citation_format: '[PDF p. N]';
   cache_hit: boolean;
 };
@@ -233,6 +235,13 @@ export function validateCommandEvePdfPrepareReceipt(
     ) {
       return failure();
     }
+    if (
+      !isSha256(candidate.sidecar_sha256) ||
+      !Number.isSafeInteger(candidate.sidecar_bytes) ||
+      Number(candidate.sidecar_bytes) < 1
+    ) {
+      return failure();
+    }
     const existingSidecar = sidecarDocuments.get(sidecarPath);
     if (
       existingSidecar &&
@@ -241,7 +250,9 @@ export function validateCommandEvePdfPrepareReceipt(
         existingSidecar.page_count !== candidate.page_count ||
         existingSidecar.extracted_characters !== candidate.extracted_characters ||
         existingSidecar.extraction_mode !== candidate.extraction_mode ||
-        existingSidecar.citation_format !== candidate.citation_format)
+        existingSidecar.citation_format !== candidate.citation_format ||
+        existingSidecar.sidecar_sha256 !== candidate.sidecar_sha256 ||
+        existingSidecar.sidecar_bytes !== candidate.sidecar_bytes)
     ) {
       return failure();
     }

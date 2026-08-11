@@ -279,6 +279,8 @@ export async function prepareLocalPdf(input: {
               extracted_characters: Number(manifest.extractedCharacters),
               extraction_mode: manifest.extractionMode,
               sidecar_path: sidecarPath,
+              sidecar_sha256: sidecarSha256,
+              sidecar_bytes: Number(manifest.sidecarBytes),
               citation_format: '[PDF p. N]',
               cache_hit: true,
             },
@@ -299,8 +301,9 @@ export async function prepareLocalPdf(input: {
     throw new CommandEvePdfPreparationError(reason, message);
   }
   const quality = assessPdfTextQuality(pages);
+  let preparedDocument: CommandEvePreparedPdfDocument | undefined;
   if (!quality.requiresOcr) {
-    persistPdfSidecar({
+    preparedDocument = persistPdfSidecar({
       hermesHome: input.hermesHome,
       sourcePath: input.filePath,
       sha256,
@@ -314,7 +317,7 @@ export async function prepareLocalPdf(input: {
     sourceBytes,
     pages,
     quality,
-    document: {
+    document: preparedDocument ?? {
       source_path: input.filePath,
       source_name: path.basename(input.filePath),
       sha256,
@@ -323,6 +326,8 @@ export async function prepareLocalPdf(input: {
       extracted_characters: quality.extractedCharacters,
       extraction_mode: 'local_text',
       sidecar_path: sidecarPath,
+      sidecar_sha256: '',
+      sidecar_bytes: 0,
       citation_format: '[PDF p. N]',
       cache_hit: false,
     },
@@ -381,6 +386,8 @@ export function persistPdfSidecar(input: {
     extracted_characters: quality.extractedCharacters,
     extraction_mode: input.extractionMode,
     sidecar_path: sidecarPath,
+    sidecar_sha256: sidecarSha256,
+    sidecar_bytes: sidecarBytes,
     citation_format: '[PDF p. N]',
     cache_hit: false,
   };

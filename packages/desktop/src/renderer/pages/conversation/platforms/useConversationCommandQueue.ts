@@ -6,6 +6,10 @@ import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 import { COMMAND_EVE_PREPARED_CONTEXT_MAX_CHARS } from '@/common/config/evePreparedContextCore';
 import { extractCommandEveManagedVisualTurnToken } from '@/common/config/eveManagedVisualTurnCore';
+import {
+  normalizeCommandEveAttachmentGroundingRequest,
+  type CommandEveAttachmentGroundingRequest,
+} from '@/common/config/eveAttachmentGroundingCore';
 
 export type ConversationCommandQueueItem = {
   id: string;
@@ -16,6 +20,8 @@ export type ConversationCommandQueueItem = {
   preparedContext?: string;
   /** Non-authoritative hint; Main reissues and validates visual authority at execution time. */
   managedVisualSourceCount?: number;
+  /** Exact source/sidecar hashes that AionCore must receipt before send. */
+  attachmentGrounding?: CommandEveAttachmentGroundingRequest;
   files: string[];
   created_at: number;
 };
@@ -57,6 +63,7 @@ const summarizeQueuedCommand = (item: ConversationCommandQueueItem): Record<stri
   displayFileCount: (item.displayFiles ?? item.files).length,
   preparedContextLength: item.preparedContext?.length ?? 0,
   managedVisualSourceCount: item.managedVisualSourceCount ?? 0,
+  attachmentGroundingEntries: item.attachmentGrounding?.entries.length ?? 0,
   preview: item.input.replace(/\s+/g, ' ').trim().slice(0, 120),
 });
 
@@ -102,6 +109,11 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
   const candidateDisplayFiles = candidate.displayFiles;
   const candidatePreparedContext = candidate.preparedContext;
   const candidateManagedVisualSourceCount = candidate.managedVisualSourceCount;
+  const candidateAttachmentGrounding = candidate.attachmentGrounding;
+  const attachmentGrounding =
+    candidateAttachmentGrounding === undefined
+      ? undefined
+      : normalizeCommandEveAttachmentGroundingRequest(candidateAttachmentGrounding);
   if (
     typeof candidate.id !== 'string' ||
     typeof candidate.input !== 'string' ||
@@ -119,6 +131,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
         candidateManagedVisualSourceCount > 6 ||
         typeof candidatePreparedContext !== 'string' ||
         !candidatePreparedContext.trim())) ||
+    (candidateAttachmentGrounding !== undefined && attachmentGrounding === undefined) ||
     typeof candidate.created_at !== 'number' ||
     !Number.isFinite(candidate.created_at)
   ) {
@@ -139,6 +152,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
     ...(typeof candidateManagedVisualSourceCount === 'number'
       ? { managedVisualSourceCount: candidateManagedVisualSourceCount }
       : {}),
+    ...(attachmentGrounding ? { attachmentGrounding } : {}),
     created_at: candidate.created_at,
   };
 
@@ -195,9 +209,10 @@ export const createQueuedCommandItem = ({
   displayFiles,
   preparedContext,
   managedVisualSourceCount,
+  attachmentGrounding,
 }: Pick<
   ConversationCommandQueueItem,
-  'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount'
+  'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount' | 'attachmentGrounding'
 >): ConversationCommandQueueItem => ({
   id: uuid(),
   input,
@@ -205,6 +220,7 @@ export const createQueuedCommandItem = ({
   ...(displayFiles ? { displayFiles: uniqueFiles(displayFiles) } : {}),
   ...(preparedContext?.trim() ? { preparedContext } : {}),
   ...(managedVisualSourceCount ? { managedVisualSourceCount } : {}),
+  ...(attachmentGrounding ? { attachmentGrounding } : {}),
   created_at: Date.now(),
 });
 
@@ -482,7 +498,7 @@ type UseConversationCommandQueueOptions = {
 
 type EnqueueCommandInput = Pick<
   ConversationCommandQueueItem,
-  'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount'
+  'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount' | 'attachmentGrounding'
 >;
 type UpdateCommandInput = Pick<ConversationCommandQueueItem, 'input'>;
 
@@ -651,7 +667,14 @@ export const useConversationCommandQueue = ({
   );
 
   const enqueue = useCallback(
-    ({ input, files, displayFiles, preparedContext, managedVisualSourceCount }: EnqueueCommandInput) => {
+    ({
+      input,
+      files,
+      displayFiles,
+      preparedContext,
+      managedVisualSourceCount,
+      attachmentGrounding,
+    }: EnqueueCommandInput) => {
       if (!enabled) {
         return null;
       }
@@ -663,6 +686,7 @@ export const useConversationCommandQueue = ({
         displayFiles,
         preparedContext,
         managedVisualSourceCount,
+        attachmentGrounding,
       });
       const validation = validateQueuedCommandItem(item, currentState);
 

@@ -100,6 +100,20 @@ describe('useConversationCommandQueue', () => {
 
   it('preserves private agent sidecars separately from user-visible files', async () => {
     const onExecute = vi.fn().mockResolvedValue(undefined);
+    const attachmentGrounding = {
+      version: 'command-eve-attachment-grounding/v1' as const,
+      entries: [
+        {
+          kind: 'pdf' as const,
+          source_path: '/tmp/report.pdf',
+          source_sha256: 'a'.repeat(64),
+          source_bytes: 512,
+          grounding_path: '/tmp/document-intelligence/report.md',
+          grounding_sha256: 'b'.repeat(64),
+          grounding_bytes: 128,
+        },
+      ],
+    };
     const { result } = renderHook(
       () =>
         useConversationCommandQueue({
@@ -121,6 +135,7 @@ describe('useConversationCommandQueue', () => {
         files: ['/tmp/report.pdf', '/tmp/document-intelligence/report.md'],
         displayFiles: ['/tmp/report.pdf'],
         preparedContext: 'Prepared private evidence',
+        attachmentGrounding,
       });
     });
 
@@ -130,6 +145,7 @@ describe('useConversationCommandQueue', () => {
           files: ['/tmp/report.pdf', '/tmp/document-intelligence/report.md'],
           displayFiles: ['/tmp/report.pdf'],
           preparedContext: 'Prepared private evidence',
+          attachmentGrounding,
         }),
       ])
     );
@@ -140,6 +156,7 @@ describe('useConversationCommandQueue', () => {
             files: ['/tmp/report.pdf', '/tmp/document-intelligence/report.md'],
             displayFiles: ['/tmp/report.pdf'],
             preparedContext: 'Prepared private evidence',
+            attachmentGrounding,
           }),
         ],
       })

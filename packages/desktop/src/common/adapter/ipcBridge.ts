@@ -77,6 +77,10 @@ import type {
 import type { CommandEveVideoEditRequest, CommandEveVideoEditResult } from '../config/videoEditRequestCore';
 import type { VideoCatalogEntry } from '../config/videoCatalogCore';
 import type { CommandEveActiveImageArtifact } from '../config/managedImageArtifactCore';
+import type {
+  CommandEveAttachmentGroundingReceipt,
+  CommandEveAttachmentGroundingRequest,
+} from '../config/eveAttachmentGroundingCore';
 
 /**
  * 1.820.3 — the renderer-facing shapes of the managed image artifact lane.
@@ -256,6 +260,7 @@ const directConversationSend = httpPost<ISendMessageResult, ISendMessageParams>(
   (p) => ({
     content: p.input,
     files: p.files,
+    attachment_grounding: p.attachment_grounding,
     loading_id: p.loading_id,
     inject_skills: p.inject_skills,
   })
@@ -3464,6 +3469,7 @@ interface ISendMessageParams {
   input: string;
   conversation_id: string;
   files?: string[];
+  attachment_grounding?: CommandEveAttachmentGroundingRequest;
   loading_id?: string;
   inject_skills?: string[];
 }
@@ -3482,6 +3488,7 @@ export interface ISendMessageResult {
   msg_id: string;
   turn_id: string;
   runtime: TConversationRuntimeSummary;
+  attachment_grounding_receipt?: CommandEveAttachmentGroundingReceipt;
 }
 
 export interface ISteerMessageResult {

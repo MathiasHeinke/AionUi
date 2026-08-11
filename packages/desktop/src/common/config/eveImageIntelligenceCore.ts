@@ -34,6 +34,8 @@ export type CommandEvePreparedImageDocument = {
   bytes: number;
   extraction_mode: 'cloud_vision';
   sidecar_path: string;
+  sidecar_sha256: string;
+  sidecar_bytes: number;
   /** Bounded, verified sidecar content for the conversational prompt. */
   prompt_context: string;
   citation_format: '[Image 1]';

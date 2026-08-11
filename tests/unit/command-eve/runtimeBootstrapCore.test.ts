@@ -1196,11 +1196,9 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('def _install_command_eve_attachment_memory_gate() -> None:');
       expect(providerOverride).toContain('def _install_command_eve_attachment_history_patch() -> None:');
       const attachmentFailClosedDefault = providerOverride.indexOf(
-        'turn_agent._command_eve_current_turn_has_attachment = True'
+        'agent._command_eve_current_turn_has_attachment = True'
       );
-      const attachmentInspection = providerOverride.indexOf(
-        'turn_agent._command_eve_current_turn_has_attachment = _command_eve_prompt_has_attachment(prompt_blocks)'
-      );
+      const attachmentInspection = providerOverride.indexOf('or _command_eve_prompt_has_attachment(prompt)');
       expect(attachmentFailClosedDefault).toBeGreaterThan(-1);
       expect(attachmentInspection).toBeGreaterThan(attachmentFailClosedDefault);
       const visionAuthHarness = spawnSync(
@@ -1229,7 +1227,13 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(JSON.parse(attachmentMemoryHarness.stdout)).toMatchObject({
         text_memory_allowed: true,
         attachment_memory_blocked: true,
-        attachment_skill_review_allowed: true,
+        attachment_skill_review_blocked: true,
+        attachment_external_sync_blocked: true,
+        correction_memory_and_skill_blocked: true,
+        direct_memory_and_skill_writes_blocked: true,
+        acp_interrupt_correction_blocked: true,
+        recursive_correction_turn_blocked: true,
+        nested_attachment_turn_blocked: true,
       });
       const attachmentHistoryHarness = spawnSync(
         'python3',
