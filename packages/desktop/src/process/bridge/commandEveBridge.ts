@@ -2151,7 +2151,7 @@ export function initCommandEveBridge(): void {
       const failure = (
         reasonCode: string,
         message?: string,
-        options?: { requiresConsent?: boolean; pendingNames?: string[] }
+        options?: { requiresConsent?: boolean; pendingNames?: string[]; suppressDocuments?: boolean }
       ) => ({
         success: false,
         msg: reasonCode,
@@ -2160,8 +2160,8 @@ export function initCommandEveBridge(): void {
           ok: false as const,
           reason_code: reasonCode,
           ...(message ? { message } : {}),
-          documents: readyDocuments,
-          prepared_files: preparedFiles(),
+          documents: options?.suppressDocuments === true ? [] : readyDocuments,
+          prepared_files: options?.suppressDocuments === true ? [] : preparedFiles(),
           requires_cloud_ocr_consent: options?.requiresConsent === true,
           ...(options?.pendingNames?.length ? { pending_source_names: options.pendingNames } : {}),
         },
@@ -2171,11 +2171,34 @@ export function initCommandEveBridge(): void {
         return failure('EVE_PDF_BAD_FILE_COUNT', 'Select between one and five PDF files per message.');
       }
 
-      const hermesHome = resolveActiveSeatHome(getDataPath()).hermesHome;
+      let capturedSeatId: string;
+      let capturedSeatContextRevision: number;
+      let hermesHome: string;
+      const dataPath = getDataPath();
+      try {
+        capturedSeatId = getActiveSeatId();
+        capturedSeatContextRevision = getActiveSeatContextRevision();
+        hermesHome = resolveSeatHermesHome(dataPath, capturedSeatId);
+      } catch {
+        return failure('EVE_PDF_SEAT_UNAVAILABLE');
+      }
+      const seatStillMatches = (): boolean => {
+        try {
+          return getActiveSeatId() === capturedSeatId && getActiveSeatContextRevision() === capturedSeatContextRevision;
+        } catch {
+          return false;
+        }
+      };
+      const seatChanged = () => failure('EVE_PDF_SEAT_CHANGED', undefined, { suppressDocuments: true });
       const localPreparations: LocalPdfPreparation[] = [];
       for (const filePath of filePaths) {
         try {
-          const prepared = await prepareLocalPdf({ filePath, hermesHome });
+          const prepared = await prepareLocalPdf({
+            filePath,
+            hermesHome,
+            isContextCurrent: seatStillMatches,
+          });
+          if (!seatStillMatches()) return seatChanged();
           localPreparations.push(prepared);
           if (!prepared.quality.requiresOcr || prepared.document.extraction_mode === 'cloud_ocr') {
             readyDocuments.push(prepared.document);
@@ -2183,6 +2206,7 @@ export function initCommandEveBridge(): void {
         } catch (error) {
           const reasonCode =
             error instanceof CommandEvePdfPreparationError ? error.reasonCode : 'EVE_PDF_LOCAL_EXTRACTION_FAILED';
+          if (reasonCode === 'EVE_PDF_SEAT_CHANGED') return seatChanged();
           return failure(reasonCode, error instanceof Error ? error.message.slice(0, 300) : undefined);
         }
       }
@@ -2206,7 +2230,8 @@ export function initCommandEveBridge(): void {
           return failure('EVE_PDF_CLOUD_OCR_NOT_ENABLED');
         }
         const privacyLane = payload?.privacyLane ?? 'cloud_auto';
-        const wireResult = readLicenseWire(getDataPath());
+        if (!seatStillMatches()) return seatChanged();
+        const wireResult = readLicenseWire(dataPath);
         const gate = resolveCommandEveMultimodalGate({
           provider: 'openrouter',
           capability: 'document_ocr',
@@ -2234,6 +2259,7 @@ export function initCommandEveBridge(): void {
           if (built.ok === false) {
             return failure(built.reason_code, built.message);
           }
+          if (!seatStillMatches()) return seatChanged();
 
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 90_000);
@@ -2247,13 +2273,14 @@ export function initCommandEveBridge(): void {
               },
               redirect: 'error',
               cache: 'no-store',
-              body: JSON.stringify({ ...built.body, ...commandEveMediaSeedAttribution(getActiveSeatId()) }),
+              body: JSON.stringify({ ...built.body, ...commandEveMediaSeedAttribution(capturedSeatId) }),
               signal: controller.signal,
             });
             const responseText = await readCommandEveLimitedResponseText(
               response,
               COMMAND_EVE_PDF_MAX_CLOUD_RESPONSE_BYTES
             );
+            if (!seatStillMatches()) return seatChanged();
             if (responseText.ok === false) {
               return failure('EVE_PDF_OCR_RESPONSE_TOO_LARGE');
             }
@@ -2292,6 +2319,7 @@ export function initCommandEveBridge(): void {
 
       // Re-read no source bytes and expose no cloud payload. The only files the
       // renderer adds to Hermes are private, deterministic Markdown sidecars.
+      if (!seatStillMatches()) return seatChanged();
       return {
         success: true,
         data: {

@@ -7,10 +7,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const registered = new Map<string, (req?: unknown) => Promise<unknown>>();
-const { prepareLocalPdfMock, persistPdfSidecarMock, readLicenseWireMock } = vi.hoisted(() => ({
+const { prepareLocalPdfMock, persistPdfSidecarMock, readLicenseWireMock, activeSeatState } = vi.hoisted(() => ({
   prepareLocalPdfMock: vi.fn(),
   persistPdfSidecarMock: vi.fn(),
   readLicenseWireMock: vi.fn(() => ({ ok: true, wire: 'test-license-wire' })),
+  activeSeatState: {
+    seatId: 'a2000000-0000-4000-8000-000000000001',
+    revision: 1,
+  },
 }));
 
 vi.mock('@office-ai/platform', () => ({
@@ -34,7 +38,11 @@ vi.mock('@process/utils/utils', () => ({ getDataPath: () => '/tmp/ce-pdf-intelli
 vi.mock('@process/commandEve/seatWireFetchCore', () => ({ readMySeatsWire: vi.fn(async () => null) }));
 vi.mock('@process/commandEve/seatContextCore', async (importOriginal) => {
   const original = await importOriginal<typeof import('@process/commandEve/seatContextCore')>();
-  return { ...original, getActiveSeatId: () => 'a2000000-0000-4000-8000-000000000001' };
+  return {
+    ...original,
+    getActiveSeatId: () => activeSeatState.seatId,
+    getActiveSeatContextRevision: () => activeSeatState.revision,
+  };
 });
 vi.mock('@/common/config/licenseWireAtRest', () => ({
   clearLicenseWire: vi.fn(),
@@ -94,6 +102,8 @@ describe('Command EVE PDF intelligence bridge', () => {
     persistPdfSidecarMock.mockReset();
     readLicenseWireMock.mockReset();
     readLicenseWireMock.mockReturnValue({ ok: true, wire: 'test-license-wire' });
+    activeSeatState.seatId = 'a2000000-0000-4000-8000-000000000001';
+    activeSeatState.revision = 1;
     vi.stubGlobal('fetch', vi.fn());
     initCommandEveBridge();
     readLicenseWireMock.mockClear();
@@ -119,10 +129,13 @@ describe('Command EVE PDF intelligence bridge', () => {
         requires_cloud_ocr_consent: false,
       },
     });
-    expect(prepareLocalPdfMock).toHaveBeenCalledWith({
-      filePath: '/tmp/report.pdf',
-      hermesHome: expect.stringContaining('command-eve'),
-    });
+    expect(prepareLocalPdfMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePath: '/tmp/report.pdf',
+        hermesHome: expect.stringContaining('command-eve'),
+        isContextCurrent: expect.any(Function),
+      })
+    );
     expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(readLicenseWireMock).not.toHaveBeenCalled();
   });
@@ -144,6 +157,64 @@ describe('Command EVE PDF intelligence bridge', () => {
     });
     expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(readLicenseWireMock).not.toHaveBeenCalled();
+  });
+
+  it('holds one Seed revision for the whole PDF batch and refuses before POST or persistence after A-to-B switch', async () => {
+    let resolvePreparation!: (value: ReturnType<typeof localPreparation>) => void;
+    prepareLocalPdfMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePreparation = resolve;
+        })
+    );
+
+    const pending = call({ data: { filePaths: ['/tmp/report.pdf'], allowCloudOcr: true } });
+    await vi.waitFor(() => expect(prepareLocalPdfMock).toHaveBeenCalledOnce());
+    activeSeatState.seatId = 'b2000000-0000-4000-8000-000000000001';
+    activeSeatState.revision += 1;
+    resolvePreparation(localPreparation(true));
+
+    await expect(pending).resolves.toMatchObject({
+      success: false,
+      msg: 'EVE_PDF_SEAT_CHANGED',
+      data: { documents: [], prepared_files: [] },
+    });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(persistPdfSidecarMock).not.toHaveBeenCalled();
+  });
+
+  it('revalidates the captured Seed after cloud POST and before sidecar persistence', async () => {
+    const prepared = localPreparation(true);
+    prepareLocalPdfMock.mockResolvedValue(prepared);
+    let resolveFetch!: (value: Response) => void;
+    vi.mocked(globalThis.fetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+
+    const pending = call({ data: { filePaths: ['/tmp/report.pdf'], allowCloudOcr: true } });
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledOnce());
+    activeSeatState.seatId = 'b2000000-0000-4000-8000-000000000001';
+    activeSeatState.revision += 1;
+    resolveFetch(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          artifact: { text: '## Page 1\n\nAlpha' },
+          document: { page_count: 1 },
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(pending).resolves.toMatchObject({
+      success: false,
+      msg: 'EVE_PDF_SEAT_CHANGED',
+      data: { documents: [], prepared_files: [] },
+    });
+    expect(persistPdfSidecarMock).not.toHaveBeenCalled();
   });
 
   it('sends scanned PDF bytes only to the licensed server gateway after consent and redacts them from the result', async () => {

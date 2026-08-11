@@ -22,7 +22,7 @@ import { commandEveMediaSeedAttribution, EVE_MULTIMODAL_FUNCTION_URL } from '@/c
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { getDataPath } from '@process/utils/utils';
 import { areCommandEveFileSelectionPathsGranted } from '@process/commandEve/fileSelectionGrantCore';
-import { getActiveSeatId } from '@process/commandEve/seatContextCore';
+import { getActiveSeatContextRevision, getActiveSeatId } from '@process/commandEve/seatContextCore';
 import { readBoundedImageSource } from '@process/commandEve/document/imageIntelligenceService';
 import {
   saveGeneratedVideoFile,
@@ -111,6 +111,9 @@ export interface CommandEveVideoBridgeDeps {
   /** A separate id for the durable artifact record — distinct from the wire request id. */
   newArtifactId: () => string;
   getActiveSeatId: typeof getActiveSeatId;
+  /** Optional only for compatibility with older test seams; production always
+   * supplies the monotonic revision and binds it to the captured seat id. */
+  getActiveSeatContextRevision?: typeof getActiveSeatContextRevision;
   areFileSelectionPathsGranted: typeof areCommandEveFileSelectionPathsGranted;
   /** Reads and validates the attached image at rest — the same bounded local
    * boundary `imageIntelligenceService` uses for the vision lane. */
@@ -193,6 +196,7 @@ const productionDeps: CommandEveVideoBridgeDeps = {
   newRequestId: () => randomUUID(),
   newArtifactId: () => randomUUID(),
   getActiveSeatId,
+  getActiveSeatContextRevision,
   areFileSelectionPathsGranted: areCommandEveFileSelectionPathsGranted,
   readImageSource: (filePath: string) => readBoundedImageSource(filePath),
   saveVideoFile: saveGeneratedVideoFile,
@@ -257,6 +261,15 @@ const VIDEO_REQUEST_TIMEOUT_MS = 200_000;
 /** Ceiling on the response we will read — a 1080p/15s clip plus base64 overhead. */
 const MAX_VIDEO_RESPONSE_BYTES = 160 * 1024 * 1024;
 
+function videoSeatChangedResult(): CommandEveVideoGenerateResult {
+  return {
+    ok: false,
+    reasonCode: 'video-seat-changed',
+    message: 'Der aktive Seed wurde während der Vorbereitung gewechselt. Starte die Videoerstellung erneut.',
+    retryable: true,
+  };
+}
+
 export async function handleCommandEveVideoGenerate(
   request?: CommandEveVideoGenerateRequest,
   deps: CommandEveVideoBridgeDeps = productionDeps
@@ -270,6 +283,27 @@ export async function handleCommandEveVideoGenerate(
     };
   }
 
+  const readSeatRevision = deps.getActiveSeatContextRevision ?? (() => 0);
+  let capturedSeatId: string;
+  let capturedSeatContextRevision: number;
+  try {
+    capturedSeatId = deps.getActiveSeatId();
+    capturedSeatContextRevision = readSeatRevision();
+  } catch {
+    return {
+      ok: false,
+      reasonCode: 'video-seat-unavailable',
+      message: 'Der aktive Seed konnte nicht sicher bestimmt werden.',
+      retryable: true,
+    };
+  }
+  const seatStillMatches = (): boolean => {
+    try {
+      return deps.getActiveSeatId() === capturedSeatId && readSeatRevision() === capturedSeatContextRevision;
+    } catch {
+      return false;
+    }
+  };
   // THE MODE IS DECIDED ONCE, HERE, AND IT IS DECIDED BY CONSTRUCTION.
   //
   // IPC carries plain JSON, so the renderer's request record has an `imagePath`
@@ -303,6 +337,7 @@ export async function handleCommandEveVideoGenerate(
   // as unknown; a failed catalog read refuses only NON-legacy models, which is
   // the fail-closed direction (no proven price, no render).
   const catalog = deps.getVideoCatalogWire ? await deps.getVideoCatalogWire().catch((): null => null) : null;
+  if (!seatStillMatches()) return videoSeatChangedResult();
   const tierGateRefusal = refuseUnproducibleVideoRequest({
     tierId: request.tierId,
     ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
@@ -332,18 +367,7 @@ export async function handleCommandEveVideoGenerate(
     pathMode.kind === 'image' ? [pathMode.image] : pathMode.kind === 'reference' ? [...pathMode.referenceImages] : [];
   const assets: VideoAssetPayload[] = [];
   if (imagePaths.length > 0) {
-    let seatId: string;
-    try {
-      seatId = deps.getActiveSeatId();
-    } catch {
-      return {
-        ok: false,
-        reasonCode: 'video-image-not-granted',
-        message: 'Für deine Sicherheit: Wähle das Bild erneut aus, bevor daraus ein Video erstellt wird.',
-        retryable: false,
-      };
-    }
-    if (!deps.areFileSelectionPathsGranted({ filePaths: imagePaths, seatId, purpose: 'read' })) {
+    if (!deps.areFileSelectionPathsGranted({ filePaths: imagePaths, seatId: capturedSeatId, purpose: 'read' })) {
       return {
         ok: false,
         reasonCode: 'video-image-not-granted',
@@ -389,8 +413,10 @@ export async function handleCommandEveVideoGenerate(
       mode: wireMode,
       requestId: deps.newRequestId(),
     }),
-    ...commandEveMediaSeedAttribution(deps.getActiveSeatId()),
+    ...commandEveMediaSeedAttribution(capturedSeatId),
   };
+
+  if (!seatStillMatches()) return videoSeatChangedResult();
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VIDEO_REQUEST_TIMEOUT_MS);
@@ -409,6 +435,7 @@ export async function handleCommandEveVideoGenerate(
     });
 
     const text = await response.text();
+    if (!seatStillMatches()) return videoSeatChangedResult();
     if (text.length > MAX_VIDEO_RESPONSE_BYTES) {
       return {
         ok: false,
