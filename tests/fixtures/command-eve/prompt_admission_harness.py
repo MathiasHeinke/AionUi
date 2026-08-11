@@ -249,6 +249,7 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
     acp_agent._prompt_impl = types.MethodType(prompt_impl, acp_agent)
 
     async def exercise() -> None:
+        global db
         verified = admission("request-ok", "turn-ok", "a" * 64)
         await acp_agent.prompt(
             [types.SimpleNamespace(text="verified sidecar")],
@@ -280,6 +281,30 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
         active_record = json.loads(db.get_meta(key))
         assert active_record["status"] == "active"
         assert active_record["reason"] == "attachment_grounding_pending"
+
+        # Crash/restart must preserve the safety fence without permanently
+        # bricking the session. A new exact turn/digest atomically replaces the
+        # stale pending record while quarantine remains active until finalize.
+        db.close()
+        namespace["_COMMAND_EVE_MEMORY_QUARANTINE_BY_SESSION"].clear()
+        namespace["_COMMAND_EVE_QUARANTINE_DB_BY_SESSION"].clear()
+        db = SessionDB(db_path)
+        agent._session_db = db
+        acp_agent.session_manager.current_db = db
+        namespace["_command_eve_bind_claim_quarantine_db"](agent, "session-1", db)
+        assert namespace["_command_eve_turn_memory_quarantined"]("session-1") is True
+        connection.reject_phase = None
+        await acp_agent.prompt(
+            [types.SimpleNamespace(text="verified retry sidecar")],
+            "session-1",
+            commandEvePromptAdmission=admission("request-retry", "turn-retry", "c" * 64),
+        )
+        assert provider_calls == ["provider", "provider"]
+        retry_record = json.loads(db.get_meta(key))
+        assert retry_record["status"] == "verified"
+        assert retry_record["turn_id"] == "turn-retry"
+        assert retry_record["evidence_digest"] == "c" * 64
+        assert namespace["_command_eve_turn_memory_quarantined"]("session-1") is False
 
         # Now execute the public correction paths through the wheel's real
         # _prompt_impl. These branches are exactly where Hermes 0.20 rewrites
@@ -410,6 +435,7 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
                 "rejected_admission_blocks_provider": True,
                 "verified_attachment_record_typed": True,
                 "unverified_attachment_restart_quarantined": True,
+                "stale_pending_restart_retry_succeeds": True,
                 "real_wheel_idle_correction_quarantined": True,
                 "real_wheel_idle_steer_quarantined": True,
                 "real_wheel_busy_redirect_quarantined": True,

@@ -73,6 +73,7 @@ describe('warmupConversation', () => {
     warmupInvokeMock.mockResolvedValue(undefined);
 
     await expect(warmupConversation('conv-1')).resolves.toBeUndefined();
+    activeCountInvokeMock.mockResolvedValue({ count: MAX_ACTIVE_CONVERSATION_RUNTIMES });
     await expect(warmupConversation('conv-1', { revalidate: true })).resolves.toBeUndefined();
 
     expect(warmupInvokeMock).toHaveBeenCalledTimes(2);

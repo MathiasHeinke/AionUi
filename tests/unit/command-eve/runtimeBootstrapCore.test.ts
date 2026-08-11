@@ -1264,6 +1264,7 @@ describe('Command EVE runtime bootstrap core', () => {
         rejected_admission_blocks_provider: true,
         verified_attachment_record_typed: true,
         unverified_attachment_restart_quarantined: true,
+        stale_pending_restart_retry_succeeds: true,
         real_wheel_idle_correction_quarantined: true,
         real_wheel_idle_steer_quarantined: true,
         real_wheel_busy_redirect_quarantined: true,
