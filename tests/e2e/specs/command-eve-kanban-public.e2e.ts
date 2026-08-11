@@ -113,12 +113,28 @@ async function ensureBackendReady(page: Page): Promise<void> {
   );
 }
 
-async function openConversation(page: Page, conversationId: string): Promise<void> {
-  const baseUrl = page.url().split('#')[0];
-  await page.goto(`${baseUrl}#/conversation/${conversationId}`);
-  await page.waitForLoadState('domcontentloaded');
-  await expect(page.locator(`[id="eve-chat-pane-${conversationId}"]`)).toHaveCount(1);
+async function openConversationFromFreshBoot(page: Page, conversationId: string): Promise<void> {
+  const conversationHash = `#/conversation/${conversationId}`;
+
+  // Reproduce a persisted chat URL without firing an in-session hash change,
+  // then reload the renderer. The one-shot boot guard must return us to the
+  // real home shell before the history row drives normal React Router
+  // navigation, exactly as a user opening an existing chat would.
+  await page.evaluate((rawBootHash) => {
+    window.history.replaceState(null, '', rawBootHash);
+  }, conversationHash);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await ensureBackendReady(page);
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('#/guid');
+  await expect(page.getByTestId('guid-input')).toBeVisible({ timeout: 30_000 });
+
+  const historyRow = page.locator(`[id="c-${conversationId}"]`);
+  await expect(historyRow).toBeVisible({ timeout: 30_000 });
+  await historyRow.getByRole('button').first().click();
+
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(conversationHash);
   await expect(page.getByTestId('message-list-scroller')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(`[id="eve-chat-pane-${conversationId}"]`)).toHaveCount(1);
 }
 
 async function openKanbanWorkbench(page: Page): Promise<void> {
@@ -174,7 +190,7 @@ test.describe.serial('Command EVE native public Kanban', () => {
     if (scratchRoot) fs.rmSync(scratchRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
-  test('creates, edits, moves and restores one canonical card beside one chat', async () => {
+  test('normalizes fresh boot, opens one chat in-app, and restores one canonical card', async () => {
     let app: ElectronApplication | null = null;
     let page: Page | null = null;
     try {
@@ -193,7 +209,7 @@ test.describe.serial('Command EVE native public Kanban', () => {
         },
       });
       expect(conversation.id).toBeTruthy();
-      await openConversation(page, conversation.id);
+      await openConversationFromFreshBoot(page, conversation.id);
       await openKanbanWorkbench(page);
 
       const createdTitle = `Native durable goal ${Date.now().toString(36)}`;
@@ -249,7 +265,7 @@ test.describe.serial('Command EVE native public Kanban', () => {
       app = await launchApp();
       page = await resolveMainWindow(app);
       await ensureBackendReady(page);
-      await openConversation(page, conversation.id);
+      await openConversationFromFreshBoot(page, conversation.id);
 
       await expect.poll(async () => (await persistedKanbanTab(page as Page, conversation.id))?.id).toBe(tabId);
       await openKanbanWorkbench(page);
