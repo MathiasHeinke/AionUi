@@ -10,12 +10,17 @@
  *     --cohort warm_existing_session --sessions 5 \
  *     --user-data-dir /tmp/command-eve-ttft-profile --capture-only
  *
- * Example (unsigned packaged app):
+ * Example (unsigned non-distributable QA package with the baked attachment
+ * marker, built via `bun run command-eve:package:e2e-attachment`):
  *   bunx tsx scripts/command-eve/ttft/benchmark.ts \
- *     --executable out/mac-arm64/Command\ EVE.app/Contents/MacOS/Command\ EVE \
+ *     --executable out/e2e-packaged/mac-arm64/Command\ EVE.app/Contents/MacOS/Command\ EVE \
  *     --app-commit <40-character-source-commit> \
  *     --cohort cold_start_chat --sessions 5 \
  *     --user-data-dir /tmp/command-eve-ttft-profile --capture-only
+ *
+ * Packaged runs preflight the non-distributable QA attachment marker beside
+ * the runtime manifest before launch and only then supply the runtime
+ * authorization flags; a production package without the marker fails fast.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -38,6 +43,11 @@ import {
   type CommandEveTtftReceipt,
   type CommandEveTtftStage,
 } from './receipt-core';
+import {
+  commandEvePackagedQaLaunchEnv,
+  requireCommandEvePackagedQaAttachment,
+  type CommandEvePackagedQaAttachmentProof,
+} from './packaged-qa-attachment';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '../../..');
 const GUID_INPUT = '.guid-input-card-shell textarea';
@@ -66,6 +76,7 @@ type ArtifactTruth = {
   appCommitSource: CommandEveTtftReceipt['appCommitSource'];
   manifestPath: string;
   launchedAppVersion: string;
+  packagedQaAttachment: CommandEvePackagedQaAttachmentProof | null;
 };
 
 type AppHandle = {
@@ -321,9 +332,17 @@ async function launchApp(args: Args): Promise<AppHandle> {
   const packaged = Boolean(args.executablePath);
   const logPath = resolveLogPath(args.userDataDir);
   const launchLogOffset = fileSize(logPath);
+  // Fail fast before electron.launch: Playwright attaches to a packaged app
+  // through Node --inspect and Chromium remote-debugging switches that the
+  // production CDP policy strips unless the baked QA marker is present beside
+  // the runtime manifest. Without this preflight a missing marker surfaces
+  // only as a launch timeout with no measurement evidence.
+  const manifestPath = resolveArtifactManifestPath(args);
+  const packagedQaAttachment = packaged ? requireCommandEvePackagedQaAttachment(manifestPath) : null;
   const appProcessStartedAt = Date.now();
   const commonEnv = {
     ...process.env,
+    ...commandEvePackagedQaLaunchEnv(packaged),
     ACP_PERF: '1',
     AIONUI_DISABLE_AUTO_UPDATE: '1',
     AIONUI_DISABLE_DEVTOOLS: '1',
@@ -352,7 +371,7 @@ async function launchApp(args: Args): Promise<AppHandle> {
   );
   try {
     const launchedAppVersion = await app.evaluate(({ app: electronApp }) => electronApp.getVersion());
-    const artifactTruth = releaseTruth(args, launchedAppVersion);
+    const artifactTruth = releaseTruth(args, launchedAppVersion, manifestPath, packagedQaAttachment);
     const page = await resolveMainWindow(app);
     const rendererUsableAt = await navigateToGuid(page);
     if (args.tts) {
@@ -585,8 +604,12 @@ function resolveArtifactManifestPath(args: Args): string {
   return manifestPath;
 }
 
-function releaseTruth(args: Args, launchedAppVersion: string): ArtifactTruth {
-  const manifestPath = resolveArtifactManifestPath(args);
+function releaseTruth(
+  args: Args,
+  launchedAppVersion: string,
+  manifestPath: string,
+  packagedQaAttachment: CommandEvePackagedQaAttachmentProof | null
+): ArtifactTruth {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
     hermes?: { version?: string };
     release?: string;
@@ -608,6 +631,7 @@ function releaseTruth(args: Args, launchedAppVersion: string): ArtifactTruth {
     appCommitSource: args.executablePath ? 'packaged_cli_assertion' : 'development_git_head',
     manifestPath,
     launchedAppVersion,
+    packagedQaAttachment,
   };
 }
 
