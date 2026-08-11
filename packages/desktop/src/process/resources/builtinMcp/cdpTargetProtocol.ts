@@ -95,6 +95,14 @@ const CDP_CREDENTIAL_READ_METHODS = new Set([
  * the visible EVE target. Arbitrary page scripts are not an EVE capability:
  * JavaScript shares the page's origin-backed cookie/storage/DOM surfaces, and
  * no lexical scanner or isolated world can turn that into a credential boundary.
+ *
+ * The reviewed Command EVE profile for browser-use==0.13.7 /
+ * browser_harness==0.1.8 therefore supports the upstream typed hooks used by
+ * goto_url/current_tab, Accessibility + DOM box Read, click_at_xy,
+ * type_text/press_key, scroll, capture_screenshot, and fixed-target cleanup.
+ * Upstream page_info(), js(), wait_for_load(), wait_for_element(), and
+ * fill_input() depend on Runtime.evaluate and are explicitly unsupported. The
+ * Hermes adapter prepares equivalent no-eval AX perception for this profile.
  */
 const CDP_SCRIPT_METHODS = new Set([
   'Debugger.evaluateOnCallFrame',
@@ -107,8 +115,9 @@ const CDP_SCRIPT_METHODS = new Set([
 ]);
 
 /**
- * Reviewed against the pinned official Browser Use CLI 3.0 package. Unknown
- * methods fail closed instead of inheriting Chromium's much wider CDP surface.
+ * Reviewed against the pinned official Browser Use CLI 3.0 package's explicit
+ * Command EVE profile above. Unknown methods fail closed instead of inheriting
+ * Chromium's much wider CDP surface.
  */
 const CDP_ALLOWED_FORWARD_METHODS = new Set([
   'Accessibility.disable',

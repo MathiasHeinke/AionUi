@@ -126,12 +126,27 @@ describe('cdpTargetProtocol — refusals that protect the app', () => {
 });
 
 describe('cdpTargetProtocol — forwarding', () => {
-  it.each(['Accessibility.getFullAXTree', 'DOM.getBoxModel', 'Input.dispatchMouseEvent', 'Page.captureScreenshot'])(
-    'forwards %s to the real debugger',
-    (method) => {
-      expect(decideCdpCommand({ id: 10, method }, targetInfo).kind).toBe('forward');
-    }
-  );
+  it.each([
+    'Accessibility.disable',
+    'Accessibility.enable',
+    'Accessibility.getFullAXTree',
+    'DOM.disable',
+    'DOM.enable',
+    'DOM.getBoxModel',
+    'Input.dispatchKeyEvent',
+    'Input.dispatchMouseEvent',
+    'Input.insertText',
+    'Network.disable',
+    'Network.enable',
+    'Page.captureScreenshot',
+    'Page.disable',
+    'Page.enable',
+    'Page.getLayoutMetrics',
+    'Runtime.disable',
+    'Runtime.enable',
+  ])('forwards declared Browser Use profile method %s to the real debugger', (method) => {
+    expect(decideCdpCommand({ id: 10, method }, targetInfo).kind).toBe('forward');
+  });
 
   it('forwards ordinary http(s) navigation to the visible debugger target', () => {
     expect(
@@ -192,6 +207,9 @@ describe('cdpTargetProtocol — browser egress floor', () => {
 
   it('blocks every arbitrary script syntax before Chromium can evaluate it', () => {
     for (const expression of [
+      'JSON.stringify({url:location.href,title:document.title,w:innerWidth,h:innerHeight,sx:scrollX,sy:scrollY,pw:document.documentElement.scrollWidth,ph:document.documentElement.scrollHeight})',
+      'document.readyState',
+      '!!document.querySelector("#proof-copy")',
       'document.cookie',
       'document["coo" + "kie"]',
       'Reflect.get(document, "cookie")',

@@ -222,57 +222,20 @@ async function waitForVisibleTarget(cdpUrl: string, expectedUrl = fixtureUrl): P
   throw new Error('The EVE CDP bridge never advertised the visible workbench browser');
 }
 
-const browserUseTypedPrelude = [
-  'import time as _time',
-  'def _ax_value(node, key):',
-  '    value = (node or {}).get(key) or {}',
-  '    return value.get("value") if isinstance(value, dict) else None',
-  'def ax_nodes():',
-  '    return cdp("Accessibility.getFullAXTree").get("nodes", [])',
-  'def ax_find(name, role=None, contains=False):',
-  '    for node in ax_nodes():',
-  '        node_name = str(_ax_value(node, "name") or "")',
-  '        node_role = str(_ax_value(node, "role") or "")',
-  '        if (name in node_name if contains else name == node_name) and (role is None or role == node_role):',
-  '            return node',
-  '    raise RuntimeError("accessible node not found")',
-  'def ax_text(fragment):',
-  '    return str(_ax_value(ax_find(fragment, contains=True), "name") or "")',
-  'def ax_wait_text(fragment, expected=None, timeout=8.0):',
-  '    deadline = _time.time() + timeout',
-  '    value = ""',
-  '    while _time.time() < deadline:',
-  '        try:',
-  '            value = ax_text(fragment)',
-  '            if expected is None or expected in value:',
-  '                return value',
-  '        except RuntimeError:',
-  '            pass',
-  '        wait(0.2)',
-  '    raise RuntimeError("accessible text did not settle")',
-  'def ax_center(name, role=None):',
-  '    node = ax_find(name, role=role)',
-  '    backend = node.get("backendDOMNodeId")',
-  '    if not backend:',
-  '        raise RuntimeError("accessible node has no DOM backend id")',
-  '    model = cdp("DOM.getBoxModel", backendNodeId=backend).get("model", {})',
-  '    quad = model.get("border") or model.get("content")',
-  '    if not quad or len(quad) != 8:',
-  '        raise RuntimeError("accessible node has no visible box")',
-  '    return {"x": sum(quad[0::2]) / 4, "y": sum(quad[1::2]) / 4}',
-].join('\n');
-
-const typedBrowserUseProgram = (...lines: string[]): string => [browserUseTypedPrelude, ...lines].join('\n');
+// The production Hermes wrapper injects the version-attested eve_ax_* helpers.
+// Keeping the E2E free of a substitute prelude makes this exercise the shipped
+// Browser Use capability profile rather than test-local browser plumbing.
+const typedBrowserUseProgram = (...lines: string[]): string => lines.join('\n');
 
 const browserProfileProbeProgram = (phase: string, expected: string, establish = false): string =>
   typedBrowserUseProgram(
     ...(establish
       ? [
-          'establish = ax_center("Establish local login profile", role="button")',
+          'establish = eve_ax_center("Establish local login profile", role="button")',
           'click_at_xy(establish["x"], establish["y"])',
         ]
       : []),
-    `status = ax_wait_text("profile:", ${JSON.stringify(expected)})`,
+    `status = eve_ax_wait_text("profile:", ${JSON.stringify(expected)})`,
     `assert ${JSON.stringify(expected)} in status`,
     `print({"phase": ${JSON.stringify(phase)}, "status": status})`
   );
@@ -383,8 +346,18 @@ async function runBrowserUse(
     'print(browser_exec(code, task_id="eve-browser-workbench-e2e"))',
   ].join('\n');
 
+  const cleanupProgram = [
+    'import subprocess',
+    'from tools.browser_use_cli import BROWSER_USE_UVX_SPEC, _find_command_eve_cli',
+    'command = _find_command_eve_cli()',
+    'assert command and command[1:] == [BROWSER_USE_UVX_SPEC]',
+    'subprocess.run([*command, "--reload"], check=True, capture_output=True, text=True)',
+    'print("COMMAND_EVE_BROWSER_USE_CLEANUP_OK")',
+  ].join('\n');
+  let proof: Awaited<ReturnType<typeof execFileAsync>>;
+  let cleanup: Awaited<ReturnType<typeof execFileAsync>>;
   try {
-    const proof = await execFileAsync(hermesPython, ['-c', pythonProgram], {
+    proof = await execFileAsync(hermesPython, ['-c', pythonProgram], {
       cwd: hermesRoot,
       env: {
         ...process.env,
@@ -393,9 +366,9 @@ async function runBrowserUse(
       timeout: 120_000,
       maxBuffer: 10 * 1024 * 1024,
     });
-    return proof.stdout;
   } finally {
-    await execFileAsync('uvx', ['browser-use==0.13.7', '--reload'], {
+    cleanup = await execFileAsync(hermesPython, ['-c', cleanupProgram], {
+      cwd: hermesRoot,
       env: {
         ...process.env,
         BU_CDP_URL: runtime.cdp_url,
@@ -404,8 +377,9 @@ async function runBrowserUse(
         BH_TMP_DIR: runtime.tmp_dir,
       },
       timeout: 30_000,
-    }).catch(() => undefined);
+    });
   }
+  return `${proof.stdout}\n${cleanup.stdout}`;
 }
 
 test.describe.serial('Command EVE browser, desktop and sidecar workbench', () => {
@@ -529,34 +503,56 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
 
     const browserScreenshot = testInfo.outputPath('browser-use-visible-target.png');
     const browserUseCode = typedBrowserUseProgram(
+      'print({"phase": "runtime", "runtime": eve_runtime()})',
       `goto_url(${JSON.stringify(fixtureUrl)})`,
       'wait(0.8)',
       'print({"phase": "open", "tab": current_tab()})',
-      'print({"phase": "read", "copy": ax_text("Visible EVE CDP target ready.")})',
-      'input_box = ax_center("Proof value", role="textbox")',
+      'print({"phase": "read", "copy": eve_ax_text("Visible EVE CDP target ready.")})',
+      'input_box = eve_ax_center("Proof value", role="textbox")',
       'click_at_xy(input_box["x"], input_box["y"])',
       'type_text("EVE-CDP-OK")',
-      'button = ax_center("Apply value", role="button")',
+      'button = eve_ax_center("Apply value", role="button")',
       'click_at_xy(button["x"], button["y"])',
-      'print({"phase": "type-click", "result": ax_text("Applied: EVE-CDP-OK")})',
+      'print({"phase": "type-click", "result": eve_ax_text("Applied: EVE-CDP-OK")})',
       'metrics = cdp("Page.getLayoutMetrics")',
       'viewport = metrics.get("cssLayoutViewport") or metrics.get("layoutViewport")',
       'scroll(viewport["clientWidth"] / 2, viewport["clientHeight"] / 2, dy=1500)',
       'wait(0.5)',
       'scrolled = cdp("Page.getLayoutMetrics")',
       'scrolled_viewport = scrolled.get("cssLayoutViewport") or scrolled.get("layoutViewport")',
-      'print({"phase": "scroll", "scroll_y": scrolled_viewport["pageY"], "marker": ax_text("Scroll marker reached.")})',
+      'print({"phase": "scroll", "scroll_y": scrolled_viewport["pageY"], "marker": eve_ax_text("Scroll marker reached.")})',
       `print({"phase": "screenshot", "path": capture_screenshot(${JSON.stringify(browserScreenshot)})})`,
+      'unsupported = {}',
+      'for label, operation in [',
+      '    ("page_info", lambda: page_info()),',
+      '    ("js", lambda: js("document.title")),',
+      '    ("wait_for_load", lambda: wait_for_load(timeout=0.1)),',
+      '    ("wait_for_element", lambda: wait_for_element("#proof-copy", timeout=0.1)),',
+      '    ("fill_input", lambda: fill_input("#proof-input", "BLOCKED")),',
+      ']:',
+      '    try:',
+      '        operation()',
+      '        unsupported[label] = "UNEXPECTED_ALLOW"',
+      '    except Exception as exc:',
+      '        unsupported[label] = repr(exc)',
+      'assert all("blocks arbitrary page scripts" in value for value in unsupported.values())',
+      'print({"phase": "narrow-profile", "unsupported": unsupported})',
       'close_tab()',
       'print({"phase": "cleanup", "tab": current_tab()})'
     );
     const proofStdout = await runBrowserUse(hermesPython, hermesRoot, mainState.contextFile, browserUseCode);
 
     expect(proofStdout).toContain('"success": true');
+    expect(proofStdout).toContain('"browser_use_pin": "browser-use==0.13.7"');
+    expect(proofStdout).toContain('"browser_use_profile": "command-eve-typed-visible-target/v1"');
+    expect(proofStdout).toContain("'browser_use': '0.13.7'");
+    expect(proofStdout).toContain("'browser_harness': '0.1.8'");
     expect(proofStdout).toContain("'phase': 'open'");
     expect(proofStdout).toContain("'copy': 'Visible EVE CDP target ready.'");
     expect(proofStdout).toContain("'result': 'Applied: EVE-CDP-OK'");
     expect(proofStdout).toContain("'marker': 'Scroll marker reached.'");
+    expect(proofStdout).toContain("'phase': 'narrow-profile'");
+    expect(proofStdout).toContain('COMMAND_EVE_BROWSER_USE_CLEANUP_OK');
     expect(fs.existsSync(browserScreenshot)).toBe(true);
 
     const layoutMetricsResponse = await sendCdpCommand(mainState.cdpUrl, {
@@ -598,10 +594,20 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
       version: app.getVersion(),
     }));
     if (process.env.E2E_PACKAGED === '1') expect(packageState.isPackaged).toBe(true);
-    const cliVersion = await execFileAsync('uvx', ['browser-use==0.13.7', '--version'], {
+    const cliResolverProgram = [
+      'import json, subprocess',
+      'from tools.browser_use_cli import BROWSER_USE_UVX_SPEC, _find_command_eve_cli',
+      'command = _find_command_eve_cli()',
+      'assert command and command[1:] == [BROWSER_USE_UVX_SPEC]',
+      'version = subprocess.run([*command, "--version"], check=True, capture_output=True, text=True).stdout.strip()',
+      'print(json.dumps({"runner": "uvx", "spec": BROWSER_USE_UVX_SPEC, "cli_version": version}))',
+    ].join('\n');
+    const cliResolver = await execFileAsync(hermesPython, ['-c', cliResolverProgram], {
+      cwd: hermesRoot,
       timeout: 30_000,
     });
-    expect(cliVersion.stdout.trim()).toBe('0.1.8');
+    const cliRuntime = JSON.parse(cliResolver.stdout) as { runner: string; spec: string; cli_version: string };
+    expect(cliRuntime).toEqual({ runner: 'uvx', spec: 'browser-use==0.13.7', cli_version: '0.1.8' });
 
     const layoutSurface = page.locator('[data-eve-workbench-layout]');
     const layoutGroup = page.locator('[data-testid="eve-workbench-tabs"]:visible [role="group"]');
@@ -719,7 +725,7 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
       '    ["blob", "blob:" + origin + "/command-eve-browser-proof"],',
       '    ["secret-url", baseline + "?api_key=" + secret],',
       ']',
-      'assert ax_text("Applied: EVE-CDP-OK") == "Applied: EVE-CDP-OK"',
+      'assert eve_ax_text("Applied: EVE-CDP-OK") == "Applied: EVE-CDP-OK"',
       'attempts = {}',
       'for label, target in blocked_targets:',
       '    try:',
@@ -758,11 +764,11 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
     await waitForVisibleTarget(mainState.cdpUrl, oauthUrl);
     const oauthCode = typedBrowserUseProgram(
       `origin = ${JSON.stringify(new URL(fixtureUrl).origin)}`,
-      'assert ax_text("No real Google credentials are used.") == "No real Google credentials are used."',
-      'continue_box = ax_center("Continue with Google", role="button")',
+      'assert eve_ax_text("No real Google credentials are used.") == "No real Google credentials are used."',
+      'continue_box = eve_ax_center("Continue with Google", role="button")',
       'click_at_xy(continue_box["x"], continue_box["y"])',
-      'assert ax_wait_text("Command EVE requests the stub profile scope.") == "Command EVE requests the stub profile scope."',
-      'approve_box = ax_center("Approve local OAuth", role="button")',
+      'assert eve_ax_wait_text("Command EVE requests the stub profile scope.") == "Command EVE requests the stub profile scope."',
+      'approve_box = eve_ax_center("Approve local OAuth", role="button")',
       'click_at_xy(approve_box["x"], approve_box["y"])',
       'wait(0.8)',
       'challenges = {}',
@@ -957,21 +963,31 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
         await openConversationRoute(restartedPage, conversationId);
         await revealBrowserWorkbench(restartedPage);
         const seedBAddress = restartedPage.locator('.aion-url-viewer-toolbar--workbench .toolbar-input');
-        const seedBProfileUrl = `${fixtureUrl}?profile=profile-seed-b`;
-        await seedBAddress.fill(seedBProfileUrl);
+        // Probe the exact keys AND value established by Seed A. If partition
+        // routing is sabotaged to reuse Seed A, this returns PROFILE_PRESENT
+        // and fails instead of misclassifying a foreign value as "absent".
+        const seedALeakProbeUrl = `${fixtureUrl}?profile=profile-a`;
+        await seedBAddress.fill(seedALeakProbeUrl);
         await seedBAddress.press('Enter');
+        await expect(seedBAddress).toHaveValue(seedALeakProbeUrl);
         const contextOtherSeedMain = await restartedApp.evaluate(() => ({
           cdpUrl: process.env.BROWSER_CDP_URL ?? '',
           contextFile: process.env.COMMAND_EVE_BROWSER_CONTEXT_FILE ?? '',
         }));
-        await waitForVisibleTarget(contextOtherSeedMain.cdpUrl, seedBProfileUrl);
+        await waitForVisibleTarget(contextOtherSeedMain.cdpUrl, seedALeakProbeUrl);
         const seedIsolatedStdout = await runBrowserUse(
           hermesPython,
           hermesRoot,
           contextOtherSeedMain.contextFile,
-          browserProfileProbeProgram('seed-isolated', PROFILE_ABSENT)
+          browserProfileProbeProgram('seed-a-marker-absent-in-seed-b', PROFILE_ABSENT)
         );
         expect(seedIsolatedStdout).toContain(PROFILE_ABSENT);
+
+        const seedBProfileUrl = `${fixtureUrl}?profile=profile-seed-b`;
+        await seedBAddress.fill(seedBProfileUrl);
+        await seedBAddress.press('Enter');
+        await expect(seedBAddress).toHaveValue(seedBProfileUrl);
+        await waitForVisibleTarget(contextOtherSeedMain.cdpUrl, seedBProfileUrl);
         const seedEstablishedStdout = await runBrowserUse(
           hermesPython,
           hermesRoot,
@@ -1071,7 +1087,7 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
           'packaged_restart=true',
           'profile_storage_restored=cookie,localStorage,indexedDB,cache',
           'account_isolation=true',
-          'seed_isolation=storage-empty-then-own-marker-established',
+          'seed_isolation=seed-a-marker-absent-then-seed-b-marker-established',
           'account_seed_roundtrip_profile_restored=true',
           'control_epoch_rotation=true',
           'targeted_revoke=true',
@@ -1090,8 +1106,12 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
       [
         `packaged=${packageState.isPackaged}`,
         `app_version=${packageState.version}`,
-        'browser_use_uvx=browser-use==0.13.7',
-        `browser_use_cli_version=${cliVersion.stdout.trim()}`,
+        `browser_use_runner=${cliRuntime.runner}`,
+        `browser_use_spec=${cliRuntime.spec}`,
+        `browser_use_cli_version=${cliRuntime.cli_version}`,
+        'browser_use_profile=command-eve-typed-visible-target/v1',
+        'browser_use_cleanup=reviewed-pin-reload',
+        'browser_use_unsupported_helpers=page_info,js,wait_for_load,wait_for_element,fill_input',
         `cdp_origin=${new URL(mainState.cdpUrl).origin}`,
         `cdp_capability_path=redacted:${new URL(mainState.cdpUrl).pathname.split('/').length - 1}-segments`,
         `context_id=${runtimeContext.context_id}`,
