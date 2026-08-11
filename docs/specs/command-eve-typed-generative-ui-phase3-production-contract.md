@@ -71,6 +71,8 @@ For each complete `eve_typed_ui_publish` tool call, the route writes one private
 - the canonical schema/catalog validator accepts it;
 - the route owns its private provider/model/route identity, request correlation, active seat and seat revision.
 
+Ollama's native tool-call response has no call ID and may encode arguments as an object. At that existing OpenAI-compatibility boundary, Main deterministically mints one request-scoped call ID and serializes the arguments once; the exact normalized call is both forwarded to Hermes and sealed into the private completion. No renderer- or model-supplied substitute ID is accepted.
+
 The completion record binds domain-separated hashes of the exact tool-call ID, canonical envelope bytes, model-authored provenance claims, route-owned identity, request correlation, session, seat, and terminal provider receipt. Raw provider/model/base URL details remain Main-private and never cross IPC. For the Command EVE cloud lane, the desktop can truthfully attest only the EVE Inference service and selected tier; it does not claim the hidden downstream vendor/model without a future authenticated upstream receipt.
 
 Malformed, truncated, duplicated, conflicting, non-terminal, non-2xx, or unknown-tool responses never produce a completion receipt. One receipt binds one exact tool call; session-wide or “most recent” matching is forbidden.

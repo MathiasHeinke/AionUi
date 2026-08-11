@@ -49,7 +49,6 @@ import {
   extractOllamaCompletedTypedUIPublishCalls,
   extractOpenAICompletedTypedUIPublishCalls,
   newTypedUIProviderRequestId,
-  OllamaTypedUIPublishJsonlCapture,
   OpenAITypedUIPublishSseCapture,
   reportCapturedTypedUIProviderCompletions,
 } from './typedUIProviderCompletionCapture';
@@ -1371,6 +1370,55 @@ function writeStreamChunk(response: ServerResponse, model: string, content: stri
   );
 }
 
+type OllamaToolCallIdState = { nextOrdinal: number };
+
+/**
+ * Ollama's native tool-call DTO has no call id and may carry arguments as an
+ * object. This route is an OpenAI-compatibility boundary, so Main mints the id
+ * once and forwards that exact normalized call to Hermes and the private
+ * completion recorder. The model/provider cannot choose this correlation id.
+ */
+function normalizeOllamaToolCallsForOpenAI(
+  value: unknown,
+  providerRequestId: string,
+  state: OllamaToolCallIdState
+): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => {
+    const ordinal = state.nextOrdinal;
+    state.nextOrdinal += 1;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    const toolCall = item as Record<string, unknown>;
+    const fn = toolCall.function;
+    if (!fn || typeof fn !== 'object' || Array.isArray(fn)) return item;
+    const functionCall = fn as Record<string, unknown>;
+    const argumentsJson =
+      typeof functionCall.arguments === 'string'
+        ? functionCall.arguments
+        : (JSON.stringify(functionCall.arguments ?? {}) ?? '{}');
+    const id = `call_${crypto
+      .createHash('sha256')
+      .update(
+        [
+          'command-eve.ollama-tool-call/v1',
+          providerRequestId,
+          String(ordinal),
+          String(functionCall.name || ''),
+          argumentsJson,
+        ].join('\u0000'),
+        'utf8'
+      )
+      .digest('hex')
+      .slice(0, 48)}`;
+    return {
+      ...toolCall,
+      id,
+      type: 'function',
+      function: { ...functionCall, arguments: argumentsJson },
+    };
+  });
+}
+
 /**
  * The EVE function URL must be https in production. A loopback http URL is also
  * accepted (same trust model as the local-runtime loopback key) so the routing
@@ -2660,7 +2708,14 @@ async function handleChatCompletions(
         done_reason?: string;
       };
       upstreamScope.markActivity();
-      reportCapturedTypedUIProviderCompletions(extractOllamaCompletedTypedUIPublishCalls(data), {
+      const normalizedToolCalls = normalizeOllamaToolCallsForOpenAI(data.message?.tool_calls, providerRequestId, {
+        nextOrdinal: 0,
+      });
+      const normalizedData = {
+        ...data,
+        message: { ...data.message, ...(normalizedToolCalls === undefined ? {} : { tool_calls: normalizedToolCalls }) },
+      };
+      reportCapturedTypedUIProviderCompletions(extractOllamaCompletedTypedUIPublishCalls(normalizedData), {
         sessionId: body.session_id,
         provider: 'ollama',
         model,
@@ -2682,7 +2737,7 @@ async function handleChatCompletions(
             message: {
               role: 'assistant',
               content: data.message?.content || '',
-              ...(data.message?.tool_calls ? { tool_calls: data.message.tool_calls } : {}),
+              ...(normalizedToolCalls ? { tool_calls: normalizedToolCalls } : {}),
             },
             finish_reason: data.done_reason === 'length' ? 'length' : 'stop',
           },
@@ -2699,33 +2754,62 @@ async function handleChatCompletions(
 
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
-    const typedUICapture = new OllamaTypedUIPublishJsonlCapture();
     let buffer = '';
     let finishReason = 'stop';
+    let sawOllamaTerminal = false;
+    let ollamaStreamInvalid = false;
+    const normalizedToolCalls: unknown[] = [];
+    const toolCallIdState: OllamaToolCallIdState = { nextOrdinal: 0 };
+    const processOllamaLine = (line: string): void => {
+      if (!line.trim()) return;
+      if (sawOllamaTerminal) {
+        ollamaStreamInvalid = true;
+        return;
+      }
+      const chunk = JSON.parse(line) as {
+        message?: { content?: string; tool_calls?: unknown };
+        done?: boolean;
+        done_reason?: string;
+      };
+      const nextToolCalls = normalizeOllamaToolCallsForOpenAI(
+        chunk.message?.tool_calls,
+        providerRequestId,
+        toolCallIdState
+      );
+      if (chunk.done) {
+        sawOllamaTerminal = true;
+        finishReason = chunk.done_reason === 'length' ? 'length' : 'stop';
+        if (finishReason !== 'length') {
+          if (Array.isArray(nextToolCalls)) normalizedToolCalls.push(...nextToolCalls);
+          if (chunk.message?.content || nextToolCalls) {
+            writeStreamChunk(response, model, chunk.message?.content || '', nextToolCalls);
+          }
+        }
+        return;
+      }
+      if (Array.isArray(nextToolCalls)) normalizedToolCalls.push(...nextToolCalls);
+      writeStreamChunk(response, model, chunk.message?.content || '', nextToolCalls);
+    };
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
       upstreamScope.markActivity();
-      typedUICapture.push(value);
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const chunk = JSON.parse(line) as {
-          message?: { content?: string; tool_calls?: unknown };
-          done?: boolean;
-          done_reason?: string;
-        };
-        if (chunk.done) {
-          finishReason = chunk.done_reason === 'length' ? 'length' : 'stop';
-          continue;
-        }
-        writeStreamChunk(response, model, chunk.message?.content || '', chunk.message?.tool_calls);
-      }
+      for (const line of lines) processOllamaLine(line);
     }
+    buffer += decoder.decode();
+    if (buffer.trim()) processOllamaLine(buffer);
 
-    reportCapturedTypedUIProviderCompletions(typedUICapture.finish(), {
+    const typedUIExtraction = ollamaStreamInvalid
+      ? ({ ok: false, reason: 'jsonl_data_after_terminal' } as const)
+      : extractOllamaCompletedTypedUIPublishCalls({
+          done: sawOllamaTerminal,
+          done_reason: finishReason,
+          message: { tool_calls: normalizedToolCalls },
+        });
+    reportCapturedTypedUIProviderCompletions(typedUIExtraction, {
       sessionId: body.session_id,
       provider: 'ollama',
       model,

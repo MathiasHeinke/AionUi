@@ -102,7 +102,6 @@ function openAIToolCall() {
 
 function ollamaToolCall() {
   return {
-    id: CALL_ID,
     function: { name: 'eve_typed_ui_publish', arguments: { envelope: typedUIFixture() } },
   };
 }
@@ -150,9 +149,15 @@ function openAIStream(includeDone: boolean): string {
 
 function ollamaStream(includeTerminal: boolean): string {
   return [
-    JSON.stringify({ message: { role: 'assistant', content: '', tool_calls: [ollamaToolCall()] }, done: false }),
+    JSON.stringify({ message: { role: 'assistant', content: '' }, done: false }),
     ...(includeTerminal
-      ? [JSON.stringify({ message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' })]
+      ? [
+          JSON.stringify({
+            message: { role: 'assistant', content: '', tool_calls: [ollamaToolCall()] },
+            done: true,
+            done_reason: 'stop',
+          }),
+        ]
       : []),
   ].join('\n');
 }
@@ -382,15 +387,16 @@ describe('production Typed UI provider completion routes', () => {
 
       const response = await invokeShim(stream);
       expect(response.status).toBe(200);
-      await response.text();
+      const responseBody = await response.text();
       expect(seatReads.count).toBe(1);
       expect(observed).toHaveLength(1);
+      const expectedCallId = scenario.wire === 'openai' ? CALL_ID : observed[0].tool_call_id;
       expect(observed[0]).toMatchObject({
         version: 'command-eve.typed-ui-provider-completion/v2',
         session_id: SESSION_ID,
         provider: scenario.provider,
         model: scenario.model,
-        tool_call_id: CALL_ID,
+        tool_call_id: expectedCallId,
         raw_content_sha256: RAW_CONTENT_SHA256,
         seat_id: SEAT.seatId,
         seat_context_revision: SEAT.seatContextRevision,
@@ -401,10 +407,15 @@ describe('production Typed UI provider completion routes', () => {
           http_status: 200,
         },
       });
+      if (scenario.wire === 'ollama') {
+        expect(expectedCallId).toMatch(/^call_[a-f0-9]{48}$/);
+        expect(responseBody).toContain(`\"id\":\"${expectedCallId}\"`);
+        expect(responseBody).toContain('\"arguments\":\"{\\\"envelope\\\":');
+      }
       expect(observed[0].provider_request_id).toMatch(/^tuirequest-[0-9a-f-]{36}$/);
 
       const resolved = resolveMainOwnedTypedUIProviderCompletionReceipt(completionLedgerPath, {
-        toolCallId: CALL_ID,
+        toolCallId: expectedCallId,
         rawContentSha256: RAW_CONTENT_SHA256,
         activeSeatId: SEAT.seatId,
         seatContextRevision: SEAT.seatContextRevision,
