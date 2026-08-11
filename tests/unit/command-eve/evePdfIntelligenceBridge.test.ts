@@ -32,6 +32,10 @@ vi.mock('@process/utils/initStorage', () => ({
 
 vi.mock('@process/utils/utils', () => ({ getDataPath: () => '/tmp/ce-pdf-intelligence-bridge' }));
 vi.mock('@process/commandEve/seatWireFetchCore', () => ({ readMySeatsWire: vi.fn(async () => null) }));
+vi.mock('@process/commandEve/seatContextCore', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@process/commandEve/seatContextCore')>();
+  return { ...original, getActiveSeatId: () => 'a2000000-0000-4000-8000-000000000001' };
+});
 vi.mock('@/common/config/licenseWireAtRest', () => ({
   clearLicenseWire: vi.fn(),
   hasLicenseWire: vi.fn(() => true),
@@ -200,6 +204,7 @@ describe('Command EVE PDF intelligence bridge', () => {
     const init = vi.mocked(globalThis.fetch).mock.calls[0]?.[1] as RequestInit;
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-license-wire');
     expect(String(init.body)).toContain('"file_data_base64":"JVBERi10ZXN0"');
+    expect(JSON.parse(String(init.body)).seat_id).toBe('a2000000-0000-4000-8000-000000000001');
     expect(String(init.body)).not.toContain('test-license-wire');
     expect(JSON.stringify(result)).not.toContain('JVBERi10ZXN0');
     expect(JSON.stringify(result)).not.toContain('test-license-wire');

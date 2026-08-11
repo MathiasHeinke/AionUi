@@ -187,6 +187,29 @@ beforeEach(() => {
 });
 
 describe('Command EVE image preparation bridge authority', () => {
+  it('attributes allowed image cloud egress to the captured active Seed', async () => {
+    const state = imageHarness();
+    state.fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, reason: 'synthetic-refusal' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+
+    await handleCommandEveImagePrepare(
+      {
+        filePaths: ['/tmp/selected.png'],
+        flowId: FLOW_ID,
+        visualPolicyReceipt: RECEIPT,
+        privacyLane: 'cloud_auto',
+      },
+      state.deps
+    );
+
+    const body = JSON.parse(String(state.fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.seat_id).toBe(SEAT_ID);
+  });
+
   it('does not treat historical allowCloudVision as authority', async () => {
     const state = imageHarness();
     state.deps.verifyVisualPolicyReceipt = () => ({ ok: false, reason: 'receipt_unknown' });
@@ -340,6 +363,29 @@ describe('Command EVE image preparation bridge authority', () => {
 });
 
 describe('Command EVE presentation preparation bridge authority', () => {
+  it('attributes allowed presentation cloud egress to the captured active Seed', async () => {
+    const state = presentationHarness();
+    state.fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, reason: 'synthetic-refusal' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+
+    await handleCommandEvePresentationPrepare(
+      {
+        filePaths: ['/tmp/selected.pptx'],
+        flowId: FLOW_ID,
+        visualPolicyReceipt: RECEIPT,
+        privacyLane: 'cloud_auto',
+      },
+      state.deps
+    );
+
+    const body = JSON.parse(String(state.fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.seat_id).toBe(SEAT_ID);
+  });
+
   it('does not treat historical allowCloudVision as authority', async () => {
     const state = presentationHarness();
     state.deps.verifyVisualPolicyReceipt = () => ({ ok: false, reason: 'receipt_expired' });

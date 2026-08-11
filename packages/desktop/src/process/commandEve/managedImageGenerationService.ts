@@ -21,7 +21,11 @@ import {
   type CommandEveManagedImageMimeType,
   type CommandEveManagedImageResolution,
 } from '@/common/config/eveManagedImageGenerationCore';
-import { EVE_MULTIMODAL_FUNCTION_URL, resolveCommandEveMultimodalGate } from '@/common/config/eveMultimodalGatewayCore';
+import {
+  commandEveMediaSeedAttribution,
+  EVE_MULTIMODAL_FUNCTION_URL,
+  resolveCommandEveMultimodalGate,
+} from '@/common/config/eveMultimodalGatewayCore';
 import {
   getCommandEveImageModelTierSpec,
   type CommandEveImageModelRegistryResult,
@@ -33,6 +37,7 @@ import { readCommandEveImageModelPreference } from './imageModelPreferenceMain';
 import { readCommandEveImageModelRegistry } from './imageCapabilitiesMain';
 import { stageGeneratedImageArtifact } from './imageArtifactStore';
 import { getDataPath } from '@process/utils/utils';
+import { getActiveSeatId } from './seatContextCore';
 
 const MAX_REFERENCE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_REFERENCE_BYTES = 8 * 1024 * 1024;
@@ -144,6 +149,7 @@ function buildEdgeRequest(
 export type CommandEveManagedImageGenerationOptions = {
   fetchFn?: typeof fetch;
   dataPath?: string;
+  getActiveSeatId?: () => string;
   /**
    * MAT-1769 seams, injectable for tests. Production reads the seat's stored
    * preference and the server-owned registry through the main-process
@@ -273,6 +279,7 @@ export async function executeCommandEveManagedImageGeneration(
   const body: CommandEveManagedImageEdgeRequest = {
     ...built.body,
     image_model: effectiveTierSpec.id,
+    ...commandEveMediaSeedAttribution((options.getActiveSeatId ?? getActiveSeatId)()),
   };
 
   const controller = new AbortController();
