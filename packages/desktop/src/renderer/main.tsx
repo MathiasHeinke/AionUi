@@ -55,6 +55,9 @@ applyBootRouteNormalization();
 
 // Browser adapter setup
 import '@/common/adapter/browser';
+import { installAionCoreDurableWorkActivityAdapter } from './pages/conversation/runtime/aionCoreDurableWorkActivityAdapter';
+
+installAionCoreDurableWorkActivityAdapter();
 
 // React and core dependencies
 import type { PropsWithChildren } from 'react';

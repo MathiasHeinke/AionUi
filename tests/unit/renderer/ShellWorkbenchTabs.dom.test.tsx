@@ -105,6 +105,72 @@ describe('ShellWorkbenchTabs', () => {
     expect(previewApi?.workbenchLayoutMode).toBe('split-right');
   });
 
+  it('hosts one conversation-bound durable worker detail as a normal workbench tab', () => {
+    renderWorkbench();
+
+    act(() => {
+      previewApi?.openPreview('worker-1', 'durable-work', {
+        title: 'Inspect worker activity',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(previewApi?.tabs).toHaveLength(1);
+    expect(previewApi?.tabs[0]).toMatchObject({
+      content: 'worker-1',
+      content_type: 'durable-work',
+      metadata: { title: 'Inspect worker activity', conversation_id: 'conv-1' },
+    });
+    expect(screen.getByRole('tab', { name: 'Inspect worker activity' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+
+  it('keeps a newly opened current-conversation worker detail visible after a stale tab was hidden', async () => {
+    let nextFrameId = 1;
+    const frames = new Map<number, FrameRequestCallback>();
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      const id = nextFrameId++;
+      frames.set(id, callback);
+      return id;
+    });
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+      frames.delete(id);
+    });
+    const flushFrames = () => {
+      const pending = [...frames.values()];
+      frames.clear();
+      pending.forEach((callback) => callback(performance.now()));
+    };
+
+    try {
+      renderWorkbench();
+      act(() => {
+        previewApi?.openPreview('old-worker', 'durable-work', {
+          title: 'Old worker',
+          conversation_id: 'conv-2',
+        });
+      });
+      await waitFor(() => expect(previewApi?.activeTab?.metadata?.conversation_id).toBe('conv-2'));
+      act(flushFrames);
+      expect(previewApi?.isOpen).toBe(false);
+
+      act(() => {
+        previewApi?.openPreview('current-worker', 'durable-work', {
+          title: 'Current worker',
+          conversation_id: 'conv-1',
+        });
+      });
+      await waitFor(() => expect(previewApi?.activeTab?.metadata?.conversation_id).toBe('conv-1'));
+      act(flushFrames);
+
+      expect(previewApi?.isOpen).toBe(true);
+      expect(screen.getByRole('tab', { name: 'Current worker' })).toHaveAttribute('aria-selected', 'true');
+    } finally {
+      requestFrame.mockRestore();
+      cancelFrame.mockRestore();
+    }
+  });
+
   it('switches between the four real workbench layouts and persists the choice', () => {
     renderLayoutControls();
 

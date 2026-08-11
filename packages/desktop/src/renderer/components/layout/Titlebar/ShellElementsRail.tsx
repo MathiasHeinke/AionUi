@@ -6,7 +6,6 @@
 
 import { ipcBridge } from '@/common';
 import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
-import { eveTeamWorkerLabel } from '@/common/config/eveTeamRoster';
 import type { PreviewContentType } from '@/common/types/office/preview';
 import { useConversationDelegationActivity } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 import { useConversationRuntimeView } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
@@ -30,11 +29,11 @@ import {
   ImageFiles,
   Music,
   Right,
-  Robot,
   Video,
 } from '@icon-park/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import DurableWorkActivity from './DurableWorkActivity';
 import styles from './ShellElementsRail.module.css';
 
 export type ShellElementsRailProps = {
@@ -578,35 +577,18 @@ const ShellElementsRail: React.FC<ShellElementsRailProps> = ({
                 <span>{activity.detail}</span>
               </div>
             </div>
-            {delegatedTasks.length > 0 ? (
-              <div className={styles.delegationGroup} aria-label={t('conversation.elementsRail.subagents')}>
-                <span className={styles.eyebrow}>{t('conversation.elementsRail.subagents')}</span>
-                <div className={styles.delegationList}>
-                  {delegatedTasks.map((task) => {
-                    const workerLabel = task.agentId
-                      ? eveTeamWorkerLabel(task.agentId)
-                      : task.taskCount > 1
-                        ? t('conversation.elementsRail.subagentNumber', { number: task.taskIndex + 1 })
-                        : t('conversation.elementsRail.subagent');
-                    return (
-                      <div key={task.id} className={styles.delegationRow} data-status={task.status}>
-                        <span className={styles.delegationIcon} aria-hidden='true'>
-                          <Robot size={16} />
-                        </span>
-                        <span className={styles.delegationCopy}>
-                          <strong>{workerLabel}</strong>
-                          <span title={task.goal}>{task.goal}</span>
-                        </span>
-                        <span className={styles.delegationStatus}>
-                          <span className={styles.delegationDot} aria-hidden='true' />
-                          {t(`conversation.elementsRail.delegationStatus.${task.status}`)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
+            <DurableWorkActivity
+              conversationId={conversationId || ''}
+              legacyTasks={delegatedTasks}
+              onOpen={(item) => {
+                preview.openPreview(item.id, 'durable-work', {
+                  title: item.goal,
+                  conversation_id: conversationId,
+                  workspace: workspacePath,
+                });
+                onRequestClose?.();
+              }}
+            />
             {conversationTitle ? (
               <div className={styles.metaBlock}>
                 <span className={styles.eyebrow}>{t('conversation.elementsRail.session')}</span>

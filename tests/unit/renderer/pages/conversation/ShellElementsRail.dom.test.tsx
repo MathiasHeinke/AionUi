@@ -93,6 +93,7 @@ import ShellElementsRail from '@/renderer/components/layout/Titlebar/ShellElemen
 import { stageConversationArtifact } from '@/renderer/pages/conversation/Messages/artifacts';
 import {
   publishConversationDelegationActivity,
+  publishLiveConversationDelegationActivity,
   resetConversationDelegationActivityForTest,
 } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 
@@ -171,7 +172,7 @@ describe('ShellElementsRail', () => {
     expect(panel).toHaveAttribute('aria-labelledby', 'elements-rail-tab-artifacts');
   });
 
-  it("shows only this conversation's real Hermes delegation activity without creating a second chat", () => {
+  it("shows only this conversation's Hermes activity and opens its detail without creating a second chat", () => {
     const delegateMessage = (conversationId: string, toolCallId: string, goal: string) =>
       ({
         id: `${toolCallId}-message`,
@@ -198,9 +199,46 @@ describe('ShellElementsRail', () => {
 
     render(<ShellElementsRail conversationId='conv-1' />);
 
-    expect(screen.getByText('Prüfe den Browser')).toBeTruthy();
+    expect(screen.getAllByText('Prüfe den Browser')).toHaveLength(2);
     expect(screen.queryByText('Fremder Auftrag')).toBeNull();
-    expect(screen.getByText('conversation.elementsRail.delegationStatus.in_progress')).toBeTruthy();
+    expect(screen.getByText('conversation.durableWork.status.reconnect_unavailable')).toBeTruthy();
+    expect(screen.queryByRole('textbox')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.durableWork.action.open' }));
+    expect(openPreviewMock).toHaveBeenCalledWith('legacy:tc-1:0', 'durable-work', {
+      title: 'Prüfe den Browser',
+      conversation_id: 'conv-1',
+    });
+  });
+
+  it('projects a renderer-observed live delegation as running without reading that state from chat history', () => {
+    const liveMessage = {
+      id: 'tc-live-message',
+      type: 'acp_tool_call',
+      conversation_id: 'conv-1',
+      created_at: 250,
+      content: {
+        session_id: 'conv-1',
+        update: {
+          sessionUpdate: 'tool_call',
+          tool_call_id: 'tc-live',
+          status: 'in_progress',
+          title: 'delegate: Observe the live worker',
+          kind: 'execute',
+          rawInput: { goal: 'Observe the live worker' },
+        },
+      },
+    } as IMessageAcpToolCall;
+
+    act(() => {
+      publishLiveConversationDelegationActivity('conv-1', liveMessage);
+    });
+
+    render(<ShellElementsRail conversationId='conv-1' />);
+
+    expect(screen.getAllByText('Observe the live worker')).toHaveLength(2);
+    expect(screen.getByText('conversation.durableWork.status.running')).toBeTruthy();
+    expect(screen.queryByText('conversation.durableWork.status.reconnect_unavailable')).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 

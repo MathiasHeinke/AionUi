@@ -17,6 +17,9 @@ export type DelegatedTaskProjection = {
   taskIndex: number;
   taskCount: number;
   createdAt: number;
+  delegationId?: string;
+  backgroundDispatched?: boolean;
+  observedLive?: boolean;
 };
 
 type DelegationToolInput = {
@@ -25,6 +28,7 @@ type DelegationToolInput = {
   title?: string;
   status?: string;
   rawInput?: unknown;
+  rawOutput?: unknown;
   createdAt?: number;
 };
 
@@ -36,6 +40,37 @@ const compactString = (value: unknown): string | undefined => {
 
 const recordOf = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+
+const safeDelegationId = (value: unknown): string | undefined => {
+  const compact = compactString(value);
+  return compact && compact.length <= 160 && /^[a-zA-Z0-9._:-]+$/.test(compact) ? compact : undefined;
+};
+
+const parseJsonRecord = (value: string): Record<string, unknown> | undefined => {
+  if (value.length > 128 * 1024) return undefined;
+  const trimmed = value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  try {
+    return recordOf(JSON.parse(trimmed));
+  } catch {
+    return undefined;
+  }
+};
+
+const outputRecordOf = (value: unknown): Record<string, unknown> | undefined => {
+  const direct = recordOf(value);
+  if (direct) return direct;
+  if (typeof value === 'string') return parseJsonRecord(value);
+  if (!Array.isArray(value)) return undefined;
+  for (const candidate of value) {
+    const item = recordOf(candidate);
+    const nested = recordOf(item?.content);
+    const text = nested?.text;
+    if (typeof text !== 'string') continue;
+    const parsed = parseJsonRecord(text);
+    if (parsed) return parsed;
+  }
+  return undefined;
+};
 
 const normalizeStatus = (value: string | undefined): DelegatedTaskStatus => {
   switch (value) {
@@ -83,6 +118,9 @@ export function projectDelegatedTasks(input: DelegationToolInput): DelegatedTask
 
   const rawInput = recordOf(input.rawInput);
   const rootAgentId = agentIdOf(rawInput);
+  const output = outputRecordOf(input.rawOutput);
+  const delegationId = safeDelegationId(output?.delegation_id ?? output?.delegationId);
+  const backgroundDispatched = output?.status === 'dispatched' && output?.mode === 'background';
   const rawTasks = Array.isArray(rawInput?.tasks) ? rawInput.tasks.map(recordOf).filter(Boolean) : [];
   const taskInputs = rawTasks.length > 0 ? rawTasks : [rawInput];
   const taskCount = taskInputs.length;
@@ -97,6 +135,8 @@ export function projectDelegatedTasks(input: DelegationToolInput): DelegatedTask
     taskIndex,
     taskCount,
     createdAt: input.createdAt ?? 0,
+    delegationId,
+    backgroundDispatched,
   }));
 }
 
@@ -110,6 +150,7 @@ export function projectDelegatedTasksFromMessage(message: TMessage): DelegatedTa
       title: update.title,
       status: update.status,
       rawInput: update.rawInput,
+      rawOutput: update.content,
       createdAt: message.created_at,
     });
   }
@@ -121,6 +162,7 @@ export function projectDelegatedTasksFromMessage(message: TMessage): DelegatedTa
       title: message.content.name,
       status: message.content.status,
       rawInput: message.content.input ?? message.content.args,
+      rawOutput: message.content.output,
       createdAt: message.created_at,
     });
   }

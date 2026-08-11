@@ -1,0 +1,348 @@
+.root {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.detailRoot {
+  min-height: 100%;
+  padding: 18px;
+  overflow: auto;
+  background: var(--eve-shell-surface, var(--color-bg-1));
+}
+
+.eyebrow,
+.detailLabel {
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+  font-size: 10px;
+  font-weight: 620;
+  line-height: 15px;
+  text-transform: uppercase;
+}
+
+.list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 2px 12px;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--glass-panel-border) 58%, transparent);
+}
+
+.item:last-child {
+  box-shadow: none;
+}
+
+.detailItem {
+  gap: 13px;
+  padding: 16px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--eve-shell-surface) 76%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--glass-panel-border) 64%, transparent);
+}
+
+.itemTopline {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+}
+
+.identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.identity strong,
+.identity span,
+.itemMeta > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.identity strong {
+  color: var(--eve-shell-text, var(--color-text-1));
+  font-size: 12px;
+  font-weight: 640;
+  line-height: 18px;
+}
+
+.identity span,
+.itemMeta,
+.lastActivity,
+.detailBlock > span:not(.detailLabel) {
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.statusLabel {
+  color: currentColor;
+  font-size: 10px;
+  font-weight: 620;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.itemMeta {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding-left: 16px;
+}
+
+.timeValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.lastActivity {
+  padding-left: 16px;
+}
+
+.receiptOutcome {
+  width: fit-content;
+  max-width: calc(100% - 16px);
+  margin-left: 16px;
+  overflow: hidden;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--eve-shell-surface) 70%, transparent);
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+  font-size: 10px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item[data-status='queued'] .statusDot,
+.item[data-status='starting'] .statusDot,
+.item[data-status='running'] .statusDot,
+.item[data-status='queued'] .statusLabel,
+.item[data-status='starting'] .statusLabel,
+.item[data-status='running'] .statusLabel {
+  color: var(--eve-accent);
+}
+
+.item[data-status='waiting'] .statusDot,
+.item[data-status='needs_input'] .statusDot,
+.item[data-status='stalled'] .statusDot,
+.item[data-status='waiting'] .statusLabel,
+.item[data-status='needs_input'] .statusLabel,
+.item[data-status='stalled'] .statusLabel {
+  color: rgb(var(--warning-6));
+}
+
+.item[data-status='succeeded'] .statusDot,
+.item[data-status='succeeded'] .statusLabel {
+  color: rgb(var(--success-6));
+}
+
+.item[data-status='failed'] .statusDot,
+.item[data-status='cancelled'] .statusDot,
+.item[data-status='failed'] .statusLabel,
+.item[data-status='cancelled'] .statusLabel {
+  color: rgb(var(--danger-6));
+}
+
+.item[data-status='reconnect_unavailable'] .statusDot,
+.item[data-status='reconnect_unavailable'] .statusLabel {
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+}
+
+.item[data-status='starting'] .statusDot,
+.item[data-status='running'] .statusDot {
+  animation: durable-work-breathe 1.8s ease-in-out infinite;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--eve-accent) 54%, transparent);
+}
+
+.actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding-left: 12px;
+}
+
+.actionWrap {
+  display: inline-flex;
+}
+
+.actionButton,
+.actionButton.arco-btn,
+.openButton,
+.openButton.arco-btn {
+  min-width: 28px !important;
+  min-height: 28px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  color: var(--eve-shell-text-secondary, var(--color-text-3)) !important;
+}
+
+.actionButton:hover,
+.actionButton:focus-visible,
+.openButton:hover,
+.openButton:focus-visible {
+  background: color-mix(in srgb, var(--eve-shell-surface) 64%, transparent) !important;
+  color: var(--eve-shell-text, var(--color-text-1)) !important;
+}
+
+.openButton,
+.openButton.arco-btn {
+  margin-right: auto;
+  padding-inline: 7px !important;
+  font-size: 11px !important;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.detailBlock {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--eve-shell-surface) 56%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--glass-panel-border) 48%, transparent);
+}
+
+.detailBlock > strong {
+  overflow-wrap: anywhere;
+  color: var(--eve-shell-text, var(--color-text-1));
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 18px;
+}
+
+.detailList {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+  font-size: 11px;
+  line-height: 16px;
+  list-style: none;
+}
+
+.detailList li[data-state='blocked'],
+.detailList li[data-state='needs_input'] {
+  color: rgb(var(--warning-6));
+}
+
+.evidenceButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--eve-accent, rgb(var(--primary-6)));
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.evidenceButton:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--eve-accent, rgb(var(--primary-6)));
+  outline-offset: 2px;
+}
+
+.emptyDetail {
+  display: flex;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px;
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+  text-align: center;
+}
+
+.emptyDetail strong {
+  color: var(--eve-shell-text, var(--color-text-1));
+  font-size: 14px;
+}
+
+.emptyDetail span {
+  max-width: 360px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+@keyframes durable-work-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+
+@media (max-width: 680px) {
+  .detailRoot {
+    padding: 10px;
+  }
+
+  .detailItem {
+    padding: 12px;
+  }
+
+  .detailGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item[data-status='starting'] .statusDot,
+  .item[data-status='running'] .statusDot {
+    animation: none;
+  }
+}

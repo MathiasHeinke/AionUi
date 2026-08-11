@@ -34,6 +34,7 @@ const e2eStateSandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-sta
 const e2eStateFile = path.join(e2eStateSandboxDir, 'extension-states.json');
 const e2eUserDataDir = path.join(e2eStateSandboxDir, 'user-data');
 const e2eHomeDir = path.join(e2eStateSandboxDir, 'home');
+export const E2E_BACKEND_DATA_DIR = path.join(e2eUserDataDir, 'command-eve');
 // Keep Playwright's process-attach budget aligned with the documented cold
 // runtime-install window below. After any failed test Playwright starts a new
 // worker with a pristine HOME, so a 60s launch timeout turns one known failure
@@ -66,6 +67,21 @@ export async function closeSharedElectronAppForIsolatedSpec(): Promise<void> {
   await app.close().catch(() => {});
   app = null;
   mainPage = null;
+}
+
+/**
+ * Restart the same unsigned QA app with the same disposable HOME/user-data.
+ * Specs must reinstall page-level route fixtures on the returned renderer;
+ * AionCore's on-disk state remains owned by the shared E2E sandbox.
+ */
+export async function restartSharedElectronAppForIsolatedSpec(): Promise<{
+  electronApp: ElectronApplication;
+  page: Page;
+}> {
+  await closeSharedElectronAppForIsolatedSpec();
+  app = await launchApp();
+  mainPage = await resolveMainWindow(app);
+  return { electronApp: app, page: mainPage };
 }
 
 function isDevToolsWindow(page: Page): boolean {
@@ -119,8 +135,16 @@ function resolvePackagedApp(): { executablePath: string; cwd: string } | null {
       }
     }
   } else if (platform === 'darwin') {
-    // out/mac-arm64/AionUi.app/Contents/MacOS/AionUi  or  out/mac/AionUi.app/...
-    for (const dir of ['mac-arm64', 'mac-x64', 'mac', 'mac-universal']) {
+    // Prefer the explicitly non-distributable, inspect-enabled Playwright package.
+    // Production package locations remain the unchanged fallback order.
+    for (const dir of [
+      'e2e-packaged/mac-arm64',
+      'e2e-packaged/mac-x64',
+      'mac-arm64',
+      'mac-x64',
+      'mac',
+      'mac-universal',
+    ]) {
       const macDir = path.join(outDir, dir);
       if (!fs.existsSync(macDir)) continue;
       const appBundle = fs.readdirSync(macDir).find((f) => f.endsWith('.app'));

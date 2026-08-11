@@ -42,6 +42,7 @@ import {
   ensureAcpGenerationTracking,
 } from '@renderer/services/commandEveGenerationActivity';
 import { getConversationRuntimeViewSnapshot } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import { publishLiveConversationDelegationActivity } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import {
@@ -578,6 +579,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       }
 
       const transformedMessage = transformMessage(message);
+      if (transformedMessage) {
+        publishLiveConversationDelegationActivity(conversation_id, transformedMessage);
+      }
       switch (message.type) {
         case 'thought':
           // Thought events are now handled by AcpAgentManager (converted to thinking messages)

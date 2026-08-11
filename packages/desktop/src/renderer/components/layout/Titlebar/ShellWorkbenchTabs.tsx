@@ -22,6 +22,7 @@ import {
   Music,
   Plus,
   RightBar,
+  Robot,
   Terminal,
   Video,
 } from '@icon-park/react';
@@ -77,6 +78,8 @@ const iconForTab = (tab: PreviewTab) => {
       return <Terminal theme='outline' size={16} fill='currentColor' />;
     case 'kanban':
       return <ListCheckbox theme='outline' size={16} fill='currentColor' />;
+    case 'durable-work':
+      return <Robot theme='outline' size={16} fill='currentColor' />;
     case 'workspace-files':
       return <FolderOpen theme='outline' size={16} fill='currentColor' />;
     case 'workspace-review':
@@ -236,7 +239,16 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
 
   useEffect(() => {
     if (launcherOnly || !isOpen || !activeTabId) return;
-    if (!conversationTabs.some((tab) => tab.id === activeTabId)) hidePreview();
+    if (conversationTabs.some((tab) => tab.id === activeTabId)) return;
+
+    // `openPreview` adds the new conversation-scoped tab and publishes its
+    // active id in the following state effect. Hiding synchronously here races
+    // that handoff when an older conversation still owns activeTabId: the new
+    // Worker Detail becomes active but remains display:none. One animation
+    // frame preserves the cross-conversation fence while giving the pending
+    // active-tab commit a chance to cancel this stale hide.
+    const frame = window.requestAnimationFrame(() => hidePreview());
+    return () => window.cancelAnimationFrame(frame);
   }, [activeTabId, conversationTabs, hidePreview, isOpen, launcherOnly]);
 
   const activateTarget = useCallback(
