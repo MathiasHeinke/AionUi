@@ -234,9 +234,9 @@
   "account": "Account",
   "accountPanel": {
     "title": "Account",
-    "pageDescription": "Manage your local profile, sign-in state, and access to EVE Cloud.",
-    "profileTitle": "Profile",
-    "profileDescription": "Your identity for Command EVE on this device.",
+    "pageDescription": "Manage your Account and the active Seed separately.",
+    "profileTitle": "Account",
+    "profileDescription": "Your identity, sign-in, and company. Changes never rename a Seed.",
     "sessionTitle": "Sign-in on this Mac",
     "sessionStatus": "This device is signed in.",
     "deviceResetTitle": "Reset device",
@@ -268,6 +268,17 @@
     "fieldsRequired": "Name and company must not be empty.",
     "emailLocked": "Changing your email is a separate sign-in flow (coming soon).",
     "logoutSoft": "Sign out on this Mac",
+    "seed": {
+      "title": "This Seed",
+      "description": "The name and settings of this workspace. Your Account profile remains unchanged.",
+      "name": "Seed name",
+      "edit": "Rename Seed",
+      "save": "Save Seed",
+      "saving": "Saving …",
+      "saved": "Seed name saved.",
+      "saveError": "The Seed name could not be saved.",
+      "nameRequired": "The Seed name must not be empty."
+    },
     "eveCloud": {
       "title": "EVE Cloud",
       "activeStatus": "Active",

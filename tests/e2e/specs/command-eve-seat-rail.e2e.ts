@@ -327,6 +327,18 @@ test.describe.serial('Command EVE authoritative SeatRail lifecycle', () => {
       await page.locator('[data-testid="seat-rail-toggle"]').click();
       await expect(rail).toHaveClass(/command-eve-seat-rail--expanded/);
 
+      // MAT-1774: "+" stays inside Command EVE. Opening the Seed dialog must
+      // not navigate to the website, checkout or a paywall.
+      const beforeCreateUrl = page.url();
+      await page.locator('[data-testid="seat-rail-add"]').click();
+      const createSeedModal = page.locator('.arco-modal').filter({ hasText: 'Neuen Seed erstellen' }).last();
+      await expect(createSeedModal).toBeVisible({ timeout: 15_000 });
+      await expect(createSeedModal).toContainText('kostenlos');
+      await expect(createSeedModal).toContainText('Credit-Pool deines Accounts');
+      expect(page.url()).toBe(beforeCreateUrl);
+      await createSeedModal.getByRole('button', { name: 'Abbrechen' }).click();
+      await expect(createSeedModal).not.toBeVisible();
+
       conversationId = await createAcpConversation(page);
       await openConversationWithInjector(page, conversationId);
       await beginGenerating(page, conversationId);
