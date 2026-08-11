@@ -245,7 +245,7 @@ vi.mock('@/common', () => ({
               ...raw,
               attachment_grounding_receipt: {
                 version: 'command-eve-attachment-grounding-receipt/v1',
-                status: 'verified',
+                status: 'accepted',
                 entries: grounding.entries.map((entry) => ({ ...entry, grounding_embedded: true })),
               },
             };

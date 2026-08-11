@@ -8,8 +8,7 @@ import type { CommandEvePreparedImageDocument } from './eveImageIntelligenceCore
 import type { CommandEvePreparedPdfDocument } from './evePdfIntelligenceCore';
 
 export const COMMAND_EVE_ATTACHMENT_GROUNDING_REQUEST_VERSION = 'command-eve-attachment-grounding/v1' as const;
-export const COMMAND_EVE_ATTACHMENT_GROUNDING_RECEIPT_VERSION =
-  'command-eve-attachment-grounding-receipt/v1' as const;
+export const COMMAND_EVE_ATTACHMENT_GROUNDING_RECEIPT_VERSION = 'command-eve-attachment-grounding-receipt/v1' as const;
 
 export type CommandEveAttachmentGroundingKind = 'pdf' | 'image';
 
@@ -34,7 +33,7 @@ export type CommandEveAttachmentGroundingReceiptEntry = CommandEveAttachmentGrou
 
 export type CommandEveAttachmentGroundingReceipt = {
   version: typeof COMMAND_EVE_ATTACHMENT_GROUNDING_RECEIPT_VERSION;
-  status: 'verified';
+  status: 'accepted';
   entries: CommandEveAttachmentGroundingReceiptEntry[];
 };
 
@@ -167,7 +166,7 @@ export function validateCommandEveAttachmentGroundingReceipt(
   const receipt = value as Record<string, unknown>;
   if (
     receipt.version !== COMMAND_EVE_ATTACHMENT_GROUNDING_RECEIPT_VERSION ||
-    receipt.status !== 'verified' ||
+    receipt.status !== 'accepted' ||
     !Array.isArray(receipt.entries) ||
     receipt.entries.length !== expected.entries.length
   ) {
@@ -194,7 +193,7 @@ export function validateCommandEveAttachmentGroundingReceipt(
   }
   return {
     version: COMMAND_EVE_ATTACHMENT_GROUNDING_RECEIPT_VERSION,
-    status: 'verified',
+    status: 'accepted',
     entries: normalizedEntries,
   };
 }

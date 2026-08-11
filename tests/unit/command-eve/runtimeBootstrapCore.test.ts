@@ -1195,6 +1195,7 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('auxiliary_client._to_async_client = command_eve_to_async_client');
       expect(providerOverride).toContain('def _install_command_eve_attachment_memory_gate() -> None:');
       expect(providerOverride).toContain('def _install_command_eve_attachment_history_patch() -> None:');
+      expect(providerOverride).toContain('def _install_command_eve_prompt_admission_patch() -> None:');
       const attachmentFailClosedDefault = providerOverride.indexOf(
         'agent._command_eve_current_turn_has_attachment = True'
       );
@@ -1220,7 +1221,11 @@ describe('Command EVE runtime bootstrap core', () => {
       });
       const attachmentMemoryHarness = spawnSync(
         'python3',
-        [path.resolve('tests/fixtures/command-eve/attachment_memory_gate_harness.py'), providerOverridePath],
+        [
+          path.resolve('tests/fixtures/command-eve/attachment_memory_gate_harness.py'),
+          providerOverridePath,
+          path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        ],
         { encoding: 'utf8', timeout: 15_000 }
       );
       expect(attachmentMemoryHarness.status, attachmentMemoryHarness.stderr || attachmentMemoryHarness.stdout).toBe(0);
@@ -1229,11 +1234,32 @@ describe('Command EVE runtime bootstrap core', () => {
         attachment_memory_blocked: true,
         attachment_skill_review_blocked: true,
         attachment_external_sync_blocked: true,
+        compression_and_session_end_memory_blocked: true,
         correction_memory_and_skill_blocked: true,
         direct_memory_and_skill_writes_blocked: true,
         acp_interrupt_correction_blocked: true,
         recursive_correction_turn_blocked: true,
         nested_attachment_turn_blocked: true,
+        crash_restart_quarantine_blocked: true,
+        native_session_db_restart_quarantine: true,
+        automatic_end_turn_cannot_reconcile: true,
+        session_reset_keeps_durable_quarantine: true,
+      });
+      const promptAdmissionHarness = spawnSync(
+        'python3',
+        [path.resolve('tests/fixtures/command-eve/prompt_admission_harness.py'), providerOverridePath],
+        { encoding: 'utf8', timeout: 15_000 }
+      );
+      expect(promptAdmissionHarness.status, promptAdmissionHarness.stderr || promptAdmissionHarness.stdout).toBe(0);
+      expect(JSON.parse(promptAdmissionHarness.stdout)).toMatchObject({
+        admission_after_native_running_state: true,
+        provider_blocked_until_peer_finalize: true,
+        rejected_admission_blocks_provider: true,
+        rejected_commit_blocks_provider: true,
+        rejected_finalize_blocks_provider: true,
+        invalid_metadata_fails_closed: true,
+        ordinary_text_path_preserved: true,
+        verified_attachment_uses_transient_quarantine: true,
       });
       const attachmentHistoryHarness = spawnSync(
         'python3',
@@ -1251,6 +1277,7 @@ describe('Command EVE runtime bootstrap core', () => {
         exact_wheel_function_executed: true,
         baseline_loses_context: true,
         same_process_replay_preserved: true,
+        native_db_restart_rebuild_preserved: true,
         native_api_content_used: true,
         negative_controls_passed: true,
       });

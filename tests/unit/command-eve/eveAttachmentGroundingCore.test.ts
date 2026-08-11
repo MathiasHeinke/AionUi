@@ -56,7 +56,7 @@ describe('Command EVE attachment grounding receipt', () => {
     const request = buildCommandEveAttachmentGroundingRequest([pdf, image]);
     const receipt = {
       version: 'command-eve-attachment-grounding-receipt/v1',
-      status: 'verified',
+      status: 'accepted',
       entries: [pdf, image].map((entry) => ({ ...entry, grounding_embedded: true })),
     };
     expect(validateCommandEveAttachmentGroundingReceipt(request, receipt)).toEqual(receipt);
@@ -75,8 +75,6 @@ describe('Command EVE attachment grounding receipt', () => {
   });
 
   it('fails closed above the bounded Hermes sidecar ceiling', () => {
-    expect(
-      buildCommandEveAttachmentGroundingRequest([{ ...pdf, grounding_bytes: 512 * 1024 + 1 }])
-    ).toBeUndefined();
+    expect(buildCommandEveAttachmentGroundingRequest([{ ...pdf, grounding_bytes: 512 * 1024 + 1 }])).toBeUndefined();
   });
 });
