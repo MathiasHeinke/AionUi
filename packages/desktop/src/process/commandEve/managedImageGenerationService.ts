@@ -37,7 +37,7 @@ import { readCommandEveImageModelPreference } from './imageModelPreferenceMain';
 import { readCommandEveImageModelRegistry } from './imageCapabilitiesMain';
 import { stageGeneratedImageArtifact } from './imageArtifactStore';
 import { getDataPath } from '@process/utils/utils';
-import { getActiveSeatId } from './seatContextCore';
+import { getActiveSeatContextRevision, getActiveSeatId } from './seatContextCore';
 
 const MAX_REFERENCE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_REFERENCE_BYTES = 8 * 1024 * 1024;
@@ -150,6 +150,7 @@ export type CommandEveManagedImageGenerationOptions = {
   fetchFn?: typeof fetch;
   dataPath?: string;
   getActiveSeatId?: () => string;
+  getActiveSeatContextRevision?: () => number;
   /**
    * MAT-1769 seams, injectable for tests. Production reads the seat's stored
    * preference and the server-owned registry through the main-process
@@ -195,6 +196,25 @@ export async function executeCommandEveManagedImageGeneration(
   if (!COMMAND_EVE_MANAGED_IMAGE_ENABLED) {
     return failure(503, 'managed_image_disabled', 'Managed image generation is not enabled.');
   }
+  const readSeatId = options.getActiveSeatId ?? getActiveSeatId;
+  const readSeatContextRevision = options.getActiveSeatContextRevision ?? getActiveSeatContextRevision;
+  let capturedSeatId: string;
+  let capturedSeatContextRevision: number;
+  try {
+    capturedSeatId = readSeatId();
+    capturedSeatContextRevision = readSeatContextRevision();
+  } catch {
+    return failure(503, 'managed_image_seat_unavailable', 'The active Seed could not be determined safely.');
+  }
+  const seatStillMatches = (): boolean => {
+    try {
+      return readSeatId() === capturedSeatId && readSeatContextRevision() === capturedSeatContextRevision;
+    } catch {
+      return false;
+    }
+  };
+  const seatChanged = () =>
+    failure(409, 'managed_image_seat_changed', 'The active Seed changed while the image was being prepared. Retry.');
   const wireResult = readLicenseWire(options.dataPath ?? getDataPath());
   const gate = resolveCommandEveMultimodalGate({
     provider: 'openrouter',
@@ -230,6 +250,7 @@ export async function executeCommandEveManagedImageGeneration(
     ((opts: { fetchFn?: typeof fetch; dataPath?: string }) =>
       readCommandEveImageModelRegistry({ ...opts, bypassCache: true }));
   const registryResult = await readRegistry(registryOptions);
+  if (!seatStillMatches()) return seatChanged();
   if (!registryResult.ok) {
     return failure(
       503,
@@ -245,6 +266,7 @@ export async function executeCommandEveManagedImageGeneration(
     );
   }
   const preference = await (options.readPreference ?? (() => readCommandEveImageModelPreference()))();
+  if (!seatStillMatches()) return seatChanged();
   const tier = preference.status === 'resolved' ? preference.tier : registryResult.registry.default_tier;
   const tierSpec = getCommandEveImageModelTierSpec(registryResult.registry, tier);
   if (!tierSpec) {
@@ -279,8 +301,10 @@ export async function executeCommandEveManagedImageGeneration(
   const body: CommandEveManagedImageEdgeRequest = {
     ...built.body,
     image_model: effectiveTierSpec.id,
-    ...commandEveMediaSeedAttribution((options.getActiveSeatId ?? getActiveSeatId)()),
+    ...commandEveMediaSeedAttribution(capturedSeatId),
   };
+
+  if (!seatStillMatches()) return seatChanged();
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -301,6 +325,7 @@ export async function executeCommandEveManagedImageGeneration(
       response,
       COMMAND_EVE_MANAGED_IMAGE_MAX_RESPONSE_BYTES
     );
+    if (!seatStillMatches()) return seatChanged();
     if (!responseText.ok) {
       return failure(502, 'provider_response_too_large', 'Managed image response exceeded the local limit.');
     }

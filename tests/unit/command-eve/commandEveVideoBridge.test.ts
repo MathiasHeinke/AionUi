@@ -108,6 +108,41 @@ describe('handleCommandEveVideoGenerate', () => {
     expect(result.artifact.mimeType).toBe('video/mp4');
   });
 
+  it('refuses an A-to-B Seed switch while the catalog await is pending before POST', async () => {
+    let activeSeatId = ACTIVE_SEED_ID;
+    let activeSeatContextRevision = 11;
+    let resolveCatalog!: (value: null) => void;
+    const getVideoCatalogWire = vi.fn(
+      () =>
+        new Promise<null>((resolve) => {
+          resolveCatalog = resolve;
+        })
+    );
+    const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
+    const saveVideoFile = vi.fn(() => '/tmp/never-written.mp4');
+    const saveArtifactRecord = vi.fn();
+
+    const pending = handleCommandEveVideoGenerate(
+      { prompt: 'ein Produktclip', tierId: 'fast', durationSeconds: 5, conversationId: 'conv-race' },
+      deps(fetchMock as unknown as typeof fetch, {
+        getActiveSeatId: () => activeSeatId,
+        getActiveSeatContextRevision: () => activeSeatContextRevision,
+        getVideoCatalogWire,
+        saveVideoFile,
+        saveArtifactRecord,
+      })
+    );
+    await vi.waitFor(() => expect(getVideoCatalogWire).toHaveBeenCalledOnce());
+    activeSeatId = 'b2000000-0000-4000-8000-000000000001';
+    activeSeatContextRevision += 1;
+    resolveCatalog(null);
+
+    await expect(pending).resolves.toMatchObject({ ok: false, reasonCode: 'video-seat-changed' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(saveVideoFile).not.toHaveBeenCalled();
+    expect(saveArtifactRecord).not.toHaveBeenCalled();
+  });
+
   it('never calls the gateway without a licence wire', async () => {
     readLicenseWireMock.mockReturnValue({ ok: false, wire: null });
     const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
