@@ -457,6 +457,30 @@ describe('production Typed UI provider completion routes', () => {
     });
   }
 
+  it('rejects native Ollama data after the terminal chunk before any publish receipt', async () => {
+    const scenario = SCENARIOS.find((candidate) => candidate.wire === 'ollama');
+    if (!scenario) throw new Error('native Ollama scenario missing');
+    const completionLedgerPath = ledgerPath();
+    const observed: MainOwnedTypedUIProviderCompletionInput[] = [];
+    // Adversarial shape: the terminal done chunk carries a would-be-valid
+    // publish call, then a trailing line arrives (without trailing newline,
+    // through the buffered-tail flush). Without the jsonl_data_after_terminal
+    // invalidation this stream would produce exactly one completion receipt.
+    const body = `${ollamaStream(true)}\n${JSON.stringify({
+      done: false,
+      message: { role: 'assistant', content: 'trailing' },
+    })}`;
+    await configureScenario(scenario, { contentType: 'application/x-ndjson', body }, completionLedgerPath, observed, {
+      count: 0,
+    });
+
+    const response = await invokeShim(true);
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(observed).toEqual([]);
+    expect(fs.existsSync(completionLedgerPath)).toBe(false);
+  });
+
   it('binds a real route receipt through the durable message join and Main action broker before any host effect', async () => {
     const scenario = SCENARIOS.find((candidate) => candidate.lane === 'managed_local');
     if (!scenario) throw new Error('managed local scenario missing');

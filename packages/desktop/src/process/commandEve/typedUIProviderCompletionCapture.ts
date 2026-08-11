@@ -231,37 +231,6 @@ export function extractOllamaCompletedTypedUIPublishCalls(value: unknown): Typed
   return parseToolCalls(value.message.tool_calls, true);
 }
 
-export class OllamaTypedUIPublishJsonlCapture {
-  private readonly capture = new BoundedUtf8Capture();
-
-  push(value: Uint8Array): void {
-    this.capture.push(value);
-  }
-
-  finish(): TypedUIPublishExtractionResult {
-    const text = this.capture.finish();
-    if (text === undefined) return { ok: false, reason: 'stream_too_large' };
-    const calls: unknown[] = [];
-    let terminal: RecordValue | undefined;
-    for (const line of text.split(/\r?\n/)) {
-      if (!line.trim()) continue;
-      if (terminal) return { ok: false, reason: 'jsonl_data_after_terminal' };
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(line) as unknown;
-      } catch {
-        return { ok: false, reason: 'jsonl_invalid' };
-      }
-      if (!isRecord(parsed)) return { ok: false, reason: 'jsonl_invalid' };
-      if (isRecord(parsed.message) && Array.isArray(parsed.message.tool_calls))
-        calls.push(...parsed.message.tool_calls);
-      if (parsed.done === true) terminal = parsed;
-    }
-    if (!terminal || terminal.done_reason === 'length') return { ok: false, reason: 'jsonl_not_terminal' };
-    return parseToolCalls(calls, true);
-  }
-}
-
 export function reportCapturedTypedUIProviderCompletions(
   extraction: TypedUIPublishExtractionResult,
   context: TypedUIProviderCompletionContext

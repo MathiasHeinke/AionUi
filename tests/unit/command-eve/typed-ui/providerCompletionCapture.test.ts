@@ -7,7 +7,6 @@
 import {
   extractOllamaCompletedTypedUIPublishCalls,
   extractOpenAICompletedTypedUIPublishCalls,
-  OllamaTypedUIPublishJsonlCapture,
   OpenAITypedUIPublishSseCapture,
   reportCapturedTypedUIProviderCompletions,
 } from '@/process/commandEve/typedUIProviderCompletionCapture';
@@ -146,25 +145,6 @@ describe('Typed UI provider-terminal capture', () => {
         message: { tool_calls: [{ function: { name: 'eve_typed_ui_publish', arguments: args() } }] },
       })
     ).toMatchObject({ ok: false, reason: 'tool_call_id_missing' });
-  });
-
-  it('parses terminal Ollama JSONL without requiring a trailing newline and rejects truncation', () => {
-    const capture = new OllamaTypedUIPublishJsonlCapture();
-    const line = JSON.stringify({
-      done: true,
-      done_reason: 'stop',
-      message: { tool_calls: [call('ollama-stream')] },
-    });
-    pushOneByteAtATime(capture, line);
-    expect(capture.finish()).toMatchObject({ ok: true, calls: [{ toolCallId: 'ollama-stream' }] });
-
-    const truncated = new OllamaTypedUIPublishJsonlCapture();
-    pushOneByteAtATime(truncated, JSON.stringify({ done: false, message: { tool_calls: [call('never-done')] } }));
-    expect(truncated.finish()).toMatchObject({ ok: false, reason: 'jsonl_not_terminal' });
-
-    const trailing = new OllamaTypedUIPublishJsonlCapture();
-    pushOneByteAtATime(trailing, `${line}\n${JSON.stringify({ done: false, message: { content: 'trailing' } })}`);
-    expect(trailing.finish()).toMatchObject({ ok: false, reason: 'jsonl_data_after_terminal' });
   });
 
   it('reports one immutable Main input per call and swallows persistence failure without mock success', () => {
