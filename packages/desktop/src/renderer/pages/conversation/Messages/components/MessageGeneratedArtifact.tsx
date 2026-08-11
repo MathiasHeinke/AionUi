@@ -6,9 +6,11 @@
 
 import { ipcBridge } from '@/common';
 import type { IFileMetadata, IGeneratedArtifactType, IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
+import { TYPED_UI_MIME_TYPE, TYPED_UI_SCHEMA_VERSION } from '@/common/typedUI';
 import MarkdownView from '@/renderer/components/Markdown';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
+import { emitter } from '@/renderer/utils/emitter';
 import { Message } from '@arco-design/web-react';
 import { FolderOpen, Paperclip, PreviewOpen } from '@icon-park/react';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -16,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import PDFPreview from '../../Preview/components/viewers/PDFViewer';
 import { secureArtifactHtml } from '../../Preview/components/renderers/htmlArtifactSecurityCore';
 import { sanitizeArtifactPreviewSource } from './artifactPreviewSecurityCore';
+import { createDefaultTypedUIActionHost, TypedUIRenderer } from './TypedGenerativeUI';
 
 type ArtifactPayload = IGeneratedConversationArtifact['payload'] | Record<string, unknown> | string;
 type ArtifactPreviewType = IGeneratedArtifactType | 'pdf';
@@ -62,6 +65,21 @@ function readString(payload: Record<string, unknown>, keys: string[]): string | 
   for (const key of keys) {
     const value = payload[key];
     if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function readTypedUIContent(payload: Record<string, unknown>): string | undefined {
+  const mimeType = readString(payload, ['mime_type', 'media_type', 'mimeType'])?.toLowerCase();
+  const candidate = payload.typed_ui ?? payload.typedUi;
+  if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) return JSON.stringify(candidate);
+  if (payload.schema_version === TYPED_UI_SCHEMA_VERSION) return JSON.stringify(payload);
+  if (mimeType === TYPED_UI_MIME_TYPE) {
+    if (typeof payload.content === 'string') return payload.content;
+    if (payload.content && typeof payload.content === 'object' && !Array.isArray(payload.content)) {
+      return JSON.stringify(payload.content);
+    }
   }
   return undefined;
 }
@@ -248,6 +266,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const conversationContext = useConversationContextSafe();
   const workspace = conversationContext?.workspace?.trim() || undefined;
   const payload = useMemo(() => parsePayload(artifact.payload), [artifact.payload]);
+  const typedUIContent = useMemo(() => readTypedUIContent(payload), [payload]);
   const type = inferType(artifact.kind, payload);
   const typeLabel = getTypeLabel(t, type);
   const path = readString(payload, SOURCE_PATH_KEYS);
@@ -470,6 +489,40 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
       Message.error(t('messages.artifact.revealFailed'));
     }
   };
+
+  const typedUIHost = useMemo(
+    () =>
+      createDefaultTypedUIActionHost({
+        openArtifact: (artifactId) => {
+          if (!typedUIContent || artifactId !== artifact.id) {
+            throw new Error('Typed UI may only open its bound conversation artifact.');
+          }
+          emitter.emit('preview.open', {
+            content: typedUIContent,
+            contentType: 'typed-ui',
+            metadata: { title, conversation_id: artifact.conversation_id },
+          });
+        },
+        replyWithState: (text) => {
+          emitter.emit('sendbox.fill', text);
+        },
+      }),
+    [artifact.conversation_id, artifact.id, title, typedUIContent]
+  );
+
+  if (typedUIContent) {
+    return (
+      <div data-testid='generated-artifact-card' className='max-w-780px w-full mx-auto'>
+        <TypedUIRenderer
+          content={typedUIContent}
+          mode='compact'
+          host={typedUIHost}
+          receiptContext={{ requestId: artifact.id }}
+          onOpenWorkbench={() => typedUIHost.openArtifact(artifact.id)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div data-testid='generated-artifact-card' className='max-w-780px w-full mx-auto'>

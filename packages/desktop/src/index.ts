@@ -512,6 +512,10 @@ function commandEveGateAuditPath(runtimeRoot: string): string {
   return path.join(runtimeRoot, 'audit', 'gate-decisions.jsonl');
 }
 
+function commandEveTypedUIActionAuditPath(runtimeRoot: string): string {
+  return path.join(runtimeRoot, 'audit', 'typed-ui-actions.jsonl');
+}
+
 /**
  * Build the EVE cloud routing resolver passed to the Ollama OpenAI shim. The
  * resolver runs PER request (sync) so it always reflects the live picker
@@ -1441,6 +1445,19 @@ function registerCommandEveRuntimeBridge(): void {
       const decision = evaluateCommandEveGateDecision({ mode, action: action as CommandEveGateAction });
       appendCommandEveGateDecision(commandEveGateAuditPath(paths.runtimeRoot), decision);
       return { success: true, data: decision };
+    } catch (error) {
+      return { success: false, msg: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcBridge.commandEve.typedUIActionReceipt.provider(async (request) => {
+    try {
+      const { getDataPath } = await import('./process/utils/utils');
+      const { resolveCommandEveRuntimeBootstrapPaths } = await import('./process/commandEve/runtimeBootstrapCore');
+      const { appendTypedUIActionReceipt } = await import('./process/commandEve/typedUIActionReceiptCore');
+      const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+      const record = appendTypedUIActionReceipt(commandEveTypedUIActionAuditPath(paths.runtimeRoot), request?.receipt);
+      return { success: true, data: { receipt_id: record.receipt_id, recorded_at: record.recorded_at } };
     } catch (error) {
       return { success: false, msg: error instanceof Error ? error.message : String(error) };
     }

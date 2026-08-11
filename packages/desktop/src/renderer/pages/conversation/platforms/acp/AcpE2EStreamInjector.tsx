@@ -4,7 +4,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
 import type { TMessage } from '@/common/chat/chatLib';
+import {
+  TYPED_UI_CATALOG_VERSION,
+  TYPED_UI_MIME_TYPE,
+  TYPED_UI_SCHEMA_VERSION,
+  type TypedUIEnvelope,
+} from '@/common/typedUI';
+import { stageConversationArtifact } from '@/renderer/pages/conversation/Messages/artifacts';
 import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/hooks';
 import {
   clearConversationGenerating,
@@ -23,6 +31,7 @@ type RunScenarioOptions = {
 
 type StreamController = {
   runScenario: (options?: RunScenarioOptions) => Promise<void>;
+  emitTypedUIArtifact: () => Promise<string>;
   emitInfoTip: (code: string, content: string) => Promise<void>;
   emitFollowUpExchange: () => Promise<void>;
   beginGenerating: () => void;
@@ -92,6 +101,114 @@ const createStreamChunks = (lines: number): string[] => {
   );
 };
 
+const createTypedUIEnvelope = (artifactId: string): TypedUIEnvelope => ({
+  schema_version: TYPED_UI_SCHEMA_VERSION,
+  catalog_version: TYPED_UI_CATALOG_VERSION,
+  root: 'root',
+  elements: {
+    root: {
+      type: 'Stack',
+      props: { direction: 'vertical', gap: 12, align: 'stretch' },
+      children: ['heading', 'goal', 'run', 'decision', 'reply'],
+    },
+    heading: {
+      type: 'Heading',
+      props: { text: 'Typed release cockpit', level: 2 },
+      children: [],
+    },
+    goal: {
+      type: 'Goal',
+      props: {
+        id: 'goal-typed-ui',
+        title: 'Reach the integration gate',
+        status: 'active',
+        progress: 82,
+        owner: 'CTO',
+        summary: 'Declarative UI only; renderer and authority remain host-owned.',
+      },
+      children: [],
+    },
+    run: {
+      type: 'WorkerRun',
+      props: {
+        id: 'worker-run-typed-ui',
+        worker: 'AionUI verifier',
+        status: 'running',
+        startedAt: '2026-08-11T12:00:00.000Z',
+        summary: 'Schema, security and accessibility gates are running.',
+        receiptRef: 'receipt-local-typed-ui',
+      },
+      children: [],
+      on: { press: 'openCurrentArtifact' },
+    },
+    decision: {
+      type: 'DecisionCard',
+      props: {
+        id: 'decision-typed-ui',
+        title: 'Prepare the isolated integration branch?',
+        status: 'open',
+        rationale: 'No merge, release or deploy is part of this action.',
+        humanGate: 'HG-2.5',
+        statePath: '/decision',
+        options: [
+          { id: 'prepare', label: 'Prepare' },
+          { id: 'later', label: 'Later' },
+        ],
+      },
+      children: [],
+      on: { 'select:prepare': 'selectPrepare', approve: 'requestApproval' },
+    },
+    reply: {
+      type: 'Button',
+      props: { label: 'Reply with verified state', variant: 'primary', disabled: false },
+      children: [],
+      on: { press: 'replyState' },
+    },
+  },
+  state: { decision: null, verification: 'Ready' },
+  actions: {
+    openCurrentArtifact: { type: 'open_artifact', params: { artifact_id: artifactId } },
+    selectPrepare: {
+      type: 'select_option',
+      params: { state_path: '/decision', value: 'prepare', option_id: 'prepare' },
+    },
+    requestApproval: {
+      type: 'request_approval',
+      params: { gate_action: 'prepare_pr', summary: 'Prepare the bounded integration branch.' },
+    },
+    replyState: {
+      type: 'reply_with_state',
+      params: { state_paths: ['/decision', '/verification'], message: 'Verified Typed UI state' },
+    },
+  },
+  provenance: {
+    provider: 'e2e-local',
+    model: 'deterministic-visual-fixture',
+    request_id: `request-${artifactId}`,
+    generated_at: '2026-08-11T12:00:00.000Z',
+    source_message_id: `message-${artifactId}`,
+  },
+});
+
+const createTypedUIArtifact = (conversationId: string): IGeneratedConversationArtifact => {
+  const createdAt = Date.now();
+  const artifactId = `e2e-typed-ui-${createdAt}`;
+  return {
+    id: artifactId,
+    conversation_id: conversationId,
+    kind: 'file',
+    status: 'active',
+    created_at: createdAt,
+    updated_at: createdAt,
+    payload: {
+      artifact_type: 'file',
+      title: 'Typed Generative UI · Integration gate',
+      mime_type: TYPED_UI_MIME_TYPE,
+      typed_ui: createTypedUIEnvelope(artifactId),
+    } as IGeneratedConversationArtifact['payload'] & { typed_ui: TypedUIEnvelope },
+  };
+};
+
 const AcpE2EStreamInjector: React.FC<{ conversationId: string }> = ({ conversationId }) => {
   const addOrUpdateMessage = useAddOrUpdateMessage();
 
@@ -105,6 +222,14 @@ const AcpE2EStreamInjector: React.FC<{ conversationId: string }> = ({ conversati
     const registry = (window.__AIONUI_E2E_MESSAGE_STREAM__ ??= { controllers: {} });
 
     registry.controllers[conversationId] = {
+      emitTypedUIArtifact: async () => {
+        const artifact = createTypedUIArtifact(conversationId);
+        stageConversationArtifact(conversationId, artifact);
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, STREAM_TICK_MS);
+        });
+        return artifact.id;
+      },
       runScenario: async (options?: RunScenarioOptions) => {
         const historyPairs = options?.historyPairs ?? 18;
         const lines = options?.lines ?? 160;

@@ -28,6 +28,10 @@ import CodeEditor from '../editors/CodeEditor';
 import URLViewer from '../viewers/URLViewer';
 import TerminalViewer from '../viewers/TerminalViewer';
 import ChatWorkspace from '@/renderer/pages/conversation/Workspace';
+import {
+  createDefaultTypedUIActionHost,
+  TypedUIRenderer,
+} from '@/renderer/pages/conversation/Messages/components/TypedGenerativeUI';
 import { Spin } from '@arco-design/web-react';
 import {
   PreviewTabs,
@@ -74,6 +78,7 @@ const PreviewPanel: React.FC = () => {
     updateContent,
     saveContent,
     addDomSnippet,
+    addToSendBox,
   } = usePreviewContext();
   const layout = useLayoutContext();
 
@@ -105,6 +110,13 @@ const PreviewPanel: React.FC = () => {
 
   // 使用自定义 Hooks / Use custom hooks
   const currentTheme = useThemeDetection();
+  const typedUIHost = useMemo(
+    () =>
+      createDefaultTypedUIActionHost({
+        replyWithState: addToSendBox,
+      }),
+    [addToSendBox]
+  );
   const { tabsContainerRef, tabFadeState } = useTabOverflow([tabs, activeTabId]);
   const { handleEditorScroll, handlePreviewScroll } = useScrollSync({
     enabled: isSplitScreenEnabled,
@@ -737,6 +749,15 @@ const PreviewPanel: React.FC = () => {
       );
     } else if (content_type === 'video' || content_type === 'audio') {
       return <MediaPreview type={content_type} source={content} title={metadata?.file_name || metadata?.title} />;
+    } else if (content_type === 'typed-ui') {
+      return (
+        <TypedUIRenderer
+          content={content}
+          mode='full'
+          host={typedUIHost}
+          receiptContext={{ requestId: activeTab.id }}
+        />
+      );
     } else if (content_type === 'url') {
       // URL 预览模式 / URL preview mode
       if (COMMAND_EVE_SHELL_ENABLED) return null;
@@ -789,35 +810,39 @@ const PreviewPanel: React.FC = () => {
         )}
 
         {/* 工具栏（URL 类型不显示工具栏，因为不需要下载/编辑等功能）/ Toolbar (hidden for URL type as it doesn't need download/edit features) */}
-        {content_type !== 'url' && content_type !== 'terminal' && !isWorkspaceSurface && !isKanbanSurface && (
-          <PreviewToolbar
-            content_type={content_type}
-            isMarkdown={isMarkdown}
-            isHTML={isHTML}
-            viewMode={viewMode}
-            isSplitScreenEnabled={isSplitScreenEnabled}
-            file_name={metadata?.file_name || activeTab.title}
-            showOpenInSystemButton={showOpenInSystemButton}
-            historyTarget={historyTarget}
-            snapshotSaving={snapshotSaving}
-            onViewModeChange={(mode) => {
-              setViewMode(mode);
-              setIsSplitScreenEnabled(false); // 切换视图模式时关闭分屏 / Disable split when switching view mode
-            }}
-            onSplitScreenToggle={() => setIsSplitScreenEnabled(!isSplitScreenEnabled)}
-            onSaveSnapshot={handleSaveSnapshot}
-            onRefreshHistory={refreshHistory}
-            renderHistoryDropdown={renderHistoryDropdown}
-            onOpenInSystem={handleOpenInSystem}
-            onDownload={handleDownload}
-            onExport={handleExport}
-            onClose={COMMAND_EVE_SHELL_ENABLED ? hidePreview : closePreview}
-            inspectMode={inspectMode}
-            onInspectModeToggle={() => setInspectMode(!inspectMode)}
-            leftExtra={toolbarExtras?.left}
-            rightExtra={toolbarExtras?.right}
-          />
-        )}
+        {content_type !== 'url' &&
+          content_type !== 'terminal' &&
+          content_type !== 'typed-ui' &&
+          !isWorkspaceSurface &&
+          !isKanbanSurface && (
+            <PreviewToolbar
+              content_type={content_type}
+              isMarkdown={isMarkdown}
+              isHTML={isHTML}
+              viewMode={viewMode}
+              isSplitScreenEnabled={isSplitScreenEnabled}
+              file_name={metadata?.file_name || activeTab.title}
+              showOpenInSystemButton={showOpenInSystemButton}
+              historyTarget={historyTarget}
+              snapshotSaving={snapshotSaving}
+              onViewModeChange={(mode) => {
+                setViewMode(mode);
+                setIsSplitScreenEnabled(false); // 切换视图模式时关闭分屏 / Disable split when switching view mode
+              }}
+              onSplitScreenToggle={() => setIsSplitScreenEnabled(!isSplitScreenEnabled)}
+              onSaveSnapshot={handleSaveSnapshot}
+              onRefreshHistory={refreshHistory}
+              renderHistoryDropdown={renderHistoryDropdown}
+              onOpenInSystem={handleOpenInSystem}
+              onDownload={handleDownload}
+              onExport={handleExport}
+              onClose={COMMAND_EVE_SHELL_ENABLED ? hidePreview : closePreview}
+              inspectMode={inspectMode}
+              onInspectModeToggle={() => setInspectMode(!inspectMode)}
+              leftExtra={toolbarExtras?.left}
+              rightExtra={toolbarExtras?.right}
+            />
+          )}
 
         {metadata?.truncated && (
           <div className='sticky top-0 z-1 px-16px py-10px text-12px bg-warning-1 text-warning-7 border-b border-warning-3'>
