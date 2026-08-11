@@ -1,0 +1,254 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import type { EveExternalActionBinding } from '@/common/config/eveExternalActionPolicyCore';
+import { ExternalActionStore } from '@/process/services/external-action/externalActionStore';
+import { ExternalSecretUseBroker } from '@/process/services/external-action/secretUseBroker';
+import { NodeSqliteDriver } from './testSqliteDriver';
+
+const NOW_ISO = '2026-08-11T12:00:00.000Z';
+const tmpRoots: string[] = [];
+const stores = new Set<ExternalActionStore>();
+let sequence = 0;
+
+function digest(character: string): string {
+  return `sha256:${character.repeat(64)}`;
+}
+
+function openFixture(): { store: ExternalActionStore; file: string; binding: EveExternalActionBinding } {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-secret-broker-'));
+  tmpRoots.push(root);
+  const file = path.join(root, 'ledger.sqlite3');
+  const store = new ExternalActionStore(new NodeSqliteDriver(file), {
+    now: () => new Date(NOW_ISO),
+    randomUUID: () => `broker-${++sequence}`,
+  });
+  stores.add(store);
+  const binding = { installationId: store.getInstallationId(), accountId: 'account-a', seedId: 'seed-a' };
+  const policy = store.replacePolicy(
+    binding,
+    {
+      currency: 'EUR',
+      perActionLimitMinor: 1_000,
+      dailyLimitMinor: 2_000,
+      monthlyLimitMinor: 10_000,
+      allowedDomains: ['shop.example'],
+      allowedActionKinds: ['purchase'],
+      expiresAt: '2026-08-18T12:00:00.000Z',
+    },
+    'Europe/Berlin'
+  );
+  if (!policy.ok) throw new Error(policy.reasonCode);
+  return { store, file, binding };
+}
+
+function claimedReservation(store: ExternalActionStore, binding: EveExternalActionBinding) {
+  const policy = store.getPolicy(binding)!;
+  const reserved = store.reserve({
+    binding,
+    policyRevision: policy.revision,
+    sessionEpoch: policy.sessionEpoch,
+    authorityDecision: 'allow',
+    authorityGrantId: 'grant-a',
+    classificationDigest: digest('a'),
+    riskClass: 'ordinary',
+    actionKind: 'purchase',
+    domain: 'shop.example',
+    intentId: 'intent-a',
+    requestId: 'request-a',
+    operationDigest: digest('b'),
+    idempotencyKeyDigest: digest('c'),
+    executionContractDigest: digest('d'),
+    quoteDigest: digest('e'),
+    amountMinor: 500,
+    currency: 'EUR',
+    expiresAt: '2026-08-11T13:00:00.000Z',
+  });
+  if (!reserved.ok || !reserved.reservationId) throw new Error('reserve fixture failed');
+  const claim = store.claim({
+    binding,
+    reservationId: reserved.reservationId,
+    claimId: 'claim-a',
+    claimDigest: digest('f'),
+    policyRevision: policy.revision,
+    sessionEpoch: policy.sessionEpoch,
+  });
+  if (!claim.execute) throw new Error('claim fixture failed');
+  return { reservationId: reserved.reservationId, claimId: 'claim-a' };
+}
+
+function registerHandle(store: ExternalActionStore, binding: EveExternalActionBinding) {
+  return store.registerSecretHandle({
+    binding,
+    handleId: 'handle-payment-a',
+    type: 'payment_profile',
+    source: 'eve_keychain',
+    sourceRef: 'keychain:v1:opaque-ciphertext-only',
+    actionKinds: ['purchase'],
+    domains: ['shop.example'],
+    expiresAt: '2026-08-18T12:00:00.000Z',
+  });
+}
+
+afterEach(() => {
+  for (const store of stores) store.close();
+  stores.clear();
+  while (tmpRoots.length) fs.rmSync(tmpRoots.pop()!, { recursive: true, force: true });
+});
+
+describe('ExternalSecretUseBroker opaque one-use injection', () => {
+  it('injects synthetic bytes once, returns metadata only and zeroes the buffer', async () => {
+    const { store, binding } = openFixture();
+    expect(registerHandle(store, binding)).toEqual({ ok: true });
+    const claim = claimedReservation(store, binding);
+    const broker = new ExternalSecretUseBroker(store);
+    const secret = 'synthetic-card-token-never-persist';
+    let received = '';
+    let materialReference: Uint8Array | undefined;
+
+    const result = await broker.use(
+      {
+        binding,
+        ...claim,
+        handleId: 'handle-payment-a',
+        actionKind: 'purchase',
+        domain: 'shop.example',
+      },
+      { resolve: async () => new TextEncoder().encode(secret) },
+      {
+        inject: async (material) => {
+          materialReference = material;
+          received = new TextDecoder().decode(material);
+        },
+      }
+    );
+
+    expect(received).toBe(secret);
+    expect(result).toEqual({
+      ok: true,
+      status: 'injected',
+      handleId: 'handle-payment-a',
+      reservationId: claim.reservationId,
+      claimId: claim.claimId,
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(Array.from(materialReference ?? [])).toEqual(Array.from({ length: secret.length }, () => 0));
+
+    const replay = await broker.use(
+      {
+        binding,
+        ...claim,
+        handleId: 'handle-payment-a',
+        actionKind: 'purchase',
+        domain: 'shop.example',
+      },
+      { resolve: async () => new TextEncoder().encode(secret) },
+      { inject: async () => undefined }
+    );
+    expect(replay).toMatchObject({ ok: false, status: 'blocked', reasonCode: 'EXTERNAL_SECRET_USE_REPLAY_BLOCKED' });
+  });
+
+  it('rejects plaintext and wrong-source references before any database write', () => {
+    const { store, file, binding } = openFixture();
+    const synthetic = 'plaintext-secret-must-never-hit-db';
+    expect(
+      store.registerSecretHandle({
+        binding,
+        handleId: 'bad-handle',
+        type: 'account_credential',
+        source: 'eve_keychain',
+        sourceRef: synthetic,
+        actionKinds: ['purchase'],
+        domains: ['shop.example'],
+        expiresAt: '2026-08-18T12:00:00.000Z',
+      })
+    ).toMatchObject({ ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_INVALID' });
+    expect(fs.readFileSync(file).includes(Buffer.from(synthetic))).toBe(false);
+  });
+
+  it('does not resolve a handle through another account or seed', async () => {
+    const { store, binding } = openFixture();
+    registerHandle(store, binding);
+    const claim = claimedReservation(store, binding);
+    const broker = new ExternalSecretUseBroker(store);
+    const otherSeed = { ...binding, seedId: 'seed-b' };
+    const result = await broker.use(
+      {
+        binding: otherSeed,
+        ...claim,
+        handleId: 'handle-payment-a',
+        actionKind: 'purchase',
+        domain: 'shop.example',
+      },
+      { resolve: async () => new Uint8Array([1]) },
+      { inject: async () => undefined }
+    );
+    expect(result).toMatchObject({ ok: false, status: 'blocked' });
+  });
+
+  it('reduces resolver errors to a fixed code and reverses before any injection', async () => {
+    const { store, binding } = openFixture();
+    registerHandle(store, binding);
+    const claim = claimedReservation(store, binding);
+    const secret = 'synthetic-resolver-error-secret';
+    const broker = new ExternalSecretUseBroker(store);
+    let injected = false;
+    const result = await broker.use(
+      {
+        binding,
+        ...claim,
+        handleId: 'handle-payment-a',
+        actionKind: 'purchase',
+        domain: 'shop.example',
+      },
+      {
+        resolve: async () => {
+          throw new Error(secret);
+        },
+      },
+      {
+        inject: async () => {
+          injected = true;
+        },
+      }
+    );
+    expect(injected).toBe(false);
+    expect(result).toMatchObject({ ok: false, status: 'blocked', reasonCode: 'EXTERNAL_SECRET_RESOLVE_FAILED' });
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(store.getReservation(binding, claim.reservationId)?.state).toBe('reversed');
+  });
+
+  it('marks an injector exception as unknown without echoing secret text to result, DB or audit', async () => {
+    const { store, file, binding } = openFixture();
+    registerHandle(store, binding);
+    const claim = claimedReservation(store, binding);
+    const secret = 'synthetic-injector-error-secret';
+    const broker = new ExternalSecretUseBroker(store);
+    const result = await broker.use(
+      {
+        binding,
+        ...claim,
+        handleId: 'handle-payment-a',
+        actionKind: 'purchase',
+        domain: 'shop.example',
+      },
+      { resolve: async () => new TextEncoder().encode(secret) },
+      {
+        inject: async () => {
+          throw new Error(secret);
+        },
+      }
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'unknown',
+      reasonCode: 'EXTERNAL_SECRET_INJECTION_UNKNOWN',
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(store.getReservation(binding, claim.reservationId)?.state).toBe('unknown');
+    expect(JSON.stringify(store.readAuditEvents(binding))).not.toContain(secret);
+    expect(fs.readFileSync(file).includes(Buffer.from(secret))).toBe(false);
+  });
+});
