@@ -75,6 +75,7 @@ const {
   videoArtifactsListInvokeMock,
   imageArtifactsListInvokeMock,
   chatHistoryRefreshHandlerMock,
+  warmupConversationMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
   steerInvokeMock: vi.fn(),
@@ -158,6 +159,7 @@ const {
   videoArtifactsListInvokeMock: vi.fn(),
   imageArtifactsListInvokeMock: vi.fn(),
   chatHistoryRefreshHandlerMock: { current: null as null | (() => void) },
+  warmupConversationMock: vi.fn().mockResolvedValue(undefined),
 }));
 
 function createDeferred<T>() {
@@ -561,7 +563,7 @@ vi.mock('@/renderer/pages/conversation/Preview', () => ({
   }),
 }));
 vi.mock('@/renderer/pages/conversation/utils/warmupConversation', () => ({
-  warmupConversation: vi.fn().mockResolvedValue(undefined),
+  warmupConversation: warmupConversationMock,
 }));
 vi.mock('@/renderer/pages/team/hooks/TeamPermissionContext', () => ({
   useTeamPermission: () => null,
@@ -818,6 +820,7 @@ describe('AcpSendBox', () => {
     buildDisplayMessageMock.mockImplementation((input: string) => input);
     queueRemoveMock.mockResolvedValue(undefined);
     queueRestoreMock.mockResolvedValue(undefined);
+    warmupConversationMock.mockResolvedValue(undefined);
   });
 
   it('shows PDF preparation before dispatching the analysis to EVE', async () => {
@@ -861,6 +864,34 @@ describe('AcpSendBox', () => {
       send.resolve({});
     });
     await waitFor(() => expect(screen.queryByTestId('acp-document-preparation')).toBeNull());
+  });
+
+  it('finishes native readiness before dispatching a grounded prompt', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/report.pdf'], content: '' };
+    pdfPrepareInvokeMock.mockResolvedValue(pdfPrepareSuccess());
+    const readiness = createDeferred<void>();
+    warmupConversationMock.mockReturnValue(readiness.promise);
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    act(() => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(warmupConversationMock).toHaveBeenCalledWith('conv-1', { revalidate: true }));
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      readiness.resolve();
+    });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
   });
 
   it('rejects an unproven PDF receipt before dispatch and restores the selected file', async () => {

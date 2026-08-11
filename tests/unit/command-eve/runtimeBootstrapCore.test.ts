@@ -1247,19 +1247,29 @@ describe('Command EVE runtime bootstrap core', () => {
       });
       const promptAdmissionHarness = spawnSync(
         'python3',
-        [path.resolve('tests/fixtures/command-eve/prompt_admission_harness.py'), providerOverridePath],
-        { encoding: 'utf8', timeout: 15_000 }
+        [
+          path.resolve('tests/fixtures/command-eve/prompt_admission_harness.py'),
+          providerOverridePath,
+          path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        ],
+        { encoding: 'utf8', timeout: 30_000 }
       );
       expect(promptAdmissionHarness.status, promptAdmissionHarness.stderr || promptAdmissionHarness.stdout).toBe(0);
       expect(JSON.parse(promptAdmissionHarness.stdout)).toMatchObject({
-        admission_after_native_running_state: true,
+        exact_wheel_classes_loaded: true,
+        exact_wheel_prompt_executed: true,
+        exact_wheel_run_conversation_executed: true,
+        fail_closed_patch_required: true,
         provider_blocked_until_peer_finalize: true,
         rejected_admission_blocks_provider: true,
-        rejected_commit_blocks_provider: true,
-        rejected_finalize_blocks_provider: true,
-        invalid_metadata_fails_closed: true,
-        ordinary_text_path_preserved: true,
-        verified_attachment_uses_transient_quarantine: true,
+        verified_attachment_record_typed: true,
+        unverified_attachment_restart_quarantined: true,
+        real_wheel_idle_correction_quarantined: true,
+        real_wheel_idle_steer_quarantined: true,
+        real_wheel_busy_redirect_quarantined: true,
+        real_wheel_queued_correction_quarantined: true,
+        real_wheel_post_cancel_correction_quarantined: true,
+        busy_redirect_persistence_failure_blocked: true,
       });
       const attachmentHistoryHarness = spawnSync(
         'python3',

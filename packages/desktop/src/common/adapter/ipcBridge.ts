@@ -252,10 +252,21 @@ export const assistants = {
 // Conversation — REST + WS
 // ---------------------------------------------------------------------------
 
-const directConversationWarmup = httpPost<void, { conversation_id: string }>(
+const CONVERSATION_WARMUP_HTTP_TIMEOUT_MS = 45_000;
+const GROUNDED_SEND_HTTP_TIMEOUT_MS = 75_000;
+
+const directConversationWarmupProvider = httpPost<void, { conversation_id: string }>(
   (p) => `/api/conversations/${p.conversation_id}/warmup`
 );
-const directConversationSend = httpPost<ISendMessageResult, ISendMessageParams>(
+const directConversationWarmup = {
+  provider: directConversationWarmupProvider.provider,
+  invoke: (params: { conversation_id: string }) =>
+    httpRequest<void>('POST', `/api/conversations/${params.conversation_id}/warmup`, params, {
+      timeoutMs: CONVERSATION_WARMUP_HTTP_TIMEOUT_MS,
+    }),
+};
+
+const directConversationSendProvider = httpPost<ISendMessageResult, ISendMessageParams>(
   (p) => `/api/conversations/${p.conversation_id}/messages`,
   (p) => ({
     content: p.input,
@@ -265,6 +276,22 @@ const directConversationSend = httpPost<ISendMessageResult, ISendMessageParams>(
     inject_skills: p.inject_skills,
   })
 );
+const directConversationSend = {
+  provider: directConversationSendProvider.provider,
+  invoke: (params: ISendMessageParams) =>
+    httpRequest<ISendMessageResult>(
+      'POST',
+      `/api/conversations/${params.conversation_id}/messages`,
+      {
+        content: params.input,
+        files: params.files,
+        attachment_grounding: params.attachment_grounding,
+        loading_id: params.loading_id,
+        inject_skills: params.inject_skills,
+      },
+      params.attachment_grounding ? { timeoutMs: GROUNDED_SEND_HTTP_TIMEOUT_MS } : undefined
+    ),
+};
 
 export const projectWorkspaceRuntime = {
   send: bridge.buildProvider<ISendMessageResult, ISendMessageParams>('project-workspace.runtime-send'),

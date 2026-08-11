@@ -103,14 +103,14 @@ async function runWarmupWithBackpressure(conversation_id: string): Promise<void>
   await ipcBridge.conversation.warmup.invoke({ conversation_id });
 }
 
-export function warmupConversation(conversation_id: string): Promise<void> {
+export function warmupConversation(conversation_id: string, options: { revalidate?: boolean } = {}): Promise<void> {
   const existing = warmupByConversation.get(conversation_id);
   if (existing) {
     return existing;
   }
 
   const previous = getWarmupConversationStatus(conversation_id);
-  if (previous.phase === 'ready') {
+  if (previous.phase === 'ready' && !options.revalidate) {
     return Promise.resolve();
   }
 

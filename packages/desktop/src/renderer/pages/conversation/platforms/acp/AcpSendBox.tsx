@@ -757,6 +757,14 @@ const AcpSendBox: React.FC<{
         });
         const displayMessage = buildDisplayMessage(agentInput, displayFiles ?? files, workspacePath || '');
 
+        // Grounded sends use Core's native warmup boundary to finish both the
+        // ACP handshake and Hermes session readiness before prompt admission.
+        // This keeps cold boot out of the ordinary 15s send request while a
+        // failed warmup still leaves the draft retryable and unsent.
+        if (attachmentGrounding) {
+          await warmupConversation(conversation_id, { revalidate: true });
+        }
+
         runtimeView.markSendStarted();
         // 1.7.3 (Codex #2): mark generation at SEND time so the seat-switch guard
         // covers the window between submit and the first `start` stream event, during

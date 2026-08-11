@@ -31,6 +31,7 @@ describe('project runtime renderer fallback', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     delete (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
     Reflect.deleteProperty(globalThis, 'window');
     Reflect.deleteProperty(globalThis, 'document');
@@ -75,6 +76,38 @@ describe('project runtime renderer fallback', () => {
     expect(url).toBe(`http://127.0.0.1:${backendPort}/api/conversations/conversation-1/warmup`);
     expect(init?.method).toBe('POST');
     expect(String(init?.body)).toBe('{"conversation_id":"conversation-1"}');
+  });
+
+  it('keeps readiness and grounded admission outside the ordinary 15s request budget', async () => {
+    vi.useFakeTimers();
+    const pending: Array<{ resolve: (response: Response) => void; signal: AbortSignal }> = [];
+    vi.mocked(fetch).mockImplementation((_url, init) => {
+      return new Promise<Response>((resolve) => {
+        pending.push({ resolve, signal: init?.signal as AbortSignal });
+      });
+    });
+
+    const warmup = conversation.warmup.invoke({ conversation_id: 'conversation-ready' });
+    expect(pending).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(pending[0].signal.aborted).toBe(false);
+    pending[0].resolve(new Response(null, { status: 204 }));
+    await expect(warmup).resolves.toBeUndefined();
+
+    const grounded = conversation.sendMessage.invoke({
+      conversation_id: 'conversation-grounded',
+      input: 'read the attachment',
+      files: ['/tmp/report.pdf', '/tmp/report.md'],
+      attachment_grounding: {
+        version: 'command-eve-attachment-grounding/v1',
+        entries: [],
+      },
+    });
+    expect(pending).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(pending[1].signal.aborted).toBe(false);
+    pending[1].resolve(jsonResponse({ msg_id: 'message-grounded', turn_id: 'turn-grounded', runtime: {} }));
+    await expect(grounded).resolves.toMatchObject({ turn_id: 'turn-grounded' });
   });
 
   it('falls back to Main only for the exact typed binding-required response', async () => {

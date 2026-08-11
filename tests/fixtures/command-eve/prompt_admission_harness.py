@@ -1,20 +1,53 @@
 #!/usr/bin/env python3
-"""Provider-free behavioral proof for the Hermes ACP prompt-admission seam."""
+"""Provider-free proof against the exact bundled Hermes 0.20 wheel classes."""
 
 from __future__ import annotations
 
 import ast
 import asyncio
 import json
+import os
+import re
+import subprocess
 import sys
+import threading
 import time
 import types
+import zipfile
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 
 PROVIDER_PATH = Path(sys.argv[1]).resolve()
+WHEEL_PATH = Path(sys.argv[2]).resolve()
 SOURCE = PROVIDER_PATH.read_text(encoding="utf-8")
+
+
+def run_with_command_eve_python() -> None:
+    if os.environ.get("COMMAND_EVE_REAL_WHEEL_CHILD") == "1":
+        return
+    configured = os.environ.get("COMMAND_EVE_HERMES_TEST_PYTHON", "").strip()
+    installed = (
+        Path.home()
+        / "Library/Application Support/Command EVE/command-eve/command-eve-runtime/hermes/venv/bin/python3"
+    )
+    python = Path(configured) if configured else installed if installed.is_file() else Path(sys.executable)
+    env = dict(os.environ)
+    env["COMMAND_EVE_REAL_WHEEL_CHILD"] = "1"
+    result = subprocess.run(
+        [str(python), str(Path(__file__).resolve()), str(PROVIDER_PATH), str(WHEEL_PATH)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    sys.stdout.write(result.stdout)
+    sys.stderr.write(result.stderr)
+    raise SystemExit(result.returncode)
+
+
+run_with_command_eve_python()
 
 
 def load_selected_symbols() -> dict[str, object]:
@@ -23,9 +56,16 @@ def load_selected_symbols() -> dict[str, object]:
         "_command_eve_mark_patch",
         "_command_eve_claim_quarantine_meta_key",
         "_command_eve_bind_claim_quarantine_db",
+        "_command_eve_claim_quarantine_record_active",
         "_command_eve_persist_claim_quarantine",
+        "_command_eve_persist_attachment_quarantine",
+        "_command_eve_verify_attachment_quarantine",
         "_command_eve_set_turn_memory_quarantine",
+        "_command_eve_turn_memory_quarantined",
+        "_command_eve_prompt_text",
+        "_command_eve_prompt_is_correction",
         "_install_command_eve_prompt_admission_patch",
+        "_require_command_eve_prompt_admission_patch",
     }
     wanted_globals = {
         "_COMMAND_EVE_INSTALLED_PATCHES",
@@ -46,109 +86,22 @@ def load_selected_symbols() -> dict[str, object]:
             if any(name in wanted_globals for name in names):
                 body.append(node)
     module = ast.fix_missing_locations(ast.Module(body=body, type_ignores=[]))
-    namespace: dict[str, object] = {"Any": Any, "asyncio": asyncio, "json": json, "time": time}
+    namespace: dict[str, object] = {
+        "Any": Any,
+        "asyncio": asyncio,
+        "json": json,
+        "re": re,
+        "time": time,
+    }
     exec(compile(module, str(PROVIDER_PATH), "exec"), namespace)
     return namespace
 
 
-class FakeSessionDB:
-    def __init__(self) -> None:
-        self.meta: dict[str, str] = {}
-
-    def get_meta(self, key: str) -> str | None:
-        return self.meta.get(key)
-
-    def set_meta(self, key: str, value: str) -> None:
-        self.meta[key] = value
+def closure_contains(function: Any, expected: Any) -> bool:
+    return any(cell.cell_contents is expected for cell in (getattr(function, "__closure__", None) or ()))
 
 
-provider_calls: list[str] = []
-admission_observations: list[dict[str, Any]] = []
-
-
-class AIAgent:
-    def __init__(self, session_id: str, db: FakeSessionDB) -> None:
-        self.session_id = session_id
-        self._session_db = db
-
-    def run_conversation(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        del args
-        provider_calls.append(str(kwargs.get("task_id") or ""))
-        return {"final_response": "stubbed", "messages": []}
-
-
-class FakeState:
-    def __init__(self, agent: AIAgent) -> None:
-        self.agent = agent
-        self.is_running = False
-
-
-class FakeSessionManager:
-    def __init__(self, state: FakeState, db: FakeSessionDB) -> None:
-        self.state = state
-        self.db = db
-
-    def get_session(self, _session_id: str) -> FakeState:
-        return self.state
-
-    def _get_db(self) -> FakeSessionDB:
-        return self.db
-
-
-class FakeConnection:
-    def __init__(self, state: FakeState) -> None:
-        self.state = state
-        self.reject_phase: str | None = None
-
-    async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, str]:
-        admission_observations.append(
-            {
-                "method": method,
-                "is_running": self.state.is_running,
-                "provider_calls_before_ack": len(provider_calls),
-                "params": dict(params),
-            }
-        )
-        return {
-            "version": "command-eve-prompt-admission/v1",
-            "request_id": str(params["request_id"]),
-            "status": "rejected" if params.get("phase") == self.reject_phase else "accepted",
-        }
-
-
-class HermesACPAgent:
-    def __init__(self, state: FakeState, db: FakeSessionDB) -> None:
-        self.session_manager = FakeSessionManager(state, db)
-        self._conn = FakeConnection(state)
-
-    async def prompt(self, prompt: list[Any], session_id: str, **_kwargs: Any) -> dict[str, Any]:
-        self.session_manager.state.is_running = True
-        try:
-            return await asyncio.to_thread(
-                self.session_manager.state.agent.run_conversation,
-                user_message=prompt,
-                task_id=session_id,
-            )
-        finally:
-            self.session_manager.state.is_running = False
-
-
-acp_adapter = types.ModuleType("acp_adapter")
-acp_server = types.ModuleType("acp_adapter.server")
-acp_server.HermesACPAgent = HermesACPAgent
-acp_adapter.server = acp_server
-sys.modules["acp_adapter"] = acp_adapter
-sys.modules["acp_adapter.server"] = acp_server
-run_agent = types.ModuleType("run_agent")
-run_agent.AIAgent = AIAgent
-sys.modules["run_agent"] = run_agent
-
-namespace = load_selected_symbols()
-namespace["_install_command_eve_prompt_admission_patch"]()
-namespace["_install_command_eve_prompt_admission_patch"]()
-
-
-def admission(request_id: str, turn_id: str, digest: str = "a" * 64) -> dict[str, str]:
+def admission(request_id: str, turn_id: str, digest: str) -> dict[str, str]:
     return {
         "version": "command-eve-prompt-admission/v1",
         "request_id": request_id,
@@ -157,96 +110,313 @@ def admission(request_id: str, turn_id: str, digest: str = "a" * 64) -> dict[str
     }
 
 
-async def main() -> None:
-    db = FakeSessionDB()
-    inner_agent = AIAgent("session-1", db)
-    state = FakeState(inner_agent)
-    acp_agent = HermesACPAgent(state, db)
+with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, TemporaryDirectory(
+    prefix="command-eve-admission-db-"
+) as state_root:
+    with zipfile.ZipFile(WHEEL_PATH) as wheel:
+        wheel.extractall(wheel_root)
+    sys.path.insert(0, wheel_root)
 
-    await acp_agent.prompt(
-        ["verified sidecar text"],
-        "session-1",
-        commandEvePromptAdmission=admission("request-1", "turn-1"),
-    )
-    assert len(provider_calls) == 1
-    assert [item["params"]["phase"] for item in admission_observations[-3:]] == ["accept", "commit", "finalize"]
-    assert all(item["method"] == "command_eve/prompt_admission" for item in admission_observations[-3:])
-    assert all(item["is_running"] is True for item in admission_observations[-3:])
-    assert all(item["provider_calls_before_ack"] == 0 for item in admission_observations[-3:])
-    assert all(item["params"]["session_id"] == "session-1" for item in admission_observations[-3:])
-    assert not db.meta, "verified attachments use a transient gate, not durable false-claim quarantine"
+    from acp.schema import TextContentBlock  # type: ignore[import-not-found]  # noqa: E402
+    from acp_adapter.server import HermesACPAgent  # type: ignore[import-not-found]  # noqa: E402
+    from hermes_state import SessionDB  # type: ignore[import-not-found]  # noqa: E402
+    from run_agent import AIAgent  # type: ignore[import-not-found]  # noqa: E402
+    from agent import conversation_loop  # type: ignore[import-not-found]  # noqa: E402
 
-    acp_agent._conn.reject_phase = "accept"
-    try:
+    assert Path(sys.modules["acp_adapter.server"].__file__).is_relative_to(Path(wheel_root))
+    assert Path(sys.modules["run_agent"].__file__).is_relative_to(Path(wheel_root))
+    original_prompt = HermesACPAgent.prompt
+    original_prompt_impl = HermesACPAgent._prompt_impl
+    original_run = AIAgent.run_conversation
+    original_loop = conversation_loop.run_conversation
+
+    namespace = load_selected_symbols()
+    namespace["_install_command_eve_prompt_admission_patch"]()
+    namespace["_install_command_eve_prompt_admission_patch"]()
+    namespace["_require_command_eve_prompt_admission_patch"]()
+    assert closure_contains(HermesACPAgent.prompt, original_prompt)
+    assert closure_contains(AIAgent.run_conversation, original_run)
+
+    provider_calls: list[str] = []
+
+    def provider_stub(_agent: Any, _user_message: Any, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        provider_calls.append("provider")
+        return {"final_response": "stubbed", "messages": []}
+
+    conversation_loop.run_conversation = provider_stub
+
+    class AgentProxy:
+        def __init__(self) -> None:
+            self.redirect_calls: list[str] = []
+            self.model_inputs: list[Any] = []
+
+        def redirect(self, text: str) -> bool:
+            self.redirect_calls.append(text)
+            return True
+
+        def run_conversation(self, *, user_message: Any, **_kwargs: Any) -> dict[str, Any]:
+            self.model_inputs.append(user_message)
+            return {"final_response": "", "messages": []}
+
+    db_path = Path(state_root) / "state.db"
+    db = SessionDB(db_path)
+    agent = AgentProxy()
+    agent.session_id = "session-1"
+    agent.platform = "acp"
+    agent.model = "stubbed-local"
+    agent._parent_session_id = None
+    agent._session_db = db
+    agent._conversation_root_id = lambda: "session-1"
+    agent._reset_activity_labels_after_turn = lambda: None
+    agent._command_eve_current_turn_has_attachment = False
+    agent._command_eve_current_turn_has_correction = False
+    agent._supports_active_turn_redirect = True
+
+    class State:
+        def __init__(self) -> None:
+            self.session_id = "session-1"
+            self.agent = agent
+            self.cwd = "."
+            self.history: list[dict[str, Any]] = []
+            self.cancel_event = threading.Event()
+            self.is_running = False
+            self.queued_prompts: list[str] = []
+            self.current_prompt_text = ""
+            self.interrupted_prompt_text = ""
+            self.pending_correction_text = ""
+            self.cancel_epoch = 0
+            self.pending_correction_cancel_epoch = 0
+            self.runtime_lock = threading.RLock()
+
+    state = State()
+
+    class Manager:
+        current_db: Any = db
+
+        def get_session(self, session_id: str) -> State | None:
+            return state if session_id == "session-1" else None
+
+        def _get_db(self) -> Any:
+            return self.current_db
+
+        def save_session(self, _session_id: str) -> None:
+            return None
+
+    observations: list[dict[str, Any]] = []
+
+    class Connection:
+        reject_phase: str | None = None
+
+        async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, str]:
+            observations.append(
+                {
+                    "method": method,
+                    "phase": params["phase"],
+                    "provider_calls_before_ack": len(provider_calls),
+                    "session_id": params["session_id"],
+                }
+            )
+            return {
+                "version": "command-eve-prompt-admission/v1",
+                "request_id": params["request_id"],
+                "status": "rejected" if params["phase"] == self.reject_phase else "accepted",
+            }
+
+    connection = Connection()
+    acp_agent = object.__new__(HermesACPAgent)
+    acp_agent.session_manager = Manager()
+    acp_agent._conn = connection
+
+    async def no_usage(_state: Any) -> None:
+        return None
+
+    acp_agent._send_usage_update = no_usage
+    acp_agent._sync_terminal_approval_mode = lambda _state: None
+
+    async def prompt_impl(_self: Any, prompt: list[Any], session_id: str, **_kwargs: Any) -> Any:
+        state.is_running = True
+        try:
+            result = await asyncio.to_thread(
+                AIAgent.run_conversation,
+                agent,
+                user_message=prompt,
+                task_id=session_id,
+            )
+            return types.SimpleNamespace(stop_reason="end_turn", result=result)
+        finally:
+            state.is_running = False
+
+    acp_agent._prompt_impl = types.MethodType(prompt_impl, acp_agent)
+
+    async def exercise() -> None:
+        verified = admission("request-ok", "turn-ok", "a" * 64)
         await acp_agent.prompt(
-            ["must not reach provider"],
+            [types.SimpleNamespace(text="verified sidecar")],
             "session-1",
-            commandEvePromptAdmission=admission("request-2", "turn-2", "b" * 64),
+            commandEvePromptAdmission=verified,
         )
-    except RuntimeError as exc:
-        assert "admission accept rejected" in str(exc)
-    else:
-        raise AssertionError("rejected admission reached the provider")
-    assert len(provider_calls) == 1
+        assert provider_calls == ["provider"]
+        assert [item["phase"] for item in observations[-3:]] == ["accept", "commit", "finalize"]
+        assert all(item["method"] == "command_eve/prompt_admission" for item in observations[-3:])
+        assert all(item["provider_calls_before_ack"] == 0 for item in observations[-3:])
+        assert all(item["session_id"] == "session-1" for item in observations[-3:])
+        key = namespace["_command_eve_claim_quarantine_meta_key"]("session-1")
+        verified_record = json.loads(db.get_meta(key))
+        assert verified_record["status"] == "verified"
+        assert namespace["_command_eve_turn_memory_quarantined"]("session-1") is False
 
-    acp_agent._conn.reject_phase = "commit"
-    try:
+        connection.reject_phase = "accept"
+        try:
+            await acp_agent.prompt(
+                [types.SimpleNamespace(text="must remain unverified")],
+                "session-1",
+                commandEvePromptAdmission=admission("request-reject", "turn-reject", "b" * 64),
+            )
+        except RuntimeError as error:
+            assert "admission accept rejected" in str(error)
+        else:
+            raise AssertionError("rejected admission reached the provider")
+        assert provider_calls == ["provider"]
+        active_record = json.loads(db.get_meta(key))
+        assert active_record["status"] == "active"
+        assert active_record["reason"] == "attachment_grounding_pending"
+
+        # Now execute the public correction paths through the wheel's real
+        # _prompt_impl. These branches are exactly where Hermes 0.20 rewrites
+        # idle /steer, refuses idle /correct, redirects or queues busy text,
+        # and salvages post-cancel plain text.
+        acp_agent._prompt_impl = types.MethodType(original_prompt_impl, acp_agent)
+        acp_agent._conn = None
+        state.is_running = False
+        state.interrupted_prompt_text = ""
+        state.queued_prompts.clear()
+        before_models = len(agent.model_inputs)
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct stale correction")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        assert len(agent.model_inputs) == before_models
+        correction_record = json.loads(db.get_meta(key))
+        assert correction_record["status"] == "active"
+        assert correction_record["reason"] == "user_correction"
+
+        state.is_running = False
+        state.interrupted_prompt_text = ""
         await acp_agent.prompt(
-            ["accepted but not committed"],
+            [TextContentBlock(type="text", text="/steer idle guidance")],
             "session-1",
-            commandEvePromptAdmission=admission("request-commit", "turn-commit", "c" * 64),
         )
-    except RuntimeError as exc:
-        assert "commit rejected" in str(exc)
-    else:
-        raise AssertionError("uncommitted admission reached the provider")
-    assert len(provider_calls) == 1
-    acp_agent._conn.reject_phase = None
+        assert agent.model_inputs[-1] == "idle guidance"
 
-    acp_agent._conn.reject_phase = "finalize"
-    try:
+        state.is_running = True
+        state.queued_prompts.clear()
+        redirect_count = len(agent.redirect_calls)
+        model_count = len(agent.model_inputs)
         await acp_agent.prompt(
-            ["peer acknowledged but not finalized"],
+            [TextContentBlock(type="text", text="busy correction")],
             "session-1",
-            commandEvePromptAdmission=admission("request-finalize", "turn-finalize", "d" * 64),
         )
-    except RuntimeError as exc:
-        assert "finalize rejected" in str(exc)
-    else:
-        raise AssertionError("unfinalized admission reached the provider")
-    assert len(provider_calls) == 1
-    acp_agent._conn.reject_phase = None
+        assert agent.redirect_calls[redirect_count:] == ["busy correction"]
+        assert len(agent.model_inputs) == model_count
+
+        def broken_redirect(text: str) -> bool:
+            agent.redirect_calls.append(text)
+            raise RuntimeError("redirect unavailable")
+
+        agent.redirect = broken_redirect
+        state.is_running = True
+        state.queued_prompts.clear()
+        await acp_agent.prompt(
+            [TextContentBlock(type="text", text="queued correction")],
+            "session-1",
+        )
+        assert state.queued_prompts == ["queued correction"]
+
+        class BrokenDB:
+            def get_meta(self, meta_key: str) -> Any:
+                return db.get_meta(meta_key)
+
+            def set_meta(self, _meta_key: str, _value: str) -> None:
+                raise RuntimeError("disk unavailable")
+
+        manager = acp_agent.session_manager
+        manager.current_db = BrokenDB()
+        redirect_count = len(agent.redirect_calls)
+        state.is_running = True
+        try:
+            await acp_agent.prompt(
+                [TextContentBlock(type="text", text="must not be swallowed")],
+                "session-1",
+            )
+        except RuntimeError as error:
+            assert "quarantine persistence unavailable" in str(error)
+        else:
+            raise AssertionError("busy correction swallowed quarantine persistence failure")
+        assert len(agent.redirect_calls) == redirect_count
+        manager.current_db = db
+        namespace["_command_eve_bind_claim_quarantine_db"](agent, "session-1", db)
+
+        agent.redirect = types.MethodType(AgentProxy.redirect, agent)
+        state.is_running = False
+        state.queued_prompts.clear()
+        state.interrupted_prompt_text = "cancelled original"
+        await acp_agent.prompt(
+            [TextContentBlock(type="text", text="plain correction after cancel")],
+            "session-1",
+        )
+        assert agent.model_inputs[-1] == (
+            "cancelled original\n\n"
+            "User correction/guidance after interrupt: plain correction after cancel"
+        )
+
+        # The bootstrap must fail closed if the actual wheel seam loses either
+        # marker after installation; a diagnostic-only success is insufficient.
+        patched_run = AIAgent.run_conversation
+        AIAgent.run_conversation = original_run
+        try:
+            namespace["_require_command_eve_prompt_admission_patch"]()
+        except RuntimeError as error:
+            assert "patch unavailable" in str(error)
+        else:
+            raise AssertionError("missing real-wheel run patch was accepted")
+        finally:
+            AIAgent.run_conversation = patched_run
+        namespace["_require_command_eve_prompt_admission_patch"]()
 
     try:
-        await acp_agent.prompt(
-            ["invalid receipt"],
-            "session-1",
-            commandEvePromptAdmission=admission("request-3", "turn-3", "INVALID"),
-        )
-    except ValueError as exc:
-        assert "digest rejected" in str(exc)
-    else:
-        raise AssertionError("invalid admission metadata was accepted")
-    assert len(provider_calls) == 1
+        asyncio.run(exercise())
+    finally:
+        conversation_loop.run_conversation = original_loop
 
-    await acp_agent.prompt(["ordinary text"], "session-1")
-    assert len(provider_calls) == 2
+    db.close()
+    namespace["_COMMAND_EVE_MEMORY_QUARANTINE_BY_SESSION"].clear()
+    namespace["_COMMAND_EVE_QUARANTINE_DB_BY_SESSION"].clear()
+    restarted_db = SessionDB(db_path)
+    restarted_agent = AgentProxy()
+    restarted_agent._session_db = restarted_db
+    namespace["_command_eve_bind_claim_quarantine_db"](restarted_agent, "session-1", restarted_db)
+    assert namespace["_command_eve_turn_memory_quarantined"]("session-1") is True
+    restarted_db.close()
 
     print(
         json.dumps(
             {
-                "admission_after_native_running_state": True,
+                "exact_wheel_classes_loaded": True,
+                "exact_wheel_prompt_executed": True,
+                "exact_wheel_run_conversation_executed": True,
+                "fail_closed_patch_required": True,
                 "provider_blocked_until_peer_finalize": True,
                 "rejected_admission_blocks_provider": True,
-                "rejected_commit_blocks_provider": True,
-                "rejected_finalize_blocks_provider": True,
-                "invalid_metadata_fails_closed": True,
-                "ordinary_text_path_preserved": True,
-                "verified_attachment_uses_transient_quarantine": True,
+                "verified_attachment_record_typed": True,
+                "unverified_attachment_restart_quarantined": True,
+                "real_wheel_idle_correction_quarantined": True,
+                "real_wheel_idle_steer_quarantined": True,
+                "real_wheel_busy_redirect_quarantined": True,
+                "real_wheel_queued_correction_quarantined": True,
+                "real_wheel_post_cancel_correction_quarantined": True,
+                "busy_redirect_persistence_failure_blocked": True,
                 "ledger": sorted(namespace["_COMMAND_EVE_INSTALLED_PATCHES"]),
             }
         )
     )
-
-
-asyncio.run(main())
