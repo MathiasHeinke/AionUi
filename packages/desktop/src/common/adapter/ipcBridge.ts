@@ -21,6 +21,7 @@ import type {
 import type {
   EveExternalActionExecutionResult,
   EveExternalActionProposal,
+  EveExternalActionResumeRequest,
 } from '@/common/config/eveExternalActionExecutionCore';
 import type { AcpSlashCommandApiItem } from '@/common/chat/slash/types';
 import { bridge } from '@office-ai/platform';
@@ -1903,6 +1904,8 @@ export interface ICommandEveExternalActionPolicyResult {
 
 export type ICommandEveExternalActionExecuteRequest = EveExternalActionProposal;
 export type ICommandEveExternalActionExecuteResult = EveExternalActionExecutionResult;
+export type ICommandEveExternalActionResumeRequest = EveExternalActionResumeRequest;
+export type ICommandEveExternalActionResumeResult = EveExternalActionExecutionResult;
 
 // v1.5 A3: per-seat usage attribution — one seat's aggregated usage for a month.
 // Opaque seat ids ONLY (never names — H3); the LABEL join happens in the renderer.
@@ -2453,6 +2456,10 @@ export const commandEve = {
     IBridgeResponse<ICommandEveExternalActionExecuteResult>,
     ICommandEveExternalActionExecuteRequest
   >('command-eve.external-action-execute'),
+  externalActionResume: bridge.buildProvider<
+    IBridgeResponse<ICommandEveExternalActionResumeResult>,
+    ICommandEveExternalActionResumeRequest
+  >('command-eve.external-action-resume'),
   // A5 + B3: list the account's seats (admin SeatSwitcher) / classify role
   // (fail-closed SeatGuard). Read-only; fail-closes to one legacy seat.
   mySeats: bridge.buildProvider<IBridgeResponse<ICommandEveMySeatsResult>, void>('command-eve.my-seats'),

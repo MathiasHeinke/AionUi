@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { EveExternalActionBinding } from '@/common/config/eveExternalActionPolicyCore';
 import {
   ExternalActionStore,
+  type ExternalActionExecutionContractExpectation,
   type ExternalActionReserveInput,
 } from '@/process/services/external-action/externalActionStore';
 import { NodeSqliteDriver } from './testSqliteDriver';
@@ -70,16 +72,28 @@ function reserveInput(
   const scoped = overrides.binding ?? binding(store);
   const policy = store.getPolicy(scoped);
   if (!policy) throw new Error('test policy missing');
+  const targetOrigin = overrides.targetOrigin ?? 'https://shop.example';
   return {
     binding: scoped,
+    conversationId: 'conversation-a',
+    conversationSessionId: 'conversation-session-a',
+    adapterId: 'synthetic-shop-adapter',
+    authMode: 'none',
+    adapterDomain: 'generic',
+    adapterAction: 'purchase',
+    counterpartyId: 'synthetic-shop-adapter',
+    providerOrMerchantLabelCode: 'fixture_merchant',
+    adapterOrigins: [targetOrigin],
+    slotManifest: [],
     policyRevision: policy.revision,
     sessionEpoch: policy.sessionEpoch,
     authorityDecision: 'allow',
     authorityGrantId: 'grant-a',
+    authorityReceiptDigest: digest('9'),
     classificationDigest: digest('a'),
     riskClass: 'ordinary',
     actionKind: 'purchase',
-    targetOrigin: 'https://shop.example',
+    targetOrigin,
     intentId: 'intent-a',
     requestId: 'request-a',
     operationDigest: digest('b'),
@@ -89,6 +103,49 @@ function reserveInput(
     amountMinor: 700,
     currency: 'EUR',
     expiresAt: RESERVATION_EXPIRY,
+    ...overrides,
+  };
+}
+
+function executionContract(
+  store: ExternalActionStore,
+  overrides: Partial<ExternalActionExecutionContractExpectation> = {}
+): ExternalActionExecutionContractExpectation {
+  const scoped = overrides.installationId
+    ? { installationId: overrides.installationId, accountId: 'account-a', seedId: 'seed-a' }
+    : binding(store);
+  return {
+    installationId: scoped.installationId,
+    accountId: scoped.accountId,
+    seedId: scoped.seedId,
+    conversationId: 'conversation-a',
+    conversationSessionId: 'conversation-session-a',
+    adapterId: 'synthetic-shop-adapter',
+    authMode: 'none',
+    domain: 'generic',
+    domainAction: 'purchase',
+    counterpartyId: 'synthetic-shop-adapter',
+    providerOrMerchantLabelCode: 'fixture_merchant',
+    providerOrigin: 'https://shop.example',
+    slotManifest: [],
+    intentId: 'intent-a',
+    requestId: 'request-a',
+    operationDigest: digest('b'),
+    idempotencyKeyDigest: digest('c'),
+    executionContractDigest: digest('d'),
+    authorityGrantId: 'grant-a',
+    authorityReceiptDigest: digest('9'),
+    classificationDigest: digest('a'),
+    policyRevision: 1,
+    sessionEpoch: 1,
+    quoteDigest: digest('e'),
+    claimDigest: digest('f'),
+    actionKind: 'purchase',
+    targetOrigin: 'https://shop.example',
+    amountMinor: 700,
+    currency: 'EUR',
+    reservationId: 'reservation:test',
+    claimId: 'claim-a',
     ...overrides,
   };
 }
@@ -123,18 +180,29 @@ describe('ExternalActionStore persistent at-most-once ledger', () => {
       sessionEpoch: 1,
     });
     expect(claimed).toMatchObject({ ok: true, execute: true, state: 'claimed' });
-    expect(
-      first.markAllowed({
-        binding: scoped,
-        reservationId: reserved.reservationId!,
-        claimId: 'claim-a',
-        outcomeDigest: digest('1'),
-      })
-    ).toMatchObject({ ok: true, state: 'allowed' });
+    const allowed = first.markAllowed({
+      binding: scoped,
+      reservationId: reserved.reservationId!,
+      claimId: 'claim-a',
+      authMode: 'none',
+      outcomeDigest: digest('1'),
+    });
+    expect(allowed).toMatchObject({
+      ok: true,
+      state: 'allowed',
+      receipt: {
+        outcome: 'committed',
+        domain: 'generic',
+        action: 'purchase',
+        providerOrMerchantId: 'synthetic-shop-adapter',
+        retryAllowed: false,
+      },
+    });
 
     closeStore(first);
     const reopened = openStore(file);
     expect(reopened.getReservation(scoped, reserved.reservationId!)?.state).toBe('allowed');
+    expect(reopened.getReceipt(scoped, reserved.reservationId!)).toEqual(allowed.receipt);
     expect(reopened.readAuditEvents(scoped).map((event) => event.event_type)).toEqual(
       expect.arrayContaining(['ledger.reserved', 'ledger.claimed', 'ledger.allowed'])
     );
@@ -188,6 +256,10 @@ describe('ExternalActionStore persistent at-most-once ledger', () => {
 
     const reopened = openStore(file);
     expect(reopened.getReservation(scoped, reserved.reservationId!)?.state).toBe('unknown');
+    expect(reopened.getReceipt(scoped, reserved.reservationId!)).toMatchObject({
+      outcome: 'unknown_outcome',
+      retryAllowed: false,
+    });
     expect(reopened.claim(claim)).toMatchObject({ ok: true, execute: false, replay: true, state: 'unknown' });
   });
 
@@ -208,13 +280,137 @@ describe('ExternalActionStore persistent at-most-once ledger', () => {
       )
       .run(scoped.installationId, scoped.accountId, scoped.seedId);
     raw
-      .prepare('UPDATE external_action_reservations SET secret_use_consumed = 2 WHERE reservation_id = ?')
+      .prepare("UPDATE external_action_reservations SET auth_mode = 'corrupt' WHERE reservation_id = ?")
       .run(reserved.reservationId!);
     raw.close();
 
     const reopened = openStore(file);
     expect(reopened.getPolicy(scoped)).toBeNull();
     expect(reopened.getReservation(scoped, reserved.reservationId!)).toBeNull();
+  });
+
+  it('binds every persisted execution-contract field at the final Main fence', () => {
+    const file = databaseFile();
+    const store = openStore(file);
+    const scoped = binding(store);
+    configure(store);
+    const reserved = store.reserve(reserveInput(store));
+    expect(
+      store.claim({
+        binding: scoped,
+        reservationId: reserved.reservationId!,
+        claimId: 'claim-a',
+        claimDigest: digest('f'),
+        policyRevision: 1,
+        sessionEpoch: 1,
+      }).execute
+    ).toBe(true);
+    const expected = executionContract(store, { reservationId: reserved.reservationId!, claimId: 'claim-a' });
+    expect(store.recheckClaimForExecution(scoped, reserved.reservationId!, 'claim-a', expected)).toEqual({ ok: true });
+
+    const raw = new NodeSqliteDriver(file);
+    raw
+      .prepare(
+        `UPDATE external_action_reservations
+         SET execution_contract_digest = ?, quote_digest = ?, authority_grant_id = ?,
+             classification_digest = ?, claim_digest = ?
+         WHERE reservation_id = ?`
+      )
+      .run(digest('9'), digest('8'), 'grant-mutated', digest('7'), digest('6'), reserved.reservationId!);
+    raw.close();
+
+    expect(store.recheckClaimForExecution(scoped, reserved.reservationId!, 'claim-a', expected)).toMatchObject({
+      ok: false,
+      reasonCode: 'EXTERNAL_EXECUTION_CONTRACT_STALE',
+    });
+  });
+
+  it('persists a hashed one-use challenge and crash-fences resuming as unknown', () => {
+    const file = databaseFile();
+    const first = openStore(file);
+    const scoped = binding(first);
+    configure(first);
+    const reserved = first.reserve(reserveInput(first));
+    first.claim({
+      binding: scoped,
+      reservationId: reserved.reservationId!,
+      claimId: 'claim-a',
+      claimDigest: digest('f'),
+      policyRevision: 1,
+      sessionEpoch: 1,
+    });
+    const suspended = first.suspendForUser({
+      binding: scoped,
+      reservationId: reserved.reservationId!,
+      claimId: 'claim-a',
+      executionContract: executionContract(first, {
+        reservationId: reserved.reservationId!,
+        claimId: 'claim-a',
+      }),
+      challenge: {
+        kind: '3ds',
+        challengeRef: 'challenge-3ds-a',
+        origin: 'https://shop.example',
+        expiresAt: '2026-08-11T12:30:00.000Z',
+        userInstructionCode: 'EXTERNAL_3DS_REQUIRED',
+      },
+      proposal: {
+        version: 'command-eve-external-action-proposal/v1',
+        clientRequestId: 'client-request-a',
+        idempotencyKey: 'idempotency-a',
+        action: {
+          kind: 'purchase',
+          targetOrigin: 'https://shop.example',
+          argumentsDigest: digest('1'),
+          quoteDigest: digest('e'),
+          amount: { currency: 'EUR', minorUnits: 700 },
+        },
+      },
+      adapterId: 'synthetic-shop-adapter',
+      authMode: 'none',
+      continuation: 'adapter_resume',
+      continuationRef: 'continuation-store-test',
+      resumeRef: 'resume-ref-store-test',
+    });
+    if (!suspended.ok) throw new Error(suspended.reasonCode);
+    expect(first.getReservation(scoped, reserved.reservationId!)?.state).toBe('suspended');
+    expect(first.getBudgetUsedToday(scoped, 'EUR')).toBe(700);
+    const rawToken = suspended.record.resumeToken;
+    const databaseBytes = [file, `${file}-wal`, `${file}-shm`]
+      .filter((candidate) => fs.existsSync(candidate))
+      .map((candidate) => fs.readFileSync(candidate));
+    expect(databaseBytes.some((bytes) => bytes.includes(Buffer.from(rawToken)))).toBe(false);
+
+    const resumed = first.resumeChallenge({
+      binding: scoped,
+      conversationId: 'conversation-a',
+      conversationSessionId: 'conversation-session-a',
+      resumeTokenDigest: `sha256:${crypto.createHash('sha256').update(rawToken).digest('hex')}`,
+      completionAttestationDigest: digest('2'),
+    });
+    expect(resumed).toMatchObject({ ok: true, record: { reservationId: reserved.reservationId, claimId: 'claim-a' } });
+    expect(first.getReservation(scoped, reserved.reservationId!)?.state).toBe('resuming');
+    expect(
+      first.resumeChallenge({
+        binding: scoped,
+        conversationId: 'conversation-a',
+        conversationSessionId: 'conversation-session-a',
+        resumeTokenDigest: `sha256:${crypto.createHash('sha256').update(rawToken).digest('hex')}`,
+        completionAttestationDigest: digest('2'),
+      })
+    ).toMatchObject({ ok: false, reasonCode: 'EXTERNAL_RESUME_NOT_ACTIVE' });
+    closeStore(first);
+    const reopened = openStore(file);
+    expect(reopened.getReservation(scoped, reserved.reservationId!)?.state).toBe('unknown');
+    expect(
+      reopened.reverse({
+        binding: scoped,
+        reservationId: reserved.reservationId!,
+        claimId: 'claim-a',
+        authMode: 'none',
+        outcomeDigest: digest('3'),
+      })
+    ).toMatchObject({ state: 'unknown', replay: true });
   });
 });
 
@@ -331,10 +527,57 @@ describe('ExternalActionStore isolation, authority and budget fences', () => {
         binding: scoped,
         reservationId: first.reservationId!,
         claimId: '',
+        authMode: 'none',
         outcomeDigest: digest('6'),
       })
     ).toMatchObject({ ok: true, state: 'reversed' });
     expect(store.reserve(secondInput)).toMatchObject({ ok: true, state: 'reserved' });
+  });
+
+  it('fails closed when persisted day/month keys are moved out of the active budget period', () => {
+    const file = databaseFile();
+    const store = openStore(file);
+    configure(store);
+    const first = store.reserve(reserveInput(store));
+    const raw = new NodeSqliteDriver(file);
+    raw
+      .prepare('UPDATE external_action_reservations SET day_id = ?, month_id = ? WHERE reservation_id = ?')
+      .run('2099-01-01', '2099-01', first.reservationId!);
+    raw.close();
+    expect(
+      store.reserve(
+        reserveInput(store, {
+          intentId: 'intent-period-b',
+          requestId: 'request-period-b',
+          operationDigest: digest('2'),
+          idempotencyKeyDigest: digest('3'),
+          executionContractDigest: digest('4'),
+          quoteDigest: digest('5'),
+          amountMinor: 100,
+        })
+      )
+    ).toMatchObject({ ok: false, reasonCode: 'EXTERNAL_BUDGET_LEDGER_INVALID' });
+  });
+
+  it('keeps the original budget timezone immutable across policy revisions', () => {
+    const store = openStore(databaseFile());
+    const scoped = binding(store);
+    const policy = configure(store);
+    expect(
+      store.replacePolicy(
+        scoped,
+        {
+          currency: policy.currency,
+          perActionLimitMinor: policy.perActionLimitMinor,
+          dailyLimitMinor: policy.dailyLimitMinor,
+          monthlyLimitMinor: policy.monthlyLimitMinor,
+          allowedOrigins: policy.allowedOrigins,
+          allowedActionKinds: policy.allowedActionKinds,
+          expiresAt: policy.expiresAt,
+        },
+        'UTC'
+      )
+    ).toMatchObject({ ok: false, reasonCode: 'EXTERNAL_POLICY_TIMEZONE_IMMUTABLE' });
   });
 
   it('policy edits bump revision/epoch and fence both reserved and claimed work', () => {
@@ -390,11 +633,11 @@ describe('ExternalActionStore isolation, authority and budget fences', () => {
     const a = store.reserve(reserveInput(store, { binding: seatA }));
     const b = store.reserve(reserveInput(store, { binding: seatB }));
     expect(store.setKillSwitch(seatA, true).ok).toBe(true);
-    expect(store.getReservation(seatA, a.reservationId!)?.state).toBe('reversed');
+    expect(store.getReservation(seatA, a.reservationId!)?.state).toBe('revoked');
     expect(store.getReservation(seatB, b.reservationId!)?.state).toBe('reserved');
     const revoked = store.revokePolicy(seatB);
     expect(revoked.ok && revoked.policy.revokedAt).toBeTruthy();
-    expect(store.getReservation(seatB, b.reservationId!)?.state).toBe('reversed');
+    expect(store.getReservation(seatB, b.reservationId!)?.state).toBe('revoked');
   });
 
   it('allows cross-account/seed secret access only through an exact explicit grant and revokes it immediately', () => {
@@ -454,5 +697,179 @@ describe('ExternalActionStore isolation, authority and budget fences', () => {
         })
       ).toMatchObject({ ok: false, reasonCode: 'EXTERNAL_SECRET_HANDLE_INVALID' });
     }
+  });
+
+  it('consumes an OTP handle globally once across independently claimed reservations and forbids sharing', () => {
+    const store = openStore(databaseFile());
+    const scoped = binding(store);
+    const other = binding(store, 'account-b', 'seed-b');
+    configure(store, scoped);
+    const otpRef = `keychain:v1:${Buffer.from('synthetic-otp-ciphertext').toString('base64')}`;
+    expect(
+      store.registerSecretHandle({
+        binding: scoped,
+        handleId: 'otp-handle-a',
+        type: 'otp_code',
+        source: 'eve_keychain',
+        sourceRef: otpRef,
+        actionKinds: ['purchase'],
+        targetOrigins: ['https://shop.example'],
+        expiresAt: POLICY_EXPIRY,
+      })
+    ).toEqual({ ok: true });
+    expect(
+      store.registerSecretShareGrant({
+        ownerBinding: scoped,
+        granteeBinding: other,
+        grantId: 'otp-share-blocked',
+        handleId: 'otp-handle-a',
+        actionKind: 'purchase',
+        targetOrigin: 'https://shop.example',
+        expiresAt: RESERVATION_EXPIRY,
+      })
+    ).toMatchObject({ ok: false, reasonCode: 'EXTERNAL_SECRET_GRANT_SCOPE_INVALID' });
+
+    const makeClaim = (suffix: string, characters: readonly [string, string, string, string, string]) => {
+      const reserve = reserveInput(store, {
+        authMode: 'otp',
+        slotManifest: [{ slot: 'otp_code', handleId: 'otp-handle-a', handleType: 'otp_code' }],
+        intentId: `intent-otp-${suffix}`,
+        requestId: `request-otp-${suffix}`,
+        operationDigest: digest(characters[0]),
+        idempotencyKeyDigest: digest(characters[1]),
+        executionContractDigest: digest(characters[2]),
+        quoteDigest: digest(characters[3]),
+        amountMinor: 100,
+      });
+      const reserved = store.reserve(reserve);
+      const claimId = `claim-otp-${suffix}`;
+      const claimDigest = digest(characters[4]);
+      expect(
+        store.claim({
+          binding: scoped,
+          reservationId: reserved.reservationId!,
+          claimId,
+          claimDigest,
+          policyRevision: 1,
+          sessionEpoch: 1,
+        }).execute
+      ).toBe(true);
+      const contract = executionContract(store, {
+        reservationId: reserved.reservationId!,
+        claimId,
+        intentId: reserve.intentId,
+        requestId: reserve.requestId,
+        operationDigest: reserve.operationDigest,
+        idempotencyKeyDigest: reserve.idempotencyKeyDigest,
+        executionContractDigest: reserve.executionContractDigest,
+        quoteDigest: reserve.quoteDigest,
+        claimDigest,
+        amountMinor: reserve.amountMinor,
+        authMode: 'otp',
+        slotManifest: [{ slot: 'otp_code', handleId: 'otp-handle-a', handleType: 'otp_code' }],
+      });
+      expect(
+        store.registerSecretSlotPermit({
+          binding: scoped,
+          reservationId: reserved.reservationId!,
+          claimId,
+          slot: 'otp_code',
+          handleId: 'otp-handle-a',
+          expectedHandleType: 'otp_code',
+          executionContract: contract,
+        })
+      ).toEqual({ ok: true });
+      return { reservationId: reserved.reservationId!, claimId, contract };
+    };
+
+    const first = makeClaim('a', ['1', '2', '3', '4', '5']);
+    const second = makeClaim('b', ['6', '7', '8', '9', 'a']);
+    expect(
+      store.consumeSecretUsePermit(scoped, first.reservationId, first.claimId, 'otp_code', first.contract)
+    ).toMatchObject({
+      ok: true,
+    });
+    expect(
+      store.consumeSecretUsePermit(scoped, second.reservationId, second.claimId, 'otp_code', second.contract)
+    ).toMatchObject({ ok: false, reasonCode: 'EXTERNAL_OTP_ALREADY_CONSUMED' });
+  });
+
+  it('rolls a terminal transition back when its sanitized receipt cannot be persisted exactly', () => {
+    const file = databaseFile();
+    const store = openStore(file);
+    const scoped = binding(store);
+    configure(store, scoped);
+    const reserved = store.reserve(reserveInput(store));
+    expect(
+      store.claim({
+        binding: scoped,
+        reservationId: reserved.reservationId!,
+        claimId: 'claim-receipt-conflict',
+        claimDigest: digest('f'),
+        policyRevision: 1,
+        sessionEpoch: 1,
+      }).execute
+    ).toBe(true);
+    const raw = new NodeSqliteDriver(file);
+    const conflictingResult = '{"action":"purchase","domain":"generic","resultRef":"result:conflict"}';
+    const conflictingResultDigest = `sha256:${crypto.createHash('sha256').update(conflictingResult).digest('hex')}`;
+    raw
+      .prepare(
+        `INSERT INTO external_action_receipts (
+           receipt_ref, reservation_id, operation_ref, outcome,
+           auth_mode, account_ref, seed_ref, authority_receipt_digest, policy_revision,
+           domain, action, provider_or_merchant_id, origins_json, amount_currency, amount_minor,
+           result_json, result_digest, reason_code, occurred_at, retry_allowed
+         ) VALUES (?, ?, ?, 'committed', 'none', ?, ?, ?, 1,
+                   'generic', 'purchase', ?, ?, 'EUR', 700, ?, ?, NULL, ?, 0)`
+      )
+      .run(
+        'receipt:conflict',
+        reserved.reservationId!,
+        'operation:conflict',
+        'account:conflict',
+        'seed:conflict',
+        digest('9'),
+        'synthetic-shop-adapter',
+        JSON.stringify(['https://shop.example']),
+        conflictingResult,
+        conflictingResultDigest,
+        NOW_ISO
+      );
+    raw.close();
+
+    expect(
+      store.markAllowed({
+        binding: scoped,
+        reservationId: reserved.reservationId!,
+        claimId: 'claim-receipt-conflict',
+        authMode: 'none',
+        outcomeDigest: digest('1'),
+      })
+    ).toMatchObject({ ok: false, reasonCode: 'EXTERNAL_OUTCOME_PERSIST_FAILED' });
+    expect(store.getReservation(scoped, reserved.reservationId!)?.state).toBe('claimed');
+    expect(store.getReceipt(scoped, reserved.reservationId!)).toBeNull();
+  });
+
+  it('fails closed instead of silently opening an incompatible pre-release ledger schema', () => {
+    const file = databaseFile();
+    const driver = new NodeSqliteDriver(file);
+    driver.exec(`
+      CREATE TABLE external_action_meta (
+        singleton INTEGER PRIMARY KEY,
+        schema_version TEXT NOT NULL,
+        installation_id TEXT NOT NULL UNIQUE
+      );
+      INSERT INTO external_action_meta (singleton, schema_version, installation_id)
+      VALUES (1, 'command-eve-external-action-ledger/v1', 'install:legacy-test');
+    `);
+    expect(
+      () =>
+        new ExternalActionStore(driver, {
+          now: () => new Date(NOW_ISO),
+          randomUUID: () => 'schema-test',
+        })
+    ).toThrow('EXTERNAL_ACTION_SCHEMA_MIGRATION_REQUIRED');
+    driver.close();
   });
 });

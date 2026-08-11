@@ -100,6 +100,12 @@ function validProviderPayload(providerKey: RendererProviderKey): string {
         },
         oauthHandleId: 'oauth-handle-a',
       });
+    case 'command-eve.external-action-resume':
+      return providerPayload(providerKey, {
+        version: 'command-eve-external-action-resume/v1',
+        resumeRef: 'resume-ref-a',
+        completionAttestationRef: 'completion-attestation-a',
+      });
     case 'command-eve.external-action-policy-set':
       return providerPayload(providerKey, {
         context_token: `policy-context:v1:${'a'.repeat(64)}`,
@@ -422,18 +428,29 @@ describe('main adapter IPC trust boundary', () => {
     await Promise.all(
       [
         'command-eve.external-action-execute',
+        'command-eve.external-action-resume',
         'command-eve.external-action-policy-set',
         'command-eve.external-action-policy-kill',
         'command-eve.external-action-policy-revoke',
       ].map((providerKey) => handler(event, validProviderPayload(providerKey as RendererProviderKey)))
     );
-    expect(state.emitter.emit).toHaveBeenCalledTimes(4);
+    expect(state.emitter.emit).toHaveBeenCalledTimes(5);
 
     const execution = JSON.parse(validProviderPayload('command-eve.external-action-execute')) as {
       data: { data: Record<string, unknown> };
     };
     execution.data.data.secret = 'synthetic-plaintext-secret';
     expect(() => handler(event, JSON.stringify(execution))).toThrow('external-action execution');
+    expect(() =>
+      handler(
+        event,
+        providerPayload('command-eve.external-action-resume', {
+          version: 'command-eve-external-action-resume/v1',
+          resumeRef: 'resume-ref-a',
+          userActionDigest: `sha256:${'c'.repeat(64)}`,
+        })
+      )
+    ).toThrow('external-action resume');
     expect(() =>
       handler(
         event,
@@ -462,7 +479,7 @@ describe('main adapter IPC trust boundary', () => {
         })
       )
     ).toThrow('payload keys');
-    expect(state.emitter.emit).toHaveBeenCalledTimes(4);
+    expect(state.emitter.emit).toHaveBeenCalledTimes(5);
   });
 
   it('accepts only the exact string-path schema for update-system-info', async () => {

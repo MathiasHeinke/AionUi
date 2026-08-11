@@ -31,20 +31,87 @@ import {
   signExternalActionPolicyContext,
   verifyExternalActionPolicyContext,
   type ExternalActionAdapter,
+  type ExternalActionAdapterPayloadReadPort,
   type ExternalActionAuthorityResolution,
+  type ExternalActionCompletionAttestationReadPort,
+  type ExternalActionConversationContextReadPort,
+  type ExternalActionReconciliationEvidenceReadPort,
+  type ExternalActionReconciliationRequest,
+  type ExternalActionSecretFieldSinkPort,
 } from '@process/services/external-action';
 
 const POLICY_VERSION = 'command-eve-external-action-policy/v0' as const;
 const policyContextKey = crypto.randomBytes(32);
 const mainAdapters: ExternalActionAdapter[] = [];
+let mainAdapterPayloadReader: ExternalActionAdapterPayloadReadPort | null = null;
+let mainCompletionAttestationReader: ExternalActionCompletionAttestationReadPort | null = null;
+let mainConversationContextReader: ExternalActionConversationContextReadPort | null = null;
+let mainReconciliationEvidenceReader: ExternalActionReconciliationEvidenceReadPort | null = null;
+let mainSecretFieldSink: ExternalActionSecretFieldSinkPort | null = null;
 let executionService: ExternalActionExecutionService | null = null;
 
 /** Main-only adapter registration. Renderer/model IPC cannot call this. */
 export function registerExternalActionAdapter(adapter: ExternalActionAdapter): void {
+  if (executionService) throw new Error('EXTERNAL_ADAPTER_REGISTRY_LOCKED');
   if (mainAdapters.some((candidate) => candidate.id === adapter.id)) {
     throw new Error('EXTERNAL_ADAPTER_DUPLICATE');
   }
-  mainAdapters.push(adapter);
+  mainAdapters.push(
+    Object.freeze({
+      ...adapter,
+      operations: Object.freeze(adapter.operations.map((operation) => Object.freeze({ ...operation }))),
+      supports: Object.freeze({ ...adapter.supports }),
+    })
+  );
+}
+
+/** Main-only immutable payload-store registration. No renderer/model bridge exists. */
+export function registerExternalActionAdapterPayloadReadPort(reader: ExternalActionAdapterPayloadReadPort): void {
+  if (executionService || mainAdapterPayloadReader)
+    throw new Error('EXTERNAL_ADAPTER_PAYLOAD_READER_ALREADY_REGISTERED');
+  mainAdapterPayloadReader = reader;
+}
+
+/** Main-only completion-attestation lookup. Renderer supplies an opaque ref only. */
+export function registerExternalActionCompletionAttestationReadPort(
+  reader: ExternalActionCompletionAttestationReadPort
+): void {
+  if (executionService || mainCompletionAttestationReader) {
+    throw new Error('EXTERNAL_COMPLETION_ATTESTATION_READER_ALREADY_REGISTERED');
+  }
+  mainCompletionAttestationReader = reader;
+}
+
+/** Main-owned active conversation/session resolver. Renderer resume input never carries either value. */
+export function registerExternalActionConversationContextReadPort(
+  reader: ExternalActionConversationContextReadPort
+): void {
+  if (executionService || mainConversationContextReader) {
+    throw new Error('EXTERNAL_CONVERSATION_CONTEXT_READER_ALREADY_REGISTERED');
+  }
+  mainConversationContextReader = reader;
+}
+
+/** Main-owned exact-origin secret sink. Adapters receive opaque delivery refs, never bytes. */
+export function registerExternalActionSecretFieldSinkPort(sink: ExternalActionSecretFieldSinkPort): void {
+  if (executionService || mainSecretFieldSink) throw new Error('EXTERNAL_SECRET_FIELD_SINK_ALREADY_REGISTERED');
+  mainSecretFieldSink = sink;
+}
+
+/** Main-only reconciliation evidence lookup. There is deliberately no renderer provider. */
+export function registerExternalActionReconciliationEvidenceReadPort(
+  reader: ExternalActionReconciliationEvidenceReadPort
+): void {
+  if (executionService || mainReconciliationEvidenceReader) {
+    throw new Error('EXTERNAL_RECONCILIATION_EVIDENCE_READER_ALREADY_REGISTERED');
+  }
+  mainReconciliationEvidenceReader = reader;
+}
+
+export async function reconcileExternalActionFromMain(
+  request: ExternalActionReconciliationRequest
+): ReturnType<ExternalActionExecutionService['reconcileFromMain']> {
+  return currentService().reconcileFromMain(request);
 }
 
 function hashGrant(grant: EveAuthorityGrant): string {
@@ -57,12 +124,6 @@ function hashGrant(grant: EveAuthorityGrant): string {
     updatedBy: grant.updatedBy,
   };
   return `grant:${crypto.createHash('sha256').update(JSON.stringify(stable)).digest('hex').slice(0, 48)}`;
-}
-
-function classifyRisk(proposal: EveExternalActionProposal): EveExternalActionRiskClass {
-  // Installing software can widen the machine's security surface. Until a
-  // signed, trusted package classifier exists it is always a HumanGate.
-  return proposal.action.kind === 'software_install' ? 'security_expansion' : 'ordinary';
 }
 
 function authorityAction(proposal: EveExternalActionProposal, spentTodayMinor: number): EveAction {
@@ -94,6 +155,7 @@ async function resolveExistingAuthority(input: {
   binding: { seedId: string };
   proposal: EveExternalActionProposal;
   spentTodayMinor: number;
+  riskClass: EveExternalActionRiskClass;
 }): Promise<ExternalActionAuthorityResolution> {
   const bag = await httpRequest<Record<string, unknown>>('GET', '/api/settings/client');
   const physicalKey = seatScopedKey('commandEve.authority', input.binding.seedId);
@@ -105,7 +167,7 @@ async function resolveExistingAuthority(input: {
   return {
     decision: outcome.decision,
     authorityGrantId: hashGrant(grant),
-    riskClass: classifyRisk(input.proposal),
+    riskClass: input.riskClass,
   };
 }
 
@@ -115,9 +177,15 @@ function currentService(): ExternalActionExecutionService {
   const store = getExternalActionStore(userDataPath);
   executionService = new ExternalActionExecutionService(store, {
     resolveBinding: () => resolveExternalActionBinding(store, userDataPath),
-    resolveAuthority: ({ binding, proposal, spentTodayMinor }) =>
-      resolveExistingAuthority({ binding, proposal, spentTodayMinor }),
+    resolveConversationContext: () =>
+      mainConversationContextReader?.read() ?? { reasonCode: 'EXTERNAL_CONVERSATION_CONTEXT_UNAVAILABLE' },
+    resolveAuthority: ({ binding, proposal, spentTodayMinor, riskClass }) =>
+      resolveExistingAuthority({ binding, proposal, spentTodayMinor, riskClass }),
     secretResolver: new NativeSecretMaterialResolver(userDataPath),
+    ...(mainSecretFieldSink ? { secretSink: mainSecretFieldSink } : {}),
+    ...(mainAdapterPayloadReader ? { adapterPayloadReader: mainAdapterPayloadReader } : {}),
+    ...(mainCompletionAttestationReader ? { completionAttestationReader: mainCompletionAttestationReader } : {}),
+    ...(mainReconciliationEvidenceReader ? { reconciliationEvidenceReader: mainReconciliationEvidenceReader } : {}),
     adapters: mainAdapters,
   });
   return executionService;
@@ -232,9 +300,19 @@ export function initExternalActionBridge(): void {
     success: true,
     data: await currentService().execute(proposal),
   }));
+
+  ipcBridge.commandEve.externalActionResume.provider(async (resume) => ({
+    success: true,
+    data: await currentService().resume(resume),
+  }));
 }
 
 export function resetExternalActionBridgeForTests(): void {
   executionService = null;
+  mainAdapterPayloadReader = null;
+  mainCompletionAttestationReader = null;
+  mainConversationContextReader = null;
+  mainReconciliationEvidenceReader = null;
+  mainSecretFieldSink = null;
   mainAdapters.splice(0, mainAdapters.length);
 }

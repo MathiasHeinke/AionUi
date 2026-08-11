@@ -9,8 +9,9 @@ import type {
   EveExternalActionKind,
   EveSecretHandleSource,
   EveSecretHandleType,
+  EveSecretFieldSlot,
 } from '@/common/config/eveExternalActionPolicyCore';
-import type { ExternalActionStore } from './externalActionStore';
+import type { ExternalActionExecutionContractExpectation, ExternalActionStore } from './externalActionStore';
 
 export interface SecretMaterialResolveContext {
   source: EveSecretHandleSource;
@@ -20,6 +21,15 @@ export interface SecretMaterialResolveContext {
   useBinding: EveExternalActionBinding;
   actionKind: EveExternalActionKind;
   targetOrigin: string;
+  slot: EveSecretFieldSlot;
+  reservationId: string;
+  claimId: string;
+  executionContractDigest: string;
+  adapterId: string;
+  authMode: ExternalActionExecutionContractExpectation['authMode'];
+  domain: ExternalActionExecutionContractExpectation['domain'];
+  domainAction: string;
+  origins: readonly string[];
 }
 
 export interface SecretMaterialResolver {
@@ -35,10 +45,8 @@ export interface ExternalSecretUseRequest {
   binding: EveExternalActionBinding;
   reservationId: string;
   claimId: string;
-  handleId: string;
-  expectedHandleType: EveSecretHandleType;
-  actionKind: EveExternalActionKind;
-  targetOrigin: string;
+  slot: EveSecretFieldSlot;
+  executionContract: ExternalActionExecutionContractExpectation;
 }
 
 export type ExternalSecretUseResult =
@@ -85,26 +93,33 @@ export class ExternalSecretUseBroker {
       request.binding,
       request.reservationId,
       request.claimId,
-      request.handleId,
-      request.expectedHandleType,
-      request.actionKind,
-      request.targetOrigin
+      request.slot,
+      request.executionContract
     );
     if ('reasonCode' in consumed) {
-      if (
-        consumed.reasonCode === 'EXTERNAL_SECRET_HANDLE_NOT_ACTIVE' ||
-        consumed.reasonCode === 'EXTERNAL_SECRET_HANDLE_TYPE_BLOCKED'
-      ) {
-        this.store.reverse({
+      const replayUnsafe = consumed.reasonCode === 'EXTERNAL_SECRET_USE_REPLAY_BLOCKED';
+      const transition = replayUnsafe
+        ? this.store.markUnknown({
+            binding: request.binding,
+            reservationId: request.reservationId,
+            claimId: request.claimId,
+            authMode: request.executionContract.authMode,
+            reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+            outcomeDigest: BROKER_UNKNOWN_DIGEST,
+          })
+        : this.store.reverse({
           binding: request.binding,
           reservationId: request.reservationId,
           claimId: request.claimId,
+          authMode: request.executionContract.authMode,
+          terminalState: 'denied',
+          reasonCode: consumed.reasonCode,
           outcomeDigest: BROKER_REVERSED_DIGEST,
         });
-      }
+      const unknown = replayUnsafe || transition.state === 'unknown' || transition.state === 'resuming';
       return {
         ok: false,
-        status: consumed.reasonCode === 'EXTERNAL_SECRET_USE_REPLAY_BLOCKED' ? 'unknown' : 'blocked',
+        status: unknown ? 'unknown' : 'blocked',
         reasonCode: consumed.reasonCode,
         reservationId: request.reservationId,
       };
@@ -115,6 +130,9 @@ export class ExternalSecretUseBroker {
         binding: request.binding,
         reservationId: request.reservationId,
         claimId: request.claimId,
+        authMode: request.executionContract.authMode,
+        terminalState: 'denied',
+        reasonCode: 'EXTERNAL_SECRET_HANDLE_NOT_ACTIVE',
         outcomeDigest: BROKER_REVERSED_DIGEST,
       });
       return {
@@ -133,14 +151,29 @@ export class ExternalSecretUseBroker {
         handleType: handle.type,
         ownerBinding: handle.binding,
         useBinding: request.binding,
-        actionKind: request.actionKind,
-        targetOrigin: request.targetOrigin,
+        actionKind: request.executionContract.actionKind,
+        targetOrigin: request.executionContract.targetOrigin,
+        slot: request.slot,
+        reservationId: request.reservationId,
+        claimId: request.claimId,
+        executionContractDigest: request.executionContract.executionContractDigest,
+        adapterId: request.executionContract.adapterId,
+        authMode: request.executionContract.authMode,
+        domain: request.executionContract.domain,
+        domainAction: request.executionContract.domainAction,
+        origins:
+          request.executionContract.domain === 'commerce'
+            ? [request.executionContract.merchantOrigin!, request.executionContract.checkoutOrigin!]
+            : [request.executionContract.providerOrigin!],
       });
       if (!(material instanceof Uint8Array) || material.byteLength === 0) {
         this.store.reverse({
           binding: request.binding,
           reservationId: request.reservationId,
           claimId: request.claimId,
+          authMode: request.executionContract.authMode,
+          terminalState: 'denied',
+          reasonCode: 'EXTERNAL_SECRET_RESOLVE_FAILED',
           outcomeDigest: BROKER_REVERSED_DIGEST,
         });
         return {
@@ -155,6 +188,9 @@ export class ExternalSecretUseBroker {
         binding: request.binding,
         reservationId: request.reservationId,
         claimId: request.claimId,
+        authMode: request.executionContract.authMode,
+        terminalState: 'denied',
+        reasonCode: 'EXTERNAL_SECRET_RESOLVE_FAILED',
         outcomeDigest: BROKER_REVERSED_DIGEST,
       });
       return {
@@ -170,8 +206,8 @@ export class ExternalSecretUseBroker {
         request.binding,
         request.reservationId,
         request.claimId,
-        request.actionKind,
-        request.targetOrigin,
+        request.slot,
+        request.executionContract,
         handle
       );
       if ('reasonCode' in recheckedBeforeAuthority) {
@@ -179,6 +215,9 @@ export class ExternalSecretUseBroker {
           binding: request.binding,
           reservationId: request.reservationId,
           claimId: request.claimId,
+          authMode: request.executionContract.authMode,
+          terminalState: 'denied',
+          reasonCode: recheckedBeforeAuthority.reasonCode,
           outcomeDigest: BROKER_REVERSED_DIGEST,
         });
         return {
@@ -200,6 +239,9 @@ export class ExternalSecretUseBroker {
             binding: request.binding,
             reservationId: request.reservationId,
             claimId: request.claimId,
+            authMode: request.executionContract.authMode,
+            terminalState: 'denied',
+            reasonCode: fixedReason(trustedPreflight.reasonCode, 'EXTERNAL_TRUSTED_PREFLIGHT_BLOCKED'),
             outcomeDigest: BROKER_REVERSED_DIGEST,
           });
           return {
@@ -214,8 +256,8 @@ export class ExternalSecretUseBroker {
         request.binding,
         request.reservationId,
         request.claimId,
-        request.actionKind,
-        request.targetOrigin,
+        request.slot,
+        request.executionContract,
         handle
       );
       if ('reasonCode' in recheckedAfterAuthority) {
@@ -223,6 +265,9 @@ export class ExternalSecretUseBroker {
           binding: request.binding,
           reservationId: request.reservationId,
           claimId: request.claimId,
+          authMode: request.executionContract.authMode,
+          terminalState: 'denied',
+          reasonCode: recheckedAfterAuthority.reasonCode,
           outcomeDigest: BROKER_REVERSED_DIGEST,
         });
         return {
@@ -236,7 +281,7 @@ export class ExternalSecretUseBroker {
       return {
         ok: true,
         status: 'injected',
-        handleId: request.handleId,
+        handleId: handle.handleId,
         reservationId: request.reservationId,
         claimId: request.claimId,
       };
@@ -245,6 +290,8 @@ export class ExternalSecretUseBroker {
         binding: request.binding,
         reservationId: request.reservationId,
         claimId: request.claimId,
+        authMode: request.executionContract.authMode,
+        reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
         outcomeDigest: BROKER_UNKNOWN_DIGEST,
       });
       return {

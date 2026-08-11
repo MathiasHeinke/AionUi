@@ -30,22 +30,52 @@ export const EVE_EXTERNAL_ACTION_KINDS = [
 export type EveExternalActionKind = (typeof EVE_EXTERNAL_ACTION_KINDS)[number];
 export type EveExternalActionRiskClass = 'ordinary' | 'legal_agreement' | 'security_expansion' | 'high_risk_finance';
 export type EveExternalAuthorityDecision = 'allow' | 'ask' | 'block';
-export type EveExternalActionLedgerState = 'reserved' | 'claimed' | 'allowed' | 'reversed' | 'unknown';
+export type EveExternalActionLedgerState =
+  | 'reserved'
+  | 'claimed'
+  | 'suspended'
+  | 'resuming'
+  | 'allowed'
+  | 'reversed'
+  | 'denied'
+  | 'revoked'
+  | 'expired'
+  | 'unknown'
+  | 'reconciled_committed'
+  | 'reconciled_no_effect';
 export type EveExternalExecutionStatus =
   | 'allowed'
   | 'needs_user'
   | 'denied'
   | 'revoked'
   | 'expired'
-  | 'unknown_outcome';
+  | 'unknown_outcome'
+  | 'reconciled_committed'
+  | 'reconciled_no_effect';
 export type EveSecretHandleType =
   | 'identity_email'
   | 'identity_phone'
   | 'payment_profile'
   | 'service_credential'
   | 'account_credential'
-  | 'oauth_token';
+  | 'oauth_token'
+  | 'otp_code';
 export type EveSecretHandleSource = 'eve_keychain' | 'hermes_onepassword' | 'hermes_bitwarden' | 'hermes_command';
+
+export const EVE_SECRET_FIELD_SLOTS = [
+  'email_address',
+  'phone_number',
+  'account_username',
+  'account_password',
+  'oauth_token',
+  'otp_code',
+  'payment_pan',
+  'payment_expiry',
+  'payment_cvc',
+  'billing_profile',
+  'shipping_profile',
+] as const;
+export type EveSecretFieldSlot = (typeof EVE_SECRET_FIELD_SLOTS)[number];
 
 export const EVE_SECRET_HANDLE_TYPES: readonly EveSecretHandleType[] = [
   'identity_email',
@@ -54,6 +84,7 @@ export const EVE_SECRET_HANDLE_TYPES: readonly EveSecretHandleType[] = [
   'service_credential',
   'account_credential',
   'oauth_token',
+  'otp_code',
 ] as const;
 
 export const EVE_SECRET_HANDLE_SOURCES: readonly EveSecretHandleSource[] = [
@@ -148,6 +179,32 @@ export function isEveSecretHandleType(value: unknown): value is EveSecretHandleT
 
 export function isEveSecretHandleSource(value: unknown): value is EveSecretHandleSource {
   return EVE_SECRET_HANDLE_SOURCES.includes(value as EveSecretHandleSource);
+}
+
+export function isEveSecretFieldSlot(value: unknown): value is EveSecretFieldSlot {
+  return EVE_SECRET_FIELD_SLOTS.includes(value as EveSecretFieldSlot);
+}
+
+export function eveSecretSlotAllowsHandleType(slot: EveSecretFieldSlot, type: EveSecretHandleType): boolean {
+  switch (slot) {
+    case 'email_address':
+      return type === 'identity_email';
+    case 'phone_number':
+      return type === 'identity_phone';
+    case 'account_username':
+    case 'account_password':
+      return type === 'account_credential';
+    case 'oauth_token':
+      return type === 'oauth_token';
+    case 'otp_code':
+      return type === 'otp_code';
+    case 'payment_pan':
+    case 'payment_expiry':
+    case 'payment_cvc':
+    case 'billing_profile':
+    case 'shipping_profile':
+      return type === 'payment_profile';
+  }
 }
 
 export function normalizeEveExternalDomain(value: unknown): string | null {

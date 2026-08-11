@@ -6,7 +6,10 @@
 
 import path from 'node:path';
 
-import { validateEveExternalActionProposal } from '@/common/config/eveExternalActionExecutionCore';
+import {
+  validateEveExternalActionProposal,
+  validateEveExternalActionResumeRequest,
+} from '@/common/config/eveExternalActionExecutionCore';
 import { validateEveExternalActionPolicyMutation } from '@/common/config/eveExternalActionPolicyCore';
 import {
   CUSTOMER_DEFAULT_KANBAN_PROVIDER_KEYS,
@@ -157,6 +160,11 @@ function assertHighRiskProviderPayload(providerKey: RendererProviderKey, payload
     case 'command-eve.external-action-execute': {
       const parsed = validateEveExternalActionProposal(payload);
       if ('reasonCode' in parsed) throw new Error('Invalid external-action execution payload.');
+      return;
+    }
+    case 'command-eve.external-action-resume': {
+      const parsed = validateEveExternalActionResumeRequest(payload);
+      if ('reasonCode' in parsed) throw new Error('Invalid external-action resume payload.');
       return;
     }
     case 'command-eve.external-action-policy-set': {

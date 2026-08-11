@@ -14,8 +14,19 @@ export interface HermesSecretSourceReadRequest {
   provider: HermesSecretSourceProvider;
   alias: string;
   hermesHome: string;
-  accountId: string;
-  seedId: string;
+  ownerBinding: SecretMaterialResolveContext['ownerBinding'];
+  useBinding: SecretMaterialResolveContext['useBinding'];
+  actionKind: SecretMaterialResolveContext['actionKind'];
+  targetOrigin: string;
+  slot: SecretMaterialResolveContext['slot'];
+  reservationId: string;
+  claimId: string;
+  executionContractDigest: string;
+  adapterId: string;
+  authMode: SecretMaterialResolveContext['authMode'];
+  domain: SecretMaterialResolveContext['domain'];
+  domainAction: string;
+  origins: readonly string[];
 }
 
 /**
@@ -31,8 +42,13 @@ export interface HermesSecretSourceReadPort {
 let mainHermesPort: HermesSecretSourceReadPort | null = null;
 
 /** Main-process registration only. There is no renderer-facing setter. */
-export function registerHermesSecretSourceReadPort(port: HermesSecretSourceReadPort | null): void {
+export function registerHermesSecretSourceReadPort(port: HermesSecretSourceReadPort): void {
+  if (mainHermesPort) throw new Error('EXTERNAL_HERMES_SOURCE_PORT_ALREADY_REGISTERED');
   mainHermesPort = port;
+}
+
+export function resetHermesSecretSourceReadPortForTests(): void {
+  mainHermesPort = null;
 }
 
 function parseHermesSourceRef(
@@ -80,8 +96,19 @@ export class NativeSecretMaterialResolver implements SecretMaterialResolver {
       provider: parsed.provider,
       alias: parsed.alias,
       hermesHome,
-      accountId: context.ownerBinding.accountId,
-      seedId: context.ownerBinding.seedId,
+      ownerBinding: context.ownerBinding,
+      useBinding: context.useBinding,
+      actionKind: context.actionKind,
+      targetOrigin: context.targetOrigin,
+      slot: context.slot,
+      reservationId: context.reservationId,
+      claimId: context.claimId,
+      executionContractDigest: context.executionContractDigest,
+      adapterId: context.adapterId,
+      authMode: context.authMode,
+      domain: context.domain,
+      domainAction: context.domainAction,
+      origins: context.origins,
     });
     if (!(value instanceof Uint8Array) || value.byteLength === 0) {
       throw new Error('EXTERNAL_HERMES_SOURCE_RESOLVE_FAILED');
