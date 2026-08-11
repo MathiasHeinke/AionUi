@@ -62,6 +62,20 @@ describe('SpeechToTextService readiness', () => {
     expect(result.text).toBe('Hallo');
   });
 
+  it('forces the bundled local lane for voice dialogue even when cloud STT is configured', async () => {
+    configGetMock.mockReturnValue({ enabled: true, provider: 'openai' });
+
+    await transcribeAudioBlob(new Blob(['audio'], { type: 'audio/webm' }), 'de-DE', { forceLocal: true });
+
+    expect(localInvokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        languageHint: 'de-DE',
+        provider: 'local',
+      })
+    );
+    expect(transcribeInvokeMock).not.toHaveBeenCalled();
+  });
+
   it('fails closed when config initialization fails', async () => {
     configReadyMock.mockRejectedValue(new Error('settings unavailable'));
 

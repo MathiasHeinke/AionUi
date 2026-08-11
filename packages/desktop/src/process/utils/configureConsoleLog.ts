@@ -22,6 +22,7 @@
 
 import { app } from 'electron';
 import log from 'electron-log/main';
+import path from 'node:path';
 
 const FILE_SIZE_LIMIT = 10 * 1024 * 1024; // 10 MB
 const FILE_LOG_LEVEL = 'info';
@@ -29,7 +30,16 @@ const CONSOLE_LOG_LEVEL = 'silly';
 
 // Daily log file: e.g. 2026-03-12.log
 const today = new Date().toISOString().slice(0, 10);
-log.transports.file.fileName = `${today}.log`;
+const benchmarkLogPath = process.env.COMMAND_EVE_BENCHMARK_LOG_PATH?.trim();
+if (benchmarkLogPath && path.isAbsolute(benchmarkLogPath)) {
+  // The local TTFT harness runs beside the operator app. Give that isolated
+  // profile a dedicated file so another Command EVE process cannot contaminate
+  // milestone timestamps in the receipt. Relative paths deliberately fall
+  // back to the normal application log location.
+  log.transports.file.resolvePathFn = () => benchmarkLogPath;
+} else {
+  log.transports.file.fileName = `${today}.log`;
+}
 
 // --- Main-process logger (frontend) ---
 log.transports.file.level = FILE_LOG_LEVEL;

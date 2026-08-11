@@ -18,7 +18,9 @@ import {
 import './SpeechInputButton.css';
 
 type SpeechInputButtonProps = {
+  beforeStartRecording?: () => boolean | void | Promise<boolean | void>;
   disabled?: boolean;
+  forceLocalTranscription?: boolean;
   locale?: string;
   onTranscript: (transcript: string) => void;
   onStatusChange?: (status: SpeechInputStatus) => void;
@@ -127,11 +129,13 @@ const getTooltipKey = (availability: SpeechInputAvailability, isListening: boole
 };
 
 const SpeechInputButton = React.forwardRef<SpeechInputButtonHandle, SpeechInputButtonProps>(
-  ({ disabled, locale, onStatusChange, onTranscript }, ref) => {
+  ({ beforeStartRecording, disabled, forceLocalTranscription, locale, onStatusChange, onTranscript }, ref) => {
     const { t } = useTranslation();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const startGatePendingRef = useRef(false);
     const [isSpeechToTextEnabled, setIsSpeechToTextEnabled] = useState(false);
     const [isConfigLoaded, setIsConfigLoaded] = useState(false);
+    const [isStartGatePending, setIsStartGatePending] = useState(false);
     const {
       availability,
       canRetry,
@@ -146,6 +150,7 @@ const SpeechInputButton = React.forwardRef<SpeechInputButtonHandle, SpeechInputB
       stopRecording,
       transcribeFile,
     } = useSpeechInput({
+      forceLocalTranscription,
       locale,
       onTranscript,
     });
@@ -241,8 +246,8 @@ const SpeechInputButton = React.forwardRef<SpeechInputButtonHandle, SpeechInputB
       retryTranscription();
     };
 
-    const handleClick = () => {
-      if (disabled) {
+    const handleClick = async () => {
+      if (disabled || startGatePendingRef.current) {
         return;
       }
 
@@ -261,7 +266,16 @@ const SpeechInputButton = React.forwardRef<SpeechInputButtonHandle, SpeechInputB
         return;
       }
 
-      void startRecording();
+      startGatePendingRef.current = true;
+      setIsStartGatePending(true);
+      try {
+        const mayStartRecording = await beforeStartRecording?.();
+        if (mayStartRecording === false) return;
+        await startRecording();
+      } finally {
+        startGatePendingRef.current = false;
+        setIsStartGatePending(false);
+      }
     };
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -333,13 +347,15 @@ const SpeechInputButton = React.forwardRef<SpeechInputButtonHandle, SpeechInputB
           )}
           <Tooltip content={ariaLabel} mini>
             <Button
+              data-testid='speech-input-button'
               type='text'
               size='small'
               shape='circle'
               className={`speech-input-button ${isRecording ? 'speech-input-button--listening' : ''} ${isProcessing ? 'speech-input-button--processing' : ''}`}
-              disabled={disabled || isProcessing}
-              onClick={handleClick}
+              disabled={disabled || isProcessing || isStartGatePending}
+              onClick={() => void handleClick()}
               aria-label={ariaLabel}
+              aria-busy={isStartGatePending}
               icon={icon}
             />
           </Tooltip>

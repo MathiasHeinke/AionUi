@@ -508,6 +508,20 @@
       "transcriptionFailed": "Audio transcription failed",
       "genericError": "Voice input failed. Please try again",
       "retryTooltip": "Retry transcription (your recording is kept)"
+    },
+    "voiceDialogue": {
+      "enable": "Turn on voice dialogue",
+      "disable": "Turn off voice dialogue",
+      "cancelFailed": "The running reply could not be stopped. Your microphone state is unchanged.",
+      "status": {
+        "off": "Off",
+        "ready": "Ready – recording starts only after a click",
+        "listening": "Listening",
+        "transcribing": "Transcribing locally",
+        "thinking": "EVE is replying",
+        "speaking": "Speaking",
+        "error": "Voice dialogue unavailable"
+      }
     }
   },
   "sideQuestion": {

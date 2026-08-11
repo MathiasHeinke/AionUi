@@ -42,6 +42,7 @@ import {
   ensureAcpGenerationTracking,
 } from '@renderer/services/commandEveGenerationActivity';
 import { getConversationRuntimeViewSnapshot } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import { emitAcpPerformanceMark } from '@/renderer/utils/performance/acpPerformanceMarks';
 import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import {
@@ -73,6 +74,7 @@ export type UseAcpMessageReturn = {
   slashCommands: SlashCommandItem[];
   fetchSlashCommands: () => void;
   runtimeActivity: AcpRuntimeActivity;
+  lastCompletedTurn: AcpCompletedTurnReceipt | null;
   /**
    * Lane-3 402 quota-exhausted wall controller. Fed by the LIVE ACP stream-error
    * path: when an EVE-inference turn errors with a 402 quota_exhausted body, the
@@ -80,6 +82,12 @@ export type UseAcpMessageReturn = {
    * container renders `<QuotaExhaustedWall {...quotaWall} jobInFlight=… />`.
    */
   quotaWall: QuotaWallState;
+};
+
+export type AcpCompletedTurnReceipt = {
+  sequence: number;
+  turnId: string;
+  completedAt: number;
 };
 
 export type AcpRuntimeActivityPhase =
@@ -193,6 +201,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     phase: 'idle',
     updatedAt: Date.now(),
   });
+  const [lastCompletedTurn, setLastCompletedTurn] = useState<AcpCompletedTurnReceipt | null>(null);
 
   // Lane-3: the 402 quota-exhausted wall controller. The live stream-error path
   // (the 'error' case below) feeds it via reportInferenceError; the container
@@ -255,6 +264,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // Guard: after finish arrives, prevent auto-recover from setting running=true
   // until a new 'start' signal arrives for the next turn
   const turnFinishedRef = useRef(false);
+  const acceptedTurnIdRef = useRef<string | null>(getConversationRuntimeViewSnapshot(conversation_id).activeTurnId);
+  const completedTurnSequenceRef = useRef(0);
+  const completedTurnIdsRef = useRef<Set<string>>(new Set());
 
   // 1.820.3 — staged image handles (`img_h_…`) seen in THIS turn's tool call
   // outputs, keyed by tool call id. Collected as the `acp_tool_call` messages
@@ -482,6 +494,23 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         return;
       }
 
+      const runtimeViewAtMessage = getConversationRuntimeViewSnapshot(conversation_id);
+      const runtimeActiveTurnId = runtimeViewAtMessage.activeTurnId;
+      if (runtimeViewAtMessage.localSubmitting && !runtimeActiveTurnId) {
+        acceptedTurnIdRef.current = null;
+      }
+      if (runtimeActiveTurnId) {
+        acceptedTurnIdRef.current = runtimeActiveTurnId;
+      } else if (
+        !acceptedTurnIdRef.current &&
+        message.type !== 'finish' &&
+        message.type !== 'error' &&
+        typeof message.turn_id === 'string' &&
+        message.turn_id.trim()
+      ) {
+        acceptedTurnIdRef.current = message.turn_id.trim();
+      }
+
       const now = Date.now();
       lastBackendEventAtRef.current = now;
 
@@ -663,8 +692,36 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         }
         case 'finish':
           {
-            // Mark turn as finished to prevent auto-recover from late messages
+            const completedTurnId = typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
+            const expectedTurnId = runtimeActiveTurnId ?? acceptedTurnIdRef.current;
+            if (
+              !completedTurnId ||
+              runtimeViewAtMessage.localSubmitting ||
+              completedTurnId !== expectedTurnId ||
+              completedTurnIdsRef.current.has(completedTurnId)
+            ) {
+              break;
+            }
+            completedTurnIdsRef.current.add(completedTurnId);
+            if (completedTurnIdsRef.current.size > 64) {
+              const oldest = completedTurnIdsRef.current.values().next().value;
+              if (oldest) completedTurnIdsRef.current.delete(oldest);
+            }
+            // Only the exact accepted active turn may terminalize this view. A
+            // missing, replayed, or late finish from turn A must not clear turn B.
             turnFinishedRef.current = true;
+            const completedAt = Date.now();
+            completedTurnSequenceRef.current += 1;
+            setLastCompletedTurn({
+              sequence: completedTurnSequenceRef.current,
+              turnId: completedTurnId,
+              completedAt,
+            });
+            emitAcpPerformanceMark({
+              stage: 'response_finished',
+              conversationId: conversation_id,
+              turnId: completedTurnId,
+            });
             // 1.820.3 — BIND BEFORE REFRESH, and display authority is separate
             // from spend authority by design. A managed image produced inside
             // THIS turn was staged in Main WITHOUT a conversation; the staged
@@ -741,6 +798,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
               );
               requestTraceRef.current = null;
             }
+            acceptedTurnIdRef.current = null;
           }
           break;
         case 'text':
@@ -748,6 +806,11 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           // First content token — AI has started responding, clear processing indicator
           if (!hasContentInTurnRef.current) {
             hasContentInTurnRef.current = true;
+            emitAcpPerformanceMark({
+              stage: 'acp_first_text',
+              conversationId: conversation_id,
+              turnId: message.turn_id,
+            });
             setAiProcessing(false);
             aiProcessingRef.current = false;
           }
@@ -781,6 +844,13 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             backend?: string;
           };
           if (agentData?.status) {
+            if (agentData.status === 'session_active') {
+              emitAcpPerformanceMark({
+                stage: 'acp_session_ready',
+                conversationId: conversation_id,
+                turnId: message.turn_id,
+              });
+            }
             setAcpStatus(agentData.status);
             setRuntimeActivity((prev) => ({
               ...prev,
@@ -1113,6 +1183,11 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
               session_mode: trace.session_mode as string | undefined,
             };
             requestTraceRef.current = startedTrace;
+            emitAcpPerformanceMark({
+              stage: 'model_request_started',
+              conversationId: conversation_id,
+              turnId: message.turn_id,
+            });
             if (typeof trace.backend === 'string') {
               permissionBackendRef.current = trace.backend;
             }
@@ -1317,6 +1392,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     setRuntimeActivity({ phase: 'idle', updatedAt: Date.now() });
     hasContentInTurnRef.current = false;
     turnFinishedRef.current = false;
+    acceptedTurnIdRef.current = getConversationRuntimeViewSnapshot(conversation_id).activeTurnId;
     hasThinkingMessageRef.current = false;
     activeThinkingRef.current = null;
     lastBackendEventAtRef.current = undefined;
@@ -1460,30 +1536,34 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     };
   }, [applyContextUsage, conversation_id, options?.skipWarmup]);
 
-  const resetState = useCallback(() => {
-    turnFinishedRef.current = true;
-    setRunning(false);
-    runningRef.current = false;
-    setAiProcessing(false);
-    aiProcessingRef.current = false;
-    setThought({ subject: '', description: '' });
-    setRuntimeActivity((prev) => ({
-      ...prev,
-      phase: 'idle',
-      backend: prev.backend,
-      modelId: prev.modelId,
-      updatedAt: Date.now(),
-    }));
-    hasContentInTurnRef.current = false;
-    hasThinkingMessageRef.current = false;
-    activeThinkingRef.current = null;
-    lastBackendEventAtRef.current = undefined;
-    lastRendererCommitAtRef.current = undefined;
-    lastPendingBufferedAtRef.current = undefined;
-    activeToolCallsRef.current.clear();
-    clearThinkingMessageThrottle();
-    setHasThinkingMessage(false);
-  }, [clearThinkingMessageThrottle]);
+  const resetState = useCallback(
+    (resetOptions?: { preserveAcceptedTurnId?: boolean }) => {
+      turnFinishedRef.current = true;
+      if (!resetOptions?.preserveAcceptedTurnId) acceptedTurnIdRef.current = null;
+      setRunning(false);
+      runningRef.current = false;
+      setAiProcessing(false);
+      aiProcessingRef.current = false;
+      setThought({ subject: '', description: '' });
+      setRuntimeActivity((prev) => ({
+        ...prev,
+        phase: 'idle',
+        backend: prev.backend,
+        modelId: prev.modelId,
+        updatedAt: Date.now(),
+      }));
+      hasContentInTurnRef.current = false;
+      hasThinkingMessageRef.current = false;
+      activeThinkingRef.current = null;
+      lastBackendEventAtRef.current = undefined;
+      lastRendererCommitAtRef.current = undefined;
+      lastPendingBufferedAtRef.current = undefined;
+      activeToolCallsRef.current.clear();
+      clearThinkingMessageThrottle();
+      setHasThinkingMessage(false);
+    },
+    [clearThinkingMessageThrottle]
+  );
 
   useEffect(() => {
     return addEventListener('conversation.runtime.recovered', (event) => {
@@ -1499,7 +1579,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       }
       // Durable runtime truth repairs the UI when the terminal stream frame was
       // missed. This clears both the composer state and the seat-switch guard.
-      resetState();
+      resetState({
+        preserveAcceptedTurnId: Boolean(event.recoveredTurnId) && event.recoveredTurnId === acceptedTurnIdRef.current,
+      });
       clearConversationGenerating(conversation_id);
     });
   }, [conversation_id, resetState]);
@@ -1537,6 +1619,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     slashCommands,
     fetchSlashCommands,
     runtimeActivity,
+    lastCompletedTurn,
     quotaWall,
   };
 };

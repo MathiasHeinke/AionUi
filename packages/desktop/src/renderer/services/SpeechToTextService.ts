@@ -13,6 +13,10 @@ import { isElectronDesktop } from '@/renderer/utils/platform';
 const MAX_AUDIO_FILE_SIZE_MB = 30;
 const MAX_AUDIO_FILE_SIZE_BYTES = MAX_AUDIO_FILE_SIZE_MB * 1024 * 1024;
 
+export type SpeechToTextRequestOptions = {
+  forceLocal?: boolean;
+};
+
 const getAudioExtension = (mimeType: string) => {
   switch (mimeType) {
     case 'audio/mp4':
@@ -55,7 +59,11 @@ const parseWebResponse = async (response: XMLHttpRequest): Promise<SpeechToTextR
   return payload.data;
 };
 
-export async function transcribeAudioBlob(blob: Blob, languageHint?: string): Promise<SpeechToTextResult> {
+export async function transcribeAudioBlob(
+  blob: Blob,
+  languageHint?: string,
+  options: SpeechToTextRequestOptions = {}
+): Promise<SpeechToTextResult> {
   ensureAudioSize(blob);
   await configService.whenReady();
   const storedSttConfig = configService.get('tools.speechToText') as SpeechToTextConfig | undefined;
@@ -87,7 +95,7 @@ export async function transcribeAudioBlob(blob: Blob, languageHint?: string): Pr
     // fehlgeschlagen" even though the local lane works. Only the venv lanes
     // (local/groq) go through speechToTextLocal; openai/deepgram stay on the
     // aioncore /api/stt cloud lane.
-    const provider = sttConfig.provider;
+    const provider = options.forceLocal ? 'local' : sttConfig.provider;
     const useVenvLane = provider === 'local' || provider === 'groq';
     if (useVenvLane) {
       const response = await ipcBridge.commandEve.speechToTextLocal.invoke({
@@ -102,6 +110,10 @@ export async function transcribeAudioBlob(blob: Blob, languageHint?: string): Pr
       return response.data;
     }
     return ipcBridge.speechToText.transcribe.invoke(payload);
+  }
+
+  if (options.forceLocal) {
+    throw new Error('STT_LOCAL_DESKTOP_REQUIRED');
   }
 
   const formData = new FormData();

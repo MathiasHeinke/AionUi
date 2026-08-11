@@ -26,6 +26,7 @@ type ReadAloudOptions = {
 };
 
 const COMMAND_EVE_READ_ALOUD_VOICE_ID = 'eve';
+const LOCAL_VOICE_READY_TIMEOUT_MS = 1_500;
 
 let activeUtterance: SpeechSynthesisUtterance | null = null;
 let activeAudio: HTMLAudioElement | null = null;
@@ -48,6 +49,45 @@ const isCloudAudioReadAloudAvailable = () =>
   typeof atob === 'function';
 
 export const isReadAloudAvailable = () => isLocalReadAloudAvailable() || isCloudAudioReadAloudAvailable();
+
+export function selectLocalSpeechVoice(
+  voices: readonly SpeechSynthesisVoice[],
+  language?: string
+): SpeechSynthesisVoice | null {
+  const localVoices = voices.filter((voice) => voice.localService === true);
+  if (localVoices.length === 0) return null;
+  const requested = language?.trim().toLowerCase();
+  if (!requested) return localVoices.find((voice) => voice.default) ?? localVoices[0] ?? null;
+  const exact = localVoices.find((voice) => voice.lang.trim().toLowerCase() === requested);
+  if (exact) return exact;
+  const requestedBase = requested.split('-')[0];
+  return localVoices.find((voice) => voice.lang.trim().toLowerCase().split('-')[0] === requestedBase) ?? null;
+}
+
+const waitForLocalSpeechVoice = async (language?: string): Promise<SpeechSynthesisVoice | null> => {
+  if (!isLocalReadAloudAvailable() || typeof window.speechSynthesis.getVoices !== 'function') return null;
+  const initialVoices = window.speechSynthesis.getVoices();
+  const initialMatch = selectLocalSpeechVoice(initialVoices, language);
+  if (initialMatch || initialVoices.length > 0) return initialMatch;
+  if (typeof window.speechSynthesis.addEventListener !== 'function') return null;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (voice: SpeechSynthesisVoice | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
+      resolve(voice);
+    };
+    const handleVoicesChanged = () => {
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) finish(selectLocalSpeechVoice(voices, language));
+    };
+    const timeout = window.setTimeout(() => finish(null), LOCAL_VOICE_READY_TIMEOUT_MS);
+    window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
+  });
+};
 
 const createReadAloudRequestId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -183,11 +223,15 @@ const tryCloudReadAloud = async (text: string, options: ReadAloudOptions | undef
   }
 };
 
-const startLocalReadAloud = (normalizedText: string, options: ReadAloudOptions | undefined, runId: number) => {
+const startLocalReadAloud = async (normalizedText: string, options: ReadAloudOptions | undefined, runId: number) => {
   if (!isLocalReadAloudAvailable()) {
     return false;
   }
+  const voice = await waitForLocalSpeechVoice(options?.lang);
+  if (runId !== activeReadAloudRunId) return true;
+  if (!voice) return false;
   const utterance = new SpeechSynthesisUtterance(normalizedText);
+  utterance.voice = voice;
   if (options?.lang) {
     utterance.lang = options.lang;
   }
@@ -199,12 +243,14 @@ const startLocalReadAloud = (normalizedText: string, options: ReadAloudOptions |
     options?.onStart?.();
   };
   utterance.onend = () => {
+    if (runId !== activeReadAloudRunId) return;
     if (activeUtterance === utterance) {
       activeUtterance = null;
     }
     options?.onEnd?.();
   };
   utterance.onerror = (event) => {
+    if (runId !== activeReadAloudRunId) return;
     if (activeUtterance === utterance) {
       activeUtterance = null;
     }

@@ -21,10 +21,11 @@ vi.mock('@/common', () => ({
   },
 }));
 
-import { readAloudText, stopReadAloud } from '@/renderer/services/ReadAloudService';
+import { readAloudText, selectLocalSpeechVoice, stopReadAloud } from '@/renderer/services/ReadAloudService';
 
 class FakeSpeechSynthesisUtterance {
   lang = '';
+  voice: SpeechSynthesisVoice | null = null;
   onend: (() => void) | null = null;
   onerror: ((event: SpeechSynthesisErrorEvent) => void) | null = null;
   onstart: (() => void) | null = null;
@@ -64,13 +65,30 @@ class FakeAudio {
   }
 }
 
-function installSpeechSynthesis() {
+const speechVoice = (input: {
+  default?: boolean;
+  lang: string;
+  localService: boolean;
+  name: string;
+}): SpeechSynthesisVoice =>
+  ({
+    default: input.default ?? false,
+    lang: input.lang,
+    localService: input.localService,
+    name: input.name,
+    voiceURI: input.name,
+  }) as SpeechSynthesisVoice;
+
+const defaultLocalVoice = speechVoice({ default: true, lang: 'en-US', localService: true, name: 'Local English' });
+
+function installSpeechSynthesis(voices: SpeechSynthesisVoice[] = [defaultLocalVoice]) {
   spokenUtterances.length = 0;
   vi.stubGlobal('SpeechSynthesisUtterance', FakeSpeechSynthesisUtterance);
   Object.defineProperty(window, 'speechSynthesis', {
     configurable: true,
     value: {
       cancel: vi.fn(),
+      getVoices: vi.fn(() => voices),
       speak: vi.fn((utterance: FakeSpeechSynthesisUtterance) => {
         spokenUtterances.push(utterance);
       }),
@@ -151,6 +169,21 @@ describe('ReadAloudService', () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it('selects a language-matching localService voice and refuses remote-only voices', async () => {
+    const remoteGerman = speechVoice({ lang: 'de-DE', localService: false, name: 'Remote German' });
+    const localEnglish = speechVoice({ lang: 'en-US', localService: true, name: 'Local English' });
+    const localGerman = speechVoice({ lang: 'de-DE', localService: true, name: 'Local German' });
+    installSpeechSynthesis([remoteGerman, localEnglish, localGerman]);
+
+    expect(selectLocalSpeechVoice([remoteGerman, localEnglish, localGerman], 'de-DE')).toBe(localGerman);
+    expect(await readAloudText('Lokale Antwort', { lang: 'de-DE', preferCloud: false })).toBe(true);
+    expect(spokenUtterances[0].voice).toBe(localGerman);
+
+    installSpeechSynthesis([remoteGerman]);
+    expect(await readAloudText('Nicht extern sprechen', { lang: 'de-DE', preferCloud: false })).toBe(false);
+    expect(window.speechSynthesis.speak).not.toHaveBeenCalled();
+  });
+
   it('forwards real speech errors to the caller', async () => {
     installSpeechSynthesis();
     const onError = vi.fn();
@@ -164,7 +197,7 @@ describe('ReadAloudService', () => {
   it('uses cloud TTS audio artifacts when the desktop gate is ready', async () => {
     installElectronSurface();
     installCloudAudioSurface();
-    installSpeechSynthesis();
+    installSpeechSynthesis([speechVoice({ default: true, lang: 'de-DE', localService: true, name: 'Local German' })]);
     const onCloudArtifact = vi.fn();
     const onEnd = vi.fn();
     const onStart = vi.fn();
@@ -335,6 +368,26 @@ describe('ReadAloudService', () => {
 
     expect(multimodalTtsInvokeMock).not.toHaveBeenCalled();
     expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses German local speech without probing cloud when dialogue mode forbids cloud', async () => {
+    installElectronSurface();
+    installCloudAudioSurface();
+    installSpeechSynthesis([speechVoice({ default: true, lang: 'de-DE', localService: true, name: 'Local German' })]);
+    multimodalTtsStatusInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        enabled: true,
+        reason_code: 'EVE_MULTIMODAL_TTS_READY',
+      },
+    });
+
+    expect(await readAloudText('Lokale Antwort', { lang: 'de-DE', preferCloud: false })).toBe(true);
+
+    expect(multimodalTtsStatusInvokeMock).not.toHaveBeenCalled();
+    expect(multimodalTtsInvokeMock).not.toHaveBeenCalled();
+    expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1);
+    expect(spokenUtterances[0]).toMatchObject({ text: 'Lokale Antwort', lang: 'de-DE' });
   });
 
   it('stops active cloud audio playback and revokes the object URL', async () => {

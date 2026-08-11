@@ -509,6 +509,20 @@
       "transcriptionFailed": "Audiotranskription fehlgeschlagen",
       "genericError": "Spracheingabe fehlgeschlagen. Bitte versuche es erneut",
       "retryTooltip": "Transkription erneut versuchen (Aufnahme bleibt erhalten)"
+    },
+    "voiceDialogue": {
+      "enable": "Sprachdialog einschalten",
+      "disable": "Sprachdialog ausschalten",
+      "cancelFailed": "Die laufende Antwort konnte nicht gestoppt werden. Der Mikrofonstatus bleibt unverändert.",
+      "status": {
+        "off": "Aus",
+        "ready": "Bereit – Aufnahme startet nur per Klick",
+        "listening": "Hört zu",
+        "transcribing": "Transkribiert lokal",
+        "thinking": "EVE antwortet",
+        "speaking": "Spricht",
+        "error": "Sprachdialog nicht verfügbar"
+      }
     }
   },
   "sideQuestion": {
