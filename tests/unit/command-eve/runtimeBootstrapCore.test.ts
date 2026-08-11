@@ -201,10 +201,7 @@ const makeHarness = (
     }
     if (command.endsWith('/bin/python') && args.includes('pip')) {
       const installTarget = args.at(-1) || '';
-      if (
-        installTarget === 'hermes-agent[acp,mcp]==0.20.0' ||
-        installTarget.endsWith('hermes_agent-0.20.0-py3-none-any.whl[acp,mcp]')
-      ) {
+      if (installTarget.endsWith('hermes_agent-0.20.0-py3-none-any.whl[acp,mcp]')) {
         hermesVersion = '0.20.0';
         fs.writeFileSync(path.join(path.dirname(command), 'hermes'), '#!/usr/bin/env bash\n');
         fs.chmodSync(path.join(path.dirname(command), 'hermes'), 0o755);
@@ -1260,7 +1257,8 @@ describe('Command EVE runtime bootstrap core', () => {
         exact_wheel_prompt_executed: true,
         exact_wheel_run_conversation_executed: true,
         fail_closed_patch_required: true,
-        provider_blocked_until_peer_finalize: true,
+        accept_commit_finalize_ack_ordered: true,
+        provider_blocked_until_peer_ack: true,
         rejected_admission_blocks_provider: true,
         verified_attachment_record_typed: true,
         unverified_attachment_restart_quarantined: true,
@@ -1828,6 +1826,57 @@ describe('Command EVE runtime bootstrap core', () => {
     });
   });
 
+  it('fails closed without pip or installed-version bypass when the bundled Hermes wheel is missing', async () => {
+    const harness = makeHarness({ hermesInitiallyInstalled: '0.20.0' });
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+    fs.mkdirSync(path.join(paths.hermesVenv, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'python'), '#!/usr/bin/env bash\n');
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'hermes'), '#!/usr/bin/env bash\n');
+    const resourcesPath = path.join(harness.root, 'Resources');
+    fs.mkdirSync(resourcesPath, { recursive: true });
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      resourcesPath,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+    });
+
+    expect(receipt.status).toBe('failed');
+    expect(receipt.stages.find((stage) => stage.id === 'hermes')?.code).toBe('HERMES_BUNDLED_WHEEL_MISSING');
+    expect(harness.commands.some((command) => command.includes('pip install'))).toBe(false);
+    expect(harness.commands.some((command) => command.includes("version('hermes-agent')"))).toBe(false);
+  });
+
+  it('rejects a hash-mismatched bundled wheel before trusting an installed Hermes runtime', async () => {
+    const harness = makeHarness({ hermesInitiallyInstalled: '0.20.0' });
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+    fs.mkdirSync(path.join(paths.hermesVenv, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'python'), '#!/usr/bin/env bash\n');
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'hermes'), '#!/usr/bin/env bash\n');
+    const resourcesPath = path.join(harness.root, 'Resources');
+    const wheelPath = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
+    fs.mkdirSync(path.dirname(wheelPath), { recursive: true });
+    fs.writeFileSync(wheelPath, 'tampered wheel\n');
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      resourcesPath,
+      expectedHermesWheelSha256: '0'.repeat(64),
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+    });
+
+    expect(receipt.status).toBe('failed');
+    expect(receipt.stages.find((stage) => stage.id === 'hermes')?.code).toBe('HERMES_WHEEL_HASH_MISMATCH');
+    expect(harness.commands.some((command) => command.includes('pip install'))).toBe(false);
+    expect(harness.commands.some((command) => command.includes("version('hermes-agent')"))).toBe(false);
+  });
+
   itM('keeps the Hermes PATH shim usable when a later packaged artifact gate fails on cold install', async () => {
     const harness = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
     const resourcesPath = path.join(harness.root, 'Resources');
@@ -1954,12 +2003,18 @@ describe('Command EVE runtime bootstrap core', () => {
     fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'hermes'), '#!/usr/bin/env bash\n');
     fs.chmodSync(path.join(paths.hermesVenv, 'bin', 'python'), 0o755);
     fs.chmodSync(path.join(paths.hermesVenv, 'bin', 'hermes'), 0o755);
+    const resourcesPath = path.join(harness.root, 'Resources');
+    const wheelPath = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
+    fs.mkdirSync(path.dirname(wheelPath), { recursive: true });
+    fs.writeFileSync(wheelPath, 'upgrade Hermes wheel\n');
 
     await withOllamaServer(async (baseUrl) => {
       const manifestPath = writeManifest(harness.root, baseUrl);
       const receipt = await ensureCommandEveRuntimeBootstrap({
         userDataPath: harness.root,
         manifestPath,
+        resourcesPath,
+        expectedHermesWheelSha256: sha256FileIfPresent(wheelPath),
         runner: harness.runner,
         detachedSpawner: () => {},
         statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),

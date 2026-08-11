@@ -253,7 +253,16 @@ export const assistants = {
 // ---------------------------------------------------------------------------
 
 const CONVERSATION_WARMUP_HTTP_TIMEOUT_MS = 45_000;
-const GROUNDED_SEND_HTTP_TIMEOUT_MS = 75_000;
+// Mirrors AionCore's server-authoritative prompt-admission budget: admission,
+// finalize claim, and terminal peer acknowledgement can each consume 30s. Keep an explicit
+// loopback/serialization margin beyond that worst case so the renderer never
+// aborts a grounded turn while Core is still legitimately admitting it.
+const AIONCORE_PROMPT_ADMISSION_PHASE_TIMEOUT_MS = 30_000;
+const AIONCORE_PROMPT_ADMISSION_PHASE_COUNT = 3;
+const GROUNDED_SEND_HTTP_TIMEOUT_MARGIN_MS = 30_000;
+const GROUNDED_SEND_HTTP_TIMEOUT_MS =
+  AIONCORE_PROMPT_ADMISSION_PHASE_TIMEOUT_MS * AIONCORE_PROMPT_ADMISSION_PHASE_COUNT +
+  GROUNDED_SEND_HTTP_TIMEOUT_MARGIN_MS;
 
 const directConversationWarmupProvider = httpPost<void, { conversation_id: string }>(
   (p) => `/api/conversations/${p.conversation_id}/warmup`

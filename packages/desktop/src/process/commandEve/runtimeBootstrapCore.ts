@@ -827,7 +827,7 @@ export type RuntimeBootstrapProvenance = {
     package: string;
     required_version: string;
     installed_version: string;
-    install_source: 'bundled_wheel' | 'package_index';
+    install_source: 'bundled_wheel';
     wheel_sha256?: string;
     wheel_expected_sha256?: string;
     wheel_sha256_verified?: boolean;
@@ -3572,11 +3572,16 @@ function resolveBundledHermesWheel(
   options: RuntimeBootstrapOptions
 ): string {
   const wheelName = hermesWheelFileName(manifest);
+  // A packaged app must prove the wheel inside its own Resources tree. Falling
+  // through to the developer checkout when that artifact is absent would let a
+  // broken package pass bootstrap with unrelated local bytes.
+  const runtimeWheel = options.resourcesPath
+    ? path.join(options.resourcesPath, BUNDLED_HERMES_DIR, wheelName)
+    : path.join(process.cwd(), 'resources', BUNDLED_HERMES_DIR, wheelName);
   const candidates = [
     compact(env.COMMAND_EVE_HERMES_WHEEL),
     ...(options.bundledHermesWheelCandidates || []),
-    options.resourcesPath ? path.join(options.resourcesPath, BUNDLED_HERMES_DIR, wheelName) : '',
-    path.join(process.cwd(), 'resources', BUNDLED_HERMES_DIR, wheelName),
+    runtimeWheel,
   ].filter(Boolean);
   return candidates.find((candidate) => fs.existsSync(candidate)) || '';
 }
@@ -3606,13 +3611,11 @@ export function resolveBundledWebWheelsDir(env: NodeJS.ProcessEnv, resourcesPath
   );
 }
 
-function buildHermesPackageSpec(manifest: RuntimeBootstrapManifest, wheelPath = ''): string {
-  const extras = hermesExtrasSpecifier(manifest);
-  if (wheelPath) return `${wheelPath}${extras}`;
-  // This is a fallback for developer environments. Release installers should
-  // ship a bundled Hermes wheel because hermes-agent is not guaranteed to be
-  // available from the public Python package index.
-  return `${manifest.hermes.package}${extras}==${manifest.hermes.version}`;
+function buildHermesPackageSpec(manifest: RuntimeBootstrapManifest, wheelPath: string): string {
+  if (!wheelPath) {
+    throw new Error('Command EVE requires the exact bundled Hermes wheel');
+  }
+  return `${wheelPath}${hermesExtrasSpecifier(manifest)}`;
 }
 
 function shellQuote(value: string): string {
@@ -4306,10 +4309,11 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '',
     '# Bind AionCore receipt creation to the first native Hermes execution seam.',
     '# Phase=accept proves Hermes consumed the exact prompt. Phase=commit releases',
-    '# a peer acknowledgement, and Hermes must answer with phase=finalize before',
-    '# AionCore may store the final receipt. The provider remains blocked until',
-    '# finalize returns. This three-phase ACP barrier avoids persist-before-peer-ack',
-    '# and model-before-persist races without switching tools or models.',
+    "# the provisional Core row and phase=finalize returns Core's acceptance.",
+    '# Hermes then sends phase=ack, causally proving it received that finalize',
+    '# response. The provider remains blocked until Core accepts this fourth phase.',
+    '# This ACP barrier avoids persist-before-peer-ack and model-before-persist',
+    '# races without switching tools or models.',
     'def _command_eve_prompt_text(prompt: Any) -> str:',
     '    if not isinstance(prompt, list):',
     '        return ""',
@@ -4454,6 +4458,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        command_eve_admission_phase("accept", 20)',
     '        command_eve_admission_phase("commit", 35)',
     '        command_eve_admission_phase("finalize", 60)',
+    '        command_eve_admission_phase("ack", 20)',
     '        if not _command_eve_verify_attachment_quarantine(self, session_id, admission):',
     '            raise RuntimeError("Command EVE attachment quarantine verification failed")',
     '        return original_run(self, *args, **kwargs)',
@@ -8973,28 +8978,40 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   }
 
   const bundledHermesWheel = resolveBundledHermesWheel(manifest, env, options);
-  const hermesSpec = buildHermesPackageSpec(manifest, bundledHermesWheel);
-  const hermesWheelSha256 = bundledHermesWheel ? sha256FileIfPresent(bundledHermesWheel) : undefined;
   const expectedHermesWheelSha256 =
     compact(options.expectedHermesWheelSha256) || COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256;
+  const hermesWheelSha256 = bundledHermesWheel ? sha256FileIfPresent(bundledHermesWheel) : undefined;
   const hermesWheelSha256Verified = Boolean(hermesWheelSha256 && hermesWheelSha256 === expectedHermesWheelSha256);
   runtimeProvenance.hermes = {
     package: manifest.hermes.package,
     required_version: manifest.hermes.version,
     installed_version: '',
-    install_source: bundledHermesWheel ? 'bundled_wheel' : 'package_index',
+    install_source: 'bundled_wheel',
     ...(bundledHermesWheel
       ? {
           wheel_sha256: hermesWheelSha256,
           wheel_expected_sha256: expectedHermesWheelSha256,
           wheel_sha256_verified: hermesWheelSha256Verified,
         }
-      : {}),
+      : {
+          wheel_expected_sha256: expectedHermesWheelSha256,
+          wheel_sha256_verified: false,
+        }),
     dependency_resolution: 'pypi_tls_on_first_boot',
     package_snapshot_status: 'pending',
     resolved_packages: [],
   };
-  if (bundledHermesWheel && !hermesWheelSha256Verified) {
+  if (!bundledHermesWheel) {
+    pushStage(
+      makeStage('hermes', 'failed', {
+        code: 'HERMES_BUNDLED_WHEEL_MISSING',
+        detail: 'The exact bundled Hermes wheel is missing; package-index fallback is prohibited.',
+      })
+    );
+    return finishReceipt();
+  }
+  const hermesSpec = buildHermesPackageSpec(manifest, bundledHermesWheel);
+  if (!hermesWheelSha256Verified) {
     pushStage(
       makeStage('hermes', 'failed', {
         code: 'HERMES_WHEEL_HASH_MISMATCH',
@@ -9011,11 +9028,10 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     ? readHermesWheelInstallReceipt(hermesWheelReceiptPath)
     : undefined;
   const installedHermesWheelMatches = Boolean(
-    !bundledHermesWheel ||
-    (hermesWheelInstallReceipt?.package_version === manifest.hermes.version &&
-      hermesWheelInstallReceipt.wheel_sha256 === hermesWheelSha256 &&
-      JSON.stringify([...hermesWheelInstallReceipt.extras].toSorted()) ===
-        JSON.stringify([...manifest.hermes.extras].toSorted()))
+    hermesWheelInstallReceipt?.package_version === manifest.hermes.version &&
+    hermesWheelInstallReceipt.wheel_sha256 === hermesWheelSha256 &&
+    JSON.stringify([...hermesWheelInstallReceipt.extras].toSorted()) ===
+      JSON.stringify([...manifest.hermes.extras].toSorted())
   );
   const hermesRuntimeMatches = hermesInstalled && hermesVersionMatches && installedHermesWheelMatches;
   if (runtimeProvenance.hermes && bundledHermesWheel) {

@@ -257,10 +257,10 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
             commandEvePromptAdmission=verified,
         )
         assert provider_calls == ["provider"]
-        assert [item["phase"] for item in observations[-3:]] == ["accept", "commit", "finalize"]
-        assert all(item["method"] == "command_eve/prompt_admission" for item in observations[-3:])
-        assert all(item["provider_calls_before_ack"] == 0 for item in observations[-3:])
-        assert all(item["session_id"] == "session-1" for item in observations[-3:])
+        assert [item["phase"] for item in observations[-4:]] == ["accept", "commit", "finalize", "ack"]
+        assert all(item["method"] == "command_eve/prompt_admission" for item in observations[-4:])
+        assert all(item["provider_calls_before_ack"] == 0 for item in observations[-4:])
+        assert all(item["session_id"] == "session-1" for item in observations[-4:])
         key = namespace["_command_eve_claim_quarantine_meta_key"]("session-1")
         verified_record = json.loads(db.get_meta(key))
         assert verified_record["status"] == "verified"
@@ -277,6 +277,22 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
             assert "admission accept rejected" in str(error)
         else:
             raise AssertionError("rejected admission reached the provider")
+        assert provider_calls == ["provider"]
+        active_record = json.loads(db.get_meta(key))
+        assert active_record["status"] == "active"
+        assert active_record["reason"] == "attachment_grounding_pending"
+
+        connection.reject_phase = "ack"
+        try:
+            await acp_agent.prompt(
+                [types.SimpleNamespace(text="must wait for peer ack")],
+                "session-1",
+                commandEvePromptAdmission=admission("request-ack-reject", "turn-ack-reject", "d" * 64),
+            )
+        except RuntimeError as error:
+            assert "admission ack rejected" in str(error)
+        else:
+            raise AssertionError("rejected peer acknowledgement reached the provider")
         assert provider_calls == ["provider"]
         active_record = json.loads(db.get_meta(key))
         assert active_record["status"] == "active"
@@ -431,7 +447,8 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
                 "exact_wheel_prompt_executed": True,
                 "exact_wheel_run_conversation_executed": True,
                 "fail_closed_patch_required": True,
-                "provider_blocked_until_peer_finalize": True,
+                "accept_commit_finalize_ack_ordered": True,
+                "provider_blocked_until_peer_ack": True,
                 "rejected_admission_blocks_provider": True,
                 "verified_attachment_record_typed": True,
                 "unverified_attachment_restart_quarantined": True,
