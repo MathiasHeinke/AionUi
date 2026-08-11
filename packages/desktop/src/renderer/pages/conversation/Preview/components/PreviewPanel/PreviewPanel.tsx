@@ -740,7 +740,17 @@ const PreviewPanel: React.FC = () => {
     } else if (content_type === 'url') {
       // URL 预览模式 / URL preview mode
       if (COMMAND_EVE_SHELL_ENABLED) return null;
-      return <URLViewer url={content} title={metadata?.title} tabId={activeTabId ?? undefined} />;
+      return (
+        <URLViewer
+          url={content}
+          title={metadata?.title}
+          tabId={activeTabId ?? undefined}
+          initialHistory={{
+            back: metadata?.browser_history_back ?? [],
+            forward: metadata?.browser_history_forward ?? [],
+          }}
+        />
+      );
     }
 
     return null;
@@ -838,7 +848,16 @@ const PreviewPanel: React.FC = () => {
                   style={{ display: isVisible ? 'flex' : 'none' }}
                   aria-hidden={!isVisible}
                 >
-                  <URLViewer url={tab.content} title={tab.metadata?.title} tabId={tab.id} />
+                  <URLViewer
+                    url={tab.content}
+                    title={tab.metadata?.title}
+                    tabId={tab.id}
+                    active={isVisible}
+                    initialHistory={{
+                      back: tab.metadata?.browser_history_back ?? [],
+                      forward: tab.metadata?.browser_history_forward ?? [],
+                    }}
+                  />
                 </div>
               );
             })}

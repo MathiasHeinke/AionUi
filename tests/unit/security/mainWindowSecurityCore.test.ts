@@ -47,12 +47,22 @@ describe('main window security boundary', () => {
   });
 
   it('keeps guest navigation inside its preview boundary', () => {
+    expect(isAllowedWebviewNavigation('', 'https://command-eve.com/workbench')).toBe(true);
+    expect(isAllowedWebviewNavigation('', 'file:///tmp/report.html')).toBe(false);
+    expect(isAllowedWebviewNavigation('about:blank', 'https://command-eve.com/workbench')).toBe(true);
+    expect(isAllowedWebviewNavigation('about:blank', 'http://127.0.0.1:4567/watch/index.html')).toBe(true);
+    expect(isAllowedWebviewNavigation('about:blank', 'file:///tmp/report.html')).toBe(false);
+    expect(isAllowedWebviewNavigation('about:blank', 'data:text/html,hello')).toBe(false);
+    expect(isAllowedWebviewNavigation('about:blank', 'blob:https://command-eve.com/1234')).toBe(false);
     expect(
       isAllowedWebviewNavigation('http://127.0.0.1:4567/watch/index.html', 'http://127.0.0.1:4567/watch/page-2')
     ).toBe(true);
     expect(isAllowedWebviewNavigation('http://127.0.0.1:4567/watch/index.html', 'http://127.0.0.1:9999/admin')).toBe(
       false
     );
+    expect(
+      isAllowedWebviewNavigation('http://127.0.0.1:4567/watch/index.html', 'blob:http://127.0.0.1:4567/browser-proof')
+    ).toBe(false);
     expect(isAllowedWebviewNavigation('file:///tmp/report.html', 'file:///tmp/other.html')).toBe(false);
     expect(isAllowedWebviewNavigation('data:text/html,hello', 'https://attacker.example/')).toBe(false);
     expect(isAllowedWebviewNavigation('file:///tmp/report.html', 'javascript:alert(1)')).toBe(false);

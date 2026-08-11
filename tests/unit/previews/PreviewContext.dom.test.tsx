@@ -11,6 +11,11 @@ import { PreviewProvider, usePreviewContext } from '@/renderer/pages/conversatio
 
 vi.mock('@/common', () => ({
   ipcBridge: {
+    application: {
+      getBrowserContext: { invoke: vi.fn(async () => ({ success: false })) },
+      browserContextChanged: { on: vi.fn(() => vi.fn()) },
+      saveBrowserWorkbenchState: { invoke: vi.fn(async () => ({ success: true })) },
+    },
     fileStream: {
       contentUpdate: { on: vi.fn(() => vi.fn()) },
     },

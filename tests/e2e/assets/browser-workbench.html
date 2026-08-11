@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Command EVE Browser Workbench Proof</title>
+    <style>
+      body {
+        min-height: 2200px;
+        margin: 0;
+        padding: 32px;
+        background: #f4f6f8;
+        color: #18202a;
+        font:
+          16px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 28px;
+        border: 1px solid #d6dce3;
+        border-radius: 18px;
+        background: white;
+        box-shadow: 0 14px 40px rgb(30 42 56 / 8%);
+      }
+      label,
+      input,
+      button {
+        display: block;
+      }
+      input {
+        box-sizing: border-box;
+        width: 100%;
+        margin: 8px 0 14px;
+        padding: 10px 12px;
+      }
+      button {
+        padding: 10px 16px;
+      }
+      #result {
+        min-height: 24px;
+        margin-top: 16px;
+        font-weight: 600;
+      }
+      .oauth-card {
+        display: none;
+      }
+      .oauth-card[data-active='true'] {
+        display: block;
+      }
+      .challenge {
+        margin-top: 20px;
+        padding: 16px;
+        border: 1px solid #d6dce3;
+        border-radius: 12px;
+      }
+      #scroll-marker {
+        margin-top: 1500px;
+        padding: 20px;
+        border-radius: 12px;
+        background: #e8f2ff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Browser Workbench E2E</h1>
+      <p id="proof-copy">Visible EVE CDP target ready.</p>
+      <label for="proof-input">Proof value</label>
+      <input id="proof-input" aria-label="Proof value" autocomplete="off" />
+      <button id="proof-button" type="button">Apply value</button>
+      <p id="result" aria-live="polite">Waiting</p>
+      <button id="establish-profile" type="button">Establish local login profile</button>
+      <p id="profile-status" aria-live="polite">profile:checking</p>
+      <p id="scroll-marker">Scroll marker reached.</p>
+      <section id="oauth-google" class="oauth-card" data-provider="google">
+        <h2>Local Google OAuth stub</h2>
+        <p id="oauth-copy">No real Google credentials are used.</p>
+        <button id="oauth-continue" type="button">Continue with Google</button>
+      </section>
+      <section id="oauth-consent" class="oauth-card">
+        <h2>Local OAuth consent</h2>
+        <p>Command EVE requests the stub profile scope.</p>
+        <button id="oauth-approve" type="button">Approve local OAuth</button>
+      </section>
+      <section id="oauth-challenge" class="oauth-card challenge">
+        <h2 id="challenge-title">User presence required</h2>
+        <div id="challenge-surface"></div>
+      </section>
+    </main>
+    <script>
+      document.getElementById('proof-button').addEventListener('click', () => {
+        const value = document.getElementById('proof-input').value;
+        document.getElementById('result').textContent = `Applied: ${value}`;
+      });
+
+      const profileName = new URLSearchParams(window.location.search).get('profile') || 'profile-a';
+      const openProfileDb = () =>
+        new Promise((resolve, reject) => {
+          const request = indexedDB.open('command-eve-profile', 1);
+          request.onupgradeneeded = () => request.result.createObjectStore('state');
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => resolve(request.result);
+        });
+      const readIndexedProfile = async () => {
+        const db = await openProfileDb();
+        return await new Promise((resolve) => {
+          const request = db.transaction('state').objectStore('state').get('profile');
+          request.onerror = () => resolve(null);
+          request.onsuccess = () => resolve(request.result || null);
+        });
+      };
+      const writeIndexedProfile = async (value) => {
+        const db = await openProfileDb();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction('state', 'readwrite');
+          tx.objectStore('state').put(value, 'profile');
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+        });
+      };
+      const updateProfileStatus = async () => {
+        const cookie = document.cookie.includes(`eve_profile=${profileName}`);
+        const local = localStorage.getItem('eve_profile') === profileName;
+        const indexed = (await readIndexedProfile()) === profileName;
+        const cached = await caches.match('/command-eve-profile-marker');
+        const cache = cached ? (await cached.text()) === profileName : false;
+        document.getElementById('profile-status').textContent =
+          `profile:${profileName};cookie=${cookie};localStorage=${local};indexedDB=${indexed};cache=${cache}`;
+      };
+      document.getElementById('establish-profile').addEventListener('click', async () => {
+        document.cookie = `eve_profile=${encodeURIComponent(profileName)}; Path=/; Max-Age=3600; SameSite=Lax`;
+        localStorage.setItem('eve_profile', profileName);
+        await writeIndexedProfile(profileName);
+        const cache = await caches.open('command-eve-profile');
+        await cache.put('/command-eve-profile-marker', new Response(profileName));
+        await updateProfileStatus();
+      });
+      void updateProfileStatus();
+
+      const route = window.location.pathname;
+      const query = new URLSearchParams(window.location.search);
+      const activate = (id) => document.getElementById(id).setAttribute('data-active', 'true');
+      if (route === '/oauth/google') {
+        activate('oauth-google');
+      } else if (route === '/oauth/consent') {
+        activate('oauth-consent');
+      } else if (route === '/oauth/challenge') {
+        activate('oauth-challenge');
+        const kind = query.get('kind') || 'mfa';
+        const surface = document.getElementById('challenge-surface');
+        if (kind === 'mfa') {
+          surface.innerHTML =
+            '<label for="oauth-mfa">Verification code</label><input id="oauth-mfa" name="verification-code" autocomplete="one-time-code" inputmode="numeric">';
+        } else if (kind === 'passkey') {
+          surface.innerHTML = '<button type="button" data-passkey="true">Use a passkey</button>';
+        } else if (kind === 'captcha') {
+          surface.innerHTML = '<div data-captcha="true">Verify you are human (local CAPTCHA stub)</div>';
+        } else {
+          surface.innerHTML = '<div data-risk-challenge="true">Unusual activity: verify it is you</div>';
+        }
+      }
+      document.getElementById('oauth-continue').addEventListener('click', () => {
+        window.location.assign('/oauth/consent?provider=google&state=opaque-local-state');
+      });
+      document.getElementById('oauth-approve').addEventListener('click', () => {
+        window.location.assign('/oauth/challenge?kind=mfa');
+      });
+    </script>
+  </body>
+</html>

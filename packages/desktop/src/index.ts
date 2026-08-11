@@ -37,6 +37,7 @@ import { initializeProcess } from './process';
 import { ProcessConfig } from './process/utils/initStorage';
 import { EVE_INFERENCE_FUNCTION_URL, resolveCommandEveWarmupLane } from './common/config/eveInferenceCore';
 import {
+  COMMAND_EVE_SHELL_ENABLED,
   COMMAND_EVE_BONSAI_ACP_MODEL_ID,
   COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
   COMMAND_EVE_COLIBRI_ACP_MODEL_ID,
@@ -87,6 +88,7 @@ import {
 import { shouldRestartWindowsBackendAfterRuntimeBootstrap } from './process/commandEve/windows/runtimeActivationCore';
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatContextRevision, getActiveSeatId } from './process/commandEve/seatContextCore';
+import { getCdpBridgeHandle } from './process/resources/builtinMcp/cdpBridgeRegistry';
 import { restoreActiveSeatFromPointer } from './process/commandEve/activeSeatPointerStore';
 import {
   readInferenceSelectionFromBackendStrict,
@@ -1756,6 +1758,10 @@ const createWindow = ({ showOnReady = true }: { showOnReady?: boolean } = {}): v
     if (!isAllowedWebviewSource(params.src)) event.preventDefault();
   });
   mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
+    const registration = getCdpBridgeHandle()?.registerGuest(guest);
+    if (registration?.ok === false) {
+      console.warn('[CommandEVE][BrowserControl] Refused guest registration:', registration.reason);
+    }
     const guardGuestNavigation = (event: Electron.Event, targetUrl: string): void => {
       if (isAllowedWebviewNavigation(guest.getURL(), targetUrl)) return;
       event.preventDefault();
@@ -1787,6 +1793,7 @@ const createWindow = ({ showOnReady = true }: { showOnReady?: boolean } = {}): v
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error('[CommandEVE] render-process-gone:', details);
+    getCdpBridgeHandle()?.detachActiveTarget('main renderer process exited');
 
     // Reload the renderer to recover from the crash.
     // The isDestroyed() guard in adapter/main.ts prevents further sends
@@ -1898,6 +1905,32 @@ const handleAppReady = async (): Promise<void> => {
     console.error('Failed to initialize process:', error);
     app.exit(1);
     return;
+  }
+
+  // Command EVE exposes exactly the visible workbench browser to Hermes. The
+  // bridge and account+seed context start before runtime provisioning/backend
+  // spawn so Hermes inherits the owner-only dynamic context-file path. Failure
+  // is fail-closed: no endpoint is exported.
+  if (COMMAND_EVE_SHELL_ENABLED && !isWebUIMode && !isResetPasswordMode) {
+    try {
+      const { startCdpBridge } = await import('./process/resources/builtinMcp/cdpBridge');
+      const { setCdpBridgeHandle } = await import('./process/resources/builtinMcp/cdpBridgeRegistry');
+      const { initializeBrowserWorkbenchContext } = await import('./process/commandEve/browserWorkbenchContextMain');
+      const browserBridge = await startCdpBridge();
+      setCdpBridgeHandle(browserBridge);
+      initializeBrowserWorkbenchContext(getDataPath());
+      process.env.AIONUI_CDP_ACTIVE_PORT = String(browserBridge.port);
+      app.once('will-quit', () => {
+        void browserBridge.close();
+        setCdpBridgeHandle(null);
+      });
+      mark(`browserWorkbenchBridge (port=${browserBridge.port})`);
+    } catch (error) {
+      delete process.env.BROWSER_CDP_URL;
+      delete process.env.COMMAND_EVE_BROWSER_CONTEXT_FILE;
+      delete process.env.AIONUI_CDP_ACTIVE_PORT;
+      console.error('[CommandEVE] Visible browser bridge failed; Hermes browser control stays disabled.', error);
+    }
   }
 
   try {

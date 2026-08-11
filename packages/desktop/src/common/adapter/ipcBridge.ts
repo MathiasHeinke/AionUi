@@ -14,6 +14,8 @@
 
 import type { IConfirmation } from '@/common/chat/chatLib';
 import type { EveMaxAuthorityReceipt } from '@/common/config/eveMaxAuthorityCore';
+import type { CommandEveBrowserWorkbenchState } from '@/common/config/browserWorkbenchStateCore';
+import type { BrowserControlLease, CommandEveBrowserControlContext } from '@/common/config/browserWorkbenchControlCore';
 import type { AcpSlashCommandApiItem } from '@/common/chat/slash/types';
 import { bridge } from '@office-ai/platform';
 import type { OpenDialogOptions, SaveDialogOptions } from 'electron';
@@ -930,6 +932,23 @@ export const application = {
   setZoomFactor: bridge.buildProvider<number, { factor: number }>('app.set-zoom-factor'),
   getCdpStatus: bridge.buildProvider<IBridgeResponse<ICdpStatus>, void>('app.get-cdp-status'),
   updateCdpConfig: bridge.buildProvider<IBridgeResponse<ICdpConfig>, Partial<ICdpConfig>>('app.update-cdp-config'),
+  getBrowserContext: bridge.buildProvider<IBridgeResponse<CommandEveBrowserControlContext>, void>(
+    'app.get-browser-context'
+  ),
+  saveBrowserWorkbenchState: bridge.buildProvider<
+    IBridgeResponse<CommandEveBrowserControlContext>,
+    { contextId: string; state: CommandEveBrowserWorkbenchState }
+  >('app.save-browser-workbench-state'),
+  revokeBrowserContext: bridge.buildProvider<IBridgeResponse<CommandEveBrowserControlContext>, void>(
+    'app.revoke-browser-context'
+  ),
+  reportBrowserWebContentsId: bridge.buildProvider<
+    IBridgeResponse<{ leaseId: string }>,
+    { webContentsId: number; contextId: string; controlEpoch: string }
+  >('app.report-browser-webcontents-id'),
+  releaseBrowserWebContentsLease: bridge.buildProvider<IBridgeResponse<void>, BrowserControlLease>(
+    'app.release-browser-webcontents-lease'
+  ),
   getStartOnBootStatus: bridge.buildProvider<IBridgeResponse<IStartOnBootStatus>, void>('app.get-start-on-boot-status'),
   setStartOnBoot: bridge.buildProvider<IBridgeResponse<IStartOnBootStatus>, { enabled: boolean }>(
     'app.set-start-on-boot'
@@ -943,6 +962,7 @@ export const application = {
     'app.log-stream'
   ),
   devToolsStateChanged: bridge.buildEmitter<{ isOpen: boolean }>('app.devtools-state-changed'),
+  browserContextChanged: bridge.buildEmitter<CommandEveBrowserControlContext>('app.browser-context-changed'),
 };
 
 // ---------------------------------------------------------------------------

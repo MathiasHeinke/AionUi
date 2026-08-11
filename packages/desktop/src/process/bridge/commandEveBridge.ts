@@ -294,6 +294,29 @@ function unwrapBridgeRequest<T>(request?: T | CommandEveBridgeEnvelope<T>): T | 
   return request as T | undefined;
 }
 
+async function refreshBrowserWorkbenchContextBestEffort(): Promise<void> {
+  try {
+    const { refreshBrowserWorkbenchContext } = await import('@process/commandEve/browserWorkbenchContextMain');
+    const descriptor = refreshBrowserWorkbenchContext();
+    const { application: applicationIpc } = await import('@/common/adapter/ipcBridge');
+    applicationIpc.browserContextChanged.emit(descriptor);
+  } catch (error) {
+    console.warn('[Command EVE] Browser context refresh failed closed:', error);
+  }
+}
+
+async function revokeBrowserWorkbenchContextBestEffort(): Promise<Error | null> {
+  try {
+    const { revokeActiveBrowserWorkbenchContext } = await import('@process/commandEve/browserWorkbenchContextMain');
+    await revokeActiveBrowserWorkbenchContext();
+    return null;
+  } catch (error) {
+    const normalized = error instanceof Error ? error : new Error(String(error));
+    console.warn('[Command EVE] Browser context revoke failed closed:', normalized);
+    return normalized;
+  }
+}
+
 async function syncRegistrationIdentityArtifactsBestEffort(userDataPath: string): Promise<void> {
   try {
     const result = await syncCommandEveRegistrationIdentityArtifacts(userDataPath);
@@ -1455,6 +1478,7 @@ export function initCommandEveBridge(): void {
         } catch (error) {
           console.warn('[Command EVE] seed→brain brief entry upsert failed (seed itself succeeded):', error);
         }
+        await refreshBrowserWorkbenchContextBestEffort();
       }
       return { success: result.ok, data: result as unknown };
     } catch (error) {
@@ -3656,6 +3680,7 @@ export function initCommandEveBridge(): void {
       // works on next launch.
       const { storeAccountSession } = await import('@process/commandEve/accountSessionAtRest');
       storeAccountSession(userDataPath, session);
+      await refreshBrowserWorkbenchContextBestEffort();
 
       const result = await activateEntitlementFromSession(userDataPath, session, {
         storeLicenseWire: (p, wire) => {
@@ -3714,6 +3739,7 @@ export function initCommandEveBridge(): void {
           }
         },
       });
+      await refreshBrowserWorkbenchContextBestEffort();
       if (readRegistration(userDataPath)) await syncRegistrationIdentityArtifactsBestEffort(userDataPath);
 
       return {
@@ -3775,6 +3801,7 @@ export function initCommandEveBridge(): void {
         const session = grant.session;
         const { storeAccountSession } = await import('@process/commandEve/accountSessionAtRest');
         storeAccountSession(userDataPath, session);
+        await refreshBrowserWorkbenchContextBestEffort();
 
         const result = await activateEntitlementFromSession(userDataPath, session, {
           storeLicenseWire: (p, wire) => {
@@ -3821,7 +3848,10 @@ export function initCommandEveBridge(): void {
   bridge.buildProvider('command-eve.auth-logout').provider(async () => {
     const version = 'command-eve-account-auth/v0' as const;
     try {
+      const browserCleanupError = await revokeBrowserWorkbenchContextBestEffort();
       await revokeAndClearSession(getDataPath());
+      await refreshBrowserWorkbenchContextBestEffort();
+      if (browserCleanupError) throw browserCleanupError;
       return { success: true, data: { version, ok: true } };
     } catch (error) {
       // Even on error the local session file is best-effort cleared inside
@@ -3947,10 +3977,24 @@ export function initCommandEveBridge(): void {
   // returns tokens; never throws the chrome.
   bridge.buildProvider('command-eve.entitlement-reset').provider(async () => {
     try {
+      const browserCleanupError = await revokeBrowserWorkbenchContextBestEffort();
       const result = await resetEntitlement(getDataPath(), {
         clearLicenseWire,
         revokeAndClearSession,
       });
+      await refreshBrowserWorkbenchContextBestEffort();
+      if (browserCleanupError) {
+        return {
+          success: false,
+          msg: browserCleanupError.message,
+          data: {
+            ...result,
+            ok: false,
+            reason_code: 'BROWSER_CONTEXT_CLEANUP_FAILED',
+            message: browserCleanupError.message,
+          },
+        };
+      }
       return {
         success: result.ok,
         msg: result.ok ? undefined : result.reason_code || result.message,
@@ -4427,6 +4471,8 @@ export function initCommandEveBridge(): void {
         targetLabel,
         targetKind
       );
+
+      await refreshBrowserWorkbenchContextBestEffort();
 
       return {
         success: result.ok,

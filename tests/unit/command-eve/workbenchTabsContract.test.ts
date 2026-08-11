@@ -178,6 +178,7 @@ describe('Command EVE workbench tab contract', () => {
   it('keeps one canonical chat surface beside the selected work surface', () => {
     const context = read('packages/desktop/src/renderer/pages/conversation/Preview/context/PreviewContext.tsx');
     const workbench = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.tsx');
+    const workbenchCss = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.module.css');
     const layoutControls = read('packages/desktop/src/renderer/components/layout/Titlebar/WorkbenchLayoutControls.tsx');
     const chatLayout = read('packages/desktop/src/renderer/pages/conversation/components/ChatLayout/index.tsx');
     const chatLayoutCss = read(
@@ -218,12 +219,18 @@ describe('Command EVE workbench tab contract', () => {
     expect(webviewHost).toContain(
       "style={{ display: 'block', flex: '1 1 auto', width: '100%', minWidth: 0, maxWidth: 'none' }}"
     );
+    expect(webviewHost).toContain("webview.addEventListener('did-attach', signalReady)");
+    expect(webviewHost).toContain("webview.addEventListener('dom-ready', signalReady)");
+    expect(webviewHost).toContain("webview.addEventListener('destroyed', signalLost)");
+    expect(webviewHost).toContain("webview.addEventListener('render-process-gone', signalLost)");
+    expect(webviewHost).toContain('announcer.dispose()');
+    expect(webviewHost).toContain('}, [active, browserContextId, browserControlEpoch, previewReaderId]);');
     expect(workbench).toContain("data-testid='eve-workbench-dock-overlay'");
+    expect(workbenchCss).toMatch(/\.dockOverlay\s*\{[^}]*pointer-events:\s*auto;/s);
     expect(workbench).toContain('onMouseDown={(event) => beginTabDock(event, tab.id)}');
     expect(workbench).not.toContain('onPointerDown={(event) => beginTabDock(event, tab.id)}');
     expect(workbench).not.toContain('application/x-command-eve-workbench-tab');
     expect(workbench).not.toContain('draggable=');
-    const workbenchCss = read('packages/desktop/src/renderer/components/layout/Titlebar/ShellWorkbenchTabs.module.css');
     expect(workbenchCss).toMatch(
       /\.root\[data-launcher-only='true'\]\s*\{[^}]*container-type:\s*normal;[^}]*flex:\s*0 0 32px;[^}]*width:\s*32px;/s
     );

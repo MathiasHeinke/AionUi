@@ -8,6 +8,13 @@ export type CdpStartupPolicyInput = {
 // platform services can detect e2e-packaged builds without importing @process.
 export { COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER } from '@/common/platform/userDataPath';
 
+/**
+ * Internal proof recomputed during the earliest main-process bootstrap. It is
+ * deliberately distinct from the operator-controlled attachment request: an
+ * inherited value is deleted before the four packaged-QA gates are evaluated.
+ */
+export const COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED_ENV = 'COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED';
+
 type PackagedE2EAttachmentPolicyInput = {
   isPackaged: boolean;
   e2eTest: boolean;
@@ -17,6 +24,16 @@ type PackagedE2EAttachmentPolicyInput = {
 
 export function shouldAllowNonDistributableE2EAttachment(input: PackagedE2EAttachmentPolicyInput): boolean {
   return input.isPackaged && input.e2eTest && input.attachmentRequested && input.packageMarkerPresent;
+}
+
+export function synchronizeNonDistributableE2EAttachmentProof(
+  env: NodeJS.ProcessEnv,
+  allowNonDistributableE2EAttachment: boolean
+): void {
+  delete env[COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED_ENV];
+  if (allowNonDistributableE2EAttachment) {
+    env[COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED_ENV] = '1';
+  }
 }
 
 const PACKAGED_CDP_SWITCHES = [

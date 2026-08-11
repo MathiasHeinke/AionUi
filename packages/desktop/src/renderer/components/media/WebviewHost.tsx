@@ -8,7 +8,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Left, Right, Refresh, Loading } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import { ipcBridge } from '@/common';
 import { registerPreviewPageReader } from '@/renderer/pages/conversation/Preview/services/previewReader';
+import type { CommandEveBrowserHistoryState } from '@/common/config/browserWorkbenchStateCore';
+import { createBrowserControlAnnouncer } from './browserControlAnnouncerCore';
 
 export interface WebviewHostProps {
   /** URL to display */
@@ -31,6 +34,14 @@ export interface WebviewHostProps {
   toolbarActions?: React.ReactNode;
   /** Workbench tab id used by the bounded Hermes read_preview bridge. */
   previewReaderId?: string;
+  /** Whether this is the selected visible browser tab. */
+  active?: boolean;
+  /** Opaque MAIN-issued account+seed context identity. */
+  browserContextId?: string;
+  /** Non-secret MAIN epoch rotated on every account+seed context activation. */
+  browserControlEpoch?: string;
+  initialHistory?: CommandEveBrowserHistoryState;
+  onNavigationStateChange?: (url: string, history: CommandEveBrowserHistoryState) => void;
 }
 
 const MIN_ZOOM_FACTOR = 0.75;
@@ -58,6 +69,11 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
   onDidFailLoad,
   toolbarActions,
   previewReaderId,
+  active = true,
+  browserContextId,
+  browserControlEpoch,
+  initialHistory,
+  onNavigationStateChange,
 }) => {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -71,12 +87,23 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [zoomFactor, setZoomFactor] = useState(1);
   const [webviewReady, setWebviewReady] = useState(false);
+  const currentUrlRef = useRef(url);
 
   // Self-managed history stacks
-  const historyBackRef = useRef<string[]>([]);
-  const historyForwardRef = useRef<string[]>([]);
-  const [canGoBack, setCanGoBack] = useState(false);
-  const [canGoForward, setCanGoForward] = useState(false);
+  const historyBackRef = useRef<string[]>([...(initialHistory?.back ?? [])]);
+  const historyForwardRef = useRef<string[]>([...(initialHistory?.forward ?? [])]);
+  const [canGoBack, setCanGoBack] = useState(historyBackRef.current.length > 0);
+  const [canGoForward, setCanGoForward] = useState(historyForwardRef.current.length > 0);
+
+  const publishNavigationState = useCallback(
+    (nextUrl: string) => {
+      onNavigationStateChange?.(nextUrl, {
+        back: [...historyBackRef.current],
+        forward: [...historyForwardRef.current],
+      });
+    },
+    [onNavigationStateChange]
+  );
 
   const isStarOfficeUrl = useCallback((targetUrl: string): boolean => {
     try {
@@ -94,17 +121,19 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
 
   // Reset when props.url changes
   useEffect(() => {
-    historyBackRef.current = [];
-    historyForwardRef.current = [];
-    setCanGoBack(false);
-    setCanGoForward(false);
+    if (url === currentUrlRef.current) return;
+    historyBackRef.current = [...(initialHistory?.back ?? [])];
+    historyForwardRef.current = [...(initialHistory?.forward ?? [])];
+    setCanGoBack(historyBackRef.current.length > 0);
+    setCanGoForward(historyForwardRef.current.length > 0);
+    currentUrlRef.current = url;
     setCurrentUrl(url);
     setInputUrl(inputValueForUrl(url));
     setIsLoading(true);
     setZoomFactor(1);
     setWebviewReady(false);
     autoFitPendingRef.current = isStarOfficeUrl(url);
-  }, [url]);
+  }, [browserContextId, browserControlEpoch, initialHistory?.back, initialHistory?.forward, isStarOfficeUrl, url]);
 
   useEffect(() => {
     const webviewEl = webviewRef.current as any;
@@ -130,6 +159,51 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
     });
   }, [previewReaderId]);
 
+  useEffect(() => {
+    const webview = webviewRef.current;
+    if (!previewReaderId || !browserContextId || !browserControlEpoch || !active || !webview) return undefined;
+
+    const announcer = createBrowserControlAnnouncer({
+      contextId: browserContextId,
+      controlEpoch: browserControlEpoch,
+      getWebContentsId: () => webview.getWebContentsId(),
+      report: async (webContentsId) => {
+        const result = await ipcBridge.application.reportBrowserWebContentsId.invoke({
+          webContentsId,
+          contextId: browserContextId,
+          controlEpoch: browserControlEpoch,
+        });
+        if (!result.success || !result.data?.leaseId) return { ok: false, reason: 'main-ack-refused' };
+        return { ok: true, leaseId: result.data.leaseId };
+      },
+      release: async (lease) => {
+        const result = await ipcBridge.application.releaseBrowserWebContentsLease.invoke(lease);
+        if (!result.success) throw new Error('MAIN refused the browser control lease release.');
+      },
+      onUnavailable: () => {
+        console.warn('[browser] Hermes control unavailable after bounded attach retries.');
+      },
+    });
+    const signalReady = () => announcer.signalReady();
+    const signalLost = () => announcer.signalLost();
+
+    // did-attach covers guest creation; dom-ready covers the registry/debugger
+    // readiness window. Loss events release only the ACKed exact lease and wait
+    // for a future attach instead of polling a dead guest.
+    webview.addEventListener('did-attach', signalReady);
+    webview.addEventListener('dom-ready', signalReady);
+    webview.addEventListener('destroyed', signalLost);
+    webview.addEventListener('render-process-gone', signalLost);
+    announcer.start();
+    return () => {
+      webview.removeEventListener('did-attach', signalReady);
+      webview.removeEventListener('dom-ready', signalReady);
+      webview.removeEventListener('destroyed', signalLost);
+      webview.removeEventListener('render-process-gone', signalLost);
+      announcer.dispose();
+    };
+  }, [active, browserContextId, browserControlEpoch, previewReaderId]);
+
   // Navigate to new URL (add to history)
   const navigateToWithHistory = useCallback(
     (targetUrl: string) => {
@@ -142,14 +216,16 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
       }
       historyForwardRef.current = [];
 
+      currentUrlRef.current = targetUrl;
       setCurrentUrl(targetUrl);
       setInputUrl(inputValueForUrl(targetUrl));
       setCanGoBack(historyBackRef.current.length > 0);
       setCanGoForward(false);
+      publishNavigationState(targetUrl);
 
       webviewEl.src = targetUrl;
     },
-    [currentUrl]
+    [currentUrl, publishNavigationState]
   );
 
   // Webview event listeners
@@ -243,8 +319,10 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
     const handleDidNavigate = (event: Event & { url?: string }) => {
       const newUrl = (event as any).url;
       if (newUrl && newUrl !== currentUrl) {
+        currentUrlRef.current = newUrl;
         setCurrentUrl(newUrl);
         setInputUrl(inputValueForUrl(newUrl));
+        publishNavigationState(newUrl);
       }
     };
 
@@ -373,7 +451,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
       webviewEl.removeEventListener('did-finish-load', handleDidFinishLoad);
       webviewEl.removeEventListener('did-fail-load', handleDidFailLoad as EventListener);
     };
-  }, [navigateToWithHistory, currentUrl, onDidFinishLoad, onDidFailLoad, isStarOfficeUrl]);
+  }, [navigateToWithHistory, currentUrl, onDidFinishLoad, onDidFailLoad, isStarOfficeUrl, publishNavigationState]);
 
   // Resize observer for content area
   useEffect(() => {
@@ -451,10 +529,12 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
     historyForwardRef.current.push(currentUrl);
     setCanGoBack(historyBackRef.current.length > 0);
     setCanGoForward(true);
+    currentUrlRef.current = prevUrl;
     setCurrentUrl(prevUrl);
     setInputUrl(inputValueForUrl(prevUrl));
+    publishNavigationState(prevUrl);
     if (webviewRef.current) webviewRef.current.src = prevUrl;
-  }, [currentUrl]);
+  }, [currentUrl, publishNavigationState]);
 
   // Forward
   const handleGoForward = useCallback(() => {
@@ -463,10 +543,12 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
     historyBackRef.current.push(currentUrl);
     setCanGoBack(true);
     setCanGoForward(historyForwardRef.current.length > 0);
+    currentUrlRef.current = nextUrl;
     setCurrentUrl(nextUrl);
     setInputUrl(inputValueForUrl(nextUrl));
+    publishNavigationState(nextUrl);
     if (webviewRef.current) webviewRef.current.src = nextUrl;
-  }, [currentUrl]);
+  }, [currentUrl, publishNavigationState]);
 
   // Refresh
   const handleRefresh = useCallback(() => {
