@@ -5,10 +5,12 @@
  */
 
 import { ipcBridge } from '@/common';
-import type { ICommandEveGateAction, ICommandEveGateDecision } from '@/common/adapter/ipcBridge';
 import {
   isHttpUrl,
+  TYPED_UI_ACTION_AUTHORIZATION_VERSION,
   TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
+  type TypedUIActionAuthorizeRequest,
+  type TypedUIActionFinalizeRequest,
   type TypedUIActionReceipt,
   type TypedUIActionType,
   type TypedUIArtifactKind,
@@ -28,8 +30,8 @@ export interface TypedUIActionAvailability {
 
 export interface TypedUIActionHost {
   attestProvenance(envelope: TypedUIEnvelope): Promise<TypedUIProvenanceAttestation>;
-  evaluateAuthority(action: ICommandEveGateAction): Promise<ICommandEveGateDecision>;
-  recordReceipt(receipt: TypedUIActionReceipt): Promise<{ receipt_id: string }>;
+  authorizeAction(request: TypedUIActionAuthorizeRequest): Promise<TypedUIActionReceipt>;
+  finalizeAction(request: TypedUIActionFinalizeRequest): Promise<TypedUIActionReceipt>;
   getActionAvailability(action: TypedUIActionType, params: Record<string, unknown>): TypedUIActionAvailability;
   openArtifact(kind: TypedUIArtifactKind, artifactId: string): Promise<void> | void;
   openUrl(url: string): Promise<void> | void;
@@ -49,6 +51,19 @@ export interface TypedUIActionHandlersOptions {
   store: StateStore;
   host: TypedUIActionHost;
   onReceipt(receipt: TypedUIActionReceipt): void;
+}
+
+export async function finalizeTypedUIActionWithRetry(
+  host: TypedUIActionHost,
+  request: TypedUIActionFinalizeRequest
+): Promise<TypedUIActionReceipt> {
+  try {
+    return await host.finalizeAction(request);
+  } catch {
+    // Finalize is idempotent in Main. Retrying the exact same outcome closes a
+    // lost-response window without authorizing or repeating the host effect.
+    return host.finalizeAction(request);
+  }
 }
 
 function readActionId(params: Record<string, unknown>): string {
@@ -95,41 +110,25 @@ function buildStateReply(store: StateStore, params: Record<string, unknown>): st
   return [message, bounded].filter(Boolean).join('\n\n');
 }
 
-function receipt(
+function authorizeRequest(
   options: TypedUIActionHandlersOptions,
   actionId: string,
   actionType: TypedUIActionType,
-  status: TypedUIActionReceipt['status'],
-  authority: ICommandEveGateDecision,
-  reason?: string,
-  intentReceiptId?: string
-): TypedUIActionReceipt {
+  params: TypedUIActionAuthorizeRequest['params']
+): TypedUIActionAuthorizeRequest {
   return {
-    version: 'command-eve.typed-ui-action-receipt/v1',
+    version: TYPED_UI_ACTION_AUTHORIZATION_VERSION,
+    phase: 'authorize',
     request_id: options.envelope.provenance.request_id,
     artifact_id: options.receiptContext.artifactId,
     conversation_id: options.receiptContext.conversationId,
     attestation_id: options.attestation.attestation_id,
     content_sha256: options.attestation.content_sha256,
     source_message_id: options.receiptContext.sourceMessageId,
-    ...(intentReceiptId ? { intent_receipt_id: intentReceiptId } : {}),
     action_id: actionId,
     action_type: actionType,
-    status,
-    decided_at: authority.decided_at,
-    authority,
-    ...(reason ? { reason } : {}),
+    params,
   };
-}
-
-async function publishReceipt(
-  options: TypedUIActionHandlersOptions,
-  value: TypedUIActionReceipt
-): Promise<TypedUIActionReceipt> {
-  const persisted = await options.host.recordReceipt(value);
-  const result = { ...value, receipt_id: persisted.receipt_id };
-  options.onReceipt(result);
-  return result;
 }
 
 async function executeAllowedAction(
@@ -155,34 +154,18 @@ async function executeAllowedAction(
   const availability = options.host.getActionAvailability(actionType, cleanParams);
   if (!availability.available) throw new Error(availability.reason || 'Typed UI action is unavailable.');
 
-  if (actionType === 'request_approval') {
-    const gateAction = readString(cleanParams, 'gate_action') as ICommandEveGateAction | undefined;
-    if (!gateAction) throw new Error('Approval request is missing its gate action.');
-    const authority = await options.host.evaluateAuthority(gateAction);
-    await publishReceipt(
-      options,
-      receipt(
-        options,
-        actionId,
-        actionType,
-        authority.allowed ? 'approval_recorded' : 'blocked',
-        authority,
-        authority.reason
-      )
-    );
+  // Main revalidates the attested action binding, evaluates the live EVE
+  // authority mode and durably claims the intent before any host/state effect.
+  const authorization = await options.host.authorizeAction(
+    authorizeRequest(options, actionId, actionType, declared.params)
+  );
+  if (authorization.status !== 'authorized') {
+    options.onReceipt(authorization);
     return;
   }
-
-  const authority = await options.host.evaluateAuthority('truth_gate');
-  if (!authority.allowed) {
-    await publishReceipt(options, receipt(options, actionId, actionType, 'blocked', authority, authority.reason));
-    return;
+  if (!authorization.receipt_id || !authorization.intent_claim_id) {
+    throw new Error('Typed UI authorization did not return a durable intent identity.');
   }
-
-  // Authority + immutable provenance are durably recorded before any shell,
-  // renderer-state or lifecycle side effect.
-  const intent = receipt(options, actionId, actionType, 'authorized', authority);
-  const persistedIntent = await options.host.recordReceipt(intent);
 
   try {
     if (actionType === 'reply_with_state') {
@@ -201,27 +184,35 @@ async function executeAllowedAction(
       if (!statePath) throw new Error('State path is missing.');
       options.store.set(statePath, cleanParams.value);
     }
-    await publishReceipt(
-      options,
-      receipt(options, actionId, actionType, 'completed', authority, undefined, persistedIntent.receipt_id)
-    );
   } catch (error) {
-    const failed = receipt(
-      options,
-      actionId,
-      actionType,
-      'failed',
-      authority,
-      'Host action or receipt persistence failed.',
-      persistedIntent.receipt_id
-    );
     try {
-      await publishReceipt(options, failed);
-    } catch {
+      const failed = await finalizeTypedUIActionWithRetry(options.host, {
+        version: TYPED_UI_ACTION_AUTHORIZATION_VERSION,
+        phase: 'finalize',
+        intent_receipt_id: authorization.receipt_id,
+        intent_claim_id: authorization.intent_claim_id,
+        outcome: 'failed',
+        reason: 'Host action or receipt persistence failed.',
+      });
       options.onReceipt(failed);
+    } catch {
+      // The Main intent remains fail-closed and outstanding if no terminal
+      // record could be persisted. Never synthesize a renderer-only receipt.
     }
     throw error;
   }
+
+  // Once the host effect succeeded, never rewrite it as failed merely because
+  // completion persistence is temporarily unavailable. Main keeps the claim
+  // outstanding, so the same effect cannot be authorized twice.
+  const completed = await finalizeTypedUIActionWithRetry(options.host, {
+    version: TYPED_UI_ACTION_AUTHORIZATION_VERSION,
+    phase: 'finalize',
+    intent_receipt_id: authorization.receipt_id,
+    intent_claim_id: authorization.intent_claim_id,
+    outcome: 'completed',
+  });
+  options.onReceipt(completed);
 }
 
 export function createTypedUIActionHandlers(
@@ -277,17 +268,19 @@ export function createDefaultTypedUIActionHost(options: {
       }
       return { available: true };
     },
-    async evaluateAuthority(action) {
-      const response = await ipcBridge.commandEve.evaluateGateDecision.invoke({ action });
-      if (!response?.success || !response.data) throw new Error(response?.msg || 'EVE-MAIN authority is unavailable.');
+    async authorizeAction(request) {
+      const response = await ipcBridge.commandEve.typedUIActionReceipt.invoke({ request });
+      if (!response?.success || !response.data) {
+        throw new Error(response?.msg || 'Typed UI authorization is unavailable.');
+      }
       return response.data;
     },
-    async recordReceipt(value) {
-      const response = await ipcBridge.commandEve.typedUIActionReceipt.invoke({ receipt: value });
+    async finalizeAction(request) {
+      const response = await ipcBridge.commandEve.typedUIActionReceipt.invoke({ request });
       if (!response?.success || !response.data) {
-        throw new Error(response?.msg || 'Typed UI receipt persistence is unavailable.');
+        throw new Error(response?.msg || 'Typed UI receipt finalization is unavailable.');
       }
-      return { receipt_id: response.data.receipt_id };
+      return response.data;
     },
     openArtifact(kind, artifactId) {
       if (!options.openArtifact) throw new Error('Artifact resolution is unavailable in this host surface.');

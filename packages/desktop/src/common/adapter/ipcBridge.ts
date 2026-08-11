@@ -2117,8 +2117,8 @@ export const commandEve = {
     { action: ICommandEveGateAction }
   >('command-eve.evaluate-gate-decision'),
   typedUIActionReceipt: bridge.buildProvider<
-    IBridgeResponse<{ receipt_id: string; recorded_at: string }>,
-    { receipt: import('../typedUI').TypedUIActionReceipt }
+    IBridgeResponse<import('../typedUI').TypedUIActionReceipt & { receipt_id: string; recorded_at: string }>,
+    { request: import('../typedUI').TypedUIActionReceiptRequest }
   >('command-eve.typed-ui-action-receipt'),
   typedUIProvenanceAttestation: bridge.buildProvider<
     IBridgeResponse<import('../typedUI').TypedUIProvenanceAttestation>,

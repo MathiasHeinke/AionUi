@@ -25,7 +25,9 @@ The candidate is intentionally not a Phase 2 PASS:
 The renderer sends only:
 
 - the already validated envelope;
-- an opaque host artifact reference containing artifact ID, conversation ID, source message ID, creation time, seat ID, and seat-context revision.
+- an opaque host artifact reference containing artifact ID, conversation ID, source message ID, and creation time.
+
+Main supplies the active seat ID and seat-context revision from its own live process state; neither value is accepted from the renderer.
 
 It cannot submit provider evidence, model evidence, a route receipt, or a claimed attestation result. The Main provider loads a trusted generation receipt from its private ledger and verifies exact hashes for:
 
@@ -37,7 +39,7 @@ It cannot submit provider evidence, model evidence, a route receipt, or a claime
 
 The returned attestation contains only opaque IDs, timestamps, and hashes. Raw provider, model, base URL, route, or route-receipt data is neither returned nor displayed. The UI presents only the localized host assertion that generation was verified by Command EVE.
 
-Attestations are revalidated when an action receipt is written. Content, artifact, conversation, attestation, seat, and revision therefore remain correlated at action time instead of being a render-only check.
+Attestations are revalidated when Main authorizes and finalizes an action. Content, artifact, conversation, source message, request, attestation, seat, revision, action ID/type, and canonical parameter hash therefore remain correlated at action time instead of being a render-only check. The private attestation ledger stores only per-action binding hashes and an action-set hash, never raw action parameters.
 
 ### Producer API
 
@@ -102,18 +104,23 @@ The only admissible future implementation is an adapter over the reviewed Hermes
 
 ## Threat-model delta
 
-| Threat                                      | Control                                                              | Failure mode                              |
-| ------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------- |
-| Renderer forges provider/model/receipt      | evidence loads only from Main-owned completion/generation ledgers    | reject attestation                        |
-| Completion reused across artifacts          | opaque completion ID is single-use at durable-artifact join          | reject generation receipt                 |
-| Artifact replay after AST mutation          | content hash rechecked at action time                                | reject receipt                            |
-| Cross-seat or stale-revision replay         | seat and revision hashes are immutable and rechecked                 | reject attestation/receipt                |
-| Raw provider details leak to user           | attestation returns hashes/opaque IDs only                           | generic verified/rejected copy            |
-| Cross-conversation artifact open            | current conversation is host-bound                                   | resolver miss                             |
-| Credential URL or path capability smuggling | strict URL parser and host-resolved file capability                  | resolver miss                             |
-| Duplicate resolver ambiguity                | equal-priority duplicate matches are rejected                        | resolver miss                             |
-| Lifecycle mock success                      | runtime binding stripped; Main receipt type rejected                 | disabled control, no side effect          |
-| Authority after state mutation              | authorized intent receipt precedes every existing action side effect | no mutation on denial/persistence failure |
+| Threat                                      | Control                                                                                 | Failure mode                              |
+| ------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Renderer forges provider/model/receipt      | evidence loads only from Main-owned completion/generation ledgers                       | reject attestation                        |
+| Completion reused across artifacts          | opaque completion ID is single-use at durable-artifact join                             | reject generation receipt                 |
+| Artifact replay after AST mutation          | content hash rechecked at action time                                                   | reject receipt                            |
+| Cross-seat or stale-revision replay         | seat and revision hashes are immutable and rechecked                                    | reject attestation/receipt                |
+| Source-message substitution                 | source ID is part of the v2 attestation ID and rechecked on authorize/finalize          | reject authorization                      |
+| Undeclared action or parameter substitution | private action-binding hashes are sealed into the attestation ID                        | reject authorization                      |
+| Duplicate in-flight action                  | fsynced 0600 claim plus fsynced ledger guard per attestation/source/action binding      | reject as `intent_outstanding`            |
+| Restart between claim and ledger            | orphan/partial marker is removed only when no durable authorized record exists          | reconcile before any new authority        |
+| Lost completion response                    | finalize is idempotent and retries only the identical terminal outcome                  | return the durable terminal receipt       |
+| Raw provider details leak to user           | attestation returns hashes/opaque IDs only                                              | generic verified/rejected copy            |
+| Cross-conversation artifact open            | current conversation is host-bound                                                      | resolver miss                             |
+| Credential URL or path capability smuggling | strict URL parser and host-resolved file capability                                     | resolver miss                             |
+| Duplicate resolver ambiguity                | equal-priority duplicate matches are rejected                                           | resolver miss                             |
+| Lifecycle mock success                      | runtime binding stripped; Main receipt type rejected                                    | disabled control, no side effect          |
+| Authority after state mutation              | Main-owned authorization and exclusive intent precede every existing action side effect | no mutation on denial/persistence failure |
 
 The original JSON AST depth, size, node-count, action-count, prototype-key, JSON-pointer, event/action compatibility, streaming-finality, HTML separation, and HTTP(S)-only action controls remain in force.
 
@@ -122,7 +129,7 @@ The original JSON AST depth, size, node-count, action-count, prototype-key, JSON
 1. A trusted Main generation route appends one immutable generation receipt after final bytes and host artifact correlation exist.
 2. `commandEve.typedUIProvenanceAttestation` resolves that receipt and returns only a verified or rejected attestation.
 3. `TypedUIRenderer` renders no registry component until verification succeeds.
-4. Every action uses the existing `commandEve.evaluateGateDecision` authority broker, persists an authorized intent, performs the bounded host side effect, then persists one terminal receipt correlated to the active attestation.
+4. `commandEve.typedUIActionReceipt` exposes a strict `authorize | finalize` union. On `authorize`, Main transiently validates the exact parameters against its private attested binding, reads the current ProcessConfig execution mode, invokes the existing EVE gate evaluator, fsyncs an exclusive intent claim and authorized ledger record, and only then returns. Raw parameters are discarded. On `finalize`, the renderer sends only the opaque intent-receipt and claim IDs plus `completed | failed`; Main reconstructs and revalidates every correlation field before writing one terminal receipt. Repeating the identical finalize request returns the existing terminal record; a different outcome is rejected. A successful host effect is never rewritten as failed because completion persistence was unavailable.
 5. `open_artifact` calls the global Workbench resolver with exact kind and ID; it never interprets model-supplied paths or callbacks.
 6. Lifecycle controls remain unavailable until a reviewed Main capability handshake exposes the canonical transport. No renderer-injected adapter is accepted.
 
@@ -148,7 +155,7 @@ AIONUI_BACKEND_BINARY="/Applications/Command EVE.app/Contents/Resources/bundled-
 
 Focused evidence at candidate freeze:
 
-- Typed UI: 10 files, 91 tests passed;
+- Typed UI: 10 files, 106 tests passed;
 - related Preview/Shell: 3 files, 42 tests passed;
 - TypeScript: passed;
 - i18n key types: regenerated and in sync; repository-wide validator passed with pre-existing warnings;
@@ -157,9 +164,9 @@ Focused evidence at candidate freeze:
 - Electron package build: passed;
 - Electron integration/visual path: 1 passed, provider-free.
 
-Security/property coverage includes forged renderer evidence, missing producer, immutable-generation conflict, provider/model/request/content/source/seat/revision/time mismatch, action-time replay, credential URLs, absolute/traversal/file paths, inline-plus-path ambiguity, cross-conversation and duplicate resolvers, schema depth/size/node/action bounds, forbidden JSON keys/pointers, event/action substitution, lifecycle no-authority/no-receipt, and direct Main rejection of lifecycle receipt types.
+Security/property coverage includes forged renderer evidence, missing producer, immutable-generation conflict, provider/model/request/content/source/seat/revision/time mismatch, undeclared action/type/parameter substitution, exclusive-intent replay, claim-before-ledger and partial-marker crash reconciliation, lost-marker reconstruction, idempotent terminal retry, successful-effect/finalize separation, credential URLs, absolute/traversal/file paths, inline-plus-path ambiguity, cross-conversation and duplicate resolvers, schema depth/size/node/action bounds, forbidden JSON keys/pointers, event/action substitution, lifecycle no-authority/no-receipt, and direct Main rejection of lifecycle authorization requests.
 
-Accessibility coverage includes semantic region names, native keyboard controls, Enter-key Workbench activation, live polite action status, visible disabled reasons associated with lifecycle controls, focus styling, reduced motion, and AAA small-text token contrast checks. This is a technical gate, not an assertion of exhaustive legal WCAG conformance.
+Accessibility coverage includes semantic region names, native keyboard controls, Enter-key Workbench activation, live polite action status, keyboard-focusable `aria-disabled` lifecycle controls with associated visible reasons, focus styling, reduced motion, and AAA small-text token contrast checks. This is a technical gate, not an assertion of exhaustive legal WCAG conformance.
 
 ### Visual matrix
 

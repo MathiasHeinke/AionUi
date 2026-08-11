@@ -5,6 +5,11 @@
  */
 
 import type { ICommandEveGateAction, ICommandEveGateDecision } from '@/common/adapter/ipcBridge';
+import type {
+  TypedUIActionAuthorizeRequest,
+  TypedUIActionFinalizeRequest,
+  TypedUIActionReceipt,
+} from '@/common/typedUI';
 import {
   TypedUIRenderer,
   typedUIRegistry,
@@ -36,10 +41,44 @@ const decision = (action: ICommandEveGateAction): ICommandEveGateDecision => ({
 });
 
 function host(): TypedUIActionHost {
+  let authorization: TypedUIActionReceipt | undefined;
+  const authorizeAction = vi.fn(async (request: TypedUIActionAuthorizeRequest) => {
+    const gate = decision('truth_gate');
+    authorization = {
+      version: 'command-eve.typed-ui-action-receipt/v2',
+      receipt_id: '00000000-0000-4000-8000-000000000001',
+      intent_claim_id: `tuic_${'1'.repeat(64)}`,
+      request_id: request.request_id,
+      artifact_id: request.artifact_id,
+      conversation_id: request.conversation_id,
+      attestation_id: request.attestation_id,
+      content_sha256: request.content_sha256,
+      source_message_id: request.source_message_id,
+      action_id: request.action_id,
+      action_type: request.action_type,
+      action_params_sha256: '2'.repeat(64),
+      action_binding_sha256: '3'.repeat(64),
+      status: 'authorized',
+      decided_at: gate.decided_at,
+      authority: gate,
+    };
+    return authorization;
+  });
+  const finalizeAction = vi.fn(async (request: TypedUIActionFinalizeRequest) => {
+    if (!authorization) throw new Error('missing authorization');
+    return {
+      ...authorization,
+      receipt_id: '00000000-0000-4000-8000-000000000002',
+      intent_receipt_id: request.intent_receipt_id,
+      intent_claim_id: request.intent_claim_id,
+      status: request.outcome,
+      ...(request.reason ? { reason: request.reason } : {}),
+    };
+  });
   return {
     attestProvenance: vi.fn(async () => typedUIAttestationFixture()),
-    evaluateAuthority: vi.fn(async (action) => decision(action)),
-    recordReceipt: vi.fn(async () => ({ receipt_id: '00000000-0000-4000-8000-000000000001' })),
+    authorizeAction,
+    finalizeAction,
     getActionAvailability: vi.fn((action) => ({
       available: action !== 'goal_control' && action !== 'worker_control',
       ...(action === 'goal_control' || action === 'worker_control' ? { reason: 'durable_transport_unavailable' } : {}),
@@ -76,10 +115,23 @@ describe('Typed UI renderer', () => {
     expect(screen.getByText('Prepare integration PR?')).toBeVisible();
     expect(screen.queryByText('fixture-model')).toBeNull();
     expect(screen.getByTestId('typed-ui-provenance-status')).toHaveTextContent('messages.typedUI.provenance.verified');
-    expect(screen.getByRole('button', { name: 'messages.typedUI.lifecycle.pause' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'messages.typedUI.lifecycle.cancel' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'messages.typedUI.lifecycle.pause' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'messages.typedUI.lifecycle.cancel' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
     await user.click(screen.getByRole('button', { name: 'messages.typedUI.openWorkbench' }));
-    expect(actionHost.evaluateAuthority).toHaveBeenCalledWith('truth_gate');
+    expect(actionHost.authorizeAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action_id: 'host-open-workbench',
+        action_type: 'open_artifact',
+        params: { artifact_kind: 'chat', artifact_id: receiptContext.artifactId },
+      })
+    );
+    expect(actionHost.finalizeAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'completed' }));
     expect(onOpenWorkbench).toHaveBeenCalledOnce();
   });
 
@@ -87,6 +139,61 @@ describe('Typed UI renderer', () => {
     render(<TypedUIRenderer content={typedUIFixture()} mode='full' host={host()} receiptContext={receiptContext} />);
     expect(await screen.findByTestId('typed-ui-full')).toHaveTextContent('Launch cockpit');
     expect(screen.queryByRole('button', { name: 'messages.typedUI.openWorkbench' })).toBeNull();
+  });
+
+  it('does not rewrite an opened Workbench as failed or open it twice after completion persistence fails', async () => {
+    const actionHost = host();
+    actionHost.finalizeAction = vi.fn(async () => {
+      throw new Error('receipt persistence unavailable');
+    });
+    const onOpenWorkbench = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TypedUIRenderer
+        content={typedUIFixture()}
+        mode='compact'
+        host={actionHost}
+        receiptContext={receiptContext}
+        onOpenWorkbench={onOpenWorkbench}
+      />
+    );
+    const button = await screen.findByRole('button', { name: 'messages.typedUI.openWorkbench' });
+    await user.click(button);
+    expect(onOpenWorkbench).toHaveBeenCalledOnce();
+    expect(actionHost.finalizeAction).toHaveBeenCalledTimes(2);
+    expect(actionHost.finalizeAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'completed' }));
+
+    actionHost.authorizeAction = vi.fn(async () => {
+      throw new Error('receipt.intent_outstanding');
+    });
+    await user.click(button);
+    expect(onOpenWorkbench).toHaveBeenCalledOnce();
+  });
+
+  it('renders the production missing-producer state fail-closed and exposes no action surface', async () => {
+    const actionHost = host();
+    actionHost.attestProvenance = vi.fn(async () => {
+      throw new Error('trusted_generation_receipt_missing');
+    });
+    render(
+      <TypedUIRenderer content={typedUIFixture()} mode='compact' host={actionHost} receiptContext={receiptContext} />
+    );
+    expect(await screen.findByTestId('typed-ui-provenance-rejected')).toBeVisible();
+    expect(screen.queryByText('Launch cockpit')).toBeNull();
+    expect(actionHost.authorizeAction).not.toHaveBeenCalled();
+  });
+
+  it('rejects a verified-looking attestation bound to another source message', async () => {
+    const actionHost = host();
+    actionHost.attestProvenance = vi.fn(async () => ({
+      ...typedUIAttestationFixture(),
+      source_message_id: 'message-from-another-turn',
+    }));
+    render(
+      <TypedUIRenderer content={typedUIFixture()} mode='compact' host={actionHost} receiptContext={receiptContext} />
+    );
+    expect(await screen.findByTestId('typed-ui-provenance-rejected')).toBeVisible();
+    expect(actionHost.authorizeAction).not.toHaveBeenCalled();
   });
 
   it('fails safe for invalid AST and never renders its payload component', () => {

@@ -10,6 +10,7 @@ import {
   appendTrustedTypedUIGenerationReceipt,
   appendTypedUIProvenanceAttestation,
   hashTypedUIEnvelope,
+  requireVerifiedTypedUIActionBinding,
   requireVerifiedTypedUIProvenanceAttestation,
   TYPED_UI_GENERATION_RECEIPT_VERSION,
   TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION,
@@ -132,6 +133,8 @@ describe('Main-owned Typed UI provenance attestation', () => {
     const generation = trustedReceipt(target, envelope);
     const record = attest(target, envelope);
     expect(record.status).toBe('verified');
+    expect(record.source_message_id).toBe(TYPED_UI_TEST_RECEIPT_CONTEXT.sourceMessageId);
+    expect(record.action_set_sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(record.receipt_sha256).toBe(generation.route_receipt_sha256);
     expect(JSON.stringify(record)).not.toContain(envelope.provenance.provider);
     expect(JSON.stringify(record)).not.toContain(envelope.provenance.model);
@@ -144,6 +147,8 @@ describe('Main-owned Typed UI provenance attestation', () => {
     expect(ledgers).not.toContain(envelope.provenance.model);
     expect(ledgers).not.toContain(envelope.provenance.request_id);
     expect(ledgers).not.toContain('route-receipt-attested');
+    expect(fs.readFileSync(target.attestationPath, 'utf8')).not.toContain('artifact_kind');
+    expect(fs.readFileSync(target.attestationPath, 'utf8')).not.toContain('run-41');
   });
 
   it('requires a real private completion record and consumes it for exactly one artifact join', () => {
@@ -230,6 +235,7 @@ describe('Main-owned Typed UI provenance attestation', () => {
         attestationId: record.attestation_id,
         artifactId: record.artifact_id,
         conversationId: record.conversation_id,
+        sourceMessageId: TYPED_UI_TEST_RECEIPT_CONTEXT.sourceMessageId,
         requestId: envelope.provenance.request_id,
         contentSha256: record.content_sha256,
         activeSeatId: 'seat-other',
@@ -241,12 +247,74 @@ describe('Main-owned Typed UI provenance attestation', () => {
         attestationId: record.attestation_id,
         artifactId: record.artifact_id,
         conversationId: record.conversation_id,
+        sourceMessageId: TYPED_UI_TEST_RECEIPT_CONTEXT.sourceMessageId,
         requestId: envelope.provenance.request_id,
         contentSha256: 'f'.repeat(64),
         activeSeatId: seat.activeSeatId,
         seatContextRevision: seat.seatContextRevision,
       })
     ).toThrow('attestation.content_mismatch');
+    expect(() =>
+      requireVerifiedTypedUIProvenanceAttestation(target.attestationPath, {
+        attestationId: record.attestation_id,
+        artifactId: record.artifact_id,
+        conversationId: record.conversation_id,
+        sourceMessageId: 'message-from-another-turn',
+        requestId: envelope.provenance.request_id,
+        contentSha256: record.content_sha256,
+        activeSeatId: seat.activeSeatId,
+        seatContextRevision: seat.seatContextRevision,
+      })
+    ).toThrow('attestation.source_message_mismatch');
+  });
+
+  it('binds action id, type and canonical params to the private attestation manifest', () => {
+    const target = workspace();
+    const envelope = typedUIFixture();
+    trustedReceipt(target, envelope);
+    const record = attest(target, envelope);
+    const base = {
+      attestationId: record.attestation_id,
+      artifactId: record.artifact_id,
+      conversationId: record.conversation_id,
+      sourceMessageId: record.source_message_id,
+      requestId: envelope.provenance.request_id,
+      contentSha256: record.content_sha256,
+      activeSeatId: seat.activeSeatId,
+      seatContextRevision: seat.seatContextRevision,
+    };
+    expect(
+      requireVerifiedTypedUIActionBinding(target.attestationPath, {
+        ...base,
+        actionId: 'openRun',
+        actionType: 'open_artifact',
+        actionParams: envelope.actions.openRun.params,
+      }).binding_sha256
+    ).toMatch(/^[a-f0-9]{64}$/);
+    expect(() =>
+      requireVerifiedTypedUIActionBinding(target.attestationPath, {
+        ...base,
+        actionId: 'missingAction',
+        actionType: 'open_url',
+        actionParams: { url: 'https://example.com' },
+      })
+    ).toThrow('attestation.action_not_found');
+    expect(() =>
+      requireVerifiedTypedUIActionBinding(target.attestationPath, {
+        ...base,
+        actionId: 'openRun',
+        actionType: 'open_url',
+        actionParams: { url: 'https://example.com' },
+      })
+    ).toThrow('attestation.action_type_mismatch');
+    expect(() =>
+      requireVerifiedTypedUIActionBinding(target.attestationPath, {
+        ...base,
+        actionId: 'openRun',
+        actionType: 'open_artifact',
+        actionParams: { artifact_kind: 'worker', artifact_id: 'other-run' },
+      })
+    ).toThrow('attestation.action_params_mismatch');
   });
 
   it('refuses a second trusted receipt for the same immutable artifact identity', () => {

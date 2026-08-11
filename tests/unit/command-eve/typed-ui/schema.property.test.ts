@@ -32,6 +32,16 @@ describe('Typed UI schema and graph properties', () => {
     expect(issuesOf(candidate)).toContain('action.not_allowed');
   });
 
+  it('reserves host-open-workbench against model-authored action collisions', () => {
+    const candidate = cloneFixture();
+    const actions = candidate.actions as Record<string, unknown>;
+    actions['host-open-workbench'] = actions.openRun;
+    delete actions.openRun;
+    const elements = candidate.elements as Record<string, { on?: Record<string, string> }>;
+    if (elements.run.on) elements.run.on.press = 'host-open-workbench';
+    expect(issuesOf(candidate)).toContain('action.reserved_id');
+  });
+
   it.each([
     'file:///etc/passwd',
     'javascript:alert(1)',
@@ -173,5 +183,30 @@ describe('Typed UI schema and graph properties', () => {
       ok: false,
       issues: [{ code: 'envelope.too_large' }],
     });
+  });
+
+  it('rejects adversarial JSON depth, element count and action count', () => {
+    const deep = cloneFixture();
+    let nested: Record<string, unknown> = {};
+    (deep.state as Record<string, unknown>).nested = nested;
+    for (let depth = 0; depth < 10; depth += 1) {
+      nested.next = {};
+      nested = nested.next as Record<string, unknown>;
+    }
+    expect(issuesOf(deep)).toContain('envelope.invalid_state');
+
+    const tooManyElements = cloneFixture();
+    const elements = tooManyElements.elements as Record<string, unknown>;
+    for (let index = 0; index < 201; index += 1) {
+      elements[`extra${index}`] = { type: 'Text', props: { text: String(index) }, children: [] };
+    }
+    expect(issuesOf(tooManyElements)).toContain('envelope.invalid_elements');
+
+    const tooManyActions = cloneFixture();
+    const actions = tooManyActions.actions as Record<string, unknown>;
+    for (let index = 0; index < 51; index += 1) {
+      actions[`extra${index}`] = { type: 'reply_with_state', params: {} };
+    }
+    expect(issuesOf(tooManyActions)).toContain('envelope.invalid_actions');
   });
 });

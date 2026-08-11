@@ -516,6 +516,10 @@ function commandEveTypedUIActionAuditPath(runtimeRoot: string): string {
   return path.join(runtimeRoot, 'audit', 'typed-ui-actions.jsonl');
 }
 
+function commandEveTypedUIActionIntentDirectory(runtimeRoot: string): string {
+  return path.join(runtimeRoot, 'audit', 'typed-ui-action-intents');
+}
+
 function commandEveTypedUIProvenanceAuditPath(runtimeRoot: string): string {
   return path.join(runtimeRoot, 'audit', 'typed-ui-provenance.jsonl');
 }
@@ -1462,14 +1466,24 @@ function registerCommandEveRuntimeBridge(): void {
     try {
       const { getDataPath } = await import('./process/utils/utils');
       const { resolveCommandEveRuntimeBootstrapPaths } = await import('./process/commandEve/runtimeBootstrapCore');
-      const { appendTypedUIActionReceipt } = await import('./process/commandEve/typedUIActionReceiptCore');
+      const { authorizeTypedUIAction, finalizeTypedUIAction } =
+        await import('./process/commandEve/typedUIActionReceiptCore');
       const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
-      const record = appendTypedUIActionReceipt(commandEveTypedUIActionAuditPath(paths.runtimeRoot), request?.receipt, {
+      const common = {
         attestationAuditPath: commandEveTypedUIProvenanceAuditPath(paths.runtimeRoot),
         activeSeatId: getActiveSeatId(),
         seatContextRevision: getActiveSeatContextRevision(),
-      });
-      return { success: true, data: { receipt_id: record.receipt_id, recorded_at: record.recorded_at } };
+        intentClaimDirectory: commandEveTypedUIActionIntentDirectory(paths.runtimeRoot),
+      };
+      const record =
+        request?.request?.phase === 'authorize'
+          ? authorizeTypedUIAction(commandEveTypedUIActionAuditPath(paths.runtimeRoot), request.request, {
+              ...common,
+              executionMode: await ProcessConfig.get('commandEve.executionMode').catch((): undefined => undefined),
+              gateAuditPath: commandEveGateAuditPath(paths.runtimeRoot),
+            })
+          : finalizeTypedUIAction(commandEveTypedUIActionAuditPath(paths.runtimeRoot), request?.request, common);
+      return { success: true, data: record };
     } catch (error) {
       return { success: false, msg: error instanceof Error ? error.message : String(error) };
     }

@@ -2,6 +2,8 @@
 
 Status: integration candidate; no release, signing, notarization, R2 upload, production deployment, or main-branch merge is authorized by this document.
 
+Phase 2 note: `command-eve-typed-generative-ui-phase2.md` supersedes this v1 document for provenance, Workbench resolution, lifecycle declarations, and the Main-owned action authorization API. This file remains the accepted 45-component/catalog baseline.
+
 Work item: `MAT-1776`
 
 Release base: AionUI `a289ce2f077eb5c2bc7a568ab4c334f179a4c528` (Command EVE 1.822.2 release line)
@@ -253,7 +255,7 @@ No new model-to-renderer IPC is introduced.
   content={validatedArtifactContent}
   mode='compact'
   host={typedUIActionHost}
-  receiptContext={{ requestId: hostOwnedArtifactId }}
+  receiptContext={{ artifactId, conversationId, sourceMessageId }}
   onOpenWorkbench={openExistingWorkbenchPane}
 />
 ```
@@ -262,10 +264,11 @@ The host adapter is the only capability seam:
 
 ```ts
 interface TypedUIActionHost {
-  evaluateAuthority(action: ICommandEveGateAction): Promise<ICommandEveGateDecision>;
-  recordReceipt(receipt: TypedUIActionReceipt): Promise<{ receipt_id: string }>;
-  supportsAction?(action: TypedUIActionType): boolean;
-  openArtifact(artifactId: string): Promise<void> | void;
+  attestProvenance(envelope: TypedUIEnvelope): Promise<TypedUIProvenanceAttestation>;
+  authorizeAction(request: TypedUIActionAuthorizeRequest): Promise<TypedUIActionReceipt>;
+  finalizeAction(request: TypedUIActionFinalizeRequest): Promise<TypedUIActionReceipt>;
+  getActionAvailability(action: TypedUIActionType, params: Record<string, unknown>): TypedUIActionAvailability;
+  openArtifact(kind: TypedUIArtifactKind, artifactId: string): Promise<void> | void;
   openUrl(url: string): Promise<void> | void;
   replyWithState(text: string): Promise<void> | void;
 }

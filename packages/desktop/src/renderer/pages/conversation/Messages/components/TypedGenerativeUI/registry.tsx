@@ -516,9 +516,11 @@ function CatalogComponent({ element, children, emit, on, loading }: ComponentRen
                 return (
                   <Button
                     key={event}
-                    disabled={loading || !on(event).bound}
+                    aria-disabled={loading || !on(event).bound}
                     aria-describedby={reason ? `typed-ui-goal-${stringProp(props, 'id')}-unavailable` : undefined}
-                    onClick={() => emit(event)}
+                    onClick={() => {
+                      if (!loading && on(event).bound) emit(event);
+                    }}
                   >
                     {t(`messages.typedUI.lifecycle.${event}`)}
                   </Button>
@@ -527,11 +529,7 @@ function CatalogComponent({ element, children, emit, on, loading }: ComponentRen
             </div>
           ) : null}
           {unavailable ? (
-            <p
-              id={`typed-ui-goal-${stringProp(props, 'id')}-unavailable`}
-              className={styles.lifecycleUnavailable}
-              role='status'
-            >
+            <p id={`typed-ui-goal-${stringProp(props, 'id')}-unavailable`} className={styles.lifecycleUnavailable}>
               {t(
                 unavailable === 'durable_transport_unavailable'
                   ? 'messages.typedUI.lifecycle.transportUnavailable'
@@ -575,9 +573,11 @@ function CatalogComponent({ element, children, emit, on, loading }: ComponentRen
                 return (
                   <Button
                     key={event}
-                    disabled={loading || !on(event).bound}
+                    aria-disabled={loading || !on(event).bound}
                     aria-describedby={reason ? `typed-ui-worker-${stringProp(props, 'id')}-unavailable` : undefined}
-                    onClick={() => emit(event)}
+                    onClick={() => {
+                      if (!loading && on(event).bound) emit(event);
+                    }}
                   >
                     {t(`messages.typedUI.lifecycle.${event}`)}
                   </Button>
@@ -586,11 +586,7 @@ function CatalogComponent({ element, children, emit, on, loading }: ComponentRen
             </div>
           ) : null}
           {unavailable ? (
-            <p
-              id={`typed-ui-worker-${stringProp(props, 'id')}-unavailable`}
-              className={styles.lifecycleUnavailable}
-              role='status'
-            >
+            <p id={`typed-ui-worker-${stringProp(props, 'id')}-unavailable`} className={styles.lifecycleUnavailable}>
               {t(
                 unavailable === 'durable_transport_unavailable'
                   ? 'messages.typedUI.lifecycle.transportUnavailable'

@@ -9,7 +9,8 @@ import type { ICommandEveGateDecision } from '@/common/adapter/ipcBridge';
 export const TYPED_UI_SCHEMA_VERSION = 'command-eve.typed-ui/v2' as const;
 export const TYPED_UI_CATALOG_VERSION = 'command-eve.typed-ui.catalog/v2' as const;
 export const TYPED_UI_MIME_TYPE = 'application/vnd.command-eve.typed-ui+json' as const;
-export const TYPED_UI_PROVENANCE_ATTESTATION_VERSION = 'command-eve.typed-ui-provenance-attestation/v1' as const;
+export const TYPED_UI_PROVENANCE_ATTESTATION_VERSION = 'command-eve.typed-ui-provenance-attestation/v2' as const;
+export const TYPED_UI_ACTION_AUTHORIZATION_VERSION = 'command-eve.typed-ui-action-authorization/v2' as const;
 export const TYPED_UI_DURABLE_WORK_VERSION = 'command-eve-durable-work-activity/v1' as const;
 
 export type TypedUIJsonPrimitive = string | number | boolean | null;
@@ -112,7 +113,9 @@ export interface TypedUIProvenanceAttestation {
   attestation_id: string;
   artifact_id: string;
   conversation_id: string;
+  source_message_id: string;
   content_sha256: string;
+  action_set_sha256: string;
   identity_sha256: string;
   request_id_sha256: string;
   receipt_sha256: string;
@@ -121,6 +124,31 @@ export interface TypedUIProvenanceAttestation {
   reason?: string;
   recorded_at: string;
 }
+
+export interface TypedUIActionAuthorizeRequest {
+  version: typeof TYPED_UI_ACTION_AUTHORIZATION_VERSION;
+  phase: 'authorize';
+  request_id: string;
+  artifact_id: string;
+  conversation_id: string;
+  attestation_id: string;
+  content_sha256: string;
+  source_message_id: string;
+  action_id: string;
+  action_type: TypedUIActionType;
+  params: Record<string, TypedUIJsonValue>;
+}
+
+export interface TypedUIActionFinalizeRequest {
+  version: typeof TYPED_UI_ACTION_AUTHORIZATION_VERSION;
+  phase: 'finalize';
+  intent_receipt_id: string;
+  intent_claim_id: string;
+  outcome: 'completed' | 'failed';
+  reason?: string;
+}
+
+export type TypedUIActionReceiptRequest = TypedUIActionAuthorizeRequest | TypedUIActionFinalizeRequest;
 
 export interface TypedUILifecycleControlRequest {
   version: typeof TYPED_UI_DURABLE_WORK_VERSION;
@@ -160,9 +188,10 @@ export type TypedUIValidationResult =
   | { ok: false; issues: TypedUIValidationIssue[] };
 
 export interface TypedUIActionReceipt {
-  version: 'command-eve.typed-ui-action-receipt/v1';
+  version: 'command-eve.typed-ui-action-receipt/v2';
   receipt_id?: string;
   intent_receipt_id?: string;
+  intent_claim_id?: string;
   request_id: string;
   artifact_id: string;
   conversation_id: string;
@@ -171,6 +200,8 @@ export interface TypedUIActionReceipt {
   source_message_id: string;
   action_id: string;
   action_type: TypedUIActionType;
+  action_params_sha256: string;
+  action_binding_sha256: string;
   status: 'authorized' | 'completed' | 'blocked' | 'failed' | 'approval_recorded';
   decided_at: string;
   authority: ICommandEveGateDecision;

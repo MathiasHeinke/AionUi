@@ -7,7 +7,9 @@
 import {
   TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
   validateTypedUIEnvelope,
+  type TypedUIActionType,
   type TypedUIEnvelope,
+  type TypedUIJsonValue,
   type TypedUIProvenanceArtifactRef,
   type TypedUIProvenanceAttestation,
   type TypedUIProvenanceAttestationRequest,
@@ -28,6 +30,17 @@ const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const MAX_LEDGER_TAIL_BYTES = 8 * 1024 * 1024;
 const MAX_GENERATED_AT_DRIFT_MS = 24 * 60 * 60 * 1000;
 const EMPTY_SHA256 = '0'.repeat(64);
+const HOST_OPEN_WORKBENCH_ACTION_ID = 'host-open-workbench';
+const ACTION_ID = /^(?:[A-Za-z][A-Za-z0-9_-]{0,63}|host-open-workbench)$/;
+const ACTION_TYPES = new Set<TypedUIActionType>([
+  'reply_with_state',
+  'open_artifact',
+  'open_url',
+  'select_option',
+  'request_approval',
+  'goal_control',
+  'worker_control',
+]);
 
 export interface MainOwnedTypedUIProviderCompletionInput {
   version: typeof TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION;
@@ -94,6 +107,17 @@ type AttestationContext = {
   seatContextRevision: number;
 };
 
+interface PersistedTypedUIActionBinding {
+  action_id: string;
+  action_type: TypedUIActionType;
+  params_sha256: string;
+  binding_sha256: string;
+}
+
+interface PersistedTypedUIProvenanceAttestation extends TypedUIProvenanceAttestation {
+  action_bindings: PersistedTypedUIActionBinding[];
+}
+
 const GENERATION_RECORD_KEYS = new Set([
   'version',
   'receipt_id',
@@ -131,7 +155,10 @@ const ATTESTATION_RECORD_KEYS = new Set([
   'attestation_id',
   'artifact_id',
   'conversation_id',
+  'source_message_id',
   'content_sha256',
+  'action_set_sha256',
+  'action_bindings',
   'identity_sha256',
   'request_id_sha256',
   'receipt_sha256',
@@ -177,6 +204,42 @@ function sha256(value: string): string {
 
 function hashJson(value: unknown): string {
   return sha256(JSON.stringify(canonicalize(value)));
+}
+
+function hashTypedUIActionBindingParts(actionId: string, actionType: TypedUIActionType, paramsSha256: string): string {
+  return sha256(`command-eve.typed-ui.action-binding/v1\u0000${actionId}\u0000${actionType}\u0000${paramsSha256}`);
+}
+
+function buildTypedUIActionBinding(
+  actionId: string,
+  actionType: TypedUIActionType,
+  params: Record<string, TypedUIJsonValue>
+): PersistedTypedUIActionBinding {
+  const paramsSha256 = hashJson(params);
+  return {
+    action_id: actionId,
+    action_type: actionType,
+    params_sha256: paramsSha256,
+    binding_sha256: hashTypedUIActionBindingParts(actionId, actionType, paramsSha256),
+  };
+}
+
+function buildTypedUIActionBindings(
+  envelope: TypedUIEnvelope,
+  artifact: TypedUIProvenanceArtifactRef
+): PersistedTypedUIActionBinding[] {
+  const bindings = Object.entries(envelope.actions).map(([actionId, action]) =>
+    buildTypedUIActionBinding(actionId, action.type, action.params)
+  );
+  bindings.push(
+    buildTypedUIActionBinding(HOST_OPEN_WORKBENCH_ACTION_ID, 'open_artifact', {
+      artifact_kind: 'chat',
+      artifact_id: artifact.artifact_id,
+    })
+  );
+  return bindings.toSorted((left, right) =>
+    left.action_id < right.action_id ? -1 : left.action_id > right.action_id ? 1 : 0
+  );
 }
 
 export function hashTypedUIEnvelope(envelope: TypedUIEnvelope): string {
@@ -382,16 +445,53 @@ function readGenerationReceipts(filePath: string): PersistedTypedUIGenerationRec
   });
 }
 
-function validateAttestationRecord(value: unknown): value is TypedUIProvenanceAttestation {
+function validateActionBindings(value: unknown): value is PersistedTypedUIActionBinding[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 51) return false;
+  const seen = new Set<string>();
+  let previous = '';
+  for (const binding of value) {
+    if (
+      !isRecord(binding) ||
+      !exactKeys(binding, ['action_id', 'action_type', 'params_sha256', 'binding_sha256']) ||
+      typeof binding.action_id !== 'string' ||
+      !ACTION_ID.test(binding.action_id) ||
+      typeof binding.action_type !== 'string' ||
+      !ACTION_TYPES.has(binding.action_type as TypedUIActionType) ||
+      typeof binding.params_sha256 !== 'string' ||
+      !SHA256.test(binding.params_sha256) ||
+      typeof binding.binding_sha256 !== 'string' ||
+      !SHA256.test(binding.binding_sha256) ||
+      binding.binding_sha256 !==
+        hashTypedUIActionBindingParts(
+          binding.action_id,
+          binding.action_type as TypedUIActionType,
+          binding.params_sha256
+        ) ||
+      seen.has(binding.action_id) ||
+      (previous && previous >= binding.action_id)
+    ) {
+      return false;
+    }
+    seen.add(binding.action_id);
+    previous = binding.action_id;
+  }
+  return true;
+}
+
+function validateAttestationRecord(value: unknown): value is PersistedTypedUIProvenanceAttestation {
   if (!isRecord(value) || Object.keys(value).some((key) => !ATTESTATION_RECORD_KEYS.has(key))) return false;
-  return (
+  if (
     value.version === TYPED_UI_PROVENANCE_ATTESTATION_VERSION &&
     typeof value.attestation_id === 'string' &&
     ATTESTATION_ID.test(value.attestation_id) &&
     safeId(value.artifact_id, 128) &&
     safeId(value.conversation_id) &&
+    safeId(value.source_message_id) &&
     typeof value.content_sha256 === 'string' &&
     SHA256.test(value.content_sha256) &&
+    typeof value.action_set_sha256 === 'string' &&
+    SHA256.test(value.action_set_sha256) &&
+    validateActionBindings(value.action_bindings) &&
     typeof value.identity_sha256 === 'string' &&
     SHA256.test(value.identity_sha256) &&
     typeof value.request_id_sha256 === 'string' &&
@@ -403,14 +503,28 @@ function validateAttestationRecord(value: unknown): value is TypedUIProvenanceAt
     (value.reason === undefined || boundedString(value.reason, 200)) &&
     typeof value.recorded_at === 'string' &&
     !Number.isNaN(Date.parse(value.recorded_at))
-  );
+  ) {
+    const bindings = value.action_bindings as PersistedTypedUIActionBinding[];
+    const hostBinding = bindings.find((binding) => binding.action_id === HOST_OPEN_WORKBENCH_ACTION_ID);
+    return (
+      value.action_set_sha256 === hashJson(bindings) &&
+      hostBinding?.action_type === 'open_artifact' &&
+      hostBinding.params_sha256 === hashJson({ artifact_kind: 'chat', artifact_id: value.artifact_id })
+    );
+  }
+  return false;
 }
 
-function readAttestations(filePath: string): TypedUIProvenanceAttestation[] {
+function readAttestations(filePath: string): PersistedTypedUIProvenanceAttestation[] {
   return readRecentJsonLines(filePath).map((value) => {
     if (!validateAttestationRecord(value)) throw new Error('attestation.ledger_corrupt');
     return value;
   });
+}
+
+function publicAttestation(record: PersistedTypedUIProvenanceAttestation): TypedUIProvenanceAttestation {
+  const { action_bindings: _privateActionBindings, ...attestation } = record;
+  return attestation;
 }
 
 /** Main-only provider terminal seam. Never expose this over renderer IPC. */
@@ -557,13 +671,17 @@ export function appendTypedUIProvenanceAttestation(
   const receiptSha256 = generationRecord?.route_receipt_sha256 ?? EMPTY_SHA256;
   const identitySha256 = sha256(`${request.envelope.provenance.provider}\u0000${request.envelope.provenance.model}`);
   const requestIdSha256 = sha256(request.envelope.provenance.request_id);
+  const actionBindings = buildTypedUIActionBindings(request.envelope, request.artifact);
+  const actionSetSha256 = hashJson(actionBindings);
   const attestationId = `tuia_${sha256(
     [
       context.activeSeatId,
       String(context.seatContextRevision),
       request.artifact.conversation_id,
       request.artifact.artifact_id,
+      request.artifact.source_message_id,
       contentSha256,
+      actionSetSha256,
       identitySha256,
       requestIdSha256,
       receiptSha256,
@@ -571,13 +689,16 @@ export function appendTypedUIProvenanceAttestation(
     ].join('\u0000')
   )}`;
   const existing = readAttestations(auditPath).find((record) => record.attestation_id === attestationId);
-  if (existing) return existing;
-  const record: TypedUIProvenanceAttestation = {
+  if (existing) return publicAttestation(existing);
+  const record: PersistedTypedUIProvenanceAttestation = {
     version: TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
     attestation_id: attestationId,
     artifact_id: request.artifact.artifact_id,
     conversation_id: request.artifact.conversation_id,
+    source_message_id: request.artifact.source_message_id,
     content_sha256: contentSha256,
+    action_set_sha256: actionSetSha256,
+    action_bindings: actionBindings,
     identity_sha256: identitySha256,
     request_id_sha256: requestIdSha256,
     receipt_sha256: receiptSha256,
@@ -587,7 +708,7 @@ export function appendTypedUIProvenanceAttestation(
     recorded_at: (options.now || (() => new Date()))().toISOString(),
   };
   appendPrivateJsonLine(auditPath, record);
-  return record;
+  return publicAttestation(record);
 }
 
 export function requireVerifiedTypedUIProvenanceAttestation(
@@ -596,6 +717,7 @@ export function requireVerifiedTypedUIProvenanceAttestation(
     attestationId: string;
     artifactId: string;
     conversationId: string;
+    sourceMessageId: string;
     requestId: string;
     contentSha256: string;
     activeSeatId: string;
@@ -613,6 +735,7 @@ export function requireVerifiedTypedUIProvenanceAttestation(
   if (record.artifact_id !== input.artifactId || record.conversation_id !== input.conversationId) {
     throw new Error('attestation.context_mismatch');
   }
+  if (record.source_message_id !== input.sourceMessageId) throw new Error('attestation.source_message_mismatch');
   if (record.content_sha256 !== input.contentSha256) throw new Error('attestation.content_mismatch');
   if (record.request_id_sha256 !== sha256(input.requestId)) throw new Error('attestation.request_mismatch');
   if (record.seat_context_revision !== input.seatContextRevision) throw new Error('attestation.seat_revision_mismatch');
@@ -623,7 +746,9 @@ export function requireVerifiedTypedUIProvenanceAttestation(
       String(input.seatContextRevision),
       record.conversation_id,
       record.artifact_id,
+      record.source_message_id,
       record.content_sha256,
+      record.action_set_sha256,
       record.identity_sha256,
       record.request_id_sha256,
       record.receipt_sha256,
@@ -631,5 +756,46 @@ export function requireVerifiedTypedUIProvenanceAttestation(
     ].join('\u0000')
   )}`;
   if (record.attestation_id !== expectedId) throw new Error('attestation.integrity_mismatch');
-  return record;
+  return publicAttestation(record);
+}
+
+export function requireVerifiedTypedUIActionBinding(
+  auditPath: string,
+  input: Parameters<typeof requireVerifiedTypedUIProvenanceAttestation>[1] & {
+    actionId: string;
+    actionType: TypedUIActionType;
+    actionParams: Record<string, TypedUIJsonValue>;
+  }
+): PersistedTypedUIActionBinding {
+  const paramsSha256 = hashJson(input.actionParams);
+  return requireVerifiedTypedUIActionBindingHash(auditPath, {
+    ...input,
+    actionParamsSha256: paramsSha256,
+    actionBindingSha256: hashTypedUIActionBindingParts(input.actionId, input.actionType, paramsSha256),
+  });
+}
+
+export function requireVerifiedTypedUIActionBindingHash(
+  auditPath: string,
+  input: Parameters<typeof requireVerifiedTypedUIProvenanceAttestation>[1] & {
+    actionId: string;
+    actionType: TypedUIActionType;
+    actionParamsSha256: string;
+    actionBindingSha256: string;
+  }
+): PersistedTypedUIActionBinding {
+  if (!SHA256.test(input.actionParamsSha256) || !SHA256.test(input.actionBindingSha256)) {
+    throw new Error('attestation.action_hash_invalid');
+  }
+  requireVerifiedTypedUIProvenanceAttestation(auditPath, input);
+  const record = readAttestations(auditPath).find((candidate) => candidate.attestation_id === input.attestationId);
+  if (!record) throw new Error('attestation.not_found');
+  const binding = record.action_bindings.find((candidate) => candidate.action_id === input.actionId);
+  if (!binding) throw new Error('attestation.action_not_found');
+  if (binding.action_type !== input.actionType) throw new Error('attestation.action_type_mismatch');
+  if (binding.params_sha256 !== input.actionParamsSha256) throw new Error('attestation.action_params_mismatch');
+  if (binding.binding_sha256 !== input.actionBindingSha256) {
+    throw new Error('attestation.action_binding_mismatch');
+  }
+  return binding;
 }

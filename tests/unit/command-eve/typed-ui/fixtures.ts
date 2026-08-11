@@ -19,11 +19,13 @@ export const TYPED_UI_TEST_RECEIPT_CONTEXT = {
 
 export function typedUIAttestationFixture(): TypedUIProvenanceAttestation {
   return {
-    version: 'command-eve.typed-ui-provenance-attestation/v1',
+    version: 'command-eve.typed-ui-provenance-attestation/v2',
     attestation_id: `tuia_${'a'.repeat(64)}`,
     artifact_id: TYPED_UI_TEST_RECEIPT_CONTEXT.artifactId,
     conversation_id: TYPED_UI_TEST_RECEIPT_CONTEXT.conversationId,
+    source_message_id: TYPED_UI_TEST_RECEIPT_CONTEXT.sourceMessageId,
     content_sha256: 'b'.repeat(64),
+    action_set_sha256: 'f'.repeat(64),
     identity_sha256: 'c'.repeat(64),
     request_id_sha256: 'd'.repeat(64),
     receipt_sha256: 'e'.repeat(64),

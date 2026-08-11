@@ -6,6 +6,7 @@
 
 import {
   parseTypedUIEnvelope,
+  TYPED_UI_ACTION_AUTHORIZATION_VERSION,
   type TypedUIActionReceipt,
   type TypedUIEnvelope,
   type TypedUIProvenanceAttestation,
@@ -19,6 +20,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   createTypedUIActionHandlers,
+  finalizeTypedUIActionWithRetry,
   TYPED_UI_INTERNAL_ACTION_ID,
   TYPED_UI_INTERNAL_UNAVAILABLE_ACTIONS,
   type TypedUIActionHost,
@@ -116,7 +118,8 @@ function ValidatedTypedUI({
         if (
           result.status !== 'verified' ||
           result.artifact_id !== receiptContext.artifactId ||
-          result.conversation_id !== receiptContext.conversationId
+          result.conversation_id !== receiptContext.conversationId ||
+          result.source_message_id !== receiptContext.sourceMessageId
         ) {
           setAttestationFailed(true);
           return;
@@ -129,7 +132,7 @@ function ValidatedTypedUI({
     return () => {
       active = false;
     };
-  }, [envelope, host, receiptContext.artifactId, receiptContext.conversationId]);
+  }, [envelope, host, receiptContext.artifactId, receiptContext.conversationId, receiptContext.sourceMessageId]);
 
   const handlers = useMemo(
     () =>
@@ -143,9 +146,9 @@ function ValidatedTypedUI({
     if (!onOpenWorkbench || attestation?.status !== 'verified') return;
     setActionError(undefined);
     try {
-      const authority = await host.evaluateAuthority('truth_gate');
-      const baseReceipt = {
-        version: 'command-eve.typed-ui-action-receipt/v1',
+      const authorization = await host.authorizeAction({
+        version: TYPED_UI_ACTION_AUTHORIZATION_VERSION,
+        phase: 'authorize',
         request_id: envelope.provenance.request_id,
         artifact_id: receiptContext.artifactId,
         conversation_id: receiptContext.conversationId,
@@ -154,39 +157,45 @@ function ValidatedTypedUI({
         source_message_id: receiptContext.sourceMessageId,
         action_id: 'host-open-workbench',
         action_type: 'open_artifact',
-        decided_at: authority.decided_at,
-        authority,
-      } as const;
-      if (!authority.allowed) {
-        const blocked: TypedUIActionReceipt = { ...baseReceipt, status: 'blocked', reason: authority.reason };
-        const persisted = await host.recordReceipt(blocked);
-        setLastReceipt({ ...blocked, receipt_id: persisted.receipt_id });
+        params: { artifact_kind: 'chat', artifact_id: receiptContext.artifactId },
+      });
+      if (authorization.status !== 'authorized') {
+        setLastReceipt(authorization);
         return;
       }
-      const intent: TypedUIActionReceipt = { ...baseReceipt, status: 'authorized' };
-      const persistedIntent = await host.recordReceipt(intent);
+      if (!authorization.receipt_id || !authorization.intent_claim_id) throw new Error('missing_intent_identity');
       try {
         await onOpenWorkbench();
-        const completed: TypedUIActionReceipt = {
-          ...baseReceipt,
-          status: 'completed',
-          intent_receipt_id: persistedIntent.receipt_id,
-        };
-        const persisted = await host.recordReceipt(completed);
-        setLastReceipt({ ...completed, receipt_id: persisted.receipt_id });
       } catch {
-        const failed: TypedUIActionReceipt = {
-          ...baseReceipt,
-          status: 'failed',
-          intent_receipt_id: persistedIntent.receipt_id,
-          reason: 'Workbench navigation or receipt persistence failed.',
-        };
         try {
-          const persisted = await host.recordReceipt(failed);
-          setLastReceipt({ ...failed, receipt_id: persisted.receipt_id });
-        } catch {
+          const failed = await finalizeTypedUIActionWithRetry(host, {
+            version: TYPED_UI_ACTION_AUTHORIZATION_VERSION,
+            phase: 'finalize',
+            intent_receipt_id: authorization.receipt_id,
+            intent_claim_id: authorization.intent_claim_id,
+            outcome: 'failed',
+            reason: 'Workbench navigation or receipt persistence failed.',
+          });
           setLastReceipt(failed);
+        } catch {
+          // Main keeps the intent outstanding if no terminal receipt can be
+          // persisted. Never fabricate renderer-only evidence.
         }
+        setActionError(t('messages.typedUI.actionUnavailable'));
+        return;
+      }
+      try {
+        const completed = await finalizeTypedUIActionWithRetry(host, {
+          version: TYPED_UI_ACTION_AUTHORIZATION_VERSION,
+          phase: 'finalize',
+          intent_receipt_id: authorization.receipt_id,
+          intent_claim_id: authorization.intent_claim_id,
+          outcome: 'completed',
+        });
+        setLastReceipt(completed);
+      } catch {
+        // The Workbench already opened. Keep the Main intent outstanding so a
+        // retry cannot open it twice or rewrite the successful effect as failed.
         setActionError(t('messages.typedUI.actionUnavailable'));
       }
     } catch {

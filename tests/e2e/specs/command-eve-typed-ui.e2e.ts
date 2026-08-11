@@ -172,8 +172,12 @@ test('renders compact in chat and full in the existing Workbench, light and dark
   await expect(compact.getByTestId('typed-ui-provenance-status')).toContainText(/verifiziert|verified/i);
   await expect(compact).not.toContainText('e2e-local');
   await expect(compact).not.toContainText('deterministic-visual-fixture');
-  await expect(compact.getByRole('button', { name: /Pausieren|Pause/i })).toBeDisabled();
-  await expect(compact.getByRole('button', { name: /Abbrechen|Cancel/i })).toBeDisabled();
+  const disabledPause = compact.getByRole('button', { name: /Pausieren|Pause/i });
+  const disabledCancel = compact.getByRole('button', { name: /Abbrechen|Cancel/i });
+  await expect(disabledPause).toHaveAttribute('aria-disabled', 'true');
+  await expect(disabledCancel).toHaveAttribute('aria-disabled', 'true');
+  await disabledPause.focus();
+  await expect(disabledPause).toBeFocused();
   await expect(compact).toHaveAttribute('aria-label', /\S/);
   await expect(compact.getByTestId('typed-ui-action-status')).toHaveAttribute('aria-live', 'polite');
   await expect(page.getByTestId(`conversation-artifact-file`)).toHaveAttribute(

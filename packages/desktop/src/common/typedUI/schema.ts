@@ -298,6 +298,9 @@ function validateAction(
 ): TypedUIActionDefinition | undefined {
   const path = `$.actions.${id}`;
   if (!IDENTIFIER.test(id)) pushIssue(issues, 'action.invalid_id', path, 'Action IDs must be bounded identifiers.');
+  if (id === 'host-open-workbench') {
+    pushIssue(issues, 'action.reserved_id', path, 'This action ID is reserved for a host-owned Workbench binding.');
+  }
   if (!isRecord(raw) || !exactKeys(raw, ['type', 'params']) || !isRecord(raw.params)) {
     pushIssue(issues, 'action.invalid_shape', path, 'Actions require only type and params.');
     return undefined;
