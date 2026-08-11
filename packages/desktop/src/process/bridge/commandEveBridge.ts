@@ -218,6 +218,7 @@ import {
 import { writeActiveSeatPointer } from '@process/commandEve/activeSeatPointerStore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore, type MySeatsWireFailure } from '@process/commandEve/seatWireFetchCore';
+import { createSeedSingleFlight, renameSeed } from '@process/commandEve/seedLifecycleFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
 import { COMMAND_EVE_HANDOVER_NOTE_RELPATH, HANDOVER_NOTE_MAX_RAW_CHARS } from '@/common/config/startscreenNoteCore';
 import nodePath from 'node:path';
@@ -4176,6 +4177,70 @@ export function initCommandEveBridge(): void {
       };
     }
   });
+
+  // MAT-1774 — in-app Seed create/rename. MAIN owns the account session and
+  // supplies the verified bearer; the renderer never receives credentials or
+  // chooses an account id. createSeedSingleFlight is the second belt behind the
+  // disabled UI button and server-side idempotency/advisory lock.
+  bridge
+    .buildProvider('command-eve.seed-create')
+    .provider(async (request?: { displayName?: string; clientRequestId?: string }) => {
+      const version = 'command-eve-seed-create/v0' as const;
+      try {
+        const result = await createSeedSingleFlight(getDataPath(), {
+          displayName: request?.displayName ?? '',
+          clientRequestId: request?.clientRequestId ?? '',
+        });
+        return {
+          success: result.ok,
+          msg: result.ok ? undefined : result.reasonCode,
+          data: {
+            version,
+            ok: result.ok,
+            ...(result.seedId ? { seed_id: result.seedId } : {}),
+            ...(result.created !== undefined ? { created: result.created } : {}),
+            ...(result.seedCount !== undefined ? { seed_count: result.seedCount } : {}),
+            seed_limit: result.seedLimit,
+            ...(result.reasonCode ? { reason_code: result.reasonCode } : {}),
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Seed creation failed.',
+          data: { version, ok: false, seed_limit: 10, reason_code: 'SEED_CREATE_BRIDGE_FAILED' },
+        };
+      }
+    });
+
+  bridge
+    .buildProvider('command-eve.seed-rename')
+    .provider(async (request?: { seedId?: string; displayName?: string }) => {
+      const version = 'command-eve-seed-rename/v0' as const;
+      try {
+        const result = await renameSeed(getDataPath(), {
+          seedId: request?.seedId ?? '',
+          displayName: request?.displayName ?? '',
+        });
+        return {
+          success: result.ok,
+          msg: result.ok ? undefined : result.reasonCode,
+          data: {
+            version,
+            ok: result.ok,
+            ...(result.seedId ? { seed_id: result.seedId } : {}),
+            ...(result.displayName ? { display_name: result.displayName } : {}),
+            ...(result.reasonCode ? { reason_code: result.reasonCode } : {}),
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Seed rename failed.',
+          data: { version, ok: false, reason_code: 'SEED_RENAME_BRIDGE_FAILED' },
+        };
+      }
+    });
 
   // -------------------------------------------------------------------------
   // SWITCH-SEAT (Phase 4 / A5, SLICE C). The GATE-NULL runtime keystone wired

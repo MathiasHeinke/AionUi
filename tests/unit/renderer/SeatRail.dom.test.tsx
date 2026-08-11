@@ -8,59 +8,94 @@
  * SeatRail render + behavior tests — the far-left client/seat bar.
  * Asserts: an admin sees one circle per seat with the active one marked; a click on
  * a NON-active seat switches (never the active one, never while switching); a
- * delegate / loading state renders NOTHING (fail-closed); the "+" routes to the web
- * account (no dead button); and the pure color/initials helpers.
+ * delegate / loading state renders NOTHING (fail-closed); the "+" provisions a
+ * Seed inside the app; and the pure color/initials helpers.
  */
 
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const {
   switchToMock,
-  openExternalMock,
   useSeatAccessMock,
+  useSeedLifecycleMock,
+  createSeedMock,
+  resetCreateAttemptMock,
   messageErrorMock,
+  messageSuccessMock,
   modalConfirmMock,
   isAnyGeneratingMock,
   clearGenerationForBackendRespawnMock,
 } = vi.hoisted(() => ({
   switchToMock: vi.fn(),
-  openExternalMock: vi.fn(),
   useSeatAccessMock: vi.fn(),
+  useSeedLifecycleMock: vi.fn(),
+  createSeedMock: vi.fn(),
+  resetCreateAttemptMock: vi.fn(),
   messageErrorMock: vi.fn(),
+  messageSuccessMock: vi.fn(),
   modalConfirmMock: vi.fn(),
   isAnyGeneratingMock: vi.fn(() => false),
   clearGenerationForBackendRespawnMock: vi.fn(),
 }));
 
 vi.mock('@renderer/hooks/useSeatAccess', () => ({ useSeatAccess: useSeatAccessMock }));
+vi.mock('@renderer/hooks/useSeedLifecycle', () => ({ useSeedLifecycle: useSeedLifecycleMock }));
 vi.mock('@renderer/services/commandEveGenerationActivity', () => ({
   isAnyGenerating: isAnyGeneratingMock,
   ensureAcpGenerationTracking: vi.fn(),
   clearGenerationForBackendRespawn: clearGenerationForBackendRespawnMock,
 }));
-// APP→WEB AUTH HANDOFF: the "+" now opens via openAccountWeb (MAIN attaches the
-// desktop session so the operator lands logged in); we assert the RELATIVE path.
-vi.mock('@renderer/utils/platform', () => ({ openAccountWeb: openExternalMock, openExternalUrl: vi.fn() }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (_k: string, d?: unknown, vars?: { name?: string }) =>
       typeof d === 'string' ? (vars?.name ? d.replace('{{name}}', vars.name) : d) : _k,
   }),
 }));
-// Arco Tooltip just wraps its child; Message.error is spied so we can assert a failed
-// switch is surfaced (not swallowed).
-vi.mock('@arco-design/web-react', () => ({
-  Tooltip: ({ children }: { children: React.ReactNode }) => children,
-  Message: { error: messageErrorMock },
-  Modal: { confirm: modalConfirmMock },
-}));
+// Arco Tooltip just wraps; Modal renders its content when visible.
+vi.mock('@arco-design/web-react', () => {
+  return {
+    Tooltip: ({ children }: { children: React.ReactNode }) => children,
+    Button: ({
+      children,
+      loading,
+      ...props
+    }: React.ButtonHTMLAttributes<HTMLButtonElement> & { loading?: boolean }) => (
+      <button {...props} disabled={loading || props.disabled}>
+        {children}
+      </button>
+    ),
+    Input: ({
+      onChange,
+      ...props
+    }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> & { onChange?: (value: string) => void }) => (
+      <input {...props} onChange={(event) => onChange?.(event.target.value)} />
+    ),
+    Message: { error: messageErrorMock, success: messageSuccessMock },
+    Modal: Object.assign(
+      ({ visible, children, footer }: React.PropsWithChildren<{ visible?: boolean; footer?: React.ReactNode }>) =>
+        visible ? (
+          <div role='dialog'>
+            {children}
+            {footer}
+          </div>
+        ) : null,
+      { confirm: modalConfirmMock }
+    ),
+  };
+});
 
 import SeatRail, { seatColor, seatInitials, contrastText } from '@renderer/components/seats/SeatRail';
 
 type Over = Record<string, unknown>;
 function mockAccess(over: Over = {}) {
+  useSeedLifecycleMock.mockReturnValue({
+    provisioning: false,
+    retryPending: false,
+    createSeed: createSeedMock,
+    resetCreateAttempt: resetCreateAttemptMock,
+  });
   useSeatAccessMock.mockReturnValue({
     loading: false,
     switching: false,
@@ -192,14 +227,57 @@ describe('SeatRail', () => {
     expect(container.querySelector('[data-testid="seat-rail"]')).toBeNull();
   });
 
-  it('the "+" routes to the web account add-seat deep-link (no dead button)', () => {
+  it('the "+" provisions a free Seed inside the app without a website redirect', async () => {
+    createSeedMock.mockResolvedValue({
+      ok: true,
+      seedId: '44444444-4444-4444-8444-444444444444',
+      created: true,
+      seedCount: 4,
+      seedLimit: 10,
+    });
     mockAccess();
     render(<SeatRail />);
     fireEvent.click(screen.getByTestId('seat-rail-add'));
-    // Gen-B: the "+" adds a CLIENT seat → deep-link to the LIVE ?intent=add_seat
-    // consumer on /account (scroll + highlight the add-seat section). openAccountWeb
-    // pins the origin + carries the session, so the component passes a RELATIVE path.
-    expect(openExternalMock).toHaveBeenCalledWith('/account?intent=add_seat');
+    fireEvent.change(screen.getByTestId('seed-create-name'), { target: { value: 'Neuer Seed' } });
+    fireEvent.click(screen.getByTestId('seed-create-submit'));
+    await waitFor(() => expect(createSeedMock).toHaveBeenCalledWith('Neuer Seed'));
+    expect(messageSuccessMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables creation at the account-wide ten Seed limit', () => {
+    mockAccess({
+      access: {
+        role: 'admin',
+        canSwitch: true,
+        pinnedSeatId: 's1',
+        activeSeatId: 's1',
+        seats: Array.from({ length: 10 }, (_, index) => ({
+          seat_id: `s${index + 1}`,
+          name: `Seed ${index + 1}`,
+          role: 'admin',
+          is_active: index === 0,
+        })),
+      },
+    });
+    render(<SeatRail />);
+    expect(screen.getByTestId('seat-rail-add').hasAttribute('disabled')).toBe(true);
+  });
+
+  it('keeps a timed-out attempt in reconciliation mode', () => {
+    createSeedMock.mockResolvedValue({ ok: false, seedLimit: 10, reasonCode: 'SEED_PROVISION_TIMEOUT' });
+    mockAccess();
+    useSeedLifecycleMock.mockReturnValue({
+      provisioning: false,
+      retryPending: true,
+      createSeed: createSeedMock,
+      resetCreateAttempt: resetCreateAttemptMock,
+    });
+
+    render(<SeatRail />);
+    fireEvent.click(screen.getByTestId('seat-rail-add'));
+    expect(screen.getByTestId('seed-create-name').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('seed-create-submit').textContent).toBe('Erneut abgleichen');
+    expect(resetCreateAttemptMock).not.toHaveBeenCalled();
   });
 
   it('toggle collapses/expands the rail', () => {

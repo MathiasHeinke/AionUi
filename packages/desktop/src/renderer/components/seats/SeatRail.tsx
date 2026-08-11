@@ -5,16 +5,15 @@
  */
 
 /**
- * SeatRail — the far-left, collapsible bar of CLIENT / PROJECT seats (Command EVE).
+ * SeatRail — the far-left, collapsible bar of Seeds (Command EVE).
  *
  * Each seat the admin owns is a colored circle (collapsed: a dot inside a real tap
  * target; expanded: a circle with the client's initials). The ACTIVE seat is ringed;
  * clicking another seat switches the whole app to it (same authoritative path as the
  * SeatSwitcher: useSeatAccess.switchTo drives the main-process stop + re-spawn under
- * the new HERMES_HOME). The "+" (pinned to the bottom) routes to the web account
- * where seats are added — which since the Founder ruling 1.820.1 costs NOTHING:
- * multiseat is included in the one Standard subscription, so this rail grows with
- * no per-seat charge behind it (the retired +99€/seat ladder is gone).
+ * the new HERMES_HOME). The "+" (pinned to the bottom) provisions a free Seed
+ * directly in the app. The account-wide cap is ten Seeds; every Seed consumes the
+ * same account credit pool and retains its own usage attribution.
  *
  * SECURITY / VISIBILITY: renders ONLY for an admin. useSeatAccess is fail-closed —
  * a delegate, a single-seat legacy install, or no bridge all resolve to
@@ -26,7 +25,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Message, Modal, Tooltip } from '@arco-design/web-react';
+import { Button, Input, Message, Modal, Tooltip } from '@arco-design/web-react';
 import { ExpandLeft, ExpandRight, Plus } from '@icon-park/react';
 import {
   isAnyGenerating,
@@ -36,7 +35,7 @@ import {
 import CommandEveGlyph from '@renderer/components/commandEve/CommandEveGlyph';
 import { useTranslation } from 'react-i18next';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
-import { openAccountWeb } from '@renderer/utils/platform';
+import { useSeedLifecycle } from '@renderer/hooks/useSeedLifecycle';
 import { commandEve } from '@/common/adapter/ipcBridge';
 // From the SHARED renderer-safe home — never from the main-process fetch module
 // (a runtime import of `@process/...` black-screened the packaged app on boot).
@@ -110,14 +109,6 @@ export function seatInitials(name: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-// The "+" chip adds a CLIENT seat — included in Standard at no per-seat charge
-// (1.820.1). Deep-link to the LIVE consumer on /account (?intent=add_seat scrolls +
-// highlights the add-seat section) so the click lands the operator exactly where the
-// seat is created. RELATIVE
-// path: openAccountWeb pins the command-eve.com origin AND carries the desktop
-// session so the operator lands LOGGED IN (checkout can start).
-const ADD_SEAT_PATH = '/account?intent=add_seat';
-
 // Reason-code → human German string for a failed/rolled-back switch. A switch is the
 // most consequential rail action (it re-homes the whole app to another client), so a
 // silent failure is the worst outcome — the admin must SEE that they are still on the
@@ -152,8 +143,12 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
   const { t } = useTranslation();
   const { loading, access, switching, switchTo, lastSwitchError, switchErrorNonce, mySeatsWireError, refresh } =
     useSeatAccess();
+  const { provisioning, retryPending, createSeed, resetCreateAttempt } = useSeedLifecycle();
   const [expanded, setExpanded] = useState(true);
   const [reauthenticating, setReauthenticating] = useState(false);
+  const [createSeedVisible, setCreateSeedVisible] = useState(false);
+  const [seedName, setSeedName] = useState('');
+  const [seedCreateAnnouncement, setSeedCreateAnnouncement] = useState('');
 
   const visible = !loading && access.role === 'admin';
   // MAT-1773 follow-up: the rail fail-closed because the my-seats read died on a
@@ -243,128 +238,244 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
     ? t('commandEve.seatRail.collapse', 'Leiste einklappen')
     : t('commandEve.seatRail.expand', 'Leiste ausklappen');
 
+  const atSeedLimit = access.seats.length >= 10;
+  const closeCreateSeed = () => {
+    if (provisioning) return;
+    setCreateSeedVisible(false);
+    // A timed-out request may already have committed server-side. Preserve its
+    // name + idempotency key across close/reopen until reconciliation succeeds.
+    if (!retryPending) {
+      setSeedName('');
+      setSeedCreateAnnouncement('');
+      resetCreateAttempt();
+    }
+  };
+
+  const handleCreateSeed = async () => {
+    const displayName = seedName.trim();
+    if (!displayName) {
+      Message.error(t('commandEve.seatRail.createNameRequired', 'Bitte gib dem Seed einen Namen.'));
+      return;
+    }
+    setSeedCreateAnnouncement(
+      retryPending
+        ? t('commandEve.seatRail.reconciling', 'Seed wird abgeglichen …')
+        : t('commandEve.seatRail.provisioning', 'Seed wird erstellt …')
+    );
+    const result = await createSeed(displayName);
+    if (result.ok) {
+      await refresh();
+      setCreateSeedVisible(false);
+      setSeedName('');
+      setSeedCreateAnnouncement(t('commandEve.seatRail.created', 'Seed wurde erstellt.'));
+      Message.success(t('commandEve.seatRail.created', 'Seed wurde erstellt.'));
+      return;
+    }
+    if (result.reasonCode === 'SEED_LIMIT_REACHED') {
+      setSeedCreateAnnouncement(t('commandEve.seatRail.limitReached', 'Maximal 10 Seeds pro Account.'));
+      Message.error(t('commandEve.seatRail.limitReached', 'Maximal 10 Seeds pro Account.'));
+      return;
+    }
+    if (result.reasonCode === 'SEED_PROVISION_TIMEOUT') {
+      setSeedCreateAnnouncement(
+        t(
+          'commandEve.seatRail.timeoutRetry',
+          'Zeitüberschreitung. Noch einmal abgleichen — es wird kein zweiter Seed erzeugt.'
+        )
+      );
+      return;
+    }
+    setSeedCreateAnnouncement(t('commandEve.seatRail.createError', 'Seed konnte nicht erstellt werden.'));
+    Message.error(t('commandEve.seatRail.createError', 'Seed konnte nicht erstellt werden.'));
+  };
+
   return (
-    <nav
-      className={[
-        'command-eve-seat-rail',
-        renderedExpanded ? 'command-eve-seat-rail--expanded' : 'command-eve-seat-rail--collapsed',
-        compact ? 'command-eve-seat-rail--compact' : '',
-        switching ? 'command-eve-seat-rail--switching' : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
-      data-testid='seat-rail'
-      aria-label={t('commandEve.seatRail.label', 'Kunden')}
-      aria-busy={switching || undefined}
-    >
-      {/* Screen-reader mirror of the failure toast — Arco's Message renders NO live
+    <>
+      <nav
+        className={[
+          'command-eve-seat-rail',
+          renderedExpanded ? 'command-eve-seat-rail--expanded' : 'command-eve-seat-rail--collapsed',
+          compact ? 'command-eve-seat-rail--compact' : '',
+          switching ? 'command-eve-seat-rail--switching' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        data-testid='seat-rail'
+        aria-label={t('commandEve.seatRail.label', 'Kunden')}
+        aria-busy={switching || undefined}
+      >
+        {/* Screen-reader mirror of the failure toast — Arco's Message renders NO live
           region, so AT users would otherwise get no signal that a switch rolled back
           (the exact cross-client confusion the toast exists to prevent). Keyed on the
           nonce so role='alert' remounts and re-announces on every failure, including a
           repeated identical reject code. Empty (silent) when there is no error. */}
-      <span key={switchErrorNonce} role='alert' className='seat-rail__sr-only' data-testid='seat-rail-live'>
-        {lastSwitchError ? switchErrorMessage(lastSwitchError) : ''}
-      </span>
+        <span key={switchErrorNonce} role='alert' className='seat-rail__sr-only' data-testid='seat-rail-live'>
+          {lastSwitchError ? switchErrorMessage(lastSwitchError) : ''}
+        </span>
 
-      <div className='seat-rail__brand' data-testid='seat-rail-brand' aria-hidden='true'>
-        <CommandEveGlyph size={22} />
-      </div>
+        <div className='seat-rail__brand' data-testid='seat-rail-brand' aria-hidden='true'>
+          <CommandEveGlyph size={22} />
+        </div>
 
-      {!compact && (
-        <Tooltip content={toggleLabel} position='right' trigger={['hover', 'focus']}>
+        {!compact && (
+          <Tooltip content={toggleLabel} position='right' trigger={['hover', 'focus']}>
+            <button
+              type='button'
+              className='seat-rail__toggle'
+              data-testid='seat-rail-toggle'
+              aria-label={toggleLabel}
+              aria-expanded={renderedExpanded}
+              onClick={() => setExpanded((e) => !e)}
+            >
+              {renderedExpanded ? (
+                <ExpandLeft size={16} aria-hidden='true' />
+              ) : (
+                <ExpandRight size={16} aria-hidden='true' />
+              )}
+            </button>
+          </Tooltip>
+        )}
+
+        {/* Only the Seed list scrolls. The toggle (above) and "+" (below) sit outside
+          this region so the in-app create affordance stays bottom-pinned. */}
+        <div className='seat-rail__seats'>
+          {access.seats.map((seat) => {
+            const active = seat.seat_id === access.activeSeatId;
+            const color = seatColor(seat.seat_id);
+            return (
+              <Tooltip key={seat.seat_id} content={seat.name} position='right' trigger={['hover', 'focus']}>
+                <button
+                  type='button'
+                  className={active ? 'seat-rail__seat seat-rail__seat--active' : 'seat-rail__seat'}
+                  data-testid={`seat-rail-seat-${seat.seat_id}`}
+                  aria-label={
+                    active ? t('commandEve.seatRail.activeSeat', '{{name}} (aktiv)', { name: seat.name }) : seat.name
+                  }
+                  aria-current={active ? 'true' : undefined}
+                  // aria-disabled (NOT the `disabled` attr) keeps the just-clicked seat in
+                  // the tab order, so a keyboard-initiated switch does not drop focus to
+                  // <body> mid-transition. The onClick guard below is the real no-op gate.
+                  aria-disabled={switching || undefined}
+                  onClick={() => {
+                    if (active || switching) return;
+                    // A committed switch respawns the single backend, which SIGKILLs every
+                    // in-flight turn on this seat WITHOUT a terminal stream event. Clear the
+                    // generation set at commit time so a killed turn never lingers as a
+                    // stuck flag that would nag on every future switch (Codex 1.7.3 #1).
+                    const commitSwitch = () => {
+                      clearGenerationForBackendRespawn();
+                      void switchTo(seat.seat_id);
+                    };
+                    // 1.7.3: if a response is currently streaming, confirm before interrupting
+                    // it — default is to STAY (protect the answer); the operator can still switch.
+                    if (isAnyGenerating()) {
+                      Modal.confirm({
+                        title: t('commandEve.seatRail.switchWhileGeneratingTitle', 'Antwort läuft noch'),
+                        content: t(
+                          'commandEve.seatRail.switchWhileGeneratingBody',
+                          'Beim Seat-Wechsel wird die laufende Antwort abgebrochen und verworfen. Trotzdem wechseln?'
+                        ),
+                        okText: t('commandEve.seatRail.switchAnyway', 'Trotzdem wechseln'),
+                        cancelText: t('common.cancel', 'Abbrechen'),
+                        onOk: commitSwitch,
+                      });
+                      return;
+                    }
+                    commitSwitch();
+                  }}
+                >
+                  <span
+                    className='seat-rail__dot'
+                    style={{ ['--seat-color' as never]: color, ['--seat-text' as never]: contrastText(color) }}
+                  >
+                    {renderedExpanded ? seatInitials(seat.name) : null}
+                  </span>
+                </button>
+              </Tooltip>
+            );
+          })}
+        </div>
+
+        <Tooltip
+          content={
+            atSeedLimit
+              ? t('commandEve.seatRail.limitReached', 'Maximal 10 Seeds pro Account.')
+              : t('commandEve.seatRail.add', 'Seed hinzufügen')
+          }
+          position='right'
+          trigger={['hover', 'focus']}
+        >
           <button
             type='button'
-            className='seat-rail__toggle'
-            data-testid='seat-rail-toggle'
-            aria-label={toggleLabel}
-            aria-expanded={renderedExpanded}
-            onClick={() => setExpanded((e) => !e)}
+            className='seat-rail__add'
+            data-testid='seat-rail-add'
+            aria-label={t('commandEve.seatRail.add', 'Seed hinzufügen')}
+            disabled={atSeedLimit || provisioning || switching}
+            aria-busy={provisioning || undefined}
+            onClick={() => {
+              if (!retryPending) resetCreateAttempt();
+              setCreateSeedVisible(true);
+            }}
           >
-            {renderedExpanded ? (
-              <ExpandLeft size={16} aria-hidden='true' />
-            ) : (
-              <ExpandRight size={16} aria-hidden='true' />
-            )}
+            <span className='seat-rail__add-glyph' aria-hidden='true'>
+              <Plus size={16} />
+            </span>
           </button>
         </Tooltip>
-      )}
+      </nav>
 
-      {/* Only the seat LIST scrolls. The toggle (above) and "+" (below) sit OUTSIDE
-          this region so the "add client" affordance stays bottom-pinned even when an
-          operator owns more clients than fit the viewport — the success case, and one
-          that costs the operator nothing per seat since 1.820.1. */}
-      <div className='seat-rail__seats'>
-        {access.seats.map((seat) => {
-          const active = seat.seat_id === access.activeSeatId;
-          const color = seatColor(seat.seat_id);
-          return (
-            <Tooltip key={seat.seat_id} content={seat.name} position='right' trigger={['hover', 'focus']}>
-              <button
-                type='button'
-                className={active ? 'seat-rail__seat seat-rail__seat--active' : 'seat-rail__seat'}
-                data-testid={`seat-rail-seat-${seat.seat_id}`}
-                aria-label={
-                  active ? t('commandEve.seatRail.activeSeat', '{{name}} (aktiv)', { name: seat.name }) : seat.name
-                }
-                aria-current={active ? 'true' : undefined}
-                // aria-disabled (NOT the `disabled` attr) keeps the just-clicked seat in
-                // the tab order, so a keyboard-initiated switch does not drop focus to
-                // <body> mid-transition. The onClick guard below is the real no-op gate.
-                aria-disabled={switching || undefined}
-                onClick={() => {
-                  if (active || switching) return;
-                  // A committed switch respawns the single backend, which SIGKILLs every
-                  // in-flight turn on this seat WITHOUT a terminal stream event. Clear the
-                  // generation set at commit time so a killed turn never lingers as a
-                  // stuck flag that would nag on every future switch (Codex 1.7.3 #1).
-                  const commitSwitch = () => {
-                    clearGenerationForBackendRespawn();
-                    void switchTo(seat.seat_id);
-                  };
-                  // 1.7.3: if a response is currently streaming, confirm before interrupting
-                  // it — default is to STAY (protect the answer); the operator can still switch.
-                  if (isAnyGenerating()) {
-                    Modal.confirm({
-                      title: t('commandEve.seatRail.switchWhileGeneratingTitle', 'Antwort läuft noch'),
-                      content: t(
-                        'commandEve.seatRail.switchWhileGeneratingBody',
-                        'Beim Seat-Wechsel wird die laufende Antwort abgebrochen und verworfen. Trotzdem wechseln?'
-                      ),
-                      okText: t('commandEve.seatRail.switchAnyway', 'Trotzdem wechseln'),
-                      cancelText: t('common.cancel', 'Abbrechen'),
-                      onOk: commitSwitch,
-                    });
-                    return;
-                  }
-                  commitSwitch();
-                }}
-              >
-                <span
-                  className='seat-rail__dot'
-                  style={{ ['--seat-color' as never]: color, ['--seat-text' as never]: contrastText(color) }}
-                >
-                  {renderedExpanded ? seatInitials(seat.name) : null}
-                </span>
-              </button>
-            </Tooltip>
-          );
-        })}
-      </div>
-
-      <Tooltip content={t('commandEve.seatRail.add', 'Kunde hinzufügen')} position='right' trigger={['hover', 'focus']}>
-        <button
-          type='button'
-          className='seat-rail__add'
-          data-testid='seat-rail-add'
-          aria-label={t('commandEve.seatRail.add', 'Kunde hinzufügen')}
-          onClick={() => void openAccountWeb(ADD_SEAT_PATH)}
-        >
-          <span className='seat-rail__add-glyph' aria-hidden='true'>
-            <Plus size={16} />
-          </span>
-        </button>
-      </Tooltip>
-    </nav>
+      <Modal
+        visible={createSeedVisible}
+        title={t('commandEve.seatRail.createTitle', 'Neuen Seed erstellen')}
+        onCancel={closeCreateSeed}
+        maskClosable={!provisioning}
+        escToExit={!provisioning}
+        autoFocus={false}
+        footer={
+          <>
+            <Button disabled={provisioning} onClick={closeCreateSeed}>
+              {t('common.cancel', 'Abbrechen')}
+            </Button>
+            <Button
+              type='primary'
+              loading={provisioning}
+              disabled={!seedName.trim() || atSeedLimit}
+              onClick={() => void handleCreateSeed()}
+              data-testid='seed-create-submit'
+            >
+              {retryPending
+                ? t('commandEve.seatRail.retryReconcile', 'Erneut abgleichen')
+                : t('commandEve.seatRail.createAction', 'Seed erstellen')}
+            </Button>
+          </>
+        }
+      >
+        <p className='eve-settings-muted' id='seed-create-help'>
+          {t(
+            'commandEve.seatRail.createHelp',
+            'Der Seed ist ein eigener Arbeitsraum. Er ist kostenlos und nutzt den Credit-Pool deines Accounts.'
+          )}
+        </p>
+        <label className='eve-settings-field' htmlFor='seed-create-name'>
+          <span>{t('commandEve.seatRail.seedName', 'Seed-Name')}</span>
+          <Input
+            id='seed-create-name'
+            value={seedName}
+            maxLength={200}
+            disabled={provisioning || retryPending}
+            aria-describedby='seed-create-help'
+            onChange={(value) => {
+              setSeedName(value);
+            }}
+            placeholder={t('commandEve.seatRail.seedNamePlaceholder', 'z. B. Fyn Labs')}
+            data-testid='seed-create-name'
+          />
+        </label>
+        <p role='status' aria-live='polite' data-testid='seed-create-status'>
+          {seedCreateAnnouncement}
+        </p>
+      </Modal>
+    </>
   );
 };
 

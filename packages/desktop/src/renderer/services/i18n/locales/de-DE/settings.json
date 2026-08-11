@@ -247,9 +247,9 @@
   "account": "Konto",
   "accountPanel": {
     "title": "Konto",
-    "pageDescription": "Verwalte dein lokales Profil, deine Anmeldung und den Zugriff auf EVE Cloud.",
-    "profileTitle": "Profil",
-    "profileDescription": "Deine Identität für Command EVE auf diesem Gerät.",
+    "pageDescription": "Verwalte getrennt deinen Account und den aktiven Seed.",
+    "profileTitle": "Account",
+    "profileDescription": "Deine Identität, Anmeldung und Firma. Änderungen benennen keinen Seed um.",
     "sessionTitle": "Anmeldung auf diesem Mac",
     "sessionStatus": "Dieses Gerät ist angemeldet.",
     "deviceResetTitle": "Gerät zurücksetzen",
@@ -281,6 +281,17 @@
     "fieldsRequired": "Name und Firma dürfen nicht leer sein.",
     "emailLocked": "E-Mail-Adresse ändern ist eine separate Anmelde-Funktion (folgt).",
     "logoutSoft": "Von diesem Mac abmelden",
+    "seed": {
+      "title": "Dieser Seed",
+      "description": "Name und Einstellungen dieses Arbeitsraums. Dein Accountprofil bleibt unverändert.",
+      "name": "Seed-Name",
+      "edit": "Seed umbenennen",
+      "save": "Seed speichern",
+      "saving": "Wird gespeichert …",
+      "saved": "Seed-Name gespeichert.",
+      "saveError": "Seed-Name konnte nicht gespeichert werden.",
+      "nameRequired": "Der Seed-Name darf nicht leer sein."
+    },
     "eveCloud": {
       "title": "EVE Cloud",
       "activeStatus": "Aktiv",

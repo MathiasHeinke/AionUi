@@ -29,11 +29,13 @@ import { Button, Input, Message, Popconfirm, Tag } from '@arco-design/web-react'
 import { useTranslation } from 'react-i18next';
 import { commandEve, type ICommandEveRegistrationStatusResult } from '@/common/adapter/ipcBridge';
 import { refreshCommandEveProfile } from '@/renderer/components/account/useCommandEveProfile';
+import { useSeatAccess } from '@/renderer/hooks/useSeatAccess';
 import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 
 const AccountModalContent: React.FC = () => {
   const { t } = useTranslation();
+  const { access, refresh: refreshSeeds } = useSeatAccess();
   const [info, setInfo] = useState<ICommandEveRegistrationStatusResult | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -52,6 +54,12 @@ const AccountModalContent: React.FC = () => {
   const [savingProfile, setSavingProfile] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftCompany, setDraftCompany] = useState('');
+  // Seed display name is an independent server field (tenants.name). This path
+  // never calls registrationUpdate and therefore cannot rename the Account.
+  const [editingSeed, setEditingSeed] = useState(false);
+  const [savingSeed, setSavingSeed] = useState(false);
+  const [draftSeedName, setDraftSeedName] = useState('');
+  const activeSeed = access.seats.find((seat) => seat.seat_id === access.activeSeatId) ?? null;
 
   const refresh = useCallback(async () => {
     try {
@@ -95,6 +103,40 @@ const AccountModalContent: React.FC = () => {
       setSavingProfile(false);
     }
   }, [draftName, draftCompany, refresh, t]);
+
+  const beginSeedEdit = useCallback(() => {
+    setDraftSeedName(activeSeed?.name ?? '');
+    setEditingSeed(true);
+  }, [activeSeed?.name]);
+
+  const handleSaveSeed = useCallback(async () => {
+    const displayName = draftSeedName.trim();
+    if (!activeSeed?.seat_id || !displayName) {
+      Message.error(
+        t('settings.accountPanel.seed.nameRequired', { defaultValue: 'Der Seed-Name darf nicht leer sein.' })
+      );
+      return;
+    }
+    setSavingSeed(true);
+    try {
+      const response = await commandEve.seedRename.invoke({ seedId: activeSeed.seat_id, displayName });
+      if (response.data?.ok) {
+        await refreshSeeds();
+        setEditingSeed(false);
+        Message.success(t('settings.accountPanel.seed.saved', { defaultValue: 'Seed-Name gespeichert.' }));
+      } else {
+        Message.error(
+          t('settings.accountPanel.seed.saveError', { defaultValue: 'Seed-Name konnte nicht gespeichert werden.' })
+        );
+      }
+    } catch {
+      Message.error(
+        t('settings.accountPanel.seed.saveError', { defaultValue: 'Seed-Name konnte nicht gespeichert werden.' })
+      );
+    } finally {
+      setSavingSeed(false);
+    }
+  }, [activeSeed?.seat_id, draftSeedName, refreshSeeds, t]);
 
   const refreshBearer = useCallback(async () => {
     try {
@@ -304,6 +346,59 @@ const AccountModalContent: React.FC = () => {
           </div>
         )}
       </SettingsSection>
+
+      {activeSeed ? (
+        <SettingsSection
+          title={t('settings.accountPanel.seed.title', { defaultValue: 'Dieser Seed' })}
+          description={t('settings.accountPanel.seed.description', {
+            defaultValue: 'Name und Einstellungen dieses Arbeitsraums. Dein Accountprofil bleibt unverändert.',
+          })}
+          action={
+            access.role === 'admin' && !editingSeed ? (
+              <Button size='small' type='text' onClick={beginSeedEdit} data-testid='seed-edit'>
+                {t('settings.accountPanel.seed.edit', { defaultValue: 'Seed umbenennen' })}
+              </Button>
+            ) : undefined
+          }
+          bodyClassName={editingSeed ? 'eve-settings-form' : 'eve-settings-list'}
+        >
+          {editingSeed ? (
+            <>
+              <label className='eve-settings-field'>
+                <span>{t('settings.accountPanel.seed.name', { defaultValue: 'Seed-Name' })}</span>
+                <Input
+                  value={draftSeedName}
+                  maxLength={200}
+                  onChange={setDraftSeedName}
+                  disabled={savingSeed}
+                  data-testid='seed-name-input'
+                />
+              </label>
+              <div className='eve-settings-form-actions'>
+                <Button
+                  type='primary'
+                  loading={savingSeed}
+                  onClick={() => void handleSaveSeed()}
+                  data-testid='seed-save'
+                >
+                  {savingSeed
+                    ? t('settings.accountPanel.seed.saving', { defaultValue: 'Wird gespeichert …' })
+                    : t('settings.accountPanel.seed.save', { defaultValue: 'Seed speichern' })}
+                </Button>
+                <Button disabled={savingSeed} onClick={() => setEditingSeed(false)} data-testid='seed-cancel-edit'>
+                  {t('settings.accountPanel.cancel', { defaultValue: 'Abbrechen' })}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <PreferenceRow label={t('settings.accountPanel.seed.name', { defaultValue: 'Seed-Name' })}>
+              <span className='eve-settings-value' data-testid='seed-name'>
+                {activeSeed.name}
+              </span>
+            </PreferenceRow>
+          )}
+        </SettingsSection>
+      ) : null}
 
       {signedIn ? (
         <SettingsSection
