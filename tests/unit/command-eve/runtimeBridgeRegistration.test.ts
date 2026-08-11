@@ -28,13 +28,17 @@ describe('Command EVE runtime bridge registration', () => {
     }
   });
 
-  it('registers browser guests in MAIN and drops the active lease before renderer crash recovery', () => {
+  it('registers and navigation-guards browser guests in MAIN before renderer crash recovery', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
     const didAttach = source.indexOf("mainWindow.webContents.on('did-attach-webview'");
     const rendererGone = source.indexOf("mainWindow.webContents.on('render-process-gone'");
 
     expect(didAttach).toBeGreaterThan(-1);
-    expect(source.slice(didAttach, rendererGone)).toContain('getCdpBridgeHandle()?.registerGuest(guest)');
+    const guestLifecycle = source.slice(didAttach, rendererGone);
+    expect(guestLifecycle).toContain('getCdpBridgeHandle()?.registerGuest(guest)');
+    expect(guestLifecycle).toContain("guest.on('will-navigate'");
+    expect(guestLifecycle).toContain("guest.on('will-redirect'");
+    expect(guestLifecycle).toContain("guest.setWindowOpenHandler(() => ({ action: 'deny' }))");
     expect(source.slice(rendererGone, rendererGone + 800)).toContain(
       "getCdpBridgeHandle()?.detachActiveTarget('main renderer process exited')"
     );

@@ -10,6 +10,7 @@ export interface BrowserAuthSurfaceSnapshot {
   active_type?: string;
   active_autocomplete?: string;
   active_name?: string;
+  has_password_signal?: boolean;
   has_mfa_signal?: boolean;
   has_passkey_signal?: boolean;
   has_captcha_signal?: boolean;
@@ -24,7 +25,14 @@ export interface BrowserNeedsUserDecision {
 const PASSWORD_AUTOCOMPLETE = /(?:current-password|new-password)/i;
 const MFA_AUTOCOMPLETE = /(?:one-time-code|otp|totp)/i;
 const PASSWORD_FIELD = /(?:password|passwd|passcode)/i;
-const MFA_FIELD = /(?:otp|totp|2fa|mfa|verification.?code|recovery.?code)/i;
+const MFA_FIELD = /(?:^|[^a-z0-9])(?:otp|totp|2fa|mfa)(?:$|[^a-z0-9])|verification.?code|recovery.?code/i;
+
+export const BROWSER_MFA_TEXT_PATTERN_SOURCE = String.raw`one[- ]time code|verification code|recovery code|two[- ]factor|\btotp\b|\botp\b|\b2fa\b|\bmfa\b`;
+const BROWSER_MFA_TEXT_PATTERN = new RegExp(BROWSER_MFA_TEXT_PATTERN_SOURCE, 'i');
+
+export function hasBrowserMfaTextSignal(value: unknown): boolean {
+  return typeof value === 'string' && BROWSER_MFA_TEXT_PATTERN.test(value);
+}
 
 /** Only classifications cross from the guest page; input values never do. */
 export function classifyBrowserAuthSurface(snapshot: BrowserAuthSurfaceSnapshot): BrowserNeedsUserDecision | null {
@@ -37,7 +45,12 @@ export function classifyBrowserAuthSurface(snapshot: BrowserAuthSurfaceSnapshot)
   if (snapshot.has_mfa_signal || MFA_AUTOCOMPLETE.test(autocomplete) || MFA_FIELD.test(name)) {
     return { needs_user: true, reason: 'mfa' };
   }
-  if (type.toLowerCase() === 'password' || PASSWORD_AUTOCOMPLETE.test(autocomplete) || PASSWORD_FIELD.test(name)) {
+  if (
+    snapshot.has_password_signal ||
+    type.toLowerCase() === 'password' ||
+    PASSWORD_AUTOCOMPLETE.test(autocomplete) ||
+    PASSWORD_FIELD.test(name)
+  ) {
     return { needs_user: true, reason: 'password' };
   }
   return null;

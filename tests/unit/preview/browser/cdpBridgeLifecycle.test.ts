@@ -164,6 +164,74 @@ describe('single-target CDP bridge lifecycle', () => {
     expect(await fetch(`${activation.cdpUrl}/json/list`).then((response) => response.json())).toEqual([]);
   });
 
+  it('projects safe lifecycle events and never broadcasts raw network credentials', async () => {
+    const { startCdpBridge } = await import('@process/resources/builtinMcp/cdpBridge');
+    bridge = await startCdpBridge();
+    const context = '1'.repeat(32);
+    const activation = bridge.activateContext(context, partitionFor(context), epoch('a'));
+    const guest = new FakeWebContents(45, partitionFor(context));
+    bridge.registerGuest(guest as never);
+    expect(bridge.attach(guest.id, context, epoch('a')).ok).toBe(true);
+
+    const socket = new WebSocket(`${activation.cdpUrl.replace(/^http:/, 'ws:')}/aionui-cdp`);
+    await once(socket, 'open');
+    const received = once(socket, 'message');
+    const secret = 'session=raw-cookie-secret';
+    guest.debugger.emit('message', {}, 'Network.requestWillBeSentExtraInfo', {
+      headers: { Cookie: secret, Authorization: 'Bearer raw-token-secret' },
+      associatedCookies: [{ cookie: { value: secret } }],
+    });
+    guest.debugger.emit('message', {}, 'Network.requestWillBeSent', {
+      requestId: 'request-safe',
+      request: { url: `https://example.com/?token=${secret}`, headers: { Cookie: secret } },
+    });
+
+    const [frame] = await received;
+    const text = frame.toString();
+    expect(text).not.toContain('raw-cookie-secret');
+    expect(text).not.toContain('raw-token-secret');
+    expect(JSON.parse(text)).toEqual({
+      method: 'Network.requestWillBeSent',
+      params: { requestId: 'request-safe' },
+      sessionId: 'aionui-browser-session',
+    });
+    socket.close();
+  });
+
+  it('returns needs_user before read or screenshot commands can observe an auth surface', async () => {
+    const { startCdpBridge } = await import('@process/resources/builtinMcp/cdpBridge');
+    bridge = await startCdpBridge();
+    const context = '2'.repeat(32);
+    const activation = bridge.activateContext(context, partitionFor(context), epoch('b'));
+    const guest = new FakeWebContents(46, partitionFor(context));
+    guest.debugger.sendCommand = vi.fn(async (method: string) => {
+      guest.debugger.commands.push(method);
+      if (method === 'Runtime.evaluate') return { result: { value: { has_mfa_signal: true } } };
+      return {};
+    });
+    bridge.registerGuest(guest as never);
+    expect(bridge.attach(guest.id, context, epoch('b')).ok).toBe(true);
+
+    const socket = new WebSocket(`${activation.cdpUrl.replace(/^http:/, 'ws:')}/aionui-cdp`);
+    await once(socket, 'open');
+    const send = async (id: number, method: string) => {
+      const received = once(socket, 'message');
+      socket.send(JSON.stringify({ id, method }));
+      const [frame] = await received;
+      return JSON.parse(frame.toString());
+    };
+    expect(await send(81, 'Accessibility.getFullAXTree')).toMatchObject({
+      id: 81,
+      error: { message: 'needs_user:mfa' },
+    });
+    expect(await send(82, 'Page.captureScreenshot')).toMatchObject({
+      id: 82,
+      error: { message: 'needs_user:mfa' },
+    });
+    expect(guest.debugger.commands).toEqual(['Runtime.evaluate', 'Runtime.evaluate']);
+    socket.close();
+  });
+
   it('rejects unregistered and wrong-partition guests without mutating the current target', async () => {
     const { startCdpBridge } = await import('@process/resources/builtinMcp/cdpBridge');
     bridge = await startCdpBridge();

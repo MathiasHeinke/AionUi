@@ -15,6 +15,8 @@ import { goToGuid } from '../helpers';
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(__dirname, '../../..');
 const fixtureHtml = fs.readFileSync(path.join(projectRoot, 'tests/e2e/assets/browser-workbench.html'));
+const PROFILE_PRESENT = 'cookie=true;localStorage=true;indexedDB=true;cache=true';
+const PROFILE_ABSENT = 'cookie=false;localStorage=false;indexedDB=false;cache=false';
 const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-browser-workbench-e2e-'));
 const workspaceDir = path.join(scratchRoot, 'workspace');
 fs.mkdirSync(workspaceDir, { recursive: true });
@@ -202,14 +204,132 @@ async function revealBrowserWorkbench(page: import('@playwright/test').Page): Pr
 }
 
 async function waitForVisibleTarget(cdpUrl: string, expectedUrl = fixtureUrl): Promise<Record<string, unknown>> {
+  const expectedVisibleUrl = (() => {
+    const parsed = new URL(expectedUrl);
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  })();
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     const response = await fetch(`${cdpUrl}/json/list`);
     const targets = (await response.json()) as Array<Record<string, unknown>>;
-    if (targets.length === 1 && targets[0]?.url === expectedUrl) return targets[0];
+    if (targets.length === 1 && targets[0]?.url === expectedVisibleUrl) return targets[0];
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
   throw new Error('The EVE CDP bridge never advertised the visible workbench browser');
+}
+
+const browserUseTypedPrelude = [
+  'import time as _time',
+  'def _ax_value(node, key):',
+  '    value = (node or {}).get(key) or {}',
+  '    return value.get("value") if isinstance(value, dict) else None',
+  'def ax_nodes():',
+  '    return cdp("Accessibility.getFullAXTree").get("nodes", [])',
+  'def ax_find(name, role=None, contains=False):',
+  '    for node in ax_nodes():',
+  '        node_name = str(_ax_value(node, "name") or "")',
+  '        node_role = str(_ax_value(node, "role") or "")',
+  '        if (name in node_name if contains else name == node_name) and (role is None or role == node_role):',
+  '            return node',
+  '    raise RuntimeError("accessible node not found")',
+  'def ax_text(fragment):',
+  '    return str(_ax_value(ax_find(fragment, contains=True), "name") or "")',
+  'def ax_wait_text(fragment, expected=None, timeout=8.0):',
+  '    deadline = _time.time() + timeout',
+  '    value = ""',
+  '    while _time.time() < deadline:',
+  '        try:',
+  '            value = ax_text(fragment)',
+  '            if expected is None or expected in value:',
+  '                return value',
+  '        except RuntimeError:',
+  '            pass',
+  '        wait(0.2)',
+  '    raise RuntimeError("accessible text did not settle")',
+  'def ax_center(name, role=None):',
+  '    node = ax_find(name, role=role)',
+  '    backend = node.get("backendDOMNodeId")',
+  '    if not backend:',
+  '        raise RuntimeError("accessible node has no DOM backend id")',
+  '    model = cdp("DOM.getBoxModel", backendNodeId=backend).get("model", {})',
+  '    quad = model.get("border") or model.get("content")',
+  '    if not quad or len(quad) != 8:',
+  '        raise RuntimeError("accessible node has no visible box")',
+  '    return {"x": sum(quad[0::2]) / 4, "y": sum(quad[1::2]) / 4}',
+].join('\n');
+
+const typedBrowserUseProgram = (...lines: string[]): string => [browserUseTypedPrelude, ...lines].join('\n');
+
+const browserProfileProbeProgram = (phase: string, expected: string, establish = false): string =>
+  typedBrowserUseProgram(
+    ...(establish
+      ? [
+          'establish = ax_center("Establish local login profile", role="button")',
+          'click_at_xy(establish["x"], establish["y"])',
+        ]
+      : []),
+    `status = ax_wait_text("profile:", ${JSON.stringify(expected)})`,
+    `assert ${JSON.stringify(expected)} in status`,
+    `print({"phase": ${JSON.stringify(phase)}, "status": status})`
+  );
+
+type WindowCaptureGeometry = {
+  windowBounds: { x: number; y: number; width: number; height: number };
+  contentBounds: { x: number; y: number; width: number; height: number };
+};
+
+async function captureCompositedHostWindow(
+  electronApp: ElectronApplication,
+  page: import('@playwright/test').Page,
+  outputPath: string
+): Promise<WindowCaptureGeometry> {
+  const geometry = await electronApp.evaluate(({ BrowserWindow }) => {
+    const win =
+      BrowserWindow.getFocusedWindow() ??
+      BrowserWindow.getAllWindows().find((candidate) => !candidate.webContents.getURL().startsWith('devtools://'));
+    if (!win) throw new Error('No visible BrowserWindow for composited capture');
+    win.show();
+    win.focus();
+    win.moveTop();
+    return { windowBounds: win.getBounds(), contentBounds: win.getContentBounds() };
+  });
+  await page.waitForTimeout(350);
+  if (process.platform === 'darwin') {
+    const { x, y, width, height } = geometry.windowBounds;
+    await execFileAsync('/usr/sbin/screencapture', ['-x', `-R${x},${y},${width},${height}`, outputPath]);
+  } else {
+    await page.screenshot({ path: outputPath });
+  }
+  return geometry;
+}
+
+async function expectGuestPaintMarker(
+  imagePath: string,
+  cssCanvas: { width: number; height: number },
+  cssOrigin: { x: number; y: number }
+): Promise<void> {
+  const sharp = (await import('sharp')).default;
+  const { data, info } = await sharp(imagePath).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const scaleX = info.width / cssCanvas.width;
+  const scaleY = info.height / cssCanvas.height;
+  const samples = [
+    { x: 20, y: 20, rgb: [225, 29, 72] },
+    { x: 60, y: 20, rgb: [22, 163, 74] },
+    { x: 20, y: 60, rgb: [37, 99, 235] },
+    { x: 60, y: 60, rgb: [245, 158, 11] },
+  ];
+  for (const sample of samples) {
+    const x = Math.max(0, Math.min(info.width - 1, Math.round((cssOrigin.x + sample.x) * scaleX)));
+    const y = Math.max(0, Math.min(info.height - 1, Math.round((cssOrigin.y + sample.y) * scaleY)));
+    const offset = (y * info.width + x) * info.channels;
+    for (let channel = 0; channel < 3; channel += 1) {
+      expect(Math.abs(data[offset + channel] - sample.rgb[channel])).toBeLessThanOrEqual(45);
+    }
+  }
 }
 
 function boxesOverlap(
@@ -371,15 +491,17 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
     const toolbar = page.locator('.aion-url-viewer-toolbar--workbench');
     const tabbar = page.locator('.eve-workbench-pane__tabbar');
     const workbenchLauncher = tabbar.locator('button[aria-haspopup="menu"]');
-    const [chatBox, workbenchBox, toolbarBox, addressBox, tabbarBox, launcherBox] = await Promise.all([
+    const browserGuest = workbench.locator('webview').first();
+    const [chatBox, workbenchBox, toolbarBox, addressBox, tabbarBox, launcherBox, guestBox] = await Promise.all([
       chat.boundingBox(),
       workbench.boundingBox(),
       toolbar.boundingBox(),
       addressInput.boundingBox(),
       tabbar.boundingBox(),
       workbenchLauncher.boundingBox(),
+      browserGuest.boundingBox(),
     ]);
-    for (const box of [chatBox, workbenchBox, toolbarBox, addressBox, tabbarBox, launcherBox])
+    for (const box of [chatBox, workbenchBox, toolbarBox, addressBox, tabbarBox, launcherBox, guestBox])
       expect(box).not.toBeNull();
     expect(chatBox!.width).toBeGreaterThanOrEqual(340);
     expect(chatBox!.x + chatBox!.width).toBeLessThanOrEqual(workbenchBox!.x + 1);
@@ -387,6 +509,12 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
     expect(addressBox!.x + addressBox!.width).toBeLessThanOrEqual(toolbarBox!.x + toolbarBox!.width);
     expect(launcherBox!.x).toBeGreaterThanOrEqual(tabbarBox!.x);
     expect(launcherBox!.x + launcherBox!.width).toBeLessThanOrEqual(tabbarBox!.x + tabbarBox!.width);
+    expect(guestBox!.width).toBeGreaterThan(200);
+    expect(guestBox!.height).toBeGreaterThan(200);
+    expect(guestBox!.x).toBeGreaterThanOrEqual(workbenchBox!.x);
+    expect(guestBox!.x + guestBox!.width).toBeLessThanOrEqual(workbenchBox!.x + workbenchBox!.width + 1);
+    expect(guestBox!.y).toBeGreaterThanOrEqual(toolbarBox!.y + toolbarBox!.height - 1);
+    expect(guestBox!.y + guestBox!.height).toBeLessThanOrEqual(workbenchBox!.y + workbenchBox!.height + 1);
     await expect(page.locator('[data-testid="eve-workbench-tabs"]:visible')).toHaveCount(1);
     await expect(page.locator(`[id="eve-chat-pane-${conversationId}"]`)).toHaveCount(1);
 
@@ -400,35 +528,70 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
     }
 
     const browserScreenshot = testInfo.outputPath('browser-use-visible-target.png');
-    const browserUseCode = [
-      'before = page_info()',
-      'goto_url(before["url"])',
-      'assert wait_for_load()',
-      'print({"phase": "open", "info": page_info(), "tabs": list_tabs()})',
-      'print({"phase": "read", "copy": js("document.querySelector(\\"#proof-copy\\").textContent")})',
-      'input_box = js("(()=>{const r=document.querySelector(\\"#proof-input\\").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()")',
+    const browserUseCode = typedBrowserUseProgram(
+      `goto_url(${JSON.stringify(fixtureUrl)})`,
+      'wait(0.8)',
+      'print({"phase": "open", "tab": current_tab()})',
+      'print({"phase": "read", "copy": ax_text("Visible EVE CDP target ready.")})',
+      'input_box = ax_center("Proof value", role="textbox")',
       'click_at_xy(input_box["x"], input_box["y"])',
       'type_text("EVE-CDP-OK")',
-      'button = js("(()=>{const r=document.querySelector(\\"#proof-button\\").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()")',
+      'button = ax_center("Apply value", role="button")',
       'click_at_xy(button["x"], button["y"])',
-      'print({"phase": "type-click", "value": js("document.querySelector(\\"#proof-input\\").value"), "result": js("document.querySelector(\\"#result\\").textContent")})',
-      'viewport = page_info()',
-      'scroll(viewport["w"] / 2, viewport["h"] / 2, dy=1500)',
+      'print({"phase": "type-click", "result": ax_text("Applied: EVE-CDP-OK")})',
+      'metrics = cdp("Page.getLayoutMetrics")',
+      'viewport = metrics.get("cssLayoutViewport") or metrics.get("layoutViewport")',
+      'scroll(viewport["clientWidth"] / 2, viewport["clientHeight"] / 2, dy=1500)',
       'wait(0.5)',
-      'print({"phase": "scroll", "scroll_y": page_info()["sy"], "marker": js("document.querySelector(\\"#scroll-marker\\").textContent")})',
+      'scrolled = cdp("Page.getLayoutMetrics")',
+      'scrolled_viewport = scrolled.get("cssLayoutViewport") or scrolled.get("layoutViewport")',
+      'print({"phase": "scroll", "scroll_y": scrolled_viewport["pageY"], "marker": ax_text("Scroll marker reached.")})',
       `print({"phase": "screenshot", "path": capture_screenshot(${JSON.stringify(browserScreenshot)})})`,
       'close_tab()',
-      'print({"phase": "cleanup", "tab": current_tab()})',
-    ].join('\n');
+      'print({"phase": "cleanup", "tab": current_tab()})'
+    );
     const proofStdout = await runBrowserUse(hermesPython, hermesRoot, mainState.contextFile, browserUseCode);
 
     expect(proofStdout).toContain('"success": true');
     expect(proofStdout).toContain("'phase': 'open'");
     expect(proofStdout).toContain("'copy': 'Visible EVE CDP target ready.'");
-    expect(proofStdout).toContain("'value': 'EVE-CDP-OK'");
     expect(proofStdout).toContain("'result': 'Applied: EVE-CDP-OK'");
     expect(proofStdout).toContain("'marker': 'Scroll marker reached.'");
     expect(fs.existsSync(browserScreenshot)).toBe(true);
+
+    const layoutMetricsResponse = await sendCdpCommand(mainState.cdpUrl, {
+      id: 201,
+      method: 'Page.getLayoutMetrics',
+    });
+    expect(layoutMetricsResponse.error).toBeUndefined();
+    const metricsResult = layoutMetricsResponse.result as {
+      cssLayoutViewport?: { clientWidth?: number; clientHeight?: number };
+      layoutViewport?: { clientWidth?: number; clientHeight?: number };
+    };
+    const cssViewport = metricsResult.cssLayoutViewport ?? metricsResult.layoutViewport;
+    expect(cssViewport?.clientWidth).toBeGreaterThan(200);
+    expect(cssViewport?.clientHeight).toBeGreaterThan(200);
+    expect(Math.abs((cssViewport?.clientWidth ?? 0) - guestBox!.width)).toBeLessThanOrEqual(4);
+    expect(Math.abs((cssViewport?.clientHeight ?? 0) - guestBox!.height)).toBeLessThanOrEqual(4);
+    await expectGuestPaintMarker(
+      browserScreenshot,
+      { width: cssViewport!.clientWidth!, height: cssViewport!.clientHeight! },
+      { x: 0, y: 0 }
+    );
+
+    const hostScreenshot = testInfo.outputPath('workbench-host-composited-visible-browser.png');
+    const hostGeometry = await captureCompositedHostWindow(electronApp, page, hostScreenshot);
+    expect(fs.existsSync(hostScreenshot)).toBe(true);
+    if (process.platform === 'darwin') {
+      await expectGuestPaintMarker(
+        hostScreenshot,
+        { width: hostGeometry.windowBounds.width, height: hostGeometry.windowBounds.height },
+        {
+          x: hostGeometry.contentBounds.x - hostGeometry.windowBounds.x + guestBox!.x,
+          y: hostGeometry.contentBounds.y - hostGeometry.windowBounds.y + guestBox!.y,
+        }
+      );
+    }
 
     const packageState = await electronApp.evaluate(({ app }) => ({
       isPackaged: app.isPackaged,
@@ -546,34 +709,40 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
 
     const secretCanary = 'sk-commandevebrowserproof123456789';
     const reconnectScreenshot = testInfo.outputPath('browser-use-reconnect-security.png');
-    const reconnectCode = [
-      'baseline = page_info()["url"]',
+    const reconnectCode = typedBrowserUseProgram(
+      `baseline = ${JSON.stringify(fixtureUrl)}`,
       `secret = ${JSON.stringify(secretCanary)}`,
-      'origin = baseline.split("/browser-workbench.html", 1)[0]',
+      `origin = ${JSON.stringify(new URL(fixtureUrl).origin)}`,
       'blocked_targets = [',
       '    ["file", "file:" + "///tmp/command-eve-browser-proof.txt"],',
       '    ["data", "data:" + "text/html,<h1>blocked</h1>"],',
       '    ["blob", "blob:" + origin + "/command-eve-browser-proof"],',
       '    ["secret-url", baseline + "?api_key=" + secret],',
       ']',
-      'assert js("document.querySelector(\\"#proof-input\\").value") == "EVE-CDP-OK"',
+      'assert ax_text("Applied: EVE-CDP-OK") == "Applied: EVE-CDP-OK"',
       'attempts = {}',
       'for label, target in blocked_targets:',
       '    try:',
       '        result = goto_url(target)',
       '        attempts[label] = {"call": repr(result), "error": None}',
       '    except Exception as exc:',
-      '        attempts[label] = {"call": None, "error": type(exc).__name__}',
-      '    assert page_info()["url"] == baseline',
+      '        attempts[label] = {"call": None, "error": repr(exc)}',
+      '    assert current_tab()["url"] == baseline',
       'try:',
-      '    js("fetch(" + repr(baseline + "?api_key=" + secret) + ")")',
+      '    cdp("Runtime.evaluate", expression="fetch(" + repr(baseline + "?api_key=" + secret) + ")")',
       '    attempts["secret-fetch"] = {"error": None}',
       'except Exception as exc:',
-      '    attempts["secret-fetch"] = {"error": type(exc).__name__}',
-      'assert page_info()["url"] == baseline',
-      'print({"phase": "reconnect-security", "info": page_info(), "attempts": attempts})',
-      `print({"phase": "reconnect-screenshot", "path": capture_screenshot(${JSON.stringify(reconnectScreenshot)})})`,
-    ].join('\n');
+      '    attempts["secret-fetch"] = {"error": repr(exc)}',
+      'try:',
+      '    cdp("Runtime.evaluate", expression=\'document["coo" + "kie"]\')',
+      '    attempts["obfuscated-cookie"] = {"error": None}',
+      'except Exception as exc:',
+      '    attempts["obfuscated-cookie"] = {"error": repr(exc)}',
+      'assert "blocks arbitrary page scripts" in attempts["obfuscated-cookie"]["error"]',
+      'assert current_tab()["url"] == baseline',
+      'print({"phase": "reconnect-security", "tab": current_tab(), "attempts": attempts})',
+      `print({"phase": "reconnect-screenshot", "path": capture_screenshot(${JSON.stringify(reconnectScreenshot)})})`
+    );
     const reconnectStdout = await runBrowserUse(hermesPython, hermesRoot, mainState.contextFile, reconnectCode);
     expect(reconnectStdout).toContain('"success": true');
     expect(reconnectStdout).toContain("'phase': 'reconnect-security'");
@@ -587,33 +756,32 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
     await addressInput.fill(oauthUrl);
     await addressInput.press('Enter');
     await waitForVisibleTarget(mainState.cdpUrl, oauthUrl);
-    const oauthCode = [
-      'baseline = page_info()["url"]',
-      'origin = baseline.split("/oauth/google", 1)[0]',
-      'assert js("document.querySelector(\\"#oauth-copy\\").textContent") == "No real Google credentials are used."',
-      'continue_box = js("(()=>{const r=document.querySelector(\\"#oauth-continue\\").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()")',
+    const oauthCode = typedBrowserUseProgram(
+      `origin = ${JSON.stringify(new URL(fixtureUrl).origin)}`,
+      'assert ax_text("No real Google credentials are used.") == "No real Google credentials are used."',
+      'continue_box = ax_center("Continue with Google", role="button")',
       'click_at_xy(continue_box["x"], continue_box["y"])',
-      'assert wait_for_load()',
-      'approve_box = js("(()=>{const r=document.querySelector(\\"#oauth-approve\\").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()")',
+      'assert ax_wait_text("Command EVE requests the stub profile scope.") == "Command EVE requests the stub profile scope."',
+      'approve_box = ax_center("Approve local OAuth", role="button")',
       'click_at_xy(approve_box["x"], approve_box["y"])',
-      'assert wait_for_load()',
+      'wait(0.8)',
       'challenges = {}',
       'for kind, expected in [("mfa", "needs_user:mfa"), ("passkey", "needs_user:passkey"), ("captcha", "needs_user:captcha"), ("risk", "needs_user:risk-challenge")]:',
       '    goto_url(origin + "/oauth/challenge?kind=" + kind)',
-      '    assert wait_for_load()',
+      '    wait(0.6)',
       '    try:',
       '        click_at_xy(40, 40)',
       '        challenges[kind] = "UNEXPECTED_ALLOW"',
       '    except Exception as exc:',
       '        challenges[kind] = repr(exc)',
       'try:',
-      '    js("document." + "cookie")',
+      '    cdp("Runtime.evaluate", expression=\'Reflect.get(document, "cookie")\')',
       '    raw_profile_read = "UNEXPECTED_ALLOW"',
       'except Exception as exc:',
       '    raw_profile_read = repr(exc)',
-      'assert "blocks raw browser credentials" in raw_profile_read',
-      'print({"phase": "oauth-needs-user", "challenges": challenges, "raw_profile_read": raw_profile_read})',
-    ].join('\n');
+      'assert "blocks arbitrary page scripts" in raw_profile_read',
+      'print({"phase": "oauth-needs-user", "challenges": challenges, "raw_profile_read": raw_profile_read})'
+    );
     const oauthStdout = await runBrowserUse(hermesPython, hermesRoot, mainState.contextFile, oauthCode);
     expect(oauthStdout).toContain('"success": true');
     expect(oauthStdout).toContain("'phase': 'oauth-needs-user'");
@@ -639,18 +807,7 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
       await expect(addressInput).toHaveValue(profileStepTwo);
       await waitForVisibleTarget(mainState.cdpUrl, profileStepTwo);
 
-      const establishProfileCode = [
-        'button = js("(()=>{const r=document.querySelector(\\"#establish-profile\\").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()")',
-        'click_at_xy(button["x"], button["y"])',
-        'status = ""',
-        'for _ in range(30):',
-        '    status = js("document.querySelector(\\"#profile-status\\").textContent")',
-        '    if "cookie=true;localStorage=true;indexedDB=true;cache=true" in status:',
-        '        break',
-        '    wait(0.2)',
-        'assert "cookie=true;localStorage=true;indexedDB=true;cache=true" in status',
-        'print({"phase": "profile-established", "status": status})',
-      ].join('\n');
+      const establishProfileCode = browserProfileProbeProgram('profile-established', PROFILE_PRESENT, true);
       const establishStdout = await runBrowserUse(
         hermesPython,
         hermesRoot,
@@ -658,7 +815,7 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
         establishProfileCode
       );
       expect(establishStdout).toContain('"success": true');
-      expect(establishStdout).toContain('cookie=true;localStorage=true;indexedDB=true;cache=true');
+      expect(establishStdout).toContain(PROFILE_PRESENT);
       await page.waitForTimeout(600);
 
       const stateBeforeRestart = await invokeRendererBridge<{
@@ -739,18 +896,9 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
           hermesPython,
           hermesRoot,
           restartedMain.contextFile,
-          [
-            'status = ""',
-            'for _ in range(30):',
-            '    status = js("document.querySelector(\\"#profile-status\\").textContent")',
-            '    if "cookie=true;localStorage=true;indexedDB=true;cache=true" in status:',
-            '        break',
-            '    wait(0.2)',
-            'assert "cookie=true;localStorage=true;indexedDB=true;cache=true" in status',
-            'print({"phase": "restart-profile-restored", "status": status})',
-          ].join('\n')
+          browserProfileProbeProgram('restart-profile-restored', PROFILE_PRESENT)
         );
-        expect(restoredProfileStdout).toContain('cookie=true;localStorage=true;indexedDB=true;cache=true');
+        expect(restoredProfileStdout).toContain(PROFILE_PRESENT);
         await restartedPage.screenshot({ path: testInfo.outputPath('packaged-restart-profile-restored.png') });
 
         await restartedApp.evaluate(() => {
@@ -784,18 +932,9 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
           hermesPython,
           hermesRoot,
           contextBMain.contextFile,
-          [
-            'status = ""',
-            'for _ in range(30):',
-            '    status = js("document.querySelector(\\"#profile-status\\").textContent")',
-            '    if "checking" not in status:',
-            '        break',
-            '    wait(0.2)',
-            'assert "cookie=false;localStorage=false;indexedDB=false;cache=false" in status',
-            'print({"phase": "account-isolated", "status": status})',
-          ].join('\n')
+          browserProfileProbeProgram('account-isolated', PROFILE_ABSENT)
         );
-        expect(isolatedProfileStdout).toContain('cookie=false;localStorage=false;indexedDB=false;cache=false');
+        expect(isolatedProfileStdout).toContain(PROFILE_ABSENT);
 
         await restartedApp.evaluate(() => {
           process.env.COMMAND_EVE_E2E_BROWSER_ACCOUNT_ID = 'account-a';
@@ -808,10 +947,39 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
         expect(contextOtherSeed.success, contextOtherSeed.msg).toBe(true);
         expect(contextOtherSeed.data?.context_id).not.toBe(restoredA.data?.context_id);
         expect(contextOtherSeed.data?.context_id).not.toBe(contextB.data?.context_id);
+        expect(contextOtherSeed.data?.control_epoch).not.toBe(restoredA.data?.control_epoch);
         expect(contextOtherSeed.data?.control_epoch).not.toBe(contextB.data?.control_epoch);
         expect(contextOtherSeed.data?.state.tabs).toEqual([]);
         const staleBResponse = await fetch(`${contextBMain.cdpUrl}/json/list`).catch(() => null);
         expect(staleBResponse === null || staleBResponse.status >= 400).toBe(true);
+
+        await restartedPage.reload();
+        await openConversationRoute(restartedPage, conversationId);
+        await revealBrowserWorkbench(restartedPage);
+        const seedBAddress = restartedPage.locator('.aion-url-viewer-toolbar--workbench .toolbar-input');
+        const seedBProfileUrl = `${fixtureUrl}?profile=profile-seed-b`;
+        await seedBAddress.fill(seedBProfileUrl);
+        await seedBAddress.press('Enter');
+        const contextOtherSeedMain = await restartedApp.evaluate(() => ({
+          cdpUrl: process.env.BROWSER_CDP_URL ?? '',
+          contextFile: process.env.COMMAND_EVE_BROWSER_CONTEXT_FILE ?? '',
+        }));
+        await waitForVisibleTarget(contextOtherSeedMain.cdpUrl, seedBProfileUrl);
+        const seedIsolatedStdout = await runBrowserUse(
+          hermesPython,
+          hermesRoot,
+          contextOtherSeedMain.contextFile,
+          browserProfileProbeProgram('seed-isolated', PROFILE_ABSENT)
+        );
+        expect(seedIsolatedStdout).toContain(PROFILE_ABSENT);
+        const seedEstablishedStdout = await runBrowserUse(
+          hermesPython,
+          hermesRoot,
+          contextOtherSeedMain.contextFile,
+          browserProfileProbeProgram('seed-profile-established', PROFILE_PRESENT, true)
+        );
+        expect(seedEstablishedStdout).toContain(PROFILE_PRESENT);
+        await restartedPage.screenshot({ path: testInfo.outputPath('packaged-seed-b-isolated.png') });
 
         await restartedApp.evaluate(() => {
           process.env.COMMAND_EVE_E2E_BROWSER_ACCOUNT_ID = 'account-a';
@@ -827,6 +995,8 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
         expect(returnedA.data?.control_epoch).not.toBe(contextB.data?.control_epoch);
         expect(returnedA.data?.control_epoch).not.toBe(contextOtherSeed.data?.control_epoch);
         expect(returnedA.data?.state.tabs.some((tab) => tab.url === profileStepTwo)).toBe(true);
+        const staleSeedBResponse = await fetch(`${contextOtherSeedMain.cdpUrl}/json/list`).catch(() => null);
+        expect(staleSeedBResponse === null || staleSeedBResponse.status >= 400).toBe(true);
         await restartedPage.reload();
         await openConversationRoute(restartedPage, conversationId);
         await revealBrowserWorkbench(restartedPage);
@@ -841,18 +1011,9 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
           hermesPython,
           hermesRoot,
           returnedAMain.contextFile,
-          [
-            'status = ""',
-            'for _ in range(30):',
-            '    status = js("document.querySelector(\\"#profile-status\\").textContent")',
-            '    if "cookie=true;localStorage=true;indexedDB=true;cache=true" in status:',
-            '        break',
-            '    wait(0.2)',
-            'assert "cookie=true;localStorage=true;indexedDB=true;cache=true" in status',
-            'print({"phase": "account-seed-roundtrip-restored", "status": status})',
-          ].join('\n')
+          browserProfileProbeProgram('account-seed-roundtrip-restored', PROFILE_PRESENT)
         );
-        expect(returnedProfileStdout).toContain('cookie=true;localStorage=true;indexedDB=true;cache=true');
+        expect(returnedProfileStdout).toContain(PROFILE_PRESENT);
         await restartedPage.screenshot({ path: testInfo.outputPath('packaged-account-seed-roundtrip-restored.png') });
 
         const revokeResult = await invokeRendererBridge<typeof stateBeforeRestart>(
@@ -880,18 +1041,9 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
           hermesPython,
           hermesRoot,
           revokedMain.contextFile,
-          [
-            'status = ""',
-            'for _ in range(30):',
-            '    status = js("document.querySelector(\\"#profile-status\\").textContent")',
-            '    if "checking" not in status:',
-            '        break',
-            '    wait(0.2)',
-            'assert "cookie=false;localStorage=false;indexedDB=false;cache=false" in status',
-            'print({"phase": "revoke-cleared", "status": status})',
-          ].join('\n')
+          browserProfileProbeProgram('revoke-cleared', PROFILE_ABSENT)
         );
-        expect(revokedProfileStdout).toContain('cookie=false;localStorage=false;indexedDB=false;cache=false');
+        expect(revokedProfileStdout).toContain(PROFILE_ABSENT);
 
         const invalidTarget = await sendCdpCommand(revokedMain.cdpUrl, {
           id: 901,
@@ -919,7 +1071,7 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
           'packaged_restart=true',
           'profile_storage_restored=cookie,localStorage,indexedDB,cache',
           'account_isolation=true',
-          'seed_isolation=true',
+          'seed_isolation=storage-empty-then-own-marker-established',
           'account_seed_roundtrip_profile_restored=true',
           'control_epoch_rotation=true',
           'targeted_revoke=true',
@@ -943,6 +1095,10 @@ test.describe.serial('Command EVE browser, desktop and sidecar workbench', () =>
         `cdp_origin=${new URL(mainState.cdpUrl).origin}`,
         `cdp_capability_path=redacted:${new URL(mainState.cdpUrl).pathname.split('/').length - 1}-segments`,
         `context_id=${runtimeContext.context_id}`,
+        'cdp_arbitrary_script_capability=false',
+        'cdp_event_payloads=default-drop-schema-projected',
+        'guest_viewport_geometry=host-and-cdp-correlated',
+        `host_composited_screenshot=${path.basename(hostScreenshot)}`,
         '',
         '--- initial Browser Use proof ---',
         proofStdout,

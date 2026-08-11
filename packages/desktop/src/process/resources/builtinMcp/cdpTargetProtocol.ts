@@ -5,7 +5,6 @@
  */
 
 import { detectCommandEveSensitiveEgress } from '@/common/api/egressBoundaryCore';
-import { accessesRawBrowserCredentials, classifyCredentialScript } from '@/common/config/browserAuthChallengeCore';
 
 /**
  * 单目标 CDP 转发层的纯协议逻辑（不含 Electron / socket 依赖，便于单测）。
@@ -71,6 +70,8 @@ export type CdpDecision =
   | { kind: 'forward' }
   | { kind: 'error'; message: string };
 
+export type ProjectedCdpEvent = { method: string; params: Record<string, unknown> };
+
 const CDP_EGRESS_METHODS = new Set([
   'Fetch.continueRequest',
   'Input.dispatchKeyEvent',
@@ -88,6 +89,153 @@ const CDP_CREDENTIAL_READ_METHODS = new Set([
   'Storage.getCookies',
   'DOMStorage.getDOMStorageItems',
 ]);
+
+/**
+ * Browser Use CLI 3.0 is intentionally constrained to typed operations against
+ * the visible EVE target. Arbitrary page scripts are not an EVE capability:
+ * JavaScript shares the page's origin-backed cookie/storage/DOM surfaces, and
+ * no lexical scanner or isolated world can turn that into a credential boundary.
+ */
+const CDP_SCRIPT_METHODS = new Set([
+  'Debugger.evaluateOnCallFrame',
+  'Page.addScriptToEvaluateOnLoad',
+  'Page.addScriptToEvaluateOnNewDocument',
+  'Runtime.callFunctionOn',
+  'Runtime.compileScript',
+  'Runtime.evaluate',
+  'Runtime.runScript',
+]);
+
+/**
+ * Reviewed against the pinned official Browser Use CLI 3.0 package. Unknown
+ * methods fail closed instead of inheriting Chromium's much wider CDP surface.
+ */
+const CDP_ALLOWED_FORWARD_METHODS = new Set([
+  'Accessibility.disable',
+  'Accessibility.enable',
+  'Accessibility.getFullAXTree',
+  'DOM.disable',
+  'DOM.enable',
+  'DOM.getBoxModel',
+  'Input.dispatchKeyEvent',
+  'Input.dispatchMouseEvent',
+  'Input.insertText',
+  'Network.disable',
+  'Network.enable',
+  'Page.captureScreenshot',
+  'Page.disable',
+  'Page.enable',
+  'Page.getLayoutMetrics',
+  'Page.navigate',
+  'Runtime.disable',
+  'Runtime.enable',
+]);
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+const finiteNumber = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+const nonEmptyString = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.length > 0 ? value : undefined;
+
+const compact = (value: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+
+/** Strip capability-bearing URL parts before a target URL can reach the agent. */
+export const sanitizeCdpUrlForAgent = (value: string): string => {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return 'about:blank';
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
+    if (detectCommandEveSensitiveEgress(parsed.pathname).length > 0) parsed.pathname = '/';
+    return parsed.toString();
+  } catch {
+    return 'about:blank';
+  }
+};
+
+/**
+ * Project debugger events onto the tiny schema required by the pinned CLI.
+ * Default-drop is deliberate: CDP Network/Fetch/Runtime events can otherwise
+ * carry Cookie, Set-Cookie, Authorization, response bodies, console values, or
+ * exception payloads without ever passing the command policy.
+ */
+export const decideCdpEvent = (method: string, rawParams: unknown): ProjectedCdpEvent | null => {
+  const params = asRecord(rawParams);
+  switch (method) {
+    case 'Page.loadEventFired':
+    case 'Page.domContentEventFired':
+      return { method, params: compact({ timestamp: finiteNumber(params.timestamp) }) };
+    case 'Page.frameStartedLoading':
+    case 'Page.frameStoppedLoading':
+      return { method, params: compact({ frameId: nonEmptyString(params.frameId) }) };
+    case 'Page.lifecycleEvent':
+      return {
+        method,
+        params: compact({
+          frameId: nonEmptyString(params.frameId),
+          loaderId: nonEmptyString(params.loaderId),
+          name: nonEmptyString(params.name),
+          timestamp: finiteNumber(params.timestamp),
+        }),
+      };
+    case 'Network.requestWillBeSent':
+    case 'Network.responseReceived':
+    case 'Network.loadingFinished':
+    case 'Network.loadingFailed':
+      return { method, params: compact({ requestId: nonEmptyString(params.requestId) }) };
+    default:
+      return null;
+  }
+};
+
+const safeAccessibilityText = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  if (
+    detectCommandEveSensitiveEgress(value).some((finding) => ['secret', 'financial', 'health'].includes(finding.kind))
+  ) {
+    return '[redacted]';
+  }
+  return value.slice(0, 4096);
+};
+
+const projectAxProperty = (value: unknown): Record<string, unknown> | undefined => {
+  const property = asRecord(value);
+  const projectedValue = safeAccessibilityText(property.value);
+  if (projectedValue === undefined) return undefined;
+  return compact({ type: nonEmptyString(property.type), value: projectedValue });
+};
+
+/** Remove editable values and opaque AX metadata before a Read result leaves MAIN. */
+export const projectCdpResult = (method: string, rawResult: unknown): Record<string, unknown> => {
+  const result = asRecord(rawResult);
+  if (method !== 'Accessibility.getFullAXTree') return result;
+  const nodes = Array.isArray(result.nodes) ? result.nodes : [];
+  return {
+    nodes: nodes.map((rawNode) => {
+      const node = asRecord(rawNode);
+      return compact({
+        nodeId: nonEmptyString(node.nodeId),
+        ignored: typeof node.ignored === 'boolean' ? node.ignored : undefined,
+        role: projectAxProperty(node.role),
+        name: projectAxProperty(node.name),
+        description: projectAxProperty(node.description),
+        backendDOMNodeId: finiteNumber(node.backendDOMNodeId),
+        parentId: nonEmptyString(node.parentId),
+        childIds: Array.isArray(node.childIds)
+          ? node.childIds.filter((value): value is string => typeof value === 'string')
+          : undefined,
+        // Deliberately no `value` or free-form `properties`: those fields can
+        // contain text/password/OTP input contents and browser credential state.
+      });
+    }),
+  };
+};
 
 const containsS3Egress = (method: string, params: Record<string, unknown> | undefined): boolean => {
   if (!CDP_EGRESS_METHODS.has(method) || !params) return false;
@@ -173,17 +321,11 @@ export const decideCdpCommand = (req: CdpRequest, getTargetInfo: () => TargetInf
     return { kind: 'error', message: 'Command EVE blocks raw browser credentials from agent output.' };
   }
 
-  if (method === 'Runtime.evaluate' || method === 'Runtime.callFunctionOn') {
-    const scripted = `${typeof req.params?.expression === 'string' ? req.params.expression : ''}\n${
-      typeof req.params?.functionDeclaration === 'string' ? req.params.functionDeclaration : ''
-    }`;
-    if (accessesRawBrowserCredentials(scripted)) {
-      return { kind: 'error', message: 'Command EVE blocks raw browser credentials from agent output.' };
-    }
-    const challenge = classifyCredentialScript(scripted);
-    if (challenge) {
-      return { kind: 'error', message: `needs_user:${challenge.reason}` };
-    }
+  if (CDP_SCRIPT_METHODS.has(method)) {
+    return {
+      kind: 'error',
+      message: 'Command EVE blocks arbitrary page scripts; use typed browser operations.',
+    };
   }
 
   if (containsS3Egress(method, req.params)) {
@@ -277,6 +419,9 @@ export const decideCdpCommand = (req: CdpRequest, getTargetInfo: () => TargetInf
       return { kind: 'reply', payload: { targetInfos: [getTargetInfo()] } };
 
     case 'Target.getTargetInfo':
+      if (typeof req.params?.targetId === 'string' && req.params.targetId !== SINGLE_TARGET_ID) {
+        return { kind: 'error', message: `No such target id: ${req.params.targetId}` };
+      }
       return { kind: 'reply', payload: { targetInfo: getTargetInfo() } };
 
     case 'Target.getBrowserContexts':
@@ -308,10 +453,18 @@ export const decideCdpCommand = (req: CdpRequest, getTargetInfo: () => TargetInf
     }
 
     case 'Target.detachFromTarget':
-    case 'Target.closeTarget':
       // 关掉侧边浏览器不该由 Agent 决定，静默应答即可。
       // Closing the in-app browser is not the agent's call; acknowledge and do nothing.
       return { kind: 'reply', payload: {} };
+
+    case 'Target.activateTarget':
+    case 'Target.closeTarget': {
+      const requested = req.params?.targetId;
+      if (typeof requested === 'string' && requested !== SINGLE_TARGET_ID) {
+        return { kind: 'error', message: `No such target id: ${requested}` };
+      }
+      return { kind: 'reply', payload: {} };
+    }
 
     case 'Target.createTarget':
       return {
@@ -331,7 +484,9 @@ export const decideCdpCommand = (req: CdpRequest, getTargetInfo: () => TargetInf
       return { kind: 'error', message: 'Browser.close is not permitted against the AionUi in-app browser.' };
 
     default:
-      return { kind: 'forward' };
+      return CDP_ALLOWED_FORWARD_METHODS.has(method)
+        ? { kind: 'forward' }
+        : { kind: 'error', message: 'Command EVE CDP policy does not permit this method.' };
   }
 };
 

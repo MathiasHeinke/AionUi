@@ -13,7 +13,10 @@ import {
   buildTargetInfo,
   buildVersionPayload,
   decideCdpCommand,
+  decideCdpEvent,
   isAcceptableSessionId,
+  projectCdpResult,
+  sanitizeCdpUrlForAgent,
   tokensMatch,
 } from '@process/resources/builtinMcp/cdpTargetProtocol';
 
@@ -123,7 +126,7 @@ describe('cdpTargetProtocol — refusals that protect the app', () => {
 });
 
 describe('cdpTargetProtocol — forwarding', () => {
-  it.each(['Runtime.evaluate', 'DOM.getDocument', 'Accessibility.getFullAXTree', 'Input.dispatchMouseEvent'])(
+  it.each(['Accessibility.getFullAXTree', 'DOM.getBoxModel', 'Input.dispatchMouseEvent', 'Page.captureScreenshot'])(
     'forwards %s to the real debugger',
     (method) => {
       expect(decideCdpCommand({ id: 10, method }, targetInfo).kind).toBe('forward');
@@ -135,6 +138,13 @@ describe('cdpTargetProtocol — forwarding', () => {
       decideCdpCommand({ id: 11, method: 'Page.navigate', params: { url: 'https://example.com/next' } }, targetInfo)
         .kind
     ).toBe('forward');
+  });
+
+  it('fails closed for an unknown CDP method', () => {
+    expect(decideCdpCommand({ id: 12, method: 'Network.getResponseBody' }, targetInfo)).toEqual({
+      kind: 'error',
+      message: 'Command EVE CDP policy does not permit this method.',
+    });
   });
 });
 
@@ -180,30 +190,121 @@ describe('cdpTargetProtocol — browser egress floor', () => {
     }
   );
 
-  it('blocks raw cookie and browser-profile storage extraction scripts', () => {
+  it('blocks every arbitrary script syntax before Chromium can evaluate it', () => {
     for (const expression of [
       'document.cookie',
+      'document["coo" + "kie"]',
+      'Reflect.get(document, "cookie")',
+      'globalThis["local" + "Storage"].getItem("auth")',
       'localStorage.getItem("auth")',
       'indexedDB.databases()',
       'caches.keys()',
     ]) {
       expect(decideCdpCommand({ id: 16, method: 'Runtime.evaluate', params: { expression } }, targetInfo)).toEqual({
         kind: 'error',
-        message: 'Command EVE blocks raw browser credentials from agent output.',
+        message: 'Command EVE blocks arbitrary page scripts; use typed browser operations.',
       });
     }
   });
 
-  it('reports needs_user instead of reading a password field', () => {
-    const decision = decideCdpCommand(
-      {
-        id: 16,
-        method: 'Runtime.evaluate',
-        params: { expression: `document.querySelector('input[type="password"]').value` },
-      },
-      targetInfo
+  it.each([
+    ['Runtime.callFunctionOn', { functionDeclaration: 'function(){ return document.cookie }' }],
+    ['Runtime.compileScript', { expression: 'document.cookie' }],
+    ['Runtime.runScript', { scriptId: 'stale-script' }],
+    ['Debugger.evaluateOnCallFrame', { expression: 'document.cookie', callFrameId: 'frame' }],
+    ['Page.addScriptToEvaluateOnLoad', { source: 'document.cookie' }],
+    ['Page.addScriptToEvaluateOnNewDocument', { source: 'document.cookie' }],
+  ])('blocks script-bearing method %s through one fail-closed policy', (method, params) => {
+    expect(decideCdpCommand({ id: 17, method, params }, targetInfo)).toEqual({
+      kind: 'error',
+      message: 'Command EVE blocks arbitrary page scripts; use typed browser operations.',
+    });
+  });
+});
+
+describe('cdpTargetProtocol — outbound event projection', () => {
+  it.each([
+    'Network.requestWillBeSentExtraInfo',
+    'Network.responseReceivedExtraInfo',
+    'Network.webSocketFrameReceived',
+    'Network.eventSourceMessageReceived',
+    'Fetch.requestPaused',
+    'Runtime.consoleAPICalled',
+    'Runtime.exceptionThrown',
+    'Runtime.bindingCalled',
+    'Log.entryAdded',
+  ])('drops secret-bearing or opaque event %s', (method) => {
+    expect(
+      decideCdpEvent(method, {
+        headers: { cookie: 'session=raw-secret', authorization: 'Bearer raw-secret' },
+        associatedCookies: [{ cookie: { value: 'raw-secret' } }],
+        args: [{ value: 'raw-secret' }],
+      })
+    ).toBeNull();
+  });
+
+  it('projects only the request id needed by Browser Use network-idle tracking', () => {
+    expect(
+      decideCdpEvent('Network.requestWillBeSent', {
+        requestId: 'request-1',
+        request: {
+          url: 'https://example.com/?token=raw-secret',
+          headers: { Cookie: 'session=raw-secret' },
+          postData: 'raw-secret',
+        },
+      })
+    ).toEqual({ method: 'Network.requestWillBeSent', params: { requestId: 'request-1' } });
+  });
+
+  it('projects safe page lifecycle fields and drops unknown values', () => {
+    expect(
+      decideCdpEvent('Page.lifecycleEvent', {
+        frameId: 'frame-1',
+        loaderId: 'loader-1',
+        name: 'networkIdle',
+        timestamp: 42,
+        secret: 'raw-secret',
+      })
+    ).toEqual({
+      method: 'Page.lifecycleEvent',
+      params: { frameId: 'frame-1', loaderId: 'loader-1', name: 'networkIdle', timestamp: 42 },
+    });
+  });
+
+  it('removes editable AX values and redacts secret-bearing readable text', () => {
+    const secret = 'sk-commandeveresultproof123456789';
+    expect(
+      projectCdpResult('Accessibility.getFullAXTree', {
+        nodes: [
+          {
+            nodeId: 'node-1',
+            ignored: false,
+            role: { type: 'role', value: 'textbox' },
+            name: { type: 'computedString', value: `token ${secret}` },
+            value: { type: 'string', value: 'raw-password-or-otp' },
+            properties: [{ name: 'autocomplete', value: { value: 'current-password' } }],
+            backendDOMNodeId: 42,
+          },
+        ],
+      })
+    ).toEqual({
+      nodes: [
+        {
+          nodeId: 'node-1',
+          ignored: false,
+          role: { type: 'role', value: 'textbox' },
+          name: { type: 'computedString', value: '[redacted]' },
+          backendDOMNodeId: 42,
+        },
+      ],
+    });
+  });
+
+  it('removes URL credentials, query, fragment, and sensitive paths from target discovery', () => {
+    expect(sanitizeCdpUrlForAgent('https://user:pass@example.com/page?code=secret#fragment')).toBe(
+      'https://example.com/page'
     );
-    expect(decision).toEqual({ kind: 'error', message: 'needs_user:password' });
+    expect(sanitizeCdpUrlForAgent('file:///tmp/private.txt')).toBe('about:blank');
   });
 });
 

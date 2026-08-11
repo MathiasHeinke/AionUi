@@ -63,9 +63,29 @@
         border-radius: 12px;
         background: #e8f2ff;
       }
+      #guest-paint-marker {
+        position: fixed;
+        inset: 0 auto auto 0;
+        z-index: 2147483647;
+        display: grid;
+        grid-template-columns: repeat(2, 40px);
+        width: 80px;
+        height: 80px;
+        pointer-events: none;
+      }
+      #guest-paint-marker span {
+        width: 40px;
+        height: 40px;
+      }
     </style>
   </head>
   <body>
+    <div id="guest-paint-marker" aria-hidden="true">
+      <span style="background: #e11d48"></span>
+      <span style="background: #16a34a"></span>
+      <span style="background: #2563eb"></span>
+      <span style="background: #f59e0b"></span>
+    </div>
     <main>
       <h1>Browser Workbench E2E</h1>
       <p id="proof-copy">Visible EVE CDP target ready.</p>

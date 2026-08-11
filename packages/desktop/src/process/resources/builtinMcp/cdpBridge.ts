@@ -22,7 +22,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { session, type Debugger, type WebContents } from 'electron';
-import { classifyBrowserAuthSurface, type BrowserAuthSurfaceSnapshot } from '@/common/config/browserAuthChallengeCore';
+import {
+  BROWSER_MFA_TEXT_PATTERN_SOURCE,
+  classifyBrowserAuthSurface,
+  type BrowserAuthSurfaceSnapshot,
+} from '@/common/config/browserAuthChallengeCore';
 import {
   BROWSER_CONTROL_EPOCH_RE,
   BROWSER_CONTROL_LEASE_RE,
@@ -36,7 +40,10 @@ import {
   buildTargetInfo,
   buildVersionPayload,
   decideCdpCommand,
+  decideCdpEvent,
   isAcceptableSessionId,
+  projectCdpResult,
+  sanitizeCdpUrlForAgent,
   tokensMatch,
   type CdpRequest,
 } from './cdpTargetProtocol';
@@ -101,7 +108,7 @@ const hasLiveAttachedTarget = (): boolean =>
 
 const currentTargetInfo = () => {
   if (!hasLiveAttachedTarget() || !attached) return buildTargetInfo('', 'about:blank');
-  return buildTargetInfo(attached.contents.getTitle(), attached.contents.getURL());
+  return buildTargetInfo('Command EVE visible browser', sanitizeCdpUrlForAgent(attached.contents.getURL()));
 };
 
 const leaseFromAttachment = (attachment: AttachedState): BrowserControlLease => ({
@@ -263,7 +270,9 @@ const attachInternal = (
      * browser-level and Page/Runtime events would be dropped.
      */
     if (!attached || !isExactBrowserControlLease(attached, lease)) return;
-    broadcastForLease(lease, { method, params: params ?? {}, sessionId: SINGLE_SESSION_ID });
+    const projected = decideCdpEvent(method, params);
+    if (!projected) return;
+    broadcastForLease(lease, { ...projected, sessionId: SINGLE_SESSION_ID });
   };
 
   const onDestroyed = () => {
@@ -316,27 +325,41 @@ const sendSocketPayload = (ws: WebSocket, payload: Record<string, unknown>): voi
 const sendError = (ws: WebSocket, id: number | undefined, message: string) =>
   sendSocketPayload(ws, { id: id ?? 0, error: { code: -32601, message } });
 
-const AUTH_GATED_INPUT_METHODS = new Set([
+const AUTH_GATED_AGENT_METHODS = new Set([
+  'Accessibility.getFullAXTree',
   'Autofill.trigger',
+  'DOM.getBoxModel',
   'Input.dispatchKeyEvent',
   'Input.dispatchMouseEvent',
   'Input.insertText',
+  'Page.captureScreenshot',
 ]);
 
 const detectNeedsUser = async (attachment: AttachedState, method: string): Promise<string | null> => {
-  if (!AUTH_GATED_INPUT_METHODS.has(method) || attachment.contents.isDestroyed()) return null;
+  if (!AUTH_GATED_AGENT_METHODS.has(method) || attachment.contents.isDestroyed()) return null;
   try {
     const evaluated = (await attachment.dbg.sendCommand('Runtime.evaluate', {
       expression: `(() => {
         const active = document.activeElement;
         const text = (document.body?.innerText || '').slice(0, 12000).toLowerCase();
+        const fields = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'));
+        const fieldSignals = fields.map((field) => [
+          field.getAttribute?.('type'),
+          field.getAttribute?.('autocomplete'),
+          field.getAttribute?.('name'),
+          field.id,
+          field.getAttribute?.('aria-label'),
+        ].filter(Boolean).join(' ')).join(' ').toLowerCase();
         const activeName = [active?.getAttribute?.('name'), active?.id, active?.getAttribute?.('aria-label')]
           .filter(Boolean).join(' ');
         return {
           active_type: active?.getAttribute?.('type') || '',
           active_autocomplete: active?.getAttribute?.('autocomplete') || '',
           active_name: activeName,
-          has_mfa_signal: Boolean(document.querySelector('[autocomplete="one-time-code"]')) || /one[- ]time code|verification code|recovery code|two[- ]factor/.test(text),
+          has_password_signal: Boolean(document.querySelector('input[type="password"], [autocomplete="current-password"], [autocomplete="new-password"]')) || /current-password|new-password|password|passwd|passcode/.test(fieldSignals),
+          has_mfa_signal: Boolean(document.querySelector('[autocomplete="one-time-code"]')) || new RegExp(${JSON.stringify(
+            BROWSER_MFA_TEXT_PATTERN_SOURCE
+          )}, 'i').test(text + ' ' + fieldSignals),
           has_passkey_signal: Boolean(document.querySelector('[data-passkey], [autocomplete="webauthn"]')) || /use (a )?passkey|security key/.test(text),
           has_captcha_signal: Boolean(document.querySelector('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], [data-captcha], .g-recaptcha, .h-captcha')) || /verify you are human|captcha/.test(text),
           has_risk_signal: Boolean(document.querySelector('[data-risk-challenge]')) || /unusual activity|verify it(?:'|’)s you|suspicious sign[- ]in/.test(text),
@@ -372,7 +395,7 @@ const handleSocketMessage = async (ws: WebSocket, binding: SocketBinding, raw: s
   }
 
   const targetInfo = () =>
-    buildTargetInfo(binding.attachment.contents.getTitle(), binding.attachment.contents.getURL());
+    buildTargetInfo('Command EVE visible browser', sanitizeCdpUrlForAgent(binding.attachment.contents.getURL()));
   const decision = decideCdpCommand(req, targetInfo);
 
   if (decision.kind === 'error') {
@@ -406,11 +429,14 @@ const handleSocketMessage = async (ws: WebSocket, binding: SocketBinding, raw: s
   try {
     const result = await binding.attachment.dbg.sendCommand(method, params ?? {});
     if (!isCurrentSocketBinding(ws, binding)) return;
-    sendSocketPayload(ws, { id, result: result ?? {}, sessionId });
-  } catch (error) {
+    sendSocketPayload(ws, { id, result: projectCdpResult(method, result ?? {}), sessionId });
+  } catch {
     if (!isCurrentSocketBinding(ws, binding)) return;
-    const message = error instanceof Error ? error.message : String(error);
-    sendSocketPayload(ws, { id, error: { code: -32000, message }, sessionId });
+    sendSocketPayload(ws, {
+      id,
+      error: { code: -32000, message: 'Command EVE browser command failed.' },
+      sessionId,
+    });
   }
 };
 
