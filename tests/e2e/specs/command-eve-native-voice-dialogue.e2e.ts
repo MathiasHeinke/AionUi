@@ -2,6 +2,7 @@ import { expect, test, type ElectronApplication, type Page, _electron as electro
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER } from '../../../packages/desktop/src/common/platform/userDataPath';
 import { closeSharedElectronAppForIsolatedSpec } from '../fixtures';
 import { invokeBridge } from '../helpers/bridge/invoke';
 
@@ -49,6 +50,14 @@ function resolveRuntimeManifest(executablePath: string): { manifest: RuntimeMani
   ];
   const manifestPath = candidates.find((candidate) => fs.existsSync(candidate));
   if (!manifestPath) throw new Error('Packaged runtime manifest was not found beside the measured executable');
+  const packageMarkerPath = path.join(path.dirname(manifestPath), COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER);
+  if (!fs.existsSync(packageMarkerPath)) {
+    throw new Error(
+      `Non-distributable packaged-QA marker is missing: ${packageMarkerPath}. ` +
+        'Build with COMMAND_EVE_E2E_PACKAGED_BUILD=1 and packages/desktop/electron-builder.e2e.yml. ' +
+        'Raw AIONUI_E2E_TEST or COMMAND_EVE_E2E_PACKAGED_ATTACHMENT flags must not enable packaged CDP.'
+    );
+  }
   return {
     manifestPath,
     manifest: JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as RuntimeManifest,
@@ -67,6 +76,7 @@ function localOnlyEnvironment(): NodeJS.ProcessEnv {
     AIONUI_E2E_TEST: '1',
     AIONUI_MULTI_INSTANCE: '1',
     AIONUI_CDP_PORT: '0',
+    COMMAND_EVE_E2E_PACKAGED_ATTACHMENT: '1',
     COMMAND_EVE_REGISTRATION_REQUIRED: '0',
     NODE_ENV: 'production',
   };
@@ -343,6 +353,7 @@ test.describe.serial('Command EVE real native voice dialogue', () => {
               appCommitSource: 'packaged_cli_assertion',
               localSelection,
               inputMode: 'fake-device-real-media-recorder',
+              packagedQaAttachmentMarker: COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER,
               sttLane: 'forced-local',
               ttsVoicePolicy: 'speechSynthesis-localService-required',
               startTranscriptLength: startTranscript.length,
