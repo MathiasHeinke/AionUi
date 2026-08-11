@@ -12,7 +12,7 @@ import {
 } from '@/common/typedUI';
 import { describe, expect, it } from 'vitest';
 
-describe('Command EVE Typed UI catalog v1', () => {
+describe('Command EVE Typed UI catalog v2', () => {
   it('contains exactly 42 safe base components plus three EVE-native components', () => {
     expect(TYPED_UI_BASE_COMPONENTS).toHaveLength(42);
     expect(TYPED_UI_EVE_COMPONENTS).toEqual(['Goal', 'WorkerRun', 'DecisionCard']);
@@ -45,6 +45,9 @@ describe('Command EVE Typed UI catalog v1', () => {
           ],
           "Goal": [
             "press",
+            "pause",
+            "resume",
+            "cancel",
           ],
           "Image": [
             "press",
@@ -66,6 +69,9 @@ describe('Command EVE Typed UI catalog v1', () => {
           ],
           "WorkerRun": [
             "press",
+            "pause",
+            "resume",
+            "cancel",
           ],
         },
         "base": [

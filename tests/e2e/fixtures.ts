@@ -32,7 +32,7 @@ let app: ElectronApplication | null = null;
 let mainPage: Page | null = null;
 const e2eStateSandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-state-'));
 const e2eStateFile = path.join(e2eStateSandboxDir, 'extension-states.json');
-const e2eUserDataDir = path.join(e2eStateSandboxDir, 'user-data');
+export const E2E_USER_DATA_DIR = path.join(e2eStateSandboxDir, 'user-data');
 const e2eHomeDir = path.join(e2eStateSandboxDir, 'home');
 // Keep Playwright's process-attach budget aligned with the documented cold
 // runtime-install window below. After any failed test Playwright starts a new
@@ -226,7 +226,7 @@ async function launchApp(): Promise<ElectronApplication> {
 
     console.log(`[E2E] Launching PACKAGED app: ${packaged.executablePath}`);
 
-    const launchArgs: string[] = [`--user-data-dir=${e2eUserDataDir}`];
+    const launchArgs: string[] = [`--user-data-dir=${E2E_USER_DATA_DIR}`];
     if (process.platform === 'darwin') {
       launchArgs.push('--use-mock-keychain');
     }
@@ -251,7 +251,7 @@ async function launchApp(): Promise<ElectronApplication> {
   // Dev mode: launch via electron .
   console.log(`[E2E] Launching DEV app from: ${projectRoot}`);
 
-  const launchArgs = ['.', `--user-data-dir=${e2eUserDataDir}`];
+  const launchArgs = ['.', `--user-data-dir=${E2E_USER_DATA_DIR}`];
   if (process.platform === 'linux' && process.env.CI) {
     launchArgs.push('--no-sandbox');
   }

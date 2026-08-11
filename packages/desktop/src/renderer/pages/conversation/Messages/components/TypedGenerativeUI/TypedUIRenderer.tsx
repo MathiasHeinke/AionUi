@@ -8,17 +8,19 @@ import {
   parseTypedUIEnvelope,
   type TypedUIActionReceipt,
   type TypedUIEnvelope,
+  type TypedUIProvenanceAttestation,
   type TypedUIValidationIssue,
 } from '@/common/typedUI';
 import type { ActionBinding, Spec, UIElement } from '@json-render/core';
 import { createStateStore } from '@json-render/core';
 import { Alert, Button, Spin, Tag } from '@arco-design/web-react';
 import { JSONUIProvider, Renderer } from '@json-render/react';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   createTypedUIActionHandlers,
   TYPED_UI_INTERNAL_ACTION_ID,
+  TYPED_UI_INTERNAL_UNAVAILABLE_ACTIONS,
   type TypedUIActionHost,
   type TypedUIReceiptContext,
 } from './actions';
@@ -38,10 +40,15 @@ function toRuntimeSpec(envelope: TypedUIEnvelope, host: TypedUIActionHost): Spec
   const elements: Record<string, UIElement> = {};
   for (const [elementId, element] of Object.entries(envelope.elements)) {
     const bindings: Record<string, ActionBinding> = {};
+    const unavailableActions: Record<string, string> = {};
     for (const [event, actionId] of Object.entries(element.on || {})) {
       const action = envelope.actions[actionId];
       if (!action) continue;
-      if (host.supportsAction?.(action.type) === false) continue;
+      const availability = host.getActionAvailability(action.type, action.params);
+      if (!availability.available) {
+        unavailableActions[event] = availability.reason || 'action_unavailable';
+        continue;
+      }
       bindings[event] = {
         action: action.type,
         params: {
@@ -52,7 +59,12 @@ function toRuntimeSpec(envelope: TypedUIEnvelope, host: TypedUIActionHost): Spec
     }
     elements[elementId] = {
       type: element.type,
-      props: element.props,
+      props: {
+        ...element.props,
+        ...(Object.keys(unavailableActions).length > 0
+          ? { [TYPED_UI_INTERNAL_UNAVAILABLE_ACTIONS]: unavailableActions }
+          : {}),
+      },
       children: element.children,
       ...(Object.keys(bindings).length > 0 ? { on: bindings } : {}),
     };
@@ -86,27 +98,63 @@ function ValidatedTypedUI({
   onOpenWorkbench?: () => Promise<void> | void;
 }) {
   const { t } = useTranslation();
+  const [attestation, setAttestation] = useState<TypedUIProvenanceAttestation>();
+  const [attestationFailed, setAttestationFailed] = useState(false);
   const [lastReceipt, setLastReceipt] = useState<TypedUIActionReceipt>();
   const [actionError, setActionError] = useState<string>();
   const store = useMemo(() => createStateStore(envelope.state), [envelope]);
   const spec = useMemo(() => toRuntimeSpec(envelope, host), [envelope, host]);
+
+  useEffect(() => {
+    let active = true;
+    setAttestation(undefined);
+    setAttestationFailed(false);
+    void host
+      .attestProvenance(envelope)
+      .then((result) => {
+        if (!active) return;
+        if (
+          result.status !== 'verified' ||
+          result.artifact_id !== receiptContext.artifactId ||
+          result.conversation_id !== receiptContext.conversationId
+        ) {
+          setAttestationFailed(true);
+          return;
+        }
+        setAttestation(result);
+      })
+      .catch(() => {
+        if (active) setAttestationFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [envelope, host, receiptContext.artifactId, receiptContext.conversationId]);
+
   const handlers = useMemo(
-    () => createTypedUIActionHandlers({ envelope, receiptContext, store, host, onReceipt: setLastReceipt }),
-    [envelope, host, receiptContext, store]
+    () =>
+      attestation?.status === 'verified'
+        ? createTypedUIActionHandlers({ envelope, attestation, receiptContext, store, host, onReceipt: setLastReceipt })
+        : {},
+    [attestation, envelope, host, receiptContext, store]
   );
 
   const openWorkbench = async () => {
-    if (!onOpenWorkbench) return;
+    if (!onOpenWorkbench || attestation?.status !== 'verified') return;
     setActionError(undefined);
     try {
       const authority = await host.evaluateAuthority('truth_gate');
       const baseReceipt = {
         version: 'command-eve.typed-ui-action-receipt/v1',
-        request_id: receiptContext.requestId,
-        ...(receiptContext.sourceMessageId ? { source_message_id: receiptContext.sourceMessageId } : {}),
+        request_id: envelope.provenance.request_id,
+        artifact_id: receiptContext.artifactId,
+        conversation_id: receiptContext.conversationId,
+        attestation_id: attestation.attestation_id,
+        content_sha256: attestation.content_sha256,
+        source_message_id: receiptContext.sourceMessageId,
         action_id: 'host-open-workbench',
         action_type: 'open_artifact',
-        decided_at: new Date().toISOString(),
+        decided_at: authority.decided_at,
         authority,
       } as const;
       if (!authority.allowed) {
@@ -146,6 +194,8 @@ function ValidatedTypedUI({
     }
   };
 
+  const provenanceState = attestationFailed ? 'rejected' : attestation ? 'verified' : 'checking';
+
   return (
     <section
       className={styles.root}
@@ -156,16 +206,31 @@ function ValidatedTypedUI({
       <header className={styles.chrome}>
         <div>
           <strong>{t('messages.typedUI.title')}</strong>
-          <span>{envelope.provenance.model}</span>
+          <span data-testid='typed-ui-provenance-status'>{t(`messages.typedUI.provenance.${provenanceState}`)}</span>
         </div>
         <Tag>{envelope.catalog_version.replace('command-eve.typed-ui.catalog/', '')}</Tag>
       </header>
-      <div className={styles.canvas}>
-        <JSONUIProvider registry={typedUIRegistry} store={store} handlers={handlers}>
-          <Renderer spec={spec} registry={typedUIRegistry} />
-        </JSONUIProvider>
-      </div>
-      {mode === 'compact' && onOpenWorkbench ? (
+      {attestationFailed ? (
+        <Alert
+          type='warning'
+          title={t('messages.typedUI.provenance.rejectedTitle')}
+          content={t('messages.typedUI.provenance.rejectedDescription')}
+          className={styles.attestationState}
+          data-testid='typed-ui-provenance-rejected'
+        />
+      ) : !attestation ? (
+        <div className={styles.loading} role='status' data-testid='typed-ui-provenance-checking'>
+          <Spin dot />
+          <span>{t('messages.typedUI.provenance.checking')}</span>
+        </div>
+      ) : (
+        <div className={styles.canvas}>
+          <JSONUIProvider registry={typedUIRegistry} store={store} handlers={handlers}>
+            <Renderer spec={spec} registry={typedUIRegistry} />
+          </JSONUIProvider>
+        </div>
+      )}
+      {mode === 'compact' && onOpenWorkbench && attestation?.status === 'verified' ? (
         <footer className={styles.footer}>
           <Button type='text' onClick={() => void openWorkbench()}>
             {t('messages.typedUI.openWorkbench')}
@@ -208,9 +273,7 @@ export function TypedUIRenderer({
       </div>
     );
   }
-  if ('issues' in result) {
-    return <InvalidTypedUI issues={result.issues} />;
-  }
+  if ('issues' in result) return <InvalidTypedUI issues={result.issues} />;
   return (
     <ValidatedTypedUI
       envelope={result.value}

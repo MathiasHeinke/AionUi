@@ -14,6 +14,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TYPED_UI_TEST_RECEIPT_CONTEXT, typedUIAttestationFixture } from './fixtures';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
@@ -28,14 +29,16 @@ const authority = (action: ICommandEveGateAction): ICommandEveGateDecision => ({
 });
 
 const actionHost: TypedUIActionHost = {
+  attestProvenance: vi.fn(async () => typedUIAttestationFixture()),
   evaluateAuthority: vi.fn(async (action) => authority(action)),
   recordReceipt: vi.fn(async () => ({ receipt_id: '00000000-0000-4000-8000-000000000001' })),
+  getActionAvailability: vi.fn(() => ({ available: true })),
   openArtifact: vi.fn(),
   openUrl: vi.fn(),
   replyWithState: vi.fn(),
 };
 
-const receiptContext = { requestId: 'host-artifact-accessibility' };
+const receiptContext = TYPED_UI_TEST_RECEIPT_CONTEXT;
 
 function formFixture(): TypedUIEnvelope {
   return {
@@ -80,6 +83,7 @@ function formFixture(): TypedUIEnvelope {
       model: 'fixture',
       request_id: 'a11y-1',
       generated_at: '2026-08-11T12:00:00.000Z',
+      source_message_id: TYPED_UI_TEST_RECEIPT_CONTEXT.sourceMessageId,
     },
   };
 }
@@ -90,11 +94,12 @@ describe('Typed UI keyboard and screen-reader contract', () => {
   it('gives the region, controls and live receipt accessible names', async () => {
     const user = userEvent.setup();
     render(<TypedUIRenderer content={formFixture()} mode='full' host={actionHost} receiptContext={receiptContext} />);
+    await screen.findByLabelText('Name');
     expect(screen.getByRole('region', { name: 'messages.typedUI.regionLabel' })).toBeVisible();
     expect(screen.getByLabelText('Name')).toBeRequired();
     expect(screen.getByText('Choice')).toBeVisible();
     expect(screen.getByRole('checkbox', { name: 'I agree' })).toBeVisible();
-    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
+    expect(screen.getByTestId('typed-ui-action-status')).toHaveAttribute('aria-live', 'polite');
 
     await user.tab();
     expect(screen.getByLabelText('Name')).toHaveFocus();
@@ -106,7 +111,7 @@ describe('Typed UI keyboard and screen-reader contract', () => {
   it('activates authority-routed buttons from the keyboard', async () => {
     const user = userEvent.setup();
     render(<TypedUIRenderer content={formFixture()} mode='full' host={actionHost} receiptContext={receiptContext} />);
-    const button = screen.getByRole('button', { name: 'Continue' });
+    const button = await screen.findByRole('button', { name: 'Continue' });
     button.focus();
     await user.keyboard('{Enter}');
     expect(actionHost.evaluateAuthority).toHaveBeenCalledWith('truth_gate');

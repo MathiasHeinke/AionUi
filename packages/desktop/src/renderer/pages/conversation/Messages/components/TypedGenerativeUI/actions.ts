@@ -6,27 +6,45 @@
 
 import { ipcBridge } from '@/common';
 import type { ICommandEveGateAction, ICommandEveGateDecision } from '@/common/adapter/ipcBridge';
-import { isHttpUrl, type TypedUIActionReceipt, type TypedUIActionType, type TypedUIEnvelope } from '@/common/typedUI';
+import {
+  isHttpUrl,
+  TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
+  type TypedUIActionReceipt,
+  type TypedUIActionType,
+  type TypedUIArtifactKind,
+  type TypedUIEnvelope,
+  type TypedUIProvenanceArtifactRef,
+  type TypedUIProvenanceAttestation,
+} from '@/common/typedUI';
 import type { StateStore } from '@json-render/core';
 
 const INTERNAL_ACTION_ID = '__typed_ui_action_id';
+const INTERNAL_UNAVAILABLE_ACTIONS = '__typed_ui_unavailable_actions';
+
+export interface TypedUIActionAvailability {
+  available: boolean;
+  reason?: string;
+}
 
 export interface TypedUIActionHost {
+  attestProvenance(envelope: TypedUIEnvelope): Promise<TypedUIProvenanceAttestation>;
   evaluateAuthority(action: ICommandEveGateAction): Promise<ICommandEveGateDecision>;
   recordReceipt(receipt: TypedUIActionReceipt): Promise<{ receipt_id: string }>;
-  supportsAction?(action: TypedUIActionType): boolean;
-  openArtifact(artifactId: string): Promise<void> | void;
+  getActionAvailability(action: TypedUIActionType, params: Record<string, unknown>): TypedUIActionAvailability;
+  openArtifact(kind: TypedUIArtifactKind, artifactId: string): Promise<void> | void;
   openUrl(url: string): Promise<void> | void;
   replyWithState(text: string): Promise<void> | void;
 }
 
 export interface TypedUIReceiptContext {
-  requestId: string;
-  sourceMessageId?: string;
+  artifactId: string;
+  conversationId: string;
+  sourceMessageId: string;
 }
 
 export interface TypedUIActionHandlersOptions {
   envelope: TypedUIEnvelope;
+  attestation: TypedUIProvenanceAttestation;
   receiptContext: TypedUIReceiptContext;
   store: StateStore;
   host: TypedUIActionHost;
@@ -40,12 +58,28 @@ function readActionId(params: Record<string, unknown>): string {
 }
 
 function withoutInternalParams(params: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(params).filter(([key]) => key !== INTERNAL_ACTION_ID));
+  return Object.fromEntries(
+    Object.entries(params).filter(([key]) => key !== INTERNAL_ACTION_ID && key !== INTERNAL_UNAVAILABLE_ACTIONS)
+  );
 }
 
 function readString(params: Record<string, unknown>, key: string): string | undefined {
   const value = params[key];
   return typeof value === 'string' && value ? value : undefined;
+}
+
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value as Record<string, unknown>)
+      .toSorted()
+      .map((key) => [key, canonicalJson((value as Record<string, unknown>)[key])])
+  );
+}
+
+function sameActionParams(left: Record<string, unknown>, right: Record<string, unknown>): boolean {
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
 }
 
 function buildStateReply(store: StateStore, params: Record<string, unknown>): string {
@@ -72,8 +106,12 @@ function receipt(
 ): TypedUIActionReceipt {
   return {
     version: 'command-eve.typed-ui-action-receipt/v1',
-    request_id: options.receiptContext.requestId,
-    ...(options.receiptContext.sourceMessageId ? { source_message_id: options.receiptContext.sourceMessageId } : {}),
+    request_id: options.envelope.provenance.request_id,
+    artifact_id: options.receiptContext.artifactId,
+    conversation_id: options.receiptContext.conversationId,
+    attestation_id: options.attestation.attestation_id,
+    content_sha256: options.attestation.content_sha256,
+    source_message_id: options.receiptContext.sourceMessageId,
     ...(intentReceiptId ? { intent_receipt_id: intentReceiptId } : {}),
     action_id: actionId,
     action_type: actionType,
@@ -101,11 +139,21 @@ async function executeAllowedAction(
   options: TypedUIActionHandlersOptions
 ): Promise<void> {
   const declared = options.envelope.actions[actionId];
-  if (!declared || declared.type !== actionType)
+  if (!declared || declared.type !== actionType) {
     throw new Error('Typed UI action does not match its validated declaration.');
-  if (options.host.supportsAction?.(actionType) === false)
-    throw new Error('Typed UI action is unavailable in this host surface.');
+  }
   const cleanParams = withoutInternalParams(params);
+  if (!sameActionParams(cleanParams, declared.params)) {
+    throw new Error('Typed UI action params do not match their validated declaration.');
+  }
+  // The Durable-Work UI branch has no committed Main transport yet. Keep the
+  // typed contract visible but impossible to activate through a renderer host:
+  // no authority call, intent receipt or state mutation may occur here.
+  if (actionType === 'goal_control' || actionType === 'worker_control') {
+    throw new Error('durable_transport_unavailable');
+  }
+  const availability = options.host.getActionAvailability(actionType, cleanParams);
+  if (!availability.available) throw new Error(availability.reason || 'Typed UI action is unavailable.');
 
   if (actionType === 'request_approval') {
     const gateAction = readString(cleanParams, 'gate_action') as ICommandEveGateAction | undefined;
@@ -131,8 +179,8 @@ async function executeAllowedAction(
     return;
   }
 
-  // Persist the authority-bound intent before any renderer, shell or state
-  // side effect. A terminal record later correlates through this receipt ID.
+  // Authority + immutable provenance are durably recorded before any shell,
+  // renderer-state or lifecycle side effect.
   const intent = receipt(options, actionId, actionType, 'authorized', authority);
   const persistedIntent = await options.host.recordReceipt(intent);
 
@@ -141,8 +189,9 @@ async function executeAllowedAction(
       await options.host.replyWithState(buildStateReply(options.store, cleanParams));
     } else if (actionType === 'open_artifact') {
       const artifactId = readString(cleanParams, 'artifact_id');
-      if (!artifactId) throw new Error('Artifact identity is missing.');
-      await options.host.openArtifact(artifactId);
+      const artifactKind = readString(cleanParams, 'artifact_kind') as TypedUIArtifactKind | undefined;
+      if (!artifactId || !artifactKind) throw new Error('Artifact identity is missing.');
+      await options.host.openArtifact(artifactKind, artifactId);
     } else if (actionType === 'open_url') {
       const url = readString(cleanParams, 'url');
       if (!url || !isHttpUrl(url)) throw new Error('Only credential-free HTTP(S) URLs are allowed.');
@@ -184,8 +233,9 @@ export function createTypedUIActionHandlers(
       try {
         await executeAllowedAction(readActionId(params), actionType, params, options);
       } catch {
-        // The handler already attempted a failed receipt. Consume the rejection
-        // so a renderer-owned click can never become an unhandled promise.
+        // The handler already attempted a failed receipt when authority had
+        // granted an intent. Consume the rejection so a renderer-owned event
+        // can never become an unhandled promise.
       }
     };
   return {
@@ -194,16 +244,38 @@ export function createTypedUIActionHandlers(
     open_url: handler('open_url'),
     select_option: handler('select_option'),
     request_approval: handler('request_approval'),
+    goal_control: handler('goal_control'),
+    worker_control: handler('worker_control'),
   };
 }
 
 export function createDefaultTypedUIActionHost(options: {
-  openArtifact?(artifactId: string): Promise<void> | void;
+  provenanceArtifact: TypedUIProvenanceArtifactRef;
+  openArtifact?(kind: TypedUIArtifactKind, artifactId: string): Promise<void> | void;
   replyWithState(text: string): Promise<void> | void;
 }): TypedUIActionHost {
   return {
-    supportsAction(action) {
-      return action !== 'open_artifact' || Boolean(options.openArtifact);
+    async attestProvenance(envelope) {
+      const response = await ipcBridge.commandEve.typedUIProvenanceAttestation.invoke({
+        request: {
+          version: TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
+          envelope,
+          artifact: options.provenanceArtifact,
+        },
+      });
+      if (!response?.success || !response.data) {
+        throw new Error(response?.msg || 'Typed UI provenance attestation is unavailable.');
+      }
+      return response.data;
+    },
+    getActionAvailability(action) {
+      if (action === 'open_artifact' && !options.openArtifact) {
+        return { available: false, reason: 'artifact_resolver_unavailable' };
+      }
+      if (action === 'goal_control' || action === 'worker_control') {
+        return { available: false, reason: 'durable_transport_unavailable' };
+      }
+      return { available: true };
     },
     async evaluateAuthority(action) {
       const response = await ipcBridge.commandEve.evaluateGateDecision.invoke({ action });
@@ -217,9 +289,9 @@ export function createDefaultTypedUIActionHost(options: {
       }
       return { receipt_id: response.data.receipt_id };
     },
-    openArtifact(artifactId) {
+    openArtifact(kind, artifactId) {
       if (!options.openArtifact) throw new Error('Artifact resolution is unavailable in this host surface.');
-      return options.openArtifact(artifactId);
+      return options.openArtifact(kind, artifactId);
     },
     async openUrl(url) {
       if (!isHttpUrl(url)) throw new Error('Only credential-free HTTP(S) URLs are allowed.');
@@ -230,3 +302,4 @@ export function createDefaultTypedUIActionHost(options: {
 }
 
 export const TYPED_UI_INTERNAL_ACTION_ID = INTERNAL_ACTION_ID;
+export const TYPED_UI_INTERNAL_UNAVAILABLE_ACTIONS = INTERNAL_UNAVAILABLE_ACTIONS;

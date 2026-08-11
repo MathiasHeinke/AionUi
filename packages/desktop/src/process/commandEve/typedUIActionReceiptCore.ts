@@ -9,8 +9,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { evaluateCommandEveGateDecision } from './executionModeCore';
+import { requireVerifiedTypedUIProvenanceAttestation } from './typedUIProvenanceAttestationCore';
 
 const ACTION_ID = /^(?:[A-Za-z][A-Za-z0-9_-]{0,63}|host-open-workbench)$/;
+const ARTIFACT_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/;
 const ACTION_TYPES = new Set(['reply_with_state', 'open_artifact', 'open_url', 'select_option', 'request_approval']);
 const STATUSES = new Set(['authorized', 'completed', 'blocked', 'failed', 'approval_recorded']);
 const GATE_ACTIONS = new Set([
@@ -28,6 +30,8 @@ const MODES = new Set(['observed', 'delegated', 'autonomous']);
 const GATES = new Set(['auto', 'founder_stop', 'founder_click', 'hg_2_5', 'hg_4', 'cao_required']);
 const AUTHORITY_KEYS = new Set(['version', 'decided_at', 'mode', 'action', 'allowed', 'gate', 'reason']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ATTESTATION_ID = /^tuia_[a-f0-9]{64}$/;
+const SHA256 = /^[a-f0-9]{64}$/;
 const MAX_RECEIPT_LEDGER_TAIL_BYTES = 8 * 1024 * 1024;
 
 export type TypedUIActionReceiptValidation =
@@ -107,6 +111,10 @@ function assertTerminalIntentCorrelation(auditPath: string, receipt: TypedUIActi
     intent.action_id !== receipt.action_id ||
     intent.action_type !== receipt.action_type ||
     intent.request_id !== receipt.request_id ||
+    intent.artifact_id !== receipt.artifact_id ||
+    intent.conversation_id !== receipt.conversation_id ||
+    intent.attestation_id !== receipt.attestation_id ||
+    intent.content_sha256 !== receipt.content_sha256 ||
     intent.source_message_id !== receipt.source_message_id ||
     intent.decided_at !== receipt.decided_at ||
     !sameAuthority(intent.authority, receipt.authority)
@@ -133,6 +141,10 @@ export function validateTypedUIActionReceipt(value: unknown): TypedUIActionRecei
     'receipt_id',
     'intent_receipt_id',
     'request_id',
+    'artifact_id',
+    'conversation_id',
+    'attestation_id',
+    'content_sha256',
     'source_message_id',
     'action_id',
     'action_type',
@@ -151,11 +163,27 @@ export function validateTypedUIActionReceipt(value: unknown): TypedUIActionRecei
   if (typeof receipt.request_id !== 'string' || receipt.request_id.length === 0 || receipt.request_id.length > 500) {
     return { ok: false, reason: 'receipt.request_id' };
   }
+  if (typeof receipt.artifact_id !== 'string' || !ARTIFACT_ID.test(receipt.artifact_id)) {
+    return { ok: false, reason: 'receipt.artifact_id' };
+  }
   if (
-    receipt.source_message_id !== undefined &&
-    (typeof receipt.source_message_id !== 'string' ||
-      receipt.source_message_id.length === 0 ||
-      receipt.source_message_id.length > 500)
+    typeof receipt.conversation_id !== 'string' ||
+    receipt.conversation_id.length === 0 ||
+    receipt.conversation_id.length > 256 ||
+    receipt.conversation_id.includes('\0')
+  ) {
+    return { ok: false, reason: 'receipt.conversation_id' };
+  }
+  if (typeof receipt.attestation_id !== 'string' || !ATTESTATION_ID.test(receipt.attestation_id)) {
+    return { ok: false, reason: 'receipt.attestation_id' };
+  }
+  if (typeof receipt.content_sha256 !== 'string' || !SHA256.test(receipt.content_sha256)) {
+    return { ok: false, reason: 'receipt.content_sha256' };
+  }
+  if (
+    typeof receipt.source_message_id !== 'string' ||
+    receipt.source_message_id.length === 0 ||
+    receipt.source_message_id.length > 500
   ) {
     return { ok: false, reason: 'receipt.source_message_id' };
   }
@@ -185,6 +213,9 @@ export function validateTypedUIActionReceipt(value: unknown): TypedUIActionRecei
     Number.isNaN(Date.parse(authority.decided_at))
   ) {
     return { ok: false, reason: 'receipt.authority_shape' };
+  }
+  if (receipt.decided_at !== authority.decided_at) {
+    return { ok: false, reason: 'receipt.authority_timestamp' };
   }
   if (receipt.action_type !== 'request_approval' && authority.action !== 'truth_gate') {
     return { ok: false, reason: 'receipt.authority_action' };
@@ -228,10 +259,28 @@ export function validateTypedUIActionReceipt(value: unknown): TypedUIActionRecei
 export function appendTypedUIActionReceipt(
   auditPath: string,
   value: unknown,
-  options: { now?: () => Date; randomUUID?: () => string } = {}
+  options: {
+    attestationAuditPath?: string;
+    activeSeatId?: string;
+    seatContextRevision?: number;
+    now?: () => Date;
+    randomUUID?: () => string;
+  } = {}
 ): PersistedTypedUIActionReceipt {
   const validated = validateTypedUIActionReceipt(value);
   if ('reason' in validated) throw new Error(validated.reason);
+  if (!options.attestationAuditPath || !options.activeSeatId || !Number.isSafeInteger(options.seatContextRevision)) {
+    throw new Error('receipt.attestation_context_missing');
+  }
+  requireVerifiedTypedUIProvenanceAttestation(options.attestationAuditPath, {
+    attestationId: validated.receipt.attestation_id,
+    artifactId: validated.receipt.artifact_id,
+    conversationId: validated.receipt.conversation_id,
+    requestId: validated.receipt.request_id,
+    contentSha256: validated.receipt.content_sha256,
+    activeSeatId: options.activeSeatId,
+    seatContextRevision: options.seatContextRevision as number,
+  });
   assertTerminalIntentCorrelation(auditPath, validated.receipt);
   const record: PersistedTypedUIActionReceipt = {
     ...validated.receipt,

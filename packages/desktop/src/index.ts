@@ -516,6 +516,14 @@ function commandEveTypedUIActionAuditPath(runtimeRoot: string): string {
   return path.join(runtimeRoot, 'audit', 'typed-ui-actions.jsonl');
 }
 
+function commandEveTypedUIProvenanceAuditPath(runtimeRoot: string): string {
+  return path.join(runtimeRoot, 'audit', 'typed-ui-provenance.jsonl');
+}
+
+function commandEveTypedUIGenerationReceiptPath(runtimeRoot: string): string {
+  return path.join(runtimeRoot, 'audit', 'typed-ui-generations.jsonl');
+}
+
 /**
  * Build the EVE cloud routing resolver passed to the Ollama OpenAI shim. The
  * resolver runs PER request (sync) so it always reflects the live picker
@@ -1456,8 +1464,34 @@ function registerCommandEveRuntimeBridge(): void {
       const { resolveCommandEveRuntimeBootstrapPaths } = await import('./process/commandEve/runtimeBootstrapCore');
       const { appendTypedUIActionReceipt } = await import('./process/commandEve/typedUIActionReceiptCore');
       const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
-      const record = appendTypedUIActionReceipt(commandEveTypedUIActionAuditPath(paths.runtimeRoot), request?.receipt);
+      const record = appendTypedUIActionReceipt(commandEveTypedUIActionAuditPath(paths.runtimeRoot), request?.receipt, {
+        attestationAuditPath: commandEveTypedUIProvenanceAuditPath(paths.runtimeRoot),
+        activeSeatId: getActiveSeatId(),
+        seatContextRevision: getActiveSeatContextRevision(),
+      });
       return { success: true, data: { receipt_id: record.receipt_id, recorded_at: record.recorded_at } };
+    } catch (error) {
+      return { success: false, msg: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcBridge.commandEve.typedUIProvenanceAttestation.provider(async (request) => {
+    try {
+      const { getDataPath } = await import('./process/utils/utils');
+      const { resolveCommandEveRuntimeBootstrapPaths } = await import('./process/commandEve/runtimeBootstrapCore');
+      const { appendTypedUIProvenanceAttestation } =
+        await import('./process/commandEve/typedUIProvenanceAttestationCore');
+      const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+      const record = appendTypedUIProvenanceAttestation(
+        commandEveTypedUIProvenanceAuditPath(paths.runtimeRoot),
+        commandEveTypedUIGenerationReceiptPath(paths.runtimeRoot),
+        request?.request,
+        {
+          activeSeatId: getActiveSeatId(),
+          seatContextRevision: getActiveSeatContextRevision(),
+        }
+      );
+      return { success: true, data: record };
     } catch (error) {
       return { success: false, msg: error instanceof Error ? error.message : String(error) };
     }

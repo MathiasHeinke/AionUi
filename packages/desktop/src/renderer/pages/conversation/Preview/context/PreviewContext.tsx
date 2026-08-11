@@ -6,7 +6,9 @@
 
 import { ipcBridge } from '@/common';
 import type { PreviewContentType } from '@/common/types/office/preview';
+import type { TypedUIArtifactKind } from '@/common/typedUI';
 import { emitter } from '@/renderer/utils/emitter';
+import { registerWorkbenchArtifactResolver } from '../services/workbenchArtifactResolver';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 /** DOM 片段数据结构 / DOM snippet data structure */
@@ -29,6 +31,10 @@ export interface PreviewMetadata {
   editable?: boolean; // 是否可编辑 / Whether editable
   truncated?: boolean; // 预览内容是否被截断 / Whether preview content was truncated
   conversation_id?: string; // Owning conversation when the preview was opened from chat
+  artifact_id?: string; // Exact conversation-artifact identity for cross-pane resolution
+  artifact_kind?: TypedUIArtifactKind; // Typed resolver namespace; never inferred as a path or URL
+  artifact_created_at?: number; // Provenance correlation, copied from the canonical artifact record
+  source_message_id?: string; // Optional source-message correlation for typed provenance
   workspace_event_prefix?: 'acp' | 'codex' | 'aionrs'; // Backend event namespace for workspace operations
   is_temporary_workspace?: boolean; // Preserve generated workspace identity inside workbench surfaces
 }
@@ -455,6 +461,32 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setIsOpen(true);
   }, []);
 
+  useEffect(() => {
+    const resolverId = `preview-tabs-${Math.random().toString(36).slice(2)}`;
+    return registerWorkbenchArtifactResolver({
+      id: resolverId,
+      priority: 40,
+      canResolve(reference) {
+        return tabs.some(
+          (tab) =>
+            tab.metadata?.conversation_id === reference.conversationId &&
+            tab.metadata?.artifact_id === reference.artifactId &&
+            tab.metadata?.artifact_kind === reference.kind
+        );
+      },
+      open(reference) {
+        const tab = tabs.find(
+          (candidate) =>
+            candidate.metadata?.conversation_id === reference.conversationId &&
+            candidate.metadata?.artifact_id === reference.artifactId &&
+            candidate.metadata?.artifact_kind === reference.kind
+        );
+        if (!tab) throw new Error('artifact_not_resolved');
+        showPreview(tab.id);
+      },
+    });
+  }, [showPreview, tabs]);
+
   const hidePreview = useCallback(() => {
     setIsOpen(false);
   }, []);
@@ -561,6 +593,7 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const tab = tabs.find((t) => t.id === targetTabId);
       if (!tab) return false;
+      if (tab.metadata?.editable === false) return false;
 
       // 如果有 file_path 和 workspace，写回工作空间文件 / If file_path and workspace exist, write back to workspace file
       if (tab.metadata?.file_path && tab.metadata?.workspace) {

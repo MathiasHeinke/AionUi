@@ -32,6 +32,7 @@ import { useStateStore } from '@json-render/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
+import { TYPED_UI_INTERNAL_UNAVAILABLE_ACTIONS } from './actions';
 import styles from './TypedGenerativeUI.module.css';
 
 type Props = Record<string, unknown>;
@@ -57,6 +58,13 @@ function arrayProp<T>(props: Props, key: string): T[] {
 
 function tone(value: unknown): string {
   return typeof value === 'string' ? value : 'neutral';
+}
+
+function unavailableActionReason(props: Props, event: string): string | undefined {
+  const value = props[TYPED_UI_INTERNAL_UNAVAILABLE_ACTIONS];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const reason = (value as Record<string, unknown>)[event];
+  return typeof reason === 'string' && reason ? reason : undefined;
 }
 
 function CatalogComponent({ element, children, emit, on, loading }: ComponentRenderProps) {
@@ -475,7 +483,10 @@ function CatalogComponent({ element, children, emit, on, loading }: ComponentRen
         </ol>
       );
     }
-    case 'Goal':
+    case 'Goal': {
+      const unavailable = ['pause', 'resume', 'cancel']
+        .map((event) => unavailableActionReason(props, event))
+        .find(Boolean);
       return (
         <article className={styles.eveCard} data-kind='goal'>
           <header>
@@ -491,10 +502,51 @@ function CatalogComponent({ element, children, emit, on, loading }: ComponentRen
               {t('messages.typedUI.openArtifact')}
             </Button>
           ) : null}
+          {(['pause', 'resume', 'cancel'] as const).some(
+            (event) => on(event).bound || unavailableActionReason(props, event)
+          ) ? (
+            <div
+              className={styles.lifecycleControls}
+              role='group'
+              aria-label={t('messages.typedUI.lifecycle.controls')}
+            >
+              {(['pause', 'resume', 'cancel'] as const).map((event) => {
+                const reason = unavailableActionReason(props, event);
+                if (!on(event).bound && !reason) return null;
+                return (
+                  <Button
+                    key={event}
+                    disabled={loading || !on(event).bound}
+                    aria-describedby={reason ? `typed-ui-goal-${stringProp(props, 'id')}-unavailable` : undefined}
+                    onClick={() => emit(event)}
+                  >
+                    {t(`messages.typedUI.lifecycle.${event}`)}
+                  </Button>
+                );
+              })}
+            </div>
+          ) : null}
+          {unavailable ? (
+            <p
+              id={`typed-ui-goal-${stringProp(props, 'id')}-unavailable`}
+              className={styles.lifecycleUnavailable}
+              role='status'
+            >
+              {t(
+                unavailable === 'durable_transport_unavailable'
+                  ? 'messages.typedUI.lifecycle.transportUnavailable'
+                  : 'messages.typedUI.actionUnavailable'
+              )}
+            </p>
+          ) : null}
           {children}
         </article>
       );
-    case 'WorkerRun':
+    }
+    case 'WorkerRun': {
+      const unavailable = ['pause', 'resume', 'cancel']
+        .map((event) => unavailableActionReason(props, event))
+        .find(Boolean);
       return (
         <article className={styles.eveCard} data-kind='worker-run'>
           <header>
@@ -509,9 +561,47 @@ function CatalogComponent({ element, children, emit, on, loading }: ComponentRen
               {stringProp(props, 'receiptRef')}
             </Button>
           ) : null}
+          {(['pause', 'resume', 'cancel'] as const).some(
+            (event) => on(event).bound || unavailableActionReason(props, event)
+          ) ? (
+            <div
+              className={styles.lifecycleControls}
+              role='group'
+              aria-label={t('messages.typedUI.lifecycle.controls')}
+            >
+              {(['pause', 'resume', 'cancel'] as const).map((event) => {
+                const reason = unavailableActionReason(props, event);
+                if (!on(event).bound && !reason) return null;
+                return (
+                  <Button
+                    key={event}
+                    disabled={loading || !on(event).bound}
+                    aria-describedby={reason ? `typed-ui-worker-${stringProp(props, 'id')}-unavailable` : undefined}
+                    onClick={() => emit(event)}
+                  >
+                    {t(`messages.typedUI.lifecycle.${event}`)}
+                  </Button>
+                );
+              })}
+            </div>
+          ) : null}
+          {unavailable ? (
+            <p
+              id={`typed-ui-worker-${stringProp(props, 'id')}-unavailable`}
+              className={styles.lifecycleUnavailable}
+              role='status'
+            >
+              {t(
+                unavailable === 'durable_transport_unavailable'
+                  ? 'messages.typedUI.lifecycle.transportUnavailable'
+                  : 'messages.typedUI.actionUnavailable'
+              )}
+            </p>
+          ) : null}
           {children}
         </article>
       );
+    }
     case 'DecisionCard': {
       const options = arrayProp<{ id: string; label: string; disabled?: boolean }>(props, 'options');
       return (

@@ -29,7 +29,11 @@ const ACTIONS = new Set<TypedUIActionType>([
   'open_url',
   'select_option',
   'request_approval',
+  'goal_control',
+  'worker_control',
 ]);
+const ARTIFACT_KINDS = new Set(['chat', 'file', 'browser', 'goal', 'worker']);
+const LIFECYCLE_CONTROLS = new Set(['pause', 'resume', 'cancel']);
 const IDENTIFIER = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const GATE_ACTIONS = new Set([
@@ -314,7 +318,11 @@ function validateAction(
           params.state_paths.every((item) => isSafeTypedUIStatePath(item)))) &&
       (params.message === undefined || isBoundedString(params.message, 500));
   } else if (type === 'open_artifact') {
-    valid = exactKeys(params, ['artifact_id']) && isBoundedString(params.artifact_id, 128);
+    valid =
+      exactKeys(params, ['artifact_kind', 'artifact_id']) &&
+      typeof params.artifact_kind === 'string' &&
+      ARTIFACT_KINDS.has(params.artifact_kind) &&
+      isBoundedString(params.artifact_id, 128);
   } else if (type === 'open_url') {
     valid =
       exactKeys(params, ['url', 'label']) &&
@@ -334,9 +342,27 @@ function validateAction(
       typeof params.gate_action === 'string' &&
       GATE_ACTIONS.has(params.gate_action) &&
       isBoundedString(params.summary, 500);
+  } else if (type === 'goal_control' || type === 'worker_control') {
+    const identityKey = type === 'goal_control' ? 'goal_id' : 'worker_id';
+    valid =
+      exactKeys(params, [identityKey, 'action', 'expected_revision', 'expected_sequence']) &&
+      isBoundedString(params[identityKey], 128) &&
+      typeof params.action === 'string' &&
+      LIFECYCLE_CONTROLS.has(params.action) &&
+      Number.isSafeInteger(params.expected_revision) &&
+      Number(params.expected_revision) >= 0 &&
+      Number(params.expected_revision) <= 1_000_000_000 &&
+      Number.isSafeInteger(params.expected_sequence) &&
+      Number(params.expected_sequence) >= 0 &&
+      Number(params.expected_sequence) <= 1_000_000_000;
   }
   if (!valid || !isJsonValue(params)) {
-    pushIssue(issues, 'action.invalid_params', `${path}.params`, 'Action params violate the strict v1 contract.');
+    pushIssue(
+      issues,
+      'action.invalid_params',
+      `${path}.params`,
+      'Action params violate the strict versioned contract.'
+    );
     return undefined;
   }
   return { type, params: params as Record<string, TypedUIJsonValue> };
@@ -347,13 +373,13 @@ function validateProvenance(raw: unknown, issues: TypedUIValidationIssue[]): Typ
     pushIssue(issues, 'provenance.invalid_shape', '$.provenance', 'Provenance fields are strict and versioned.');
     return undefined;
   }
-  const required = ['provider', 'model', 'request_id', 'generated_at'] as const;
+  const required = ['provider', 'model', 'request_id', 'generated_at', 'source_message_id'] as const;
   if (required.some((key) => !isBoundedString(raw[key], 500))) {
     pushIssue(
       issues,
       'provenance.missing_field',
       '$.provenance',
-      'Provider, model, request_id and generated_at are required.'
+      'Provider, model, request_id, generated_at and source_message_id are required.'
     );
     return undefined;
   }
@@ -365,14 +391,6 @@ function validateProvenance(raw: unknown, issues: TypedUIValidationIssue[]): Typ
       'generated_at must be an ISO-compatible timestamp.'
     );
     return undefined;
-  }
-  if (raw.source_message_id !== undefined && !isBoundedString(raw.source_message_id, 500)) {
-    pushIssue(
-      issues,
-      'provenance.invalid_source',
-      '$.provenance.source_message_id',
-      'source_message_id must be bounded.'
-    );
   }
   return raw as unknown as TypedUIProvenance;
 }
@@ -400,12 +418,28 @@ function isCompatibleActionBinding(element: TypedUIElement, event: string, actio
     );
   }
   if (event === 'approve') return element.type === 'DecisionCard' && action.type === 'request_approval';
+  if (event === 'pause' || event === 'resume' || event === 'cancel') {
+    if (element.type === 'Goal' && action.type === 'goal_control') {
+      return action.params.action === event && action.params.goal_id === element.props.id;
+    }
+    if (element.type === 'WorkerRun' && action.type === 'worker_control') {
+      return action.params.action === event && action.params.worker_id === element.props.id;
+    }
+    return false;
+  }
   if (event !== 'press') return false;
   if (action.type === 'reply_with_state') return element.type === 'Button';
   if (action.type === 'open_url') return element.type === 'Button' || element.type === 'Link';
   if (action.type === 'request_approval') return element.type === 'Button';
   if (action.type === 'open_artifact') {
-    return ['Button', 'Link', 'Image', 'Goal', 'WorkerRun'].includes(element.type);
+    if (!['Button', 'Link', 'Image', 'Goal', 'WorkerRun'].includes(element.type)) return false;
+    if (element.type === 'Goal') {
+      return action.params.artifact_kind === 'goal' && action.params.artifact_id === element.props.id;
+    }
+    if (element.type === 'WorkerRun') {
+      return action.params.artifact_kind === 'worker' && action.params.artifact_id === element.props.id;
+    }
+    return true;
   }
   return false;
 }

@@ -32,6 +32,7 @@ import {
   createDefaultTypedUIActionHost,
   TypedUIRenderer,
 } from '@/renderer/pages/conversation/Messages/components/TypedGenerativeUI';
+import { openWorkbenchArtifact } from '../../services/workbenchArtifactResolver';
 import { Spin } from '@arco-design/web-react';
 import {
   PreviewTabs,
@@ -113,9 +114,21 @@ const PreviewPanel: React.FC = () => {
   const typedUIHost = useMemo(
     () =>
       createDefaultTypedUIActionHost({
+        provenanceArtifact: {
+          artifact_id: activeTab?.metadata?.artifact_id || activeTab?.id || 'unbound',
+          conversation_id: activeTab?.metadata?.conversation_id || 'unbound',
+          created_at: activeTab?.metadata?.artifact_created_at || 0,
+          source_message_id: activeTab?.metadata?.source_message_id || '',
+        },
+        openArtifact: (kind, artifactId) =>
+          openWorkbenchArtifact({
+            kind,
+            artifactId,
+            conversationId: activeTab?.metadata?.conversation_id || 'unbound',
+          }),
         replyWithState: addToSendBox,
       }),
-    [addToSendBox]
+    [activeTab, addToSendBox]
   );
   const { tabsContainerRef, tabFadeState } = useTabOverflow([tabs, activeTabId]);
   const { handleEditorScroll, handlePreviewScroll } = useScrollSync({
@@ -755,7 +768,11 @@ const PreviewPanel: React.FC = () => {
           content={content}
           mode='full'
           host={typedUIHost}
-          receiptContext={{ requestId: activeTab.id }}
+          receiptContext={{
+            artifactId: metadata?.artifact_id || activeTab.id,
+            conversationId: metadata?.conversation_id || 'unbound',
+            sourceMessageId: metadata?.source_message_id || '',
+          }}
         />
       );
     } else if (content_type === 'url') {

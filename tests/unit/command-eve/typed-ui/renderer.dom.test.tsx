@@ -14,9 +14,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { typedUIFixture } from './fixtures';
+import { TYPED_UI_TEST_RECEIPT_CONTEXT, typedUIAttestationFixture, typedUIFixture } from './fixtures';
 
-const receiptContext = { requestId: 'host-artifact-renderer' };
+const receiptContext = TYPED_UI_TEST_RECEIPT_CONTEXT;
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -37,8 +37,13 @@ const decision = (action: ICommandEveGateAction): ICommandEveGateDecision => ({
 
 function host(): TypedUIActionHost {
   return {
+    attestProvenance: vi.fn(async () => typedUIAttestationFixture()),
     evaluateAuthority: vi.fn(async (action) => decision(action)),
     recordReceipt: vi.fn(async () => ({ receipt_id: '00000000-0000-4000-8000-000000000001' })),
+    getActionAvailability: vi.fn((action) => ({
+      available: action !== 'goal_control' && action !== 'worker_control',
+      ...(action === 'goal_control' || action === 'worker_control' ? { reason: 'durable_transport_unavailable' } : {}),
+    })),
     openArtifact: vi.fn(),
     openUrl: vi.fn(),
     replyWithState: vi.fn(),
@@ -65,18 +70,22 @@ describe('Typed UI renderer', () => {
         onOpenWorkbench={onOpenWorkbench}
       />
     );
-    expect(screen.getByTestId('typed-ui-compact')).toHaveTextContent('Launch cockpit');
+    expect(await screen.findByTestId('typed-ui-compact')).toHaveTextContent('Launch cockpit');
     expect(screen.getByText('Ship typed UI')).toBeVisible();
     expect(screen.getByText('AionUI worker')).toBeVisible();
     expect(screen.getByText('Prepare integration PR?')).toBeVisible();
+    expect(screen.queryByText('fixture-model')).toBeNull();
+    expect(screen.getByTestId('typed-ui-provenance-status')).toHaveTextContent('messages.typedUI.provenance.verified');
+    expect(screen.getByRole('button', { name: 'messages.typedUI.lifecycle.pause' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'messages.typedUI.lifecycle.cancel' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'messages.typedUI.openWorkbench' }));
     expect(actionHost.evaluateAuthority).toHaveBeenCalledWith('truth_gate');
     expect(onOpenWorkbench).toHaveBeenCalledOnce();
   });
 
-  it('renders the full representation without creating a second chat or another open button', () => {
+  it('renders the full representation without creating a second chat or another open button', async () => {
     render(<TypedUIRenderer content={typedUIFixture()} mode='full' host={host()} receiptContext={receiptContext} />);
-    expect(screen.getByTestId('typed-ui-full')).toHaveTextContent('Launch cockpit');
+    expect(await screen.findByTestId('typed-ui-full')).toHaveTextContent('Launch cockpit');
     expect(screen.queryByRole('button', { name: 'messages.typedUI.openWorkbench' })).toBeNull();
   });
 
@@ -108,12 +117,13 @@ describe('Typed UI renderer', () => {
     render(
       <TypedUIRenderer content={typedUIFixture()} mode='compact' host={actionHost} receiptContext={receiptContext} />
     );
+    await screen.findByText('Reply with state');
     fireEvent.click(screen.getByRole('button', { name: 'Reply with state' }));
     await waitFor(() => expect(actionHost.replyWithState).toHaveBeenCalled());
     expect(screen.getByTestId('typed-ui-action-status')).toHaveTextContent('messages.typedUI.actionCompleted');
   });
 
-  it('does not materialize model HTML, links or images from Markdown', () => {
+  it('does not materialize model HTML, links or images from Markdown', async () => {
     const value = typedUIFixture();
     value.elements = {
       root: {
@@ -129,15 +139,19 @@ describe('Typed UI renderer', () => {
     expect(document.querySelector('script')).toBeNull();
     expect(document.querySelector('a')).toBeNull();
     expect(document.querySelector('img')).toBeNull();
-    expect(screen.getByText('outside')).toBeVisible();
+    expect(await screen.findByText('outside')).toBeVisible();
   });
 
-  it('omits open_artifact affordances when the full-pane host cannot resolve artifacts', () => {
+  it('omits open_artifact affordances when the full-pane host cannot resolve artifacts', async () => {
     const actionHost = host();
-    actionHost.supportsAction = (action) => action !== 'open_artifact';
+    actionHost.getActionAvailability = (action) => ({
+      available: action !== 'open_artifact' && action !== 'goal_control' && action !== 'worker_control',
+      ...(action === 'open_artifact' ? { reason: 'artifact_resolver_unavailable' } : {}),
+    });
     render(
       <TypedUIRenderer content={typedUIFixture()} mode='full' host={actionHost} receiptContext={receiptContext} />
     );
+    await screen.findByText('AionUI worker');
     expect(screen.queryByRole('button', { name: 'receipt-41' })).toBeNull();
     expect(screen.getByText('AionUI worker')).toBeVisible();
   });

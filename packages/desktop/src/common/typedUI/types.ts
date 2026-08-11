@@ -6,9 +6,11 @@
 
 import type { ICommandEveGateDecision } from '@/common/adapter/ipcBridge';
 
-export const TYPED_UI_SCHEMA_VERSION = 'command-eve.typed-ui/v1' as const;
-export const TYPED_UI_CATALOG_VERSION = 'command-eve.typed-ui.catalog/v1' as const;
+export const TYPED_UI_SCHEMA_VERSION = 'command-eve.typed-ui/v2' as const;
+export const TYPED_UI_CATALOG_VERSION = 'command-eve.typed-ui.catalog/v2' as const;
 export const TYPED_UI_MIME_TYPE = 'application/vnd.command-eve.typed-ui+json' as const;
+export const TYPED_UI_PROVENANCE_ATTESTATION_VERSION = 'command-eve.typed-ui-provenance-attestation/v1' as const;
+export const TYPED_UI_DURABLE_WORK_VERSION = 'command-eve-durable-work-activity/v1' as const;
 
 export type TypedUIJsonPrimitive = string | number | boolean | null;
 export type TypedUIJsonValue = TypedUIJsonPrimitive | TypedUIJsonValue[] | { [key: string]: TypedUIJsonValue };
@@ -18,7 +20,12 @@ export type TypedUIActionType =
   | 'open_artifact'
   | 'open_url'
   | 'select_option'
-  | 'request_approval';
+  | 'request_approval'
+  | 'goal_control'
+  | 'worker_control';
+
+export type TypedUIArtifactKind = 'chat' | 'file' | 'browser' | 'goal' | 'worker';
+export type TypedUILifecycleControl = 'pause' | 'resume' | 'cancel';
 
 export type TypedUIComponentName =
   | 'Card'
@@ -84,7 +91,52 @@ export interface TypedUIProvenance {
   model: string;
   request_id: string;
   generated_at: string;
-  source_message_id?: string;
+  source_message_id: string;
+}
+
+export interface TypedUIProvenanceArtifactRef {
+  artifact_id: string;
+  conversation_id: string;
+  created_at: number;
+  source_message_id: string;
+}
+
+export interface TypedUIProvenanceAttestationRequest {
+  version: typeof TYPED_UI_PROVENANCE_ATTESTATION_VERSION;
+  envelope: TypedUIEnvelope;
+  artifact: TypedUIProvenanceArtifactRef;
+}
+
+export interface TypedUIProvenanceAttestation {
+  version: typeof TYPED_UI_PROVENANCE_ATTESTATION_VERSION;
+  attestation_id: string;
+  artifact_id: string;
+  conversation_id: string;
+  content_sha256: string;
+  identity_sha256: string;
+  request_id_sha256: string;
+  receipt_sha256: string;
+  seat_context_revision: number;
+  status: 'verified' | 'rejected';
+  reason?: string;
+  recorded_at: string;
+}
+
+export interface TypedUILifecycleControlRequest {
+  version: typeof TYPED_UI_DURABLE_WORK_VERSION;
+  conversation_id: string;
+  work_item_id: string;
+  target_kind: 'goal' | 'worker';
+  action: TypedUILifecycleControl;
+  expected_revision: number;
+  expected_sequence: number;
+}
+
+export interface TypedUILifecycleControlResult {
+  version: typeof TYPED_UI_DURABLE_WORK_VERSION;
+  state: 'accepted' | 'needs_approval' | 'rejected' | 'unavailable';
+  receipt_id?: string;
+  reason?: string;
 }
 
 export interface TypedUIEnvelope {
@@ -112,7 +164,11 @@ export interface TypedUIActionReceipt {
   receipt_id?: string;
   intent_receipt_id?: string;
   request_id: string;
-  source_message_id?: string;
+  artifact_id: string;
+  conversation_id: string;
+  attestation_id: string;
+  content_sha256: string;
+  source_message_id: string;
   action_id: string;
   action_type: TypedUIActionType;
   status: 'authorized' | 'completed' | 'blocked' | 'failed' | 'approval_recorded';

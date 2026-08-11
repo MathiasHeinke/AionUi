@@ -72,6 +72,10 @@
   border-top: 1px solid var(--glass-chrome-border, var(--color-border-2));
 }
 
+.attestationState {
+  margin: 14px;
+}
+
 .stack {
   display: flex;
   min-width: 0;
@@ -174,6 +178,20 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.lifecycleControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.lifecycleUnavailable {
+  margin: 8px 0 0;
+  color: var(--typed-ui-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .dialogHeader,

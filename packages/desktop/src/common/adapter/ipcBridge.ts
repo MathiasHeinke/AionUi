@@ -2120,6 +2120,10 @@ export const commandEve = {
     IBridgeResponse<{ receipt_id: string; recorded_at: string }>,
     { receipt: import('../typedUI').TypedUIActionReceipt }
   >('command-eve.typed-ui-action-receipt'),
+  typedUIProvenanceAttestation: bridge.buildProvider<
+    IBridgeResponse<import('../typedUI').TypedUIProvenanceAttestation>,
+    { request: import('../typedUI').TypedUIProvenanceAttestationRequest }
+  >('command-eve.typed-ui-provenance-attestation'),
   commandCenterReadModel: bridge.buildProvider<
     IBridgeResponse<ICommandEveCommandCenterReadModelResult>,
     { maxRuns?: number } | undefined

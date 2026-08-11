@@ -19,15 +19,18 @@ describe('Typed UI schema and graph properties', () => {
     expect(parseTypedUIEnvelope(JSON.stringify(typedUIFixture()))).toEqual({ ok: true, value: typedUIFixture() });
   });
 
-  it.each(['setState', 'shell', 'ipc', 'fetch', 'goal_control', 'worker_control', 'javascript'])(
-    'rejects non-allowlisted action %s',
-    (type) => {
-      const candidate = cloneFixture();
-      const actions = candidate.actions as Record<string, Record<string, unknown>>;
-      actions.replyState.type = type;
-      expect(issuesOf(candidate)).toContain('action.not_allowed');
-    }
-  );
+  it('requires backend-correlated source_message_id provenance', () => {
+    const candidate = cloneFixture();
+    delete (candidate.provenance as Record<string, unknown>).source_message_id;
+    expect(issuesOf(candidate)).toContain('provenance.missing_field');
+  });
+
+  it.each(['setState', 'shell', 'ipc', 'fetch', 'javascript'])('rejects non-allowlisted action %s', (type) => {
+    const candidate = cloneFixture();
+    const actions = candidate.actions as Record<string, Record<string, unknown>>;
+    actions.replyState.type = type;
+    expect(issuesOf(candidate)).toContain('action.not_allowed');
+  });
 
   it.each([
     'file:///etc/passwd',
@@ -125,6 +128,43 @@ describe('Typed UI schema and graph properties', () => {
     actions.selectDecision.params.option_id = 'later';
     actions.selectDecision.params.value = 'later';
     expect(issuesOf(candidate)).toContain('tree.action_incompatible');
+  });
+
+  it('binds lifecycle controls only to their exact EVE-native identity and event', () => {
+    const mismatchedGoal = cloneFixture();
+    const goalActions = mismatchedGoal.actions as Record<string, { params: Record<string, unknown> }>;
+    goalActions.pauseGoal.params.goal_id = 'goal-other';
+    expect(issuesOf(mismatchedGoal)).toContain('tree.action_incompatible');
+
+    const mismatchedWorker = cloneFixture();
+    const workerActions = mismatchedWorker.actions as Record<string, { params: Record<string, unknown> }>;
+    workerActions.cancelRun.params.action = 'resume';
+    expect(issuesOf(mismatchedWorker)).toContain('tree.action_incompatible');
+
+    const passive = cloneFixture();
+    const elements = passive.elements as Record<string, { on?: Record<string, string> }>;
+    elements.goal.on = { press: 'pauseGoal' };
+    expect(issuesOf(passive)).toContain('tree.action_incompatible');
+  });
+
+  it.each([-1, 1_000_000_001, Number.MAX_SAFE_INTEGER])('rejects unsafe lifecycle revision/sequence %s', (value) => {
+    const candidate = cloneFixture();
+    const actions = candidate.actions as Record<string, { params: Record<string, unknown> }>;
+    actions.pauseGoal.params.expected_revision = value;
+    actions.pauseGoal.params.expected_sequence = value;
+    expect(issuesOf(candidate)).toContain('action.invalid_params');
+  });
+
+  it('requires cross-artifact actions to declare a typed kind and exact native identity', () => {
+    const missingKind = cloneFixture();
+    const missingKindActions = missingKind.actions as Record<string, { params: Record<string, unknown> }>;
+    delete missingKindActions.openRun.params.artifact_kind;
+    expect(issuesOf(missingKind)).toContain('action.invalid_params');
+
+    const wrongKind = cloneFixture();
+    const wrongKindActions = wrongKind.actions as Record<string, { params: Record<string, unknown> }>;
+    wrongKindActions.openRun.params.artifact_kind = 'file';
+    expect(issuesOf(wrongKind)).toContain('tree.action_incompatible');
   });
 
   it('fails closed for malformed, partial and oversized JSON', () => {

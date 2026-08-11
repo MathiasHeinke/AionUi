@@ -10,6 +10,7 @@ import {
   TYPED_UI_INTERNAL_ACTION_ID,
   type TypedUIActionHost,
 } from '@/renderer/pages/conversation/Messages/components/TypedGenerativeUI';
+import type { TypedUIProvenanceAttestation } from '@/common/typedUI';
 import { createStateStore } from '@json-render/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { typedUIFixture } from './fixtures';
@@ -31,8 +32,36 @@ describe('Typed UI action authority and receipts', () => {
   const openUrl = vi.fn();
   const replyWithState = vi.fn();
   const onReceipt = vi.fn();
-  const receiptContext = { requestId: 'host-artifact-17' };
-  const host: TypedUIActionHost = { evaluateAuthority, recordReceipt, openArtifact, openUrl, replyWithState };
+  const receiptContext = {
+    artifactId: 'artifact-17',
+    conversationId: 'conversation-17',
+    sourceMessageId: 'message-fixture-1',
+  };
+  const attestation: TypedUIProvenanceAttestation = {
+    version: 'command-eve.typed-ui-provenance-attestation/v1',
+    attestation_id: `tuia_${'a'.repeat(64)}`,
+    artifact_id: receiptContext.artifactId,
+    conversation_id: receiptContext.conversationId,
+    content_sha256: 'b'.repeat(64),
+    identity_sha256: 'c'.repeat(64),
+    request_id_sha256: 'd'.repeat(64),
+    receipt_sha256: 'e'.repeat(64),
+    seat_context_revision: 1,
+    status: 'verified',
+    recorded_at: '2026-08-11T12:00:00.000Z',
+  };
+  const host: TypedUIActionHost = {
+    attestProvenance: vi.fn(async () => attestation),
+    evaluateAuthority,
+    recordReceipt,
+    getActionAvailability: vi.fn((action) => ({
+      available: action !== 'goal_control' && action !== 'worker_control',
+      ...(action === 'goal_control' || action === 'worker_control' ? { reason: 'durable_transport_unavailable' } : {}),
+    })),
+    openArtifact,
+    openUrl,
+    replyWithState,
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -45,15 +74,19 @@ describe('Typed UI action authority and receipts', () => {
     return {
       envelope,
       store,
-      handlers: createTypedUIActionHandlers({ envelope, receiptContext, store, host, onReceipt }),
+      handlers: createTypedUIActionHandlers({ envelope, attestation, receiptContext, store, host, onReceipt }),
     };
   };
 
   it('routes local actions through the EVE-MAIN truth gate and emits a receipt', async () => {
     const { handlers } = setup();
-    await handlers.open_artifact({ [TYPED_UI_INTERNAL_ACTION_ID]: 'openRun', artifact_id: 'artifact-current' });
+    await handlers.open_artifact({
+      [TYPED_UI_INTERNAL_ACTION_ID]: 'openRun',
+      artifact_kind: 'worker',
+      artifact_id: 'run-41',
+    });
     expect(evaluateAuthority).toHaveBeenCalledWith('truth_gate');
-    expect(openArtifact).toHaveBeenCalledWith('artifact-current');
+    expect(openArtifact).toHaveBeenCalledWith('worker', 'run-41');
     expect(onReceipt).toHaveBeenCalledWith(expect.objectContaining({ action_id: 'openRun', status: 'completed' }));
   });
 
@@ -71,8 +104,8 @@ describe('Typed UI action authority and receipts', () => {
 
   it('rechecks HTTP(S)-only navigation at execution time', async () => {
     const { envelope, store } = setup();
-    envelope.actions.replyState = { type: 'open_url', params: { url: 'https://example.com' } };
-    const handlers = createTypedUIActionHandlers({ envelope, receiptContext, store, host, onReceipt });
+    envelope.actions.replyState = { type: 'open_url', params: { url: 'file:///etc/passwd' } };
+    const handlers = createTypedUIActionHandlers({ envelope, attestation, receiptContext, store, host, onReceipt });
     await handlers.open_url({ [TYPED_UI_INTERNAL_ACTION_ID]: 'replyState', url: 'file:///etc/passwd' });
     expect(openUrl).not.toHaveBeenCalled();
     expect(onReceipt).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }));
@@ -84,6 +117,7 @@ describe('Typed UI action authority and receipts', () => {
       [TYPED_UI_INTERNAL_ACTION_ID]: 'selectDecision',
       state_path: '/decision',
       value: 'yes',
+      option_id: 'yes',
     });
     expect(store.get('/decision')).toBe('yes');
     expect(evaluateAuthority).toHaveBeenCalledWith('truth_gate');
@@ -96,6 +130,7 @@ describe('Typed UI action authority and receipts', () => {
       [TYPED_UI_INTERNAL_ACTION_ID]: 'selectDecision',
       state_path: '/decision',
       value: 'yes',
+      option_id: 'yes',
     });
     expect(store.get('/decision')).toBeNull();
   });
@@ -104,7 +139,7 @@ describe('Typed UI action authority and receipts', () => {
     const { handlers } = setup();
     await handlers.reply_with_state({
       [TYPED_UI_INTERNAL_ACTION_ID]: 'replyState',
-      state_paths: ['/note'],
+      state_paths: ['/decision', '/note'],
       message: 'Current selection',
     });
     expect(replyWithState).toHaveBeenCalledWith(expect.stringContaining('"/note": "Ready"'));
@@ -116,7 +151,7 @@ describe('Typed UI action authority and receipts', () => {
     await handlers.request_approval({
       [TYPED_UI_INTERNAL_ACTION_ID]: 'requestApproval',
       gate_action: 'prepare_pr',
-      summary: 'Prepare bounded PR',
+      summary: 'Prepare the bounded integration PR.',
     });
     expect(evaluateAuthority).toHaveBeenCalledWith('prepare_pr');
     expect(openArtifact).not.toHaveBeenCalled();
@@ -128,5 +163,19 @@ describe('Typed UI action authority and receipts', () => {
     const { handlers } = setup();
     await handlers.open_url({ [TYPED_UI_INTERNAL_ACTION_ID]: 'openRun', url: 'https://example.com' });
     expect(evaluateAuthority).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['goal_control', 'pauseGoal', { goal_id: 'goal-17', action: 'pause', expected_revision: 3, expected_sequence: 9 }],
+    [
+      'worker_control',
+      'cancelRun',
+      { worker_id: 'run-41', action: 'cancel', expected_revision: 4, expected_sequence: 12 },
+    ],
+  ] as const)('never reaches authority for disabled %s', async (type, actionId, params) => {
+    const { handlers } = setup();
+    await handlers[type]({ [TYPED_UI_INTERNAL_ACTION_ID]: actionId, ...params });
+    expect(evaluateAuthority).not.toHaveBeenCalled();
+    expect(recordReceipt).not.toHaveBeenCalled();
   });
 });

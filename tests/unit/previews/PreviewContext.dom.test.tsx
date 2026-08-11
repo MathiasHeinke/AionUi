@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 import React, { type ReactNode } from 'react';
 import { PreviewProvider, usePreviewContext } from '@/renderer/pages/conversation/Preview/context/PreviewContext';
+import { ipcBridge } from '@/common';
 
 vi.mock('@/common', () => ({
   ipcBridge: {
@@ -45,6 +46,7 @@ describe('PreviewContext', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(ipcBridge.fs.getFileMetadata.invoke).mockResolvedValue(undefined);
     localStorage.clear();
     window.location.hash = '#/guid';
   });
@@ -130,6 +132,25 @@ describe('PreviewContext', () => {
     });
     expect(result.current.activeTab?.content).toBe('modified');
     expect(result.current.activeTab?.isDirty).toBe(true);
+  });
+
+  it('refuses save mutations for read-only artifact previews', async () => {
+    const { result } = renderHook(() => usePreviewContext(), { wrapper });
+    act(() => {
+      result.current.openPreview('# Trusted display', 'markdown', {
+        title: 'artifact.md',
+        file_path: '/workspace/artifact.md',
+        workspace: '/workspace',
+        editable: false,
+      });
+      result.current.updateContent('# Attempted mutation');
+    });
+    let saved = true;
+    await act(async () => {
+      saved = await result.current.saveContent();
+    });
+    expect(saved).toBe(false);
+    expect(ipcBridge.fs.writeFile.invoke).not.toHaveBeenCalled();
   });
 
   it('hides and restores the preview without losing tabs or dirty buffers', () => {

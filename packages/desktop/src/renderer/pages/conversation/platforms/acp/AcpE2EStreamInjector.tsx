@@ -29,9 +29,15 @@ type RunScenarioOptions = {
   seedHistoryOnly?: boolean;
 };
 
+type TypedUIArtifactOptions = {
+  artifactId: string;
+  createdAt: number;
+};
+
 type StreamController = {
   runScenario: (options?: RunScenarioOptions) => Promise<void>;
-  emitTypedUIArtifact: () => Promise<string>;
+  prepareTypedUIArtifact: (options: TypedUIArtifactOptions) => TypedUIEnvelope;
+  emitTypedUIArtifact: (options: TypedUIArtifactOptions) => Promise<string>;
   emitInfoTip: (code: string, content: string) => Promise<void>;
   emitFollowUpExchange: () => Promise<void>;
   beginGenerating: () => void;
@@ -101,7 +107,7 @@ const createStreamChunks = (lines: number): string[] => {
   );
 };
 
-const createTypedUIEnvelope = (artifactId: string): TypedUIEnvelope => ({
+const createTypedUIEnvelope = (artifactId: string, createdAt: number): TypedUIEnvelope => ({
   schema_version: TYPED_UI_SCHEMA_VERSION,
   catalog_version: TYPED_UI_CATALOG_VERSION,
   root: 'root',
@@ -127,6 +133,7 @@ const createTypedUIEnvelope = (artifactId: string): TypedUIEnvelope => ({
         summary: 'Declarative UI only; renderer and authority remain host-owned.',
       },
       children: [],
+      on: { pause: 'pauseGoal' },
     },
     run: {
       type: 'WorkerRun',
@@ -139,7 +146,7 @@ const createTypedUIEnvelope = (artifactId: string): TypedUIEnvelope => ({
         receiptRef: 'receipt-local-typed-ui',
       },
       children: [],
-      on: { press: 'openCurrentArtifact' },
+      on: { press: 'openCurrentArtifact', cancel: 'cancelWorker' },
     },
     decision: {
       type: 'DecisionCard',
@@ -167,7 +174,18 @@ const createTypedUIEnvelope = (artifactId: string): TypedUIEnvelope => ({
   },
   state: { decision: null, verification: 'Ready' },
   actions: {
-    openCurrentArtifact: { type: 'open_artifact', params: { artifact_id: artifactId } },
+    openCurrentArtifact: {
+      type: 'open_artifact',
+      params: { artifact_kind: 'worker', artifact_id: 'worker-run-typed-ui' },
+    },
+    pauseGoal: {
+      type: 'goal_control',
+      params: { goal_id: 'goal-typed-ui', action: 'pause', expected_revision: 7, expected_sequence: 21 },
+    },
+    cancelWorker: {
+      type: 'worker_control',
+      params: { worker_id: 'worker-run-typed-ui', action: 'cancel', expected_revision: 9, expected_sequence: 34 },
+    },
     selectPrepare: {
       type: 'select_option',
       params: { state_path: '/decision', value: 'prepare', option_id: 'prepare' },
@@ -185,14 +203,15 @@ const createTypedUIEnvelope = (artifactId: string): TypedUIEnvelope => ({
     provider: 'e2e-local',
     model: 'deterministic-visual-fixture',
     request_id: `request-${artifactId}`,
-    generated_at: '2026-08-11T12:00:00.000Z',
+    generated_at: new Date(createdAt).toISOString(),
     source_message_id: `message-${artifactId}`,
   },
 });
 
-const createTypedUIArtifact = (conversationId: string): IGeneratedConversationArtifact => {
-  const createdAt = Date.now();
-  const artifactId = `e2e-typed-ui-${createdAt}`;
+const createTypedUIArtifact = (
+  conversationId: string,
+  { artifactId, createdAt }: TypedUIArtifactOptions
+): IGeneratedConversationArtifact => {
   return {
     id: artifactId,
     conversation_id: conversationId,
@@ -204,7 +223,8 @@ const createTypedUIArtifact = (conversationId: string): IGeneratedConversationAr
       artifact_type: 'file',
       title: 'Typed Generative UI · Integration gate',
       mime_type: TYPED_UI_MIME_TYPE,
-      typed_ui: createTypedUIEnvelope(artifactId),
+      source_message_id: `message-${artifactId}`,
+      typed_ui: createTypedUIEnvelope(artifactId, createdAt),
     } as IGeneratedConversationArtifact['payload'] & { typed_ui: TypedUIEnvelope },
   };
 };
@@ -222,8 +242,9 @@ const AcpE2EStreamInjector: React.FC<{ conversationId: string }> = ({ conversati
     const registry = (window.__AIONUI_E2E_MESSAGE_STREAM__ ??= { controllers: {} });
 
     registry.controllers[conversationId] = {
-      emitTypedUIArtifact: async () => {
-        const artifact = createTypedUIArtifact(conversationId);
+      prepareTypedUIArtifact: ({ artifactId, createdAt }) => createTypedUIEnvelope(artifactId, createdAt),
+      emitTypedUIArtifact: async (options) => {
+        const artifact = createTypedUIArtifact(conversationId, options);
         stageConversationArtifact(conversationId, artifact);
         await new Promise<void>((resolve) => {
           window.setTimeout(resolve, STREAM_TICK_MS);

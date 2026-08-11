@@ -49,7 +49,21 @@
     "requestApproval": "Freigabe anfragen",
     "actionUnavailable": "Die Aktion wurde gestoppt, weil EVE-Authority oder die Belegspeicherung nicht verfügbar war.",
     "actionCompleted": "{{action}} wurde über EVE-Authority ausgeführt ({{gate}}).",
-    "actionBlocked": "{{action}} wurde durch EVE-Authority blockiert ({{gate}})."
+    "actionBlocked": "{{action}} wurde durch EVE-Authority blockiert ({{gate}}).",
+    "provenance": {
+      "checking": "Generierungsnachweis wird geprüft…",
+      "verified": "Generierung durch Command EVE verifiziert",
+      "rejected": "Generierungsnachweis nicht verfügbar",
+      "rejectedTitle": "Diese Oberfläche konnte nicht verifiziert werden",
+      "rejectedDescription": "Command EVE hat keinen passenden vertrauenswürdigen Generierungsbeleg gefunden. Oberfläche und Aktionen wurden nicht gerendert."
+    },
+    "lifecycle": {
+      "controls": "Steuerung dauerhafter Arbeit",
+      "pause": "Pausieren",
+      "resume": "Fortsetzen",
+      "cancel": "Abbrechen",
+      "transportUnavailable": "Die Steuerung bleibt deaktiviert, bis der kanonische Durable-Work-Transport verfügbar ist."
+    }
   },
   "availableCommands": "{{count}} verfügbare Befehle",
   "atFile.hint": "Tippen, um nach Dateien zu suchen",

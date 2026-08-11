@@ -49,7 +49,21 @@
     "requestApproval": "Request approval",
     "actionUnavailable": "The action was stopped because EVE authority or receipt persistence was unavailable.",
     "actionCompleted": "{{action}} completed through EVE authority ({{gate}}).",
-    "actionBlocked": "{{action}} was blocked by EVE authority ({{gate}})."
+    "actionBlocked": "{{action}} was blocked by EVE authority ({{gate}}).",
+    "provenance": {
+      "checking": "Verifying generation evidence…",
+      "verified": "Generation verified by Command EVE",
+      "rejected": "Generation evidence unavailable",
+      "rejectedTitle": "This interface could not be verified",
+      "rejectedDescription": "Command EVE did not find a matching trusted generation receipt. No interface or action was rendered."
+    },
+    "lifecycle": {
+      "controls": "Durable work controls",
+      "pause": "Pause",
+      "resume": "Resume",
+      "cancel": "Cancel",
+      "transportUnavailable": "Controls are disabled until the canonical Durable Work transport is available."
+    }
   },
   "availableCommands": "{{count}} Available Commands",
   "atFile.hint": "Type to search for files",

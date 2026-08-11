@@ -9,8 +9,13 @@ import type { IFileMetadata, IGeneratedArtifactType, IGeneratedConversationArtif
 import { TYPED_UI_MIME_TYPE, TYPED_UI_SCHEMA_VERSION } from '@/common/typedUI';
 import MarkdownView from '@/renderer/components/Markdown';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
+import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { iconColors } from '@/renderer/styles/colors';
 import { emitter } from '@/renderer/utils/emitter';
+import {
+  openWorkbenchArtifact,
+  registerWorkbenchArtifactResolver,
+} from '@/renderer/pages/conversation/Preview/services/workbenchArtifactResolver';
 import { Message } from '@arco-design/web-react';
 import { FolderOpen, Paperclip, PreviewOpen } from '@icon-park/react';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -264,6 +269,7 @@ function buildReceiptSummary(
 const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtifact }> = ({ artifact }) => {
   const { t } = useTranslation();
   const conversationContext = useConversationContextSafe();
+  const preview = usePreviewContext();
   const workspace = conversationContext?.workspace?.trim() || undefined;
   const payload = useMemo(() => parsePayload(artifact.payload), [artifact.payload]);
   const typedUIContent = useMemo(() => readTypedUIContent(payload), [payload]);
@@ -291,6 +297,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const htmlContent = type === 'html' ? readString(payload, ['html', 'content']) : undefined;
   const textContent = type === 'file' ? readString(payload, ['content', 'text']) : undefined;
   const receiptSummary = buildReceiptSummary(t, payload);
+  const sourceMessageId = readString(payload, ['source_message_id', 'sourceMessageId']);
   const openPath = resolvedPath || (source?.startsWith('file:') ? fileUrlToPath(source) : undefined);
   const [pathHtmlContent, setPathHtmlContent] = useState<string>();
   const [pathHtmlLoading, setPathHtmlLoading] = useState(false);
@@ -493,22 +500,52 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const typedUIHost = useMemo(
     () =>
       createDefaultTypedUIActionHost({
-        openArtifact: (artifactId) => {
-          if (!typedUIContent || artifactId !== artifact.id) {
-            throw new Error('Typed UI may only open its bound conversation artifact.');
-          }
-          emitter.emit('preview.open', {
-            content: typedUIContent,
-            contentType: 'typed-ui',
-            metadata: { title, conversation_id: artifact.conversation_id },
-          });
+        provenanceArtifact: {
+          artifact_id: artifact.id,
+          conversation_id: artifact.conversation_id,
+          created_at: artifact.created_at,
+          source_message_id: sourceMessageId || '',
         },
+        openArtifact: (kind, artifactId) =>
+          openWorkbenchArtifact({ kind, artifactId, conversationId: artifact.conversation_id }),
         replyWithState: (text) => {
           emitter.emit('sendbox.fill', text);
         },
       }),
-    [artifact.conversation_id, artifact.id, title, typedUIContent]
+    [artifact.conversation_id, artifact.created_at, artifact.id, sourceMessageId]
   );
+
+  useEffect(() => {
+    if (!typedUIContent) return;
+    return registerWorkbenchArtifactResolver({
+      id: `typed-ui-${artifact.conversation_id}-${artifact.id}`,
+      priority: 100,
+      canResolve(reference) {
+        return (
+          reference.kind === 'chat' &&
+          reference.conversationId === artifact.conversation_id &&
+          reference.artifactId === artifact.id
+        );
+      },
+      open(reference) {
+        if (
+          reference.kind !== 'chat' ||
+          reference.conversationId !== artifact.conversation_id ||
+          reference.artifactId !== artifact.id
+        ) {
+          throw new Error('artifact_not_resolved');
+        }
+        preview.openPreview(typedUIContent, 'typed-ui', {
+          title,
+          conversation_id: artifact.conversation_id,
+          artifact_id: artifact.id,
+          artifact_kind: 'chat',
+          artifact_created_at: artifact.created_at,
+          ...(sourceMessageId ? { source_message_id: sourceMessageId } : {}),
+        });
+      },
+    });
+  }, [artifact.conversation_id, artifact.created_at, artifact.id, preview, sourceMessageId, title, typedUIContent]);
 
   if (typedUIContent) {
     return (
@@ -517,8 +554,12 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
           content={typedUIContent}
           mode='compact'
           host={typedUIHost}
-          receiptContext={{ requestId: artifact.id }}
-          onOpenWorkbench={() => typedUIHost.openArtifact(artifact.id)}
+          receiptContext={{
+            artifactId: artifact.id,
+            conversationId: artifact.conversation_id,
+            sourceMessageId: sourceMessageId || '',
+          }}
+          onOpenWorkbench={() => typedUIHost.openArtifact('chat', artifact.id)}
         />
       </div>
     );
