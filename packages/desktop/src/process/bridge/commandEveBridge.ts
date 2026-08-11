@@ -58,6 +58,27 @@ import {
   runKanbanMarketingWorkerObserved,
   runKanbanPreflight,
 } from '@process/commandEve/kanbanPreflightCore';
+import {
+  createHermesNativeKanbanTask,
+  ensureHermesNativeKanbanBoard,
+  updateHermesNativeKanbanTask,
+} from '@process/commandEve/hermesNativeKanbanCore';
+import {
+  grantCommandEveComputerUsePermissions,
+  installCommandEveComputerUseDriver,
+  issueCommandEveComputerUseNativeIntent,
+  readCommandEveComputerUseStatus,
+  revokeCommandEveComputerUsePermissionsGuide,
+} from '@process/commandEve/computerUseRuntimeCore';
+import {
+  COMMAND_EVE_NATIVE_KANBAN_VERSION,
+  type CommandEveNativeKanbanCreateRequest,
+  type CommandEveNativeKanbanUpdateRequest,
+} from '@/common/config/eveNativeKanbanCore';
+import {
+  captureNativeKanbanSeatScope,
+  nativeKanbanSeatScopeStillActive,
+} from '@process/commandEve/nativeKanbanSeatScopeCore';
 import { buildLocalRuntimeStatus } from '@process/commandEve/localRuntimeStatusCore';
 import { ensureCommandEveLocalRuntimeProvider } from '@process/commandEve/providerBootstrap';
 import { clearHermesDelegateTransportEnv } from '@process/commandEve/eveWorkerLauncherCore';
@@ -630,6 +651,59 @@ function guardKanbanMutationDuringSwitch<V extends string>(
   };
 }
 
+function nativeKanbanSwitchFence() {
+  const fenced = guardKanbanMutationDuringSwitch(COMMAND_EVE_NATIVE_KANBAN_VERSION);
+  if (!fenced) return null;
+  return {
+    success: false,
+    msg: fenced.msg,
+    data: {
+      version: COMMAND_EVE_NATIVE_KANBAN_VERSION,
+      ok: false,
+      state: 'blocked' as const,
+      reason_code: fenced.data.reason_code,
+      message: fenced.data.message,
+    },
+  };
+}
+
+async function confirmComputerUseNativeAction(action: 'install' | 'grant') {
+  // Lazy MAIN-only lookup keeps this bridge importable in non-Electron tests.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nativeDialog = (require('electron') as typeof import('electron')).dialog;
+  const seatId = getActiveSeatId();
+  const revision = getActiveSeatContextRevision();
+  const german = app.getLocale().toLowerCase().startsWith('de');
+  const install = action === 'install';
+  const response = await nativeDialog.showMessageBox({
+    type: 'warning',
+    title: 'Command EVE — Desktop Use',
+    message: install
+      ? german
+        ? 'Gepinnten Desktop-Use-Treiber installieren?'
+        : 'Install the pinned Desktop Use driver?'
+      : german
+        ? 'macOS-Berechtigungen für CuaDriver anfragen?'
+        : 'Request macOS permissions for CuaDriver?',
+    detail: install
+      ? german
+        ? 'Hermes lädt exakt cua-driver 0.12.6. Command EVE prüft danach Release-Hash und Signatur. Abbrechen verändert nichts.'
+        : 'Hermes downloads exactly cua-driver 0.12.6. Command EVE verifies its release hash and signature afterward. Cancel changes nothing.'
+      : german
+        ? 'macOS öffnet Bedienungshilfen und Bildschirmaufnahme für den signierten CuaDriver. Abbrechen erteilt keine Berechtigung.'
+        : 'macOS opens Accessibility and Screen Recording for the signed CuaDriver. Cancel grants nothing.',
+    buttons: [german ? 'Abbrechen' : 'Cancel', german ? 'Fortfahren' : 'Continue'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  if (response.response !== 1) return { ok: false as const, reasonCode: 'COMPUTER_USE_USER_CANCELLED' };
+  if (commandEveSwitchSeatInFlight || seatId !== getActiveSeatId() || revision !== getActiveSeatContextRevision()) {
+    return { ok: false as const, reasonCode: 'SEAT_CHANGED_DURING_CONFIRMATION' };
+  }
+  return { ok: true as const, seatId, revision };
+}
+
 /**
  * F4 (HIGH) — MID-SWITCH COMPANY-BRAIN WRITE-FENCE (HOTFIX-A class). Same sacred
  * invariant as the kanban fence, applied to the per-seat Company Brain: a brain
@@ -944,6 +1018,125 @@ async function fetchConversationTitle(conversationId: string): Promise<string | 
 }
 
 export function initCommandEveBridge(): void {
+  bridge.buildProvider('command-eve.native-kanban-board').provider(async () => {
+    try {
+      const scope = captureNativeKanbanSeatScope(getDataPath());
+      const result = await ensureHermesNativeKanbanBoard(scope);
+      if (!nativeKanbanSeatScopeStillActive(scope)) {
+        return {
+          success: false,
+          msg: 'SEAT_CHANGED_DURING_READ',
+          data: {
+            ...result,
+            ok: false,
+            state: 'blocked',
+            reason_code: 'SEAT_CHANGED_DURING_READ',
+            message: 'The active seat changed while the board was loading. Refresh the board.',
+            board: undefined,
+          },
+        };
+      }
+      return { success: result.ok, msg: result.ok ? undefined : result.reason_code, data: result };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Native Kanban bridge failed.',
+      };
+    }
+  });
+
+  bridge
+    .buildProvider('command-eve.native-kanban-task-create')
+    .provider(async (request?: CommandEveNativeKanbanCreateRequest) => {
+      const fenced = nativeKanbanSwitchFence();
+      if (fenced) return fenced;
+      if (!request) return { success: false, msg: 'KANBAN_CREATE_INVALID' };
+      try {
+        const scope = captureNativeKanbanSeatScope(getDataPath());
+        const result = await createHermesNativeKanbanTask(request, scope);
+        if (!nativeKanbanSeatScopeStillActive(scope)) {
+          return {
+            success: false,
+            msg: 'SEAT_CHANGED_DURING_WRITE',
+            data: {
+              ...result,
+              ok: false,
+              state: 'blocked',
+              reason_code: 'SEAT_CHANGED_DURING_WRITE',
+              message: 'The task stayed in its original seat, but the visible seat changed. Refresh the board.',
+              board: undefined,
+              task: undefined,
+            },
+          };
+        }
+        return { success: result.ok, msg: result.ok ? undefined : result.reason_code, data: result };
+      } catch (error) {
+        return { success: false, msg: error instanceof Error ? error.message : 'Native Kanban create failed.' };
+      }
+    });
+
+  bridge
+    .buildProvider('command-eve.native-kanban-task-update')
+    .provider(async (request?: CommandEveNativeKanbanUpdateRequest) => {
+      const fenced = nativeKanbanSwitchFence();
+      if (fenced) return fenced;
+      if (!request) return { success: false, msg: 'KANBAN_UPDATE_INVALID' };
+      try {
+        const scope = captureNativeKanbanSeatScope(getDataPath());
+        const result = await updateHermesNativeKanbanTask(request, scope);
+        if (!nativeKanbanSeatScopeStillActive(scope)) {
+          return {
+            success: false,
+            msg: 'SEAT_CHANGED_DURING_WRITE',
+            data: {
+              ...result,
+              ok: false,
+              state: 'blocked',
+              reason_code: 'SEAT_CHANGED_DURING_WRITE',
+              message: 'The task stayed in its original seat, but the visible seat changed. Refresh the board.',
+              board: undefined,
+              task: undefined,
+            },
+          };
+        }
+        return { success: result.ok, msg: result.ok ? undefined : result.reason_code, data: result };
+      } catch (error) {
+        return { success: false, msg: error instanceof Error ? error.message : 'Native Kanban update failed.' };
+      }
+    });
+
+  bridge.buildProvider('command-eve.computer-use-status').provider(async () => {
+    const result = await readCommandEveComputerUseStatus({ userDataPath: getDataPath() });
+    return { success: result.ok, msg: result.ok ? undefined : result.reason_code, data: result };
+  });
+
+  bridge.buildProvider('command-eve.computer-use-install').provider(async () => {
+    if (commandEveSwitchSeatInFlight) return { success: false, msg: 'SEAT_SWITCH_IN_PROGRESS' };
+    const confirmation = await confirmComputerUseNativeAction('install');
+    if (!confirmation.ok) return { success: false, msg: confirmation.reasonCode };
+    const result = await installCommandEveComputerUseDriver({
+      userDataPath: getDataPath(),
+      nativeIntent: issueCommandEveComputerUseNativeIntent('install', confirmation),
+    });
+    return { success: result.ok, msg: result.ok ? undefined : result.reason_code, data: result };
+  });
+
+  bridge.buildProvider('command-eve.computer-use-permissions-grant').provider(async () => {
+    if (commandEveSwitchSeatInFlight) return { success: false, msg: 'SEAT_SWITCH_IN_PROGRESS' };
+    const confirmation = await confirmComputerUseNativeAction('grant');
+    if (!confirmation.ok) return { success: false, msg: confirmation.reasonCode };
+    const result = await grantCommandEveComputerUsePermissions({
+      userDataPath: getDataPath(),
+      nativeIntent: issueCommandEveComputerUseNativeIntent('grant', confirmation),
+    });
+    return { success: result.ok, msg: result.ok ? undefined : result.reason_code, data: result };
+  });
+
+  bridge.buildProvider('command-eve.computer-use-permissions-revoke-guide').provider(async () => {
+    const result = revokeCommandEveComputerUsePermissionsGuide();
+    return { success: false, msg: result.reason_code, data: result };
+  });
+
   bridge.buildProvider('command-eve.command-center-read-model').provider(async (request?: { maxRuns?: number }) => {
     try {
       const result = await buildCommandCenterReadModel({ maxRuns: request?.maxRuns });

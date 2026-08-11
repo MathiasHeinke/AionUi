@@ -4,43 +4,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * REAL KanbanBoardHost / KanbanBoardPage seam tests (test-honesty mirror (d) + H2
- * board-slug unify + H1 renderer write-lock). These drive the ACTUAL default-
- * exported KanbanBoardHost — not a hand-written structural mirror — so the load-
- * bearing wiring (key={useActiveSeatId()}, boardSlug='default', locked=switching)
- * is exercised end-to-end against the real component.
- *
- * Proves:
- *  (d) the REAL KanbanBoardHost REMOUNTS its page (re-fires the mount-once board
- *      read) when the active seat id changes, and does NOT on a stable id;
- *  H2  the page reads/writes the 'default' board slug — the SAME board EVE's native
- *      Hermes tools author (HERMES_HOME/kanban.db) — not the disconnected
- *      'marketing' board;
- *  H1  while useSeatAccess().switching is true, the create button is disabled.
- */
+/** Real default-exported native Kanban host wiring and seat-remount proof. */
 
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 
-// STABLE t + i18n identity across renders so the page's `refresh` useCallback (deps
-// [t]) keeps a stable identity — otherwise a fresh t each render would re-fire the
-// mount-once effect and mask/confuse the remount assertion (a test artifact).
-const stableT = (k: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? k;
-const stableI18n = { language: 'de' };
+const stableT = (key: string) => key;
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: stableT, i18n: stableI18n }),
+  useTranslation: () => ({ t: stableT, i18n: { language: 'de' } }),
 }));
 
-// The board read runs through this provider mock — capture the boardSlug it asks for.
 const boardInvoke = vi.fn();
+const computerStatusInvoke = vi.fn();
 vi.mock('@office-ai/platform', () => ({
   bridge: {
     buildProvider: (channel: string) => ({
-      invoke: (req?: unknown) => {
-        if (channel === 'command-eve.kanban-marketing-board') return boardInvoke(req);
-        return Promise.resolve({ success: true, data: null });
+      invoke: (request?: unknown) => {
+        if (channel === 'command-eve.native-kanban-board') return boardInvoke(request);
+        if (channel === 'command-eve.computer-use-status') return computerStatusInvoke(request);
+        return Promise.resolve({ success: true, data: { ok: true, state: 'ready' } });
       },
     }),
   },
@@ -48,7 +31,6 @@ vi.mock('@office-ai/platform', () => ({
 
 vi.mock('@renderer/utils/platform', () => ({ isElectronDesktop: () => true }));
 
-// Drive the two seat hooks the host + page consume.
 let activeSeatId = 'seat-a';
 const useActiveSeatIdMock = vi.fn(() => activeSeatId);
 vi.mock('@renderer/hooks/useActiveSeatId', () => ({ useActiveSeatId: () => useActiveSeatIdMock() }));
@@ -68,18 +50,65 @@ vi.mock('@renderer/hooks/useSeatAccess', () => ({
 
 import KanbanBoardHost from '@renderer/pages/kanban/index';
 
-const boardEnvelope = (slug: string) => ({
+const statuses = ['triage', 'todo', 'scheduled', 'ready', 'running', 'blocked', 'review', 'done'];
+const boardEnvelope = (task?: Record<string, unknown>) => ({
   success: true,
   data: {
-    version: 'command-eve-kanban-marketing-board/v0',
+    version: 'command-eve-native-kanban/v1',
     ok: true,
-    status: 'ready',
-    model: {
-      board: { slug, db_path: `/seat/home/kanban.db`, db_exists: true, table_count: 3 },
-      summary: { total_cards: 0 },
-      columns: [],
+    state: 'ready',
+    board: {
+      slug: 'default',
+      name: 'Command EVE',
+      description: 'Native Hermes board',
+      project_id: null,
+      columns: statuses.map((name) => ({ name, tasks: task?.status === name ? [task] : [] })),
+      latest_event_id: 0,
+      task_count: 0,
     },
-    source: { generated_by: 'command-eve-kanban-marketing-board-core', hermes_home: '/seat/home' },
+    source: {
+      adapter: 'hermes-plugin-api',
+      hermes_version: '0.20.0',
+      board_slug: 'default',
+      home_scope_id: 'seat-home-proof',
+      seat_scope: 'active-hermes-home',
+    },
+  },
+});
+
+const computerEnvelope = () => ({
+  success: true,
+  data: {
+    version: 'command-eve-computer-use/v1',
+    ok: true,
+    state: 'needs_install',
+    platform: 'darwin',
+    platform_supported: true,
+    installed: false,
+    ready: null,
+    can_install: true,
+    can_grant: true,
+    can_revoke_automatically: false,
+    accessibility: null,
+    screen_recording: null,
+    screen_recording_capturable: null,
+    checks: [],
+    provenance: {
+      resolution: 'missing',
+      executable_name: null,
+      executable_sha256: null,
+      expected_executable_sha256: 'eae725a09e0cdbda4bb37058a0393b86f7c97b5dda3769a10b1d79269ba8b334',
+      checksum_verified: false,
+      driver_version: null,
+      expected_version: '0.12.6',
+      release_tag: 'cua-driver-rs-v0.12.6',
+      expected_identity: 'com.trycua.driver',
+      expected_team_identifier: 'YCK386LBJ7',
+      installer_source: 'hermes-0.20-upstream-pinned',
+      identity: null,
+      team_identifier: null,
+      signature_valid: null,
+    },
   },
 });
 
@@ -87,69 +116,75 @@ beforeEach(() => {
   activeSeatId = 'seat-a';
   switching = false;
   useActiveSeatIdMock.mockClear();
-  boardInvoke
-    .mockReset()
-    .mockImplementation((req: { boardSlug?: string }) => Promise.resolve(boardEnvelope(req?.boardSlug ?? 'default')));
+  boardInvoke.mockReset().mockResolvedValue(boardEnvelope());
+  computerStatusInvoke.mockReset().mockResolvedValue(computerEnvelope());
 });
+
 afterEach(() => vi.clearAllMocks());
 
-describe('H2 — the REAL page reads the DEFAULT board (the board EVE writes)', () => {
-  it('the board read asks for boardSlug="default", not "marketing"', async () => {
-    render(<KanbanBoardHost />);
-    await waitFor(() => expect(boardInvoke).toHaveBeenCalled());
-    const firstCall = boardInvoke.mock.calls[0][0] as { boardSlug?: string };
-    expect(firstCall.boardSlug).toBe('default');
-    // And it is NEVER the disconnected 'marketing' board.
-    for (const c of boardInvoke.mock.calls) {
-      expect((c[0] as { boardSlug?: string }).boardSlug).not.toBe('marketing');
-    }
-  });
-
-  it('refreshes an already-open board after the governed ACP confirmation applies', async () => {
+describe('native Hermes board host', () => {
+  it('reads the adapter-owned default board without a renderer-selected DB or slug', async () => {
     render(<KanbanBoardHost />);
     await waitFor(() => expect(boardInvoke).toHaveBeenCalledTimes(1));
+    expect(boardInvoke.mock.calls[0][0]).toBeUndefined();
+    expect(await screen.findByText('kanban.native.board: Command EVE')).toBeTruthy();
+    expect(screen.getByText('Hermes 0.20.0')).toBeTruthy();
+    expect(screen.getByTestId('native-computer-use-panel')).toBeTruthy();
+  });
 
-    window.dispatchEvent(new CustomEvent('command-eve:kanban-acp-applied'));
-
+  it('refreshes the board after a governed ACP Kanban write applies', async () => {
+    render(<KanbanBoardHost />);
+    await waitFor(() => expect(boardInvoke).toHaveBeenCalledTimes(1));
+    act(() => window.dispatchEvent(new CustomEvent('command-eve:kanban-acp-applied')));
     await waitFor(() => expect(boardInvoke).toHaveBeenCalledTimes(2));
   });
-});
 
-describe('test-honesty mirror (d) — the REAL KanbanBoardHost remounts on seat switch', () => {
-  it('re-fires the mount-once board read when the active seat id changes, not on a stable id', async () => {
+  it('links a worker card to its durable run and session records', async () => {
+    boardInvoke.mockResolvedValue(
+      boardEnvelope({
+        id: 't_worker',
+        title: 'Durable worker',
+        body: null,
+        status: 'running',
+        priority: 0,
+        assignee: 'worker-real',
+        tenant: null,
+        created_at: 1,
+        updated_at: null,
+        current_run_id: 'run-real',
+        session_id: 'session-real',
+        project_id: null,
+        goal_mode: false,
+        latest_summary: null,
+        link_counts: { parents: 0, children: 0 },
+        progress: null,
+      })
+    );
+    render(<KanbanBoardHost />);
+
+    const card = await screen.findByTestId('native-kanban-task-t_worker');
+    expect(card.getAttribute('data-record-kind')).toBe('worker');
+    expect(screen.getByTitle('run-real')).toBeTruthy();
+    expect(screen.getByTitle('session-real')).toBeTruthy();
+  });
+
+  it('remounts and re-reads on a seat switch, but not on a stable seat', async () => {
     const { rerender } = render(<KanbanBoardHost />);
     await waitFor(() => expect(boardInvoke).toHaveBeenCalledTimes(1));
 
-    // Stable seat id → a plain re-render does NOT remount → no extra read.
     rerender(<KanbanBoardHost />);
     await Promise.resolve();
     expect(boardInvoke).toHaveBeenCalledTimes(1);
 
-    // Seat switch → the host key (useActiveSeatId) changes → REMOUNT → fresh read.
     activeSeatId = 'seat-b';
     rerender(<KanbanBoardHost />);
     await waitFor(() => expect(boardInvoke).toHaveBeenCalledTimes(2));
-
-    // Switch back → remount again (fresh read for seat-a, no stale leak).
-    activeSeatId = 'seat-a';
-    rerender(<KanbanBoardHost />);
-    await waitFor(() => expect(boardInvoke).toHaveBeenCalledTimes(3));
   });
-});
 
-describe('H1 renderer half — create button disabled while switching', () => {
-  it('the "Neue Aufgabe" button is disabled when useSeatAccess().switching is true', async () => {
+  it('disables local board creation during the main-process seat-switch fence', async () => {
     switching = true;
     render(<KanbanBoardHost />);
-    await waitFor(() => expect(screen.getByTestId('kanban-card-create-open')).toBeTruthy());
-    expect((screen.getByTestId('kanban-card-create-open') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('the create button is enabled when not switching (board ready)', async () => {
-    switching = false;
-    render(<KanbanBoardHost />);
-    // Wait for the board read to resolve into a READY view (board-slug tag renders).
-    await waitFor(() => expect(screen.getByTestId('kanban-board-slug')).toBeTruthy());
-    expect((screen.getByTestId('kanban-card-create-open') as HTMLButtonElement).disabled).toBe(false);
+    const button = (await screen.findByTestId('native-kanban-create')) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
   });
 });

@@ -127,10 +127,11 @@ const loadWorkbenchLayoutMode = (): WorkbenchLayoutMode => {
   return 'split-right';
 };
 
-// 仅持久化小体积文本预览，避免大文本导致 localStorage 写入卡顿
-// Persist only lightweight text previews to avoid localStorage jank on large files
+// Persist lightweight text previews plus state-only workbench surfaces. Kanban
+// carries no board payload here: its empty content preserves only the stable tab
+// identity while Hermes SQLite remains the sole source of task truth.
 const MAX_PERSISTED_TAB_CONTENT_LENGTH = 80_000;
-const PERSISTABLE_CONTENT_TYPES = new Set<PreviewContentType>(['markdown', 'html', 'code', 'diff']);
+const PERSISTABLE_CONTENT_TYPES = new Set<PreviewContentType>(['markdown', 'html', 'code', 'diff', 'kanban']);
 
 const resolveCurrentConversationId = (): string | undefined => {
   if (typeof window === 'undefined') return undefined;
@@ -149,15 +150,32 @@ const scopePreviewMetadata = (meta?: PreviewMetadata): PreviewMetadata | undefin
   return conversationId ? { ...meta, conversation_id: conversationId } : meta;
 };
 
+const sanitizeTabForPersistence = (tab: PreviewTab): PreviewTab => {
+  const content = tab.content_type === 'kanban' ? '' : tab.content;
+  return {
+    ...tab,
+    content,
+    isDirty: false,
+    originalContent: content,
+  };
+};
+
+const sanitizeRestoredTab = (tab: PreviewTab): PreviewTab => {
+  const content = tab.content_type === 'kanban' ? '' : tab.content;
+  return {
+    ...tab,
+    content,
+    originalContent:
+      tab.content_type === 'kanban' ? '' : typeof tab.originalContent === 'string' ? tab.originalContent : content,
+    isDirty: false,
+  };
+};
+
 const sanitizeTabsForPersistence = (input: PreviewTab[]): PreviewTab[] => {
   return input
     .filter((tab) => PERSISTABLE_CONTENT_TYPES.has(tab.content_type))
-    .filter((tab) => tab.content.length <= MAX_PERSISTED_TAB_CONTENT_LENGTH)
-    .map((tab) => ({
-      ...tab,
-      isDirty: false,
-      originalContent: tab.content,
-    }));
+    .filter((tab) => tab.content_type === 'kanban' || tab.content.length <= MAX_PERSISTED_TAB_CONTENT_LENGTH)
+    .map(sanitizeTabForPersistence);
 };
 
 const parsePersistedTabs = (value: unknown): PreviewTab[] => {
@@ -175,12 +193,8 @@ const parsePersistedTabs = (value: unknown): PreviewTab[] => {
       );
     })
     .filter((tab) => PERSISTABLE_CONTENT_TYPES.has(tab.content_type))
-    .filter((tab) => tab.content.length <= MAX_PERSISTED_TAB_CONTENT_LENGTH)
-    .map((tab) => ({
-      ...tab,
-      originalContent: typeof tab.originalContent === 'string' ? tab.originalContent : tab.content,
-      isDirty: false,
-    }));
+    .filter((tab) => tab.content_type === 'kanban' || tab.content.length <= MAX_PERSISTED_TAB_CONTENT_LENGTH)
+    .map(sanitizeRestoredTab);
 };
 
 // 从 localStorage 恢复状态 / Restore state from localStorage
