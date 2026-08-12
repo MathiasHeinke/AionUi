@@ -44,6 +44,8 @@ const {
   conversationStopInvokeMock,
   reportStageWorkspaceInvokeMock,
   openPreviewMock,
+  launchPreviewMock,
+  imageArtifactBindInvokeMock,
   previewContextState,
   realtimeConnectedHandlers,
 } = vi.hoisted(() => ({
@@ -60,6 +62,8 @@ const {
   conversationStopInvokeMock: vi.fn(),
   reportStageWorkspaceInvokeMock: vi.fn(),
   openPreviewMock: vi.fn(),
+  launchPreviewMock: vi.fn(async () => undefined),
+  imageArtifactBindInvokeMock: vi.fn(async () => undefined),
   realtimeConnectedHandlers: new Set<(event: { reconnected?: boolean }) => void>(),
   previewContextState: {
     activeTabId: 'browser-tab' as string | null,
@@ -118,7 +122,7 @@ vi.mock('@/renderer/pages/conversation/Messages/hooks', () => ({
 // are about the message lifecycle, and a real preview launcher would drag the
 // whole conversation context in with it.
 vi.mock('@renderer/hooks/file/usePreviewLauncher', () => ({
-  usePreviewLauncher: () => ({ launchPreview: vi.fn(async () => undefined), loading: false, errorKind: null }),
+  usePreviewLauncher: () => ({ launchPreview: launchPreviewMock, loading: false, errorKind: null }),
 }));
 
 vi.mock('@renderer/hooks/useQuotaWall', () => ({
@@ -187,6 +191,9 @@ vi.mock('@/common', () => ({
       imageArtifactsChanged: {
         on: vi.fn(() => () => {}),
       },
+      imageArtifactBind: {
+        invoke: imageArtifactBindInvokeMock,
+      },
     },
     projectWorkspace: {
       ensureAfterSuccessfulTurn: {
@@ -207,6 +214,7 @@ const makeExternalWriteFailure = (
 ): IResponseMessage => ({
   type: 'acp_tool_call',
   data: {
+    session_id: 'session-write',
     update: {
       sessionUpdate: 'tool_call_update',
       tool_call_id: 'write-call-1',
@@ -674,11 +682,129 @@ describe('useAcpMessage', () => {
     expect(getCurrentLiveDelegationObservation('conv-1', 'worker-b:0')).toMatchObject({ acpSessionId: 'session-b' });
   });
 
+  it('keeps a newer start binding when an earlier persisted hydration resolves late', async () => {
+    let resolveHydration: ((value: unknown) => void) | undefined;
+    conversationGetInvokeMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHydration = resolve;
+        })
+    );
+    const { result } = renderHook(() => {
+      useAcpMessage('conv-1');
+      return useConversationDelegationActivity('conv-1');
+    });
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+    await waitFor(() => expect(resolveHydration).toBeTypeOf('function'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-b' },
+        msg_id: 'start-session-b',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    await act(async () => {
+      resolveHydration?.({
+        id: 'conv-1',
+        type: 'acp',
+        status: 'finished',
+        extra: { acp_session_id: 'session-a', backend: 'hermes' },
+      });
+      await Promise.resolve();
+    });
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: 'worker-a-replay',
+            status: 'in_progress',
+            title: 'delegate: Worker A replay',
+            kind: 'execute',
+            rawInput: { goal: 'Worker A replay' },
+          },
+        },
+        msg_id: 'worker-a-replay-after-hydration',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-b',
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: 'worker-b',
+            status: 'in_progress',
+            title: 'delegate: Worker B',
+            kind: 'execute',
+            rawInput: { goal: 'Worker B' },
+          },
+        },
+        msg_id: 'worker-b-after-hydration',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current.find(({ id }) => id === 'worker-a-replay:0')).toBeUndefined();
+    expect(result.current).toMatchObject([{ id: 'worker-b:0', observedLive: true }]);
+    expect(getCurrentLiveDelegationObservation('conv-1', 'worker-b:0')).toMatchObject({ acpSessionId: 'session-b' });
+  });
+
+  it('binds a persisted ACP session when no newer start authority exists', async () => {
+    conversationGetInvokeMock.mockResolvedValue({
+      id: 'conv-1',
+      type: 'acp',
+      status: 'finished',
+      extra: { acp_session_id: 'session-a', backend: 'hermes' },
+    });
+    const { result } = renderHook(() => {
+      useAcpMessage('conv-1');
+      return useConversationDelegationActivity('conv-1');
+    });
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: 'worker-a',
+            status: 'in_progress',
+            title: 'delegate: Worker A',
+            kind: 'execute',
+            rawInput: { goal: 'Worker A' },
+          },
+        },
+        msg_id: 'worker-a-after-hydration',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current).toMatchObject([{ id: 'worker-a:0', observedLive: true }]);
+    expect(getCurrentLiveDelegationObservation('conv-1', 'worker-a:0')).toMatchObject({ acpSessionId: 'session-a' });
+  });
+
   it('routes only session-bound Hermes preview and native-pane events', async () => {
     conversationGetInvokeMock.mockResolvedValue(null);
     const emitSpy = vi.spyOn(emitter, 'emit');
     renderHook(() => useAcpMessage('conv-1'));
     await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+    await waitFor(() => expect(conversationGetInvokeMock).toHaveBeenCalled());
 
     const send = (event: string, payload: unknown, sessionId = 'acp-session-1') => {
       responseStreamHandlerRef.current?.({
@@ -705,11 +831,6 @@ describe('useAcpMessage', () => {
     };
 
     act(() => {
-      // AionCore's canonical top-level session_id makes these events
-      // self-binding even when reconnect ordering delivers session_info before
-      // the transient Start frame.
-      send('preview.open', { url: 'https://example.com', label: 'Example' });
-      send('pane.reveal', { pane: 'files' });
       responseStreamHandlerRef.current?.({
         type: 'start',
         data: { session_id: 'acp-session-1' },
@@ -717,7 +838,38 @@ describe('useAcpMessage', () => {
         turn_id: 'turn-desktop-1',
         conversation_id: 'conv-1',
       });
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-desktop-1', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-desktop-1',
+      });
+      send('preview.open', { url: 'https://example.com', label: 'Example' });
+      send('pane.reveal', { pane: 'files' });
       send('preview.open', { url: 'https://foreign.example' }, 'foreign-session');
+      responseStreamHandlerRef.current?.({
+        type: 'acp_session_info',
+        data: {
+          title: null,
+          updated_at: null,
+          session_id: 'acp-session-1',
+          _meta: {
+            commandEveDesktop: {
+              version: 'command-eve-desktop-event/v1',
+              sessionId: 'acp-session-1',
+              event: 'preview.open',
+              payload: { url: 'https://stale-turn.example', label: 'Stale turn' },
+            },
+          },
+        },
+        msg_id: 'desktop-stale-turn',
+        turn_id: 'turn-old',
+        conversation_id: 'conv-1',
+      });
       send('terminal.read', {});
       send('pane.reveal', { pane: 'terminal' });
       send('pane.reveal', { pane: 'kanban' });
@@ -732,6 +884,82 @@ describe('useAcpMessage', () => {
       ['commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'files' }],
       ['commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'terminal' }],
     ]);
+    emitSpy.mockRestore();
+  });
+
+  it('does not perform desktop side effects before a positive ACP session binding', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const emitSpy = vi.spyOn(emitter, 'emit');
+    renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'acp_session_info',
+        data: {
+          title: null,
+          updated_at: null,
+          session_id: 'session-a',
+          _meta: {
+            commandEveDesktop: {
+              version: 'command-eve-desktop-event/v1',
+              sessionId: 'session-a',
+              event: 'preview.open',
+              payload: { url: 'https://unbound.example', label: 'Unbound' },
+            },
+          },
+        },
+        msg_id: 'desktop-unbound',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(openPreviewMock).not.toHaveBeenCalled();
+    expect(emitSpy.mock.calls.filter(([event]) => event === 'commandEve.workbench.reveal')).toEqual([]);
+    emitSpy.mockRestore();
+  });
+
+  it('blocks a foreign session tool frame before its desktop side effects', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const emitSpy = vi.spyOn(emitter, 'emit');
+    const { result } = renderHook(() => {
+      useAcpMessage('conv-1');
+      return useConversationDelegationActivity('conv-1');
+    });
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-b' },
+        msg_id: 'start-session-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'foreign-open-preview',
+            status: 'completed',
+            kind: 'execute',
+            title: 'open_preview',
+            raw_input: { url: 'https://foreign.example', label: 'Foreign' },
+          },
+        },
+        msg_id: 'foreign-tool-frame',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(openPreviewMock).not.toHaveBeenCalled();
+    expect(emitSpy.mock.calls.filter(([event]) => event === 'commandEve.workbench.reveal')).toEqual([]);
+    expect(result.current).toEqual([]);
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalledWith(expect.objectContaining({ msg_id: 'foreign-tool-frame' }));
     emitSpy.mockRestore();
   });
 
@@ -869,7 +1097,7 @@ describe('useAcpMessage', () => {
     unregister();
   });
 
-  it('uses completed standard ACP desktop tool frames when transient session metadata is not delivered', async () => {
+  it('uses completed standard ACP desktop tool frames for the bound session and turn', async () => {
     conversationGetInvokeMock.mockResolvedValue(null);
     const emitSpy = vi.spyOn(emitter, 'emit');
     renderHook(() => useAcpMessage('conv-1'));
@@ -896,6 +1124,13 @@ describe('useAcpMessage', () => {
     };
 
     act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'acp-session-1' },
+        msg_id: 'desktop-start',
+        turn_id: 'turn-desktop-tool-1',
+        conversation_id: 'conv-1',
+      });
       sendCompletedTool('open-tool-1', 'open_preview', { url: 'https://example.com/fallback', label: 'Fallback' });
       sendCompletedTool('focus-tool-1', 'focus_pane', { pane: 'files' });
       // Reconnect replay: neither visible action may run twice.
@@ -911,6 +1146,165 @@ describe('useAcpMessage', () => {
     expect(emitSpy.mock.calls.filter(([event]) => event === 'commandEve.workbench.reveal')).toEqual([
       ['commandEve.workbench.reveal', { conversation_id: 'conv-1', pane: 'files' }],
     ]);
+    emitSpy.mockRestore();
+  });
+
+  it('rejects a stale same-session desktop event after runtime turn state has cleared', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const emitSpy = vi.spyOn(emitter, 'emit');
+    renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    const sendInfo = (turn_id: string, url: string) => {
+      responseStreamHandlerRef.current?.({
+        type: 'acp_session_info',
+        data: {
+          title: null,
+          updated_at: null,
+          session_id: 'session-b',
+          _meta: {
+            commandEveDesktop: {
+              version: 'command-eve-desktop-event/v1',
+              sessionId: 'session-b',
+              event: 'preview.open',
+              payload: { url, label: turn_id },
+            },
+          },
+        },
+        msg_id: `desktop-${turn_id}`,
+        turn_id,
+        conversation_id: 'conv-1',
+      });
+    };
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-b' },
+        msg_id: 'start-session-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      // There is no active runtime turn now; the Start-bound turn remains the
+      // sole side-effect authority.
+      sendInfo('turn-a', 'https://stale-turn.example');
+      sendInfo('turn-b', 'https://current-turn.example');
+    });
+
+    expect(openPreviewMock).toHaveBeenCalledTimes(1);
+    expect(openPreviewMock).toHaveBeenCalledWith('https://current-turn.example', 'url', {
+      title: 'turn-b',
+      conversation_id: 'conv-1',
+    });
+    expect(emitSpy.mock.calls.filter(([event]) => event === 'commandEve.workbench.reveal')).toEqual([]);
+    emitSpy.mockRestore();
+  });
+
+  it('blocks unscoped tool frames before browser, HTML, image, typed-artifact, activity, or transcript effects', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const emitSpy = vi.spyOn(emitter, 'emit');
+    const { result } = renderHook(() => {
+      useAcpMessage('conv-1');
+      return useConversationDelegationActivity('conv-1');
+    });
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-b' },
+        msg_id: 'start-session-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'unscoped-open-preview',
+            status: 'completed',
+            kind: 'execute',
+            title: 'open_preview',
+            raw_input: { url: 'https://unscoped.example', label: 'Unscoped' },
+          },
+        },
+        msg_id: 'unscoped-tool-frame',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'unscoped-html',
+            status: 'in_progress',
+            kind: 'edit',
+            title: 'write: report.html',
+            locations: [{ path: 'report.html' }],
+          },
+        },
+        msg_id: 'unscoped-html-start',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'unscoped-image',
+            status: 'completed',
+            kind: 'execute',
+            title: 'image generation',
+            content: [
+              {
+                type: 'content',
+                content: { type: 'text', text: `img_h_${'a'.repeat(64)}` },
+              },
+            ],
+          },
+        },
+        msg_id: 'unscoped-image-result',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'unscoped-typed-ui',
+            status: 'completed',
+            kind: 'execute',
+            title: 'mcp__aionui_eve_artifacts__eve_typed_ui_publish',
+            result_display: {
+              ok: true,
+              artifact_type: 'file',
+              mime_type: 'application/vnd.command-eve.typed-ui+json',
+            },
+          },
+        },
+        msg_id: 'unscoped-typed-artifact',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'finish-turn-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(openPreviewMock).not.toHaveBeenCalled();
+    expect(launchPreviewMock).not.toHaveBeenCalled();
+    expect(imageArtifactBindInvokeMock).not.toHaveBeenCalled();
+    expect(emitSpy.mock.calls.filter(([event]) => event === 'commandEve.workbench.reveal')).toEqual([]);
+    expect(result.current).toEqual([]);
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalledWith(expect.objectContaining({ msg_id: 'unscoped-tool-frame' }));
     emitSpy.mockRestore();
   });
 
@@ -962,7 +1356,7 @@ describe('useAcpMessage', () => {
     act(() => {
       responseStreamHandlerRef.current?.({
         type: 'start',
-        data: null,
+        data: { session_id: 'session-write' },
         msg_id: 'msg-refresh',
         conversation_id: 'conv-1',
       });
@@ -1049,7 +1443,7 @@ describe('useAcpMessage', () => {
     act(() => {
       responseStreamHandlerRef.current?.({
         type: 'start',
-        data: null,
+        data: { session_id: 'session-write' },
         msg_id: 'message-write-call-1',
         conversation_id: 'conv-1',
       });
@@ -1121,7 +1515,7 @@ describe('useAcpMessage', () => {
     act(() => {
       responseStreamHandlerRef.current?.({
         type: 'start',
-        data: null,
+        data: { session_id: 'session-write' },
         msg_id: 'message-write-call-1',
         conversation_id: 'conv-1',
       });
@@ -1144,7 +1538,7 @@ describe('useAcpMessage', () => {
     act(() => {
       responseStreamHandlerRef.current?.({
         type: 'start',
-        data: null,
+        data: { session_id: 'session-write' },
         msg_id: 'message-current-turn',
         turn_id: 'turn-current',
         conversation_id: 'conv-1',
@@ -1356,8 +1750,15 @@ describe('useAcpMessage', () => {
 
       act(() => {
         responseStreamHandlerRef.current?.({
+          type: 'start',
+          data: { session_id: 'session-tools' },
+          msg_id: 'start-session-tools',
+          conversation_id: 'conv-1',
+        });
+        responseStreamHandlerRef.current?.({
           type: 'acp_tool_call',
           data: {
+            session_id: 'session-tools',
             update: {
               sessionUpdate: 'tool_call',
               toolCallId: 'tool-a',
@@ -1372,6 +1773,7 @@ describe('useAcpMessage', () => {
         responseStreamHandlerRef.current?.({
           type: 'acp_tool_call',
           data: {
+            session_id: 'session-tools',
             update: {
               sessionUpdate: 'tool_call',
               tool_call_id: 'tool-b',
@@ -1392,6 +1794,7 @@ describe('useAcpMessage', () => {
         responseStreamHandlerRef.current?.({
           type: 'acp_tool_call',
           data: {
+            session_id: 'session-tools',
             update: {
               sessionUpdate: 'tool_call_update',
               toolCallId: 'tool-a',
@@ -1412,6 +1815,7 @@ describe('useAcpMessage', () => {
         responseStreamHandlerRef.current?.({
           type: 'acp_tool_call',
           data: {
+            session_id: 'session-tools',
             update: {
               session_update: 'tool_call_update',
               tool_call_id: 'tool-b',
