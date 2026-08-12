@@ -16,6 +16,7 @@ export type PreviewContentType =
   | 'image'
   | 'video'
   | 'audio'
+  | 'typed-ui'
   | 'url'
   | 'terminal'
   | 'kanban'

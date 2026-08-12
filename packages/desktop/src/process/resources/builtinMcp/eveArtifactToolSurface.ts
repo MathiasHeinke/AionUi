@@ -48,6 +48,7 @@ export const EVE_ARTIFACT_TOOL_ARTIFACT_LIST = 'eve_artifact_list';
 export const EVE_ARTIFACT_TOOL_VIDEO_EDIT = 'eve_video_edit';
 export const EVE_ARTIFACT_TOOL_IMAGE_EDIT = 'eve_image_edit';
 export const EVE_ARTIFACT_TOOL_VIDEO_GENERATE = 'eve_video_generate';
+export const EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH = 'eve_typed_ui_publish';
 
 export interface EveArtifactToolDescriptor {
   name: string;
@@ -67,6 +68,13 @@ const ARTIFACT_LIST: EveArtifactToolDescriptor = {
   name: EVE_ARTIFACT_TOOL_ARTIFACT_LIST,
   description:
     'Read several artifacts at once, by the capability handles from your context. There is deliberately no way to list a conversation by id: a handle is the only thing that proves you were given the artifact.',
+  spends: false,
+};
+
+const TYPED_UI_PUBLISH: EveArtifactToolDescriptor = {
+  name: EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH,
+  description:
+    'Publish one declarative Command EVE Typed UI envelope. The app validates the fixed schema and 45-component catalog and returns a renderable artifact. This cannot run JavaScript, CSS, HTML, shell, IPC or network actions.',
   spends: false,
 };
 
@@ -119,7 +127,7 @@ const VIDEO_GENERATE: EveArtifactToolDescriptor = {
  * disagree about what this seat can do.
  */
 export function buildEveArtifactToolSurface(env: NodeJS.ProcessEnv = process.env): EveArtifactToolDescriptor[] {
-  const surface = [ARTIFACT_GET, ARTIFACT_LIST];
+  const surface = [ARTIFACT_GET, ARTIFACT_LIST, TYPED_UI_PUBLISH];
   if (isAgentVideoEditEnabled(env)) surface.push(VIDEO_EDIT);
   // 1.820.3 — the image half. Its OWN flag carrier (`agentImageEditFlag.ts`):
   // the two paid tools are advertised independently, so kill-switching one

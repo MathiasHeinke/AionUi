@@ -1,0 +1,1065 @@
+/**
+ * @license
+ * Copyright 2025 AionUi (aionui.com)
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import {
+  TYPED_UI_HOST_MODEL_CLAIM,
+  TYPED_UI_HOST_PROVIDER_CLAIM,
+  TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
+  validateTypedUIEnvelope,
+  type TypedUIActionType,
+  type TypedUIEnvelope,
+  type TypedUIJsonValue,
+  type TypedUIProvenanceArtifactRef,
+  type TypedUIProvenanceAttestation,
+  type TypedUIProvenanceAttestationRequest,
+} from '@/common/typedUI';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+
+export const TYPED_UI_GENERATION_RECEIPT_VERSION = 'command-eve.typed-ui-generation-receipt/v2' as const;
+export const TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION = 'command-eve.typed-ui-provider-completion/v2' as const;
+const TYPED_UI_PROVIDER_COMPLETION_CONSUMPTION_VERSION =
+  'command-eve.typed-ui-provider-completion-consumption/v1' as const;
+
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/;
+const SHA256 = /^[a-f0-9]{64}$/;
+const ATTESTATION_ID = /^tuia_[a-f0-9]{64}$/;
+const GENERATION_RECEIPT_ID = /^tuigr_[a-f0-9]{64}$/;
+const PROVIDER_COMPLETION_RECEIPT_ID = /^tuipc_[a-f0-9]{64}$/;
+const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+const MAX_LEDGER_TAIL_BYTES = 8 * 1024 * 1024;
+const MAX_GENERATED_AT_DRIFT_MS = 24 * 60 * 60 * 1000;
+const EMPTY_SHA256 = '0'.repeat(64);
+const HOST_OPEN_WORKBENCH_ACTION_ID = 'host-open-workbench';
+const ACTION_ID = /^(?:[A-Za-z][A-Za-z0-9_-]{0,63}|host-open-workbench)$/;
+const ACTION_TYPES = new Set<TypedUIActionType>([
+  'reply_with_state',
+  'open_artifact',
+  'open_url',
+  'select_option',
+  'request_approval',
+  'goal_control',
+  'worker_control',
+]);
+const ATTESTABLE_ACTION_TYPES = new Set<TypedUIActionType>([
+  'reply_with_state',
+  'open_artifact',
+  'open_url',
+  'select_option',
+  'request_approval',
+]);
+
+export interface MainOwnedTypedUIProviderCompletionInput {
+  version: typeof TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION;
+  session_id: string;
+  provider: string;
+  model: string;
+  provider_request_id: string;
+  tool_call_id: string;
+  raw_content_sha256: string;
+  route_receipt: {
+    receipt_id: string;
+    route: string;
+    status: 'completed';
+    terminal: 'openai_json' | 'openai_sse' | 'ollama_json' | 'ollama_jsonl';
+    http_status: 200;
+  };
+  seat_id: string;
+  seat_context_revision: number;
+  completed_at: string;
+}
+
+export interface PersistedTypedUIProviderCompletionReceipt {
+  version: typeof TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION;
+  completion_receipt_id: string;
+  session_id_sha256: string;
+  provider_sha256: string;
+  model_sha256: string;
+  provider_request_id_sha256: string;
+  tool_call_id_sha256: string;
+  raw_content_sha256: string;
+  route_receipt_sha256: string;
+  seat_id_sha256: string;
+  seat_context_revision: number;
+  status: 'completed';
+  completed_at: string;
+  recorded_at: string;
+}
+
+interface PersistedTypedUIProviderCompletionConsumption {
+  version: typeof TYPED_UI_PROVIDER_COMPLETION_CONSUMPTION_VERSION;
+  completion_receipt_id: string;
+  generation_receipt_id: string;
+  generation_binding_sha256: string;
+  status: 'consumed';
+  recorded_at: string;
+}
+
+export interface TrustedTypedUIGenerationReceiptInput {
+  version: typeof TYPED_UI_GENERATION_RECEIPT_VERSION;
+  completed_route_receipt_id: string;
+  artifact_id: string;
+  conversation_id: string;
+  source_message_id: string;
+  created_at: number;
+  content_sha256: string;
+  tool_call_id: string;
+  raw_content_sha256: string;
+}
+
+export interface PersistedTypedUIGenerationReceipt {
+  version: typeof TYPED_UI_GENERATION_RECEIPT_VERSION;
+  receipt_id: string;
+  completed_route_receipt_id: string;
+  artifact_id: string;
+  conversation_id: string;
+  source_message_id: string;
+  created_at: number;
+  content_sha256: string;
+  raw_content_sha256: string;
+  tool_call_id_sha256: string;
+  provider_sha256: string;
+  model_sha256: string;
+  provider_request_id_sha256: string;
+  request_id_sha256: string;
+  route_receipt_sha256: string;
+  seat_id_sha256: string;
+  seat_context_revision: number;
+  status: 'completed';
+  recorded_at: string;
+}
+
+type AttestationContext = {
+  activeSeatId: string;
+  seatContextRevision: number;
+};
+
+interface PersistedTypedUIActionBinding {
+  action_id: string;
+  action_type: TypedUIActionType;
+  params_sha256: string;
+  binding_sha256: string;
+}
+
+interface PersistedTypedUIProvenanceAttestation extends TypedUIProvenanceAttestation {
+  action_bindings: PersistedTypedUIActionBinding[];
+}
+
+const GENERATION_RECORD_KEYS = new Set([
+  'version',
+  'receipt_id',
+  'completed_route_receipt_id',
+  'artifact_id',
+  'conversation_id',
+  'source_message_id',
+  'created_at',
+  'content_sha256',
+  'raw_content_sha256',
+  'tool_call_id_sha256',
+  'provider_sha256',
+  'model_sha256',
+  'provider_request_id_sha256',
+  'request_id_sha256',
+  'route_receipt_sha256',
+  'seat_id_sha256',
+  'seat_context_revision',
+  'status',
+  'recorded_at',
+]);
+const PROVIDER_COMPLETION_RECORD_KEYS = new Set([
+  'version',
+  'completion_receipt_id',
+  'session_id_sha256',
+  'provider_sha256',
+  'model_sha256',
+  'provider_request_id_sha256',
+  'tool_call_id_sha256',
+  'raw_content_sha256',
+  'route_receipt_sha256',
+  'seat_id_sha256',
+  'seat_context_revision',
+  'status',
+  'completed_at',
+  'recorded_at',
+]);
+const PROVIDER_COMPLETION_CONSUMPTION_KEYS = new Set([
+  'version',
+  'completion_receipt_id',
+  'generation_receipt_id',
+  'generation_binding_sha256',
+  'status',
+  'recorded_at',
+]);
+const ATTESTATION_RECORD_KEYS = new Set([
+  'version',
+  'attestation_id',
+  'artifact_id',
+  'conversation_id',
+  'source_message_id',
+  'content_sha256',
+  'action_set_sha256',
+  'action_bindings',
+  'identity_sha256',
+  'request_id_sha256',
+  'receipt_sha256',
+  'seat_context_revision',
+  'status',
+  'reason',
+  'recorded_at',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function exactKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key) && !FORBIDDEN_KEYS.has(key));
+}
+
+function boundedString(value: unknown, max = 500): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= max && !value.includes('\0');
+}
+
+function safeId(value: unknown, max = 256): value is string {
+  return boundedString(value, max) && SAFE_ID.test(value);
+}
+
+function validRevision(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 1_000_000_000;
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .toSorted()
+      .map((key) => [key, canonicalize(value[key])])
+  );
+}
+
+function sha256(value: string): string {
+  return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function hashJson(value: unknown): string {
+  return sha256(JSON.stringify(canonicalize(value)));
+}
+
+function hashTypedUIActionBindingParts(actionId: string, actionType: TypedUIActionType, paramsSha256: string): string {
+  return sha256(`command-eve.typed-ui.action-binding/v1\u0000${actionId}\u0000${actionType}\u0000${paramsSha256}`);
+}
+
+function buildTypedUIActionBinding(
+  actionId: string,
+  actionType: TypedUIActionType,
+  params: Record<string, TypedUIJsonValue>
+): PersistedTypedUIActionBinding {
+  const paramsSha256 = hashJson(params);
+  return {
+    action_id: actionId,
+    action_type: actionType,
+    params_sha256: paramsSha256,
+    binding_sha256: hashTypedUIActionBindingParts(actionId, actionType, paramsSha256),
+  };
+}
+
+function buildTypedUIActionBindings(
+  envelope: TypedUIEnvelope,
+  artifact: TypedUIProvenanceArtifactRef
+): PersistedTypedUIActionBinding[] {
+  // Lifecycle declarations remain renderable as visibly disabled controls,
+  // but no action binding exists until the reviewed Durable composite lands.
+  const bindings = Object.entries(envelope.actions)
+    .filter(([, action]) => ATTESTABLE_ACTION_TYPES.has(action.type))
+    .map(([actionId, action]) => buildTypedUIActionBinding(actionId, action.type, action.params));
+  bindings.push(
+    buildTypedUIActionBinding(HOST_OPEN_WORKBENCH_ACTION_ID, 'open_artifact', {
+      artifact_kind: 'chat',
+      artifact_id: artifact.artifact_id,
+    })
+  );
+  return bindings.toSorted((left, right) =>
+    left.action_id < right.action_id ? -1 : left.action_id > right.action_id ? 1 : 0
+  );
+}
+
+export function hashTypedUIEnvelope(envelope: TypedUIEnvelope): string {
+  return hashJson(envelope);
+}
+
+function appendPrivateJsonLine(filePath: string, value: unknown): void {
+  const directory = path.dirname(filePath);
+  const existed = fs.existsSync(filePath);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  fs.chmodSync(directory, 0o700);
+  const handle = fs.openSync(filePath, 'a', 0o600);
+  try {
+    fs.writeFileSync(handle, `${JSON.stringify(value)}\n`, 'utf8');
+    fs.fsyncSync(handle);
+  } finally {
+    fs.closeSync(handle);
+  }
+  fs.chmodSync(filePath, 0o600);
+  if (!existed && process.platform !== 'win32') {
+    const directoryHandle = fs.openSync(directory, 'r');
+    try {
+      fs.fsyncSync(directoryHandle);
+    } finally {
+      fs.closeSync(directoryHandle);
+    }
+  }
+}
+
+function readRecentJsonLines(filePath: string): unknown[] {
+  if (!fs.existsSync(filePath)) return [];
+  const size = fs.statSync(filePath).size;
+  if (size === 0) return [];
+  const start = Math.max(0, size - MAX_LEDGER_TAIL_BYTES);
+  const handle = fs.openSync(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(size - start);
+    const bytesRead = fs.readSync(handle, buffer, 0, buffer.length, start);
+    let content = buffer.subarray(0, bytesRead).toString('utf8');
+    // A bounded tail can start in the middle of an old JSON line. Discard that
+    // fragment; every retained record is still parsed and validated strictly.
+    if (start > 0) {
+      const firstNewline = content.indexOf('\n');
+      content = firstNewline < 0 ? '' : content.slice(firstNewline + 1);
+    }
+    return content
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .map((line) => {
+        try {
+          return JSON.parse(line) as unknown;
+        } catch {
+          throw new Error('attestation.ledger_corrupt');
+        }
+      });
+  } finally {
+    fs.closeSync(handle);
+  }
+}
+
+function validateArtifactRef(value: unknown): value is TypedUIProvenanceArtifactRef {
+  if (!isRecord(value) || !exactKeys(value, ['artifact_id', 'conversation_id', 'created_at', 'source_message_id'])) {
+    return false;
+  }
+  return (
+    safeId(value.artifact_id, 128) &&
+    safeId(value.conversation_id) &&
+    safeId(value.source_message_id) &&
+    Number.isSafeInteger(value.created_at) &&
+    Number(value.created_at) >= 0
+  );
+}
+
+function validateAttestationRequest(value: unknown): TypedUIProvenanceAttestationRequest {
+  if (!isRecord(value) || !exactKeys(value, ['version', 'envelope', 'artifact'])) {
+    throw new Error('attestation.invalid_shape');
+  }
+  if (value.version !== TYPED_UI_PROVENANCE_ATTESTATION_VERSION) throw new Error('attestation.version');
+  const envelope = validateTypedUIEnvelope(value.envelope);
+  if (!envelope.ok) throw new Error('attestation.envelope_invalid');
+  if (!validateArtifactRef(value.artifact)) throw new Error('attestation.artifact_invalid');
+  return {
+    version: TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
+    envelope: envelope.value,
+    artifact: value.artifact,
+  };
+}
+
+function validateProviderCompletionInput(value: unknown): value is MainOwnedTypedUIProviderCompletionInput {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
+      'version',
+      'session_id',
+      'provider',
+      'model',
+      'provider_request_id',
+      'tool_call_id',
+      'raw_content_sha256',
+      'route_receipt',
+      'seat_id',
+      'seat_context_revision',
+      'completed_at',
+    ])
+  ) {
+    return false;
+  }
+  if (
+    value.version !== TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION ||
+    !safeId(value.session_id) ||
+    !boundedString(value.provider) ||
+    !boundedString(value.model) ||
+    !safeId(value.provider_request_id) ||
+    !safeId(value.tool_call_id, 110) ||
+    typeof value.raw_content_sha256 !== 'string' ||
+    !SHA256.test(value.raw_content_sha256) ||
+    !safeId(value.seat_id) ||
+    !validRevision(value.seat_context_revision) ||
+    !isRecord(value.route_receipt) ||
+    !exactKeys(value.route_receipt, ['receipt_id', 'route', 'status', 'terminal', 'http_status']) ||
+    !safeId(value.route_receipt.receipt_id) ||
+    !boundedString(value.route_receipt.route, 128) ||
+    value.route_receipt.status !== 'completed' ||
+    !['openai_json', 'openai_sse', 'ollama_json', 'ollama_jsonl'].includes(String(value.route_receipt.terminal)) ||
+    value.route_receipt.http_status !== 200 ||
+    typeof value.completed_at !== 'string' ||
+    Number.isNaN(Date.parse(value.completed_at))
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function validateProviderCompletionRecord(value: unknown): value is PersistedTypedUIProviderCompletionReceipt {
+  if (!isRecord(value) || Object.keys(value).some((key) => !PROVIDER_COMPLETION_RECORD_KEYS.has(key))) return false;
+  return (
+    value.version === TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION &&
+    typeof value.completion_receipt_id === 'string' &&
+    PROVIDER_COMPLETION_RECEIPT_ID.test(value.completion_receipt_id) &&
+    typeof value.session_id_sha256 === 'string' &&
+    SHA256.test(value.session_id_sha256) &&
+    typeof value.provider_sha256 === 'string' &&
+    SHA256.test(value.provider_sha256) &&
+    typeof value.model_sha256 === 'string' &&
+    SHA256.test(value.model_sha256) &&
+    typeof value.provider_request_id_sha256 === 'string' &&
+    SHA256.test(value.provider_request_id_sha256) &&
+    typeof value.tool_call_id_sha256 === 'string' &&
+    SHA256.test(value.tool_call_id_sha256) &&
+    typeof value.raw_content_sha256 === 'string' &&
+    SHA256.test(value.raw_content_sha256) &&
+    typeof value.route_receipt_sha256 === 'string' &&
+    SHA256.test(value.route_receipt_sha256) &&
+    typeof value.seat_id_sha256 === 'string' &&
+    SHA256.test(value.seat_id_sha256) &&
+    validRevision(value.seat_context_revision) &&
+    value.status === 'completed' &&
+    typeof value.completed_at === 'string' &&
+    !Number.isNaN(Date.parse(value.completed_at)) &&
+    typeof value.recorded_at === 'string' &&
+    !Number.isNaN(Date.parse(value.recorded_at))
+  );
+}
+
+function validateProviderCompletionConsumption(value: unknown): value is PersistedTypedUIProviderCompletionConsumption {
+  if (!isRecord(value) || Object.keys(value).some((key) => !PROVIDER_COMPLETION_CONSUMPTION_KEYS.has(key))) {
+    return false;
+  }
+  return (
+    value.version === TYPED_UI_PROVIDER_COMPLETION_CONSUMPTION_VERSION &&
+    typeof value.completion_receipt_id === 'string' &&
+    PROVIDER_COMPLETION_RECEIPT_ID.test(value.completion_receipt_id) &&
+    typeof value.generation_receipt_id === 'string' &&
+    GENERATION_RECEIPT_ID.test(value.generation_receipt_id) &&
+    typeof value.generation_binding_sha256 === 'string' &&
+    SHA256.test(value.generation_binding_sha256) &&
+    value.status === 'consumed' &&
+    typeof value.recorded_at === 'string' &&
+    !Number.isNaN(Date.parse(value.recorded_at))
+  );
+}
+
+function readProviderCompletionLedger(filePath: string): {
+  completions: PersistedTypedUIProviderCompletionReceipt[];
+  consumptions: PersistedTypedUIProviderCompletionConsumption[];
+} {
+  const completions: PersistedTypedUIProviderCompletionReceipt[] = [];
+  const consumptions: PersistedTypedUIProviderCompletionConsumption[] = [];
+  for (const value of readRecentJsonLines(filePath)) {
+    if (validateProviderCompletionRecord(value)) {
+      completions.push(value);
+    } else if (validateProviderCompletionConsumption(value)) {
+      consumptions.push(value);
+    } else {
+      throw new Error('attestation.provider_completion_ledger_corrupt');
+    }
+  }
+  return { completions, consumptions };
+}
+
+function readProviderCompletionReceipts(filePath: string): PersistedTypedUIProviderCompletionReceipt[] {
+  return readProviderCompletionLedger(filePath).completions;
+}
+
+/** Resolve one exact private completion without a latest-by-session fallback. */
+export function resolveMainOwnedTypedUIProviderCompletionReceipt(
+  completionLedgerPath: string,
+  input: {
+    toolCallId: string;
+    rawContentSha256: string;
+    activeSeatId: string;
+    seatContextRevision: number;
+  }
+): PersistedTypedUIProviderCompletionReceipt | undefined {
+  if (
+    !safeId(input.toolCallId, 110) ||
+    !SHA256.test(input.rawContentSha256) ||
+    !safeId(input.activeSeatId) ||
+    !validRevision(input.seatContextRevision)
+  ) {
+    throw new Error('attestation.provider_completion_lookup_invalid');
+  }
+  const toolCallIdSha256 = sha256(input.toolCallId);
+  const seatIdSha256 = sha256(input.activeSeatId);
+  const matches = readProviderCompletionReceipts(completionLedgerPath).filter(
+    (record) =>
+      record.tool_call_id_sha256 === toolCallIdSha256 &&
+      record.raw_content_sha256 === input.rawContentSha256 &&
+      record.seat_id_sha256 === seatIdSha256 &&
+      record.seat_context_revision === input.seatContextRevision
+  );
+  if (matches.length > 1) throw new Error('attestation.provider_completion_ambiguous');
+  return matches[0];
+}
+
+function validateGenerationInput(value: unknown): value is TrustedTypedUIGenerationReceiptInput {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
+      'version',
+      'completed_route_receipt_id',
+      'artifact_id',
+      'conversation_id',
+      'source_message_id',
+      'created_at',
+      'content_sha256',
+      'tool_call_id',
+      'raw_content_sha256',
+    ])
+  ) {
+    return false;
+  }
+  return (
+    value.version === TYPED_UI_GENERATION_RECEIPT_VERSION &&
+    typeof value.completed_route_receipt_id === 'string' &&
+    PROVIDER_COMPLETION_RECEIPT_ID.test(value.completed_route_receipt_id) &&
+    safeId(value.artifact_id, 128) &&
+    safeId(value.conversation_id) &&
+    safeId(value.source_message_id) &&
+    Number.isSafeInteger(value.created_at) &&
+    Number(value.created_at) >= 0 &&
+    typeof value.content_sha256 === 'string' &&
+    SHA256.test(value.content_sha256) &&
+    safeId(value.tool_call_id, 110) &&
+    typeof value.raw_content_sha256 === 'string' &&
+    SHA256.test(value.raw_content_sha256)
+  );
+}
+
+function validateGenerationRecord(value: unknown): value is PersistedTypedUIGenerationReceipt {
+  if (!isRecord(value) || Object.keys(value).some((key) => !GENERATION_RECORD_KEYS.has(key))) return false;
+  return (
+    value.version === TYPED_UI_GENERATION_RECEIPT_VERSION &&
+    typeof value.receipt_id === 'string' &&
+    GENERATION_RECEIPT_ID.test(value.receipt_id) &&
+    typeof value.completed_route_receipt_id === 'string' &&
+    PROVIDER_COMPLETION_RECEIPT_ID.test(value.completed_route_receipt_id) &&
+    safeId(value.artifact_id, 128) &&
+    safeId(value.conversation_id) &&
+    safeId(value.source_message_id) &&
+    Number.isSafeInteger(value.created_at) &&
+    Number(value.created_at) >= 0 &&
+    typeof value.content_sha256 === 'string' &&
+    SHA256.test(value.content_sha256) &&
+    typeof value.raw_content_sha256 === 'string' &&
+    SHA256.test(value.raw_content_sha256) &&
+    typeof value.tool_call_id_sha256 === 'string' &&
+    SHA256.test(value.tool_call_id_sha256) &&
+    typeof value.provider_sha256 === 'string' &&
+    SHA256.test(value.provider_sha256) &&
+    typeof value.model_sha256 === 'string' &&
+    SHA256.test(value.model_sha256) &&
+    typeof value.provider_request_id_sha256 === 'string' &&
+    SHA256.test(value.provider_request_id_sha256) &&
+    typeof value.request_id_sha256 === 'string' &&
+    SHA256.test(value.request_id_sha256) &&
+    typeof value.route_receipt_sha256 === 'string' &&
+    SHA256.test(value.route_receipt_sha256) &&
+    typeof value.seat_id_sha256 === 'string' &&
+    SHA256.test(value.seat_id_sha256) &&
+    validRevision(value.seat_context_revision) &&
+    value.status === 'completed' &&
+    typeof value.recorded_at === 'string' &&
+    !Number.isNaN(Date.parse(value.recorded_at))
+  );
+}
+
+function readGenerationReceipts(filePath: string): PersistedTypedUIGenerationReceipt[] {
+  return readRecentJsonLines(filePath).map((value) => {
+    if (!validateGenerationRecord(value)) throw new Error('attestation.generation_ledger_corrupt');
+    return value;
+  });
+}
+
+function validateActionBindings(value: unknown): value is PersistedTypedUIActionBinding[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 51) return false;
+  const seen = new Set<string>();
+  let previous = '';
+  for (const binding of value) {
+    if (
+      !isRecord(binding) ||
+      !exactKeys(binding, ['action_id', 'action_type', 'params_sha256', 'binding_sha256']) ||
+      typeof binding.action_id !== 'string' ||
+      !ACTION_ID.test(binding.action_id) ||
+      typeof binding.action_type !== 'string' ||
+      !ACTION_TYPES.has(binding.action_type as TypedUIActionType) ||
+      typeof binding.params_sha256 !== 'string' ||
+      !SHA256.test(binding.params_sha256) ||
+      typeof binding.binding_sha256 !== 'string' ||
+      !SHA256.test(binding.binding_sha256) ||
+      binding.binding_sha256 !==
+        hashTypedUIActionBindingParts(
+          binding.action_id,
+          binding.action_type as TypedUIActionType,
+          binding.params_sha256
+        ) ||
+      seen.has(binding.action_id) ||
+      (previous && previous >= binding.action_id)
+    ) {
+      return false;
+    }
+    seen.add(binding.action_id);
+    previous = binding.action_id;
+  }
+  return true;
+}
+
+function validateAttestationRecord(value: unknown): value is PersistedTypedUIProvenanceAttestation {
+  if (!isRecord(value) || Object.keys(value).some((key) => !ATTESTATION_RECORD_KEYS.has(key))) return false;
+  if (
+    value.version === TYPED_UI_PROVENANCE_ATTESTATION_VERSION &&
+    typeof value.attestation_id === 'string' &&
+    ATTESTATION_ID.test(value.attestation_id) &&
+    safeId(value.artifact_id, 128) &&
+    safeId(value.conversation_id) &&
+    safeId(value.source_message_id) &&
+    typeof value.content_sha256 === 'string' &&
+    SHA256.test(value.content_sha256) &&
+    typeof value.action_set_sha256 === 'string' &&
+    SHA256.test(value.action_set_sha256) &&
+    validateActionBindings(value.action_bindings) &&
+    typeof value.identity_sha256 === 'string' &&
+    SHA256.test(value.identity_sha256) &&
+    typeof value.request_id_sha256 === 'string' &&
+    SHA256.test(value.request_id_sha256) &&
+    typeof value.receipt_sha256 === 'string' &&
+    SHA256.test(value.receipt_sha256) &&
+    validRevision(value.seat_context_revision) &&
+    (value.status === 'verified' || value.status === 'rejected') &&
+    (value.reason === undefined || boundedString(value.reason, 200)) &&
+    typeof value.recorded_at === 'string' &&
+    !Number.isNaN(Date.parse(value.recorded_at))
+  ) {
+    const bindings = value.action_bindings as PersistedTypedUIActionBinding[];
+    const hostBinding = bindings.find((binding) => binding.action_id === HOST_OPEN_WORKBENCH_ACTION_ID);
+    return (
+      value.action_set_sha256 === hashJson(bindings) &&
+      hostBinding?.action_type === 'open_artifact' &&
+      hostBinding.params_sha256 === hashJson({ artifact_kind: 'chat', artifact_id: value.artifact_id })
+    );
+  }
+  return false;
+}
+
+function readAttestations(filePath: string): PersistedTypedUIProvenanceAttestation[] {
+  return readRecentJsonLines(filePath).map((value) => {
+    if (!validateAttestationRecord(value)) throw new Error('attestation.ledger_corrupt');
+    return value;
+  });
+}
+
+function publicAttestation(record: PersistedTypedUIProvenanceAttestation): TypedUIProvenanceAttestation {
+  const { action_bindings: _privateActionBindings, ...attestation } = record;
+  return attestation;
+}
+
+/** Main-only provider terminal seam. Never expose this over renderer IPC. */
+export function appendMainOwnedTypedUIProviderCompletionReceipt(
+  completionLedgerPath: string,
+  value: unknown,
+  options: { now?: () => Date } = {}
+): PersistedTypedUIProviderCompletionReceipt {
+  if (!validateProviderCompletionInput(value)) throw new Error('attestation.provider_completion_invalid');
+  const routeReceiptSha256 = hashJson(value.route_receipt);
+  const completionReceiptId = `tuipc_${sha256(
+    [
+      value.seat_id,
+      String(value.seat_context_revision),
+      value.session_id,
+      value.provider,
+      value.model,
+      value.provider_request_id,
+      value.tool_call_id,
+      value.raw_content_sha256,
+      routeReceiptSha256,
+      value.completed_at,
+    ].join('\u0000')
+  )}`;
+  const existing = readProviderCompletionReceipts(completionLedgerPath).find(
+    (record) => record.completion_receipt_id === completionReceiptId
+  );
+  if (existing) return existing;
+  const record: PersistedTypedUIProviderCompletionReceipt = {
+    version: TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION,
+    completion_receipt_id: completionReceiptId,
+    session_id_sha256: sha256(value.session_id),
+    provider_sha256: sha256(value.provider),
+    model_sha256: sha256(value.model),
+    provider_request_id_sha256: sha256(value.provider_request_id),
+    tool_call_id_sha256: sha256(value.tool_call_id),
+    raw_content_sha256: value.raw_content_sha256,
+    route_receipt_sha256: routeReceiptSha256,
+    seat_id_sha256: sha256(value.seat_id),
+    seat_context_revision: value.seat_context_revision,
+    status: 'completed',
+    completed_at: value.completed_at,
+    recorded_at: (options.now || (() => new Date()))().toISOString(),
+  };
+  appendPrivateJsonLine(completionLedgerPath, record);
+  return record;
+}
+
+/**
+ * Durable-artifact join seam. It accepts only an opaque completion ID and
+ * resolves all route/provider/model evidence from Main's private ledger.
+ */
+export function appendTrustedTypedUIGenerationReceipt(
+  generationLedgerPath: string,
+  completionLedgerPath: string,
+  value: unknown,
+  options: { now?: () => Date } = {}
+): PersistedTypedUIGenerationReceipt {
+  if (!validateGenerationInput(value)) throw new Error('attestation.generation_receipt_invalid');
+  const providerLedger = readProviderCompletionLedger(completionLedgerPath);
+  const completion = providerLedger.completions.find(
+    (record) => record.completion_receipt_id === value.completed_route_receipt_id
+  );
+  if (!completion) throw new Error('attestation.provider_completion_missing');
+  if (completion.tool_call_id_sha256 !== sha256(value.tool_call_id)) {
+    throw new Error('attestation.provider_completion_tool_call_mismatch');
+  }
+  if (completion.raw_content_sha256 !== value.raw_content_sha256) {
+    throw new Error('attestation.provider_completion_content_mismatch');
+  }
+  const receiptId = `tuigr_${sha256(
+    [
+      completion.completion_receipt_id,
+      value.conversation_id,
+      value.artifact_id,
+      value.source_message_id,
+      value.tool_call_id,
+      value.raw_content_sha256,
+      value.content_sha256,
+    ].join('\u0000')
+  )}`;
+  const generationBindingSha256 = sha256(
+    [
+      'command-eve.typed-ui.generation-binding/v1',
+      completion.completion_receipt_id,
+      receiptId,
+      value.conversation_id,
+      value.artifact_id,
+      value.source_message_id,
+      String(value.created_at),
+      value.tool_call_id,
+      value.raw_content_sha256,
+      value.content_sha256,
+    ].join('\u0000')
+  );
+  const generationReceipts = readGenerationReceipts(generationLedgerPath);
+  const existing = generationReceipts.find((record) => record.receipt_id === receiptId);
+  const consumption = providerLedger.consumptions.find(
+    (record) => record.completion_receipt_id === completion.completion_receipt_id
+  );
+  if (consumption) {
+    if (
+      consumption.generation_receipt_id !== receiptId ||
+      consumption.generation_binding_sha256 !== generationBindingSha256
+    ) {
+      throw new Error('attestation.provider_completion_consumed');
+    }
+    if (existing) return existing;
+    const recovered: PersistedTypedUIGenerationReceipt = {
+      version: TYPED_UI_GENERATION_RECEIPT_VERSION,
+      receipt_id: receiptId,
+      completed_route_receipt_id: completion.completion_receipt_id,
+      artifact_id: value.artifact_id,
+      conversation_id: value.conversation_id,
+      source_message_id: value.source_message_id,
+      created_at: value.created_at,
+      content_sha256: value.content_sha256,
+      raw_content_sha256: value.raw_content_sha256,
+      tool_call_id_sha256: completion.tool_call_id_sha256,
+      provider_sha256: completion.provider_sha256,
+      model_sha256: completion.model_sha256,
+      provider_request_id_sha256: completion.provider_request_id_sha256,
+      request_id_sha256: sha256(value.artifact_id),
+      route_receipt_sha256: completion.route_receipt_sha256,
+      seat_id_sha256: completion.seat_id_sha256,
+      seat_context_revision: completion.seat_context_revision,
+      status: 'completed',
+      recorded_at: consumption.recorded_at,
+    };
+    appendPrivateJsonLine(generationLedgerPath, recovered);
+    return recovered;
+  }
+  if (existing) {
+    appendPrivateJsonLine(completionLedgerPath, {
+      version: TYPED_UI_PROVIDER_COMPLETION_CONSUMPTION_VERSION,
+      completion_receipt_id: completion.completion_receipt_id,
+      generation_receipt_id: receiptId,
+      generation_binding_sha256: generationBindingSha256,
+      status: 'consumed',
+      recorded_at: existing.recorded_at,
+    } satisfies PersistedTypedUIProviderCompletionConsumption);
+    return existing;
+  }
+  if (generationReceipts.some((record) => record.completed_route_receipt_id === completion.completion_receipt_id)) {
+    throw new Error('attestation.provider_completion_consumed');
+  }
+  if (
+    generationReceipts.some(
+      (record) => record.artifact_id === value.artifact_id && record.conversation_id === value.conversation_id
+    )
+  ) {
+    throw new Error('attestation.generation_receipt_conflict');
+  }
+  const record: PersistedTypedUIGenerationReceipt = {
+    version: TYPED_UI_GENERATION_RECEIPT_VERSION,
+    receipt_id: receiptId,
+    completed_route_receipt_id: completion.completion_receipt_id,
+    artifact_id: value.artifact_id,
+    conversation_id: value.conversation_id,
+    source_message_id: value.source_message_id,
+    created_at: value.created_at,
+    content_sha256: value.content_sha256,
+    raw_content_sha256: value.raw_content_sha256,
+    tool_call_id_sha256: completion.tool_call_id_sha256,
+    provider_sha256: completion.provider_sha256,
+    model_sha256: completion.model_sha256,
+    provider_request_id_sha256: completion.provider_request_id_sha256,
+    request_id_sha256: sha256(value.artifact_id),
+    route_receipt_sha256: completion.route_receipt_sha256,
+    seat_id_sha256: completion.seat_id_sha256,
+    seat_context_revision: completion.seat_context_revision,
+    status: 'completed',
+    recorded_at: (options.now || (() => new Date()))().toISOString(),
+  };
+  appendPrivateJsonLine(generationLedgerPath, record);
+  appendPrivateJsonLine(completionLedgerPath, {
+    version: TYPED_UI_PROVIDER_COMPLETION_CONSUMPTION_VERSION,
+    completion_receipt_id: completion.completion_receipt_id,
+    generation_receipt_id: receiptId,
+    generation_binding_sha256: generationBindingSha256,
+    status: 'consumed',
+    recorded_at: record.recorded_at,
+  } satisfies PersistedTypedUIProviderCompletionConsumption);
+  return record;
+}
+
+function generationMismatchReason(
+  request: TypedUIProvenanceAttestationRequest,
+  record: PersistedTypedUIGenerationReceipt | undefined,
+  context: AttestationContext
+): string | undefined {
+  if (!record) return 'trusted_generation_receipt_missing';
+  const { artifact, envelope } = request;
+  if (envelope.provenance.provider !== TYPED_UI_HOST_PROVIDER_CLAIM) return 'provider_claim_unbound';
+  if (envelope.provenance.model !== TYPED_UI_HOST_MODEL_CLAIM) return 'model_claim_unbound';
+  if (record.request_id_sha256 !== sha256(envelope.provenance.request_id)) return 'request_mismatch';
+  if (record.content_sha256 !== hashTypedUIEnvelope(envelope)) return 'content_mismatch';
+  if (record.seat_id_sha256 !== sha256(context.activeSeatId)) return 'seat_mismatch';
+  if (record.seat_context_revision !== context.seatContextRevision) return 'seat_revision_mismatch';
+  if (record.created_at !== artifact.created_at) return 'artifact_time_mismatch';
+  if (record.source_message_id !== artifact.source_message_id) return 'source_message_mismatch';
+  if (envelope.provenance.source_message_id !== artifact.source_message_id) return 'source_message_mismatch';
+  const generatedAt = Date.parse(envelope.provenance.generated_at);
+  if (!Number.isFinite(generatedAt) || Math.abs(generatedAt - artifact.created_at) > MAX_GENERATED_AT_DRIFT_MS) {
+    return 'generated_time_mismatch';
+  }
+  return undefined;
+}
+
+/**
+ * Main-only fast path for a previously completed durable join.
+ *
+ * Re-rendering or reopening an artifact must not depend on a second backend
+ * read once the immutable generation receipt already binds the exact content,
+ * artifact, conversation, source message, seat and revision.
+ */
+export function hasMatchingTrustedTypedUIGenerationReceipt(
+  generationLedgerPath: string,
+  value: unknown,
+  context: AttestationContext
+): boolean {
+  if (!safeId(context.activeSeatId) || !validRevision(context.seatContextRevision)) {
+    throw new Error('attestation.seat_context_invalid');
+  }
+  const request = validateAttestationRequest(value);
+  const matches = readGenerationReceipts(generationLedgerPath).filter(
+    (record) =>
+      record.artifact_id === request.artifact.artifact_id && record.conversation_id === request.artifact.conversation_id
+  );
+  if (matches.length > 1) throw new Error('attestation.generation_receipt_ambiguous');
+  return generationMismatchReason(request, matches[0], context) === undefined;
+}
+
+export function appendTypedUIProvenanceAttestation(
+  auditPath: string,
+  generationLedgerPath: string,
+  value: unknown,
+  context: AttestationContext,
+  options: { now?: () => Date } = {}
+): TypedUIProvenanceAttestation {
+  if (!safeId(context.activeSeatId) || !validRevision(context.seatContextRevision)) {
+    throw new Error('attestation.seat_context_invalid');
+  }
+  const request = validateAttestationRequest(value);
+  const contentSha256 = hashTypedUIEnvelope(request.envelope);
+  const generationRecord = readGenerationReceipts(generationLedgerPath).find(
+    (record) =>
+      record.artifact_id === request.artifact.artifact_id && record.conversation_id === request.artifact.conversation_id
+  );
+  const reason = generationMismatchReason(request, generationRecord, context);
+  const receiptSha256 = generationRecord?.route_receipt_sha256 ?? EMPTY_SHA256;
+  const identitySha256 = generationRecord
+    ? sha256(`${generationRecord.provider_sha256}\u0000${generationRecord.model_sha256}`)
+    : EMPTY_SHA256;
+  const requestIdSha256 = sha256(request.envelope.provenance.request_id);
+  const actionBindings = buildTypedUIActionBindings(request.envelope, request.artifact);
+  const actionSetSha256 = hashJson(actionBindings);
+  const attestationId = `tuia_${sha256(
+    [
+      context.activeSeatId,
+      String(context.seatContextRevision),
+      request.artifact.conversation_id,
+      request.artifact.artifact_id,
+      request.artifact.source_message_id,
+      contentSha256,
+      actionSetSha256,
+      identitySha256,
+      requestIdSha256,
+      receiptSha256,
+      reason || 'verified',
+    ].join('\u0000')
+  )}`;
+  const existing = readAttestations(auditPath).find((record) => record.attestation_id === attestationId);
+  if (existing) return publicAttestation(existing);
+  const record: PersistedTypedUIProvenanceAttestation = {
+    version: TYPED_UI_PROVENANCE_ATTESTATION_VERSION,
+    attestation_id: attestationId,
+    artifact_id: request.artifact.artifact_id,
+    conversation_id: request.artifact.conversation_id,
+    source_message_id: request.artifact.source_message_id,
+    content_sha256: contentSha256,
+    action_set_sha256: actionSetSha256,
+    action_bindings: actionBindings,
+    identity_sha256: identitySha256,
+    request_id_sha256: requestIdSha256,
+    receipt_sha256: receiptSha256,
+    seat_context_revision: context.seatContextRevision,
+    status: reason ? 'rejected' : 'verified',
+    ...(reason ? { reason } : {}),
+    recorded_at: (options.now || (() => new Date()))().toISOString(),
+  };
+  appendPrivateJsonLine(auditPath, record);
+  return publicAttestation(record);
+}
+
+export function requireVerifiedTypedUIProvenanceAttestation(
+  auditPath: string,
+  input: {
+    attestationId: string;
+    artifactId: string;
+    conversationId: string;
+    sourceMessageId: string;
+    requestId: string;
+    contentSha256: string;
+    activeSeatId: string;
+    seatContextRevision: number;
+  }
+): TypedUIProvenanceAttestation {
+  if (!ATTESTATION_ID.test(input.attestationId)) throw new Error('attestation.id_invalid');
+  if (!SHA256.test(input.contentSha256)) throw new Error('attestation.content_hash_invalid');
+  if (!safeId(input.activeSeatId) || !validRevision(input.seatContextRevision)) {
+    throw new Error('attestation.seat_context_invalid');
+  }
+  const record = readAttestations(auditPath).find((candidate) => candidate.attestation_id === input.attestationId);
+  if (!record) throw new Error('attestation.not_found');
+  if (record.status !== 'verified') throw new Error('attestation.not_verified');
+  if (record.artifact_id !== input.artifactId || record.conversation_id !== input.conversationId) {
+    throw new Error('attestation.context_mismatch');
+  }
+  if (record.source_message_id !== input.sourceMessageId) throw new Error('attestation.source_message_mismatch');
+  if (record.content_sha256 !== input.contentSha256) throw new Error('attestation.content_mismatch');
+  if (record.request_id_sha256 !== sha256(input.requestId)) throw new Error('attestation.request_mismatch');
+  if (record.seat_context_revision !== input.seatContextRevision) throw new Error('attestation.seat_revision_mismatch');
+
+  const expectedId = `tuia_${sha256(
+    [
+      input.activeSeatId,
+      String(input.seatContextRevision),
+      record.conversation_id,
+      record.artifact_id,
+      record.source_message_id,
+      record.content_sha256,
+      record.action_set_sha256,
+      record.identity_sha256,
+      record.request_id_sha256,
+      record.receipt_sha256,
+      'verified',
+    ].join('\u0000')
+  )}`;
+  if (record.attestation_id !== expectedId) throw new Error('attestation.integrity_mismatch');
+  return publicAttestation(record);
+}
+
+export function requireVerifiedTypedUIActionBinding(
+  auditPath: string,
+  input: Parameters<typeof requireVerifiedTypedUIProvenanceAttestation>[1] & {
+    actionId: string;
+    actionType: TypedUIActionType;
+    actionParams: Record<string, TypedUIJsonValue>;
+  }
+): PersistedTypedUIActionBinding {
+  const paramsSha256 = hashJson(input.actionParams);
+  return requireVerifiedTypedUIActionBindingHash(auditPath, {
+    ...input,
+    actionParamsSha256: paramsSha256,
+    actionBindingSha256: hashTypedUIActionBindingParts(input.actionId, input.actionType, paramsSha256),
+  });
+}
+
+export function requireVerifiedTypedUIActionBindingHash(
+  auditPath: string,
+  input: Parameters<typeof requireVerifiedTypedUIProvenanceAttestation>[1] & {
+    actionId: string;
+    actionType: TypedUIActionType;
+    actionParamsSha256: string;
+    actionBindingSha256: string;
+  }
+): PersistedTypedUIActionBinding {
+  if (!SHA256.test(input.actionParamsSha256) || !SHA256.test(input.actionBindingSha256)) {
+    throw new Error('attestation.action_hash_invalid');
+  }
+  requireVerifiedTypedUIProvenanceAttestation(auditPath, input);
+  const record = readAttestations(auditPath).find((candidate) => candidate.attestation_id === input.attestationId);
+  if (!record) throw new Error('attestation.not_found');
+  const binding = record.action_bindings.find((candidate) => candidate.action_id === input.actionId);
+  if (!binding) throw new Error('attestation.action_not_found');
+  if (binding.action_type !== input.actionType) throw new Error('attestation.action_type_mismatch');
+  if (binding.params_sha256 !== input.actionParamsSha256) throw new Error('attestation.action_params_mismatch');
+  if (binding.binding_sha256 !== input.actionBindingSha256) {
+    throw new Error('attestation.action_binding_mismatch');
+  }
+  return binding;
+}

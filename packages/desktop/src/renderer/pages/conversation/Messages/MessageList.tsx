@@ -8,6 +8,16 @@ import type { IConversationArtifact, IGeneratedConversationArtifact } from '@/co
 import type { ProjectWorkspaceConversationArtifactDTO } from '@renderer/pages/projects/types';
 import { useProjectWorkspaceConversationArtifacts } from '@renderer/pages/projects/client';
 import type { IMessageAcpToolCall, IMessageToolCall, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
+import {
+  bindTypedUIEnvelopeToArtifact,
+  TYPED_UI_CATALOG_VERSION,
+  TYPED_UI_MAX_BYTES,
+  TYPED_UI_MIME_TYPE,
+  TYPED_UI_SCHEMA_VERSION,
+  typedUIArtifactIdForToolCall,
+  validateTypedUIEnvelope,
+  type TypedUIEnvelope,
+} from '@/common/typedUI';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
 import { CHAT_MESSAGE_JUMP_EVENT, type ChatMessageJumpDetail } from '@/renderer/utils/chat/chatMinimapEvents';
@@ -41,12 +51,14 @@ import MessageToolGroup from './components/MessageToolGroup';
 import MessageToolGroupSummary from './components/MessageToolGroupSummary';
 import MessageCronTrigger from './components/MessageCronTrigger';
 import MessageGeneratedArtifact from './components/MessageGeneratedArtifact';
+import { createDefaultTypedUIActionHost } from './components/TypedGenerativeUI';
 import MessageSkillSuggest from './components/MessageSkillSuggest';
 import ProjectWorkspaceCard from './components/ProjectWorkspaceCard';
 import MessageText from './components/MessageText';
 import MessageThinking from './components/MessageThinking';
 import { buildGeneratedArtifactFromHermesMediaDirective, parseHermesMediaDirectives } from './hermesMediaDirectiveCore';
 import {
+  buildGeneratedArtifactFromToolResult,
   getGeneratedArtifactPayloadSourceKeys,
   getToolResultArtifactSourceKeys,
   hasToolResultGeneratedArtifact,
@@ -66,9 +78,24 @@ type IMessageVO =
       sourceMessageIds: string[];
       created_at: number;
     };
+type DurableAcpTypedUICandidate = {
+  artifactId: string;
+  conversationId: string;
+  sourceMessageId: string;
+  createdAt: number;
+  envelope: TypedUIEnvelope;
+  resultDisplay: DurableRecord;
+};
+type ITypedUIPendingVO = {
+  type: 'typed_ui_pending';
+  id: string;
+  candidate: DurableAcpTypedUICandidate;
+  sourceMessageIds: string[];
+  created_at: number;
+};
 type ConversationArtifactView = IConversationArtifact | ProjectWorkspaceConversationArtifactDTO;
 type IArtifactVO = { type: 'artifact'; id: string; artifact: ConversationArtifactView; created_at: number };
-type IProcessedItem = IMessageVO | IArtifactVO;
+type IProcessedItem = IMessageVO | IArtifactVO | ITypedUIPendingVO;
 
 type ConversationLocationState = {
   targetMessageId?: string;
@@ -83,6 +110,9 @@ const getProcessedItemSourceMessageIds = (item: IProcessedItem): string[] => {
     return item.sourceMessageIds;
   }
   if ('type' in item && item.type === 'file_summary') {
+    return item.sourceMessageIds;
+  }
+  if ('type' in item && item.type === 'typed_ui_pending') {
     return item.sourceMessageIds;
   }
   return 'id' in item ? [item.id] : [];
@@ -104,7 +134,7 @@ const getProcessedItemCreatedAt = (item: IProcessedItem): number => {
   // Both branches read the same optional field; only the second one said so. The
   // first returned it raw into a `number` return type, so a summary or artifact
   // without a timestamp would have sorted as `undefined`. Same fallback, both ways.
-  if ('type' in item && ['file_summary', 'tool_summary', 'artifact'].includes(item.type)) {
+  if ('type' in item && ['file_summary', 'tool_summary', 'artifact', 'typed_ui_pending'].includes(item.type)) {
     return item.created_at ?? 0;
   }
   return item.created_at ?? 0;
@@ -130,8 +160,164 @@ const getGeneratedArtifactSourceKeys = (artifact: IConversationArtifact): string
 const getInlineToolGroupArtifactSourceKeys = (message: IMessageToolGroup): string[] =>
   message.content.flatMap((item) => getToolResultArtifactSourceKeys(item.result_display));
 
+type DurableRecord = Record<string, unknown>;
+
+const TYPED_UI_DURABLE_RESULT_KEYS = new Set([
+  'ok',
+  'artifact_type',
+  'mime_type',
+  'schema_version',
+  'catalog_version',
+  'content',
+  'status',
+  'tool_name',
+]);
+const TYPED_UI_DURABLE_TOOL_NAMES = new Set([
+  'eve_typed_ui_publish',
+  'mcp__aionui_eve_artifacts__eve_typed_ui_publish',
+]);
+
+function isDurableRecord(value: unknown): value is DurableRecord {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readDurableAcpTypedUIResult(
+  message: IMessageAcpToolCall
+): { resultDisplay: DurableRecord; envelope: TypedUIEnvelope } | undefined {
+  const content = message.content as unknown;
+  if (!isDurableRecord(content) || !isDurableRecord(content.update)) return undefined;
+  const update = content.update;
+  const rawOutput = update.raw_output;
+  if (
+    update.session_update !== 'tool_call_update' ||
+    update.status !== 'completed' ||
+    typeof update.tool_call_id !== 'string' ||
+    !typedUIArtifactIdForToolCall(update.tool_call_id) ||
+    !isDurableRecord(rawOutput) ||
+    Object.keys(rawOutput).some((key) => !TYPED_UI_DURABLE_RESULT_KEYS.has(key)) ||
+    rawOutput.ok !== true ||
+    rawOutput.artifact_type !== 'file' ||
+    rawOutput.mime_type !== TYPED_UI_MIME_TYPE ||
+    rawOutput.schema_version !== TYPED_UI_SCHEMA_VERSION ||
+    rawOutput.catalog_version !== TYPED_UI_CATALOG_VERSION ||
+    typeof rawOutput.content !== 'string' ||
+    new TextEncoder().encode(rawOutput.content).byteLength > TYPED_UI_MAX_BYTES ||
+    (rawOutput.status !== undefined && rawOutput.status !== 'completed') ||
+    typeof rawOutput.tool_name !== 'string' ||
+    !TYPED_UI_DURABLE_TOOL_NAMES.has(rawOutput.tool_name)
+  ) {
+    return undefined;
+  }
+  try {
+    const envelope = validateTypedUIEnvelope(JSON.parse(rawOutput.content) as unknown);
+    return envelope.ok ? { resultDisplay: rawOutput, envelope: envelope.value } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readDurableAcpTypedUICandidate(message: IMessageAcpToolCall): DurableAcpTypedUICandidate | undefined {
+  const result = readDurableAcpTypedUIResult(message);
+  const content = message.content as unknown;
+  const update = isDurableRecord(content) && isDurableRecord(content.update) ? content.update : undefined;
+  const sourceMessageId = message.msg_id || message.id;
+  const artifactId = update && typedUIArtifactIdForToolCall(update.tool_call_id);
+  if (!result || !artifactId || !sourceMessageId || !Number.isFinite(message.created_at)) return undefined;
+  return {
+    artifactId,
+    conversationId: message.conversation_id,
+    sourceMessageId,
+    createdAt: message.created_at,
+    envelope: result.envelope,
+    resultDisplay: result.resultDisplay,
+  };
+}
+
+const DurableAcpTypedUIArtifact: React.FC<{ candidate: DurableAcpTypedUICandidate }> = ({ candidate }) => {
+  const { t } = useTranslation();
+  const [state, setState] = useState<'checking' | 'verified' | 'rejected'>('checking');
+  const provenanceArtifact = useMemo(
+    () => ({
+      artifact_id: candidate.artifactId,
+      conversation_id: candidate.conversationId,
+      source_message_id: candidate.sourceMessageId,
+      created_at: candidate.createdAt,
+    }),
+    [candidate.artifactId, candidate.conversationId, candidate.createdAt, candidate.sourceMessageId]
+  );
+  const envelope = useMemo(
+    () => bindTypedUIEnvelopeToArtifact(candidate.envelope, provenanceArtifact),
+    [candidate.envelope, provenanceArtifact]
+  );
+  const host = useMemo(
+    () =>
+      createDefaultTypedUIActionHost({
+        provenanceArtifact,
+        replyWithState: () => undefined,
+      }),
+    [provenanceArtifact]
+  );
+
+  useEffect(() => {
+    let active = true;
+    setState('checking');
+    void host
+      .attestProvenance(envelope)
+      .then((attestation) => {
+        if (!active) return;
+        if (
+          attestation.status !== 'verified' ||
+          attestation.artifact_id !== provenanceArtifact.artifact_id ||
+          attestation.conversation_id !== provenanceArtifact.conversation_id ||
+          attestation.source_message_id !== provenanceArtifact.source_message_id
+        ) {
+          setState('rejected');
+          return;
+        }
+        setState('verified');
+      })
+      .catch(() => {
+        if (active) setState('rejected');
+      });
+    return () => {
+      active = false;
+    };
+  }, [envelope, host, provenanceArtifact]);
+
+  const artifact = useMemo(
+    () =>
+      state === 'verified'
+        ? buildGeneratedArtifactFromToolResult({
+            conversation_id: candidate.conversationId,
+            call_id: candidate.artifactId.slice('tool-artifact-'.length),
+            source_message_id: candidate.sourceMessageId,
+            created_at: candidate.createdAt,
+            name: 'eve_typed_ui_publish',
+            description: undefined,
+            result_display: candidate.resultDisplay,
+          })
+        : undefined,
+    [candidate, state]
+  );
+
+  if (artifact) {
+    return <MessageGeneratedArtifact artifact={artifact} />;
+  }
+
+  return (
+    <div
+      className='max-w-780px w-full mx-auto'
+      data-testid={`typed-ui-provenance-${state}`}
+      role='status'
+      aria-live='polite'
+    >
+      {state === 'checking' ? t('messages.typedUI.provenance.checking') : t('messages.typedUI.provenance.rejected')}
+    </div>
+  );
+};
+
 const hasInlineToolGroupArtifact = (message: IMessageToolGroup): boolean =>
-  message.content.some((item) => hasToolResultGeneratedArtifact(item.result_display));
+  message.content.some((item) => item.status === 'Success' && hasToolResultGeneratedArtifact(item.result_display));
 
 const hasConversationArtifactDuplicate = (
   message: IMessageToolGroup,
@@ -444,6 +630,21 @@ const MessageList: React.FC<{
         continue;
       }
       if (message.type === 'acp_tool_call') {
+        const candidate = readDurableAcpTypedUICandidate(message);
+        if (candidate) {
+          toolList = [];
+          toolSourceMessageIds = [];
+          diffsChanges = [];
+          diffsSourceMessageIds = [];
+          result.push({
+            type: 'typed_ui_pending',
+            id: candidate.artifactId,
+            candidate,
+            sourceMessageIds: [candidate.sourceMessageId],
+            created_at: candidate.createdAt,
+          });
+          continue;
+        }
         pushToolList(message);
         continue;
       }
@@ -704,6 +905,18 @@ const MessageList: React.FC<{
           ) : (
             <MessageGeneratedArtifact artifact={item.artifact as IGeneratedConversationArtifact} />
           )}
+        </div>
+      );
+    }
+    if ('type' in item && item.type === 'typed_ui_pending') {
+      return (
+        <div
+          key={item.id}
+          id={`message-${getProcessedItemAnchorId(item)}`}
+          className='min-w-0 message-item px-8px m-t-10px max-w-full md:max-w-780px mx-auto'
+          style={highlighted ? highlightStyle : undefined}
+        >
+          <DurableAcpTypedUIArtifact candidate={item.candidate} />
         </div>
       );
     }

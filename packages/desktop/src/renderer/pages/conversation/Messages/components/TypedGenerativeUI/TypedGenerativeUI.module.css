@@ -1,0 +1,435 @@
+.root {
+  --typed-ui-text-secondary: color-mix(
+    in srgb,
+    var(--eve-shell-text, var(--color-text-1)) 82%,
+    var(--eve-shell-surface, var(--color-bg-1))
+  );
+  color: var(--eve-shell-text, var(--color-text-1));
+  background: color-mix(in srgb, var(--glass-panel-bg, var(--color-bg-2)) 92%, transparent);
+  border: 1px solid var(--glass-panel-border, var(--color-border-2));
+  border-radius: var(--eve-surface-radius-lg, 18px);
+  box-shadow: var(--glass-shadow-soft, 0 16px 36px rgb(15 23 42 / 12%));
+  overflow: hidden;
+}
+
+.root[data-mode='compact'] {
+  max-width: 780px;
+  margin-inline: auto;
+}
+
+.chrome,
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--glass-chrome-bg, var(--color-bg-2));
+}
+
+.chrome {
+  border-bottom: 1px solid var(--glass-chrome-border, var(--color-border-2));
+}
+
+.chrome > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chrome strong {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.chrome span {
+  overflow: hidden;
+  color: var(--typed-ui-text-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas {
+  min-height: 0;
+  padding: clamp(14px, 2vw, 24px);
+}
+
+.root[data-mode='compact'] .canvas {
+  max-height: 380px;
+  overflow: auto;
+}
+
+.root[data-mode='full'] .canvas {
+  height: 100%;
+  overflow: auto;
+}
+
+.footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--glass-chrome-border, var(--color-border-2));
+}
+
+.attestationState {
+  margin: 14px;
+}
+
+.stack {
+  display: flex;
+  min-width: 0;
+}
+
+.stack[data-direction='vertical'] {
+  flex-direction: column;
+}
+.stack[data-direction='horizontal'] {
+  flex-flow: row wrap;
+}
+.stack[data-align='start'] {
+  align-items: flex-start;
+}
+.stack[data-align='center'] {
+  align-items: center;
+}
+.stack[data-align='end'] {
+  align-items: flex-end;
+}
+.stack[data-align='stretch'] {
+  align-items: stretch;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(var(--typed-ui-columns, 2), minmax(0, 1fr));
+}
+
+.card,
+.dialog,
+.eveCard,
+.metric {
+  padding: 14px;
+  background: var(--eve-shell-surface, var(--color-bg-1));
+  border: 1px solid var(--glass-panel-border, var(--color-border-2));
+  border-radius: var(--eve-overlay-radius, 14px);
+}
+
+.card[data-tone='info'],
+.eveCard[data-kind='goal'] {
+  background: var(--eve-semantic-info-surface, var(--color-primary-light-1));
+}
+.card[data-tone='success'],
+.metric[data-tone='success'] {
+  background: var(--eve-semantic-success-surface, var(--color-success-light-1));
+}
+.card[data-tone='warning'],
+.metric[data-tone='warning'] {
+  background: var(--eve-semantic-warning-surface, var(--color-warning-light-1));
+}
+.card[data-tone='danger'],
+.metric[data-tone='danger'] {
+  background: var(--eve-semantic-danger-surface, var(--color-danger-light-1));
+}
+
+.cardTitle,
+.heading,
+.dialog h3,
+.eveCard h3 {
+  margin: 0 0 8px;
+  color: var(--eve-shell-text, var(--color-text-1));
+  letter-spacing: -0.012em;
+}
+
+.heading {
+  margin-block: 4px 8px;
+}
+.text {
+  margin: 0;
+  line-height: 1.55;
+}
+.text[data-tone='secondary'],
+.muted {
+  color: var(--typed-ui-text-secondary);
+}
+.text[data-tone='muted'] {
+  color: var(--color-text-3);
+}
+.text[data-tone='success'] {
+  color: var(--color-success-7);
+}
+.text[data-tone='warning'] {
+  color: var(--color-warning-7);
+}
+.text[data-tone='danger'] {
+  color: var(--color-danger-7);
+}
+.muted {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dialogHeader,
+.eveCard header,
+.metric,
+.inlineField,
+.buttonGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lifecycleControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.lifecycleUnavailable {
+  margin: 8px 0 0;
+  color: var(--typed-ui-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.dialogHeader,
+.eveCard header {
+  justify-content: space-between;
+}
+.dialogHeader h3 {
+  margin: 0;
+}
+
+.carousel,
+.carouselItem {
+  min-height: 120px;
+}
+.carouselItem {
+  padding: 8px;
+}
+
+.tableWrap {
+  overflow: auto;
+  border-radius: 10px;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.table caption {
+  padding: 8px;
+  font-weight: 600;
+  text-align: start;
+}
+.table th,
+.table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--color-border-2);
+  text-align: start;
+}
+.table th {
+  color: var(--typed-ui-text-secondary);
+  font-weight: 600;
+}
+
+.imagePlaceholder {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 16px;
+  background: var(--eve-shell-surface-secondary, var(--color-fill-1));
+  border: 1px dashed var(--color-border-3);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.field,
+.fieldset {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--eve-shell-text, var(--color-text-1));
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.fieldset legend {
+  margin-bottom: 7px;
+}
+.inlineField {
+  min-height: 32px;
+}
+.inlineWrapper {
+  display: inline-flex;
+}
+.buttonGroup {
+  flex-wrap: wrap;
+}
+
+.metric {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.metric > span,
+.metric > small {
+  color: var(--typed-ui-text-secondary);
+}
+.metric > strong {
+  font-size: clamp(22px, 4vw, 34px);
+  letter-spacing: -0.03em;
+}
+
+.keyValue {
+  display: grid;
+  grid-template-columns: minmax(100px, auto) 1fr;
+  gap: 8px 16px;
+  margin: 0;
+}
+.keyValue dt {
+  color: var(--typed-ui-text-secondary);
+}
+.keyValue dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.code {
+  max-height: 420px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: var(--eve-shell-text, var(--color-text-1));
+  background: var(--eve-shell-surface-secondary, var(--color-fill-1));
+  border: 1px solid var(--color-border-2);
+  border-radius: 10px;
+  font:
+    12px/1.55 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+}
+
+.markdown {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.list {
+  margin: 0;
+  padding-inline-start: 24px;
+  line-height: 1.6;
+}
+
+.timeline {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.timeline li {
+  padding-inline-start: 14px;
+  border-inline-start: 3px solid var(--color-border-3);
+}
+.timeline li[data-status='active'] {
+  border-color: var(--eve-status-running, var(--color-primary-6));
+}
+.timeline li[data-status='completed'] {
+  border-color: var(--eve-status-completed, var(--color-success-6));
+}
+.timeline li[data-status='blocked'] {
+  border-color: var(--eve-status-error, var(--color-danger-6));
+}
+.timeline li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.timeline time {
+  color: var(--typed-ui-text-secondary);
+  font-size: 12px;
+}
+.timeline p {
+  margin: 4px 0 0;
+  color: var(--typed-ui-text-secondary);
+}
+
+.eveCard {
+  display: grid;
+  gap: 9px;
+}
+.eveCard h3,
+.eveCard p {
+  margin: 0;
+}
+.eveCard small,
+.eveCard time {
+  color: var(--typed-ui-text-secondary);
+}
+
+.loading {
+  display: flex;
+  min-height: 96px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--typed-ui-text-secondary);
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.root :where(button, input, textarea, [role='button'], [tabindex='0']):focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: 2px;
+  box-shadow: var(--eve-focus-glow, 0 0 0 3px color-mix(in srgb, var(--color-primary-6) 28%, transparent));
+}
+
+@media (max-width: 720px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  .stack[data-direction='horizontal'] {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .keyValue {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+  .keyValue dd {
+    margin-bottom: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root *,
+  .root *::before,
+  .root *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

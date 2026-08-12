@@ -8,7 +8,7 @@ import React, { type PropsWithChildren } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
-import type { IMessageText, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
+import type { IMessageAcpToolCall, IMessageText, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
 import type { MessageHistoryPagination } from '@/renderer/pages/conversation/Messages/hooks';
 import { MessageListLoadingProvider, MessageListProvider } from '@/renderer/pages/conversation/Messages/hooks';
 import MessageList from '@/renderer/pages/conversation/Messages/MessageList';
@@ -16,7 +16,14 @@ import { parseHermesMediaDirectives } from '@/renderer/pages/conversation/Messag
 import {
   buildGeneratedArtifactFromToolResult,
   getToolResultArtifactSourceKeys,
+  hasToolResultGeneratedArtifact,
 } from '@/renderer/pages/conversation/Messages/types';
+import {
+  canResolveWorkbenchArtifact,
+  openWorkbenchArtifact,
+  resetWorkbenchArtifactResolversForTest,
+} from '@/renderer/pages/conversation/Preview/services/workbenchArtifactResolver';
+import { typedUIFixture } from '../command-eve/typed-ui/fixtures';
 
 const artifactMock = vi.hoisted(() => ({
   artifacts: [] as IConversationArtifact[],
@@ -34,6 +41,22 @@ const ipcMock = vi.hoisted(() => ({
   getImageBase64: vi.fn(),
   getFileMetadata: vi.fn(),
   readGeneratedArtifactPreview: vi.fn(),
+  attestTypedUI: vi.fn(),
+}));
+const previewMock = vi.hoisted(() => ({ openPreview: vi.fn() }));
+const seatMock = vi.hoisted(() => ({
+  current: 'seat-a',
+  listeners: new Set<(seatId: string) => void>(),
+}));
+
+vi.mock('@/common/config/configService', () => ({
+  configService: {
+    getCurrentSeatId: () => seatMock.current,
+    onSeatRebind: (listener: (seatId: string) => void) => {
+      seatMock.listeners.add(listener);
+      return () => seatMock.listeners.delete(listener);
+    },
+  },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -58,6 +81,10 @@ vi.mock('@arco-design/web-react', () => ({
   Image: {
     PreviewGroup: ({ children }: PropsWithChildren) => <>{children}</>,
   },
+  Alert: ({ title, content }: { title?: React.ReactNode; content?: React.ReactNode }) => <div>{title || content}</div>,
+  Button: ({ children }: PropsWithChildren) => <button type='button'>{children}</button>,
+  Spin: () => <span>loading</span>,
+  Tag: ({ children }: PropsWithChildren) => <span>{children}</span>,
 }));
 
 vi.mock('@/common', () => ({
@@ -76,6 +103,9 @@ vi.mock('@/common', () => ({
     application: {
       readGeneratedArtifactPreview: { invoke: ipcMock.readGeneratedArtifactPreview },
     },
+    commandEve: {
+      typedUIProvenanceAttestation: { invoke: ipcMock.attestTypedUI },
+    },
     theme: {
       requestCurrent: { invoke: vi.fn().mockResolvedValue(null) },
       changed: { on: vi.fn(() => vi.fn()) },
@@ -85,6 +115,10 @@ vi.mock('@/common', () => ({
 
 vi.mock('@/renderer/hooks/context/ConversationContext', () => ({
   useConversationContextSafe: () => conversationContextMock.current,
+}));
+
+vi.mock('@/renderer/pages/conversation/Preview', () => ({
+  usePreviewContext: () => previewMock,
 }));
 
 vi.mock('@/renderer/hooks/file/useAutoPreviewOfficeFiles', () => ({
@@ -204,7 +238,7 @@ function createTextMessage(): IMessageText {
   };
 }
 
-function createImageToolGroup(): IMessageToolGroup {
+function createImageToolGroup(status: IMessageToolGroup['content'][number]['status'] = 'Success'): IMessageToolGroup {
   return {
     id: 'tool-group-1',
     msg_id: 'tool-msg-1',
@@ -221,7 +255,7 @@ function createImageToolGroup(): IMessageToolGroup {
           img_url: 'data:image/png;base64,iVBORw0KGgo=',
           relative_path: 'hero.png',
         },
-        status: 'Success',
+        status,
       },
     ],
     created_at: 1,
@@ -289,6 +323,36 @@ function createDeferred<T = void>() {
   return { promise, resolve, reject };
 }
 
+function typedUIAttestationResponse(artifact: {
+  artifact_id: string;
+  conversation_id: string;
+  source_message_id: string;
+}) {
+  return {
+    success: true,
+    data: {
+      version: 'command-eve.typed-ui-provenance-attestation/v2',
+      attestation_id: `tuia_${'a'.repeat(64)}`,
+      artifact_id: artifact.artifact_id,
+      conversation_id: artifact.conversation_id,
+      source_message_id: artifact.source_message_id,
+      content_sha256: 'b'.repeat(64),
+      action_set_sha256: 'c'.repeat(64),
+      identity_sha256: 'd'.repeat(64),
+      request_id_sha256: 'e'.repeat(64),
+      receipt_sha256: 'f'.repeat(64),
+      seat_context_revision: 1,
+      status: 'verified' as const,
+      recorded_at: '2026-08-12T00:00:00.000Z',
+    },
+  };
+}
+
+function rebindSeat(seatId: string): void {
+  seatMock.current = seatId;
+  for (const listener of seatMock.listeners) listener(seatId);
+}
+
 function mockScrollerGeometry(
   scroller: HTMLElement,
   geometry: { scrollTop: number; scrollHeight: number; clientHeight: number }
@@ -318,6 +382,11 @@ describe('MessageList', () => {
     ipcMock.getImageBase64.mockReset();
     ipcMock.getFileMetadata.mockReset();
     ipcMock.readGeneratedArtifactPreview.mockReset();
+    ipcMock.attestTypedUI.mockReset();
+    previewMock.openPreview.mockReset();
+    resetWorkbenchArtifactResolversForTest();
+    seatMock.current = 'seat-a';
+    seatMock.listeners.clear();
   });
 
   it('renders message rows with external margin spacing in the plain scroll list', () => {
@@ -957,6 +1026,18 @@ describe('MessageList', () => {
     expect(screen.queryByText('tool_summary')).not.toBeInTheDocument();
   });
 
+  it.each(['Executing', 'Pending', 'Error', 'Canceled', 'Confirming'] as const)(
+    'does not classify an image-shaped %s tool result as an inline artifact',
+    (status) => {
+      render(<MessageList />, {
+        wrapper: ({ children }) => <Wrapper messages={[createImageToolGroup(status)]}>{children}</Wrapper>,
+      });
+
+      expect(screen.queryByText('tool_group')).not.toBeInTheDocument();
+      expect(screen.getByText('tool_summary')).toBeInTheDocument();
+    }
+  );
+
   it('keeps generic generated media tool results inline instead of collapsing them into the step summary', () => {
     render(<MessageList />, {
       wrapper: ({ children }) => <Wrapper messages={[createVideoToolGroup()]}>{children}</Wrapper>,
@@ -1033,6 +1114,7 @@ describe('MessageList', () => {
       receipt_path: '/tmp/eve-receipts/tts-request-1.json',
       receipt: {
         provider_response_id: 'xai-audio-response',
+        status: 'done',
         data_base64: 'AAECAw==',
         download_url: 'https://private.example.com/raw-audio.mp3',
         preview: 'data:audio/mpeg;base64,AAECAw==',
@@ -1076,6 +1158,7 @@ describe('MessageList', () => {
       receipt_path: '/tmp/eve-receipts/tts-request-1.json',
       receipt: {
         provider_response_id: 'xai-audio-response',
+        status: 'done',
         residency: {
           requestedPrivacyLane: 'cloud_us',
           effectiveResidency: 'us_cloud',
@@ -1094,6 +1177,72 @@ describe('MessageList', () => {
     expect(JSON.stringify(artifact?.payload)).not.toContain('data:audio');
     expect(JSON.stringify(artifact?.payload)).not.toContain('Bearer CEVE');
     expect(JSON.stringify(artifact?.payload)).not.toContain('private prompt text');
+  });
+
+  it.each([
+    ['error marker', { error: 'Provider rejected the artifact.' }],
+    ['empty error marker', { error: '' }],
+    ['failed boolean marker', { failed: true }],
+    ['blocked boolean marker', { blocked: true }],
+    ['negative ok marker', { ok: false }],
+    ['failed receipt', { receipt: { status: 'failed' } }],
+    ['blocked receipt', { receipt: { status: 'blocked' } }],
+    ['unverified receipt', { receipt: { status: 'unverified' } }],
+    [
+      'successful-looking receipt error marker',
+      { receipt: { status: 'done', error: 'Provider rejected the artifact.' } },
+    ],
+    [
+      'successful-looking receipt failure marker',
+      { receipt: { status: 'done', failure: 'Provider rejected the artifact.' } },
+    ],
+    ['successful-looking receipt negative ok marker', { receipt: { status: 'done', ok: false } }],
+    ['successful-looking receipt negative success marker', { receipt: { status: 'done', success: false } }],
+    ['successful-looking receipt failed boolean marker', { receipt: { status: 'done', failed: true } }],
+    ['successful-looking receipt blocked boolean marker', { receipt: { status: 'done', blocked: true } }],
+    ['failed payload status', { status: 'failed' }],
+    ['blocked payload status', { status: 'blocked' }],
+    ['unverified payload status', { status: 'unverified' }],
+    ['pending payload status', { status: 'pending' }],
+    ['malformed payload status', { status: { state: 'failed' } }],
+  ])('does not classify a contradictory result with a %s as a generated artifact', (_label, contradiction) => {
+    const resultDisplay = {
+      artifact_type: 'image',
+      url: 'https://cdn.example.com/candidate.png',
+      mime_type: 'image/png',
+      ...contradiction,
+    };
+
+    expect(hasToolResultGeneratedArtifact(resultDisplay)).toBe(false);
+    expect(
+      buildGeneratedArtifactFromToolResult({
+        conversation_id: 'conversation-1',
+        call_id: 'call-contradictory-artifact',
+        created_at: 10,
+        name: 'ImageGeneration',
+        result_display: resultDisplay,
+      })
+    ).toBeUndefined();
+  });
+
+  it('accepts a terminal successful payload status for an otherwise valid artifact', () => {
+    const resultDisplay = {
+      artifact_type: 'image',
+      url: 'https://cdn.example.com/terminal.png',
+      mime_type: 'image/png',
+      status: 'done',
+    };
+
+    expect(hasToolResultGeneratedArtifact(resultDisplay)).toBe(true);
+    expect(
+      buildGeneratedArtifactFromToolResult({
+        conversation_id: 'conversation-1',
+        call_id: 'call-terminal-artifact',
+        created_at: 10,
+        name: 'ImageGeneration',
+        result_display: resultDisplay,
+      })
+    ).toMatchObject({ kind: 'image', payload: { url: 'https://cdn.example.com/terminal.png' } });
   });
 
   it('does not treat arbitrary JSON tool output as a generated artifact', () => {
@@ -1130,5 +1279,377 @@ describe('MessageList', () => {
         },
       })
     ).toBeUndefined();
+  });
+
+  it('carries the backend message identity into a typed tool artifact', () => {
+    const artifact = buildGeneratedArtifactFromToolResult({
+      conversation_id: 'conversation-typed',
+      call_id: 'call-typed',
+      source_message_id: 'message-typed',
+      created_at: 10,
+      name: 'eve_typed_ui_publish',
+      result_display: {
+        ok: true,
+        artifact_type: 'file',
+        mime_type: 'application/vnd.command-eve.typed-ui+json',
+        content: '{"schema_version":"command-eve.typed-ui/v2"}',
+      },
+    });
+
+    expect(artifact).toMatchObject({
+      id: 'tool-artifact-call-typed',
+      conversation_id: 'conversation-typed',
+      payload: { source_message_id: 'message-typed' },
+    });
+  });
+
+  it('keeps a persisted ACP Typed UI result inert until Main attests it, then registers exactly one resolver', async () => {
+    const deferred = createDeferred<unknown>();
+    let attestationReady = false;
+    ipcMock.attestTypedUI.mockImplementation(
+      ({ request }: { request: { artifact: Parameters<typeof typedUIAttestationResponse>[0] } }) =>
+        attestationReady ? typedUIAttestationResponse(request.artifact) : deferred.promise
+    );
+    const raw = typedUIFixture();
+    const acpMessage = {
+      id: 'message-acp-typed',
+      msg_id: 'message-acp-typed',
+      conversation_id: 'conversation-1',
+      type: 'acp_tool_call',
+      position: 'left',
+      created_at: 10,
+      content: {
+        session_id: 'session-1',
+        update: {
+          session_update: 'tool_call_update',
+          tool_call_id: 'call-acp-typed',
+          status: 'completed',
+          title: 'untrusted presentation title',
+          kind: 'execute',
+          raw_output: {
+            ok: true,
+            artifact_type: 'file',
+            mime_type: 'application/vnd.command-eve.typed-ui+json',
+            schema_version: 'command-eve.typed-ui/v2',
+            catalog_version: 'command-eve.typed-ui.catalog/v2',
+            content: JSON.stringify(raw),
+            status: 'completed',
+            tool_name: 'mcp__aionui_eve_artifacts__eve_typed_ui_publish',
+          },
+        },
+      },
+    } as unknown as IMessageAcpToolCall;
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[acpMessage]}>{children}</Wrapper>,
+    });
+
+    const reference = {
+      kind: 'chat' as const,
+      artifactId: 'tool-artifact-call-acp-typed',
+      conversationId: 'conversation-1',
+    };
+    await waitFor(() => expect(screen.getByTestId('typed-ui-provenance-checking')).toBeInTheDocument());
+    expect(screen.queryByTestId('generated-artifact-card')).toBeNull();
+    expect(canResolveWorkbenchArtifact(reference)).toBe(false);
+    await expect(openWorkbenchArtifact(reference)).rejects.toThrow('artifact_not_resolved');
+    expect(previewMock.openPreview).not.toHaveBeenCalled();
+
+    attestationReady = true;
+    deferred.resolve(
+      typedUIAttestationResponse({
+        artifact_id: reference.artifactId,
+        conversation_id: reference.conversationId,
+        source_message_id: 'message-acp-typed',
+      })
+    );
+
+    await waitFor(() => expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument());
+    await waitFor(() => expect(canResolveWorkbenchArtifact(reference)).toBe(true));
+    await openWorkbenchArtifact(reference);
+    expect(previewMock.openPreview).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('acp_tool_call')).toBeNull();
+  });
+
+  it('keeps a Main-rejected persisted ACP Typed UI result non-addressable', async () => {
+    ipcMock.attestTypedUI.mockImplementation(
+      ({
+        request,
+      }: {
+        request: { artifact: { artifact_id: string; conversation_id: string; source_message_id: string } };
+      }) => ({
+        success: true,
+        data: {
+          ...typedUIAttestationResponse(request.artifact).data,
+          artifact_id: request.artifact.artifact_id,
+          conversation_id: request.artifact.conversation_id,
+          source_message_id: request.artifact.source_message_id,
+          status: 'rejected' as const,
+        },
+      })
+    );
+    const acpMessage = {
+      id: 'message-acp-rejected',
+      msg_id: 'message-acp-rejected',
+      conversation_id: 'conversation-1',
+      type: 'acp_tool_call',
+      position: 'left',
+      created_at: 10,
+      content: {
+        session_id: 'session-1',
+        update: {
+          session_update: 'tool_call_update',
+          tool_call_id: 'call-acp-rejected',
+          status: 'completed',
+          raw_output: {
+            ok: true,
+            artifact_type: 'file',
+            mime_type: 'application/vnd.command-eve.typed-ui+json',
+            schema_version: 'command-eve.typed-ui/v2',
+            catalog_version: 'command-eve.typed-ui.catalog/v2',
+            content: JSON.stringify(typedUIFixture()),
+            status: 'completed',
+            tool_name: 'eve_typed_ui_publish',
+          },
+        },
+      },
+    } as unknown as IMessageAcpToolCall;
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[acpMessage]}>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(screen.getByTestId('typed-ui-provenance-rejected')).toBeInTheDocument());
+    expect(screen.queryByTestId('generated-artifact-card')).toBeNull();
+    expect(
+      canResolveWorkbenchArtifact({
+        kind: 'chat',
+        artifactId: 'tool-artifact-call-acp-rejected',
+        conversationId: 'conversation-1',
+      })
+    ).toBe(false);
+  });
+
+  it('revokes a verified Typed UI resolver after seat rebind and rejects its former reference', async () => {
+    ipcMock.attestTypedUI.mockImplementation(
+      ({ request }: { request: { artifact: Parameters<typeof typedUIAttestationResponse>[0] } }) => {
+        const response = typedUIAttestationResponse(request.artifact);
+        return seatMock.current === 'seat-b'
+          ? { ...response, data: { ...response.data, status: 'rejected' as const, reason: 'seat_context_changed' } }
+          : response;
+      }
+    );
+    const acpMessage = {
+      id: 'message-acp-seat-rebind',
+      msg_id: 'message-acp-seat-rebind',
+      conversation_id: 'conversation-1',
+      type: 'acp_tool_call',
+      position: 'left',
+      created_at: 10,
+      content: {
+        session_id: 'session-1',
+        update: {
+          session_update: 'tool_call_update',
+          tool_call_id: 'call-acp-seat-rebind',
+          status: 'completed',
+          raw_output: {
+            ok: true,
+            artifact_type: 'file',
+            mime_type: 'application/vnd.command-eve.typed-ui+json',
+            schema_version: 'command-eve.typed-ui/v2',
+            catalog_version: 'command-eve.typed-ui.catalog/v2',
+            content: JSON.stringify(typedUIFixture()),
+            status: 'completed',
+            tool_name: 'eve_typed_ui_publish',
+          },
+        },
+      },
+    } as unknown as IMessageAcpToolCall;
+    const reference = {
+      kind: 'chat' as const,
+      artifactId: 'tool-artifact-call-acp-seat-rebind',
+      conversationId: 'conversation-1',
+    };
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[acpMessage]}>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(canResolveWorkbenchArtifact(reference)).toBe(true));
+    rebindSeat('seat-b');
+    await waitFor(() => expect(canResolveWorkbenchArtifact(reference)).toBe(false));
+    await expect(openWorkbenchArtifact(reference)).rejects.toThrow('artifact_not_resolved');
+    expect(previewMock.openPreview).not.toHaveBeenCalled();
+  });
+
+  it('rejects a re-attestation whose content receipt no longer matches before opening the resolver', async () => {
+    let calls = 0;
+    ipcMock.attestTypedUI.mockImplementation(
+      ({ request }: { request: { artifact: Parameters<typeof typedUIAttestationResponse>[0] } }) => {
+        calls += 1;
+        const response = typedUIAttestationResponse(request.artifact);
+        return calls >= 4 ? { ...response, data: { ...response.data, content_sha256: 'f'.repeat(64) } } : response;
+      }
+    );
+    const acpMessage = {
+      id: 'message-acp-content-recheck',
+      msg_id: 'message-acp-content-recheck',
+      conversation_id: 'conversation-1',
+      type: 'acp_tool_call',
+      position: 'left',
+      created_at: 10,
+      content: {
+        session_id: 'session-1',
+        update: {
+          session_update: 'tool_call_update',
+          tool_call_id: 'call-acp-content-recheck',
+          status: 'completed',
+          raw_output: {
+            ok: true,
+            artifact_type: 'file',
+            mime_type: 'application/vnd.command-eve.typed-ui+json',
+            schema_version: 'command-eve.typed-ui/v2',
+            catalog_version: 'command-eve.typed-ui.catalog/v2',
+            content: JSON.stringify(typedUIFixture()),
+            status: 'completed',
+            tool_name: 'eve_typed_ui_publish',
+          },
+        },
+      },
+    } as unknown as IMessageAcpToolCall;
+    const reference = {
+      kind: 'chat' as const,
+      artifactId: 'tool-artifact-call-acp-content-recheck',
+      conversationId: 'conversation-1',
+    };
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[acpMessage]}>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(canResolveWorkbenchArtifact(reference)).toBe(true));
+    await expect(openWorkbenchArtifact(reference)).rejects.toThrow('artifact_not_resolved');
+    expect(previewMock.openPreview).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByTestId('typed-ui-provenance-rejected')).toBeInTheDocument());
+  });
+
+  it('drops an A-content attestation when the same durable identity rerenders B content', async () => {
+    const rawA = typedUIFixture();
+    const rawB = structuredClone(rawA);
+    (rawB.elements.heading.props as { text: string }).text = 'Different durable content';
+    ipcMock.attestTypedUI.mockImplementation(
+      ({ request }: { request: { artifact: Parameters<typeof typedUIAttestationResponse>[0]; envelope: unknown } }) => {
+        const response = typedUIAttestationResponse(request.artifact);
+        return JSON.stringify(request.envelope).includes('Different durable content')
+          ? { ...response, data: { ...response.data, status: 'rejected' as const, reason: 'content_mismatch' } }
+          : response;
+      }
+    );
+    const acpMessage = {
+      id: 'message-acp-content-rerender',
+      msg_id: 'message-acp-content-rerender',
+      conversation_id: 'conversation-1',
+      type: 'acp_tool_call',
+      position: 'left',
+      created_at: 10,
+      content: {
+        session_id: 'session-1',
+        update: {
+          session_update: 'tool_call_update',
+          tool_call_id: 'call-acp-content-rerender',
+          status: 'completed',
+          raw_output: {
+            ok: true,
+            artifact_type: 'file',
+            mime_type: 'application/vnd.command-eve.typed-ui+json',
+            schema_version: 'command-eve.typed-ui/v2',
+            catalog_version: 'command-eve.typed-ui.catalog/v2',
+            content: JSON.stringify(rawA),
+            status: 'completed',
+            tool_name: 'eve_typed_ui_publish',
+          },
+        },
+      },
+    } as unknown as IMessageAcpToolCall;
+    const reference = {
+      kind: 'chat' as const,
+      artifactId: 'tool-artifact-call-acp-content-rerender',
+      conversationId: 'conversation-1',
+    };
+    const { rerender } = render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[acpMessage]}>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(canResolveWorkbenchArtifact(reference)).toBe(true));
+    const changedMessage = structuredClone(acpMessage) as typeof acpMessage;
+    changedMessage.content.update.raw_output.content = JSON.stringify(rawB);
+    rerender(
+      <MessageListLoadingProvider value={false}>
+        <MessageListProvider value={[changedMessage]}>
+          <MessageList />
+        </MessageListProvider>
+      </MessageListLoadingProvider>
+    );
+
+    expect(canResolveWorkbenchArtifact(reference)).toBe(false);
+    await waitFor(() => expect(screen.getByTestId('typed-ui-provenance-rejected')).toBeInTheDocument());
+    expect(canResolveWorkbenchArtifact(reference)).toBe(false);
+    expect(previewMock.openPreview).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['nonterminal', 'in_progress', JSON.stringify(typedUIFixture()), undefined],
+    ['malformed', 'completed', '{', undefined],
+    ['extra-key', 'completed', JSON.stringify(typedUIFixture()), { unexpected: true }],
+    ['missing-tool-name', 'completed', JSON.stringify(typedUIFixture()), undefined],
+    [
+      'wrong-tool-name',
+      'completed',
+      JSON.stringify(typedUIFixture()),
+      { tool_name: 'mcp__other__eve_typed_ui_publish' },
+    ],
+    [
+      'oversized',
+      'completed',
+      JSON.stringify({ ...typedUIFixture(), state: { value: 'x'.repeat(512 * 1024 + 1) } }),
+      undefined,
+    ],
+  ])('keeps %s persisted ACP Typed UI output in the inert tool fallback', async (_label, status, content, extra) => {
+    const acpMessage = {
+      id: `message-acp-${status}-${_label}`,
+      msg_id: `message-acp-${status}-${_label}`,
+      conversation_id: 'conversation-1',
+      type: 'acp_tool_call',
+      position: 'left',
+      created_at: 10,
+      content: {
+        session_id: 'session-1',
+        update: {
+          session_update: 'tool_call_update',
+          tool_call_id: `call-acp-${status}-${_label}`,
+          status,
+          title: 'untrusted presentation title',
+          kind: 'execute',
+          raw_output: {
+            ok: true,
+            artifact_type: 'file',
+            mime_type: 'application/vnd.command-eve.typed-ui+json',
+            schema_version: 'command-eve.typed-ui/v2',
+            catalog_version: 'command-eve.typed-ui.catalog/v2',
+            content,
+            ...(status === 'completed' ? { status: 'completed' } : {}),
+            ...(_label === 'missing-tool-name' ? {} : { tool_name: 'eve_typed_ui_publish' }),
+            ...extra,
+          },
+        },
+      },
+    } as unknown as IMessageAcpToolCall;
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[acpMessage]}>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(screen.getByText('tool_summary')).toBeInTheDocument());
+    expect(screen.queryByTestId('conversation-artifact-file')).toBeNull();
   });
 });

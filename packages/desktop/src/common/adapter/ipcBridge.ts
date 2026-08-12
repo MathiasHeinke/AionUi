@@ -2243,6 +2243,14 @@ export const commandEve = {
     IBridgeResponse<ICommandEveGateDecision>,
     { action: ICommandEveGateAction }
   >('command-eve.evaluate-gate-decision'),
+  typedUIActionReceipt: bridge.buildProvider<
+    IBridgeResponse<import('../typedUI').TypedUIActionReceipt & { receipt_id: string; recorded_at: string }>,
+    { request: import('../typedUI').TypedUIActionReceiptRequest }
+  >('command-eve.typed-ui-action-receipt'),
+  typedUIProvenanceAttestation: bridge.buildProvider<
+    IBridgeResponse<import('../typedUI').TypedUIProvenanceAttestation>,
+    { request: import('../typedUI').TypedUIProvenanceAttestationRequest }
+  >('command-eve.typed-ui-provenance-attestation'),
   commandCenterReadModel: bridge.buildProvider<
     IBridgeResponse<ICommandEveCommandCenterReadModelResult>,
     { maxRuns?: number } | undefined
@@ -3829,6 +3837,7 @@ export type IGeneratedConversationArtifact = IConversationArtifactBase<
     model?: string;
     artifact_id?: string;
     request_id?: string;
+    source_message_id?: string;
     source_tool?: string;
     receipt_path?: string;
     receipt?: Record<string, unknown>;

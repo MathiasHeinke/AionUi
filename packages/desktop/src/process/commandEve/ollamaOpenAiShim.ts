@@ -50,6 +50,14 @@ import {
 import { HONCHO_DERIVER_FORCED_TIER } from './honchoRuntimeConfigCore';
 import { stripCommandEveManagedVisualTurnMarkers } from '../../common/config/eveManagedVisualTurnCore';
 import { executeCommandEveManagedImageGeneration } from './managedImageGenerationService';
+import {
+  extractOllamaCompletedTypedUIPublishCalls,
+  extractOpenAICompletedTypedUIPublishCalls,
+  newTypedUIProviderRequestId,
+  OpenAITypedUIPublishSseCapture,
+  reportCapturedTypedUIProviderCompletions,
+} from './typedUIProviderCompletionCapture';
+import type { MainOwnedTypedUIProviderCompletionInput } from './typedUIProvenanceAttestationCore';
 
 /**
  * The wire tiers this shim will forward — the SERVER's allow-list, not the whole
@@ -265,6 +273,17 @@ export type CommandEveEgressRedactionModeResolver = () => 'on' | 'off' | Promise
  */
 export type CommandEveActiveSeatIdResolver = () => string | Promise<string>;
 
+export type CommandEveActiveSeatContext = Readonly<{
+  seatId: string;
+  seatContextRevision: number;
+}>;
+
+export type CommandEveActiveSeatContextResolver = () =>
+  | CommandEveActiveSeatContext
+  | Promise<CommandEveActiveSeatContext>;
+
+export type CommandEveTypedUIProviderCompletionReporter = (input: MainOwnedTypedUIProviderCompletionInput) => void;
+
 /**
  * Optional dispatch-attribution resolver (SG-1 A1 — spoof-close). Maps the
  * inbound `X-EVE-Dispatch` header token to a TRUSTED roster `agent_id`,
@@ -433,6 +452,10 @@ export type CommandEveOllamaShimOptions = {
    * default resolver returns the legacy `'seat-1'` ⇒ byte-identical to before.
    */
   activeSeatId?: CommandEveActiveSeatIdResolver;
+  /** Immutable seat snapshot used by Main-owned Typed UI generation receipts. */
+  activeSeatContext?: CommandEveActiveSeatContextResolver;
+  /** Main-only terminal receipt writer. Omitted means Typed UI attestation stays closed. */
+  typedUIProviderCompletion?: CommandEveTypedUIProviderCompletionReporter;
   /**
    * Optional dispatch-attribution resolver (SG-1 A1 spoof-close). Given the
    * inbound `X-EVE-Dispatch` header token + the active seat, returns the TRUSTED
@@ -1385,6 +1408,55 @@ function writeStreamChunk(response: ServerResponse, model: string, content: stri
   );
 }
 
+type OllamaToolCallIdState = { nextOrdinal: number };
+
+/**
+ * Ollama's native tool-call DTO has no call id and may carry arguments as an
+ * object. This route is an OpenAI-compatibility boundary, so Main mints the id
+ * once and forwards that exact normalized call to Hermes and the private
+ * completion recorder. The model/provider cannot choose this correlation id.
+ */
+function normalizeOllamaToolCallsForOpenAI(
+  value: unknown,
+  providerRequestId: string,
+  state: OllamaToolCallIdState
+): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => {
+    const ordinal = state.nextOrdinal;
+    state.nextOrdinal += 1;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    const toolCall = item as Record<string, unknown>;
+    const fn = toolCall.function;
+    if (!fn || typeof fn !== 'object' || Array.isArray(fn)) return item;
+    const functionCall = fn as Record<string, unknown>;
+    const argumentsJson =
+      typeof functionCall.arguments === 'string'
+        ? functionCall.arguments
+        : (JSON.stringify(functionCall.arguments ?? {}) ?? '{}');
+    const id = `call_${crypto
+      .createHash('sha256')
+      .update(
+        [
+          'command-eve.ollama-tool-call/v1',
+          providerRequestId,
+          String(ordinal),
+          String(functionCall.name || ''),
+          argumentsJson,
+        ].join('\u0000'),
+        'utf8'
+      )
+      .digest('hex')
+      .slice(0, 48)}`;
+    return {
+      ...toolCall,
+      id,
+      type: 'function',
+      function: { ...functionCall, arguments: argumentsJson },
+    };
+  });
+}
+
 /**
  * The EVE function URL must be https in production. A loopback http URL is also
  * accepted (same trust model as the local-runtime loopback key) so the routing
@@ -1423,6 +1495,8 @@ async function handleEveCloudCompletions(
   options: Required<CommandEveOllamaShimOptions>,
   route: CommandEveEveCloudRoute,
   dispatchToken: string | undefined,
+  seatContext: CommandEveActiveSeatContext,
+  providerRequestId: string,
   // COMPA-624 / Codex #1: when true (the Honcho deriver lane) the S3 secret HARD
   // FLOOR is NEVER waived, even on the founder's own legacy seat. The chat lane's
   // S13 waiver is a CONSCIOUS per-message founder choice; the deriver is AUTOMATIC
@@ -1522,7 +1596,10 @@ async function handleEveCloudCompletions(
   // spread into the outbound body below; the server persists it to
   // usage_events.seat_id and keeps it upstream-invisible (not in
   // FORWARDABLE_BODY_KEYS). A default 'seat-1' keeps attribution byte-stable.
-  const seatId = await options.activeSeatId();
+  // A receipt snapshot failure must not misattribute an otherwise valid paid
+  // turn. Billing keeps using the older live seat resolver, while the empty
+  // receipt context below remains deliberately unattestable.
+  const seatId = seatContext.seatId || (await options.activeSeatId());
 
   // Egress boundary — same gate as local, but the provider is a CLOUD lane.
   //
@@ -1744,12 +1821,25 @@ async function handleEveCloudCompletions(
         connection: 'keep-alive',
       });
       const reader = upstream.body.getReader();
+      const typedUICapture = new OpenAITypedUIPublishSseCapture();
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         upstreamScope.markActivity();
+        typedUICapture.push(value);
         response.write(value);
       }
+      reportCapturedTypedUIProviderCompletions(typedUICapture.finish(), {
+        sessionId: body.session_id,
+        provider: 'EVE Inference',
+        model: tier,
+        providerRequestId,
+        route: 'eve_cloud',
+        seatId: seatContext.seatId,
+        seatContextRevision: seatContext.seatContextRevision,
+        terminal: 'openai_sse',
+        report: options.typedUIProviderCompletion,
+      });
       response.end();
       return;
     }
@@ -1770,6 +1860,26 @@ async function handleEveCloudCompletions(
     // the outcome receipt, not a silent "completed" — otherwise the receipt is
     // worthless as watchdog evidence.
     if (!upstream.ok) upstreamScope.markUpstreamError();
+    if (upstream.ok) {
+      try {
+        reportCapturedTypedUIProviderCompletions(
+          extractOpenAICompletedTypedUIPublishCalls(JSON.parse(text) as unknown),
+          {
+            sessionId: body.session_id,
+            provider: 'EVE Inference',
+            model: tier,
+            providerRequestId,
+            route: 'eve_cloud',
+            seatId: seatContext.seatId,
+            seatContextRevision: seatContext.seatContextRevision,
+            terminal: 'openai_json',
+            report: options.typedUIProviderCompletion,
+          }
+        );
+      } catch {
+        // The completion still reaches Hermes; missing receipt keeps Typed UI closed.
+      }
+    }
 
     // Friendly daily-cap (429): the raw upstream body is a terse
     // "rate_limit"/"daily cap reached" JSON that surfaces in chat as a cold
@@ -2020,6 +2130,8 @@ async function handleHonchoDeriverCompletions(
     options,
     forcedRoute,
     undefined,
+    await options.activeSeatContext(),
+    newTypedUIProviderRequestId(),
     true,
     'honcho_deriver',
     'shim'
@@ -2122,7 +2234,9 @@ async function handleLocalOpenAiCompletions(
   body: Record<string, unknown>,
   response: ServerResponse,
   options: Required<CommandEveOllamaShimOptions>,
-  route: CommandEveLocalOpenAiRoute
+  route: CommandEveLocalOpenAiRoute,
+  seatContext: CommandEveActiveSeatContext,
+  providerRequestId: string
 ): Promise<void> {
   const baseUrl = typeof route.baseUrl === 'string' ? route.baseUrl.trim() : '';
   const apiKey = typeof route.apiKey === 'string' ? route.apiKey.trim() : '';
@@ -2154,11 +2268,26 @@ async function handleLocalOpenAiCompletions(
         connection: 'keep-alive',
       });
       const reader = upstream.body.getReader();
+      const typedUICapture = new OpenAITypedUIPublishSseCapture();
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         upstreamScope.markActivity();
+        if (upstream.ok) typedUICapture.push(value);
         response.write(value);
+      }
+      if (upstream.ok) {
+        reportCapturedTypedUIProviderCompletions(typedUICapture.finish(), {
+          sessionId: body.session_id,
+          provider: route.providerName || 'managed-local-openai',
+          model,
+          providerRequestId,
+          route: 'managed_local',
+          seatId: seatContext.seatId,
+          seatContextRevision: seatContext.seatContextRevision,
+          terminal: 'openai_sse',
+          report: options.typedUIProviderCompletion,
+        });
       }
       response.end();
       return;
@@ -2169,6 +2298,26 @@ async function handleLocalOpenAiCompletions(
     // F-14 (Kimi 1.819 audit): non-OK upstream status must land in the outcome
     // receipt as upstream_error, not as a silent "completed".
     if (!upstream.ok) upstreamScope.markUpstreamError();
+    if (upstream.ok) {
+      try {
+        reportCapturedTypedUIProviderCompletions(
+          extractOpenAICompletedTypedUIPublishCalls(JSON.parse(text) as unknown),
+          {
+            sessionId: body.session_id,
+            provider: route.providerName || 'managed-local-openai',
+            model,
+            providerRequestId,
+            route: 'managed_local',
+            seatId: seatContext.seatId,
+            seatContextRevision: seatContext.seatContextRevision,
+            terminal: 'openai_json',
+            report: options.typedUIProviderCompletion,
+          }
+        );
+      } catch {
+        // The completion still reaches Hermes; missing receipt keeps Typed UI closed.
+      }
+    }
     response.writeHead(upstream.status || 502, { 'content-type': contentType });
     response.end(text || JSON.stringify({ error: { message: 'The selected local EVE model returned no result.' } }));
   } catch {
@@ -2203,7 +2352,9 @@ async function handleConnectedProviderCompletions(
   body: Record<string, unknown>,
   response: ServerResponse,
   options: Required<CommandEveOllamaShimOptions>,
-  route: CommandEveConnectedProviderRoute
+  route: CommandEveConnectedProviderRoute,
+  seatContext: CommandEveActiveSeatContext,
+  providerRequestId: string
 ): Promise<void> {
   const baseUrl = typeof route.baseUrl === 'string' ? route.baseUrl.trim() : '';
   const apiKey = typeof route.apiKey === 'string' ? route.apiKey.trim() : '';
@@ -2297,11 +2448,26 @@ async function handleConnectedProviderCompletions(
         connection: 'keep-alive',
       });
       const reader = upstream.body.getReader();
+      const typedUICapture = new OpenAITypedUIPublishSseCapture();
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         upstreamScope.markActivity();
+        if (upstream.ok) typedUICapture.push(value);
         response.write(value);
+      }
+      if (upstream.ok) {
+        reportCapturedTypedUIProviderCompletions(typedUICapture.finish(), {
+          sessionId: body.session_id,
+          provider: route.providerName || 'connected-provider',
+          model,
+          providerRequestId,
+          route: 'connected',
+          seatId: seatContext.seatId,
+          seatContextRevision: seatContext.seatContextRevision,
+          terminal: 'openai_sse',
+          report: options.typedUIProviderCompletion,
+        });
       }
       response.end();
       return;
@@ -2310,6 +2476,26 @@ async function handleConnectedProviderCompletions(
     const text = await upstream.text();
     upstreamScope.markActivity();
     if (!upstream.ok) upstreamScope.markUpstreamError();
+    if (upstream.ok) {
+      try {
+        reportCapturedTypedUIProviderCompletions(
+          extractOpenAICompletedTypedUIPublishCalls(JSON.parse(text) as unknown),
+          {
+            sessionId: body.session_id,
+            provider: route.providerName || 'connected-provider',
+            model,
+            providerRequestId,
+            route: 'connected',
+            seatId: seatContext.seatId,
+            seatContextRevision: seatContext.seatContextRevision,
+            terminal: 'openai_json',
+            report: options.typedUIProviderCompletion,
+          }
+        );
+      } catch {
+        // The completion still reaches Hermes; missing receipt keeps Typed UI closed.
+      }
+    }
     response.writeHead(upstream.status || 502, { 'content-type': contentType });
     response.end(
       text ||
@@ -2340,6 +2526,15 @@ async function handleChatCompletions(
   const model = String(body.model || '');
   const stream = Boolean(body.stream);
   const forceLocalVision = isCommandEveLocalVisionModel(model);
+  const providerRequestId = newTypedUIProviderRequestId();
+  let seatContext: CommandEveActiveSeatContext;
+  try {
+    seatContext = await options.activeSeatContext();
+  } catch {
+    // Chat may continue, but an invalid empty snapshot cannot be persisted as
+    // a provider completion and therefore can never verify a Typed UI artifact.
+    seatContext = { seatId: '', seatContextRevision: -1 };
+  }
 
   // EVE Inference (cloud) lane takes precedence over the local Ollama path when
   // the active picker selection is an EVE tier. A warm-up ping ("ping") stays
@@ -2383,6 +2578,8 @@ async function handleChatCompletions(
           options,
           eveRoute,
           dispatchToken,
+          seatContext,
+          providerRequestId,
           false,
           declaredOperation,
           'client'
@@ -2425,7 +2622,15 @@ async function handleChatCompletions(
     }
     if (connectedRoute?.active) {
       response.setHeader('x-command-eve-inference-lane', 'connected');
-      await handleConnectedProviderCompletions(request, body, response, options, connectedRoute);
+      await handleConnectedProviderCompletions(
+        request,
+        body,
+        response,
+        options,
+        connectedRoute,
+        seatContext,
+        providerRequestId
+      );
       return;
     }
   }
@@ -2493,7 +2698,15 @@ async function handleChatCompletions(
   }
   if (localOpenAiRoute?.active) {
     response.setHeader('x-command-eve-inference-lane', 'managed_local');
-    await handleLocalOpenAiCompletions(request, body, response, options, localOpenAiRoute);
+    await handleLocalOpenAiCompletions(
+      request,
+      body,
+      response,
+      options,
+      localOpenAiRoute,
+      seatContext,
+      providerRequestId
+    );
     return;
   }
   if (useLocalOllamaVision) {
@@ -2531,9 +2744,28 @@ async function handleChatCompletions(
     if (!stream) {
       const data = (await upstream.json()) as {
         message?: { content?: string; tool_calls?: unknown };
+        done?: boolean;
         done_reason?: string;
       };
       upstreamScope.markActivity();
+      const normalizedToolCalls = normalizeOllamaToolCallsForOpenAI(data.message?.tool_calls, providerRequestId, {
+        nextOrdinal: 0,
+      });
+      const normalizedData = {
+        ...data,
+        message: { ...data.message, ...(normalizedToolCalls === undefined ? {} : { tool_calls: normalizedToolCalls }) },
+      };
+      reportCapturedTypedUIProviderCompletions(extractOllamaCompletedTypedUIPublishCalls(normalizedData), {
+        sessionId: body.session_id,
+        provider: 'ollama',
+        model,
+        providerRequestId,
+        route: 'ollama_local',
+        seatId: seatContext.seatId,
+        seatContextRevision: seatContext.seatContextRevision,
+        terminal: 'ollama_json',
+        report: options.typedUIProviderCompletion,
+      });
       jsonResponse(response, 200, {
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion',
@@ -2545,7 +2777,7 @@ async function handleChatCompletions(
             message: {
               role: 'assistant',
               content: data.message?.content || '',
-              ...(data.message?.tool_calls ? { tool_calls: data.message.tool_calls } : {}),
+              ...(normalizedToolCalls ? { tool_calls: normalizedToolCalls } : {}),
             },
             finish_reason: data.done_reason === 'length' ? 'length' : 'stop',
           },
@@ -2564,6 +2796,40 @@ async function handleChatCompletions(
     const decoder = new TextDecoder();
     let buffer = '';
     let finishReason = 'stop';
+    let sawOllamaTerminal = false;
+    let ollamaStreamInvalid = false;
+    const normalizedToolCalls: unknown[] = [];
+    const toolCallIdState: OllamaToolCallIdState = { nextOrdinal: 0 };
+    const processOllamaLine = (line: string): void => {
+      if (!line.trim()) return;
+      if (sawOllamaTerminal) {
+        ollamaStreamInvalid = true;
+        return;
+      }
+      const chunk = JSON.parse(line) as {
+        message?: { content?: string; tool_calls?: unknown };
+        done?: boolean;
+        done_reason?: string;
+      };
+      const nextToolCalls = normalizeOllamaToolCallsForOpenAI(
+        chunk.message?.tool_calls,
+        providerRequestId,
+        toolCallIdState
+      );
+      if (chunk.done) {
+        sawOllamaTerminal = true;
+        finishReason = chunk.done_reason === 'length' ? 'length' : 'stop';
+        if (finishReason !== 'length') {
+          if (Array.isArray(nextToolCalls)) normalizedToolCalls.push(...nextToolCalls);
+          if (chunk.message?.content || nextToolCalls) {
+            writeStreamChunk(response, model, chunk.message?.content || '', nextToolCalls);
+          }
+        }
+        return;
+      }
+      if (Array.isArray(nextToolCalls)) normalizedToolCalls.push(...nextToolCalls);
+      writeStreamChunk(response, model, chunk.message?.content || '', nextToolCalls);
+    };
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -2571,20 +2837,29 @@ async function handleChatCompletions(
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const chunk = JSON.parse(line) as {
-          message?: { content?: string; tool_calls?: unknown };
-          done?: boolean;
-          done_reason?: string;
-        };
-        if (chunk.done) {
-          finishReason = chunk.done_reason === 'length' ? 'length' : 'stop';
-          continue;
-        }
-        writeStreamChunk(response, model, chunk.message?.content || '', chunk.message?.tool_calls);
-      }
+      for (const line of lines) processOllamaLine(line);
     }
+    buffer += decoder.decode();
+    if (buffer.trim()) processOllamaLine(buffer);
+
+    const typedUIExtraction = ollamaStreamInvalid
+      ? ({ ok: false, reason: 'jsonl_data_after_terminal' } as const)
+      : extractOllamaCompletedTypedUIPublishCalls({
+          done: sawOllamaTerminal,
+          done_reason: finishReason,
+          message: { tool_calls: normalizedToolCalls },
+        });
+    reportCapturedTypedUIProviderCompletions(typedUIExtraction, {
+      sessionId: body.session_id,
+      provider: 'ollama',
+      model,
+      providerRequestId,
+      route: 'ollama_local',
+      seatId: seatContext.seatId,
+      seatContextRevision: seatContext.seatContextRevision,
+      terminal: 'ollama_jsonl',
+      report: options.typedUIProviderCompletion,
+    });
 
     response.write(
       `data: ${JSON.stringify({
@@ -2905,6 +3180,14 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
     // Default resolver returns the legacy 'seat-1' ⇒ attribution is byte-stable
     // (server treats 'seat-1' and absent alike) until main injects getActiveSeatId.
     activeSeatId: shimOptions.activeSeatId || ((): string => 'seat-1'),
+    activeSeatContext:
+      shimOptions.activeSeatContext ||
+      (async (): Promise<CommandEveActiveSeatContext> => ({
+        seatId: await (shimOptions.activeSeatId || ((): string => 'seat-1'))(),
+        seatContextRevision: 0,
+      })),
+    // Inert by default: no private producer means provenance remains rejected.
+    typedUIProviderCompletion: shimOptions.typedUIProviderCompletion || (() => undefined),
     // SG-1 A1: default attribution is the system `eve` (no header producer until
     // the 1.8 wheel train) ⇒ the un-delegated shape, byte-identical to before.
     attributionAgentId: shimOptions.attributionAgentId || ((): string => 'eve'),

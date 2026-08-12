@@ -6,6 +6,8 @@
 
 import { ipcBridge } from '@/common';
 import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
+import { eveTeamWorkerLabel } from '@/common/config/eveTeamRoster';
+import { isHttpUrl, type TypedUIArtifactKind } from '@/common/typedUI';
 import type { PreviewContentType } from '@/common/types/office/preview';
 import { useConversationDelegationActivity } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 import { useConversationRuntimeView } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
@@ -17,6 +19,7 @@ import {
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { LARGE_TEXT_PREVIEW_MAX_LENGTH } from '@/renderer/pages/conversation/Preview/constants';
 import { sanitizeArtifactPreviewSource } from '@/renderer/pages/conversation/Messages/components/artifactPreviewSecurityCore';
+import { registerWorkbenchArtifactResolver } from '@/renderer/pages/conversation/Preview/services/workbenchArtifactResolver';
 import { ELEMENTS_RAIL_SELECT_EVENT, type ElementsRailTab } from '@/renderer/utils/workspace/workspaceEvents';
 import { Button, Message, Spin } from '@arco-design/web-react';
 import {
@@ -31,7 +34,7 @@ import {
   Right,
   Video,
 } from '@icon-park/react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import DurableWorkActivity from './DurableWorkActivity';
 import styles from './ShellElementsRail.module.css';
@@ -246,6 +249,47 @@ const railArtifactTypeOf = (artifact: IConversationArtifact): RailArtifactType =
   return explicit === 'audio' || explicit === 'html' || explicit === 'file' ? explicit : 'file';
 };
 
+const typedUIContentOf = (payload: Record<string, unknown>): string | undefined => {
+  const candidate = payload.typed_ui ?? payload.typedUi;
+  if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) return JSON.stringify(candidate);
+  return undefined;
+};
+
+export const resolverKindOf = (artifact: IConversationArtifact): TypedUIArtifactKind | null => {
+  if (artifact.kind === 'cron_trigger' || artifact.kind === 'skill_suggest') return null;
+  const payload = artifact.payload as Record<string, unknown>;
+  if (typedUIContentOf(payload)) return 'chat';
+  const source = readPayloadString(payload, ARTIFACT_SOURCE_URL_KEYS);
+  const path = readPayloadString(payload, ARTIFACT_SOURCE_PATH_KEYS);
+  const inline = readPayloadContent(payload, ARTIFACT_INLINE_CONTENT_KEYS);
+  if (source && isHttpUrl(source) && !path && !inline) return 'browser';
+  return 'file';
+};
+
+const isSafeWorkspaceRelativePath = (value: string | undefined, workspacePath?: string): boolean => {
+  if (!value || !workspacePath || value.length > 1024 || value.includes('\0')) return false;
+  if (/^(?:file:|\/|[a-z]:[\\/]|\\\\)/i.test(value)) return false;
+  return !value
+    .replaceAll('\\', '/')
+    .split('/')
+    .some((segment) => segment === '..');
+};
+
+export const canOpenArtifactFromTypedAction = (artifact: IConversationArtifact, workspacePath?: string): boolean => {
+  if (artifact.kind === 'cron_trigger' || artifact.kind === 'skill_suggest') return false;
+  const payload = artifact.payload as Record<string, unknown>;
+  const kind = resolverKindOf(artifact);
+  if (kind === 'chat') return Boolean(typedUIContentOf(payload));
+  if (kind === 'browser') return isHttpUrl(readPayloadString(payload, ARTIFACT_SOURCE_URL_KEYS));
+  if (kind !== 'file') return false;
+  const declaredPath = readPayloadString(payload, ARTIFACT_SOURCE_PATH_KEYS);
+  if (declaredPath && !isSafeWorkspaceRelativePath(declaredPath, workspacePath)) return false;
+  if (readPayloadContent(payload, ARTIFACT_INLINE_CONTENT_KEYS)) return true;
+  if (payload.managed_image === true) return true;
+  return isSafeWorkspaceRelativePath(declaredPath, workspacePath);
+};
+
 const railArtifactTypeLabel = (t: (key: string) => string, type: RailArtifactType): string => {
   switch (type) {
     case 'image':
@@ -317,171 +361,223 @@ const ShellElementsRail: React.FC<ShellElementsRailProps> = ({
   // Route every supported artifact into the same conversation-owned workbench.
   // Unknown local binaries still use the system viewer; a click must never be
   // swallowed merely because an artifact arrived as inline content or a data URL.
-  const openArtifact = async (artifact: IConversationArtifact): Promise<void> => {
-    const type = railArtifactTypeOf(artifact);
-    const payload = artifact.payload as Record<string, unknown>;
-    const title = railArtifactTitle(artifact, type, t);
-    const urlSource = readPayloadString(payload, ARTIFACT_SOURCE_URL_KEYS);
-    const pathValue = readPayloadString(payload, ARTIFACT_SOURCE_PATH_KEYS);
-    const path = resolveArtifactPath(pathValue, workspacePath);
-    const sourceFileName = fileNameOf(pathValue) || fileNameOf(urlSource);
-    const sourceExtension = fileExtensionOf(sourceFileName);
-    const titledFileName = fileExtensionOf(title) ? title : sourceExtension ? `${title}.${sourceExtension}` : undefined;
-    const fileName = readPayloadString(payload, ['file_name']) || titledFileName || sourceFileName || title;
-    const contentType = artifactWorkbenchTypeOf(type, payload, fileName);
-    const inlineContent = readPayloadContent(payload, ARTIFACT_INLINE_CONTENT_KEYS);
-    const metadata = {
-      title,
-      file_name: fileName,
-      file_path: path,
-      workspace: workspacePath,
-      conversation_id: artifact.conversation_id,
-      editable: false,
-    };
+  const openArtifact = useCallback(
+    async (artifact: IConversationArtifact, allowSystemFallback = true): Promise<void> => {
+      const type = railArtifactTypeOf(artifact);
+      const payload = artifact.payload as Record<string, unknown>;
+      const resolverKind = resolverKindOf(artifact);
+      const title = railArtifactTitle(artifact, type, t);
+      const urlSource = readPayloadString(payload, ARTIFACT_SOURCE_URL_KEYS);
+      const pathValue = readPayloadString(payload, ARTIFACT_SOURCE_PATH_KEYS);
+      const path = resolveArtifactPath(pathValue, workspacePath);
+      const sourceFileName = fileNameOf(pathValue) || fileNameOf(urlSource);
+      const sourceExtension = fileExtensionOf(sourceFileName);
+      const titledFileName = fileExtensionOf(title)
+        ? title
+        : sourceExtension
+          ? `${title}.${sourceExtension}`
+          : undefined;
+      const fileName = readPayloadString(payload, ['file_name']) || titledFileName || sourceFileName || title;
+      const contentType = artifactWorkbenchTypeOf(type, payload, fileName);
+      const inlineContent = readPayloadContent(payload, ARTIFACT_INLINE_CONTENT_KEYS);
+      const sourceMessageId = readPayloadString(payload, ['source_message_id', 'sourceMessageId']);
+      const includeFileCoordinates =
+        resolverKind === 'file' &&
+        (allowSystemFallback || (!inlineContent && isSafeWorkspaceRelativePath(pathValue, workspacePath)));
+      const metadata = {
+        title,
+        file_name: fileName,
+        ...(includeFileCoordinates ? { file_path: path, workspace: workspacePath } : {}),
+        conversation_id: artifact.conversation_id,
+        artifact_id: artifact.id,
+        ...(resolverKind ? { artifact_kind: resolverKind } : {}),
+        artifact_created_at: artifact.created_at,
+        ...(sourceMessageId ? { source_message_id: sourceMessageId } : {}),
+        editable: false,
+      };
 
-    const showPreview = (content: string, previewType: PreviewContentType): void => {
-      preview.openPreview(content, previewType, metadata);
-      onRequestClose?.();
-    };
+      const showPreview = (content: string, previewType: PreviewContentType): void => {
+        preview.openPreview(content, previewType, metadata);
+        onRequestClose?.();
+      };
 
-    const showMediaPreview = (candidate: string, mediaType: 'image' | 'video' | 'audio'): boolean => {
-      const source = sanitizeArtifactPreviewSource(candidate, mediaType);
-      if (!source) return false;
-      showPreview(source, mediaType);
-      return true;
-    };
+      const showMediaPreview = (candidate: string, mediaType: 'image' | 'video' | 'audio'): boolean => {
+        const source = sanitizeArtifactPreviewSource(candidate, mediaType);
+        if (!source) return false;
+        showPreview(source, mediaType);
+        return true;
+      };
 
-    if (type === 'image') {
-      let source = urlSource;
-      if (!source && payload.managed_image === true) {
-        try {
-          const response = await ipcBridge.commandEve.imageArtifactPreview.invoke({
-            conversationId: artifact.conversation_id,
-            artifactId: artifact.id,
-          });
-          const previewData = response?.data;
-          if (previewData) source = `data:${previewData.mime_type};base64,${previewData.data_base64}`;
-        } catch {
-          // Fall through to the path-based viewers below.
-        }
-      }
-      if (!source && path) {
-        try {
-          if (workspacePath) source = await ipcBridge.fs.getImageBase64.invoke({ path, workspace: workspacePath });
-        } catch {
-          // Generated outputs can live outside the active workspace.
-        }
-        if (!source) {
-          try {
-            const approved = await ipcBridge.application.readGeneratedArtifactPreview.invoke({ path, kind: 'image' });
-            if (approved?.encoding === 'base64') source = `data:${approved.mimeType};base64,${approved.data}`;
-          } catch {
-            // Fall through to the system viewer below.
-          }
-        }
-      }
-      if (source && showMediaPreview(source, 'image')) return;
-    }
-
-    if (inlineContent && contentType && ['markdown', 'html', 'code', 'diff'].includes(contentType)) {
-      showPreview(inlineContent.slice(0, LARGE_TEXT_PREVIEW_MAX_LENGTH), contentType);
-      return;
-    }
-
-    if (urlSource && contentType) {
-      if (contentType === 'image' || contentType === 'video' || contentType === 'audio') {
-        if (showMediaPreview(urlSource, contentType)) return;
-      } else if (
-        contentType === 'pdf' &&
-        (/^(?:https?|blob):/i.test(urlSource) || /^data:application\/pdf(?:;|,)/i.test(urlSource))
-      ) {
-        showPreview(urlSource, 'pdf');
-        return;
-      }
-    }
-
-    if (urlSource && /^https?:/i.test(urlSource)) {
-      showPreview(urlSource, 'url');
-      return;
-    }
-
-    if (path && contentType) {
-      if (contentType === 'pdf' || contentType === 'word' || contentType === 'ppt' || contentType === 'excel') {
-        showPreview('', contentType);
+      const typedUIContent = typedUIContentOf(payload);
+      if (typedUIContent) {
+        showPreview(typedUIContent, 'typed-ui');
         return;
       }
 
-      if (contentType === 'video' || contentType === 'audio') {
-        let source: string | undefined;
-        if (workspacePath) {
+      if (type === 'image') {
+        let source = urlSource;
+        if (!source && payload.managed_image === true) {
           try {
-            const fileMetadata = await ipcBridge.fs.getFileMetadata.invoke({ path, workspace: workspacePath });
-            if (
-              fileMetadata &&
-              !fileMetadata.isDirectory &&
-              !fileMetadata.is_directory &&
-              fileMetadata.size <= LOCAL_MEDIA_PREVIEW_MAX_BYTES
-            ) {
-              const encoded = await ipcBridge.fs.readFileBuffer.invoke({ path, workspace: workspacePath });
-              const mimeType = mediaMimeFromPath(path);
-              if (encoded && mimeType?.startsWith(`${contentType}/`)) {
-                source = `data:${mimeType};base64,${encoded}`;
-              }
-            }
-          } catch {
-            // Try the bounded generated-artifact bridge below.
-          }
-        }
-        if (!source) {
-          try {
-            const approved = await ipcBridge.application.readGeneratedArtifactPreview.invoke({
-              path,
-              kind: contentType,
+            const response = await ipcBridge.commandEve.imageArtifactPreview.invoke({
+              conversationId: artifact.conversation_id,
+              artifactId: artifact.id,
             });
-            if (approved?.encoding === 'base64') source = `data:${approved.mimeType};base64,${approved.data}`;
+            const previewData = response?.data;
+            if (previewData) source = `data:${previewData.mime_type};base64,${previewData.data_base64}`;
           } catch {
-            // Fall through to the system viewer below.
+            // Fall through to the path-based viewers below.
           }
         }
-        if (source && showMediaPreview(source, contentType)) return;
+        if (!source && path) {
+          try {
+            if (workspacePath) source = await ipcBridge.fs.getImageBase64.invoke({ path, workspace: workspacePath });
+          } catch {
+            // Generated outputs can live outside the active workspace.
+          }
+          if (!source) {
+            try {
+              const approved = await ipcBridge.application.readGeneratedArtifactPreview.invoke({ path, kind: 'image' });
+              if (approved?.encoding === 'base64') source = `data:${approved.mimeType};base64,${approved.data}`;
+            } catch {
+              // Fall through to the system viewer below.
+            }
+          }
+        }
+        if (source && showMediaPreview(source, 'image')) return;
       }
 
-      if (contentType === 'html' || contentType === 'markdown' || contentType === 'code' || contentType === 'diff') {
-        let content: string | undefined;
-        if (workspacePath) {
-          try {
-            const value = await ipcBridge.fs.readFile.invoke({ path, workspace: workspacePath });
-            if (typeof value === 'string') content = value;
-          } catch {
-            // Generated HTML can live outside the active workspace.
-          }
-        }
-        if (!content && contentType === 'html') {
-          try {
-            const approved = await ipcBridge.application.readGeneratedArtifactPreview.invoke({ path, kind: 'html' });
-            if (approved?.encoding === 'utf8') content = approved.data;
-          } catch {
-            // Fall through to the system viewer below.
-          }
-        }
-        if (content) {
-          showPreview(content.slice(0, LARGE_TEXT_PREVIEW_MAX_LENGTH), contentType);
+      if (inlineContent && contentType && ['markdown', 'html', 'code', 'diff'].includes(contentType)) {
+        showPreview(inlineContent.slice(0, LARGE_TEXT_PREVIEW_MAX_LENGTH), contentType);
+        return;
+      }
+
+      if (urlSource && contentType) {
+        if (contentType === 'image' || contentType === 'video' || contentType === 'audio') {
+          if (showMediaPreview(urlSource, contentType)) return;
+        } else if (
+          contentType === 'pdf' &&
+          (/^(?:https?|blob):/i.test(urlSource) || /^data:application\/pdf(?:;|,)/i.test(urlSource))
+        ) {
+          showPreview(urlSource, 'pdf');
           return;
         }
       }
-    }
 
-    if (path) {
-      try {
-        await ipcBridge.shell.openFile.invoke(path);
-        onRequestClose?.();
-      } catch (openError) {
-        console.error('[ShellElementsRail] Failed to open artifact:', openError);
+      if (urlSource && isHttpUrl(urlSource)) {
+        showPreview(urlSource, 'url');
+        return;
       }
-      return;
-    }
-    Message.error(t('messages.artifact.previewUnavailable'));
-  };
+
+      if (path && contentType) {
+        if (contentType === 'pdf' || contentType === 'word' || contentType === 'ppt' || contentType === 'excel') {
+          showPreview('', contentType);
+          return;
+        }
+
+        if (contentType === 'video' || contentType === 'audio') {
+          let source: string | undefined;
+          if (workspacePath) {
+            try {
+              const fileMetadata = await ipcBridge.fs.getFileMetadata.invoke({ path, workspace: workspacePath });
+              if (
+                fileMetadata &&
+                !fileMetadata.isDirectory &&
+                !fileMetadata.is_directory &&
+                fileMetadata.size <= LOCAL_MEDIA_PREVIEW_MAX_BYTES
+              ) {
+                const encoded = await ipcBridge.fs.readFileBuffer.invoke({ path, workspace: workspacePath });
+                const mimeType = mediaMimeFromPath(path);
+                if (encoded && mimeType?.startsWith(`${contentType}/`)) {
+                  source = `data:${mimeType};base64,${encoded}`;
+                }
+              }
+            } catch {
+              // Try the bounded generated-artifact bridge below.
+            }
+          }
+          if (!source) {
+            try {
+              const approved = await ipcBridge.application.readGeneratedArtifactPreview.invoke({
+                path,
+                kind: contentType,
+              });
+              if (approved?.encoding === 'base64') source = `data:${approved.mimeType};base64,${approved.data}`;
+            } catch {
+              // Fall through to the system viewer below.
+            }
+          }
+          if (source && showMediaPreview(source, contentType)) return;
+        }
+
+        if (contentType === 'html' || contentType === 'markdown' || contentType === 'code' || contentType === 'diff') {
+          let content: string | undefined;
+          if (workspacePath) {
+            try {
+              const value = await ipcBridge.fs.readFile.invoke({ path, workspace: workspacePath });
+              if (typeof value === 'string') content = value;
+            } catch {
+              // Generated HTML can live outside the active workspace.
+            }
+          }
+          if (!content && contentType === 'html') {
+            try {
+              const approved = await ipcBridge.application.readGeneratedArtifactPreview.invoke({ path, kind: 'html' });
+              if (approved?.encoding === 'utf8') content = approved.data;
+            } catch {
+              // Fall through to the system viewer below.
+            }
+          }
+          if (content) {
+            showPreview(content.slice(0, LARGE_TEXT_PREVIEW_MAX_LENGTH), contentType);
+            return;
+          }
+        }
+      }
+
+      if (path && allowSystemFallback) {
+        try {
+          await ipcBridge.shell.openFile.invoke(path);
+          onRequestClose?.();
+        } catch (openError) {
+          console.error('[ShellElementsRail] Failed to open artifact:', openError);
+        }
+        return;
+      }
+      if (allowSystemFallback) Message.error(t('messages.artifact.previewUnavailable'));
+      else throw new Error('artifact_not_resolved');
+    },
+    [onRequestClose, preview, t, workspacePath]
+  );
+
+  useEffect(() => {
+    if (!conversationId) return;
+    return registerWorkbenchArtifactResolver({
+      id: `conversation-artifacts-${conversationId}`,
+      priority: 60,
+      canResolve(reference) {
+        if (reference.conversationId !== conversationId) return false;
+        const artifact = artifacts.find((candidate) => candidate.id === reference.artifactId);
+        return Boolean(
+          artifact &&
+          resolverKindOf(artifact) === reference.kind &&
+          canOpenArtifactFromTypedAction(artifact, workspacePath)
+        );
+      },
+      async open(reference) {
+        const artifact = artifacts.find(
+          (candidate) => candidate.id === reference.artifactId && resolverKindOf(candidate) === reference.kind
+        );
+        if (
+          !artifact ||
+          reference.conversationId !== conversationId ||
+          !canOpenArtifactFromTypedAction(artifact, workspacePath)
+        ) {
+          throw new Error('artifact_not_resolved');
+        }
+        await openArtifact(artifact, false);
+      },
+    });
+  }, [artifacts, conversationId, openArtifact, workspacePath]);
 
   useEffect(() => {
     const selectTab = (event: Event) => {

@@ -6,16 +6,31 @@
 
 import { ipcBridge } from '@/common';
 import type { IFileMetadata, IGeneratedArtifactType, IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
+import { configService } from '@/common/config/configService';
+import {
+  bindTypedUIEnvelopeToArtifact,
+  TYPED_UI_MIME_TYPE,
+  TYPED_UI_SCHEMA_VERSION,
+  validateTypedUIEnvelope,
+  type TypedUIProvenanceAttestation,
+} from '@/common/typedUI';
 import MarkdownView from '@/renderer/components/Markdown';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
+import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { iconColors } from '@/renderer/styles/colors';
+import { emitter } from '@/renderer/utils/emitter';
+import {
+  openWorkbenchArtifact,
+  registerWorkbenchArtifactResolver,
+} from '@/renderer/pages/conversation/Preview/services/workbenchArtifactResolver';
 import { Message } from '@arco-design/web-react';
 import { FolderOpen, Paperclip, PreviewOpen } from '@icon-park/react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import PDFPreview from '../../Preview/components/viewers/PDFViewer';
 import { secureArtifactHtml } from '../../Preview/components/renderers/htmlArtifactSecurityCore';
 import { sanitizeArtifactPreviewSource } from './artifactPreviewSecurityCore';
+import { createDefaultTypedUIActionHost, TypedUIRenderer } from './TypedGenerativeUI';
 
 type ArtifactPayload = IGeneratedConversationArtifact['payload'] | Record<string, unknown> | string;
 type ArtifactPreviewType = IGeneratedArtifactType | 'pdf';
@@ -64,6 +79,61 @@ function readString(payload: Record<string, unknown>, keys: string[]): string | 
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return undefined;
+}
+
+function readTypedUIContent(payload: Record<string, unknown>): string | undefined {
+  const mimeType = readString(payload, ['mime_type', 'media_type', 'mimeType'])?.toLowerCase();
+  const candidate = payload.typed_ui ?? payload.typedUi;
+  if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) return JSON.stringify(candidate);
+  if (payload.schema_version === TYPED_UI_SCHEMA_VERSION) return JSON.stringify(payload);
+  if (mimeType === TYPED_UI_MIME_TYPE) {
+    if (typeof payload.content === 'string') return payload.content;
+    if (payload.content && typeof payload.content === 'object' && !Array.isArray(payload.content)) {
+      return JSON.stringify(payload.content);
+    }
+  }
+  return undefined;
+}
+
+function bindTypedUIContentToArtifact(
+  content: string | undefined,
+  artifact: IGeneratedConversationArtifact,
+  sourceMessageId: string | undefined
+): string | undefined {
+  if (!content || !sourceMessageId) return undefined;
+  try {
+    const raw = validateTypedUIEnvelope(JSON.parse(content) as unknown);
+    if (!raw.ok) return undefined;
+    const bound = bindTypedUIEnvelopeToArtifact(raw.value, {
+      artifact_id: artifact.id,
+      conversation_id: artifact.conversation_id,
+      source_message_id: sourceMessageId,
+      created_at: artifact.created_at,
+    });
+    const validation = validateTypedUIEnvelope(bound);
+    return validation.ok ? JSON.stringify(validation.value) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const SHA256_HEX = /^[a-f0-9]{64}$/i;
+
+function isVerifiedTypedUIAttestation(
+  attestation: TypedUIProvenanceAttestation,
+  artifact: IGeneratedConversationArtifact,
+  sourceMessageId: string
+): boolean {
+  return (
+    attestation.status === 'verified' &&
+    attestation.artifact_id === artifact.id &&
+    attestation.conversation_id === artifact.conversation_id &&
+    attestation.source_message_id === sourceMessageId &&
+    SHA256_HEX.test(attestation.content_sha256) &&
+    Number.isSafeInteger(attestation.seat_context_revision) &&
+    attestation.seat_context_revision >= 0
+  );
 }
 
 function readNumber(payload: Record<string, unknown>, keys: string[]): number | undefined {
@@ -246,8 +316,10 @@ function buildReceiptSummary(
 const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtifact }> = ({ artifact }) => {
   const { t } = useTranslation();
   const conversationContext = useConversationContextSafe();
+  const preview = usePreviewContext();
   const workspace = conversationContext?.workspace?.trim() || undefined;
   const payload = useMemo(() => parsePayload(artifact.payload), [artifact.payload]);
+  const rawTypedUIContent = useMemo(() => readTypedUIContent(payload), [payload]);
   const type = inferType(artifact.kind, payload);
   const typeLabel = getTypeLabel(t, type);
   const path = readString(payload, SOURCE_PATH_KEYS);
@@ -272,6 +344,11 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const htmlContent = type === 'html' ? readString(payload, ['html', 'content']) : undefined;
   const textContent = type === 'file' ? readString(payload, ['content', 'text']) : undefined;
   const receiptSummary = buildReceiptSummary(t, payload);
+  const sourceMessageId = readString(payload, ['source_message_id', 'sourceMessageId']);
+  const typedUIContent = useMemo(
+    () => bindTypedUIContentToArtifact(rawTypedUIContent, artifact, sourceMessageId),
+    [artifact, rawTypedUIContent, sourceMessageId]
+  );
   const openPath = resolvedPath || (source?.startsWith('file:') ? fileUrlToPath(source) : undefined);
   const [pathHtmlContent, setPathHtmlContent] = useState<string>();
   const [pathHtmlLoading, setPathHtmlLoading] = useState(false);
@@ -470,6 +547,212 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
       Message.error(t('messages.artifact.revealFailed'));
     }
   };
+
+  const typedUIHost = useMemo(
+    () =>
+      createDefaultTypedUIActionHost({
+        provenanceArtifact: {
+          artifact_id: artifact.id,
+          conversation_id: artifact.conversation_id,
+          created_at: artifact.created_at,
+          source_message_id: sourceMessageId || '',
+        },
+        openArtifact: (kind, artifactId) =>
+          openWorkbenchArtifact({ kind, artifactId, conversationId: artifact.conversation_id }),
+        replyWithState: (text) => {
+          emitter.emit('sendbox.fill', text);
+        },
+      }),
+    [artifact.conversation_id, artifact.created_at, artifact.id, sourceMessageId]
+  );
+  const [typedUIResolverGate, setTypedUIResolverGate] = useState<{
+    attestation?: TypedUIProvenanceAttestation;
+    content: string;
+    state: 'checking' | 'verified' | 'rejected';
+  }>();
+  const resolverCleanupRef = useRef<(() => void) | undefined>(undefined);
+  const activeSeatIdRef = useRef(configService.getCurrentSeatId());
+  const [seatGeneration, setSeatGeneration] = useState(0);
+
+  useEffect(() => {
+    return configService.onSeatRebind((seatId) => {
+      activeSeatIdRef.current = seatId;
+      resolverCleanupRef.current?.();
+      resolverCleanupRef.current = undefined;
+      setTypedUIResolverGate(undefined);
+      setSeatGeneration((generation) => generation + 1);
+    });
+  }, []);
+
+  const typedUIEnvelope = useMemo(() => {
+    if (!typedUIContent) return undefined;
+    try {
+      const validated = validateTypedUIEnvelope(JSON.parse(typedUIContent) as unknown);
+      return validated.ok ? validated.value : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [typedUIContent]);
+
+  useEffect(() => {
+    if (!typedUIContent || !sourceMessageId) {
+      setTypedUIResolverGate(undefined);
+      return;
+    }
+    let active = true;
+    const content = typedUIContent;
+    const attestationSeatId = activeSeatIdRef.current;
+    setTypedUIResolverGate({ content, state: 'checking' });
+    if (!typedUIEnvelope) {
+      setTypedUIResolverGate({ content, state: 'rejected' });
+      return;
+    }
+    void typedUIHost
+      .attestProvenance(typedUIEnvelope)
+      .then((attestation) => {
+        if (!active || activeSeatIdRef.current !== attestationSeatId) return;
+        const verified = isVerifiedTypedUIAttestation(attestation, artifact, sourceMessageId);
+        setTypedUIResolverGate({
+          content,
+          attestation: verified ? attestation : undefined,
+          state: verified ? 'verified' : 'rejected',
+        });
+      })
+      .catch(() => {
+        if (active && activeSeatIdRef.current === attestationSeatId) {
+          setTypedUIResolverGate({ content, state: 'rejected' });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    artifact.conversation_id,
+    artifact.id,
+    seatGeneration,
+    sourceMessageId,
+    typedUIContent,
+    typedUIEnvelope,
+    typedUIHost,
+  ]);
+
+  const typedUIResolverState =
+    typedUIResolverGate && typedUIResolverGate.content === typedUIContent ? typedUIResolverGate.state : 'checking';
+  const typedUIResolverVerified = typedUIResolverState === 'verified';
+  const typedUIVerifiedAttestation =
+    typedUIResolverGate && typedUIResolverGate.content === typedUIContent && typedUIResolverGate.state === 'verified'
+      ? typedUIResolverGate.attestation
+      : undefined;
+
+  useEffect(() => {
+    if (!typedUIContent || !typedUIEnvelope || !typedUIResolverVerified || !typedUIVerifiedAttestation) return;
+    const resolverSeatId = activeSeatIdRef.current;
+    const resolverContentSha256 = typedUIVerifiedAttestation.content_sha256;
+    const resolverSeatContextRevision = typedUIVerifiedAttestation.seat_context_revision;
+    const unregister = registerWorkbenchArtifactResolver({
+      id: `typed-ui-${artifact.conversation_id}-${artifact.id}`,
+      priority: 100,
+      canResolve(reference) {
+        return (
+          activeSeatIdRef.current === resolverSeatId &&
+          reference.kind === 'chat' &&
+          reference.conversationId === artifact.conversation_id &&
+          reference.artifactId === artifact.id
+        );
+      },
+      async open(reference) {
+        if (
+          activeSeatIdRef.current !== resolverSeatId ||
+          reference.kind !== 'chat' ||
+          reference.conversationId !== artifact.conversation_id ||
+          reference.artifactId !== artifact.id
+        ) {
+          throw new Error('artifact_not_resolved');
+        }
+        let reattestation: TypedUIProvenanceAttestation;
+        try {
+          // Main hashes the exact bound envelope it receives. This is a fresh
+          // authority check, not a renderer cache or a replayed receipt.
+          reattestation = await typedUIHost.attestProvenance(typedUIEnvelope);
+        } catch {
+          resolverCleanupRef.current?.();
+          setTypedUIResolverGate({ content: typedUIContent, state: 'rejected' });
+          throw new Error('artifact_not_resolved');
+        }
+        if (
+          activeSeatIdRef.current !== resolverSeatId ||
+          !isVerifiedTypedUIAttestation(reattestation, artifact, sourceMessageId) ||
+          reattestation.content_sha256 !== resolverContentSha256 ||
+          reattestation.seat_context_revision !== resolverSeatContextRevision
+        ) {
+          resolverCleanupRef.current?.();
+          setTypedUIResolverGate({ content: typedUIContent, state: 'rejected' });
+          throw new Error('artifact_not_resolved');
+        }
+        preview.openPreview(typedUIContent, 'typed-ui', {
+          title,
+          conversation_id: artifact.conversation_id,
+          artifact_id: artifact.id,
+          artifact_kind: 'chat',
+          artifact_created_at: artifact.created_at,
+          ...(sourceMessageId ? { source_message_id: sourceMessageId } : {}),
+          typed_ui_attestation_id: typedUIVerifiedAttestation.attestation_id,
+          typed_ui_content_sha256: resolverContentSha256,
+          typed_ui_seat_context_revision: resolverSeatContextRevision,
+        });
+      },
+    });
+    resolverCleanupRef.current = unregister;
+    return () => {
+      if (resolverCleanupRef.current === unregister) resolverCleanupRef.current = undefined;
+      unregister();
+    };
+  }, [
+    artifact.conversation_id,
+    artifact.created_at,
+    artifact.id,
+    preview,
+    sourceMessageId,
+    seatGeneration,
+    title,
+    typedUIContent,
+    typedUIEnvelope,
+    typedUIHost,
+    typedUIResolverVerified,
+    typedUIVerifiedAttestation,
+  ]);
+
+  if (typedUIContent) {
+    if (!typedUIResolverVerified) {
+      return (
+        <div
+          className='max-w-780px w-full mx-auto'
+          data-testid={`typed-ui-provenance-${typedUIResolverState}`}
+          role='status'
+          aria-live='polite'
+        >
+          {typedUIResolverState === 'checking'
+            ? t('messages.typedUI.provenance.checking')
+            : t('messages.typedUI.provenance.rejected')}
+        </div>
+      );
+    }
+    return (
+      <div data-testid='generated-artifact-card' className='max-w-780px w-full mx-auto'>
+        <TypedUIRenderer
+          content={typedUIContent}
+          mode='compact'
+          host={typedUIHost}
+          receiptContext={{
+            artifactId: artifact.id,
+            conversationId: artifact.conversation_id,
+            sourceMessageId: sourceMessageId || '',
+          }}
+          onOpenWorkbench={() => typedUIHost.openArtifact('chat', artifact.id)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div data-testid='generated-artifact-card' className='max-w-780px w-full mx-auto'>

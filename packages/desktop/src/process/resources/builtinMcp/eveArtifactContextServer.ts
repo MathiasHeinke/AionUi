@@ -53,6 +53,7 @@ import {
   EVE_ARTIFACT_TOOL_ARTIFACT_GET,
   EVE_ARTIFACT_TOOL_ARTIFACT_LIST,
   EVE_ARTIFACT_TOOL_IMAGE_EDIT,
+  EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH,
   EVE_ARTIFACT_TOOL_VIDEO_EDIT,
   EVE_ARTIFACT_TOOL_VIDEO_GENERATE,
   isToolAdvertised,
@@ -177,6 +178,22 @@ async function main() {
         // eslint-disable-next-line no-await-in-loop
         for (const handle of handles) results.push(await callMain('artifact_get', { handle }));
         return textResult({ ok: true, artifacts: results }, false);
+      }
+    );
+  }
+
+  if (isToolAdvertised(surface, EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH)) {
+    server.tool(
+      EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH,
+      describeEveArtifactTool(surface, EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH),
+      {
+        envelope: z
+          .record(z.string(), z.unknown())
+          .describe('One complete command-eve.typed-ui/v2 JSON envelope using the fixed catalog.'),
+      },
+      async ({ envelope }) => {
+        const result = await callMain('typed_ui_publish', { envelope });
+        return textResult(result, result.ok !== true);
       }
     );
   }

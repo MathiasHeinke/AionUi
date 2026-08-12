@@ -149,6 +149,8 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.team-manage-reject',
   'command-eve.telemetry-consent-get',
   'command-eve.telemetry-consent-set',
+  'command-eve.typed-ui-action-receipt',
+  'command-eve.typed-ui-provenance-attestation',
   'command-eve.video-artifact-hydrate',
   'command-eve.video-artifacts-list',
   'command-eve.video-capabilities',
@@ -373,6 +375,8 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'command-eve.team-manage-reject': 'record',
   'command-eve.telemetry-consent-get': 'void',
   'command-eve.telemetry-consent-set': 'record',
+  'command-eve.typed-ui-action-receipt': 'record',
+  'command-eve.typed-ui-provenance-attestation': 'record',
   // conversationId only — reads MAIN's own local durable video-artifact store.
   'command-eve.video-artifact-hydrate': 'record',
   'command-eve.video-artifacts-list': 'record',

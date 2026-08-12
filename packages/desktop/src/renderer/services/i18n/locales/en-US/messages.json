@@ -37,6 +37,34 @@
     "noPreview": "Artifact created, but no preview source was provided.",
     "previewUnavailable": "A direct preview is not available for this file type."
   },
+  "typedUI": {
+    "title": "Interactive artifact",
+    "regionLabel": "Typed interactive artifact",
+    "openWorkbench": "Open full view in Workbench",
+    "invalidTitle": "This interactive artifact was blocked",
+    "invalidDescription": "Its declarative UI did not pass the safety contract ({{code}}). No component or action was rendered.",
+    "streaming": "Building the validated interface…",
+    "loading": "Loading",
+    "openArtifact": "Open artifact",
+    "requestApproval": "Request approval",
+    "actionUnavailable": "The action was stopped because EVE authority or receipt persistence was unavailable.",
+    "actionCompleted": "{{action}} completed through EVE authority ({{gate}}).",
+    "actionBlocked": "{{action}} was blocked by EVE authority ({{gate}}).",
+    "provenance": {
+      "checking": "Verifying generation evidence…",
+      "verified": "Generation verified by Command EVE",
+      "rejected": "Generation evidence unavailable",
+      "rejectedTitle": "This interface could not be verified",
+      "rejectedDescription": "Command EVE did not find a matching trusted generation receipt. No interface or action was rendered."
+    },
+    "lifecycle": {
+      "controls": "Durable work controls",
+      "pause": "Pause",
+      "resume": "Resume",
+      "cancel": "Cancel",
+      "transportUnavailable": "Controls are disabled until the canonical Durable Work transport is available."
+    }
+  },
   "availableCommands": "{{count}} Available Commands",
   "atFile.hint": "Type to search for files",
   "atFile.menuLabel": "File mentions",

@@ -15,8 +15,11 @@ import {
   type CommandEveBrowserControlContext,
 } from '@/common/config/browserWorkbenchControlCore';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import { configService } from '@/common/config/configService';
 import type { PreviewContentType } from '@/common/types/office/preview';
+import type { TypedUIArtifactKind } from '@/common/typedUI';
 import { emitter } from '@/renderer/utils/emitter';
+import { registerWorkbenchArtifactResolver } from '../services/workbenchArtifactResolver';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 /** DOM 片段数据结构 / DOM snippet data structure */
@@ -39,6 +42,13 @@ export interface PreviewMetadata {
   editable?: boolean; // 是否可编辑 / Whether editable
   truncated?: boolean; // 预览内容是否被截断 / Whether preview content was truncated
   conversation_id?: string; // Owning conversation when the preview was opened from chat
+  artifact_id?: string; // Exact conversation-artifact identity for cross-pane resolution
+  artifact_kind?: TypedUIArtifactKind; // Typed resolver namespace; never inferred as a path or URL
+  artifact_created_at?: number; // Provenance correlation, copied from the canonical artifact record
+  source_message_id?: string; // Optional source-message correlation for typed provenance
+  typed_ui_attestation_id?: string; // Main-issued attestation; never persisted or used as standalone authority
+  typed_ui_content_sha256?: string; // Exact envelope binding for the in-memory typed UI pane
+  typed_ui_seat_context_revision?: number; // Main seat-context revision for the in-memory typed UI pane
   workspace_event_prefix?: 'acp' | 'codex' | 'aionrs'; // Backend event namespace for workspace operations
   is_temporary_workspace?: boolean; // Preserve generated workspace identity inside workbench surfaces
   browser_history_back?: string[];
@@ -150,6 +160,8 @@ const loadWorkbenchLayoutMode = (): WorkbenchLayoutMode => {
 const MAX_PERSISTED_TAB_CONTENT_LENGTH = 80_000;
 const PERSISTABLE_CONTENT_TYPES = new Set<PreviewContentType>(['markdown', 'html', 'code', 'diff', 'kanban']);
 
+const isTypedUIPreviewTab = (tab: PreviewTab): boolean => tab.content_type === 'typed-ui';
+
 const resolveCurrentConversationId = (): string | undefined => {
   if (typeof window === 'undefined') return undefined;
   const match = window.location.hash.match(/^#\/conversation\/([^/?#]+)/);
@@ -190,6 +202,7 @@ const sanitizeRestoredTab = (tab: PreviewTab): PreviewTab => {
 
 const sanitizeTabsForPersistence = (input: PreviewTab[]): PreviewTab[] => {
   return input
+    .filter((tab) => !isTypedUIPreviewTab(tab))
     .filter((tab) => PERSISTABLE_CONTENT_TYPES.has(tab.content_type))
     .filter((tab) => tab.content_type === 'kanban' || tab.content.length <= MAX_PERSISTED_TAB_CONTENT_LENGTH)
     .map(sanitizeTabForPersistence);
@@ -209,6 +222,7 @@ const parsePersistedTabs = (value: unknown): PreviewTab[] => {
         typeof candidate.content_type === 'string'
       );
     })
+    .filter((tab) => !isTypedUIPreviewTab(tab))
     .filter((tab) => PERSISTABLE_CONTENT_TYPES.has(tab.content_type))
     .filter((tab) => tab.content_type === 'kanban' || tab.content.length <= MAX_PERSISTED_TAB_CONTENT_LENGTH)
     .map(sanitizeRestoredTab);
@@ -325,6 +339,23 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
       unsubscribe();
     };
   }, [applyBrowserContext, refreshBrowserContext]);
+
+  useEffect(() => {
+    return configService.onSeatRebind(() => {
+      setTabs((previousTabs) => {
+        const nextTabs = previousTabs.filter((tab) => !isTypedUIPreviewTab(tab));
+        if (nextTabs.length === previousTabs.length) return previousTabs;
+        const nextActiveTabId = nextTabs.some((tab) => tab.id === activeTabIdRef.current)
+          ? activeTabIdRef.current
+          : (nextTabs.at(-1)?.id ?? null);
+        pendingActiveTabIdRef.current = null;
+        activeTabIdRef.current = nextActiveTabId;
+        setActiveTabId(nextActiveTabId);
+        if (!nextActiveTabId) setIsOpen(false);
+        return nextTabs;
+      });
+    });
+  }, []);
 
   const setWorkbenchLayoutMode = useCallback((mode: WorkbenchLayoutMode) => {
     setWorkbenchLayoutModeState(mode);
@@ -593,6 +624,34 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setIsOpen(true);
   }, []);
 
+  useEffect(() => {
+    const resolverId = `preview-tabs-${Math.random().toString(36).slice(2)}`;
+    return registerWorkbenchArtifactResolver({
+      id: resolverId,
+      priority: 40,
+      canResolve(reference) {
+        return tabs.some(
+          (tab) =>
+            !isTypedUIPreviewTab(tab) &&
+            tab.metadata?.conversation_id === reference.conversationId &&
+            tab.metadata?.artifact_id === reference.artifactId &&
+            tab.metadata?.artifact_kind === reference.kind
+        );
+      },
+      open(reference) {
+        const tab = tabs.find(
+          (candidate) =>
+            !isTypedUIPreviewTab(candidate) &&
+            candidate.metadata?.conversation_id === reference.conversationId &&
+            candidate.metadata?.artifact_id === reference.artifactId &&
+            candidate.metadata?.artifact_kind === reference.kind
+        );
+        if (!tab) throw new Error('artifact_not_resolved');
+        showPreview(tab.id);
+      },
+    });
+  }, [showPreview, tabs]);
+
   const hidePreview = useCallback(() => {
     setIsOpen(false);
   }, []);
@@ -699,6 +758,7 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const tab = tabs.find((t) => t.id === targetTabId);
       if (!tab) return false;
+      if (tab.metadata?.editable === false) return false;
 
       // 如果有 file_path 和 workspace，写回工作空间文件 / If file_path and workspace exist, write back to workspace file
       if (tab.metadata?.file_path && tab.metadata?.workspace) {
