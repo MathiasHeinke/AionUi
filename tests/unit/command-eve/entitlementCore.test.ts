@@ -37,6 +37,7 @@ import {
 } from '@/common/config/eveInferenceCore';
 import { storeLicenseWire } from '@/common/config/licenseWireAtRest';
 import { setSafeStorageForTesting, type SafeStorageAdapter } from '@/common/config/keychain';
+import { COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED_ENV } from '@/process/security/cdpSecurityCore';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -1237,6 +1238,8 @@ describe('getEntitlementStatus', () => {
     const options = optionsFor(root, publicKeyPem, {
       COMMAND_EVE_REGISTRATION_REQUIRED: 'false',
       COMMAND_EVE_RESOURCES_PATH: root,
+      AIONUI_E2E_TEST: '1',
+      COMMAND_EVE_E2E_PACKAGED_ATTACHMENT: '1',
     });
     const status = getEntitlementStatus(options);
     expect(status.required).toBe(true);
@@ -1244,6 +1247,20 @@ describe('getEntitlementStatus', () => {
     // never turn this into an entitled/unregistered production gate.
     expect(status.state).toBe('unconfigured');
     expect(status.ok).toBe(false);
+  });
+
+  it('honors flag OFF only for a freshly verified non-distributable packaged QA attachment', () => {
+    const root = makeRoot();
+    const { publicKeyPem } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem, {
+      COMMAND_EVE_REGISTRATION_REQUIRED: 'false',
+      COMMAND_EVE_RESOURCES_PATH: root,
+      [COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED_ENV]: '1',
+    });
+    const status = getEntitlementStatus(options);
+    expect(status.required).toBe(false);
+    expect(status.ok).toBe(true);
+    expect(status.state).toBe('unregistered');
   });
 
   it('accepts a public key supplied as a file path via env (W12 injection seam)', () => {

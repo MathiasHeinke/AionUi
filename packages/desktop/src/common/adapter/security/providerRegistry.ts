@@ -15,11 +15,16 @@
  */
 export const RENDERER_PROVIDER_KEYS = [
   'app.get-cdp-status',
+  'app.get-browser-context',
   'app.get-gpu-status',
   'app.get-path',
   'app.get-start-on-boot-status',
   'app.get-zoom-factor',
   'app.read-generated-artifact-preview',
+  'app.release-browser-webcontents-lease',
+  'app.report-browser-webcontents-id',
+  'app.revoke-browser-context',
+  'app.save-browser-workbench-state',
   'app.set-gpu-override',
   'app.set-start-on-boot',
   'app.set-zoom-factor',
@@ -206,11 +211,16 @@ export const CUSTOMER_DEFAULT_KANBAN_PROVIDER_KEYS: ReadonlySet<RendererProvider
  */
 export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'app.get-cdp-status': 'void',
+  'app.get-browser-context': 'void',
   'app.get-gpu-status': 'void',
   'app.get-path': 'record',
   'app.get-start-on-boot-status': 'void',
   'app.get-zoom-factor': 'void',
   'app.read-generated-artifact-preview': 'record',
+  'app.release-browser-webcontents-lease': 'record',
+  'app.report-browser-webcontents-id': 'record',
+  'app.revoke-browser-context': 'void',
+  'app.save-browser-workbench-state': 'record',
   'app.set-gpu-override': 'record',
   'app.set-start-on-boot': 'record',
   'app.set-zoom-factor': 'record',

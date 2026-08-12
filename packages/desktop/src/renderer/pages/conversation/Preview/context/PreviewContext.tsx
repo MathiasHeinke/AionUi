@@ -5,6 +5,16 @@
  */
 
 import { ipcBridge } from '@/common';
+import {
+  COMMAND_EVE_BROWSER_WORKBENCH_STATE_SCHEMA,
+  type CommandEveBrowserHistoryState,
+  type CommandEveBrowserTabResume,
+} from '@/common/config/browserWorkbenchStateCore';
+import {
+  createBrowserControlEpochGate,
+  type CommandEveBrowserControlContext,
+} from '@/common/config/browserWorkbenchControlCore';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import type { PreviewContentType } from '@/common/types/office/preview';
 import { emitter } from '@/renderer/utils/emitter';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -31,6 +41,8 @@ export interface PreviewMetadata {
   conversation_id?: string; // Owning conversation when the preview was opened from chat
   workspace_event_prefix?: 'acp' | 'codex' | 'aionrs'; // Backend event namespace for workspace operations
   is_temporary_workspace?: boolean; // Preserve generated workspace identity inside workbench surfaces
+  browser_history_back?: string[];
+  browser_history_forward?: string[];
 }
 
 export interface PreviewTab {
@@ -67,6 +79,11 @@ export interface PreviewContextValue {
   // Command EVE workbench layout / Command EVE Arbeitsflaechen-Layout
   workbenchLayoutMode: WorkbenchLayoutMode;
   setWorkbenchLayoutMode: (mode: WorkbenchLayoutMode) => void;
+
+  // Main-owned, account+seed-scoped browser context.
+  browserContext: CommandEveBrowserControlContext | null;
+  refreshBrowserContext: () => Promise<CommandEveBrowserControlContext | null>;
+  updateBrowserNavigation: (tabId: string, url: string, history: CommandEveBrowserHistoryState) => void;
 
   // 预览面板操作 / Preview panel operations
   openPreview: (
@@ -216,22 +233,84 @@ const loadPersistedState = (): { isOpen: boolean; tabs: PreviewTab[]; activeTabI
   return { isOpen: false, tabs: [], activeTabId: null };
 };
 
+const previewTabFromBrowserResume = (tab: CommandEveBrowserTabResume): PreviewTab => ({
+  id: tab.id,
+  content: tab.url,
+  content_type: 'url',
+  title: tab.title,
+  metadata: {
+    title: tab.title,
+    ...(tab.conversation_id ? { conversation_id: tab.conversation_id } : {}),
+    browser_history_back: tab.history.back,
+    browser_history_forward: tab.history.forward,
+  },
+  isDirty: false,
+  originalContent: tab.url,
+});
+
 export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // 从 localStorage 恢复初始状态 / Restore initial state from localStorage
   const persistedState = loadPersistedState();
   const [isOpen, setIsOpen] = useState(persistedState.isOpen);
   const [tabs, setTabs] = useState<PreviewTab[]>(persistedState.tabs);
   const [activeTabId, setActiveTabId] = useState<string | null>(persistedState.activeTabId);
+  const [browserContext, setBrowserContext] = useState<CommandEveBrowserControlContext | null>(null);
   const [workbenchLayoutMode, setWorkbenchLayoutModeState] = useState<WorkbenchLayoutMode>(loadWorkbenchLayoutMode);
   // Mirror activeTabId in a ref so setTabs updaters can read the latest value
   // without adding activeTabId to their dependencies.
   const activeTabIdRef = useRef<string | null>(persistedState.activeTabId);
   const pendingActiveTabIdRef = useRef<string | null>(null);
   const tabsRef = useRef<PreviewTab[]>(persistedState.tabs);
+  const browserContextHydratedRef = useRef(false);
+  const browserContextRequestGenerationRef = useRef(0);
+  const browserControlEpochGateRef = useRef(createBrowserControlEpochGate());
   const closeTabRequestHandlerRef = useRef<((tabId: string) => void) | null>(null);
   // const [sendBoxHandler, setSendBoxHandlerState] = useState<((text: string) => void) | null>(null);
   const sendBoxHandler = useRef<((text: string) => void) | null>(null);
   const [domSnippets, setDomSnippets] = useState<DomSnippet[]>([]);
+
+  const applyBrowserContext = useCallback((descriptor: CommandEveBrowserControlContext): boolean => {
+    if (!browserControlEpochGateRef.current.accept(descriptor.control_epoch)) return false;
+    browserContextHydratedRef.current = true;
+    setBrowserContext(descriptor);
+    setTabs((previous) => [
+      ...previous.filter((tab) => tab.content_type !== 'url'),
+      ...descriptor.state.tabs.map(previewTabFromBrowserResume),
+    ]);
+    setActiveTabId((previousId) => {
+      const previous = tabsRef.current.find((tab) => tab.id === previousId);
+      if (previous && previous.content_type !== 'url') return previousId;
+      return descriptor.state.active_tab_id;
+    });
+    return true;
+  }, []);
+
+  const refreshBrowserContext = useCallback(async (): Promise<CommandEveBrowserControlContext | null> => {
+    if (!COMMAND_EVE_SHELL_ENABLED) return null;
+    const requestGeneration = ++browserContextRequestGenerationRef.current;
+    try {
+      const result = await ipcBridge.application.getBrowserContext.invoke();
+      if (!result.success || !result.data) return null;
+      if (requestGeneration !== browserContextRequestGenerationRef.current) return null;
+      if (!applyBrowserContext(result.data)) return null;
+      return result.data;
+    } catch {
+      return null;
+    }
+  }, [applyBrowserContext]);
+
+  useEffect(() => {
+    if (!COMMAND_EVE_SHELL_ENABLED) return undefined;
+    const unsubscribe = ipcBridge.application.browserContextChanged.on((descriptor) => {
+      browserContextRequestGenerationRef.current += 1;
+      applyBrowserContext(descriptor);
+    });
+    void refreshBrowserContext();
+    return () => {
+      browserContextRequestGenerationRef.current += 1;
+      unsubscribe();
+    };
+  }, [applyBrowserContext, refreshBrowserContext]);
 
   const setWorkbenchLayoutMode = useCallback((mode: WorkbenchLayoutMode) => {
     setWorkbenchLayoutModeState(mode);
@@ -282,6 +361,51 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // 忽略存储错误 / Ignore storage errors
     }
   }, [activeTabId]);
+
+  useEffect(() => {
+    if (!browserContextHydratedRef.current || !browserContext?.persistent) return undefined;
+    const timer = window.setTimeout(() => {
+      const browserTabs = tabs.filter((tab) => tab.content_type === 'url');
+      const state = {
+        schema_version: COMMAND_EVE_BROWSER_WORKBENCH_STATE_SCHEMA,
+        active_tab_id: browserTabs.some((tab) => tab.id === activeTabId) ? activeTabId : null,
+        tabs: browserTabs.map((tab) => ({
+          id: tab.id,
+          title: tab.title,
+          url: tab.content,
+          ...(tab.metadata?.conversation_id ? { conversation_id: tab.metadata.conversation_id } : {}),
+          history: {
+            back: tab.metadata?.browser_history_back ?? [],
+            forward: tab.metadata?.browser_history_forward ?? [],
+          },
+        })),
+        updated_at: new Date().toISOString(),
+      };
+      void ipcBridge.application.saveBrowserWorkbenchState
+        .invoke({ contextId: browserContext.context_id, state })
+        .catch((): undefined => undefined);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [activeTabId, browserContext, tabs]);
+
+  const updateBrowserNavigation = useCallback((tabId: string, url: string, history: CommandEveBrowserHistoryState) => {
+    setTabs((previous) =>
+      previous.map((tab) =>
+        tab.id === tabId && tab.content_type === 'url'
+          ? {
+              ...tab,
+              content: url,
+              originalContent: url,
+              metadata: {
+                ...tab.metadata,
+                browser_history_back: history.back,
+                browser_history_forward: history.forward,
+              },
+            }
+          : tab
+      )
+    );
+  }, []);
 
   // 追踪是否正在保存（避免与流式更新冲突）/ Track if currently saving (to avoid conflicts with streaming updates)
   const savingFilesRef = useRef<Set<string>>(new Set());
@@ -836,6 +960,9 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
       activeTab,
       workbenchLayoutMode,
       setWorkbenchLayoutMode,
+      browserContext,
+      refreshBrowserContext,
+      updateBrowserNavigation,
       openPreview,
       showPreview,
       hidePreview,
@@ -862,6 +989,9 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
     activeTab,
     workbenchLayoutMode,
     setWorkbenchLayoutMode,
+    browserContext,
+    refreshBrowserContext,
+    updateBrowserNavigation,
     openPreview,
     showPreview,
     hidePreview,

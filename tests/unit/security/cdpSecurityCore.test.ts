@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED_ENV,
   hardenPackagedCdpCommandLine,
   shouldAllowNonDistributableE2EAttachment,
   shouldEnableCdpAtStartup,
+  synchronizeNonDistributableE2EAttachmentProof,
 } from '@/process/security/cdpSecurityCore';
 
 describe('cdpSecurityCore', () => {
@@ -80,6 +82,18 @@ describe('cdpSecurityCore', () => {
         })
       ).toBe(false);
     }
+  });
+
+  it('removes inherited attachment proof and only republishes a freshly verified decision', () => {
+    const env: NodeJS.ProcessEnv = {
+      [COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED_ENV]: '1',
+    };
+
+    synchronizeNonDistributableE2EAttachmentProof(env, false);
+    expect(env[COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED_ENV]).toBeUndefined();
+
+    synchronizeNonDistributableE2EAttachmentProof(env, true);
+    expect(env[COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED_ENV]).toBe('1');
   });
 
   it('keeps Playwright attachment switches only after the packaged attachment policy passes', () => {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -121,5 +122,37 @@ describe('Hermes desktop bridge', () => {
     expect(shim).not.toContain('name="write_terminal"');
     expect(shim).not.toContain('name="close_terminal"');
     expect(shim).not.toContain('name="start_terminal"');
+  });
+
+  it('routes overlapping real-provider desktop events through the task-local ACP session owner', () => {
+    const userData = root();
+    setActiveSeatId(SEAT_ID);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(userData, SEAT_ID);
+    expect(provisionSeatRuntimeFiles({ userDataPath: userData, seatId: SEAT_ID }).ok).toBe(true);
+    const providerOverridePath = path.join(paths.hermesHome, 'plugins', 'model-providers', 'custom', '__init__.py');
+    const bundledWheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
+
+    const harness = spawnSync(
+      'python3',
+      [
+        path.resolve('tests/fixtures/command-eve/hermes_desktop_bridge_concurrency_harness.py'),
+        providerOverridePath,
+        bundledWheelPath,
+      ],
+      { encoding: 'utf8', timeout: 15_000 }
+    );
+
+    expect(harness.status, harness.stderr || harness.stdout).toBe(0);
+    expect(JSON.parse(harness.stdout)).toEqual({
+      a_cleanup_removes_a: true,
+      b_cleanup_preserves_a: true,
+      cleared_context_fails_closed: true,
+      nested_owner_replacement_preserves_newer: true,
+      overlap_routes_only_to_own_connections: true,
+      payload_allowlist_preserved: true,
+      stable_emitter_installed_once: true,
+      terminal_callbacks_restored: true,
+      unknown_context_fails_closed: true,
+    });
   });
 });

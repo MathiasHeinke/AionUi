@@ -294,7 +294,10 @@
   gap: 10px;
   box-sizing: border-box;
   padding: 14px;
-  pointer-events: none;
+  /* The overlay must own the pointer while it is mounted. Otherwise an
+     embedded Electron webview consumes mousemove events and the parent
+     window can no longer update or commit the dock target. */
+  pointer-events: auto;
   background: color-mix(in srgb, var(--glass-reading-bg, var(--bg-1)) 56%, transparent);
   -webkit-backdrop-filter: blur(14px) saturate(116%);
   backdrop-filter: blur(14px) saturate(116%);

@@ -50,6 +50,7 @@ import path from 'node:path';
 import type { CommandEveProfileNameSource } from './accountIdentityCore';
 import { isByokSeatEditionName, isPaidSeatEditionName } from '@/common/config/creditsCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
+import { COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED_ENV } from '@/process/security/cdpSecurityCore';
 
 // ---------------------------------------------------------------------------
 // Wire format + reason codes — MIRROR of scripts/licensing/license-code-core.mjs
@@ -749,8 +750,15 @@ export function isRegistrationRequired(env: NodeJS.ProcessEnv = process.env): bo
   // `src/index.ts` always publishes the real resources root before any bridge is
   // initialized in a packaged Electron app. Treat that internal marker as the
   // trust boundary: end-user environment variables may tune DEV/E2E, but can
-  // never turn off the production entitlement gate.
-  if (isNonEmptyString(env.COMMAND_EVE_RESOURCES_PATH)) return true;
+  // never turn off the production entitlement gate. The sole exception is a
+  // non-distributable packaged QA attachment whose internal proof was freshly
+  // recomputed from all four gates during configureChromium bootstrap.
+  if (
+    isNonEmptyString(env.COMMAND_EVE_RESOURCES_PATH) &&
+    env[COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_VERIFIED_ENV] !== '1'
+  ) {
+    return true;
+  }
   const raw = env[REGISTRATION_REQUIRED_FLAG];
   if (raw === undefined || raw === '') return REGISTRATION_REQUIRED_DEFAULT;
   const normalized = String(raw).trim().toLowerCase();

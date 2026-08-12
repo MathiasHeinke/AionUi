@@ -31,11 +31,14 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
   hasValidSeatRuntimeFiles,
+  prepareCommandEveRuntimeProcessEnv,
+  provisionCommandEveBrowserUseRunner,
   provisionSeatRuntimeFiles,
   resolveCommandEveRuntimeBootstrapPaths,
   seatRuntimeConfigKeepsManualApprovals,
@@ -272,6 +275,191 @@ describe('(e) fail-safe — an unsafe seat id never escapes seats/', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('loopback HTTP URL');
     expect(fs.existsSync(path.join(seatHome, 'config.yaml'))).toBe(false);
+  });
+});
+
+describe('packaged Browser Use runner ownership', () => {
+  const browserUseRunnerDeps = { readArchitectures: () => ['arm64'] };
+
+  const writePackagedRunner = (userData: string, body = '#!/bin/sh\nexit 0\n') => {
+    const resourcesPath = path.join(userData, 'resources');
+    const artifactRoot = path.join(resourcesPath, 'bundled-hermes', 'uvx');
+    const sourceRoot = path.join(artifactRoot, 'aarch64-apple-darwin');
+    fs.mkdirSync(sourceRoot, { recursive: true });
+    const runner = path.join(sourceRoot, 'uvx');
+    fs.writeFileSync(runner, body);
+    fs.chmodSync(runner, 0o700);
+    const sha256 = crypto.createHash('sha256').update(fs.readFileSync(runner)).digest('hex');
+    const artifactReceipt = {
+      schema_version: 'command-eve-uvx-artifact-receipt/v1',
+      upstream: 'astral-sh/uv',
+      version: '0.0.0-test',
+      target: 'aarch64-apple-darwin',
+      archive_name: 'uv-aarch64-apple-darwin.tar.gz',
+      archive_sha256: 'a'.repeat(64),
+      archive_entry: 'uvx',
+      runner_filename: 'uvx',
+      runner_sha256: sha256,
+      provenance: 'official-astral-release-attestation/v1',
+      attestation: { repo: 'astral-sh/uv', release_tag: 'v0.0.0-test' },
+    };
+    const artifactReceiptBytes = Buffer.from(`${JSON.stringify(artifactReceipt)}\n`);
+    fs.writeFileSync(path.join(sourceRoot, 'uvx-artifact-receipt.json'), artifactReceiptBytes, { mode: 0o600 });
+    fs.writeFileSync(
+      path.join(artifactRoot, 'uvx-manifest.json'),
+      `${JSON.stringify({
+        schema_version: 'command-eve-uvx-runner/v1',
+        upstream: 'astral-sh/uv',
+        version: '0.0.0-test',
+        artifacts: [
+          {
+            target: 'aarch64-apple-darwin',
+            archive_name: 'uv-aarch64-apple-darwin.tar.gz',
+            archive_sha256: 'a'.repeat(64),
+            archive_entry: 'uvx',
+            runner_filename: 'uvx',
+            runner_sha256: sha256,
+            artifact_receipt_sha256: crypto.createHash('sha256').update(artifactReceiptBytes).digest('hex'),
+            attestation: { repo: 'astral-sh/uv', release_tag: 'v0.0.0-test' },
+          },
+        ],
+      })}\n`
+    );
+    return resourcesPath;
+  };
+
+  it('copies the verified packaged runner into the target seat and never uses PATH', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const resourcesPath = writePackagedRunner(userData);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(userData);
+
+    const runner = provisionCommandEveBrowserUseRunner(paths, resourcesPath, 'darwin', 'arm64', browserUseRunnerDeps);
+
+    expect(runner?.path).toBe(path.join(paths.hermesHome, 'bin', 'uvx'));
+    expect(runner?.provenance).toBe('packaged-astral-uvx/v1');
+    expect(fs.readFileSync(runner!.path, 'utf8')).toContain('exit 0');
+    const descriptor = JSON.parse(fs.readFileSync(paths.browserUseRunnerDescriptor, 'utf8'));
+    expect(descriptor).toMatchObject({
+      schema_version: 'command-eve-browser-use-runner/v1',
+      hermes_home: paths.hermesHome,
+      path: runner!.path,
+      root: path.join(paths.hermesHome, 'bin'),
+      artifact_receipt_path: path.join(paths.hermesHome, 'bin', 'uvx-artifact-receipt.json'),
+      sha256: runner!.sha256,
+      version: '0.0.0-test',
+      provenance: 'packaged-astral-uvx/v1',
+    });
+    expect(fs.existsSync(path.join(paths.hermesHome, 'bin', 'uvx-artifact-receipt.json'))).toBe(true);
+    if (process.platform !== 'win32') expect(fs.statSync(runner!.path).mode & 0o777).toBe(0o700);
+  });
+
+  it('fails closed when the packaged artifact is absent or altered', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(userData);
+    expect(
+      provisionCommandEveBrowserUseRunner(
+        paths,
+        path.join(userData, 'missing'),
+        'darwin',
+        'arm64',
+        browserUseRunnerDeps
+      )
+    ).toBeUndefined();
+
+    const resourcesPath = writePackagedRunner(userData);
+    fs.appendFileSync(path.join(resourcesPath, 'bundled-hermes', 'uvx', 'aarch64-apple-darwin', 'uvx'), 'tampered');
+    expect(
+      provisionCommandEveBrowserUseRunner(paths, resourcesPath, 'darwin', 'arm64', browserUseRunnerDeps)
+    ).toBeUndefined();
+  });
+
+  it('keeps the checked-in blocked-artifact manifest incapable of authorizing a runner', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const resourcesPath = writePackagedRunner(userData);
+    const manifestPath = path.join(resourcesPath, 'bundled-hermes', 'uvx', 'uvx-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.status = 'BLOCKED_ARTIFACT';
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+
+    expect(
+      provisionCommandEveBrowserUseRunner(
+        resolveCommandEveRuntimeBootstrapPaths(userData),
+        resourcesPath,
+        'darwin',
+        'arm64',
+        browserUseRunnerDeps
+      )
+    ).toBeUndefined();
+  });
+
+  it('fails closed when the packaged runner does not match the target architecture', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const resourcesPath = writePackagedRunner(userData);
+
+    expect(
+      provisionCommandEveBrowserUseRunner(
+        resolveCommandEveRuntimeBootstrapPaths(userData),
+        resourcesPath,
+        'darwin',
+        'arm64',
+        { readArchitectures: () => ['x86_64'] }
+      )
+    ).toBeUndefined();
+  });
+
+  it('sets the bound runner pointer before a backend spawn and clears it when absent', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const resourcesPath = writePackagedRunner(userData);
+    const env: NodeJS.ProcessEnv = {};
+
+    const paths = prepareCommandEveRuntimeProcessEnv(userData, env, 'darwin', resourcesPath, browserUseRunnerDeps);
+
+    expect(env.COMMAND_EVE_BROWSER_UVX_PATH).toBe(path.join(paths.hermesHome, 'bin', 'uvx'));
+    expect(env.COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_PATH).toBe(paths.browserUseRunnerDescriptor);
+    prepareCommandEveRuntimeProcessEnv(userData, env, 'darwin', path.join(userData, 'missing'), browserUseRunnerDeps);
+    expect(env.COMMAND_EVE_BROWSER_UVX_PATH).toBeUndefined();
+    expect(env.COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_PATH).toBeUndefined();
+    expect(fs.existsSync(paths.browserUseRunnerDescriptor)).toBe(false);
+  });
+
+  it('makes a seat home private before binding its Main-owned runner', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const resourcesPath = writePackagedRunner(userData);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(userData);
+    fs.mkdirSync(paths.hermesHome, { recursive: true, mode: 0o755 });
+    fs.chmodSync(paths.hermesHome, 0o755);
+
+    const env: NodeJS.ProcessEnv = {};
+    prepareCommandEveRuntimeProcessEnv(userData, env, 'darwin', resourcesPath, browserUseRunnerDeps);
+
+    expect(fs.statSync(paths.hermesHome).mode & 0o777).toBe(0o700);
+    expect(env.COMMAND_EVE_BROWSER_UVX_PATH).toBe(path.join(paths.hermesHome, 'bin', 'uvx'));
+  });
+
+  it('rejects an artifact receipt whose immutable manifest hash does not match', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const resourcesPath = writePackagedRunner(userData);
+    const manifestPath = path.join(resourcesPath, 'bundled-hermes', 'uvx', 'uvx-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.artifacts[0].artifact_receipt_sha256 = '0'.repeat(64);
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+
+    expect(
+      provisionCommandEveBrowserUseRunner(
+        resolveCommandEveRuntimeBootstrapPaths(userData),
+        resourcesPath,
+        'darwin',
+        'arm64',
+        browserUseRunnerDeps
+      )
+    ).toBeUndefined();
   });
 });
 

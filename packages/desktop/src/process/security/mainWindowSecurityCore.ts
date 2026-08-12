@@ -43,13 +43,21 @@ export function isAllowedWebviewSource(targetUrl: string): boolean {
 }
 
 export function isAllowedWebviewNavigation(currentUrl: string, targetUrl: string): boolean {
-  const current = parseUrl(currentUrl);
   const target = parseUrl(targetUrl);
-  if (!current || !target || !isAllowedWebviewSource(targetUrl)) return false;
+  if (!target || !isAllowedWebviewSource(targetUrl)) return false;
+
+  const isBlankBootstrap = currentUrl === '' || currentUrl === 'about:blank';
+  if (isBlankBootstrap) {
+    return target.protocol === 'https:' || target.protocol === 'http:';
+  }
+
+  const current = parseUrl(currentUrl);
+  if (!current) return false;
   if (target.href === current.href) return true;
 
   const currentIsNetworkViewer = current.protocol === 'https:' || current.protocol === 'http:';
-  return currentIsNetworkViewer && target.origin === current.origin;
+  const targetIsNetworkViewer = target.protocol === 'https:' || target.protocol === 'http:';
+  return currentIsNetworkViewer && targetIsNetworkViewer && target.origin === current.origin;
 }
 
 export function hardenAttachedWebviewPreferences(webPreferences: Record<string, unknown>): void {

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -42,6 +43,49 @@ describe('packaged Command EVE resource truth', () => {
     fs.cpSync(
       path.resolve(`resources/bundled-hermes/${COMMAND_EVE_HERMES_WHEEL.filename}`),
       path.join(resourcesPath, 'bundled-hermes', COMMAND_EVE_HERMES_WHEEL.filename)
+    );
+    const runnerRoot = path.join(resourcesPath, 'bundled-hermes', 'uvx', 'aarch64-apple-darwin');
+    fs.mkdirSync(runnerRoot, { recursive: true });
+    const runnerPath = path.join(runnerRoot, 'uvx');
+    fs.writeFileSync(runnerPath, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+    const runnerSha256 = crypto.createHash('sha256').update(fs.readFileSync(runnerPath)).digest('hex');
+    const artifactReceipt = {
+      schema_version: 'command-eve-uvx-artifact-receipt/v1',
+      upstream: 'astral-sh/uv',
+      version: '0.0.0-test',
+      target: 'aarch64-apple-darwin',
+      archive_name: 'uv-aarch64-apple-darwin.tar.gz',
+      archive_sha256: 'a'.repeat(64),
+      archive_entry: 'uvx',
+      runner_filename: 'uvx',
+      runner_sha256: runnerSha256,
+      provenance: 'official-astral-release-attestation/v1',
+      attestation: { repo: 'astral-sh/uv', release_tag: 'v0.0.0-test' },
+    };
+    const artifactReceiptPath = path.join(runnerRoot, 'uvx-artifact-receipt.json');
+    fs.writeFileSync(artifactReceiptPath, `${JSON.stringify(artifactReceipt)}\n`);
+    fs.writeFileSync(
+      path.join(resourcesPath, 'bundled-hermes', 'uvx', 'uvx-manifest.json'),
+      `${JSON.stringify({
+        schema_version: 'command-eve-uvx-runner/v1',
+        upstream: 'astral-sh/uv',
+        version: '0.0.0-test',
+        artifacts: [
+          {
+            target: 'aarch64-apple-darwin',
+            archive_name: 'uv-aarch64-apple-darwin.tar.gz',
+            archive_sha256: 'a'.repeat(64),
+            archive_entry: 'uvx',
+            runner_filename: 'uvx',
+            runner_sha256: runnerSha256,
+            artifact_receipt_sha256: crypto
+              .createHash('sha256')
+              .update(fs.readFileSync(artifactReceiptPath))
+              .digest('hex'),
+            attestation: { repo: 'astral-sh/uv', release_tag: 'v0.0.0-test' },
+          },
+        ],
+      })}\n`
     );
 
     const artifactManifestBytes = fs.readFileSync(sourceArtifactManifestPath);
@@ -125,6 +169,13 @@ describe('packaged Command EVE resource truth', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
+  const listArchiveEntriesWithReviewedAdapter = (archive: string) => {
+    const entries = execFileSync('/usr/bin/unzip', ['-Z1', archive], { encoding: 'utf8' })
+      .split(/\r?\n/)
+      .filter(Boolean);
+    return archive.endsWith(COMMAND_EVE_HERMES_WHEEL.filename) ? [...entries, 'tools/browser_use_cli.py'] : entries;
+  };
+
   const verify = (overrides = {}, injected = {}) =>
     verifyPackagedCommandEveResources(
       {
@@ -138,6 +189,7 @@ describe('packaged Command EVE resource truth', () => {
       },
       {
         readArchitectures: () => ['arm64'],
+        listArchiveEntries: listArchiveEntriesWithReviewedAdapter,
         ...injected,
       }
     );
@@ -161,6 +213,64 @@ describe('packaged Command EVE resource truth', () => {
     );
     expect(result.artifact_python.packages).toHaveLength(13);
     expect(result.artifact_python.native_files).toHaveLength(2);
+    expect(result.browser_use_runner).toMatchObject({
+      target: 'aarch64-apple-darwin',
+      file: 'uvx',
+      architectures: ['arm64'],
+    });
+    expect(result.hermes_wheel.required_entries).toEqual(['tools/browser_use_cli.py']);
+  });
+
+  it('fails closed when the Browser Use uvx resource is absent or altered', () => {
+    const runner = path.join(resourcesPath, 'bundled-hermes', 'uvx', 'aarch64-apple-darwin', 'uvx');
+    fs.appendFileSync(runner, 'tampered');
+
+    expect(() => verify()).toThrow(/Browser Use uvx runner failed its SHA-256 pin/);
+  });
+
+  it('rejects a blocked-artifact Browser Use manifest even if fixture bytes exist', () => {
+    const manifestPath = path.join(resourcesPath, 'bundled-hermes', 'uvx', 'uvx-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.status = 'BLOCKED_ARTIFACT';
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+
+    expect(() => verify()).toThrow(/Browser Use uvx manifest violates/);
+  });
+
+  it('rejects an unreviewed Browser Use artifact receipt or runner architecture', () => {
+    const receiptPath = path.join(
+      resourcesPath,
+      'bundled-hermes',
+      'uvx',
+      'aarch64-apple-darwin',
+      'uvx-artifact-receipt.json'
+    );
+    const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+    receipt.provenance = 'forged';
+    fs.writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`);
+    expect(() => verify()).toThrow(/artifact receipt violates the reviewed Astral contract/);
+
+    fs.writeFileSync(
+      receiptPath,
+      `${JSON.stringify({ ...receipt, provenance: 'official-astral-release-attestation/v1' })}\n`
+    );
+    expect(() =>
+      verify(
+        {},
+        {
+          readArchitectures: (file: string) => (file.endsWith(`${path.sep}uvx`) ? ['x86_64'] : ['arm64']),
+        }
+      )
+    ).toThrow(/runner must be thin arm64/);
+  });
+
+  it('rejects an artifact receipt that is not pinned by the manifest', () => {
+    const manifestPath = path.join(resourcesPath, 'bundled-hermes', 'uvx', 'uvx-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.artifacts[0].artifact_receipt_sha256 = '0'.repeat(64);
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+
+    expect(() => verify()).toThrow(/artifact receipt violates the reviewed Astral contract/);
   });
 
   it('fails closed when python-pptx is absent from the packaged app', () => {
@@ -203,6 +313,18 @@ describe('packaged Command EVE resource truth', () => {
       native_entries: 0,
     });
     expect(result.hermes_wheel.bytes).toBeGreaterThan(0);
+  });
+
+  it('rejects the current wheel when it lacks the reviewed Browser Use adapter', () => {
+    expect(() =>
+      verify(
+        {},
+        {
+          listArchiveEntries: (archive: string) =>
+            execFileSync('/usr/bin/unzip', ['-Z1', archive], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean),
+        }
+      )
+    ).toThrow(/reviewed Hermes wheel is missing required Browser Use adapter entries/);
   });
 
   it('fails closed when the Hermes wheel is absent from the packaged app', () => {

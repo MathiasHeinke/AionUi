@@ -28,6 +28,22 @@ describe('Command EVE runtime bridge registration', () => {
     }
   });
 
+  it('registers and navigation-guards browser guests in MAIN before renderer crash recovery', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const didAttach = source.indexOf("mainWindow.webContents.on('did-attach-webview'");
+    const rendererGone = source.indexOf("mainWindow.webContents.on('render-process-gone'");
+
+    expect(didAttach).toBeGreaterThan(-1);
+    const guestLifecycle = source.slice(didAttach, rendererGone);
+    expect(guestLifecycle).toContain('getCdpBridgeHandle()?.registerGuest(guest)');
+    expect(guestLifecycle).toContain("guest.on('will-navigate'");
+    expect(guestLifecycle).toContain("guest.on('will-redirect'");
+    expect(guestLifecycle).toContain("guest.setWindowOpenHandler(() => ({ action: 'deny' }))");
+    expect(source.slice(rendererGone, rendererGone + 800)).toContain(
+      "getCdpBridgeHandle()?.detachActiveTarget('main renderer process exited')"
+    );
+  });
+
   it('checks the completed runtime receipt before a new bootstrap can overwrite it', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
     const waitDecision = source.indexOf('const mustWaitForRuntimeBootstrap =');

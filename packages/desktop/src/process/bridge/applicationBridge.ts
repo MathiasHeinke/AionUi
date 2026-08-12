@@ -10,6 +10,14 @@ import { ipcBridge } from '@/common';
 import { ProcessConfig } from '@process/utils/initStorage';
 import { getZoomFactor, setZoomFactor } from '@process/utils/zoom';
 import { getCdpStatus, updateCdpConfig } from '@process/utils/configureChromium';
+import {
+  attachVisibleBrowserWebContents,
+  getBrowserWorkbenchContext,
+  refreshBrowserWorkbenchContext,
+  releaseVisibleBrowserWebContents,
+  revokeActiveBrowserWorkbenchContext,
+  saveBrowserWorkbenchState,
+} from '@process/commandEve/browserWorkbenchContextMain';
 import { getGpuStatus, setGpuUserOverride } from '@process/utils/gpuRecovery';
 import { initApplicationBridgeCore } from './applicationBridgeCore';
 import type { IStartOnBootStatus } from '@/common/adapter/ipcBridge';
@@ -186,6 +194,53 @@ export function initApplicationBridge(): void {
       return { success: true, data: updatedConfig };
     } catch (e) {
       return { success: false, msg: e.message || e.toString() };
+    }
+  });
+
+  ipcBridge.application.getBrowserContext.provider(async () => {
+    try {
+      return { success: true, data: getBrowserWorkbenchContext() };
+    } catch (error) {
+      return { success: false, msg: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcBridge.application.saveBrowserWorkbenchState.provider(async ({ contextId, state }) => {
+    try {
+      return { success: true, data: saveBrowserWorkbenchState(contextId, state) };
+    } catch (error) {
+      return { success: false, msg: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcBridge.application.revokeBrowserContext.provider(async () => {
+    try {
+      await revokeActiveBrowserWorkbenchContext();
+      const next = refreshBrowserWorkbenchContext();
+      ipcBridge.application.browserContextChanged.emit(next);
+      return { success: true, data: next };
+    } catch (error) {
+      return { success: false, msg: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcBridge.application.reportBrowserWebContentsId.provider(async ({ webContentsId, contextId, controlEpoch }) => {
+    try {
+      const result = attachVisibleBrowserWebContents(webContentsId, contextId, controlEpoch);
+      if (result.ok === false) return { success: false, msg: result.reason };
+      return { success: true, data: { leaseId: result.leaseId } };
+    } catch (error) {
+      return { success: false, msg: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcBridge.application.releaseBrowserWebContentsLease.provider(async (lease) => {
+    try {
+      const result = releaseVisibleBrowserWebContents(lease);
+      if (result.ok === false) return { success: false, msg: result.reason };
+      return { success: true };
+    } catch (error) {
+      return { success: false, msg: error instanceof Error ? error.message : String(error) };
     }
   });
 
