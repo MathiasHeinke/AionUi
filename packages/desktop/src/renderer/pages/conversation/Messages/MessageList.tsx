@@ -9,12 +9,15 @@ import type { ProjectWorkspaceConversationArtifactDTO } from '@renderer/pages/pr
 import { useProjectWorkspaceConversationArtifacts } from '@renderer/pages/projects/client';
 import type { IMessageAcpToolCall, IMessageToolCall, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
 import {
+  bindTypedUIEnvelopeToArtifact,
   TYPED_UI_CATALOG_VERSION,
   TYPED_UI_MAX_BYTES,
   TYPED_UI_MIME_TYPE,
   TYPED_UI_SCHEMA_VERSION,
   typedUIArtifactIdForToolCall,
   validateTypedUIEnvelope,
+  type TypedUIEnvelope,
+  type TypedUIProvenanceAttestation,
 } from '@/common/typedUI';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
@@ -49,6 +52,7 @@ import MessageToolGroup from './components/MessageToolGroup';
 import MessageToolGroupSummary from './components/MessageToolGroupSummary';
 import MessageCronTrigger from './components/MessageCronTrigger';
 import MessageGeneratedArtifact from './components/MessageGeneratedArtifact';
+import { createDefaultTypedUIActionHost } from './components/TypedGenerativeUI';
 import MessageSkillSuggest from './components/MessageSkillSuggest';
 import ProjectWorkspaceCard from './components/ProjectWorkspaceCard';
 import MessageText from './components/MessageText';
@@ -75,9 +79,24 @@ type IMessageVO =
       sourceMessageIds: string[];
       created_at: number;
     };
+type DurableAcpTypedUICandidate = {
+  artifactId: string;
+  conversationId: string;
+  sourceMessageId: string;
+  createdAt: number;
+  envelope: TypedUIEnvelope;
+  resultDisplay: DurableRecord;
+};
+type ITypedUIPendingVO = {
+  type: 'typed_ui_pending';
+  id: string;
+  candidate: DurableAcpTypedUICandidate;
+  sourceMessageIds: string[];
+  created_at: number;
+};
 type ConversationArtifactView = IConversationArtifact | ProjectWorkspaceConversationArtifactDTO;
 type IArtifactVO = { type: 'artifact'; id: string; artifact: ConversationArtifactView; created_at: number };
-type IProcessedItem = IMessageVO | IArtifactVO;
+type IProcessedItem = IMessageVO | IArtifactVO | ITypedUIPendingVO;
 
 type ConversationLocationState = {
   targetMessageId?: string;
@@ -92,6 +111,9 @@ const getProcessedItemSourceMessageIds = (item: IProcessedItem): string[] => {
     return item.sourceMessageIds;
   }
   if ('type' in item && item.type === 'file_summary') {
+    return item.sourceMessageIds;
+  }
+  if ('type' in item && item.type === 'typed_ui_pending') {
     return item.sourceMessageIds;
   }
   return 'id' in item ? [item.id] : [];
@@ -113,7 +135,7 @@ const getProcessedItemCreatedAt = (item: IProcessedItem): number => {
   // Both branches read the same optional field; only the second one said so. The
   // first returned it raw into a `number` return type, so a summary or artifact
   // without a timestamp would have sorted as `undefined`. Same fallback, both ways.
-  if ('type' in item && ['file_summary', 'tool_summary', 'artifact'].includes(item.type)) {
+  if ('type' in item && ['file_summary', 'tool_summary', 'artifact', 'typed_ui_pending'].includes(item.type)) {
     return item.created_at ?? 0;
   }
   return item.created_at ?? 0;
@@ -160,7 +182,9 @@ function isDurableRecord(value: unknown): value is DurableRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function readDurableAcpTypedUIResult(message: IMessageAcpToolCall): DurableRecord | undefined {
+function readDurableAcpTypedUIResult(
+  message: IMessageAcpToolCall
+): { resultDisplay: DurableRecord; envelope: TypedUIEnvelope } | undefined {
   const content = message.content as unknown;
   if (!isDurableRecord(content) || !isDurableRecord(content.update)) return undefined;
   const update = content.update;
@@ -187,27 +211,117 @@ function readDurableAcpTypedUIResult(message: IMessageAcpToolCall): DurableRecor
   }
   try {
     const envelope = validateTypedUIEnvelope(JSON.parse(rawOutput.content) as unknown);
-    return envelope.ok ? rawOutput : undefined;
+    return envelope.ok ? { resultDisplay: rawOutput, envelope: envelope.value } : undefined;
   } catch {
     return undefined;
   }
 }
 
-function buildDurableAcpTypedUIArtifact(message: IMessageAcpToolCall): IGeneratedConversationArtifact | undefined {
-  const resultDisplay = readDurableAcpTypedUIResult(message);
+function readDurableAcpTypedUICandidate(message: IMessageAcpToolCall): DurableAcpTypedUICandidate | undefined {
+  const result = readDurableAcpTypedUIResult(message);
   const content = message.content as unknown;
   const update = isDurableRecord(content) && isDurableRecord(content.update) ? content.update : undefined;
-  if (!resultDisplay || !update || typeof update.tool_call_id !== 'string') return undefined;
-  return buildGeneratedArtifactFromToolResult({
-    conversation_id: message.conversation_id,
-    call_id: update.tool_call_id,
-    source_message_id: message.msg_id || message.id,
-    created_at: message.created_at,
-    name: 'eve_typed_ui_publish',
-    description: undefined,
-    result_display: resultDisplay,
-  });
+  const sourceMessageId = message.msg_id || message.id;
+  const artifactId = update && typedUIArtifactIdForToolCall(update.tool_call_id);
+  if (!result || !artifactId || !sourceMessageId || !Number.isFinite(message.created_at)) return undefined;
+  return {
+    artifactId,
+    conversationId: message.conversation_id,
+    sourceMessageId,
+    createdAt: message.created_at,
+    envelope: result.envelope,
+    resultDisplay: result.resultDisplay,
+  };
 }
+
+const DurableAcpTypedUIArtifact: React.FC<{ candidate: DurableAcpTypedUICandidate }> = ({ candidate }) => {
+  const { t } = useTranslation();
+  const [attestation, setAttestation] = useState<TypedUIProvenanceAttestation>();
+  const [state, setState] = useState<'checking' | 'verified' | 'rejected'>('checking');
+  const provenanceArtifact = useMemo(
+    () => ({
+      artifact_id: candidate.artifactId,
+      conversation_id: candidate.conversationId,
+      source_message_id: candidate.sourceMessageId,
+      created_at: candidate.createdAt,
+    }),
+    [candidate.artifactId, candidate.conversationId, candidate.createdAt, candidate.sourceMessageId]
+  );
+  const envelope = useMemo(
+    () => bindTypedUIEnvelopeToArtifact(candidate.envelope, provenanceArtifact),
+    [candidate.envelope, provenanceArtifact]
+  );
+  const host = useMemo(
+    () =>
+      createDefaultTypedUIActionHost({
+        provenanceArtifact,
+        replyWithState: () => undefined,
+      }),
+    [provenanceArtifact]
+  );
+
+  useEffect(() => {
+    let active = true;
+    setState('checking');
+    setAttestation(undefined);
+    void host
+      .attestProvenance(envelope)
+      .then((attestation) => {
+        if (!active) return;
+        if (
+          attestation.status !== 'verified' ||
+          attestation.artifact_id !== provenanceArtifact.artifact_id ||
+          attestation.conversation_id !== provenanceArtifact.conversation_id ||
+          attestation.source_message_id !== provenanceArtifact.source_message_id
+        ) {
+          setState('rejected');
+          return;
+        }
+        setAttestation(attestation);
+        setState('verified');
+      })
+      .catch(() => {
+        if (active) {
+          setAttestation(undefined);
+          setState('rejected');
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [envelope, host, provenanceArtifact]);
+
+  const artifact = useMemo(
+    () =>
+      state === 'verified'
+        ? buildGeneratedArtifactFromToolResult({
+            conversation_id: candidate.conversationId,
+            call_id: candidate.artifactId.slice('tool-artifact-'.length),
+            source_message_id: candidate.sourceMessageId,
+            created_at: candidate.createdAt,
+            name: 'eve_typed_ui_publish',
+            description: undefined,
+            result_display: candidate.resultDisplay,
+          })
+        : undefined,
+    [candidate, state]
+  );
+
+  if (artifact) {
+    return <MessageGeneratedArtifact artifact={artifact} typedUIAttestation={attestation} />;
+  }
+
+  return (
+    <div
+      className='max-w-780px w-full mx-auto'
+      data-testid={`typed-ui-provenance-${state}`}
+      role='status'
+      aria-live='polite'
+    >
+      {state === 'checking' ? t('messages.typedUI.provenance.checking') : t('messages.typedUI.provenance.rejected')}
+    </div>
+  );
+};
 
 const hasInlineToolGroupArtifact = (message: IMessageToolGroup): boolean =>
   message.content.some((item) => item.status === 'Success' && hasToolResultGeneratedArtifact(item.result_display));
@@ -523,17 +637,18 @@ const MessageList: React.FC<{
         continue;
       }
       if (message.type === 'acp_tool_call') {
-        const generatedArtifact = buildDurableAcpTypedUIArtifact(message);
-        if (generatedArtifact) {
+        const candidate = readDurableAcpTypedUICandidate(message);
+        if (candidate) {
           toolList = [];
           toolSourceMessageIds = [];
           diffsChanges = [];
           diffsSourceMessageIds = [];
           result.push({
-            type: 'artifact',
-            id: generatedArtifact.id,
-            artifact: generatedArtifact,
-            created_at: generatedArtifact.created_at,
+            type: 'typed_ui_pending',
+            id: candidate.artifactId,
+            candidate,
+            sourceMessageIds: [candidate.sourceMessageId],
+            created_at: candidate.createdAt,
           });
           continue;
         }
@@ -797,6 +912,18 @@ const MessageList: React.FC<{
           ) : (
             <MessageGeneratedArtifact artifact={item.artifact as IGeneratedConversationArtifact} />
           )}
+        </div>
+      );
+    }
+    if ('type' in item && item.type === 'typed_ui_pending') {
+      return (
+        <div
+          key={item.id}
+          id={`message-${getProcessedItemAnchorId(item)}`}
+          className='min-w-0 message-item px-8px m-t-10px max-w-full md:max-w-780px mx-auto'
+          style={highlighted ? highlightStyle : undefined}
+        >
+          <DurableAcpTypedUIArtifact candidate={item.candidate} />
         </div>
       );
     }

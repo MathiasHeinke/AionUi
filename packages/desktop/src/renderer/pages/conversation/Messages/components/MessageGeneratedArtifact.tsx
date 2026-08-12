@@ -11,6 +11,8 @@ import {
   TYPED_UI_MIME_TYPE,
   TYPED_UI_SCHEMA_VERSION,
   validateTypedUIEnvelope,
+  type TypedUIActionHost,
+  type TypedUIProvenanceAttestation,
 } from '@/common/typedUI';
 import MarkdownView from '@/renderer/components/Markdown';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
@@ -293,7 +295,10 @@ function buildReceiptSummary(
   return items.filter((item): item is string => Boolean(item)).join(' · ') || undefined;
 }
 
-const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtifact }> = ({ artifact }) => {
+const MessageGeneratedArtifact: React.FC<{
+  artifact: IGeneratedConversationArtifact;
+  typedUIAttestation?: TypedUIProvenanceAttestation;
+}> = ({ artifact, typedUIAttestation }) => {
   const { t } = useTranslation();
   const conversationContext = useConversationContextSafe();
   const preview = usePreviewContext();
@@ -545,9 +550,93 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
       }),
     [artifact.conversation_id, artifact.created_at, artifact.id, sourceMessageId]
   );
+  const [typedUIResolverGate, setTypedUIResolverGate] = useState<{
+    attestation?: TypedUIProvenanceAttestation;
+    content: string;
+    state: 'checking' | 'verified' | 'rejected';
+  }>();
 
   useEffect(() => {
-    if (!typedUIContent) return;
+    if (!typedUIContent || !sourceMessageId) {
+      setTypedUIResolverGate(undefined);
+      return;
+    }
+    let active = true;
+    const content = typedUIContent;
+    setTypedUIResolverGate({ content, state: 'checking' });
+    if (
+      typedUIAttestation?.status === 'verified' &&
+      typedUIAttestation.artifact_id === artifact.id &&
+      typedUIAttestation.conversation_id === artifact.conversation_id &&
+      typedUIAttestation.source_message_id === sourceMessageId
+    ) {
+      setTypedUIResolverGate({ content, state: 'verified', attestation: typedUIAttestation });
+      return () => {
+        active = false;
+      };
+    }
+    let envelope;
+    try {
+      const validated = validateTypedUIEnvelope(JSON.parse(content) as unknown);
+      if (!validated.ok) {
+        setTypedUIResolverGate({ content, state: 'rejected' });
+        return;
+      }
+      envelope = validated.value;
+    } catch {
+      setTypedUIResolverGate({ content, state: 'rejected' });
+      return;
+    }
+    void typedUIHost
+      .attestProvenance(envelope)
+      .then((attestation) => {
+        if (!active) return;
+        setTypedUIResolverGate({
+          content,
+          attestation:
+            attestation.status === 'verified' &&
+            attestation.artifact_id === artifact.id &&
+            attestation.conversation_id === artifact.conversation_id &&
+            attestation.source_message_id === sourceMessageId
+              ? attestation
+              : undefined,
+          state:
+            attestation.status === 'verified' &&
+            attestation.artifact_id === artifact.id &&
+            attestation.conversation_id === artifact.conversation_id &&
+            attestation.source_message_id === sourceMessageId
+              ? 'verified'
+              : 'rejected',
+        });
+      })
+      .catch(() => {
+        if (active) setTypedUIResolverGate({ content, state: 'rejected' });
+      });
+    return () => {
+      active = false;
+    };
+  }, [artifact.conversation_id, artifact.id, sourceMessageId, typedUIAttestation, typedUIContent, typedUIHost]);
+
+  const typedUIResolverState =
+    typedUIResolverGate && typedUIResolverGate.content === typedUIContent ? typedUIResolverGate.state : 'checking';
+  const typedUIResolverVerified = typedUIResolverState === 'verified';
+  const typedUIVerifiedAttestation =
+    typedUIResolverGate && typedUIResolverGate.content === typedUIContent && typedUIResolverGate.state === 'verified'
+      ? typedUIResolverGate.attestation
+      : undefined;
+  const typedUIRendererHost = useMemo<TypedUIActionHost>(
+    () =>
+      typedUIVerifiedAttestation
+        ? {
+            ...typedUIHost,
+            attestProvenance: () => Promise.resolve(typedUIVerifiedAttestation),
+          }
+        : typedUIHost,
+    [typedUIHost, typedUIVerifiedAttestation]
+  );
+
+  useEffect(() => {
+    if (!typedUIContent || !typedUIResolverVerified) return;
     return registerWorkbenchArtifactResolver({
       id: `typed-ui-${artifact.conversation_id}-${artifact.id}`,
       priority: 100,
@@ -576,15 +665,38 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
         });
       },
     });
-  }, [artifact.conversation_id, artifact.created_at, artifact.id, preview, sourceMessageId, title, typedUIContent]);
+  }, [
+    artifact.conversation_id,
+    artifact.created_at,
+    artifact.id,
+    preview,
+    sourceMessageId,
+    title,
+    typedUIContent,
+    typedUIResolverVerified,
+  ]);
 
   if (typedUIContent) {
+    if (!typedUIResolverVerified) {
+      return (
+        <div
+          className='max-w-780px w-full mx-auto'
+          data-testid={`typed-ui-provenance-${typedUIResolverState}`}
+          role='status'
+          aria-live='polite'
+        >
+          {typedUIResolverState === 'checking'
+            ? t('messages.typedUI.provenance.checking')
+            : t('messages.typedUI.provenance.rejected')}
+        </div>
+      );
+    }
     return (
       <div data-testid='generated-artifact-card' className='max-w-780px w-full mx-auto'>
         <TypedUIRenderer
           content={typedUIContent}
           mode='compact'
-          host={typedUIHost}
+          host={typedUIRendererHost}
           receiptContext={{
             artifactId: artifact.id,
             conversationId: artifact.conversation_id,

@@ -18,6 +18,11 @@ import {
   getToolResultArtifactSourceKeys,
   hasToolResultGeneratedArtifact,
 } from '@/renderer/pages/conversation/Messages/types';
+import {
+  canResolveWorkbenchArtifact,
+  openWorkbenchArtifact,
+  resetWorkbenchArtifactResolversForTest,
+} from '@/renderer/pages/conversation/Preview/services/workbenchArtifactResolver';
 import { typedUIFixture } from '../command-eve/typed-ui/fixtures';
 
 const artifactMock = vi.hoisted(() => ({
@@ -304,6 +309,31 @@ function createDeferred<T = void>() {
   return { promise, resolve, reject };
 }
 
+function typedUIAttestationResponse(artifact: {
+  artifact_id: string;
+  conversation_id: string;
+  source_message_id: string;
+}) {
+  return {
+    success: true,
+    data: {
+      version: 'command-eve.typed-ui-provenance-attestation/v2',
+      attestation_id: `tuia_${'a'.repeat(64)}`,
+      artifact_id: artifact.artifact_id,
+      conversation_id: artifact.conversation_id,
+      source_message_id: artifact.source_message_id,
+      content_sha256: 'b'.repeat(64),
+      action_set_sha256: 'c'.repeat(64),
+      identity_sha256: 'd'.repeat(64),
+      request_id_sha256: 'e'.repeat(64),
+      receipt_sha256: 'f'.repeat(64),
+      seat_context_revision: 1,
+      status: 'verified' as const,
+      recorded_at: '2026-08-12T00:00:00.000Z',
+    },
+  };
+}
+
 function mockScrollerGeometry(
   scroller: HTMLElement,
   geometry: { scrollTop: number; scrollHeight: number; clientHeight: number }
@@ -334,6 +364,8 @@ describe('MessageList', () => {
     ipcMock.getFileMetadata.mockReset();
     ipcMock.readGeneratedArtifactPreview.mockReset();
     ipcMock.attestTypedUI.mockReset();
+    previewMock.openPreview.mockReset();
+    resetWorkbenchArtifactResolversForTest();
   });
 
   it('renders message rows with external margin spacing in the plain scroll list', () => {
@@ -1250,8 +1282,13 @@ describe('MessageList', () => {
     });
   });
 
-  it('projects one persisted completed ACP Typed UI result into the existing inline artifact rail', async () => {
-    ipcMock.attestTypedUI.mockImplementation(() => new Promise(() => {}));
+  it('keeps a persisted ACP Typed UI result inert until Main attests it, then registers exactly one resolver', async () => {
+    const deferred = createDeferred<unknown>();
+    let attestationReady = false;
+    ipcMock.attestTypedUI.mockImplementation(
+      ({ request }: { request: { artifact: Parameters<typeof typedUIAttestationResponse>[0] } }) =>
+        attestationReady ? typedUIAttestationResponse(request.artifact) : deferred.promise
+    );
     const raw = typedUIFixture();
     const acpMessage = {
       id: 'message-acp-typed',
@@ -1286,10 +1323,90 @@ describe('MessageList', () => {
       wrapper: ({ children }) => <Wrapper messages={[acpMessage]}>{children}</Wrapper>,
     });
 
-    await waitFor(() => expect(screen.getByTestId('conversation-artifact-file')).toBeInTheDocument());
+    const reference = {
+      kind: 'chat' as const,
+      artifactId: 'tool-artifact-call-acp-typed',
+      conversationId: 'conversation-1',
+    };
+    await waitFor(() => expect(screen.getByTestId('typed-ui-provenance-checking')).toBeInTheDocument());
+    expect(screen.queryByTestId('generated-artifact-card')).toBeNull();
+    expect(canResolveWorkbenchArtifact(reference)).toBe(false);
+    await expect(openWorkbenchArtifact(reference)).rejects.toThrow('artifact_not_resolved');
+    expect(previewMock.openPreview).not.toHaveBeenCalled();
+
+    attestationReady = true;
+    deferred.resolve(
+      typedUIAttestationResponse({
+        artifact_id: reference.artifactId,
+        conversation_id: reference.conversationId,
+        source_message_id: 'message-acp-typed',
+      })
+    );
+
+    await waitFor(() => expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument());
+    await waitFor(() => expect(canResolveWorkbenchArtifact(reference)).toBe(true));
+    await openWorkbenchArtifact(reference);
+    expect(previewMock.openPreview).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('acp_tool_call')).toBeNull();
-    expect(screen.getByTestId('typed-ui-provenance-checking')).toBeInTheDocument();
-    expect(screen.queryByText('Launch cockpit')).toBeNull();
+  });
+
+  it('keeps a Main-rejected persisted ACP Typed UI result non-addressable', async () => {
+    ipcMock.attestTypedUI.mockImplementation(
+      ({
+        request,
+      }: {
+        request: { artifact: { artifact_id: string; conversation_id: string; source_message_id: string } };
+      }) => ({
+        success: true,
+        data: {
+          ...typedUIAttestationResponse(request.artifact).data,
+          artifact_id: request.artifact.artifact_id,
+          conversation_id: request.artifact.conversation_id,
+          source_message_id: request.artifact.source_message_id,
+          status: 'rejected' as const,
+        },
+      })
+    );
+    const acpMessage = {
+      id: 'message-acp-rejected',
+      msg_id: 'message-acp-rejected',
+      conversation_id: 'conversation-1',
+      type: 'acp_tool_call',
+      position: 'left',
+      created_at: 10,
+      content: {
+        session_id: 'session-1',
+        update: {
+          session_update: 'tool_call_update',
+          tool_call_id: 'call-acp-rejected',
+          status: 'completed',
+          raw_output: {
+            ok: true,
+            artifact_type: 'file',
+            mime_type: 'application/vnd.command-eve.typed-ui+json',
+            schema_version: 'command-eve.typed-ui/v2',
+            catalog_version: 'command-eve.typed-ui.catalog/v2',
+            content: JSON.stringify(typedUIFixture()),
+            status: 'completed',
+            tool_name: 'eve_typed_ui_publish',
+          },
+        },
+      },
+    } as unknown as IMessageAcpToolCall;
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[acpMessage]}>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(screen.getByTestId('typed-ui-provenance-rejected')).toBeInTheDocument());
+    expect(screen.queryByTestId('generated-artifact-card')).toBeNull();
+    expect(
+      canResolveWorkbenchArtifact({
+        kind: 'chat',
+        artifactId: 'tool-artifact-call-acp-rejected',
+        conversationId: 'conversation-1',
+      })
+    ).toBe(false);
   });
 
   it.each([
