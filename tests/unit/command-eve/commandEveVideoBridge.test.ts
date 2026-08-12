@@ -30,6 +30,7 @@ import {
   handleCommandEveVideoGenerate,
   handleCommandEveVideoGenerateBridge,
 } from '@/process/bridge/commandEveVideoBridge';
+import { hasCommandEvePaidArtifactOperationInFlight } from '@/process/commandEve/seatContextCore';
 
 const deps = (
   fetchImpl: typeof fetch,
@@ -141,6 +142,44 @@ describe('handleCommandEveVideoGenerate', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(saveVideoFile).not.toHaveBeenCalled();
     expect(saveArtifactRecord).not.toHaveBeenCalled();
+  });
+
+  it('keeps a billed response and stores its record under the captured origin while the paid fence is held', async () => {
+    let activeSeatId = ACTIVE_SEED_ID;
+    let activeSeatContextRevision = 21;
+    let dataPath = '/tmp/eve-data-seat-a';
+    let resolveFetch!: (value: Response) => void;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const saveArtifactRecord = vi.fn();
+
+    const pending = handleCommandEveVideoGenerate(
+      { prompt: 'ein Produktclip', tierId: 'fast', durationSeconds: 5, conversationId: 'conv-origin' },
+      deps(fetchMock as unknown as typeof fetch, {
+        getDataPath: () => dataPath,
+        getActiveSeatId: () => activeSeatId,
+        getActiveSeatContextRevision: () => activeSeatContextRevision,
+        saveArtifactRecord,
+      })
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(true);
+
+    // A real switch is refused by Main. This direct mutation is the hostile
+    // defense-in-depth case: it still must not discard the paid result or rehome it.
+    activeSeatId = 'b2000000-0000-4000-8000-000000000001';
+    activeSeatContextRevision += 1;
+    dataPath = '/tmp/eve-data-seat-b';
+    resolveFetch(jsonResponse(200, okBody));
+
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(saveArtifactRecord).toHaveBeenCalledWith('/tmp/eve-data-seat-a', expect.any(Object));
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(false);
   });
 
   it('never calls the gateway without a licence wire', async () => {
