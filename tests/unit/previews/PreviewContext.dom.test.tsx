@@ -9,6 +9,21 @@ import { renderHook, act, cleanup } from '@testing-library/react';
 import React, { type ReactNode } from 'react';
 import { PreviewProvider, usePreviewContext } from '@/renderer/pages/conversation/Preview/context/PreviewContext';
 import { ipcBridge } from '@/common';
+import {
+  canResolveWorkbenchArtifact,
+  resetWorkbenchArtifactResolversForTest,
+} from '@/renderer/pages/conversation/Preview/services/workbenchArtifactResolver';
+
+const seatMock = vi.hoisted(() => ({ listeners: new Set<(seatId: string) => void>() }));
+
+vi.mock('@/common/config/configService', () => ({
+  configService: {
+    onSeatRebind: (listener: (seatId: string) => void) => {
+      seatMock.listeners.add(listener);
+      return () => seatMock.listeners.delete(listener);
+    },
+  },
+}));
 
 vi.mock('@/common', () => ({
   ipcBridge: {
@@ -49,10 +64,13 @@ describe('PreviewContext', () => {
     vi.mocked(ipcBridge.fs.getFileMetadata.invoke).mockResolvedValue(undefined);
     localStorage.clear();
     window.location.hash = '#/guid';
+    seatMock.listeners.clear();
+    resetWorkbenchArtifactResolversForTest();
   });
 
   afterEach(() => {
     cleanup();
+    resetWorkbenchArtifactResolversForTest();
   });
 
   it('initializes with closed state', () => {
@@ -178,6 +196,63 @@ describe('PreviewContext', () => {
     act(() => result.current.requestCloseTab(tabId!));
     expect(result.current.tabs).toEqual([]);
     expect(result.current.isOpen).toBe(false);
+  });
+
+  it('removes typed UI tabs on a seat rebind and never persists them', async () => {
+    const { result } = renderHook(() => usePreviewContext(), { wrapper });
+    act(() => {
+      result.current.openPreview('{"schema_version":"command-eve.typed-ui/v2"}', 'typed-ui', {
+        conversation_id: 'conversation-1',
+        artifact_id: 'tool-artifact-seat-a',
+        artifact_kind: 'chat',
+      });
+    });
+    expect(result.current.tabs).toHaveLength(1);
+
+    act(() => {
+      for (const listener of seatMock.listeners) listener('seat-b');
+    });
+
+    expect(result.current.tabs).toEqual([]);
+    expect(result.current.isOpen).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(localStorage.getItem('aionui_preview_tabs') ?? '').not.toContain('typed-ui');
+    expect(
+      canResolveWorkbenchArtifact({
+        kind: 'chat',
+        conversationId: 'conversation-1',
+        artifactId: 'tool-artifact-seat-a',
+      })
+    ).toBe(false);
+  });
+
+  it('does not restore a persisted typed UI tab into the new seat resolver', () => {
+    localStorage.setItem(
+      'aionui_preview_tabs',
+      JSON.stringify([
+        {
+          id: 'typed-ui-seat-a',
+          content: '{"schema_version":"command-eve.typed-ui/v2"}',
+          content_type: 'typed-ui',
+          title: 'Old typed UI',
+          metadata: {
+            conversation_id: 'conversation-1',
+            artifact_id: 'tool-artifact-seat-a',
+            artifact_kind: 'chat',
+          },
+        },
+      ])
+    );
+
+    const { result } = renderHook(() => usePreviewContext(), { wrapper });
+    expect(result.current.tabs).toEqual([]);
+    expect(
+      canResolveWorkbenchArtifact({
+        kind: 'chat',
+        conversationId: 'conversation-1',
+        artifactId: 'tool-artifact-seat-a',
+      })
+    ).toBe(false);
   });
 
   it('routes a dirty tab through the registered confirmation guard', () => {

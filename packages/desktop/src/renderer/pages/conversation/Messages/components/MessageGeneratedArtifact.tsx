@@ -6,12 +6,12 @@
 
 import { ipcBridge } from '@/common';
 import type { IFileMetadata, IGeneratedArtifactType, IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
+import { configService } from '@/common/config/configService';
 import {
   bindTypedUIEnvelopeToArtifact,
   TYPED_UI_MIME_TYPE,
   TYPED_UI_SCHEMA_VERSION,
   validateTypedUIEnvelope,
-  type TypedUIActionHost,
   type TypedUIProvenanceAttestation,
 } from '@/common/typedUI';
 import MarkdownView from '@/renderer/components/Markdown';
@@ -25,7 +25,7 @@ import {
 } from '@/renderer/pages/conversation/Preview/services/workbenchArtifactResolver';
 import { Message } from '@arco-design/web-react';
 import { FolderOpen, Paperclip, PreviewOpen } from '@icon-park/react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import PDFPreview from '../../Preview/components/viewers/PDFViewer';
 import { secureArtifactHtml } from '../../Preview/components/renderers/htmlArtifactSecurityCore';
@@ -116,6 +116,24 @@ function bindTypedUIContentToArtifact(
   } catch {
     return undefined;
   }
+}
+
+const SHA256_HEX = /^[a-f0-9]{64}$/i;
+
+function isVerifiedTypedUIAttestation(
+  attestation: TypedUIProvenanceAttestation,
+  artifact: IGeneratedConversationArtifact,
+  sourceMessageId: string
+): boolean {
+  return (
+    attestation.status === 'verified' &&
+    attestation.artifact_id === artifact.id &&
+    attestation.conversation_id === artifact.conversation_id &&
+    attestation.source_message_id === sourceMessageId &&
+    SHA256_HEX.test(attestation.content_sha256) &&
+    Number.isSafeInteger(attestation.seat_context_revision) &&
+    attestation.seat_context_revision >= 0
+  );
 }
 
 function readNumber(payload: Record<string, unknown>, keys: string[]): number | undefined {
@@ -295,10 +313,7 @@ function buildReceiptSummary(
   return items.filter((item): item is string => Boolean(item)).join(' · ') || undefined;
 }
 
-const MessageGeneratedArtifact: React.FC<{
-  artifact: IGeneratedConversationArtifact;
-  typedUIAttestation?: TypedUIProvenanceAttestation;
-}> = ({ artifact, typedUIAttestation }) => {
+const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtifact }> = ({ artifact }) => {
   const { t } = useTranslation();
   const conversationContext = useConversationContextSafe();
   const preview = usePreviewContext();
@@ -555,6 +570,29 @@ const MessageGeneratedArtifact: React.FC<{
     content: string;
     state: 'checking' | 'verified' | 'rejected';
   }>();
+  const resolverCleanupRef = useRef<(() => void) | undefined>(undefined);
+  const activeSeatIdRef = useRef(configService.getCurrentSeatId());
+  const [seatGeneration, setSeatGeneration] = useState(0);
+
+  useEffect(() => {
+    return configService.onSeatRebind((seatId) => {
+      activeSeatIdRef.current = seatId;
+      resolverCleanupRef.current?.();
+      resolverCleanupRef.current = undefined;
+      setTypedUIResolverGate(undefined);
+      setSeatGeneration((generation) => generation + 1);
+    });
+  }, []);
+
+  const typedUIEnvelope = useMemo(() => {
+    if (!typedUIContent) return undefined;
+    try {
+      const validated = validateTypedUIEnvelope(JSON.parse(typedUIContent) as unknown);
+      return validated.ok ? validated.value : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [typedUIContent]);
 
   useEffect(() => {
     if (!typedUIContent || !sourceMessageId) {
@@ -563,59 +601,40 @@ const MessageGeneratedArtifact: React.FC<{
     }
     let active = true;
     const content = typedUIContent;
+    const attestationSeatId = activeSeatIdRef.current;
     setTypedUIResolverGate({ content, state: 'checking' });
-    if (
-      typedUIAttestation?.status === 'verified' &&
-      typedUIAttestation.artifact_id === artifact.id &&
-      typedUIAttestation.conversation_id === artifact.conversation_id &&
-      typedUIAttestation.source_message_id === sourceMessageId
-    ) {
-      setTypedUIResolverGate({ content, state: 'verified', attestation: typedUIAttestation });
-      return () => {
-        active = false;
-      };
-    }
-    let envelope;
-    try {
-      const validated = validateTypedUIEnvelope(JSON.parse(content) as unknown);
-      if (!validated.ok) {
-        setTypedUIResolverGate({ content, state: 'rejected' });
-        return;
-      }
-      envelope = validated.value;
-    } catch {
+    if (!typedUIEnvelope) {
       setTypedUIResolverGate({ content, state: 'rejected' });
       return;
     }
     void typedUIHost
-      .attestProvenance(envelope)
+      .attestProvenance(typedUIEnvelope)
       .then((attestation) => {
-        if (!active) return;
+        if (!active || activeSeatIdRef.current !== attestationSeatId) return;
+        const verified = isVerifiedTypedUIAttestation(attestation, artifact, sourceMessageId);
         setTypedUIResolverGate({
           content,
-          attestation:
-            attestation.status === 'verified' &&
-            attestation.artifact_id === artifact.id &&
-            attestation.conversation_id === artifact.conversation_id &&
-            attestation.source_message_id === sourceMessageId
-              ? attestation
-              : undefined,
-          state:
-            attestation.status === 'verified' &&
-            attestation.artifact_id === artifact.id &&
-            attestation.conversation_id === artifact.conversation_id &&
-            attestation.source_message_id === sourceMessageId
-              ? 'verified'
-              : 'rejected',
+          attestation: verified ? attestation : undefined,
+          state: verified ? 'verified' : 'rejected',
         });
       })
       .catch(() => {
-        if (active) setTypedUIResolverGate({ content, state: 'rejected' });
+        if (active && activeSeatIdRef.current === attestationSeatId) {
+          setTypedUIResolverGate({ content, state: 'rejected' });
+        }
       });
     return () => {
       active = false;
     };
-  }, [artifact.conversation_id, artifact.id, sourceMessageId, typedUIAttestation, typedUIContent, typedUIHost]);
+  }, [
+    artifact.conversation_id,
+    artifact.id,
+    seatGeneration,
+    sourceMessageId,
+    typedUIContent,
+    typedUIEnvelope,
+    typedUIHost,
+  ]);
 
   const typedUIResolverState =
     typedUIResolverGate && typedUIResolverGate.content === typedUIContent ? typedUIResolverGate.state : 'checking';
@@ -624,35 +643,50 @@ const MessageGeneratedArtifact: React.FC<{
     typedUIResolverGate && typedUIResolverGate.content === typedUIContent && typedUIResolverGate.state === 'verified'
       ? typedUIResolverGate.attestation
       : undefined;
-  const typedUIRendererHost = useMemo<TypedUIActionHost>(
-    () =>
-      typedUIVerifiedAttestation
-        ? {
-            ...typedUIHost,
-            attestProvenance: () => Promise.resolve(typedUIVerifiedAttestation),
-          }
-        : typedUIHost,
-    [typedUIHost, typedUIVerifiedAttestation]
-  );
 
   useEffect(() => {
-    if (!typedUIContent || !typedUIResolverVerified) return;
-    return registerWorkbenchArtifactResolver({
+    if (!typedUIContent || !typedUIEnvelope || !typedUIResolverVerified || !typedUIVerifiedAttestation) return;
+    const resolverSeatId = activeSeatIdRef.current;
+    const resolverContentSha256 = typedUIVerifiedAttestation.content_sha256;
+    const resolverSeatContextRevision = typedUIVerifiedAttestation.seat_context_revision;
+    const unregister = registerWorkbenchArtifactResolver({
       id: `typed-ui-${artifact.conversation_id}-${artifact.id}`,
       priority: 100,
       canResolve(reference) {
         return (
+          activeSeatIdRef.current === resolverSeatId &&
           reference.kind === 'chat' &&
           reference.conversationId === artifact.conversation_id &&
           reference.artifactId === artifact.id
         );
       },
-      open(reference) {
+      async open(reference) {
         if (
+          activeSeatIdRef.current !== resolverSeatId ||
           reference.kind !== 'chat' ||
           reference.conversationId !== artifact.conversation_id ||
           reference.artifactId !== artifact.id
         ) {
+          throw new Error('artifact_not_resolved');
+        }
+        let reattestation: TypedUIProvenanceAttestation;
+        try {
+          // Main hashes the exact bound envelope it receives. This is a fresh
+          // authority check, not a renderer cache or a replayed receipt.
+          reattestation = await typedUIHost.attestProvenance(typedUIEnvelope);
+        } catch {
+          resolverCleanupRef.current?.();
+          setTypedUIResolverGate({ content: typedUIContent, state: 'rejected' });
+          throw new Error('artifact_not_resolved');
+        }
+        if (
+          activeSeatIdRef.current !== resolverSeatId ||
+          !isVerifiedTypedUIAttestation(reattestation, artifact, sourceMessageId) ||
+          reattestation.content_sha256 !== resolverContentSha256 ||
+          reattestation.seat_context_revision !== resolverSeatContextRevision
+        ) {
+          resolverCleanupRef.current?.();
+          setTypedUIResolverGate({ content: typedUIContent, state: 'rejected' });
           throw new Error('artifact_not_resolved');
         }
         preview.openPreview(typedUIContent, 'typed-ui', {
@@ -662,18 +696,30 @@ const MessageGeneratedArtifact: React.FC<{
           artifact_kind: 'chat',
           artifact_created_at: artifact.created_at,
           ...(sourceMessageId ? { source_message_id: sourceMessageId } : {}),
+          typed_ui_attestation_id: typedUIVerifiedAttestation.attestation_id,
+          typed_ui_content_sha256: resolverContentSha256,
+          typed_ui_seat_context_revision: resolverSeatContextRevision,
         });
       },
     });
+    resolverCleanupRef.current = unregister;
+    return () => {
+      if (resolverCleanupRef.current === unregister) resolverCleanupRef.current = undefined;
+      unregister();
+    };
   }, [
     artifact.conversation_id,
     artifact.created_at,
     artifact.id,
     preview,
     sourceMessageId,
+    seatGeneration,
     title,
     typedUIContent,
+    typedUIEnvelope,
+    typedUIHost,
     typedUIResolverVerified,
+    typedUIVerifiedAttestation,
   ]);
 
   if (typedUIContent) {
@@ -696,7 +742,7 @@ const MessageGeneratedArtifact: React.FC<{
         <TypedUIRenderer
           content={typedUIContent}
           mode='compact'
-          host={typedUIRendererHost}
+          host={typedUIHost}
           receiptContext={{
             artifactId: artifact.id,
             conversationId: artifact.conversation_id,

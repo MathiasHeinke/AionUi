@@ -5,6 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
+import { configService } from '@/common/config/configService';
 import type { PreviewContentType } from '@/common/types/office/preview';
 import type { TypedUIArtifactKind } from '@/common/typedUI';
 import { emitter } from '@/renderer/utils/emitter';
@@ -35,6 +36,9 @@ export interface PreviewMetadata {
   artifact_kind?: TypedUIArtifactKind; // Typed resolver namespace; never inferred as a path or URL
   artifact_created_at?: number; // Provenance correlation, copied from the canonical artifact record
   source_message_id?: string; // Optional source-message correlation for typed provenance
+  typed_ui_attestation_id?: string; // Main-issued attestation; never persisted or used as standalone authority
+  typed_ui_content_sha256?: string; // Exact envelope binding for the in-memory typed UI pane
+  typed_ui_seat_context_revision?: number; // Main seat-context revision for the in-memory typed UI pane
   workspace_event_prefix?: 'acp' | 'codex' | 'aionrs'; // Backend event namespace for workspace operations
   is_temporary_workspace?: boolean; // Preserve generated workspace identity inside workbench surfaces
 }
@@ -138,6 +142,8 @@ const loadWorkbenchLayoutMode = (): WorkbenchLayoutMode => {
 const MAX_PERSISTED_TAB_CONTENT_LENGTH = 80_000;
 const PERSISTABLE_CONTENT_TYPES = new Set<PreviewContentType>(['markdown', 'html', 'code', 'diff']);
 
+const isTypedUIPreviewTab = (tab: PreviewTab): boolean => tab.content_type === 'typed-ui';
+
 const resolveCurrentConversationId = (): string | undefined => {
   if (typeof window === 'undefined') return undefined;
   const match = window.location.hash.match(/^#\/conversation\/([^/?#]+)/);
@@ -157,6 +163,7 @@ const scopePreviewMetadata = (meta?: PreviewMetadata): PreviewMetadata | undefin
 
 const sanitizeTabsForPersistence = (input: PreviewTab[]): PreviewTab[] => {
   return input
+    .filter((tab) => !isTypedUIPreviewTab(tab))
     .filter((tab) => PERSISTABLE_CONTENT_TYPES.has(tab.content_type))
     .filter((tab) => tab.content.length <= MAX_PERSISTED_TAB_CONTENT_LENGTH)
     .map((tab) => ({
@@ -180,6 +187,7 @@ const parsePersistedTabs = (value: unknown): PreviewTab[] => {
         typeof candidate.content_type === 'string'
       );
     })
+    .filter((tab) => !isTypedUIPreviewTab(tab))
     .filter((tab) => PERSISTABLE_CONTENT_TYPES.has(tab.content_type))
     .filter((tab) => tab.content.length <= MAX_PERSISTED_TAB_CONTENT_LENGTH)
     .map((tab) => ({
@@ -238,6 +246,23 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // const [sendBoxHandler, setSendBoxHandlerState] = useState<((text: string) => void) | null>(null);
   const sendBoxHandler = useRef<((text: string) => void) | null>(null);
   const [domSnippets, setDomSnippets] = useState<DomSnippet[]>([]);
+
+  useEffect(() => {
+    return configService.onSeatRebind(() => {
+      setTabs((previousTabs) => {
+        const nextTabs = previousTabs.filter((tab) => !isTypedUIPreviewTab(tab));
+        if (nextTabs.length === previousTabs.length) return previousTabs;
+        const nextActiveTabId = nextTabs.some((tab) => tab.id === activeTabIdRef.current)
+          ? activeTabIdRef.current
+          : (nextTabs.at(-1)?.id ?? null);
+        pendingActiveTabIdRef.current = null;
+        activeTabIdRef.current = nextActiveTabId;
+        setActiveTabId(nextActiveTabId);
+        if (!nextActiveTabId) setIsOpen(false);
+        return nextTabs;
+      });
+    });
+  }, []);
 
   const setWorkbenchLayoutMode = useCallback((mode: WorkbenchLayoutMode) => {
     setWorkbenchLayoutModeState(mode);
@@ -469,6 +494,7 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
       canResolve(reference) {
         return tabs.some(
           (tab) =>
+            !isTypedUIPreviewTab(tab) &&
             tab.metadata?.conversation_id === reference.conversationId &&
             tab.metadata?.artifact_id === reference.artifactId &&
             tab.metadata?.artifact_kind === reference.kind
@@ -477,6 +503,7 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
       open(reference) {
         const tab = tabs.find(
           (candidate) =>
+            !isTypedUIPreviewTab(candidate) &&
             candidate.metadata?.conversation_id === reference.conversationId &&
             candidate.metadata?.artifact_id === reference.artifactId &&
             candidate.metadata?.artifact_kind === reference.kind

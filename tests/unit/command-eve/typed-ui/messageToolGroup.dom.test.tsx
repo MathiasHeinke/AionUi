@@ -6,11 +6,78 @@
 
 import type { IMessageToolGroup } from '@/common/chat/chatLib';
 import MessageToolGroup from '@/renderer/pages/conversation/Messages/components/MessageToolGroup';
-import { cleanup, render, screen } from '@testing-library/react';
+import {
+  canResolveWorkbenchArtifact,
+  openWorkbenchArtifact,
+  resetWorkbenchArtifactResolversForTest,
+} from '@/renderer/pages/conversation/Preview/services/workbenchArtifactResolver';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { typedUIFixture } from './fixtures';
 
 const generatedArtifactMock = vi.hoisted(() => vi.fn(() => 'generated-artifact-stub'));
+const realArtifactState = vi.hoisted(() => ({ enabled: false }));
+const ipcMock = vi.hoisted(() => ({ attestTypedUI: vi.fn() }));
+const previewMock = vi.hoisted(() => ({ openPreview: vi.fn() }));
+const seatMock = vi.hoisted(() => ({
+  current: 'seat-a',
+  listeners: new Set<(seatId: string) => void>(),
+}));
+
+function typedUIAttestationResponse(artifact: {
+  artifact_id: string;
+  conversation_id: string;
+  source_message_id: string;
+}) {
+  return {
+    success: true,
+    data: {
+      version: 'command-eve.typed-ui-provenance-attestation/v2',
+      attestation_id: `tuia_${'a'.repeat(64)}`,
+      artifact_id: artifact.artifact_id,
+      conversation_id: artifact.conversation_id,
+      source_message_id: artifact.source_message_id,
+      content_sha256: 'b'.repeat(64),
+      action_set_sha256: 'c'.repeat(64),
+      identity_sha256: 'd'.repeat(64),
+      request_id_sha256: 'e'.repeat(64),
+      receipt_sha256: 'f'.repeat(64),
+      seat_context_revision: 1,
+      status: 'verified' as const,
+      recorded_at: '2026-08-12T00:00:00.000Z',
+    },
+  };
+}
+
+vi.mock('@/common/config/configService', () => ({
+  configService: {
+    getCurrentSeatId: () => seatMock.current,
+    onSeatRebind: (listener: (seatId: string) => void) => {
+      seatMock.listeners.add(listener);
+      return () => seatMock.listeners.delete(listener);
+    },
+  },
+}));
+
+vi.mock('@/common', () => ({
+  ipcBridge: {
+    conversation: { confirmMessage: { invoke: vi.fn() } },
+    commandEve: { typedUIProvenanceAttestation: { invoke: ipcMock.attestTypedUI } },
+    shell: {
+      openFile: { invoke: vi.fn() },
+      openExternal: { invoke: vi.fn() },
+      showItemInFolder: { invoke: vi.fn() },
+    },
+    fs: {
+      readFile: { invoke: vi.fn() },
+      readFileBuffer: { invoke: vi.fn() },
+      getImageBase64: { invoke: vi.fn() },
+      getFileMetadata: { invoke: vi.fn() },
+    },
+    application: { readGeneratedArtifactPreview: { invoke: vi.fn() } },
+  },
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -34,7 +101,10 @@ vi.mock('@arco-design/web-react', () => ({
 vi.mock('@icon-park/react', () => ({
   Copy: () => null,
   Download: () => null,
+  FolderOpen: () => null,
   LoadingOne: () => null,
+  Paperclip: () => null,
+  PreviewOpen: () => null,
 }));
 
 vi.mock('@/renderer/components/base/FeedbackButton', () => ({ default: () => null }));
@@ -58,9 +128,31 @@ vi.mock('@/renderer/pages/conversation/Messages/MessageList', async () => {
   const ReactModule = await import('react');
   return { ImagePreviewContext: ReactModule.createContext({ inPreviewGroup: false }) };
 });
-vi.mock('@/renderer/pages/conversation/Messages/components/MessageGeneratedArtifact', () => ({
-  default: generatedArtifactMock,
+vi.mock('@/renderer/hooks/context/ConversationContext', () => ({
+  useConversationContextSafe: () => ({ conversation_id: 'conversation-typed-ui', workspace: '/tmp' }),
 }));
+vi.mock('@/renderer/pages/conversation/Preview', () => ({
+  usePreviewContext: () => previewMock,
+}));
+vi.mock('@/renderer/utils/emitter', () => ({ emitter: { emit: vi.fn() } }));
+vi.mock('@/renderer/pages/conversation/Preview/components/viewers/PDFViewer', () => ({ default: () => null }));
+vi.mock('@/renderer/pages/conversation/Messages/components/TypedGenerativeUI', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/renderer/pages/conversation/Messages/components/TypedGenerativeUI')>();
+  return {
+    ...actual,
+    TypedUIRenderer: () => <div data-testid='typed-ui-rendered' />,
+  };
+});
+vi.mock('@/renderer/pages/conversation/Messages/components/MessageGeneratedArtifact', async (importOriginal) => {
+  const ReactModule = await import('react');
+  const actual =
+    await importOriginal<typeof import('@/renderer/pages/conversation/Messages/components/MessageGeneratedArtifact')>();
+  return {
+    default: (props: React.ComponentProps<typeof actual.default>) =>
+      realArtifactState.enabled ? ReactModule.createElement(actual.default, props) : generatedArtifactMock(props),
+  };
+});
 
 function typedPublishTool(
   status: IMessageToolGroup['content'][number]['status'],
@@ -86,7 +178,7 @@ function typedPublishTool(
           mime_type: 'application/vnd.command-eve.typed-ui+json',
           schema_version: 'command-eve.typed-ui/v2',
           catalog_version: 'command-eve.typed-ui.catalog/v2',
-          content: '{"schema_version":"command-eve.typed-ui/v2"}',
+          content: JSON.stringify(typedUIFixture()),
           ...resultDisplayOverrides,
         },
       },
@@ -125,6 +217,12 @@ function imageGenerationTool(
 afterEach(() => {
   cleanup();
   generatedArtifactMock.mockClear();
+  realArtifactState.enabled = false;
+  ipcMock.attestTypedUI.mockReset();
+  previewMock.openPreview.mockReset();
+  seatMock.current = 'seat-a';
+  seatMock.listeners.clear();
+  resetWorkbenchArtifactResolversForTest();
 });
 
 describe('Typed UI tool publication', () => {
@@ -236,5 +334,49 @@ describe('Typed UI tool publication', () => {
     expect(screen.getByText('generated-artifact-stub')).toBeInTheDocument();
     expect(screen.queryByTestId('legacy-image-preview')).toBeNull();
     expect(generatedArtifactMock).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a real legacy typed tool_group non-addressable until Main verifies it', async () => {
+    realArtifactState.enabled = true;
+    ipcMock.attestTypedUI.mockImplementation(
+      ({ request }: { request: { artifact: Parameters<typeof typedUIAttestationResponse>[0] } }) => {
+        const response = typedUIAttestationResponse(request.artifact);
+        return { ...response, data: { ...response.data, status: 'rejected' as const, reason: 'receipt_missing' } };
+      }
+    );
+    const reference = {
+      kind: 'chat' as const,
+      artifactId: 'tool-artifact-call-typed-ui',
+      conversationId: 'conversation-typed-ui',
+    };
+
+    render(<MessageToolGroup message={typedPublishTool('Success')} />);
+
+    await waitFor(() => expect(screen.getByTestId('typed-ui-provenance-rejected')).toBeInTheDocument());
+    expect(screen.queryByTestId('generated-artifact-card')).toBeNull();
+    expect(canResolveWorkbenchArtifact(reference)).toBe(false);
+  });
+
+  it('registers a real legacy typed tool_group exactly after Main verifies it', async () => {
+    realArtifactState.enabled = true;
+    ipcMock.attestTypedUI.mockImplementation(
+      ({ request }: { request: { artifact: Parameters<typeof typedUIAttestationResponse>[0] } }) =>
+        typedUIAttestationResponse(request.artifact)
+    );
+    const reference = {
+      kind: 'chat' as const,
+      artifactId: 'tool-artifact-call-typed-ui',
+      conversationId: 'conversation-typed-ui',
+    };
+
+    const { rerender } = render(<MessageToolGroup message={typedPublishTool('Executing')} />);
+
+    expect(canResolveWorkbenchArtifact(reference)).toBe(false);
+    rerender(<MessageToolGroup message={typedPublishTool('Success')} />);
+
+    await waitFor(() => expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument());
+    await waitFor(() => expect(canResolveWorkbenchArtifact(reference)).toBe(true));
+    await openWorkbenchArtifact(reference);
+    expect(previewMock.openPreview).toHaveBeenCalledOnce();
   });
 });

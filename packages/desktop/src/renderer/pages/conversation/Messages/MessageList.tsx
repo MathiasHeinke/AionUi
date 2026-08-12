@@ -17,7 +17,6 @@ import {
   typedUIArtifactIdForToolCall,
   validateTypedUIEnvelope,
   type TypedUIEnvelope,
-  type TypedUIProvenanceAttestation,
 } from '@/common/typedUI';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
@@ -236,7 +235,6 @@ function readDurableAcpTypedUICandidate(message: IMessageAcpToolCall): DurableAc
 
 const DurableAcpTypedUIArtifact: React.FC<{ candidate: DurableAcpTypedUICandidate }> = ({ candidate }) => {
   const { t } = useTranslation();
-  const [attestation, setAttestation] = useState<TypedUIProvenanceAttestation>();
   const [state, setState] = useState<'checking' | 'verified' | 'rejected'>('checking');
   const provenanceArtifact = useMemo(
     () => ({
@@ -263,7 +261,6 @@ const DurableAcpTypedUIArtifact: React.FC<{ candidate: DurableAcpTypedUICandidat
   useEffect(() => {
     let active = true;
     setState('checking');
-    setAttestation(undefined);
     void host
       .attestProvenance(envelope)
       .then((attestation) => {
@@ -277,14 +274,10 @@ const DurableAcpTypedUIArtifact: React.FC<{ candidate: DurableAcpTypedUICandidat
           setState('rejected');
           return;
         }
-        setAttestation(attestation);
         setState('verified');
       })
       .catch(() => {
-        if (active) {
-          setAttestation(undefined);
-          setState('rejected');
-        }
+        if (active) setState('rejected');
       });
     return () => {
       active = false;
@@ -308,7 +301,7 @@ const DurableAcpTypedUIArtifact: React.FC<{ candidate: DurableAcpTypedUICandidat
   );
 
   if (artifact) {
-    return <MessageGeneratedArtifact artifact={artifact} typedUIAttestation={attestation} />;
+    return <MessageGeneratedArtifact artifact={artifact} />;
   }
 
   return (
