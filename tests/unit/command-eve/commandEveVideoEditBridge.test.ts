@@ -55,6 +55,10 @@ import { issueVideoEditSpendPermit } from '@/process/commandEve/videoEditSpendPe
 import { listVideoArtifactRecords, saveVideoArtifactRecord } from '@/process/commandEve/videoArtifactStore';
 import { buildVideoConversationArtifact } from '@/common/config/videoGenerationRequestCore';
 import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG } from '@/process/commandEve/agentVideoEditFlag';
+import {
+  __resetActiveSeatForTests,
+  hasCommandEvePaidArtifactOperationInFlight,
+} from '@/process/commandEve/seatContextCore';
 
 let dataRoot: string;
 let videoRoot: string;
@@ -143,6 +147,7 @@ function deps(fetchImpl: typeof fetch, overrides: Partial<CommandEveVideoBridgeD
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetActiveSeatForTests();
   readLicenseWireMock.mockReturnValue({ ok: true, wire: 'ceve-wire-token' });
   dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-video-edit-'));
   videoRoot = path.join(dataRoot, 'videos');
@@ -229,6 +234,49 @@ describe('an edit reaches the gateway from a handle AND a live permit', () => {
     expect(result.mediaDirective.startsWith('MEDIA: ')).toBe(true);
     expect(result.mediaDirective).not.toContain('data:');
     expect(result.mediaDirective.endsWith('.mp4')).toBe(true);
+  });
+
+  it('keeps an already-billed edit on its captured Seed while the paid-artifact fence is held', async () => {
+    const originDataPath = dataRoot;
+    const source = seedSource();
+    const handle = ensureVideoEditCapabilityHandle(originDataPath, source)!;
+    const permit = permitForTurn('mach den Clip wärmer');
+    let activeSeatId = ACTIVE_SEED_ID;
+    let activeSeatContextRevision = 7;
+    let currentDataPath = originDataPath;
+    let resolveFetch!: (response: Response) => void;
+    const fetchImpl = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    ) as unknown as typeof fetch;
+    const saveArtifactRecord = vi.fn();
+
+    const pending = handleCommandEveVideoEdit(
+      { handle, permit, instruction: 'mach den Clip wärmer' },
+      deps(fetchImpl, {
+        getDataPath: () => currentDataPath,
+        getActiveSeatId: () => activeSeatId,
+        getActiveSeatContextRevision: () => activeSeatContextRevision,
+        saveArtifactRecord,
+      })
+    );
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledOnce());
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(true);
+
+    // Main refuses a real switch while this fence is held. This direct state
+    // mutation is the hostile defense-in-depth case: even then the billed clip
+    // must stay under the origin Seed instead of being discarded or rehomed.
+    activeSeatId = 'b2000000-0000-4000-8000-000000000001';
+    activeSeatContextRevision += 1;
+    currentDataPath = '/tmp/eve-data-seat-b';
+    resolveFetch(jsonResponse(200, editedBody));
+
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(saveArtifactRecord).toHaveBeenCalledWith(originDataPath, expect.any(Object));
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(false);
   });
 
   it('makes the edited clip appear in the NEXT context envelope', async () => {

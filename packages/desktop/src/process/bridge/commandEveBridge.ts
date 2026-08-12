@@ -555,6 +555,7 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
 // state is NOT a sufficient guard — this single main-process boolean is the real
 // serialization boundary (there is exactly one main process).
 let commandEveSwitchSeatInFlight = false;
+let commandEveSwitchSeatRecoveryRequired = false;
 
 /** COMPA-626: read the seat-switch write fence from OUTSIDE the bridge (the kanban auto-
  * approve path applies from the shim propose handler, not the confirm IPC, so it must
@@ -563,9 +564,9 @@ export function isCommandEveSeatSwitchInFlight(): boolean {
   return commandEveSwitchSeatInFlight;
 }
 // EPOCH for the lock. Bumped each time the lock is taken; a release only fires if its
-// epoch is still current. This stops a LATE-completing switch (one whose watchdog
-// already force-released the lock, after which a NEW switch took it) from clobbering
-// the new switch's lock in its stale finally.
+// epoch is still current. The watchdog never reopens the lock: it only changes the
+// public diagnosis to recovery-required. The epoch guard remains defense-in-depth for
+// a future implementation that supersedes a stuck operation explicitly.
 let commandEveSwitchSeatEpoch = 0;
 
 // MAT-1773 — transition flag for the my-seats wire read. The my-seats handler is
@@ -581,24 +582,16 @@ let commandEveMySeatsWireDown = false;
 // (re-login recovers it) is then distinguishable from a transient read failure
 // instead of both hiding the rail identically and silently.
 let commandEveMySeatsWireFailure: MySeatsWireFailure | null = null;
-// WATCHDOG bound for the lock — a pure LIVENESS BACKSTOP, not a completion guarantee.
+// WATCHDOG bound for the lock — an OBSERVABILITY BACKSTOP, not a completion guarantee.
 // If applySeatSwitch's await never settles (a hung re-spawn whose start() never binds
-// its port), the finally never runs and the lock would stay true for the whole session,
-// wedging EVERY future switch behind a misleading "kurz warten". The watchdog force-
-// releases the lock so a hung switch degrades to retryable.
+// its port), the finally never runs. The mutation fences intentionally remain closed,
+// but the public reason changes from ordinary "in progress" to "recovery required" so
+// the operator is told to relaunch instead of retrying into an unknown Seed context.
 //   It is set FAR above any plausible respawn ceiling (5 min), NOT merely above the
 // renderer's 45s timeout: 60s > 45s would NOT have guaranteed 60s > respawn time, so a
 // legitimately slow respawn could trip it mid-flight and admit a concurrent switch. At
-// 5 min the respawn is provably dead, so a retry is correct.
-//   Safety on the rare post-watchdog retry does NOT rest on the bound: a NEW switch's
-// restartBackend ALWAYS runs backendManager.stop() FIRST, which SIGTERMs→SIGKILLs (5s)
-// the existing process tree before its start() — so two backends never truly coexist.
-// The SEAT pointer is then deterministic (last setActiveSeatId wins). The GLOBAL respawn
-// state the restart hook publishes (__backendPort, cron-resume bridge, assistant prompt)
-// is NOT seat-pointer state, so a stale superseded respawn could clobber it on its late
-// return; that is closed separately by the respawn-generation guard in index.ts (the hook
-// bails its post-start writes if a newer respawn ran). This lock comment does not claim
-// to cover that global state.
+// 5 min the respawn is treated as operationally stuck, but never as safe to supersede
+// inside the same process. Relaunch is the bounded recovery path.
 const COMMAND_EVE_SWITCH_SEAT_LOCK_TIMEOUT_MS = 300_000;
 
 /**
@@ -4297,6 +4290,18 @@ export function initCommandEveBridge(): void {
   // -------------------------------------------------------------------------
   bridge.buildProvider('command-eve.switch-seat').provider(async (request?: { seatId?: string }) => {
     const version = 'command-eve-switch-seat/v0' as const;
+    if (commandEveSwitchSeatRecoveryRequired) {
+      return {
+        success: false,
+        msg: 'The previous Seed switch is still unresolved. Relaunch Command EVE if it does not recover.',
+        data: {
+          version,
+          ok: false,
+          reason_code: 'SWITCH_SEAT_RECOVERY_REQUIRED',
+          active_seat_id: getActiveSeatId(),
+        },
+      };
+    }
     if (hasCommandEvePaidArtifactOperationInFlight()) {
       return {
         success: false,
@@ -4356,22 +4361,25 @@ export function initCommandEveBridge(): void {
     }
     commandEveSwitchSeatInFlight = true;
     const myEpoch = ++commandEveSwitchSeatEpoch;
-    // Release only if THIS switch still owns the lock (epoch unchanged) — never clobber
-    // a newer switch that took the lock after our watchdog force-released it.
+    // Release only if THIS switch still owns the lock (epoch unchanged).
     const releaseLock = () => {
-      if (commandEveSwitchSeatEpoch === myEpoch) commandEveSwitchSeatInFlight = false;
+      if (commandEveSwitchSeatEpoch === myEpoch) {
+        commandEveSwitchSeatInFlight = false;
+        commandEveSwitchSeatRecoveryRequired = false;
+      }
     };
     const releaseAllSwitchFences = () => {
       releaseLock();
       releasePaidArtifactSeatTransition();
     };
-    // Arm the watchdog (see the bound above) so a never-settling respawn cannot leave
-    // the lock stuck. Cleared in finally on every normal/error exit.
-    // The watchdog may reopen the rail, but NOT the paid-artifact fence: if the
-    // switch is still executing, allowing a newly billed request into that
-    // unknown context would recreate the cross-Seed loss race. A truly hung
-    // switch therefore keeps paid creation fail-closed until relaunch.
-    const lockWatchdog = setTimeout(releaseLock, COMMAND_EVE_SWITCH_SEAT_LOCK_TIMEOUT_MS);
+    // A respawn that exceeds the hard bound is no longer described as an
+    // ordinary in-flight switch. It remains fully fenced, but callers receive
+    // an honest recovery-required state until the original operation settles
+    // (or the app is relaunched). Reopening any mutation lane here would admit
+    // work into an unknown Seed context.
+    const lockWatchdog = setTimeout(() => {
+      if (commandEveSwitchSeatEpoch === myEpoch) commandEveSwitchSeatRecoveryRequired = true;
+    }, COMMAND_EVE_SWITCH_SEAT_LOCK_TIMEOUT_MS);
     try {
       const targetSeatId = typeof request?.seatId === 'string' ? request.seatId : '';
       if (!targetSeatId) {
