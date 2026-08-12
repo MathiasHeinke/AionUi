@@ -364,6 +364,9 @@ type SelectedAuthResult =
   | { status: 'denied'; reasonCode: string; authMode?: ExternalActionAuthMode };
 
 type PreparedExecution = {
+  proposal: EveExternalActionProposal;
+  /** Main-memory only; zeroed after the single non-resumable invocation. */
+  inlinePayload?: Uint8Array;
   binding: EveExternalActionBinding;
   conversationContext: ExternalActionConversationContext;
   policy: EveExternalActionPolicy;
@@ -1326,6 +1329,61 @@ export class ExternalActionExecutionService {
       return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_POLICY_ORIGIN_DENIED' }) };
     }
 
+    let payloadValidation: ExternalActionAdapterPayloadValidation | undefined;
+    // The only copy that survives validation is an owned Main-memory buffer.
+    // It is transferred to the exact invocation or zeroed by this scope.
+    let inlinePayload: Uint8Array | undefined;
+    try {
+      if (proposal.action.adapterPayload && !adapter.validatePayload) {
+        return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_SCHEMA_REQUIRED' }) };
+      }
+      if (proposal.action.adapterPayload && (proposal.oauthHandleId || proposal.passwordHandleId)) {
+        return {
+          ok: false,
+          outcome: result('denied', { reasonCode: 'EXTERNAL_PAYLOAD_HANDLE_INGRESS_AMBIGUOUS' }),
+        };
+      }
+      if (proposal.action.adapterPayload || (proposal.action.adapterPayloadRef && proposal.action.adapterPayloadDigest)) {
+        const inlinePayloadText = proposal.action.adapterPayload;
+        const inlineBytes = inlinePayloadText ? Uint8Array.from(Buffer.from(inlinePayloadText, 'base64')) : undefined;
+        if (inlineBytes) inlinePayload = Uint8Array.from(inlineBytes);
+        const resolvedPayloadDigest = inlineBytes ? sha256Bytes(inlineBytes) : proposal.action.adapterPayloadDigest!;
+        const read = await this.readValidatedAdapterPayload({
+          adapter,
+          payloadRef: inlineBytes ? '' : proposal.action.adapterPayloadRef!,
+          payloadDigest: resolvedPayloadDigest,
+          ...(inlineBytes ? { inlineBytes } : {}),
+          binding,
+          conversationId: conversationContext.conversationId,
+          conversationSessionId: conversationContext.conversationSessionId,
+          adapterId: adapter.id,
+          actionKind: proposal.action.kind,
+          targetOrigin: proposal.action.targetOrigin,
+          domain: operation.domain,
+          action: operation.action,
+          counterpartyId: operation.counterpartyId,
+          origins,
+          argumentsDigest: proposal.action.argumentsDigest,
+          ...(proposal.action.quoteDigest ? { quoteDigest: proposal.action.quoteDigest } : {}),
+          amount: proposal.action.amount,
+        });
+        inlineBytes?.fill(0);
+        if ('reasonCode' in read) {
+          return { ok: false, outcome: result('denied', { reasonCode: read.reasonCode }) };
+        }
+        payloadValidation = read.validation;
+        read.payload.fill(0);
+        if (inlinePayloadText) {
+          // Inline bytes are semantic ingress only. From this point onward every
+          // Main collaborator receives the digest-bound, non-secret proposal.
+          const { adapterPayload: _inlinePayload, ...sanitizedAction } = proposal.action;
+          proposal = {
+            ...proposal,
+            action: { ...sanitizedAction, adapterPayloadDigest: resolvedPayloadDigest },
+          };
+        }
+      }
+
     const riskClass = classifyTrustedRisk(adapter, binding, proposal);
     if (!riskClass) {
       return {
@@ -1378,48 +1436,6 @@ export class ExternalActionExecutionService {
       return { ok: false, outcome: result('denied', stableConversationAfterAuthority) };
     }
 
-    if (proposal.action.adapterPayload && !adapter.validatePayload) {
-      return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_SCHEMA_REQUIRED' }) };
-    }
-    if (proposal.action.adapterPayload && (proposal.oauthHandleId || proposal.passwordHandleId)) {
-      return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_PAYLOAD_HANDLE_INGRESS_AMBIGUOUS' }) };
-    }
-    let payloadValidation: ExternalActionAdapterPayloadValidation | undefined;
-    if (proposal.action.adapterPayload || (proposal.action.adapterPayloadRef && proposal.action.adapterPayloadDigest)) {
-      const inlineBytes = proposal.action.adapterPayload
-        ? Buffer.from(proposal.action.adapterPayload, 'base64')
-        : undefined;
-      const resolvedPayloadDigest = inlineBytes ? sha256Bytes(inlineBytes) : proposal.action.adapterPayloadDigest!;
-      const read = await this.readValidatedAdapterPayload({
-        adapter,
-        payloadRef: inlineBytes ? '' : proposal.action.adapterPayloadRef!,
-        payloadDigest: resolvedPayloadDigest,
-        ...(inlineBytes ? { inlineBytes } : {}),
-        binding,
-        conversationId: conversationContext.conversationId,
-        conversationSessionId: conversationContext.conversationSessionId,
-        adapterId: adapter.id,
-        actionKind: proposal.action.kind,
-        targetOrigin: proposal.action.targetOrigin,
-        domain: operation.domain,
-        action: operation.action,
-        counterpartyId: operation.counterpartyId,
-        origins,
-        argumentsDigest: proposal.action.argumentsDigest,
-        ...(proposal.action.quoteDigest ? { quoteDigest: proposal.action.quoteDigest } : {}),
-        amount: proposal.action.amount,
-      });
-      if ('reasonCode' in read) {
-        return { ok: false, outcome: result('denied', { reasonCode: read.reasonCode }) };
-      }
-      payloadValidation = read.validation;
-      read.payload.fill(0);
-      // Bind the resolved inline digest into the proposal so the semantic and
-      // execution digests (and the durable reservation) cover the exact bytes.
-      if (inlineBytes) {
-        proposal = { ...proposal, action: { ...proposal.action, adapterPayloadDigest: resolvedPayloadDigest } };
-      }
-    }
     if (operation.domain !== 'generic' && !payloadValidation) {
       return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_REQUIRED' }) };
     }
@@ -1553,9 +1569,9 @@ export class ExternalActionExecutionService {
       domainAction: operation.action,
       counterpartyId: operation.counterpartyId,
       providerOrMerchantLabelCode: adapter.providerOrMerchantLabelCode,
-      ...(proposal.action.adapterPayloadRef
+      ...(proposal.action.adapterPayloadDigest
         ? {
-            adapterPayloadRef: proposal.action.adapterPayloadRef,
+            ...(proposal.action.adapterPayloadRef ? { adapterPayloadRef: proposal.action.adapterPayloadRef } : {}),
             adapterPayloadDigest: proposal.action.adapterPayloadDigest!,
             ...(payloadValidation?.commerce
               ? {
@@ -1585,20 +1601,53 @@ export class ExternalActionExecutionService {
       amountMinor: proposal.action.amount.minorUnits,
       currency: proposal.action.amount.currency,
     };
+    if (inlinePayload && sha256Bytes(inlinePayload) !== proposal.action.adapterPayloadDigest) {
+      inlinePayload.fill(0);
+      return {
+        ok: false,
+        outcome: result('denied', { reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_CONTRACT_STALE' }),
+      };
+    }
+    const preparedInlinePayload = inlinePayload;
+    inlinePayload = undefined;
     return {
       ok: true,
-      value: { binding, conversationContext, policy, adapter, riskClass, authority, auth, executionContract },
+      value: {
+        proposal,
+        ...(preparedInlinePayload ? { inlinePayload: preparedInlinePayload } : {}),
+        binding,
+        conversationContext,
+        policy,
+        adapter,
+        riskClass,
+        authority,
+        auth,
+        executionContract,
+      },
     };
+    } finally {
+      inlinePayload?.fill(0);
+    }
   }
 
   async execute(untrusted: unknown): Promise<EveExternalActionExecutionResult> {
     const parsed = validateEveExternalActionProposal(untrusted);
     if ('reasonCode' in parsed) return result('denied', { reasonCode: parsed.reasonCode });
-    const proposal = parsed.value;
-    const prepared = await this.prepareExecution(proposal, false);
+    const prepared = await this.prepareExecution(parsed.value, false);
     if ('outcome' in prepared) return prepared.outcome;
-    const { binding, conversationContext, policy, adapter, riskClass, authority, auth, executionContract } =
-      prepared.value;
+    const {
+      proposal,
+      inlinePayload,
+      binding,
+      conversationContext,
+      policy,
+      adapter,
+      riskClass,
+      authority,
+      auth,
+      executionContract,
+    } = prepared.value;
+    try {
     const expiryMs = Math.min(Date.parse(policy.expiresAt), this.now().getTime() + CLAIM_TTL_MS);
     const reserved = this.store.reserve({
       binding,
@@ -1615,9 +1664,11 @@ export class ExternalActionExecutionService {
           ? [executionContract.merchantOrigin!, executionContract.checkoutOrigin!]
           : [executionContract.providerOrigin!],
       slotManifest: executionContract.slotManifest,
-      ...(executionContract.adapterPayloadRef
+      ...(executionContract.adapterPayloadDigest
         ? {
-            adapterPayloadRef: executionContract.adapterPayloadRef,
+            ...(executionContract.adapterPayloadRef
+              ? { adapterPayloadRef: executionContract.adapterPayloadRef }
+              : {}),
             adapterPayloadDigest: executionContract.adapterPayloadDigest!,
             ...(executionContract.adapterPayloadProductCount !== undefined
               ? { adapterPayloadProductCount: executionContract.adapterPayloadProductCount }
@@ -1813,10 +1864,14 @@ export class ExternalActionExecutionService {
       authority,
       auth,
       proposal,
+      ...(inlinePayload ? { inlinePayload } : {}),
       reservationId: reserved.reservationId,
       claimId,
       executionContract: claimedContract,
     });
+    } finally {
+      inlinePayload?.fill(0);
+    }
   }
 
   async resume(untrusted: unknown): Promise<EveExternalActionExecutionResult> {
@@ -2098,6 +2153,7 @@ export class ExternalActionExecutionService {
     authority: ExternalActionAuthorityResolution;
     auth: Extract<SelectedAuthResult, { status: 'ready' | 'needs_user' }>;
     proposal: EveExternalActionProposal;
+    inlinePayload?: Uint8Array;
     reservationId: string;
     claimId: string;
     executionContract: ExternalActionExecutionContractExpectation;
@@ -2110,6 +2166,7 @@ export class ExternalActionExecutionService {
     };
   }): Promise<EveExternalActionExecutionResult> {
     const { binding, adapter, proposal, reservationId, claimId, executionContract, auth } = input;
+    try {
     if (input.resume?.continuation === 'adapter_resume') {
       const preflight = await this.recheckTrustedExecution(
         binding,
@@ -2181,6 +2238,7 @@ export class ExternalActionExecutionService {
         {
           binding,
           proposal,
+          ...(input.inlinePayload ? { inlinePayload: input.inlinePayload } : {}),
           adapter,
           authorityGrantId: input.authority.authorityGrantId,
           riskClass: input.riskClass,
@@ -2237,6 +2295,7 @@ export class ExternalActionExecutionService {
         {
           binding,
           proposal,
+          ...(input.inlinePayload ? { inlinePayload: input.inlinePayload } : {}),
           adapter,
           authorityGrantId: input.authority.authorityGrantId,
           riskClass: input.riskClass,
@@ -2420,6 +2479,7 @@ export class ExternalActionExecutionService {
       {
         binding,
         proposal,
+        ...(input.inlinePayload ? { inlinePayload: input.inlinePayload } : {}),
         adapter,
         authorityGrantId: input.authority.authorityGrantId,
         riskClass: input.riskClass,
@@ -2542,12 +2602,16 @@ export class ExternalActionExecutionService {
       auth.authMode,
       true
     );
+    } finally {
+      input.inlinePayload?.fill(0);
+    }
   }
 
   private async invokeWithVerifiedPayload<T>(
     input: {
       binding: EveExternalActionBinding;
       proposal: EveExternalActionProposal;
+      inlinePayload?: Uint8Array;
       adapter: ExternalActionAdapter;
       authorityGrantId: string;
       riskClass: EveExternalActionRiskClass;
@@ -2563,10 +2627,9 @@ export class ExternalActionExecutionService {
     let payload: Uint8Array | undefined;
     try {
       const reservedDigest = input.executionContract.adapterPayloadDigest;
-      if (payloadRef || payloadDigest || input.proposal.action.adapterPayload) {
-        if (!payloadRef && !payloadDigest) {
-          // Inline form: exact base64 bytes become the digest-bound payload.
-          if (!input.proposal.action.adapterPayload) {
+      if (payloadRef || payloadDigest || input.inlinePayload) {
+        if (input.inlinePayload) {
+          if (payloadRef || !payloadDigest) {
             return { ok: false, reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_UNAVAILABLE', beforeEffect: true };
           }
         } else if (!payloadRef || !payloadDigest) {
@@ -2576,9 +2639,7 @@ export class ExternalActionExecutionService {
           input.executionContract.domain === 'commerce'
             ? [input.executionContract.merchantOrigin!, input.executionContract.checkoutOrigin!]
             : [input.executionContract.providerOrigin!];
-        const inlineBytes = input.proposal.action.adapterPayload && !payloadRef
-          ? Buffer.from(input.proposal.action.adapterPayload, 'base64')
-          : undefined;
+        const inlineBytes = input.inlinePayload ? Uint8Array.from(input.inlinePayload) : undefined;
         // Verify against the digest bound into the reservation/digests at
         // prepare time; never post-inject a freshly computed digest.
         if (!reservedDigest) {
@@ -2595,7 +2656,7 @@ export class ExternalActionExecutionService {
         }
         const read = await this.readValidatedAdapterPayload({
           adapter: input.adapter,
-          payloadRef: input.proposal.action.adapterPayload && !payloadRef ? '' : payloadRef!,
+          payloadRef: inlineBytes ? '' : payloadRef!,
           payloadDigest: reservedDigest,
           ...(inlineBytes ? { inlineBytes } : {}),
           argumentsDigest: input.proposal.action.argumentsDigest,
@@ -2805,6 +2866,7 @@ export class ExternalActionExecutionService {
       binding: EveExternalActionBinding;
       adapter: ExternalActionAdapter;
       proposal: EveExternalActionProposal;
+      inlinePayload?: Uint8Array;
       reservationId: string;
       claimId: string;
       executionContract: ExternalActionExecutionContractExpectation;
@@ -2815,6 +2877,40 @@ export class ExternalActionExecutionService {
     continuationRef: string,
     postAdapterCall: boolean
   ): EveExternalActionExecutionResult {
+    // Inline payload bytes cannot be retained in a durable challenge envelope.
+    // The reservation is explicitly reversed and the caller must resubmit after
+    // completing the user step with a fresh, digest-bound proposal.
+    if (input.inlinePayload) {
+      const reversed = this.store.reverse({
+        binding: input.binding,
+        reservationId: input.reservationId,
+        claimId: input.claimId,
+        authMode,
+        terminalState: 'reversed',
+        reasonCode: 'RECONFIRM_REQUIRED',
+        outcomeDigest: sha256(
+          canonical({
+            version: 'command-eve-inline-payload-reconfirm/v0',
+            executionContractDigest: input.executionContract.executionContractDigest,
+            claimId: input.claimId,
+          })
+        ),
+      });
+      if (!reversed.ok || reversed.state !== 'reversed') {
+        return result('unknown_outcome', {
+          reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+          reservationId: input.reservationId,
+          authMode,
+          retryAllowed: false,
+        });
+      }
+      return result('needs_user', {
+        reasonCode: 'RECONFIRM_REQUIRED',
+        reservationId: input.reservationId,
+        authMode,
+        ...(reversed.receipt ? { receipt: reversed.receipt } : {}),
+      });
+    }
     const resumeRef = `resume-ref:${this.randomUUID()}`;
     const suspended = this.store.suspendForUser({
       binding: input.binding,
@@ -2897,6 +2993,7 @@ export class ExternalActionExecutionService {
       binding: EveExternalActionBinding;
       adapter: ExternalActionAdapter;
       proposal: EveExternalActionProposal;
+      inlinePayload?: Uint8Array;
       reservationId: string;
       claimId: string;
       executionContract: ExternalActionExecutionContractExpectation;

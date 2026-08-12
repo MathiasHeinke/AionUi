@@ -621,6 +621,274 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it('reverses an inline-payload challenge for explicit reconfirmation without persisting bytes or a resume bearer', async () => {
+    const { store, binding, file } = fixture();
+    const canary = 'inline-provider-payload-secret-canary';
+    const encodedCanary = Buffer.from(canary).toString('base64');
+    const payloadDigest = `sha256:${crypto.createHash('sha256').update(canary).digest('hex')}`;
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const probeChallenge = vi.fn(async ({ proposal: trustedProposal, adapterPayload }) => {
+      expect(trustedProposal.action).toMatchObject({ adapterPayloadDigest: payloadDigest });
+      expect(trustedProposal.action).not.toHaveProperty('adapterPayload');
+      expect(new TextDecoder().decode(adapterPayload)).toBe(canary);
+      return {
+        status: 'needs_user' as const,
+        challenge: {
+          kind: '3ds' as const,
+          challengeRef: 'challenge-inline-canary',
+          origin: ORIGIN,
+          expiresAt: '2026-08-11T12:05:00.000Z',
+          userInstructionCode: 'COMPLETE_3DS' as const,
+        },
+      };
+    });
+    const resolveAuthority = vi.fn(async ({ proposal: trustedProposal }) => {
+      expect(trustedProposal.action).toMatchObject({ adapterPayloadDigest: payloadDigest });
+      expect(trustedProposal.action).not.toHaveProperty('adapterPayload');
+      return { decision: 'allow' as const, authorityGrantId: 'grant-test', riskClass: 'ordinary' as const };
+    });
+    const noCredentialAdapter = adapter({
+      supports: { oauth: false, browserSession: false, password: false, unauthenticated: true },
+      probeChallenge,
+      validatePayload: payloadValidator({ authMode: 'none' }),
+    });
+    const inlineProposal = proposal({
+      action: { ...proposal().action, adapterPayload: encodedCanary },
+      oauthHandleId: undefined,
+      passwordHandleId: undefined,
+    });
+    const runner = service({ store, binding, adapter: noCredentialAdapter, resolveAuthority });
+
+    const outcome = await runner.execute(inlineProposal);
+    expect(outcome).toMatchObject({ status: 'needs_user', reasonCode: 'RECONFIRM_REQUIRED' });
+    expect(outcome.eventReceipt).toBeUndefined();
+    expect(probeChallenge).toHaveBeenCalledTimes(1);
+    expect(resolveAuthority).toHaveBeenCalledTimes(2);
+    const reservation = store.getReservation(binding, outcome.reservationId!);
+    expect(reservation).toMatchObject({ state: 'reversed', adapterPayloadDigest: payloadDigest });
+    expect(reservation?.adapterPayloadRef).toBeUndefined();
+    const databaseBytes = [file, `${file}-wal`, `${file}-shm`]
+      .filter((candidate) => fs.existsSync(candidate))
+      .map((candidate) => fs.readFileSync(candidate));
+    const publicProjection = JSON.stringify([outcome, store.readAuditEvents(binding), log.mock.calls]);
+    expect(databaseBytes.some((bytes) => bytes.includes(Buffer.from(canary)))).toBe(false);
+    expect(databaseBytes.some((bytes) => bytes.includes(Buffer.from(encodedCanary)))).toBe(false);
+    expect(publicProjection).not.toContain(canary);
+    expect(publicProjection).not.toContain(encodedCanary);
+    expect(
+      await runner.resume({
+        version: 'command-eve-external-action-resume/v1',
+        resumeRef: 'resume-ref-inline-missing',
+      })
+    ).toMatchObject({ status: 'denied', reasonCode: 'EXTERNAL_RESUME_NOT_ACTIVE' });
+
+    store.close();
+    stores.delete(store);
+    const reopened = new ExternalActionStore(new NodeSqliteDriver(file), {
+      now: () => new Date(NOW_ISO),
+      randomUUID: () => `restart-inline-${++sequence}`,
+    });
+    stores.add(reopened);
+    const replay = await service({
+      store: reopened,
+      binding,
+      adapter: noCredentialAdapter,
+      resolveAuthority,
+    }).execute(inlineProposal);
+    expect(replay).toMatchObject({
+      status: 'denied',
+      reasonCode: 'RECONFIRM_REQUIRED',
+      replay: true,
+      reservationId: outcome.reservationId,
+    });
+    expect(probeChallenge).toHaveBeenCalledTimes(1);
+    expect(reopened.getReservation(binding, outcome.reservationId!)?.state).toBe('reversed');
+    const reopenedBytes = [file, `${file}-wal`, `${file}-shm`]
+      .filter((candidate) => fs.existsSync(candidate))
+      .map((candidate) => fs.readFileSync(candidate));
+    expect(reopenedBytes.some((bytes) => bytes.includes(Buffer.from(canary)))).toBe(false);
+    expect(reopenedBytes.some((bytes) => bytes.includes(Buffer.from(encodedCanary)))).toBe(false);
+  });
+
+  it('binds a non-resumable inline payload by digest while exposing bytes only to the Main adapter call', async () => {
+    const { store, binding, file } = fixture();
+    const canary = 'inline-direct-payload-secret-canary';
+    const encodedCanary = Buffer.from(canary).toString('base64');
+    const payloadDigest = `sha256:${crypto.createHash('sha256').update(canary).digest('hex')}`;
+    let adapterBytes: Uint8Array | undefined;
+    const runner = service({
+      store,
+      binding,
+      adapter: adapter({
+        supports: { oauth: false, browserSession: false, password: false, unauthenticated: true },
+        validatePayload: payloadValidator({ authMode: 'none' }),
+        execute: async ({ proposal: trustedProposal, adapterPayload }) => {
+          expect(trustedProposal.action).toMatchObject({ adapterPayloadDigest: payloadDigest });
+          expect(trustedProposal.action).not.toHaveProperty('adapterPayload');
+          expect(new TextDecoder().decode(adapterPayload)).toBe(canary);
+          adapterBytes = adapterPayload;
+          return { status: 'allowed' };
+        },
+      }),
+    });
+    const outcome = await runner.execute(
+      proposal({
+        action: { ...proposal().action, adapterPayload: encodedCanary },
+        oauthHandleId: undefined,
+        passwordHandleId: undefined,
+      })
+    );
+    expect(outcome).toMatchObject({ status: 'allowed' });
+    expect(store.getReservation(binding, outcome.reservationId!)?.adapterPayloadDigest).toBe(payloadDigest);
+    expect(store.getReservation(binding, outcome.reservationId!)?.adapterPayloadRef).toBeUndefined();
+    expect([...adapterBytes!]).toEqual(Array(adapterBytes!.length).fill(0));
+    expect(JSON.stringify([outcome, store.readAuditEvents(binding)])).not.toContain(canary);
+    expect(fs.readFileSync(file).includes(Buffer.from(canary))).toBe(false);
+    expect(fs.readFileSync(file).includes(Buffer.from(encodedCanary))).toBe(false);
+  });
+
+  it('reverses an adapter needs_user inline payload without a durable challenge or resume path', async () => {
+    const { store, binding, file } = fixture();
+    const canary = 'inline-post-adapter-payload-secret-canary';
+    const encodedCanary = Buffer.from(canary).toString('base64');
+    const payloadDigest = `sha256:${crypto.createHash('sha256').update(canary).digest('hex')}`;
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let adapterBytes: Uint8Array | undefined;
+    const resume = vi.fn(async () => ({ status: 'allowed' as const }));
+    const runner = service({
+      store,
+      binding,
+      adapter: adapter({
+        supports: { oauth: false, browserSession: false, password: false, unauthenticated: true },
+        validatePayload: payloadValidator({ authMode: 'none' }),
+        execute: async ({ proposal: trustedProposal, adapterPayload }) => {
+          expect(trustedProposal.action).toMatchObject({ adapterPayloadDigest: payloadDigest });
+          expect(trustedProposal.action).not.toHaveProperty('adapterPayload');
+          expect(new TextDecoder().decode(adapterPayload)).toBe(canary);
+          adapterBytes = adapterPayload;
+          return {
+            status: 'needs_user' as const,
+            continuation: 'adapter_resume' as const,
+            continuationRef: 'continuation-inline-post-adapter',
+            effectState: 'challenge_pending_no_effect' as const,
+            reasonCode: 'COMPLETE_3DS' as const,
+            challenge: {
+              kind: '3ds' as const,
+              challengeRef: 'challenge-inline-post-adapter',
+              origin: ORIGIN,
+              expiresAt: '2026-08-11T12:05:00.000Z',
+              userInstructionCode: 'COMPLETE_3DS' as const,
+            },
+          };
+        },
+        resume,
+      }),
+    });
+    const outcome = await runner.execute(
+      proposal({
+        action: { ...proposal().action, adapterPayload: encodedCanary },
+        oauthHandleId: undefined,
+        passwordHandleId: undefined,
+      })
+    );
+    expect(outcome).toMatchObject({ status: 'needs_user', reasonCode: 'RECONFIRM_REQUIRED' });
+    expect(outcome.eventReceipt).toBeUndefined();
+    expect(resume).not.toHaveBeenCalled();
+    expect([...adapterBytes!]).toEqual(Array(adapterBytes!.length).fill(0));
+    expect(store.getReservation(binding, outcome.reservationId!)?.state).toBe('reversed');
+    expect(store.getPendingChallenge(binding, outcome.reservationId!)).toBeNull();
+    const databaseBytes = [file, `${file}-wal`, `${file}-shm`]
+      .filter((candidate) => fs.existsSync(candidate))
+      .map((candidate) => fs.readFileSync(candidate));
+    const publicProjection = JSON.stringify([outcome, store.readAuditEvents(binding), log.mock.calls]);
+    expect(databaseBytes.some((bytes) => bytes.includes(Buffer.from(canary)))).toBe(false);
+    expect(databaseBytes.some((bytes) => bytes.includes(Buffer.from(encodedCanary)))).toBe(false);
+    expect(publicProjection).not.toContain(canary);
+    expect(publicProjection).not.toContain(encodedCanary);
+  });
+
+  it('fails closed before reservation when a referenced payload cannot be read', async () => {
+    const { store, binding } = fixture();
+    const execute = vi.fn(async () => ({ status: 'allowed' as const }));
+    const opaquePayload = new TextEncoder().encode('referenced-payload-fixture');
+    const outcome = await service({
+      store,
+      binding,
+      adapter: adapter({ validatePayload: payloadValidator({ authMode: 'oauth' }), execute }),
+    }).execute(
+      proposal({
+        oauthHandleId: undefined,
+        passwordHandleId: undefined,
+        action: {
+          ...proposal().action,
+          adapterPayloadRef: 'payload-ref-missing-reader',
+          adapterPayloadDigest: `sha256:${crypto.createHash('sha256').update(opaquePayload).digest('hex')}`,
+        },
+      })
+    );
+    expect(outcome).toMatchObject({ status: 'denied', reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_UNAVAILABLE' });
+    expect(outcome.reservationId).toBeUndefined();
+    expect(execute).not.toHaveBeenCalled();
+    expect(store.readAuditEvents(binding).some((event) => event.event_type === 'ledger.reserved')).toBe(false);
+  });
+
+  it('keeps an opaque payload ref resumable while raw reader bytes stay out of the challenge snapshot', async () => {
+    const { store, binding, file } = fixture();
+    const canary = 'reference-resume-payload-secret-canary';
+    const payload = new TextEncoder().encode(canary);
+    const payloadDigest = `sha256:${crypto.createHash('sha256').update(payload).digest('hex')}`;
+    let oauthReady = false;
+    const execute = vi.fn(async ({ proposal: trustedProposal, adapterPayload }) => {
+      expect(trustedProposal.action).toMatchObject({
+        adapterPayloadRef: 'payload-ref-resumable',
+        adapterPayloadDigest: payloadDigest,
+      });
+      expect(trustedProposal.action).not.toHaveProperty('adapterPayload');
+      expect(new TextDecoder().decode(adapterPayload)).toBe(canary);
+      return { status: 'allowed' as const };
+    });
+    const runner = service({
+      store,
+      binding,
+      adapter: adapter({
+        probeOAuth: async () => (oauthReady ? 'ready' : 'needs_user'),
+        validatePayload: payloadValidator({
+          authMode: 'oauth',
+          slotManifest: [{ slot: 'oauth_token', handleId: 'oauth-handle', handleType: 'oauth_token' }],
+        }),
+        execute,
+      }),
+      adapterPayloadReader: { read: async () => payload.slice() },
+    });
+    const refProposal = proposal({
+      passwordHandleId: undefined,
+      action: {
+        ...proposal().action,
+        adapterPayloadRef: 'payload-ref-resumable',
+        adapterPayloadDigest: payloadDigest,
+      },
+    });
+
+    const suspended = await runner.execute(refProposal);
+    expect(suspended).toMatchObject({ status: 'needs_user', eventReceipt: { challengeKind: 'oauth_consent' } });
+    const pending = store.getPendingChallenge(binding, suspended.reservationId!);
+    expect(pending?.snapshot.proposal.action).toMatchObject({
+      adapterPayloadRef: 'payload-ref-resumable',
+      adapterPayloadDigest: payloadDigest,
+    });
+    expect(pending?.snapshot.proposal.action).not.toHaveProperty('adapterPayload');
+    expect(fs.readFileSync(file).includes(Buffer.from(canary))).toBe(false);
+
+    oauthReady = true;
+    const resumed = await runner.resume({
+      version: 'command-eve-external-action-resume/v1',
+      resumeRef: suspended.eventReceipt!.resumeRef,
+    });
+    expect(resumed).toMatchObject({ status: 'allowed', reservationId: suspended.reservationId });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(fs.readFileSync(file).includes(Buffer.from(canary))).toBe(false);
+  });
+
   it('uses adapter.resume after an adapter challenge and never re-executes or re-resolves the credential', async () => {
     const { store, binding } = fixture();
     const resolve = vi.fn(async () => new TextEncoder().encode('synthetic-refresh-token'));

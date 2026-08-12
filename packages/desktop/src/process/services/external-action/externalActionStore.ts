@@ -763,11 +763,11 @@ function ledgerFromRow(row: LedgerRow | undefined): ExternalActionLedgerRecord |
     !adapterOrigins ||
     !slotManifest ||
     (row.adapter_domain === 'commerce') !== (adapterOrigins.length === 2) ||
-    (row.adapter_payload_ref === null) !== (row.adapter_payload_digest === null) ||
+    (row.adapter_payload_ref !== null && row.adapter_payload_digest === null) ||
     (row.adapter_payload_ref !== null && !isEveOpaqueId(row.adapter_payload_ref)) ||
     (row.adapter_payload_digest !== null && !isEveSha256Digest(row.adapter_payload_digest)) ||
     (row.adapter_domain === 'commerce' &&
-      (row.adapter_payload_ref === null ||
+      (row.adapter_payload_digest === null ||
         !Number.isSafeInteger(row.adapter_payload_product_count) ||
         (row.adapter_payload_product_count ?? 0) < 1 ||
         (row.adapter_payload_product_count ?? 0) > 100)) ||
@@ -1130,11 +1130,13 @@ function validExecutionIdentity(value: ExternalActionExecutionContractIdentity, 
     validDomainAction &&
     isEveSanitizedOpaqueRef(value.counterpartyId) &&
     PROVIDER_LABEL_CODES.has(value.providerOrMerchantLabelCode) &&
-    (value.adapterPayloadRef === undefined) === (value.adapterPayloadDigest === undefined) &&
-    (value.adapterPayloadRef === undefined || isEveOpaqueId(value.adapterPayloadRef)) &&
+    // Main normalizes inline ingress to digest-only before reserve. An opaque
+    // ref, when present, must still be paired with its canonical digest.
+    (value.adapterPayloadRef === undefined ||
+      (isEveOpaqueId(value.adapterPayloadRef) && value.adapterPayloadDigest !== undefined)) &&
     (value.adapterPayloadDigest === undefined || isEveSha256Digest(value.adapterPayloadDigest)) &&
     (commerce
-      ? value.adapterPayloadRef !== undefined &&
+      ? value.adapterPayloadDigest !== undefined &&
         Number.isSafeInteger(value.adapterPayloadProductCount) &&
         (value.adapterPayloadProductCount ?? 0) >= 1 &&
         (value.adapterPayloadProductCount ?? 0) <= 100
@@ -2211,11 +2213,11 @@ export class ExternalActionStore {
       !slotManifest ||
       (input.adapterDomain === 'commerce') !== (adapterOrigins.length === 2) ||
       adapterOrigins.at(-1) !== input.targetOrigin ||
-      (input.adapterPayloadRef === undefined) !== (input.adapterPayloadDigest === undefined) ||
-      (input.adapterPayloadRef !== undefined && !isEveOpaqueId(input.adapterPayloadRef)) ||
+      (input.adapterPayloadRef !== undefined &&
+        (!isEveOpaqueId(input.adapterPayloadRef) || input.adapterPayloadDigest === undefined)) ||
       (input.adapterPayloadDigest !== undefined && !isEveSha256Digest(input.adapterPayloadDigest)) ||
       (input.adapterDomain === 'commerce' &&
-        (input.adapterPayloadRef === undefined ||
+        (input.adapterPayloadDigest === undefined ||
           !Number.isSafeInteger(input.adapterPayloadProductCount) ||
           (input.adapterPayloadProductCount ?? 0) < 1 ||
           (input.adapterPayloadProductCount ?? 0) > 100)) ||
@@ -2616,6 +2618,7 @@ export class ExternalActionStore {
       !validChallenge(input.challenge, now.getTime()) ||
       input.challenge.origin !== input.executionContract.targetOrigin ||
       'reasonCode' in parsedProposal ||
+      parsedProposal.value.action.adapterPayload !== undefined ||
       !isEveOpaqueId(input.adapterId) ||
       !isEveOpaqueId(input.resumeRef) ||
       !AUTH_MODES.has(input.authMode) ||
