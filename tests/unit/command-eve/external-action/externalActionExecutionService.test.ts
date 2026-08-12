@@ -710,6 +710,48 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
     expect(reopenedBytes.some((bytes) => bytes.includes(Buffer.from(encodedCanary)))).toBe(false);
   });
 
+  it.each([
+    ['missing risk classification', adapter({ classifyRisk: undefined as unknown as ExternalActionAdapter['classifyRisk'] }), undefined],
+    ['high risk classification', adapter({ classifyRisk: () => 'high_risk_finance' }), undefined],
+    [
+      'authority confirmation',
+      adapter({ supports: { oauth: false, browserSession: false, password: false, unauthenticated: true } }),
+      async () => ({ decision: 'ask' as const, authorityGrantId: 'grant-test', riskClass: 'ordinary' as const }),
+    ],
+    [
+      'auth probe failure',
+      adapter({ probeOAuth: async () => { throw new Error('synthetic-inline-auth-probe'); } }),
+      undefined,
+    ],
+    [
+      'non-resumable auth',
+      adapter({ probeOAuth: async () => 'needs_user' }),
+      undefined,
+    ],
+  ])('returns terminal reconfirmation before reserve for inline payload on %s', async (_name, inlineAdapter, resolveAuthority) => {
+    const { store, binding } = fixture();
+    const inline = Buffer.from('inline-early-needs-user-canary').toString('base64');
+    const outcome = await service({
+      store,
+      binding,
+      adapter: {
+        ...inlineAdapter,
+        validatePayload: payloadValidator({ authMode: 'none' }),
+      },
+      ...(resolveAuthority ? { resolveAuthority } : {}),
+    }).execute(
+      proposal({
+        action: { ...proposal().action, adapterPayload: inline },
+        oauthHandleId: undefined,
+        passwordHandleId: undefined,
+      })
+    );
+    expect(outcome).toMatchObject({ status: 'needs_user', reasonCode: 'RECONFIRM_REQUIRED' });
+    expect(outcome.reservationId).toBeUndefined();
+    expect(outcome.eventReceipt).toBeUndefined();
+    expect(store.readAuditEvents(binding).some((event) => event.event_type === 'ledger.reserved')).toBe(false);
+  });
+
   it('binds a non-resumable inline payload by digest while exposing bytes only to the Main adapter call', async () => {
     const { store, binding, file } = fixture();
     const canary = 'inline-direct-payload-secret-canary';

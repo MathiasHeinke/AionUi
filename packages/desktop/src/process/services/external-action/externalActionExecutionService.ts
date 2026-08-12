@@ -1333,6 +1333,11 @@ export class ExternalActionExecutionService {
     // The only copy that survives validation is an owned Main-memory buffer.
     // It is transferred to the exact invocation or zeroed by this scope.
     let inlinePayload: Uint8Array | undefined;
+    const inlineNeedsUser = (authMode?: ExternalActionAuthMode): EveExternalActionExecutionResult =>
+      result('needs_user', {
+        reasonCode: 'RECONFIRM_REQUIRED',
+        ...(authMode ? { authMode } : {}),
+      });
     try {
       if (proposal.action.adapterPayload && !adapter.validatePayload) {
         return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_SCHEMA_REQUIRED' }) };
@@ -1388,13 +1393,13 @@ export class ExternalActionExecutionService {
     if (!riskClass) {
       return {
         ok: false,
-        outcome: result('needs_user', { reasonCode: 'EXTERNAL_RISK_CLASSIFICATION_REQUIRED' }),
+        outcome: inlinePayload ? inlineNeedsUser() : result('needs_user', { reasonCode: 'EXTERNAL_RISK_CLASSIFICATION_REQUIRED' }),
       };
     }
     if (riskClass !== 'ordinary') {
       return {
         ok: false,
-        outcome: result('needs_user', { reasonCode: 'EXTERNAL_ACTION_HUMAN_GATE_REQUIRED' }),
+        outcome: inlinePayload ? inlineNeedsUser() : result('needs_user', { reasonCode: 'EXTERNAL_ACTION_HUMAN_GATE_REQUIRED' }),
       };
     }
 
@@ -1422,7 +1427,7 @@ export class ExternalActionExecutionService {
     if (authority.decision === 'ask') {
       return {
         ok: false,
-        outcome: result('needs_user', { reasonCode: 'EXTERNAL_AUTHORITY_CONFIRMATION_REQUIRED' }),
+        outcome: inlinePayload ? inlineNeedsUser() : result('needs_user', { reasonCode: 'EXTERNAL_AUTHORITY_CONFIRMATION_REQUIRED' }),
       };
     }
     if (authority.decision !== 'allow') {
@@ -1447,7 +1452,10 @@ export class ExternalActionExecutionService {
     try {
       auth = await this.selectAuth(adapter, binding, proposal, payloadValidation?.slotManifest ?? []);
     } catch {
-      return { ok: false, outcome: result('needs_user', { reasonCode: 'EXTERNAL_AUTH_PROBE_UNAVAILABLE' }) };
+      return {
+        ok: false,
+        outcome: inlinePayload ? inlineNeedsUser() : result('needs_user', { reasonCode: 'EXTERNAL_AUTH_PROBE_UNAVAILABLE' }),
+      };
     }
     if (auth.status === 'denied') {
       return { ok: false, outcome: result('denied', { reasonCode: auth.reasonCode }) };
@@ -1455,7 +1463,7 @@ export class ExternalActionExecutionService {
     if (auth.status === 'needs_user' && !auth.resumable) {
       return {
         ok: false,
-        outcome: result('needs_user', { reasonCode: auth.reasonCode, authMode: auth.authMode }),
+        outcome: inlinePayload ? inlineNeedsUser(auth.authMode) : result('needs_user', { reasonCode: auth.reasonCode, authMode: auth.authMode }),
       };
     }
     if (payloadValidation && payloadValidation.authMode !== auth.authMode) {
