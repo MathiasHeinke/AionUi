@@ -793,6 +793,71 @@ describe('useAcpMessage', () => {
     expect(getCurrentLiveDelegationObservation('conv-1', 'worker-c:0')).toMatchObject({ acpSessionId: 'session-c' });
   });
 
+  it('does not let a later session complete a stale HTML staging call id', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-a' },
+        msg_id: 'start-session-a',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'reused-html-call',
+            status: 'in_progress',
+            kind: 'edit',
+            title: 'write: stale-a.html',
+            locations: [{ path: 'stale-a.html' }],
+          },
+        },
+        msg_id: 'stale-a-html-start',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: null,
+        msg_id: 'invalid-start-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-c' },
+        msg_id: 'start-session-c',
+        turn_id: 'turn-c',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-c',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'reused-html-call',
+            status: 'completed',
+            kind: 'edit',
+            title: 'completed write',
+          },
+        },
+        msg_id: 'session-c-html-complete',
+        turn_id: 'turn-c',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(launchPreviewMock).not.toHaveBeenCalled();
+  });
+
   it('keeps session-info display-only and rejects a delayed tool frame from the prior session', async () => {
     conversationGetInvokeMock.mockResolvedValue(null);
     const { result } = renderHook(() => {

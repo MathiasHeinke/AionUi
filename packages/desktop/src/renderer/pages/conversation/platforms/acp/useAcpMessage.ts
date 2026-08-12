@@ -675,6 +675,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           // A new turn owns no staged image references yet; anything collected
           // last turn was either bound at its finish or is abandoned with it.
           pendingImageBindsRef.current.clear();
+          pendingHtmlWritesRef.current.clear();
           setRunning(true);
           runningRef.current = true;
           setRuntimeActivity((prev) => ({
