@@ -137,17 +137,19 @@ function inferGeneratedArtifactType(payload: Record<string, unknown>): IGenerate
   return inferTypeFromMimeOrSource(payload);
 }
 
+function hasExplicitArtifactFailureMarker(value: Record<string, unknown>): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(value, 'error') ||
+    value.ok === false ||
+    value.success === false ||
+    value.failed === true ||
+    value.blocked === true ||
+    Object.prototype.hasOwnProperty.call(value, 'failure')
+  );
+}
+
 function hasArtifactErrorOrUnverifiedReceipt(payload: Record<string, unknown>): boolean {
-  if (Object.prototype.hasOwnProperty.call(payload, 'error')) return true;
-  if (
-    payload.ok === false ||
-    payload.success === false ||
-    payload.failed === true ||
-    payload.blocked === true ||
-    Object.prototype.hasOwnProperty.call(payload, 'failure')
-  ) {
-    return true;
-  }
+  if (hasExplicitArtifactFailureMarker(payload)) return true;
 
   // A producer may put its terminal result marker directly on the payload
   // rather than under a receipt. An outer tool-group Success must not override
@@ -164,7 +166,9 @@ function hasArtifactErrorOrUnverifiedReceipt(payload: Record<string, unknown>): 
     if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
     const receipt = payload[key];
     if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) return true;
-    const status = readString(receipt as Record<string, unknown>, ['status'])?.toLowerCase();
+    const receiptRecord = receipt as Record<string, unknown>;
+    if (hasExplicitArtifactFailureMarker(receiptRecord)) return true;
+    const status = readString(receiptRecord, ['status'])?.toLowerCase();
     if (!status || !SUCCESSFUL_ARTIFACT_RECEIPT_STATUSES.has(status)) return true;
   }
 

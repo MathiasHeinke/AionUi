@@ -131,7 +131,7 @@ const getInlineToolGroupArtifactSourceKeys = (message: IMessageToolGroup): strin
   message.content.flatMap((item) => getToolResultArtifactSourceKeys(item.result_display));
 
 const hasInlineToolGroupArtifact = (message: IMessageToolGroup): boolean =>
-  message.content.some((item) => hasToolResultGeneratedArtifact(item.result_display));
+  message.content.some((item) => item.status === 'Success' && hasToolResultGeneratedArtifact(item.result_display));
 
 const hasConversationArtifactDuplicate = (
   message: IMessageToolGroup,

@@ -210,7 +210,7 @@ function createTextMessage(): IMessageText {
   };
 }
 
-function createImageToolGroup(): IMessageToolGroup {
+function createImageToolGroup(status: IMessageToolGroup['content'][number]['status'] = 'Success'): IMessageToolGroup {
   return {
     id: 'tool-group-1',
     msg_id: 'tool-msg-1',
@@ -227,7 +227,7 @@ function createImageToolGroup(): IMessageToolGroup {
           img_url: 'data:image/png;base64,iVBORw0KGgo=',
           relative_path: 'hero.png',
         },
-        status: 'Success',
+        status,
       },
     ],
     created_at: 1,
@@ -963,6 +963,18 @@ describe('MessageList', () => {
     expect(screen.queryByText('tool_summary')).not.toBeInTheDocument();
   });
 
+  it.each(['Executing', 'Pending', 'Error', 'Canceled', 'Confirming'] as const)(
+    'does not classify an image-shaped %s tool result as an inline artifact',
+    (status) => {
+      render(<MessageList />, {
+        wrapper: ({ children }) => <Wrapper messages={[createImageToolGroup(status)]}>{children}</Wrapper>,
+      });
+
+      expect(screen.queryByText('tool_group')).not.toBeInTheDocument();
+      expect(screen.getByText('tool_summary')).toBeInTheDocument();
+    }
+  );
+
   it('keeps generic generated media tool results inline instead of collapsing them into the step summary', () => {
     render(<MessageList />, {
       wrapper: ({ children }) => <Wrapper messages={[createVideoToolGroup()]}>{children}</Wrapper>,
@@ -1113,6 +1125,18 @@ describe('MessageList', () => {
     ['failed receipt', { receipt: { status: 'failed' } }],
     ['blocked receipt', { receipt: { status: 'blocked' } }],
     ['unverified receipt', { receipt: { status: 'unverified' } }],
+    [
+      'successful-looking receipt error marker',
+      { receipt: { status: 'done', error: 'Provider rejected the artifact.' } },
+    ],
+    [
+      'successful-looking receipt failure marker',
+      { receipt: { status: 'done', failure: 'Provider rejected the artifact.' } },
+    ],
+    ['successful-looking receipt negative ok marker', { receipt: { status: 'done', ok: false } }],
+    ['successful-looking receipt negative success marker', { receipt: { status: 'done', success: false } }],
+    ['successful-looking receipt failed boolean marker', { receipt: { status: 'done', failed: true } }],
+    ['successful-looking receipt blocked boolean marker', { receipt: { status: 'done', blocked: true } }],
     ['failed payload status', { status: 'failed' }],
     ['blocked payload status', { status: 'blocked' }],
     ['unverified payload status', { status: 'unverified' }],

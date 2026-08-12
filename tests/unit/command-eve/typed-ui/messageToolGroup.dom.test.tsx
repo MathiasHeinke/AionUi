@@ -169,6 +169,24 @@ describe('Typed UI tool publication', () => {
     }
   );
 
+  it.each([
+    ['error marker', { error: 'Provider rejected the artifact.' }],
+    ['failure marker', { failure: 'Provider rejected the artifact.' }],
+    ['negative ok marker', { ok: false }],
+    ['negative success marker', { success: false }],
+    ['failed boolean marker', { failed: true }],
+    ['blocked boolean marker', { blocked: true }],
+  ])(
+    'keeps a contradictory Success publish with a successful-looking receipt %s as ordinary tool data',
+    (_label, marker) => {
+      render(<MessageToolGroup message={typedPublishTool('Success', { receipt: { status: 'done', ...marker } })} />);
+
+      expect(screen.getByText(/"status": "done"/)).toBeInTheDocument();
+      expect(screen.queryByText('generated-artifact-stub')).toBeNull();
+      expect(generatedArtifactMock).not.toHaveBeenCalled();
+    }
+  );
+
   it.each(['failed', 'blocked', 'unverified'] as const)(
     'keeps a contradictory Success publish with a %s payload status as ordinary tool data',
     (payloadStatus) => {
@@ -201,6 +219,7 @@ describe('Typed UI tool publication', () => {
     ['failed payload status', { status: 'failed' }],
     ['blocked payload status', { status: 'blocked' }],
     ['unverified payload status', { status: 'unverified' }],
+    ['successful-looking failed receipt', { receipt: { status: 'done', failed: true } }],
   ])('keeps legacy ImageGeneration Success with a %s as ordinary tool data', (_label, contradiction) => {
     render(<MessageToolGroup message={imageGenerationTool('Success', contradiction)} />);
 
