@@ -148,7 +148,7 @@ const viewFromRuntimeSummary = (
 const isStaleCompletedRuntimeSummary = (
   runtime: TConversationRuntimeSummary | null,
   metadata: ConversationRuntimeMetadata
-): runtime is TConversationRuntimeSummary =>
+): boolean =>
   runtime !== null &&
   runtime.turn_id !== null &&
   metadata.lastCompletedTurnId === runtime.turn_id &&
