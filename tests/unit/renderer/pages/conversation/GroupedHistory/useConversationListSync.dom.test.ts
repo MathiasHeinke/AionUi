@@ -27,6 +27,11 @@ import {
   useConversationRuntimeView,
 } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
 import { resetConversationRuntimeViewStoreForTest } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import {
+  localSendAccepted,
+  localSendStarted,
+  turnCompleted,
+} from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { emitter } from '@/renderer/utils/emitter';
 
 const harness = vi.hoisted(() => {
@@ -806,6 +811,59 @@ describe('conversation sidebar working phases (1.820.5)', () => {
     act(() => {
       harness.responseHandlers.forEach((handler) =>
         handler(responseMessage({ type: 'finish', conversation_id: 'conversation-a', turn_id: 'turn-2' }))
+      );
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(false);
+    listHook.unmount();
+  });
+
+  it('keeps the production sidebar seam on B through late recovered A frames', async () => {
+    harness.rowsBySeat.set('seat-a', [conversation('conversation-a', runtime())]);
+    const listHook = renderHook(() => useConversationListSync());
+    await act(flushPromises);
+
+    const runningA = runtime({
+      state: 'running',
+      can_send_message: false,
+      has_task: true,
+      task_status: 'running',
+      is_processing: true,
+      turn_id: 'turn-a',
+    });
+    const runningB = { ...runningA, turn_id: 'turn-b' };
+    localSendStarted('conversation-a');
+    localSendAccepted('conversation-a', 'turn-a', runningA);
+    turnCompleted('conversation-a', 'turn-a', runtime());
+
+    // Before B exists, the exact recovered terminal remains valid.
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'finish', conversation_id: 'conversation-a', turn_id: 'turn-a' }))
+      );
+    });
+
+    localSendStarted('conversation-a');
+    localSendAccepted('conversation-a', 'turn-b', runningB);
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'start', conversation_id: 'conversation-a', turn_id: 'turn-b' }))
+      );
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(true);
+
+    act(() => {
+      for (const type of ['text', 'error', 'finish']) {
+        harness.responseHandlers.forEach((handler) =>
+          handler(responseMessage({ type, conversation_id: 'conversation-a', turn_id: 'turn-a' }))
+        );
+      }
+    });
+    expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(true);
+    expect(listHook.result.current.hasConversationError('conversation-a')).toBe(false);
+
+    act(() => {
+      harness.responseHandlers.forEach((handler) =>
+        handler(responseMessage({ type: 'finish', conversation_id: 'conversation-a', turn_id: 'turn-b' }))
       );
     });
     expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(false);

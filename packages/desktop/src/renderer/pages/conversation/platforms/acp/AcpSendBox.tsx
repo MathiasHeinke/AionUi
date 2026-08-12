@@ -8,6 +8,8 @@ import AcpModelSelector from '@/renderer/components/agent/AcpModelSelector';
 import EveMaxToggle from '@/renderer/components/agent/EveMaxToggle';
 import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
+import VoiceDialogueControl from '@/renderer/components/chat/voiceDialogue/VoiceDialogueControl';
+import { useVoiceDialogue } from '@/renderer/components/chat/voiceDialogue/useVoiceDialogue';
 import { WorkspaceContextControl } from '@/renderer/components/workspace';
 import SpeechInputButton, { type SpeechInputButtonHandle } from '@/renderer/components/chat/SpeechInputButton';
 import { appendSpeechTranscript, type SpeechInputStatus } from '@/renderer/hooks/system/useSpeechInput';
@@ -49,7 +51,8 @@ import { useConversationContextSafe } from '@/renderer/hooks/context/Conversatio
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { useOpenFileSelector } from '@/renderer/hooks/file/useOpenFileSelector';
 import { useLatestRef } from '@/renderer/hooks/ui/useLatestRef';
-import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/hooks';
+import { useAddOrUpdateMessage, useMessageList } from '@/renderer/pages/conversation/Messages/hooks';
+import { emitAcpPerformanceMark } from '@/renderer/utils/performance/acpPerformanceMarks';
 import {
   buildConversationBusyControlCommand,
   shouldEnqueueConversationCommand,
@@ -60,7 +63,10 @@ import {
 import ConversationBusyModeControl from '@/renderer/pages/conversation/platforms/ConversationBusyModeControl';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { useConversationRuntimeView } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
-import { waitForConversationActiveTurnId } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import {
+  getConversationRuntimeViewSnapshot,
+  waitForConversationActiveTurnId,
+} from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import {
   markConversationDocumentPreparationSettled,
   markConversationDocumentPreparationStarted,
@@ -280,6 +286,7 @@ const AcpSendBox: React.FC<{
   messageState: UseAcpMessageReturn;
 }> = ({ conversation_id, backend, session_mode, agent_name, workspacePath, messageState }) => {
   const {
+    running,
     aiProcessing,
     setAiProcessing,
     resetState,
@@ -289,6 +296,7 @@ const AcpSendBox: React.FC<{
     tokenUsage,
     context_limit,
     runtimeActivity,
+    lastCompletedTurn,
     quotaWall,
   } = messageState;
   const { t, i18n } = useTranslation();
@@ -582,6 +590,7 @@ const AcpSendBox: React.FC<{
   );
 
   const addOrUpdateMessage = useAddOrUpdateMessage(); // Move this here so it's available in useEffect
+  const messageList = useMessageList();
   const addOrUpdateMessageRef = useLatestRef(addOrUpdateMessage);
   const runtimeView = useConversationRuntimeView(conversation_id);
   const activeSteerRequestsRef = useRef(new Map<string, Promise<unknown>>());
@@ -595,6 +604,21 @@ const AcpSendBox: React.FC<{
     setUploadFile,
   });
   const isBusy = runtimeView.isProcessing || !runtimeView.canSendMessage;
+  const conversationMessages = useMemo(
+    () => messageList.filter((message) => message.conversation_id === conversation_id),
+    [conversation_id, messageList]
+  );
+  const voiceDialogue = useVoiceDialogue({
+    activeTurnId: runtimeView.activeTurnId,
+    available: isEveConversation,
+    completion: lastCompletedTurn,
+    conversationId: conversation_id,
+    isTurnActive: running || aiProcessing || runtimeView.isProcessing,
+    language: i18n?.language,
+    messages: conversationMessages,
+    speechStatus: speechInputStatus,
+    turnErrored: runtimeActivity.phase === 'error',
+  });
 
   useEffect(() => {
     if (!runtimeView.isProcessing) {
@@ -787,6 +811,11 @@ const AcpSendBox: React.FC<{
         ) {
           throw new Error('ATTACHMENT_GROUNDING_RECEIPT_INVALID');
         }
+        emitAcpPerformanceMark({
+          stage: 'request_accepted',
+          conversationId: conversation_id,
+          turnId: result.turn_id,
+        });
         runtimeView.markSendAccepted(result.turn_id, result.runtime, result.msg_id);
         emitter.emit('chat.history.refresh');
       } catch (error: unknown) {
@@ -2430,30 +2459,64 @@ Please check your local CLI tool authentication status`,
   });
 
   // Stop conversation handler
-  const handleStop = async (): Promise<void> => {
-    // Cancelling is best-effort: swallow errors (e.g. backend WS not yet
-    // connected → 409) so they don't bubble up as unhandled rejections.
-    // UI state resets immediately; the backend acknowledgement is applied when
-    // it arrives so a stalled cancel request does not freeze the composer.
+  const handleStop = async (): Promise<boolean> => {
+    voiceDialogue.cancel();
     pause();
-    const turnId = runtimeView.activeTurnId;
+    const turnId =
+      runtimeView.activeTurnId ??
+      (runtimeView.view.localSubmitting
+        ? await waitForConversationActiveTurnId(conversation_id, { timeoutMs: 5_000 })
+        : null);
     if (!turnId) {
+      const currentRuntime = getConversationRuntimeViewSnapshot(conversation_id);
+      if (!currentRuntime.isProcessing) {
+        resetState();
+        resetActiveExecution('stop');
+        return true;
+      }
+      emitAcpPerformanceMark({
+        stage: 'turn_cancel_failed',
+        conversationId: conversation_id,
+      });
+      Message.error(
+        t('conversation.chat.voiceDialogue.cancelFailed', {
+          defaultValue: 'The running reply could not be stopped. Your microphone state is unchanged.',
+        })
+      );
+      return false;
+    }
+    emitAcpPerformanceMark({
+      stage: 'turn_cancel_requested',
+      conversationId: conversation_id,
+      turnId,
+    });
+    runtimeView.markStopRequested(turnId);
+    try {
+      const result = await ipcBridge.conversation.stop.invoke({ conversation_id, turn_id: turnId });
+      runtimeView.markStopAcknowledged(turnId, result.runtime);
       resetState();
       resetActiveExecution('stop');
-      return;
-    }
-    runtimeView.markStopRequested(turnId);
-    resetState();
-    resetActiveExecution('stop');
-    void ipcBridge.conversation.stop
-      .invoke({ conversation_id, turn_id: turnId })
-      .then((result) => {
-        runtimeView.markStopAcknowledged(turnId, result.runtime);
-      })
-      .catch((error) => {
-        console.warn('[AcpSendBox] stop request failed', error);
-        runtimeView.resetLocalGate('stop_failed');
+      emitAcpPerformanceMark({
+        stage: 'turn_cancel_acknowledged',
+        conversationId: conversation_id,
+        turnId,
       });
+      return true;
+    } catch (error) {
+      console.warn('[AcpSendBox] stop request failed', error);
+      runtimeView.resetLocalGate('stop_failed');
+      emitAcpPerformanceMark({
+        stage: 'turn_cancel_failed',
+        conversationId: conversation_id,
+        turnId,
+      });
+      Message.error(
+        t('conversation.chat.voiceDialogue.cancelFailed', {
+          defaultValue: 'The running reply could not be stopped. Your microphone state is unchanged.',
+        })
+      );
+      return false;
+    }
   };
 
   return (
@@ -2500,7 +2563,9 @@ Please check your local CLI tool authentication status`,
                 defaultValue: `Send message to {{backend}}...`,
               })
         }
-        onStop={handleStop}
+        onStop={async () => {
+          await handleStop();
+        }}
         className='z-10'
         onFilesAdded={handleFilesAdded}
         hasPendingAttachments={uploadFile.length > 0 || atPath.length > 0}
@@ -2592,13 +2657,38 @@ Please check your local CLI tool authentication status`,
                 : undefined
             }
             micSlot={
-              <SpeechInputButton
-                ref={speechInputRef}
-                disabled={isBusy}
-                locale={i18n?.language || 'en-US'}
-                onTranscript={handleSpeechTranscript}
-                onStatusChange={setSpeechInputStatus}
-              />
+              <>
+                {isEveConversation ? (
+                  <VoiceDialogueControl
+                    enabled={voiceDialogue.enabled}
+                    phase={voiceDialogue.phase}
+                    onToggle={voiceDialogue.toggle}
+                  />
+                ) : null}
+                <SpeechInputButton
+                  ref={speechInputRef}
+                  beforeStartRecording={
+                    isEveConversation
+                      ? async () => {
+                          if (voiceDialogue.beforeStartRecording()) return handleStop();
+                          return true;
+                        }
+                      : undefined
+                  }
+                  disabled={
+                    isBusy &&
+                    !(
+                      isEveConversation &&
+                      voiceDialogue.enabled &&
+                      (runtimeView.view.localSubmitting || Boolean(runtimeView.activeTurnId))
+                    )
+                  }
+                  forceLocalTranscription={isEveConversation && voiceDialogue.enabled}
+                  locale={i18n?.language || 'de-DE'}
+                  onTranscript={handleSpeechTranscript}
+                  onStatusChange={setSpeechInputStatus}
+                />
+              </>
             }
           />
         }

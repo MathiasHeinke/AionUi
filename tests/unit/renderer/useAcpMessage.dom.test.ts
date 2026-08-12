@@ -20,6 +20,7 @@ import {
   localSendAccepted,
   localSendStarted,
   resetConversationRuntimeViewStoreForTest,
+  turnCompleted,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { useConversationArtifactsById } from '@/renderer/pages/conversation/Messages/artifacts';
 import { registerPreviewPageReader } from '@/renderer/pages/conversation/Preview/services/previewReader';
@@ -400,6 +401,203 @@ describe('useAcpMessage', () => {
     expect(addOrUpdateMessageMock).toHaveBeenCalled();
   });
 
+  it('publishes one bounded completion receipt per terminal turn and ignores replayed finish frames', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    const finish = (turnId: string) => {
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: `finish-${turnId}`,
+        turn_id: turnId,
+        conversation_id: 'conv-1',
+      });
+    };
+
+    act(() => {
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-1', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-1',
+      });
+      finish('turn-1');
+      finish('turn-1');
+    });
+    expect(result.current.lastCompletedTurn).toMatchObject({ sequence: 1, turnId: 'turn-1' });
+
+    act(() => {
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-2', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-2',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: null,
+        msg_id: 'start-turn-2',
+        turn_id: 'turn-2',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'request_trace',
+        data: { backend: 'local', model_id: 'local-model', timestamp: Date.now() },
+        msg_id: 'trace-turn-2',
+        turn_id: 'turn-2',
+        conversation_id: 'conv-1',
+      });
+      finish('turn-1');
+    });
+    expect(result.current.lastCompletedTurn).toMatchObject({ sequence: 1, turnId: 'turn-1' });
+    expect(result.current.running).toBe(true);
+    expect(result.current.runtimeActivity.phase).toBe('thinking');
+
+    act(() => {
+      turnCompleted('conv-1', 'turn-2', {
+        state: 'idle',
+        can_send_message: true,
+        has_task: false,
+        task_status: 'completed',
+        is_processing: false,
+        pending_confirmations: 0,
+        turn_id: null,
+      });
+      emitter.emit('conversation.runtime.recovered', {
+        conversation_id: 'conv-1',
+        runtime: {
+          state: 'idle',
+          can_send_message: true,
+          has_task: false,
+          task_status: 'completed',
+          is_processing: false,
+          pending_confirmations: 0,
+          turn_id: null,
+        },
+        recoveredTurnId: 'turn-2',
+      });
+      finish('turn-2');
+    });
+    expect(result.current.lastCompletedTurn).toMatchObject({ sequence: 2, turnId: 'turn-2' });
+    expect(result.current.running).toBe(false);
+    expect(result.current.runtimeActivity.phase).toBe('done');
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: '',
+        conversation_id: 'conv-1',
+      });
+    });
+    expect(result.current.lastCompletedTurn).toMatchObject({ sequence: 2, turnId: 'turn-2' });
+  });
+
+  it('rejects a recovered prior finish after a newer local send has started', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-a', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-a',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: null,
+        msg_id: 'start-a',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      turnCompleted('conv-1', 'turn-a', {
+        state: 'idle',
+        can_send_message: true,
+        has_task: false,
+        task_status: 'completed',
+        is_processing: false,
+        pending_confirmations: 0,
+        turn_id: null,
+      });
+      emitter.emit('conversation.runtime.recovered', {
+        conversation_id: 'conv-1',
+        runtime: {
+          state: 'idle',
+          can_send_message: true,
+          has_task: false,
+          task_status: 'completed',
+          is_processing: false,
+          pending_confirmations: 0,
+          turn_id: null,
+        },
+        recoveredTurnId: 'turn-a',
+      });
+      localSendStarted('conv-1');
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: null,
+        msg_id: 'start-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'text',
+        data: 'late text from turn A',
+        msg_id: 'late-text-a',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'late-finish-a',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current.running).toBe(true);
+    expect(result.current.lastCompletedTurn).toBeNull();
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalled();
+
+    act(() => {
+      localSendAccepted('conv-1', 'turn-b', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-b',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'finish-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current.lastCompletedTurn).toMatchObject({ sequence: 1, turnId: 'turn-b' });
+  });
+
   it('routes only session-bound Hermes preview and native-pane events', async () => {
     conversationGetInvokeMock.mockResolvedValue(null);
     const emitSpy = vi.spyOn(emitter, 'emit');
@@ -684,24 +882,38 @@ describe('useAcpMessage', () => {
     const emitSpy = vi.spyOn(emitter, 'emit');
 
     renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
 
     act(() => {
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-refresh', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-refresh',
+      });
       responseStreamHandlerRef.current?.({
         type: 'start',
         data: null,
         msg_id: 'msg-refresh',
+        turn_id: 'turn-refresh',
         conversation_id: 'conv-1',
       });
       responseStreamHandlerRef.current?.({
         type: 'text',
         data: 'Editing',
         msg_id: 'msg-refresh',
+        turn_id: 'turn-refresh',
         conversation_id: 'conv-1',
       });
       responseStreamHandlerRef.current?.({
         type: 'finish',
         data: null,
         msg_id: 'msg-refresh',
+        turn_id: 'turn-refresh',
         conversation_id: 'conv-1',
       });
     });

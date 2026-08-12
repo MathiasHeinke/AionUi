@@ -9,6 +9,7 @@ import {
   localStopAcknowledged,
   localStopRequested,
   resetConversationRuntimeViewStoreForTest,
+  shouldApplyConversationStreamTurn,
   turnCompleted,
   waitForConversationActiveTurnId,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
@@ -155,5 +156,54 @@ describe('conversationRuntimeViewStore turn id contract', () => {
     expect(view.activeTurnId).toBe('turn-2');
     expect(view.isProcessing).toBe(true);
     expect(view.localStopping).toBe(false);
+  });
+
+  it('allows only a recovered turn terminal before a newer local send begins', () => {
+    localSendStarted('conv-1');
+    localSendAccepted('conv-1', 'turn-a', runningRuntime('turn-a'), 'msg-a');
+    turnCompleted('conv-1', 'turn-a', idleRuntime());
+
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-1',
+        terminal: true,
+        turn_id: 'turn-a',
+        type: 'finish',
+      })
+    ).toBe(true);
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-1',
+        terminal: false,
+        turn_id: 'turn-a',
+        type: 'text',
+      })
+    ).toBe(false);
+
+    localSendStarted('conv-1');
+    for (const [type, terminal] of [
+      ['text', false],
+      ['error', true],
+      ['finish', true],
+    ] as const) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-1',
+          terminal,
+          turn_id: 'turn-a',
+          type,
+        })
+      ).toBe(false);
+    }
+
+    localSendAccepted('conv-1', 'turn-b', runningRuntime('turn-b'), 'msg-b');
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-1',
+        terminal: true,
+        turn_id: 'turn-b',
+        type: 'finish',
+      })
+    ).toBe(true);
   });
 });

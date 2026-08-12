@@ -24,9 +24,39 @@ import {
   isAnyGenerating,
   markConversationGenerating,
 } from '@renderer/services/commandEveGenerationActivity';
+import {
+  localSendAccepted,
+  localSendStarted,
+  resetConversationRuntimeViewStoreForTest,
+  turnCompleted,
+} from '@renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import type { TConversationRuntimeSummary } from '@/common/config/storage';
+
+const runningRuntime = (turn_id: string): TConversationRuntimeSummary => ({
+  state: 'running',
+  can_send_message: false,
+  has_task: true,
+  task_status: 'running',
+  is_processing: true,
+  pending_confirmations: 0,
+  turn_id,
+});
+
+const idleRuntime = (): TConversationRuntimeSummary => ({
+  state: 'idle',
+  can_send_message: true,
+  has_task: false,
+  task_status: 'finished',
+  is_processing: false,
+  pending_confirmations: 0,
+  turn_id: null,
+});
 
 describe('commandEveGenerationActivity — the seat-switch guard signal (1.7.3)', () => {
-  afterEach(() => clearAllGenerating());
+  afterEach(() => {
+    clearAllGenerating();
+    resetConversationRuntimeViewStoreForTest();
+  });
 
   it('is empty by default', () => {
     expect(isAnyGenerating()).toBe(false);
@@ -101,6 +131,28 @@ describe('commandEveGenerationActivity — the seat-switch guard signal (1.7.3)'
     markConversationGenerating('');
     applyAcpStreamActivity(null);
     applyAcpStreamActivity({ type: 'start' });
+    expect(isAnyGenerating()).toBe(false);
+  });
+
+  it('keeps newer generation live when recovered turn frames arrive late', () => {
+    localSendStarted('conv-race');
+    localSendAccepted('conv-race', 'turn-a', runningRuntime('turn-a'));
+    turnCompleted('conv-race', 'turn-a', idleRuntime());
+    // Recovery has not started B yet, so its exact terminal remains admissible.
+    applyAcpStreamActivity({ type: 'finish', conversation_id: 'conv-race', turn_id: 'turn-a' });
+
+    localSendStarted('conv-race');
+    markConversationGenerating('conv-race');
+    localSendAccepted('conv-race', 'turn-b', runningRuntime('turn-b'));
+    applyAcpStreamActivity({ type: 'start', conversation_id: 'conv-race', turn_id: 'turn-b' });
+    expect(isAnyGenerating()).toBe(true);
+
+    for (const type of ['text', 'error', 'finish']) {
+      applyAcpStreamActivity({ type, conversation_id: 'conv-race', turn_id: 'turn-a' });
+      expect(isAnyGenerating()).toBe(true);
+    }
+
+    applyAcpStreamActivity({ type: 'finish', conversation_id: 'conv-race', turn_id: 'turn-b' });
     expect(isAnyGenerating()).toBe(false);
   });
 });

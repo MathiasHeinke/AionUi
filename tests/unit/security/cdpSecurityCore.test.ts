@@ -111,4 +111,37 @@ describe('cdpSecurityCore', () => {
     expect(argv).toEqual(['/Applications/Command EVE', '--inspect=0', '--remote-debugging-port=0']);
     expect(removeSwitch).not.toHaveBeenCalled();
   });
+
+  it('strips Playwright switches for every raw packaged test combination missing a runtime gate', () => {
+    for (const blockedInput of [
+      { e2eTest: true, attachmentRequested: false, packageMarkerPresent: false },
+      { e2eTest: true, attachmentRequested: true, packageMarkerPresent: false },
+      { e2eTest: true, attachmentRequested: false, packageMarkerPresent: true },
+    ]) {
+      const allowNonDistributableE2EAttachment = shouldAllowNonDistributableE2EAttachment({
+        isPackaged: true,
+        ...blockedInput,
+      });
+      const argv = ['/Applications/Command EVE', '--inspect=0', '--remote-debugging-port=0', '--safe-flag'];
+      const removed: string[] = [];
+
+      expect(allowNonDistributableE2EAttachment).toBe(false);
+      expect(
+        hardenPackagedCdpCommandLine({
+          isPackaged: true,
+          allowNonDistributableE2EAttachment,
+          argv,
+          removeSwitch: (name) => removed.push(name),
+        })
+      ).toEqual(['inspect', 'remote-debugging-port']);
+      expect(argv).toEqual(['/Applications/Command EVE', '--safe-flag']);
+      expect(removed).toEqual([
+        'remote-debugging-port',
+        'remote-debugging-address',
+        'remote-debugging-pipe',
+        'inspect',
+        'inspect-brk',
+      ]);
+    }
+  });
 });

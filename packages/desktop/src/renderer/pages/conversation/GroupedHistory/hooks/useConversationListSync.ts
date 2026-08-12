@@ -11,6 +11,7 @@ import {
   getDocumentPreparationConversationIds,
   subscribeConversationDocumentPreparation,
 } from '@/renderer/pages/conversation/runtime/conversationDocumentPreparationStore';
+import { shouldApplyConversationStreamTurn } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { addEventListener } from '@/renderer/utils/emitter';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
@@ -1024,13 +1025,26 @@ const initializeConversationListSyncStore = () => {
       return;
     }
 
+    const terminal = isTerminalStreamMessage(message);
+    if (
+      !shouldApplyConversationStreamTurn({
+        conversation_id,
+        terminal,
+        turn_id: message.turn_id,
+        type: message.type,
+      })
+    ) {
+      logLateStreamIgnored(conversation_id, message.type);
+      return;
+    }
+
     relaySuccessfulTurnToAutoProject(message);
 
     if (!conversation_idsState.has(conversation_id)) {
       refreshConversations();
     }
 
-    if (isTerminalStreamMessage(message)) {
+    if (terminal) {
       const wasGenerating = generatingConversationIdsState.has(conversation_id);
       const isErrorStream =
         message.type === 'error' || (message.type === 'agent_status' && isTerminalAgentStatus(message.data));

@@ -14,6 +14,7 @@ type LogMock = {
       fileName: string;
       level: LogLevel;
       maxSize: number;
+      resolvePathFn?: () => string;
     };
     console: {
       level: LogLevel;
@@ -33,6 +34,7 @@ const originalConsole = {
   error: console.error,
   debug: console.debug,
 };
+const originalBenchmarkLogPath = process.env.COMMAND_EVE_BENCHMARK_LOG_PATH;
 
 const createLogMock = (): LogMock => ({
   transports: {
@@ -80,6 +82,8 @@ const loadConfigureConsoleLog = async (isPackaged: boolean): Promise<LogMock> =>
 
 describe('configureConsoleLog', () => {
   afterEach(() => {
+    if (originalBenchmarkLogPath === undefined) delete process.env.COMMAND_EVE_BENCHMARK_LOG_PATH;
+    else process.env.COMMAND_EVE_BENCHMARK_LOG_PATH = originalBenchmarkLogPath;
     Object.assign(console, originalConsole);
     vi.resetModules();
     vi.clearAllMocks();
@@ -97,5 +101,23 @@ describe('configureConsoleLog', () => {
     const log = await loadConfigureConsoleLog(false);
 
     expect(log.transports.console.level).toBe('silly');
+  });
+
+  it('isolates benchmark logs only when given an absolute path', async () => {
+    process.env.COMMAND_EVE_BENCHMARK_LOG_PATH = '/tmp/command-eve-ttft/runtime.log';
+
+    const log = await loadConfigureConsoleLog(true);
+
+    expect(log.transports.file.resolvePathFn?.()).toBe('/tmp/command-eve-ttft/runtime.log');
+    expect(log.transports.file.fileName).toBe('');
+  });
+
+  it('ignores a relative benchmark log override', async () => {
+    process.env.COMMAND_EVE_BENCHMARK_LOG_PATH = 'relative/runtime.log';
+
+    const log = await loadConfigureConsoleLog(true);
+
+    expect(log.transports.file.resolvePathFn).toBeUndefined();
+    expect(log.transports.file.fileName).toMatch(/^\d{4}-\d{2}-\d{2}\.log$/);
   });
 });

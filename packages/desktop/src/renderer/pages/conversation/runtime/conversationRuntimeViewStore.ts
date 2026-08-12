@@ -50,6 +50,8 @@ type ConversationRuntimeMetadata = {
   pendingLocalSendSeq: number | null;
   pendingStopTurnId: string | null;
   lastCompletedTurnId: string | null;
+  activeStreamTurnId: string | null;
+  recoveredTerminalStreamTurnId: string | null;
 };
 
 const listeners = new Set<ConversationRuntimeViewListener>();
@@ -61,6 +63,8 @@ const createRuntimeMetadata = (): ConversationRuntimeMetadata => ({
   pendingLocalSendSeq: null,
   pendingStopTurnId: null,
   lastCompletedTurnId: null,
+  activeStreamTurnId: null,
+  recoveredTerminalStreamTurnId: null,
 });
 
 const getRuntimeMetadata = (conversation_id: string): ConversationRuntimeMetadata => {
@@ -144,11 +148,97 @@ const viewFromRuntimeSummary = (
 const isStaleCompletedRuntimeSummary = (
   runtime: TConversationRuntimeSummary | null,
   metadata: ConversationRuntimeMetadata
-): runtime is TConversationRuntimeSummary =>
+): boolean =>
   runtime !== null &&
   runtime.turn_id !== null &&
   metadata.lastCompletedTurnId === runtime.turn_id &&
   runtime.is_processing === true;
+
+const normalizeStreamTurnId = (turn_id: unknown): string | null =>
+  typeof turn_id === 'string' && turn_id.trim() ? turn_id.trim() : null;
+
+/**
+ * Canonical turn-identity seam for renderer-global response-stream consumers.
+ *
+ * A recovered idle turn may still deliver its exact terminal frame, which is
+ * needed by the local completion/TTS path. Once a newer local submit begins,
+ * however, no frame from the recovered turn may mutate global generation or
+ * sidebar state. The lifecycle functions below own identity changes; consumers
+ * use this one idempotent decision instead of maintaining their own heuristics.
+ */
+export const shouldApplyConversationStreamTurn = (input: {
+  conversation_id: string;
+  terminal: boolean;
+  turn_id?: unknown;
+  type?: string;
+}): boolean => {
+  const conversation_id = input.conversation_id;
+  if (!conversation_id) return false;
+
+  const metadata = getRuntimeMetadata(conversation_id);
+  const view = getConversationRuntimeViewSnapshot(conversation_id);
+  const turnId = normalizeStreamTurnId(input.turn_id);
+  const activeRuntimeTurnId = view.activeTurnId;
+
+  // The send path has announced a newer logical turn, but its exact backend ID
+  // is not available yet. Failing closed here prevents a recovered A frame from
+  // being mistaken for B during that submission window.
+  if (view.localSubmitting && !view.activeTurnId) return false;
+
+  if (!turnId) {
+    return !activeRuntimeTurnId && !view.localSubmitting;
+  }
+
+  if (activeRuntimeTurnId) {
+    if (activeRuntimeTurnId !== turnId) return false;
+    if (metadata.recoveredTerminalStreamTurnId === turnId && !input.terminal) return false;
+    if (input.terminal) {
+      metadata.activeStreamTurnId = null;
+      metadata.recoveredTerminalStreamTurnId = turnId;
+    } else {
+      metadata.activeStreamTurnId = turnId;
+    }
+    return true;
+  }
+
+  if (metadata.recoveredTerminalStreamTurnId) {
+    // Durable recovery already established this exact turn as successful. Only
+    // its delayed `finish` may still supply the renderer completion/TTS receipt;
+    // a contradictory late error must not paint the recovered row red.
+    if (metadata.recoveredTerminalStreamTurnId === turnId) return input.type === 'finish';
+    // A different non-terminal frame is the only stream-side proof that a
+    // background/native conversation moved on. This keeps compact streams
+    // (which may begin with content rather than start) working while exact
+    // late frames from the recovered turn remain fail-closed above.
+    if (input.terminal) return true;
+    metadata.recoveredTerminalStreamTurnId = null;
+    metadata.activeStreamTurnId = turnId;
+    return true;
+  }
+
+  if (metadata.activeStreamTurnId) {
+    if (metadata.activeStreamTurnId === turnId) {
+      if (input.terminal) {
+        metadata.activeStreamTurnId = null;
+        metadata.recoveredTerminalStreamTurnId = turnId;
+      }
+      return true;
+    }
+    // Without runtime/send lifecycle truth, a start frame is the only valid
+    // handoff for a background/native conversation. It supersedes a provisional
+    // stream identity; non-start frames from the old identity remain rejected.
+    if (input.type !== 'start') return false;
+    metadata.activeStreamTurnId = turnId;
+    return true;
+  }
+
+  // Preserve background-stream support when the conversation UI was not
+  // mounted. A legacy terminal can still close the pre-stream working phase,
+  // but it must not become a future active identity.
+  if (input.terminal) return true;
+  metadata.activeStreamTurnId = turnId;
+  return true;
+};
 
 const withLogs = (
   view: ConversationRuntimeView,
@@ -448,6 +538,11 @@ export const hydrateSucceeded = (
     );
   }
 
+  if (runtime?.is_processing && runtime.turn_id) {
+    metadata.activeStreamTurnId = runtime.turn_id;
+    metadata.recoveredTerminalStreamTurnId = null;
+  }
+
   return setConversationRuntimeSnapshot(
     conversation_id,
     hydrateSucceededConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id, runtime, metadata, {
@@ -468,11 +563,23 @@ export const turnCompleted = (
   runtime: TConversationRuntimeSummary | null
 ): ConversationRuntimeViewLogEntry[] => {
   const metadata = getRuntimeMetadata(conversation_id);
+  const view = getConversationRuntimeViewSnapshot(conversation_id);
+  const activeTurnId = view.activeTurnId ?? metadata.activeStreamTurnId;
+  if (
+    (view.localSubmitting && (activeTurnId !== null || metadata.recoveredTerminalStreamTurnId !== null)) ||
+    (activeTurnId !== null && activeTurnId !== turn_id)
+  ) {
+    // A newer submission/turn owns the conversation now. The delayed durable
+    // completion is real for its own turn but cannot replace that ownership.
+    return [];
+  }
   metadata.pendingLocalSendSeq = null;
   if (metadata.pendingStopTurnId === turn_id) {
     metadata.pendingStopTurnId = null;
   }
   metadata.lastCompletedTurnId = turn_id;
+  metadata.activeStreamTurnId = null;
+  metadata.recoveredTerminalStreamTurnId = turn_id;
   return setConversationRuntimeSnapshot(
     conversation_id,
     turnCompletedConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id, turn_id, runtime, metadata)
@@ -514,6 +621,8 @@ export const localSendAccepted = (
   const staleAfterCompleted = isStaleCompletedRuntimeSummary(runtime, metadata);
   if (!staleAfterCompleted) {
     metadata.pendingLocalSendSeq = null;
+    metadata.activeStreamTurnId = runtime.turn_id ?? turn_id;
+    metadata.recoveredTerminalStreamTurnId = null;
   }
   return setConversationRuntimeSnapshot(
     conversation_id,

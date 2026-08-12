@@ -35,6 +35,7 @@
  */
 
 import { ipcBridge } from '@/common';
+import { shouldApplyConversationStreamTurn } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 
 const generatingConversations = new Set<string>();
 
@@ -75,11 +76,22 @@ export function clearConversationGenerating(conversationId: string): void {
  * context usage, …) so warmup never registers a phantom turn.
  */
 export function applyAcpStreamActivity(
-  message: { type?: string; conversation_id?: string; data?: unknown } | null | undefined
+  message: { type?: string; conversation_id?: string; data?: unknown; turn_id?: unknown } | null | undefined
 ): void {
   const conversationId = message?.conversation_id;
   const type = message?.type;
   if (!conversationId || typeof conversationId !== 'string' || !type) return;
+
+  if (
+    !shouldApplyConversationStreamTurn({
+      conversation_id: conversationId,
+      terminal: TERMINAL_TYPES.has(type),
+      turn_id: message?.turn_id,
+      type,
+    })
+  ) {
+    return;
+  }
 
   if (TERMINAL_TYPES.has(type)) {
     generatingConversations.delete(conversationId);
@@ -103,7 +115,7 @@ function attachResponseStream(stream: unknown): boolean {
   const emitter = stream as { on?: (handler: (message: unknown) => void) => unknown } | undefined;
   if (!emitter || typeof emitter.on !== 'function') return false;
   emitter.on((message: unknown) =>
-    applyAcpStreamActivity(message as { type?: string; conversation_id?: string; data?: unknown })
+    applyAcpStreamActivity(message as { type?: string; conversation_id?: string; data?: unknown; turn_id?: unknown })
   );
   return true;
 }
