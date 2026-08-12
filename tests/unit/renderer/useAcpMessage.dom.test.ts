@@ -539,6 +539,23 @@ describe('useAcpMessage', () => {
           session_id: 'session-a',
           update: {
             session_update: 'tool_call_update',
+            tool_call_id: 'old-a-pane',
+            status: 'completed',
+            kind: 'execute',
+            title: 'focus_pane',
+            raw_input: { pane: 'files' },
+          },
+        },
+        msg_id: 'old-a-pane',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            session_update: 'tool_call_update',
             tool_call_id: 'old-a-html',
             status: 'in_progress',
             kind: 'edit',
@@ -651,6 +668,129 @@ describe('useAcpMessage', () => {
     });
     expect(addOrUpdateMessageMock).toHaveBeenCalledWith(expect.objectContaining({ msg_id: 'worker-c-preview' }));
     emitSpy.mockRestore();
+  });
+
+  it.each([
+    ['a null session', { session_id: null }, 'turn-b'],
+    ['a blank session', { session_id: ' ' }, 'turn-b'],
+    ['a non-string session', { session_id: 7 }, 'turn-b'],
+    ['a missing turn', { session_id: 'session-b' }, undefined],
+    ['a blank turn', { session_id: 'session-b' }, ' '],
+  ])('does not restore old authority when hydration resolves after %s', async (_label, data, turnId) => {
+    let resolveHydration: ((value: unknown) => void) | undefined;
+    conversationGetInvokeMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHydration = resolve;
+        })
+    );
+    const { result } = renderHook(() => {
+      useAcpMessage('conv-1');
+      return useConversationDelegationActivity('conv-1');
+    });
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+    await waitFor(() => expect(resolveHydration).toBeTypeOf('function'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-a' },
+        msg_id: 'start-session-a',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'worker-a',
+            status: 'in_progress',
+            title: 'delegate: Worker A',
+            kind: 'execute',
+            raw_input: { goal: 'Worker A' },
+          },
+        },
+        msg_id: 'worker-a-live',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data,
+        msg_id: `invalid-start-${_label}`,
+        ...(turnId === undefined ? {} : { turn_id: turnId }),
+        conversation_id: 'conv-1',
+      });
+    });
+
+    await act(async () => {
+      resolveHydration?.({
+        id: 'conv-1',
+        type: 'acp',
+        status: 'finished',
+        extra: { acp_session_id: 'session-a', backend: 'hermes' },
+      });
+      await Promise.resolve();
+    });
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'worker-a-replay',
+            status: 'completed',
+            title: 'open_preview',
+            kind: 'execute',
+            raw_input: { url: 'https://old-a.example', label: 'Old A' },
+          },
+        },
+        msg_id: 'worker-a-replay',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current).toMatchObject([{ id: 'worker-a:0', observedLive: false }]);
+    expect(getCurrentLiveDelegationObservation('conv-1', 'worker-a:0')).toBeNull();
+    expect(openPreviewMock).not.toHaveBeenCalled();
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalledWith(expect.objectContaining({ msg_id: 'worker-a-replay' }));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-c' },
+        msg_id: 'start-session-c',
+        turn_id: 'turn-c',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-c',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'worker-c',
+            status: 'in_progress',
+            title: 'delegate: Worker C',
+            kind: 'execute',
+            raw_input: { goal: 'Worker C' },
+          },
+        },
+        msg_id: 'worker-c-live',
+        turn_id: 'turn-c',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'worker-c:0', observedLive: true })])
+    );
+    expect(getCurrentLiveDelegationObservation('conv-1', 'worker-c:0')).toMatchObject({ acpSessionId: 'session-c' });
   });
 
   it('keeps session-info display-only and rejects a delayed tool frame from the prior session', async () => {
