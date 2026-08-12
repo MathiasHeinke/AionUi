@@ -497,13 +497,19 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         message.type === 'acp_tool_call' && message.data && typeof message.data === 'object'
           ? (message.data as { session_id?: unknown }).session_id
           : undefined;
+      const toolCallTurnId =
+        message.type === 'acp_tool_call' && typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
       // Tool frames can open panes and bind artifacts. Admit them to the
-      // renderer-side effect path only with positive, exact session provenance.
+      // renderer-side effect path only with positive, exact Start session and
+      // turn provenance. Hydration restores no turn authority by design.
       if (
         message.type === 'acp_tool_call' &&
         (typeof toolCallSessionId !== 'string' ||
           !toolCallSessionId.trim() ||
-          toolCallSessionId.trim() !== activeAcpSessionIdRef.current)
+          toolCallSessionId.trim() !== activeAcpSessionIdRef.current ||
+          !activeAcpSessionTurnIdRef.current ||
+          !toolCallTurnId ||
+          toolCallTurnId !== activeAcpSessionTurnIdRef.current)
       ) {
         return;
       }
