@@ -1113,6 +1113,11 @@ describe('MessageList', () => {
     ['failed receipt', { receipt: { status: 'failed' } }],
     ['blocked receipt', { receipt: { status: 'blocked' } }],
     ['unverified receipt', { receipt: { status: 'unverified' } }],
+    ['failed payload status', { status: 'failed' }],
+    ['blocked payload status', { status: 'blocked' }],
+    ['unverified payload status', { status: 'unverified' }],
+    ['pending payload status', { status: 'pending' }],
+    ['malformed payload status', { status: { state: 'failed' } }],
   ])('does not classify a contradictory result with a %s as a generated artifact', (_label, contradiction) => {
     const resultDisplay = {
       artifact_type: 'image',
@@ -1131,6 +1136,26 @@ describe('MessageList', () => {
         result_display: resultDisplay,
       })
     ).toBeUndefined();
+  });
+
+  it('accepts a terminal successful payload status for an otherwise valid artifact', () => {
+    const resultDisplay = {
+      artifact_type: 'image',
+      url: 'https://cdn.example.com/terminal.png',
+      mime_type: 'image/png',
+      status: 'done',
+    };
+
+    expect(hasToolResultGeneratedArtifact(resultDisplay)).toBe(true);
+    expect(
+      buildGeneratedArtifactFromToolResult({
+        conversation_id: 'conversation-1',
+        call_id: 'call-terminal-artifact',
+        created_at: 10,
+        name: 'ImageGeneration',
+        result_display: resultDisplay,
+      })
+    ).toMatchObject({ kind: 'image', payload: { url: 'https://cdn.example.com/terminal.png' } });
   });
 
   it('does not treat arbitrary JSON tool output as a generated artifact', () => {

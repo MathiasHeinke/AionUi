@@ -149,6 +149,14 @@ function hasArtifactErrorOrUnverifiedReceipt(payload: Record<string, unknown>): 
     return true;
   }
 
+  // A producer may put its terminal result marker directly on the payload
+  // rather than under a receipt. An outer tool-group Success must not override
+  // a failed, blocked, pending, unverified, or malformed inner status.
+  if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
+    const status = readString(payload, ['status'])?.toLowerCase();
+    if (!status || !SUCCESSFUL_ARTIFACT_RECEIPT_STATUSES.has(status)) return true;
+  }
+
   // A result may carry more than one receipt type. Every present receipt must
   // affirm the terminal result; accepting the first one would let a completed
   // receipt conceal a blocked or unverified companion receipt.
