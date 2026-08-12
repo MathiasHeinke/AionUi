@@ -23,7 +23,10 @@ import {
   type CommandEvePaidSeamSource,
 } from './paidOperationRegistryCore';
 import { isLegacySeatId, sanitizeSeatId } from './seatContextCore';
-import { isCommandEveShimPublicError } from './shimPublicError';
+import {
+  isCommandEveManagedVisualAuthorizationError,
+  isCommandEveShimPublicError,
+} from './shimPublicError';
 import { EVE_AUTHORITY_FAIL_CLOSED } from '../../common/config/eveAuthorityCore';
 import {
   decideCommandApproval,
@@ -353,6 +356,22 @@ export type CommandEveUpstreamOutcomeReceipt = {
   response_started: boolean;
 };
 
+/**
+ * Content-free evidence for a deterministic managed-visual refusal. Unlike an
+ * upstream outcome receipt, this proves the request stopped at the desktop
+ * authorization boundary before a provider request, billing, or prompt egress.
+ */
+export type CommandEveManagedVisualAuthorizationFailureReceipt = {
+  version: 'command-eve-managed-visual-authorization-failure/v1';
+  boundary: 'desktop_managed_visual_authorization';
+  observed_at: string;
+  status_code: 422;
+  /** The public code is stable and generic; the exact reason stays local. */
+  error_code: 'EVE_MANAGED_VISUAL_AUTHORIZATION_INVALID';
+  authorization_reason_code: string;
+  request_correlation_id: string;
+};
+
 export type CommandEveOllamaShimOptions = {
   port?: number;
   /** Override for tests. Production defaults to a random per-process nonce. */
@@ -371,6 +390,12 @@ export type CommandEveOllamaShimOptions = {
    * The file contains transport outcome metadata only, never model content.
    */
   upstreamOutcomeReceiptPath?: string;
+  /**
+   * Defaults beside `egressReceiptPath` when production egress evidence is
+   * enabled. This failure receipt contains no prompt, attachment, bearer, or
+   * provider data.
+   */
+  managedVisualAuthorizationFailureReceiptPath?: string;
   /** Test/diagnostic observer for the same content-free transport receipt. */
   upstreamOutcomeReporter?: (receipt: CommandEveUpstreamOutcomeReceipt) => void;
   egressPolicyAction?: CommandEveEgressPolicyAction;
@@ -858,6 +883,17 @@ type UpstreamRequestScope = {
 };
 
 function writeUpstreamOutcomeReceipt(receiptPath: string, receipt: CommandEveUpstreamOutcomeReceipt): void {
+  if (!receiptPath) return;
+  fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
+  const tempFile = `${receiptPath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(tempFile, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(tempFile, receiptPath);
+}
+
+function writeManagedVisualAuthorizationFailureReceipt(
+  receiptPath: string,
+  receipt: CommandEveManagedVisualAuthorizationFailureReceipt
+): void {
   if (!receiptPath) return;
   fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
   const tempFile = `${receiptPath}.${process.pid}.${crypto.randomUUID()}.tmp`;
@@ -2842,6 +2878,11 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
       (shimOptions.egressReceiptPath
         ? path.join(path.dirname(shimOptions.egressReceiptPath), 'last-upstream-outcome-receipt.json')
         : ''),
+    managedVisualAuthorizationFailureReceiptPath:
+      shimOptions.managedVisualAuthorizationFailureReceiptPath ||
+      (shimOptions.egressReceiptPath
+        ? path.join(path.dirname(shimOptions.egressReceiptPath), 'last-managed-visual-authorization-failure.json')
+        : ''),
     upstreamOutcomeReporter: shimOptions.upstreamOutcomeReporter || (() => undefined),
     // Redact-and-continue by default (see egressBoundaryCore): a hard block 451s
     // non-retryably and hangs the turn. PII is stripped before egress, never leaked.
@@ -2980,6 +3021,36 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
       }
       jsonResponse(response, 404, { error: { message: `Unsupported Command EVE Ollama shim path: ${requestPath}` } });
     })().catch((error) => {
+      if (isCommandEveManagedVisualAuthorizationError(error)) {
+        const receipt: CommandEveManagedVisualAuthorizationFailureReceipt = {
+          version: 'command-eve-managed-visual-authorization-failure/v1',
+          boundary: 'desktop_managed_visual_authorization',
+          observed_at: new Date().toISOString(),
+          status_code: error.statusCode,
+          error_code: error.errorCode,
+          authorization_reason_code: error.reasonCode,
+          request_correlation_id: error.correlationId,
+        };
+        try {
+          writeManagedVisualAuthorizationFailureReceipt(options.managedVisualAuthorizationFailureReceiptPath, receipt);
+        } catch {
+          // Failure evidence is diagnostic only; it must not turn a deterministic
+          // non-retryable refusal into a generic, retryable server failure.
+          console.warn('[Command EVE] Managed visual authorization failure receipt could not be recorded.');
+        }
+        console.warn(
+          `[Command EVE] Managed visual authorization refused (${error.errorCode}; correlation=${error.correlationId}).`
+        );
+        response.setHeader('x-command-eve-error-correlation', error.correlationId);
+        jsonResponse(response, error.statusCode, {
+          error: {
+            message: error.message,
+            type: 'command_eve_managed_visual_authorization_error',
+            code: error.errorCode,
+          },
+        });
+        return;
+      }
       // F-14 (Kimi 1.819 audit): never echo raw error.message to the client —
       // a latent throw source must not become a credential channel. Only errors
       // explicitly constructed as CommandEveShimPublicError carry client-safe,

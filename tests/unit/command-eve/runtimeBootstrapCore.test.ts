@@ -970,6 +970,11 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).toContain('context_length: 65536');
       expect(configYaml).toContain('ollama_num_ctx: 65536');
       expect(configYaml).toContain('max_tokens: 2048'); // cloud-lane-on: 512 truncated even cloud answers
+      // Managed-visual authorization refusals are deliberately non-retryable at
+      // the shim. Hermes would otherwise *offer* a fallback on generic 4xx, so
+      // the emitted main-agent config must have no alternate provider/model to
+      // activate behind the user's back.
+      expect(configYaml).not.toMatch(/^\s*fallback_(?:model|providers):/m);
       // Soul-wiring: reasoning is ON (challenger alive). Default tier is the
       // cheap-but-real 'low'; it must never regress to 'none' (which disables
       // reasoning entirely in Hermes).
@@ -1215,6 +1220,27 @@ describe('Command EVE runtime bootstrap core', () => {
         local_nonce_rebound: true,
         external_key_preserved: true,
         missing_nonce_fails_before_http: true,
+      });
+      const managedVisualRefusalHarness = spawnSync(
+        'python3',
+        [
+          path.resolve('tests/fixtures/command-eve/managed_visual_refusal_retry_harness.py'),
+          path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        ],
+        { encoding: 'utf8', timeout: 15_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
+      );
+      expect(
+        managedVisualRefusalHarness.status,
+        managedVisualRefusalHarness.stderr || managedVisualRefusalHarness.stdout
+      ).toBe(0);
+      expect(JSON.parse(managedVisualRefusalHarness.stdout)).toMatchObject({
+        exact_wheel_primary_client_factory_executed: true,
+        openai_sdk_version: '2.24.0',
+        sdk_default_retries_409: true,
+        sdk_default_retries_422: false,
+        openai_sdk_max_retries: 0,
+        http_status: 422,
+        total_shim_http_attempts: 1,
       });
       const attachmentMemoryHarness = spawnSync(
         'python3',

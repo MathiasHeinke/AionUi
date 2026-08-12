@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import crypto from 'node:crypto';
+import type { CommandEveManagedVisualAuthorizationFailureReason } from './managedVisualTurnAuthorizationCore';
+
 /**
  * F-14 (Kimi 1.819 audit): the shim's top-level catch must never echo raw
  * error.message — a latent throw source could smuggle credentials into the
@@ -20,6 +23,31 @@ export class CommandEveShimPublicError extends Error {}
 
 export function isCommandEveShimPublicError(error: unknown): error is CommandEveShimPublicError {
   return error instanceof CommandEveShimPublicError;
+}
+
+/**
+ * A managed-visual marker is a one-time, seat/session-bound authorization. Its
+ * deterministic refusals are client mistakes or stale state, not transient
+ * provider failures. Keep the response deliberately generic, but preserve a
+ * stable typed code and a content-free request correlation for local diagnosis.
+ */
+export class CommandEveManagedVisualAuthorizationError extends CommandEveShimPublicError {
+  // OpenAI SDK 2.24 retries 409 by default. 422 is a stable semantic refusal
+  // outside that retry set, so the exact wheel receives it once and stops.
+  readonly statusCode = 422 as const;
+  readonly errorCode = 'EVE_MANAGED_VISUAL_AUTHORIZATION_INVALID' as const;
+  readonly correlationId = crypto.randomUUID();
+
+  constructor(readonly reasonCode: CommandEveManagedVisualAuthorizationFailureReason) {
+    super('Managed visual authorization cannot be verified. Reattach the files and retry.');
+    this.name = 'CommandEveManagedVisualAuthorizationError';
+  }
+}
+
+export function isCommandEveManagedVisualAuthorizationError(
+  error: unknown
+): error is CommandEveManagedVisualAuthorizationError {
+  return error instanceof CommandEveManagedVisualAuthorizationError;
 }
 
 /**
