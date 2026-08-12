@@ -203,6 +203,9 @@ export async function prepareLocalPdf(input: {
   filePath: string;
   hermesHome: string;
   extractor?: PdfTextExtractor;
+  /** Request-scoped Seed/revision fence, evaluated immediately before any
+   * post-extraction sidecar or manifest write. */
+  isContextCurrent?: () => boolean;
 }): Promise<LocalPdfPreparation> {
   const stat = assertSafePdfSource(input.filePath);
   const sourceBytes = new Uint8Array(fs.readFileSync(input.filePath));
@@ -299,6 +302,12 @@ export async function prepareLocalPdf(input: {
     const message = error instanceof Error ? error.message : 'PDF text extraction failed.';
     const reason = /password|encrypted/i.test(message) ? 'EVE_PDF_ENCRYPTED' : 'EVE_PDF_LOCAL_EXTRACTION_FAILED';
     throw new CommandEvePdfPreparationError(reason, message);
+  }
+  if (input.isContextCurrent && !input.isContextCurrent()) {
+    throw new CommandEvePdfPreparationError(
+      'EVE_PDF_SEAT_CHANGED',
+      'The active Seed changed while the PDF was being prepared.'
+    );
   }
   const quality = assessPdfTextQuality(pages);
   let preparedDocument: CommandEvePreparedPdfDocument | undefined;

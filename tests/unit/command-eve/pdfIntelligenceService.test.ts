@@ -5,6 +5,7 @@
  */
 
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -159,6 +160,34 @@ describe('PDF intelligence service', () => {
     });
     expect(result.quality.requiresOcr).toBe(true);
     expect(fs.existsSync(result.document.sidecar_path)).toBe(false);
+  });
+
+  it('does not persist local-text sidecar or manifest after its Seed revision becomes stale', async () => {
+    const { home, pdf } = fixture();
+    let contextCurrent = true;
+    let resolveExtraction!: (pages: Array<{ pageNumber: number; text: string }>) => void;
+    const pending = prepareLocalPdf({
+      filePath: pdf,
+      hermesHome: home,
+      isContextCurrent: () => contextCurrent,
+      extractor: () =>
+        new Promise((resolve) => {
+          resolveExtraction = resolve;
+        }),
+    });
+    contextCurrent = false;
+    resolveExtraction([
+      {
+        pageNumber: 1,
+        text: 'Enough trustworthy local text to enter the local sidecar persistence path safely.',
+      },
+    ]);
+
+    await expect(pending).rejects.toMatchObject({ reasonCode: 'EVE_PDF_SEAT_CHANGED' });
+    const sha256 = createHash('sha256').update(fs.readFileSync(pdf)).digest('hex');
+    const cache = path.join(home, 'document-intelligence', 'pdf', sha256);
+    expect(fs.existsSync(path.join(cache, 'document.md'))).toBe(false);
+    expect(fs.existsSync(path.join(cache, 'manifest.json'))).toBe(false);
   });
 
   it('rejects symlink inputs and non-PDF magic', async () => {

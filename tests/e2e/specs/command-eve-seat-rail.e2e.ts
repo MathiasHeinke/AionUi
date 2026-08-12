@@ -1,4 +1,11 @@
-import { expect, test, type ElectronApplication, type Page, _electron as electron } from '@playwright/test';
+import {
+  expect,
+  test,
+  type ConsoleMessage,
+  type ElectronApplication,
+  type Page,
+  _electron as electron,
+} from '@playwright/test';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -56,6 +63,95 @@ type SwitchSeatEnvelope = {
     active_seat_id?: string;
   };
 };
+
+type EntitlementStatusEnvelope = {
+  success?: boolean;
+  data?: {
+    ok?: boolean;
+    required?: boolean;
+    state?: string;
+    reason_code?: string;
+  };
+};
+
+type MySeatsEnvelope = {
+  success?: boolean;
+  data?: {
+    ok?: boolean;
+    source?: string;
+    wire_error?: unknown;
+    contract?: {
+      role?: string;
+      active_seat_id?: string;
+      seats?: Array<{ seat_id?: string }>;
+    };
+  };
+};
+
+function collectScratchLogTails(): Record<string, string> {
+  const tails: Record<string, string> = {};
+  const pending = [scratchRoot];
+  while (pending.length > 0 && Object.keys(tails).length < 20) {
+    const directory = pending.pop() as string;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(fullPath);
+        continue;
+      }
+      if (!entry.isFile() || !/\.(?:jsonl|log)$/i.test(entry.name)) continue;
+      try {
+        const contents = fs.readFileSync(fullPath, 'utf8');
+        tails[path.relative(scratchRoot, fullPath)] = contents.slice(-8_000);
+      } catch {
+        // Diagnostics are best-effort and must never hide the original failure.
+      }
+      if (Object.keys(tails).length >= 20) break;
+    }
+  }
+  return tails;
+}
+
+async function collectSeatRailDiagnostics(
+  page: Page,
+  entitlement: EntitlementStatusEnvelope | null,
+  mySeats: MySeatsEnvelope | null,
+  pageErrors: string[],
+  consoleLines: string[]
+): Promise<Record<string, unknown>> {
+  const renderer = await page
+    .evaluate(() => {
+      const win = window as unknown as { electronAPI?: unknown; __backendPort?: unknown };
+      return {
+        url: window.location.href,
+        ready_state: document.readyState,
+        electron_api_present: Boolean(win.electronAPI),
+        backend_port: win.__backendPort ?? null,
+        test_ids: Array.from(document.querySelectorAll<HTMLElement>('[data-testid]'))
+          .map((element) => element.dataset.testid)
+          .filter((value): value is string => Boolean(value))
+          .slice(0, 200),
+        body_text: (document.body?.innerText ?? '').slice(0, 6_000),
+      };
+    })
+    .catch((error) => ({ evaluation_error: error instanceof Error ? error.message : String(error) }));
+
+  return {
+    version: 'command-eve-seat-rail-e2e-diagnostics/v1',
+    renderer,
+    entitlement,
+    my_seats: mySeats,
+    page_errors: pageErrors,
+    console_lines: consoleLines,
+    scratch_log_tails: collectScratchLogTails(),
+  };
+}
 
 function resolveExactBackendBinary(): string | null {
   const candidate = process.env.AIONUI_BACKEND_BINARY?.trim();
@@ -305,12 +401,44 @@ test.describe.serial('Command EVE authoritative SeatRail lifecycle', () => {
     let app: ElectronApplication | null = null;
     let page: Page | null = null;
     let conversationId: string | null = null;
+    let entitlementEnvelope: EntitlementStatusEnvelope | null = null;
+    let mySeatsEnvelope: MySeatsEnvelope | null = null;
+    const pageErrors: string[] = [];
+    const consoleLines: string[] = [];
 
     try {
       app = await launchSeatRailApp(backendBinary as string);
       page = await resolveMainWindow(app);
+      page.on('pageerror', (error: Error) => pageErrors.push(error.stack ?? error.message));
+      page.on('console', (message: ConsoleMessage) => {
+        if (message.type() === 'error' || message.type() === 'warning') {
+          consoleLines.push(`${message.type()}: ${message.text()}`);
+        }
+      });
       await page.setViewportSize({ width: 1200, height: 800 });
       await ensureBackendReady(page);
+
+      // Prove each upstream seam before judging the renderer. The prior harness
+      // reported only "seat-rail not found", which could mean RegistrationGate,
+      // a rejected synthetic roster, or a renderer mount failure. These calls use
+      // the same production IPC providers as the hooks and mutate no authority.
+      entitlementEnvelope = await invokeBridge<EntitlementStatusEnvelope>(
+        page,
+        'command-eve.entitlement-status',
+        undefined,
+        15_000
+      );
+      expect(entitlementEnvelope.success).toBe(true);
+      expect(entitlementEnvelope.data?.ok).toBe(true);
+      expect(entitlementEnvelope.data?.required).toBe(false);
+
+      mySeatsEnvelope = await invokeBridge<MySeatsEnvelope>(page, 'command-eve.my-seats', undefined, 15_000);
+      expect(mySeatsEnvelope.success).toBe(true);
+      expect(mySeatsEnvelope.data?.ok).toBe(true);
+      expect(mySeatsEnvelope.data?.source).toBe('my_seats');
+      expect(mySeatsEnvelope.data?.contract?.role).toBe('admin');
+      expect(mySeatsEnvelope.data?.contract?.active_seat_id).toBe(FOUNDER_SEAT_ID);
+      expect(mySeatsEnvelope.data?.contract?.seats?.map((seat) => seat.seat_id)).toContain(CLIENT_SEAT_ID);
 
       const rail = page.locator('[data-testid="seat-rail"]');
       const founderSeat = page.locator(`[data-testid="seat-rail-seat-${FOUNDER_SEAT_ID}"]`);
@@ -326,6 +454,18 @@ test.describe.serial('Command EVE authoritative SeatRail lifecycle', () => {
       await expect(rail).toHaveClass(/command-eve-seat-rail--collapsed/);
       await page.locator('[data-testid="seat-rail-toggle"]').click();
       await expect(rail).toHaveClass(/command-eve-seat-rail--expanded/);
+
+      // MAT-1774: "+" stays inside Command EVE. Opening the Seed dialog must
+      // not navigate to the website, checkout or a paywall.
+      const beforeCreateUrl = page.url();
+      await page.locator('[data-testid="seat-rail-add"]').click();
+      const createSeedModal = page.locator('.arco-modal').filter({ hasText: 'Neuen Seed erstellen' }).last();
+      await expect(createSeedModal).toBeVisible({ timeout: 15_000 });
+      await expect(createSeedModal).toContainText('kostenlos');
+      await expect(createSeedModal).toContainText('Credit-Pool deines Accounts');
+      expect(page.url()).toBe(beforeCreateUrl);
+      await createSeedModal.getByRole('button', { name: 'Abbrechen' }).click();
+      await expect(createSeedModal).not.toBeVisible();
 
       conversationId = await createAcpConversation(page);
       await openConversationWithInjector(page, conversationId);
@@ -369,6 +509,25 @@ test.describe.serial('Command EVE authoritative SeatRail lifecycle', () => {
       await expect(founderSeat).toBeVisible();
       await expect(clientSeat).toBeVisible();
       await expect(page.locator('[data-testid="seat-rail-add"]')).toBeVisible();
+    } catch (error) {
+      if (page) {
+        try {
+          const diagnostics = await collectSeatRailDiagnostics(
+            page,
+            entitlementEnvelope,
+            mySeatsEnvelope,
+            pageErrors,
+            consoleLines
+          );
+          await test.info().attach('seat-rail-diagnostics.json', {
+            body: Buffer.from(JSON.stringify(diagnostics, null, 2)),
+            contentType: 'application/json',
+          });
+        } catch {
+          // Preserve the original assertion/bridge failure if diagnostics fail.
+        }
+      }
+      throw error;
     } finally {
       if (page && conversationId) {
         await httpDelete(page, `/api/conversations/${encodeURIComponent(conversationId)}`).catch(() => {});

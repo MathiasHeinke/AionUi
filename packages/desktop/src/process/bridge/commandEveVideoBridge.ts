@@ -18,11 +18,15 @@
 
 import crypto, { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import { EVE_MULTIMODAL_FUNCTION_URL } from '@/common/config/eveMultimodalGatewayCore';
+import { commandEveMediaSeedAttribution, EVE_MULTIMODAL_FUNCTION_URL } from '@/common/config/eveMultimodalGatewayCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { getDataPath } from '@process/utils/utils';
 import { areCommandEveFileSelectionPathsGranted } from '@process/commandEve/fileSelectionGrantCore';
-import { getActiveSeatId } from '@process/commandEve/seatContextCore';
+import {
+  getActiveSeatContextRevision,
+  getActiveSeatId,
+  tryBeginCommandEvePaidArtifactOperation,
+} from '@process/commandEve/seatContextCore';
 import { readBoundedImageSource } from '@process/commandEve/document/imageIntelligenceService';
 import {
   saveGeneratedVideoFile,
@@ -111,6 +115,9 @@ export interface CommandEveVideoBridgeDeps {
   /** A separate id for the durable artifact record — distinct from the wire request id. */
   newArtifactId: () => string;
   getActiveSeatId: typeof getActiveSeatId;
+  /** Optional only for compatibility with older test seams; production always
+   * supplies the monotonic revision and binds it to the captured seat id. */
+  getActiveSeatContextRevision?: typeof getActiveSeatContextRevision;
   areFileSelectionPathsGranted: typeof areCommandEveFileSelectionPathsGranted;
   /** Reads and validates the attached image at rest — the same bounded local
    * boundary `imageIntelligenceService` uses for the vision lane. */
@@ -193,6 +200,7 @@ const productionDeps: CommandEveVideoBridgeDeps = {
   newRequestId: () => randomUUID(),
   newArtifactId: () => randomUUID(),
   getActiveSeatId,
+  getActiveSeatContextRevision,
   areFileSelectionPathsGranted: areCommandEveFileSelectionPathsGranted,
   readImageSource: (filePath: string) => readBoundedImageSource(filePath),
   saveVideoFile: saveGeneratedVideoFile,
@@ -257,6 +265,15 @@ const VIDEO_REQUEST_TIMEOUT_MS = 200_000;
 /** Ceiling on the response we will read — a 1080p/15s clip plus base64 overhead. */
 const MAX_VIDEO_RESPONSE_BYTES = 160 * 1024 * 1024;
 
+function videoSeatChangedResult(): CommandEveVideoGenerateResult {
+  return {
+    ok: false,
+    reasonCode: 'video-seat-changed',
+    message: 'Der aktive Seed wurde während der Vorbereitung gewechselt. Starte die Videoerstellung erneut.',
+    retryable: true,
+  };
+}
+
 export async function handleCommandEveVideoGenerate(
   request?: CommandEveVideoGenerateRequest,
   deps: CommandEveVideoBridgeDeps = productionDeps
@@ -270,6 +287,29 @@ export async function handleCommandEveVideoGenerate(
     };
   }
 
+  const readSeatRevision = deps.getActiveSeatContextRevision ?? (() => 0);
+  let capturedSeatId: string;
+  let capturedSeatContextRevision: number;
+  let originDataPath: string;
+  try {
+    capturedSeatId = deps.getActiveSeatId();
+    capturedSeatContextRevision = readSeatRevision();
+    originDataPath = deps.getDataPath();
+  } catch {
+    return {
+      ok: false,
+      reasonCode: 'video-seat-unavailable',
+      message: 'Der aktive Seed konnte nicht sicher bestimmt werden.',
+      retryable: true,
+    };
+  }
+  const seatStillMatches = (): boolean => {
+    try {
+      return deps.getActiveSeatId() === capturedSeatId && readSeatRevision() === capturedSeatContextRevision;
+    } catch {
+      return false;
+    }
+  };
   // THE MODE IS DECIDED ONCE, HERE, AND IT IS DECIDED BY CONSTRUCTION.
   //
   // IPC carries plain JSON, so the renderer's request record has an `imagePath`
@@ -303,6 +343,7 @@ export async function handleCommandEveVideoGenerate(
   // as unknown; a failed catalog read refuses only NON-legacy models, which is
   // the fail-closed direction (no proven price, no render).
   const catalog = deps.getVideoCatalogWire ? await deps.getVideoCatalogWire().catch((): null => null) : null;
+  if (!seatStillMatches()) return videoSeatChangedResult();
   const tierGateRefusal = refuseUnproducibleVideoRequest({
     tierId: request.tierId,
     ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
@@ -313,7 +354,7 @@ export async function handleCommandEveVideoGenerate(
   });
   if (tierGateRefusal) return tierGateRefusal;
 
-  const wireResult = readLicenseWire(deps.getDataPath());
+  const wireResult = readLicenseWire(originDataPath);
   if (!wireResult.ok || !wireResult.wire) {
     return {
       ok: false,
@@ -332,18 +373,7 @@ export async function handleCommandEveVideoGenerate(
     pathMode.kind === 'image' ? [pathMode.image] : pathMode.kind === 'reference' ? [...pathMode.referenceImages] : [];
   const assets: VideoAssetPayload[] = [];
   if (imagePaths.length > 0) {
-    let seatId: string;
-    try {
-      seatId = deps.getActiveSeatId();
-    } catch {
-      return {
-        ok: false,
-        reasonCode: 'video-image-not-granted',
-        message: 'Für deine Sicherheit: Wähle das Bild erneut aus, bevor daraus ein Video erstellt wird.',
-        retryable: false,
-      };
-    }
-    if (!deps.areFileSelectionPathsGranted({ filePaths: imagePaths, seatId, purpose: 'read' })) {
+    if (!deps.areFileSelectionPathsGranted({ filePaths: imagePaths, seatId: capturedSeatId, purpose: 'read' })) {
       return {
         ok: false,
         reasonCode: 'video-image-not-granted',
@@ -379,16 +409,23 @@ export async function handleCommandEveVideoGenerate(
         ? { kind: 'reference', referenceImages: assets, presetVoiceIds: pathMode.presetVoiceIds }
         : { kind: 'text' };
 
-  const body = buildVideoGenerationBody({
-    prompt: request.prompt.trim(),
-    tierId: request.tierId,
-    ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
-    ...(request.resolution === undefined ? {} : { resolution: request.resolution }),
-    durationSeconds: request.durationSeconds,
-    mode: wireMode,
-    requestId: deps.newRequestId(),
-  });
+  const body = {
+    ...buildVideoGenerationBody({
+      prompt: request.prompt.trim(),
+      tierId: request.tierId,
+      ...(request.modelId === undefined ? {} : { modelId: request.modelId }),
+      ...(request.resolution === undefined ? {} : { resolution: request.resolution }),
+      durationSeconds: request.durationSeconds,
+      mode: wireMode,
+      requestId: deps.newRequestId(),
+    }),
+    ...commandEveMediaSeedAttribution(capturedSeatId),
+  };
 
+  if (!seatStillMatches()) return videoSeatChangedResult();
+
+  const releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation();
+  if (!releasePaidArtifactOperation) return videoSeatChangedResult();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VIDEO_REQUEST_TIMEOUT_MS);
   try {
@@ -447,14 +484,14 @@ export async function handleCommandEveVideoGenerate(
         conversationId: request.conversationId,
         createdAtMs: Date.now(),
       });
-      deps.saveArtifactRecord(deps.getDataPath(), conversationArtifact);
+      deps.saveArtifactRecord(originDataPath, conversationArtifact);
       // Its OWN try/catch, deliberately. The enclosing catch collapses every
       // throw into `video-artifact-save-failed`, so a handle-minting failure
       // inside it would report that a successfully saved video was not saved —
       // the exact lie this reason code was written to avoid. A missing handle
       // only means "not editable yet"; the next envelope re-mints it.
       try {
-        deps.ensureCapabilityHandle?.(deps.getDataPath(), conversationArtifact);
+        deps.ensureCapabilityHandle?.(originDataPath, conversationArtifact);
       } catch {
         /* the clip is saved and playable; only the edit affordance is deferred */
       }
@@ -487,6 +524,7 @@ export async function handleCommandEveVideoGenerate(
         };
   } finally {
     clearTimeout(timer);
+    releasePaidArtifactOperation();
   }
 }
 
@@ -1374,7 +1412,24 @@ export async function handleCommandEveVideoEdit(
   const recordCompletion = deps.recordSpendCompletion ?? recordVideoEditSpendCompletion;
   const acquireLock = deps.acquireInflightLock ?? acquireVideoEditInflightLock;
   const releaseLock = deps.releaseInflightLock ?? releaseVideoEditInflightLock;
-  const dataPath = deps.getDataPath();
+  const readSeatRevision = deps.getActiveSeatContextRevision ?? (() => 0);
+  let capturedSeatId: string;
+  let capturedSeatContextRevision: number;
+  let dataPath: string;
+  try {
+    capturedSeatId = deps.getActiveSeatId();
+    capturedSeatContextRevision = readSeatRevision();
+    dataPath = deps.getDataPath();
+  } catch {
+    return refuseEdit('video-seat-unavailable', 'Der aktive Seed konnte nicht sicher bestimmt werden.', true);
+  }
+  const seatStillMatches = (): boolean => {
+    try {
+      return deps.getActiveSeatId() === capturedSeatId && readSeatRevision() === capturedSeatContextRevision;
+    } catch {
+      return false;
+    }
+  };
 
   // The grant is read FIRST so the source path comes from OUR record, never from
   // anything the caller supplied. A path that arrived with the request would be
@@ -1516,10 +1571,38 @@ export async function handleCommandEveVideoEdit(
     return refuseEdit('entitlement-not-drawable', 'Für Videos wird ein aktives Command-EVE-Konto benötigt.');
   }
 
+  // Bind the already-authorized edit to the Seed that supplied its handle,
+  // permit and storage root. A switch that finished during local preparation
+  // is rejected here; once the process-local fence is acquired, Main cannot
+  // switch Seeds until the billed response has been persisted or refused.
+  if (!seatStillMatches()) {
+    return refuseEdit(
+      'video-seat-changed',
+      'Der aktive Seed wurde während der Vorbereitung gewechselt. Starte die Videobearbeitung erneut.',
+      true
+    );
+  }
+  const releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation();
+  if (!releasePaidArtifactOperation) {
+    return refuseEdit(
+      'video-seat-changed',
+      'Der aktive Seed wird gerade gewechselt. Starte die Videobearbeitung danach erneut.',
+      true
+    );
+  }
+
   // At most ONE paid edit in flight per conversation. Taken BEFORE the consume so
   // two simultaneous tool calls cannot both get past the ledger check in the
   // window before either has written its claim.
-  if (!acquireLock(dataPath, grant.conversation_id)) {
+  let conversationLockAcquired = false;
+  try {
+    conversationLockAcquired = acquireLock(dataPath, grant.conversation_id);
+  } catch {
+    releasePaidArtifactOperation();
+    return refuseEdit('video-edit-lock-unavailable', describeSpendPermitRefusal('edit-already-in-flight'), true);
+  }
+  if (!conversationLockAcquired) {
+    releasePaidArtifactOperation();
     return refuseEdit('video-edit-already-in-flight', describeSpendPermitRefusal('edit-already-in-flight'), true);
   }
 
@@ -1556,22 +1639,25 @@ export async function handleCommandEveVideoEdit(
       .update(buildVideoEditRequestIdMaterial({ promptSha256, tierId, sourceSha256: observedArtifactSha256 }))
       .digest('hex');
 
-    const body = buildVideoEditBody(
-      {
-        prompt: instruction,
-        tierId,
-        sourceBase64: Buffer.from(sourceBytes).toString('base64'),
-        sourceSha256: observedArtifactSha256,
-        // PROVIDER-REPORTED, never measured from the file. See the honesty note
-        // on `MAX_VIDEO_EDIT_SOURCE_SECONDS` — the desktop pins the BYTES with a
-        // hash but takes the LENGTH on the record's word, so a record claiming
-        // 5s for a 12s clip would pass the ceiling and misprice the preview. The
-        // gateway re-derives the charge, so the money is right; the local
-        // estimate is the part that can be wrong.
-        sourceDurationSeconds: sourcePayload.duration_seconds,
-      },
-      requestId
-    );
+    const body = {
+      ...buildVideoEditBody(
+        {
+          prompt: instruction,
+          tierId,
+          sourceBase64: Buffer.from(sourceBytes).toString('base64'),
+          sourceSha256: observedArtifactSha256,
+          // PROVIDER-REPORTED, never measured from the file. See the honesty note
+          // on `MAX_VIDEO_EDIT_SOURCE_SECONDS` — the desktop pins the BYTES with a
+          // hash but takes the LENGTH on the record's word, so a record claiming
+          // 5s for a 12s clip would pass the ceiling and misprice the preview. The
+          // gateway re-derives the charge, so the money is right; the local
+          // estimate is the part that can be wrong.
+          sourceDurationSeconds: sourcePayload.duration_seconds,
+        },
+        requestId
+      ),
+      ...commandEveMediaSeedAttribution(capturedSeatId),
+    };
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), VIDEO_REQUEST_TIMEOUT_MS);
@@ -1711,7 +1797,11 @@ export async function handleCommandEveVideoEdit(
       );
     }
   } finally {
-    releaseLock(dataPath, grant.conversation_id);
+    try {
+      releaseLock(dataPath, grant.conversation_id);
+    } finally {
+      releasePaidArtifactOperation();
+    }
   }
 }
 

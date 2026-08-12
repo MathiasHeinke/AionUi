@@ -77,7 +77,12 @@ import path from 'path';
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
 import { resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import type { parseMySeats } from '@process/commandEve/seatSwitchCore';
-import { setActiveSeatId, __resetActiveSeatForTests, resolveSeatHermesHome } from '@process/commandEve/seatContextCore';
+import {
+  setActiveSeatId,
+  __resetActiveSeatForTests,
+  resolveSeatHermesHome,
+  tryBeginCommandEvePaidArtifactOperation,
+} from '@process/commandEve/seatContextCore';
 
 const SEAT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const SEAT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -187,6 +192,59 @@ describe('mirror (a) — REAL my-seats provider → resolveSeatAccess → rail v
 });
 
 describe('mirror (b) — REAL switch-seat handler: admin gate + Founder chip + label threading', () => {
+  it('surfaces recovery-required after the hard timeout without reopening the Seed fences', async () => {
+    vi.useFakeTimers();
+    let releaseRestart: (() => void) | undefined;
+    let firstSwitch: Promise<SwitchEnvelope> | undefined;
+    try {
+      wirePayload = adminWire();
+      restartBackendMock.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseRestart = resolve;
+          })
+      );
+
+      firstSwitch = switchSeat(SEAT_B);
+      await vi.waitFor(() => expect(restartBackendMock).toHaveBeenCalledOnce(), {
+        timeout: 1_000,
+        interval: 1,
+      });
+      await vi.advanceTimersByTimeAsync(300_000);
+
+      const blocked = await switchSeat(SEAT_A);
+      expect(blocked.success).toBe(false);
+      expect(blocked.data?.reason_code).toBe('SWITCH_SEAT_RECOVERY_REQUIRED');
+
+      releaseRestart?.();
+      await expect(firstSwitch).resolves.toMatchObject({ success: true });
+
+      const recovered = await switchSeat(SEAT_A);
+      expect(recovered.success).toBe(true);
+    } finally {
+      releaseRestart?.();
+      if (firstSwitch) await firstSwitch.catch(() => undefined);
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('refuses switching while a paid artifact is being stored, then permits it after terminal release', async () => {
+    wirePayload = adminWire();
+    const release = tryBeginCommandEvePaidArtifactOperation();
+    expect(release).toBeTypeOf('function');
+
+    const blocked = await switchSeat(SEAT_B);
+    expect(blocked.success).toBe(false);
+    expect(blocked.data?.reason_code).toBe('PAID_ARTIFACT_OPERATION_IN_PROGRESS');
+    expect(blocked.data?.active_seat_id).toBe(SEAT_A);
+
+    release?.();
+    const switched = await switchSeat(SEAT_B);
+    expect(switched.success).toBe(true);
+    expect(switched.data?.active_seat_id).toBe(SEAT_B);
+  });
+
   it('a DELEGATE is rejected by the MAIN gate (no state mutation)', async () => {
     wirePayload = delegateWire();
     const res = await switchSeat(SEAT_B);

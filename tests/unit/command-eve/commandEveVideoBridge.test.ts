@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const readLicenseWireMock = vi.fn();
+const ACTIVE_SEED_ID = 'a2000000-0000-4000-8000-000000000001';
 vi.mock('@/common/config/licenseWireAtRest', () => ({
   readLicenseWire: (...args: unknown[]) => readLicenseWireMock(...args),
 }));
@@ -29,6 +30,7 @@ import {
   handleCommandEveVideoGenerate,
   handleCommandEveVideoGenerateBridge,
 } from '@/process/bridge/commandEveVideoBridge';
+import { hasCommandEvePaidArtifactOperationInFlight } from '@/process/commandEve/seatContextCore';
 
 const deps = (
   fetchImpl: typeof fetch,
@@ -93,17 +95,91 @@ describe('handleCommandEveVideoGenerate', () => {
 
     const result = await handleCommandEveVideoGenerate(
       { prompt: 'ein Produktclip', tierId: 'fast', durationSeconds: 5 },
-      deps(fetchMock as unknown as typeof fetch)
+      deps(fetchMock as unknown as typeof fetch, { getActiveSeatId: () => ACTIVE_SEED_ID })
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(sentAuth).toBe('Bearer ceve-wire-token');
+    expect(sentBody.seat_id).toBe(ACTIVE_SEED_ID);
     expect((sentBody.video_generation as Record<string, unknown>).tier).toBe('fast');
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.artifact.resolution).toBe('720p');
     expect(result.artifact.estimatedCredits).toBe(700);
     expect(result.artifact.mimeType).toBe('video/mp4');
+  });
+
+  it('refuses an A-to-B Seed switch while the catalog await is pending before POST', async () => {
+    let activeSeatId = ACTIVE_SEED_ID;
+    let activeSeatContextRevision = 11;
+    let resolveCatalog!: (value: null) => void;
+    const getVideoCatalogWire = vi.fn(
+      () =>
+        new Promise<null>((resolve) => {
+          resolveCatalog = resolve;
+        })
+    );
+    const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
+    const saveVideoFile = vi.fn(() => '/tmp/never-written.mp4');
+    const saveArtifactRecord = vi.fn();
+
+    const pending = handleCommandEveVideoGenerate(
+      { prompt: 'ein Produktclip', tierId: 'fast', durationSeconds: 5, conversationId: 'conv-race' },
+      deps(fetchMock as unknown as typeof fetch, {
+        getActiveSeatId: () => activeSeatId,
+        getActiveSeatContextRevision: () => activeSeatContextRevision,
+        getVideoCatalogWire,
+        saveVideoFile,
+        saveArtifactRecord,
+      })
+    );
+    await vi.waitFor(() => expect(getVideoCatalogWire).toHaveBeenCalledOnce());
+    activeSeatId = 'b2000000-0000-4000-8000-000000000001';
+    activeSeatContextRevision += 1;
+    resolveCatalog(null);
+
+    await expect(pending).resolves.toMatchObject({ ok: false, reasonCode: 'video-seat-changed' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(saveVideoFile).not.toHaveBeenCalled();
+    expect(saveArtifactRecord).not.toHaveBeenCalled();
+  });
+
+  it('keeps a billed response and stores its record under the captured origin while the paid fence is held', async () => {
+    let activeSeatId = ACTIVE_SEED_ID;
+    let activeSeatContextRevision = 21;
+    let dataPath = '/tmp/eve-data-seat-a';
+    let resolveFetch!: (value: Response) => void;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const saveArtifactRecord = vi.fn();
+
+    const pending = handleCommandEveVideoGenerate(
+      { prompt: 'ein Produktclip', tierId: 'fast', durationSeconds: 5, conversationId: 'conv-origin' },
+      deps(fetchMock as unknown as typeof fetch, {
+        getDataPath: () => dataPath,
+        getActiveSeatId: () => activeSeatId,
+        getActiveSeatContextRevision: () => activeSeatContextRevision,
+        saveArtifactRecord,
+      })
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(true);
+
+    // A real switch is refused by Main. This direct mutation is the hostile
+    // defense-in-depth case: it still must not discard the paid result or rehome it.
+    activeSeatId = 'b2000000-0000-4000-8000-000000000001';
+    activeSeatContextRevision += 1;
+    dataPath = '/tmp/eve-data-seat-b';
+    resolveFetch(jsonResponse(200, okBody));
+
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(saveArtifactRecord).toHaveBeenCalledWith('/tmp/eve-data-seat-a', expect.any(Object));
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(false);
   });
 
   it('never calls the gateway without a licence wire', async () => {

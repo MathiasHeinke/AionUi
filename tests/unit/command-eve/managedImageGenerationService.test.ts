@@ -13,6 +13,7 @@ import { COMMAND_EVE_MANAGED_IMAGE_MODEL } from '@/common/config/eveManagedImage
 import { EVE_MULTIMODAL_FUNCTION_URL } from '@/common/config/eveMultimodalGatewayCore';
 import type { CommandEveImageModelRegistry } from '@/common/config/eveImageModelRegistryCore';
 import { executeCommandEveManagedImageGeneration } from '@/process/commandEve/managedImageGenerationService';
+import { hasCommandEvePaidArtifactOperationInFlight } from '@/process/commandEve/seatContextCore';
 
 /** The server-pinned registry view (MAT-1769, CoS contract), as the GET read answers. */
 const REGISTRY: CommandEveImageModelRegistry = {
@@ -84,6 +85,7 @@ function imageLaneSeams(overrides: Record<string, unknown> = {}) {
 }
 
 const prompt = 'Create one cinematic but credible 16:9 presentation direction.';
+const ACTIVE_SEED_ID = 'a2000000-0000-4000-8000-000000000001';
 const referenceBytes = Buffer.from('reference-image');
 const referenceBase64 = referenceBytes.toString('base64');
 const outputBytes = Buffer.from('generated-image');
@@ -152,6 +154,7 @@ describe('managed image generation main-process service', () => {
     const result = await executeCommandEveManagedImageGeneration(request(), {
       fetchFn: fetchFn as typeof fetch,
       dataPath: '/tmp/eve-managed-image-test',
+      getActiveSeatId: () => ACTIVE_SEED_ID,
       ...imageLaneSeams(),
     });
 
@@ -195,9 +198,73 @@ describe('managed image generation main-process service', () => {
       // shim-facing `model` stays command-eve-visual-direction-v1, and the
       // slug never travels — the server owns tier → slug.
       image_model: 'quality',
+      seat_id: ACTIVE_SEED_ID,
     });
     expect(String(body.image_model)).not.toContain('/');
     expect(JSON.stringify(init)).not.toContain('OPENROUTER_API_KEY');
+  });
+
+  it('holds the captured Seed revision across registry preparation and refuses before POST on A-to-B switch', async () => {
+    let activeSeatId = ACTIVE_SEED_ID;
+    let activeSeatContextRevision = 7;
+    let resolveRegistry!: (value: { ok: true; registry: CommandEveImageModelRegistry }) => void;
+    const readRegistry = vi.fn(
+      () =>
+        new Promise<{ ok: true; registry: CommandEveImageModelRegistry }>((resolve) => {
+          resolveRegistry = resolve;
+        })
+    );
+    const seams = imageLaneSeams({ readRegistry });
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+
+    const pending = executeCommandEveManagedImageGeneration(request(), {
+      fetchFn: fetchFn as typeof fetch,
+      dataPath: '/tmp/eve-managed-image-test',
+      getActiveSeatId: () => activeSeatId,
+      getActiveSeatContextRevision: () => activeSeatContextRevision,
+      ...seams,
+    });
+    await vi.waitFor(() => expect(readRegistry).toHaveBeenCalledOnce());
+    activeSeatId = 'b2000000-0000-4000-8000-000000000001';
+    activeSeatContextRevision += 1;
+    resolveRegistry({ ok: true, registry: REGISTRY });
+
+    await expect(pending).resolves.toMatchObject({
+      status: 409,
+      body: { error: { code: 'managed_image_seat_changed' } },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(seams.stageArtifact).not.toHaveBeenCalled();
+  });
+
+  it('holds the paid fence through POST and preserves the billed artifact despite hostile direct Seat mutation', async () => {
+    let activeSeatId = ACTIVE_SEED_ID;
+    let activeSeatContextRevision = 9;
+    let resolveFetch!: (value: Response) => void;
+    const fetchFn = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const seams = imageLaneSeams();
+
+    const pending = executeCommandEveManagedImageGeneration(request(), {
+      fetchFn: fetchFn as typeof fetch,
+      dataPath: '/tmp/eve-managed-image-test',
+      getActiveSeatId: () => activeSeatId,
+      getActiveSeatContextRevision: () => activeSeatContextRevision,
+      ...seams,
+    });
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledOnce());
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(true);
+    activeSeatId = 'b2000000-0000-4000-8000-000000000001';
+    activeSeatContextRevision += 1;
+    resolveFetch(new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+
+    await expect(pending).resolves.toMatchObject({ status: 200 });
+    expect(seams.stageArtifact).toHaveBeenCalledOnce();
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(false);
   });
 
   it('threads the seat’s SELECTED tier into the edge request as the bare tier id', async () => {

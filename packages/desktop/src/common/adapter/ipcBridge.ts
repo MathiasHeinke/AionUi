@@ -1908,6 +1908,36 @@ export interface ICommandEveMySeatsResult {
     | null;
 }
 
+// MAT-1774: account-authenticated Seed lifecycle. The renderer never receives
+// account/session tokens; MAIN owns the request and returns only stable ids.
+export interface ICommandEveSeedCreateRequest {
+  displayName: string;
+  clientRequestId: string;
+}
+
+export interface ICommandEveSeedCreateResult {
+  version: 'command-eve-seed-create/v0';
+  ok: boolean;
+  seed_id?: string;
+  created?: boolean;
+  seed_count?: number;
+  seed_limit: number;
+  reason_code?: string;
+}
+
+export interface ICommandEveSeedRenameRequest {
+  seedId: string;
+  displayName: string;
+}
+
+export interface ICommandEveSeedRenameResult {
+  version: 'command-eve-seed-rename/v0';
+  ok: boolean;
+  seed_id?: string;
+  display_name?: string;
+  reason_code?: string;
+}
+
 // v1.5 A3: per-seat usage attribution — one seat's aggregated usage for a month.
 // Opaque seat ids ONLY (never names — H3); the LABEL join happens in the renderer.
 export interface ICommandEveSeatUsageRow {
@@ -2441,6 +2471,12 @@ export const commandEve = {
   // A5 + B3: list the account's seats (admin SeatSwitcher) / classify role
   // (fail-closed SeatGuard). Read-only; fail-closes to one legacy seat.
   mySeats: bridge.buildProvider<IBridgeResponse<ICommandEveMySeatsResult>, void>('command-eve.my-seats'),
+  seedCreate: bridge.buildProvider<IBridgeResponse<ICommandEveSeedCreateResult>, ICommandEveSeedCreateRequest>(
+    'command-eve.seed-create'
+  ),
+  seedRename: bridge.buildProvider<IBridgeResponse<ICommandEveSeedRenameResult>, ICommandEveSeedRenameRequest>(
+    'command-eve.seed-rename'
+  ),
   // v1.5 A3: per-seat usage attribution — read the seat-usage Edge Function
   // (CEVE bearer, held in main). Opaque ids only; the LABEL join happens in the
   // renderer. SELF-QUIET: fail-closes to an empty ok:false model (no URL / no

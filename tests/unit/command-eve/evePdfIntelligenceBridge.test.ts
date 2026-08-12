@@ -7,10 +7,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const registered = new Map<string, (req?: unknown) => Promise<unknown>>();
-const { prepareLocalPdfMock, persistPdfSidecarMock, readLicenseWireMock } = vi.hoisted(() => ({
+const { prepareLocalPdfMock, persistPdfSidecarMock, readLicenseWireMock, activeSeatState } = vi.hoisted(() => ({
   prepareLocalPdfMock: vi.fn(),
   persistPdfSidecarMock: vi.fn(),
   readLicenseWireMock: vi.fn(() => ({ ok: true, wire: 'test-license-wire' })),
+  activeSeatState: {
+    seatId: 'a2000000-0000-4000-8000-000000000001',
+    revision: 1,
+  },
 }));
 
 vi.mock('@office-ai/platform', () => ({
@@ -32,6 +36,14 @@ vi.mock('@process/utils/initStorage', () => ({
 
 vi.mock('@process/utils/utils', () => ({ getDataPath: () => '/tmp/ce-pdf-intelligence-bridge' }));
 vi.mock('@process/commandEve/seatWireFetchCore', () => ({ readMySeatsWire: vi.fn(async () => null) }));
+vi.mock('@process/commandEve/seatContextCore', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@process/commandEve/seatContextCore')>();
+  return {
+    ...original,
+    getActiveSeatId: () => activeSeatState.seatId,
+    getActiveSeatContextRevision: () => activeSeatState.revision,
+  };
+});
 vi.mock('@/common/config/licenseWireAtRest', () => ({
   clearLicenseWire: vi.fn(),
   hasLicenseWire: vi.fn(() => true),
@@ -48,6 +60,7 @@ vi.mock('@process/commandEve/document/pdfIntelligenceService', async (importOrig
 });
 
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
+import { hasCommandEvePaidArtifactOperationInFlight } from '@process/commandEve/seatContextCore';
 
 type BridgeEnvelope = {
   success: boolean;
@@ -90,6 +103,8 @@ describe('Command EVE PDF intelligence bridge', () => {
     persistPdfSidecarMock.mockReset();
     readLicenseWireMock.mockReset();
     readLicenseWireMock.mockReturnValue({ ok: true, wire: 'test-license-wire' });
+    activeSeatState.seatId = 'a2000000-0000-4000-8000-000000000001';
+    activeSeatState.revision = 1;
     vi.stubGlobal('fetch', vi.fn());
     initCommandEveBridge();
     readLicenseWireMock.mockClear();
@@ -115,10 +130,13 @@ describe('Command EVE PDF intelligence bridge', () => {
         requires_cloud_ocr_consent: false,
       },
     });
-    expect(prepareLocalPdfMock).toHaveBeenCalledWith({
-      filePath: '/tmp/report.pdf',
-      hermesHome: expect.stringContaining('command-eve'),
-    });
+    expect(prepareLocalPdfMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePath: '/tmp/report.pdf',
+        hermesHome: expect.stringContaining('command-eve'),
+        isContextCurrent: expect.any(Function),
+      })
+    );
     expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(readLicenseWireMock).not.toHaveBeenCalled();
   });
@@ -140,6 +158,91 @@ describe('Command EVE PDF intelligence bridge', () => {
     });
     expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(readLicenseWireMock).not.toHaveBeenCalled();
+  });
+
+  it('holds one Seed revision for the whole PDF batch and refuses before POST or persistence after A-to-B switch', async () => {
+    let resolvePreparation!: (value: ReturnType<typeof localPreparation>) => void;
+    prepareLocalPdfMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePreparation = resolve;
+        })
+    );
+
+    const pending = call({ data: { filePaths: ['/tmp/report.pdf'], allowCloudOcr: true } });
+    await vi.waitFor(() => expect(prepareLocalPdfMock).toHaveBeenCalledOnce());
+    activeSeatState.seatId = 'b2000000-0000-4000-8000-000000000001';
+    activeSeatState.revision += 1;
+    resolvePreparation(localPreparation(true));
+
+    await expect(pending).resolves.toMatchObject({
+      success: false,
+      msg: 'EVE_PDF_SEAT_CHANGED',
+      data: { documents: [], prepared_files: [] },
+    });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(persistPdfSidecarMock).not.toHaveBeenCalled();
+  });
+
+  it('holds the paid fence through cloud POST and persists the billed sidecar under the captured Hermes home', async () => {
+    const prepared = localPreparation(true);
+    prepareLocalPdfMock.mockResolvedValue(prepared);
+    persistPdfSidecarMock.mockReturnValue({
+      ...prepared.document,
+      extraction_mode: 'cloud_ocr',
+      extracted_characters: 5,
+    });
+    let resolveFetch!: (value: Response) => void;
+    vi.mocked(globalThis.fetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+
+    const pending = call({ data: { filePaths: ['/tmp/report.pdf'], allowCloudOcr: true } });
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledOnce());
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(true);
+    activeSeatState.seatId = 'b2000000-0000-4000-8000-000000000001';
+    activeSeatState.revision += 1;
+    resolveFetch(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          gateway: 'eve-multimodal',
+          provider: 'openrouter',
+          capability: 'document_ocr',
+          reason: 'provider-complete',
+          artifact: {
+            status: 'created',
+            kind: 'document',
+            mime_type: 'text/markdown',
+            encoding: 'utf8',
+            text: '## Page 1\n\nAlpha',
+            bytes: 16,
+          },
+          residency: {
+            requestedPrivacyLane: 'cloud_auto',
+            effectiveResidency: 'global_cloud',
+            confirmation: 'zdr-enforced-global',
+          },
+          document: {
+            engine: 'mistral-ocr',
+            model: 'google/gemini-2.5-flash',
+            page_count: 1,
+            zdr_enforced: true,
+            data_collection: 'deny',
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    );
+
+    await expect(pending).resolves.toMatchObject({ success: true, data: { ok: true, cloud_ocr_used: true } });
+    expect(persistPdfSidecarMock).toHaveBeenCalledWith(
+      expect.objectContaining({ hermesHome: expect.stringContaining('a2000000-0000-4000-8000-000000000001') })
+    );
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(false);
   });
 
   it('sends scanned PDF bytes only to the licensed server gateway after consent and redacts them from the result', async () => {
@@ -200,6 +303,7 @@ describe('Command EVE PDF intelligence bridge', () => {
     const init = vi.mocked(globalThis.fetch).mock.calls[0]?.[1] as RequestInit;
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-license-wire');
     expect(String(init.body)).toContain('"file_data_base64":"JVBERi10ZXN0"');
+    expect(JSON.parse(String(init.body)).seat_id).toBe('a2000000-0000-4000-8000-000000000001');
     expect(String(init.body)).not.toContain('test-license-wire');
     expect(JSON.stringify(result)).not.toContain('JVBERi10ZXN0');
     expect(JSON.stringify(result)).not.toContain('test-license-wire');

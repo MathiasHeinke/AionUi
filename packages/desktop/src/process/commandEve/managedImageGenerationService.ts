@@ -21,7 +21,11 @@ import {
   type CommandEveManagedImageMimeType,
   type CommandEveManagedImageResolution,
 } from '@/common/config/eveManagedImageGenerationCore';
-import { EVE_MULTIMODAL_FUNCTION_URL, resolveCommandEveMultimodalGate } from '@/common/config/eveMultimodalGatewayCore';
+import {
+  commandEveMediaSeedAttribution,
+  EVE_MULTIMODAL_FUNCTION_URL,
+  resolveCommandEveMultimodalGate,
+} from '@/common/config/eveMultimodalGatewayCore';
 import {
   getCommandEveImageModelTierSpec,
   type CommandEveImageModelRegistryResult,
@@ -33,6 +37,11 @@ import { readCommandEveImageModelPreference } from './imageModelPreferenceMain';
 import { readCommandEveImageModelRegistry } from './imageCapabilitiesMain';
 import { stageGeneratedImageArtifact } from './imageArtifactStore';
 import { getDataPath } from '@process/utils/utils';
+import {
+  getActiveSeatContextRevision,
+  getActiveSeatId,
+  tryBeginCommandEvePaidArtifactOperation,
+} from './seatContextCore';
 
 const MAX_REFERENCE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_REFERENCE_BYTES = 8 * 1024 * 1024;
@@ -144,6 +153,8 @@ function buildEdgeRequest(
 export type CommandEveManagedImageGenerationOptions = {
   fetchFn?: typeof fetch;
   dataPath?: string;
+  getActiveSeatId?: () => string;
+  getActiveSeatContextRevision?: () => number;
   /**
    * MAT-1769 seams, injectable for tests. Production reads the seat's stored
    * preference and the server-owned registry through the main-process
@@ -189,7 +200,28 @@ export async function executeCommandEveManagedImageGeneration(
   if (!COMMAND_EVE_MANAGED_IMAGE_ENABLED) {
     return failure(503, 'managed_image_disabled', 'Managed image generation is not enabled.');
   }
-  const wireResult = readLicenseWire(options.dataPath ?? getDataPath());
+  const readSeatId = options.getActiveSeatId ?? getActiveSeatId;
+  const readSeatContextRevision = options.getActiveSeatContextRevision ?? getActiveSeatContextRevision;
+  let capturedSeatId: string;
+  let capturedSeatContextRevision: number;
+  let originDataPath: string;
+  try {
+    capturedSeatId = readSeatId();
+    capturedSeatContextRevision = readSeatContextRevision();
+    originDataPath = options.dataPath ?? getDataPath();
+  } catch {
+    return failure(503, 'managed_image_seat_unavailable', 'The active Seed could not be determined safely.');
+  }
+  const seatStillMatches = (): boolean => {
+    try {
+      return readSeatId() === capturedSeatId && readSeatContextRevision() === capturedSeatContextRevision;
+    } catch {
+      return false;
+    }
+  };
+  const seatChanged = () =>
+    failure(409, 'managed_image_seat_changed', 'The active Seed changed while the image was being prepared. Retry.');
+  const wireResult = readLicenseWire(originDataPath);
   const gate = resolveCommandEveMultimodalGate({
     provider: 'openrouter',
     capability: 'image_generation',
@@ -214,7 +246,7 @@ export async function executeCommandEveManagedImageGeneration(
   // which is the one thing this feature exists to remove.
   const registryOptions: { fetchFn?: typeof fetch; dataPath?: string } = {
     ...(options.fetchFn === undefined ? {} : { fetchFn: options.fetchFn }),
-    ...(options.dataPath === undefined ? {} : { dataPath: options.dataPath }),
+    dataPath: originDataPath,
   };
   // The generation lane bypasses the short-lived registry cache: the quote that
   // informed the choice may be a minute old, but the model a request is billed
@@ -224,6 +256,7 @@ export async function executeCommandEveManagedImageGeneration(
     ((opts: { fetchFn?: typeof fetch; dataPath?: string }) =>
       readCommandEveImageModelRegistry({ ...opts, bypassCache: true }));
   const registryResult = await readRegistry(registryOptions);
+  if (!seatStillMatches()) return seatChanged();
   if (!registryResult.ok) {
     return failure(
       503,
@@ -239,6 +272,7 @@ export async function executeCommandEveManagedImageGeneration(
     );
   }
   const preference = await (options.readPreference ?? (() => readCommandEveImageModelPreference()))();
+  if (!seatStillMatches()) return seatChanged();
   const tier = preference.status === 'resolved' ? preference.tier : registryResult.registry.default_tier;
   const tierSpec = getCommandEveImageModelTierSpec(registryResult.registry, tier);
   if (!tierSpec) {
@@ -273,8 +307,13 @@ export async function executeCommandEveManagedImageGeneration(
   const body: CommandEveManagedImageEdgeRequest = {
     ...built.body,
     image_model: effectiveTierSpec.id,
+    ...commandEveMediaSeedAttribution(capturedSeatId),
   };
 
+  if (!seatStillMatches()) return seatChanged();
+
+  const releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation();
+  if (!releasePaidArtifactOperation) return seatChanged();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -345,7 +384,7 @@ export async function executeCommandEveManagedImageGeneration(
         promptSha256: string;
         parentArtifactId?: string;
       }) => {
-        const staged = stageGeneratedImageArtifact(options.dataPath ?? getDataPath(), stageInput);
+        const staged = stageGeneratedImageArtifact(originDataPath, stageInput);
         return staged ? { artifactHandle: staged.handle } : undefined;
       });
     const staged = stage({
@@ -393,5 +432,6 @@ export async function executeCommandEveManagedImageGeneration(
     );
   } finally {
     clearTimeout(timer);
+    releasePaidArtifactOperation();
   }
 }

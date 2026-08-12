@@ -36,6 +36,7 @@ import {
   assertSeatId,
   clearActiveSeat,
   getActiveSeatId,
+  hasCommandEvePaidArtifactOperationInFlight,
   isActiveSeatLegacy,
   isLegacySeatId,
   resolveActiveSeatHome,
@@ -43,6 +44,8 @@ import {
   resolveSeatHome,
   sanitizeSeatId,
   setActiveSeatId,
+  tryBeginCommandEvePaidArtifactOperation,
+  tryBeginCommandEvePaidArtifactSeatTransition,
 } from '@/process/commandEve/seatContextCore';
 
 const USER_DATA = '/tmp/command-eve-seat-test-userdata';
@@ -51,6 +54,25 @@ const REAL_UUID_B = 'ffeeddcc-bbaa-4321-9988-776655443322';
 
 afterEach(() => {
   __resetActiveSeatForTests();
+});
+
+describe('paid artifact / Seed transition fence', () => {
+  it('mutually excludes a paid artifact and a Seed transition, with idempotent release', () => {
+    const releaseArtifact = tryBeginCommandEvePaidArtifactOperation();
+    expect(releaseArtifact).toBeTypeOf('function');
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(true);
+    expect(tryBeginCommandEvePaidArtifactSeatTransition()).toBeNull();
+
+    releaseArtifact?.();
+    releaseArtifact?.();
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(false);
+
+    const releaseTransition = tryBeginCommandEvePaidArtifactSeatTransition();
+    expect(releaseTransition).toBeTypeOf('function');
+    expect(tryBeginCommandEvePaidArtifactOperation()).toBeNull();
+    releaseTransition?.();
+    expect(tryBeginCommandEvePaidArtifactOperation()).toBeTypeOf('function');
+  });
 });
 
 describe('(a) byte-identical legacy compatibility', () => {

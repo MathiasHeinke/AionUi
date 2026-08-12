@@ -34,6 +34,10 @@ vi.mock('@process/utils/initStorage', () => ({
 
 vi.mock('@process/utils/utils', () => ({ getDataPath: () => '/tmp/ce-tts-status-bridge' }));
 vi.mock('@process/commandEve/seatWireFetchCore', () => ({ readMySeatsWire: vi.fn(async () => null) }));
+vi.mock('@process/commandEve/seatContextCore', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@process/commandEve/seatContextCore')>();
+  return { ...original, getActiveSeatId: () => 'a2000000-0000-4000-8000-000000000001' };
+});
 
 const readLicenseWireMock = vi.fn(() => ({ ok: true, wire: 'test-license-wire' }));
 vi.mock('@/common/config/licenseWireAtRest', () => ({
@@ -225,6 +229,7 @@ describe('Command EVE multimodal TTS status bridge', () => {
     expect(fetchInit.redirect).toBe('error');
     expect(fetchInit.cache).toBe('no-store');
     expect(String(fetchInit.body)).toContain('"directProviderKeyPresentInDesktop":false');
+    expect(JSON.parse(String(fetchInit.body)).seat_id).toBe('a2000000-0000-4000-8000-000000000001');
     expect(String(fetchInit.body)).not.toContain('apiKey');
     expect(JSON.stringify(result.data)).not.toContain('test-license-wire');
   });

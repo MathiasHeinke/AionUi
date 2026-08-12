@@ -15,6 +15,7 @@ import {
 import {
   COMMAND_EVE_MANAGED_VISION_ENABLED,
   COMMAND_EVE_MANAGED_VISION_GATEWAY_DEPLOYED,
+  commandEveMediaSeedAttribution,
   EVE_MULTIMODAL_FUNCTION_URL,
   resolveCommandEveMultimodalGate,
 } from '@/common/config/eveMultimodalGatewayCore';
@@ -253,7 +254,10 @@ export async function handleCommandEvePresentationPrepare(
                 },
                 redirect: 'error',
                 cache: 'no-store',
-                body: JSON.stringify(built.body),
+                body: JSON.stringify({
+                  ...built.body,
+                  ...commandEveMediaSeedAttribution(capturedSeatId),
+                }),
                 signal: controller.signal,
               });
               const responseText = await readCommandEveLimitedResponseText(

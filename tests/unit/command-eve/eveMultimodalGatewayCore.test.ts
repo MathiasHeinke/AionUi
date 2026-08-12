@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   COMMAND_EVE_GROK_SMART_PLUS_PROFILE,
+  commandEveMediaSeedAttribution,
   EVE_MULTIMODAL_FUNCTION_URL,
   getCommandEveMultimodalContract,
   isExternalToolActionAllowed,
@@ -20,6 +21,19 @@ import {
 } from '@/common/config/eveMultimodalGatewayCore';
 
 describe('Command EVE multimodal gateway contract', () => {
+  it('emits a canonical active Seed UUID as media attribution', () => {
+    expect(commandEveMediaSeedAttribution('A2000000-0000-4000-8000-000000000001')).toEqual({
+      seat_id: 'a2000000-0000-4000-8000-000000000001',
+    });
+  });
+
+  it.each(['seat-1', 'client-safe-slug', ' a2000000-0000-4000-8000-000000000001 ', null])(
+    'omits non-server Seed attribution %s',
+    (value) => {
+      expect(commandEveMediaSeedAttribution(value)).toEqual({});
+    }
+  );
+
   it('pins xAI capabilities to server-side contracts and chat-renderable artifact kinds', () => {
     expect(XAI_MULTIMODAL_CONTRACTS.vision).toMatchObject({
       provider: 'xai',

@@ -143,6 +143,7 @@ import {
 } from '@/common/config/creditsCore';
 import {
   buildCommandEveMultimodalTtsRequest,
+  commandEveMediaSeedAttribution,
   commandEveMultimodalTtsFailure,
   COMMAND_EVE_MULTIMODAL_TTS_CONSENT_GET_CHANNEL,
   COMMAND_EVE_MULTIMODAL_TTS_CONSENT_SET_CHANNEL,
@@ -231,14 +232,18 @@ import {
   getActiveSeatContextRevision,
   getActiveSeatId,
   getActiveSeatKind,
+  hasCommandEvePaidArtifactOperationInFlight,
   isActiveSeatLegacy,
   resolveActiveSeatHome,
   resolveSeatHermesHome,
   sanitizeSeatId,
+  tryBeginCommandEvePaidArtifactOperation,
+  tryBeginCommandEvePaidArtifactSeatTransition,
 } from '@process/commandEve/seatContextCore';
 import { writeActiveSeatPointer } from '@process/commandEve/activeSeatPointerStore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore, type MySeatsWireFailure } from '@process/commandEve/seatWireFetchCore';
+import { createSeedSingleFlight, renameSeed } from '@process/commandEve/seedLifecycleFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
 import { COMMAND_EVE_HANDOVER_NOTE_RELPATH, HANDOVER_NOTE_MAX_RAW_CHARS } from '@/common/config/startscreenNoteCore';
 import nodePath from 'node:path';
@@ -594,6 +599,7 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
 // state is NOT a sufficient guard — this single main-process boolean is the real
 // serialization boundary (there is exactly one main process).
 let commandEveSwitchSeatInFlight = false;
+let commandEveSwitchSeatRecoveryRequired = false;
 
 /** COMPA-626: read the seat-switch write fence from OUTSIDE the bridge (the kanban auto-
  * approve path applies from the shim propose handler, not the confirm IPC, so it must
@@ -602,9 +608,9 @@ export function isCommandEveSeatSwitchInFlight(): boolean {
   return commandEveSwitchSeatInFlight;
 }
 // EPOCH for the lock. Bumped each time the lock is taken; a release only fires if its
-// epoch is still current. This stops a LATE-completing switch (one whose watchdog
-// already force-released the lock, after which a NEW switch took it) from clobbering
-// the new switch's lock in its stale finally.
+// epoch is still current. The watchdog never reopens the lock: it only changes the
+// public diagnosis to recovery-required. The epoch guard remains defense-in-depth for
+// a future implementation that supersedes a stuck operation explicitly.
 let commandEveSwitchSeatEpoch = 0;
 
 // MAT-1773 — transition flag for the my-seats wire read. The my-seats handler is
@@ -620,24 +626,16 @@ let commandEveMySeatsWireDown = false;
 // (re-login recovers it) is then distinguishable from a transient read failure
 // instead of both hiding the rail identically and silently.
 let commandEveMySeatsWireFailure: MySeatsWireFailure | null = null;
-// WATCHDOG bound for the lock — a pure LIVENESS BACKSTOP, not a completion guarantee.
+// WATCHDOG bound for the lock — an OBSERVABILITY BACKSTOP, not a completion guarantee.
 // If applySeatSwitch's await never settles (a hung re-spawn whose start() never binds
-// its port), the finally never runs and the lock would stay true for the whole session,
-// wedging EVERY future switch behind a misleading "kurz warten". The watchdog force-
-// releases the lock so a hung switch degrades to retryable.
+// its port), the finally never runs. The mutation fences intentionally remain closed,
+// but the public reason changes from ordinary "in progress" to "recovery required" so
+// the operator is told to relaunch instead of retrying into an unknown Seed context.
 //   It is set FAR above any plausible respawn ceiling (5 min), NOT merely above the
 // renderer's 45s timeout: 60s > 45s would NOT have guaranteed 60s > respawn time, so a
 // legitimately slow respawn could trip it mid-flight and admit a concurrent switch. At
-// 5 min the respawn is provably dead, so a retry is correct.
-//   Safety on the rare post-watchdog retry does NOT rest on the bound: a NEW switch's
-// restartBackend ALWAYS runs backendManager.stop() FIRST, which SIGTERMs→SIGKILLs (5s)
-// the existing process tree before its start() — so two backends never truly coexist.
-// The SEAT pointer is then deterministic (last setActiveSeatId wins). The GLOBAL respawn
-// state the restart hook publishes (__backendPort, cron-resume bridge, assistant prompt)
-// is NOT seat-pointer state, so a stale superseded respawn could clobber it on its late
-// return; that is closed separately by the respawn-generation guard in index.ts (the hook
-// bails its post-start writes if a newer respawn ran). This lock comment does not claim
-// to cover that global state.
+// 5 min the respawn is treated as operationally stuck, but never as safe to supersede
+// inside the same process. Relaunch is the bounded recovery path.
 const COMMAND_EVE_SWITCH_SEAT_LOCK_TIMEOUT_MS = 300_000;
 
 /**
@@ -2283,7 +2281,7 @@ export function initCommandEveBridge(): void {
             },
             redirect: 'error',
             cache: 'no-store',
-            body: JSON.stringify(built.body),
+            body: JSON.stringify({ ...built.body, ...commandEveMediaSeedAttribution(getActiveSeatId()) }),
             signal: controller.signal,
           });
           const responseText = await readCommandEveLimitedResponseText(
@@ -2366,7 +2364,7 @@ export function initCommandEveBridge(): void {
       const failure = (
         reasonCode: string,
         message?: string,
-        options?: { requiresConsent?: boolean; pendingNames?: string[] }
+        options?: { requiresConsent?: boolean; pendingNames?: string[]; suppressDocuments?: boolean }
       ) => ({
         success: false,
         msg: reasonCode,
@@ -2375,8 +2373,8 @@ export function initCommandEveBridge(): void {
           ok: false as const,
           reason_code: reasonCode,
           ...(message ? { message } : {}),
-          documents: readyDocuments,
-          prepared_files: preparedFiles(),
+          documents: options?.suppressDocuments === true ? [] : readyDocuments,
+          prepared_files: options?.suppressDocuments === true ? [] : preparedFiles(),
           requires_cloud_ocr_consent: options?.requiresConsent === true,
           ...(options?.pendingNames?.length ? { pending_source_names: options.pendingNames } : {}),
         },
@@ -2386,11 +2384,34 @@ export function initCommandEveBridge(): void {
         return failure('EVE_PDF_BAD_FILE_COUNT', 'Select between one and five PDF files per message.');
       }
 
-      const hermesHome = resolveActiveSeatHome(getDataPath()).hermesHome;
+      let capturedSeatId: string;
+      let capturedSeatContextRevision: number;
+      let hermesHome: string;
+      const dataPath = getDataPath();
+      try {
+        capturedSeatId = getActiveSeatId();
+        capturedSeatContextRevision = getActiveSeatContextRevision();
+        hermesHome = resolveSeatHermesHome(dataPath, capturedSeatId);
+      } catch {
+        return failure('EVE_PDF_SEAT_UNAVAILABLE');
+      }
+      const seatStillMatches = (): boolean => {
+        try {
+          return getActiveSeatId() === capturedSeatId && getActiveSeatContextRevision() === capturedSeatContextRevision;
+        } catch {
+          return false;
+        }
+      };
+      const seatChanged = () => failure('EVE_PDF_SEAT_CHANGED', undefined, { suppressDocuments: true });
       const localPreparations: LocalPdfPreparation[] = [];
       for (const filePath of filePaths) {
         try {
-          const prepared = await prepareLocalPdf({ filePath, hermesHome });
+          const prepared = await prepareLocalPdf({
+            filePath,
+            hermesHome,
+            isContextCurrent: seatStillMatches,
+          });
+          if (!seatStillMatches()) return seatChanged();
           localPreparations.push(prepared);
           if (!prepared.quality.requiresOcr || prepared.document.extraction_mode === 'cloud_ocr') {
             readyDocuments.push(prepared.document);
@@ -2398,6 +2419,7 @@ export function initCommandEveBridge(): void {
         } catch (error) {
           const reasonCode =
             error instanceof CommandEvePdfPreparationError ? error.reasonCode : 'EVE_PDF_LOCAL_EXTRACTION_FAILED';
+          if (reasonCode === 'EVE_PDF_SEAT_CHANGED') return seatChanged();
           return failure(reasonCode, error instanceof Error ? error.message.slice(0, 300) : undefined);
         }
       }
@@ -2416,108 +2438,117 @@ export function initCommandEveBridge(): void {
         );
       }
 
-      if (pending.length > 0) {
-        if (!COMMAND_EVE_PDF_CLOUD_OCR_ENABLED) {
-          return failure('EVE_PDF_CLOUD_OCR_NOT_ENABLED');
-        }
-        const privacyLane = payload?.privacyLane ?? 'cloud_auto';
-        const wireResult = readLicenseWire(getDataPath());
-        const gate = resolveCommandEveMultimodalGate({
-          provider: 'openrouter',
-          capability: 'document_ocr',
-          privacyLane,
-          hasServerGateway: Boolean(EVE_MULTIMODAL_FUNCTION_URL) && COMMAND_EVE_PDF_SERVER_GATEWAY_DEPLOYED,
-          hasLicense: Boolean(wireResult.ok && wireResult.wire),
-          directProviderKeyPresentInDesktop: false,
-        });
-        if (gate.ok === false) {
-          return failure(`EVE_PDF_${gate.reason.toUpperCase().replace(/-/g, '_')}`, gate.message);
-        }
-        if (!wireResult.ok || !wireResult.wire) {
-          return failure(wireResult.reason_code || 'EVE_PDF_NO_BEARER');
-        }
-
-        for (const prepared of pending) {
-          const built = buildCommandEvePdfOcrRequest({
-            fileName: prepared.document.source_name,
-            fileSha256: prepared.document.sha256,
-            pageCount: prepared.document.page_count,
-            fileDataBase64: Buffer.from(prepared.sourceBytes).toString('base64'),
+      let releasePaidArtifactOperation: (() => void) | undefined;
+      try {
+        if (pending.length > 0) {
+          if (!COMMAND_EVE_PDF_CLOUD_OCR_ENABLED) {
+            return failure('EVE_PDF_CLOUD_OCR_NOT_ENABLED');
+          }
+          const privacyLane = payload?.privacyLane ?? 'cloud_auto';
+          if (!seatStillMatches()) return seatChanged();
+          const wireResult = readLicenseWire(dataPath);
+          const gate = resolveCommandEveMultimodalGate({
+            provider: 'openrouter',
+            capability: 'document_ocr',
             privacyLane,
-            requestId: payload?.requestId,
+            hasServerGateway: Boolean(EVE_MULTIMODAL_FUNCTION_URL) && COMMAND_EVE_PDF_SERVER_GATEWAY_DEPLOYED,
+            hasLicense: Boolean(wireResult.ok && wireResult.wire),
+            directProviderKeyPresentInDesktop: false,
           });
-          if (built.ok === false) {
-            return failure(built.reason_code, built.message);
+          if (gate.ok === false) {
+            return failure(`EVE_PDF_${gate.reason.toUpperCase().replace(/-/g, '_')}`, gate.message);
+          }
+          if (!wireResult.ok || !wireResult.wire) {
+            return failure(wireResult.reason_code || 'EVE_PDF_NO_BEARER');
           }
 
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 90_000);
-          try {
-            const response = await fetch(gate.functionUrl, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${wireResult.wire}`,
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-              },
-              redirect: 'error',
-              cache: 'no-store',
-              body: JSON.stringify(built.body),
-              signal: controller.signal,
+          releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation() ?? undefined;
+          if (!releasePaidArtifactOperation) return seatChanged();
+          for (const prepared of pending) {
+            const built = buildCommandEvePdfOcrRequest({
+              fileName: prepared.document.source_name,
+              fileSha256: prepared.document.sha256,
+              pageCount: prepared.document.page_count,
+              fileDataBase64: Buffer.from(prepared.sourceBytes).toString('base64'),
+              privacyLane,
+              requestId: payload?.requestId,
             });
-            const responseText = await readCommandEveLimitedResponseText(
-              response,
-              COMMAND_EVE_PDF_MAX_CLOUD_RESPONSE_BYTES
-            );
-            if (responseText.ok === false) {
-              return failure('EVE_PDF_OCR_RESPONSE_TOO_LARGE');
+            if (built.ok === false) {
+              return failure(built.reason_code, built.message);
             }
-            let raw: unknown = null;
+            if (!seatStillMatches()) return seatChanged();
+
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 90_000);
             try {
-              raw = JSON.parse(responseText.text);
-            } catch {
-              raw = null;
-            }
-            const parsed = parseCommandEvePdfOcrResponse(raw);
-            if (!response.ok || parsed.ok === false) {
-              return failure(
-                parsed.ok === false ? parsed.reason_code : `EVE_PDF_OCR_HTTP_${response.status}`,
-                parsed.ok === false ? parsed.message : undefined
+              const response = await fetch(gate.functionUrl, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${wireResult.wire}`,
+                  'Content-Type': 'application/json',
+                  Accept: 'application/json',
+                },
+                redirect: 'error',
+                cache: 'no-store',
+                body: JSON.stringify({ ...built.body, ...commandEveMediaSeedAttribution(capturedSeatId) }),
+                signal: controller.signal,
+              });
+              const responseText = await readCommandEveLimitedResponseText(
+                response,
+                COMMAND_EVE_PDF_MAX_CLOUD_RESPONSE_BYTES
               );
+              if (responseText.ok === false) {
+                return failure('EVE_PDF_OCR_RESPONSE_TOO_LARGE');
+              }
+              let raw: unknown = null;
+              try {
+                raw = JSON.parse(responseText.text);
+              } catch {
+                raw = null;
+              }
+              const parsed = parseCommandEvePdfOcrResponse(raw);
+              if (!response.ok || parsed.ok === false) {
+                return failure(
+                  parsed.ok === false ? parsed.reason_code : `EVE_PDF_OCR_HTTP_${response.status}`,
+                  parsed.ok === false ? parsed.message : undefined
+                );
+              }
+              const pages = parseCloudOcrMarkdownPages(parsed.data.artifact.text, parsed.data.document.page_count);
+              const cloudDocument = persistPdfSidecar({
+                hermesHome,
+                sourcePath: prepared.document.source_path,
+                sha256: prepared.document.sha256,
+                bytes: prepared.document.bytes,
+                pages,
+                extractionMode: 'cloud_ocr',
+                requiresOcr: false,
+              });
+              readyDocuments.push(cloudDocument);
+            } catch (error) {
+              const name = error && typeof error === 'object' && 'name' in error ? String(error.name) : '';
+              return failure(name === 'AbortError' ? 'EVE_PDF_OCR_TIMEOUT' : 'EVE_PDF_OCR_FAILED');
+            } finally {
+              clearTimeout(timer);
             }
-            const pages = parseCloudOcrMarkdownPages(parsed.data.artifact.text, parsed.data.document.page_count);
-            const cloudDocument = persistPdfSidecar({
-              hermesHome,
-              sourcePath: prepared.document.source_path,
-              sha256: prepared.document.sha256,
-              bytes: prepared.document.bytes,
-              pages,
-              extractionMode: 'cloud_ocr',
-              requiresOcr: false,
-            });
-            readyDocuments.push(cloudDocument);
-          } catch (error) {
-            const name = error && typeof error === 'object' && 'name' in error ? String(error.name) : '';
-            return failure(name === 'AbortError' ? 'EVE_PDF_OCR_TIMEOUT' : 'EVE_PDF_OCR_FAILED');
-          } finally {
-            clearTimeout(timer);
           }
         }
-      }
 
-      // Re-read no source bytes and expose no cloud payload. The only files the
-      // renderer adds to Hermes are private, deterministic Markdown sidecars.
-      return {
-        success: true,
-        data: {
-          version: COMMAND_EVE_PDF_INTELLIGENCE_VERSION,
-          ok: true as const,
-          documents: readyDocuments,
-          prepared_files: preparedFiles(),
-          cloud_ocr_used: readyDocuments.some((document) => document.extraction_mode === 'cloud_ocr'),
-          requires_cloud_ocr_consent: false as const,
-        },
-      };
+        // Re-read no source bytes and expose no cloud payload. The only files the
+        // renderer adds to Hermes are private, deterministic Markdown sidecars.
+        return {
+          success: true,
+          data: {
+            version: COMMAND_EVE_PDF_INTELLIGENCE_VERSION,
+            ok: true as const,
+            documents: readyDocuments,
+            prepared_files: preparedFiles(),
+            cloud_ocr_used: readyDocuments.some((document) => document.extraction_mode === 'cloud_ocr'),
+            requires_cloud_ocr_consent: false as const,
+          },
+        };
+      } finally {
+        releasePaidArtifactOperation?.();
+      }
     });
 
   // Presentation intelligence is isolated from this already-large bridge.
@@ -4414,6 +4445,70 @@ export function initCommandEveBridge(): void {
     }
   });
 
+  // MAT-1774 — in-app Seed create/rename. MAIN owns the account session and
+  // supplies the verified bearer; the renderer never receives credentials or
+  // chooses an account id. createSeedSingleFlight is the second belt behind the
+  // disabled UI button and server-side idempotency/advisory lock.
+  bridge
+    .buildProvider('command-eve.seed-create')
+    .provider(async (request?: { displayName?: string; clientRequestId?: string }) => {
+      const version = 'command-eve-seed-create/v0' as const;
+      try {
+        const result = await createSeedSingleFlight(getDataPath(), {
+          displayName: request?.displayName ?? '',
+          clientRequestId: request?.clientRequestId ?? '',
+        });
+        return {
+          success: result.ok,
+          msg: result.ok ? undefined : result.reasonCode,
+          data: {
+            version,
+            ok: result.ok,
+            ...(result.seedId ? { seed_id: result.seedId } : {}),
+            ...(result.created !== undefined ? { created: result.created } : {}),
+            ...(result.seedCount !== undefined ? { seed_count: result.seedCount } : {}),
+            seed_limit: result.seedLimit,
+            ...(result.reasonCode ? { reason_code: result.reasonCode } : {}),
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Seed creation failed.',
+          data: { version, ok: false, seed_limit: 10, reason_code: 'SEED_CREATE_BRIDGE_FAILED' },
+        };
+      }
+    });
+
+  bridge
+    .buildProvider('command-eve.seed-rename')
+    .provider(async (request?: { seedId?: string; displayName?: string }) => {
+      const version = 'command-eve-seed-rename/v0' as const;
+      try {
+        const result = await renameSeed(getDataPath(), {
+          seedId: request?.seedId ?? '',
+          displayName: request?.displayName ?? '',
+        });
+        return {
+          success: result.ok,
+          msg: result.ok ? undefined : result.reasonCode,
+          data: {
+            version,
+            ok: result.ok,
+            ...(result.seedId ? { seed_id: result.seedId } : {}),
+            ...(result.displayName ? { display_name: result.displayName } : {}),
+            ...(result.reasonCode ? { reason_code: result.reasonCode } : {}),
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Seed rename failed.',
+          data: { version, ok: false, reason_code: 'SEED_RENAME_BRIDGE_FAILED' },
+        };
+      }
+    });
+
   // -------------------------------------------------------------------------
   // SWITCH-SEAT (Phase 4 / A5, SLICE C). The GATE-NULL runtime keystone wired
   // over IPC. Drives applySeatSwitch (the pure, ordered, fail-safe lifecycle):
@@ -4432,6 +4527,30 @@ export function initCommandEveBridge(): void {
   // -------------------------------------------------------------------------
   bridge.buildProvider('command-eve.switch-seat').provider(async (request?: { seatId?: string }) => {
     const version = 'command-eve-switch-seat/v0' as const;
+    if (commandEveSwitchSeatRecoveryRequired) {
+      return {
+        success: false,
+        msg: 'The previous Seed switch is still unresolved. Relaunch Command EVE if it does not recover.',
+        data: {
+          version,
+          ok: false,
+          reason_code: 'SWITCH_SEAT_RECOVERY_REQUIRED',
+          active_seat_id: getActiveSeatId(),
+        },
+      };
+    }
+    if (hasCommandEvePaidArtifactOperationInFlight()) {
+      return {
+        success: false,
+        msg: 'A paid artifact is still being stored for the active Seed.',
+        data: {
+          version,
+          ok: false,
+          reason_code: 'PAID_ARTIFACT_OPERATION_IN_PROGRESS',
+          active_seat_id: getActiveSeatId(),
+        },
+      };
+    }
     // Serialize: reject a second switch while one is mid-flight (see the lock note
     // above). Returned BEFORE any state mutates ⇒ the in-flight switch is untouched.
     if (commandEveSwitchSeatInFlight) {
@@ -4450,9 +4569,8 @@ export function initCommandEveBridge(): void {
     // post-inference fence (which keys on that flag) does not refuse the very write we
     // are flushing. We only AWAIT an ALREADY-running run — never start a new Ollama
     // call in the switch path (spec §4). On timeout we skip + log and proceed (a switch
-    // must never wedge behind a stuck digest). Doing this before the lock leaves a tiny
-    // window for a second switch to enter concurrently; that is acceptable — a second
-    // switch during a ≤3s flush is vanishingly rare and still hits the lock below.
+    // must never wedge behind a stuck digest). The paid-artifact transition gate
+    // immediately below closes the await window atomically before state mutates.
     const pendingDigest: Promise<unknown> | null = commandEveSessionDigestInFlight;
     if (pendingDigest) {
       const noop = (): void => undefined;
@@ -4465,16 +4583,40 @@ export function initCommandEveBridge(): void {
       }
     }
 
+    const releasePaidArtifactSeatTransition = tryBeginCommandEvePaidArtifactSeatTransition();
+    if (!releasePaidArtifactSeatTransition) {
+      return {
+        success: false,
+        msg: 'A paid artifact is still being stored for the active Seed.',
+        data: {
+          version,
+          ok: false,
+          reason_code: 'PAID_ARTIFACT_OPERATION_IN_PROGRESS',
+          active_seat_id: getActiveSeatId(),
+        },
+      };
+    }
     commandEveSwitchSeatInFlight = true;
     const myEpoch = ++commandEveSwitchSeatEpoch;
-    // Release only if THIS switch still owns the lock (epoch unchanged) — never clobber
-    // a newer switch that took the lock after our watchdog force-released it.
+    // Release only if THIS switch still owns the lock (epoch unchanged).
     const releaseLock = () => {
-      if (commandEveSwitchSeatEpoch === myEpoch) commandEveSwitchSeatInFlight = false;
+      if (commandEveSwitchSeatEpoch === myEpoch) {
+        commandEveSwitchSeatInFlight = false;
+        commandEveSwitchSeatRecoveryRequired = false;
+      }
     };
-    // Arm the watchdog (see the bound above) so a never-settling respawn cannot leave
-    // the lock stuck. Cleared in finally on every normal/error exit.
-    const lockWatchdog = setTimeout(releaseLock, COMMAND_EVE_SWITCH_SEAT_LOCK_TIMEOUT_MS);
+    const releaseAllSwitchFences = () => {
+      releaseLock();
+      releasePaidArtifactSeatTransition();
+    };
+    // A respawn that exceeds the hard bound is no longer described as an
+    // ordinary in-flight switch. It remains fully fenced, but callers receive
+    // an honest recovery-required state until the original operation settles
+    // (or the app is relaunched). Reopening any mutation lane here would admit
+    // work into an unknown Seed context.
+    const lockWatchdog = setTimeout(() => {
+      if (commandEveSwitchSeatEpoch === myEpoch) commandEveSwitchSeatRecoveryRequired = true;
+    }, COMMAND_EVE_SWITCH_SEAT_LOCK_TIMEOUT_MS);
     try {
       const targetSeatId = typeof request?.seatId === 'string' ? request.seatId : '';
       if (!targetSeatId) {
@@ -4683,7 +4825,7 @@ export function initCommandEveBridge(): void {
       // permanently wedged into SWITCH_SEAT_IN_PROGRESS. Cancel the watchdog and release
       // via the epoch-guarded path so a late completion never clears a newer switch's lock.
       clearTimeout(lockWatchdog);
-      releaseLock();
+      releaseAllSwitchFences();
     }
   });
 
