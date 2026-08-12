@@ -42,7 +42,9 @@ vi.mock('@/renderer/components/base/FileChangesPanel', () => ({ default: () => n
 vi.mock('@/renderer/components/chat/CollapsibleContent', () => ({
   default: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
-vi.mock('@/renderer/components/media/LocalImageView', () => ({ default: () => null }));
+vi.mock('@/renderer/components/media/LocalImageView', () => ({
+  default: ({ src }: { src: string }) => <img data-testid='legacy-image-preview' src={src} alt='' />,
+}));
 vi.mock('@/renderer/components/Markdown', () => ({
   default: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
@@ -88,6 +90,30 @@ function typedPublishTool(status: IMessageToolGroup['content'][number]['status']
   };
 }
 
+function imageGenerationTool(status: IMessageToolGroup['content'][number]['status']): IMessageToolGroup {
+  return {
+    id: 'tool-group-image',
+    msg_id: 'message-image',
+    conversation_id: 'conversation-image',
+    type: 'tool_group',
+    position: 'left',
+    created_at: 1,
+    content: [
+      {
+        call_id: 'call-image',
+        description: 'Generate image',
+        name: 'ImageGeneration',
+        render_output_as_markdown: false,
+        status,
+        result_display: {
+          img_url: 'data:image/png;base64,AAECAw==',
+          relative_path: 'candidate.png',
+        },
+      },
+    ],
+  };
+}
+
 afterEach(() => {
   cleanup();
   generatedArtifactMock.mockClear();
@@ -106,5 +132,26 @@ describe('Typed UI tool publication', () => {
 
     expect(screen.getByText('generated-artifact-stub')).toBeInTheDocument();
     expect(generatedArtifactMock).toHaveBeenCalled();
+  });
+
+  it.each(['Executing', 'Pending', 'Error', 'Canceled'] as const)(
+    'keeps legacy ImageGeneration output as ordinary tool data while %s',
+    (status) => {
+      render(<MessageToolGroup message={imageGenerationTool(status)} />);
+
+      expect(screen.getByText(/ImageGeneration/)).toBeInTheDocument();
+      expect(screen.getByText(/data:image\/png;base64,AAECAw==/)).toBeInTheDocument();
+      expect(screen.queryByTestId('legacy-image-preview')).toBeNull();
+      expect(screen.queryByText('generated-artifact-stub')).toBeNull();
+      expect(generatedArtifactMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it('materializes legacy ImageGeneration output only after terminal Success', () => {
+    render(<MessageToolGroup message={imageGenerationTool('Success')} />);
+
+    expect(screen.getByText('generated-artifact-stub')).toBeInTheDocument();
+    expect(screen.queryByTestId('legacy-image-preview')).toBeNull();
+    expect(generatedArtifactMock).toHaveBeenCalledOnce();
   });
 });

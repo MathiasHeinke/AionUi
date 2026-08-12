@@ -38,6 +38,9 @@ vi.mock('@/renderer/components/base/FileChangesPanel', () => ({
 vi.mock('@/renderer/hooks/file/useDiffPreviewHandlers', () => ({
   useDiffPreviewHandlers: () => ({ openDiff: () => {}, openFile: () => {} }),
 }));
+vi.mock('@/renderer/pages/conversation/Preview', () => ({
+  usePreviewContext: () => ({ openPreview: vi.fn() }),
+}));
 vi.mock('@/common', () => ({
   ipcBridge: {
     acpConversation: { respondToConfirmation: { invoke: vi.fn() } },
@@ -193,13 +196,12 @@ describe('MessageToolGroup — FeedbackButton wiring', () => {
     expect(screen.getByText('Generated image')).toBeInTheDocument();
   });
 
-  it('renders ImageGeneration failures as visible failure artifacts', () => {
+  it('renders ImageGeneration failures as visible ordinary tool results', () => {
     render(<MessageToolGroup message={buildFailedImageToolGroup()} />);
 
-    expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument();
-    expect(screen.getByTestId('generated-artifact-error')).toHaveTextContent('Provider returned 502');
-    expect(screen.getByTestId('generated-artifact-receipt')).toHaveTextContent('img-request-failed');
-    expect(screen.queryByText(/"error": "Provider returned 502"/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('generated-artifact-card')).toBeNull();
+    expect(screen.getByText(/"error": "Provider returned 502"/)).toBeInTheDocument();
+    expect(screen.getByText(/"request_id": "img-request-failed"/)).toBeInTheDocument();
   });
 
   it('renders generated html tool results in a sandboxed iframe', () => {

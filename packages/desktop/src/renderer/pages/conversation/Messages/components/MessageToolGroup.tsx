@@ -437,10 +437,10 @@ const ImageDisplay: React.FC<{
 const ToolResultDisplay: React.FC<{
   content: IMessageToolGroupProps['message']['content'][number];
 }> = ({ content }) => {
-  const { result_display, name } = content;
+  const { result_display, name, status } = content;
 
   // 图片生成特殊处理 Special handling for image generation
-  if (name === 'ImageGeneration' && typeof result_display === 'object') {
+  if (status === 'Success' && name === 'ImageGeneration' && typeof result_display === 'object') {
     const result = result_display as ImageGenerationResult;
     // 如果有 img_url 才显示图片，否则显示错误信息
     if (result.img_url) {
@@ -567,7 +567,7 @@ const MessageToolGroup: React.FC<IMessageToolGroupProps> = ({ message }) => {
 
         // Legacy fallback for pre-contract ImageGeneration payloads that only
         // expose img_url. Contract-shaped successes/failures render above.
-        if (name === 'ImageGeneration' && typeof result_display === 'object') {
+        if (status === 'Success' && name === 'ImageGeneration' && typeof result_display === 'object') {
           const result = result_display as ImageGenerationResult;
           if (result.img_url) {
             return <ImageDisplay key={call_id} imgUrl={result.img_url} relativePath={result.relative_path} />;
