@@ -22,7 +22,11 @@ import { commandEveMediaSeedAttribution, EVE_MULTIMODAL_FUNCTION_URL } from '@/c
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { getDataPath } from '@process/utils/utils';
 import { areCommandEveFileSelectionPathsGranted } from '@process/commandEve/fileSelectionGrantCore';
-import { getActiveSeatContextRevision, getActiveSeatId } from '@process/commandEve/seatContextCore';
+import {
+  getActiveSeatContextRevision,
+  getActiveSeatId,
+  tryBeginCommandEvePaidArtifactOperation,
+} from '@process/commandEve/seatContextCore';
 import { readBoundedImageSource } from '@process/commandEve/document/imageIntelligenceService';
 import {
   saveGeneratedVideoFile,
@@ -286,9 +290,11 @@ export async function handleCommandEveVideoGenerate(
   const readSeatRevision = deps.getActiveSeatContextRevision ?? (() => 0);
   let capturedSeatId: string;
   let capturedSeatContextRevision: number;
+  let originDataPath: string;
   try {
     capturedSeatId = deps.getActiveSeatId();
     capturedSeatContextRevision = readSeatRevision();
+    originDataPath = deps.getDataPath();
   } catch {
     return {
       ok: false,
@@ -348,7 +354,7 @@ export async function handleCommandEveVideoGenerate(
   });
   if (tierGateRefusal) return tierGateRefusal;
 
-  const wireResult = readLicenseWire(deps.getDataPath());
+  const wireResult = readLicenseWire(originDataPath);
   if (!wireResult.ok || !wireResult.wire) {
     return {
       ok: false,
@@ -418,6 +424,8 @@ export async function handleCommandEveVideoGenerate(
 
   if (!seatStillMatches()) return videoSeatChangedResult();
 
+  const releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation();
+  if (!releasePaidArtifactOperation) return videoSeatChangedResult();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VIDEO_REQUEST_TIMEOUT_MS);
   try {
@@ -435,7 +443,6 @@ export async function handleCommandEveVideoGenerate(
     });
 
     const text = await response.text();
-    if (!seatStillMatches()) return videoSeatChangedResult();
     if (text.length > MAX_VIDEO_RESPONSE_BYTES) {
       return {
         ok: false,
@@ -477,14 +484,14 @@ export async function handleCommandEveVideoGenerate(
         conversationId: request.conversationId,
         createdAtMs: Date.now(),
       });
-      deps.saveArtifactRecord(deps.getDataPath(), conversationArtifact);
+      deps.saveArtifactRecord(originDataPath, conversationArtifact);
       // Its OWN try/catch, deliberately. The enclosing catch collapses every
       // throw into `video-artifact-save-failed`, so a handle-minting failure
       // inside it would report that a successfully saved video was not saved —
       // the exact lie this reason code was written to avoid. A missing handle
       // only means "not editable yet"; the next envelope re-mints it.
       try {
-        deps.ensureCapabilityHandle?.(deps.getDataPath(), conversationArtifact);
+        deps.ensureCapabilityHandle?.(originDataPath, conversationArtifact);
       } catch {
         /* the clip is saved and playable; only the edit affordance is deferred */
       }
@@ -517,6 +524,7 @@ export async function handleCommandEveVideoGenerate(
         };
   } finally {
     clearTimeout(timer);
+    releasePaidArtifactOperation();
   }
 }
 

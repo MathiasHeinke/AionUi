@@ -13,6 +13,7 @@ import { COMMAND_EVE_MANAGED_IMAGE_MODEL } from '@/common/config/eveManagedImage
 import { EVE_MULTIMODAL_FUNCTION_URL } from '@/common/config/eveMultimodalGatewayCore';
 import type { CommandEveImageModelRegistry } from '@/common/config/eveImageModelRegistryCore';
 import { executeCommandEveManagedImageGeneration } from '@/process/commandEve/managedImageGenerationService';
+import { hasCommandEvePaidArtifactOperationInFlight } from '@/process/commandEve/seatContextCore';
 
 /** The server-pinned registry view (MAT-1769, CoS contract), as the GET read answers. */
 const REGISTRY: CommandEveImageModelRegistry = {
@@ -236,7 +237,7 @@ describe('managed image generation main-process service', () => {
     expect(seams.stageArtifact).not.toHaveBeenCalled();
   });
 
-  it('keeps the Seed revision fence through POST and refuses before artifact staging', async () => {
+  it('holds the paid fence through POST and preserves the billed artifact despite hostile direct Seat mutation', async () => {
     let activeSeatId = ACTIVE_SEED_ID;
     let activeSeatContextRevision = 9;
     let resolveFetch!: (value: Response) => void;
@@ -256,15 +257,14 @@ describe('managed image generation main-process service', () => {
       ...seams,
     });
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledOnce());
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(true);
     activeSeatId = 'b2000000-0000-4000-8000-000000000001';
     activeSeatContextRevision += 1;
     resolveFetch(new Response(JSON.stringify(edgeResponse()), { status: 200 }));
 
-    await expect(pending).resolves.toMatchObject({
-      status: 409,
-      body: { error: { code: 'managed_image_seat_changed' } },
-    });
-    expect(seams.stageArtifact).not.toHaveBeenCalled();
+    await expect(pending).resolves.toMatchObject({ status: 200 });
+    expect(seams.stageArtifact).toHaveBeenCalledOnce();
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(false);
   });
 
   it('threads the seat’s SELECTED tier into the edge request as the bare tier id', async () => {

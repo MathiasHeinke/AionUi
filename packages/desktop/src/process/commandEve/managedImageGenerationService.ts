@@ -37,7 +37,11 @@ import { readCommandEveImageModelPreference } from './imageModelPreferenceMain';
 import { readCommandEveImageModelRegistry } from './imageCapabilitiesMain';
 import { stageGeneratedImageArtifact } from './imageArtifactStore';
 import { getDataPath } from '@process/utils/utils';
-import { getActiveSeatContextRevision, getActiveSeatId } from './seatContextCore';
+import {
+  getActiveSeatContextRevision,
+  getActiveSeatId,
+  tryBeginCommandEvePaidArtifactOperation,
+} from './seatContextCore';
 
 const MAX_REFERENCE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_REFERENCE_BYTES = 8 * 1024 * 1024;
@@ -200,9 +204,11 @@ export async function executeCommandEveManagedImageGeneration(
   const readSeatContextRevision = options.getActiveSeatContextRevision ?? getActiveSeatContextRevision;
   let capturedSeatId: string;
   let capturedSeatContextRevision: number;
+  let originDataPath: string;
   try {
     capturedSeatId = readSeatId();
     capturedSeatContextRevision = readSeatContextRevision();
+    originDataPath = options.dataPath ?? getDataPath();
   } catch {
     return failure(503, 'managed_image_seat_unavailable', 'The active Seed could not be determined safely.');
   }
@@ -215,7 +221,7 @@ export async function executeCommandEveManagedImageGeneration(
   };
   const seatChanged = () =>
     failure(409, 'managed_image_seat_changed', 'The active Seed changed while the image was being prepared. Retry.');
-  const wireResult = readLicenseWire(options.dataPath ?? getDataPath());
+  const wireResult = readLicenseWire(originDataPath);
   const gate = resolveCommandEveMultimodalGate({
     provider: 'openrouter',
     capability: 'image_generation',
@@ -240,7 +246,7 @@ export async function executeCommandEveManagedImageGeneration(
   // which is the one thing this feature exists to remove.
   const registryOptions: { fetchFn?: typeof fetch; dataPath?: string } = {
     ...(options.fetchFn === undefined ? {} : { fetchFn: options.fetchFn }),
-    ...(options.dataPath === undefined ? {} : { dataPath: options.dataPath }),
+    dataPath: originDataPath,
   };
   // The generation lane bypasses the short-lived registry cache: the quote that
   // informed the choice may be a minute old, but the model a request is billed
@@ -306,6 +312,8 @@ export async function executeCommandEveManagedImageGeneration(
 
   if (!seatStillMatches()) return seatChanged();
 
+  const releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation();
+  if (!releasePaidArtifactOperation) return seatChanged();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -325,7 +333,6 @@ export async function executeCommandEveManagedImageGeneration(
       response,
       COMMAND_EVE_MANAGED_IMAGE_MAX_RESPONSE_BYTES
     );
-    if (!seatStillMatches()) return seatChanged();
     if (!responseText.ok) {
       return failure(502, 'provider_response_too_large', 'Managed image response exceeded the local limit.');
     }
@@ -377,7 +384,7 @@ export async function executeCommandEveManagedImageGeneration(
         promptSha256: string;
         parentArtifactId?: string;
       }) => {
-        const staged = stageGeneratedImageArtifact(options.dataPath ?? getDataPath(), stageInput);
+        const staged = stageGeneratedImageArtifact(originDataPath, stageInput);
         return staged ? { artifactHandle: staged.handle } : undefined;
       });
     const staged = stage({
@@ -425,5 +432,6 @@ export async function executeCommandEveManagedImageGeneration(
     );
   } finally {
     clearTimeout(timer);
+    releasePaidArtifactOperation();
   }
 }

@@ -359,6 +359,42 @@ let activeSeatId: string = LEGACY_SEAT_ID;
  */
 let activeSeatContextRevision = 0;
 
+// Paid media/document operations must finish their already-billed local
+// persistence under the Seed that started them. This is deliberately a tiny,
+// process-local fence: the switch authority lives in this same Main process,
+// so no second durable state machine is needed.
+let paidArtifactOperationsInFlight = 0;
+let paidArtifactSeatTransitionInFlight = false;
+
+/** Start one paid artifact only while no Seed transition owns this fence. */
+export function tryBeginCommandEvePaidArtifactOperation(): (() => void) | null {
+  if (paidArtifactSeatTransitionInFlight) return null;
+  paidArtifactOperationsInFlight += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    paidArtifactOperationsInFlight = Math.max(0, paidArtifactOperationsInFlight - 1);
+  };
+}
+
+/** Atomically reserve a Seed transition against new paid artifact starts. */
+export function tryBeginCommandEvePaidArtifactSeatTransition(): (() => void) | null {
+  if (paidArtifactSeatTransitionInFlight || paidArtifactOperationsInFlight > 0) return null;
+  paidArtifactSeatTransitionInFlight = true;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    paidArtifactSeatTransitionInFlight = false;
+  };
+}
+
+/** Main-process switch guard for paid Video/Image/PDF persistence. */
+export function hasCommandEvePaidArtifactOperationInFlight(): boolean {
+  return paidArtifactOperationsInFlight > 0;
+}
+
 /** Get the current seat context revision (monotonic, bumped on every seat switch). */
 export function getActiveSeatContextRevision(): number {
   return activeSeatContextRevision;
@@ -524,4 +560,6 @@ export function __resetActiveSeatForTests(): void {
   activeSeatContextRevision = 0;
   activeSeatLabel = DEFAULT_SEAT_LABEL;
   activeSeatKind = DEFAULT_SEAT_KIND;
+  paidArtifactOperationsInFlight = 0;
+  paidArtifactSeatTransitionInFlight = false;
 }

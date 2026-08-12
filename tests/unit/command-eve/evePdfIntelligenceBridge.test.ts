@@ -60,6 +60,7 @@ vi.mock('@process/commandEve/document/pdfIntelligenceService', async (importOrig
 });
 
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
+import { hasCommandEvePaidArtifactOperationInFlight } from '@process/commandEve/seatContextCore';
 
 type BridgeEnvelope = {
   success: boolean;
@@ -183,9 +184,14 @@ describe('Command EVE PDF intelligence bridge', () => {
     expect(persistPdfSidecarMock).not.toHaveBeenCalled();
   });
 
-  it('revalidates the captured Seed after cloud POST and before sidecar persistence', async () => {
+  it('holds the paid fence through cloud POST and persists the billed sidecar under the captured Hermes home', async () => {
     const prepared = localPreparation(true);
     prepareLocalPdfMock.mockResolvedValue(prepared);
+    persistPdfSidecarMock.mockReturnValue({
+      ...prepared.document,
+      extraction_mode: 'cloud_ocr',
+      extracted_characters: 5,
+    });
     let resolveFetch!: (value: Response) => void;
     vi.mocked(globalThis.fetch).mockImplementationOnce(
       () =>
@@ -196,25 +202,47 @@ describe('Command EVE PDF intelligence bridge', () => {
 
     const pending = call({ data: { filePaths: ['/tmp/report.pdf'], allowCloudOcr: true } });
     await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledOnce());
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(true);
     activeSeatState.seatId = 'b2000000-0000-4000-8000-000000000001';
     activeSeatState.revision += 1;
     resolveFetch(
       new Response(
         JSON.stringify({
           ok: true,
-          artifact: { text: '## Page 1\n\nAlpha' },
-          document: { page_count: 1 },
+          gateway: 'eve-multimodal',
+          provider: 'openrouter',
+          capability: 'document_ocr',
+          reason: 'provider-complete',
+          artifact: {
+            status: 'created',
+            kind: 'document',
+            mime_type: 'text/markdown',
+            encoding: 'utf8',
+            text: '## Page 1\n\nAlpha',
+            bytes: 16,
+          },
+          residency: {
+            requestedPrivacyLane: 'cloud_auto',
+            effectiveResidency: 'global_cloud',
+            confirmation: 'zdr-enforced-global',
+          },
+          document: {
+            engine: 'mistral-ocr',
+            model: 'google/gemini-2.5-flash',
+            page_count: 1,
+            zdr_enforced: true,
+            data_collection: 'deny',
+          },
         }),
-        { status: 200 }
+        { status: 200, headers: { 'content-type': 'application/json' } }
       )
     );
 
-    await expect(pending).resolves.toMatchObject({
-      success: false,
-      msg: 'EVE_PDF_SEAT_CHANGED',
-      data: { documents: [], prepared_files: [] },
-    });
-    expect(persistPdfSidecarMock).not.toHaveBeenCalled();
+    await expect(pending).resolves.toMatchObject({ success: true, data: { ok: true, cloud_ocr_used: true } });
+    expect(persistPdfSidecarMock).toHaveBeenCalledWith(
+      expect.objectContaining({ hermesHome: expect.stringContaining('a2000000-0000-4000-8000-000000000001') })
+    );
+    expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(false);
   });
 
   it('sends scanned PDF bytes only to the licensed server gateway after consent and redacts them from the result', async () => {
