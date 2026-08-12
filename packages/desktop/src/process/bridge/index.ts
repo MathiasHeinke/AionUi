@@ -16,6 +16,16 @@ import { initThemeBridge } from './themeBridge';
 import { initProjectWorkspaceBridge } from './projectWorkspaceBridge';
 import { initProjectWorkspaceServiceBridge } from './projectWorkspaceServiceBridge';
 import { initCommandEveTerminalBridge } from './commandEveTerminalBridge';
+import {
+  initExternalActionBridge,
+  registerExternalActionAdapter,
+  registerExternalActionAdapterPayloadReadPort,
+  registerExternalActionCompletionAttestationReadPort,
+  registerExternalActionConversationContextReadPort,
+  registerExternalActionReconciliationEvidenceReadPort,
+  registerExternalActionSecretFieldSinkPort,
+  reconcileExternalActionFromMain,
+} from './externalActionBridge';
 
 export type BridgeDependencies = Record<string, never>;
 
@@ -29,6 +39,7 @@ export function initAllBridges(_deps: BridgeDependencies = {}): void {
   initWebuiBridge();
   initThemeBridge();
   initCommandEveBridge();
+  initExternalActionBridge();
   initProjectWorkspaceBridge();
   initProjectWorkspaceServiceBridge();
   initCommandEveTerminalBridge();
@@ -47,6 +58,14 @@ export {
   initProjectWorkspaceBridge,
   initProjectWorkspaceServiceBridge,
   initCommandEveTerminalBridge,
+  initExternalActionBridge,
+  registerExternalActionAdapter,
+  registerExternalActionAdapterPayloadReadPort,
+  registerExternalActionCompletionAttestationReadPort,
+  registerExternalActionConversationContextReadPort,
+  registerExternalActionReconciliationEvidenceReadPort,
+  registerExternalActionSecretFieldSinkPort,
+  reconcileExternalActionFromMain,
 };
 export { registerWindowMaximizeListeners } from './windowControlsBridge';
 export const disposeAllTeamSessions = (): Promise<void> => Promise.resolve();

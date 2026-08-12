@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7220
+# entries: 7313
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -505,16 +505,23 @@ copy	1	de-DE/commandCenter.json	wartet auf Controller
 copy	1	de-DE/commandCenter.json	wartet auf Dispatch-Check
 copy	1	de-DE/commandCenter.json	z. B. LinkedIn-Post zu Command EVE
 copy	1	de-DE/commandCenter.json	Öffnen
+copy	1	de-DE/commandEve.json	1 Stunde
+copy	1	de-DE/commandEve.json	24 Stunden
+copy	1	de-DE/commandEve.json	30 Tagen
+copy	1	de-DE/commandEve.json	7 Tagen
 copy	1	de-DE/commandEve.json	Ab Stufe „Selbstständig“ verfügbar. Auf einer niedrigeren Stufe bleibt eine bereits erteilte Freigabe gespeichert, aber inaktiv.
 copy	1	de-DE/commandEve.json	Abbrechen
 copy	1	de-DE/commandEve.json	Antwort läuft noch
 copy	1	de-DE/commandEve.json	Arbeiten
+copy	1	de-DE/commandEve.json	Artefakt ändern
 copy	1	de-DE/commandEve.json	Auswahl übernehmen
 copy	1	de-DE/commandEve.json	Befehle, die du für diesen Seat dauerhaft erlaubt hast. EVE fragt danach nicht mehr — bis du sie hier zurücknimmst.
 copy	1	de-DE/commandEve.json	Befehls-Scanner: Der zusätzliche Sicherheits-Scanner lässt durch, wenn er selbst nicht läuft oder nicht installiert ist. Er ist eine zweite Meinung, keine Sperre.
+copy	1	de-DE/commandEve.json	Begrenzte Richtlinie speichern
 copy	1	de-DE/commandEve.json	Beim Seat-Wechsel wird die laufende Antwort abgebrochen und verworfen. Trotzdem wechseln?
 copy	1	de-DE/commandEve.json	Bezahlte Modelle und Dienste. Den Betrag, den du dafür festhältst, nennst du beim Anschalten.
 copy	1	de-DE/commandEve.json	Bildschirmsteuerung: Sicht und Navigation folgen deiner Stufe. Klicken und Tippen bleiben immer verfügbar. Ohne die breite Browser-/Desktop-Freigabe genehmigst du den letzten Schritt einzeln; mit ihr führt EVE die bekannten UI-Aktionen autonom aus. Einige zerstörerische System-Tastenkombinationen blockiert Hermes weiterhin, damit die laufende Maschine nicht gesperrt oder abgemeldet wird.
+copy	1	de-DE/commandEve.json	Bitte gib dem Seed einen Namen.
 copy	1	de-DE/commandEve.json	Breite Freigabe: Ein Klick kann indirekt bezahlen, veröffentlichen, löschen, Zugangsdaten offenlegen oder Produktion verändern. Die fünf Wirkungssiegel und der gespeicherte Tagesbetrag begrenzen solche Browser-/Desktop-Schritte technisch noch nicht.
 copy	1	de-DE/commandEve.json	Browser & Desktop autonom steuern
 copy	1	de-DE/commandEve.json	Browser & Desktop: Klicks und Eingaben dürfen ohne einzelne Rückfrage laufen.
@@ -529,6 +536,8 @@ copy	1	de-DE/commandEve.json	Dateien anfassen, die nicht zum Projekt gehören.
 copy	1	de-DE/commandEve.json	Deine Freigaben und technischen Grenzen
 copy	1	de-DE/commandEve.json	Deine Stufe regelt die Hermes-Werkzeuge — Terminal, Dateien, Browser, Bildschirmsteuerung, Notizen, Fähigkeiten, Prozesse und Zeitpläne. Diese technischen Grenzen bleiben davon getrennt.
 copy	1	de-DE/commandEve.json	Der Betrag wird gespeichert, aber in dieser Version noch nicht als Tageszähler durchgesetzt. Erkannte Geldbefehle fragt EVE deshalb weiterhin einzeln ab. Wenn du autonome Browser-/Desktop-Steuerung aktivierst, begrenzt dieser Betrag deren Klicks technisch nicht. Das eingetragene Limit ist kein Blankoscheck.
+copy	1	de-DE/commandEve.json	Der Seed ist ein eigener Arbeitsraum. Er ist kostenlos und nutzt den Credit-Pool deines Accounts.
+copy	1	de-DE/commandEve.json	Desktop-Aktion
 copy	1	de-DE/commandEve.json	Diese Einstellung stammt noch aus einer älteren Version und wurde von dir nie bestätigt. Sieh sie einmal durch.
 copy	1	de-DE/commandEve.json	Diese breite Freigabe ist unabhängig von den fünf Wirkungssiegeln und wird nie aus einer alten Einstellung übernommen.
 copy	1	de-DE/commandEve.json	Diese fünf hängen an keiner Stufe. Auch auf „Voll“ bleiben sie aus, bis du sie einzeln anschaltest.
@@ -536,8 +545,15 @@ copy	1	de-DE/commandEve.json	E-Mails, Beiträge, alles, was andere Menschen erre
 copy	1	de-DE/commandEve.json	EVE fragt vor jeder Änderung. Du siehst jeden Schritt, bevor er passiert.
 copy	1	de-DE/commandEve.json	EVE liest und schreibt in deinem Arbeitsordner. Für Befehle fragt sie.
 copy	1	de-DE/commandEve.json	EVE liest, denkt mit und schlägt vor. Sie ändert nichts, auch nichts Freigegebenes.
+copy	1	de-DE/commandEve.json	EVE-Aktionen stoppen
 copy	1	de-DE/commandEve.json	Eine Stufe. Sie regelt die alltäglichen Entscheidungen — nicht die heiklen darunter.
-copy	1	de-DE/commandEve.json	Erneut anmelden, um Kundenplätze zu laden
+copy	1	de-DE/commandEve.json	Eine engere Richtlinie unter deiner bestehenden Freigabe (aktuelle Stufe {{rung}}). Sie kann EVEs Macht nur verringern.
+copy	1	de-DE/commandEve.json	Einmalkauf
+copy	1	de-DE/commandEve.json	Erlaubte Aktionstypen
+copy	1	de-DE/commandEve.json	Erneut abgleichen
+copy	1	de-DE/commandEve.json	Erneut anmelden, um Seeds zu laden
+copy	1	de-DE/commandEve.json	Exakte HTTPS-Origins, eine pro Zeile
+copy	1	de-DE/commandEve.json	Externe Aktionen
 copy	1	de-DE/commandEve.json	Festgehaltene Obergrenze
 copy	1	de-DE/commandEve.json	Fragen
 copy	1	de-DE/commandEve.json	Für einen Rechner, der dir gehört und auf dem EVE einfach arbeiten soll. Setzt die Stufe auf „Voll“, öffnet die fünf Wirkungssiegel und lässt dich Browser-/Desktop-Autonomie separat bestätigen.
@@ -547,30 +563,50 @@ copy	1	de-DE/commandEve.json	Geld ausgeben freigeben — Betrag erforderlich
 copy	1	de-DE/commandEve.json	Geld ausgeben: bleibt, wie es ist — diese Freigabe fasst die Vollfreigabe nicht an.
 copy	1	de-DE/commandEve.json	Geld ausgeben: geht auf, mit {{amount}} als festgehaltener Obergrenze.
 copy	1	de-DE/commandEve.json	Geld ausgeben: ohne Betrag bleibt Geld zu. Nenne eine Zahl oder schalte den Punkt ab.
+copy	1	de-DE/commandEve.json	Gewöhnliches Konto anlegen
 copy	1	de-DE/commandEve.json	Gilt für bekannte Browser-Klicks, Tippen, Tastendrücke, Dialogbestätigungen, CDP und nicht-lesende Bildschirmsteuerung. Neue unbekannte Werkzeuge fragt EVE weiterhin einzeln ab.
 copy	1	de-DE/commandEve.json	Hermes bleibt immer verfügbar. Hier entscheidest du nur, ob EVE den sichtbaren letzten Schritt ohne einzelne Rückfrage ausführt.
+copy	1	de-DE/commandEve.json	Im Browser absenden
 copy	1	de-DE/commandEve.json	In Produktion schreiben
+copy	1	de-DE/commandEve.json	Keine Richtlinie für externe Aktionen aktiv. Externe Ausführung bleibt blockiert.
 copy	1	de-DE/commandEve.json	Klicks und Eingaben ohne Rückfrage ausführen
-copy	1	de-DE/commandEve.json	Kunde hinzufügen
-copy	1	de-DE/commandEve.json	Kunden
+copy	1	de-DE/commandEve.json	Kommunikation senden
 copy	1	de-DE/commandEve.json	Lege fest, was EVE ohne Rückfrage tun darf — und nimm jederzeit zurück, was sie sich gemerkt hat.
 copy	1	de-DE/commandEve.json	Leiste ausklappen
 copy	1	de-DE/commandEve.json	Leiste einklappen
 copy	1	de-DE/commandEve.json	Live-Systeme deployen oder verändern.
 copy	1	de-DE/commandEve.json	Löschen außerhalb des Arbeitsordners
+copy	1	de-DE/commandEve.json	Maximal 10 Seeds pro Account.
+copy	1	de-DE/commandEve.json	Neuen Seed erstellen
 copy	1	de-DE/commandEve.json	Noch nichts gemerkt. EVE fragt bei jedem Befehl.
 copy	1	de-DE/commandEve.json	Notizen, Fähigkeiten und Zeitpläne: Änderungen folgen jetzt deiner Stufe. Auf „Voll“ darf EVE sie selbstständig pflegen; auf niedrigeren Stufen erscheint die normale Freigabe-Karte.
 copy	1	de-DE/commandEve.json	Nur zusehen
 copy	1	de-DE/commandEve.json	Ohne Betrag bleibt das Geld-Siegel zu. Geld-Befehle, die EVE als solche erkennt, kommen dann nicht durch.
+copy	1	de-DE/commandEve.json	Pro Aktion (EUR)
+copy	1	de-DE/commandEve.json	Pro Monat (EUR)
+copy	1	de-DE/commandEve.json	Pro Tag (EUR)
+copy	1	de-DE/commandEve.json	Revision {{revision}} · läuft ab {{expiry}}
+copy	1	de-DE/commandEve.json	Richtlinie läuft ab nach
+copy	1	de-DE/commandEve.json	Richtlinie widerrufen
 copy	1	de-DE/commandEve.json	Routine
 copy	1	de-DE/commandEve.json	Schon offen: {{seal}}
 copy	1	de-DE/commandEve.json	Secrets und Schlüssel im Klartext sehen.
+copy	1	de-DE/commandEve.json	Seed erstellen
+copy	1	de-DE/commandEve.json	Seed hinzufügen
+copy	1	de-DE/commandEve.json	Seed konnte nicht erstellt werden.
+copy	1	de-DE/commandEve.json	Seed wird abgeglichen …
+copy	1	de-DE/commandEve.json	Seed wird erstellt …
+copy	1	de-DE/commandEve.json	Seed wurde erstellt.
+copy	1	de-DE/commandEve.json	Seed-Name
+copy	1	de-DE/commandEve.json	Seeds
 copy	1	de-DE/commandEve.json	Selbstständig
+copy	1	de-DE/commandEve.json	Software installieren (immer HumanGate)
 copy	1	de-DE/commandEve.json	Stufe: bleibt auf „{{rung}}“
 copy	1	de-DE/commandEve.json	Stufe: von „{{from}}“ auf „{{to}}“
 copy	1	de-DE/commandEve.json	Tagesbetrag: Der Betrag wird gespeichert, aber noch nicht gegen einen Tagesverbrauch gebucht. Erkannte Geldbefehle bleiben einzeln freigabepflichtig. Eine aktivierte Browser-/Desktop-Autonomie kann Bezahlvorgänge über die Oberfläche ausführen, ohne dass dieser Betrag sie technisch begrenzt.
 copy	1	de-DE/commandEve.json	Trotzdem wechseln
 copy	1	de-DE/commandEve.json	Unbeantwortete Anfragen: Eine Freigabe-Karte, die du fünf Minuten lang nicht beantwortest, gilt als abgelehnt — nicht als erteilt.
+copy	1	de-DE/commandEve.json	Unterstützte API-Aktionen bevorzugen OAuth. Für unterstützte Browser-Aktionen stellt der Main-Prozess ein eigenes dauerhaftes Profil für dieses Konto, diesen Seed und diese Origin bereit. Passwortmaterial bleibt Main-seitig und ist nur der Rückfall, wenn OAuth und die isolierte Sitzung nicht verfügbar sind. Ohne Main-seitig registrierten Adapter bleibt die Ausführung blockiert.
 copy	1	de-DE/commandEve.json	Veröffentlichen und senden
 copy	1	de-DE/commandEve.json	Voll
 copy	1	de-DE/commandEve.json	Vollfreigabe einrichten
@@ -581,11 +617,14 @@ copy	1	de-DE/commandEve.json	Was EVE nur mit ausdrücklicher Erlaubnis darf
 copy	1	de-DE/commandEve.json	Was EVE sich gemerkt hat
 copy	1	de-DE/commandEve.json	Webseiten-Sperrliste: Ist sie fehlerhaft eingerichtet, gilt sie als leer und alles ist erreichbar.
 copy	1	de-DE/commandEve.json	Wie selbstständig EVE arbeitet
+copy	1	de-DE/commandEve.json	Wiederkehrende Zahlung
+copy	1	de-DE/commandEve.json	Zeitüberschreitung. Noch einmal abgleichen — es wird kein zweiter Seed erzeugt.
 copy	1	de-DE/commandEve.json	Zugangsdaten lesen
 copy	1	de-DE/commandEve.json	Zurücknehmen
 copy	1	de-DE/commandEve.json	Zusätzlich Routine-Befehle: Tests, Builds, lesende git-Abfragen.
 copy	1	de-DE/commandEve.json	Zusätzlich Unumkehrbares. Die fünf unten bleiben trotzdem aus.
 copy	1	de-DE/commandEve.json	Zusätzlich alles Umkehrbare, auch außerhalb des Arbeitsordners.
+copy	1	de-DE/commandEve.json	z. B. Fyn Labs
 copy	1	de-DE/commandEve.json	{{name}} (aktiv)
 copy	1	de-DE/common.json	(optional)
 copy	1	de-DE/common.json	Abbrechen
@@ -2444,6 +2483,7 @@ copy	1	de-DE/settings.json	Abschluss geplanter Aufgaben
 copy	1	de-DE/settings.json	Absenden
 copy	1	de-DE/settings.json	Access Key
 copy	1	de-DE/settings.json	Access Key ID
+copy	1	de-DE/settings.json	Account
 copy	1	de-DE/settings.json	Account ID
 copy	5	de-DE/settings.json	Agent
 copy	1	de-DE/settings.json	Agent auswählen
@@ -2674,7 +2714,7 @@ copy	1	de-DE/settings.json	Deepgram Nova-2
 copy	1	de-DE/settings.json	Definiere zusätzliche Regeln für das Verhalten des Assistenten.
 copy	1	de-DE/settings.json	Dein Startpunkt mit EVE — hier siehst du, ob alles bereit ist.
 copy	1	de-DE/settings.json	Dein Team
-copy	1	de-DE/settings.json	Deine Identität für Command EVE auf diesem Gerät.
+copy	1	de-DE/settings.json	Deine Identität, Anmeldung und Firma. Änderungen benennen keinen Seed um.
 copy	1	de-DE/settings.json	Deine KI-Operatorin für Planung, Umsetzung und tägliche Arbeit.
 copy	1	de-DE/settings.json	Dem System folgen oder EVE dauerhaft hell beziehungsweise dunkel anzeigen.
 copy	1	de-DE/settings.json	Demnächst verfügbar
@@ -2687,6 +2727,7 @@ copy	1	de-DE/settings.json	Der Inhalt dieser Fähigkeit ist derzeit nicht lesbar
 copy	1	de-DE/settings.json	Der MCP-Name kann während der Bearbeitung nicht geändert werden. Behalte den Servernamen auf oberster Ebene als „{{name}}“ bei.
 copy	1	de-DE/settings.json	Der MCP-Server hat HTTP {{status}} zurückgegeben.
 copy	1	de-DE/settings.json	Der MCP-Server hat bei der Verarbeitung von {{method}} einen RPC-Fehler zurückgegeben.
+copy	1	de-DE/settings.json	Der Seed-Name darf nicht leer sein.
 copy	1	de-DE/settings.json	Der ausführbare Befehl zum Starten der Agenten-CLI
 copy	1	de-DE/settings.json	Derzeit in der CLI nicht verfügbar
 copy	1	de-DE/settings.json	Derzeit unterstützte Bildmodelle:
@@ -2717,6 +2758,7 @@ copy	1	de-DE/settings.json	Diese Adresse direkt verwenden, kein Pfad wird angeh�
 copy	1	de-DE/settings.json	Diese Aktion entfernt alle lokalen Vertrauensnachweise von diesem Mac.
 copy	1	de-DE/settings.json	Diese Einstellung ist momentan nicht verfügbar. Cloud-Bildanalyse bleibt blockiert.
 copy	1	de-DE/settings.json	Diese Offenlegung gilt nur für automatische Telemetrie. Feedback sendest du davon getrennt selbst ab.
+copy	1	de-DE/settings.json	Dieser Seed
 copy	1	de-DE/settings.json	Dieses Gerät ist angemeldet.
 copy	1	de-DE/settings.json	DingTalk
 copy	1	de-DE/settings.json	DingTalk-Bot aktiviert
@@ -3088,6 +3130,7 @@ copy	1	de-DE/settings.json	Nachrichtenkanäle
 copy	3	de-DE/settings.json	Name
 copy	1	de-DE/settings.json	Name & Avatar
 copy	2	de-DE/settings.json	Name ist erforderlich
+copy	1	de-DE/settings.json	Name und Einstellungen dieses Arbeitsraums. Dein Accountprofil bleibt unverändert.
 copy	1	de-DE/settings.json	Name und Firma dürfen nicht leer sein.
 copy	1	de-DE/settings.json	Namen der Voreinstellung eingeben
 copy	1	de-DE/settings.json	Netzwerk-URL
@@ -3167,7 +3210,6 @@ copy	1	de-DE/settings.json	Plugin-System
 copy	1	de-DE/settings.json	Port
 copy	1	de-DE/settings.json	Pro
 copy	3	de-DE/settings.json	Problem melden
-copy	1	de-DE/settings.json	Profil
 copy	1	de-DE/settings.json	Profil gespeichert.
 copy	1	de-DE/settings.json	Profil öffnen
 copy	1	de-DE/settings.json	Profilname aus ~/.aws/config (z. B. „default“)
@@ -3215,6 +3257,11 @@ copy	1	de-DE/settings.json	Schritt 1: WebUI aktivieren; Schritt 2: Zugangs-URL k
 copy	1	de-DE/settings.json	Screenshots
 copy	1	de-DE/settings.json	Screenshots hier klicken, ziehen oder einfügen
 copy	1	de-DE/settings.json	Secret Access Key
+copy	1	de-DE/settings.json	Seed speichern
+copy	1	de-DE/settings.json	Seed umbenennen
+copy	1	de-DE/settings.json	Seed-Name
+copy	1	de-DE/settings.json	Seed-Name gespeichert.
+copy	1	de-DE/settings.json	Seed-Name konnte nicht gespeichert werden.
 copy	1	de-DE/settings.json	Sehen und hören
 copy	1	de-DE/settings.json	Sende eine beliebige Nachricht an den Bot in WeCom, um die Kopplung zu starten
 copy	2	de-DE/settings.json	Sende eine beliebige Nachricht oder klicke auf /start, um die Kopplung zu starten
@@ -3360,7 +3407,7 @@ copy	1	de-DE/settings.json	Verpacke die MCP-Serverkonfiguration in ein „mcpSer
 copy	1	de-DE/settings.json	Version
 copy	1	de-DE/settings.json	Version, Updates und Support für deine Command-EVE-Installation.
 copy	1	de-DE/settings.json	Vertex AI
-copy	1	de-DE/settings.json	Verwalte dein lokales Profil, deine Anmeldung und den Zugriff auf EVE Cloud.
+copy	1	de-DE/settings.json	Verwalte getrennt deinen Account und den aktiven Seed.
 copy	1	de-DE/settings.json	Verwalte, welche Fähigkeiten EVE für deine Arbeit einsetzen kann.
 copy	1	de-DE/settings.json	Verwende Playwright MCP, um über den CDP-Endpunkt eine Verbindung herzustellen, mit Accessibility-Snapshots und Browser-Automatisierung.
 copy	1	de-DE/settings.json	Verwende dies, wenn das Problem mehrere Module betrifft oder du dir nicht sicher bist, welche Kategorie am besten passt.
@@ -3416,7 +3463,7 @@ copy	1	de-DE/settings.json	Wird für Lark-Konversationen verwendet
 copy	1	de-DE/settings.json	Wird für Telegram-Konversationen verwendet
 copy	1	de-DE/settings.json	Wird für WeChat-Konversationen verwendet
 copy	1	de-DE/settings.json	Wird für WeCom-Konversationen verwendet
-copy	1	de-DE/settings.json	Wird gespeichert …
+copy	2	de-DE/settings.json	Wird gespeichert …
 copy	1	de-DE/settings.json	Wird gestartet …
 copy	1	de-DE/settings.json	Wird getestet
 copy	1	de-DE/settings.json	Wird getestet …
@@ -4095,8 +4142,15 @@ copy	1	en-US/commandCenter.json	unavailable
 copy	1	en-US/commandCenter.json	waiting
 copy	1	en-US/commandCenter.json	waiting for controller
 copy	1	en-US/commandCenter.json	waiting for dispatch check
+copy	1	en-US/commandEve.json	1 hour
+copy	1	en-US/commandEve.json	24 hours
+copy	1	en-US/commandEve.json	30 days
+copy	1	en-US/commandEve.json	7 days
+copy	1	en-US/commandEve.json	A Seed is its own workspace. It is free and uses your Account credit pool.
+copy	1	en-US/commandEve.json	A narrow policy below your existing authority (current rung {{rung}}). It can only reduce what EVE may do.
 copy	1	en-US/commandEve.json	A response is still running
-copy	1	en-US/commandEve.json	Add client
+copy	1	en-US/commandEve.json	Add Seed
+copy	1	en-US/commandEve.json	Allowed action types
 copy	1	en-US/commandEve.json	Already open: {{seal}}
 copy	1	en-US/commandEve.json	Applies to known browser clicks, typing, key presses, dialog confirmation, CDP and non-reading screen control. EVE still asks separately for new unknown tools.
 copy	1	en-US/commandEve.json	Apply selection
@@ -4108,21 +4162,28 @@ copy	1	en-US/commandEve.json	Browser & Desktop: stays as it is — without this 
 copy	1	en-US/commandEve.json	Browser & Desktop: the broad permission is already active.
 copy	1	en-US/commandEve.json	Browser & Desktop: the broad permission is withdrawn; EVE asks again before clicks and input.
 copy	1	en-US/commandEve.json	Cancel
-copy	1	en-US/commandEve.json	Clients
 copy	1	en-US/commandEve.json	Collapse rail
 copy	1	en-US/commandEve.json	Command scanner: the extra security scanner lets things through when it is not running or not installed. It is a second opinion, not a lock.
 copy	1	en-US/commandEve.json	Commands you allowed permanently for this seat. EVE stops asking for them — until you withdraw one here.
 copy	1	en-US/commandEve.json	Control Browser & Desktop autonomously
+copy	1	en-US/commandEve.json	Create Seed
+copy	1	en-US/commandEve.json	Create a new Seed
+copy	1	en-US/commandEve.json	Create ordinary account
+copy	1	en-US/commandEve.json	Creating Seed …
 copy	1	en-US/commandEve.json	Daily amount: the amount is saved, but is not yet booked against daily usage. Recognised money commands still require a separate approval. Enabled Browser/Desktop autonomy may complete payments through the UI without this amount technically constraining them.
 copy	1	en-US/commandEve.json	Decide what EVE may do without asking — and withdraw anything it has remembered, any time.
 copy	1	en-US/commandEve.json	Delete outside the workspace
 copy	1	en-US/commandEve.json	Deploy or change live systems.
+copy	1	en-US/commandEve.json	Desktop action
 copy	1	en-US/commandEve.json	EVE asks before every change. You see each step before it happens.
 copy	1	en-US/commandEve.json	EVE reads and writes inside your workspace. For commands it asks.
 copy	1	en-US/commandEve.json	EVE reads, thinks along and suggests. It changes nothing, not even what you granted.
 copy	1	en-US/commandEve.json	Emails, posts, anything that reaches other people.
+copy	1	en-US/commandEve.json	Enter a name for the Seed.
+copy	1	en-US/commandEve.json	Exact HTTPS origins, one per line
 copy	1	en-US/commandEve.json	Expand rail
 copy	1	en-US/commandEve.json	Explicitly allow Browser/Desktop autonomy
+copy	1	en-US/commandEve.json	External actions
 copy	1	en-US/commandEve.json	For a machine that is yours and where EVE should simply get on with it. Sets the rung to “Full”, opens the five effect seals and lets you confirm Browser/Desktop autonomy separately.
 copy	1	en-US/commandEve.json	Full
 copy	1	en-US/commandEve.json	Full release for this machine
@@ -4132,40 +4193,64 @@ copy	1	en-US/commandEve.json	Here is what happens when you confirm:
 copy	1	en-US/commandEve.json	Hermes remains available at all times. Here you decide only whether EVE may execute the visible final step without a separate prompt.
 copy	1	en-US/commandEve.json	How independently EVE works
 copy	1	en-US/commandEve.json	Independent
+copy	1	en-US/commandEve.json	Install software (always HumanGate)
 copy	1	en-US/commandEve.json	Memory, skills and schedules: changes now follow your rung. On Full, EVE may maintain them independently; lower rungs use the normal approval card.
+copy	1	en-US/commandEve.json	Modify artifact
+copy	1	en-US/commandEve.json	No external-action policy is active. External execution remains blocked.
 copy	1	en-US/commandEve.json	Nothing remembered yet. EVE asks for every command.
 copy	1	en-US/commandEve.json	Nothing would change — all of this is already set that way.
 copy	1	en-US/commandEve.json	One rung. It governs the everyday decisions — not the delicate ones below.
+copy	1	en-US/commandEve.json	One-time purchase
 copy	1	en-US/commandEve.json	Opens: {{seal}}
 copy	1	en-US/commandEve.json	Paid models and services. You name the amount you record for it when you switch this on.
+copy	1	en-US/commandEve.json	Per action (EUR)
+copy	1	en-US/commandEve.json	Per day (EUR)
+copy	1	en-US/commandEve.json	Per month (EUR)
 copy	1	en-US/commandEve.json	Plus everything reversible, including outside the workspace.
 copy	1	en-US/commandEve.json	Plus irreversible work. The five below still stay off.
 copy	1	en-US/commandEve.json	Plus routine commands: tests, builds, read-only git.
+copy	1	en-US/commandEve.json	Policy expires after
 copy	1	en-US/commandEve.json	Publish and send
 copy	1	en-US/commandEve.json	Read credentials
+copy	1	en-US/commandEve.json	Reconcile again
+copy	1	en-US/commandEve.json	Reconciling Seed …
 copy	1	en-US/commandEve.json	Recorded upper bound
+copy	1	en-US/commandEve.json	Recurring payment
 copy	1	en-US/commandEve.json	Release spending — an amount is required
+copy	1	en-US/commandEve.json	Revision {{revision}} · expires {{expiry}}
+copy	1	en-US/commandEve.json	Revoke policy
 copy	1	en-US/commandEve.json	Routine
 copy	1	en-US/commandEve.json	Run clicks and input without asking
 copy	1	en-US/commandEve.json	Rung: from “{{from}}” to “{{to}}”
 copy	1	en-US/commandEve.json	Rung: stays at “{{rung}}”
+copy	1	en-US/commandEve.json	Save scoped policy
 copy	1	en-US/commandEve.json	Screen control: visibility and navigation follow your rung. Clicking and typing always remain available. Without the broad Browser/Desktop permission, you approve the final step separately; with it, EVE runs the known UI actions autonomously. Hermes still blocks a few destructive system key combinations so the running machine cannot be locked or logged out.
 copy	1	en-US/commandEve.json	See secrets and keys in clear text.
+copy	1	en-US/commandEve.json	Seed created.
+copy	1	en-US/commandEve.json	Seed name
+copy	1	en-US/commandEve.json	Seeds
+copy	1	en-US/commandEve.json	Send communication
 copy	1	en-US/commandEve.json	Set up full release
-copy	1	en-US/commandEve.json	Sign in again to load your seats
+copy	1	en-US/commandEve.json	Sign in again to load your Seeds
 copy	1	en-US/commandEve.json	Spend money
 copy	1	en-US/commandEve.json	Spend money: opens, with {{amount}} as the recorded upper bound.
 copy	1	en-US/commandEve.json	Spend money: stays as it is — the full release does not touch this one.
 copy	1	en-US/commandEve.json	Spend money: without an amount, money stays closed. Name a number, or switch this item off.
+copy	1	en-US/commandEve.json	Stop EVE actions
+copy	1	en-US/commandEve.json	Submit in browser
+copy	1	en-US/commandEve.json	Supported API actions prefer OAuth. For supported browser actions, Main provides a separate persistent profile for this account, Seed and origin. Password material stays Main-only and is only a fallback when OAuth and the isolated session are unavailable. Execution remains blocked without a Main-registered adapter.
 copy	1	en-US/commandEve.json	Switch anyway
 copy	1	en-US/commandEve.json	Switching seats aborts and discards the running response. Switch anyway?
 copy	1	en-US/commandEve.json	That is a high daily amount. It is saved — please check you did not mistype.
+copy	1	en-US/commandEve.json	The Seed could not be created.
 copy	1	en-US/commandEve.json	The amount is saved, but this version does not yet enforce it as a daily ledger. EVE therefore still asks separately for recognised money commands. If you enable autonomous Browser/Desktop control, this amount does not technically constrain its clicks. The configured limit is not a blank cheque.
+copy	1	en-US/commandEve.json	The request timed out. Reconcile again — no second Seed will be created.
 copy	1	en-US/commandEve.json	These five hang off no rung. Even on “Full” they stay off until you switch each one on.
 copy	1	en-US/commandEve.json	This broad permission is independent from the five effect seals and is never inherited from an old setting.
 copy	1	en-US/commandEve.json	This setting came from an older version and you never confirmed it. Have a look.
 copy	1	en-US/commandEve.json	Touch files that do not belong to the project.
 copy	1	en-US/commandEve.json	Unanswered requests: a permission card you leave unanswered for five minutes counts as denied — not as granted.
+copy	1	en-US/commandEve.json	Up to 10 Seeds per Account.
 copy	1	en-US/commandEve.json	Watch only
 copy	1	en-US/commandEve.json	Website blocklist: if it is misconfigured it counts as empty, and everything is reachable.
 copy	1	en-US/commandEve.json	What EVE has remembered
@@ -4176,6 +4261,7 @@ copy	1	en-US/commandEve.json	Working
 copy	1	en-US/commandEve.json	Write to production
 copy	1	en-US/commandEve.json	Your permissions and technical boundaries
 copy	1	en-US/commandEve.json	Your rung governs Hermes tools — terminal, files, browser, screen control, memory, skills, processes and schedules. These technical boundaries remain separate.
+copy	1	en-US/commandEve.json	e.g. Fyn Labs
 copy	1	en-US/commandEve.json	{{name}} (active)
 copy	1	en-US/common.json	(optional)
 copy	1	en-US/common.json	A durable operation is incomplete. Use Recover; do not repeat the original action.
@@ -6029,7 +6115,7 @@ copy	1	en-US/settings.json	Access Key
 copy	1	en-US/settings.json	Access Key ID
 copy	1	en-US/settings.json	Access URL
 copy	1	en-US/settings.json	Access URLs
-copy	2	en-US/settings.json	Account
+copy	3	en-US/settings.json	Account
 copy	1	en-US/settings.json	Account ID
 copy	1	en-US/settings.json	Account Info
 copy	1	en-US/settings.json	Activate EVE Cloud
@@ -6590,7 +6676,7 @@ copy	1	en-US/settings.json	Manage connections
 copy	1	en-US/settings.json	Manage in Skills Hub
 copy	1	en-US/settings.json	Manage roles, budget, and your connected tools.
 copy	1	en-US/settings.json	Manage the skills EVE can use for your work.
-copy	1	en-US/settings.json	Manage your local profile, sign-in state, and access to EVE Cloud.
+copy	1	en-US/settings.json	Manage your Account and the active Seed separately.
 copy	1	en-US/settings.json	Manage your spend cap, credits and packs.
 copy	1	en-US/settings.json	Managed by a CLI plugin and can't be imported here
 copy	1	en-US/settings.json	Manual Add
@@ -6797,7 +6883,6 @@ copy	1	en-US/settings.json	Privacy & approvals
 copy	1	en-US/settings.json	Pro
 copy	1	en-US/settings.json	Process locally
 copy	1	en-US/settings.json	Production usually requires a public HTTPS URL reachable by WeCom. Start WebUI first; use a reverse proxy or tunnel if needed.
-copy	1	en-US/settings.json	Profile
 copy	1	en-US/settings.json	Profile name from ~/.aws/config (e.g., 'default')
 copy	1	en-US/settings.json	Profile saved.
 copy	1	en-US/settings.json	Project, Files & Preview
@@ -6834,6 +6919,7 @@ copy	1	en-US/settings.json	Remove from assistant
 copy	1	en-US/settings.json	Remove image
 copy	1	en-US/settings.json	Removes the license, registration and login from this device. You will return to registration and must sign in again.
 copy	1	en-US/settings.json	Removing MCP configuration...
+copy	1	en-US/settings.json	Rename Seed
 copy	1	en-US/settings.json	Replace image
 copy	1	en-US/settings.json	Report issue
 copy	1	en-US/settings.json	Report submitted, thank you for your feedback
@@ -6861,11 +6947,12 @@ copy	1	en-US/settings.json	Running
 copy	1	en-US/settings.json	Runs on your Mac with Whisper — no API key, and your audio never leaves the device.
 copy	2	en-US/settings.json	Save
 copy	1	en-US/settings.json	Save & Enable
+copy	1	en-US/settings.json	Save Seed
 copy	1	en-US/settings.json	Save Settings
 copy	1	en-US/settings.json	Save Uploads to Project Folder
 copy	1	en-US/settings.json	Save failed.
 copy	1	en-US/settings.json	Saved locally. It takes effect as soon as your seat status has been verified.
-copy	1	en-US/settings.json	Saving …
+copy	2	en-US/settings.json	Saving …
 copy	2	en-US/settings.json	Scale
 copy	1	en-US/settings.json	Scan MCP Tools
 copy	1	en-US/settings.json	Scan the QR code with your phone to log in automatically on mobile browser
@@ -6879,6 +6966,8 @@ copy	1	en-US/settings.json	Search EVE's available skills or add your own reusabl
 copy	1	en-US/settings.json	Search assistants by name or description
 copy	1	en-US/settings.json	Search skills...
 copy	1	en-US/settings.json	Secret Access Key
+copy	1	en-US/settings.json	Seed name
+copy	1	en-US/settings.json	Seed name saved.
 copy	1	en-US/settings.json	Seeing and hearing
 copy	1	en-US/settings.json	Select
 copy	1	en-US/settings.json	Select Agent
@@ -6981,16 +7070,20 @@ copy	1	en-US/settings.json	Testing
 copy	1	en-US/settings.json	Testing...
 copy	1	en-US/settings.json	The MCP server returned HTTP {{status}}.
 copy	1	en-US/settings.json	The MCP server returned an RPC error while handling {{method}}.
+copy	1	en-US/settings.json	The Seed name could not be saved.
+copy	1	en-US/settings.json	The Seed name must not be empty.
 copy	1	en-US/settings.json	The background image could not be stored. Choose a PNG, JPEG, WebP, GIF or BMP below 2 MB.
 copy	1	en-US/settings.json	The cloud AI answers right away. Optional: load the local AI (Smart Local).
 copy	1	en-US/settings.json	The executable command to run the agent CLI
 copy	1	en-US/settings.json	The installed app and its current version.
 copy	1	en-US/settings.json	The local copy used by Command EVE will be removed from this device.
+copy	1	en-US/settings.json	The name and settings of this workspace. Your Account profile remains unchanged.
 copy	1	en-US/settings.json	The selection applies to new EVE sessions. Existing sessions are never rerouted silently.
 copy	1	en-US/settings.json	The skill could not be opened.
 copy	1	en-US/settings.json	The skills library — including skills EVE authored herself.
 copy	1	en-US/settings.json	The strongest Gemma lane for substantial local work on high-performance Macs.
 copy	1	en-US/settings.json	Theme
+copy	1	en-US/settings.json	This Seed
 copy	1	en-US/settings.json	This action removes all local trust records from this Mac.
 copy	1	en-US/settings.json	This channel needs a publicly reachable HTTPS address for incoming messages. Network-only access is not sufficient.
 copy	1	en-US/settings.json	This device is signed in.
@@ -7093,7 +7186,7 @@ copy	1	en-US/settings.json	You can also enter any custom model ID supported by t
 copy	1	en-US/settings.json	You can paste any model name directly. Keep it consistent with the provider console for best compatibility.
 copy	1	en-US/settings.json	You'll find the first steps in the desktop app.
 copy	1	en-US/settings.json	Your AI operator for planning, creating, and getting work done.
-copy	1	en-US/settings.json	Your identity for Command EVE on this device.
+copy	1	en-US/settings.json	Your identity, sign-in, and company. Changes never rename a Seed.
 copy	1	en-US/settings.json	Your own models / API keys are included in the Standard subscription (not unlocked during the trial)
 copy	1	en-US/settings.json	Your starting point with EVE — here you can see whether everything is ready.
 copy	1	en-US/settings.json	Your team
