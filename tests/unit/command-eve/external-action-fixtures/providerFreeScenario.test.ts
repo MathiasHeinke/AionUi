@@ -44,7 +44,15 @@ describe('provider-free identity, phone, and commerce scenario fixture', () => {
   });
 
   it('models phone provisioning, opaque OTP outcomes, SMS, and revoke without voice telephony', () => {
-    for (const action of ['provision', 'link', 'otp_receive', 'otp_use', 'sms_send', 'sms_receive', 'revoke'] as const) {
+    for (const action of [
+      'provision',
+      'link',
+      'otp_receive',
+      'otp_use',
+      'sms_send',
+      'sms_receive',
+      'revoke',
+    ] as const) {
       const result = resolveProviderFreeFixtureScenario({
         domain: 'phone_identity',
         action,

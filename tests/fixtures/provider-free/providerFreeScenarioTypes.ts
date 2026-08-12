@@ -44,10 +44,7 @@ export type ProviderFreePhoneAction =
 
 export type ProviderFreeCommerceAction = 'purchase';
 
-export type ProviderFreeFixtureAction =
-  | ProviderFreeEmailAction
-  | ProviderFreePhoneAction
-  | ProviderFreeCommerceAction;
+export type ProviderFreeFixtureAction = ProviderFreeEmailAction | ProviderFreePhoneAction | ProviderFreeCommerceAction;
 
 export type ProviderFreeFixtureOutcome = 'committed' | 'pre_effect_reversed' | 'possible_effect_unknown' | 'needs_user';
 
