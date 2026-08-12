@@ -60,6 +60,7 @@ export function registerExternalActionAdapter(adapter: ExternalActionAdapter): v
     Object.freeze({
       ...adapter,
       operations: Object.freeze(adapter.operations.map((operation) => Object.freeze({ ...operation }))),
+      ...(adapter.authOrigins ? { authOrigins: Object.freeze([...adapter.authOrigins]) } : {}),
       supports: Object.freeze({ ...adapter.supports }),
     })
   );

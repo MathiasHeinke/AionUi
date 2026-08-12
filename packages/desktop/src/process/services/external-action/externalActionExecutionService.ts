@@ -63,6 +63,11 @@ import { ExternalSecretUseBroker, type SecretMaterialResolver } from './secretUs
 
 export type ExternalActionAuthMode = EveExternalActionAuthMode;
 export type ExternalActionAuthProbe = 'ready' | 'needs_user' | 'unavailable';
+/**
+ * Main owns the callback route. Adapters only receive this opaque route marker;
+ * renderer/model input cannot nominate a callback or redirect target.
+ */
+export const EXTERNAL_ACTION_MAIN_OAUTH_CALLBACK_REF = 'command-eve-main-oauth-callback/v1' as const;
 export type ExternalActionChallengeProbe =
   | { status: 'ready' }
   | { status: 'needs_user'; challenge: EveExternalActionChallenge };
@@ -83,6 +88,19 @@ export interface ExternalActionAdapterContext {
   adapterPayload?: Uint8Array;
   /** Main-owned persistent Electron partition. Cookies never leave it. */
   browserPartition?: string;
+}
+
+/**
+ * OAuth linking is the sole adapter phase that receives a registered auth
+ * origin. The action target remains available only through `proposal` and is
+ * never replaced by this origin for execution or credential injection.
+ */
+export interface ExternalActionOAuthProbeContext extends Omit<ExternalActionAdapterContext, 'authMode'> {
+  authOrigin?: string;
+  authOrigins: readonly string[];
+  /** Isolated Main-derived browser partition for the auth origin, never egress authority. */
+  authBrowserPartition?: string;
+  callbackRef: typeof EXTERNAL_ACTION_MAIN_OAUTH_CALLBACK_REF;
 }
 
 export type ExternalActionAdapterOutcome =
@@ -187,6 +205,12 @@ export interface ExternalActionAdapter {
   readonly providerOrMerchantLabelCode: EveExternalActionProviderMerchantLabelCode;
   /** Main-owned registry rows. Renderer/model input can never create or alter these fields. */
   readonly operations: readonly ExternalActionRegisteredOperation[];
+  /**
+   * Optional immutable HTTPS authorization-origin allowlist for OAuth/OIDC
+   * link/reauth only. It is never request input and never authorizes action
+   * egress, secret use, or browser session access at that origin.
+   */
+  readonly authOrigins?: readonly string[];
   readonly supports: Readonly<{
     oauth: boolean;
     browserSession: boolean;
@@ -212,7 +236,7 @@ export interface ExternalActionAdapter {
   ): ExternalActionAdapterPayloadValidation;
   /** Must not begin the governed external effect; crashes remain safely reversible. */
   probeChallenge?(context: Omit<ExternalActionAdapterContext, 'authMode'>): Promise<ExternalActionChallengeProbe>;
-  probeOAuth?(context: Omit<ExternalActionAdapterContext, 'authMode'>): Promise<ExternalActionAuthProbe>;
+  probeOAuth?(context: ExternalActionOAuthProbeContext): Promise<ExternalActionAuthProbe>;
   probeBrowserSession?(
     context: Omit<ExternalActionAdapterContext, 'authMode'> & { browserPartition: string }
   ): Promise<ExternalActionAuthProbe>;
@@ -352,6 +376,9 @@ type SelectedAuthResult =
       authMode: ExternalActionAuthMode;
       handleId?: string;
       browserPartition?: string;
+      authOrigin?: string;
+      authOrigins?: readonly string[];
+      authOriginsDigest?: string;
     }
   | {
       status: 'needs_user';
@@ -360,6 +387,9 @@ type SelectedAuthResult =
       resumable: boolean;
       challengeKind?: EveExternalActionChallenge['kind'];
       browserPartition?: string;
+      authOrigin?: string;
+      authOrigins?: readonly string[];
+      authOriginsDigest?: string;
     }
   | { status: 'denied'; reasonCode: string; authMode?: ExternalActionAuthMode };
 
@@ -382,6 +412,9 @@ export interface ExternalActionOperationDigestPreimage {
   conversationContext: ExternalActionConversationContext;
   adapterId: string;
   authMode: ExternalActionAuthMode;
+  authOrigin: string | null;
+  authOrigins: readonly string[] | null;
+  authOriginsDigest: string | null;
   slotManifest: readonly EveExternalActionSlotBinding[];
   action: EveExternalActionProposal['action'];
 }
@@ -423,6 +456,9 @@ export interface ExternalActionExecutionDigestPreimage {
   conversationId: string;
   conversationSessionId: string;
   authMode: ExternalActionAuthMode;
+  authOrigin: string | null;
+  authOrigins: readonly string[] | null;
+  authOriginsDigest: string | null;
   domain: string;
   domainAction: string;
   counterpartyId: string;
@@ -638,13 +674,41 @@ function normalizeRegisteredOperation(input: unknown): ExternalActionRegisteredO
   };
 }
 
+const MAX_REGISTERED_AUTH_ORIGINS = 2;
+
+/**
+ * Adapter registration is the only authority for OAuth/OIDC authorization
+ * origins. Reject rather than normalize so an adapter cannot silently widen
+ * its declared route through aliases, paths, or duplicate origins.
+ */
+function registeredAuthOrigins(adapter: ExternalActionAdapter): readonly string[] | null {
+  if (adapter.authOrigins === undefined) return [];
+  if (!Array.isArray(adapter.authOrigins) || adapter.authOrigins.length > MAX_REGISTERED_AUTH_ORIGINS) return null;
+  const origins: string[] = [];
+  for (const rawOrigin of adapter.authOrigins) {
+    const origin = normalizeEveExternalOrigin(rawOrigin);
+    if (!origin || origin !== rawOrigin || origins.includes(origin)) return null;
+    origins.push(origin);
+  }
+  return Object.freeze(origins);
+}
+
 function resolveRegisteredAdapterOperation(
   adapters: readonly ExternalActionAdapter[],
   proposal: EveExternalActionProposal
 ):
-  | { ok: true; adapter: ExternalActionAdapter; operation: ExternalActionRegisteredOperation }
+  | {
+      ok: true;
+      adapter: ExternalActionAdapter;
+      operation: ExternalActionRegisteredOperation;
+      authOrigins: readonly string[];
+    }
   | { ok: false; reasonCode: string } {
-  const matches: Array<{ adapter: ExternalActionAdapter; operation: ExternalActionRegisteredOperation }> = [];
+  const matches: Array<{
+    adapter: ExternalActionAdapter;
+    operation: ExternalActionRegisteredOperation;
+    authOrigins: readonly string[];
+  }> = [];
   for (const adapter of adapters) {
     if (
       !isEveOpaqueId(adapter.id) ||
@@ -655,12 +719,18 @@ function resolveRegisteredAdapterOperation(
     ) {
       continue;
     }
+    const authOrigins = registeredAuthOrigins(adapter);
+    if (!authOrigins) continue;
     const operations = adapter.operations.map(normalizeRegisteredOperation);
     if (operations.some((operation) => !operation)) continue;
     for (const operation of operations as ExternalActionRegisteredOperation[]) {
       const targetOrigin = operation.domain === 'commerce' ? operation.checkoutOrigin : operation.providerOrigin;
+      // An OAuth link origin is never itself an external-effect target for the
+      // same adapter. This blocks action-at-auth-origin registration before a
+      // renderer/model request can reach reserve or probe code.
+      if (authOrigins.includes(targetOrigin)) continue;
       if (operation.actionKind === proposal.action.kind && targetOrigin === proposal.action.targetOrigin) {
-        matches.push({ adapter, operation });
+        matches.push({ adapter, operation, authOrigins });
       }
     }
   }
@@ -1320,7 +1390,7 @@ export class ExternalActionExecutionService {
     if ('reasonCode' in registered) {
       return { ok: false, outcome: result('denied', { reasonCode: registered.reasonCode }) };
     }
-    const { adapter, operation } = registered;
+    const { adapter, operation, authOrigins } = registered;
     const origins: readonly string[] =
       operation.domain === 'commerce'
         ? [operation.merchantOrigin, operation.checkoutOrigin]
@@ -1450,7 +1520,7 @@ export class ExternalActionExecutionService {
 
     let auth: SelectedAuthResult;
     try {
-      auth = await this.selectAuth(adapter, binding, proposal, payloadValidation?.slotManifest ?? []);
+      auth = await this.selectAuth(adapter, binding, proposal, payloadValidation?.slotManifest ?? [], authOrigins);
     } catch {
       return {
         ok: false,
@@ -1510,6 +1580,9 @@ export class ExternalActionExecutionService {
       conversationContext,
       adapterId: adapter.id,
       authMode: auth.authMode,
+      authOrigin: auth.authOrigin ?? null,
+      authOrigins: auth.authOrigins ?? null,
+      authOriginsDigest: auth.authOriginsDigest ?? null,
       slotManifest,
       action: proposal.action,
     };
@@ -1545,6 +1618,9 @@ export class ExternalActionExecutionService {
       conversationId: conversationContext.conversationId,
       conversationSessionId: conversationContext.conversationSessionId,
       authMode: auth.authMode,
+      authOrigin: auth.authOrigin ?? null,
+      authOrigins: auth.authOrigins ?? null,
+      authOriginsDigest: auth.authOriginsDigest ?? null,
       domain: operation.domain,
       domainAction: operation.action,
       counterpartyId: operation.counterpartyId,
@@ -1573,6 +1649,9 @@ export class ExternalActionExecutionService {
       conversationSessionId: conversationContext.conversationSessionId,
       adapterId: adapter.id,
       authMode: auth.authMode,
+      ...(auth.authOrigin && auth.authOrigins && auth.authOriginsDigest
+        ? { authOrigin: auth.authOrigin, authOrigins: auth.authOrigins, authOriginsDigest: auth.authOriginsDigest }
+        : {}),
       domain: operation.domain,
       domainAction: operation.action,
       counterpartyId: operation.counterpartyId,
@@ -2845,6 +2924,7 @@ export class ExternalActionExecutionService {
       policy: EveExternalActionPolicy;
       reservationId: string;
       proposal: EveExternalActionProposal;
+      executionContract: Pick<ExternalActionExecutionContractIdentity, 'authOrigin'>;
     },
     authMode: ExternalActionAuthMode,
     reasonCode: string,
@@ -2863,7 +2943,12 @@ export class ExternalActionExecutionService {
     return {
       kind,
       challengeRef: `challenge:${sha256(canonical({ reservationId: input.reservationId, authMode, reasonCode })).slice(7, 55)}`,
-      origin: input.proposal.action.targetOrigin,
+      // Only the Main-selected OAuth consent step may leave the action target.
+      // Generic pre-execute and post-effect challenges remain action-origin
+      // bound, including 3DS and payment challenges.
+      origin: kind === 'oauth_consent' && input.executionContract.authOrigin
+        ? input.executionContract.authOrigin
+        : input.proposal.action.targetOrigin,
       expiresAt,
       userInstructionCode: instructionForChallengeKind(kind),
     };
@@ -3104,15 +3189,27 @@ export class ExternalActionExecutionService {
     adapter: ExternalActionAdapter,
     binding: EveExternalActionBinding,
     proposal: EveExternalActionProposal,
-    slotManifest: readonly EveExternalActionSlotBinding[]
+    slotManifest: readonly EveExternalActionSlotBinding[],
+    authOrigins: readonly string[]
   ): Promise<SelectedAuthResult> {
     const base = { binding, proposal };
+    const authOrigin = authOrigins[0];
+    const authOriginsDigest = authOrigins.length > 0 ? sha256(canonical(authOrigins)) : undefined;
+    const authBrowserPartition = authOrigin ? externalActionBrowserPartition(binding, authOrigin) ?? undefined : undefined;
     const oauthHandleId =
       slotManifest.find((entry) => entry.slot === 'oauth_token')?.handleId ?? proposal.oauthHandleId;
     const passwordHandleId =
       slotManifest.find((entry) => entry.slot === 'account_password')?.handleId ?? proposal.passwordHandleId;
     if (adapter.supports.oauth) {
-      const probe = adapter.probeOAuth ? await adapter.probeOAuth(base) : 'ready';
+      const probe = adapter.probeOAuth
+        ? await adapter.probeOAuth({
+            ...base,
+            authOrigins,
+            ...(authOrigin ? { authOrigin } : {}),
+            ...(authBrowserPartition ? { authBrowserPartition } : {}),
+            callbackRef: EXTERNAL_ACTION_MAIN_OAUTH_CALLBACK_REF,
+          })
+        : 'ready';
       if (!isAuthProbe(probe)) {
         return { status: 'denied', reasonCode: 'EXTERNAL_AUTH_PROBE_INVALID', authMode: 'oauth' };
       }
@@ -3124,6 +3221,7 @@ export class ExternalActionExecutionService {
             authMode: 'oauth',
             resumable: Boolean(oauthHandleId),
             challengeKind: 'oauth_consent',
+            ...(authOrigin && authOriginsDigest ? { authOrigin, authOrigins, authOriginsDigest } : {}),
           };
         }
         if (!oauthHandleId) {
@@ -3132,9 +3230,15 @@ export class ExternalActionExecutionService {
             reasonCode: 'EXTERNAL_OAUTH_REQUIRED',
             authMode: 'oauth',
             resumable: false,
+            ...(authOrigin && authOriginsDigest ? { authOrigin, authOrigins, authOriginsDigest } : {}),
           };
         }
-        return { status: 'ready', authMode: 'oauth', handleId: oauthHandleId };
+        return {
+          status: 'ready',
+          authMode: 'oauth',
+          handleId: oauthHandleId,
+          ...(authOrigin && authOriginsDigest ? { authOrigin, authOrigins, authOriginsDigest } : {}),
+        };
       }
     }
 

@@ -195,6 +195,12 @@ export interface ExternalActionExecutionContractIdentity {
   domainAction: string;
   counterpartyId: string;
   providerOrMerchantLabelCode: EveExternalActionProviderMerchantLabelCode;
+  /** Main-selected OAuth/OIDC link origin; never an action/secret-use origin. */
+  authOrigin?: string;
+  /** Ordered, max-two canonical origins from the immutable adapter registration. */
+  authOrigins?: readonly string[];
+  /** Digest of the immutable registered authorization-origin allowlist. */
+  authOriginsDigest?: string;
   adapterPayloadRef?: string;
   adapterPayloadDigest?: string;
   adapterPayloadProductCount?: number;
@@ -688,6 +694,10 @@ function executionOrigins(identity: ExternalActionExecutionContractIdentity): Ev
   return providerOrigin ? [providerOrigin] : null;
 }
 
+function challengeOriginForExecution(identity: ExternalActionExecutionContractIdentity, kind: EveExternalActionChallenge['kind']): string {
+  return kind === 'oauth_consent' && identity.authOrigin ? identity.authOrigin : identity.targetOrigin;
+}
+
 function policyFromRow(row: PolicyRow | undefined): EveExternalActionPolicy | null {
   if (!row) return null;
   const allowedOrigins = parseStringArray(row.allowed_domains_json);
@@ -1042,7 +1052,6 @@ function eventReceiptFromRow(row: ChallengeRow | undefined): EveExternalActionEv
     typeof candidate.instructionCode !== 'string' ||
     !NEEDS_USER_INSTRUCTION_CODE_SET.has(candidate.instructionCode) ||
     normalizeEveExternalOrigin(candidate.challengeOrigin) !== candidate.challengeOrigin ||
-    candidate.challengeOrigin !== origins.at(-1) ||
     !isEveSanitizedOpaqueRef(candidate.resumeRef) ||
     typeof candidate.expiresAt !== 'string' ||
     !Number.isFinite(Date.parse(candidate.expiresAt)) ||
@@ -1094,6 +1103,9 @@ function validExecutionIdentity(value: ExternalActionExecutionContractIdentity, 
         'providerOrigin',
         'merchantOrigin',
         'checkoutOrigin',
+        'authOrigin',
+        'authOrigins',
+        'authOriginsDigest',
         'adapterPayloadRef',
         'adapterPayloadDigest',
         'adapterPayloadProductCount',
@@ -1109,6 +1121,8 @@ function validExecutionIdentity(value: ExternalActionExecutionContractIdentity, 
   const providerOrigin = value.providerOrigin ? normalizeEveExternalOrigin(value.providerOrigin) : null;
   const merchantOrigin = value.merchantOrigin ? normalizeEveExternalOrigin(value.merchantOrigin) : null;
   const checkoutOrigin = value.checkoutOrigin ? normalizeEveExternalOrigin(value.checkoutOrigin) : null;
+  const authOrigin = value.authOrigin ? normalizeEveExternalOrigin(value.authOrigin) : null;
+  const authOrigins = value.authOrigins;
   const validDomainAction =
     (value.domain === 'generic' && isEveOpaqueId(value.domainAction)) ||
     (value.domain === 'email_identity' &&
@@ -1130,6 +1144,19 @@ function validExecutionIdentity(value: ExternalActionExecutionContractIdentity, 
     validDomainAction &&
     isEveSanitizedOpaqueRef(value.counterpartyId) &&
     PROVIDER_LABEL_CODES.has(value.providerOrMerchantLabelCode) &&
+    ((value.authOrigin === undefined && value.authOrigins === undefined && value.authOriginsDigest === undefined) ||
+      (value.authMode === 'oauth' &&
+        authOrigin === value.authOrigin &&
+        authOrigin !== origin &&
+        Array.isArray(authOrigins) &&
+        authOrigins.length >= 1 &&
+        authOrigins.length <= 2 &&
+        authOrigins.every((candidate, index) =>
+          normalizeEveExternalOrigin(candidate) === candidate && authOrigins.indexOf(candidate) === index
+        ) &&
+        authOrigin === authOrigins[0] &&
+        isEveSha256Digest(value.authOriginsDigest) &&
+        value.authOriginsDigest === sha256(canonical(authOrigins)))) &&
     // Main normalizes inline ingress to digest-only before reserve. An opaque
     // ref, when present, must still be paired with its canonical digest.
     (value.adapterPayloadRef === undefined ||
@@ -2616,7 +2643,7 @@ export class ExternalActionStore {
       !isEveOpaqueId(input.claimId) ||
       !validExecutionExpectation(input.executionContract) ||
       !validChallenge(input.challenge, now.getTime()) ||
-      input.challenge.origin !== input.executionContract.targetOrigin ||
+      input.challenge.origin !== challengeOriginForExecution(input.executionContract, input.challenge.kind) ||
       'reasonCode' in parsedProposal ||
       parsedProposal.value.action.adapterPayload !== undefined ||
       !isEveOpaqueId(input.adapterId) ||
@@ -2763,6 +2790,8 @@ export class ExternalActionStore {
         this.audit(input.binding, 'challenge.suspended', input.reservationId, {
           challenge_kind: input.challenge.kind,
           challenge_ref: input.challenge.challengeRef,
+          challenge_origin: input.challenge.origin,
+          auth_origins_digest: input.executionContract.authOriginsDigest ?? null,
           expires_at: input.challenge.expiresAt,
         });
         return {
@@ -2896,7 +2925,8 @@ export class ExternalActionStore {
           reservation.conversationSessionId !== input.conversationSessionId ||
           reservation.claimId !== challenge.claimId ||
           reservation.claimDigest !== challenge.executionContract.claimDigest ||
-          challenge.snapshot.challenge.origin !== challenge.executionContract.targetOrigin ||
+          challenge.snapshot.challenge.origin !==
+            challengeOriginForExecution(challenge.executionContract, challenge.snapshot.challenge.kind) ||
           !this.reservationMatchesExecutionIdentity(reservation, policy, challenge.executionContract)
         ) {
           return { ok: false, reasonCode: 'EXTERNAL_RESUME_CONTRACT_STALE' };
@@ -3000,7 +3030,7 @@ export class ExternalActionStore {
       snapshot.sequence !== row.challenge_sequence ||
       'reasonCode' in parsedProposal ||
       !validChallenge(snapshot.challenge, Number.NEGATIVE_INFINITY) ||
-      snapshot.challenge.origin !== executionContract.targetOrigin ||
+      snapshot.challenge.origin !== challengeOriginForExecution(executionContract, snapshot.challenge.kind) ||
       !eventReceipt ||
       eventReceipt.reservationRef !== row.reservation_id ||
       eventReceipt.resumeRef !== row.resume_ref ||

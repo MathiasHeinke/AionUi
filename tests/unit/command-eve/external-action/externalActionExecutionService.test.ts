@@ -11,6 +11,7 @@ import {
 } from '@/common/config/eveExternalActionExecutionCore';
 import type { EveExternalActionBinding } from '@/common/config/eveExternalActionPolicyCore';
 import {
+  EXTERNAL_ACTION_MAIN_OAUTH_CALLBACK_REF,
   EXTERNAL_ACTION_ADAPTER_PAYLOAD_VALIDATION_VERSION,
   ExternalActionExecutionService,
   type ExternalActionAdapter,
@@ -22,6 +23,8 @@ import { NodeSqliteDriver } from './testSqliteDriver';
 
 const NOW_ISO = '2026-08-11T12:00:00.000Z';
 const ORIGIN = 'https://shop.example';
+const AUTH_ORIGIN = 'https://accounts.eve.invalid';
+const MAIL_ORIGIN = 'https://mail.eve.invalid';
 const MERCHANT_ORIGIN = 'https://merchant.example';
 const OTHER_ORIGIN = 'https://evil.example';
 const OAUTH_REF = `keychain:v1:${Buffer.from('oauth-ciphertext-material').toString('base64')}`;
@@ -145,6 +148,71 @@ function adapter(overrides: Partial<ExternalActionAdapter> = {}): ExternalAction
     execute: async () => ({ status: 'allowed' }),
     ...overrides,
   };
+}
+
+function oauthMailProposal(overrides: Partial<EveExternalActionProposal> = {}): EveExternalActionProposal {
+  return {
+    version: EVE_EXTERNAL_ACTION_PROPOSAL_VERSION,
+    clientRequestId: 'client-request-mail-a',
+    idempotencyKey: 'idempotency-mail-a',
+    action: {
+      kind: 'communication_send',
+      targetOrigin: MAIL_ORIGIN,
+      argumentsDigest: digest('c'),
+      amount: { currency: 'NONE', minorUnits: 0 },
+    },
+    oauthHandleId: 'oauth-mail-handle',
+    ...overrides,
+  };
+}
+
+function oauthMailAdapter(overrides: Partial<ExternalActionAdapter> = {}): ExternalActionAdapter {
+  return adapter({
+    id: 'synthetic-mail-adapter',
+    providerOrMerchantLabelCode: 'fixture_mail',
+    authOrigins: [AUTH_ORIGIN],
+    operations: [
+      {
+        actionKind: 'communication_send' as const,
+        domain: 'generic' as const,
+        action: 'op:mail-send',
+        counterpartyId: 'mail-fixture',
+        providerOrigin: MAIL_ORIGIN,
+      },
+    ],
+    supports: { oauth: true, browserSession: false, password: false, unauthenticated: false },
+    ...overrides,
+  });
+}
+
+function configureOAuthMail(store: ExternalActionStore, binding: EveExternalActionBinding): void {
+  expect(
+    store.replacePolicy(
+      binding,
+      {
+        currency: 'EUR',
+        perActionLimitMinor: 1_000,
+        dailyLimitMinor: 2_000,
+        monthlyLimitMinor: 10_000,
+        allowedOrigins: [MAIL_ORIGIN],
+        allowedActionKinds: ['communication_send'],
+        expiresAt: '2026-08-18T12:00:00.000Z',
+      },
+      'Europe/Berlin'
+    )
+  ).toMatchObject({ ok: true });
+  expect(
+    store.registerSecretHandle({
+      binding,
+      handleId: 'oauth-mail-handle',
+      type: 'oauth_token',
+      source: 'eve_keychain',
+      sourceRef: OAUTH_REF,
+      actionKinds: ['communication_send'],
+      targetOrigins: [MAIL_ORIGIN],
+      expiresAt: '2026-08-18T12:00:00.000Z',
+    })
+  ).toEqual({ ok: true });
 }
 
 function service(input: {
@@ -584,6 +652,199 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
         resumeRef: first.eventReceipt!.resumeRef,
       })
     ).toMatchObject({ status: 'denied', reasonCode: 'EXTERNAL_RESUME_NOT_ACTIVE' });
+  });
+
+  it('uses only a registered OAuth origin for mail linking and keeps execution at the mail origin', async () => {
+    const { store, binding } = fixture();
+    configureOAuthMail(store, binding);
+    let oauthReady = false;
+    const probeOAuth = vi.fn(async (context) => {
+      expect(context.authOrigin).toBe(AUTH_ORIGIN);
+      expect(context.authOrigins).toEqual([AUTH_ORIGIN]);
+      expect(context.authBrowserPartition).toMatch(/^persist:command-eve-external-/);
+      expect(context.callbackRef).toBe(EXTERNAL_ACTION_MAIN_OAUTH_CALLBACK_REF);
+      expect(context.proposal.action.targetOrigin).toBe(MAIL_ORIGIN);
+      return oauthReady ? ('ready' as const) : ('needs_user' as const);
+    });
+    const execute = vi.fn(async ({ proposal: trustedProposal, authMode }) => {
+      expect(authMode).toBe('oauth');
+      expect(trustedProposal.action.targetOrigin).toBe(MAIL_ORIGIN);
+      expect(trustedProposal.action.targetOrigin).not.toBe(AUTH_ORIGIN);
+      return { status: 'allowed' as const };
+    });
+    const runner = service({ store, binding, adapter: oauthMailAdapter({ probeOAuth, execute }) });
+
+    const suspended = await runner.execute(oauthMailProposal());
+    expect(suspended).toMatchObject({
+      status: 'needs_user',
+      eventReceipt: { challengeKind: 'oauth_consent', challengeOrigin: AUTH_ORIGIN, origins: [MAIL_ORIGIN] },
+    });
+    const pending = store.getPendingChallenge(binding, suspended.reservationId!);
+    expect(pending?.snapshot.challenge.origin).toBe(AUTH_ORIGIN);
+    expect(pending?.executionContract).toMatchObject({ authOrigin: AUTH_ORIGIN, authOrigins: [AUTH_ORIGIN] });
+    expect(pending?.executionContract.authOriginsDigest).toBe(
+      `sha256:${crypto.createHash('sha256').update(JSON.stringify([AUTH_ORIGIN])).digest('hex')}`
+    );
+    expect(JSON.stringify(store.readAuditEvents(binding))).not.toContain(OAUTH_REF);
+    expect(JSON.stringify(suspended)).not.toContain(OAUTH_REF);
+
+    oauthReady = true;
+    expect(
+      await runner.resume({
+        version: 'command-eve-external-action-resume/v1',
+        resumeRef: suspended.eventReceipt!.resumeRef,
+      })
+    ).toMatchObject({ status: 'allowed', reservationId: suspended.reservationId });
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects unregistered OAuth challenge origins before any external action', async () => {
+    const { store, binding } = fixture();
+    configureOAuthMail(store, binding);
+    const execute = vi.fn(async () => ({ status: 'allowed' as const }));
+    const runner = service({
+      store,
+      binding,
+      adapter: oauthMailAdapter({
+        probeOAuth: async () => 'ready',
+        probeChallenge: async () => ({
+          status: 'needs_user',
+          challenge: {
+            kind: 'oauth_consent',
+            challengeRef: 'challenge:unregistered-origin',
+            origin: OTHER_ORIGIN,
+            expiresAt: '2026-08-11T12:05:00.000Z',
+            userInstructionCode: 'COMPLETE_OAUTH_CONSENT',
+          },
+        }),
+        execute,
+      }),
+    });
+    const outcome = await runner.execute(oauthMailProposal());
+    expect(outcome).toMatchObject({ status: 'denied', reasonCode: 'POLICY_DENIED' });
+    expect(execute).not.toHaveBeenCalled();
+    expect(store.getReservation(binding, outcome.reservationId!)?.state).toBe('denied');
+  });
+
+  it('rejects a renderer/model-supplied auth origin before adapter registration is consulted', async () => {
+    const { store, binding } = fixture();
+    configureOAuthMail(store, binding);
+    const probeOAuth = vi.fn(async () => 'needs_user' as const);
+    const runner = service({ store, binding, adapter: oauthMailAdapter({ probeOAuth }) });
+    const untrusted = oauthMailProposal();
+    const action = { ...untrusted.action, authOrigin: OTHER_ORIGIN };
+    const outcome = await runner.execute({ ...untrusted, action });
+    expect(outcome).toMatchObject({ status: 'denied', reasonCode: 'EXTERNAL_PROPOSAL_ACTION_FIELDS_INVALID' });
+    expect(outcome.reservationId).toBeUndefined();
+    expect(probeOAuth).not.toHaveBeenCalled();
+  });
+
+  it('rejects an adapter whose action target equals its registered OAuth origin', async () => {
+    const { store, binding } = fixture();
+    const probeOAuth = vi.fn(async () => 'needs_user' as const);
+    const execute = vi.fn(async () => ({ status: 'allowed' as const }));
+    const bad = oauthMailAdapter({
+      operations: [
+        {
+          actionKind: 'communication_send' as const,
+          domain: 'generic' as const,
+          action: 'op:mail-send',
+          counterpartyId: 'mail-fixture',
+          providerOrigin: AUTH_ORIGIN,
+        },
+      ],
+      probeOAuth,
+      execute,
+    });
+    const outcome = await service({ store, binding, adapter: bad }).execute(
+      oauthMailProposal({ action: { ...oauthMailProposal().action, targetOrigin: AUTH_ORIGIN } })
+    );
+    expect(outcome).toMatchObject({ status: 'denied', reasonCode: 'EXTERNAL_ADAPTER_UNAVAILABLE' });
+    expect(outcome.reservationId).toBeUndefined();
+    expect(probeOAuth).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for an OAuth-origin challenge after account switch or policy revoke', async () => {
+    const { store, binding } = fixture();
+    configureOAuthMail(store, binding);
+    let activeBinding = binding;
+    let oauthReady = false;
+    const execute = vi.fn(async () => ({ status: 'allowed' as const }));
+    const runner = service({
+      store,
+      binding,
+      adapter: oauthMailAdapter({ probeOAuth: async () => (oauthReady ? 'ready' : 'needs_user'), execute }),
+      resolveBinding: () => ({ ok: true, binding: activeBinding }),
+    });
+    const first = await runner.execute(oauthMailProposal());
+    activeBinding = { ...binding, accountId: 'account-b' };
+    expect(
+      await runner.resume({ version: 'command-eve-external-action-resume/v1', resumeRef: first.eventReceipt!.resumeRef })
+    ).toMatchObject({ status: 'denied', reasonCode: 'EXTERNAL_RESUME_NOT_ACTIVE' });
+    expect(execute).not.toHaveBeenCalled();
+
+    const revokeFixture = fixture();
+    configureOAuthMail(revokeFixture.store, revokeFixture.binding);
+    let revokedOAuthReady = false;
+    const revokedExecute = vi.fn(async () => ({ status: 'allowed' as const }));
+    const revokedRunner = service({
+      store: revokeFixture.store,
+      binding: revokeFixture.binding,
+      adapter: oauthMailAdapter({
+        probeOAuth: async () => (revokedOAuthReady ? 'ready' : 'needs_user'),
+        execute: revokedExecute,
+      }),
+    });
+    const second = await revokedRunner.execute(oauthMailProposal());
+    expect(second).toMatchObject({ status: 'needs_user' });
+    expect(revokeFixture.store.revokePolicy(revokeFixture.binding)).toMatchObject({ ok: true });
+    revokedOAuthReady = true;
+    expect(
+      await revokedRunner.resume({
+        version: 'command-eve-external-action-resume/v1',
+        resumeRef: second.eventReceipt!.resumeRef,
+      })
+    ).toMatchObject({ status: 'denied', reasonCode: 'EXTERNAL_RESUME_NOT_ACTIVE' });
+    expect(revokeFixture.store.getReservation(revokeFixture.binding, second.reservationId!)?.state).toBe('revoked');
+    expect(revokedExecute).not.toHaveBeenCalled();
+  });
+
+  it('does not reissue an OAuth-origin bearer or execute after a Main restart', async () => {
+    const { store, binding, file } = fixture();
+    configureOAuthMail(store, binding);
+    const execute = vi.fn(async () => ({ status: 'allowed' as const }));
+    const firstRunner = service({
+      store,
+      binding,
+      adapter: oauthMailAdapter({ probeOAuth: async () => 'needs_user', execute }),
+    });
+    const suspended = await firstRunner.execute(oauthMailProposal());
+    expect(suspended).toMatchObject({ status: 'needs_user', eventReceipt: { challengeOrigin: AUTH_ORIGIN } });
+    store.close();
+    stores.delete(store);
+
+    const reopened = new ExternalActionStore(new NodeSqliteDriver(file), {
+      now: () => new Date(NOW_ISO),
+      randomUUID: () => `oauth-origin-restart-${++sequence}`,
+    });
+    stores.add(reopened);
+    const restarted = service({
+      store: reopened,
+      binding,
+      adapter: oauthMailAdapter({ probeOAuth: async () => 'ready', execute }),
+    });
+    const pending = reopened.getPendingChallenge(binding, suspended.reservationId!);
+    expect(pending?.snapshot.challenge.origin).toBe(AUTH_ORIGIN);
+    expect(pending?.executionContract).toMatchObject({ authOrigin: AUTH_ORIGIN, authOrigins: [AUTH_ORIGIN] });
+    expect(
+      await restarted.resume({
+        version: 'command-eve-external-action-resume/v1',
+        resumeRef: suspended.eventReceipt!.resumeRef,
+      })
+    ).toMatchObject({ status: 'denied', reasonCode: 'EXTERNAL_RESUME_NOT_ACTIVE' });
+    expect(reopened.getReservation(binding, suspended.reservationId!)?.state).toBe('suspended');
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it('persists the event receipt across restart but never reissues or blind-retries the Main-only bearer', async () => {
