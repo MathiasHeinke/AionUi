@@ -24,8 +24,10 @@ import {
 } from './paidOperationRegistryCore';
 import { isLegacySeatId, sanitizeSeatId } from './seatContextCore';
 import {
+  CommandEveManagedVisualAuthorizationError,
   isCommandEveManagedVisualAuthorizationError,
   isCommandEveShimPublicError,
+  type CommandEveManagedVisualRefusalReason,
 } from './shimPublicError';
 import { EVE_AUTHORITY_FAIL_CLOSED } from '../../common/config/eveAuthorityCore';
 import {
@@ -368,7 +370,7 @@ export type CommandEveManagedVisualAuthorizationFailureReceipt = {
   status_code: 422;
   /** The public code is stable and generic; the exact reason stays local. */
   error_code: 'EVE_MANAGED_VISUAL_AUTHORIZATION_INVALID';
-  authorization_reason_code: string;
+  authorization_reason_code: CommandEveManagedVisualRefusalReason;
   request_correlation_id: string;
 };
 
@@ -1707,13 +1709,11 @@ async function handleEveCloudCompletions(
       authorized = false;
     }
     if (!authorized) {
-      jsonResponse(response, 409, {
-        error: {
-          code: 'EVE_MANAGED_VISUAL_POLICY_STALE',
-          message: 'Cloud visual analysis is no longer enabled for the active seat. Reattach the files and retry.',
-        },
-      });
-      return;
+      // A consumed marker remains subject to final Main-owned policy
+      // revalidation. This is a deterministic managed-visual refusal, not a
+      // conflict: the shared 422 boundary prevents OpenAI 2.24 retries and
+      // keeps the exact local cause receipt-only.
+      throw new CommandEveManagedVisualAuthorizationError('POLICY_STALE');
     }
   }
 

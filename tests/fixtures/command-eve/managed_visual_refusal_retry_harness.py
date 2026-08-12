@@ -4,8 +4,9 @@
 This deliberately performs no provider request. It executes an OpenAI 2.24
 client call through the exact Hermes 0.20 primary-client factory against a
 loopback server, and proves the 422 shim refusal produces exactly one HTTP
-attempt. Main-model fallback is separately disabled by the emitted Command EVE
-config (no fallback_model or fallback_providers).
+attempt. It also checks the exact wheel's outer 4xx classifier and its empty
+fallback-chain guard; the emitted Command EVE config separately has no main
+fallback_model or fallback_providers.
 """
 
 from __future__ import annotations
@@ -80,6 +81,43 @@ def extract_exact_wheel_client_factory():
     return namespace["create_openai_client"]
 
 
+def verify_exact_wheel_outer_refusal_contract() -> dict[str, bool]:
+    """Static source proof for the wheel's outer retry/fallback decision only."""
+    with zipfile.ZipFile(WHEEL_PATH) as wheel:
+        classifier_source = wheel.read("agent/error_classifier.py").decode("utf-8")
+        conversation_source = wheel.read("agent/conversation_loop.py").decode("utf-8")
+        fallback_source = wheel.read("agent/chat_completion_helpers.py").decode("utf-8")
+        initialization_source = wheel.read("agent/agent_init.py").decode("utf-8")
+
+    classifier_422_nonretryable = (
+        "if 400 <= status_code < 500:" in classifier_source
+        and "retryable=False" in classifier_source.split("if 400 <= status_code < 500:", 1)[1][:320]
+    )
+    outer_client_error_region = conversation_source.split("if is_client_error:", 1)[1][:3600]
+    outer_loop_checks_pending_chain = (
+        "if agent._has_pending_fallback():" in outer_client_error_region
+        and "if agent._try_activate_fallback():" in outer_client_error_region
+    )
+    activation_refuses_empty_chain = (
+        "if agent._fallback_index >= len(agent._fallback_chain):" in fallback_source
+        and "return False" in fallback_source.split("if agent._fallback_index >= len(agent._fallback_chain):", 1)[1][:900]
+    )
+    missing_fallback_initializes_empty_chain = "agent._fallback_chain = []" in initialization_source
+    assert classifier_422_nonretryable
+    assert outer_loop_checks_pending_chain
+    assert activation_refuses_empty_chain
+    assert missing_fallback_initializes_empty_chain
+    return {
+        "wheel_422_classifier_nonretryable": classifier_422_nonretryable,
+        "wheel_outer_loop_checks_pending_fallback": outer_loop_checks_pending_chain,
+        "wheel_fallback_activation_refuses_empty_chain": activation_refuses_empty_chain,
+        "wheel_missing_fallback_initializes_empty_chain": missing_fallback_initializes_empty_chain,
+    }
+
+
+outer_refusal_contract = verify_exact_wheel_outer_refusal_contract()
+
+
 class RefusalHandler(BaseHTTPRequestHandler):
     attempts = 0
 
@@ -145,6 +183,7 @@ try:
         client.chat.completions.create(
             model="command-eve-managed",
             messages=[{"role": "user", "content": "provider-free test"}],
+            extra_body={"eve_operation": "user_chat_turn"},
         )
     except Exception as error:
         assert getattr(error, "status_code", None) == 422
@@ -168,6 +207,7 @@ print(
             "http_status": 422,
             "total_shim_http_attempts": RefusalHandler.attempts if server is not None else None,
             "target": "actual_loopback_shim" if SHIM_BASE_URL else "standalone_loopback",
+            **outer_refusal_contract,
         }
     )
 )

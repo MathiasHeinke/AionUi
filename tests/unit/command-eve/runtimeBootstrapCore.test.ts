@@ -1241,6 +1241,10 @@ describe('Command EVE runtime bootstrap core', () => {
         openai_sdk_max_retries: 0,
         http_status: 422,
         total_shim_http_attempts: 1,
+        wheel_422_classifier_nonretryable: true,
+        wheel_outer_loop_checks_pending_fallback: true,
+        wheel_fallback_activation_refuses_empty_chain: true,
+        wheel_missing_fallback_initializes_empty_chain: true,
       });
       const attachmentMemoryHarness = spawnSync(
         'python3',

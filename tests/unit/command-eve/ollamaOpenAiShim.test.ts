@@ -906,48 +906,74 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(JSON.stringify(fnSeen.body?.messages)).toContain('Analyze the four-slide deck.');
   });
 
-  it('blocks a consumed managed-visual turn when the final seat policy was revoked', async () => {
+  it('routes a final managed-visual policy revocation through the generic 422 receipt boundary before egress', async () => {
     const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
     const fnSeen: EveFnSeen = {};
     const fnUrl = await startFakeEveFunction(fnSeen);
     const marker = commandEveManagedVisualTurnMarker('R'.repeat(43));
     let finalPolicyChecks = 0;
+    const receiptRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-managed-visual-policy-stale-'));
+    const receiptPath = path.join(receiptRoot, 'last-egress-boundary-receipt.json');
 
-    shimServerUrl = await startCommandEveOllamaOpenAiShim({
-      port: 0,
-      ollamaBaseUrl,
-      eveRouting: () => ({
-        active: true,
-        functionUrl: fnUrl,
-        license: FAKE_LICENSE,
-        tier: 'high',
-        authorizeManagedVisualEgress: () => {
-          finalPolicyChecks += 1;
-          return false;
+    try {
+      shimServerUrl = await startCommandEveOllamaOpenAiShim({
+        port: 0,
+        ollamaBaseUrl,
+        egressReceiptPath: receiptPath,
+        eveRouting: () => ({
+          active: true,
+          functionUrl: fnUrl,
+          license: FAKE_LICENSE,
+          tier: 'high',
+          authorizeManagedVisualEgress: () => {
+            finalPolicyChecks += 1;
+            return false;
+          },
+        }),
+      });
+
+      const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: SHIM_JSON_HEADERS,
+        body: JSON.stringify({
+          eve_operation: 'user_chat_turn',
+          model: 'custom:command-eve-gemma4-e4b-64k:latest',
+          messages: [{ role: 'user', content: `${marker}\nAnalyze the selected image.` }],
+          stream: false,
+        }),
+      });
+
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body).toEqual({
+        error: {
+          code: 'EVE_MANAGED_VISUAL_AUTHORIZATION_INVALID',
+          message: 'Managed visual authorization cannot be verified. Reattach the files and retry.',
+          type: 'command_eve_managed_visual_authorization_error',
         },
-      }),
-    });
-
-    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: SHIM_JSON_HEADERS,
-      body: JSON.stringify({
-        eve_operation: 'user_chat_turn',
-        model: 'custom:command-eve-gemma4-e4b-64k:latest',
-        messages: [{ role: 'user', content: `${marker}\nAnalyze the selected image.` }],
-        stream: false,
-      }),
-    });
-
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: {
-        code: 'EVE_MANAGED_VISUAL_POLICY_STALE',
-        message: 'Cloud visual analysis is no longer enabled for the active seat. Reattach the files and retry.',
-      },
-    });
-    expect(finalPolicyChecks).toBe(1);
-    expect(fnSeen.attempts).toBeUndefined();
+      });
+      expect(JSON.stringify(body)).not.toContain('POLICY_STALE');
+      const correlationId = response.headers.get('x-command-eve-error-correlation');
+      expect(correlationId).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(finalPolicyChecks).toBe(1);
+      // The fake eve-inference endpoint is the egress/billing probe. Policy
+      // revalidation fails before it is contacted.
+      expect(fnSeen.attempts ?? 0).toBe(0);
+      const failureReceipt = JSON.parse(
+        fs.readFileSync(path.join(receiptRoot, 'last-managed-visual-authorization-failure.json'), 'utf8')
+      );
+      expect(failureReceipt).toMatchObject({
+        status_code: 422,
+        error_code: 'EVE_MANAGED_VISUAL_AUTHORIZATION_INVALID',
+        authorization_reason_code: 'POLICY_STALE',
+        request_correlation_id: correlationId,
+      });
+      expect(fs.statSync(path.join(receiptRoot, 'last-managed-visual-authorization-failure.json')).mode & 0o777).toBe(
+        0o600
+      );
+    } finally {
+      fs.rmSync(receiptRoot, { recursive: true, force: true });
+    }
   });
 
   it('routes an EVE-tier chat to the eve-inference function with bearer + tier, not to Ollama', async () => {
@@ -1082,6 +1108,51 @@ describe('Command EVE shim — EVE cloud routing', () => {
     // `eveRouting` runs before marker stripping, paid-operation selection and
     // fetch. One call proves the exact SDK did not retry the actual shim 422.
     expect(resolverCalls).toBe(1);
+    expect(fnSeen.attempts ?? 0).toBe(0);
+  });
+
+  it('gives the exact Hermes 0.20/OpenAI client one actual-shim attempt when final managed-visual policy revalidation refuses', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    let shimRequests = 0;
+    let finalPolicyChecks = 0;
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => {
+        shimRequests += 1;
+        return {
+          active: true,
+          functionUrl: fnUrl,
+          license: FAKE_LICENSE,
+          tier: 'high',
+          authorizeManagedVisualEgress: () => {
+            finalPolicyChecks += 1;
+            return false;
+          },
+        };
+      },
+    });
+
+    const result = await runManagedVisualRefusalHarness([
+      path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+      `${shimServerUrl}/v1`,
+      SHIM_AUTH_TOKEN,
+    ]);
+    expect(result.exitCode, result.stderr || result.stdout).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      exact_wheel_primary_client_factory_executed: true,
+      openai_sdk_version: '2.24.0',
+      sdk_default_retries_409: true,
+      sdk_default_retries_422: false,
+      openai_sdk_max_retries: 0,
+      http_status: 422,
+      target: 'actual_loopback_shim',
+    });
+    // Both callbacks run once per inbound shim request. This is the actual
+    // post-route policy path, not the earlier resolver-marker refusal seam.
+    expect(shimRequests).toBe(1);
+    expect(finalPolicyChecks).toBe(1);
     expect(fnSeen.attempts ?? 0).toBe(0);
   });
 
@@ -1480,6 +1551,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
     'AUTHORIZATION_SESSION_MISMATCH',
     'AUTHORIZATION_CONTINUATION_INVALID',
     'AUTHORIZATION_CHAIN_LIMIT',
+    'POLICY_STALE',
   ] as const)(
     'returns a typed non-retryable 422 before egress for deterministic managed-visual %s',
     async (reasonCode) => {

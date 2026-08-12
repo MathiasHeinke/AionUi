@@ -8,6 +8,15 @@ import crypto from 'node:crypto';
 import type { CommandEveManagedVisualAuthorizationFailureReason } from './managedVisualTurnAuthorizationCore';
 
 /**
+ * Exact refusal reasons are local diagnostics only. A final policy
+ * revalidation revokes the same one-time managed-visual capability as an
+ * invalid marker, so it shares the public boundary but not the public code.
+ */
+export type CommandEveManagedVisualRefusalReason =
+  | CommandEveManagedVisualAuthorizationFailureReason
+  | 'POLICY_STALE';
+
+/**
  * F-14 (Kimi 1.819 audit): the shim's top-level catch must never echo raw
  * error.message — a latent throw source could smuggle credentials into the
  * client response. But a small number of DELIBERATE fail-closed messages are
@@ -38,7 +47,7 @@ export class CommandEveManagedVisualAuthorizationError extends CommandEveShimPub
   readonly errorCode = 'EVE_MANAGED_VISUAL_AUTHORIZATION_INVALID' as const;
   readonly correlationId = crypto.randomUUID();
 
-  constructor(readonly reasonCode: CommandEveManagedVisualAuthorizationFailureReason) {
+  constructor(readonly reasonCode: CommandEveManagedVisualRefusalReason) {
     super('Managed visual authorization cannot be verified. Reattach the files and retry.');
     this.name = 'CommandEveManagedVisualAuthorizationError';
   }
