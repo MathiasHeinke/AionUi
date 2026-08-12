@@ -4,7 +4,11 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { EveExternalActionBinding } from '@/common/config/eveExternalActionPolicyCore';
-import { ExternalActionStore } from '@/process/services/external-action/externalActionStore';
+import {
+  ExternalActionStore,
+  externalActionClaimDigest,
+  externalActionExpectationDigest,
+} from '@/process/services/external-action/externalActionStore';
 import { ExternalSecretUseBroker } from '@/process/services/external-action/secretUseBroker';
 import { NodeSqliteDriver } from './testSqliteDriver';
 
@@ -79,11 +83,16 @@ function claimedReservation(store: ExternalActionStore, binding: EveExternalActi
     expiresAt: '2026-08-11T13:00:00.000Z',
   });
   if (!reserved.ok || !reserved.reservationId) throw new Error('reserve fixture failed');
+  const claimDigest = externalActionClaimDigest({
+    executionContractDigest: digest('d'),
+    reservationId: reserved.reservationId,
+    claimId: 'claim-a',
+  });
   const claim = store.claim({
     binding,
     reservationId: reserved.reservationId,
     claimId: 'claim-a',
-    claimDigest: digest('f'),
+    claimDigest,
     policyRevision: policy.revision,
     sessionEpoch: policy.sessionEpoch,
   });
@@ -115,7 +124,13 @@ function claimedReservation(store: ExternalActionStore, binding: EveExternalActi
     policyRevision: policy.revision,
     sessionEpoch: policy.sessionEpoch,
     quoteDigest: digest('e'),
-    claimDigest: digest('f'),
+    claimDigest,
+    expectationDigest: externalActionExpectationDigest({
+      executionContractDigest: digest('d'),
+      reservationId: reserved.reservationId,
+      claimId: 'claim-a',
+      claimDigest,
+    }),
     actionKind: 'purchase' as const,
     targetOrigin: 'https://shop.example',
     amountMinor: 500,

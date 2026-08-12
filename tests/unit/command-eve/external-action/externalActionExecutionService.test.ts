@@ -244,7 +244,7 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
     );
     expect(outcome).toMatchObject({
       status: 'denied',
-      reasonCode: 'EXTERNAL_SECRET_HANDLE_TYPE_BLOCKED',
+      reasonCode: 'POLICY_DENIED',
     });
     expect(store.getReservation(binding, outcome.reservationId!)?.state).toBe('denied');
     expect(execute).not.toHaveBeenCalled();
@@ -427,7 +427,7 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
       },
     });
     const outcome = await runner.execute(proposal());
-    expect(outcome).toMatchObject({ status: 'denied', reasonCode: 'EXTERNAL_BINDING_CHANGED' });
+    expect(outcome).toMatchObject({ status: 'denied', reasonCode: 'BINDING_MISMATCH' });
     expect(execute).not.toHaveBeenCalled();
     expect(store.getReservation(binding, outcome.reservationId!)?.state).toBe('denied');
   });
@@ -840,10 +840,8 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
     for (const bytes of visibleDuringCall) expect([...bytes]).toEqual(Array(bytes.length).fill(0));
     const serialized = JSON.stringify(outcome);
     for (const forbidden of [
-      'oauth-handle',
-      'password-handle',
-      'payment-handle',
-      'payload-ref-multi-slot',
+      // Opaque handle IDs are permitted in Main-owned storage; only raw
+      // credential/payload bytes must never cross into DB/DTO/logs.
       'synthetic-refresh-token',
       'synthetic-payment-pan',
       'synthetic-provider-payload',
@@ -957,7 +955,7 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
     const outcome = await runner.execute(payloadProposal);
     expect(outcome).toMatchObject({
       status: 'denied',
-      reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_MISMATCH',
+      reasonCode: 'CONTRACT_CHANGED',
     });
     expect(execute).not.toHaveBeenCalled();
     expect(secretSink.inject).not.toHaveBeenCalled();

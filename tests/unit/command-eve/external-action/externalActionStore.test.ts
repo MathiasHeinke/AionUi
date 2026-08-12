@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { EveExternalActionBinding } from '@/common/config/eveExternalActionPolicyCore';
 import {
   ExternalActionStore,
+  externalActionClaimDigest,
+  externalActionExpectationDigest,
   type ExternalActionExecutionContractExpectation,
   type ExternalActionReserveInput,
 } from '@/process/services/external-action/externalActionStore';
@@ -21,6 +23,10 @@ let uuidCounter = 0;
 
 function digest(character: string): string {
   return `sha256:${character.repeat(64)}`;
+}
+
+function claimDigestFor(executionContractDigest: string, reservationId: string, claimId: string): string {
+  return externalActionClaimDigest({ executionContractDigest, reservationId, claimId });
 }
 
 function databaseFile(): string {
@@ -114,6 +120,10 @@ function executionContract(
   const scoped = overrides.installationId
     ? { installationId: overrides.installationId, accountId: 'account-a', seedId: 'seed-a' }
     : binding(store);
+  const reservationId = overrides.reservationId ?? 'reservation:test';
+  const claimId = overrides.claimId ?? 'claim-a';
+ const executionContractDigest = overrides.executionContractDigest ?? digest('d');
+  const claimDigest = overrides.claimDigest ?? claimDigestFor(executionContractDigest, reservationId, claimId);
   return {
     installationId: scoped.installationId,
     accountId: scoped.accountId,
@@ -132,20 +142,26 @@ function executionContract(
     requestId: 'request-a',
     operationDigest: digest('b'),
     idempotencyKeyDigest: digest('c'),
-    executionContractDigest: digest('d'),
+    executionContractDigest,
     authorityGrantId: 'grant-a',
     authorityReceiptDigest: digest('9'),
     classificationDigest: digest('a'),
     policyRevision: 1,
     sessionEpoch: 1,
     quoteDigest: digest('e'),
-    claimDigest: digest('f'),
+    claimDigest,
     actionKind: 'purchase',
     targetOrigin: 'https://shop.example',
     amountMinor: 700,
     currency: 'EUR',
-    reservationId: 'reservation:test',
-    claimId: 'claim-a',
+    reservationId,
+    claimId,
+    expectationDigest: externalActionExpectationDigest({
+      executionContractDigest,
+      reservationId,
+      claimId,
+      claimDigest,
+    }),
     ...overrides,
   };
 }
@@ -300,7 +316,7 @@ describe('ExternalActionStore persistent at-most-once ledger', () => {
         binding: scoped,
         reservationId: reserved.reservationId!,
         claimId: 'claim-a',
-        claimDigest: digest('f'),
+        claimDigest: claimDigestFor(digest('d'), reserved.reservationId!, 'claim-a'),
         policyRevision: 1,
         sessionEpoch: 1,
       }).execute
@@ -335,7 +351,7 @@ describe('ExternalActionStore persistent at-most-once ledger', () => {
       binding: scoped,
       reservationId: reserved.reservationId!,
       claimId: 'claim-a',
-      claimDigest: digest('f'),
+      claimDigest: claimDigestFor(digest('d'), reserved.reservationId!, 'claim-a'),
       policyRevision: 1,
       sessionEpoch: 1,
     });
@@ -352,7 +368,7 @@ describe('ExternalActionStore persistent at-most-once ledger', () => {
         challengeRef: 'challenge-3ds-a',
         origin: 'https://shop.example',
         expiresAt: '2026-08-11T12:30:00.000Z',
-        userInstructionCode: 'EXTERNAL_3DS_REQUIRED',
+        userInstructionCode: 'COMPLETE_3DS',
       },
       proposal: {
         version: 'command-eve-external-action-proposal/v1',
@@ -743,7 +759,7 @@ describe('ExternalActionStore isolation, authority and budget fences', () => {
       });
       const reserved = store.reserve(reserve);
       const claimId = `claim-otp-${suffix}`;
-      const claimDigest = digest(characters[4]);
+      const claimDigest = claimDigestFor(reserve.executionContractDigest, reserved.reservationId!, claimId);
       expect(
         store.claim({
           binding: scoped,

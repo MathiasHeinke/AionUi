@@ -9,7 +9,9 @@ import crypto from 'node:crypto';
 import {
   EVE_EXTERNAL_ACTION_CHALLENGE_KINDS,
   EVE_EXTERNAL_ACTION_EVENT_RECEIPT_VERSION,
+  EVE_EXTERNAL_ACTION_NEEDS_USER_INSTRUCTION_CODES,
   EVE_EXTERNAL_ACTION_PROVIDER_LABEL_CODES,
+  EVE_EXTERNAL_ACTION_REASON_CODES,
   EVE_EXTERNAL_ACTION_RECEIPT_VERSION,
   isEveSanitizedOpaqueRef,
   validateEveExternalActionSanitizedResult,
@@ -21,6 +23,7 @@ import {
   type EveExternalActionOrigins,
   type EveExternalActionProviderMerchantLabelCode,
   type EveExternalActionProposal,
+  type EveExternalActionReasonCode,
   type EveExternalActionReceiptV0,
   type EveExternalActionSanitizedResult,
   type EveExternalActionSlotBinding,
@@ -49,7 +52,7 @@ import {
 } from '@/common/config/eveExternalActionPolicyCore';
 import type { ISqliteDriver } from '@process/services/database/drivers/ISqliteDriver';
 
-const SCHEMA_VERSION = 'command-eve-external-action-ledger/v5';
+const SCHEMA_VERSION = 'command-eve-external-action-ledger/v6';
 const ACTIVE_BUDGET_STATES = new Set<EveExternalActionLedgerState>([
   'reserved',
   'claimed',
@@ -157,7 +160,7 @@ export interface ExternalActionTerminalInput {
   claimId: string;
   outcomeDigest: string;
   authMode: EveExternalActionAuthMode;
-  reasonCode?: string;
+  reasonCode?: EveExternalActionReasonCode;
   result?: EveExternalActionSanitizedResult;
   terminalState?: 'reversed' | 'denied' | 'revoked' | 'expired';
 }
@@ -220,6 +223,22 @@ export interface ExternalActionExecutionContractIdentity {
 export interface ExternalActionExecutionContractExpectation extends ExternalActionExecutionContractIdentity {
   reservationId: string;
   claimId: string;
+  claimDigest: string;
+  expectationDigest: string;
+}
+
+/**
+ * Claim binding preimages. The digest field is never part of its own
+ * preimage; recomputation over the persisted reservation row is the only
+ * accepted proof at the store boundary.
+ */
+export interface ExternalActionClaimDigestPreimage {
+  executionContractDigest: string;
+  reservationId: string;
+  claimId: string;
+}
+
+export interface ExternalActionExpectationDigestPreimage extends ExternalActionClaimDigestPreimage {
   claimDigest: string;
 }
 
@@ -305,8 +324,13 @@ export interface ExternalActionLedgerRecord {
   claimDigest?: string;
   actionKind: EveExternalActionKind;
   targetOrigin: string;
+  timezone: string;
   dayId: string;
   monthId: string;
+  dayStartAt: string;
+  dayEndAt: string;
+  monthStartAt: string;
+  monthEndAt: string;
   createdAt: string;
   expiresAt: string;
 }
@@ -421,8 +445,13 @@ type LedgerRow = {
   claim_digest: string | null;
   action_kind: EveExternalActionKind;
   domain: string;
+  timezone: string;
   day_id: string;
   month_id: string;
+  day_start_at: string;
+  day_end_at: string;
+  month_start_at: string;
+  month_end_at: string;
   created_at: string;
   expires_at: string;
 };
@@ -526,6 +555,51 @@ function hasExactRecordKeys(value: unknown, required: readonly string[], optiona
 
 function sha256(value: string): string {
   return `sha256:${crypto.createHash('sha256').update(value).digest('hex')}`;
+}
+
+/** Closed persisted vocabularies. Internal diagnostics never cross this line. */
+const TERMINAL_REASON_CODES: ReadonlySet<string> = new Set(EVE_EXTERNAL_ACTION_REASON_CODES);
+const NEEDS_USER_INSTRUCTION_CODE_SET: ReadonlySet<string> = new Set(
+  EVE_EXTERNAL_ACTION_NEEDS_USER_INSTRUCTION_CODES
+);
+
+export function externalActionClaimDigest(preimage: ExternalActionClaimDigestPreimage): string {
+  return sha256(canonical(preimage));
+}
+
+export function externalActionExpectationDigest(preimage: ExternalActionExpectationDigestPreimage): string {
+  return sha256(canonical(preimage));
+}
+
+/**
+ * Maps internal diagnostics onto the closed persisted reason set. Live results
+ * and ledger writes always agree; internal detail survives only inside the
+ * outcome digest, never in SQLite, receipts, event receipts or renderer DTOs.
+ */
+export function externalActionTerminalReason(internal: string): EveExternalActionReasonCode {
+  if (TERMINAL_REASON_CODES.has(internal)) {
+    return internal as EveExternalActionReasonCode;
+  }
+  if (internal.includes('REVOK') || internal.includes('KILL')) return 'REVOKED';
+  if (internal.includes('EXPIR')) return 'EXPIRED';
+  if (internal.includes('BINDING') || internal.includes('CONVERSATION') || internal.includes('SEAT')) {
+    return 'BINDING_MISMATCH';
+  }
+  if (internal.includes('CLAIM') || internal.includes('REPLAY')) return 'CLAIM_MISMATCH';
+  if (internal.includes('ORIGIN')) return 'ORIGIN_MISMATCH';
+  if (internal.includes('CONTRACT') || internal.includes('PAYLOAD') || internal.includes('RECHECK')) {
+    return 'CONTRACT_CHANGED';
+  }
+  if (
+    internal.includes('AUTHORITY') ||
+    internal.includes('CLASSIFICATION') ||
+    internal.includes('RISK') ||
+    internal.includes('GRANT')
+  ) {
+    return 'AUTHORITY_DENIED';
+  }
+  if (internal.includes('USER')) return 'USER_CANCELLED';
+  return 'POLICY_DENIED';
 }
 
 function receiptOutcomeForLedgerState(
@@ -724,6 +798,16 @@ function ledgerFromRow(row: LedgerRow | undefined): ExternalActionLedgerRecord |
     !Number.isFinite(Date.parse(row.expires_at)) ||
     typeof row.created_at !== 'string' ||
     !Number.isFinite(Date.parse(row.created_at)) ||
+    typeof row.timezone !== 'string' ||
+    !zonedPeriodKeys(new Date(row.created_at), row.timezone) ||
+    typeof row.day_start_at !== 'string' ||
+    !Number.isFinite(Date.parse(row.day_start_at)) ||
+    typeof row.day_end_at !== 'string' ||
+    !Number.isFinite(Date.parse(row.day_end_at)) ||
+    typeof row.month_start_at !== 'string' ||
+    !Number.isFinite(Date.parse(row.month_start_at)) ||
+    typeof row.month_end_at !== 'string' ||
+    !Number.isFinite(Date.parse(row.month_end_at)) ||
     typeof row.day_id !== 'string' ||
     !/^\d{4}-\d{2}-\d{2}$/.test(row.day_id) ||
     typeof row.month_id !== 'string' ||
@@ -783,12 +867,17 @@ function ledgerFromRow(row: LedgerRow | undefined): ExternalActionLedgerRecord |
     ...(row.claim_id ? { claimId: row.claim_id } : {}),
     ...(row.claim_digest ? { claimDigest: row.claim_digest } : {}),
     actionKind: row.action_kind,
-    targetOrigin: row.domain,
-    dayId: row.day_id,
-    monthId: row.month_id,
-    createdAt: row.created_at,
-    expiresAt: row.expires_at,
-  };
+     targetOrigin: row.domain,
+     timezone: row.timezone,
+     dayId: row.day_id,
+     monthId: row.month_id,
+     dayStartAt: row.day_start_at,
+     dayEndAt: row.day_end_at,
+     monthStartAt: row.month_start_at,
+     monthEndAt: row.month_end_at,
+     createdAt: row.created_at,
+     expiresAt: row.expires_at,
+   };
 }
 
 function receiptFromRow(row: ReceiptRow | undefined): EveExternalActionReceiptV0 | null {
@@ -852,7 +941,7 @@ function receiptFromRow(row: ReceiptRow | undefined): EveExternalActionReceiptV0
     row.retry_allowed !== 0 ||
     committed !== Boolean(result) ||
     failed !== (row.reason_code !== null) ||
-    (row.reason_code !== null && !/^[A-Z][A-Z0-9_]{0,95}$/.test(row.reason_code)) ||
+    (row.reason_code !== null && !TERMINAL_REASON_CODES.has(row.reason_code)) ||
     (unknown && !['UNKNOWN_EXTERNAL_EFFECT', 'SANITIZATION_FAILED'].includes(row.reason_code ?? '')) ||
     (unknown || reconciled) !== (row.reconciliation_ref !== null) ||
     (row.reconciliation_ref !== null && !isEveOpaqueId(row.reconciliation_ref)) ||
@@ -951,7 +1040,7 @@ function eventReceiptFromRow(row: ChallengeRow | undefined): EveExternalActionEv
     !EVE_EXTERNAL_ACTION_CHALLENGE_KINDS.includes(candidate.challengeKind as EveExternalActionChallenge['kind']) ||
     !isEveSanitizedOpaqueRef(candidate.challengeRef) ||
     typeof candidate.instructionCode !== 'string' ||
-    !/^[A-Z][A-Z0-9_]{0,95}$/.test(candidate.instructionCode) ||
+    !NEEDS_USER_INSTRUCTION_CODE_SET.has(candidate.instructionCode) ||
     normalizeEveExternalOrigin(candidate.challengeOrigin) !== candidate.challengeOrigin ||
     candidate.challengeOrigin !== origins.at(-1) ||
     !isEveSanitizedOpaqueRef(candidate.resumeRef) ||
@@ -999,7 +1088,7 @@ function validExecutionIdentity(value: ExternalActionExecutionContractIdentity, 
         'targetOrigin',
         'amountMinor',
         'currency',
-        ...(includesClaimDigest ? ['reservationId', 'claimId', 'claimDigest'] : []),
+        ...(includesClaimDigest ? ['reservationId', 'claimId', 'claimDigest', 'expectationDigest'] : []),
       ],
       [
         'providerOrigin',
@@ -1089,7 +1178,8 @@ function validExecutionExpectation(value: ExternalActionExecutionContractExpecta
     validExecutionIdentity(value, true) &&
     isEveOpaqueId(value.reservationId) &&
     isEveOpaqueId(value.claimId) &&
-    isEveSha256Digest(value.claimDigest)
+    isEveSha256Digest(value.claimDigest) &&
+    isEveSha256Digest(value.expectationDigest)
   );
 }
 
@@ -1111,12 +1201,14 @@ function validChallenge(value: unknown, nowMs: number): value is EveExternalActi
     typeof challenge.expiresAt === 'string' &&
     Number.isFinite(Date.parse(challenge.expiresAt)) &&
     Date.parse(challenge.expiresAt) > nowMs &&
-    typeof challenge.userInstructionCode === 'string' &&
-    /^[A-Z][A-Z0-9_]{0,95}$/.test(challenge.userInstructionCode)
+    NEEDS_USER_INSTRUCTION_CODE_SET.has(challenge.userInstructionCode as string)
   );
 }
 
-function zonedPeriodKeys(now: Date, timezone: string): { dayId: string; monthId: string } | null {
+function zonedPeriodKeys(
+  now: Date,
+  timezone: string
+): { dayId: string; monthId: string; dayStartAt: string; dayEndAt: string; monthStartAt: string; monthEndAt: string } | null {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,
@@ -1126,10 +1218,98 @@ function zonedPeriodKeys(now: Date, timezone: string): { dayId: string; monthId:
     }).formatToParts(now);
     const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     if (!values.year || !values.month || !values.day) return null;
-    return { dayId: `${values.year}-${values.month}-${values.day}`, monthId: `${values.year}-${values.month}` };
+    const dayId = `${values.year}-${values.month}-${values.day}`;
+    const monthId = `${values.year}-${values.month}`;
+    return {
+      dayId,
+      monthId,
+      dayStartAt: zonedMidnightUtc(yearOf(dayId), monthOf(dayId), dayOf(dayId), timezone).toISOString(),
+      dayEndAt: zonedMidnightUtc(yearOf(dayId), monthOf(dayId), dayOf(dayId) + 1, timezone).toISOString(),
+      monthStartAt: zonedMidnightUtc(yearOf(monthId), monthOf(monthId), 1, timezone).toISOString(),
+      monthEndAt: zonedMidnightUtc(yearOf(monthId), monthOf(monthId) + 1, 1, timezone).toISOString(),
+    };
   } catch {
     return null;
   }
+}
+
+function yearOf(id: string): number {
+  return Number(id.split('-')[0]);
+}
+
+function monthOf(id: string): number {
+  return Number(id.split('-')[1]);
+}
+
+function dayOf(id: string): number {
+  return Number(id.split('-')[2]);
+}
+
+const ZONED_TIME_PARTS: Intl.DateTimeFormatOptions = {
+  timeZone: 'UTC',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+};
+
+/**
+ * UTC instant of local midnight for the given wall-clock calendar date in a
+ * timezone. Uses the offset measured in the zone at the target date and
+ * re-probes to converge across DST edges.
+ */
+function zonedMidnightUtc(year: number, month: number, day: number, timezone: string): Date {
+  const naiveUtc = Date.UTC(year, month - 1, day, 0, 0, 0, 0);
+  let utc = naiveUtc;
+  for (let i = 0; i < 3; i++) {
+    const probe = new Date(utc);
+    const parts = new Intl.DateTimeFormat('en-US', {
+      ...ZONED_TIME_PARTS,
+      timeZone: timezone,
+    }).formatToParts(probe);
+    const v = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const localWallUtc = Date.UTC(
+      Number(v.year),
+      Number(v.month) - 1,
+      Number(v.day),
+      Number(v.hour),
+      Number(v.minute),
+      Number(v.second)
+    );
+    const offset = localWallUtc - utc;
+    utc = naiveUtc - offset;
+  }
+  return new Date(utc);
+}
+
+/**
+ * Ensures a persisted resolution row carries immutable period keys and exact
+ * RFC3339 boundaries that agree with the timezone captured at reserve time.
+ * A later policy timezone change must never reclassify this historical row.
+ */
+function zonedPeriodKeysConsistent(row: {
+  timezone: string;
+  created_at: string;
+  day_id: string;
+  month_id: string;
+  day_start_at: string;
+  day_end_at: string;
+  month_start_at: string;
+  month_end_at: string;
+}): boolean {
+  const periods = zonedPeriodKeys(new Date(row.created_at), row.timezone);
+  return Boolean(
+    periods &&
+    periods.dayId === row.day_id &&
+    periods.monthId === row.month_id &&
+    periods.dayStartAt === row.day_start_at &&
+    periods.dayEndAt === row.day_end_at &&
+    periods.monthStartAt === row.month_start_at &&
+    periods.monthEndAt === row.month_end_at
+  );
 }
 
 function validSourceRef(source: EveSecretHandleSource, sourceRef: unknown): sourceRef is string {
@@ -1185,8 +1365,6 @@ export class ExternalActionStore {
   }
 
   private initializeSchema(): void {
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS external_action_meta (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -1253,8 +1431,13 @@ export class ExternalActionStore {
         domain TEXT NOT NULL,
         amount_minor INTEGER NOT NULL,
         currency TEXT NOT NULL,
+        timezone TEXT NOT NULL,
         day_id TEXT NOT NULL,
         month_id TEXT NOT NULL,
+        day_start_at TEXT NOT NULL,
+        day_end_at TEXT NOT NULL,
+        month_start_at TEXT NOT NULL,
+        month_end_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
         created_at TEXT NOT NULL,
         claimed_at TEXT,
@@ -1405,6 +1588,28 @@ export class ExternalActionStore {
         details_json TEXT NOT NULL
       );
     `);
+
+    // v6 migration: add immutable policy timezone + exact day/month period
+    // boundaries so a later policy timezone change cannot reclassify history.
+    const cols = this.db
+      .prepare('PRAGMA table_info(external_action_reservations)')
+      .all() as unknown as Array<{ name: string }>;
+    const has = (name: string) => cols.some((col) => col.name === name);
+    if (!has('timezone')) {
+      this.db.exec('ALTER TABLE external_action_reservations ADD COLUMN timezone TEXT');
+    }
+    if (!has('day_start_at')) {
+      this.db.exec('ALTER TABLE external_action_reservations ADD COLUMN day_start_at TEXT');
+    }
+    if (!has('day_end_at')) {
+      this.db.exec('ALTER TABLE external_action_reservations ADD COLUMN day_end_at TEXT');
+    }
+    if (!has('month_start_at')) {
+      this.db.exec('ALTER TABLE external_action_reservations ADD COLUMN month_start_at TEXT');
+    }
+    if (!has('month_end_at')) {
+      this.db.exec('ALTER TABLE external_action_reservations ADD COLUMN month_end_at TEXT');
+    }
   }
 
   private ensureInstallationId(): string {
@@ -1530,7 +1735,7 @@ export class ExternalActionStore {
     };
     const reasonCode =
       reservation.state in defaultReason
-        ? options.reasonCode && /^[A-Z][A-Z0-9_]{0,95}$/.test(options.reasonCode)
+        ? options.reasonCode && TERMINAL_REASON_CODES.has(options.reasonCode)
           ? options.reasonCode
           : defaultReason[reservation.state as keyof typeof defaultReason]
         : undefined;
@@ -1921,8 +2126,8 @@ export class ExternalActionStore {
              execution_contract_digest, quote_digest, authority_grant_id, authority_receipt_digest,
              classification_digest,
              policy_revision, session_epoch, action_kind, domain, amount_minor, currency,
-             day_id, month_id, expires_at, created_at
-           ) VALUES (?, 'reserved', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             timezone, day_id, month_id, day_start_at, day_end_at, month_start_at, month_end_at, expires_at, created_at
+           ) VALUES (?, 'reserved', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           reservationId,
@@ -1956,8 +2161,13 @@ export class ExternalActionStore {
           targetOrigin,
           input.amountMinor,
           input.currency,
+          policy.timezone,
           periods.dayId,
           periods.monthId,
+          periods.dayStartAt,
+          periods.dayEndAt,
+          periods.monthStartAt,
+          periods.monthEndAt,
           new Date(reservationExpiry).toISOString(),
           now.toISOString()
         );
@@ -2100,7 +2310,8 @@ export class ExternalActionStore {
   ): number | null {
     const rows = this.db
       .prepare(
-        `SELECT state, amount_minor, day_id, month_id, created_at
+        `SELECT state, amount_minor, day_id, month_id, created_at, timezone,
+                day_start_at, day_end_at, month_start_at, month_end_at
          FROM external_action_reservations
          WHERE installation_id = ? AND account_id = ? AND seed_id = ? AND currency = ?`
       )
@@ -2110,14 +2321,28 @@ export class ExternalActionStore {
       day_id?: unknown;
       month_id?: unknown;
       created_at?: unknown;
+      timezone?: unknown;
+      day_start_at?: unknown;
+      day_end_at?: unknown;
+      month_start_at?: unknown;
+      month_end_at?: unknown;
     }>;
     let total = 0;
     for (const row of rows) {
       if (!LEDGER_STATES.has(row.state as EveExternalActionLedgerState)) return null;
       if (!Number.isSafeInteger(row.amount_minor) || (row.amount_minor as number) < 0) return null;
       if (typeof row.created_at !== 'string' || !Number.isFinite(Date.parse(row.created_at))) return null;
-      const expectedPeriods = zonedPeriodKeys(new Date(row.created_at), timezone);
-      if (!expectedPeriods || row.day_id !== expectedPeriods.dayId || row.month_id !== expectedPeriods.monthId) {
+      if (typeof row.day_id !== 'string' || typeof row.month_id !== 'string') return null;
+      if (!zonedPeriodKeysConsistent({
+        timezone: row.timezone as string,
+        created_at: row.created_at,
+        day_id: row.day_id,
+        month_id: row.month_id,
+        day_start_at: row.day_start_at as string,
+        day_end_at: row.day_end_at as string,
+        month_start_at: row.month_start_at as string,
+        month_end_at: row.month_end_at as string,
+      })) {
         return null;
       }
       if (!ACTIVE_BUDGET_STATES.has(row.state as EveExternalActionLedgerState)) continue;
@@ -2211,7 +2436,16 @@ export class ExternalActionStore {
   ): boolean {
     const origin = normalizeEveExternalOrigin(expected.targetOrigin);
     const origins = executionOrigins(expected);
-    const expectedPeriods = zonedPeriodKeys(new Date(reservation.createdAt), policy.timezone);
+    const periodsConsistent = zonedPeriodKeysConsistent({
+      timezone: reservation.timezone,
+      created_at: reservation.createdAt,
+      day_id: reservation.dayId,
+      month_id: reservation.monthId,
+      day_start_at: reservation.dayStartAt,
+      day_end_at: reservation.dayEndAt,
+      month_start_at: reservation.monthStartAt,
+      month_end_at: reservation.monthEndAt,
+    });
     return Boolean(
       origin &&
       expected.installationId === reservation.binding.installationId &&
@@ -2250,9 +2484,7 @@ export class ExternalActionStore {
       reservation.amountMinor === expected.amountMinor &&
       reservation.currency === expected.currency &&
       Date.parse(reservation.expiresAt) > this.now().getTime() &&
-      expectedPeriods &&
-      reservation.dayId === expectedPeriods.dayId &&
-      reservation.monthId === expectedPeriods.monthId
+      periodsConsistent
     );
   }
 
@@ -2294,8 +2526,23 @@ export class ExternalActionStore {
     if (!reservation || !['claimed', 'resuming'].includes(reservation.state) || reservation.claimId !== claimId) {
       return { ok: false, reasonCode: 'EXTERNAL_EXECUTION_CLAIM_NOT_ACTIVE' };
     }
+    // Recompute the claim-bound digests from the persisted row. Field equality
+    // alone proves nothing about digests that were never recomputed.
+    const recomputedClaimDigest = externalActionClaimDigest({
+      executionContractDigest: reservation.executionContractDigest,
+      reservationId: reservation.reservationId,
+      claimId,
+    });
+    const recomputedExpectationDigest = externalActionExpectationDigest({
+      executionContractDigest: reservation.executionContractDigest,
+      reservationId: reservation.reservationId,
+      claimId,
+      claimDigest: reservation.claimDigest,
+    });
     if (
       reservation.claimDigest !== expected.claimDigest ||
+      recomputedClaimDigest !== expected.claimDigest ||
+      recomputedExpectationDigest !== expected.expectationDigest ||
       !this.reservationMatchesExecutionIdentity(reservation, policy, expected)
     ) {
       return { ok: false, reasonCode: 'EXTERNAL_EXECUTION_CONTRACT_STALE' };

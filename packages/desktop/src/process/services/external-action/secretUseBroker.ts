@@ -12,6 +12,7 @@ import type {
   EveSecretFieldSlot,
 } from '@/common/config/eveExternalActionPolicyCore';
 import type { ExternalActionExecutionContractExpectation, ExternalActionStore } from './externalActionStore';
+import { externalActionTerminalReason } from './externalActionStore';
 
 export interface SecretMaterialResolveContext {
   source: EveSecretHandleSource;
@@ -113,7 +114,7 @@ export class ExternalSecretUseBroker {
           claimId: request.claimId,
           authMode: request.executionContract.authMode,
           terminalState: 'denied',
-          reasonCode: consumed.reasonCode,
+          reasonCode: externalActionTerminalReason(consumed.reasonCode),
           outcomeDigest: BROKER_REVERSED_DIGEST,
         });
       const unknown = replayUnsafe || transition.state === 'unknown' || transition.state === 'resuming';
@@ -132,7 +133,7 @@ export class ExternalSecretUseBroker {
         claimId: request.claimId,
         authMode: request.executionContract.authMode,
         terminalState: 'denied',
-        reasonCode: 'EXTERNAL_SECRET_HANDLE_NOT_ACTIVE',
+        reasonCode: externalActionTerminalReason('EXTERNAL_SECRET_HANDLE_NOT_ACTIVE'),
         outcomeDigest: BROKER_REVERSED_DIGEST,
       });
       return {
@@ -173,7 +174,7 @@ export class ExternalSecretUseBroker {
           claimId: request.claimId,
           authMode: request.executionContract.authMode,
           terminalState: 'denied',
-          reasonCode: 'EXTERNAL_SECRET_RESOLVE_FAILED',
+          reasonCode: externalActionTerminalReason('EXTERNAL_SECRET_RESOLVE_FAILED'),
           outcomeDigest: BROKER_REVERSED_DIGEST,
         });
         return {
@@ -190,7 +191,7 @@ export class ExternalSecretUseBroker {
         claimId: request.claimId,
         authMode: request.executionContract.authMode,
         terminalState: 'denied',
-        reasonCode: 'EXTERNAL_SECRET_RESOLVE_FAILED',
+        reasonCode: externalActionTerminalReason('EXTERNAL_SECRET_RESOLVE_FAILED'),
         outcomeDigest: BROKER_REVERSED_DIGEST,
       });
       return {
@@ -217,7 +218,7 @@ export class ExternalSecretUseBroker {
           claimId: request.claimId,
           authMode: request.executionContract.authMode,
           terminalState: 'denied',
-          reasonCode: recheckedBeforeAuthority.reasonCode,
+          reasonCode: externalActionTerminalReason(recheckedBeforeAuthority.reasonCode),
           outcomeDigest: BROKER_REVERSED_DIGEST,
         });
         return {
@@ -241,7 +242,9 @@ export class ExternalSecretUseBroker {
             claimId: request.claimId,
             authMode: request.executionContract.authMode,
             terminalState: 'denied',
-            reasonCode: fixedReason(trustedPreflight.reasonCode, 'EXTERNAL_TRUSTED_PREFLIGHT_BLOCKED'),
+            reasonCode: externalActionTerminalReason(
+              fixedReason(trustedPreflight.reasonCode, 'EXTERNAL_TRUSTED_PREFLIGHT_BLOCKED')
+            ),
             outcomeDigest: BROKER_REVERSED_DIGEST,
           });
           return {
@@ -267,7 +270,7 @@ export class ExternalSecretUseBroker {
           claimId: request.claimId,
           authMode: request.executionContract.authMode,
           terminalState: 'denied',
-          reasonCode: recheckedAfterAuthority.reasonCode,
+          reasonCode: externalActionTerminalReason(recheckedAfterAuthority.reasonCode),
           outcomeDigest: BROKER_REVERSED_DIGEST,
         });
         return {

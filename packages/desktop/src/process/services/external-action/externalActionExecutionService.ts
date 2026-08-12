@@ -48,6 +48,11 @@ import {
 } from '@/common/config/eveExternalActionPolicyCore';
 import { externalActionBrowserPartition } from './browserProfileScope';
 import type { ExternalActionBindingResolution } from './bindingResolver';
+import {
+  externalActionClaimDigest,
+  externalActionExpectationDigest,
+  externalActionTerminalReason,
+} from './externalActionStore';
 import type {
   ExternalActionContinuationKind,
   ExternalActionExecutionContractIdentity,
@@ -455,6 +460,12 @@ function canonical(value: unknown): string {
 
 function safeReason(reasonCode: unknown, fallback: string): string {
   return typeof reasonCode === 'string' && RESULT_REASON_RE.test(reasonCode) ? reasonCode : fallback;
+}
+
+function withoutExpectationDigest<T extends object>(input: T): Omit<T, 'expectationDigest'> {
+  const clone: { [K in keyof T]?: T[K] } = { ...input };
+  delete (clone as { expectationDigest?: string }).expectationDigest;
+  return clone as Omit<T, 'expectationDigest'>;
 }
 
 function result(
@@ -1171,6 +1182,8 @@ type AdapterPayloadReadInput = ExternalActionAdapterPayloadValidationContext & {
   adapter: ExternalActionAdapter;
   payloadRef: string;
   payloadDigest: string;
+  /** Inline-union alternative: exact bytes replace the reader, still digest-bound. */
+  inlineBytes?: Uint8Array;
 };
 
 type AdapterPayloadReadResult =
@@ -1204,13 +1217,20 @@ export class ExternalActionExecutionService {
   }
 
   private async readValidatedAdapterPayload(input: AdapterPayloadReadInput): Promise<AdapterPayloadReadResult> {
-    if (!this.deps.adapterPayloadReader || !input.adapter.validatePayload) {
+    if (input.inlineBytes !== undefined && !input.adapter.validatePayload) {
+      return { ok: false, reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_UNAVAILABLE' };
+    }
+    if (input.inlineBytes === undefined && (!this.deps.adapterPayloadReader || !input.adapter.validatePayload)) {
       return { ok: false, reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_UNAVAILABLE' };
     }
     let payload: Uint8Array | undefined;
     let validatorPayload: Uint8Array | undefined;
     try {
-      const readerPayload = await this.deps.adapterPayloadReader.read({
+      let readerPayload: Uint8Array | undefined;
+      if (input.inlineBytes !== undefined) {
+        readerPayload = input.inlineBytes;
+      } else {
+        readerPayload = await this.deps.adapterPayloadReader!.read({
         payloadRef: input.payloadRef,
         expectedPayloadDigest: input.payloadDigest,
         binding: input.binding,
@@ -1224,6 +1244,7 @@ export class ExternalActionExecutionService {
         counterpartyId: input.counterpartyId,
         origins: input.origins,
       });
+      }
       if (
         !(readerPayload instanceof Uint8Array) ||
         readerPayload.byteLength === 0 ||
@@ -1357,18 +1378,23 @@ export class ExternalActionExecutionService {
       return { ok: false, outcome: result('denied', stableConversationAfterAuthority) };
     }
 
-    if (proposal.action.adapterPayloadRef && !adapter.validatePayload) {
+    if (proposal.action.adapterPayload && !adapter.validatePayload) {
       return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_SCHEMA_REQUIRED' }) };
     }
-    if (proposal.action.adapterPayloadRef && (proposal.oauthHandleId || proposal.passwordHandleId)) {
+    if (proposal.action.adapterPayload && (proposal.oauthHandleId || proposal.passwordHandleId)) {
       return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_PAYLOAD_HANDLE_INGRESS_AMBIGUOUS' }) };
     }
     let payloadValidation: ExternalActionAdapterPayloadValidation | undefined;
-    if (proposal.action.adapterPayloadRef && proposal.action.adapterPayloadDigest) {
+    if (proposal.action.adapterPayload || (proposal.action.adapterPayloadRef && proposal.action.adapterPayloadDigest)) {
+      const inlineBytes = proposal.action.adapterPayload
+        ? Buffer.from(proposal.action.adapterPayload, 'base64')
+        : undefined;
+      const resolvedPayloadDigest = inlineBytes ? sha256Bytes(inlineBytes) : proposal.action.adapterPayloadDigest!;
       const read = await this.readValidatedAdapterPayload({
         adapter,
-        payloadRef: proposal.action.adapterPayloadRef,
-        payloadDigest: proposal.action.adapterPayloadDigest,
+        payloadRef: inlineBytes ? '' : proposal.action.adapterPayloadRef!,
+        payloadDigest: resolvedPayloadDigest,
+        ...(inlineBytes ? { inlineBytes } : {}),
         binding,
         conversationId: conversationContext.conversationId,
         conversationSessionId: conversationContext.conversationSessionId,
@@ -1388,6 +1414,11 @@ export class ExternalActionExecutionService {
       }
       payloadValidation = read.validation;
       read.payload.fill(0);
+      // Bind the resolved inline digest into the proposal so the semantic and
+      // execution digests (and the durable reservation) cover the exact bytes.
+      if (inlineBytes) {
+        proposal = { ...proposal, action: { ...proposal.action, adapterPayloadDigest: resolvedPayloadDigest } };
+      }
     }
     if (operation.domain !== 'generic' && !payloadValidation) {
       return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_REQUIRED' }) };
@@ -1733,9 +1764,11 @@ export class ExternalActionExecutionService {
     }
 
     const claimId = `claim:${this.randomUUID()}`;
-    const claimDigest = sha256(
-      canonical({ executionContractDigest: executionContract.executionContractDigest, claimId })
-    );
+    const claimDigest = externalActionClaimDigest({
+      executionContractDigest: executionContract.executionContractDigest,
+      reservationId: reserved.reservationId,
+      claimId,
+    });
     const claimed = this.store.claim({
       binding,
       reservationId: reserved.reservationId,
@@ -1764,6 +1797,12 @@ export class ExternalActionExecutionService {
       reservationId: reserved.reservationId,
       claimId,
       claimDigest,
+      expectationDigest: externalActionExpectationDigest({
+        executionContractDigest: executionContract.executionContractDigest,
+        reservationId: reserved.reservationId,
+        claimId,
+        claimDigest,
+      }),
     };
 
     return this.continueClaimed({
@@ -1821,7 +1860,8 @@ export class ExternalActionExecutionService {
     if (
       !sameBinding(binding, bindingResult.binding) ||
       adapter.id !== pending.snapshot.adapterId ||
-      canonical(executionContract) !== canonical(pendingExecutionIdentity)
+      canonical(withoutExpectationDigest(executionContract)) !==
+        canonical(withoutExpectationDigest(pendingExecutionIdentity))
     ) {
       return result('denied', { reasonCode: 'EXTERNAL_RESUME_CONTRACT_STALE' });
     }
@@ -2093,7 +2133,7 @@ export class ExternalActionExecutionService {
           outcomeDigest: sha256(preflight.reasonCode),
         });
         return result('unknown_outcome', {
-          reasonCode: preflight.reasonCode,
+          reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
           reservationId,
           authMode: input.resume.authMode,
           retryAllowed: false,
@@ -2112,7 +2152,7 @@ export class ExternalActionExecutionService {
           outcomeDigest: sha256(reasonCode),
         });
         return result('unknown_outcome', {
-          reasonCode,
+          reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
           reservationId,
           authMode: input.resume.authMode,
           retryAllowed: false,
@@ -2130,7 +2170,7 @@ export class ExternalActionExecutionService {
           outcomeDigest: sha256(activated.reasonCode),
         });
         return result('unknown_outcome', {
-          reasonCode: activated.reasonCode,
+          reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
           reservationId,
           authMode: input.resume.authMode,
           retryAllowed: false,
@@ -2164,17 +2204,18 @@ export class ExternalActionExecutionService {
       if ('reasonCode' in dispatched) {
         if (dispatched.beforeEffect) {
           const status = statusForBrokerReason(dispatched.reasonCode);
+          const terminalReason = externalActionTerminalReason(dispatched.reasonCode);
           this.store.reverse({
             binding,
             reservationId,
             claimId,
             authMode: executionContract.authMode,
             terminalState: terminalStateForStatus(status),
-            reasonCode: dispatched.reasonCode,
+            reasonCode: terminalReason,
             outcomeDigest: sha256(dispatched.reasonCode),
           });
           return result(status, {
-            reasonCode: dispatched.reasonCode,
+            reasonCode: terminalReason,
             reservationId,
             authMode: executionContract.authMode,
             ...this.presentation({ status, binding, proposal, executionContract, reservationId }),
@@ -2214,11 +2255,11 @@ export class ExternalActionExecutionService {
           claimId,
           authMode: executionContract.authMode,
           terminalState: 'denied',
-          reasonCode: 'EXTERNAL_CHALLENGE_PROBE_INVALID',
+          reasonCode: externalActionTerminalReason('EXTERNAL_CHALLENGE_PROBE_INVALID'),
           outcomeDigest: sha256('EXTERNAL_CHALLENGE_PROBE_INVALID'),
         });
         return result('denied', {
-          reasonCode: 'EXTERNAL_CHALLENGE_PROBE_INVALID',
+          reasonCode: externalActionTerminalReason('EXTERNAL_CHALLENGE_PROBE_INVALID'),
           reservationId,
           ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
         });
@@ -2257,11 +2298,11 @@ export class ExternalActionExecutionService {
         claimId,
         authMode: executionContract.authMode,
         terminalState: 'denied',
-        reasonCode: auth.reasonCode,
+        reasonCode: externalActionTerminalReason(auth.reasonCode),
         outcomeDigest: sha256(auth.reasonCode),
       });
       return result('denied', {
-        reasonCode: auth.reasonCode,
+        reasonCode: externalActionTerminalReason(auth.reasonCode),
         reservationId,
         authMode: auth.authMode,
         ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
@@ -2285,11 +2326,11 @@ export class ExternalActionExecutionService {
         claimId,
         authMode: executionContract.authMode,
         terminalState: 'denied',
-        reasonCode: 'EXTERNAL_AUTH_SLOT_CONTRACT_STALE',
+        reasonCode: externalActionTerminalReason('EXTERNAL_AUTH_SLOT_CONTRACT_STALE'),
         outcomeDigest: sha256('EXTERNAL_AUTH_SLOT_CONTRACT_STALE'),
       });
       return result('denied', {
-        reasonCode: 'EXTERNAL_AUTH_SLOT_CONTRACT_STALE',
+        reasonCode: externalActionTerminalReason('EXTERNAL_AUTH_SLOT_CONTRACT_STALE'),
         reservationId,
         authMode: auth.authMode,
         ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
@@ -2331,17 +2372,18 @@ export class ExternalActionExecutionService {
       });
       if ('reasonCode' in permit) {
         const status = statusForBrokerReason(permit.reasonCode);
+        const terminalReason = externalActionTerminalReason(permit.reasonCode);
         this.store.reverse({
           binding,
           reservationId,
           claimId,
           authMode: executionContract.authMode,
           terminalState: terminalStateForStatus(status),
-          reasonCode: permit.reasonCode,
+          reasonCode: terminalReason,
           outcomeDigest: sha256(permit.reasonCode),
         });
         return result(statusForBrokerReason(permit.reasonCode), {
-          reasonCode: permit.reasonCode,
+          reasonCode: terminalReason,
           reservationId,
           authMode: auth.authMode,
           ...this.presentation({
@@ -2357,17 +2399,18 @@ export class ExternalActionExecutionService {
 
     if (slotsToUse.length > 0 && !this.deps.secretSink) {
       const reasonCode = 'EXTERNAL_SECRET_SINK_UNAVAILABLE';
+      const terminalReason = externalActionTerminalReason(reasonCode);
       this.store.reverse({
         binding,
         reservationId,
         claimId,
         authMode: executionContract.authMode,
         terminalState: 'denied',
-        reasonCode,
+        reasonCode: terminalReason,
         outcomeDigest: sha256(reasonCode),
       });
       return result('denied', {
-        reasonCode,
+        reasonCode: terminalReason,
         reservationId,
         authMode: auth.authMode,
         ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
@@ -2458,17 +2501,18 @@ export class ExternalActionExecutionService {
     if ('reasonCode' in dispatched) {
       if (dispatched.beforeEffect) {
         const status = statusForBrokerReason(dispatched.reasonCode);
+        const terminalReason = externalActionTerminalReason(dispatched.reasonCode);
         this.store.reverse({
           binding,
           reservationId,
           claimId,
           authMode: executionContract.authMode,
           terminalState: terminalStateForStatus(status),
-          reasonCode: dispatched.reasonCode,
+          reasonCode: terminalReason,
           outcomeDigest: sha256(dispatched.reasonCode),
         });
         return result(status, {
-          reasonCode: dispatched.reasonCode,
+          reasonCode: terminalReason,
           reservationId,
           authMode: auth.authMode,
           ...this.presentation({ status, binding, proposal, executionContract, reservationId }),
@@ -2480,7 +2524,10 @@ export class ExternalActionExecutionService {
       const status =
         brokerResult.status === 'unknown' ? 'unknown_outcome' : statusForBrokerReason(brokerResult.reasonCode);
       return result(status, {
-        reasonCode: brokerResult.reasonCode,
+        reasonCode:
+          status === 'unknown_outcome'
+            ? unknownOutcomeReason(brokerResult.reasonCode)
+            : externalActionTerminalReason(brokerResult.reasonCode),
         reservationId,
         authMode: auth.authMode,
         ...(status === 'unknown_outcome' ? { retryAllowed: false } : {}),
@@ -2515,18 +2562,42 @@ export class ExternalActionExecutionService {
     const payloadDigest = input.proposal.action.adapterPayloadDigest;
     let payload: Uint8Array | undefined;
     try {
-      if (payloadRef || payloadDigest) {
-        if (!payloadRef || !payloadDigest) {
+      const reservedDigest = input.executionContract.adapterPayloadDigest;
+      if (payloadRef || payloadDigest || input.proposal.action.adapterPayload) {
+        if (!payloadRef && !payloadDigest) {
+          // Inline form: exact base64 bytes become the digest-bound payload.
+          if (!input.proposal.action.adapterPayload) {
+            return { ok: false, reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_UNAVAILABLE', beforeEffect: true };
+          }
+        } else if (!payloadRef || !payloadDigest) {
           return { ok: false, reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_UNAVAILABLE', beforeEffect: true };
         }
         const origins =
           input.executionContract.domain === 'commerce'
             ? [input.executionContract.merchantOrigin!, input.executionContract.checkoutOrigin!]
             : [input.executionContract.providerOrigin!];
+        const inlineBytes = input.proposal.action.adapterPayload && !payloadRef
+          ? Buffer.from(input.proposal.action.adapterPayload, 'base64')
+          : undefined;
+        // Verify against the digest bound into the reservation/digests at
+        // prepare time; never post-inject a freshly computed digest.
+        if (!reservedDigest) {
+          return { ok: false, reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_CONTRACT_STALE', beforeEffect: true };
+        }
+        if (inlineBytes) {
+          const fresh = sha256Bytes(inlineBytes);
+          if (fresh !== reservedDigest) {
+            inlineBytes.fill(0);
+            return { ok: false, reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_CONTRACT_STALE', beforeEffect: true };
+          }
+        } else if (payloadDigest !== reservedDigest) {
+          return { ok: false, reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_CONTRACT_STALE', beforeEffect: true };
+        }
         const read = await this.readValidatedAdapterPayload({
           adapter: input.adapter,
-          payloadRef,
-          payloadDigest,
+          payloadRef: input.proposal.action.adapterPayload && !payloadRef ? '' : payloadRef!,
+          payloadDigest: reservedDigest,
+          ...(inlineBytes ? { inlineBytes } : {}),
           argumentsDigest: input.proposal.action.argumentsDigest,
           ...(input.proposal.action.quoteDigest ? { quoteDigest: input.proposal.action.quoteDigest } : {}),
           amount: input.proposal.action.amount,
@@ -2545,7 +2616,9 @@ export class ExternalActionExecutionService {
         payload = read.payload;
         if (
           read.validation.commerce?.productCount !== input.executionContract.adapterPayloadProductCount ||
-          read.validation.commerce?.cartDigest !== input.executionContract.cartDigest
+          read.validation.commerce?.cartDigest !== input.executionContract.cartDigest ||
+          read.validation.authMode !== input.executionContract.authMode ||
+          canonical(read.validation.slotManifest) !== canonical(input.executionContract.slotManifest)
         ) {
           return { ok: false, reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_CONTRACT_STALE', beforeEffect: true };
         }
@@ -2672,7 +2745,7 @@ export class ExternalActionExecutionService {
     const receipt = this.store.getReceipt(input.binding, input.reservationId);
     if (!status || !receipt) {
       return result('unknown_outcome', {
-        reasonCode: fallbackReasonCode,
+        reasonCode: externalActionTerminalReason(fallbackReasonCode),
         reservationId: input.reservationId,
         authMode,
         retryAllowed: false,
@@ -2786,11 +2859,11 @@ export class ExternalActionExecutionService {
         claimId: input.claimId,
         authMode,
         terminalState: 'denied',
-        reasonCode: suspended.reasonCode,
+        reasonCode: externalActionTerminalReason(suspended.reasonCode),
         outcomeDigest: sha256(suspended.reasonCode),
       });
       return result('denied', {
-        reasonCode: suspended.reasonCode,
+        reasonCode: externalActionTerminalReason(suspended.reasonCode),
         reservationId: input.reservationId,
         authMode,
         ...this.presentation({

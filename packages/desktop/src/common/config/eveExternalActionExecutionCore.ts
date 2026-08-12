@@ -103,6 +103,7 @@ export interface EveExternalActionProposal {
     targetOrigin: string;
     argumentsDigest: string;
     quoteDigest?: string;
+    adapterPayload?: string;
     adapterPayloadRef?: string;
     adapterPayloadDigest?: string;
     amount: { currency: string; minorUnits: number };
@@ -546,7 +547,7 @@ export function validateEveExternalActionProposal(input: unknown): EveExternalAc
     !exactKeys(
       action,
       ['kind', 'targetOrigin', 'argumentsDigest', 'amount'],
-      ['quoteDigest', 'adapterPayloadRef', 'adapterPayloadDigest']
+      ['quoteDigest', 'adapterPayload', 'adapterPayloadRef', 'adapterPayloadDigest']
     )
   ) {
     return { ok: false, reasonCode: 'EXTERNAL_PROPOSAL_ACTION_FIELDS_INVALID' };
@@ -581,12 +582,32 @@ export function validateEveExternalActionProposal(input: unknown): EveExternalAc
   ) {
     return { ok: false, reasonCode: money ? 'EXTERNAL_PROPOSAL_QUOTE_REQUIRED' : 'EXTERNAL_PROPOSAL_AMOUNT_FORBIDDEN' };
   }
+  const hasPayloadInline = action.adapterPayload !== undefined;
   const hasPayloadRef = action.adapterPayloadRef !== undefined;
   const hasPayloadDigest = action.adapterPayloadDigest !== undefined;
-  if (
-    hasPayloadRef !== hasPayloadDigest ||
-    (hasPayloadRef && (!isEveOpaqueId(action.adapterPayloadRef) || !isEveSha256Digest(action.adapterPayloadDigest)))
-  ) {
+  // ref and digest must come together; inline is mutually exclusive with ref.
+  // Absent is allowed (generic adapters without payload); Main enforces a
+  // payload requirement per domain later (EXTERNAL_ADAPTER_PAYLOAD_REQUIRED).
+  if (hasPayloadRef !== hasPayloadDigest || (hasPayloadInline && hasPayloadRef)) {
+    return { ok: false, reasonCode: 'EXTERNAL_PROPOSAL_ADAPTER_PAYLOAD_INVALID' };
+  }
+  const inlineValid =
+    !hasPayloadInline ||
+    (typeof action.adapterPayload === 'string' &&
+      action.adapterPayload.length > 0 &&
+      action.adapterPayload.length <= 262_144 &&
+      (() => {
+        try {
+          const buf = Buffer.from(action.adapterPayload as string, 'base64');
+          return buf.toString('base64') === action.adapterPayload && buf.byteLength > 0;
+        } catch {
+          return false;
+        }
+      })());
+  const refValid =
+    !hasPayloadRef ||
+    (isEveOpaqueId(action.adapterPayloadRef) && isEveSha256Digest(action.adapterPayloadDigest));
+  if (!inlineValid || !refValid) {
     return { ok: false, reasonCode: 'EXTERNAL_PROPOSAL_ADAPTER_PAYLOAD_INVALID' };
   }
   for (const key of ['oauthHandleId', 'passwordHandleId'] as const) {
@@ -606,12 +627,14 @@ export function validateEveExternalActionProposal(input: unknown): EveExternalAc
         targetOrigin,
         argumentsDigest: action.argumentsDigest as string,
         ...(action.quoteDigest ? { quoteDigest: action.quoteDigest as string } : {}),
-        ...(hasPayloadRef
-          ? {
-              adapterPayloadRef: action.adapterPayloadRef as string,
-              adapterPayloadDigest: action.adapterPayloadDigest as string,
-            }
-          : {}),
+        ...(hasPayloadInline
+          ? { adapterPayload: action.adapterPayload as string }
+          : hasPayloadRef
+            ? {
+                adapterPayloadRef: action.adapterPayloadRef as string,
+                adapterPayloadDigest: action.adapterPayloadDigest as string,
+              }
+            : {}),
         amount: { currency: amount.currency, minorUnits: amount.minorUnits as number },
       },
       ...(record.oauthHandleId ? { oauthHandleId: record.oauthHandleId as string } : {}),
