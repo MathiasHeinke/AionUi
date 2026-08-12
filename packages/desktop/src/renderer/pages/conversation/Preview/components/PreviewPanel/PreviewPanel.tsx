@@ -5,8 +5,13 @@
  */
 
 import { ipcBridge } from '@/common';
+import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import type { PreviewContentType } from '@/common/types/office/preview';
+import DurableWorkActivity from '@/renderer/components/layout/Titlebar/DurableWorkActivity';
+import { sanitizeArtifactPreviewSource } from '@/renderer/pages/conversation/Messages/components/artifactPreviewSecurityCore';
+import { useConversationDelegationActivity } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 import { downloadFileFromPath, downloadTextContent } from '@/renderer/utils/file/download';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { PreviewToolbarExtrasProvider, type PreviewToolbarExtras } from '../../context/PreviewToolbarExtrasContext';
@@ -39,7 +44,13 @@ import {
   type CloseTabConfirmState,
   type PreviewTab,
 } from '.';
-import { DEFAULT_SPLIT_RATIO, FILE_TYPES_WITH_BUILTIN_OPEN, MAX_SPLIT_WIDTH, MIN_SPLIT_WIDTH } from '../../constants';
+import {
+  DEFAULT_SPLIT_RATIO,
+  FILE_TYPES_WITH_BUILTIN_OPEN,
+  LARGE_TEXT_PREVIEW_MAX_LENGTH,
+  MAX_SPLIT_WIDTH,
+  MIN_SPLIT_WIDTH,
+} from '../../constants';
 import {
   usePreviewHistory,
   usePreviewKeyboardShortcuts,
@@ -48,6 +59,7 @@ import {
   useThemeDetection,
 } from '../../hooks';
 import { useTranslation } from 'react-i18next';
+import { getContentTypeByExtension } from '../../fileUtils';
 import './preview.css';
 
 const KanbanBoardHost = React.lazy(() => import('@/renderer/pages/kanban'));
@@ -70,11 +82,13 @@ const PreviewPanel: React.FC = () => {
     switchTab,
     closePreview,
     hidePreview,
+    openPreview,
     setCloseTabRequestHandler,
     updateContent,
     saveContent,
     addDomSnippet,
   } = usePreviewContext();
+  const durableWorkLegacyTasks = useConversationDelegationActivity(activeTab?.metadata?.conversation_id || '');
   const layout = useLayoutContext();
 
   // 视图状态 / View states
@@ -291,6 +305,7 @@ const PreviewPanel: React.FC = () => {
   const isHTML = content_type === 'html';
   const isWorkspaceSurface = content_type === 'workspace-files' || content_type === 'workspace-review';
   const isKanbanSurface = content_type === 'kanban';
+  const isDurableWorkSurface = content_type === 'durable-work';
   const isEditable = metadata?.editable !== false; // 默认可编辑 / Default editable
 
   // 检查文件类型是否已有内置的打开按钮（Word、PPT、PDF、Excel 组件内部已提供）
@@ -461,6 +476,106 @@ const PreviewPanel: React.FC = () => {
       }
     }
   }, [metadata?.file_path, messageApi, t]);
+
+  const handleOpenDurableWorkEvidence = useCallback(
+    async (_item: unknown, evidence: { ref?: string }) => {
+      const conversationId = metadata?.conversation_id;
+      const artifactId = evidence.ref?.startsWith('artifact:') ? evidence.ref.slice('artifact:'.length) : '';
+      if (!conversationId || !artifactId) return;
+
+      try {
+        const artifacts = await ipcBridge.conversation.listArtifacts.invoke({ conversation_id: conversationId });
+        const artifact = artifacts.find(
+          (candidate: IConversationArtifact) =>
+            candidate.id === artifactId &&
+            candidate.conversation_id === conversationId &&
+            (candidate.status === 'active' || candidate.status === 'saved')
+        );
+        if (!artifact) throw new Error('artifact_not_available_for_conversation');
+
+        const payload = artifact.payload as Record<string, unknown>;
+        const readString = (keys: readonly string[]): string | undefined => {
+          for (const key of keys) {
+            const value = payload[key];
+            if (typeof value === 'string' && value.trim()) return value.trim();
+          }
+          return undefined;
+        };
+        const title = readString(['title', 'name', 'file_name']) || `Worker artifact ${artifact.id.slice(0, 8)}`;
+        const filePath = readString(['path', 'file_path', 'absolute_path', 'relative_path']);
+        const source = readString([
+          'url',
+          'file_url',
+          'href',
+          'src',
+          'data_url',
+          'download_url',
+          'output_url',
+          'preview_url',
+        ]);
+        const inlineContent = readString(['html', 'content']);
+        const artifactType = readString(['artifact_type']);
+        const fileName = readString(['file_name']) || filePath?.split('/').pop() || title;
+        const previewMetadata = {
+          title,
+          file_name: fileName,
+          file_path: filePath,
+          workspace: metadata?.workspace,
+          conversation_id: conversationId,
+          editable: false,
+        };
+
+        if (inlineContent) {
+          const inlineType: PreviewContentType = artifactType === 'html' || artifact.kind === 'html' ? 'html' : 'code';
+          openPreview(inlineContent.slice(0, LARGE_TEXT_PREVIEW_MAX_LENGTH), inlineType, previewMetadata);
+          return;
+        }
+
+        if (source) {
+          const mediaType =
+            artifactType === 'image' || artifactType === 'video' || artifactType === 'audio' ? artifactType : null;
+          const safeMediaSource = mediaType ? sanitizeArtifactPreviewSource(source, mediaType) : undefined;
+          if (mediaType && safeMediaSource) {
+            openPreview(safeMediaSource, mediaType, previewMetadata);
+            return;
+          }
+          const safeNetworkSource = sanitizeArtifactPreviewSource(source, 'html');
+          if (safeNetworkSource?.startsWith('https:')) {
+            openPreview(safeNetworkSource, 'url', previewMetadata);
+            return;
+          }
+        }
+
+        if (filePath) {
+          const contentType = getContentTypeByExtension(filePath);
+          if (
+            contentType === 'markdown' ||
+            contentType === 'html' ||
+            contentType === 'code' ||
+            contentType === 'diff'
+          ) {
+            const fileContent = await ipcBridge.fs.readFile.invoke({
+              path: filePath,
+              workspace: metadata?.workspace,
+            });
+            if (typeof fileContent === 'string') {
+              openPreview(fileContent, contentType, previewMetadata);
+              return;
+            }
+          } else {
+            openPreview('', contentType, previewMetadata);
+            return;
+          }
+        }
+
+        throw new Error('artifact_preview_unavailable');
+      } catch (error) {
+        console.error('[PreviewPanel] Failed to open durable work evidence:', error);
+        messageApi.warning(t('messages.artifact.previewUnavailable'));
+      }
+    },
+    [messageApi, metadata?.conversation_id, metadata?.workspace, openPreview, t]
+  );
 
   const workbenchUrlTabs = useMemo(() => {
     if (!COMMAND_EVE_SHELL_ENABLED) return [];
@@ -694,6 +809,16 @@ const PreviewPanel: React.FC = () => {
           <KanbanBoardHost />
         </React.Suspense>
       );
+    } else if (isDurableWorkSurface) {
+      return (
+        <DurableWorkActivity
+          conversationId={metadata?.conversation_id || ''}
+          legacyTasks={durableWorkLegacyTasks}
+          workItemId={content}
+          mode='detail'
+          onOpenEvidence={handleOpenDurableWorkEvidence}
+        />
+      );
     } else if (content_type === 'diff') {
       return (
         <DiffPreview
@@ -799,35 +924,39 @@ const PreviewPanel: React.FC = () => {
         )}
 
         {/* 工具栏（URL 类型不显示工具栏，因为不需要下载/编辑等功能）/ Toolbar (hidden for URL type as it doesn't need download/edit features) */}
-        {content_type !== 'url' && content_type !== 'terminal' && !isWorkspaceSurface && !isKanbanSurface && (
-          <PreviewToolbar
-            content_type={content_type}
-            isMarkdown={isMarkdown}
-            isHTML={isHTML}
-            viewMode={viewMode}
-            isSplitScreenEnabled={isSplitScreenEnabled}
-            file_name={metadata?.file_name || activeTab.title}
-            showOpenInSystemButton={showOpenInSystemButton}
-            historyTarget={historyTarget}
-            snapshotSaving={snapshotSaving}
-            onViewModeChange={(mode) => {
-              setViewMode(mode);
-              setIsSplitScreenEnabled(false); // 切换视图模式时关闭分屏 / Disable split when switching view mode
-            }}
-            onSplitScreenToggle={() => setIsSplitScreenEnabled(!isSplitScreenEnabled)}
-            onSaveSnapshot={handleSaveSnapshot}
-            onRefreshHistory={refreshHistory}
-            renderHistoryDropdown={renderHistoryDropdown}
-            onOpenInSystem={handleOpenInSystem}
-            onDownload={handleDownload}
-            onExport={handleExport}
-            onClose={COMMAND_EVE_SHELL_ENABLED ? hidePreview : closePreview}
-            inspectMode={inspectMode}
-            onInspectModeToggle={() => setInspectMode(!inspectMode)}
-            leftExtra={toolbarExtras?.left}
-            rightExtra={toolbarExtras?.right}
-          />
-        )}
+        {content_type !== 'url' &&
+          content_type !== 'terminal' &&
+          !isWorkspaceSurface &&
+          !isKanbanSurface &&
+          !isDurableWorkSurface && (
+            <PreviewToolbar
+              content_type={content_type}
+              isMarkdown={isMarkdown}
+              isHTML={isHTML}
+              viewMode={viewMode}
+              isSplitScreenEnabled={isSplitScreenEnabled}
+              file_name={metadata?.file_name || activeTab.title}
+              showOpenInSystemButton={showOpenInSystemButton}
+              historyTarget={historyTarget}
+              snapshotSaving={snapshotSaving}
+              onViewModeChange={(mode) => {
+                setViewMode(mode);
+                setIsSplitScreenEnabled(false); // 切换视图模式时关闭分屏 / Disable split when switching view mode
+              }}
+              onSplitScreenToggle={() => setIsSplitScreenEnabled(!isSplitScreenEnabled)}
+              onSaveSnapshot={handleSaveSnapshot}
+              onRefreshHistory={refreshHistory}
+              renderHistoryDropdown={renderHistoryDropdown}
+              onOpenInSystem={handleOpenInSystem}
+              onDownload={handleDownload}
+              onExport={handleExport}
+              onClose={COMMAND_EVE_SHELL_ENABLED ? hidePreview : closePreview}
+              inspectMode={inspectMode}
+              onInspectModeToggle={() => setInspectMode(!inspectMode)}
+              leftExtra={toolbarExtras?.left}
+              rightExtra={toolbarExtras?.right}
+            />
+          )}
 
         {metadata?.truncated && (
           <div className='sticky top-0 z-1 px-16px py-10px text-12px bg-warning-1 text-warning-7 border-b border-warning-3'>

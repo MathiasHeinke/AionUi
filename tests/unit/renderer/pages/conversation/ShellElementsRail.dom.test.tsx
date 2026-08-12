@@ -25,6 +25,8 @@ const {
   readFileInvokeMock,
   shellOpenFileInvokeMock,
   shellOpenExternalInvokeMock,
+  realtimeConnectedHandlers,
+  seatRebindHandlers,
 } = vi.hoisted(() => ({
   openPreviewMock: vi.fn(),
   runtimeState: {
@@ -42,6 +44,8 @@ const {
   readFileInvokeMock: vi.fn(),
   shellOpenFileInvokeMock: vi.fn(),
   shellOpenExternalInvokeMock: vi.fn(),
+  realtimeConnectedHandlers: new Set<(event: { reconnected?: boolean }) => void>(),
+  seatRebindHandlers: new Set<(seatId: string) => void>(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -55,6 +59,12 @@ vi.mock('@/common', () => ({
     conversation: {
       listArtifacts: { invoke: listArtifactsInvokeMock },
       artifactStream: { on: vi.fn(() => () => {}) },
+      realtimeConnected: {
+        on: (handler: (event: { reconnected?: boolean }) => void) => {
+          realtimeConnectedHandlers.add(handler);
+          return () => realtimeConnectedHandlers.delete(handler);
+        },
+      },
     },
     commandEve: {
       videoArtifactsList: { invoke: videoArtifactsListInvokeMock },
@@ -78,6 +88,15 @@ vi.mock('@/common', () => ({
   },
 }));
 
+vi.mock('@/common/config/configService', () => ({
+  configService: {
+    onSeatRebind: (handler: (seatId: string) => void) => {
+      seatRebindHandlers.add(handler);
+      return () => seatRebindHandlers.delete(handler);
+    },
+  },
+}));
+
 vi.mock('@/renderer/pages/conversation/runtime/useConversationRuntimeView', () => ({
   useConversationRuntimeView: () => runtimeState,
 }));
@@ -92,7 +111,9 @@ vi.mock('@/renderer/pages/conversation/Preview', () => ({
 import ShellElementsRail from '@/renderer/components/layout/Titlebar/ShellElementsRail';
 import { stageConversationArtifact } from '@/renderer/pages/conversation/Messages/artifacts';
 import {
+  bindConversationDelegationActivitySession,
   publishConversationDelegationActivity,
+  publishLiveConversationDelegationActivity,
   resetConversationDelegationActivityForTest,
 } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 
@@ -123,6 +144,30 @@ const videoArtifact: IConversationArtifact = {
   },
   created_at: 2000,
   updated_at: 2000,
+};
+
+const liveDelegationMessage = (sessionId: string, toolCallId: string, goal: string): IMessageAcpToolCall =>
+  ({
+    id: `${toolCallId}-message`,
+    type: 'acp_tool_call',
+    conversation_id: 'conv-1',
+    created_at: 250,
+    content: {
+      session_id: sessionId,
+      update: {
+        sessionUpdate: 'tool_call',
+        tool_call_id: toolCallId,
+        status: 'in_progress',
+        title: `delegate: ${goal}`,
+        kind: 'execute',
+        rawInput: { goal },
+      },
+    },
+  }) as IMessageAcpToolCall;
+
+const publishBoundLiveDelegation = (conversationId: string, message: IMessageAcpToolCall): void => {
+  bindConversationDelegationActivitySession(conversationId, message.content.session_id);
+  publishLiveConversationDelegationActivity(conversationId, message);
 };
 
 describe('ShellElementsRail', () => {
@@ -171,7 +216,7 @@ describe('ShellElementsRail', () => {
     expect(panel).toHaveAttribute('aria-labelledby', 'elements-rail-tab-artifacts');
   });
 
-  it("shows only this conversation's real Hermes delegation activity without creating a second chat", () => {
+  it("shows only this conversation's Hermes activity and opens its detail without creating a second chat", () => {
     const delegateMessage = (conversationId: string, toolCallId: string, goal: string) =>
       ({
         id: `${toolCallId}-message`,
@@ -198,10 +243,108 @@ describe('ShellElementsRail', () => {
 
     render(<ShellElementsRail conversationId='conv-1' />);
 
-    expect(screen.getByText('Prüfe den Browser')).toBeTruthy();
+    expect(screen.getAllByText('Prüfe den Browser')).toHaveLength(2);
     expect(screen.queryByText('Fremder Auftrag')).toBeNull();
-    expect(screen.getByText('conversation.elementsRail.delegationStatus.in_progress')).toBeTruthy();
+    expect(screen.getByText('conversation.durableWork.status.reconnect_unavailable')).toBeTruthy();
     expect(screen.queryByRole('textbox')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'conversation.durableWork.action.open' }));
+    expect(openPreviewMock).toHaveBeenCalledWith('legacy:tc-1:0', 'durable-work', {
+      title: 'Prüfe den Browser',
+      conversation_id: 'conv-1',
+    });
+  });
+
+  it('projects a renderer-observed live delegation as running without reading that state from chat history', () => {
+    act(() => {
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a', 'tc-live', 'Observe the live worker'));
+    });
+
+    render(<ShellElementsRail conversationId='conv-1' />);
+
+    expect(screen.getAllByText('Observe the live worker')).toHaveLength(2);
+    expect(screen.getByText('conversation.durableWork.status.running')).toBeTruthy();
+    expect(screen.queryByText('conversation.durableWork.status.reconnect_unavailable')).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('invalidates observed worker A on reconnect before admitting a new ACP session B', () => {
+    act(() => {
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a', 'tc-a', 'Worker A'));
+    });
+    render(<ShellElementsRail conversationId='conv-1' />);
+    expect(screen.getByText('conversation.durableWork.status.running')).toBeTruthy();
+
+    act(() => {
+      realtimeConnectedHandlers.forEach((handler) => handler({ reconnected: true }));
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-b', 'tc-b', 'Worker B'));
+    });
+
+    expect(screen.getAllByText('Worker A')).toHaveLength(2);
+    expect(screen.getByText('conversation.durableWork.status.reconnect_unavailable')).toBeTruthy();
+    expect(screen.getAllByText('Worker B')).toHaveLength(2);
+    expect(screen.getByText('conversation.durableWork.status.running')).toBeTruthy();
+  });
+
+  it('downgrades observed workers on seat rotation instead of retaining a live state', () => {
+    act(() => {
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a', 'tc-seat', 'Seat worker'));
+    });
+    render(<ShellElementsRail conversationId='conv-1' />);
+    expect(screen.getByText('conversation.durableWork.status.running')).toBeTruthy();
+
+    act(() => {
+      seatRebindHandlers.forEach((handler) => handler('seat-b'));
+    });
+
+    expect(screen.getByText('conversation.durableWork.status.reconnect_unavailable')).toBeTruthy();
+    expect(screen.queryByText('conversation.durableWork.status.running')).toBeNull();
+  });
+
+  it('keeps another conversation live across a conversation-scoped ACP session rotation', () => {
+    act(() => {
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a', 'tc-a', 'Worker A'));
+      publishBoundLiveDelegation('conv-2', {
+        ...liveDelegationMessage('session-b', 'tc-b', 'Worker B'),
+        conversation_id: 'conv-2',
+      } as IMessageAcpToolCall);
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a-rotated', 'tc-a2', 'Worker A2'));
+    });
+
+    render(<ShellElementsRail conversationId='conv-2' />);
+    expect(screen.getAllByText('Worker B')).toHaveLength(2);
+    expect(screen.getByText('conversation.durableWork.status.running')).toBeTruthy();
+    expect(screen.queryByText('conversation.durableWork.status.reconnect_unavailable')).toBeNull();
+  });
+
+  it('downgrades every observed worker on global reconnect and seat rebind', () => {
+    act(() => {
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a', 'tc-global-a', 'Worker A'));
+      publishBoundLiveDelegation('conv-2', {
+        ...liveDelegationMessage('session-b', 'tc-global-b', 'Worker B'),
+        conversation_id: 'conv-2',
+      } as IMessageAcpToolCall);
+      realtimeConnectedHandlers.forEach((handler) => handler({ reconnected: true }));
+    });
+
+    const { rerender } = render(<ShellElementsRail conversationId='conv-1' />);
+    expect(screen.getByText('conversation.durableWork.status.reconnect_unavailable')).toBeTruthy();
+    rerender(<ShellElementsRail conversationId='conv-2' />);
+    expect(screen.getByText('conversation.durableWork.status.reconnect_unavailable')).toBeTruthy();
+
+    act(() => {
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a2', 'tc-seat-a', 'Worker A2'));
+      publishBoundLiveDelegation('conv-2', {
+        ...liveDelegationMessage('session-b2', 'tc-seat-b', 'Worker B2'),
+        conversation_id: 'conv-2',
+      } as IMessageAcpToolCall);
+      seatRebindHandlers.forEach((handler) => handler('seat-c'));
+    });
+
+    rerender(<ShellElementsRail conversationId='conv-1' />);
+    expect(screen.getAllByText('conversation.durableWork.status.reconnect_unavailable')).toHaveLength(2);
+    rerender(<ShellElementsRail conversationId='conv-2' />);
+    expect(screen.getAllByText('conversation.durableWork.status.reconnect_unavailable')).toHaveLength(2);
   });
 
   it('lists shared conversation artifacts and opens a managed image through the preview path', async () => {

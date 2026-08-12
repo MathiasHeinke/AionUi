@@ -94,22 +94,7 @@ describe('parseCommandEveDesktopEvent', () => {
         'acp-session-1'
       )
     ).toEqual({ event: 'pane.reveal', payload: { pane: 'files' } });
-    expect(
-      parseCommandEveDesktopEvent(
-        {
-          ...wire('pane.reveal', { pane: 'files' }),
-          updated_at: null,
-          _meta: {
-            commandEveDesktop: {
-              version: COMMAND_EVE_DESKTOP_EVENT_VERSION,
-              event: 'pane.reveal',
-              payload: { pane: 'files' },
-            },
-          },
-        },
-        undefined
-      )
-    ).toEqual({ event: 'pane.reveal', payload: { pane: 'files' } });
+    expect(parseCommandEveDesktopEvent(wire('pane.reveal', { pane: 'files' }), undefined)).toBeNull();
   });
 
   it.each([

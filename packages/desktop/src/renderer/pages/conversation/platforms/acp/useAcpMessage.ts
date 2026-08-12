@@ -42,6 +42,11 @@ import {
   ensureAcpGenerationTracking,
 } from '@renderer/services/commandEveGenerationActivity';
 import { getConversationRuntimeViewSnapshot } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import {
+  bindConversationDelegationActivitySession,
+  publishLiveConversationDelegationActivity,
+  revokeConversationDelegationActivitySession,
+} from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 import { emitAcpPerformanceMark } from '@/renderer/utils/performance/acpPerformanceMarks';
 import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
@@ -219,6 +224,12 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // Desktop UI events are accepted only for the concrete ACP session attached
   // to this conversation. Never derive this from a seat-wide/static id.
   const activeAcpSessionIdRef = useRef<string | undefined>(undefined);
+  // A persisted conversation lookup may finish after a newer live Start frame.
+  // Only hydration captured before the latest live authority may bind a session.
+  const acpSessionAuthorityGenerationRef = useRef(0);
+  // Desktop SessionInfo frames are side-effecting only when they prove the
+  // exact turn accepted by the authoritative ACP Start frame.
+  const activeAcpSessionTurnIdRef = useRef<string | undefined>(undefined);
   // Completed native desktop tools are replayable ACP messages. Consume each
   // call once so reconnects never reopen a browser tab or steal panel focus.
   const handledDesktopToolCallIdsRef = useRef<Set<string>>(new Set());
@@ -498,6 +509,27 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         return;
       }
 
+      const toolCallSessionId =
+        message.type === 'acp_tool_call' && message.data && typeof message.data === 'object'
+          ? (message.data as { session_id?: unknown }).session_id
+          : undefined;
+      const toolCallTurnId =
+        message.type === 'acp_tool_call' && typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
+      // Tool frames can open panes and bind artifacts. Admit them to the
+      // renderer-side effect path only with positive, exact Start session and
+      // turn provenance. Hydration restores no turn authority by design.
+      if (
+        message.type === 'acp_tool_call' &&
+        (typeof toolCallSessionId !== 'string' ||
+          !toolCallSessionId.trim() ||
+          toolCallSessionId.trim() !== activeAcpSessionIdRef.current ||
+          !activeAcpSessionTurnIdRef.current ||
+          !toolCallTurnId ||
+          toolCallTurnId !== activeAcpSessionTurnIdRef.current)
+      ) {
+        return;
+      }
+
       const runtimeViewAtMessage = getConversationRuntimeViewSnapshot(conversation_id);
       const runtimeActiveTurnId = runtimeViewAtMessage.activeTurnId;
       const messageTurnId = typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
@@ -622,6 +654,15 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       }
 
       const transformedMessage = transformMessage(message);
+      if (
+        transformedMessage &&
+        message.type === 'acp_tool_call' &&
+        typeof toolCallSessionId === 'string' &&
+        toolCallSessionId.trim() &&
+        toolCallSessionId.trim() === activeAcpSessionIdRef.current
+      ) {
+        publishLiveConversationDelegationActivity(conversation_id, transformedMessage);
+      }
       switch (message.type) {
         case 'thought':
           // Thought events are now handled by AcpAgentManager (converted to thinking messages)
@@ -664,8 +705,18 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           {
             const startData = message.data as { session_id?: unknown; sessionId?: unknown } | null;
             const sessionId = startData?.session_id ?? startData?.sessionId;
-            if (typeof sessionId === 'string' && sessionId.trim()) {
-              activeAcpSessionIdRef.current = sessionId.trim();
+            const turnId = typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
+            // Every Start is an authority boundary. Revoke before inspecting its
+            // payload so malformed/replayed starts cannot retain a prior session.
+            acpSessionAuthorityGenerationRef.current += 1;
+            activeAcpSessionIdRef.current = undefined;
+            activeAcpSessionTurnIdRef.current = undefined;
+            revokeConversationDelegationActivitySession(conversation_id);
+            if (typeof sessionId === 'string' && sessionId.trim() && turnId) {
+              const normalizedSessionId = sessionId.trim();
+              activeAcpSessionIdRef.current = normalizedSessionId;
+              activeAcpSessionTurnIdRef.current = turnId;
+              bindConversationDelegationActivitySession(conversation_id, normalizedSessionId);
             }
           }
           // New turn starting — clear the finished guard and content flag
@@ -674,6 +725,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           // A new turn owns no staged image references yet; anything collected
           // last turn was either bound at its finish or is abandoned with it.
           pendingImageBindsRef.current.clear();
+          pendingHtmlWritesRef.current.clear();
           setRunning(true);
           runningRef.current = true;
           setRuntimeActivity((prev) => ({
@@ -687,7 +739,11 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           // Don't reset aiProcessing here - let content arrival handle it
           break;
         case 'acp_session_info': {
-          const desktopEvent = parseCommandEveDesktopEvent(message.data, activeAcpSessionIdRef.current);
+          const expectedSessionId = activeAcpSessionIdRef.current;
+          const expectedTurnId = activeAcpSessionTurnIdRef.current;
+          const messageTurnId = typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
+          if (!expectedSessionId || !expectedTurnId || messageTurnId !== expectedTurnId) break;
+          const desktopEvent = parseCommandEveDesktopEvent(message.data, expectedSessionId);
           if (!desktopEvent) break;
           if (desktopEvent.event === 'preview.open') {
             if (shouldOpenBrowserPreview(desktopEvent.payload.url, lastBrowserPreviewUrlRef.current)) {
@@ -1375,7 +1431,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     hasLocalPermissionAuthorityRef.current = false;
     autoApprovedCallIdsRef.current = new Set();
     recoveredExternalWriteCallIdsRef.current = new Set();
+    acpSessionAuthorityGenerationRef.current += 1;
     activeAcpSessionIdRef.current = undefined;
+    activeAcpSessionTurnIdRef.current = undefined;
     handledDesktopToolCallIdsRef.current = new Set();
     handledReadPreviewRequestIdsRef.current = new Set();
     handledReadTerminalRequestIdsRef.current = new Set();
@@ -1399,6 +1457,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // Reset state when conversation changes and restore actual running status
   useEffect(() => {
     let cancelled = false;
+    const hydrationSessionAuthorityGeneration = acpSessionAuthorityGenerationRef.current;
 
     setThought({ subject: '', description: '' });
     setAcpStatus(null);
@@ -1478,8 +1537,16 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         if (res.type === 'acp' && typeof res.extra?.backend === 'string') {
           permissionBackendRef.current = res.extra.backend;
         }
-        if (res.type === 'acp' && typeof res.extra?.acp_session_id === 'string' && res.extra.acp_session_id.trim()) {
-          activeAcpSessionIdRef.current = res.extra.acp_session_id.trim();
+        if (
+          res.type === 'acp' &&
+          typeof res.extra?.acp_session_id === 'string' &&
+          res.extra.acp_session_id.trim() &&
+          acpSessionAuthorityGenerationRef.current === hydrationSessionAuthorityGeneration
+        ) {
+          const normalizedSessionId = res.extra.acp_session_id.trim();
+          activeAcpSessionIdRef.current = normalizedSessionId;
+          activeAcpSessionTurnIdRef.current = undefined;
+          bindConversationDelegationActivitySession(conversation_id, normalizedSessionId);
         }
         if (
           res.type === 'acp' &&

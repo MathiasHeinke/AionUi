@@ -478,7 +478,10 @@ export const conversation = {
         () => projectWorkspaceRuntime.warmup.invoke(params)
       ),
   },
-  stop: httpPost<{ runtime: TConversationRuntimeSummary }, { conversation_id: string; turn_id: string }>(
+  stop: httpPost<
+    { outcome: 'accepted' | 'turn_mismatch' | 'no_active_agent'; runtime: TConversationRuntimeSummary },
+    { conversation_id: string; turn_id: string }
+  >(
     (p) => `/api/conversations/${p.conversation_id}/cancel`,
     (p) => ({ turn_id: p.turn_id })
   ),
@@ -504,6 +507,9 @@ export const conversation = {
   ),
   getUsage: httpGet<AcpConversationUsage | null, { conversation_id: string }>(
     (p) => `/api/conversations/${p.conversation_id}/usage`
+  ),
+  listAsyncCompletionReceipts: httpGet<IAcpAsyncCompletionReceiptList, { conversation_id: string }>(
+    (p) => `/api/conversations/${p.conversation_id}/async-completion-receipts`
   ),
   askSideQuestion: httpPost<ConversationSideQuestionResult, { conversation_id: string; question: string }>(
     (p) => `/api/conversations/${p.conversation_id}/side-question`,
@@ -3874,6 +3880,38 @@ export interface IConversationTurnCompletedEvent {
     status?: string | null;
     created_at: number;
   };
+}
+
+export type IAcpAsyncCompletionReceiptState = 'processing' | 'pending' | 'completed' | 'rejected' | 'explicit_unknown';
+export type IAcpAsyncCompletionReceiptOutcome =
+  | 'accepted'
+  | 'already_applied'
+  | 'retryable'
+  | 'rejected'
+  | 'explicit_unknown';
+
+export interface IAcpAsyncCompletionReceipt {
+  projection_id: string;
+  completion_id: string;
+  acp_session_id: string;
+  state: IAcpAsyncCompletionReceiptState;
+  turn_id?: string;
+  attempt_count: number;
+  last_error_code?: string;
+  last_outcome?: IAcpAsyncCompletionReceiptOutcome;
+  last_outcome_code?: string;
+  created_at: number;
+  updated_at: number;
+  completed_at?: number;
+  last_outcome_at?: number;
+}
+
+export interface IAcpAsyncCompletionReceiptList {
+  version: 'command-eve-async-completion-receipts/v1';
+  conversation_id: string;
+  reconstructed_from: 'persistent_receipts';
+  generated_at: number;
+  receipts: IAcpAsyncCompletionReceipt[];
 }
 
 export interface IConversationListChangedEvent {

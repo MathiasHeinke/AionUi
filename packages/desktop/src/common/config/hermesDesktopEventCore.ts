@@ -57,6 +57,8 @@ export function parseCommandEveDesktopEvent(
   expectedSessionId: string | undefined
 ): CommandEveDesktopEvent | null {
   const info = asRecord(update);
+  if (typeof expectedSessionId !== 'string' || !expectedSessionId.trim()) return null;
+  const normalizedExpectedSessionId = expectedSessionId.trim();
   // AionCore removes the ACP enum discriminator when it translates
   // SessionInfoUpdate into `acp_session_info`; StreamRelay then projects the
   // canonical outer ACP session id as renderer-facing `session_id`. Accept only
@@ -65,7 +67,7 @@ export function parseCommandEveDesktopEvent(
   if (!info || !hasOnlyKeys(info, ['_meta', 'title', 'updated_at', 'session_id'])) return null;
   const canonicalSessionId = info.session_id;
   if (typeof canonicalSessionId !== 'string' || !canonicalSessionId.trim()) return null;
-  if (expectedSessionId && canonicalSessionId !== expectedSessionId) return null;
+  if (canonicalSessionId !== normalizedExpectedSessionId) return null;
   // ACP's SessionInfoUpdate models omitted title/timestamp values as explicit
   // nulls. AionCore correctly preserves those protocol values while removing
   // only the enum discriminator, so accept null as the ACP "clear" value but

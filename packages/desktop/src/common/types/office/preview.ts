@@ -19,6 +19,7 @@ export type PreviewContentType =
   | 'url'
   | 'terminal'
   | 'kanban'
+  | 'durable-work'
   | 'workspace-files'
   | 'workspace-review';
 
