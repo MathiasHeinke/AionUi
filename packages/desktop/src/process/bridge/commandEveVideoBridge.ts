@@ -1412,7 +1412,24 @@ export async function handleCommandEveVideoEdit(
   const recordCompletion = deps.recordSpendCompletion ?? recordVideoEditSpendCompletion;
   const acquireLock = deps.acquireInflightLock ?? acquireVideoEditInflightLock;
   const releaseLock = deps.releaseInflightLock ?? releaseVideoEditInflightLock;
-  const dataPath = deps.getDataPath();
+  const readSeatRevision = deps.getActiveSeatContextRevision ?? (() => 0);
+  let capturedSeatId: string;
+  let capturedSeatContextRevision: number;
+  let dataPath: string;
+  try {
+    capturedSeatId = deps.getActiveSeatId();
+    capturedSeatContextRevision = readSeatRevision();
+    dataPath = deps.getDataPath();
+  } catch {
+    return refuseEdit('video-seat-unavailable', 'Der aktive Seed konnte nicht sicher bestimmt werden.', true);
+  }
+  const seatStillMatches = (): boolean => {
+    try {
+      return deps.getActiveSeatId() === capturedSeatId && readSeatRevision() === capturedSeatContextRevision;
+    } catch {
+      return false;
+    }
+  };
 
   // The grant is read FIRST so the source path comes from OUR record, never from
   // anything the caller supplied. A path that arrived with the request would be
@@ -1554,10 +1571,38 @@ export async function handleCommandEveVideoEdit(
     return refuseEdit('entitlement-not-drawable', 'Für Videos wird ein aktives Command-EVE-Konto benötigt.');
   }
 
+  // Bind the already-authorized edit to the Seed that supplied its handle,
+  // permit and storage root. A switch that finished during local preparation
+  // is rejected here; once the process-local fence is acquired, Main cannot
+  // switch Seeds until the billed response has been persisted or refused.
+  if (!seatStillMatches()) {
+    return refuseEdit(
+      'video-seat-changed',
+      'Der aktive Seed wurde während der Vorbereitung gewechselt. Starte die Videobearbeitung erneut.',
+      true
+    );
+  }
+  const releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation();
+  if (!releasePaidArtifactOperation) {
+    return refuseEdit(
+      'video-seat-changed',
+      'Der aktive Seed wird gerade gewechselt. Starte die Videobearbeitung danach erneut.',
+      true
+    );
+  }
+
   // At most ONE paid edit in flight per conversation. Taken BEFORE the consume so
   // two simultaneous tool calls cannot both get past the ledger check in the
   // window before either has written its claim.
-  if (!acquireLock(dataPath, grant.conversation_id)) {
+  let conversationLockAcquired = false;
+  try {
+    conversationLockAcquired = acquireLock(dataPath, grant.conversation_id);
+  } catch {
+    releasePaidArtifactOperation();
+    return refuseEdit('video-edit-lock-unavailable', describeSpendPermitRefusal('edit-already-in-flight'), true);
+  }
+  if (!conversationLockAcquired) {
+    releasePaidArtifactOperation();
     return refuseEdit('video-edit-already-in-flight', describeSpendPermitRefusal('edit-already-in-flight'), true);
   }
 
@@ -1611,7 +1656,7 @@ export async function handleCommandEveVideoEdit(
         },
         requestId
       ),
-      ...commandEveMediaSeedAttribution(deps.getActiveSeatId()),
+      ...commandEveMediaSeedAttribution(capturedSeatId),
     };
 
     const controller = new AbortController();
@@ -1752,7 +1797,11 @@ export async function handleCommandEveVideoEdit(
       );
     }
   } finally {
-    releaseLock(dataPath, grant.conversation_id);
+    try {
+      releaseLock(dataPath, grant.conversation_id);
+    } finally {
+      releasePaidArtifactOperation();
+    }
   }
 }
 

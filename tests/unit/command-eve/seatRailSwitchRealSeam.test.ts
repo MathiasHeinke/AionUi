@@ -192,6 +192,43 @@ describe('mirror (a) — REAL my-seats provider → resolveSeatAccess → rail v
 });
 
 describe('mirror (b) — REAL switch-seat handler: admin gate + Founder chip + label threading', () => {
+  it('surfaces recovery-required after the hard timeout without reopening the Seed fences', async () => {
+    vi.useFakeTimers();
+    let releaseRestart: (() => void) | undefined;
+    let firstSwitch: Promise<SwitchEnvelope> | undefined;
+    try {
+      wirePayload = adminWire();
+      restartBackendMock.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseRestart = resolve;
+          })
+      );
+
+      firstSwitch = switchSeat(SEAT_B);
+      await vi.waitFor(() => expect(restartBackendMock).toHaveBeenCalledOnce(), {
+        timeout: 1_000,
+        interval: 1,
+      });
+      await vi.advanceTimersByTimeAsync(300_000);
+
+      const blocked = await switchSeat(SEAT_A);
+      expect(blocked.success).toBe(false);
+      expect(blocked.data?.reason_code).toBe('SWITCH_SEAT_RECOVERY_REQUIRED');
+
+      releaseRestart?.();
+      await expect(firstSwitch).resolves.toMatchObject({ success: true });
+
+      const recovered = await switchSeat(SEAT_A);
+      expect(recovered.success).toBe(true);
+    } finally {
+      releaseRestart?.();
+      if (firstSwitch) await firstSwitch.catch(() => undefined);
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
   it('refuses switching while a paid artifact is being stored, then permits it after terminal release', async () => {
     wirePayload = adminWire();
     const release = tryBeginCommandEvePaidArtifactOperation();
