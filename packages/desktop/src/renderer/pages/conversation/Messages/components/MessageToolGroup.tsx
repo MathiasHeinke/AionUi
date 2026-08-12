@@ -545,7 +545,11 @@ const MessageToolGroup: React.FC<IMessageToolGroupProps> = ({ message }) => {
           }
         }
 
-        if (name !== 'WriteFile') {
+        // A generated artifact is a terminal projection, never a partial tool
+        // result. In particular, a valid-looking Typed UI envelope may arrive
+        // while the MCP call is still executing; it must stay in the inert
+        // tool-result fallback until the durable tool status is Success.
+        if (status === 'Success' && name !== 'WriteFile') {
           const normalizedResultDisplay = normalizeGeneratedToolResult(name, description, result_display);
           const generatedArtifact = buildGeneratedArtifactFromToolResult({
             conversation_id: message.conversation_id,
