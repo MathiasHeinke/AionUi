@@ -105,5 +105,81 @@
   "action": {
     "success": "Aktualisiert.",
     "failed": "Aktion fehlgeschlagen."
+  },
+  "native": {
+    "title": "Arbeitsboard",
+    "subtitle": "Hermes’ dauerhaftes Kanban in diesem Seat – neben dem bestehenden Chat. Karten erzeugen keinen zweiten Chat.",
+    "refresh": "Aktualisieren",
+    "boardLabel": "Hermes-Arbeitsboard",
+    "board": "Board",
+    "tasks": "Datensätze",
+    "details": "Dauerhafte Datensatzdetails",
+    "edit": "Bearbeiten",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "move": "Karte verschieben",
+    "emptyColumn": "Keine Datensätze",
+    "unavailable": "Das native Hermes-Board ist nicht verfügbar.",
+    "actionFailed": "Die native Hermes-Aktion ist fehlgeschlagen.",
+    "status": {
+      "triage": "Triage",
+      "todo": "Zu tun",
+      "scheduled": "Geplant",
+      "ready": "Bereit",
+      "running": "Läuft",
+      "blocked": "Blockiert",
+      "review": "Review",
+      "done": "Erledigt"
+    },
+    "record": {
+      "task": "Aufgabe",
+      "goal": "Ziel",
+      "worker": "Worker-Run",
+      "session": "Session",
+      "run": "Run",
+      "project": "Projekt",
+      "assignee": "Zuweisung"
+    },
+    "create": {
+      "open": "Neuer Datensatz",
+      "title": "Dauerhaften Datensatz anlegen",
+      "titlePlaceholder": "Was soll auf dem Board entstehen?",
+      "bodyPlaceholder": "Ergebnis, Kontext und Akzeptanzkriterien",
+      "assigneePlaceholder": "Optionales Hermes-Profil",
+      "titleRequired": "Ein Titel ist erforderlich.",
+      "triage": "In Triage starten; kein Dispatch",
+      "submit": "Anlegen",
+      "success": "Dauerhafter Datensatz angelegt."
+    },
+    "update": {
+      "success": "Dauerhafter Datensatz aktualisiert."
+    },
+    "computer": {
+      "title": "Desktop Use",
+      "description": "Hermes computer_use über die Command-EVE-Autoritätsleiter. Capture liest nur; Klick, Eingabe und Scrollen bleiben separat gegatet.",
+      "accessibility": "Bedienungshilfen",
+      "screenRecording": "Bildschirmaufnahme",
+      "noDriverVersion": "Keine verifizierte Treiberversion",
+      "install": "Gepinnten Treiber installieren",
+      "grant": "Berechtigungen anfragen",
+      "revoke": "Entzugsschritte anzeigen",
+      "provenance": "Treiberherkunft und Doctor-Prüfungen",
+      "version": "Version",
+      "expected": "Gepinnter Release",
+      "checksum": "Release-Prüfsumme verifiziert",
+      "expectedChecksum": "Erwartete SHA-256",
+      "identity": "Identität",
+      "team": "Team",
+      "actionReady": "Computer-Use-Aktion abgeschlossen.",
+      "actionFailed": "Computer Use braucht Aufmerksamkeit.",
+      "state": {
+        "ready": "Bereit",
+        "needs_install": "Installation nötig",
+        "needs_permission": "Berechtigung nötig",
+        "needs_user": "Nutzeraktion nötig",
+        "blocked": "Blockiert",
+        "failed": "Nicht verfügbar"
+      }
+    }
   }
 }

@@ -154,6 +154,29 @@ describe('PreviewContext', () => {
     expect(result.current.activeTab).toMatchObject({ content: 'edited', isDirty: true });
   });
 
+  it('restores the native Kanban workbench tab identity closed after a restart', async () => {
+    window.location.hash = '#/conversation/conv-kanban';
+    const first = renderHook(() => usePreviewContext(), { wrapper });
+    act(() => first.result.current.openPreview('stale board payload must never persist', 'kanban', { title: 'Tasks' }));
+    const tabId = first.result.current.activeTabId;
+
+    await act(() => new Promise((resolve) => setTimeout(resolve, 180)));
+    first.unmount();
+
+    const second = renderHook(() => usePreviewContext(), { wrapper });
+    expect(second.result.current.isOpen).toBe(false);
+    expect(second.result.current.activeTabId).toBe(tabId);
+    expect(second.result.current.tabs).toEqual([
+      expect.objectContaining({
+        id: tabId,
+        title: 'Tasks',
+        content: '',
+        content_type: 'kanban',
+        metadata: expect.objectContaining({ conversation_id: 'conv-kanban' }),
+      }),
+    ]);
+  });
+
   it('closes a clean tab directly through the guarded close entrypoint', () => {
     const { result } = renderHook(() => usePreviewContext(), { wrapper });
     act(() => result.current.openPreview('clean', 'code', { title: 'clean.ts' }));

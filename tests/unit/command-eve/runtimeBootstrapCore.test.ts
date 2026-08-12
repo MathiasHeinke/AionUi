@@ -1542,27 +1542,24 @@ describe('Command EVE runtime bootstrap core', () => {
       );
       expect(providerOverride).toContain('command_eve_has_recent_tool_result');
       expect(providerOverride).toContain('urlparse');
-      // 1.819.3 ACP session self-heal. Without this patch an unresolvable session
-      // makes Hermes answer with stop_reason="refusal" BEFORE any provider is
-      // chosen, which AionCore renders as ACP_EMPTY_TURN_REFUSAL forever — the
-      // seat stays dead. Guarded here so a refactor of the generator cannot drop
-      // it silently the way the original outage went unnoticed for 11 days.
-      expect(providerOverride).toContain('def _install_command_eve_acp_session_recovery_patch()');
+      // Native Desktop Use session identity guard. Hermes upstream auto-creates
+      // an unknown resume id; Command EVE instead requires a durable known row
+      // before load_session, resume_session and prompt and surfaces needs_user.
+      expect(providerOverride).toContain('def _install_command_eve_acp_session_guard_patch()');
       expect(providerOverride).toContain('HermesACPAgent.load_session = command_eve_load_session');
+      expect(providerOverride).toContain('HermesACPAgent.resume_session = command_eve_resume_session');
       expect(providerOverride).toContain('HermesACPAgent._prompt_impl = command_eve_prompt_impl');
-      expect(providerOverride).toContain('HermesACPAgent._command_eve_acp_recovery_patch_installed = True');
-      // The adopted session MUST reuse the id AionCore is holding — a new id
-      // would leave the client prompting the stale one forever.
-      expect(providerOverride).toContain('manager._sessions[session_id] = state');
-      expect(providerOverride).toContain(
-        'def _command_eve_adopt_acp_session(manager: Any, session_id: str, cwd: str = ".")'
-      );
+      expect(providerOverride).toContain('HermesACPAgent._command_eve_acp_session_guard_patch_installed = True');
+      expect(providerOverride).toContain('def _command_eve_require_acp_session(manager: Any, session_id: str)');
+      expect(providerOverride).toContain('COMMAND_EVE_ACP_SESSION_UNKNOWN');
+      expect(providerOverride).toContain('refusing upstream auto-create');
+      expect(providerOverride).not.toContain('manager._sessions[session_id] = state');
       // The silent _restore failure modes must log a reason.
       expect(providerOverride).toContain('SessionManager._restore = command_eve_restore');
       // Installed BOTH lazily (per provider call) and at module import, exactly
       // like the three patches that already ship.
-      expect(providerOverride).toContain('        _install_command_eve_acp_session_recovery_patch()');
-      expect(providerOverride).toMatch(/^_install_command_eve_acp_session_recovery_patch\(\)$/m);
+      expect(providerOverride).toContain('        _install_command_eve_acp_session_guard_patch()');
+      expect(providerOverride).toMatch(/^_install_command_eve_acp_session_guard_patch\(\)$/m);
       expect(fs.readFileSync(paths.firstRunProfile, 'utf8')).toContain('Mathias');
       expect(receipt.identity?.founder_name).toBe('Mathias');
       expect(receipt.identity?.company_name).toBe('FYN Labs');

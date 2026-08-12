@@ -5,13 +5,12 @@
  */
 
 /**
- * S7-VIEW — Per-seat Kanban board page (`/kanban`).
+ * Per-seat Kanban route (`/kanban`).
  *
- * A focused, seat-scoped board view over the EXISTING native-Hermes kanban
- * bridges (registered in commandEveBridge.ts as `command-eve.kanban-marketing-
- * board` + card create/move/action). The board DB lives under
- * HERMES_HOME/kanban/boards/{slug}/kanban.db and is PHYSICALLY per-seat because
- * HERMES_HOME is per-seat.
+ * The default export mounts NativeKanbanBoard, a thin renderer over Hermes
+ * 0.20's canonical plugin API and default board. Hermes owns the schema,
+ * routes and SQLite lifecycle; Command EVE supplies only the active seat's
+ * HERMES_HOME and a fail-closed bridge contract.
  *
  * SEAT-REMOUNT BOUNDARY: the default export is a thin host that keys the real
  * page by useActiveSeatId(). The page seeds its board read in a mount-once
@@ -22,10 +21,9 @@
  * read under the new seat. On a single-seat / legacy install the id is stable,
  * so it is a no-op remount.
  *
- * HONEST CAPABILITIES: create + move + comment/block/unblock/complete are REAL
- * mutating bridges (each records an HG-2.5, no-spawn receipt). If the active
- * seat has NO board DB yet, the page shows an honest empty state and does NOT
- * auto-create one — EVE creates boards from chat, the renderer never does.
+ * The former marketing-specific board stays below as a named compatibility
+ * component for its focused tests, but it is no longer a route, workbench tab,
+ * or second default board surface.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -36,6 +34,7 @@ import { COMMAND_EVE_KANBAN_ACP_APPLIED_EVENT } from '@/common/config/kanbanAcpE
 import { useActiveSeatId } from '@renderer/hooks/useActiveSeatId';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
 import { isElectronDesktop } from '@renderer/utils/platform';
+import NativeKanbanBoard from './NativeKanbanBoard';
 import {
   buildOrderedColumns,
   generateKanbanClientToken,
@@ -1003,18 +1002,17 @@ const KanbanBoardPage: React.FC = () => {
 };
 
 /**
- * Default export — the seat-remount host. Keying the body by the active seat id
- * REMOUNTS the whole board on an admin seat switch, so the mount-once board read
- * re-fires under the new seat (mount-once-state-leak fix). Stable id on a
- * single-seat / legacy install → no-op remount.
+ * Default export — the seat-remount host. Keying the native board by the active
+ * seat id remounts its read/status effects after a switch. A stable id is a
+ * no-op for single-seat installs.
  */
 const KanbanBoardHost: React.FC = () => {
   const activeSeatId = useActiveSeatId();
-  return <KanbanBoardPage key={activeSeatId} />;
+  return <NativeKanbanBoard key={activeSeatId} />;
 };
 
 export default KanbanBoardHost;
 
 // Re-exported for unit tests (pure mapping is in kanbanBoardModel.ts, but these
 // are the component seams the DOM tests exercise).
-export { KanbanColumnView, buildOrderedColumns };
+export { KanbanBoardPage as LegacyMarketingKanbanBoardPage, KanbanColumnView, buildOrderedColumns };

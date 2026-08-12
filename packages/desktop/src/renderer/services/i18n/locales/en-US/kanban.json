@@ -105,5 +105,81 @@
   "action": {
     "success": "Updated.",
     "failed": "Action failed."
+  },
+  "native": {
+    "title": "Work board",
+    "subtitle": "Hermes' durable Kanban in this seat, beside the existing chat. Cards never create a second conversation.",
+    "refresh": "Refresh",
+    "boardLabel": "Hermes work board",
+    "board": "Board",
+    "tasks": "Records",
+    "details": "Durable record details",
+    "edit": "Edit",
+    "save": "Save",
+    "cancel": "Cancel",
+    "move": "Move card",
+    "emptyColumn": "No records",
+    "unavailable": "The native Hermes board is unavailable.",
+    "actionFailed": "The native Hermes operation failed.",
+    "status": {
+      "triage": "Triage",
+      "todo": "To do",
+      "scheduled": "Scheduled",
+      "ready": "Ready",
+      "running": "Running",
+      "blocked": "Blocked",
+      "review": "Review",
+      "done": "Done"
+    },
+    "record": {
+      "task": "Task",
+      "goal": "Goal",
+      "worker": "Worker run",
+      "session": "Session",
+      "run": "Run",
+      "project": "Project",
+      "assignee": "Assignee"
+    },
+    "create": {
+      "open": "New record",
+      "title": "Create durable record",
+      "titlePlaceholder": "What should exist on the board?",
+      "bodyPlaceholder": "Outcome, context and acceptance criteria",
+      "assigneePlaceholder": "Optional Hermes profile",
+      "titleRequired": "A title is required.",
+      "triage": "Start in triage; do not dispatch",
+      "submit": "Create",
+      "success": "Durable record created."
+    },
+    "update": {
+      "success": "Durable record updated."
+    },
+    "computer": {
+      "title": "Desktop Use",
+      "description": "Hermes computer_use through the Command EVE authority ladder. Capture is read-only; click, type and scroll remain separately gated.",
+      "accessibility": "Accessibility",
+      "screenRecording": "Screen Recording",
+      "noDriverVersion": "No verified driver version",
+      "install": "Install pinned driver",
+      "grant": "Request permissions",
+      "revoke": "Show revoke steps",
+      "provenance": "Driver provenance and doctor checks",
+      "version": "Version",
+      "expected": "Pinned release",
+      "checksum": "Release checksum verified",
+      "expectedChecksum": "Expected SHA-256",
+      "identity": "Identity",
+      "team": "Team",
+      "actionReady": "Computer Use action completed.",
+      "actionFailed": "Computer Use needs attention.",
+      "state": {
+        "ready": "Ready",
+        "needs_install": "Needs install",
+        "needs_permission": "Needs permission",
+        "needs_user": "Needs user",
+        "blocked": "Blocked",
+        "failed": "Unavailable"
+      }
+    }
   }
 }

@@ -11,10 +11,14 @@
  * untouched.
  */
 
-import { describe, expect, it } from 'vitest';
-import { normalizeBootHash, BOOT_HOME_HASH } from '@/renderer/utils/bootRoute';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { applyBootRouteNormalization, normalizeBootHash, BOOT_HOME_HASH } from '@/renderer/utils/bootRoute';
 
 describe('normalizeBootHash (fix #3)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('rewrites a stale conversation deep-link to the home surface', () => {
     expect(normalizeBootHash('#/conversation/abc-123')).toBe(BOOT_HOME_HASH);
   });
@@ -46,5 +50,16 @@ describe('normalizeBootHash (fix #3)', () => {
   it('does not match a route that merely contains "conversation" but is not the chat surface', () => {
     // Only the exact chat-surface prefixes are rewritten.
     expect(normalizeBootHash('#/guid?from=conversation')).toBe('#/guid?from=conversation');
+  });
+
+  it('normalizes only the raw boot hash and leaves later in-app chat navigation to the router', () => {
+    const location = { hash: '#/conversation/fresh-boot-chat' };
+    vi.stubGlobal('window', { location });
+
+    applyBootRouteNormalization();
+    expect(location.hash).toBe(BOOT_HOME_HASH);
+
+    location.hash = '#/conversation/opened-from-history';
+    expect(location.hash).toBe('#/conversation/opened-from-history');
   });
 });
