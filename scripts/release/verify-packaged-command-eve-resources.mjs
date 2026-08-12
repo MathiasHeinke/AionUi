@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { scanForPrivateKeys } from './verify-no-private-keys.mjs';
 
 export const PACKAGED_COMMAND_EVE_RESOURCES_VERIFIER_VERSION = 'verify-packaged-command-eve-resources/v3';
+const COMMAND_EVE_BROWSER_UVX_MANIFEST_SCHEMA = 'command-eve-uvx-runner/v1';
+const COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_SCHEMA = 'command-eve-uvx-artifact-receipt/v1';
 
 export const COMMAND_EVE_PUBLIC_KEY_FILES = Object.freeze([
   'command-eve-license-public-key.pem',
@@ -33,6 +35,7 @@ export const COMMAND_EVE_HERMES_WHEEL = Object.freeze({
   version: '0.20.0',
   filename: 'hermes_agent-0.20.0-py3-none-any.whl',
   sha256: '9f80183e4db0486bb40f6fa3878b7f7994f81656a42e1c388613e2e3483c8602',
+  required_entries: Object.freeze(['tools/browser_use_cli.py']),
 });
 
 export const COMMAND_EVE_PRESENTATION_PYTHON_WHEELS = Object.freeze([
@@ -142,6 +145,92 @@ function readRequiredRegularFile(filePath, label, deps) {
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
+  const target =
+    expectedArch === 'arm64' ? 'aarch64-apple-darwin' : expectedArch === 'x64' ? 'x86_64-apple-darwin' : '';
+  if (!target) throw new Error(`PACKAGED-RESOURCES: unsupported Browser Use runner architecture: ${expectedArch}`);
+  const root = path.join(resourcesPath, 'bundled-hermes', 'uvx');
+  const manifestPath = path.join(root, 'uvx-manifest.json');
+  const manifestBytes = readRequiredRegularFile(manifestPath, 'packaged Browser Use uvx manifest', deps);
+  let manifest;
+  try {
+    manifest = JSON.parse(manifestBytes.toString('utf8'));
+  } catch {
+    throw new Error('PACKAGED-RESOURCES: Browser Use uvx manifest is not valid JSON');
+  }
+  const artifact = manifest?.artifacts?.find((candidate) => candidate?.target === target);
+  if (
+    manifest?.schema_version !== COMMAND_EVE_BROWSER_UVX_MANIFEST_SCHEMA ||
+    manifest?.upstream !== 'astral-sh/uv' ||
+    manifest?.status === 'BLOCKED_ARTIFACT' ||
+    typeof manifest?.version !== 'string' ||
+    !/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(manifest.version) ||
+    !artifact ||
+    artifact.runner_filename !== 'uvx' ||
+    artifact.archive_entry !== 'uvx' ||
+    !/^[a-f0-9]{64}$/.test(String(artifact.archive_sha256 || '')) ||
+    !/^[a-f0-9]{64}$/.test(String(artifact.runner_sha256 || '')) ||
+    !/^[a-f0-9]{64}$/.test(String(artifact.artifact_receipt_sha256 || '')) ||
+    artifact.attestation?.repo !== 'astral-sh/uv' ||
+    artifact.attestation?.release_tag !== `v${manifest.version}`
+  ) {
+    throw new Error('PACKAGED-RESOURCES: Browser Use uvx manifest violates the signed-resource contract');
+  }
+  const targetRoot = path.join(root, target);
+  assertDirectory(targetRoot, 'packaged Browser Use uvx target directory', deps);
+  const artifactReceiptPath = path.join(targetRoot, 'uvx-artifact-receipt.json');
+  const artifactReceiptBytes = readRequiredRegularFile(
+    artifactReceiptPath,
+    'packaged Browser Use uvx artifact receipt',
+    deps
+  );
+  let artifactReceipt;
+  try {
+    artifactReceipt = JSON.parse(artifactReceiptBytes.toString('utf8'));
+  } catch {
+    throw new Error('PACKAGED-RESOURCES: Browser Use uvx artifact receipt is not valid JSON');
+  }
+  if (
+    artifactReceipt?.schema_version !== COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_SCHEMA ||
+    artifactReceipt?.provenance !== 'official-astral-release-attestation/v1' ||
+    artifactReceipt?.upstream !== 'astral-sh/uv' ||
+    artifactReceipt?.version !== manifest.version ||
+    artifactReceipt?.target !== target ||
+    artifactReceipt?.archive_name !== artifact.archive_name ||
+    artifactReceipt?.archive_sha256 !== artifact.archive_sha256 ||
+    artifactReceipt?.archive_entry !== artifact.archive_entry ||
+    artifactReceipt?.runner_filename !== artifact.runner_filename ||
+    artifactReceipt?.runner_sha256 !== artifact.runner_sha256 ||
+    artifactReceipt?.attestation?.repo !== 'astral-sh/uv' ||
+    artifactReceipt?.attestation?.release_tag !== `v${manifest.version}` ||
+    sha256(artifactReceiptBytes) !== artifact.artifact_receipt_sha256
+  ) {
+    throw new Error('PACKAGED-RESOURCES: Browser Use uvx artifact receipt violates the reviewed Astral contract');
+  }
+  const runnerPath = path.join(targetRoot, artifact.runner_filename);
+  const runnerBytes = readRequiredRegularFile(runnerPath, 'packaged Browser Use uvx runner', deps);
+  if (sha256(runnerBytes) !== artifact.runner_sha256) {
+    throw new Error('PACKAGED-RESOURCES: packaged Browser Use uvx runner failed its SHA-256 pin');
+  }
+  const expectedMachOArch = MACH_O_ARCH_BY_BUILDER_ARCH[expectedArch];
+  const runnerArchitectures = normalizeArchitectures(deps.readArchitectures(runnerPath));
+  if (runnerArchitectures.length !== 1 || runnerArchitectures[0] !== expectedMachOArch) {
+    throw new Error(
+      `PACKAGED-RESOURCES: Browser Use uvx runner must be thin ${expectedMachOArch}; found ${runnerArchitectures.join(', ') || 'none'}`
+    );
+  }
+  return {
+    version: manifest.version,
+    target,
+    file: artifact.runner_filename,
+    sha256: artifact.runner_sha256,
+    archive_sha256: artifact.archive_sha256,
+    artifact_receipt_sha256: sha256(artifactReceiptBytes),
+    attestation: artifact.attestation,
+    architectures: runnerArchitectures,
+  };
 }
 
 function assertPublicKeyPem(bytes, fileName) {
@@ -486,6 +575,15 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
       `PACKAGED-RESOURCES: packaged ${COMMAND_EVE_HERMES_WHEEL.filename} unexpectedly contains native binaries: ${hermesNativeEntries.join(', ')}`
     );
   }
+  const hermesWheelEntries = deps.listArchiveEntries(hermesWheelPath);
+  const missingHermesEntries = COMMAND_EVE_HERMES_WHEEL.required_entries.filter(
+    (entry) => !hermesWheelEntries.includes(entry)
+  );
+  if (missingHermesEntries.length > 0) {
+    throw new Error(
+      `PACKAGED-RESOURCES: reviewed Hermes wheel is missing required Browser Use adapter entries: ${missingHermesEntries.join(', ')}`
+    );
+  }
   const hermesWheel = {
     package: COMMAND_EVE_HERMES_WHEEL.name,
     version: COMMAND_EVE_HERMES_WHEEL.version,
@@ -493,7 +591,10 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
     bytes: hermesWheelBytes.length,
     sha256: COMMAND_EVE_HERMES_WHEEL.sha256,
     native_entries: 0,
+    required_entries: [...COMMAND_EVE_HERMES_WHEEL.required_entries],
   };
+
+  const browserUseRunner = verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps);
 
   const artifactPython = verifyPackagedArtifactPython({
     resourcesPath,
@@ -530,6 +631,7 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
       wheels: presentationPython,
     },
     hermes_wheel: hermesWheel,
+    browser_use_runner: browserUseRunner,
     artifact_python: artifactPython,
     private_key_findings: 0,
   };

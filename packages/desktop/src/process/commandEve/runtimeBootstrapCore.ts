@@ -5,6 +5,7 @@
  */
 
 import childProcess, { type ChildProcess } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import os from 'os';
@@ -118,6 +119,14 @@ const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
 const DEFAULT_HERMES_MAX_TOKENS = 2048;
 const COMMAND_EVE_OLLAMA_MODEL_PREFIX = 'command-eve';
 const BUNDLED_HERMES_DIR = 'bundled-hermes';
+const COMMAND_EVE_BROWSER_UVX_MANIFEST_FILE = 'uvx-manifest.json';
+const COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_FILE = 'uvx-artifact-receipt.json';
+const COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_FILE = 'browser-use-runner.json';
+export const COMMAND_EVE_BROWSER_UVX_PATH_ENV = 'COMMAND_EVE_BROWSER_UVX_PATH';
+export const COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_PATH_ENV = 'COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_PATH';
+const COMMAND_EVE_BROWSER_UVX_MANIFEST_SCHEMA = 'command-eve-uvx-runner/v1';
+const COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_SCHEMA = 'command-eve-uvx-artifact-receipt/v1';
+const COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_SCHEMA = 'command-eve-browser-use-runner/v1';
 const BUNDLED_AIONCORE_DIR = 'bundled-aioncore';
 const MANAGED_RESOURCES_DIR = 'managed-resources';
 const MANAGED_NODE_DIR = 'node';
@@ -638,6 +647,7 @@ export type RuntimeBootstrapStageId =
   | 'capacity'
   | 'python'
   | 'hermes'
+  | 'browser-use'
   | 'presentation-python'
   | 'web'
   | 'ollama'
@@ -780,6 +790,7 @@ export type RuntimeBootstrapPaths = {
   hermesVenv: string;
   hermesWrapper: string;
   hermesShim: string;
+  browserUseRunnerDescriptor: string;
   managedSkillsRoot: string;
   founderOpsSkillsRoot: string;
   runtimeReconciliation: string;
@@ -833,6 +844,15 @@ export type RuntimeBootstrapProvenance = {
     wheel_sha256_verified?: boolean;
     installed_wheel_sha256?: string;
     installed_wheel_verified?: boolean;
+    browser_use_runner?: {
+      path: string;
+      descriptor_path: string;
+      version: string;
+      sha256: string;
+      target: string;
+      artifact_receipt_sha256: string;
+      provenance: 'packaged-astral-uvx/v1';
+    };
     /**
      * Per-seat `state.db` backups taken before a version-crossing Hermes
      * install (the 0.20 migration is one-way; see hermesStateDbBackup.ts).
@@ -1851,6 +1871,401 @@ export function resolveCommandEveManagedNodeExecutable(
   }
 }
 
+export type CommandEvePackagedBrowserUseRunner = {
+  path: string;
+  artifactReceiptPath: string;
+  version: string;
+  sha256: string;
+  target: string;
+  artifactReceiptSha256: string;
+  provenance: 'packaged-astral-uvx/v1';
+};
+
+type CommandEveBrowserUseRunnerArtifactReceipt = {
+  schema_version: typeof COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_SCHEMA;
+  upstream: 'astral-sh/uv';
+  version: string;
+  target: string;
+  archive_name: string;
+  archive_sha256: string;
+  archive_entry: string;
+  runner_filename: string;
+  runner_sha256: string;
+  provenance: 'official-astral-release-attestation/v1';
+  attestation: { repo: 'astral-sh/uv'; release_tag: string };
+};
+
+type CommandEveBrowserUseRunnerDescriptor = {
+  schema_version: typeof COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_SCHEMA;
+  hermes_home: string;
+  path: string;
+  root: string;
+  artifact_receipt_path: string;
+  sha256: string;
+  version: string;
+  target: string;
+  artifact_receipt_sha256: string;
+  provenance: 'packaged-astral-uvx/v1';
+};
+
+type CommandEveBrowserUseRunnerManifest = {
+  schema_version: typeof COMMAND_EVE_BROWSER_UVX_MANIFEST_SCHEMA;
+  upstream: 'astral-sh/uv';
+  version: string;
+  artifacts: Array<{
+    target: string;
+    archive_name: string;
+    archive_sha256: string;
+    archive_entry: string;
+    runner_filename: string;
+    runner_sha256: string;
+    artifact_receipt_sha256: string;
+    attestation: { repo: 'astral-sh/uv'; release_tag: string };
+  }>;
+};
+
+type CommandEveBrowserUseRunnerDeps = {
+  /** Test seam only; production probes the copied native runner directly. */
+  readArchitectures?: (file: string, platform: NodeJS.Platform) => string[];
+};
+
+const MACH_O_ARCH_BY_NODE_ARCH: Partial<Record<NodeJS.Architecture, string>> = {
+  arm64: 'arm64',
+  x64: 'x86_64',
+};
+
+function packagedBrowserUseRunnerFilename(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? 'uvx.exe' : 'uvx';
+}
+
+function packagedBrowserUseRunnerTarget(platform: NodeJS.Platform, arch: NodeJS.Architecture): string {
+  if (platform === 'darwin' && arch === 'arm64') return 'aarch64-apple-darwin';
+  if (platform === 'darwin' && arch === 'x64') return 'x86_64-apple-darwin';
+  if (platform === 'win32' && arch === 'arm64') return 'aarch64-pc-windows-msvc';
+  if (platform === 'win32' && arch === 'x64') return 'x86_64-pc-windows-msvc';
+  return '';
+}
+
+function readCommandEveBrowserUseRunnerArchitectures(file: string, platform: NodeJS.Platform): string[] {
+  try {
+    if (platform === 'darwin') {
+      const output = childProcess.execFileSync('/usr/bin/lipo', ['-archs', file], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 2_000,
+      });
+      return [...new Set(output.trim().split(/\s+/).filter(Boolean))].toSorted();
+    }
+    if (platform === 'win32') {
+      const header = fs.readFileSync(file);
+      if (header.length < 0x40 || header.readUInt16LE(0) !== 0x5a4d) return [];
+      const peOffset = header.readUInt32LE(0x3c);
+      if (peOffset + 6 > header.length || header.subarray(peOffset, peOffset + 4).toString('ascii') !== 'PE\0\0') {
+        return [];
+      }
+      const machine = header.readUInt16LE(peOffset + 4);
+      if (machine === 0xaa64) return ['arm64'];
+      if (machine === 0x8664) return ['x86_64'];
+    }
+  } catch {
+    // The runner remains unavailable unless its platform-native architecture is readable.
+  }
+  return [];
+}
+
+function isCommandEveBrowserUseRunnerArchitectureValid(
+  file: string,
+  platform: NodeJS.Platform,
+  arch: NodeJS.Architecture,
+  deps: CommandEveBrowserUseRunnerDeps
+): boolean {
+  const architectures = (deps.readArchitectures ?? readCommandEveBrowserUseRunnerArchitectures)(file, platform);
+  const expected = MACH_O_ARCH_BY_NODE_ARCH[arch];
+  return Boolean(expected && architectures.length === 1 && architectures[0] === expected);
+}
+
+function readCommandEveBrowserUseRunnerArtifactReceipt(
+  artifactRoot: string,
+  target: string,
+  runnerFilename: string
+): { path: string; receipt: CommandEveBrowserUseRunnerArtifactReceipt; sha256: string } | undefined {
+  const receiptPath = path.join(artifactRoot, target, COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_FILE);
+  try {
+    const info = fs.lstatSync(receiptPath);
+    if (info.isSymbolicLink() || !info.isFile()) return undefined;
+    const bytes = fs.readFileSync(receiptPath);
+    const receipt = JSON.parse(bytes.toString('utf8')) as Partial<CommandEveBrowserUseRunnerArtifactReceipt>;
+    if (
+      receipt.schema_version !== COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_SCHEMA ||
+      receipt.upstream !== 'astral-sh/uv' ||
+      typeof receipt.version !== 'string' ||
+      !/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(receipt.version) ||
+      receipt.target !== target ||
+      typeof receipt.archive_name !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(String(receipt.archive_sha256 || '')) ||
+      receipt.archive_entry !== runnerFilename ||
+      receipt.runner_filename !== runnerFilename ||
+      !/^[a-f0-9]{64}$/.test(String(receipt.runner_sha256 || '')) ||
+      receipt.provenance !== 'official-astral-release-attestation/v1' ||
+      receipt.attestation?.repo !== 'astral-sh/uv' ||
+      receipt.attestation.release_tag !== `v${receipt.version}`
+    ) {
+      return undefined;
+    }
+    return {
+      path: receiptPath,
+      receipt: receipt as CommandEveBrowserUseRunnerArtifactReceipt,
+      sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function isCommandEveBrowserUseRunnerArtifactReceiptMatch(
+  artifact: CommandEveBrowserUseRunnerManifest['artifacts'][number],
+  receipt: CommandEveBrowserUseRunnerArtifactReceipt
+): boolean {
+  return (
+    artifact.archive_name === receipt.archive_name &&
+    artifact.archive_sha256 === receipt.archive_sha256 &&
+    artifact.archive_entry === receipt.archive_entry &&
+    artifact.runner_filename === receipt.runner_filename &&
+    artifact.runner_sha256 === receipt.runner_sha256 &&
+    artifact.attestation?.repo === receipt.attestation?.repo &&
+    artifact.attestation?.release_tag === receipt.attestation?.release_tag
+  );
+}
+
+function isSafeCommandEveBrowserUseRunnerFile(
+  file: string,
+  root: string,
+  expectedSha256: string,
+  platform: NodeJS.Platform,
+  requirePrivateOwner = false
+): boolean {
+  try {
+    const rootStat = fs.lstatSync(root);
+    const info = fs.lstatSync(file);
+    if (
+      rootStat.isSymbolicLink() ||
+      !rootStat.isDirectory() ||
+      info.isSymbolicLink() ||
+      !info.isFile() ||
+      !/^[a-f0-9]{64}$/.test(expectedSha256) ||
+      (platform !== 'win32' &&
+        ((info.mode & 0o022) !== 0 ||
+          (requirePrivateOwner && (rootStat.mode & 0o077) !== 0) ||
+          (requirePrivateOwner &&
+            typeof process.getuid === 'function' &&
+            (info.uid !== process.getuid() || rootStat.uid !== process.getuid()))))
+    ) {
+      return false;
+    }
+    fs.accessSync(file, fs.constants.X_OK);
+    const realRoot = fs.realpathSync.native(root);
+    const realFile = fs.realpathSync.native(file);
+    const relative = path.relative(realRoot, realFile);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return false;
+    return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') === expectedSha256;
+  } catch {
+    return false;
+  }
+}
+
+function ensurePrivateCommandEveBrowserUseRunnerRoot(root: string, platform: NodeJS.Platform): boolean {
+  try {
+    const info = fs.lstatSync(root);
+    if (info.isSymbolicLink() || !info.isDirectory()) return false;
+    if (platform !== 'win32') {
+      fs.chmodSync(root, 0o700);
+      const hardened = fs.lstatSync(root);
+      if (
+        (hardened.mode & 0o077) !== 0 ||
+        (typeof process.getuid === 'function' && hardened.uid !== process.getuid())
+      ) {
+        return false;
+      }
+    }
+    // macOS may expose the system-owned `/var` alias while realpath returns
+    // `/private/var`; the lstat checks above reject a caller-controlled root
+    // symlink without rejecting that platform alias.
+    fs.realpathSync.native(root);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function writeCommandEveBrowserUseRunnerDescriptor(
+  paths: RuntimeBootstrapPaths,
+  runner: CommandEvePackagedBrowserUseRunner,
+  platform: NodeJS.Platform
+): boolean {
+  const root = path.join(paths.hermesHome, 'bin');
+  const descriptor: CommandEveBrowserUseRunnerDescriptor = {
+    schema_version: COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_SCHEMA,
+    hermes_home: paths.hermesHome,
+    path: runner.path,
+    root,
+    artifact_receipt_path: path.join(root, COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_FILE),
+    sha256: runner.sha256,
+    version: runner.version,
+    target: runner.target,
+    artifact_receipt_sha256: runner.artifactReceiptSha256,
+    provenance: runner.provenance,
+  };
+  if (!isSafeCommandEveBrowserUseRunnerFile(runner.path, root, runner.sha256, platform, true)) return false;
+  try {
+    writeJsonAtomic(paths.browserUseRunnerDescriptor, descriptor);
+    const descriptorInfo = fs.lstatSync(paths.browserUseRunnerDescriptor);
+    return (
+      !descriptorInfo.isSymbolicLink() &&
+      descriptorInfo.isFile() &&
+      (platform === 'win32' || (descriptorInfo.mode & 0o077) === 0)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function clearCommandEveBrowserUseRunnerDescriptor(paths: RuntimeBootstrapPaths): void {
+  for (const file of [
+    paths.browserUseRunnerDescriptor,
+    path.join(paths.hermesHome, 'bin', COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_FILE),
+  ]) {
+    try {
+      const info = fs.lstatSync(file);
+      if (!info.isSymbolicLink() && info.isFile()) fs.unlinkSync(file);
+    } catch {
+      // Absence or an unsafe object is fail-closed at the consumer; never follow it.
+    }
+  }
+}
+
+/**
+ * Resolve the one packaged, pre-attested uvx binary.  This intentionally has
+ * no PATH, installer, download, or development fallback: an absent artifact
+ * keeps Browser Use unavailable instead of silently selecting host software.
+ */
+export function resolveCommandEvePackagedBrowserUseRunner(
+  resourcesPath: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+  arch: NodeJS.Architecture = process.arch,
+  deps: CommandEveBrowserUseRunnerDeps = {}
+): CommandEvePackagedBrowserUseRunner | undefined {
+  const root = typeof resourcesPath === 'string' ? resourcesPath.trim() : '';
+  const target = packagedBrowserUseRunnerTarget(platform, arch);
+  if (!root || !path.isAbsolute(root) || !target) return undefined;
+
+  const artifactRoot = path.join(root, BUNDLED_HERMES_DIR, 'uvx');
+  const manifestPath = path.join(artifactRoot, COMMAND_EVE_BROWSER_UVX_MANIFEST_FILE);
+  try {
+    const manifestStat = fs.lstatSync(manifestPath);
+    if (manifestStat.isSymbolicLink() || !manifestStat.isFile()) return undefined;
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Partial<CommandEveBrowserUseRunnerManifest>;
+    const runnerFilename = packagedBrowserUseRunnerFilename(platform);
+    const artifact = manifest.artifacts?.find((candidate) => candidate?.target === target);
+    if (
+      manifest.schema_version !== COMMAND_EVE_BROWSER_UVX_MANIFEST_SCHEMA ||
+      manifest.upstream !== 'astral-sh/uv' ||
+      (manifest as { status?: unknown }).status === 'BLOCKED_ARTIFACT' ||
+      typeof manifest.version !== 'string' ||
+      !/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(manifest.version) ||
+      !artifact ||
+      typeof artifact.archive_name !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(String(artifact.archive_sha256 || '')) ||
+      artifact.archive_entry !== runnerFilename ||
+      artifact.runner_filename !== runnerFilename ||
+      typeof artifact.runner_sha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(String(artifact.artifact_receipt_sha256 || '')) ||
+      artifact.attestation?.repo !== 'astral-sh/uv' ||
+      artifact.attestation.release_tag !== `v${manifest.version}`
+    ) {
+      return undefined;
+    }
+    const artifactReceipt = readCommandEveBrowserUseRunnerArtifactReceipt(artifactRoot, target, runnerFilename);
+    if (
+      !artifactReceipt ||
+      artifactReceipt.receipt.version !== manifest.version ||
+      !isCommandEveBrowserUseRunnerArtifactReceiptMatch(artifact, artifactReceipt.receipt) ||
+      artifact.artifact_receipt_sha256 !== artifactReceipt.sha256
+    ) {
+      return undefined;
+    }
+    const sourceRoot = path.join(artifactRoot, target);
+    const runnerPath = path.join(sourceRoot, runnerFilename);
+    if (
+      !isSafeCommandEveBrowserUseRunnerFile(runnerPath, sourceRoot, artifact.runner_sha256, platform) ||
+      !isCommandEveBrowserUseRunnerArchitectureValid(runnerPath, platform, arch, deps)
+    )
+      return undefined;
+    return {
+      path: runnerPath,
+      artifactReceiptPath: artifactReceipt.path,
+      version: manifest.version,
+      sha256: artifact.runner_sha256,
+      target,
+      artifactReceiptSha256: artifactReceipt.sha256,
+      provenance: 'packaged-astral-uvx/v1',
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function provisionCommandEveBrowserUseRunner(
+  paths: RuntimeBootstrapPaths,
+  resourcesPath: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+  arch: NodeJS.Architecture = process.arch,
+  deps: CommandEveBrowserUseRunnerDeps = {}
+): CommandEvePackagedBrowserUseRunner | undefined {
+  const source = resolveCommandEvePackagedBrowserUseRunner(resourcesPath, platform, arch, deps);
+  if (!source) {
+    clearCommandEveBrowserUseRunnerDescriptor(paths);
+    return undefined;
+  }
+  const targetRoot = path.join(paths.hermesHome, 'bin');
+  const target = path.join(targetRoot, packagedBrowserUseRunnerFilename(platform));
+  const artifactReceiptTarget = path.join(targetRoot, COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_FILE);
+  try {
+    fs.mkdirSync(targetRoot, { recursive: true, mode: 0o700 });
+    if (!ensurePrivateCommandEveBrowserUseRunnerRoot(targetRoot, platform)) return undefined;
+    if (fs.existsSync(target)) {
+      const existing = fs.lstatSync(target);
+      if (existing.isSymbolicLink() || !existing.isFile()) return undefined;
+    }
+    if (fs.existsSync(artifactReceiptTarget)) {
+      const existing = fs.lstatSync(artifactReceiptTarget);
+      if (existing.isSymbolicLink() || !existing.isFile()) return undefined;
+    }
+    const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
+    const receiptTemporary = `${artifactReceiptTarget}.${process.pid}.${Date.now()}.tmp`;
+    fs.copyFileSync(source.path, temporary, fs.constants.COPYFILE_EXCL);
+    fs.chmodSync(temporary, 0o700);
+    fs.renameSync(temporary, target);
+    fs.copyFileSync(source.artifactReceiptPath, receiptTemporary, fs.constants.COPYFILE_EXCL);
+    fs.chmodSync(receiptTemporary, 0o600);
+    fs.renameSync(receiptTemporary, artifactReceiptTarget);
+    const runner = { ...source, path: target };
+    const receiptHash = crypto.createHash('sha256').update(fs.readFileSync(artifactReceiptTarget)).digest('hex');
+    if (
+      receiptHash !== runner.artifactReceiptSha256 ||
+      !isSafeCommandEveBrowserUseRunnerFile(target, targetRoot, runner.sha256, platform, true) ||
+      !isCommandEveBrowserUseRunnerArchitectureValid(target, platform, arch, deps) ||
+      !writeCommandEveBrowserUseRunnerDescriptor(paths, runner, platform)
+    ) {
+      clearCommandEveBrowserUseRunnerDescriptor(paths);
+      return undefined;
+    }
+    return runner;
+  } catch {
+    clearCommandEveBrowserUseRunnerDescriptor(paths);
+    return undefined;
+  }
+}
+
 /**
  * The image generator is an app-owned capability, not a user connector. Hermes
  * therefore receives it directly in its private 0600 config instead of through
@@ -2359,6 +2774,7 @@ export function resolveCommandEveRuntimeBootstrapPaths(
     // Windows cannot execute the Bash shim. Pin AionCore directly to the console
     // entry point generated by pip inside the app-managed venv.
     hermesShim: platform === 'win32' ? path.join(hermesVenv, 'Scripts', 'hermes.exe') : path.join(hermesRoot, 'hermes'),
+    browserUseRunnerDescriptor: path.join(hermesHome, COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_FILE),
     managedSkillsRoot: path.join(hermesHome, COMMAND_EVE_MANAGED_SKILLS_DIR),
     founderOpsSkillsRoot: path.join(hermesHome, COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR),
     runtimeReconciliation: path.join(capabilitiesRoot, COMMAND_EVE_RUNTIME_RECONCILIATION_FILE),
@@ -2409,11 +2825,20 @@ function prependEnvPathSegment(env: NodeJS.ProcessEnv, key: 'PYTHONPATH', segmen
 export function prepareCommandEveRuntimeProcessEnv(
   userDataPath: string,
   env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  resourcesPath: string | undefined = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath,
+  browserUseRunnerDeps: CommandEveBrowserUseRunnerDeps = {}
 ): RuntimeBootstrapPaths {
   const paths = resolveCommandEveRuntimeBootstrapPaths(userDataPath, getActiveSeatId(), platform);
   ensureDir(paths.hermesRoot);
   ensureDir(paths.hermesHome);
+  if (platform !== 'win32') {
+    try {
+      fs.chmodSync(paths.hermesHome, 0o700);
+    } catch {
+      // The runner capability below validates its own private root and fails closed.
+    }
+  }
   writeHermesCliShim(paths);
   prependPathSegment(env, platform === 'win32' ? path.join(paths.hermesVenv, 'Scripts') : paths.hermesRoot);
   // GATE-NULL seat-isolation crux: pin the ACTIVE seat's home onto the env the
@@ -2429,6 +2854,25 @@ export function prepareCommandEveRuntimeProcessEnv(
   // invocation in this process tree resolve the active seat without relying on
   // the bake.
   env.HERMES_HOME = paths.hermesHome;
+  // Browser Use gets an explicit executable pointer only after MAIN copied and
+  // verified an app-bundled, attested runner into this active seat's private
+  // HERMES_HOME.  Absence is intentional: Hermes then fails closed rather than
+  // falling back to PATH or a user-global uvx.
+  const browserUseRunner = provisionCommandEveBrowserUseRunner(
+    paths,
+    resourcesPath,
+    platform,
+    process.arch,
+    browserUseRunnerDeps
+  );
+  if (browserUseRunner) {
+    env[COMMAND_EVE_BROWSER_UVX_PATH_ENV] = browserUseRunner.path;
+    env[COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_PATH_ENV] = paths.browserUseRunnerDescriptor;
+  } else {
+    delete env[COMMAND_EVE_BROWSER_UVX_PATH_ENV];
+    delete env[COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_PATH_ENV];
+    clearCommandEveBrowserUseRunnerDescriptor(paths);
+  }
   // Enables Hermes' desktop-UI tool registration. Exposure remains fail-closed:
   // the ACP config below selects only Command EVE's two-tool allowlist.
   env.HERMES_DESKTOP = '1';
@@ -7946,6 +8390,8 @@ export type ProvisionSeatRuntimeFilesOptions = {
   rememberedCommands?: RuntimeBootstrapOptions['rememberedCommands'];
   /** Test seam; production derives this from os.totalmem(). */
   totalMemoryBytes?: number;
+  /** Test seam; production reads the copied native runner's architecture directly. */
+  browserUseRunnerDeps?: CommandEveBrowserUseRunnerDeps;
 };
 
 export type ProvisionSeatRuntimeFilesResult = {
@@ -8094,6 +8540,7 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
     const founderOpsSkillsDir = resolveFounderOpsSkillsDir(env);
 
     ensureDir(paths.hermesHome);
+    if (options.platform !== 'win32') fs.chmodSync(paths.hermesHome, 0o700);
     // 1.6.2: the operator's OWN seat inherits the legacy root home's brain ONCE,
     // at first provisioning (or over a pristine placeholder scaffold — the seats
     // empty-seeded under ≤1.6.1). Before this, the hook seeded an empty blueprint
@@ -8113,6 +8560,20 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
     // Idempotent + best-effort (never throws), so a populated store is never
     // clobbered and provisioning is never blocked.
     ensureCompanyBrainReady(paths.hermesHome);
+    // Synchronous seat provisioning is the pre-respawn materialization seam.
+    // This does not make the general runtime unhealthy when the new release
+    // resource is absent; it simply withholds the Browser Use capability.
+    if (
+      !provisionCommandEveBrowserUseRunner(
+        paths,
+        options.resourcesPath,
+        options.platform ?? process.platform,
+        process.arch,
+        options.browserUseRunnerDeps
+      )
+    ) {
+      clearCommandEveBrowserUseRunnerDescriptor(paths);
+    }
     const bundledSkillFailures = writeHermesRuntimeFiles(
       paths,
       manifest,
@@ -8603,6 +9064,27 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   // the first session remains stuck on `command 'hermes' not found in PATH`
   // until the whole desktop app is restarted.
   if (mode !== 'check') writeHermesCliShim(paths);
+
+  const browserUseRunner = provisionCommandEveBrowserUseRunner(paths, options.resourcesPath, platform);
+  if (runtimeProvenance.hermes && browserUseRunner) {
+    runtimeProvenance.hermes.browser_use_runner = {
+      path: browserUseRunner.path,
+      descriptor_path: paths.browserUseRunnerDescriptor,
+      version: browserUseRunner.version,
+      sha256: browserUseRunner.sha256,
+      target: browserUseRunner.target,
+      artifact_receipt_sha256: browserUseRunner.artifactReceiptSha256,
+      provenance: browserUseRunner.provenance,
+    };
+  }
+  pushStage(
+    makeStage('browser-use', browserUseRunner ? 'pass' : 'skip', {
+      code: browserUseRunner ? undefined : 'BLOCKED_ARTIFACT',
+      detail: browserUseRunner
+        ? `Browser Use runner ${browserUseRunner.version} is bound for ${browserUseRunner.target}.`
+        : 'Browser Use is blocked: the reviewed signed uvx package artifact is absent or invalid.',
+    })
+  );
 
   // DOCUMENT ARTIFACT RUNTIME (P0, 1.819). PPTX/DOCX/PDF/XLSX/QR work is a
   // product capability, not a reason for an agent to run `pip install` during a

@@ -1,0 +1,10 @@
+{
+  "schema_version": "command-eve-uvx-runner/v1",
+  "upstream": "astral-sh/uv",
+  "status": "BLOCKED_ARTIFACT",
+  "reason": "A reviewed, attested per-platform Astral uvx archive and extracted runner SHA-256 are required before Browser Use may be packaged.",
+  "required_artifact_receipt_schema": "command-eve-uvx-artifact-receipt/v1",
+  "required_provenance": "official-astral-release-attestation/v1",
+  "version": "",
+  "artifacts": []
+}
