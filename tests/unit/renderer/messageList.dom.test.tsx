@@ -8,7 +8,7 @@ import React, { type PropsWithChildren } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
-import type { IMessageText, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
+import type { IMessageAcpToolCall, IMessageText, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
 import type { MessageHistoryPagination } from '@/renderer/pages/conversation/Messages/hooks';
 import { MessageListLoadingProvider, MessageListProvider } from '@/renderer/pages/conversation/Messages/hooks';
 import MessageList from '@/renderer/pages/conversation/Messages/MessageList';
@@ -18,6 +18,7 @@ import {
   getToolResultArtifactSourceKeys,
   hasToolResultGeneratedArtifact,
 } from '@/renderer/pages/conversation/Messages/types';
+import { typedUIFixture } from '../command-eve/typed-ui/fixtures';
 
 const artifactMock = vi.hoisted(() => ({
   artifacts: [] as IConversationArtifact[],
@@ -35,6 +36,7 @@ const ipcMock = vi.hoisted(() => ({
   getImageBase64: vi.fn(),
   getFileMetadata: vi.fn(),
   readGeneratedArtifactPreview: vi.fn(),
+  attestTypedUI: vi.fn(),
 }));
 const previewMock = vi.hoisted(() => ({ openPreview: vi.fn() }));
 
@@ -60,6 +62,10 @@ vi.mock('@arco-design/web-react', () => ({
   Image: {
     PreviewGroup: ({ children }: PropsWithChildren) => <>{children}</>,
   },
+  Alert: ({ title, content }: { title?: React.ReactNode; content?: React.ReactNode }) => <div>{title || content}</div>,
+  Button: ({ children }: PropsWithChildren) => <button type='button'>{children}</button>,
+  Spin: () => <span>loading</span>,
+  Tag: ({ children }: PropsWithChildren) => <span>{children}</span>,
 }));
 
 vi.mock('@/common', () => ({
@@ -77,6 +83,9 @@ vi.mock('@/common', () => ({
     },
     application: {
       readGeneratedArtifactPreview: { invoke: ipcMock.readGeneratedArtifactPreview },
+    },
+    commandEve: {
+      typedUIProvenanceAttestation: { invoke: ipcMock.attestTypedUI },
     },
     theme: {
       requestCurrent: { invoke: vi.fn().mockResolvedValue(null) },
@@ -324,6 +333,7 @@ describe('MessageList', () => {
     ipcMock.getImageBase64.mockReset();
     ipcMock.getFileMetadata.mockReset();
     ipcMock.readGeneratedArtifactPreview.mockReset();
+    ipcMock.attestTypedUI.mockReset();
   });
 
   it('renders message rows with external margin spacing in the plain scroll list', () => {
@@ -1238,5 +1248,103 @@ describe('MessageList', () => {
       conversation_id: 'conversation-typed',
       payload: { source_message_id: 'message-typed' },
     });
+  });
+
+  it('projects one persisted completed ACP Typed UI result into the existing inline artifact rail', async () => {
+    ipcMock.attestTypedUI.mockImplementation(() => new Promise(() => {}));
+    const raw = typedUIFixture();
+    const acpMessage = {
+      id: 'message-acp-typed',
+      msg_id: 'message-acp-typed',
+      conversation_id: 'conversation-1',
+      type: 'acp_tool_call',
+      position: 'left',
+      created_at: 10,
+      content: {
+        session_id: 'session-1',
+        update: {
+          session_update: 'tool_call_update',
+          tool_call_id: 'call-acp-typed',
+          status: 'completed',
+          title: 'untrusted presentation title',
+          kind: 'execute',
+          raw_output: {
+            ok: true,
+            artifact_type: 'file',
+            mime_type: 'application/vnd.command-eve.typed-ui+json',
+            schema_version: 'command-eve.typed-ui/v2',
+            catalog_version: 'command-eve.typed-ui.catalog/v2',
+            content: JSON.stringify(raw),
+            status: 'completed',
+            tool_name: 'mcp__aionui_eve_artifacts__eve_typed_ui_publish',
+          },
+        },
+      },
+    } as unknown as IMessageAcpToolCall;
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[acpMessage]}>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(screen.getByTestId('conversation-artifact-file')).toBeInTheDocument());
+    expect(screen.queryByText('acp_tool_call')).toBeNull();
+    expect(screen.getByTestId('typed-ui-provenance-checking')).toBeInTheDocument();
+    expect(screen.queryByText('Launch cockpit')).toBeNull();
+  });
+
+  it.each([
+    ['nonterminal', 'in_progress', JSON.stringify(typedUIFixture()), undefined],
+    ['malformed', 'completed', '{', undefined],
+    ['extra-key', 'completed', JSON.stringify(typedUIFixture()), { unexpected: true }],
+    ['missing-tool-name', 'completed', JSON.stringify(typedUIFixture()), undefined],
+    [
+      'wrong-tool-name',
+      'completed',
+      JSON.stringify(typedUIFixture()),
+      { tool_name: 'mcp__other__eve_typed_ui_publish' },
+    ],
+    [
+      'oversized',
+      'completed',
+      JSON.stringify({ ...typedUIFixture(), state: { value: 'x'.repeat(512 * 1024 + 1) } }),
+      undefined,
+    ],
+  ])('keeps %s persisted ACP Typed UI output in the inert tool fallback', async (_label, status, content, extra) => {
+    const acpMessage = {
+      id: `message-acp-${status}-${_label}`,
+      msg_id: `message-acp-${status}-${_label}`,
+      conversation_id: 'conversation-1',
+      type: 'acp_tool_call',
+      position: 'left',
+      created_at: 10,
+      content: {
+        session_id: 'session-1',
+        update: {
+          session_update: 'tool_call_update',
+          tool_call_id: `call-acp-${status}-${_label}`,
+          status,
+          title: 'untrusted presentation title',
+          kind: 'execute',
+          raw_output: {
+            ok: true,
+            artifact_type: 'file',
+            mime_type: 'application/vnd.command-eve.typed-ui+json',
+            schema_version: 'command-eve.typed-ui/v2',
+            catalog_version: 'command-eve.typed-ui.catalog/v2',
+            content,
+            ...(status === 'completed' ? { status: 'completed' } : {}),
+            ...(_label === 'missing-tool-name' ? {} : { tool_name: 'eve_typed_ui_publish' }),
+            ...extra,
+          },
+        },
+      },
+    } as unknown as IMessageAcpToolCall;
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[acpMessage]}>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(screen.getByText('tool_summary')).toBeInTheDocument());
+    expect(screen.queryByTestId('conversation-artifact-file')).toBeNull();
   });
 });

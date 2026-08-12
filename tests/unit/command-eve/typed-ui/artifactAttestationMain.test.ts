@@ -76,6 +76,32 @@ function message(rawEnvelope = typedUIFixture(), overrides: Partial<TMessage> = 
   } as TMessage;
 }
 
+function acpMessage(rawEnvelope = typedUIFixture(), overrides: Partial<TMessage> = {}): TMessage {
+  return {
+    id: artifact.source_message_id,
+    msg_id: artifact.source_message_id,
+    conversation_id: artifact.conversation_id,
+    type: 'acp_tool_call',
+    created_at: artifact.created_at,
+    content: {
+      session_id: 'session-production',
+      update: {
+        session_update: 'tool_call_update',
+        tool_call_id: callId,
+        status: 'completed',
+        title: 'Typed UI',
+        kind: 'execute',
+        raw_output: {
+          ...resultPayload(rawEnvelope),
+          status: 'completed',
+          tool_name: 'mcp__aionui_eve_artifacts__eve_typed_ui_publish',
+        },
+      },
+    },
+    ...overrides,
+  } as unknown as TMessage;
+}
+
 function completion(paths: ReturnType<typeof workspace>, rawEnvelope = typedUIFixture(), suffix = '') {
   return appendMainOwnedTypedUIProviderCompletionReceipt(paths.providerCompletionLedgerPath, {
     version: TYPED_UI_PROVIDER_COMPLETION_RECEIPT_VERSION,
@@ -128,6 +154,110 @@ describe('production durable Typed UI artifact attestation', () => {
     expect(ledgers).not.toContain('actual-model');
     expect(ledgers).not.toContain('provider-request');
     expect(ledgers).not.toContain('"tool_call_id":');
+  });
+
+  it('joins one terminal durable ACP raw_output without inferring a tool name from its title', async () => {
+    const paths = workspace();
+    const rawEnvelope = typedUIFixture();
+    completion(paths, rawEnvelope);
+    const durable = acpMessage(rawEnvelope);
+    if (durable.type === 'acp_tool_call') {
+      (durable.content as unknown as { update: { title: string } }).update.title = 'arbitrary presentation title';
+    }
+
+    await expect(
+      attestDurableTypedUIArtifact(paths, request(rawEnvelope), seat, { readMessage: async () => durable })
+    ).resolves.toMatchObject({
+      status: 'verified',
+      artifact_id: artifact.artifact_id,
+    });
+  });
+
+  it('accepts the bare compatibility name on a persisted ACP row with the exact provider call id', async () => {
+    const paths = workspace();
+    const rawEnvelope = typedUIFixture();
+    // The Main-owned producer receipt and durable ACP update must carry the
+    // identical upstream provider id; neither side may derive a replacement.
+    completion(paths, rawEnvelope);
+    const durable = acpMessage(rawEnvelope);
+    if (durable.type === 'acp_tool_call') {
+      const rawOutput = (durable.content as unknown as { update: { raw_output: Record<string, unknown> } }).update
+        .raw_output;
+      rawOutput.tool_name = 'eve_typed_ui_publish';
+      // AionCore currently injects this marker, but the durable contract keeps
+      // it optional so historical persisted rows remain safely readable.
+      delete rawOutput.status;
+    }
+
+    await expect(
+      attestDurableTypedUIArtifact(paths, request(rawEnvelope), seat, { readMessage: async () => durable })
+    ).resolves.toMatchObject({
+      status: 'verified',
+      artifact_id: artifact.artifact_id,
+    });
+  });
+
+  it.each([
+    [
+      'wrong call',
+      (value: TMessage) =>
+        value.type === 'acp_tool_call' &&
+        ((value.content as unknown as { update: { tool_call_id: string } }).update.tool_call_id = 'call-other'),
+    ],
+    [
+      'nonterminal',
+      (value: TMessage) =>
+        value.type === 'acp_tool_call' &&
+        ((value.content as unknown as { update: { status: string } }).update.status = 'in_progress'),
+    ],
+    [
+      'malformed result',
+      (value: TMessage) =>
+        value.type === 'acp_tool_call' &&
+        ((value.content as unknown as { update: { raw_output: unknown } }).update.raw_output = { ok: true }),
+    ],
+    [
+      'extra result key',
+      (value: TMessage) =>
+        value.type === 'acp_tool_call' &&
+        ((value.content as unknown as { update: { raw_output: unknown } }).update.raw_output = {
+          ...resultPayload(),
+          status: 'completed',
+          unexpected: true,
+        }),
+    ],
+    [
+      'missing executed tool identity',
+      (value: TMessage) =>
+        value.type === 'acp_tool_call' &&
+        delete (value.content as unknown as { update: { raw_output: Record<string, unknown> } }).update.raw_output
+          .tool_name,
+    ],
+    [
+      'non-target executed tool identity',
+      (value: TMessage) =>
+        value.type === 'acp_tool_call' &&
+        ((value.content as unknown as { update: { raw_output: { tool_name: string } } }).update.raw_output.tool_name =
+          'mcp__other__eve_typed_ui_publish'),
+    ],
+    [
+      'oversized result',
+      (value: TMessage) =>
+        value.type === 'acp_tool_call' &&
+        ((value.content as unknown as { update: { raw_output: unknown } }).update.raw_output = {
+          ...resultPayload(),
+          status: 'completed',
+          content: 'x'.repeat(512 * 1024 + 1),
+        }),
+    ],
+  ])('rejects %s ACP durable evidence', async (_label, mutate) => {
+    const paths = workspace();
+    completion(paths);
+    const durable = acpMessage();
+    mutate(durable);
+    await expect(
+      attestDurableTypedUIArtifact(paths, request(), seat, { readMessage: async () => durable })
+    ).rejects.toThrow('attestation.durable_');
   });
 
   it('fails closed with no producer and does not manufacture a generation receipt', async () => {

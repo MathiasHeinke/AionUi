@@ -8,6 +8,14 @@ import type { IConversationArtifact, IGeneratedConversationArtifact } from '@/co
 import type { ProjectWorkspaceConversationArtifactDTO } from '@renderer/pages/projects/types';
 import { useProjectWorkspaceConversationArtifacts } from '@renderer/pages/projects/client';
 import type { IMessageAcpToolCall, IMessageToolCall, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
+import {
+  TYPED_UI_CATALOG_VERSION,
+  TYPED_UI_MAX_BYTES,
+  TYPED_UI_MIME_TYPE,
+  TYPED_UI_SCHEMA_VERSION,
+  typedUIArtifactIdForToolCall,
+  validateTypedUIEnvelope,
+} from '@/common/typedUI';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
 import { CHAT_MESSAGE_JUMP_EVENT, type ChatMessageJumpDetail } from '@/renderer/utils/chat/chatMinimapEvents';
@@ -47,6 +55,7 @@ import MessageText from './components/MessageText';
 import MessageThinking from './components/MessageThinking';
 import { buildGeneratedArtifactFromHermesMediaDirective, parseHermesMediaDirectives } from './hermesMediaDirectiveCore';
 import {
+  buildGeneratedArtifactFromToolResult,
   getGeneratedArtifactPayloadSourceKeys,
   getToolResultArtifactSourceKeys,
   hasToolResultGeneratedArtifact,
@@ -129,6 +138,76 @@ const getGeneratedArtifactSourceKeys = (artifact: IConversationArtifact): string
 
 const getInlineToolGroupArtifactSourceKeys = (message: IMessageToolGroup): string[] =>
   message.content.flatMap((item) => getToolResultArtifactSourceKeys(item.result_display));
+
+type DurableRecord = Record<string, unknown>;
+
+const TYPED_UI_DURABLE_RESULT_KEYS = new Set([
+  'ok',
+  'artifact_type',
+  'mime_type',
+  'schema_version',
+  'catalog_version',
+  'content',
+  'status',
+  'tool_name',
+]);
+const TYPED_UI_DURABLE_TOOL_NAMES = new Set([
+  'eve_typed_ui_publish',
+  'mcp__aionui_eve_artifacts__eve_typed_ui_publish',
+]);
+
+function isDurableRecord(value: unknown): value is DurableRecord {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readDurableAcpTypedUIResult(message: IMessageAcpToolCall): DurableRecord | undefined {
+  const content = message.content as unknown;
+  if (!isDurableRecord(content) || !isDurableRecord(content.update)) return undefined;
+  const update = content.update;
+  const rawOutput = update.raw_output;
+  if (
+    update.session_update !== 'tool_call_update' ||
+    update.status !== 'completed' ||
+    typeof update.tool_call_id !== 'string' ||
+    !typedUIArtifactIdForToolCall(update.tool_call_id) ||
+    !isDurableRecord(rawOutput) ||
+    Object.keys(rawOutput).some((key) => !TYPED_UI_DURABLE_RESULT_KEYS.has(key)) ||
+    rawOutput.ok !== true ||
+    rawOutput.artifact_type !== 'file' ||
+    rawOutput.mime_type !== TYPED_UI_MIME_TYPE ||
+    rawOutput.schema_version !== TYPED_UI_SCHEMA_VERSION ||
+    rawOutput.catalog_version !== TYPED_UI_CATALOG_VERSION ||
+    typeof rawOutput.content !== 'string' ||
+    new TextEncoder().encode(rawOutput.content).byteLength > TYPED_UI_MAX_BYTES ||
+    (rawOutput.status !== undefined && rawOutput.status !== 'completed') ||
+    typeof rawOutput.tool_name !== 'string' ||
+    !TYPED_UI_DURABLE_TOOL_NAMES.has(rawOutput.tool_name)
+  ) {
+    return undefined;
+  }
+  try {
+    const envelope = validateTypedUIEnvelope(JSON.parse(rawOutput.content) as unknown);
+    return envelope.ok ? rawOutput : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildDurableAcpTypedUIArtifact(message: IMessageAcpToolCall): IGeneratedConversationArtifact | undefined {
+  const resultDisplay = readDurableAcpTypedUIResult(message);
+  const content = message.content as unknown;
+  const update = isDurableRecord(content) && isDurableRecord(content.update) ? content.update : undefined;
+  if (!resultDisplay || !update || typeof update.tool_call_id !== 'string') return undefined;
+  return buildGeneratedArtifactFromToolResult({
+    conversation_id: message.conversation_id,
+    call_id: update.tool_call_id,
+    source_message_id: message.msg_id || message.id,
+    created_at: message.created_at,
+    name: 'eve_typed_ui_publish',
+    description: undefined,
+    result_display: resultDisplay,
+  });
+}
 
 const hasInlineToolGroupArtifact = (message: IMessageToolGroup): boolean =>
   message.content.some((item) => item.status === 'Success' && hasToolResultGeneratedArtifact(item.result_display));
@@ -444,6 +523,20 @@ const MessageList: React.FC<{
         continue;
       }
       if (message.type === 'acp_tool_call') {
+        const generatedArtifact = buildDurableAcpTypedUIArtifact(message);
+        if (generatedArtifact) {
+          toolList = [];
+          toolSourceMessageIds = [];
+          diffsChanges = [];
+          diffsSourceMessageIds = [];
+          result.push({
+            type: 'artifact',
+            id: generatedArtifact.id,
+            artifact: generatedArtifact,
+            created_at: generatedArtifact.created_at,
+          });
+          continue;
+        }
         pushToolList(message);
         continue;
       }
