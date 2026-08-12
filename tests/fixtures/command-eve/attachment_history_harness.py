@@ -9,6 +9,7 @@ import sys
 import types
 import zipfile
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Dict, List
 
 
@@ -126,6 +127,35 @@ substitute_api_content = exact_substitute_api_content()
 assert substitute_api_content(replay) == rich_content
 assert replay["content"] == rich_content
 
+# Restart/rebuild proof against Hermes' actual bundled SQLite implementation:
+# close the process-local DB, reopen it, rebuild the native conversation list,
+# then apply the exact bundled api_content substitution used by the next turn.
+sys.path.insert(0, str(WHEEL_PATH))
+from hermes_state import SessionDB  # type: ignore[import-not-found]  # noqa: E402
+
+with TemporaryDirectory(prefix="command-eve-attachment-history-") as temp_dir:
+    db_path = Path(temp_dir) / "state.db"
+    session_id = "acp-restart-session"
+    session_db = SessionDB(db_path)
+    session_db.create_session(session_id, "acp")
+    session_db.append_message(
+        session_id,
+        "user",
+        content=clean_content,
+        api_content=rich_content,
+    )
+    session_db.close()
+
+    restarted_db = SessionDB(db_path)
+    rebuilt_history = restarted_db.get_messages_as_conversation(session_id)
+    restarted_db.close()
+    assert len(rebuilt_history) == 1
+    rebuilt_user = dict(rebuilt_history[0])
+    assert rebuilt_user["content"] == clean_content
+    assert rebuilt_user["api_content"] == rich_content
+    assert substitute_api_content(rebuilt_user) == rich_content
+    assert rebuilt_user["content"] == rich_content
+
 # No redundant or destructive sidecars on sibling paths.
 plain = finalize(ExactAIAgent, clean_content, clean_content)
 assert "api_content" not in plain
@@ -158,6 +188,7 @@ print(
             "exact_wheel_function_executed": True,
             "baseline_loses_context": True,
             "same_process_replay_preserved": True,
+            "native_db_restart_rebuild_preserved": True,
             "native_api_content_used": True,
             "negative_controls_passed": True,
             "ledger": sorted(namespace["_COMMAND_EVE_INSTALLED_PATCHES"]),

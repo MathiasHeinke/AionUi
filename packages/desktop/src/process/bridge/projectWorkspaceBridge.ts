@@ -1,6 +1,7 @@
 import { bridge } from '@office-ai/platform';
 import path from 'node:path';
 import type { ISendMessageResult } from '@/common/adapter/ipcBridge';
+import type { CommandEveAttachmentGroundingRequest } from '@/common/config/eveAttachmentGroundingCore';
 import { getActiveSeatId } from '@process/commandEve/seatContextCore';
 import { isCommandEveSeatSwitchInFlight } from '@process/bridge/commandEveBridge';
 import {
@@ -27,6 +28,7 @@ type RuntimeSendParams = {
   input: string;
   conversation_id: string;
   files?: string[];
+  attachment_grounding?: CommandEveAttachmentGroundingRequest;
   loading_id?: string;
   inject_skills?: string[];
 };
@@ -176,6 +178,7 @@ export function initProjectWorkspaceBridge(): void {
         body: {
           content: input.input,
           files: input.files,
+          attachment_grounding: input.attachment_grounding,
           loading_id: input.loading_id,
           inject_skills: input.inject_skills,
         },

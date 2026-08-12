@@ -30,7 +30,7 @@ type AuthorizationRecord = {
   requestCount: number;
 };
 
-type AuthorizationFailureReason =
+export type CommandEveManagedVisualAuthorizationFailureReason =
   | 'AUTHORIZATION_EXPIRED'
   | 'AUTHORIZATION_SEAT_MISMATCH'
   | 'AUTHORIZATION_UNKNOWN'
@@ -54,7 +54,7 @@ export type CommandEveManagedVisualTurnResolution =
     }
   | {
       status: 'invalid';
-      reason_code: AuthorizationFailureReason;
+      reason_code: CommandEveManagedVisualAuthorizationFailureReason;
     };
 
 const authorizations = new Map<string, AuthorizationRecord>();

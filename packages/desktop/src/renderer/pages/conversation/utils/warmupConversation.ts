@@ -86,7 +86,7 @@ function retryCooldownError(conversation_id: string, now: number): ConversationW
   );
 }
 
-async function runWarmupWithBackpressure(conversation_id: string): Promise<void> {
+async function runWarmupWithBackpressure(conversation_id: string, allowAtCapacity = false): Promise<void> {
   const active = await ipcBridge.conversation.activeCount.invoke();
   if (!active || !Number.isFinite(active.count) || active.count < 0) {
     throw new ConversationWarmupBlockedError(
@@ -94,7 +94,7 @@ async function runWarmupWithBackpressure(conversation_id: string): Promise<void>
       'Conversation runtime capacity could not be verified.'
     );
   }
-  if (active.count >= MAX_ACTIVE_CONVERSATION_RUNTIMES) {
+  if (active.count >= MAX_ACTIVE_CONVERSATION_RUNTIMES && !allowAtCapacity) {
     throw new ConversationWarmupBlockedError(
       'WARMUP_ACTIVE_RUNTIME_CAP',
       `Conversation runtime capacity reached (${active.count}/${MAX_ACTIVE_CONVERSATION_RUNTIMES}).`
@@ -103,14 +103,14 @@ async function runWarmupWithBackpressure(conversation_id: string): Promise<void>
   await ipcBridge.conversation.warmup.invoke({ conversation_id });
 }
 
-export function warmupConversation(conversation_id: string): Promise<void> {
+export function warmupConversation(conversation_id: string, options: { revalidate?: boolean } = {}): Promise<void> {
   const existing = warmupByConversation.get(conversation_id);
   if (existing) {
     return existing;
   }
 
   const previous = getWarmupConversationStatus(conversation_id);
-  if (previous.phase === 'ready') {
+  if (previous.phase === 'ready' && !options.revalidate) {
     return Promise.resolve();
   }
 
@@ -133,7 +133,10 @@ export function warmupConversation(conversation_id: string): Promise<void> {
   // One global queue is intentional: warmup can materialize a complete ACP
   // process and MCP fleet. Serializing different conversations prevents rapid
   // navigation or remounts from spawning an unbounded burst.
-  const queuedWarmup = warmupQueueTail.catch(() => {}).then(() => runWarmupWithBackpressure(conversation_id));
+  const revalidatingReadyRuntime = previous.phase === 'ready' && options.revalidate === true;
+  const queuedWarmup = warmupQueueTail
+    .catch(() => {})
+    .then(() => runWarmupWithBackpressure(conversation_id, revalidatingReadyRuntime));
   warmupQueueTail = queuedWarmup.catch(() => {});
 
   const promise = queuedWarmup

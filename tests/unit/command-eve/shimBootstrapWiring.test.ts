@@ -93,6 +93,14 @@ describe('production bootstrap wiring — the EVE routing resolver is INSTALLED,
     expect(unwired, 'shim start sites missing eveRouting').toEqual([]);
   });
 
+  it('EVERY shim start site enables the content-free managed-visual failure receipt', () => {
+    const missingReceipt = shimStartCallSites()
+      .map((s, i) => ({ i, ok: /egressReceiptPath:\s*commandEveEgressBoundaryReceiptPath\(/.test(s.options) }))
+      .filter((s) => !s.ok)
+      .map((s) => `site #${s.i}`);
+    expect(missingReceipt, 'shim start sites missing egress receipt root').toEqual([]);
+  });
+
   it('the NORMAL STARTUP BOOTSTRAP (the unguarded one) installs it', () => {
     // The two IPC-provider sites are lazy: `commandEveOllamaShimUrl || (await
     // start...)`. The bootstrap is the one with NO such guard — it is the call the
@@ -113,6 +121,16 @@ describe('production bootstrap wiring — the EVE routing resolver is INSTALLED,
     );
     expect(factory).toMatch(/return resolveEveCloudRouteFromBackend\(\{/);
     expect(factory).not.toMatch(/readLaneState/);
+  });
+
+  it('turns deterministic managed-visual authorization refusals into the typed shim error, never a generic Error', () => {
+    const src = stripComments(INDEX_TS);
+    const factory = src.slice(
+      src.indexOf('function buildCommandEveShimRoutingResolver'),
+      src.indexOf('function buildCommandEveManagedLocalOpenAiRoutingResolver')
+    );
+    expect(factory).toContain('new CommandEveManagedVisualAuthorizationError(managedVisualTurn.reason_code)');
+    expect(factory).not.toMatch(/Managed visual turn authorization is invalid/);
   });
 });
 

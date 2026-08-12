@@ -79,6 +79,10 @@ import type {
 import type { CommandEveVideoEditRequest, CommandEveVideoEditResult } from '../config/videoEditRequestCore';
 import type { VideoCatalogEntry } from '../config/videoCatalogCore';
 import type { CommandEveActiveImageArtifact } from '../config/managedImageArtifactCore';
+import type {
+  CommandEveAttachmentGroundingReceipt,
+  CommandEveAttachmentGroundingRequest,
+} from '../config/eveAttachmentGroundingCore';
 
 /**
  * 1.820.3 — the renderer-facing shapes of the managed image artifact lane.
@@ -250,18 +254,55 @@ export const assistants = {
 // Conversation — REST + WS
 // ---------------------------------------------------------------------------
 
-const directConversationWarmup = httpPost<void, { conversation_id: string }>(
+const CONVERSATION_WARMUP_HTTP_TIMEOUT_MS = 45_000;
+// Mirrors AionCore's server-authoritative prompt-admission budget: admission,
+// finalize claim, and terminal peer acknowledgement can each consume 30s. Keep an explicit
+// loopback/serialization margin beyond that worst case so the renderer never
+// aborts a grounded turn while Core is still legitimately admitting it.
+const AIONCORE_PROMPT_ADMISSION_PHASE_TIMEOUT_MS = 30_000;
+const AIONCORE_PROMPT_ADMISSION_PHASE_COUNT = 3;
+const GROUNDED_SEND_HTTP_TIMEOUT_MARGIN_MS = 30_000;
+const GROUNDED_SEND_HTTP_TIMEOUT_MS =
+  AIONCORE_PROMPT_ADMISSION_PHASE_TIMEOUT_MS * AIONCORE_PROMPT_ADMISSION_PHASE_COUNT +
+  GROUNDED_SEND_HTTP_TIMEOUT_MARGIN_MS;
+
+const directConversationWarmupProvider = httpPost<void, { conversation_id: string }>(
   (p) => `/api/conversations/${p.conversation_id}/warmup`
 );
-const directConversationSend = httpPost<ISendMessageResult, ISendMessageParams>(
+const directConversationWarmup = {
+  provider: directConversationWarmupProvider.provider,
+  invoke: (params: { conversation_id: string }) =>
+    httpRequest<void>('POST', `/api/conversations/${params.conversation_id}/warmup`, params, {
+      timeoutMs: CONVERSATION_WARMUP_HTTP_TIMEOUT_MS,
+    }),
+};
+
+const directConversationSendProvider = httpPost<ISendMessageResult, ISendMessageParams>(
   (p) => `/api/conversations/${p.conversation_id}/messages`,
   (p) => ({
     content: p.input,
     files: p.files,
+    attachment_grounding: p.attachment_grounding,
     loading_id: p.loading_id,
     inject_skills: p.inject_skills,
   })
 );
+const directConversationSend = {
+  provider: directConversationSendProvider.provider,
+  invoke: (params: ISendMessageParams) =>
+    httpRequest<ISendMessageResult>(
+      'POST',
+      `/api/conversations/${params.conversation_id}/messages`,
+      {
+        content: params.input,
+        files: params.files,
+        attachment_grounding: params.attachment_grounding,
+        loading_id: params.loading_id,
+        inject_skills: params.inject_skills,
+      },
+      params.attachment_grounding ? { timeoutMs: GROUNDED_SEND_HTTP_TIMEOUT_MS } : undefined
+    ),
+};
 
 export const projectWorkspaceRuntime = {
   send: bridge.buildProvider<ISendMessageResult, ISendMessageParams>('project-workspace.runtime-send'),
@@ -3484,6 +3525,7 @@ interface ISendMessageParams {
   input: string;
   conversation_id: string;
   files?: string[];
+  attachment_grounding?: CommandEveAttachmentGroundingRequest;
   loading_id?: string;
   inject_skills?: string[];
 }
@@ -3502,6 +3544,7 @@ export interface ISendMessageResult {
   msg_id: string;
   turn_id: string;
   runtime: TConversationRuntimeSummary;
+  attachment_grounding_receipt?: CommandEveAttachmentGroundingReceipt;
 }
 
 export interface ISteerMessageResult {

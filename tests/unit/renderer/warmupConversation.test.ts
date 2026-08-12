@@ -69,6 +69,16 @@ describe('warmupConversation', () => {
     expect(warmupInvokeMock).toHaveBeenCalledTimes(1);
   });
 
+  it('revalidates an explicitly grounded send even after cached readiness', async () => {
+    warmupInvokeMock.mockResolvedValue(undefined);
+
+    await expect(warmupConversation('conv-1')).resolves.toBeUndefined();
+    activeCountInvokeMock.mockResolvedValue({ count: MAX_ACTIVE_CONVERSATION_RUNTIMES });
+    await expect(warmupConversation('conv-1', { revalidate: true })).resolves.toBeUndefined();
+
+    expect(warmupInvokeMock).toHaveBeenCalledTimes(2);
+  });
+
   it('serializes warmups for different conversations', async () => {
     const resolvers: Array<() => void> = [];
     warmupInvokeMock.mockImplementation(

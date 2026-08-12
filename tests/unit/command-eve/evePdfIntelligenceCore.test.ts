@@ -31,6 +31,8 @@ function preparedDocument(
     extracted_characters: 100,
     extraction_mode: 'local_text',
     sidecar_path: sidecarPath,
+    sidecar_sha256: 'c'.repeat(64),
+    sidecar_bytes: 128,
     citation_format: '[PDF p. N]',
     cache_hit: false,
   };
@@ -164,6 +166,8 @@ describe('evePdfIntelligenceCore', () => {
       extracted_characters: 100,
       extraction_mode: 'local_text',
       sidecar_path: '/tmp/cache/document.md',
+      sidecar_sha256: 'c'.repeat(64),
+      sidecar_bytes: 128,
       citation_format: '[PDF p. N]',
       cache_hit: false,
     };

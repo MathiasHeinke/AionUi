@@ -95,6 +95,7 @@ import {
   resolveEveCloudRouteFromBackend,
 } from './process/commandEve/inferenceSelectionBackendRead';
 import { resolveCommandEveManagedVisualTurn } from './process/commandEve/managedVisualTurnAuthorizationCore';
+import { CommandEveManagedVisualAuthorizationError } from './process/commandEve/shimPublicError';
 import { readCommandEveSettingsFromBackend } from './process/commandEve/commandEveBackendSettingsRead';
 import { readCommandEveCloudVisualPolicy } from './process/commandEve/visual/cloudVisualPolicyMain';
 import { type EveRememberedCommand } from '@/common/config/eveRememberedCommandsCore';
@@ -543,9 +544,7 @@ function buildCommandEveShimRoutingResolver(): (
     const seatContextRevision = getActiveSeatContextRevision();
     const managedVisualTurn = resolveCommandEveManagedVisualTurn(body, seatId, seatContextRevision);
     if (managedVisualTurn.status === 'invalid') {
-      throw new Error(
-        `Managed visual turn authorization is invalid (${managedVisualTurn.reason_code}). Reconfirm cloud processing and retry.`
-      );
+      throw new CommandEveManagedVisualAuthorizationError(managedVisualTurn.reason_code);
     }
     if (managedVisualTurn.status === 'authorized') {
       const wireResult = readLicenseWire(getDataPath());

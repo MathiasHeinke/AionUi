@@ -81,6 +81,13 @@ import {
 } from '@/common/config/evePdfIntelligenceCore';
 import { isCommandEvePresentationPath } from '@/common/config/evePresentationIntelligenceCore';
 import { isCommandEveImagePath } from '@/common/config/eveImageIntelligenceCore';
+import {
+  buildCommandEveAttachmentGroundingRequest,
+  groundingExpectationFromPdf,
+  validateCommandEveAttachmentGroundingReceipt,
+  type CommandEveAttachmentGroundingExpectation,
+  type CommandEveAttachmentGroundingRequest,
+} from '@/common/config/eveAttachmentGroundingCore';
 import { composeCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
 import { buildCommandEveAgentTurnInput } from '@/common/config/eveArtifactContextEnvelopeCore';
 import {
@@ -622,9 +629,10 @@ const AcpSendBox: React.FC<{
       displayFiles,
       preparedContext,
       managedVisualSourceCount,
+      attachmentGrounding,
     }: Pick<
       ConversationCommandQueueItem,
-      'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount'
+      'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount' | 'attachmentGrounding'
     >) => {
       // The images travelling with THIS turn, in the order the user attached
       // them. They are what a reference-to-video render would use, and naming
@@ -749,6 +757,14 @@ const AcpSendBox: React.FC<{
         });
         const displayMessage = buildDisplayMessage(agentInput, displayFiles ?? files, workspacePath || '');
 
+        // Grounded sends use Core's native warmup boundary to finish both the
+        // ACP handshake and Hermes session readiness before prompt admission.
+        // This keeps cold boot out of the ordinary 15s send request while a
+        // failed warmup still leaves the draft retryable and unsent.
+        if (attachmentGrounding) {
+          await warmupConversation(conversation_id, { revalidate: true });
+        }
+
         runtimeView.markSendStarted();
         // 1.7.3 (Codex #2): mark generation at SEND time so the seat-switch guard
         // covers the window between submit and the first `start` stream event, during
@@ -763,7 +779,14 @@ const AcpSendBox: React.FC<{
           input: displayMessage,
           conversation_id,
           files,
+          ...(attachmentGrounding ? { attachment_grounding: attachmentGrounding } : {}),
         });
+        if (
+          attachmentGrounding &&
+          !validateCommandEveAttachmentGroundingReceipt(attachmentGrounding, result.attachment_grounding_receipt)
+        ) {
+          throw new Error('ATTACHMENT_GROUNDING_RECEIPT_INVALID');
+        }
         runtimeView.markSendAccepted(result.turn_id, result.runtime, result.msg_id);
         emitter.emit('chat.history.refresh');
       } catch (error: unknown) {
@@ -1281,7 +1304,8 @@ Please check your local CLI tool authentication status`,
       agentFiles: string[],
       displayFiles: string[] = agentFiles,
       preparedContext?: string,
-      managedVisualSourceCount?: number
+      managedVisualSourceCount?: number,
+      attachmentGrounding?: CommandEveAttachmentGroundingRequest
     ) => {
       const requestedBusyControlCommand = runtimeView.isProcessing
         ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
@@ -1335,6 +1359,7 @@ Please check your local CLI tool authentication status`,
             displayFiles,
             preparedContext,
             managedVisualSourceCount,
+            attachmentGrounding,
           }) !== null
         );
       }
@@ -1344,6 +1369,7 @@ Please check your local CLI tool authentication status`,
         displayFiles,
         preparedContext,
         managedVisualSourceCount,
+        attachmentGrounding,
       });
       return true;
     },
@@ -1351,10 +1377,12 @@ Please check your local CLI tool authentication status`,
   );
 
   const preparePdfFiles = useCallback(
-    async (files: string[]): Promise<string[] | null> => {
-      if (!isEveConversation) return files;
+    async (
+      files: string[]
+    ): Promise<{ files: string[]; attachmentGroundingEntries: CommandEveAttachmentGroundingExpectation[] } | null> => {
+      if (!isEveConversation) return { files, attachmentGroundingEntries: [] };
       const pdfFiles = files.filter(isCommandEvePdfPath);
-      if (pdfFiles.length === 0) return files;
+      if (pdfFiles.length === 0) return { files, attachmentGroundingEntries: [] };
 
       const startedAt = Date.now();
       setDocumentPreparation({ phase: 'reading_local', fileCount: pdfFiles.length, startedAt });
@@ -1366,7 +1394,9 @@ Please check your local CLI tool authentication status`,
           privacyLane: 'cloud_auto',
           requestId: `pdf-${Date.now().toString(36)}`,
         });
-      const acceptPreparedReceipt = (raw: unknown): string[] | null => {
+      const acceptPreparedReceipt = (
+        raw: unknown
+      ): { files: string[]; attachmentGroundingEntries: CommandEveAttachmentGroundingExpectation[] } | null => {
         const validated = validateCommandEvePdfPrepareReceipt(pdfFiles, raw);
         if (validated.ok === false) {
           setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
@@ -1377,7 +1407,10 @@ Please check your local CLI tool authentication status`,
           return null;
         }
         setDocumentPreparation({ phase: 'handoff', fileCount: pdfFiles.length, startedAt });
-        return mergeCommandEvePreparedPdfFiles(files, validated.documents);
+        return {
+          files: mergeCommandEvePreparedPdfFiles(files, validated.documents),
+          attachmentGroundingEntries: validated.documents.map(groundingExpectationFromPdf),
+        };
       };
       try {
         let response = await invoke(false);
@@ -1722,22 +1755,21 @@ Please check your local CLI tool authentication status`,
 
       const hasDocumentFiles =
         isEveConversation &&
-        allFiles.some(
-          (file) => isCommandEvePdfPath(file) || isCommandEvePresentationPath(file) || isCommandEveImagePath(file)
-        );
+        allFiles.some((file) => isCommandEvePdfPath(file) || isCommandEvePresentationPath(file) || isImageFile(file));
       if (hasDocumentFiles) {
         documentPreparationInFlightRef.current = true;
         markConversationDocumentPreparationStarted(conversation_id);
       }
 
-      const pdfPreparedFiles = await preparePdfFiles(allFiles);
+      const pdfPreparation = await preparePdfFiles(allFiles);
       // A cancelled/failed OCR gate must leave the draft and selected files intact.
-      if (pdfPreparedFiles === null) {
+      if (pdfPreparation === null) {
         controls.restoreDraftAndFiles();
         documentPreparationInFlightRef.current = false;
         markConversationDocumentPreparationSettled(conversation_id);
         return false;
       }
+      const pdfPreparedFiles = pdfPreparation.files;
       const visualSourceCount = pdfPreparedFiles.filter(
         (file) => isCommandEvePresentationPath(file) || isCommandEveImagePath(file)
       ).length;
@@ -1904,6 +1936,23 @@ Please check your local CLI tool authentication status`,
       }
       const preparedContext = composedContext?.context;
       const visuallyPreparedFiles = imagePreparation.files;
+      const attachmentGroundingEntries = [
+        ...pdfPreparation.attachmentGroundingEntries,
+        ...imagePreparation.attachmentGroundingEntries,
+      ];
+      const expectedGroundingCount = allFiles.filter((file) => isCommandEvePdfPath(file) || isImageFile(file)).length;
+      const attachmentGrounding = buildCommandEveAttachmentGroundingRequest(attachmentGroundingEntries);
+      if (
+        isEveConversation &&
+        expectedGroundingCount > 0 &&
+        (attachmentGroundingEntries.length !== expectedGroundingCount || !attachmentGrounding)
+      ) {
+        controls.restoreDraftAndFiles();
+        documentPreparationInFlightRef.current = false;
+        markConversationDocumentPreparationSettled(conversation_id);
+        Message.error({ content: t('conversation.documents.prepareFailed'), duration: 6000 });
+        return false;
+      }
 
       controls.clearSelection();
 
@@ -1913,7 +1962,8 @@ Please check your local CLI tool authentication status`,
           visuallyPreparedFiles,
           allFiles,
           preparedContext,
-          visualContexts.length || undefined
+          visualContexts.length || undefined,
+          attachmentGrounding
         );
         if (!accepted) controls.restoreDraftAndFiles();
         return accepted;

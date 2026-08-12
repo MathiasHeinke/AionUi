@@ -201,10 +201,7 @@ const makeHarness = (
     }
     if (command.endsWith('/bin/python') && args.includes('pip')) {
       const installTarget = args.at(-1) || '';
-      if (
-        installTarget === 'hermes-agent[acp,mcp]==0.20.0' ||
-        installTarget.endsWith('hermes_agent-0.20.0-py3-none-any.whl[acp,mcp]')
-      ) {
+      if (installTarget.endsWith('hermes_agent-0.20.0-py3-none-any.whl[acp,mcp]')) {
         hermesVersion = '0.20.0';
         fs.writeFileSync(path.join(path.dirname(command), 'hermes'), '#!/usr/bin/env bash\n');
         fs.chmodSync(path.join(path.dirname(command), 'hermes'), 0o755);
@@ -973,6 +970,11 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).toContain('context_length: 65536');
       expect(configYaml).toContain('ollama_num_ctx: 65536');
       expect(configYaml).toContain('max_tokens: 2048'); // cloud-lane-on: 512 truncated even cloud answers
+      // Managed-visual authorization refusals are deliberately non-retryable at
+      // the shim. Hermes would otherwise *offer* a fallback on generic 4xx, so
+      // the emitted main-agent config must have no alternate provider/model to
+      // activate behind the user's back.
+      expect(configYaml).not.toMatch(/^\s*fallback_(?:model|providers):/m);
       // Soul-wiring: reasoning is ON (challenger alive). Default tier is the
       // cheap-but-real 'low'; it must never regress to 'none' (which disables
       // reasoning entirely in Hermes).
@@ -1195,12 +1197,11 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('auxiliary_client._to_async_client = command_eve_to_async_client');
       expect(providerOverride).toContain('def _install_command_eve_attachment_memory_gate() -> None:');
       expect(providerOverride).toContain('def _install_command_eve_attachment_history_patch() -> None:');
+      expect(providerOverride).toContain('def _install_command_eve_prompt_admission_patch() -> None:');
       const attachmentFailClosedDefault = providerOverride.indexOf(
-        'turn_agent._command_eve_current_turn_has_attachment = True'
+        'agent._command_eve_current_turn_has_attachment = True'
       );
-      const attachmentInspection = providerOverride.indexOf(
-        'turn_agent._command_eve_current_turn_has_attachment = _command_eve_prompt_has_attachment(prompt_blocks)'
-      );
+      const attachmentInspection = providerOverride.indexOf('or _command_eve_prompt_has_attachment(prompt)');
       expect(attachmentFailClosedDefault).toBeGreaterThan(-1);
       expect(attachmentInspection).toBeGreaterThan(attachmentFailClosedDefault);
       const visionAuthHarness = spawnSync(
@@ -1220,16 +1221,85 @@ describe('Command EVE runtime bootstrap core', () => {
         external_key_preserved: true,
         missing_nonce_fails_before_http: true,
       });
+      const managedVisualRefusalHarness = spawnSync(
+        'python3',
+        [
+          path.resolve('tests/fixtures/command-eve/managed_visual_refusal_retry_harness.py'),
+          path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        ],
+        { encoding: 'utf8', timeout: 15_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
+      );
+      expect(
+        managedVisualRefusalHarness.status,
+        managedVisualRefusalHarness.stderr || managedVisualRefusalHarness.stdout
+      ).toBe(0);
+      expect(JSON.parse(managedVisualRefusalHarness.stdout)).toMatchObject({
+        exact_wheel_primary_client_factory_executed: true,
+        openai_sdk_version: '2.24.0',
+        sdk_default_retries_409: true,
+        sdk_default_retries_422: false,
+        sdk_default_retries_500: true,
+        openai_sdk_max_retries: 0,
+        http_status: 422,
+        total_shim_http_attempts: 1,
+        wheel_422_classifier_nonretryable: true,
+        wheel_outer_loop_checks_pending_fallback: true,
+        wheel_fallback_activation_refuses_empty_chain: true,
+        wheel_missing_fallback_initializes_empty_chain: true,
+      });
       const attachmentMemoryHarness = spawnSync(
         'python3',
-        [path.resolve('tests/fixtures/command-eve/attachment_memory_gate_harness.py'), providerOverridePath],
+        [
+          path.resolve('tests/fixtures/command-eve/attachment_memory_gate_harness.py'),
+          providerOverridePath,
+          path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        ],
         { encoding: 'utf8', timeout: 15_000 }
       );
       expect(attachmentMemoryHarness.status, attachmentMemoryHarness.stderr || attachmentMemoryHarness.stdout).toBe(0);
       expect(JSON.parse(attachmentMemoryHarness.stdout)).toMatchObject({
         text_memory_allowed: true,
         attachment_memory_blocked: true,
-        attachment_skill_review_allowed: true,
+        attachment_skill_review_blocked: true,
+        attachment_external_sync_blocked: true,
+        compression_and_session_end_memory_blocked: true,
+        correction_memory_and_skill_blocked: true,
+        direct_memory_and_skill_writes_blocked: true,
+        acp_interrupt_correction_blocked: true,
+        recursive_correction_turn_blocked: true,
+        nested_attachment_turn_blocked: true,
+        crash_restart_quarantine_blocked: true,
+        native_session_db_restart_quarantine: true,
+        automatic_end_turn_cannot_reconcile: true,
+        session_reset_keeps_durable_quarantine: true,
+      });
+      const promptAdmissionHarness = spawnSync(
+        'python3',
+        [
+          path.resolve('tests/fixtures/command-eve/prompt_admission_harness.py'),
+          providerOverridePath,
+          path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        ],
+        { encoding: 'utf8', timeout: 30_000 }
+      );
+      expect(promptAdmissionHarness.status, promptAdmissionHarness.stderr || promptAdmissionHarness.stdout).toBe(0);
+      expect(JSON.parse(promptAdmissionHarness.stdout)).toMatchObject({
+        exact_wheel_classes_loaded: true,
+        exact_wheel_prompt_executed: true,
+        exact_wheel_run_conversation_executed: true,
+        fail_closed_patch_required: true,
+        accept_commit_finalize_ack_ordered: true,
+        provider_blocked_until_peer_ack: true,
+        rejected_admission_blocks_provider: true,
+        verified_attachment_record_typed: true,
+        unverified_attachment_restart_quarantined: true,
+        stale_pending_restart_retry_succeeds: true,
+        real_wheel_idle_correction_quarantined: true,
+        real_wheel_idle_steer_quarantined: true,
+        real_wheel_busy_redirect_quarantined: true,
+        real_wheel_queued_correction_quarantined: true,
+        real_wheel_post_cancel_correction_quarantined: true,
+        busy_redirect_persistence_failure_blocked: true,
       });
       const attachmentHistoryHarness = spawnSync(
         'python3',
@@ -1247,6 +1317,7 @@ describe('Command EVE runtime bootstrap core', () => {
         exact_wheel_function_executed: true,
         baseline_loses_context: true,
         same_process_replay_preserved: true,
+        native_db_restart_rebuild_preserved: true,
         native_api_content_used: true,
         negative_controls_passed: true,
       });
@@ -1786,6 +1857,57 @@ describe('Command EVE runtime bootstrap core', () => {
     });
   });
 
+  it('fails closed without pip or installed-version bypass when the bundled Hermes wheel is missing', async () => {
+    const harness = makeHarness({ hermesInitiallyInstalled: '0.20.0' });
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+    fs.mkdirSync(path.join(paths.hermesVenv, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'python'), '#!/usr/bin/env bash\n');
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'hermes'), '#!/usr/bin/env bash\n');
+    const resourcesPath = path.join(harness.root, 'Resources');
+    fs.mkdirSync(resourcesPath, { recursive: true });
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      resourcesPath,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+    });
+
+    expect(receipt.status).toBe('failed');
+    expect(receipt.stages.find((stage) => stage.id === 'hermes')?.code).toBe('HERMES_BUNDLED_WHEEL_MISSING');
+    expect(harness.commands.some((command) => command.includes('pip install'))).toBe(false);
+    expect(harness.commands.some((command) => command.includes("version('hermes-agent')"))).toBe(false);
+  });
+
+  it('rejects a hash-mismatched bundled wheel before trusting an installed Hermes runtime', async () => {
+    const harness = makeHarness({ hermesInitiallyInstalled: '0.20.0' });
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+    fs.mkdirSync(path.join(paths.hermesVenv, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'python'), '#!/usr/bin/env bash\n');
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'hermes'), '#!/usr/bin/env bash\n');
+    const resourcesPath = path.join(harness.root, 'Resources');
+    const wheelPath = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
+    fs.mkdirSync(path.dirname(wheelPath), { recursive: true });
+    fs.writeFileSync(wheelPath, 'tampered wheel\n');
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      resourcesPath,
+      expectedHermesWheelSha256: '0'.repeat(64),
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+    });
+
+    expect(receipt.status).toBe('failed');
+    expect(receipt.stages.find((stage) => stage.id === 'hermes')?.code).toBe('HERMES_WHEEL_HASH_MISMATCH');
+    expect(harness.commands.some((command) => command.includes('pip install'))).toBe(false);
+    expect(harness.commands.some((command) => command.includes("version('hermes-agent')"))).toBe(false);
+  });
+
   itM('keeps the Hermes PATH shim usable when a later packaged artifact gate fails on cold install', async () => {
     const harness = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
     const resourcesPath = path.join(harness.root, 'Resources');
@@ -1912,12 +2034,18 @@ describe('Command EVE runtime bootstrap core', () => {
     fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'hermes'), '#!/usr/bin/env bash\n');
     fs.chmodSync(path.join(paths.hermesVenv, 'bin', 'python'), 0o755);
     fs.chmodSync(path.join(paths.hermesVenv, 'bin', 'hermes'), 0o755);
+    const resourcesPath = path.join(harness.root, 'Resources');
+    const wheelPath = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
+    fs.mkdirSync(path.dirname(wheelPath), { recursive: true });
+    fs.writeFileSync(wheelPath, 'upgrade Hermes wheel\n');
 
     await withOllamaServer(async (baseUrl) => {
       const manifestPath = writeManifest(harness.root, baseUrl);
       const receipt = await ensureCommandEveRuntimeBootstrap({
         userDataPath: harness.root,
         manifestPath,
+        resourcesPath,
+        expectedHermesWheelSha256: sha256FileIfPresent(wheelPath),
         runner: harness.runner,
         detachedSpawner: () => {},
         statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),

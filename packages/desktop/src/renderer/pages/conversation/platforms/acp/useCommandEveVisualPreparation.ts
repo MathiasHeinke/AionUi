@@ -19,11 +19,16 @@ import { getConversationRuntimeWorkspaceErrorMessage } from '@/renderer/pages/co
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import type { CommandEvePreparedContextInput } from '@/common/config/evePreparedContextCore';
 import type { AcpDocumentPreparationState } from './AcpDocumentPreparationStatus';
+import {
+  groundingExpectationFromImage,
+  type CommandEveAttachmentGroundingExpectation,
+} from '@/common/config/eveAttachmentGroundingCore';
 
 type SetPreparation = Dispatch<SetStateAction<AcpDocumentPreparationState | null>>;
 export type CommandEveVisualPreparationResult = {
   files: string[];
   contexts: CommandEvePreparedContextInput[];
+  attachmentGroundingEntries: CommandEveAttachmentGroundingExpectation[];
   requiresVisualPolicyReceipt: boolean;
 };
 
@@ -52,9 +57,11 @@ export function useCommandEveVisualPreparation(input: {
       files: string[],
       authority?: CommandEveVisualPreparationAuthority
     ): Promise<CommandEveVisualPreparationResult | null> => {
-      if (!input.isEveConversation) return { files, contexts: [], requiresVisualPolicyReceipt: false };
+      if (!input.isEveConversation)
+        return { files, contexts: [], attachmentGroundingEntries: [], requiresVisualPolicyReceipt: false };
       const presentationFiles = files.filter(isCommandEvePresentationPath);
-      if (presentationFiles.length === 0) return { files, contexts: [], requiresVisualPolicyReceipt: false };
+      if (presentationFiles.length === 0)
+        return { files, contexts: [], attachmentGroundingEntries: [], requiresVisualPolicyReceipt: false };
 
       const startedAt = Date.now();
       const startedPreviewFiles: string[] = [];
@@ -113,6 +120,7 @@ export function useCommandEveVisualPreparation(input: {
                 sourceName: document.source_name,
                 markdown: document.prompt_context,
               })),
+              attachmentGroundingEntries: [],
               requiresVisualPolicyReceipt: true,
             };
           }
@@ -131,6 +139,7 @@ export function useCommandEveVisualPreparation(input: {
             sourceName: document.source_name,
             markdown: document.prompt_context,
           })),
+          attachmentGroundingEntries: [],
           requiresVisualPolicyReceipt: false,
         };
       } catch (error) {
@@ -160,9 +169,11 @@ export function useCommandEveVisualPreparation(input: {
       files: string[],
       authority?: CommandEveVisualPreparationAuthority
     ): Promise<CommandEveVisualPreparationResult | null> => {
-      if (!input.isEveConversation) return { files, contexts: [], requiresVisualPolicyReceipt: false };
+      if (!input.isEveConversation)
+        return { files, contexts: [], attachmentGroundingEntries: [], requiresVisualPolicyReceipt: false };
       const imageFiles = files.filter(isCommandEveImagePath);
-      if (imageFiles.length === 0) return { files, contexts: [], requiresVisualPolicyReceipt: false };
+      if (imageFiles.length === 0)
+        return { files, contexts: [], attachmentGroundingEntries: [], requiresVisualPolicyReceipt: false };
 
       const startedAt = Date.now();
       input.setDocumentPreparation({ phase: 'reading_image_local', fileCount: imageFiles.length, startedAt });
@@ -189,6 +200,7 @@ export function useCommandEveVisualPreparation(input: {
                 sourceName: document.source_name,
                 markdown: document.prompt_context,
               })),
+              attachmentGroundingEntries: failure.documents.map(groundingExpectationFromImage),
               requiresVisualPolicyReceipt: true,
             };
           }
@@ -207,6 +219,7 @@ export function useCommandEveVisualPreparation(input: {
             sourceName: document.source_name,
             markdown: document.prompt_context,
           })),
+          attachmentGroundingEntries: response.data.documents.map(groundingExpectationFromImage),
           requiresVisualPolicyReceipt: false,
         };
       } catch (error) {

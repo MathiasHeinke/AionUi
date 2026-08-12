@@ -31,6 +31,7 @@ describe('project runtime renderer fallback', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     delete (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
     Reflect.deleteProperty(globalThis, 'window');
     Reflect.deleteProperty(globalThis, 'document');
@@ -75,6 +76,89 @@ describe('project runtime renderer fallback', () => {
     expect(url).toBe(`http://127.0.0.1:${backendPort}/api/conversations/conversation-1/warmup`);
     expect(init?.method).toBe('POST');
     expect(String(init?.body)).toBe('{"conversation_id":"conversation-1"}');
+  });
+
+  it('keeps readiness and grounded admission outside their authoritative server budgets', async () => {
+    vi.useFakeTimers();
+    const pending: Array<{ resolve: (response: Response) => void; signal: AbortSignal }> = [];
+    vi.mocked(fetch).mockImplementation((_url, init) => {
+      return new Promise<Response>((resolve) => {
+        pending.push({ resolve, signal: init?.signal as AbortSignal });
+      });
+    });
+
+    const warmup = conversation.warmup.invoke({ conversation_id: 'conversation-ready' });
+    expect(pending).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(pending[0].signal.aborted).toBe(false);
+    pending[0].resolve(new Response(null, { status: 204 }));
+    await expect(warmup).resolves.toBeUndefined();
+
+    const grounded = conversation.sendMessage.invoke({
+      conversation_id: 'conversation-grounded',
+      input: 'read the attachment',
+      files: ['/tmp/report.pdf', '/tmp/report.md'],
+      attachment_grounding: {
+        version: 'command-eve-attachment-grounding/v1',
+        entries: [],
+      },
+    });
+    expect(pending).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(90_001);
+    expect(pending[1].signal.aborted).toBe(false);
+    pending[1].resolve(jsonResponse({ msg_id: 'message-grounded', turn_id: 'turn-grounded', runtime: {} }));
+    await expect(grounded).resolves.toMatchObject({ turn_id: 'turn-grounded' });
+  });
+
+  it("adds a 30s renderer margin after Core's 90s grounded-admission budget", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementation((_url, init) => {
+      signal = init?.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      });
+    });
+
+    const grounded = conversation.sendMessage.invoke({
+      conversation_id: 'conversation-grounded-timeout',
+      input: 'read the attachment',
+      files: ['/tmp/report.pdf'],
+      attachment_grounding: {
+        version: 'command-eve-attachment-grounding/v1',
+        entries: [],
+      },
+    });
+    const groundedFailure = expect(grounded).rejects.toBeInstanceOf(BackendHttpError);
+
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signal?.aborted).toBe(true);
+    await groundedFailure;
+  });
+
+  it('keeps ordinary sends on the unchanged 15s loopback deadline', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementation((_url, init) => {
+      signal = init?.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      });
+    });
+
+    const ordinary = conversation.sendMessage.invoke({
+      conversation_id: 'conversation-ordinary-timeout',
+      input: 'hello',
+    });
+    const ordinaryFailure = expect(ordinary).rejects.toBeInstanceOf(BackendHttpError);
+
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signal?.aborted).toBe(true);
+    await ordinaryFailure;
   });
 
   it('falls back to Main only for the exact typed binding-required response', async () => {

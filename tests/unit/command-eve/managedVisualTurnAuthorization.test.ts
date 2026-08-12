@@ -273,6 +273,31 @@ describe('managed visual turn authorization', () => {
     ).toMatchObject({ status: 'authorized' });
   });
 
+  it('accepts a 438-message, roughly 185k-token-shaped prehistory when the latest marked turn is valid and under the body cap', () => {
+    const authorization = authorize();
+    if (!authorization.marker) throw new Error('expected marker');
+    // 437 older messages × 423 whitespace-delimited tokens is roughly 185k
+    // tokens. The marker contract intentionally hashes only the latest marked
+    // turn and its append-only tool chain, so unrelated history cannot turn a
+    // valid new image request into an authorization failure.
+    const olderMessages = Array.from({ length: 437 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: 'history '.repeat(423),
+    }));
+    const body = {
+      session_id: 'hermes-session-a',
+      messages: [
+        ...olderMessages,
+        { role: 'user', content: `${authorization.marker}\nAnalyze the image.` },
+      ],
+    };
+    expect(body.messages).toHaveLength(438);
+    expect(JSON.stringify(body).length).toBeLessThan(25_000_000);
+    expect(resolveCommandEveManagedVisualTurn(body, SEAT_A, REVISION_A, 2_000)).toMatchObject({
+      status: 'authorized',
+    });
+  });
+
   it('caps a single visual turn at sixteen unique provider requests', () => {
     const authorization = authorize();
     if (!authorization.marker) throw new Error('expected marker');
