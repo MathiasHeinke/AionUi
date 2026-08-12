@@ -81,6 +81,15 @@ const downgradeObservedLive = (conversationId?: string, preserveSessionBinding =
   if (changed) notify();
 };
 
+/**
+ * Revoke the conversation's renderer-only live-session authority. A following
+ * ACP Start may bind a replacement session; malformed starts leave it empty.
+ */
+export function revokeConversationDelegationActivitySession(conversationId: string): void {
+  if (!conversationId) return;
+  downgradeObservedLive(conversationId);
+}
+
 const acpSessionIdFromMessage = (message: TMessage): string | null => {
   if (message.type !== 'acp_tool_call') return null;
   const sessionId = message.content.session_id;

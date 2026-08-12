@@ -435,6 +435,7 @@ describe('useAcpMessage', () => {
         type: 'start',
         data: { session_id: 'session-a' },
         msg_id: 'start-session-a',
+        turn_id: 'turn-a',
         conversation_id: 'conv-1',
       });
       responseStreamHandlerRef.current?.({
@@ -463,12 +464,193 @@ describe('useAcpMessage', () => {
         type: 'start',
         data: { session_id: 'session-b' },
         msg_id: 'start-session-b',
+        turn_id: 'turn-b',
         conversation_id: 'conv-1',
       });
     });
 
     expect(result.current).toMatchObject([{ id: 'worker-a:0', observedLive: false }]);
     expect(getCurrentLiveDelegationObservation('conv-1', 'worker-a:0')).toBeNull();
+  });
+
+  it('revokes all prior authority on malformed starts before admitting a later valid start', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const emitSpy = vi.spyOn(emitter, 'emit');
+    const { result } = renderHook(() => {
+      useAcpMessage('conv-1');
+      return useConversationDelegationActivity('conv-1');
+    });
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-a' },
+        msg_id: 'start-session-a',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'worker-a',
+            status: 'in_progress',
+            title: 'delegate: Worker A',
+            kind: 'execute',
+            raw_input: { goal: 'Worker A' },
+          },
+        },
+        msg_id: 'worker-a-live',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      for (const data of [null, { session_id: ' ' }, { session_id: 7 }]) {
+        responseStreamHandlerRef.current?.({
+          type: 'start',
+          data,
+          msg_id: `invalid-start-${String(data)}`,
+          turn_id: 'turn-b',
+          conversation_id: 'conv-1',
+        });
+      }
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'old-a-preview',
+            status: 'completed',
+            kind: 'execute',
+            title: 'open_preview',
+            raw_input: { url: 'https://old-a.example', label: 'Old A' },
+          },
+        },
+        msg_id: 'old-a-preview',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'old-a-html',
+            status: 'in_progress',
+            kind: 'edit',
+            title: 'write: old-a.html',
+            locations: [{ path: 'old-a.html' }],
+          },
+        },
+        msg_id: 'old-a-html',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'old-a-image',
+            status: 'completed',
+            kind: 'execute',
+            title: 'image generation',
+            content: [{ type: 'content', content: { type: 'text', text: `img_h_${'a'.repeat(64)}` } }],
+          },
+        },
+        msg_id: 'old-a-image',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'old-a-typed-ui',
+            status: 'completed',
+            kind: 'execute',
+            title: 'mcp__aionui_eve_artifacts__eve_typed_ui_publish',
+            result_display: {
+              ok: true,
+              artifact_type: 'file',
+              mime_type: 'application/vnd.command-eve.typed-ui+json',
+            },
+          },
+        },
+        msg_id: 'old-a-typed-ui',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current).toMatchObject([{ id: 'worker-a:0', observedLive: false }]);
+    expect(getCurrentLiveDelegationObservation('conv-1', 'worker-a:0')).toBeNull();
+    expect(openPreviewMock).not.toHaveBeenCalled();
+    expect(launchPreviewMock).not.toHaveBeenCalled();
+    expect(imageArtifactBindInvokeMock).not.toHaveBeenCalled();
+    expect(emitSpy.mock.calls.filter(([event]) => event === 'commandEve.workbench.reveal')).toEqual([]);
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalledWith(expect.objectContaining({ msg_id: 'old-a-preview' }));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-c' },
+        msg_id: 'start-session-c',
+        turn_id: 'turn-c',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-c',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'worker-c',
+            status: 'in_progress',
+            title: 'delegate: Worker C',
+            kind: 'execute',
+            raw_input: { goal: 'Worker C' },
+          },
+        },
+        msg_id: 'worker-c-live',
+        turn_id: 'turn-c',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-c',
+          update: {
+            session_update: 'tool_call_update',
+            tool_call_id: 'worker-c-preview',
+            status: 'completed',
+            kind: 'execute',
+            title: 'open_preview',
+            raw_input: { url: 'https://session-c.example', label: 'Session C' },
+          },
+        },
+        msg_id: 'worker-c-preview',
+        turn_id: 'turn-c',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'worker-c:0', observedLive: true })])
+    );
+    expect(openPreviewMock).toHaveBeenCalledWith('https://session-c.example', 'url', {
+      title: 'Session C',
+      conversation_id: 'conv-1',
+    });
+    expect(addOrUpdateMessageMock).toHaveBeenCalledWith(expect.objectContaining({ msg_id: 'worker-c-preview' }));
+    emitSpy.mockRestore();
   });
 
   it('keeps session-info display-only and rejects a delayed tool frame from the prior session', async () => {
@@ -484,6 +666,7 @@ describe('useAcpMessage', () => {
         type: 'start',
         data: { session_id: 'session-a' },
         msg_id: 'start-session-a',
+        turn_id: 'turn-a',
         conversation_id: 'conv-1',
       });
       responseStreamHandlerRef.current?.({
@@ -526,6 +709,7 @@ describe('useAcpMessage', () => {
         type: 'start',
         data: { session_id: 'session-b' },
         msg_id: 'start-session-b',
+        turn_id: 'turn-b',
         conversation_id: 'conv-1',
       });
     });
@@ -570,6 +754,7 @@ describe('useAcpMessage', () => {
         type: 'start',
         data: { session_id: 'session-b' },
         msg_id: 'start-session-b',
+        turn_id: 'turn-b',
         conversation_id: 'conv-1',
       });
       responseStreamHandlerRef.current?.({
@@ -627,6 +812,7 @@ describe('useAcpMessage', () => {
         type: 'start',
         data: { session_id: 'session-b' },
         msg_id: 'start-session-b',
+        turn_id: 'turn-b',
         conversation_id: 'conv-1',
       });
       responseStreamHandlerRef.current?.({
@@ -702,6 +888,7 @@ describe('useAcpMessage', () => {
         type: 'start',
         data: { session_id: 'session-b' },
         msg_id: 'start-session-b',
+        turn_id: 'turn-b',
         conversation_id: 'conv-1',
       });
     });
@@ -1445,6 +1632,7 @@ describe('useAcpMessage', () => {
         type: 'start',
         data: { session_id: 'session-write' },
         msg_id: 'message-write-call-1',
+        turn_id: 'turn-write-recovery',
         conversation_id: 'conv-1',
       });
       localSendStarted('conv-1');
@@ -1517,6 +1705,7 @@ describe('useAcpMessage', () => {
         type: 'start',
         data: { session_id: 'session-write' },
         msg_id: 'message-write-call-1',
+        turn_id: 'turn-write-recovery',
         conversation_id: 'conv-1',
       });
       responseStreamHandlerRef.current?.(makeExternalWriteFailure());
@@ -1753,6 +1942,7 @@ describe('useAcpMessage', () => {
           type: 'start',
           data: { session_id: 'session-tools' },
           msg_id: 'start-session-tools',
+          turn_id: 'turn-tools',
           conversation_id: 'conv-1',
         });
         responseStreamHandlerRef.current?.({

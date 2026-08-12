@@ -45,6 +45,7 @@ import { getConversationRuntimeViewSnapshot } from '@/renderer/pages/conversatio
 import {
   bindConversationDelegationActivitySession,
   publishLiveConversationDelegationActivity,
+  revokeConversationDelegationActivitySession,
 } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
@@ -654,13 +655,17 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           {
             const startData = message.data as { session_id?: unknown; sessionId?: unknown } | null;
             const sessionId = startData?.session_id ?? startData?.sessionId;
+            const turnId = typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
+            // Every Start is an authority boundary. Revoke before inspecting its
+            // payload so malformed/replayed starts cannot retain a prior session.
+            acpSessionAuthorityGenerationRef.current += 1;
+            activeAcpSessionIdRef.current = undefined;
             activeAcpSessionTurnIdRef.current = undefined;
-            if (typeof sessionId === 'string' && sessionId.trim()) {
+            revokeConversationDelegationActivitySession(conversation_id);
+            if (typeof sessionId === 'string' && sessionId.trim() && turnId) {
               const normalizedSessionId = sessionId.trim();
-              acpSessionAuthorityGenerationRef.current += 1;
               activeAcpSessionIdRef.current = normalizedSessionId;
-              activeAcpSessionTurnIdRef.current =
-                typeof message.turn_id === 'string' && message.turn_id.trim() ? message.turn_id.trim() : undefined;
+              activeAcpSessionTurnIdRef.current = turnId;
               bindConversationDelegationActivitySession(conversation_id, normalizedSessionId);
             }
           }
