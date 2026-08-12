@@ -27,6 +27,7 @@ from types import SimpleNamespace
 WHEEL_PATH = Path(sys.argv[1]).resolve()
 SHIM_BASE_URL = sys.argv[2].rstrip("/") if len(sys.argv) > 2 else ""
 SHIM_AUTH_TOKEN = sys.argv[3] if len(sys.argv) > 3 else ""
+EXPECTED_HTTP_STATUS = int(sys.argv[4]) if len(sys.argv) > 4 else 422
 
 
 def reexec_with_bundled_runtime() -> None:
@@ -148,6 +149,7 @@ try:
     retry_probe_request = httpx.Request("POST", "http://127.0.0.1/v1/chat/completions")
     assert default_client._should_retry(httpx.Response(409, request=retry_probe_request)) is True
     assert default_client._should_retry(httpx.Response(422, request=retry_probe_request)) is False
+    assert default_client._should_retry(httpx.Response(500, request=retry_probe_request)) is True
 finally:
     default_client.close()
 
@@ -186,9 +188,9 @@ try:
             extra_body={"eve_operation": "user_chat_turn"},
         )
     except Exception as error:
-        assert getattr(error, "status_code", None) == 422
+        assert getattr(error, "status_code", None) == EXPECTED_HTTP_STATUS
     else:
-        raise AssertionError("422 refusal unexpectedly succeeded")
+        raise AssertionError("shim refusal unexpectedly succeeded")
 finally:
     if server is not None:
         server.shutdown()
@@ -203,8 +205,9 @@ print(
             "openai_sdk_version": openai.__version__,
             "sdk_default_retries_409": True,
             "sdk_default_retries_422": False,
+            "sdk_default_retries_500": True,
             "openai_sdk_max_retries": client.max_retries,
-            "http_status": 422,
+            "http_status": EXPECTED_HTTP_STATUS,
             "total_shim_http_attempts": RefusalHandler.attempts if server is not None else None,
             "target": "actual_loopback_shim" if SHIM_BASE_URL else "standalone_loopback",
             **outer_refusal_contract,

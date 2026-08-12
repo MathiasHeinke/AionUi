@@ -976,6 +976,50 @@ describe('Command EVE shim — EVE cloud routing', () => {
     }
   });
 
+  it('keeps an unexpected final managed-visual policy callback fault generic 500 without a stale receipt or egress', async () => {
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    const marker = commandEveManagedVisualTurnMarker('E'.repeat(43));
+    const receiptRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-managed-visual-policy-error-'));
+    const receiptPath = path.join(receiptRoot, 'last-egress-boundary-receipt.json');
+
+    try {
+      shimServerUrl = await startCommandEveOllamaOpenAiShim({
+        port: 0,
+        ollamaBaseUrl,
+        egressReceiptPath: receiptPath,
+        eveRouting: () => ({
+          active: true,
+          functionUrl: fnUrl,
+          license: FAKE_LICENSE,
+          tier: 'high',
+          authorizeManagedVisualEgress: async () => {
+            throw new Error('policy callback secret must remain private');
+          },
+        }),
+      });
+
+      const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: SHIM_JSON_HEADERS,
+        body: JSON.stringify({
+          eve_operation: 'user_chat_turn',
+          model: 'custom:command-eve-gemma4-e4b-64k:latest',
+          messages: [{ role: 'user', content: `${marker}\nAnalyze the selected image.` }],
+          stream: false,
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toEqual({ error: { message: 'Command EVE shim internal error.' } });
+      expect(fnSeen.attempts ?? 0).toBe(0);
+      expect(fs.existsSync(path.join(receiptRoot, 'last-managed-visual-authorization-failure.json'))).toBe(false);
+    } finally {
+      fs.rmSync(receiptRoot, { recursive: true, force: true });
+    }
+  });
+
   it('routes an EVE-tier chat to the eve-inference function with bearer + tier, not to Ollama', async () => {
     let ollamaSeen = false;
     const ollamaBaseUrl = await startFakeOpenAiServer(() => {
@@ -1101,6 +1145,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       openai_sdk_version: '2.24.0',
       sdk_default_retries_409: true,
       sdk_default_retries_422: false,
+      sdk_default_retries_500: true,
       openai_sdk_max_retries: 0,
       http_status: 422,
       target: 'actual_loopback_shim',
@@ -1145,6 +1190,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       openai_sdk_version: '2.24.0',
       sdk_default_retries_409: true,
       sdk_default_retries_422: false,
+      sdk_default_retries_500: true,
       openai_sdk_max_retries: 0,
       http_status: 422,
       target: 'actual_loopback_shim',
@@ -1154,6 +1200,60 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(shimRequests).toBe(1);
     expect(finalPolicyChecks).toBe(1);
     expect(fnSeen.attempts ?? 0).toBe(0);
+  });
+
+  it('gives the exact Hermes 0.20/OpenAI client one actual-shim attempt for an unexpected final policy callback fault', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    const receiptRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-managed-visual-policy-client-error-'));
+    const receiptPath = path.join(receiptRoot, 'last-egress-boundary-receipt.json');
+    let shimRequests = 0;
+    let finalPolicyChecks = 0;
+
+    try {
+      shimServerUrl = await startCommandEveOllamaOpenAiShim({
+        port: 0,
+        ollamaBaseUrl: 'http://127.0.0.1:1',
+        egressReceiptPath: receiptPath,
+        eveRouting: () => {
+          shimRequests += 1;
+          return {
+            active: true,
+            functionUrl: fnUrl,
+            license: FAKE_LICENSE,
+            tier: 'high',
+            authorizeManagedVisualEgress: async () => {
+              finalPolicyChecks += 1;
+              throw new Error('policy callback secret must remain private');
+            },
+          };
+        },
+      });
+
+      const result = await runManagedVisualRefusalHarness([
+        path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        `${shimServerUrl}/v1`,
+        SHIM_AUTH_TOKEN,
+        '500',
+      ]);
+      expect(result.exitCode, result.stderr || result.stdout).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        exact_wheel_primary_client_factory_executed: true,
+        openai_sdk_version: '2.24.0',
+        sdk_default_retries_500: true,
+        openai_sdk_max_retries: 0,
+        http_status: 500,
+        target: 'actual_loopback_shim',
+      });
+      // The SDK itself would retry a 500 by default, so this asserts the exact
+      // bundled Hermes client factory's `max_retries: 0` contract at the shim.
+      expect(shimRequests).toBe(1);
+      expect(finalPolicyChecks).toBe(1);
+      expect(fnSeen.attempts ?? 0).toBe(0);
+      expect(fs.existsSync(path.join(receiptRoot, 'last-managed-visual-authorization-failure.json'))).toBe(false);
+    } finally {
+      fs.rmSync(receiptRoot, { recursive: true, force: true });
+    }
   });
 
   it('strips native image_url parts before the EVE cloud lane sees them', async () => {

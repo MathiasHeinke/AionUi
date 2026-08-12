@@ -1702,18 +1702,22 @@ async function handleEveCloudCompletions(
   };
 
   if (route.authorizeManagedVisualEgress) {
-    let authorized = false;
-    try {
-      authorized = await route.authorizeManagedVisualEgress();
-    } catch {
-      authorized = false;
-    }
-    if (!authorized) {
+    // A boolean `false` is the deliberate final policy revocation. Do not
+    // collapse callback faults into that deterministic claim: unknown faults
+    // must reach the generic redacted 500 boundary and must not mint a stale
+    // policy receipt.
+    const authorized = await route.authorizeManagedVisualEgress();
+    if (authorized === false) {
       // A consumed marker remains subject to final Main-owned policy
       // revalidation. This is a deterministic managed-visual refusal, not a
       // conflict: the shared 422 boundary prevents OpenAI 2.24 retries and
       // keeps the exact local cause receipt-only.
       throw new CommandEveManagedVisualAuthorizationError('POLICY_STALE');
+    }
+    if (authorized !== true) {
+      // The typed callback promises a boolean. A malformed runtime value is
+      // an implementation fault, never a claim that the seat policy is stale.
+      throw new Error('Managed visual policy callback returned a non-boolean result.');
     }
   }
 

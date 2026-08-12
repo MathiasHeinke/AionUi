@@ -1238,6 +1238,7 @@ describe('Command EVE runtime bootstrap core', () => {
         openai_sdk_version: '2.24.0',
         sdk_default_retries_409: true,
         sdk_default_retries_422: false,
+        sdk_default_retries_500: true,
         openai_sdk_max_retries: 0,
         http_status: 422,
         total_shim_http_attempts: 1,
