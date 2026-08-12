@@ -62,7 +62,10 @@ vi.mock('@/renderer/pages/conversation/Messages/components/MessageGeneratedArtif
   default: generatedArtifactMock,
 }));
 
-function typedPublishTool(status: IMessageToolGroup['content'][number]['status']): IMessageToolGroup {
+function typedPublishTool(
+  status: IMessageToolGroup['content'][number]['status'],
+  resultDisplayOverrides: Record<string, unknown> = {}
+): IMessageToolGroup {
   return {
     id: 'tool-group-typed-ui',
     msg_id: 'message-typed-ui',
@@ -84,13 +87,17 @@ function typedPublishTool(status: IMessageToolGroup['content'][number]['status']
           schema_version: 'command-eve.typed-ui/v2',
           catalog_version: 'command-eve.typed-ui.catalog/v2',
           content: '{"schema_version":"command-eve.typed-ui/v2"}',
+          ...resultDisplayOverrides,
         },
       },
     ],
   };
 }
 
-function imageGenerationTool(status: IMessageToolGroup['content'][number]['status']): IMessageToolGroup {
+function imageGenerationTool(
+  status: IMessageToolGroup['content'][number]['status'],
+  resultDisplayOverrides: Record<string, unknown> = {}
+): IMessageToolGroup {
   return {
     id: 'tool-group-image',
     msg_id: 'message-image',
@@ -108,6 +115,7 @@ function imageGenerationTool(status: IMessageToolGroup['content'][number]['statu
         result_display: {
           img_url: 'data:image/png;base64,AAECAw==',
           relative_path: 'candidate.png',
+          ...resultDisplayOverrides,
         },
       },
     ],
@@ -134,6 +142,33 @@ describe('Typed UI tool publication', () => {
     expect(generatedArtifactMock).toHaveBeenCalled();
   });
 
+  it('keeps a contradictory Success publish with an error marker as ordinary tool data', () => {
+    render(<MessageToolGroup message={typedPublishTool('Success', { error: 'Provider rejected the artifact.' })} />);
+
+    expect(screen.getByText(/"error": "Provider rejected the artifact\."/)).toBeInTheDocument();
+    expect(screen.queryByText('generated-artifact-stub')).toBeNull();
+    expect(generatedArtifactMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps a contradictory Success publish with a failed receipt as ordinary tool data', () => {
+    render(<MessageToolGroup message={typedPublishTool('Success', { receipt: { status: 'failed' } })} />);
+
+    expect(screen.getByText(/"status": "failed"/)).toBeInTheDocument();
+    expect(screen.queryByText('generated-artifact-stub')).toBeNull();
+    expect(generatedArtifactMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['blocked', 'unverified'] as const)(
+    'keeps a contradictory Success publish with a %s receipt as ordinary tool data',
+    (receiptStatus) => {
+      render(<MessageToolGroup message={typedPublishTool('Success', { receipt: { status: receiptStatus } })} />);
+
+      expect(screen.getByText(new RegExp(`"status": "${receiptStatus}"`))).toBeInTheDocument();
+      expect(screen.queryByText('generated-artifact-stub')).toBeNull();
+      expect(generatedArtifactMock).not.toHaveBeenCalled();
+    }
+  );
+
   it.each(['Executing', 'Pending', 'Error', 'Canceled'] as const)(
     'keeps legacy ImageGeneration output as ordinary tool data while %s',
     (status) => {
@@ -146,6 +181,21 @@ describe('Typed UI tool publication', () => {
       expect(generatedArtifactMock).not.toHaveBeenCalled();
     }
   );
+
+  it.each([
+    ['error marker', { error: 'Provider rejected the image.' }],
+    ['failed receipt', { receipt: { status: 'failed' } }],
+    ['blocked receipt', { receipt: { status: 'blocked' } }],
+    ['unverified receipt', { receipt: { status: 'unverified' } }],
+  ])('keeps legacy ImageGeneration Success with a %s as ordinary tool data', (_label, contradiction) => {
+    render(<MessageToolGroup message={imageGenerationTool('Success', contradiction)} />);
+
+    expect(screen.getByText(/ImageGeneration/)).toBeInTheDocument();
+    expect(screen.getByText(/data:image\/png;base64,AAECAw==/)).toBeInTheDocument();
+    expect(screen.queryByTestId('legacy-image-preview')).toBeNull();
+    expect(screen.queryByText('generated-artifact-stub')).toBeNull();
+    expect(generatedArtifactMock).not.toHaveBeenCalled();
+  });
 
   it('materializes legacy ImageGeneration output only after terminal Success', () => {
     render(<MessageToolGroup message={imageGenerationTool('Success')} />);

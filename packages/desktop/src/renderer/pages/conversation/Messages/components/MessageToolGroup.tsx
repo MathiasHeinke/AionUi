@@ -22,7 +22,12 @@ import MarkdownView from '@renderer/components/Markdown';
 import { ToolConfirmationOutcome } from '@renderer/utils/common';
 import { ImagePreviewContext } from '../MessageList';
 import { COLLAPSE_CONFIG, TEXT_CONFIG } from '../constants';
-import { buildGeneratedArtifactFromToolResult, type ImageGenerationResult, type WriteFileResult } from '../types';
+import {
+  buildGeneratedArtifactFromToolResult,
+  hasToolResultGeneratedArtifact,
+  type ImageGenerationResult,
+  type WriteFileResult,
+} from '../types';
 import MessageGeneratedArtifact from './MessageGeneratedArtifact';
 
 const CODE_STYLE = { marginTop: 4, marginBottom: 4 };
@@ -440,7 +445,12 @@ const ToolResultDisplay: React.FC<{
   const { result_display, name, status } = content;
 
   // 图片生成特殊处理 Special handling for image generation
-  if (status === 'Success' && name === 'ImageGeneration' && typeof result_display === 'object') {
+  if (
+    status === 'Success' &&
+    name === 'ImageGeneration' &&
+    typeof result_display === 'object' &&
+    hasToolResultGeneratedArtifact(result_display)
+  ) {
     const result = result_display as ImageGenerationResult;
     // 如果有 img_url 才显示图片，否则显示错误信息
     if (result.img_url) {
@@ -547,27 +557,35 @@ const MessageToolGroup: React.FC<IMessageToolGroupProps> = ({ message }) => {
 
         // A generated artifact is a terminal projection, never a partial tool
         // result. In particular, a valid-looking Typed UI envelope may arrive
-        // while the MCP call is still executing; it must stay in the inert
-        // tool-result fallback until the durable tool status is Success.
+        // while the MCP call is still executing, or carry an error/unverified
+        // receipt despite a contradictory Success status; it must stay in the
+        // inert tool-result fallback in either case.
         if (status === 'Success' && name !== 'WriteFile') {
           const normalizedResultDisplay = normalizeGeneratedToolResult(name, description, result_display);
-          const generatedArtifact = buildGeneratedArtifactFromToolResult({
-            conversation_id: message.conversation_id,
-            call_id,
-            source_message_id: message.msg_id || message.id,
-            created_at: message.created_at,
-            name,
-            description,
-            result_display: normalizedResultDisplay,
-          });
-          if (generatedArtifact) {
-            return <MessageGeneratedArtifact key={call_id} artifact={generatedArtifact} />;
+          if (hasToolResultGeneratedArtifact(normalizedResultDisplay)) {
+            const generatedArtifact = buildGeneratedArtifactFromToolResult({
+              conversation_id: message.conversation_id,
+              call_id,
+              source_message_id: message.msg_id || message.id,
+              created_at: message.created_at,
+              name,
+              description,
+              result_display: normalizedResultDisplay,
+            });
+            if (generatedArtifact) {
+              return <MessageGeneratedArtifact key={call_id} artifact={generatedArtifact} />;
+            }
           }
         }
 
         // Legacy fallback for pre-contract ImageGeneration payloads that only
         // expose img_url. Contract-shaped successes/failures render above.
-        if (status === 'Success' && name === 'ImageGeneration' && typeof result_display === 'object') {
+        if (
+          status === 'Success' &&
+          name === 'ImageGeneration' &&
+          typeof result_display === 'object' &&
+          hasToolResultGeneratedArtifact(result_display)
+        ) {
           const result = result_display as ImageGenerationResult;
           if (result.img_url) {
             return <ImageDisplay key={call_id} imgUrl={result.img_url} relativePath={result.relative_path} />;

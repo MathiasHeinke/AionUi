@@ -51,6 +51,16 @@ const REQUEST_ID_KEYS = ['request_id', 'requestId'];
 const RECEIPT_KEYS = ['receipt', 'safety_receipt', 'data_boundary_receipt', 'egress_receipt'];
 const RECEIPT_PATH_KEYS = ['receipt_path', 'receiptPath'];
 const SOURCE_KEYS = [...URL_KEYS, ...PATH_KEYS, ...RELATIVE_PATH_KEYS, ...ARTIFACT_ID_KEYS, ...REQUEST_ID_KEYS];
+const SUCCESSFUL_ARTIFACT_RECEIPT_STATUSES = new Set([
+  'success',
+  'succeeded',
+  'done',
+  'completed',
+  'verified',
+  'pass',
+  'passed',
+  'local-only-pass',
+]);
 const SECRET_OR_RAW_RECEIPT_KEY =
   /^(?:authorization|bearer|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|data[_-]?base64|base64|prompt|text|content|html|src|url|.*[_-]url|.*uri)$/i;
 const SECRET_OR_RAW_RECEIPT_VALUE =
@@ -127,11 +137,30 @@ function inferGeneratedArtifactType(payload: Record<string, unknown>): IGenerate
   return inferTypeFromMimeOrSource(payload);
 }
 
-function hasFailureReceipt(payload: Record<string, unknown>): boolean {
-  if (readString(payload, ['error'])) return true;
-  const receipt = readRecord(payload, RECEIPT_KEYS);
-  const status = receipt ? readString(receipt, ['status'])?.toLowerCase() : undefined;
-  return status === 'failed' || status === 'blocked';
+function hasArtifactErrorOrUnverifiedReceipt(payload: Record<string, unknown>): boolean {
+  if (Object.prototype.hasOwnProperty.call(payload, 'error')) return true;
+  if (
+    payload.ok === false ||
+    payload.success === false ||
+    payload.failed === true ||
+    payload.blocked === true ||
+    Object.prototype.hasOwnProperty.call(payload, 'failure')
+  ) {
+    return true;
+  }
+
+  // A result may carry more than one receipt type. Every present receipt must
+  // affirm the terminal result; accepting the first one would let a completed
+  // receipt conceal a blocked or unverified companion receipt.
+  for (const key of RECEIPT_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+    const receipt = payload[key];
+    if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) return true;
+    const status = readString(receipt as Record<string, unknown>, ['status'])?.toLowerCase();
+    if (!status || !SUCCESSFUL_ARTIFACT_RECEIPT_STATUSES.has(status)) return true;
+  }
+
+  return false;
 }
 
 function dedupeStrings(values: Array<string | undefined>): string[] {
@@ -211,7 +240,7 @@ export function hasToolResultGeneratedArtifact(resultDisplay: ToolResultDisplay)
   if (!payload) return false;
   const type = inferGeneratedArtifactType(payload);
   if (!type) return false;
-  if (hasFailureReceipt(payload)) return true;
+  if (hasArtifactErrorOrUnverifiedReceipt(payload)) return false;
   const hasSource = getGeneratedArtifactPreviewSourceKeys(payload).length > 0;
   if (type === 'image' || type === 'video' || type === 'audio') return hasSource;
   if (type === 'html') return hasSource || Boolean(readString(payload, ['html', 'content']));

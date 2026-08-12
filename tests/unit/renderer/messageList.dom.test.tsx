@@ -16,6 +16,7 @@ import { parseHermesMediaDirectives } from '@/renderer/pages/conversation/Messag
 import {
   buildGeneratedArtifactFromToolResult,
   getToolResultArtifactSourceKeys,
+  hasToolResultGeneratedArtifact,
 } from '@/renderer/pages/conversation/Messages/types';
 
 const artifactMock = vi.hoisted(() => ({
@@ -1038,6 +1039,7 @@ describe('MessageList', () => {
       receipt_path: '/tmp/eve-receipts/tts-request-1.json',
       receipt: {
         provider_response_id: 'xai-audio-response',
+        status: 'done',
         data_base64: 'AAECAw==',
         download_url: 'https://private.example.com/raw-audio.mp3',
         preview: 'data:audio/mpeg;base64,AAECAw==',
@@ -1081,6 +1083,7 @@ describe('MessageList', () => {
       receipt_path: '/tmp/eve-receipts/tts-request-1.json',
       receipt: {
         provider_response_id: 'xai-audio-response',
+        status: 'done',
         residency: {
           requestedPrivacyLane: 'cloud_us',
           effectiveResidency: 'us_cloud',
@@ -1099,6 +1102,35 @@ describe('MessageList', () => {
     expect(JSON.stringify(artifact?.payload)).not.toContain('data:audio');
     expect(JSON.stringify(artifact?.payload)).not.toContain('Bearer CEVE');
     expect(JSON.stringify(artifact?.payload)).not.toContain('private prompt text');
+  });
+
+  it.each([
+    ['error marker', { error: 'Provider rejected the artifact.' }],
+    ['empty error marker', { error: '' }],
+    ['failed boolean marker', { failed: true }],
+    ['blocked boolean marker', { blocked: true }],
+    ['negative ok marker', { ok: false }],
+    ['failed receipt', { receipt: { status: 'failed' } }],
+    ['blocked receipt', { receipt: { status: 'blocked' } }],
+    ['unverified receipt', { receipt: { status: 'unverified' } }],
+  ])('does not classify a contradictory result with a %s as a generated artifact', (_label, contradiction) => {
+    const resultDisplay = {
+      artifact_type: 'image',
+      url: 'https://cdn.example.com/candidate.png',
+      mime_type: 'image/png',
+      ...contradiction,
+    };
+
+    expect(hasToolResultGeneratedArtifact(resultDisplay)).toBe(false);
+    expect(
+      buildGeneratedArtifactFromToolResult({
+        conversation_id: 'conversation-1',
+        call_id: 'call-contradictory-artifact',
+        created_at: 10,
+        name: 'ImageGeneration',
+        result_display: resultDisplay,
+      })
+    ).toBeUndefined();
   });
 
   it('does not treat arbitrary JSON tool output as a generated artifact', () => {
