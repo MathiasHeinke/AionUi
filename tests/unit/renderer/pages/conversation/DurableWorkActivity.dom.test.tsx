@@ -18,6 +18,11 @@ import {
   installDurableWorkActivityAdapter,
   type DurableWorkActivityAdapterV1,
 } from '@/renderer/pages/conversation/runtime/durableWorkActivityAdapter';
+import {
+  publishLiveConversationDelegationActivity,
+  resetConversationDelegationActivityForTest,
+} from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
+import type { IMessageAcpToolCall } from '@/common/chat/chatLib';
 
 vi.mock('@arco-design/web-react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@arco-design/web-react')>();
@@ -104,9 +109,44 @@ const installSnapshot = (items: DurableWorkItemV1[], revision = 12) => {
   uninstall = installDurableWorkActivityAdapter(adapter);
 };
 
+const publishLiveDelegation = (
+  toolCallId: string,
+  delegationId: string,
+  goal: string,
+  sessionId = 'session-1'
+): void => {
+  publishLiveConversationDelegationActivity('conv-1', {
+    id: `${toolCallId}-message`,
+    type: 'acp_tool_call',
+    conversation_id: 'conv-1',
+    created_at: 1_000,
+    content: {
+      session_id: sessionId,
+      update: {
+        sessionUpdate: 'tool_call',
+        tool_call_id: toolCallId,
+        status: 'in_progress',
+        title: `delegate: ${goal}`,
+        kind: 'execute',
+        rawInput: { goal },
+        content: [
+          {
+            type: 'content',
+            content: {
+              type: 'text',
+              text: JSON.stringify({ delegation_id: delegationId, status: 'dispatched', mode: 'background' }),
+            },
+          },
+        ],
+      },
+    },
+  } as IMessageAcpToolCall);
+};
+
 describe('DurableWorkActivity', () => {
   beforeEach(() => {
     actionRequests = [];
+    resetConversationDelegationActivityForTest();
   });
 
   afterEach(() => {
@@ -205,6 +245,7 @@ describe('DurableWorkActivity', () => {
 
   it('merges a delegation receipt with its chat metadata into one authoritative worker row', () => {
     installSnapshot([workItem('hermes:execution:delegation-1', 'stalled')]);
+    act(() => publishLiveDelegation('tool-delegation-1', 'delegation-1', 'Chat-derived release audit'));
 
     render(
       <DurableWorkActivity
@@ -220,6 +261,7 @@ describe('DurableWorkActivity', () => {
             taskIndex: 0,
             taskCount: 1,
             createdAt: 1_000,
+            observedLive: true,
           },
         ]}
       />
@@ -233,6 +275,40 @@ describe('DurableWorkActivity', () => {
 
   it('folds a multi-task fan-out into its single receipt-authoritative batch row', () => {
     installSnapshot([workItem('hermes:execution:delegation-batch', 'stalled')]);
+    act(() => {
+      publishLiveConversationDelegationActivity('conv-1', {
+        id: 'tool-batch-message',
+        type: 'acp_tool_call',
+        conversation_id: 'conv-1',
+        created_at: 1_000,
+        content: {
+          session_id: 'session-1',
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: 'tool-batch',
+            status: 'in_progress',
+            title: 'delegate: Audit the UI',
+            kind: 'execute',
+            rawInput: {
+              tasks: [
+                { goal: 'Audit the UI', role: 'reviewer-a' },
+                { goal: 'Audit the core', role: 'reviewer-b' },
+                { goal: 'Audit reconnect', role: 'reviewer-a' },
+              ],
+            },
+            content: [
+              {
+                type: 'content',
+                content: {
+                  type: 'text',
+                  text: JSON.stringify({ delegation_id: 'delegation-batch', status: 'dispatched', mode: 'background' }),
+                },
+              },
+            ],
+          },
+        },
+      } as IMessageAcpToolCall);
+    });
 
     render(
       <DurableWorkActivity
@@ -287,6 +363,39 @@ describe('DurableWorkActivity', () => {
     expect(screen.getByText('conversation.durableWork.status.stalled')).toBeTruthy();
     expect(screen.queryByText('conversation.durableWork.status.running')).toBeNull();
     expect(screen.queryByText('Goal hermes:execution:delegation-batch')).toBeNull();
+  });
+
+  it('does not fold observed legacy metadata into a receipt from a rotated ACP session', () => {
+    const receipt = workItem('hermes:execution:delegation-rotation', 'stalled');
+    receipt.origin = { ...receipt.origin, sessionId: 'session-b' };
+    installSnapshot([receipt]);
+    act(() => publishLiveDelegation('tool-rotation', 'delegation-rotation', 'Worker from session A', 'session-a'));
+
+    render(
+      <DurableWorkActivity
+        conversationId='conv-1'
+        legacyTasks={[
+          {
+            id: 'tool-rotation:0',
+            toolCallId: 'tool-rotation',
+            delegationId: 'delegation-rotation',
+            goal: 'Worker from session A',
+            agentId: 'reviewer',
+            status: 'in_progress',
+            taskIndex: 0,
+            taskCount: 1,
+            createdAt: 1_000,
+            observedLive: true,
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByText('Goal hermes:execution:delegation-rotation')).toBeTruthy();
+    expect(screen.queryByText('Worker from session A')).toBeNull();
+    expect(screen.getByText('conversation.durableWork.status.stalled')).toBeTruthy();
+    expect(screen.queryByText('conversation.durableWork.status.running')).toBeNull();
   });
 
   it('opens the selected worker in the existing workbench callback', () => {

@@ -24,6 +24,13 @@ import {
 import { useConversationArtifactsById } from '@/renderer/pages/conversation/Messages/artifacts';
 import { registerPreviewPageReader } from '@/renderer/pages/conversation/Preview/services/previewReader';
 import { registerConversationTerminalReader } from '@/renderer/pages/conversation/Preview/services/terminalReader';
+import {
+  getCurrentLiveDelegationObservation,
+  publishLiveConversationDelegationActivity,
+  resetConversationDelegationActivityForTest,
+  useConversationDelegationActivity,
+} from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
+import type { IMessageAcpToolCall } from '@/common/chat/chatLib';
 
 const {
   addOrUpdateMessageMock,
@@ -328,6 +335,7 @@ describe('useAcpMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetConversationRuntimeViewStoreForTest();
+    resetConversationDelegationActivityForTest();
     responseStreamHandlerRef.current = undefined;
     confirmMessageInvokeMock.mockResolvedValue(undefined);
     respondReadPreviewInvokeMock.mockResolvedValue({ accepted: true });
@@ -398,6 +406,51 @@ describe('useAcpMessage', () => {
 
     expect(responseStreamOnMock).toHaveBeenCalledTimes(1);
     expect(addOrUpdateMessageMock).toHaveBeenCalled();
+  });
+
+  it('downgrades a prior observed worker immediately when ACP start binds a new session', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => {
+      useAcpMessage('conv-1');
+      return useConversationDelegationActivity('conv-1');
+    });
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    const workerA = {
+      id: 'worker-a-message',
+      type: 'acp_tool_call',
+      conversation_id: 'conv-1',
+      created_at: 1_000,
+      content: {
+        session_id: 'session-a',
+        update: {
+          sessionUpdate: 'tool_call',
+          tool_call_id: 'worker-a',
+          status: 'in_progress',
+          title: 'delegate: Worker A',
+          kind: 'execute',
+          rawInput: { goal: 'Worker A' },
+        },
+      },
+    } as IMessageAcpToolCall;
+
+    act(() => {
+      publishLiveConversationDelegationActivity('conv-1', workerA);
+    });
+    expect(result.current).toMatchObject([{ id: 'worker-a:0', observedLive: true }]);
+    expect(getCurrentLiveDelegationObservation('conv-1', 'worker-a:0')).toMatchObject({ acpSessionId: 'session-a' });
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-b' },
+        msg_id: 'start-session-b',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current).toMatchObject([{ id: 'worker-a:0', observedLive: false }]);
+    expect(getCurrentLiveDelegationObservation('conv-1', 'worker-a:0')).toBeNull();
   });
 
   it('routes only session-bound Hermes preview and native-pane events', async () => {

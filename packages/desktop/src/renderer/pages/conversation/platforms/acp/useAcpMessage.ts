@@ -42,7 +42,10 @@ import {
   ensureAcpGenerationTracking,
 } from '@renderer/services/commandEveGenerationActivity';
 import { getConversationRuntimeViewSnapshot } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
-import { publishLiveConversationDelegationActivity } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
+import {
+  bindConversationDelegationActivitySession,
+  publishLiveConversationDelegationActivity,
+} from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import {
@@ -625,7 +628,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             const startData = message.data as { session_id?: unknown; sessionId?: unknown } | null;
             const sessionId = startData?.session_id ?? startData?.sessionId;
             if (typeof sessionId === 'string' && sessionId.trim()) {
-              activeAcpSessionIdRef.current = sessionId.trim();
+              const normalizedSessionId = sessionId.trim();
+              activeAcpSessionIdRef.current = normalizedSessionId;
+              bindConversationDelegationActivitySession(conversation_id, normalizedSessionId);
             }
           }
           // New turn starting — clear the finished guard and content flag
@@ -1390,7 +1395,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           permissionBackendRef.current = res.extra.backend;
         }
         if (res.type === 'acp' && typeof res.extra?.acp_session_id === 'string' && res.extra.acp_session_id.trim()) {
-          activeAcpSessionIdRef.current = res.extra.acp_session_id.trim();
+          const normalizedSessionId = res.extra.acp_session_id.trim();
+          activeAcpSessionIdRef.current = normalizedSessionId;
+          bindConversationDelegationActivitySession(conversation_id, normalizedSessionId);
         }
         if (
           res.type === 'acp' &&

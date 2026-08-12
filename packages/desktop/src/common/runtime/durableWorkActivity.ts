@@ -31,7 +31,11 @@ export type DurableWorkStatus = (typeof DURABLE_WORK_STATUSES)[number];
 export type DurableWorkKind = 'goal' | 'supergoal' | 'gauntlet' | 'worker' | 'subagent' | 'cron';
 export type DurableWorkAction = 'pause' | 'resume' | 'retry' | 'cancel';
 export type DurableWorkAuthority =
-  'hermes_goal' | 'hermes_cron' | 'hermes_delegation' | 'aioncore_approval' | 'aioncore_cancel';
+  | 'hermes_goal'
+  | 'hermes_cron'
+  | 'hermes_delegation'
+  | 'aioncore_approval'
+  | 'aioncore_cancel';
 export type DurableWorkReceiptState = 'accepted' | 'already_applied' | 'retryable' | 'rejected' | 'explicit_unknown';
 
 export type DurableWorkActionCapabilityV1 = {
@@ -331,28 +335,48 @@ const legacyStatus = (task: DelegatedTaskProjection): DurableWorkStatus => {
   return 'reconnect_unavailable';
 };
 
-export function projectLegacyDelegation(task: DelegatedTaskProjection, conversationId: string): DurableWorkItemV1 {
-  const reason = task.observedLive ? 'worker_terminal_outcome_untyped' : 'historical_chat_is_not_a_live_receipt';
+export type LegacyDelegationObservationV1 = {
+  acpSessionId: string;
+};
+
+/**
+ * Legacy chat observations become live only when the renderer still holds the
+ * ACP session provenance for this exact observation epoch. They are never a
+ * substitute for a durable receipt or a terminal worker outcome.
+ */
+export function projectLegacyDelegation(
+  task: DelegatedTaskProjection,
+  conversationId: string,
+  observation: LegacyDelegationObservationV1 | null = null
+): DurableWorkItemV1 {
+  const observedLive =
+    task.observedLive === true && typeof observation?.acpSessionId === 'string' && observation.acpSessionId.length > 0;
+  const projectedTask = observedLive === task.observedLive ? task : { ...task, observedLive };
+  const reason = observedLive
+    ? 'worker_terminal_outcome_untyped'
+    : task.observedLive
+      ? 'live_observation_epoch_unavailable'
+      : 'historical_chat_is_not_a_live_receipt';
   const batchSuffix = task.taskCount > 1 ? `:${task.taskIndex}` : '';
   return {
     id: task.delegationId ? `hermes:execution:${task.delegationId}${batchSuffix}` : `legacy:${task.id}`,
     kind: task.taskCount > 1 ? 'subagent' : 'worker',
     origin: {
       conversationId,
-      sessionId: conversationId,
+      sessionId: observedLive ? observation.acpSessionId : `legacy-unbound:${conversationId}`,
     },
     engine: {
       name: 'hermes',
-      version: task.observedLive ? 'live-acp-tool-observation' : 'historical-message-metadata',
+      version: observedLive ? 'live-acp-tool-observation' : 'historical-message-metadata',
     },
     goal: task.goal,
     role: task.agentId || 'subagent',
-    status: legacyStatus(task),
-    statusReason: legacyStatus(task) === 'failed' ? undefined : reason,
+    status: legacyStatus(projectedTask),
+    statusReason: legacyStatus(projectedTask) === 'failed' ? undefined : reason,
     // Persisted chat timestamps are descriptive only. Runtime timing is shown
     // solely for updates observed during this renderer app epoch.
-    queuedAt: task.observedLive ? task.createdAt : undefined,
-    lastActivityAt: task.observedLive ? task.createdAt : undefined,
+    queuedAt: observedLive ? task.createdAt : undefined,
+    lastActivityAt: observedLive ? task.createdAt : undefined,
     gates: [],
     evidence: [],
     actions: {

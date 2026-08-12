@@ -15,6 +15,10 @@ import {
   type DurableWorkItemV1,
   type DurableWorkSnapshotV1,
 } from '@/common/runtime/durableWorkActivity';
+import {
+  getCurrentLiveDelegationObservation,
+  type CurrentLiveDelegationObservation,
+} from './conversationDelegationActivityStore';
 import { useMemo, useSyncExternalStore } from 'react';
 
 export type DurableWorkActivityAdapterV1 = {
@@ -103,16 +107,18 @@ export type DurableWorkActivityView = {
 };
 
 type ProjectedLegacyItem = {
-  item: DurableWorkItemV1;
+  fallbackItem: DurableWorkItemV1;
+  metadataItem: DurableWorkItemV1;
   receiptItemId: string;
+  observation: CurrentLiveDelegationObservation | null;
 };
 
 const foldLegacyMetadata = (entries: readonly ProjectedLegacyItem[]) => {
-  const first = entries[0].item;
-  const goals = Array.from(new Set(entries.map(({ item }) => item.goal)));
-  const roles = Array.from(new Set(entries.map(({ item }) => item.role)));
+  const first = entries[0].metadataItem;
+  const goals = Array.from(new Set(entries.map(({ metadataItem }) => metadataItem.goal)));
+  const roles = Array.from(new Set(entries.map(({ metadataItem }) => metadataItem.role)));
   const queuedAt = entries
-    .map(({ item }) => item.queuedAt)
+    .map(({ metadataItem }) => metadataItem.queuedAt)
     .filter((value): value is number => value !== undefined)
     .reduce<number | undefined>(
       (earliest, value) => (earliest === undefined ? value : Math.min(earliest, value)),
@@ -140,25 +146,28 @@ export function useDurableWorkActivity(
   return useMemo(() => {
     const projectedLegacy: ProjectedLegacyItem[] = conversationId
       ? legacyTasks.map((task) => {
-          const item = projectLegacyDelegation(task, conversationId);
+          const observation = getCurrentLiveDelegationObservation(conversationId, task.id);
+          const fallbackItem = projectLegacyDelegation(task, conversationId);
+          const metadataItem = projectLegacyDelegation(task, conversationId, observation);
           return {
-            item,
-            receiptItemId: task.delegationId ? `hermes:execution:${task.delegationId}` : item.id,
+            fallbackItem,
+            metadataItem,
+            observation,
+            receiptItemId: task.delegationId ? `hermes:execution:${task.delegationId}` : fallbackItem.id,
           };
         })
       : [];
-    const legacyItems = projectedLegacy.map(({ item }) => item);
+    const legacyItems = projectedLegacy.map(({ metadataItem }) => metadataItem);
     if (snapshot) {
       const legacyByReceiptId = new Map<string, ProjectedLegacyItem[]>();
       for (const entry of projectedLegacy) {
+        const receipt = snapshot.items.find((item) => item.id === entry.receiptItemId);
+        if (!receipt || receipt.origin.sessionId !== entry.observation?.acpSessionId) continue;
         const group = legacyByReceiptId.get(entry.receiptItemId) ?? [];
         group.push(entry);
         legacyByReceiptId.set(entry.receiptItemId, group);
       }
       const coreIds = new Set(snapshot.items.map((item) => item.id));
-      const receiptBoundLegacyIds = new Set(
-        projectedLegacy.filter(({ receiptItemId }) => coreIds.has(receiptItemId)).map(({ item }) => item.id)
-      );
       return {
         connected: true,
         revision: snapshot.revision,
@@ -176,7 +185,9 @@ export function useDurableWorkActivity(
                 }
               : item;
           }),
-          ...legacyItems.filter((item) => !coreIds.has(item.id) && !receiptBoundLegacyIds.has(item.id)),
+          ...projectedLegacy
+            .filter(({ receiptItemId }) => !coreIds.has(receiptItemId))
+            .map(({ fallbackItem }) => fallbackItem),
         ],
       };
     }

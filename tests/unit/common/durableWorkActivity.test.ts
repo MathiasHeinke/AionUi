@@ -158,13 +158,36 @@ describe('durable work activity contract', () => {
           backgroundDispatched,
           observedLive: true,
         },
-        'conv-1'
+        'conv-1',
+        { acpSessionId: 'session-live-1' }
       );
 
       expect(projected.status).toBe(expected);
       expect(projected.status).not.toBe('succeeded');
       expect(projected.queuedAt).toBe(2_000);
       expect(projected.lastActivityAt).toBe(2_000);
+      expect(projected.origin.sessionId).toBe('session-live-1');
     }
   );
+
+  it('downgrades an observed legacy row without current ACP session provenance', () => {
+    const projected = projectLegacyDelegation(
+      {
+        id: 'live-without-session',
+        toolCallId: 'tool-live-without-session',
+        goal: 'Do not retain this after a reconnect',
+        status: 'in_progress',
+        taskIndex: 0,
+        taskCount: 1,
+        createdAt: 2_000,
+        observedLive: true,
+      },
+      'conv-1'
+    );
+
+    expect(projected.status).toBe('reconnect_unavailable');
+    expect(projected.statusReason).toBe('live_observation_epoch_unavailable');
+    expect(projected.origin.sessionId).toBe('legacy-unbound:conv-1');
+    expect(projected.actions.cancel.available).toBe(false);
+  });
 });
