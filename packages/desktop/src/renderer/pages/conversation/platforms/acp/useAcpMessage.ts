@@ -582,7 +582,17 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       }
 
       const transformedMessage = transformMessage(message);
-      if (transformedMessage) {
+      const liveToolSessionId =
+        message.type === 'acp_tool_call' && message.data && typeof message.data === 'object'
+          ? (message.data as { session_id?: unknown }).session_id
+          : undefined;
+      if (
+        transformedMessage &&
+        message.type === 'acp_tool_call' &&
+        typeof liveToolSessionId === 'string' &&
+        liveToolSessionId.trim() &&
+        liveToolSessionId.trim() === activeAcpSessionIdRef.current
+      ) {
         publishLiveConversationDelegationActivity(conversation_id, transformedMessage);
       }
       switch (message.type) {

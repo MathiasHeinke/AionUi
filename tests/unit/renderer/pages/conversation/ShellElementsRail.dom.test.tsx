@@ -111,6 +111,7 @@ vi.mock('@/renderer/pages/conversation/Preview', () => ({
 import ShellElementsRail from '@/renderer/components/layout/Titlebar/ShellElementsRail';
 import { stageConversationArtifact } from '@/renderer/pages/conversation/Messages/artifacts';
 import {
+  bindConversationDelegationActivitySession,
   publishConversationDelegationActivity,
   publishLiveConversationDelegationActivity,
   resetConversationDelegationActivityForTest,
@@ -163,6 +164,11 @@ const liveDelegationMessage = (sessionId: string, toolCallId: string, goal: stri
       },
     },
   }) as IMessageAcpToolCall;
+
+const publishBoundLiveDelegation = (conversationId: string, message: IMessageAcpToolCall): void => {
+  bindConversationDelegationActivitySession(conversationId, message.content.session_id);
+  publishLiveConversationDelegationActivity(conversationId, message);
+};
 
 describe('ShellElementsRail', () => {
   beforeEach(() => {
@@ -251,10 +257,7 @@ describe('ShellElementsRail', () => {
 
   it('projects a renderer-observed live delegation as running without reading that state from chat history', () => {
     act(() => {
-      publishLiveConversationDelegationActivity(
-        'conv-1',
-        liveDelegationMessage('session-a', 'tc-live', 'Observe the live worker')
-      );
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a', 'tc-live', 'Observe the live worker'));
     });
 
     render(<ShellElementsRail conversationId='conv-1' />);
@@ -267,14 +270,14 @@ describe('ShellElementsRail', () => {
 
   it('invalidates observed worker A on reconnect before admitting a new ACP session B', () => {
     act(() => {
-      publishLiveConversationDelegationActivity('conv-1', liveDelegationMessage('session-a', 'tc-a', 'Worker A'));
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a', 'tc-a', 'Worker A'));
     });
     render(<ShellElementsRail conversationId='conv-1' />);
     expect(screen.getByText('conversation.durableWork.status.running')).toBeTruthy();
 
     act(() => {
       realtimeConnectedHandlers.forEach((handler) => handler({ reconnected: true }));
-      publishLiveConversationDelegationActivity('conv-1', liveDelegationMessage('session-b', 'tc-b', 'Worker B'));
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-b', 'tc-b', 'Worker B'));
     });
 
     expect(screen.getAllByText('Worker A')).toHaveLength(2);
@@ -285,7 +288,7 @@ describe('ShellElementsRail', () => {
 
   it('downgrades observed workers on seat rotation instead of retaining a live state', () => {
     act(() => {
-      publishLiveConversationDelegationActivity('conv-1', liveDelegationMessage('session-a', 'tc-seat', 'Seat worker'));
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a', 'tc-seat', 'Seat worker'));
     });
     render(<ShellElementsRail conversationId='conv-1' />);
     expect(screen.getByText('conversation.durableWork.status.running')).toBeTruthy();
@@ -300,15 +303,12 @@ describe('ShellElementsRail', () => {
 
   it('keeps another conversation live across a conversation-scoped ACP session rotation', () => {
     act(() => {
-      publishLiveConversationDelegationActivity('conv-1', liveDelegationMessage('session-a', 'tc-a', 'Worker A'));
-      publishLiveConversationDelegationActivity('conv-2', {
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a', 'tc-a', 'Worker A'));
+      publishBoundLiveDelegation('conv-2', {
         ...liveDelegationMessage('session-b', 'tc-b', 'Worker B'),
         conversation_id: 'conv-2',
       } as IMessageAcpToolCall);
-      publishLiveConversationDelegationActivity(
-        'conv-1',
-        liveDelegationMessage('session-a-rotated', 'tc-a2', 'Worker A2')
-      );
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a-rotated', 'tc-a2', 'Worker A2'));
     });
 
     render(<ShellElementsRail conversationId='conv-2' />);
@@ -319,11 +319,8 @@ describe('ShellElementsRail', () => {
 
   it('downgrades every observed worker on global reconnect and seat rebind', () => {
     act(() => {
-      publishLiveConversationDelegationActivity(
-        'conv-1',
-        liveDelegationMessage('session-a', 'tc-global-a', 'Worker A')
-      );
-      publishLiveConversationDelegationActivity('conv-2', {
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a', 'tc-global-a', 'Worker A'));
+      publishBoundLiveDelegation('conv-2', {
         ...liveDelegationMessage('session-b', 'tc-global-b', 'Worker B'),
         conversation_id: 'conv-2',
       } as IMessageAcpToolCall);
@@ -336,11 +333,8 @@ describe('ShellElementsRail', () => {
     expect(screen.getByText('conversation.durableWork.status.reconnect_unavailable')).toBeTruthy();
 
     act(() => {
-      publishLiveConversationDelegationActivity(
-        'conv-1',
-        liveDelegationMessage('session-a2', 'tc-seat-a', 'Worker A2')
-      );
-      publishLiveConversationDelegationActivity('conv-2', {
+      publishBoundLiveDelegation('conv-1', liveDelegationMessage('session-a2', 'tc-seat-a', 'Worker A2'));
+      publishBoundLiveDelegation('conv-2', {
         ...liveDelegationMessage('session-b2', 'tc-seat-b', 'Worker B2'),
         conversation_id: 'conv-2',
       } as IMessageAcpToolCall);

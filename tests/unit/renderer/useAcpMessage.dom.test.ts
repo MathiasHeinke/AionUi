@@ -26,11 +26,9 @@ import { registerPreviewPageReader } from '@/renderer/pages/conversation/Preview
 import { registerConversationTerminalReader } from '@/renderer/pages/conversation/Preview/services/terminalReader';
 import {
   getCurrentLiveDelegationObservation,
-  publishLiveConversationDelegationActivity,
   resetConversationDelegationActivityForTest,
   useConversationDelegationActivity,
 } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
-import type { IMessageAcpToolCall } from '@/common/chat/chatLib';
 
 const {
   addOrUpdateMessageMock,
@@ -47,6 +45,7 @@ const {
   reportStageWorkspaceInvokeMock,
   openPreviewMock,
   previewContextState,
+  realtimeConnectedHandlers,
 } = vi.hoisted(() => ({
   addOrUpdateMessageMock: vi.fn(),
   responseStreamOnMock: vi.fn(),
@@ -61,6 +60,7 @@ const {
   conversationStopInvokeMock: vi.fn(),
   reportStageWorkspaceInvokeMock: vi.fn(),
   openPreviewMock: vi.fn(),
+  realtimeConnectedHandlers: new Set<(event: { reconnected?: boolean }) => void>(),
   previewContextState: {
     activeTabId: 'browser-tab' as string | null,
     isOpen: true,
@@ -169,6 +169,12 @@ vi.mock('@/common', () => ({
       },
       artifactStream: {
         on: vi.fn(() => () => {}),
+      },
+      realtimeConnected: {
+        on: (handler: (event: { reconnected?: boolean }) => void) => {
+          realtimeConnectedHandlers.add(handler);
+          return () => realtimeConnectedHandlers.delete(handler);
+        },
       },
     },
     commandEve: {
@@ -416,26 +422,30 @@ describe('useAcpMessage', () => {
     });
     await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
 
-    const workerA = {
-      id: 'worker-a-message',
-      type: 'acp_tool_call',
-      conversation_id: 'conv-1',
-      created_at: 1_000,
-      content: {
-        session_id: 'session-a',
-        update: {
-          sessionUpdate: 'tool_call',
-          tool_call_id: 'worker-a',
-          status: 'in_progress',
-          title: 'delegate: Worker A',
-          kind: 'execute',
-          rawInput: { goal: 'Worker A' },
-        },
-      },
-    } as IMessageAcpToolCall;
-
     act(() => {
-      publishLiveConversationDelegationActivity('conv-1', workerA);
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-a' },
+        msg_id: 'start-session-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: 'worker-a',
+            status: 'in_progress',
+            title: 'delegate: Worker A',
+            kind: 'execute',
+            rawInput: { goal: 'Worker A' },
+          },
+        },
+        msg_id: 'worker-a-message',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
     });
     expect(result.current).toMatchObject([{ id: 'worker-a:0', observedLive: true }]);
     expect(getCurrentLiveDelegationObservation('conv-1', 'worker-a:0')).toMatchObject({ acpSessionId: 'session-a' });
@@ -451,6 +461,217 @@ describe('useAcpMessage', () => {
 
     expect(result.current).toMatchObject([{ id: 'worker-a:0', observedLive: false }]);
     expect(getCurrentLiveDelegationObservation('conv-1', 'worker-a:0')).toBeNull();
+  });
+
+  it('keeps session-info display-only and rejects a delayed tool frame from the prior session', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => {
+      useAcpMessage('conv-1');
+      return useConversationDelegationActivity('conv-1');
+    });
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-a' },
+        msg_id: 'start-session-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: 'worker-a',
+            status: 'in_progress',
+            title: 'delegate: Worker A',
+            kind: 'execute',
+            rawInput: { goal: 'Worker A' },
+          },
+        },
+        msg_id: 'worker-a-message',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+    });
+    expect(result.current).toMatchObject([{ id: 'worker-a:0', observedLive: true }]);
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'acp_session_info',
+        data: {
+          session_id: 'session-a',
+          title: null,
+          updated_at: null,
+          _meta: {},
+        },
+        msg_id: 'session-info-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-b' },
+        msg_id: 'start-session-b',
+        conversation_id: 'conv-1',
+      });
+    });
+    expect(result.current).toMatchObject([{ id: 'worker-a:0', observedLive: false }]);
+    expect(getCurrentLiveDelegationObservation('conv-1', 'worker-a:0')).toBeNull();
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: 'worker-a-replay',
+            status: 'in_progress',
+            title: 'delegate: Worker A replay',
+            kind: 'execute',
+            rawInput: { goal: 'Worker A replay' },
+          },
+        },
+        msg_id: 'worker-a-replay-message',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current).toMatchObject([{ id: 'worker-a:0', observedLive: false }]);
+    expect(result.current.find(({ id }) => id === 'worker-a-replay:0')).toBeUndefined();
+    expect(getCurrentLiveDelegationObservation('conv-1', 'worker-a:0')).toBeNull();
+  });
+
+  it('retains the already-bound session after reconnect and drops an old-session tool replay', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => {
+      useAcpMessage('conv-1');
+      return useConversationDelegationActivity('conv-1');
+    });
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-b' },
+        msg_id: 'start-session-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-b',
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: 'worker-b',
+            status: 'in_progress',
+            title: 'delegate: Worker B',
+            kind: 'execute',
+            rawInput: { goal: 'Worker B' },
+          },
+        },
+        msg_id: 'worker-b-message',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      realtimeConnectedHandlers.forEach((handler) => handler({ reconnected: true }));
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: 'worker-a-replay',
+            status: 'in_progress',
+            title: 'delegate: Worker A replay',
+            kind: 'execute',
+            rawInput: { goal: 'Worker A replay' },
+          },
+        },
+        msg_id: 'worker-a-replay-after-reconnect',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current).toMatchObject([{ id: 'worker-b:0', observedLive: false }]);
+    expect(result.current.find(({ id }) => id === 'worker-a-replay:0')).toBeUndefined();
+    expect(getCurrentLiveDelegationObservation('conv-1', 'worker-b:0')).toBeNull();
+  });
+
+  it('does not let a delayed session-info frame replace a newer start-bound session', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => {
+      useAcpMessage('conv-1');
+      return useConversationDelegationActivity('conv-1');
+    });
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-b' },
+        msg_id: 'start-session-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_session_info',
+        data: {
+          session_id: 'session-a',
+          title: null,
+          updated_at: null,
+          _meta: {},
+        },
+        msg_id: 'delayed-session-info-a',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-a',
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: 'worker-a-replay',
+            status: 'in_progress',
+            title: 'delegate: Worker A replay',
+            kind: 'execute',
+            rawInput: { goal: 'Worker A replay' },
+          },
+        },
+        msg_id: 'worker-a-replay-after-session-info',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_tool_call',
+        data: {
+          session_id: 'session-b',
+          update: {
+            sessionUpdate: 'tool_call',
+            tool_call_id: 'worker-b',
+            status: 'in_progress',
+            title: 'delegate: Worker B',
+            kind: 'execute',
+            rawInput: { goal: 'Worker B' },
+          },
+        },
+        msg_id: 'worker-b-message',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current.find(({ id }) => id === 'worker-a-replay:0')).toBeUndefined();
+    expect(result.current).toMatchObject([{ id: 'worker-b:0', observedLive: true }]);
+    expect(getCurrentLiveDelegationObservation('conv-1', 'worker-b:0')).toMatchObject({ acpSessionId: 'session-b' });
   });
 
   it('routes only session-bound Hermes preview and native-pane events', async () => {

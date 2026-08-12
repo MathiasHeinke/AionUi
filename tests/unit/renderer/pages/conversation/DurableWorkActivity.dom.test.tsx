@@ -19,6 +19,7 @@ import {
   type DurableWorkActivityAdapterV1,
 } from '@/renderer/pages/conversation/runtime/durableWorkActivityAdapter';
 import {
+  bindConversationDelegationActivitySession,
   publishLiveConversationDelegationActivity,
   resetConversationDelegationActivityForTest,
 } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
@@ -115,6 +116,7 @@ const publishLiveDelegation = (
   goal: string,
   sessionId = 'session-1'
 ): void => {
+  bindConversationDelegationActivitySession('conv-1', sessionId);
   publishLiveConversationDelegationActivity('conv-1', {
     id: `${toolCallId}-message`,
     type: 'acp_tool_call',
@@ -276,6 +278,7 @@ describe('DurableWorkActivity', () => {
   it('folds a multi-task fan-out into its single receipt-authoritative batch row', () => {
     installSnapshot([workItem('hermes:execution:delegation-batch', 'stalled')]);
     act(() => {
+      bindConversationDelegationActivitySession('conv-1', 'session-1');
       publishLiveConversationDelegationActivity('conv-1', {
         id: 'tool-batch-message',
         type: 'acp_tool_call',

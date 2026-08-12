@@ -62,7 +62,7 @@ const sortAndLimit = (items: Iterable<DelegatedTaskProjection>): readonly Delega
 
 const notify = (): void => listeners.forEach((listener) => listener());
 
-const downgradeObservedLive = (conversationId?: string): void => {
+const downgradeObservedLive = (conversationId?: string, preserveSessionBinding = false): void => {
   const conversationIds = conversationId
     ? [conversationId]
     : Array.from(new Set([...snapshots.keys(), ...liveSnapshots.keys(), ...liveSessionByConversation.keys()]));
@@ -71,7 +71,7 @@ const downgradeObservedLive = (conversationId?: string): void => {
   for (const id of conversationIds) {
     advanceLiveEpoch(id);
     liveSnapshots.delete(id);
-    liveSessionByConversation.delete(id);
+    if (!preserveSessionBinding) liveSessionByConversation.delete(id);
     const previous = snapshots.get(id) ?? EMPTY_ACTIVITY;
     const next = sortAndLimit(previous.map((task) => (task.observedLive ? { ...task, observedLive: false } : task)));
     if (sameActivity(previous, next)) continue;
@@ -138,23 +138,17 @@ export function publishConversationDelegationActivity(conversationId: string, me
 }
 
 /**
- * Record only renderer-observed ACP updates for this session/epoch. A reconnect,
- * ACP session rotation or seat rebind invalidates the observation before any
- * later chat/history projection can reuse it.
+ * Record only renderer-observed ACP updates for the session already bound by
+ * an authoritative start/session-load path. Tool frames can never rotate that
+ * binding: delayed/replayed frames are dropped rather than revived as live.
  */
 export function publishLiveConversationDelegationActivity(conversationId: string, message: TMessage): void {
   if (!conversationId || message.conversation_id !== conversationId) return;
   const tasks = projectDelegatedTasksFromMessage(message);
   if (tasks.length === 0) return;
   const acpSessionId = acpSessionIdFromMessage(message);
-  if (!acpSessionId) {
-    downgradeObservedLive(conversationId);
-    return;
-  }
-
-  const previousSessionId = liveSessionByConversation.get(conversationId);
-  const sessionRotated = previousSessionId !== undefined && previousSessionId !== acpSessionId;
-  bindConversationDelegationActivitySession(conversationId, acpSessionId);
+  const boundSessionId = liveSessionByConversation.get(conversationId);
+  if (!acpSessionId || !boundSessionId || acpSessionId !== boundSessionId) return;
 
   const live = liveSnapshots.get(conversationId) ?? new Map<string, LiveDelegationObservation>();
   for (const task of tasks) {
@@ -171,7 +165,7 @@ export function publishLiveConversationDelegationActivity(conversationId: string
     if (epoch === liveEpochForConversation(conversationId)) byTaskId.set(task.id, task);
   }
   const next = sortAndLimit(byTaskId.values());
-  if (!sessionRotated && sameActivity(snapshots.get(conversationId) ?? EMPTY_ACTIVITY, next)) return;
+  if (sameActivity(snapshots.get(conversationId) ?? EMPTY_ACTIVITY, next)) return;
   snapshots.set(conversationId, next);
   notify();
 }
@@ -210,6 +204,9 @@ export function resetConversationDelegationActivityForTest(): void {
 }
 
 ipcBridge.conversation.realtimeConnected?.on(({ reconnected }) => {
-  if (reconnected) downgradeObservedLive();
+  // A socket reconnect ends renderer observation, not the last positively
+  // bound ACP session. Keeping that binding rejects old-session replays while
+  // allowing the same session to establish a fresh observed update.
+  if (reconnected) downgradeObservedLive(undefined, true);
 });
 configService.onSeatRebind?.(() => downgradeObservedLive());
