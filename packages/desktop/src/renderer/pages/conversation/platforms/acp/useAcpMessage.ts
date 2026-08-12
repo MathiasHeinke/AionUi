@@ -267,6 +267,10 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   const acceptedTurnIdRef = useRef<string | null>(getConversationRuntimeViewSnapshot(conversation_id).activeTurnId);
   const completedTurnSequenceRef = useRef(0);
   const completedTurnIdsRef = useRef<Set<string>>(new Set());
+  // A durable idle recovery can arrive before the ACP terminal frame. Keep its
+  // identity separately: its late `finish` may still provide the completion
+  // receipt/TTS boundary, but no other volatile frame may mutate a newer turn.
+  const recoveredTurnIdsRef = useRef<Set<string>>(new Set());
 
   // 1.820.3 — staged image handles (`img_h_…`) seen in THIS turn's tool call
   // outputs, keyed by tool call id. Collected as the `acp_tool_call` messages
@@ -496,6 +500,17 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
 
       const runtimeViewAtMessage = getConversationRuntimeViewSnapshot(conversation_id);
       const runtimeActiveTurnId = runtimeViewAtMessage.activeTurnId;
+      const messageTurnId = typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
+      if (
+        messageTurnId &&
+        message.type !== 'finish' &&
+        (completedTurnIdsRef.current.has(messageTurnId) || recoveredTurnIdsRef.current.has(messageTurnId))
+      ) {
+        // Runtime recovery has already established that this turn is terminal.
+        // Do not let a queued `text`, tool, error, or `start` frame from it
+        // reseed the accepted ID or leak content into the next local submit.
+        return;
+      }
       if (runtimeViewAtMessage.localSubmitting && !runtimeActiveTurnId) {
         acceptedTurnIdRef.current = null;
       }
@@ -703,6 +718,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
               break;
             }
             completedTurnIdsRef.current.add(completedTurnId);
+            recoveredTurnIdsRef.current.delete(completedTurnId);
             if (completedTurnIdsRef.current.size > 64) {
               const oldest = completedTurnIdsRef.current.values().next().value;
               if (oldest) completedTurnIdsRef.current.delete(oldest);
@@ -1393,6 +1409,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     hasContentInTurnRef.current = false;
     turnFinishedRef.current = false;
     acceptedTurnIdRef.current = getConversationRuntimeViewSnapshot(conversation_id).activeTurnId;
+    recoveredTurnIdsRef.current.clear();
     hasThinkingMessageRef.current = false;
     activeThinkingRef.current = null;
     lastBackendEventAtRef.current = undefined;
@@ -1576,6 +1593,13 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           runtimeView.activeTurnId !== event.recoveredTurnId)
       ) {
         return;
+      }
+      if (event.recoveredTurnId) {
+        recoveredTurnIdsRef.current.add(event.recoveredTurnId);
+        if (recoveredTurnIdsRef.current.size > 64) {
+          const oldest = recoveredTurnIdsRef.current.values().next().value;
+          if (oldest) recoveredTurnIdsRef.current.delete(oldest);
+        }
       }
       // Durable runtime truth repairs the UI when the terminal stream frame was
       // missed. This clears both the composer state and the seat-switch guard.

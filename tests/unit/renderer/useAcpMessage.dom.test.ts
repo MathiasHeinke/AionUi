@@ -557,6 +557,13 @@ describe('useAcpMessage', () => {
         conversation_id: 'conv-1',
       });
       responseStreamHandlerRef.current?.({
+        type: 'text',
+        data: 'late text from turn A',
+        msg_id: 'late-text-a',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
         type: 'finish',
         data: null,
         msg_id: 'late-finish-a',
@@ -567,6 +574,7 @@ describe('useAcpMessage', () => {
 
     expect(result.current.running).toBe(true);
     expect(result.current.lastCompletedTurn).toBeNull();
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalled();
 
     act(() => {
       localSendAccepted('conv-1', 'turn-b', {
