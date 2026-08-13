@@ -91,6 +91,19 @@ describe('commandEveGenerationActivity — the seat-switch guard signal (1.7.3)'
     expect(isAnyGenerating()).toBe(false);
   });
 
+  it.each(['error', 'disconnected'] as const)('clears the seat-switch guard when agent_status reports %s', (status) => {
+    applyAcpStreamActivity({ type: 'start', conversation_id: 'conv-status', turn_id: 'turn-status' });
+    expect(isAnyGenerating()).toBe(true);
+
+    applyAcpStreamActivity({
+      type: 'agent_status',
+      conversation_id: 'conv-status',
+      turn_id: 'turn-status',
+      data: { status },
+    });
+    expect(isAnyGenerating()).toBe(false);
+  });
+
   it('stays true while ANY conversation is generating (multiple in flight)', () => {
     applyAcpStreamActivity({ type: 'start', conversation_id: 'a' });
     markConversationGenerating('b');

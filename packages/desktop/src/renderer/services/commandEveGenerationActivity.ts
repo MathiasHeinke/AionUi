@@ -35,17 +35,16 @@
  */
 
 import { ipcBridge } from '@/common';
-import { shouldApplyConversationStreamTurn } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import {
+  classifyConversationStreamTerminal,
+  shouldApplyConversationStreamTurn,
+} from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 
 const generatingConversations = new Set<string>();
 
 // Stream message types that mean "a turn is actively in flight for this
 // conversation". `thinking` is handled specially (a done block is not activity).
 const ACTIVITY_TYPES = new Set(['start', 'request_trace', 'thought', 'text', 'content', 'acp_permission']);
-// Terminal types that end a turn — the ONLY way a conversation leaves the set via
-// the stream, so a finished turn never leaves a stuck flag.
-const TERMINAL_TYPES = new Set(['finish', 'error']);
-
 /** True while ANY conversation is streaming a turn (a seat switch would interrupt it). */
 export function isAnyGenerating(): boolean {
   return generatingConversations.size > 0;
@@ -81,20 +80,21 @@ export function applyAcpStreamActivity(
   const conversationId = message?.conversation_id;
   const type = message?.type;
   if (!conversationId || typeof conversationId !== 'string' || !type) return;
+  const terminalType = classifyConversationStreamTerminal(message);
 
   if (
     !shouldApplyConversationStreamTurn({
       conversation_id: conversationId,
       consumer: 'generation_activity',
-      terminal: TERMINAL_TYPES.has(type),
+      terminal: terminalType !== null,
       turn_id: message?.turn_id,
-      type,
+      type: terminalType ?? type,
     })
   ) {
     return;
   }
 
-  if (TERMINAL_TYPES.has(type)) {
+  if (terminalType) {
     generatingConversations.delete(conversationId);
     return;
   }

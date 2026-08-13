@@ -212,6 +212,7 @@ describe('conversation sidebar continuity', () => {
     vi.clearAllMocks();
     resetConversationRuntimeRecoveryMonitorsForTest();
     resetConversationRuntimeViewStoreForTest();
+    resetConversationListSyncForTest();
     harness.responseHandlers.clear();
     harness.turnCompletedHandlers.clear();
     harness.listChangedHandlers.clear();
@@ -740,6 +741,72 @@ describe('conversation sidebar continuity', () => {
     runtimeHook.unmount();
     listHook.unmount();
   });
+
+  it.each([true, false] as const)(
+    'rejects late old-seat terminals through both listeners after same-id rebind (generation first: %s)',
+    async (generationFirst) => {
+      const sharedId = 'conversation-same-id';
+      const oldTurnId = 'turn-seat-a';
+      harness.rowsBySeat.set('seat-a', [conversation(sharedId, runtime())]);
+      harness.rowsBySeat.set('seat-b', [conversation(sharedId, runtime())]);
+
+      if (generationFirst) {
+        harness.responseHandlers.add(generationActivityResponseHandler);
+      }
+      const listHook = renderHook(() => useConversationListSync());
+      await act(flushPromises);
+      if (!generationFirst) {
+        harness.responseHandlers.add(generationActivityResponseHandler);
+      }
+      const responseHandlers = [...harness.responseHandlers];
+      expect(responseHandlers).toHaveLength(2);
+
+      act(() => {
+        responseHandlers.forEach((handler) =>
+          handler(responseMessage({ type: 'start', conversation_id: sharedId, turn_id: oldTurnId }))
+        );
+      });
+      expect(isAnyGenerating()).toBe(true);
+      expect(listHook.result.current.isConversationGenerating(sharedId)).toBe(true);
+
+      await act(async () => {
+        harness.setCurrentSeatId('seat-b');
+        harness.seatRebindHandlers.forEach((handler) => handler('seat-b'));
+        await flushPromises();
+      });
+      expect(listHook.result.current.conversations.map(({ id }) => id)).toEqual([sharedId]);
+      expect(listHook.result.current.isConversationGenerating(sharedId)).toBe(false);
+      expect(listHook.result.current.hasConversationError(sharedId)).toBe(false);
+      harness.updateConversation.mockClear();
+
+      const lateOldSeatTerminals = [
+        responseMessage({ type: 'error', conversation_id: sharedId, turn_id: oldTurnId }),
+        responseMessage({
+          type: 'agent_status',
+          conversation_id: sharedId,
+          turn_id: oldTurnId,
+          data: { status: 'error' },
+        }),
+        responseMessage({
+          type: 'agent_status',
+          conversation_id: sharedId,
+          turn_id: undefined,
+          data: { status: 'disconnected' },
+        }),
+      ];
+      await act(async () => {
+        lateOldSeatTerminals.forEach((terminal) => responseHandlers.forEach((handler) => handler(terminal)));
+        await flushPromises();
+      });
+
+      expect(isAnyGenerating()).toBe(false);
+      expect(listHook.result.current.isConversationGenerating(sharedId)).toBe(false);
+      expect(listHook.result.current.hasConversationError(sharedId)).toBe(false);
+      expect(harness.updateConversation).not.toHaveBeenCalled();
+
+      listHook.unmount();
+    }
+  );
 });
 
 describe('conversation sidebar working phases (1.820.5)', () => {
@@ -1001,6 +1068,80 @@ describe('voice error terminal production listener integration', () => {
       await act(async () => {
         responseHandlers.forEach((handler) => handler(start));
         responseHandlers.forEach((handler) => handler(error));
+        await flushPromises();
+      });
+      generationGuardStates.push(isAnyGenerating());
+      expect(listHook.result.current.isConversationGenerating('conversation-voice-error')).toBe(false);
+      expect(listHook.result.current.hasConversationError('conversation-voice-error')).toBe(true);
+      expect(countErrorWrites()).toBe(1);
+      expect(generationGuardStates).toEqual([true, false, false]);
+
+      listHook.unmount();
+    }
+  );
+
+  it.each([
+    ['error', 'generation activity first', true],
+    ['error', 'conversation list first', false],
+    ['disconnected', 'generation activity first', true],
+    ['disconnected', 'conversation list first', false],
+  ] as const)(
+    'delivers start then agent_status:%s exactly once through both production listeners with %s',
+    async (status, _label, generationFirst) => {
+      if (generationFirst) {
+        harness.responseHandlers.add(generationActivityResponseHandler);
+      }
+
+      const listHook = renderHook(() => useConversationListSync());
+      await act(flushPromises);
+
+      if (!generationFirst) {
+        harness.responseHandlers.add(generationActivityResponseHandler);
+      }
+
+      const responseHandlers = [...harness.responseHandlers];
+      expect(responseHandlers).toHaveLength(2);
+      expect(responseHandlers[0] === generationActivityResponseHandler).toBe(generationFirst);
+
+      const start = responseMessage({
+        type: 'start',
+        conversation_id: 'conversation-voice-error',
+        turn_id: 'turn-voice-status',
+      });
+      const terminal = responseMessage({
+        type: 'agent_status',
+        conversation_id: 'conversation-voice-error',
+        turn_id: 'turn-voice-status',
+        data: { status },
+      });
+
+      act(() => {
+        responseHandlers.forEach((handler) => handler(start));
+      });
+      const generationGuardStates = [isAnyGenerating()];
+      expect(listHook.result.current.isConversationGenerating('conversation-voice-error')).toBe(true);
+
+      await act(async () => {
+        responseHandlers.forEach((handler) => handler(terminal));
+        await flushPromises();
+      });
+      generationGuardStates.push(isAnyGenerating());
+      expect(listHook.result.current.isConversationGenerating('conversation-voice-error')).toBe(false);
+      expect(listHook.result.current.hasConversationError('conversation-voice-error')).toBe(true);
+
+      const countErrorWrites = () =>
+        harness.updateConversation.mock.calls.filter(([{ updates }]) => {
+          const receipt = (updates.extra as Record<string, unknown> | undefined)?.command_eve_sidebar_status as
+            | { state?: string }
+            | undefined;
+          return receipt?.state === 'error';
+        }).length;
+
+      expect(countErrorWrites()).toBe(1);
+
+      await act(async () => {
+        responseHandlers.forEach((handler) => handler(start));
+        responseHandlers.forEach((handler) => handler(terminal));
         await flushPromises();
       });
       generationGuardStates.push(isAnyGenerating());

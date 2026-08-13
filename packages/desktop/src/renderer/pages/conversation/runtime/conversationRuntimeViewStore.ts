@@ -59,12 +59,15 @@ type ConversationRuntimeMetadata = {
   activeStreamTurnId: string | null;
   recoveredTerminalStreamTurnId: string | null;
   streamTerminalReceipt: ConversationStreamTerminalReceipt | null;
+  streamSeatEpoch: number | null;
 };
 
 const listeners = new Set<ConversationRuntimeViewListener>();
 const runtimeViews = new Map<string, ConversationRuntimeView>();
 const fallbackSnapshots = new Map<string, ConversationRuntimeView>();
 const runtimeMetadata = new Map<string, ConversationRuntimeMetadata>();
+let streamSeatEpoch = 0;
+let requirePositiveStreamIdentity = false;
 
 const createRuntimeMetadata = (): ConversationRuntimeMetadata => ({
   pendingLocalSendSeq: null,
@@ -73,6 +76,7 @@ const createRuntimeMetadata = (): ConversationRuntimeMetadata => ({
   activeStreamTurnId: null,
   recoveredTerminalStreamTurnId: null,
   streamTerminalReceipt: null,
+  streamSeatEpoch: requirePositiveStreamIdentity ? null : streamSeatEpoch,
 });
 
 const getRuntimeMetadata = (conversation_id: string): ConversationRuntimeMetadata => {
@@ -165,6 +169,26 @@ const isStaleCompletedRuntimeSummary = (
 const normalizeStreamTurnId = (turn_id: unknown): string | null =>
   typeof turn_id === 'string' && turn_id.trim() ? turn_id.trim() : null;
 
+export type ConversationStreamTerminalType = 'finish' | 'error';
+
+/**
+ * Canonical terminal classifier for every renderer-global response-stream
+ * consumer. ACP may close a turn with a direct finish/error frame or with an
+ * agent-status failure. Map both failure shapes to the same `error` identity so
+ * the per-consumer terminal receipt can admit each production listener exactly
+ * once regardless of subscription order.
+ */
+export const classifyConversationStreamTerminal = (
+  message: { type?: string; data?: unknown } | null | undefined
+): ConversationStreamTerminalType | null => {
+  if (message?.type === 'finish') return 'finish';
+  if (message?.type === 'error') return 'error';
+  if (message?.type !== 'agent_status' || !message.data || typeof message.data !== 'object') return null;
+
+  const status = (message.data as { status?: unknown }).status;
+  return status === 'error' || status === 'disconnected' ? 'error' : null;
+};
+
 /**
  * Canonical turn-identity seam for renderer-global response-stream consumers.
  *
@@ -191,6 +215,14 @@ export const shouldApplyConversationStreamTurn = (input: {
   const activeRuntimeTurnId = view.activeTurnId;
   const terminalType = input.type ?? 'terminal';
 
+  if (requirePositiveStreamIdentity && metadata.streamSeatEpoch !== streamSeatEpoch) {
+    // A terminal can never establish authority after a seat boundary, even
+    // when it has no turn id. Only an explicit new-seat start or the local/
+    // runtime lifecycle below may reopen response-stream admission.
+    if (input.terminal || input.type !== 'start') return false;
+    metadata.streamSeatEpoch = streamSeatEpoch;
+  }
+
   if (input.terminal && turnId && metadata.streamTerminalReceipt?.turnId === turnId) {
     const receipt = metadata.streamTerminalReceipt;
     if (receipt.type !== terminalType || receipt.consumers.has(input.consumer)) return false;
@@ -216,6 +248,7 @@ export const shouldApplyConversationStreamTurn = (input: {
   };
 
   const acceptActiveStreamTurn = () => {
+    metadata.streamSeatEpoch = streamSeatEpoch;
     if (!turnId) return;
     metadata.recoveredTerminalStreamTurnId = null;
     metadata.streamTerminalReceipt = null;
@@ -588,6 +621,7 @@ export const hydrateSucceeded = (
   }
 
   if (runtime?.is_processing && runtime.turn_id) {
+    metadata.streamSeatEpoch = streamSeatEpoch;
     metadata.activeStreamTurnId = runtime.turn_id;
     metadata.recoveredTerminalStreamTurnId = null;
     metadata.streamTerminalReceipt = null;
@@ -654,6 +688,7 @@ export const conversationDeleted = (conversation_id: string): ConversationRuntim
 
 export const localSendStarted = (conversation_id: string): ConversationRuntimeViewLogEntry[] => {
   const metadata = getRuntimeMetadata(conversation_id);
+  metadata.streamSeatEpoch = streamSeatEpoch;
   metadata.pendingLocalSendSeq = (metadata.pendingLocalSendSeq ?? 0) + 1;
   metadata.pendingStopTurnId = null;
   metadata.streamTerminalReceipt = null;
@@ -670,6 +705,7 @@ export const localSendAccepted = (
   msg_id?: string
 ): ConversationRuntimeViewLogEntry[] => {
   const metadata = getRuntimeMetadata(conversation_id);
+  metadata.streamSeatEpoch = streamSeatEpoch;
   const staleAfterCompleted = isStaleCompletedRuntimeSummary(runtime, metadata);
   if (!staleAfterCompleted) {
     metadata.pendingLocalSendSeq = null;
@@ -754,9 +790,25 @@ export const resetLocalGate = (conversation_id: string, reason: string): Convers
     resetLocalGateConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id, reason)
   );
 
+/**
+ * Fence every renderer-global runtime identity when the config cache moves to
+ * another seat. Existing subscribers remain mounted, but late old-seat frames
+ * cannot mutate the new seat until positive new-seat identity evidence arrives.
+ */
+export const invalidateConversationRuntimeForSeatRebind = (): void => {
+  streamSeatEpoch += 1;
+  requirePositiveStreamIdentity = true;
+  runtimeViews.clear();
+  fallbackSnapshots.clear();
+  runtimeMetadata.clear();
+  listeners.forEach((listener) => listener());
+};
+
 export const resetConversationRuntimeViewStoreForTest = () => {
   runtimeViews.clear();
   fallbackSnapshots.clear();
   runtimeMetadata.clear();
   listeners.clear();
+  streamSeatEpoch = 0;
+  requirePositiveStreamIdentity = false;
 };

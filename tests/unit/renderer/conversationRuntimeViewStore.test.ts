@@ -3,6 +3,7 @@ import type { TConversationRuntimeSummary } from '@/common/config/storage';
 import {
   getConversationRuntimeViewSnapshot,
   hydrateSucceeded,
+  invalidateConversationRuntimeForSeatRebind,
   localSendAccepted,
   localSendFailed,
   localSendStarted,
@@ -244,6 +245,50 @@ describe('conversationRuntimeViewStore turn id contract', () => {
         })
       ).toBe(true);
     }
+  });
+
+  it('requires positive new-seat identity before accepting a terminal after rebind', () => {
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-seat',
+        consumer: 'conversation_list_sync',
+        terminal: true,
+        turn_id: 'turn-background',
+        type: 'error',
+      })
+    ).toBe(true);
+
+    invalidateConversationRuntimeForSeatRebind();
+    for (const turn_id of ['turn-background', undefined] as const) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-seat',
+          consumer: 'conversation_list_sync',
+          terminal: true,
+          turn_id,
+          type: 'error',
+        })
+      ).toBe(false);
+    }
+
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-seat',
+        consumer: 'conversation_list_sync',
+        terminal: false,
+        turn_id: 'turn-new-seat',
+        type: 'start',
+      })
+    ).toBe(true);
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-seat',
+        consumer: 'conversation_list_sync',
+        terminal: true,
+        turn_id: 'turn-new-seat',
+        type: 'error',
+      })
+    ).toBe(true);
   });
 
   it.each([

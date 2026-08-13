@@ -11,7 +11,12 @@ import {
   getDocumentPreparationConversationIds,
   subscribeConversationDocumentPreparation,
 } from '@/renderer/pages/conversation/runtime/conversationDocumentPreparationStore';
-import { shouldApplyConversationStreamTurn } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import {
+  classifyConversationStreamTerminal,
+  invalidateConversationRuntimeForSeatRebind,
+  shouldApplyConversationStreamTurn,
+} from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import { clearGenerationForBackendRespawn } from '@/renderer/services/commandEveGenerationActivity';
 import { addEventListener } from '@/renderer/utils/emitter';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
@@ -33,23 +38,6 @@ const isGeneratingStreamMessage = (type: string): boolean => {
     type === 'acp_permission' ||
     type === 'permission' ||
     type === 'plan'
-  );
-};
-
-const isTerminalAgentStatus = (data: unknown): boolean => {
-  if (!data || typeof data !== 'object') {
-    return false;
-  }
-
-  const { status } = data as { status?: string };
-  return status === 'error' || status === 'disconnected';
-};
-
-const isTerminalStreamMessage = (message: { type: string; data: unknown }): boolean => {
-  return (
-    message.type === 'finish' ||
-    message.type === 'error' ||
-    (message.type === 'agent_status' && isTerminalAgentStatus(message.data))
   );
 };
 
@@ -501,7 +489,7 @@ const relaySuccessfulTurnToAutoProject = (message: {
   if (!streamTurnKey) return;
   const relayKey = autoProjectTurnKey(conversationId, messageTurnId ?? streamTurnKey);
 
-  if (message.type === 'error' || (message.type === 'agent_status' && isTerminalAgentStatus(message.data))) {
+  if (classifyConversationStreamTerminal(message) === 'error') {
     failAutoProjectTurn(conversationId, messageTurnId ?? streamTurnKey);
     return;
   }
@@ -983,6 +971,8 @@ const initializeConversationListSyncStore = () => {
     // reset below) is invalidated at write-time and cannot clobber the new
     // seat's list.
     seatEpoch += 1;
+    invalidateConversationRuntimeForSeatRebind();
+    clearGenerationForBackendRespawn();
     localSidebarStatusReceipts.clear();
     sidebarStatusWriteChains.clear();
     localGeneratingTurnIds.clear();
@@ -1025,14 +1015,15 @@ const initializeConversationListSyncStore = () => {
       return;
     }
 
-    const terminal = isTerminalStreamMessage(message);
+    const terminalType = classifyConversationStreamTerminal(message);
+    const terminal = terminalType !== null;
     if (
       !shouldApplyConversationStreamTurn({
         conversation_id,
         consumer: 'conversation_list_sync',
         terminal,
         turn_id: message.turn_id,
-        type: message.type,
+        type: terminalType ?? message.type,
       })
     ) {
       logLateStreamIgnored(conversation_id, message.type);
@@ -1047,8 +1038,7 @@ const initializeConversationListSyncStore = () => {
 
     if (terminal) {
       const wasGenerating = generatingConversationIdsState.has(conversation_id);
-      const isErrorStream =
-        message.type === 'error' || (message.type === 'agent_status' && isTerminalAgentStatus(message.data));
+      const isErrorStream = terminalType === 'error';
       if (isErrorStream && activeConversationIdState !== conversation_id) {
         // A failed/disconnected turn is the loudest resting state — flag it red
         // (unless the user is already looking at this conversation).
