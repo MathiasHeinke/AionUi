@@ -1029,6 +1029,7 @@ const initializeConversationListSyncStore = () => {
     if (
       !shouldApplyConversationStreamTurn({
         conversation_id,
+        consumer: 'conversation_list_sync',
         terminal,
         turn_id: message.turn_id,
         type: message.type,

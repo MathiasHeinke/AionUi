@@ -166,6 +166,16 @@ describe('conversationRuntimeViewStore turn id contract', () => {
     expect(
       shouldApplyConversationStreamTurn({
         conversation_id: 'conv-1',
+        consumer: 'conversation_list_sync',
+        terminal: true,
+        turn_id: 'turn-a',
+        type: 'error',
+      })
+    ).toBe(false);
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-1',
+        consumer: 'conversation_list_sync',
         terminal: true,
         turn_id: 'turn-a',
         type: 'finish',
@@ -174,6 +184,7 @@ describe('conversationRuntimeViewStore turn id contract', () => {
     expect(
       shouldApplyConversationStreamTurn({
         conversation_id: 'conv-1',
+        consumer: 'conversation_list_sync',
         terminal: false,
         turn_id: 'turn-a',
         type: 'text',
@@ -189,6 +200,7 @@ describe('conversationRuntimeViewStore turn id contract', () => {
       expect(
         shouldApplyConversationStreamTurn({
           conversation_id: 'conv-1',
+          consumer: 'conversation_list_sync',
           terminal,
           turn_id: 'turn-a',
           type,
@@ -200,10 +212,96 @@ describe('conversationRuntimeViewStore turn id contract', () => {
     expect(
       shouldApplyConversationStreamTurn({
         conversation_id: 'conv-1',
+        consumer: 'conversation_list_sync',
         terminal: true,
         turn_id: 'turn-b',
         type: 'finish',
       })
     ).toBe(true);
+  });
+
+  it('preserves repeated successful terminals for the bounded downstream retry policy', () => {
+    for (const consumer of ['generation_activity', 'conversation_list_sync'] as const) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-finish',
+          consumer,
+          terminal: false,
+          turn_id: 'turn-finish',
+          type: 'start',
+        })
+      ).toBe(true);
+    }
+
+    for (const consumer of ['generation_activity', 'conversation_list_sync', 'conversation_list_sync'] as const) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-finish',
+          consumer,
+          terminal: true,
+          turn_id: 'turn-finish',
+          type: 'finish',
+        })
+      ).toBe(true);
+    }
+  });
+
+  it.each([
+    ['generation activity first', ['generation_activity', 'conversation_list_sync']],
+    ['conversation list first', ['conversation_list_sync', 'generation_activity']],
+  ] as const)('delivers one start-to-error terminal to both stream consumers with %s', (_label, consumers) => {
+    for (const consumer of consumers) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-error',
+          consumer,
+          terminal: false,
+          turn_id: 'turn-error',
+          type: 'start',
+        })
+      ).toBe(true);
+    }
+
+    for (const consumer of consumers) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-error',
+          consumer,
+          terminal: true,
+          turn_id: 'turn-error',
+          type: 'error',
+        })
+      ).toBe(true);
+    }
+
+    for (const consumer of consumers) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-error',
+          consumer,
+          terminal: true,
+          turn_id: 'turn-error',
+          type: 'error',
+        })
+      ).toBe(false);
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-error',
+          consumer,
+          terminal: true,
+          turn_id: 'turn-error',
+          type: 'finish',
+        })
+      ).toBe(false);
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-error',
+          consumer,
+          terminal: false,
+          turn_id: 'turn-error',
+          type: 'text',
+        })
+      ).toBe(false);
+    }
   });
 });

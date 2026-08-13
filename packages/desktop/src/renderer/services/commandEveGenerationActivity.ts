@@ -85,6 +85,7 @@ export function applyAcpStreamActivity(
   if (
     !shouldApplyConversationStreamTurn({
       conversation_id: conversationId,
+      consumer: 'generation_activity',
       terminal: TERMINAL_TYPES.has(type),
       turn_id: message?.turn_id,
       type,

@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 
 import type {
-  EveExternalActionProposal,
   EveExternalActionSanitizedResult,
   EveExternalActionSlotBinding,
 } from '@/common/config/eveExternalActionExecutionCore';

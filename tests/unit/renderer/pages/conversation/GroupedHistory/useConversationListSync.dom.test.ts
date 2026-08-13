@@ -32,6 +32,7 @@ import {
   localSendStarted,
   turnCompleted,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import { clearAllGenerating, isAnyGenerating } from '@/renderer/services/commandEveGenerationActivity';
 import { emitter } from '@/renderer/utils/emitter';
 
 const harness = vi.hoisted(() => {
@@ -129,6 +130,11 @@ vi.mock('@/common/config/configService', () => ({
     onSeatRebind: harness.onSeatRebind,
   },
 }));
+
+// commandEveGenerationActivity eagerly subscribes its production listener on
+// import. Preserve that exact callback so each case can recreate either native
+// response-stream subscription order after resetting the singleton harness.
+const generationActivityResponseHandler = [...harness.responseHandlers][0];
 
 const runtime = (overrides: Partial<TConversationRuntimeSummary> = {}): TConversationRuntimeSummary => ({
   state: 'idle',
@@ -898,4 +904,112 @@ describe('conversation sidebar working phases (1.820.5)', () => {
     expect(listHook.result.current.isConversationGenerating('conversation-a')).toBe(false);
     listHook.unmount();
   });
+});
+
+describe('voice error terminal production listener integration', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    clearAllGenerating();
+    resetConversationRuntimeViewStoreForTest();
+    resetConversationListSyncForTest();
+    harness.responseHandlers.clear();
+    harness.turnCompletedHandlers.clear();
+    harness.listChangedHandlers.clear();
+    harness.seatRebindHandlers.clear();
+    harness.rowsBySeat.clear();
+    harness.setCurrentSeatId('seat-a');
+    harness.rowsBySeat.set('seat-a', [conversation('conversation-voice-error', runtime())]);
+  });
+
+  afterEach(() => {
+    clearAllGenerating();
+    resetConversationRuntimeViewStoreForTest();
+    vi.useRealTimers();
+  });
+
+  it.each([
+    ['generation activity first', true],
+    ['conversation list first', false],
+  ] as const)(
+    'delivers start then error exactly once through both production listeners with %s',
+    async (_label, generationFirst) => {
+      if (generationFirst) {
+        harness.responseHandlers.add(generationActivityResponseHandler);
+      }
+
+      const listHook = renderHook(() => useConversationListSync());
+      await act(flushPromises);
+
+      if (!generationFirst) {
+        harness.responseHandlers.add(generationActivityResponseHandler);
+      }
+
+      const responseHandlers = [...harness.responseHandlers];
+      expect(responseHandlers).toHaveLength(2);
+      expect(responseHandlers[0] === generationActivityResponseHandler).toBe(generationFirst);
+
+      const start = responseMessage({
+        type: 'start',
+        conversation_id: 'conversation-voice-error',
+        turn_id: 'turn-voice-error',
+      });
+      const error = responseMessage({
+        type: 'error',
+        conversation_id: 'conversation-voice-error',
+        turn_id: 'turn-voice-error',
+      });
+
+      act(() => {
+        responseHandlers.forEach((handler) => handler(start));
+      });
+      const generationGuardStates = [isAnyGenerating()];
+      expect(listHook.result.current.isConversationGenerating('conversation-voice-error')).toBe(true);
+      expect(listHook.result.current.hasConversationError('conversation-voice-error')).toBe(false);
+
+      await act(async () => {
+        responseHandlers.forEach((handler) => handler(error));
+        await flushPromises();
+      });
+      generationGuardStates.push(isAnyGenerating());
+      expect(listHook.result.current.isConversationGenerating('conversation-voice-error')).toBe(false);
+      expect(listHook.result.current.hasConversationError('conversation-voice-error')).toBe(true);
+
+      const countErrorWrites = () =>
+        harness.updateConversation.mock.calls.filter(([{ updates }]) => {
+          const receipt = (updates.extra as Record<string, unknown> | undefined)?.command_eve_sidebar_status as
+            | { state?: string }
+            | undefined;
+          return receipt?.state === 'error';
+        }).length;
+
+      expect(countErrorWrites()).toBe(1);
+      expect(harness.updateConversation).toHaveBeenCalledWith({
+        id: 'conversation-voice-error',
+        updates: {
+          extra: {
+            command_eve_sidebar_status: expect.objectContaining({
+              seat_id: 'seat-a',
+              state: 'error',
+              turn_id: 'turn-voice-error',
+            }),
+          },
+        },
+        merge_extra: true,
+      });
+
+      await act(async () => {
+        responseHandlers.forEach((handler) => handler(start));
+        responseHandlers.forEach((handler) => handler(error));
+        await flushPromises();
+      });
+      generationGuardStates.push(isAnyGenerating());
+      expect(listHook.result.current.isConversationGenerating('conversation-voice-error')).toBe(false);
+      expect(listHook.result.current.hasConversationError('conversation-voice-error')).toBe(true);
+      expect(countErrorWrites()).toBe(1);
+      expect(generationGuardStates).toEqual([true, false, false]);
+
+      listHook.unmount();
+    }
+  );
 });

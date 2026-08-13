@@ -46,12 +46,19 @@ type ConversationRuntimeSnapshot = {
 };
 
 type ConversationRuntimeViewListener = () => void;
+export type ConversationStreamTurnConsumer = 'conversation_list_sync' | 'generation_activity';
+type ConversationStreamTerminalReceipt = {
+  turnId: string;
+  type: string;
+  consumers: Set<ConversationStreamTurnConsumer>;
+};
 type ConversationRuntimeMetadata = {
   pendingLocalSendSeq: number | null;
   pendingStopTurnId: string | null;
   lastCompletedTurnId: string | null;
   activeStreamTurnId: string | null;
   recoveredTerminalStreamTurnId: string | null;
+  streamTerminalReceipt: ConversationStreamTerminalReceipt | null;
 };
 
 const listeners = new Set<ConversationRuntimeViewListener>();
@@ -65,6 +72,7 @@ const createRuntimeMetadata = (): ConversationRuntimeMetadata => ({
   lastCompletedTurnId: null,
   activeStreamTurnId: null,
   recoveredTerminalStreamTurnId: null,
+  streamTerminalReceipt: null,
 });
 
 const getRuntimeMetadata = (conversation_id: string): ConversationRuntimeMetadata => {
@@ -163,11 +171,13 @@ const normalizeStreamTurnId = (turn_id: unknown): string | null =>
  * A recovered idle turn may still deliver its exact terminal frame, which is
  * needed by the local completion/TTS path. Once a newer local submit begins,
  * however, no frame from the recovered turn may mutate global generation or
- * sidebar state. The lifecycle functions below own identity changes; consumers
- * use this one idempotent decision instead of maintaining their own heuristics.
+ * sidebar state. The lifecycle functions below own identity changes. Failed
+ * terminals reach each registered consumer once; successful finish replay
+ * remains downstream-owned.
  */
 export const shouldApplyConversationStreamTurn = (input: {
   conversation_id: string;
+  consumer: ConversationStreamTurnConsumer;
   terminal: boolean;
   turn_id?: unknown;
   type?: string;
@@ -179,6 +189,38 @@ export const shouldApplyConversationStreamTurn = (input: {
   const view = getConversationRuntimeViewSnapshot(conversation_id);
   const turnId = normalizeStreamTurnId(input.turn_id);
   const activeRuntimeTurnId = view.activeTurnId;
+  const terminalType = input.type ?? 'terminal';
+
+  if (input.terminal && turnId && metadata.streamTerminalReceipt?.turnId === turnId) {
+    const receipt = metadata.streamTerminalReceipt;
+    if (receipt.type !== terminalType || receipt.consumers.has(input.consumer)) return false;
+    metadata.streamTerminalReceipt = {
+      ...receipt,
+      consumers: new Set([...receipt.consumers, input.consumer]),
+    };
+    return true;
+  }
+
+  const acceptTerminal = () => {
+    if (!turnId) return;
+    metadata.activeStreamTurnId = null;
+    metadata.recoveredTerminalStreamTurnId = turnId;
+    metadata.streamTerminalReceipt =
+      terminalType === 'error'
+        ? {
+            turnId,
+            type: terminalType,
+            consumers: new Set([input.consumer]),
+          }
+        : null;
+  };
+
+  const acceptActiveStreamTurn = () => {
+    if (!turnId) return;
+    metadata.recoveredTerminalStreamTurnId = null;
+    metadata.streamTerminalReceipt = null;
+    metadata.activeStreamTurnId = turnId;
+  };
 
   // The send path has announced a newer logical turn, but its exact backend ID
   // is not available yet. Failing closed here prevents a recovered A frame from
@@ -193,8 +235,7 @@ export const shouldApplyConversationStreamTurn = (input: {
     if (activeRuntimeTurnId !== turnId) return false;
     if (metadata.recoveredTerminalStreamTurnId === turnId && !input.terminal) return false;
     if (input.terminal) {
-      metadata.activeStreamTurnId = null;
-      metadata.recoveredTerminalStreamTurnId = turnId;
+      acceptTerminal();
     } else {
       metadata.activeStreamTurnId = turnId;
     }
@@ -205,22 +246,27 @@ export const shouldApplyConversationStreamTurn = (input: {
     // Durable recovery already established this exact turn as successful. Only
     // its delayed `finish` may still supply the renderer completion/TTS receipt;
     // a contradictory late error must not paint the recovered row red.
-    if (metadata.recoveredTerminalStreamTurnId === turnId) return input.type === 'finish';
+    if (metadata.recoveredTerminalStreamTurnId === turnId) {
+      if (input.type !== 'finish') return false;
+      acceptTerminal();
+      return true;
+    }
     // A different non-terminal frame is the only stream-side proof that a
     // background/native conversation moved on. This keeps compact streams
     // (which may begin with content rather than start) working while exact
     // late frames from the recovered turn remain fail-closed above.
-    if (input.terminal) return true;
-    metadata.recoveredTerminalStreamTurnId = null;
-    metadata.activeStreamTurnId = turnId;
+    if (input.terminal) {
+      acceptTerminal();
+      return true;
+    }
+    acceptActiveStreamTurn();
     return true;
   }
 
   if (metadata.activeStreamTurnId) {
     if (metadata.activeStreamTurnId === turnId) {
       if (input.terminal) {
-        metadata.activeStreamTurnId = null;
-        metadata.recoveredTerminalStreamTurnId = turnId;
+        acceptTerminal();
       }
       return true;
     }
@@ -228,15 +274,18 @@ export const shouldApplyConversationStreamTurn = (input: {
     // handoff for a background/native conversation. It supersedes a provisional
     // stream identity; non-start frames from the old identity remain rejected.
     if (input.type !== 'start') return false;
-    metadata.activeStreamTurnId = turnId;
+    acceptActiveStreamTurn();
     return true;
   }
 
   // Preserve background-stream support when the conversation UI was not
   // mounted. A legacy terminal can still close the pre-stream working phase,
   // but it must not become a future active identity.
-  if (input.terminal) return true;
-  metadata.activeStreamTurnId = turnId;
+  if (input.terminal) {
+    acceptTerminal();
+    return true;
+  }
+  acceptActiveStreamTurn();
   return true;
 };
 
@@ -541,6 +590,7 @@ export const hydrateSucceeded = (
   if (runtime?.is_processing && runtime.turn_id) {
     metadata.activeStreamTurnId = runtime.turn_id;
     metadata.recoveredTerminalStreamTurnId = null;
+    metadata.streamTerminalReceipt = null;
   }
 
   return setConversationRuntimeSnapshot(
@@ -580,6 +630,7 @@ export const turnCompleted = (
   metadata.lastCompletedTurnId = turn_id;
   metadata.activeStreamTurnId = null;
   metadata.recoveredTerminalStreamTurnId = turn_id;
+  metadata.streamTerminalReceipt = null;
   return setConversationRuntimeSnapshot(
     conversation_id,
     turnCompletedConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id, turn_id, runtime, metadata)
@@ -605,6 +656,7 @@ export const localSendStarted = (conversation_id: string): ConversationRuntimeVi
   const metadata = getRuntimeMetadata(conversation_id);
   metadata.pendingLocalSendSeq = (metadata.pendingLocalSendSeq ?? 0) + 1;
   metadata.pendingStopTurnId = null;
+  metadata.streamTerminalReceipt = null;
   return setConversationRuntimeSnapshot(
     conversation_id,
     localSendStartedConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id)
@@ -623,6 +675,7 @@ export const localSendAccepted = (
     metadata.pendingLocalSendSeq = null;
     metadata.activeStreamTurnId = runtime.turn_id ?? turn_id;
     metadata.recoveredTerminalStreamTurnId = null;
+    metadata.streamTerminalReceipt = null;
   }
   return setConversationRuntimeSnapshot(
     conversation_id,
