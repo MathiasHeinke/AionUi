@@ -899,24 +899,33 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             // request that finished, rather than to whichever one is current when
             // React gets round to it.
             const finishedTrace = requestTraceRef.current;
+            const finishedAt = Date.now();
+            setRuntimeActivity((prev) => ({
+              ...prev,
+              phase: 'done',
+              backend: finishedTrace?.backend ?? prev.backend,
+              modelId: finishedTrace?.model_id ?? prev.modelId,
+              startedAt: finishedTrace?.startTime ?? prev.startedAt,
+              updatedAt: finishedAt,
+              elapsedMs: finishedTrace
+                ? finishedAt - finishedTrace.startTime
+                : prev.startedAt
+                  ? finishedAt - prev.startedAt
+                  : prev.elapsedMs,
+              detail: undefined,
+              attempt: undefined,
+              maxAttempts: undefined,
+              retryAfterMs: undefined,
+            }));
             if (finishedTrace) {
-              const duration = Date.now() - finishedTrace.startTime;
-              setRuntimeActivity((prev) => ({
-                ...prev,
-                phase: 'done',
-                backend: finishedTrace.backend,
-                modelId: finishedTrace.model_id,
-                startedAt: finishedTrace.startTime,
-                updatedAt: Date.now(),
-                elapsedMs: duration,
-              }));
+              const duration = finishedAt - finishedTrace.startTime;
               console.log(
                 `%c[RequestTrace]%c FINISH | ${finishedTrace.backend} → ${finishedTrace.model_id} | ${duration}ms | ${new Date().toISOString()}`,
                 'color: #52c41a; font-weight: bold',
                 'color: inherit'
               );
-              requestTraceRef.current = null;
             }
+            requestTraceRef.current = null;
             acceptedTurnIdRef.current = null;
           }
           break;
@@ -1361,26 +1370,35 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           if (!suppressColdError) commitMessage(transformedMessage);
           // Log request error
           const failedTrace = requestTraceRef.current;
+          const failedAt = Date.now();
+          setRuntimeActivity((prev) => ({
+            ...prev,
+            phase: 'error',
+            backend: failedTrace?.backend ?? prev.backend,
+            modelId: failedTrace?.model_id ?? prev.modelId,
+            startedAt: failedTrace?.startTime ?? prev.startedAt,
+            updatedAt: failedAt,
+            elapsedMs: failedTrace
+              ? failedAt - failedTrace.startTime
+              : prev.startedAt
+                ? failedAt - prev.startedAt
+                : prev.elapsedMs,
+            detail: typeof message.data === 'string' ? message.data : undefined,
+            attempt: undefined,
+            maxAttempts: undefined,
+            retryAfterMs: undefined,
+          }));
           if (failedTrace) {
-            const duration = Date.now() - failedTrace.startTime;
-            setRuntimeActivity((prev) => ({
-              ...prev,
-              phase: 'error',
-              backend: failedTrace.backend,
-              modelId: failedTrace.model_id,
-              startedAt: failedTrace.startTime,
-              updatedAt: Date.now(),
-              elapsedMs: duration,
-              detail: typeof message.data === 'string' ? message.data : undefined,
-            }));
+            const duration = failedAt - failedTrace.startTime;
             console.log(
               `%c[RequestTrace]%c ERROR | ${failedTrace.backend} → ${failedTrace.model_id} | ${duration}ms | ${new Date().toISOString()}`,
               'color: #ff4d4f; font-weight: bold',
               'color: inherit',
               message.data
             );
-            requestTraceRef.current = null;
           }
+          requestTraceRef.current = null;
+          acceptedTurnIdRef.current = null;
           break;
         }
         default:

@@ -1803,6 +1803,131 @@ describe('useAcpMessage', () => {
     expect(addOrUpdateMessageMock).not.toHaveBeenCalledWith(expect.objectContaining({ msg_id: 'status-retry_wait' }));
   });
 
+  it('terminalizes provider wait on finish even without a request trace', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-status-finish', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-status-finish',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'acp-session-finish' },
+        msg_id: 'status-finish-start',
+        turn_id: 'turn-status-finish',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_session_info',
+        data: {
+          title: null,
+          updated_at: null,
+          session_id: 'acp-session-finish',
+          _meta: {
+            commandEveRuntimeStatus: {
+              version: 'command-eve-runtime-status/v1',
+              sessionId: 'acp-session-finish',
+              phase: 'provider_wait',
+              observedAt: '2026-08-13T21:39:18Z',
+            },
+          },
+        },
+        msg_id: 'status-finish-wait',
+        turn_id: 'turn-status-finish',
+        conversation_id: 'conv-1',
+      });
+    });
+    expect(result.current.runtimeActivity.phase).toBe('provider_wait');
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'status-finish-terminal',
+        turn_id: 'turn-status-finish',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current.runtimeActivity).toMatchObject({ phase: 'done' });
+    expect(result.current.runtimeActivity.attempt).toBeUndefined();
+    expect(result.current.runtimeActivity.maxAttempts).toBeUndefined();
+    expect(result.current.runtimeActivity.retryAfterMs).toBeUndefined();
+  });
+
+  it('terminalizes retry wait on error even without a request trace', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-status-error', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-status-error',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'acp-session-error' },
+        msg_id: 'status-error-start',
+        turn_id: 'turn-status-error',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_session_info',
+        data: {
+          title: null,
+          updated_at: null,
+          session_id: 'acp-session-error',
+          _meta: {
+            commandEveRuntimeStatus: {
+              version: 'command-eve-runtime-status/v1',
+              sessionId: 'acp-session-error',
+              phase: 'retry_wait',
+              attempt: 2,
+              maxAttempts: 3,
+              retryAfterMs: 2020,
+              observedAt: '2026-08-13T21:44:13Z',
+            },
+          },
+        },
+        msg_id: 'status-error-retry',
+        turn_id: 'turn-status-error',
+        conversation_id: 'conv-1',
+      });
+    });
+    expect(result.current.runtimeActivity.phase).toBe('retry_wait');
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'error',
+        data: 'Provider timeout',
+        msg_id: 'status-error-terminal',
+        turn_id: 'turn-status-error',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current.runtimeActivity).toMatchObject({ phase: 'error', detail: 'Provider timeout' });
+    expect(result.current.runtimeActivity.attempt).toBeUndefined();
+    expect(result.current.runtimeActivity.maxAttempts).toBeUndefined();
+    expect(result.current.runtimeActivity.retryAfterMs).toBeUndefined();
+  });
+
   it('answers one strict session-bound read_preview request from the visibly active browser', async () => {
     conversationGetInvokeMock.mockResolvedValue({
       id: 'conv-1',
