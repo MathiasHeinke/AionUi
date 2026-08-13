@@ -18,7 +18,11 @@ import {
   shouldOpenHtmlPreview,
 } from '@/common/config/htmlArtifactPreviewCore';
 import { collectImageBindFromToolCallUpdate } from '@/common/config/imageArtifactBindCore';
-import { parseCommandEveDesktopEvent, parseCommandEveDesktopToolCall } from '@/common/config/hermesDesktopEventCore';
+import {
+  parseCommandEveDesktopEvent,
+  parseCommandEveDesktopToolCall,
+  parseCommandEveRuntimeStatus,
+} from '@/common/config/hermesDesktopEventCore';
 import { classifyAcpExternalWriteBlock } from '@/renderer/pages/conversation/Messages/acp/externalWriteRecoveryPolicy';
 import type { AvailableCommand, IMessageThinking } from '@/common/chat/chatLib';
 import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
@@ -101,6 +105,8 @@ export type AcpRuntimeActivityPhase =
   | 'ready'
   | 'submitting'
   | 'thinking'
+  | 'provider_wait'
+  | 'retry_wait'
   | 'streaming'
   | 'tool_wait'
   | 'heartbeat_only'
@@ -118,6 +124,9 @@ export type AcpRuntimeActivity = {
   updatedAt: number;
   elapsedMs?: number;
   detail?: string;
+  attempt?: number;
+  maxAttempts?: number;
+  retryAfterMs?: number;
 };
 
 export type AcpStreamWatchdogStatus =
@@ -552,6 +561,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         !acceptedTurnIdRef.current &&
         message.type !== 'finish' &&
         message.type !== 'error' &&
+        message.type !== 'acp_session_info' &&
         typeof message.turn_id === 'string' &&
         message.turn_id.trim()
       ) {
@@ -671,6 +681,15 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             setRunning(true);
             runningRef.current = true;
           }
+          setRuntimeActivity((prev) => ({
+            ...prev,
+            phase: 'thinking',
+            updatedAt: now,
+            detail: undefined,
+            attempt: undefined,
+            maxAttempts: undefined,
+            retryAfterMs: undefined,
+          }));
           break;
         case 'thinking': {
           const thinkingData = message.data as { status?: string; duration?: number; duration_ms?: number };
@@ -698,6 +717,15 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           }
           hasThinkingMessageRef.current = true;
           setHasThinkingMessage(true);
+          setRuntimeActivity((prev) => ({
+            ...prev,
+            phase: 'thinking',
+            updatedAt: now,
+            detail: undefined,
+            attempt: undefined,
+            maxAttempts: undefined,
+            retryAfterMs: undefined,
+          }));
           enqueueThinkingMessage(transformedMessage?.type === 'thinking' ? transformedMessage : undefined);
           break;
         }
@@ -743,6 +771,25 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           const expectedTurnId = activeAcpSessionTurnIdRef.current;
           const messageTurnId = typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
           if (!expectedSessionId || !expectedTurnId || messageTurnId !== expectedTurnId) break;
+          const runtimeStatus = parseCommandEveRuntimeStatus(
+            message.data,
+            expectedSessionId,
+            messageTurnId,
+            runtimeActiveTurnId ?? acceptedTurnIdRef.current
+          );
+          if (runtimeStatus) {
+            setRuntimeActivity((prev) => ({
+              ...prev,
+              phase: runtimeStatus.phase,
+              startedAt: prev.startedAt ?? requestTraceRef.current?.startTime ?? now,
+              updatedAt: now,
+              detail: undefined,
+              attempt: runtimeStatus.attempt,
+              maxAttempts: runtimeStatus.maxAttempts,
+              retryAfterMs: runtimeStatus.retryAfterMs,
+            }));
+            break;
+          }
           const desktopEvent = parseCommandEveDesktopEvent(message.data, expectedSessionId);
           if (!desktopEvent) break;
           if (desktopEvent.event === 'preview.open') {
@@ -893,6 +940,10 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             modelId: requestTraceRef.current?.model_id ?? prev.modelId,
             startedAt: requestTraceRef.current?.startTime ?? prev.startedAt ?? Date.now(),
             updatedAt: Date.now(),
+            detail: undefined,
+            attempt: undefined,
+            maxAttempts: undefined,
+            retryAfterMs: undefined,
           }));
           // Auto-recover running state only if turn hasn't finished
           if (!runningRef.current && !turnFinishedRef.current) {

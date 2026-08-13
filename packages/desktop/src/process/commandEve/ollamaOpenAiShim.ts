@@ -370,8 +370,12 @@ export type CommandEveUpstreamOutcome =
  * billing, credits, or settlement.
  */
 export type CommandEveUpstreamOutcomeReceipt = {
-  version: 'command-eve-upstream-outcome/v1';
+  version: 'command-eve-upstream-outcome/v2';
   boundary: 'desktop_upstream_transport';
+  request_id: string;
+  started_at: string;
+  headers_received_at: string | null;
+  first_body_chunk_at: string | null;
   observed_at: string;
   outcome: CommandEveUpstreamOutcome;
   response_started: boolean;
@@ -417,6 +421,8 @@ export type CommandEveOllamaShimOptions = {
    * provider data.
    */
   managedVisualAuthorizationFailureReceiptPath?: string;
+  /** Bounded JSONL history for correlating every content-free upstream call. */
+  upstreamOutcomeHistoryPath?: string;
   /** Test/diagnostic observer for the same content-free transport receipt. */
   upstreamOutcomeReporter?: (receipt: CommandEveUpstreamOutcomeReceipt) => void;
   egressPolicyAction?: CommandEveEgressPolicyAction;
@@ -901,7 +907,8 @@ type UpstreamAbortReason = Extract<CommandEveUpstreamOutcome, 'client_closed' | 
 
 type UpstreamRequestScope = {
   signal: AbortSignal;
-  markActivity: () => void;
+  markHeadersReceived: () => void;
+  markBodyChunk: () => void;
   markUpstreamError: () => void;
   reason: () => UpstreamAbortReason | undefined;
   dispose: () => void;
@@ -926,12 +933,28 @@ function writeManagedVisualAuthorizationFailureReceipt(
   fs.renameSync(tempFile, receiptPath);
 }
 
+function appendUpstreamOutcomeHistory(historyPath: string, receipt: CommandEveUpstreamOutcomeReceipt): void {
+  if (!historyPath) return;
+  fs.mkdirSync(path.dirname(historyPath), { recursive: true });
+  fs.appendFileSync(historyPath, `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
+  fs.chmodSync(historyPath, 0o600);
+  if (fs.statSync(historyPath).size <= 256 * 1024) return;
+  const lines = fs.readFileSync(historyPath, 'utf8').split(/\r?\n/).filter(Boolean).slice(-128);
+  const tempFile = `${historyPath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(tempFile, `${lines.join('\n')}\n`, { mode: 0o600 });
+  fs.renameSync(tempFile, historyPath);
+}
+
 function createUpstreamRequestScope(
   request: IncomingMessage,
   response: ServerResponse,
   options: Required<CommandEveOllamaShimOptions>
 ): UpstreamRequestScope {
   const controller = new AbortController();
+  const requestId = crypto.randomUUID();
+  const startedAt = new Date().toISOString();
+  let headersReceivedAt: string | null = null;
+  let firstBodyChunkAt: string | null = null;
   let abortReason: UpstreamAbortReason | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let outcomeRecorded = false;
@@ -940,18 +963,31 @@ function createUpstreamRequestScope(
     if (outcomeRecorded) return;
     outcomeRecorded = true;
     const receipt: CommandEveUpstreamOutcomeReceipt = {
-      version: 'command-eve-upstream-outcome/v1',
+      version: 'command-eve-upstream-outcome/v2',
       boundary: 'desktop_upstream_transport',
+      request_id: requestId,
+      started_at: startedAt,
+      headers_received_at: headersReceivedAt,
+      first_body_chunk_at: firstBodyChunkAt,
       observed_at: new Date().toISOString(),
       outcome,
       response_started: response.headersSent,
     };
-    try {
-      writeUpstreamOutcomeReceipt(options.upstreamOutcomeReceiptPath, receipt);
-      options.upstreamOutcomeReporter(receipt);
-    } catch {
-      // Outcome evidence must never turn a completed or cancelled inference into
-      // a transport failure. Keep the warning content-free as well.
+    let evidenceFailed = false;
+    for (const sink of [
+      () => writeUpstreamOutcomeReceipt(options.upstreamOutcomeReceiptPath, receipt),
+      () => appendUpstreamOutcomeHistory(options.upstreamOutcomeHistoryPath, receipt),
+      () => options.upstreamOutcomeReporter(receipt),
+    ]) {
+      try {
+        sink();
+      } catch {
+        evidenceFailed = true;
+      }
+    }
+    if (evidenceFailed) {
+      // Evidence must never turn a completed or cancelled inference into a
+      // transport failure. Keep the warning content-free as well.
       console.warn('[Command EVE] Upstream outcome receipt could not be recorded.');
     }
   };
@@ -986,7 +1022,13 @@ function createUpstreamRequestScope(
 
   return {
     signal: controller.signal,
-    markActivity: () => arm('idle_timeout', options.upstreamIdleTimeoutMs),
+    markHeadersReceived: () => {
+      headersReceivedAt ||= new Date().toISOString();
+    },
+    markBodyChunk: () => {
+      firstBodyChunkAt ||= new Date().toISOString();
+      arm('idle_timeout', options.upstreamIdleTimeoutMs);
+    },
     markUpstreamError: () => recordOutcome('upstream_error'),
     reason: () => abortReason,
     dispose: () => {
@@ -1811,7 +1853,7 @@ async function handleEveCloudCompletions(
       body: JSON.stringify(outboundBody),
       signal: upstreamScope.signal,
     });
-    upstreamScope.markActivity();
+    upstreamScope.markHeadersReceived();
 
     // Stream passthrough: the function already emits OpenAI-compatible SSE.
     if (stream && upstream.ok && upstream.body) {
@@ -1825,7 +1867,7 @@ async function handleEveCloudCompletions(
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        upstreamScope.markActivity();
+        if (value.byteLength > 0) upstreamScope.markBodyChunk();
         typedUICapture.push(value);
         response.write(value);
       }
@@ -1855,7 +1897,7 @@ async function handleEveCloudCompletions(
     // which the founder mandate forbids. We therefore scrub the user-facing
     // message ourselves rather than assuming someone else did.
     const text = await upstream.text();
-    upstreamScope.markActivity();
+    if (text.length > 0) upstreamScope.markBodyChunk();
     // F-14 (Kimi 1.819 audit): a non-OK upstream status is an upstream error in
     // the outcome receipt, not a silent "completed" — otherwise the receipt is
     // worthless as watchdog evidence.
@@ -2258,7 +2300,7 @@ async function handleLocalOpenAiCompletions(
       body: JSON.stringify(localOpenAiPayload(body, route)),
       signal: upstreamScope.signal,
     });
-    upstreamScope.markActivity();
+    upstreamScope.markHeadersReceived();
 
     const contentType = upstream.headers.get('content-type') || 'application/json';
     if (Boolean(body.stream) && upstream.body) {
@@ -2272,7 +2314,7 @@ async function handleLocalOpenAiCompletions(
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        upstreamScope.markActivity();
+        if (value.byteLength > 0) upstreamScope.markBodyChunk();
         if (upstream.ok) typedUICapture.push(value);
         response.write(value);
       }
@@ -2294,7 +2336,7 @@ async function handleLocalOpenAiCompletions(
     }
 
     const text = await upstream.text();
-    upstreamScope.markActivity();
+    if (text.length > 0) upstreamScope.markBodyChunk();
     // F-14 (Kimi 1.819 audit): non-OK upstream status must land in the outcome
     // receipt as upstream_error, not as a silent "completed".
     if (!upstream.ok) upstreamScope.markUpstreamError();
@@ -2438,7 +2480,7 @@ async function handleConnectedProviderCompletions(
       body: JSON.stringify({ ...body, model, messages: sendMessages }),
       signal: upstreamScope.signal,
     });
-    upstreamScope.markActivity();
+    upstreamScope.markHeadersReceived();
 
     const contentType = upstream.headers.get('content-type') || 'application/json';
     if (Boolean(body.stream) && upstream.body) {
@@ -2452,7 +2494,7 @@ async function handleConnectedProviderCompletions(
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        upstreamScope.markActivity();
+        if (value.byteLength > 0) upstreamScope.markBodyChunk();
         if (upstream.ok) typedUICapture.push(value);
         response.write(value);
       }
@@ -2474,7 +2516,7 @@ async function handleConnectedProviderCompletions(
     }
 
     const text = await upstream.text();
-    upstreamScope.markActivity();
+    if (text.length > 0) upstreamScope.markBodyChunk();
     if (!upstream.ok) upstreamScope.markUpstreamError();
     if (upstream.ok) {
       try {
@@ -2732,11 +2774,11 @@ async function handleChatCompletions(
       },
       options
     );
-    upstreamScope.markActivity();
+    upstreamScope.markHeadersReceived();
 
     if (!upstream.ok || !upstream.body) {
       const text = await upstream.text();
-      upstreamScope.markActivity();
+      if (text.length > 0) upstreamScope.markBodyChunk();
       jsonResponse(response, upstream.status || 502, { error: { message: text || 'Ollama request failed' } });
       return;
     }
@@ -2747,7 +2789,7 @@ async function handleChatCompletions(
         done?: boolean;
         done_reason?: string;
       };
-      upstreamScope.markActivity();
+      upstreamScope.markBodyChunk();
       const normalizedToolCalls = normalizeOllamaToolCallsForOpenAI(data.message?.tool_calls, providerRequestId, {
         nextOrdinal: 0,
       });
@@ -2833,7 +2875,7 @@ async function handleChatCompletions(
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      upstreamScope.markActivity();
+      if (value.byteLength > 0) upstreamScope.markBodyChunk();
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() || '';
@@ -3161,6 +3203,11 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
       shimOptions.managedVisualAuthorizationFailureReceiptPath ||
       (shimOptions.egressReceiptPath
         ? path.join(path.dirname(shimOptions.egressReceiptPath), 'last-managed-visual-authorization-failure.json')
+        : ''),
+    upstreamOutcomeHistoryPath:
+      shimOptions.upstreamOutcomeHistoryPath ||
+      (shimOptions.egressReceiptPath
+        ? path.join(path.dirname(shimOptions.egressReceiptPath), 'upstream-outcome-history.jsonl')
         : ''),
     upstreamOutcomeReporter: shimOptions.upstreamOutcomeReporter || (() => undefined),
     // Redact-and-continue by default (see egressBoundaryCore): a hard block 451s

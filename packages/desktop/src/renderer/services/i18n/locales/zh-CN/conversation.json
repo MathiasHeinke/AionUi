@@ -514,9 +514,12 @@
   },
   "runtimeStatus": {
     "phase": {
+      "provider_wait": "正在等待提供商的首次响应",
+      "retry_wait": "提供商未响应 – 正在重试",
       "tool_wait": "工具运行中",
       "heartbeat_only": "EVE 仍在工作",
       "ui_backlog": "界面正在追上"
-    }
+    },
+    "retryDetail": "{{seconds}} 秒后重试 ({{attempt}}/{{maxAttempts}})"
   }
 }

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   COMMAND_EVE_DESKTOP_EVENT_VERSION,
+  COMMAND_EVE_RUNTIME_STATUS_VERSION,
   parseCommandEveDesktopEvent,
   parseCommandEveDesktopToolCall,
+  parseCommandEveRuntimeStatus,
 } from '../../../packages/desktop/src/common/config/hermesDesktopEventCore';
 
 const wire = (event: string, payload: unknown, sessionId = 'acp-session-1') => ({
@@ -24,6 +26,61 @@ const completedToolCall = (title: string, rawInput: unknown, overrides: Record<s
   title,
   raw_input: rawInput,
   ...overrides,
+});
+
+const runtimeWire = (payload: Record<string, unknown>, sessionId = 'acp-session-1') => ({
+  session_id: sessionId,
+  title: null,
+  updated_at: null,
+  _meta: {
+    commandEveRuntimeStatus: {
+      version: COMMAND_EVE_RUNTIME_STATUS_VERSION,
+      sessionId,
+      observedAt: '2026-08-13T21:39:18Z',
+      ...payload,
+    },
+  },
+});
+
+describe('parseCommandEveRuntimeStatus', () => {
+  it('accepts only content-free provider wait and bounded retry metadata for the current turn', () => {
+    expect(
+      parseCommandEveRuntimeStatus(runtimeWire({ phase: 'provider_wait' }), undefined, 'turn-1', 'turn-1')
+    ).toEqual({
+      phase: 'provider_wait',
+      observedAt: '2026-08-13T21:39:18Z',
+    });
+    expect(
+      parseCommandEveRuntimeStatus(
+        runtimeWire({ phase: 'retry_wait', attempt: 2, maxAttempts: 3, retryAfterMs: 2020 }),
+        'acp-session-1',
+        'turn-1',
+        'turn-1'
+      )
+    ).toEqual({
+      phase: 'retry_wait',
+      observedAt: '2026-08-13T21:39:18Z',
+      attempt: 2,
+      maxAttempts: 3,
+      retryAfterMs: 2020,
+    });
+  });
+
+  it.each([
+    ['no accepted turn', runtimeWire({ phase: 'provider_wait' }), undefined],
+    ['old outer turn', runtimeWire({ phase: 'provider_wait' }), 'turn-old'],
+    ['foreign session', runtimeWire({ phase: 'provider_wait' }, 'foreign'), 'turn-1'],
+    ['raw provider text', runtimeWire({ phase: 'provider_wait', message: 'vendor/model timeout' }), 'turn-1'],
+    ['unknown phase', runtimeWire({ phase: 'recovering' }), 'turn-1'],
+    ['missing retry values', runtimeWire({ phase: 'retry_wait' }), 'turn-1'],
+    [
+      'unbounded wait',
+      runtimeWire({ phase: 'retry_wait', attempt: 1, maxAttempts: 2, retryAfterMs: 900_000 }),
+      'turn-1',
+    ],
+  ])('rejects %s fail-closed', (_label, input, outerTurn) => {
+    expect(parseCommandEveRuntimeStatus(input, 'acp-session-1', outerTurn, 'turn-1')).toBeNull();
+  });
 });
 
 describe('parseCommandEveDesktopToolCall', () => {

@@ -513,9 +513,12 @@
   },
   "runtimeStatus": {
     "phase": {
+      "provider_wait": "Очікування першої відповіді провайдера",
+      "retry_wait": "Провайдер не відповідає – повторна спроба",
       "tool_wait": "Інструмент виконується",
       "heartbeat_only": "EVE продовжує працювати",
       "ui_backlog": "Інтерфейс наздоганяє"
-    }
+    },
+    "retryDetail": "Повтор через {{seconds}} с ({{attempt}}/{{maxAttempts}})"
   }
 }

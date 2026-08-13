@@ -46,6 +46,8 @@ export function resolveComposerGlowState(input: {
     case 'connecting':
       return 'start-stau';
     case 'thinking':
+    case 'provider_wait':
+    case 'retry_wait':
     case 'tool_wait':
     case 'heartbeat_only':
       return 'denk-puls';

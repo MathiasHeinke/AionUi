@@ -1469,6 +1469,21 @@ describe('Command EVE runtime bootstrap core', () => {
         closed_decision_reaches_human: true,
         idempotent_install: true,
       });
+      const runtimeStatusHarness = spawnSync(
+        'python3',
+        [path.resolve('tests/fixtures/command-eve/runtime_status_patch_harness.py'), providerOverridePath],
+        { encoding: 'utf8', timeout: 5_000 }
+      );
+      expect(runtimeStatusHarness.status, runtimeStatusHarness.stderr || runtimeStatusHarness.stdout).toBe(0);
+      expect(JSON.parse(runtimeStatusHarness.stdout)).toEqual({
+        events: [
+          { phase: 'provider_wait' },
+          { phase: 'retry_wait', attempt: 2, maxAttempts: 3, retryAfterMs: 2000 },
+          { phase: 'retry_wait', attempt: 3, maxAttempts: 4, retryAfterMs: 4500 },
+        ],
+        raw_status_forwarded: false,
+        idempotent_install: true,
+      });
       // ACP session-restore endpoint contract: a base_url frozen at session
       // creation must never win over the current loopback runtime on resume
       // (proven live: a resumed turn died APIConnectionError against the stale

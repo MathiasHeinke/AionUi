@@ -798,6 +798,8 @@
       "ready": "EVE bereit",
       "submitting": "Anfrage wird gesendet",
       "thinking": "EVE denkt",
+      "provider_wait": "Wartet auf erste Provider-Antwort",
+      "retry_wait": "Provider antwortet nicht – neuer Versuch",
       "streaming": "Antwort streamt",
       "tool_wait": "Tool läuft",
       "heartbeat_only": "EVE arbeitet weiter",
@@ -812,6 +814,7 @@
     "modelUnknown": "Modell unbekannt",
     "context": "Kontext {{used}}/{{size}}",
     "toolDetail": "Werkzeug: {{tool}}",
+    "retryDetail": "Neuer Versuch in {{seconds}} s ({{attempt}}/{{maxAttempts}})",
     "notice": {
       "localModel": "Lokales 64k-Modell: erste Antworten können 30–90 Sekunden dauern.",
       "longRunning": "EVE arbeitet weiter. Öffne bei Bedarf die Logs oder stoppe die Anfrage."

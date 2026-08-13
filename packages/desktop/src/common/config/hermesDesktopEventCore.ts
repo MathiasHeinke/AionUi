@@ -1,5 +1,7 @@
 export const COMMAND_EVE_DESKTOP_EVENT_META_KEY = 'commandEveDesktop' as const;
 export const COMMAND_EVE_DESKTOP_EVENT_VERSION = 'command-eve-desktop-event/v1' as const;
+export const COMMAND_EVE_RUNTIME_STATUS_META_KEY = 'commandEveRuntimeStatus' as const;
+export const COMMAND_EVE_RUNTIME_STATUS_VERSION = 'command-eve-runtime-status/v1' as const;
 
 export type CommandEvePane = 'chat' | 'files' | 'terminal' | 'review' | 'sessions';
 
@@ -12,6 +14,14 @@ export type CommandEveDesktopToolCall = {
   desktopEvent: CommandEveDesktopEvent;
 };
 
+export type CommandEveRuntimeStatus = {
+  phase: 'provider_wait' | 'retry_wait';
+  observedAt: string;
+  attempt?: number;
+  maxAttempts?: number;
+  retryAfterMs?: number;
+};
+
 const hasOnlyKeys = (value: Record<string, unknown>, allowed: readonly string[]): boolean => {
   const keys = Object.keys(value);
   return keys.length <= allowed.length && keys.every((key) => allowed.includes(key));
@@ -19,6 +29,9 @@ const hasOnlyKeys = (value: Record<string, unknown>, allowed: readonly string[])
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+
+const isBoundedInteger = (value: unknown, minimum: number, maximum: number): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum;
 
 function parsePreviewPayload(value: unknown): CommandEveDesktopEvent | null {
   const payload = asRecord(value);
@@ -83,6 +96,57 @@ export function parseCommandEveDesktopEvent(
   if (envelope.event === 'preview.open') return parsePreviewPayload(envelope.payload);
   if (envelope.event === 'pane.reveal') return parsePanePayload(envelope.payload);
   return null;
+}
+
+/** Parse the content-free, ephemeral provider lifecycle carried over ACP metadata. */
+export function parseCommandEveRuntimeStatus(
+  update: unknown,
+  expectedSessionId: string | undefined,
+  canonicalTurnId: string | undefined,
+  expectedTurnId: string | null | undefined
+): CommandEveRuntimeStatus | null {
+  const info = asRecord(update);
+  if (!info || !hasOnlyKeys(info, ['_meta', 'title', 'updated_at', 'session_id'])) return null;
+  const sessionId = info.session_id;
+  if (typeof sessionId !== 'string' || !sessionId.trim() || sessionId.length > 256) return null;
+  if (expectedSessionId && sessionId !== expectedSessionId) return null;
+  if (info.title !== undefined && info.title !== null && typeof info.title !== 'string') return null;
+  if (info.updated_at !== undefined && info.updated_at !== null && typeof info.updated_at !== 'string') return null;
+
+  const meta = asRecord(info._meta);
+  if (!meta || !hasOnlyKeys(meta, [COMMAND_EVE_RUNTIME_STATUS_META_KEY])) return null;
+  const envelope = asRecord(meta[COMMAND_EVE_RUNTIME_STATUS_META_KEY]);
+  if (!envelope) return null;
+  const commonKeys = ['version', 'sessionId', 'phase', 'observedAt'] as const;
+  const retryKeys = [...commonKeys, 'attempt', 'maxAttempts', 'retryAfterMs'] as const;
+  if (!hasOnlyKeys(envelope, envelope.phase === 'retry_wait' ? retryKeys : commonKeys)) return null;
+  if (!commonKeys.every((key) => Object.prototype.hasOwnProperty.call(envelope, key))) return null;
+  if (envelope.version !== COMMAND_EVE_RUNTIME_STATUS_VERSION || envelope.sessionId !== sessionId) return null;
+  // Hermes ACP does not receive AionCore's outer turn id. AionCore adds that
+  // canonical id to the WebSocket frame, so bind it here instead of accepting
+  // an invented nested id from the provider runtime.
+  if (!canonicalTurnId || !expectedTurnId || canonicalTurnId !== expectedTurnId) return null;
+  if (
+    typeof envelope.observedAt !== 'string' ||
+    envelope.observedAt.length > 64 ||
+    !Number.isFinite(Date.parse(envelope.observedAt))
+  ) {
+    return null;
+  }
+  if (envelope.phase === 'provider_wait') {
+    return { phase: 'provider_wait', observedAt: envelope.observedAt };
+  }
+  if (envelope.phase !== 'retry_wait') return null;
+  if (!isBoundedInteger(envelope.attempt, 1, 100)) return null;
+  if (!isBoundedInteger(envelope.maxAttempts, envelope.attempt, 100)) return null;
+  if (!isBoundedInteger(envelope.retryAfterMs, 0, 600_000)) return null;
+  return {
+    phase: 'retry_wait',
+    observedAt: envelope.observedAt,
+    attempt: envelope.attempt,
+    maxAttempts: envelope.maxAttempts,
+    retryAfterMs: envelope.retryAfterMs,
+  };
 }
 
 /**

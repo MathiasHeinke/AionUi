@@ -17,6 +17,8 @@ const ACTIVE_PHASES = new Set<AcpRuntimeActivityPhase>([
   'connecting',
   'submitting',
   'thinking',
+  'provider_wait',
+  'retry_wait',
   'streaming',
   'tool_wait',
   'heartbeat_only',
@@ -31,6 +33,8 @@ const statusDotClass: Record<AcpRuntimeActivityPhase, string> = {
   ready: 'bg-success-6',
   submitting: 'bg-warning-6',
   thinking: 'bg-primary-6',
+  provider_wait: 'bg-warning-6',
+  retry_wait: 'bg-warning-6',
   streaming: 'bg-primary-6',
   tool_wait: 'bg-warning-6',
   heartbeat_only: 'bg-warning-6',
@@ -108,6 +112,14 @@ const AcpRuntimeStatus: React.FC<{
       defaultValue: phase,
     });
   }, [activity.phase, isActive, t]);
+  const retryLabel =
+    activity.phase === 'retry_wait' && activity.retryAfterMs !== undefined
+      ? t('conversation.runtimeStatus.retryDetail', {
+          seconds: Math.max(0, Math.ceil(activity.retryAfterMs / 1000)),
+          attempt: activity.attempt,
+          maxAttempts: activity.maxAttempts,
+        })
+      : null;
 
   const egressDecision = egressBoundary?.decision;
   const egressLabel =
@@ -160,6 +172,7 @@ const AcpRuntimeStatus: React.FC<{
           className={`h-8px w-8px rd-50% shrink-0 ${statusDotClass[activity.phase]} ${isActive ? 'animate-pulse' : ''} ${activity.phase === 'thinking' || activity.phase === 'streaming' ? 'acp-runtime-status__dot--active' : ''}`}
         />
         <span className='font-500 text-t-primary'>{phaseLabel}</span>
+        {retryLabel ? <span className='acp-runtime-status__notice'>{retryLabel}</span> : null}
         {isDevMode ? <span className='truncate'>EVE · {laneLabel}</span> : null}
         {elapsedMs !== undefined ? (
           <span className='inline-flex items-center gap-4px text-t-tertiary'>

@@ -520,9 +520,12 @@
   },
   "runtimeStatus": {
     "phase": {
+      "provider_wait": "Aguardando a primeira resposta do provedor",
+      "retry_wait": "O provedor não respondeu – tentando novamente",
       "tool_wait": "Ferramenta em execução",
       "heartbeat_only": "EVE ainda está trabalhando",
       "ui_backlog": "A interface está atualizando"
-    }
+    },
+    "retryDetail": "Nova tentativa em {{seconds}}s ({{attempt}}/{{maxAttempts}})"
   }
 }

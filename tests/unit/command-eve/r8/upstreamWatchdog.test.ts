@@ -241,14 +241,55 @@ describe('Command EVE R8 upstream watchdog', () => {
 
     expect(Object.keys(receipts[0]).toSorted()).toEqual([
       'boundary',
+      'first_body_chunk_at',
+      'headers_received_at',
       'observed_at',
       'outcome',
+      'request_id',
       'response_started',
+      'started_at',
       'version',
     ]);
     expect(JSON.stringify(receipts[0])).not.toContain(TEST_PROMPT);
     expect(JSON.stringify(receipts[0])).not.toMatch(/credit|billing|reservation/i);
     expect(receipts[0].boundary).toBe('desktop_upstream_transport');
+    expect(receipts[0].version).toBe('command-eve-upstream-outcome/v2');
+    expect(receipts[0].request_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(receipts[0].headers_received_at).toBeTruthy();
+    expect(receipts[0].first_body_chunk_at).toBeTruthy();
     expect(persistedReceipt()).toEqual(receipts[0]);
+    const history = fs
+      .readFileSync(path.join(receiptDir, 'upstream-outcome-history.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as CommandEveUpstreamOutcomeReceipt);
+    expect(history).toEqual(receipts);
+    expect(JSON.stringify(history)).not.toContain(TEST_PROMPT);
+  });
+
+  it('does not mistake HTTP headers for the first model body byte', async () => {
+    fixture = await startR8LoopbackFixture((_request, response) => {
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      response.flushHeaders();
+      setTimeout(() => response.end(), 150);
+    });
+    const receipts: CommandEveUpstreamOutcomeReceipt[] = [];
+    const url = await startShim(fixture.baseUrl, receipts, { firstByteMs: 40, idleMs: 500 }, true);
+
+    const response = await fetch(`${url}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_HEADERS,
+      body: requestBody(),
+    });
+    await response.text();
+
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      version: 'command-eve-upstream-outcome/v2',
+      outcome: 'first_byte_timeout',
+      response_started: true,
+      first_body_chunk_at: null,
+    });
+    expect(receipts[0].headers_received_at).toBeTruthy();
   });
 });

@@ -57,6 +57,24 @@ describe('AcpRuntimeStatus operator visibility', () => {
     expect(document.querySelector('.acp-runtime-status__spinner--active')).toBeNull();
   });
 
+  it('shows an honest provider wait and bounded retry instead of generic thinking', () => {
+    const { rerender } = render(
+      <AcpRuntimeStatus activity={{ phase: 'provider_wait', updatedAt: Date.now() }} running aiProcessing />
+    );
+    expect(screen.getByTestId('acp-runtime-status')).toHaveTextContent('provider_wait');
+    expect(screen.getByTestId('acp-runtime-status')).not.toHaveTextContent('thinking');
+
+    rerender(
+      <AcpRuntimeStatus
+        activity={{ phase: 'retry_wait', attempt: 2, maxAttempts: 3, retryAfterMs: 2020, updatedAt: Date.now() }}
+        running
+        aiProcessing
+      />
+    );
+    expect(screen.getByTestId('acp-runtime-status')).toHaveTextContent('retry_wait');
+    expect(screen.getByTestId('acp-runtime-status')).toHaveTextContent('retryDetail');
+  });
+
   it('stays absent for an idle production conversation', () => {
     render(
       <AcpRuntimeStatus activity={{ phase: 'idle', updatedAt: Date.now() }} running={false} aiProcessing={false} />

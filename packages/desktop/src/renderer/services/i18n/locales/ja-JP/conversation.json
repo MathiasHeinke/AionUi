@@ -514,9 +514,12 @@
   },
   "runtimeStatus": {
     "phase": {
+      "provider_wait": "プロバイダーの最初の応答を待っています",
+      "retry_wait": "プロバイダーが応答しません – 再試行中",
       "tool_wait": "ツール実行中",
       "heartbeat_only": "EVE は作業を継続中",
       "ui_backlog": "表示を更新中"
-    }
+    },
+    "retryDetail": "{{seconds}}秒後に再試行 ({{attempt}}/{{maxAttempts}})"
   }
 }

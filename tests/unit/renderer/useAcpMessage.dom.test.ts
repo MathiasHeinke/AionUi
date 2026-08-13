@@ -1727,6 +1727,82 @@ describe('useAcpMessage', () => {
     emitSpy.mockRestore();
   });
 
+  it('projects provider wait and retry as ephemeral turn-bound runtime status only', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    const sendStatus = (phase: 'provider_wait' | 'retry_wait', turnId = 'turn-status-1') =>
+      responseStreamHandlerRef.current?.({
+        type: 'acp_session_info',
+        data: {
+          title: null,
+          updated_at: null,
+          session_id: 'acp-session-1',
+          _meta: {
+            commandEveRuntimeStatus: {
+              version: 'command-eve-runtime-status/v1',
+              sessionId: 'acp-session-1',
+              phase,
+              observedAt: '2026-08-13T21:39:18Z',
+              ...(phase === 'retry_wait' ? { attempt: 2, maxAttempts: 3, retryAfterMs: 2020 } : {}),
+            },
+          },
+        },
+        msg_id: `status-${phase}`,
+        turn_id: turnId,
+        conversation_id: 'conv-1',
+      });
+
+    act(() => {
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-status-1', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-status-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'acp-session-1' },
+        msg_id: 'status-start',
+        turn_id: 'turn-status-1',
+        conversation_id: 'conv-1',
+      });
+      sendStatus('provider_wait');
+    });
+    expect(result.current.runtimeActivity.phase).toBe('provider_wait');
+
+    act(() => {
+      sendStatus('retry_wait');
+    });
+    expect(result.current.runtimeActivity).toMatchObject({
+      phase: 'retry_wait',
+      attempt: 2,
+      maxAttempts: 3,
+      retryAfterMs: 2020,
+    });
+
+    act(() => {
+      sendStatus('provider_wait', 'turn-old');
+      responseStreamHandlerRef.current?.({
+        type: 'text',
+        data: { content: 'Visible answer' },
+        msg_id: 'status-text',
+        turn_id: 'turn-status-1',
+        conversation_id: 'conv-1',
+      });
+    });
+    expect(result.current.runtimeActivity.phase).toBe('streaming');
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ msg_id: 'status-provider_wait' })
+    );
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalledWith(expect.objectContaining({ msg_id: 'status-retry_wait' }));
+  });
+
   it('answers one strict session-bound read_preview request from the visibly active browser', async () => {
     conversationGetInvokeMock.mockResolvedValue({
       id: 'conv-1',
@@ -2425,7 +2501,7 @@ describe('useAcpMessage', () => {
       }
     });
 
-    it('recovers from heartbeat-only to streaming when backend thinking resumes', async () => {
+    it('recovers from heartbeat-only to the specific thinking phase when backend thinking resumes', async () => {
       conversationGetInvokeMock.mockResolvedValue(null);
       vi.useFakeTimers();
       try {
@@ -2459,7 +2535,7 @@ describe('useAcpMessage', () => {
           vi.advanceTimersByTime(1_000);
         });
 
-        expect(result.current.runtimeActivity.phase).toBe('streaming');
+        expect(result.current.runtimeActivity.phase).toBe('thinking');
       } finally {
         vi.useRealTimers();
       }

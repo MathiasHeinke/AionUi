@@ -516,9 +516,12 @@
   },
   "runtimeStatus": {
     "phase": {
+      "provider_wait": "Sağlayıcının ilk yanıtı bekleniyor",
+      "retry_wait": "Sağlayıcı yanıt vermiyor – yeniden deneniyor",
       "tool_wait": "Araç çalışıyor",
       "heartbeat_only": "EVE çalışmaya devam ediyor",
       "ui_backlog": "Ekran güncelleniyor"
-    }
+    },
+    "retryDetail": "{{seconds}} sn sonra yeniden denenecek ({{attempt}}/{{maxAttempts}})"
   }
 }
