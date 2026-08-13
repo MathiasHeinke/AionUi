@@ -53,7 +53,9 @@ function isSupportedAction(domain: ProviderFreeFixtureDomain, action: string): a
   );
 }
 
-function denied(reasonCode: Extract<ProviderFreeFixtureSignal, { status: 'denied' }>['reasonCode']): ProviderFreeFixtureSignal {
+function denied(
+  reasonCode: Extract<ProviderFreeFixtureSignal, { status: 'denied' }>['reasonCode']
+): ProviderFreeFixtureSignal {
   return { status: 'denied', reasonCode };
 }
 
@@ -68,12 +70,16 @@ function parseScenario(input: unknown): ProviderFreeFixtureScenario | ProviderFr
   if (!Array.isArray(input.origins) || !input.origins.every((origin) => typeof origin === 'string')) {
     return denied('FIXTURE_INPUT_INVALID');
   }
-  if (input.outcome !== undefined && (typeof input.outcome !== 'string' || !OUTCOMES.has(input.outcome as ProviderFreeFixtureOutcome))) {
+  if (
+    input.outcome !== undefined &&
+    (typeof input.outcome !== 'string' || !OUTCOMES.has(input.outcome as ProviderFreeFixtureOutcome))
+  ) {
     return denied('FIXTURE_INPUT_INVALID');
   }
   if (
     input.challengeKind !== undefined &&
-    (typeof input.challengeKind !== 'string' || !CHALLENGES.has(input.challengeKind as ProviderFreeFixtureChallengeKind))
+    (typeof input.challengeKind !== 'string' ||
+      !CHALLENGES.has(input.challengeKind as ProviderFreeFixtureChallengeKind))
   ) {
     return denied('FIXTURE_CHALLENGE_INVALID');
   }
@@ -114,7 +120,10 @@ function instructionFor(
   }
 }
 
-function committedResult(domain: ProviderFreeFixtureDomain, action: ProviderFreeFixtureAction): ProviderFreeFixtureCommittedResult {
+function committedResult(
+  domain: ProviderFreeFixtureDomain,
+  action: ProviderFreeFixtureAction
+): ProviderFreeFixtureCommittedResult {
   if (domain === 'email_identity') {
     if (action === 'send') return { kind: 'message' };
     if (action === 'receive') return { kind: 'inbox' };
