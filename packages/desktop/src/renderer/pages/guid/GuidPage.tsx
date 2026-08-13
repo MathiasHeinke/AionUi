@@ -10,7 +10,10 @@ import { resolveLocaleKey } from '@/common/utils';
 import { COMMAND_EVE_ASSISTANT_AVATAR, COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
 import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
-import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
+import VoiceDialogueControl from '@/renderer/components/chat/voiceDialogue/VoiceDialogueControl';
+import { resolveVoiceDialoguePhase } from '@/renderer/components/chat/voiceDialogue/voiceDialogueCore';
+import { useVoiceDialoguePreference } from '@/renderer/components/chat/voiceDialogue/useVoiceDialoguePreference';
+import { appendSpeechTranscript, type SpeechInputStatus } from '@/renderer/hooks/system/useSpeechInput';
 import ShellElementsRail from '@/renderer/components/layout/Titlebar/ShellElementsRail';
 import { useCommandEveProfile } from '@/renderer/components/account/useCommandEveProfile';
 import { useOnboardingStatus } from '@renderer/hooks/useOnboardingStatus';
@@ -68,6 +71,8 @@ const GuidPage: React.FC = () => {
 
   const localeKey = resolveLocaleKey(i18n.language);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [speechInputStatus, setSpeechInputStatus] = useState<SpeechInputStatus>('idle');
+  const voiceDialoguePreference = useVoiceDialoguePreference();
   const layout = useLayoutContext();
   const { name: profileName, nameConfirmed, loaded: profileLoaded } = useCommandEveProfile();
   // First-run entry bridge (1.818 bounded): one obvious path into existing Erste-Schritte setup.
@@ -650,12 +655,29 @@ const GuidPage: React.FC = () => {
     },
     [guidInput.setInput]
   );
+  const voiceDialogueEnabled = COMMAND_EVE_SHELL_ENABLED && voiceDialoguePreference.enabled;
+  const voiceDialoguePhase = resolveVoiceDialoguePhase({
+    enabled: voiceDialogueEnabled,
+    speechStatus: speechInputStatus,
+  });
   const speechInputNode = (
-    <SpeechInputButton
-      disabled={guidInput.loading}
-      locale={i18n?.language || 'en-US'}
-      onTranscript={handleGuidSpeechTranscript}
-    />
+    <>
+      {COMMAND_EVE_SHELL_ENABLED ? (
+        <VoiceDialogueControl
+          disabled={guidInput.loading}
+          enabled={voiceDialogueEnabled}
+          phase={voiceDialoguePhase}
+          onToggle={() => voiceDialoguePreference.setEnabled(!voiceDialoguePreference.enabled)}
+        />
+      ) : null}
+      <SpeechInputButton
+        disabled={guidInput.loading}
+        forceLocalTranscription={voiceDialogueEnabled}
+        locale={i18n?.language || 'de-DE'}
+        onTranscript={handleGuidSpeechTranscript}
+        onStatusChange={setSpeechInputStatus}
+      />
+    </>
   );
 
   // Context + credits indicator — the SAME ring/popover as in-chat. Pre-conversation

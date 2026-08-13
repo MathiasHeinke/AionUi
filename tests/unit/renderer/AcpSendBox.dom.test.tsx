@@ -14,6 +14,9 @@ import path from 'node:path';
 import { BackendHttpError } from '@/common/adapter/httpBridge';
 import AcpSendBox from '@/renderer/pages/conversation/platforms/acp/AcpSendBox';
 import type { UseAcpMessageReturn } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
+import type { TMessage } from '@/common/chat/chatLib';
+import { VOICE_DIALOGUE_PREFERENCE_KEY } from '@/renderer/components/chat/voiceDialogue/useVoiceDialoguePreference';
+import { ACP_PERFORMANCE_MARK_EVENT, type AcpPerformanceMark } from '@/renderer/utils/performance/acpPerformanceMarks';
 import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
 import { stripCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
 import { COMMAND_EVE_PDF_INTELLIGENCE_VERSION } from '@/common/config/evePdfIntelligenceCore';
@@ -21,6 +24,8 @@ import { ConversationArtifactProvider } from '@/renderer/pages/conversation/Mess
 
 const {
   sendMessageInvokeMock,
+  conversationStopInvokeMock,
+  waitForActiveTurnIdMock,
   steerInvokeMock,
   pdfPrepareInvokeMock,
   imagePrepareInvokeMock,
@@ -37,6 +42,7 @@ const {
   sendBoxPropsMock,
   maxAuthorityMock,
   speechTranscribePendingMock,
+  speechButtonPropsMock,
   queuePanelPropsMock,
   queueItemsMock,
   queueEnqueueMock,
@@ -75,8 +81,13 @@ const {
   videoArtifactsListInvokeMock,
   imageArtifactsListInvokeMock,
   chatHistoryRefreshHandlerMock,
+  messageListState,
+  readAloudTextMock,
+  stopReadAloudMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
+  conversationStopInvokeMock: vi.fn().mockResolvedValue({ runtime: null }),
+  waitForActiveTurnIdMock: vi.fn().mockResolvedValue(null),
   steerInvokeMock: vi.fn(),
   pdfPrepareInvokeMock: vi.fn(),
   imagePrepareInvokeMock: vi.fn(),
@@ -95,6 +106,7 @@ const {
   // is what every pre-existing case in this file assumes.
   maxAuthorityMock: { maxActive: false, entitlementPending: false },
   speechTranscribePendingMock: vi.fn().mockResolvedValue('spoken prompt'),
+  speechButtonPropsMock: { current: null as Record<string, unknown> | null },
   queuePanelPropsMock: { current: null as Record<string, unknown> | null },
   queueItemsMock: {
     current: [] as Array<{ id: string; input: string; files: string[]; created_at: number }>,
@@ -114,6 +126,7 @@ const {
     isProcessing: false,
     canSendMessage: true,
     activeTurnId: null as string | null,
+    localSubmitting: false,
     markSendStarted: vi.fn(),
     markSendAccepted: vi.fn(),
     markSendFailed: vi.fn(),
@@ -158,6 +171,9 @@ const {
   videoArtifactsListInvokeMock: vi.fn(),
   imageArtifactsListInvokeMock: vi.fn(),
   chatHistoryRefreshHandlerMock: { current: null as null | (() => void) },
+  messageListState: { current: [] as TMessage[] },
+  readAloudTextMock: vi.fn(),
+  stopReadAloudMock: vi.fn(),
 }));
 
 function createDeferred<T>() {
@@ -219,7 +235,7 @@ vi.mock('@/common', () => ({
     },
     conversation: {
       stop: {
-        invoke: vi.fn().mockResolvedValue({ runtime: null }),
+        invoke: conversationStopInvokeMock,
       },
       listArtifacts: {
         invoke: listArtifactsInvokeMock,
@@ -299,6 +315,27 @@ vi.mock('@/common/config/configService', () => ({
     subscribePersisted: vi.fn(() => vi.fn()),
   },
 }));
+
+vi.mock('@/renderer/pages/conversation/runtime/conversationRuntimeViewStore', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/renderer/pages/conversation/runtime/conversationRuntimeViewStore')>();
+  return {
+    ...actual,
+    getConversationRuntimeViewSnapshot: (conversation_id: string) => ({
+      conversation_id,
+      activeTurnId: runtimeViewMock.activeTurnId,
+      state: runtimeViewMock.isProcessing ? 'running' : 'idle',
+      isProcessing: runtimeViewMock.isProcessing,
+      canSendMessage: runtimeViewMock.canSendMessage,
+      pendingConfirmations: 0,
+      hasBackendRuntime: true,
+      localSubmitting: runtimeViewMock.localSubmitting,
+      hydrated: runtimeViewMock.hydrated,
+      localStopping: false,
+    }),
+    waitForConversationActiveTurnId: waitForActiveTurnIdMock,
+  };
+});
 
 // MAT-1747 round 5 — the PRODUCTION-ROUTE suite at the bottom of this file runs
 // the REAL main-process handlers behind the bridge mock above, so that the
@@ -392,6 +429,7 @@ vi.mock('@/renderer/components/chat/SpeechInputButton', async () => {
           transcribePendingAudio: (options?: { emit?: boolean }) => Promise<string | null>;
         }>
       ) => {
+        speechButtonPropsMock.current = props;
         ReactActual.useImperativeHandle(ref, () => ({
           hasPendingAudio: () => true,
           transcribePendingAudio: speechTranscribePendingMock,
@@ -468,6 +506,11 @@ vi.mock('@/renderer/hooks/ui/useLatestRef', () => ({
 }));
 vi.mock('@/renderer/pages/conversation/Messages/hooks', () => ({
   useAddOrUpdateMessage: () => addOrUpdateMessageMock,
+  useMessageList: () => messageListState.current,
+}));
+vi.mock('@/renderer/services/ReadAloudService', () => ({
+  readAloudText: readAloudTextMock,
+  stopReadAloud: stopReadAloudMock,
 }));
 vi.mock('@/renderer/pages/conversation/platforms/useConversationCommandQueue', () => ({
   buildConversationBusyControlCommand: ({ input, mode }: { input: string; mode: 'queue' | 'steer' }) => {
@@ -506,6 +549,7 @@ vi.mock('@/renderer/pages/conversation/runtime/useConversationRuntimeView', () =
       isProcessing: runtimeViewMock.isProcessing,
       canSendMessage: runtimeViewMock.canSendMessage,
       activeTurnId: runtimeViewMock.activeTurnId,
+      localSubmitting: runtimeViewMock.localSubmitting,
     },
   }),
 }));
@@ -599,6 +643,7 @@ const makeMessageState = (): UseAcpMessageReturn =>
     // UnifiedSendBar's ContextUsageIndicator, so the message-state stub must
     // provide it (was undefined → crash). quotaWall is part of the contract too.
     runtimeActivity: { phase: 'idle', updatedAt: 0 },
+    lastCompletedTurn: null,
     quotaWall: {
       visible: false,
       body: null,
@@ -621,6 +666,13 @@ describe('AcpSendBox', () => {
     queueOnExecuteMock.current = null;
     mobileActionSheetPropsMock.current = null;
     initialMessageParamsMock.current = null;
+    speechButtonPropsMock.current = null;
+    messageListState.current = [];
+    window.localStorage.removeItem(VOICE_DIALOGUE_PREFERENCE_KEY);
+    readAloudTextMock.mockImplementation(async (_text: string, options?: { onStart?: () => void }) => {
+      options?.onStart?.();
+      return true;
+    });
     queueItemsMock.current = [];
     queueEnqueueMock.mockReturnValue({ id: 'queued', input: 'queued', files: [], created_at: 1 });
     shouldEnqueueMock.mockReturnValue(false);
@@ -628,6 +680,7 @@ describe('AcpSendBox', () => {
     runtimeViewMock.isProcessing = false;
     runtimeViewMock.canSendMessage = true;
     runtimeViewMock.activeTurnId = null;
+    runtimeViewMock.localSubmitting = false;
     draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
     sendBoxMessageMock.current = 'Hello';
     layoutIsMobileMock.current = false;
@@ -814,6 +867,42 @@ describe('AcpSendBox', () => {
       send.resolve({});
     });
     await waitFor(() => expect(screen.queryByTestId('acp-document-preparation')).toBeNull());
+  });
+
+  it('marks request acceptance only after the ACP send result is accepted', async () => {
+    const send = createDeferred<unknown>();
+    const marks: AcpPerformanceMark[] = [];
+    const listener = (event: Event) => marks.push((event as CustomEvent<AcpPerformanceMark>).detail);
+    window.addEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
+    sendMessageInvokeMock.mockReturnValue(send.promise);
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(marks).toEqual([]);
+
+    await act(async () => {
+      send.resolve({ turn_id: 'turn-accepted', msg_id: 'message-accepted', runtime: null });
+    });
+    await waitFor(() =>
+      expect(marks).toContainEqual(
+        expect.objectContaining({
+          stage: 'request_accepted',
+          conversationId: 'conv-1',
+          turnId: 'turn-accepted',
+        })
+      )
+    );
+    window.removeEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
   });
 
   it('rejects an unproven PDF receipt before dispatch and restores the selected file', async () => {
@@ -1955,6 +2044,184 @@ describe('AcpSendBox', () => {
       | undefined;
     await expect(transcribePendingSpeechInput?.({ emit: false })).resolves.toBe('spoken prompt');
     expect(speechTranscribePendingMock).toHaveBeenCalledWith({ emit: false });
+  });
+
+  it('speaks only the newly completed EVE reply through local TTS', async () => {
+    window.localStorage.setItem(VOICE_DIALOGUE_PREFERENCE_KEY, 'true');
+    const historicalReply: TMessage = {
+      id: 'assistant-old',
+      msg_id: 'assistant-old',
+      conversation_id: 'conv-1',
+      type: 'text',
+      position: 'left',
+      content: { content: 'Historische Antwort' },
+    };
+    const newReply: TMessage = {
+      id: 'assistant-new',
+      msg_id: 'assistant-new',
+      conversation_id: 'conv-1',
+      type: 'text',
+      position: 'left',
+      content: { content: 'Neue Antwort' },
+    };
+    messageListState.current = [historicalReply];
+    const idleState = { ...makeMessageState(), running: false };
+    const view = render(
+      <AcpSendBox conversation_id='conv-1' backend='hermes' workspacePath='/tmp/workspace' messageState={idleState} />
+    );
+
+    const activeState = { ...idleState, running: true };
+    runtimeViewMock.activeTurnId = 'turn-1';
+    view.rerender(
+      <AcpSendBox conversation_id='conv-1' backend='hermes' workspacePath='/tmp/workspace' messageState={activeState} />
+    );
+    messageListState.current = [historicalReply, newReply];
+    view.rerender(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={{
+          ...activeState,
+          running: false,
+          lastCompletedTurn: { sequence: 1, turnId: 'turn-1', completedAt: 100 },
+        }}
+      />
+    );
+
+    await waitFor(() => expect(readAloudTextMock).toHaveBeenCalledTimes(1));
+    expect(readAloudTextMock).toHaveBeenCalledWith(
+      'Neue Antwort',
+      expect.objectContaining({
+        lang: 'de-DE',
+        preferCloud: false,
+        onStart: expect.any(Function),
+      })
+    );
+  });
+
+  it('stops EVE playback and the active ACP turn before barge-in recording', async () => {
+    window.localStorage.setItem(VOICE_DIALOGUE_PREFERENCE_KEY, 'true');
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = 'turn-1';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    const beforeStartRecording = speechButtonPropsMock.current?.beforeStartRecording as
+      | (() => Promise<void>)
+      | undefined;
+    expect(beforeStartRecording).toBeTypeOf('function');
+    await act(async () => {
+      await beforeStartRecording?.();
+    });
+
+    expect(stopReadAloudMock).toHaveBeenCalled();
+    expect(queuePauseMock).toHaveBeenCalledTimes(1);
+    expect(runtimeViewMock.markStopRequested).toHaveBeenCalledWith('turn-1');
+  });
+
+  it('surfaces an honest error when active-turn cancellation is rejected', async () => {
+    window.localStorage.setItem(VOICE_DIALOGUE_PREFERENCE_KEY, 'true');
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = 'turn-rejected';
+    conversationStopInvokeMock.mockRejectedValueOnce(new Error('stop rejected'));
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    const beforeStartRecording = speechButtonPropsMock.current?.beforeStartRecording as
+      | (() => Promise<void>)
+      | undefined;
+    await act(async () => {
+      await beforeStartRecording?.();
+    });
+
+    await waitFor(() => expect(runtimeViewMock.resetLocalGate).toHaveBeenCalledWith('stop_failed'));
+    expect(messageErrorMock).toHaveBeenCalledWith(expect.stringMatching(/could not be stopped|konnte nicht gestoppt/i));
+  });
+
+  it('keeps barge-in disabled until the active ACP turn has a cancellable id', () => {
+    window.localStorage.setItem(VOICE_DIALOGUE_PREFERENCE_KEY, 'true');
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = null;
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    expect(speechButtonPropsMock.current?.disabled).toBe(true);
+  });
+
+  it('enables local-only barge-in while send acceptance is still pending', () => {
+    window.localStorage.setItem(VOICE_DIALOGUE_PREFERENCE_KEY, 'true');
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = null;
+    runtimeViewMock.localSubmitting = true;
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    expect(speechButtonPropsMock.current?.disabled).toBe(false);
+    expect(speechButtonPropsMock.current?.forceLocalTranscription).toBe(true);
+  });
+
+  it('refuses to open the microphone when a submitting turn never receives a cancellable id', async () => {
+    window.localStorage.setItem(VOICE_DIALOGUE_PREFERENCE_KEY, 'true');
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = null;
+    runtimeViewMock.localSubmitting = true;
+    waitForActiveTurnIdMock.mockResolvedValueOnce(null);
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    const beforeStartRecording = speechButtonPropsMock.current?.beforeStartRecording as
+      | (() => Promise<boolean>)
+      | undefined;
+    let mayRecord: boolean | undefined;
+    await act(async () => {
+      mayRecord = await beforeStartRecording?.();
+    });
+
+    expect(mayRecord).toBe(false);
+    expect(waitForActiveTurnIdMock).toHaveBeenCalledWith('conv-1', { timeoutMs: 5_000 });
+    expect(conversationStopInvokeMock).not.toHaveBeenCalled();
+    expect(messageErrorMock).toHaveBeenCalledWith(expect.stringMatching(/could not be stopped|konnte nicht gestoppt/i));
   });
 
   it('removes a queued text command before promoting it into the running turn', async () => {

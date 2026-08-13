@@ -9,6 +9,7 @@ import {
   localStopAcknowledged,
   localStopRequested,
   resetConversationRuntimeViewStoreForTest,
+  shouldApplyConversationStreamTurn,
   turnCompleted,
   waitForConversationActiveTurnId,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
@@ -155,5 +156,152 @@ describe('conversationRuntimeViewStore turn id contract', () => {
     expect(view.activeTurnId).toBe('turn-2');
     expect(view.isProcessing).toBe(true);
     expect(view.localStopping).toBe(false);
+  });
+
+  it('allows only a recovered turn terminal before a newer local send begins', () => {
+    localSendStarted('conv-1');
+    localSendAccepted('conv-1', 'turn-a', runningRuntime('turn-a'), 'msg-a');
+    turnCompleted('conv-1', 'turn-a', idleRuntime());
+
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-1',
+        consumer: 'conversation_list_sync',
+        terminal: true,
+        turn_id: 'turn-a',
+        type: 'error',
+      })
+    ).toBe(false);
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-1',
+        consumer: 'conversation_list_sync',
+        terminal: true,
+        turn_id: 'turn-a',
+        type: 'finish',
+      })
+    ).toBe(true);
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-1',
+        consumer: 'conversation_list_sync',
+        terminal: false,
+        turn_id: 'turn-a',
+        type: 'text',
+      })
+    ).toBe(false);
+
+    localSendStarted('conv-1');
+    for (const [type, terminal] of [
+      ['text', false],
+      ['error', true],
+      ['finish', true],
+    ] as const) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-1',
+          consumer: 'conversation_list_sync',
+          terminal,
+          turn_id: 'turn-a',
+          type,
+        })
+      ).toBe(false);
+    }
+
+    localSendAccepted('conv-1', 'turn-b', runningRuntime('turn-b'), 'msg-b');
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-1',
+        consumer: 'conversation_list_sync',
+        terminal: true,
+        turn_id: 'turn-b',
+        type: 'finish',
+      })
+    ).toBe(true);
+  });
+
+  it('preserves repeated successful terminals for the bounded downstream retry policy', () => {
+    for (const consumer of ['generation_activity', 'conversation_list_sync'] as const) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-finish',
+          consumer,
+          terminal: false,
+          turn_id: 'turn-finish',
+          type: 'start',
+        })
+      ).toBe(true);
+    }
+
+    for (const consumer of ['generation_activity', 'conversation_list_sync', 'conversation_list_sync'] as const) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-finish',
+          consumer,
+          terminal: true,
+          turn_id: 'turn-finish',
+          type: 'finish',
+        })
+      ).toBe(true);
+    }
+  });
+
+  it.each([
+    ['generation activity first', ['generation_activity', 'conversation_list_sync']],
+    ['conversation list first', ['conversation_list_sync', 'generation_activity']],
+  ] as const)('delivers one start-to-error terminal to both stream consumers with %s', (_label, consumers) => {
+    for (const consumer of consumers) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-error',
+          consumer,
+          terminal: false,
+          turn_id: 'turn-error',
+          type: 'start',
+        })
+      ).toBe(true);
+    }
+
+    for (const consumer of consumers) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-error',
+          consumer,
+          terminal: true,
+          turn_id: 'turn-error',
+          type: 'error',
+        })
+      ).toBe(true);
+    }
+
+    for (const consumer of consumers) {
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-error',
+          consumer,
+          terminal: true,
+          turn_id: 'turn-error',
+          type: 'error',
+        })
+      ).toBe(false);
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-error',
+          consumer,
+          terminal: true,
+          turn_id: 'turn-error',
+          type: 'finish',
+        })
+      ).toBe(false);
+      expect(
+        shouldApplyConversationStreamTurn({
+          conversation_id: 'conv-error',
+          consumer,
+          terminal: false,
+          turn_id: 'turn-error',
+          type: 'text',
+        })
+      ).toBe(false);
+    }
   });
 });

@@ -33,6 +33,7 @@ type SpeechInputEnvironment = {
 };
 
 type UseSpeechInputOptions = {
+  forceLocalTranscription?: boolean;
   locale?: string;
   onTranscript: (transcript: string) => void;
 };
@@ -173,7 +174,7 @@ const mapSpeechInputError = (error: unknown): SpeechInputErrorCode => {
   return 'unknown';
 };
 
-export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) => {
+export const useSpeechInput = ({ forceLocalTranscription, locale, onTranscript }: UseSpeechInputOptions) => {
   const [status, setStatus] = useState<SpeechInputStatus>('idle');
   const [errorCode, setErrorCode] = useState<SpeechInputErrorCode | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -185,6 +186,7 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
   // fresh recording, and on clearError.
   const [canRetry, setCanRetry] = useState(false);
   const lastAudioBlobRef = useRef<Blob | null>(null);
+  const lastAudioForceLocalRef = useRef(false);
   const pendingStopResolveRef = useRef<((transcript: string | null) => void) | null>(null);
   const pendingStopOptionsRef = useRef<SpeechTranscriptionRequestOptions | undefined>(undefined);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -327,24 +329,34 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
     setStatus('idle');
     setCanRetry(false);
     lastAudioBlobRef.current = null;
+    lastAudioForceLocalRef.current = false;
     resetSpeechVisualizer();
   }, [resetSpeechVisualizer]);
 
   const transcribeBlob = useCallback(
-    async (blob: Blob, options?: SpeechTranscriptionRequestOptions): Promise<string | null> => {
+    async (
+      blob: Blob,
+      options?: SpeechTranscriptionRequestOptions,
+      forceLocalOverride?: boolean
+    ): Promise<string | null> => {
       // Preserve the audio so a failed transcription can be retried without
       // re-recording. Only dropped on success / clearError / a fresh recording.
+      const forceLocal = forceLocalOverride ?? forceLocalTranscription === true;
       lastAudioBlobRef.current = blob;
+      lastAudioForceLocalRef.current = forceLocal;
       try {
         setStatus('transcribing');
         setErrorCode(null);
         setErrorMessage(null);
         setCanRetry(false);
-        const result = await transcribeAudioBlob(blob, recognitionLocale);
+        const result = await transcribeAudioBlob(blob, recognitionLocale, {
+          forceLocal,
+        });
         const transcript = result.text.trim();
         if (!transcript) {
           // Re-transcribing identical audio would just fail again — not retryable.
           lastAudioBlobRef.current = null;
+          lastAudioForceLocalRef.current = false;
           setErrorCode('empty-transcript');
           setErrorMessage(null);
           setStatus('error');
@@ -352,6 +364,7 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
           return null;
         }
         lastAudioBlobRef.current = null;
+        lastAudioForceLocalRef.current = false;
         if (options?.emit !== false) {
           onTranscriptRef.current(transcript);
         }
@@ -375,13 +388,13 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
         return null;
       }
     },
-    [onTranscriptRef, recognitionLocale, resetSpeechVisualizer]
+    [forceLocalTranscription, onTranscriptRef, recognitionLocale, resetSpeechVisualizer]
   );
 
   const retryTranscription = useCallback(() => {
     const blob = lastAudioBlobRef.current;
     if (!blob) return;
-    void transcribeBlob(blob);
+    void transcribeBlob(blob, undefined, lastAudioForceLocalRef.current);
   }, [transcribeBlob]);
 
   const startRecording = useCallback(async () => {

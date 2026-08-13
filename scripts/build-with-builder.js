@@ -14,6 +14,7 @@ const { execSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { resolveBuilderExecutionPolicy } = require('./buildWithBuilderConfigCore.cjs');
 const { viteBuildExists } = require('./buildWithBuilderViteOutputCore.cjs');
 const { PRODUCT_NAME, WINDOWS_EXECUTABLE_NAME } = require('./windows/productIdentity.cjs');
 
@@ -820,15 +821,18 @@ try {
 
   const isWindowsBuild = builderArgs.includes('--win') || builderArgs.includes('--all');
   const isUnsignedWindowsPhaseA = isWindowsBuild && process.env.COMMAND_EVE_PHASE_A_UNSIGNED_BUILD === '1';
+  const isPackagedE2E = process.env.COMMAND_EVE_E2E_PACKAGED_BUILD === '1';
   if (isWindowsBuild) {
     cleanupWindowsPackOutput();
   }
 
-  const builderConfig = isUnsignedWindowsPhaseA
-    ? 'packages/desktop/electron-builder.phase-a.yml'
-    : 'packages/desktop/electron-builder.yml';
+  const builderPolicy = resolveBuilderExecutionPolicy({ isUnsignedWindowsPhaseA, isPackagedE2E });
+  const builderConfig = builderPolicy.builderConfig;
   if (isUnsignedWindowsPhaseA) {
     console.log('🧪 Building an unsigned Phase A proof with an isolated non-production update feed.');
+  }
+  if (isPackagedE2E) {
+    console.log('🧪 Building the baked, non-distributable Playwright attachment package (no DMG retry/feed).');
   }
   const builderCommand = `bunx electron-builder --config ${builderConfig} ${builderArgs} ${archFlag} ${nsisInclude} ${publishArg}`;
   try {
@@ -855,7 +859,11 @@ try {
         // best-effort; a fresh out/ has nothing to unlock
       }
     }
-    buildWithDmgRetry(builderCommand, targetArch);
+    if (builderPolicy.allowDmgRetry) {
+      buildWithDmgRetry(builderCommand, targetArch);
+    } else {
+      execSync(builderCommand, { stdio: 'inherit', shell: process.platform === 'win32' });
+    }
   } catch (error) {
     const winExePath = path.join(outDir, 'win-unpacked', WINDOWS_EXECUTABLE_NAME);
     const firstError = formatExecError(error);
@@ -898,7 +906,9 @@ try {
     }
   }
 
-  verifyMacUpdateFeedAfterBuild(outDir, packageJson.version, targetArch, builderArgs, multiArch);
+  if (builderPolicy.verifyMacUpdateFeed) {
+    verifyMacUpdateFeedAfterBuild(outDir, packageJson.version, targetArch, builderArgs, multiArch);
+  }
 
   console.log('✅ Build completed!');
 } catch (error) {

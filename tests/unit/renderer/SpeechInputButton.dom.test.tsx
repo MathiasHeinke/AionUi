@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -110,5 +110,67 @@ describe('SpeechInputButton config readiness', () => {
     await user.click(button);
 
     expect(startRecordingMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('awaits the barge-in boundary before opening the microphone', async () => {
+    const user = userEvent.setup();
+    const beforeStartRecording = vi.fn(async () => undefined);
+    render(<SpeechInputButton beforeStartRecording={beforeStartRecording} onTranscript={vi.fn()} />);
+
+    const button = await screen.findByRole('button', {
+      name: 'conversation.chat.speech.recordTooltip',
+    });
+    await user.click(button);
+
+    expect(beforeStartRecording).toHaveBeenCalledTimes(1);
+    expect(startRecordingMock).toHaveBeenCalledTimes(1);
+    expect(beforeStartRecording.mock.invocationCallOrder[0]).toBeLessThan(
+      startRecordingMock.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('keeps the microphone closed when the barge-in boundary rejects recording', async () => {
+    const user = userEvent.setup();
+    const beforeStartRecording = vi.fn(async () => false);
+    render(<SpeechInputButton beforeStartRecording={beforeStartRecording} onTranscript={vi.fn()} />);
+
+    const button = await screen.findByRole('button', {
+      name: 'conversation.chat.speech.recordTooltip',
+    });
+    await user.click(button);
+
+    expect(beforeStartRecording).toHaveBeenCalledTimes(1);
+    expect(startRecordingMock).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates clicks while the barge-in boundary is pending', async () => {
+    let resolveStartGate!: (mayStartRecording: boolean) => void;
+    const beforeStartRecording = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveStartGate = resolve;
+        })
+    );
+    render(<SpeechInputButton beforeStartRecording={beforeStartRecording} onTranscript={vi.fn()} />);
+
+    const button = await screen.findByRole('button', {
+      name: 'conversation.chat.speech.recordTooltip',
+    });
+    act(() => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+
+    expect(beforeStartRecording).toHaveBeenCalledTimes(1);
+    expect(startRecordingMock).not.toHaveBeenCalled();
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-busy', 'true');
+
+    await act(async () => {
+      resolveStartGate(true);
+    });
+
+    expect(startRecordingMock).toHaveBeenCalledTimes(1);
+    expect(button).not.toBeDisabled();
   });
 });
