@@ -14,6 +14,7 @@ import {
 import {
   classifyConversationStreamTerminal,
   invalidateConversationRuntimeForSeatRebind,
+  shouldApplyConversationTurnCompleted,
   shouldApplyConversationStreamTurn,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { clearGenerationForBackendRespawn } from '@/renderer/services/commandEveGenerationActivity';
@@ -1090,6 +1091,18 @@ const initializeConversationListSyncStore = () => {
     }
   });
   ipcBridge.conversation.turnCompleted.on((event) => {
+    if (
+      !shouldApplyConversationTurnCompleted({
+        conversation_id: event.session_id,
+        consumer: 'conversation_list_sync',
+        turn_id: event.turn_id,
+        runtime_turn_id: event.runtime?.turn_id,
+      })
+    ) {
+      logLateStreamIgnored(event.session_id, 'turn.completed');
+      return;
+    }
+
     if (event.runtime?.is_processing) {
       clearCompleted(event.session_id);
       localGeneratingTurnIds.set(event.session_id, event.runtime.turn_id ?? event.turn_id ?? null);

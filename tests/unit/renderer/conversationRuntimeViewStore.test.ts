@@ -1,5 +1,13 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TConversationRuntimeSummary } from '@/common/config/storage';
+
+const seatHarness = vi.hoisted(() => ({ currentSeatId: 'seat-a', nextSeat: 0 }));
+
+vi.mock('@/common/config/configService', () => ({
+  configService: {
+    getCurrentSeatId: () => seatHarness.currentSeatId,
+  },
+}));
 import {
   getConversationRuntimeViewSnapshot,
   hydrateSucceeded,
@@ -10,6 +18,7 @@ import {
   localStopAcknowledged,
   localStopRequested,
   resetConversationRuntimeViewStoreForTest,
+  shouldApplyConversationTurnCompleted,
   shouldApplyConversationStreamTurn,
   turnCompleted,
   waitForConversationActiveTurnId,
@@ -37,8 +46,16 @@ const runningRuntime = (turn_id: string): TConversationRuntimeSummary => ({
 
 describe('conversationRuntimeViewStore turn id contract', () => {
   beforeEach(() => {
+    seatHarness.currentSeatId = 'seat-a';
+    seatHarness.nextSeat = 0;
     resetConversationRuntimeViewStoreForTest();
   });
+
+  const rebindSeat = () => {
+    seatHarness.nextSeat += 1;
+    seatHarness.currentSeatId = `seat-rebound-${seatHarness.nextSeat}`;
+    invalidateConversationRuntimeForSeatRebind();
+  };
 
   it('keeps idle when turn.completed arrives before local send accepted', () => {
     localSendStarted('conv-1');
@@ -258,7 +275,7 @@ describe('conversationRuntimeViewStore turn id contract', () => {
       })
     ).toBe(true);
 
-    invalidateConversationRuntimeForSeatRebind();
+    rebindSeat();
     for (const turn_id of ['turn-background', undefined] as const) {
       expect(
         shouldApplyConversationStreamTurn({
@@ -284,6 +301,111 @@ describe('conversationRuntimeViewStore turn id contract', () => {
       shouldApplyConversationStreamTurn({
         conversation_id: 'conv-seat',
         consumer: 'conversation_list_sync',
+        terminal: true,
+        turn_id: 'turn-new-seat',
+        type: 'error',
+      })
+    ).toBe(true);
+  });
+
+  it('fences durable completion until positive current-seat identity is bound', () => {
+    expect(
+      shouldApplyConversationTurnCompleted({
+        conversation_id: 'conv-background',
+        consumer: 'conversation_list_sync',
+      })
+    ).toBe(true);
+
+    rebindSeat();
+    for (const turn_id of ['turn-old-seat', undefined] as const) {
+      expect(
+        shouldApplyConversationTurnCompleted({
+          conversation_id: 'conv-seat',
+          consumer: 'conversation_list_sync',
+          turn_id,
+        })
+      ).toBe(false);
+    }
+
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-seat',
+        consumer: 'conversation_list_sync',
+        terminal: false,
+        turn_id: 'turn-new-seat',
+        type: 'start',
+      })
+    ).toBe(true);
+    for (const consumer of ['conversation_list_sync', 'runtime_view'] as const) {
+      expect(
+        shouldApplyConversationTurnCompleted({
+          conversation_id: 'conv-seat',
+          consumer,
+          turn_id: 'turn-old-seat',
+        })
+      ).toBe(false);
+      expect(
+        shouldApplyConversationTurnCompleted({
+          conversation_id: 'conv-seat',
+          consumer,
+          turn_id: 'turn-new-seat',
+        })
+      ).toBe(true);
+    }
+
+    rebindSeat();
+    hydrateSucceeded('conv-runtime', runningRuntime('turn-runtime'));
+    expect(
+      shouldApplyConversationTurnCompleted({
+        conversation_id: 'conv-runtime',
+        consumer: 'runtime_view',
+        turn_id: 'turn-runtime',
+      })
+    ).toBe(true);
+
+    rebindSeat();
+    localSendStarted('conv-local-send');
+    expect(
+      shouldApplyConversationTurnCompleted({
+        conversation_id: 'conv-local-send',
+        consumer: 'runtime_view',
+        turn_id: 'turn-local-send',
+      })
+    ).toBe(false);
+    localSendAccepted('conv-local-send', 'turn-local-send', runningRuntime('turn-local-send'));
+    expect(
+      shouldApplyConversationTurnCompleted({
+        conversation_id: 'conv-local-send',
+        consumer: 'runtime_view',
+        turn_id: 'turn-local-send',
+      })
+    ).toBe(true);
+  });
+
+  it('rejects an uncorrelated terminal after an exact current-seat start', () => {
+    rebindSeat();
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-seat',
+        consumer: 'generation_activity',
+        terminal: false,
+        turn_id: 'turn-new-seat',
+        type: 'start',
+      })
+    ).toBe(true);
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-seat',
+        consumer: 'generation_activity',
+        terminal: true,
+        turn_id: undefined,
+        type: 'error',
+      })
+    ).toBe(false);
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-seat',
+        consumer: 'generation_activity',
         terminal: true,
         turn_id: 'turn-new-seat',
         type: 'error',

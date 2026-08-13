@@ -210,6 +210,7 @@ describe('conversation sidebar continuity', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    harness.setCurrentSeatId('seat-a');
     resetConversationRuntimeRecoveryMonitorsForTest();
     resetConversationRuntimeViewStoreForTest();
     resetConversationListSyncForTest();
@@ -804,6 +805,143 @@ describe('conversation sidebar continuity', () => {
       expect(listHook.result.current.hasConversationError(sharedId)).toBe(false);
       expect(harness.updateConversation).not.toHaveBeenCalled();
 
+      const newTurnId = 'turn-seat-b';
+      act(() => {
+        responseHandlers.forEach((handler) =>
+          handler(responseMessage({ type: 'start', conversation_id: sharedId, turn_id: newTurnId }))
+        );
+      });
+      expect(isAnyGenerating()).toBe(true);
+      expect(listHook.result.current.isConversationGenerating(sharedId)).toBe(true);
+      await act(flushPromises);
+      harness.updateConversation.mockClear();
+
+      await act(async () => {
+        responseHandlers.forEach((handler) =>
+          handler(
+            responseMessage({
+              type: 'agent_status',
+              conversation_id: sharedId,
+              turn_id: undefined,
+              data: { status: 'error' },
+            })
+          )
+        );
+        await flushPromises();
+      });
+      expect(isAnyGenerating()).toBe(true);
+      expect(listHook.result.current.isConversationGenerating(sharedId)).toBe(true);
+      expect(listHook.result.current.hasConversationError(sharedId)).toBe(false);
+      expect(harness.updateConversation).not.toHaveBeenCalled();
+
+      await act(async () => {
+        responseHandlers.forEach((handler) =>
+          handler(responseMessage({ type: 'error', conversation_id: sharedId, turn_id: newTurnId }))
+        );
+        await flushPromises();
+      });
+      expect(isAnyGenerating()).toBe(false);
+      expect(listHook.result.current.isConversationGenerating(sharedId)).toBe(false);
+      expect(listHook.result.current.hasConversationError(sharedId)).toBe(true);
+      expect(harness.updateConversation).toHaveBeenCalledTimes(1);
+
+      listHook.unmount();
+    }
+  );
+
+  it.each([true, false] as const)(
+    'fences both turn.completed consumers across a same-id seat rebind (runtime first: %s)',
+    async (runtimeFirst) => {
+      const sharedId = 'conversation-completed-same-id';
+      const oldTurnId = 'turn-completed-seat-a';
+      const newTurnId = 'turn-completed-seat-b';
+      harness.rowsBySeat.set('seat-a', [conversation(sharedId, runtime({ is_processing: true, turn_id: oldTurnId }))]);
+      harness.rowsBySeat.set('seat-b', [conversation(sharedId, runtime())]);
+
+      const mountRuntime = () => renderHook(() => useConversationRuntimeView(sharedId));
+      const mountList = () => renderHook(() => useConversationListSync());
+      const runtimeHook = runtimeFirst ? mountRuntime() : null;
+      const listHook = mountList();
+      const mountedRuntimeHook = runtimeHook ?? mountRuntime();
+      await act(flushPromises);
+      expect(harness.turnCompletedHandlers.size).toBe(2);
+
+      harness.setCurrentSeatId('seat-b');
+      harness.updateConversation.mockClear();
+      const lateOldSeatCompletions = [
+        terminalTurn(sharedId, oldTurnId, runtime(), 'error'),
+        terminalTurn(sharedId, oldTurnId, runtime(), 'stopped'),
+        terminalTurn(sharedId, oldTurnId, runtime(), 'ai_waiting_input'),
+        terminalTurn(sharedId, '', runtime(), 'error'),
+      ];
+      await act(async () => {
+        // ConfigService moves its seat id before its async rebind callback.
+        // Both real consumers must fence this exact await window themselves.
+        lateOldSeatCompletions.forEach((event) => harness.turnCompletedHandlers.forEach((handler) => handler(event)));
+        await flushPromises();
+      });
+      expect(harness.updateConversation).not.toHaveBeenCalled();
+      expect(mountedRuntimeHook.result.current.activeTurnId).toBeNull();
+      expect(mountedRuntimeHook.result.current.isProcessing).toBe(false);
+
+      await act(async () => {
+        harness.seatRebindHandlers.forEach((handler) => handler('seat-b'));
+        await flushPromises();
+      });
+      expect(listHook.result.current.conversations.map(({ id }) => id)).toEqual([sharedId]);
+      harness.updateConversation.mockClear();
+      const emitSpy = vi.spyOn(emitter, 'emit');
+      emitSpy.mockClear();
+
+      await act(async () => {
+        lateOldSeatCompletions.forEach((event) => harness.turnCompletedHandlers.forEach((handler) => handler(event)));
+        await flushPromises();
+      });
+
+      expect(listHook.result.current.hasCompletionUnread(sharedId)).toBe(false);
+      expect(listHook.result.current.isConversationWaitingInput(sharedId)).toBe(false);
+      expect(listHook.result.current.hasConversationError(sharedId)).toBe(false);
+      expect(harness.updateConversation).not.toHaveBeenCalled();
+      expect(mountedRuntimeHook.result.current.activeTurnId).toBeNull();
+      expect(mountedRuntimeHook.result.current.isProcessing).toBe(false);
+      expect(emitSpy).not.toHaveBeenCalledWith(
+        'conversation.runtime.recovered',
+        expect.objectContaining({ conversation_id: sharedId })
+      );
+
+      act(() => {
+        harness.responseHandlers.forEach((handler) =>
+          handler(responseMessage({ type: 'start', conversation_id: sharedId, turn_id: newTurnId }))
+        );
+      });
+      await act(flushPromises);
+      harness.updateConversation.mockClear();
+      await act(async () => {
+        lateOldSeatCompletions.forEach((event) => harness.turnCompletedHandlers.forEach((handler) => handler(event)));
+        await flushPromises();
+      });
+      expect(listHook.result.current.hasCompletionUnread(sharedId)).toBe(false);
+      expect(listHook.result.current.isConversationWaitingInput(sharedId)).toBe(false);
+      expect(listHook.result.current.hasConversationError(sharedId)).toBe(false);
+      expect(harness.updateConversation).not.toHaveBeenCalled();
+      expect(mountedRuntimeHook.result.current.activeTurnId).toBeNull();
+      expect(mountedRuntimeHook.result.current.isProcessing).toBe(false);
+
+      await act(async () => {
+        const validCompletion = terminalTurn(sharedId, newTurnId, runtime(), 'ai_waiting_input');
+        harness.turnCompletedHandlers.forEach((handler) => handler(validCompletion));
+        await flushPromises();
+      });
+
+      expect(listHook.result.current.hasCompletionUnread(sharedId)).toBe(true);
+      expect(listHook.result.current.isConversationWaitingInput(sharedId)).toBe(true);
+      expect(listHook.result.current.hasConversationError(sharedId)).toBe(false);
+      expect(harness.updateConversation).toHaveBeenCalledTimes(1);
+      expect(mountedRuntimeHook.result.current.activeTurnId).toBeNull();
+      expect(mountedRuntimeHook.result.current.isProcessing).toBe(false);
+
+      emitSpy.mockRestore();
+      mountedRuntimeHook.unmount();
       listHook.unmount();
     }
   );
@@ -821,7 +959,6 @@ describe('conversation sidebar working phases (1.820.5)', () => {
     harness.listChangedHandlers.clear();
     harness.seatRebindHandlers.clear();
     harness.rowsBySeat.clear();
-    harness.setCurrentSeatId('seat-a');
     // Fresh store init so this suite's harness handlers are the live ones.
     resetConversationListSyncForTest();
   });

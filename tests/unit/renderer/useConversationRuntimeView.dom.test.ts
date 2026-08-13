@@ -15,12 +15,19 @@ import {
 } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
 import { resetConversationRuntimeViewStoreForTest } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 
-const { getConversationOrNullMock, turnCompletedHandlerRef } = vi.hoisted(() => ({
+const { getConversationOrNullMock, turnCompletedHandlerRef, seatHarness } = vi.hoisted(() => ({
   getConversationOrNullMock: vi.fn(),
+  seatHarness: { currentSeatId: 'seat-a' },
   turnCompletedHandlerRef: {
     current: undefined as
       | ((event: { session_id: string; turn_id: string; runtime: TConversationRuntimeSummary | null }) => void)
       | undefined,
+  },
+}));
+
+vi.mock('@/common/config/configService', () => ({
+  configService: {
+    getCurrentSeatId: () => seatHarness.currentSeatId,
   },
 }));
 
@@ -80,6 +87,7 @@ describe('useConversationRuntimeView recovery', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    seatHarness.currentSeatId = 'seat-a';
     resetConversationRuntimeRecoveryMonitorsForTest();
     resetConversationRuntimeViewStoreForTest();
     turnCompletedHandlerRef.current = undefined;
@@ -295,6 +303,65 @@ describe('useConversationRuntimeView recovery', () => {
     expect(emitSpy).not.toHaveBeenCalledWith(
       'conversation.runtime.recovered',
       expect.objectContaining({ conversation_id: 'conv-1' })
+    );
+  });
+
+  it('drops a delayed same-id hydrate and recovery poll after the seat generation changes', async () => {
+    const initialHydrate = createDeferred<{ runtime: TConversationRuntimeSummary }>();
+    getConversationOrNullMock.mockReturnValueOnce(initialHydrate.promise);
+    const emitSpy = vi.spyOn(emitter, 'emit');
+    const { result } = renderHook(() => useConversationRuntimeView('conv-shared'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    seatHarness.currentSeatId = 'seat-b';
+    await act(async () => {
+      initialHydrate.resolve({
+        runtime: runtime({
+          state: 'running',
+          can_send_message: false,
+          is_processing: true,
+          turn_id: 'turn-seat-a',
+        }),
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.activeTurnId).toBeNull();
+    expect(result.current.isProcessing).toBe(false);
+
+    act(() => {
+      result.current.markSendStarted();
+      result.current.markSendAccepted(
+        'turn-seat-b',
+        runtime({
+          state: 'running',
+          can_send_message: false,
+          is_processing: true,
+          turn_id: 'turn-seat-b',
+        }),
+        'msg-seat-b'
+      );
+    });
+    const oldPoll = createDeferred<{ runtime: TConversationRuntimeSummary }>();
+    getConversationOrNullMock.mockReturnValueOnce(oldPoll.promise);
+    await act(async () => {
+      vi.advanceTimersByTime(1_500);
+      await Promise.resolve();
+    });
+
+    seatHarness.currentSeatId = 'seat-c';
+    await act(async () => {
+      oldPoll.resolve({ runtime: runtime() });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.activeTurnId).toBeNull();
+    expect(result.current.isProcessing).toBe(false);
+    expect(emitSpy).not.toHaveBeenCalledWith(
+      'conversation.runtime.recovered',
+      expect.objectContaining({ conversation_id: 'conv-shared' })
     );
   });
 

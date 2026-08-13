@@ -5,12 +5,14 @@
  */
 
 import { ipcBridge } from '@/common';
+import { configService } from '@/common/config/configService';
 import type { TConversationRuntimeSummary } from '@/common/config/storage';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
 import { emitter } from '@/renderer/utils/emitter';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import {
   conversationDeleted,
+  getConversationRuntimeSeatGeneration,
   getConversationRuntimeViewSnapshot,
   hydrateFailed,
   hydrateStarted,
@@ -21,6 +23,8 @@ import {
   localStopAcknowledged,
   localStopRequested,
   resetLocalGate,
+  isConversationRuntimeSeatGenerationCurrent,
+  shouldApplyConversationTurnCompleted,
   subscribeConversationRuntimeView,
   turnCompleted,
   type ConversationRuntimeView,
@@ -72,6 +76,7 @@ type RuntimeRecoveryMonitor = {
   timer: ReturnType<typeof setTimeout> | null;
   stopped: boolean;
   epoch: number;
+  seatGeneration: number;
   trackedTurnId: string | null;
   expectedMessageId: string | null;
 };
@@ -131,9 +136,19 @@ const scheduleRuntimeRecoveryPoll = (
 async function pollConversationRuntime(conversation_id: string, monitor: RuntimeRecoveryMonitor): Promise<void> {
   const pollEpoch = monitor.epoch;
   const trackedTurnId = monitor.trackedTurnId;
+  const runtimeSeatGeneration = monitor.seatGeneration;
+  if (!isConversationRuntimeSeatGenerationCurrent(runtimeSeatGeneration)) {
+    stopRuntimeRecoveryMonitor(conversation_id);
+    return;
+  }
+  const pollSeatId = configService.getCurrentSeatId();
   try {
     const conversation = await getConversationOrNull(conversation_id);
     if (monitor.stopped || runtimeRecoveryMonitors.get(conversation_id) !== monitor || monitor.epoch !== pollEpoch) {
+      return;
+    }
+    if (!isConversationRuntimeSeatGenerationCurrent(runtimeSeatGeneration)) {
+      stopRuntimeRecoveryMonitor(conversation_id);
       return;
     }
 
@@ -165,7 +180,7 @@ async function pollConversationRuntime(conversation_id: string, monitor: Runtime
       monitor.trackedTurnId = runtime.turn_id;
       monitor.epoch += 1;
     }
-    flushRuntimeViewLogs(hydrateSucceeded(conversation_id, runtime));
+    flushRuntimeViewLogs(hydrateSucceeded(conversation_id, runtime, pollSeatId));
     if (runtime.is_processing) {
       // The websocket is the low-latency path, but the durable transcript must
       // keep a mounted chat live even after sleep/network churn leaves that
@@ -181,7 +196,14 @@ async function pollConversationRuntime(conversation_id: string, monitor: Runtime
     stopRuntimeRecoveryMonitor(conversation_id);
     emitRuntimeRecovered(conversation_id, runtime, expectedMessageId, recoveredTurnId);
   } catch (error: unknown) {
-    if (monitor.stopped || runtimeRecoveryMonitors.get(conversation_id) !== monitor) return;
+    if (
+      monitor.stopped ||
+      runtimeRecoveryMonitors.get(conversation_id) !== monitor ||
+      !isConversationRuntimeSeatGenerationCurrent(runtimeSeatGeneration)
+    ) {
+      stopRuntimeRecoveryMonitor(conversation_id);
+      return;
+    }
     const reason = error instanceof Error ? error.message : String(error);
     // A transient status read must not unlock an accepted run. Preserve the
     // current store state and retry until the backend confirms a terminal state.
@@ -196,20 +218,26 @@ const ensureRuntimeRecoveryMonitor = (
   expectedMessageId: string | null = null
 ): void => {
   if (!conversation_id) return;
+  const seatGeneration = getConversationRuntimeSeatGeneration();
   const existing = runtimeRecoveryMonitors.get(conversation_id);
   if (existing && !existing.stopped) {
-    if (turn_id && existing.trackedTurnId !== turn_id) {
-      existing.trackedTurnId = turn_id;
-      existing.epoch += 1;
+    if (existing.seatGeneration !== seatGeneration) {
+      stopRuntimeRecoveryMonitor(conversation_id);
+    } else {
+      if (turn_id && existing.trackedTurnId !== turn_id) {
+        existing.trackedTurnId = turn_id;
+        existing.epoch += 1;
+      }
+      if (expectedMessageId) existing.expectedMessageId = expectedMessageId;
+      scheduleRuntimeRecoveryPoll(conversation_id, existing);
+      return;
     }
-    if (expectedMessageId) existing.expectedMessageId = expectedMessageId;
-    scheduleRuntimeRecoveryPoll(conversation_id, existing);
-    return;
   }
   const monitor: RuntimeRecoveryMonitor = {
     timer: null,
     stopped: false,
     epoch: 0,
+    seatGeneration,
     trackedTurnId: turn_id,
     expectedMessageId,
   };
@@ -232,6 +260,16 @@ const retainConversationRuntimeEvents = (conversation_id: string): (() => void) 
 
   const disposeTurnCompleted = turnCompletedEmitter.on((event) => {
     if (event.session_id !== conversation_id) {
+      return;
+    }
+    if (
+      !shouldApplyConversationTurnCompleted({
+        conversation_id,
+        consumer: 'runtime_view',
+        turn_id: event.turn_id,
+        runtime_turn_id: event.runtime?.turn_id,
+      })
+    ) {
       return;
     }
     const currentView = getConversationRuntimeViewSnapshot(conversation_id);
@@ -316,19 +354,21 @@ export const useConversationRuntimeView = (conversation_id: string): UseConversa
     }
 
     let cancelled = false;
+    const runtimeSeatGeneration = getConversationRuntimeSeatGeneration();
+    const hydrateSeatId = configService.getCurrentSeatId();
     flushRuntimeViewLogs(hydrateStarted(conversation_id));
 
     void getConversationOrNull(conversation_id)
       .then((conversation) => {
-        if (cancelled) {
+        if (cancelled || !isConversationRuntimeSeatGenerationCurrent(runtimeSeatGeneration)) {
           return;
         }
         const runtime = getRuntimeOrNull(conversation?.runtime);
-        flushRuntimeViewLogs(hydrateSucceeded(conversation_id, runtime));
+        flushRuntimeViewLogs(hydrateSucceeded(conversation_id, runtime, hydrateSeatId));
         if (runtime?.is_processing) ensureRuntimeRecoveryMonitor(conversation_id, runtime.turn_id);
       })
       .catch((error: unknown) => {
-        if (cancelled) {
+        if (cancelled || !isConversationRuntimeSeatGenerationCurrent(runtimeSeatGeneration)) {
           return;
         }
         const reason = error instanceof Error ? error.message : String(error);

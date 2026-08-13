@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { configService } from '@/common/config/configService';
 import type { TConversationRuntimeStateKind, TConversationRuntimeSummary } from '@/common/config/storage';
 
 export type ConversationRuntimeView = {
@@ -47,6 +48,7 @@ type ConversationRuntimeSnapshot = {
 
 type ConversationRuntimeViewListener = () => void;
 export type ConversationStreamTurnConsumer = 'conversation_list_sync' | 'generation_activity';
+export type ConversationTurnCompletedConsumer = 'conversation_list_sync' | 'runtime_view';
 type ConversationStreamTerminalReceipt = {
   turnId: string;
   type: string;
@@ -68,6 +70,19 @@ const fallbackSnapshots = new Map<string, ConversationRuntimeView>();
 const runtimeMetadata = new Map<string, ConversationRuntimeMetadata>();
 let streamSeatEpoch = 0;
 let requirePositiveStreamIdentity = false;
+let boundStreamSeatId = configService.getCurrentSeatId();
+
+const synchronizeConversationRuntimeSeat = (): void => {
+  const currentSeatId = configService.getCurrentSeatId();
+  if (currentSeatId === boundStreamSeatId) return;
+  boundStreamSeatId = currentSeatId;
+  streamSeatEpoch += 1;
+  requirePositiveStreamIdentity = true;
+  runtimeViews.clear();
+  fallbackSnapshots.clear();
+  runtimeMetadata.clear();
+  listeners.forEach((listener) => listener());
+};
 
 const createRuntimeMetadata = (): ConversationRuntimeMetadata => ({
   pendingLocalSendSeq: null,
@@ -208,6 +223,7 @@ export const shouldApplyConversationStreamTurn = (input: {
 }): boolean => {
   const conversation_id = input.conversation_id;
   if (!conversation_id) return false;
+  synchronizeConversationRuntimeSeat();
 
   const metadata = getRuntimeMetadata(conversation_id);
   const view = getConversationRuntimeViewSnapshot(conversation_id);
@@ -261,7 +277,14 @@ export const shouldApplyConversationStreamTurn = (input: {
   if (view.localSubmitting && !view.activeTurnId) return false;
 
   if (!turnId) {
-    return !activeRuntimeTurnId && !view.localSubmitting;
+    // Once an exact stream identity exists, an uncorrelated terminal cannot
+    // close it. This is especially important after a seat boundary: a late
+    // no-id terminal from seat A must not clear a valid seat-B turn.
+    if (input.terminal && requirePositiveStreamIdentity) return false;
+    if (input.type === 'start') {
+      metadata.streamSeatEpoch = streamSeatEpoch;
+    }
+    return !activeRuntimeTurnId && !metadata.activeStreamTurnId && !view.localSubmitting;
   }
 
   if (activeRuntimeTurnId) {
@@ -320,6 +343,46 @@ export const shouldApplyConversationStreamTurn = (input: {
   }
   acceptActiveStreamTurn();
   return true;
+};
+
+/**
+ * Non-mutating admission gate shared by the two renderer consumers of the
+ * durable `turn.completed` event. After a seat boundary, completion itself is
+ * never authority: an explicit stream start, runtime hydration, or local send
+ * must first bind this conversation to the current renderer generation.
+ *
+ * The lookup deliberately avoids the snapshot/metadata getters because those
+ * create fallback state. A rejected old-seat completion therefore cannot
+ * recreate runtime identity for a same-id conversation in the new seat.
+ */
+export const shouldApplyConversationTurnCompleted = (input: {
+  conversation_id: string;
+  consumer: ConversationTurnCompletedConsumer;
+  turn_id?: unknown;
+  runtime_turn_id?: unknown;
+}): boolean => {
+  if (!input.conversation_id) return false;
+  synchronizeConversationRuntimeSeat();
+
+  const metadata = runtimeMetadata.get(input.conversation_id);
+  const view = runtimeViews.get(input.conversation_id) ?? fallbackSnapshots.get(input.conversation_id);
+  const turnId = normalizeStreamTurnId(input.turn_id) ?? normalizeStreamTurnId(input.runtime_turn_id);
+
+  if (requirePositiveStreamIdentity) {
+    if (!metadata || metadata.streamSeatEpoch !== streamSeatEpoch || !turnId) return false;
+
+    const boundTurnId = view?.activeTurnId ?? metadata.activeStreamTurnId ?? metadata.recoveredTerminalStreamTurnId;
+    // A completion has no seat field, so a generation-only bind is not enough:
+    // require an exact turn established by stream start, runtime hydration, or
+    // local-send acceptance. This keeps a delayed old-seat completion from
+    // claiming a current-seat local-submit window.
+    return boundTurnId === turnId;
+  }
+
+  // Preserve legacy/background durable completions before the first renderer
+  // seat transition, while retaining the existing exact active-turn fence.
+  const activeTurnId = view?.activeTurnId ?? metadata?.activeStreamTurnId;
+  return !activeTurnId || !turnId || activeTurnId === turnId;
 };
 
 const withLogs = (
@@ -603,8 +666,11 @@ export const hydrateStarted = (conversation_id: string): ConversationRuntimeView
 
 export const hydrateSucceeded = (
   conversation_id: string,
-  runtime: TConversationRuntimeSummary | null
+  runtime: TConversationRuntimeSummary | null,
+  expectedSeatId?: string
 ): ConversationRuntimeViewLogEntry[] => {
+  synchronizeConversationRuntimeSeat();
+  if (expectedSeatId && expectedSeatId !== boundStreamSeatId) return [];
   const metadata = getRuntimeMetadata(conversation_id);
   if (isStaleCompletedRuntimeSummary(runtime, metadata)) {
     return setConversationRuntimeSnapshot(
@@ -687,6 +753,7 @@ export const conversationDeleted = (conversation_id: string): ConversationRuntim
 };
 
 export const localSendStarted = (conversation_id: string): ConversationRuntimeViewLogEntry[] => {
+  synchronizeConversationRuntimeSeat();
   const metadata = getRuntimeMetadata(conversation_id);
   metadata.streamSeatEpoch = streamSeatEpoch;
   metadata.pendingLocalSendSeq = (metadata.pendingLocalSendSeq ?? 0) + 1;
@@ -704,6 +771,7 @@ export const localSendAccepted = (
   runtime: TConversationRuntimeSummary,
   msg_id?: string
 ): ConversationRuntimeViewLogEntry[] => {
+  synchronizeConversationRuntimeSeat();
   const metadata = getRuntimeMetadata(conversation_id);
   metadata.streamSeatEpoch = streamSeatEpoch;
   const staleAfterCompleted = isStaleCompletedRuntimeSummary(runtime, metadata);
@@ -796,12 +864,17 @@ export const resetLocalGate = (conversation_id: string, reason: string): Convers
  * cannot mutate the new seat until positive new-seat identity evidence arrives.
  */
 export const invalidateConversationRuntimeForSeatRebind = (): void => {
-  streamSeatEpoch += 1;
-  requirePositiveStreamIdentity = true;
-  runtimeViews.clear();
-  fallbackSnapshots.clear();
-  runtimeMetadata.clear();
-  listeners.forEach((listener) => listener());
+  synchronizeConversationRuntimeSeat();
+};
+
+export const getConversationRuntimeSeatGeneration = (): number => {
+  synchronizeConversationRuntimeSeat();
+  return streamSeatEpoch;
+};
+
+export const isConversationRuntimeSeatGenerationCurrent = (generation: number): boolean => {
+  synchronizeConversationRuntimeSeat();
+  return generation === streamSeatEpoch;
 };
 
 export const resetConversationRuntimeViewStoreForTest = () => {
@@ -811,4 +884,5 @@ export const resetConversationRuntimeViewStoreForTest = () => {
   listeners.clear();
   streamSeatEpoch = 0;
   requirePositiveStreamIdentity = false;
+  boundStreamSeatId = configService.getCurrentSeatId();
 };
