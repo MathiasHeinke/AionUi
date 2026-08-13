@@ -108,6 +108,58 @@ describe('(1) legacy byte-identity — un-prefixed PUT', () => {
 });
 
 describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', () => {
+  it('keeps boot at epoch zero and publishes a real rebind epoch before awaiting settings', async () => {
+    activeSeatFromMain = SEAT_A;
+    const configService = await freshConfigService();
+    expect(configService.getSeatBindingSnapshot()).toEqual({
+      seatId: 'seat-1',
+      rebindEpoch: 0,
+      initialized: false,
+    });
+    await configService.initialize();
+    expect(configService.getSeatBindingSnapshot()).toEqual({
+      seatId: SEAT_A,
+      rebindEpoch: 0,
+      initialized: true,
+    });
+
+    let releaseSettings!: () => void;
+    const settingsBlocked = new Promise<void>((resolve) => {
+      releaseSettings = resolve;
+    });
+    const stableFetch = global.fetch;
+    global.fetch = vi.fn(async (url: unknown, init?: { method?: string; body?: string }) => {
+      if ((init?.method || 'GET') === 'GET') await settingsBlocked;
+      return stableFetch(url as RequestInfo | URL, init as RequestInit);
+    }) as typeof fetch;
+
+    const rebind = configService.rebindSeat(SEAT_B);
+    expect(configService.getSeatBindingSnapshot()).toEqual({
+      seatId: SEAT_B,
+      rebindEpoch: 1,
+      initialized: false,
+    });
+    releaseSettings();
+    await rebind;
+    expect(configService.getSeatBindingSnapshot()).toEqual({
+      seatId: SEAT_B,
+      rebindEpoch: 1,
+      initialized: true,
+    });
+
+    await configService.rebindSeat(SEAT_B);
+    expect(configService.getSeatBindingSnapshot().rebindEpoch).toBe(1);
+    await configService.rebindSeat(SEAT_A);
+    expect(configService.getSeatBindingSnapshot().rebindEpoch).toBe(2);
+
+    configService.reset();
+    expect(configService.getSeatBindingSnapshot()).toEqual({
+      seatId: 'seat-1',
+      rebindEpoch: 3,
+      initialized: false,
+    });
+  });
+
   it('seat A seeds; seat B reads undefined; bag holds two distinct keys', async () => {
     // Seat A seeds.
     activeSeatFromMain = SEAT_A;

@@ -33,6 +33,12 @@ type PersistSubscriber = (value: unknown) => void | Promise<void>;
 /** Fired with the NEW active seat id after the config cache re-homes (rebindSeat). */
 type SeatSubscriber = (seatId: string) => void;
 
+export type ConfigSeatBindingSnapshot = {
+  seatId: string;
+  rebindEpoch: number;
+  initialized: boolean;
+};
+
 /**
  * A persisted-subscriber blew up. The write ITSELF succeeded — this is a bug in
  * a LISTENER, and the two must never be confused, so it is reported here rather
@@ -151,6 +157,10 @@ class ConfigServiceImpl {
   private seatSubscribers = new Set<SeatSubscriber>();
   private initialized = false;
   private initPromise: Promise<void> | null = null;
+  // Monotonic renderer fence. Boot-time legacy -> authoritative-seat discovery
+  // is deliberately NOT a rebind; only an explicit seat-id transition advances
+  // this epoch, synchronously before rebindSeat's first await.
+  private seatRebindEpoch = 0;
 
   // The active seat this service is currently bound to (ISO-2). Defaults to the
   // legacy seat so NOTHING changes until a seat switcher calls rebindSeat — for
@@ -216,7 +226,10 @@ class ConfigServiceImpl {
     for (const key of this.cache.keys()) {
       if (isSeatScopedConfigKey(key)) previous.set(key, this.cache.get(key));
     }
-    this.currentSeatId = sanitized;
+    if (sanitized !== this.currentSeatId) {
+      this.seatRebindEpoch += 1;
+      this.currentSeatId = sanitized;
+    }
     this.cache.clear();
     this.initialized = false;
     this.initPromise = null;
@@ -241,6 +254,15 @@ class ConfigServiceImpl {
   /** The active seat id this service is currently bound to (ISO-2). */
   getCurrentSeatId(): string {
     return this.currentSeatId;
+  }
+
+  /** Atomic identity used by renderer stores to distinguish boot from rebind. */
+  getSeatBindingSnapshot(): ConfigSeatBindingSnapshot {
+    return {
+      seatId: this.currentSeatId,
+      rebindEpoch: this.seatRebindEpoch,
+      initialized: this.initialized,
+    };
   }
 
   // Idempotent: concurrent callers share the same in-flight promise, and a
@@ -429,6 +451,7 @@ class ConfigServiceImpl {
     this.seatSubscribers.clear();
     this.initialized = false;
     this.initPromise = null;
+    this.seatRebindEpoch += 1;
     // Clean-reset returns to the legacy seat so a fresh initialize() re-resolves
     // the active seat from main (ISO-2).
     this.currentSeatId = LEGACY_SEAT_ID;

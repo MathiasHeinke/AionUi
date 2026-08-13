@@ -1,11 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TConversationRuntimeSummary } from '@/common/config/storage';
 
-const seatHarness = vi.hoisted(() => ({ currentSeatId: 'seat-a', nextSeat: 0 }));
+const seatHarness = vi.hoisted(() => ({
+  currentSeatId: 'seat-a',
+  nextSeat: 0,
+  rebindEpoch: 0,
+  initialized: true,
+}));
 
 vi.mock('@/common/config/configService', () => ({
   configService: {
     getCurrentSeatId: () => seatHarness.currentSeatId,
+    getSeatBindingSnapshot: () => ({
+      seatId: seatHarness.currentSeatId,
+      rebindEpoch: seatHarness.rebindEpoch,
+      initialized: seatHarness.initialized,
+    }),
   },
 }));
 import {
@@ -48,14 +58,67 @@ describe('conversationRuntimeViewStore turn id contract', () => {
   beforeEach(() => {
     seatHarness.currentSeatId = 'seat-a';
     seatHarness.nextSeat = 0;
+    seatHarness.rebindEpoch = 0;
+    seatHarness.initialized = true;
     resetConversationRuntimeViewStoreForTest();
   });
 
   const rebindSeat = () => {
     seatHarness.nextSeat += 1;
+    seatHarness.rebindEpoch += 1;
     seatHarness.currentSeatId = `seat-rebound-${seatHarness.nextSeat}`;
     invalidateConversationRuntimeForSeatRebind();
   };
+
+  it('seals the authoritative boot seat without fencing background completion', () => {
+    seatHarness.currentSeatId = 'seat-1';
+    seatHarness.initialized = false;
+    resetConversationRuntimeViewStoreForTest();
+
+    expect(
+      shouldApplyConversationTurnCompleted({
+        conversation_id: 'conv-background',
+        consumer: 'conversation_list_sync',
+      })
+    ).toBe(true);
+
+    // initialize() resolves the real seat before its settings GET completes.
+    seatHarness.currentSeatId = 'seat-a';
+    expect(
+      shouldApplyConversationTurnCompleted({
+        conversation_id: 'conv-background',
+        consumer: 'runtime_view',
+      })
+    ).toBe(true);
+
+    seatHarness.initialized = true;
+    expect(
+      shouldApplyConversationTurnCompleted({
+        conversation_id: 'conv-background',
+        consumer: 'conversation_list_sync',
+      })
+    ).toBe(true);
+
+    // A seat-id mutation without an epoch advance is an invariant breach and
+    // must fail closed rather than silently rebasing.
+    seatHarness.currentSeatId = 'seat-impossible';
+    expect(
+      shouldApplyConversationTurnCompleted({
+        conversation_id: 'conv-background',
+        consumer: 'runtime_view',
+      })
+    ).toBe(false);
+
+    seatHarness.rebindEpoch = 1;
+    seatHarness.currentSeatId = 'seat-b';
+    seatHarness.initialized = false;
+    expect(
+      shouldApplyConversationTurnCompleted({
+        conversation_id: 'conv-background',
+        consumer: 'runtime_view',
+      })
+    ).toBe(false);
+  });
 
   it('keeps idle when turn.completed arrives before local send accepted', () => {
     localSendStarted('conv-1');

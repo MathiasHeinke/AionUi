@@ -17,7 +17,7 @@ import { resetConversationRuntimeViewStoreForTest } from '@/renderer/pages/conve
 
 const { getConversationOrNullMock, turnCompletedHandlerRef, seatHarness } = vi.hoisted(() => ({
   getConversationOrNullMock: vi.fn(),
-  seatHarness: { currentSeatId: 'seat-a' },
+  seatHarness: { currentSeatId: 'seat-a', rebindEpoch: 0, initialized: true },
   turnCompletedHandlerRef: {
     current: undefined as
       | ((event: { session_id: string; turn_id: string; runtime: TConversationRuntimeSummary | null }) => void)
@@ -28,6 +28,11 @@ const { getConversationOrNullMock, turnCompletedHandlerRef, seatHarness } = vi.h
 vi.mock('@/common/config/configService', () => ({
   configService: {
     getCurrentSeatId: () => seatHarness.currentSeatId,
+    getSeatBindingSnapshot: () => ({
+      seatId: seatHarness.currentSeatId,
+      rebindEpoch: seatHarness.rebindEpoch,
+      initialized: seatHarness.initialized,
+    }),
   },
 }));
 
@@ -88,6 +93,8 @@ describe('useConversationRuntimeView recovery', () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     seatHarness.currentSeatId = 'seat-a';
+    seatHarness.rebindEpoch = 0;
+    seatHarness.initialized = true;
     resetConversationRuntimeRecoveryMonitorsForTest();
     resetConversationRuntimeViewStoreForTest();
     turnCompletedHandlerRef.current = undefined;
@@ -316,6 +323,7 @@ describe('useConversationRuntimeView recovery', () => {
     });
 
     seatHarness.currentSeatId = 'seat-b';
+    seatHarness.rebindEpoch += 1;
     await act(async () => {
       initialHydrate.resolve({
         runtime: runtime({

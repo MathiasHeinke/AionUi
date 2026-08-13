@@ -70,18 +70,45 @@ const fallbackSnapshots = new Map<string, ConversationRuntimeView>();
 const runtimeMetadata = new Map<string, ConversationRuntimeMetadata>();
 let streamSeatEpoch = 0;
 let requirePositiveStreamIdentity = false;
-let boundStreamSeatId = configService.getCurrentSeatId();
+let boundStreamSeatId: string | null = null;
+let boundConfigSeatRebindEpoch: number | null = null;
 
-const synchronizeConversationRuntimeSeat = (): void => {
-  const currentSeatId = configService.getCurrentSeatId();
-  if (currentSeatId === boundStreamSeatId) return;
-  boundStreamSeatId = currentSeatId;
+const fenceConversationRuntimeSeat = (seatId: string, rebindEpoch: number): void => {
+  boundStreamSeatId = seatId;
+  boundConfigSeatRebindEpoch = rebindEpoch;
   streamSeatEpoch += 1;
   requirePositiveStreamIdentity = true;
   runtimeViews.clear();
   fallbackSnapshots.clear();
   runtimeMetadata.clear();
   listeners.forEach((listener) => listener());
+};
+
+const synchronizeConversationRuntimeSeat = (): void => {
+  const binding = configService.getSeatBindingSnapshot();
+
+  if (boundConfigSeatRebindEpoch === null) {
+    // ConfigService begins on the legacy seat and silently resolves the actual
+    // boot seat during initialize(). Until that first initialization settles,
+    // preserve the historical/background completion contract. The first
+    // authoritative epoch-zero binding is boot, not a user seat transition.
+    if (binding.rebindEpoch === 0 && !binding.initialized) return;
+    if (binding.rebindEpoch === 0) {
+      boundStreamSeatId = binding.seatId;
+      boundConfigSeatRebindEpoch = binding.rebindEpoch;
+      return;
+    }
+    fenceConversationRuntimeSeat(binding.seatId, binding.rebindEpoch);
+    return;
+  }
+
+  if (binding.rebindEpoch === boundConfigSeatRebindEpoch && binding.seatId === boundStreamSeatId) {
+    return;
+  }
+
+  // An epoch advance is an explicit rebind. A seat-id change without an epoch
+  // advance is an invariant breach; fence it too instead of silently rebasing.
+  fenceConversationRuntimeSeat(binding.seatId, binding.rebindEpoch);
 };
 
 const createRuntimeMetadata = (): ConversationRuntimeMetadata => ({
@@ -670,7 +697,8 @@ export const hydrateSucceeded = (
   expectedSeatId?: string
 ): ConversationRuntimeViewLogEntry[] => {
   synchronizeConversationRuntimeSeat();
-  if (expectedSeatId && expectedSeatId !== boundStreamSeatId) return [];
+  const observedSeatId = boundStreamSeatId ?? configService.getSeatBindingSnapshot().seatId;
+  if (expectedSeatId && expectedSeatId !== observedSeatId) return [];
   const metadata = getRuntimeMetadata(conversation_id);
   if (isStaleCompletedRuntimeSummary(runtime, metadata)) {
     return setConversationRuntimeSnapshot(
@@ -884,5 +912,6 @@ export const resetConversationRuntimeViewStoreForTest = () => {
   listeners.clear();
   streamSeatEpoch = 0;
   requirePositiveStreamIdentity = false;
-  boundStreamSeatId = configService.getCurrentSeatId();
+  boundStreamSeatId = null;
+  boundConfigSeatRebindEpoch = null;
 };

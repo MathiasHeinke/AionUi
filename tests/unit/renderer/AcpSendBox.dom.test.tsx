@@ -359,6 +359,7 @@ vi.mock('@/common/config/configService', () => ({
     // AcpSendBox now reads the MAIN-process lane decision (useEveMaxAuthority →
     // useActiveSeatId), so the stub has to cover the seat-binding surface too.
     getCurrentSeatId: () => 'seat-1',
+    getSeatBindingSnapshot: () => ({ seatId: 'seat-1', rebindEpoch: 0, initialized: true }),
     onSeatRebind: () => () => undefined,
     subscribePersisted: vi.fn(() => vi.fn()),
   },

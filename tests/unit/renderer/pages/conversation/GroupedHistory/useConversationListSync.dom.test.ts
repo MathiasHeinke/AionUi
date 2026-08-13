@@ -42,6 +42,8 @@ const harness = vi.hoisted(() => {
   const seatRebindHandlers = new Set<(seatId: string) => void>();
   const rowsBySeat = new Map<string, TChatConversation[]>();
   let currentSeatId = 'seat-a';
+  let seatRebindEpoch = 0;
+  let seatBindingInitialized = true;
 
   return {
     responseHandlers,
@@ -50,8 +52,29 @@ const harness = vi.hoisted(() => {
     seatRebindHandlers,
     rowsBySeat,
     getCurrentSeatId: () => currentSeatId,
-    setCurrentSeatId: (seatId: string) => {
+    getSeatBindingSnapshot: () => ({
+      seatId: currentSeatId,
+      rebindEpoch: seatRebindEpoch,
+      initialized: seatBindingInitialized,
+    }),
+    resetSeatBinding: () => {
+      currentSeatId = 'seat-a';
+      seatRebindEpoch = 0;
+      seatBindingInitialized = true;
+    },
+    beginBootSeatBinding: () => {
+      currentSeatId = 'seat-1';
+      seatRebindEpoch = 0;
+      seatBindingInitialized = false;
+    },
+    resolveBootSeatBinding: (seatId: string) => {
       currentSeatId = seatId;
+      seatBindingInitialized = true;
+    },
+    setCurrentSeatId: (seatId: string) => {
+      if (seatId !== currentSeatId) seatRebindEpoch += 1;
+      currentSeatId = seatId;
+      seatBindingInitialized = false;
     },
     onResponse: (handler: (message: IResponseMessage) => void) => {
       responseHandlers.add(handler);
@@ -127,6 +150,7 @@ vi.mock('@/common', () => ({
 vi.mock('@/common/config/configService', () => ({
   configService: {
     getCurrentSeatId: harness.getCurrentSeatId,
+    getSeatBindingSnapshot: harness.getSeatBindingSnapshot,
     onSeatRebind: harness.onSeatRebind,
   },
 }));
@@ -210,7 +234,7 @@ describe('conversation sidebar continuity', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    harness.setCurrentSeatId('seat-a');
+    harness.resetSeatBinding();
     resetConversationRuntimeRecoveryMonitorsForTest();
     resetConversationRuntimeViewStoreForTest();
     resetConversationListSyncForTest();
@@ -250,6 +274,29 @@ describe('conversation sidebar continuity', () => {
 
     expect(readConversationSidebarStatusReceipt(malformed, 'seat-a')).toBeNull();
     expect(readConversationSidebarStatusReceipt(otherSeat, 'seat-a')).toBeNull();
+  });
+
+  it('accepts a background turn.completed after boot resolves the authoritative seat', async () => {
+    harness.beginBootSeatBinding();
+    resetConversationRuntimeViewStoreForTest();
+    harness.resolveBootSeatBinding('seat-a');
+    harness.rowsBySeat.set('seat-a', [conversation('conversation-boot-background', runtime())]);
+
+    const listHook = renderHook(() => useConversationListSync());
+    await act(flushPromises);
+    harness.updateConversation.mockClear();
+
+    await act(async () => {
+      harness.turnCompletedHandlers.forEach((handler) =>
+        handler(terminalTurn('conversation-boot-background', 'turn-boot-background', runtime(), 'error'))
+      );
+      await flushPromises();
+    });
+
+    expect(listHook.result.current.hasConversationError('conversation-boot-background')).toBe(true);
+    expect(listHook.result.current.isConversationGenerating('conversation-boot-background')).toBe(false);
+    expect(harness.updateConversation).toHaveBeenCalledTimes(1);
+    listHook.unmount();
   });
 
   it('keeps one Hermes turn live across A -> B -> A, persists terminal state, and reconciles its transcript', async () => {
@@ -951,6 +998,7 @@ describe('conversation sidebar working phases (1.820.5)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    harness.resetSeatBinding();
     resetConversationRuntimeRecoveryMonitorsForTest();
     resetConversationRuntimeViewStoreForTest();
     resetConversationDocumentPreparationStoreForTest();
@@ -1122,7 +1170,7 @@ describe('voice error terminal production listener integration', () => {
     harness.listChangedHandlers.clear();
     harness.seatRebindHandlers.clear();
     harness.rowsBySeat.clear();
-    harness.setCurrentSeatId('seat-a');
+    harness.resetSeatBinding();
     harness.rowsBySeat.set('seat-a', [conversation('conversation-voice-error', runtime())]);
   });
 
