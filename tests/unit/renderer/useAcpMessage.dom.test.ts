@@ -1928,6 +1928,84 @@ describe('useAcpMessage', () => {
     expect(result.current.runtimeActivity.retryAfterMs).toBeUndefined();
   });
 
+  it('does not let a late prior-turn error terminalize the active retry wait', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-status-b', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-status-b',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'acp-session-b' },
+        msg_id: 'status-b-start',
+        turn_id: 'turn-status-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'acp_session_info',
+        data: {
+          title: null,
+          updated_at: null,
+          session_id: 'acp-session-b',
+          _meta: {
+            commandEveRuntimeStatus: {
+              version: 'command-eve-runtime-status/v1',
+              sessionId: 'acp-session-b',
+              phase: 'retry_wait',
+              attempt: 2,
+              maxAttempts: 3,
+              retryAfterMs: 2020,
+              observedAt: '2026-08-13T21:44:13Z',
+            },
+          },
+        },
+        msg_id: 'status-b-retry',
+        turn_id: 'turn-status-b',
+        conversation_id: 'conv-1',
+      });
+    });
+    expect(result.current.runtimeActivity.phase).toBe('retry_wait');
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'error',
+        data: 'Late error from turn A',
+        msg_id: 'status-a-late-error',
+        turn_id: 'turn-status-a',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current.runtimeActivity).toMatchObject({
+      phase: 'retry_wait',
+      attempt: 2,
+      maxAttempts: 3,
+      retryAfterMs: 2020,
+    });
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'error',
+        data: 'Active turn failed',
+        msg_id: 'status-b-error',
+        turn_id: 'turn-status-b',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(result.current.runtimeActivity).toMatchObject({ phase: 'error', detail: 'Active turn failed' });
+  });
+
   it('answers one strict session-bound read_preview request from the visibly active browser', async () => {
     conversationGetInvokeMock.mockResolvedValue({
       id: 'conv-1',

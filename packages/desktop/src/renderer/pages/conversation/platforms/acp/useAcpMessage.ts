@@ -1343,6 +1343,24 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           }
           break;
         case 'error': {
+          const expectedTurnId = runtimeActiveTurnId ?? acceptedTurnIdRef.current;
+          if (
+            runtimeViewAtMessage.localSubmitting ||
+            (expectedTurnId && (!messageTurnId || messageTurnId !== expectedTurnId))
+          ) {
+            // An error terminal belongs to the exact accepted active turn. A
+            // queued error from turn A must never stop or repaint turn B, and
+            // an unbound error cannot claim an in-flight accepted turn.
+            break;
+          }
+          if (messageTurnId) {
+            completedTurnIdsRef.current.add(messageTurnId);
+            recoveredTurnIdsRef.current.delete(messageTurnId);
+            if (completedTurnIdsRef.current.size > 64) {
+              const oldest = completedTurnIdsRef.current.values().next().value;
+              if (oldest) completedTurnIdsRef.current.delete(oldest);
+            }
+          }
           // Lane-3 402 wall: capture whether a turn was in-flight BEFORE the
           // resets below clear it (idle-suppression keys off jobInFlight). Then
           // feed the raw error to the quota-wall controller — a genuine 402
