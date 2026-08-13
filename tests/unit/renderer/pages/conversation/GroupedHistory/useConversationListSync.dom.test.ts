@@ -999,6 +999,7 @@ describe('voice error terminal production listener integration', () => {
       });
 
       await act(async () => {
+        responseHandlers.forEach((handler) => handler(start));
         responseHandlers.forEach((handler) => handler(error));
         await flushPromises();
       });
