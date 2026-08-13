@@ -80,6 +80,13 @@ const runtime = (overrides: Partial<TConversationRuntimeSummary> = {}): TConvers
   ...overrides,
 });
 
+const beginSend = (hook: { result: { current: ReturnType<typeof useConversationRuntimeView> } }) => {
+  const ticket = hook.result.current.issueSendAttempt();
+  expect(ticket).not.toBeNull();
+  expect(hook.result.current.markSendStarted(ticket!)).toBe(true);
+  return ticket!;
+};
+
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   const promise = new Promise<T>((resolver) => {
@@ -126,8 +133,8 @@ describe('useConversationRuntimeView recovery', () => {
       turn_id: 'turn-1',
     });
     act(() => {
-      result.current.markSendStarted();
-      result.current.markSendAccepted('turn-1', runningRuntime, 'msg-1');
+      const ticket = beginSend({ result });
+      result.current.markSendAccepted(ticket, 'turn-1', runningRuntime, 'msg-1');
     });
     expect(result.current.isProcessing).toBe(true);
     expect(result.current.canSendMessage).toBe(false);
@@ -170,8 +177,8 @@ describe('useConversationRuntimeView recovery', () => {
       await Promise.resolve();
     });
     act(() => {
-      result.current.markSendStarted();
-      result.current.markSendAccepted('turn-1', runningRuntime, 'msg-1');
+      const ticket = beginSend({ result });
+      result.current.markSendAccepted(ticket, 'turn-1', runningRuntime, 'msg-1');
     });
 
     await act(async () => {
@@ -201,7 +208,7 @@ describe('useConversationRuntimeView recovery', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    act(() => result.current.markSendStarted());
+    act(() => beginSend({ result }));
 
     await act(async () => {
       vi.advanceTimersByTime(1_500);
@@ -230,8 +237,8 @@ describe('useConversationRuntimeView recovery', () => {
       turn_id: 'turn-1',
     });
     act(() => {
-      result.current.markSendStarted();
-      result.current.markSendAccepted('turn-1', runningRuntime, 'msg-1');
+      const ticket = beginSend({ result });
+      result.current.markSendAccepted(ticket, 'turn-1', runningRuntime, 'msg-1');
       turnCompletedHandlerRef.current?.({ session_id: 'conv-1', turn_id: 'turn-1', runtime: null });
     });
 
@@ -275,8 +282,8 @@ describe('useConversationRuntimeView recovery', () => {
       turn_id: 'turn-a',
     });
     act(() => {
-      result.current.markSendStarted();
-      result.current.markSendAccepted('turn-a', runningTurnA, 'msg-a');
+      const ticket = beginSend({ result });
+      result.current.markSendAccepted(ticket, 'turn-a', runningTurnA, 'msg-a');
     });
 
     const stalePoll = createDeferred<{ runtime: TConversationRuntimeSummary }>();
@@ -295,8 +302,8 @@ describe('useConversationRuntimeView recovery', () => {
       turn_id: 'turn-b',
     });
     act(() => {
-      result.current.markSendStarted();
-      result.current.markSendAccepted('turn-b', runningTurnB, 'msg-b');
+      const ticket = beginSend({ result });
+      result.current.markSendAccepted(ticket, 'turn-b', runningTurnB, 'msg-b');
     });
     await act(async () => {
       stalePoll.resolve({ runtime: runtime() });
@@ -340,8 +347,9 @@ describe('useConversationRuntimeView recovery', () => {
     expect(result.current.isProcessing).toBe(false);
 
     act(() => {
-      result.current.markSendStarted();
+      const ticket = beginSend({ result });
       result.current.markSendAccepted(
+        ticket,
         'turn-seat-b',
         runtime({
           state: 'running',
@@ -373,6 +381,42 @@ describe('useConversationRuntimeView recovery', () => {
     );
   });
 
+  it('rejects stale local-send callbacks without emitting new-seat runtime side effects', async () => {
+    const emitSpy = vi.spyOn(emitter, 'emit');
+    const { result } = renderHook(() => useConversationRuntimeView('conv-shared'));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const oldTicket = result.current.issueSendAttempt();
+    expect(oldTicket).not.toBeNull();
+
+    seatHarness.currentSeatId = 'seat-b';
+    seatHarness.rebindEpoch += 1;
+    emitSpy.mockClear();
+    expect(result.current.markSendStarted(oldTicket!)).toBe(false);
+    expect(
+      result.current.markSendAccepted(
+        oldTicket!,
+        'turn-seat-a',
+        runtime({ is_processing: true, turn_id: 'turn-seat-a' }),
+        'msg-seat-a'
+      )
+    ).toBe(false);
+    expect(result.current.markSendFailed(oldTicket!, 'late seat-a failure')).toBe(false);
+    expect(result.current.abandonAttempt(oldTicket!)).toBe(false);
+
+    expect(result.current.view).toMatchObject({
+      activeTurnId: null,
+      isProcessing: false,
+      localSubmitting: false,
+    });
+    expect(emitSpy).not.toHaveBeenCalledWith('conversation.turn.working', expect.anything());
+    expect(emitSpy).not.toHaveBeenCalledWith('conversation.messages.refresh', expect.anything());
+    expect(emitSpy).not.toHaveBeenCalledWith('conversation.runtime.recovered', expect.anything());
+  });
+
   it('does not let a delayed completion clear a new local submit before acceptance', async () => {
     const emitSpy = vi.spyOn(emitter, 'emit');
     const { result } = renderHook(() => useConversationRuntimeView('conv-1'));
@@ -381,8 +425,9 @@ describe('useConversationRuntimeView recovery', () => {
       await Promise.resolve();
     });
 
+    let pendingTicket: NonNullable<ReturnType<typeof result.current.issueSendAttempt>>;
     act(() => {
-      result.current.markSendStarted();
+      pendingTicket = beginSend({ result });
       turnCompletedHandlerRef.current?.({
         session_id: 'conv-1',
         turn_id: 'turn-old',
@@ -407,7 +452,7 @@ describe('useConversationRuntimeView recovery', () => {
       turn_id: 'turn-new',
     });
     act(() => {
-      result.current.markSendAccepted('turn-new', newRuntime, 'msg-new');
+      result.current.markSendAccepted(pendingTicket, 'turn-new', newRuntime, 'msg-new');
     });
 
     expect(result.current.view.localSubmitting).toBe(false);
@@ -431,8 +476,8 @@ describe('useConversationRuntimeView recovery', () => {
       turn_id: 'turn-1',
     });
     act(() => {
-      result.current.markSendStarted();
-      result.current.markSendAccepted('turn-1', stillRunning, 'msg-1');
+      const ticket = beginSend({ result });
+      result.current.markSendAccepted(ticket, 'turn-1', stillRunning, 'msg-1');
       turnCompletedHandlerRef.current?.({ session_id: 'conv-1', turn_id: 'turn-1', runtime: stillRunning });
     });
 
@@ -485,8 +530,8 @@ describe('useConversationRuntimeView recovery', () => {
       turn_id: 'turn-1',
     });
     act(() => {
-      result.current.markSendStarted();
-      result.current.markSendAccepted('turn-1', runningRuntime, 'msg-1');
+      const ticket = beginSend({ result });
+      result.current.markSendAccepted(ticket, 'turn-1', runningRuntime, 'msg-1');
     });
     expect(getConversationOrNullMock).toHaveBeenCalledTimes(1);
 

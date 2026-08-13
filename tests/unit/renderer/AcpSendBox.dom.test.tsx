@@ -128,12 +128,27 @@ const {
     canSendMessage: true,
     activeTurnId: null as string | null,
     localSubmitting: false,
-    markSendStarted: vi.fn(),
-    markSendAccepted: vi.fn(),
-    markSendFailed: vi.fn(),
-    markStopRequested: vi.fn(),
-    markStopAcknowledged: vi.fn(),
-    resetLocalGate: vi.fn(),
+    issueSendAttempt: vi.fn(() => ({
+      kind: 'send',
+      conversationId: 'conv-1',
+      seatId: 'seat-a',
+      seatGeneration: 0,
+      attemptId: 1,
+    })),
+    markSendStarted: vi.fn(() => true),
+    markSendAccepted: vi.fn(() => true),
+    markSendFailed: vi.fn(() => true),
+    issueStopAttempt: vi.fn(() => ({
+      kind: 'stop',
+      conversationId: 'conv-1',
+      seatId: 'seat-a',
+      seatGeneration: 0,
+      attemptId: 2,
+    })),
+    markStopRequested: vi.fn(() => true),
+    markStopAcknowledged: vi.fn(() => true),
+    resetLocalGate: vi.fn(() => true),
+    abandonAttempt: vi.fn(() => true),
   },
   draftDataMock: {
     current: {
@@ -982,6 +997,40 @@ describe('AcpSendBox', () => {
       )
     );
     window.removeEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
+  });
+
+  it('suppresses late ACP send side effects when its seat ticket is stale', async () => {
+    const send = createDeferred<unknown>();
+    sendMessageInvokeMock.mockReturnValue(send.promise);
+    runtimeViewMock.markSendAccepted.mockReturnValueOnce(false);
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    emitterEmitMock.mockClear();
+    draftMutateMock.mockClear();
+    setUploadFileMock.mockClear();
+
+    await act(async () => {
+      send.resolve({ turn_id: 'turn-seat-a', msg_id: 'message-seat-a', runtime: null });
+    });
+
+    expect(emitterEmitMock).not.toHaveBeenCalledWith('chat.history.refresh');
+    expect(emitterEmitMock).not.toHaveBeenCalledWith('acp.workspace.refresh');
+    expect(resetStateMock).not.toHaveBeenCalled();
+    expect(messageErrorMock).not.toHaveBeenCalled();
+    expect(draftMutateMock).not.toHaveBeenCalled();
+    expect(setUploadFileMock).not.toHaveBeenCalled();
+    expect(emitterEmitMock).not.toHaveBeenCalledWith('acp.selected.file', expect.anything());
   });
 
   it('rejects an unproven PDF receipt before dispatch and restores the selected file', async () => {
@@ -2255,7 +2304,10 @@ describe('AcpSendBox', () => {
 
     expect(stopReadAloudMock).toHaveBeenCalled();
     expect(queuePauseMock).toHaveBeenCalledTimes(1);
-    expect(runtimeViewMock.markStopRequested).toHaveBeenCalledWith('turn-1');
+    expect(runtimeViewMock.markStopRequested).toHaveBeenCalledWith(
+      runtimeViewMock.issueStopAttempt.mock.results[0]?.value,
+      'turn-1'
+    );
   });
 
   it('surfaces an honest error when active-turn cancellation is rejected', async () => {
@@ -2281,7 +2333,12 @@ describe('AcpSendBox', () => {
       await beforeStartRecording?.();
     });
 
-    await waitFor(() => expect(runtimeViewMock.resetLocalGate).toHaveBeenCalledWith('stop_failed'));
+    await waitFor(() =>
+      expect(runtimeViewMock.resetLocalGate).toHaveBeenCalledWith(
+        runtimeViewMock.issueStopAttempt.mock.results[0]?.value,
+        'stop_failed'
+      )
+    );
     expect(messageErrorMock).toHaveBeenCalledWith(expect.stringMatching(/could not be stopped|konnte nicht gestoppt/i));
   });
 
@@ -2793,7 +2850,10 @@ describe('AcpSendBox', () => {
     });
 
     expect(queuePauseMock).toHaveBeenCalledTimes(1);
-    expect(runtimeViewMock.markStopRequested).toHaveBeenCalledWith('turn-1');
+    expect(runtimeViewMock.markStopRequested).toHaveBeenCalledWith(
+      runtimeViewMock.issueStopAttempt.mock.results[0]?.value,
+      'turn-1'
+    );
   });
 
   it('hides legacy HG4 delegation on mobile and publishes only a real backend mode', async () => {

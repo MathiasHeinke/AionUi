@@ -240,30 +240,33 @@ const AionrsSendBox: React.FC<{
   });
 
   const executeCommand = useCallback(
-    async ({ input, files }: Pick<ConversationCommandQueueItem, 'input' | 'files'>) => {
-      if (teamPermission) await teamPermission.warmupSession();
+    async ({ input, files }: Pick<ConversationCommandQueueItem, 'input' | 'files'>): Promise<boolean> => {
       if (!current_model?.use_model) {
         Message.warning(t('conversation.chat.noModelSelected'));
         throw new Error('No model selected');
       }
-
-      runtimeView.markSendStarted();
-      // 1.7.3 (Codex convergence-2): cover the aionrs submit→start window for the
-      // seat-switch guard too. Cleared in the catch; the stream's finish/error
-      // clears it on a real turn.
-      markConversationGenerating(conversation_id);
-      setWaitingResponse(true);
-
-      const displayMessage = buildDisplayMessage(input, files, workspacePath);
+      const sendTicket = runtimeView.issueSendAttempt();
+      if (!sendTicket) return false;
+      let sendStarted = false;
       try {
+        if (teamPermission) await teamPermission.warmupSession();
+        if (!runtimeView.markSendStarted(sendTicket)) return false;
+        sendStarted = true;
+        // 1.7.3 (Codex convergence-2): cover the aionrs submit→start window for the
+        // seat-switch guard too. Cleared in the catch; the stream's finish/error
+        // clears it on a real turn.
+        markConversationGenerating(conversation_id);
+        setWaitingResponse(true);
+
+        const displayMessage = buildDisplayMessage(input, files, workspacePath);
         void checkAndUpdateTitle(conversation_id, input);
         const res = await ipcBridge.conversation.sendMessage.invoke({
           input: displayMessage,
           conversation_id,
           files,
         });
+        if (!runtimeView.markSendAccepted(sendTicket, res.turn_id, res.runtime, res.msg_id)) return false;
         setActiveMsgId(res.msg_id);
-        runtimeView.markSendAccepted(res.turn_id, res.runtime, res.msg_id);
         emitter.emit('chat.history.refresh');
         if (files.length > 0) {
           emitter.emit('aionrs.workspace.refresh');
@@ -282,11 +285,15 @@ const AionrsSendBox: React.FC<{
           getConversationRuntimeWorkspaceErrorMessage(error, t),
           CLOUD_MODEL_IDENTIFIERS
         );
-        runtimeView.markSendFailed(errorMessage);
+        const attemptApplied = sendStarted
+          ? runtimeView.markSendFailed(sendTicket, errorMessage)
+          : runtimeView.abandonAttempt(sendTicket);
+        if (!attemptApplied) return false;
         clearConversationGenerating(conversation_id);
         Message.error(errorMessage);
         throw error;
       }
+      return true;
     },
     [
       checkAndUpdateTitle,
@@ -323,7 +330,9 @@ const AionrsSendBox: React.FC<{
       canSendMessage: runtimeView.canSendMessage,
       isProcessing: runtimeView.isProcessing,
     },
-    onExecute: executeCommand,
+    onExecute: async (item) => {
+      await executeCommand(item);
+    },
   });
 
   // Handle initial message from Guid page — wait until model is ready
@@ -519,7 +528,8 @@ const AionrsSendBox: React.FC<{
     }
 
     try {
-      await executeCommand({ input: message, files: filesToSend });
+      const accepted = await executeCommand({ input: message, files: filesToSend });
+      if (!accepted) return;
     } catch (error) {
       restoreDraftAndFiles();
       throw error;
@@ -800,27 +810,30 @@ const AionrsSendBox: React.FC<{
 
   // Stop conversation handler
   const handleStop = async (): Promise<void> => {
+    const stopTicket = runtimeView.issueStopAttempt();
+    if (!stopTicket) return;
     // Best-effort cancel: swallow rejections so they don't bubble up as
     // unhandled rejections. UI state resets immediately; the backend
     // acknowledgement is applied when it arrives.
     pause();
     const turnId = runtimeView.activeTurnId;
     if (!turnId) {
+      if (!runtimeView.abandonAttempt(stopTicket)) return;
       resetState();
       resetActiveExecution('stop');
       return;
     }
-    runtimeView.markStopRequested(turnId);
-    resetState();
-    resetActiveExecution('stop');
+    if (!runtimeView.markStopRequested(stopTicket, turnId)) return;
     void ipcBridge.conversation.stop
       .invoke({ conversation_id, turn_id: turnId })
       .then((result) => {
-        runtimeView.markStopAcknowledged(turnId, result.runtime);
+        if (!runtimeView.markStopAcknowledged(stopTicket, turnId, result.runtime)) return;
+        resetState();
+        resetActiveExecution('stop');
       })
       .catch((error) => {
         console.warn('[AionrsSendBox] stop request failed', error);
-        runtimeView.resetLocalGate('stop_failed');
+        if (!runtimeView.resetLocalGate(stopTicket, 'stop_failed')) return;
       });
   };
 

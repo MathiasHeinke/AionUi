@@ -42,12 +42,27 @@ const {
     isProcessing: false,
     canSendMessage: true,
     activeTurnId: null as string | null,
-    markSendStarted: vi.fn(),
-    markSendAccepted: vi.fn(),
-    markSendFailed: vi.fn(),
-    markStopRequested: vi.fn(),
-    markStopAcknowledged: vi.fn(),
-    resetLocalGate: vi.fn(),
+    issueSendAttempt: vi.fn(() => ({
+      kind: 'send',
+      conversationId: 'conv-1',
+      seatId: 'seat-a',
+      seatGeneration: 0,
+      attemptId: 1,
+    })),
+    markSendStarted: vi.fn(() => true),
+    markSendAccepted: vi.fn(() => true),
+    markSendFailed: vi.fn(() => true),
+    issueStopAttempt: vi.fn(() => ({
+      kind: 'stop',
+      conversationId: 'conv-1',
+      seatId: 'seat-a',
+      seatGeneration: 0,
+      attemptId: 2,
+    })),
+    markStopRequested: vi.fn(() => true),
+    markStopAcknowledged: vi.fn(() => true),
+    resetLocalGate: vi.fn(() => true),
+    abandonAttempt: vi.fn(() => true),
   },
   draftDataMock: {
     current: {
@@ -263,6 +278,27 @@ describe('AionrsSendBox queue recovery', () => {
     expect(setUploadFileMock).toHaveBeenCalledWith([]);
   });
 
+  it('suppresses late AionRS send side effects when its seat ticket is stale', async () => {
+    const send = createDeferred<unknown>();
+    sendMessageInvokeMock.mockReturnValue(send.promise);
+    runtimeViewMock.markSendAccepted.mockReturnValueOnce(false);
+
+    render(<AionrsSendBox conversation_id='conv-1' modelSelection={modelSelection} />);
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    emitterEmitMock.mockClear();
+
+    await act(async () => {
+      send.resolve({ turn_id: 'turn-seat-a', msg_id: 'message-seat-a', runtime: null });
+    });
+
+    expect(emitterEmitMock).not.toHaveBeenCalledWith('chat.history.refresh');
+    expect(emitterEmitMock).not.toHaveBeenCalledWith('aionrs.workspace.refresh');
+    expect(messageErrorMock).not.toHaveBeenCalled();
+  });
+
   it('warns and restores files when a steer-with-files enqueue is rejected', async () => {
     draftDataMock.current = {
       atPath: ['/tmp/context.md'],
@@ -300,7 +336,10 @@ describe('AionrsSendBox queue recovery', () => {
     });
 
     expect(queuePauseMock).toHaveBeenCalledTimes(1);
-    expect(runtimeViewMock.markStopRequested).toHaveBeenCalledWith('turn-1');
+    expect(runtimeViewMock.markStopRequested).toHaveBeenCalledWith(
+      runtimeViewMock.issueStopAttempt.mock.results[0]?.value,
+      'turn-1'
+    );
   });
 
   it('publishes a restrictive mobile permission mode before backend acknowledgement', async () => {

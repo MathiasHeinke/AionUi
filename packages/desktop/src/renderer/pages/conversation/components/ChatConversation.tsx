@@ -149,11 +149,18 @@ const AionrsConversationPanel: React.FC<{ conversation: AionrsConversation; slid
       const selected = { ..._provider, use_model: modelName } as TProviderWithModel;
       // Kill running agent on model switch — will be rebuilt with new model on next message
       if (runtimeView.activeTurnId) {
-        const result = await ipcBridge.conversation.stop.invoke({
-          conversation_id: conversation.id,
-          turn_id: runtimeView.activeTurnId,
-        });
-        runtimeView.markStopAcknowledged(runtimeView.activeTurnId, result.runtime);
+        const stopTicket = runtimeView.issueStopAttempt();
+        if (!stopTicket || !runtimeView.markStopRequested(stopTicket, runtimeView.activeTurnId)) return false;
+        try {
+          const result = await ipcBridge.conversation.stop.invoke({
+            conversation_id: conversation.id,
+            turn_id: runtimeView.activeTurnId,
+          });
+          if (!runtimeView.markStopAcknowledged(stopTicket, runtimeView.activeTurnId, result.runtime)) return false;
+        } catch {
+          runtimeView.resetLocalGate(stopTicket, 'stop_failed');
+          return false;
+        }
       }
       const ok = await ipcBridge.conversation.update.invoke({ id: conversation.id, updates: { model: selected } });
       if (ok) void saveAionrsDefaultModel(_provider.id, modelName);

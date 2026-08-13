@@ -28,12 +28,26 @@ import {
 } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
 import { resetConversationRuntimeViewStoreForTest } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import {
-  localSendAccepted,
-  localSendStarted,
+  beginLocalSendAttempt,
+  localSendAccepted as applyLocalSendAccepted,
   turnCompleted,
+  type ConversationRuntimeAttemptTicket,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { clearAllGenerating, isAnyGenerating } from '@/renderer/services/commandEveGenerationActivity';
 import { emitter } from '@/renderer/utils/emitter';
+
+const runtimeSendTickets = new Map<string, ConversationRuntimeAttemptTicket>();
+const localSendStarted = (conversationId: string) => {
+  const ticket = beginLocalSendAttempt(conversationId);
+  expect(ticket).not.toBeNull();
+  runtimeSendTickets.set(conversationId, ticket!);
+};
+const localSendAccepted = (
+  conversationId: string,
+  turnId: string,
+  runtime: TConversationRuntimeSummary,
+  messageId?: string
+) => applyLocalSendAccepted(conversationId, turnId, runtime, messageId, runtimeSendTickets.get(conversationId)!);
 
 const harness = vi.hoisted(() => {
   const responseHandlers = new Set<(message: IResponseMessage) => void>();

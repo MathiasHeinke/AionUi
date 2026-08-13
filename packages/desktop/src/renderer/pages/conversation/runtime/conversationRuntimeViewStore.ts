@@ -35,6 +35,19 @@ export type ConversationRuntimeViewLogEvent =
 
 export type ConversationRuntimeViewLogLevel = 'info' | 'warn';
 
+export type ConversationRuntimeAttemptTicket = {
+  kind: 'send' | 'stop';
+  conversationId: string;
+  seatId: string;
+  attemptId: number;
+  seatGeneration: number;
+};
+
+export type ConversationRuntimeMutationResult = {
+  applied: boolean;
+  logs: ConversationRuntimeViewLogEntry[];
+};
+
 export type ConversationRuntimeViewLogEntry = {
   level: ConversationRuntimeViewLogLevel;
   event: ConversationRuntimeViewLogEvent;
@@ -64,14 +77,28 @@ type ConversationRuntimeMetadata = {
   streamSeatEpoch: number | null;
 };
 
+type PendingSendAttempt = {
+  ticket: ConversationRuntimeAttemptTicket;
+  stage: 'issued' | 'started';
+};
+
+type PendingStopAttempt = {
+  ticket: ConversationRuntimeAttemptTicket;
+  stage: 'issued' | 'requested';
+  turnId: string | null;
+};
+
 const listeners = new Set<ConversationRuntimeViewListener>();
 const runtimeViews = new Map<string, ConversationRuntimeView>();
 const fallbackSnapshots = new Map<string, ConversationRuntimeView>();
 const runtimeMetadata = new Map<string, ConversationRuntimeMetadata>();
+const pendingSendAttempts = new Map<string, PendingSendAttempt>();
+const pendingStopAttempts = new Map<string, PendingStopAttempt>();
 let streamSeatEpoch = 0;
 let requirePositiveStreamIdentity = false;
 let boundStreamSeatId: string | null = null;
 let boundConfigSeatRebindEpoch: number | null = null;
+let nextRuntimeAttemptId = 0;
 
 const fenceConversationRuntimeSeat = (seatId: string, rebindEpoch: number): void => {
   boundStreamSeatId = seatId;
@@ -81,6 +108,8 @@ const fenceConversationRuntimeSeat = (seatId: string, rebindEpoch: number): void
   runtimeViews.clear();
   fallbackSnapshots.clear();
   runtimeMetadata.clear();
+  pendingSendAttempts.clear();
+  pendingStopAttempts.clear();
   listeners.forEach((listener) => listener());
 };
 
@@ -120,6 +149,32 @@ const createRuntimeMetadata = (): ConversationRuntimeMetadata => ({
   streamTerminalReceipt: null,
   streamSeatEpoch: requirePositiveStreamIdentity ? null : streamSeatEpoch,
 });
+
+const createRuntimeAttemptTicket = (
+  kind: ConversationRuntimeAttemptTicket['kind'],
+  conversationId: string
+): ConversationRuntimeAttemptTicket => ({
+  kind,
+  conversationId,
+  seatId: configService.getSeatBindingSnapshot().seatId,
+  attemptId: ++nextRuntimeAttemptId,
+  seatGeneration: streamSeatEpoch,
+});
+
+const attemptTicketMatches = (
+  pending: PendingSendAttempt | PendingStopAttempt | undefined,
+  ticket: ConversationRuntimeAttemptTicket,
+  kind: ConversationRuntimeAttemptTicket['kind']
+): boolean =>
+  pending !== undefined &&
+  pending.ticket.kind === kind &&
+  ticket.kind === kind &&
+  pending.ticket.conversationId === ticket.conversationId &&
+  pending.ticket.seatId === ticket.seatId &&
+  pending.ticket.seatGeneration === ticket.seatGeneration &&
+  pending.ticket.attemptId === ticket.attemptId &&
+  ticket.seatId === configService.getSeatBindingSnapshot().seatId &&
+  ticket.seatGeneration === streamSeatEpoch;
 
 const getRuntimeMetadata = (conversation_id: string): ConversationRuntimeMetadata => {
   const existing = runtimeMetadata.get(conversation_id);
@@ -740,6 +795,7 @@ export const turnCompleted = (
   turn_id: string,
   runtime: TConversationRuntimeSummary | null
 ): ConversationRuntimeViewLogEntry[] => {
+  synchronizeConversationRuntimeSeat();
   const metadata = getRuntimeMetadata(conversation_id);
   const view = getConversationRuntimeViewSnapshot(conversation_id);
   const activeTurnId = view.activeTurnId ?? metadata.activeStreamTurnId;
@@ -752,8 +808,13 @@ export const turnCompleted = (
     return [];
   }
   metadata.pendingLocalSendSeq = null;
+  const pendingSend = pendingSendAttempts.get(conversation_id);
+  if (pendingSend?.stage === 'started' && (view.activeTurnId === turn_id || metadata.activeStreamTurnId === turn_id)) {
+    pendingSendAttempts.delete(conversation_id);
+  }
   if (metadata.pendingStopTurnId === turn_id) {
     metadata.pendingStopTurnId = null;
+    pendingStopAttempts.delete(conversation_id);
   }
   metadata.lastCompletedTurnId = turn_id;
   metadata.activeStreamTurnId = null;
@@ -770,6 +831,8 @@ export const conversationDeleted = (conversation_id: string): ConversationRuntim
   runtimeViews.delete(conversation_id);
   fallbackSnapshots.delete(conversation_id);
   runtimeMetadata.delete(conversation_id);
+  pendingSendAttempts.delete(conversation_id);
+  pendingStopAttempts.delete(conversation_id);
   listeners.forEach((listener) => listener());
   return previous
     ? [
@@ -780,27 +843,59 @@ export const conversationDeleted = (conversation_id: string): ConversationRuntim
     : [];
 };
 
-export const localSendStarted = (conversation_id: string): ConversationRuntimeViewLogEntry[] => {
+export const issueLocalSendAttempt = (conversation_id: string): ConversationRuntimeAttemptTicket | null => {
   synchronizeConversationRuntimeSeat();
+  if (!conversation_id || pendingSendAttempts.has(conversation_id)) return null;
+  const ticket = createRuntimeAttemptTicket('send', conversation_id);
+  pendingSendAttempts.set(conversation_id, { ticket, stage: 'issued' });
+  return ticket;
+};
+
+/** Test/source adapters can use this helper to exercise the complete local-send lifecycle. */
+export const beginLocalSendAttempt = (conversation_id: string): ConversationRuntimeAttemptTicket | null => {
+  const ticket = issueLocalSendAttempt(conversation_id);
+  if (!ticket || !localSendStarted(conversation_id, ticket).applied) return null;
+  return ticket;
+};
+
+export const localSendStarted = (
+  conversation_id: string,
+  ticket: ConversationRuntimeAttemptTicket
+): ConversationRuntimeMutationResult => {
+  synchronizeConversationRuntimeSeat();
+  const pending = pendingSendAttempts.get(conversation_id);
+  if (!attemptTicketMatches(pending, ticket, 'send') || pending?.stage !== 'issued') {
+    return { applied: false, logs: [] };
+  }
+  pending.stage = 'started';
   const metadata = getRuntimeMetadata(conversation_id);
   metadata.streamSeatEpoch = streamSeatEpoch;
   metadata.pendingLocalSendSeq = (metadata.pendingLocalSendSeq ?? 0) + 1;
   metadata.pendingStopTurnId = null;
   metadata.streamTerminalReceipt = null;
-  return setConversationRuntimeSnapshot(
-    conversation_id,
-    localSendStartedConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id)
-  );
+  return {
+    applied: true,
+    logs: setConversationRuntimeSnapshot(
+      conversation_id,
+      localSendStartedConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id)
+    ),
+  };
 };
 
 export const localSendAccepted = (
   conversation_id: string,
   turn_id: string,
   runtime: TConversationRuntimeSummary,
-  msg_id?: string
-): ConversationRuntimeViewLogEntry[] => {
+  msg_id: string | undefined,
+  ticket: ConversationRuntimeAttemptTicket
+): ConversationRuntimeMutationResult => {
   synchronizeConversationRuntimeSeat();
-  const metadata = getRuntimeMetadata(conversation_id);
+  const pending = pendingSendAttempts.get(conversation_id);
+  const metadata = runtimeMetadata.get(conversation_id);
+  if (!attemptTicketMatches(pending, ticket, 'send') || pending?.stage !== 'started' || !metadata) {
+    return { applied: false, logs: [] };
+  }
+  pendingSendAttempts.delete(conversation_id);
   metadata.streamSeatEpoch = streamSeatEpoch;
   const staleAfterCompleted = isStaleCompletedRuntimeSummary(runtime, metadata);
   if (!staleAfterCompleted) {
@@ -809,82 +904,168 @@ export const localSendAccepted = (
     metadata.recoveredTerminalStreamTurnId = null;
     metadata.streamTerminalReceipt = null;
   }
-  return setConversationRuntimeSnapshot(
-    conversation_id,
-    staleAfterCompleted
-      ? staleRuntimeSummaryConversationRuntimeView(
-          runtimeViews.get(conversation_id),
-          conversation_id,
-          'local_send_accepted',
-          'send_response',
-          turn_id,
-          runtime,
-          msg_id
-        )
-      : localSendAcceptedConversationRuntimeView(
-          runtimeViews.get(conversation_id),
-          conversation_id,
-          turn_id,
-          runtime,
-          msg_id
-        )
-  );
+  return {
+    applied: true,
+    logs: setConversationRuntimeSnapshot(
+      conversation_id,
+      staleAfterCompleted
+        ? staleRuntimeSummaryConversationRuntimeView(
+            runtimeViews.get(conversation_id),
+            conversation_id,
+            'local_send_accepted',
+            'send_response',
+            turn_id,
+            runtime,
+            msg_id
+          )
+        : localSendAcceptedConversationRuntimeView(
+            runtimeViews.get(conversation_id),
+            conversation_id,
+            turn_id,
+            runtime,
+            msg_id
+          )
+    ),
+  };
 };
 
-export const localSendFailed = (conversation_id: string, reason: string): ConversationRuntimeViewLogEntry[] => {
-  const metadata = getRuntimeMetadata(conversation_id);
+export const localSendFailed = (
+  conversation_id: string,
+  reason: string,
+  ticket: ConversationRuntimeAttemptTicket
+): ConversationRuntimeMutationResult => {
+  synchronizeConversationRuntimeSeat();
+  const pending = pendingSendAttempts.get(conversation_id);
+  const metadata = runtimeMetadata.get(conversation_id);
+  if (!attemptTicketMatches(pending, ticket, 'send') || pending?.stage !== 'started' || !metadata) {
+    return { applied: false, logs: [] };
+  }
+  pendingSendAttempts.delete(conversation_id);
   metadata.pendingLocalSendSeq = null;
-  return setConversationRuntimeSnapshot(
-    conversation_id,
-    localSendFailedConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id, reason)
-  );
+  return {
+    applied: true,
+    logs: setConversationRuntimeSnapshot(
+      conversation_id,
+      localSendFailedConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id, reason)
+    ),
+  };
 };
 
-export const localStopRequested = (conversation_id: string, turn_id: string): ConversationRuntimeViewLogEntry[] => {
+export const issueLocalStopAttempt = (conversation_id: string): ConversationRuntimeAttemptTicket | null => {
+  synchronizeConversationRuntimeSeat();
+  if (!conversation_id || pendingStopAttempts.has(conversation_id)) return null;
+  const ticket = createRuntimeAttemptTicket('stop', conversation_id);
+  pendingStopAttempts.set(conversation_id, { ticket, stage: 'issued', turnId: null });
+  return ticket;
+};
+
+export const localStopRequested = (
+  conversation_id: string,
+  turn_id: string,
+  ticket: ConversationRuntimeAttemptTicket
+): ConversationRuntimeMutationResult => {
+  synchronizeConversationRuntimeSeat();
+  const pending = pendingStopAttempts.get(conversation_id);
+  if (!turn_id || !attemptTicketMatches(pending, ticket, 'stop') || pending?.stage !== 'issued') {
+    return { applied: false, logs: [] };
+  }
+  pending.stage = 'requested';
+  pending.turnId = turn_id;
   const metadata = getRuntimeMetadata(conversation_id);
   metadata.pendingStopTurnId = turn_id;
-  return setConversationRuntimeSnapshot(
-    conversation_id,
-    localStopRequestedConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id, turn_id)
-  );
+  return {
+    applied: true,
+    logs: setConversationRuntimeSnapshot(
+      conversation_id,
+      localStopRequestedConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id, turn_id)
+    ),
+  };
 };
 
 export const localStopAcknowledged = (
   conversation_id: string,
   turn_id: string,
-  runtime: TConversationRuntimeSummary
-): ConversationRuntimeViewLogEntry[] => {
-  const metadata = getRuntimeMetadata(conversation_id);
-  if (metadata.pendingStopTurnId === turn_id) {
-    metadata.pendingStopTurnId = null;
+  runtime: TConversationRuntimeSummary,
+  ticket: ConversationRuntimeAttemptTicket
+): ConversationRuntimeMutationResult => {
+  synchronizeConversationRuntimeSeat();
+  const pending = pendingStopAttempts.get(conversation_id);
+  const metadata = runtimeMetadata.get(conversation_id);
+  if (
+    !attemptTicketMatches(pending, ticket, 'stop') ||
+    pending?.stage !== 'requested' ||
+    pending.turnId !== turn_id ||
+    !metadata
+  ) {
+    return { applied: false, logs: [] };
   }
+  pendingStopAttempts.delete(conversation_id);
+  metadata.pendingStopTurnId = null;
   const staleAfterCompleted = isStaleCompletedRuntimeSummary(runtime, metadata);
-  return setConversationRuntimeSnapshot(
-    conversation_id,
-    staleAfterCompleted
-      ? staleRuntimeSummaryConversationRuntimeView(
-          runtimeViews.get(conversation_id),
-          conversation_id,
-          'local_stop_acknowledged',
-          'stop_response',
-          turn_id,
-          runtime
-        )
-      : localStopAcknowledgedConversationRuntimeView(
-          runtimeViews.get(conversation_id),
-          conversation_id,
-          turn_id,
-          runtime,
-          metadata
-        )
-  );
+  return {
+    applied: true,
+    logs: setConversationRuntimeSnapshot(
+      conversation_id,
+      staleAfterCompleted
+        ? staleRuntimeSummaryConversationRuntimeView(
+            runtimeViews.get(conversation_id),
+            conversation_id,
+            'local_stop_acknowledged',
+            'stop_response',
+            turn_id,
+            runtime
+          )
+        : localStopAcknowledgedConversationRuntimeView(
+            runtimeViews.get(conversation_id),
+            conversation_id,
+            turn_id,
+            runtime,
+            metadata
+          )
+    ),
+  };
 };
 
-export const resetLocalGate = (conversation_id: string, reason: string): ConversationRuntimeViewLogEntry[] =>
-  setConversationRuntimeSnapshot(
-    conversation_id,
-    resetLocalGateConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id, reason)
-  );
+export const resetLocalGate = (
+  conversation_id: string,
+  reason: string,
+  ticket: ConversationRuntimeAttemptTicket
+): ConversationRuntimeMutationResult => {
+  synchronizeConversationRuntimeSeat();
+  const pending =
+    ticket.kind === 'send' ? pendingSendAttempts.get(conversation_id) : pendingStopAttempts.get(conversation_id);
+  const metadata = runtimeMetadata.get(conversation_id);
+  const expectedStage = ticket.kind === 'send' ? 'started' : 'requested';
+  if (!attemptTicketMatches(pending, ticket, ticket.kind) || pending?.stage !== expectedStage || !metadata) {
+    return { applied: false, logs: [] };
+  }
+  if (ticket.kind === 'send') {
+    pendingSendAttempts.delete(conversation_id);
+    metadata.pendingLocalSendSeq = null;
+  } else {
+    pendingStopAttempts.delete(conversation_id);
+    metadata.pendingStopTurnId = null;
+  }
+  return {
+    applied: true,
+    logs: setConversationRuntimeSnapshot(
+      conversation_id,
+      resetLocalGateConversationRuntimeView(runtimeViews.get(conversation_id), conversation_id, reason)
+    ),
+  };
+};
+
+export const abandonLocalRuntimeAttempt = (ticket: ConversationRuntimeAttemptTicket): boolean => {
+  synchronizeConversationRuntimeSeat();
+  const pending =
+    ticket.kind === 'send'
+      ? pendingSendAttempts.get(ticket.conversationId)
+      : pendingStopAttempts.get(ticket.conversationId);
+  if (!attemptTicketMatches(pending, ticket, ticket.kind) || pending?.stage !== 'issued') return false;
+  if (ticket.kind === 'send') pendingSendAttempts.delete(ticket.conversationId);
+  else pendingStopAttempts.delete(ticket.conversationId);
+  return true;
+};
 
 /**
  * Fence every renderer-global runtime identity when the config cache moves to
@@ -909,9 +1090,12 @@ export const resetConversationRuntimeViewStoreForTest = () => {
   runtimeViews.clear();
   fallbackSnapshots.clear();
   runtimeMetadata.clear();
+  pendingSendAttempts.clear();
+  pendingStopAttempts.clear();
   listeners.clear();
   streamSeatEpoch = 0;
   requirePositiveStreamIdentity = false;
   boundStreamSeatId = null;
   boundConfigSeatRebindEpoch = null;
+  nextRuntimeAttemptId = 0;
 };

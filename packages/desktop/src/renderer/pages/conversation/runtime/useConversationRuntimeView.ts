@@ -11,12 +11,15 @@ import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conve
 import { emitter } from '@/renderer/utils/emitter';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import {
+  abandonLocalRuntimeAttempt,
   conversationDeleted,
   getConversationRuntimeSeatGeneration,
   getConversationRuntimeViewSnapshot,
   hydrateFailed,
   hydrateStarted,
   hydrateSucceeded,
+  issueLocalSendAttempt,
+  issueLocalStopAttempt,
   localSendAccepted,
   localSendFailed,
   localSendStarted,
@@ -28,6 +31,7 @@ import {
   subscribeConversationRuntimeView,
   turnCompleted,
   type ConversationRuntimeView,
+  type ConversationRuntimeAttemptTicket,
   type ConversationRuntimeViewLogEntry,
 } from './conversationRuntimeViewStore';
 
@@ -37,12 +41,24 @@ type UseConversationRuntimeViewReturn = {
   isProcessing: boolean;
   canSendMessage: boolean;
   activeTurnId: string | null;
-  markSendStarted: () => void;
-  markSendAccepted: (turn_id: string, runtime: TConversationRuntimeSummary, msg_id?: string) => void;
-  markSendFailed: (reason: string) => void;
-  markStopRequested: (turn_id: string) => void;
-  markStopAcknowledged: (turn_id: string, runtime: TConversationRuntimeSummary) => void;
-  resetLocalGate: (reason: string) => void;
+  issueSendAttempt: () => ConversationRuntimeAttemptTicket | null;
+  markSendStarted: (ticket: ConversationRuntimeAttemptTicket) => boolean;
+  markSendAccepted: (
+    ticket: ConversationRuntimeAttemptTicket,
+    turn_id: string,
+    runtime: TConversationRuntimeSummary,
+    msg_id?: string
+  ) => boolean;
+  markSendFailed: (ticket: ConversationRuntimeAttemptTicket, reason: string) => boolean;
+  issueStopAttempt: () => ConversationRuntimeAttemptTicket | null;
+  markStopRequested: (ticket: ConversationRuntimeAttemptTicket, turn_id: string) => boolean;
+  markStopAcknowledged: (
+    ticket: ConversationRuntimeAttemptTicket,
+    turn_id: string,
+    runtime: TConversationRuntimeSummary
+  ) => boolean;
+  resetLocalGate: (ticket: ConversationRuntimeAttemptTicket, reason: string) => boolean;
+  abandonAttempt: (ticket: ConversationRuntimeAttemptTicket) => boolean;
 };
 
 const normalizeReason = (reason: string): string => reason.trim().slice(0, 200) || 'unknown';
@@ -387,16 +403,31 @@ export const useConversationRuntimeView = (conversation_id: string): UseConversa
     return retainConversationRuntimeEvents(conversation_id);
   }, [conversation_id]);
 
-  const markSendStarted = useCallback(() => {
-    flushRuntimeViewLogs(localSendStarted(conversation_id));
-    // Session-list truth (1.820.5): the turn is submitted — the row must show
-    // "working" NOW, not only once the first stream frame arrives.
-    emitter.emit('conversation.turn.working', { conversation_id, working: true });
-  }, [conversation_id]);
+  const issueSendAttempt = useCallback(() => issueLocalSendAttempt(conversation_id), [conversation_id]);
+
+  const markSendStarted = useCallback(
+    (ticket: ConversationRuntimeAttemptTicket) => {
+      const started = localSendStarted(conversation_id, ticket);
+      if (!started.applied) return false;
+      flushRuntimeViewLogs(started.logs);
+      // Session-list truth (1.820.5): the turn is submitted — the row must show
+      // "working" NOW, not only once the first stream frame arrives.
+      emitter.emit('conversation.turn.working', { conversation_id, working: true });
+      return true;
+    },
+    [conversation_id]
+  );
 
   const markSendAccepted = useCallback(
-    (turn_id: string, runtime: TConversationRuntimeSummary, msg_id?: string) => {
-      flushRuntimeViewLogs(localSendAccepted(conversation_id, turn_id, runtime, msg_id));
+    (
+      ticket: ConversationRuntimeAttemptTicket,
+      turn_id: string,
+      runtime: TConversationRuntimeSummary,
+      msg_id?: string
+    ) => {
+      const accepted = localSendAccepted(conversation_id, turn_id, runtime, msg_id, ticket);
+      if (!accepted.applied) return false;
+      flushRuntimeViewLogs(accepted.logs);
       // An instantly-idle runtime means the turn already settled — otherwise the
       // backend accepted work and the pre-stream window continues.
       emitter.emit('conversation.turn.working', {
@@ -407,13 +438,16 @@ export const useConversationRuntimeView = (conversation_id: string): UseConversa
       if (runtime.is_processing)
         ensureRuntimeRecoveryMonitor(conversation_id, runtime.turn_id ?? turn_id, msg_id ?? null);
       else emitRuntimeRecovered(conversation_id, runtime, msg_id ?? null, runtime.turn_id ?? turn_id);
+      return true;
     },
     [conversation_id]
   );
 
   const markSendFailed = useCallback(
-    (reason: string) => {
-      flushRuntimeViewLogs(localSendFailed(conversation_id, normalizeReason(reason)));
+    (ticket: ConversationRuntimeAttemptTicket, reason: string) => {
+      const failed = localSendFailed(conversation_id, normalizeReason(reason), ticket);
+      if (!failed.applied) return false;
+      flushRuntimeViewLogs(failed.logs);
       const runtimeSnapshot = getConversationRuntimeViewSnapshot(conversation_id);
       if (!runtimeSnapshot.isProcessing) {
         stopRuntimeRecoveryMonitor(conversation_id);
@@ -421,35 +455,52 @@ export const useConversationRuntimeView = (conversation_id: string): UseConversa
         // will follow, so the session-list "working" flag ends here.
         emitter.emit('conversation.turn.working', { conversation_id, working: false });
       }
+      return true;
     },
     [conversation_id]
   );
 
+  const issueStopAttempt = useCallback(() => issueLocalStopAttempt(conversation_id), [conversation_id]);
+
   const markStopRequested = useCallback(
-    (turn_id: string) => {
-      flushRuntimeViewLogs(localStopRequested(conversation_id, turn_id));
+    (ticket: ConversationRuntimeAttemptTicket, turn_id: string) => {
+      const requested = localStopRequested(conversation_id, turn_id, ticket);
+      if (!requested.applied) return false;
+      flushRuntimeViewLogs(requested.logs);
+      return true;
     },
     [conversation_id]
   );
 
   const markStopAcknowledged = useCallback(
-    (turn_id: string, runtime: TConversationRuntimeSummary) => {
-      flushRuntimeViewLogs(localStopAcknowledged(conversation_id, turn_id, runtime));
+    (ticket: ConversationRuntimeAttemptTicket, turn_id: string, runtime: TConversationRuntimeSummary) => {
+      const acknowledged = localStopAcknowledged(conversation_id, turn_id, runtime, ticket);
+      if (!acknowledged.applied) return false;
+      flushRuntimeViewLogs(acknowledged.logs);
       if (runtime.is_processing) ensureRuntimeRecoveryMonitor(conversation_id, runtime.turn_id ?? turn_id);
       else {
         const expectedMessageId = runtimeRecoveryMonitors.get(conversation_id)?.expectedMessageId ?? null;
         stopRuntimeRecoveryMonitor(conversation_id);
         emitRuntimeRecovered(conversation_id, runtime, expectedMessageId, runtime.turn_id ?? turn_id);
       }
+      return true;
     },
     [conversation_id]
   );
 
   const resetLocalRuntimeGate = useCallback(
-    (reason: string) => {
-      flushRuntimeViewLogs(resetLocalGate(conversation_id, normalizeReason(reason)));
+    (ticket: ConversationRuntimeAttemptTicket, reason: string) => {
+      const reset = resetLocalGate(conversation_id, normalizeReason(reason), ticket);
+      if (!reset.applied) return false;
+      flushRuntimeViewLogs(reset.logs);
+      return true;
     },
     [conversation_id]
+  );
+
+  const abandonAttempt = useCallback(
+    (ticket: ConversationRuntimeAttemptTicket) => abandonLocalRuntimeAttempt(ticket),
+    []
   );
 
   return {
@@ -458,12 +509,15 @@ export const useConversationRuntimeView = (conversation_id: string): UseConversa
     isProcessing: view.isProcessing,
     canSendMessage: view.canSendMessage,
     activeTurnId: view.activeTurnId,
+    issueSendAttempt,
     markSendStarted,
     markSendAccepted,
     markSendFailed,
+    issueStopAttempt,
     markStopRequested,
     markStopAcknowledged,
     resetLocalGate: resetLocalRuntimeGate,
+    abandonAttempt,
   };
 };
 

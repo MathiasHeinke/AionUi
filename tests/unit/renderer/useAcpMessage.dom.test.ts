@@ -17,10 +17,11 @@ import {
   classifyAcpExternalWriteBlock,
 } from '@/renderer/pages/conversation/Messages/acp/externalWriteRecoveryPolicy';
 import {
-  localSendAccepted,
-  localSendStarted,
+  beginLocalSendAttempt,
+  localSendAccepted as applyLocalSendAccepted,
   resetConversationRuntimeViewStoreForTest,
   turnCompleted,
+  type ConversationRuntimeAttemptTicket,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { useConversationArtifactsById } from '@/renderer/pages/conversation/Messages/artifacts';
 import { registerPreviewPageReader } from '@/renderer/pages/conversation/Preview/services/previewReader';
@@ -30,6 +31,19 @@ import {
   resetConversationDelegationActivityForTest,
   useConversationDelegationActivity,
 } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
+
+const runtimeSendTickets = new Map<string, ConversationRuntimeAttemptTicket>();
+const localSendStarted = (conversationId: string) => {
+  const ticket = beginLocalSendAttempt(conversationId);
+  expect(ticket).not.toBeNull();
+  runtimeSendTickets.set(conversationId, ticket!);
+};
+const localSendAccepted = (
+  conversationId: string,
+  turnId: string,
+  runtime: Parameters<typeof applyLocalSendAccepted>[2],
+  messageId?: string
+) => applyLocalSendAccepted(conversationId, turnId, runtime, messageId, runtimeSendTickets.get(conversationId)!);
 
 const {
   addOrUpdateMessageMock,

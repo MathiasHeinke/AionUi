@@ -25,10 +25,11 @@ import {
   markConversationGenerating,
 } from '@renderer/services/commandEveGenerationActivity';
 import {
-  localSendAccepted,
-  localSendStarted,
+  beginLocalSendAttempt,
+  localSendAccepted as applyLocalSendAccepted,
   resetConversationRuntimeViewStoreForTest,
   turnCompleted,
+  type ConversationRuntimeAttemptTicket,
 } from '@renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import type { TConversationRuntimeSummary } from '@/common/config/storage';
 
@@ -51,6 +52,15 @@ const idleRuntime = (): TConversationRuntimeSummary => ({
   pending_confirmations: 0,
   turn_id: null,
 });
+
+const runtimeSendTickets = new Map<string, ConversationRuntimeAttemptTicket>();
+const localSendStarted = (conversationId: string) => {
+  const ticket = beginLocalSendAttempt(conversationId);
+  expect(ticket).not.toBeNull();
+  runtimeSendTickets.set(conversationId, ticket!);
+};
+const localSendAccepted = (conversationId: string, turnId: string, runtime: TConversationRuntimeSummary) =>
+  applyLocalSendAccepted(conversationId, turnId, runtime, undefined, runtimeSendTickets.get(conversationId)!);
 
 describe('commandEveGenerationActivity — the seat-switch guard signal (1.7.3)', () => {
   afterEach(() => {

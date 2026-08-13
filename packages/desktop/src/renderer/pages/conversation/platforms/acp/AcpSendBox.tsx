@@ -172,6 +172,8 @@ class CommandEveVisionPolicyDisabledError extends Error {
   }
 }
 
+type AcpDispatchResult = 'accepted' | 'rejected' | 'stale';
+
 const useAcpSendBoxDraft = getSendBoxDraftHook('acp', {
   _type: 'acp',
   atPath: [],
@@ -657,7 +659,10 @@ const AcpSendBox: React.FC<{
     }: Pick<
       ConversationCommandQueueItem,
       'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount' | 'attachmentGrounding'
-    >) => {
+    >): Promise<Exclude<AcpDispatchResult, 'rejected'>> => {
+      const sendTicket = runtimeView.issueSendAttempt();
+      if (!sendTicket) return 'stale';
+      let sendStarted = false;
       // The images travelling with THIS turn, in the order the user attached
       // them. They are what a reference-to-video render would use, and naming
       // them in the envelope is what stops a follow-up from asking the user to
@@ -789,7 +794,9 @@ const AcpSendBox: React.FC<{
           await warmupConversation(conversation_id, { revalidate: true });
         }
 
-        runtimeView.markSendStarted();
+        if (teamPermission) await teamPermission.warmupSession();
+        if (!runtimeView.markSendStarted(sendTicket)) return 'stale';
+        sendStarted = true;
         // 1.7.3 (Codex #2): mark generation at SEND time so the seat-switch guard
         // covers the window between submit and the first `start` stream event, during
         // which the response stream is silent. The stream's finish/error clears it on
@@ -797,7 +804,6 @@ const AcpSendBox: React.FC<{
         markConversationGenerating(conversation_id);
         setAiProcessing(true);
 
-        if (teamPermission) await teamPermission.warmupSession();
         void checkAndUpdateTitle(conversation_id, input);
         const result = await ipcBridge.acpConversation.sendMessage.invoke({
           input: displayMessage,
@@ -811,18 +817,19 @@ const AcpSendBox: React.FC<{
         ) {
           throw new Error('ATTACHMENT_GROUNDING_RECEIPT_INVALID');
         }
+        if (!runtimeView.markSendAccepted(sendTicket, result.turn_id, result.runtime, result.msg_id)) return 'stale';
         emitAcpPerformanceMark({
           stage: 'request_accepted',
           conversationId: conversation_id,
           turnId: result.turn_id,
         });
-        runtimeView.markSendAccepted(result.turn_id, result.runtime, result.msg_id);
         emitter.emit('chat.history.refresh');
       } catch (error: unknown) {
         // MAT-1769: the disabled-policy signal belongs to the enablement prompt
         // in `submitMessage`, not to the failure rendering below — and no turn
         // state was marked yet on that path, so there is nothing to clean up.
         if (error instanceof CommandEveVisionPolicyDisabledError) {
+          if (!runtimeView.abandonAttempt(sendTicket)) return 'stale';
           throw error;
         }
         // SCRUBBED (MAT-1749) AT THE BINDING, not at one of its four sinks. This
@@ -843,7 +850,10 @@ const AcpSendBox: React.FC<{
               CLOUD_MODEL_IDENTIFIERS
             )
           ) || t('common.unknownError');
-        runtimeView.markSendFailed(errorMsg);
+        const attemptApplied = sendStarted
+          ? runtimeView.markSendFailed(sendTicket, errorMsg)
+          : runtimeView.abandonAttempt(sendTicket);
+        if (!attemptApplied) return 'stale';
         // 1.7.3: the send never became a running turn — clear the guard flag (the
         // non-error failure path emits no terminal stream event to clear it).
         clearConversationGenerating(conversation_id);
@@ -926,6 +936,7 @@ Please check your local CLI tool authentication status`,
       if (files.length > 0) {
         emitter.emit('acp.workspace.refresh');
       }
+      return 'accepted';
     },
     [
       backend,
@@ -966,7 +977,9 @@ Please check your local CLI tool authentication status`,
       canSendMessage: runtimeView.canSendMessage,
       isProcessing: runtimeView.isProcessing,
     },
-    onExecute: executeCommand,
+    onExecute: async (item) => {
+      await executeCommand(item);
+    },
   });
 
   // Video submit seam. Video is the most expensive single action, so the cost
@@ -1335,7 +1348,7 @@ Please check your local CLI tool authentication status`,
       preparedContext?: string,
       managedVisualSourceCount?: number,
       attachmentGrounding?: CommandEveAttachmentGroundingRequest
-    ) => {
+    ): Promise<AcpDispatchResult> => {
       const requestedBusyControlCommand = runtimeView.isProcessing
         ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
         : null;
@@ -1353,7 +1366,7 @@ Please check your local CLI tool authentication status`,
         try {
           await dispatchSteer(busyControlCommand.input);
           emitter.emit('chat.history.refresh');
-          return true;
+          return 'accepted';
         } catch (error) {
           // SCRUBBED (MAT-1749): a steer dispatch failure can carry upstream text.
           const steerFailureText = scrubModelIdentifiers(parseError(error), CLOUD_MODEL_IDENTIFIERS);
@@ -1365,7 +1378,7 @@ Please check your local CLI tool authentication status`,
               }),
             duration: 5000,
           });
-          return false;
+          return 'rejected';
         }
       }
 
@@ -1381,18 +1394,18 @@ Please check your local CLI tool authentication status`,
           hasPendingCommands,
         })
       ) {
-        return (
-          enqueue({
-            input: queuedMessage,
-            files: agentFiles,
-            displayFiles,
-            preparedContext,
-            managedVisualSourceCount,
-            attachmentGrounding,
-          }) !== null
-        );
+        return enqueue({
+          input: queuedMessage,
+          files: agentFiles,
+          displayFiles,
+          preparedContext,
+          managedVisualSourceCount,
+          attachmentGrounding,
+        }) !== null
+          ? 'accepted'
+          : 'rejected';
       }
-      await executeCommand({
+      return executeCommand({
         input: queuedMessage,
         files: agentFiles,
         displayFiles,
@@ -1400,7 +1413,6 @@ Please check your local CLI tool authentication status`,
         managedVisualSourceCount,
         attachmentGrounding,
       });
-      return true;
     },
     [busySendMode, dispatchSteer, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing, t]
   );
@@ -1986,7 +1998,7 @@ Please check your local CLI tool authentication status`,
       controls.clearSelection();
 
       try {
-        const accepted = await dispatchMessage(
+        const dispatchResult = await dispatchMessage(
           message,
           visuallyPreparedFiles,
           allFiles,
@@ -1994,8 +2006,12 @@ Please check your local CLI tool authentication status`,
           visualContexts.length || undefined,
           attachmentGrounding
         );
-        if (!accepted) controls.restoreDraftAndFiles();
-        return accepted;
+        if (dispatchResult === 'rejected') controls.restoreDraftAndFiles();
+        // A stale result belongs to the seat/generation that was fenced while
+        // this async send was in flight. Restoring that draft would write old
+        // seat input and attachments into the newly bound seat, so stale work
+        // is discarded without any shared UI mutation.
+        return dispatchResult === 'accepted';
       } catch (error) {
         controls.restoreDraftAndFiles();
         // MAT-1769: every sidecar was cached, so the disabled policy only
@@ -2460,6 +2476,8 @@ Please check your local CLI tool authentication status`,
 
   // Stop conversation handler
   const handleStop = async (): Promise<boolean> => {
+    const stopTicket = runtimeView.issueStopAttempt();
+    if (!stopTicket) return false;
     voiceDialogue.cancel();
     pause();
     const turnId =
@@ -2468,6 +2486,7 @@ Please check your local CLI tool authentication status`,
         ? await waitForConversationActiveTurnId(conversation_id, { timeoutMs: 5_000 })
         : null);
     if (!turnId) {
+      if (!runtimeView.abandonAttempt(stopTicket)) return false;
       const currentRuntime = getConversationRuntimeViewSnapshot(conversation_id);
       if (!currentRuntime.isProcessing) {
         resetState();
@@ -2485,15 +2504,15 @@ Please check your local CLI tool authentication status`,
       );
       return false;
     }
+    if (!runtimeView.markStopRequested(stopTicket, turnId)) return false;
     emitAcpPerformanceMark({
       stage: 'turn_cancel_requested',
       conversationId: conversation_id,
       turnId,
     });
-    runtimeView.markStopRequested(turnId);
     try {
       const result = await ipcBridge.conversation.stop.invoke({ conversation_id, turn_id: turnId });
-      runtimeView.markStopAcknowledged(turnId, result.runtime);
+      if (!runtimeView.markStopAcknowledged(stopTicket, turnId, result.runtime)) return false;
       resetState();
       resetActiveExecution('stop');
       emitAcpPerformanceMark({
@@ -2504,7 +2523,7 @@ Please check your local CLI tool authentication status`,
       return true;
     } catch (error) {
       console.warn('[AcpSendBox] stop request failed', error);
-      runtimeView.resetLocalGate('stop_failed');
+      if (!runtimeView.resetLocalGate(stopTicket, 'stop_failed')) return false;
       emitAcpPerformanceMark({
         stage: 'turn_cancel_failed',
         conversationId: conversation_id,

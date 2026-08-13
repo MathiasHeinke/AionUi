@@ -7,25 +7,44 @@
 import type { TConversationRuntimeSummary } from '@/common/config/storage';
 import { describe, expect, it } from 'vitest';
 import {
+  beginLocalSendAttempt,
   createDefaultConversationRuntimeView,
   getConversationRuntimeViewSnapshot,
   hydrateSucceededConversationRuntimeView,
   hydrateSucceeded,
-  localSendAccepted,
+  localSendAccepted as applyLocalSendAccepted,
   localSendAcceptedConversationRuntimeView,
-  localSendStarted,
   localSendFailedConversationRuntimeView,
   localSendStartedConversationRuntimeView,
-  localStopAcknowledged,
+  issueLocalStopAttempt,
+  localStopAcknowledged as applyLocalStopAcknowledged,
   localStopAcknowledgedConversationRuntimeView,
-  localStopRequested,
+  localStopRequested as applyLocalStopRequested,
   localStopRequestedConversationRuntimeView,
   resetConversationRuntimeViewStoreForTest,
   turnCompleted,
   turnCompletedConversationRuntimeView,
+  type ConversationRuntimeAttemptTicket,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 
 const conversation_id = 'conversation-1';
+const sendTickets = new Map<string, ConversationRuntimeAttemptTicket>();
+const stopTickets = new Map<string, ConversationRuntimeAttemptTicket>();
+const localSendStarted = (id: string) => {
+  const ticket = beginLocalSendAttempt(id);
+  expect(ticket).not.toBeNull();
+  sendTickets.set(id, ticket!);
+};
+const localSendAccepted = (id: string, turnId: string, summary: TConversationRuntimeSummary, messageId?: string) =>
+  applyLocalSendAccepted(id, turnId, summary, messageId, sendTickets.get(id)!).logs;
+const localStopRequested = (id: string, turnId: string) => {
+  const ticket = issueLocalStopAttempt(id);
+  expect(ticket).not.toBeNull();
+  expect(applyLocalStopRequested(id, turnId, ticket!).applied).toBe(true);
+  stopTickets.set(id, ticket!);
+};
+const localStopAcknowledged = (id: string, turnId: string, summary: TConversationRuntimeSummary) =>
+  applyLocalStopAcknowledged(id, turnId, summary, stopTickets.get(id)!).logs;
 
 const runtime = (overrides: Partial<TConversationRuntimeSummary>): TConversationRuntimeSummary => ({
   state: 'idle',
@@ -364,19 +383,13 @@ describe('conversationRuntimeViewStore', () => {
     );
 
     expect(getConversationRuntimeViewSnapshot(conversation_id)).toMatchObject({
-      state: 'running',
+      state: 'starting',
       isProcessing: true,
       canSendMessage: false,
-      localSubmitting: false,
+      localSubmitting: true,
       localStopping: false,
     });
-    expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatchObject({
-      event: 'local_stop_acknowledged',
-      data: {
-        turn_id: 'turn-1',
-      },
-    });
+    expect(logs).toEqual([]);
   });
 
   it('defaults to an idle view before hydration', () => {
