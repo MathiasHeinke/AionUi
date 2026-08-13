@@ -1,0 +1,88 @@
+{
+  "schema": "command-eve-preview-eligibility/v1",
+  "status": "NO_MEANINGFUL_PREVIEW",
+  "target": {
+    "label": "1.822.3-alpha.1",
+    "versionReserved": false,
+    "channel": "preview-direct-download",
+    "autoUpdateFeedMutationAuthorized": false,
+    "packageBuildAuthorized": false,
+    "signingAuthorized": false,
+    "notarizationAuthorized": false,
+    "uploadAuthorized": false
+  },
+  "liveRollbackTruth": {
+    "version": "1.822.2",
+    "sourceCommit": "a289ce2f077eb5c2bc7a568ab4c334f179a4c528",
+    "sourceTree": "98dd6e2fdfdeb69b9dd75f8107b899256fbdcf21",
+    "packageJsonVersion": "1.822.2",
+    "stableFeedMustRemainByteUnchanged": true,
+    "rollbackTarget": "1.822.2"
+  },
+  "sourceCandidates": [
+    {
+      "id": "reviewed-aionui-source-composite",
+      "commit": "f32fbc3f54431e9d39126a0cce3a91b2f2c4100d",
+      "containsReviewedHeads": [
+        "f2df29733d9115822855e378a2470039d7068c03",
+        "e18b09793c84d715af8c5760f96c7f03959c2c30",
+        "4076806c7d66025aef867dbe53dd13dae3f0c300",
+        "5d675bdaaf251f3acd3abb1ffce61f5a0a812e70",
+        "8e9dd7244e034e31163a8c1ed6e444ef1f75680a",
+        "4a85a64ede2db41f663ad09fc373111bfc2b23c3",
+        "fa004302dce01d7bb9c761f15bd83900375ff355"
+      ],
+      "decision": "EXCLUDE",
+      "reason": "Composite also carries superseded Voice and local Identity fixture lineage; it is planning input, not a final reviewed preview head."
+    },
+    {
+      "id": "voice-final-source",
+      "commit": "62a11e11a54da7a513197a68aaede431f3b2f0be",
+      "receiptCommit": "442b73eaabdf2dc69aefcce7f86e5ff215031cfe",
+      "receiptSha256": "ca237f1f74283e395e49074d5f712b96bae27358f2178a05e2f955dbffed536e",
+      "mergeTreeWithComposite": "CLEAN",
+      "sourceReviewEligible": true,
+      "previewEligible": false,
+      "decision": "EXCLUDE_WAITING_COMPOSITE_PACKAGE_RUNTIME"
+    },
+    {
+      "id": "identity-final-source",
+      "commit": "2315791913957887c5ae3da96f10d955dea097e4",
+      "receiptCommit": "6c44081d1cc3f70b55eda141663cbf4c0723a133",
+      "receiptSha256": "c902759748eec60c3d7853b69b5910bd1addce1ac8cb5275dc4916f6f544f2fc",
+      "mergeTreeWithComposite": "CONFLICT",
+      "conflictPaths": [
+        "tests/fixtures/provider-free/providerFreeExternalActionAdapter.ts"
+      ],
+      "sourceReviewEligible": true,
+      "previewEligible": false,
+      "decision": "EXCLUDE_WAITING_OWNER_SEAM_REVIEW"
+    }
+  ],
+  "explicitExclusions": [
+    "all AionCore durable+Vision composites at cde45e61, b1e93cbf, 6482c7d7, b7a1915a and cc995 or successors lacking a frozen independent PASS receipt",
+    "all rejected or pending V16/V17 package-contract candidates",
+    "Browser until exact managed-uvx and package proof",
+    "Vision until a reviewed combined AionCore head and packaged runtime proof",
+    "Account/Seed until exact composite runtime proof",
+    "all source-only receipts whose required package/runtime/provider/device gate is open"
+  ],
+  "smallestFutureSourcePlan": {
+    "authorizedNow": false,
+    "order": [
+      "revalidate f32fbc3f as a composition base without promoting it",
+      "merge 62a11e11 (read-only merge-tree currently clean)",
+      "resolve the single 23157919 Identity owner seam",
+      "obtain a fresh independent P0/P1 review of the exact resulting AionUI head",
+      "pair only with independently reviewed Core/Hermes heads and exact package/runtime receipts"
+    ]
+  },
+  "eligibilityCounts": {
+    "sourceReceiptGreen": 9,
+    "exactCompositeHeadsEligible": 0,
+    "packageInputsEligible": 0,
+    "previewCandidatesEligible": 0
+  },
+  "integratedCommits": [],
+  "decision": "Do not ship identical 1.822.2 bytes under an alpha label and do not create a preview until one meaningful exact composite passes source, package and runtime gates."
+}
