@@ -104,6 +104,7 @@ function seedDbWithRichAgentRegistry(dataDir: string, seed: (db: DatabaseSync) =
        name TEXT,
        agent_type TEXT,
        backend TEXT,
+       native_skills_dirs TEXT,
        command TEXT,
        args TEXT,
        command_override TEXT,
@@ -124,6 +125,7 @@ function hermesRegistryOf(dataDir: string): {
   command: string | null;
   args: string | null;
   command_override: string | null;
+  native_skills_dirs: string | null;
   last_check_status: string | null;
   last_check_error_message: string | null;
   last_failure_at: number | null;
@@ -132,13 +134,14 @@ function hermesRegistryOf(dataDir: string): {
   const db = new DatabaseSync(path.join(dataDir, 'aionui-backend.db'));
   const row = db
     .prepare(
-      "SELECT command, args, command_override, last_check_status, last_check_error_message, last_failure_at, updated_at FROM agent_metadata WHERE lower(coalesce(backend,'')) = 'hermes' LIMIT 1"
+      "SELECT command, args, command_override, native_skills_dirs, last_check_status, last_check_error_message, last_failure_at, updated_at FROM agent_metadata WHERE lower(coalesce(backend,'')) = 'hermes' LIMIT 1"
     )
     .get() as
     | {
         command: string | null;
         args: string | null;
         command_override: string | null;
+        native_skills_dirs: string | null;
         last_check_status: string | null;
         last_check_error_message: string | null;
         last_failure_at: number | null;
@@ -371,6 +374,94 @@ describe('repairCommandEveAssistantStorage — pins Hermes registry command to t
     expect(row?.command_override).toBeNull();
     expect(row?.args).toBe('[]');
     expect(row?.last_check_status).toBe('offline');
+  });
+});
+
+describe('repairCommandEveAssistantStorage — enables Hermes native skill discovery', () => {
+  it('stores the absolute app-managed Hermes root and becomes idempotent', async () => {
+    const dir = makeDataDir();
+    const nativeSkillsDirs = [path.join(dir, 'hermes-home', 'skills-command-eve')];
+    for (const skillDir of nativeSkillsDirs) fs.mkdirSync(skillDir, { recursive: true });
+    seedDbWithRichAgentRegistry(dir, (db) => {
+      db.prepare(
+        'INSERT INTO agent_metadata (id, name, agent_type, backend, native_skills_dirs) VALUES (?,?,?,?,?)'
+      ).run('hermes-1', 'Hermes', 'acp', 'hermes', null);
+    });
+
+    const first = await repairCommandEveAssistantStorage(dir, { nativeSkillsDirs });
+    expect(first.nativeSkillsRebound).toBe(1);
+    expect(JSON.parse(hermesRegistryOf(dir)?.native_skills_dirs ?? 'null')).toEqual(nativeSkillsDirs);
+
+    const second = await repairCommandEveAssistantStorage(dir, { nativeSkillsDirs });
+    expect(second.nativeSkillsRebound).toBe(0);
+  });
+
+  it('does not advertise native discovery for malformed or relative roots', async () => {
+    const dir = makeDataDir();
+    fs.mkdirSync(path.join(dir, 'hermes-home', 'skills'), { recursive: true });
+    seedDbWithRichAgentRegistry(dir, (db) => {
+      db.prepare(
+        'INSERT INTO agent_metadata (id, name, agent_type, backend, native_skills_dirs) VALUES (?,?,?,?,?)'
+      ).run('hermes-1', 'Hermes', 'acp', 'hermes', null);
+    });
+
+    const result = await repairCommandEveAssistantStorage(dir, {
+      nativeSkillsDirs: [path.join(dir, 'hermes-home', 'skills'), 'relative/skills'],
+    });
+    expect(result.nativeSkillsRebound).toBe(0);
+    expect(hermesRegistryOf(dir)?.native_skills_dirs).toBeNull();
+  });
+
+  it('does not advertise native discovery for an absolute root that does not exist', async () => {
+    const dir = makeDataDir();
+    seedDbWithRichAgentRegistry(dir, (db) => {
+      db.prepare(
+        'INSERT INTO agent_metadata (id, name, agent_type, backend, native_skills_dirs) VALUES (?,?,?,?,?)'
+      ).run('hermes-1', 'Hermes', 'acp', 'hermes', null);
+    });
+
+    const result = await repairCommandEveAssistantStorage(dir, {
+      nativeSkillsDirs: [path.join(dir, 'missing-hermes-home', 'skills')],
+    });
+    expect(result.nativeSkillsRebound).toBe(0);
+    expect(hermesRegistryOf(dir)?.native_skills_dirs).toBeNull();
+  });
+
+  it('leaves non-Hermes agent capabilities untouched', async () => {
+    const dir = makeDataDir();
+    fs.mkdirSync(path.join(dir, 'hermes-home', 'skills'), { recursive: true });
+    seedDbWithRichAgentRegistry(dir, (db) => {
+      db.prepare(
+        'INSERT INTO agent_metadata (id, name, agent_type, backend, native_skills_dirs) VALUES (?,?,?,?,?)'
+      ).run('codex-1', 'Codex', 'acp', 'codex', '[".codex/skills"]');
+    });
+
+    const result = await repairCommandEveAssistantStorage(dir, {
+      nativeSkillsDirs: [path.join(dir, 'hermes-home', 'skills')],
+    });
+    const db = new DatabaseSync(path.join(dir, 'aionui-backend.db'));
+    const row = db.prepare("SELECT native_skills_dirs FROM agent_metadata WHERE id = 'codex-1'").get() as {
+      native_skills_dirs: string;
+    };
+    db.close();
+
+    expect(result.nativeSkillsRebound).toBe(0);
+    expect(row.native_skills_dirs).toBe('[".codex/skills"]');
+  });
+
+  it('stays compatible with an older registry schema without the capability column', async () => {
+    const dir = makeDataDir();
+    fs.mkdirSync(path.join(dir, 'hermes-home', 'skills'), { recursive: true });
+    seedDbWithAgents(dir, (db) => {
+      db.prepare(
+        "INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('hermes-1','Hermes','acp','hermes')"
+      ).run();
+    });
+
+    const result = await repairCommandEveAssistantStorage(dir, {
+      nativeSkillsDirs: [path.join(dir, 'hermes-home', 'skills')],
+    });
+    expect(result.nativeSkillsRebound).toBe(0);
   });
 });
 

@@ -2239,8 +2239,10 @@ const handleAppReady = async (): Promise<void> => {
     // every restart. Fail-open (never blocks the spawn). See assistantStorageRepair.ts.
     try {
       const { repairCommandEveAssistantStorage } = await import('./process/commandEve/assistantStorageRepair');
+      const runtimePathsForRepair = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
       const repair = await repairCommandEveAssistantStorage(getBackendDataDir(), {
-        hermesCommandPath: resolveCommandEveRuntimeBootstrapPaths(getDataPath()).hermesShim,
+        hermesCommandPath: runtimePathsForRepair.hermesShim,
+        nativeSkillsDirs: [runtimePathsForRepair.managedSkillsRoot],
       });
       if (repair.repaired > 0) {
         console.warn(
@@ -2255,6 +2257,11 @@ const handleAppReady = async (): Promise<void> => {
       if (repair.registryRebound && repair.registryRebound > 0) {
         console.warn(
           `[CommandEVE] Pre-flight assistant-storage repair: pinned ${repair.registryRebound} Hermes registry row(s) to the app-managed shim.`
+        );
+      }
+      if (repair.nativeSkillsRebound && repair.nativeSkillsRebound > 0) {
+        console.warn(
+          `[CommandEVE] Pre-flight assistant-storage repair: enabled native Hermes skill discovery for ${repair.nativeSkillsRebound} registry row(s).`
         );
       }
       if (repair.reseeded && repair.reseeded > 0) {
@@ -2323,6 +2330,7 @@ const handleAppReady = async (): Promise<void> => {
         const { repairCommandEveAssistantStorage } = await import('./process/commandEve/assistantStorageRepair');
         const repair = await repairCommandEveAssistantStorage(getBackendDataDirForRestart(), {
           hermesCommandPath: runtimePathsForRestart.hermesShim,
+          nativeSkillsDirs: [runtimePathsForRestart.managedSkillsRoot],
         });
         if (repair.repaired > 0) {
           console.warn(
@@ -2337,6 +2345,11 @@ const handleAppReady = async (): Promise<void> => {
         if (repair.registryRebound && repair.registryRebound > 0) {
           console.warn(
             `[CommandEVE] Pre-flight assistant-storage repair (respawn): pinned ${repair.registryRebound} Hermes registry row(s) to the app-managed shim.`
+          );
+        }
+        if (repair.nativeSkillsRebound && repair.nativeSkillsRebound > 0) {
+          console.warn(
+            `[CommandEVE] Pre-flight assistant-storage repair (respawn): enabled native Hermes skill discovery for ${repair.nativeSkillsRebound} registry row(s).`
           );
         }
         if (repair.reseeded && repair.reseeded > 0) {

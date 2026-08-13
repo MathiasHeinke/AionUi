@@ -84,6 +84,13 @@ export interface AssistantStorageRepairResult {
    */
   registryRebound?: number;
   /**
+   * Number of Hermes registry rows taught that Hermes owns native skill
+   * discovery. Without this capability AionCore prepends a second full skill
+   * catalog to the first user message even though Hermes already exposes its
+   * compact catalog plus on-demand `skill_view` loading.
+   */
+  nativeSkillsRebound?: number;
+  /**
    * Number of orphaned EVE legacy mirror rows cleared (BUG 3) — the EVE
    * `assistants` row was active with ZERO live definition rows, so it is removed
    * to let the backend re-seed a clean definition via its own POST path.
@@ -96,6 +103,30 @@ export interface AssistantStorageRepairResult {
 export interface AssistantStorageRepairOptions {
   /** Absolute Command EVE Hermes shim path, e.g. <userData>/command-eve-runtime/hermes/hermes. */
   hermesCommandPath?: string;
+  /**
+   * Absolute skill roots read natively by the app-managed Hermes profile.
+   * A malformed list is ignored fail-closed rather than advertising a
+   * capability that the runtime cannot actually reach.
+   */
+  nativeSkillsDirs?: string[];
+}
+
+function normalizeNativeSkillsDirs(value: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const normalized: string[] = [];
+  for (const candidate of value) {
+    if (typeof candidate !== 'string') return undefined;
+    const trimmed = candidate.trim();
+    if (!trimmed || trimmed.includes('\0') || !path.isAbsolute(trimmed)) return undefined;
+    const absolute = path.resolve(trimmed);
+    try {
+      if (!fs.statSync(absolute).isDirectory()) return undefined;
+    } catch {
+      return undefined;
+    }
+    if (!normalized.includes(absolute)) normalized.push(absolute);
+  }
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 /**
@@ -155,6 +186,7 @@ export async function repairCommandEveAssistantStorage(
       // once on hermes the aionrs subquery matches nothing → 0 changes.
       let rebound = 0;
       let registryRebound = 0;
+      let nativeSkillsRebound = 0;
       try {
         const hasAgentMeta = db
           .prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='agent_metadata'")
@@ -176,6 +208,33 @@ export async function repairCommandEveAssistantStorage(
               )
               .run(hermes.id, COMMAND_EVE_ASSISTANT_ID);
             rebound = rebind.changes;
+          }
+
+          // TTFT — Hermes already implements NousResearch's progressive skill
+          // disclosure: a compact catalog is present in its system prompt and
+          // full SKILL.md content is loaded later through `skill_view`. AionCore
+          // switches to that native/light path only when `native_skills_dirs`
+          // is non-empty. The built-in Hermes registry row currently leaves it
+          // NULL, so AionCore wrongly prepends a second 41-skill catalog to the
+          // first user message (~7.1k avoidable tokens on the observed Alpha).
+          // Persist the guaranteed app-managed external root rather than
+          // inventing a new skill loader. Hermes continues to own its primary
+          // skills directory and every configured external root. This update is
+          // independent of command repair and schema-aware for old databases.
+          const nativeSkillsDirs = normalizeNativeSkillsDirs(options.nativeSkillsDirs);
+          const hasNativeSkillsDirs = db
+            .prepare("SELECT COUNT(*) AS n FROM pragma_table_info('agent_metadata') WHERE name = ?")
+            .get('native_skills_dirs') as { n: number } | undefined;
+          if (nativeSkillsDirs && hasNativeSkillsDirs && hasNativeSkillsDirs.n > 0) {
+            const encodedNativeSkillsDirs = JSON.stringify(nativeSkillsDirs);
+            const nativeSkills = db
+              .prepare(
+                'UPDATE agent_metadata SET native_skills_dirs = ? ' +
+                  "WHERE (lower(coalesce(backend,'')) = 'hermes' OR lower(coalesce(agent_type,'')) = 'hermes') " +
+                  "AND coalesce(native_skills_dirs,'') <> ?"
+              )
+              .run(encodedNativeSkillsDirs, encodedNativeSkillsDirs);
+            nativeSkillsRebound = nativeSkills.changes;
           }
 
           // BUG 4 — aioncore's ACP launcher resolves the agent command from
@@ -291,7 +350,7 @@ export async function repairCommandEveAssistantStorage(
       } catch {
         // best-effort; SQLite recovers the WAL on open anyway
       }
-      return { repaired: info.changes, rebound, registryRebound, reseeded };
+      return { repaired: info.changes, rebound, registryRebound, nativeSkillsRebound, reseeded };
     } finally {
       db.close();
     }
