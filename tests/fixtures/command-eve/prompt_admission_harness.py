@@ -615,6 +615,10 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
             "A correction is still being committed. Please send this again."
         )
 
+        # Native autonomous continuations can still appear without traversing
+        # prompt admission. They must not deadlock a same-generation receipt
+        # retry, and may drain only after that retry commits.
+        state.queued_prompts.append("autonomous same-generation continuation")
         connection.reject_boundary_reason = None
         response = await acp_agent.prompt(
             [TextContentBlock(type="text", text="/correct retryable boundary")],
@@ -625,7 +629,13 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
         assert agent.redirect_calls[retryable_redirect_count:] == ["retryable boundary"]
         assert len(boundary_commits) == retryable_commit_count + 1
         assert not hasattr(state, "_command_eve_active_correction_receipt")
+        assert state.queued_prompts == ["autonomous same-generation continuation"]
+        state.is_running = False
+        model_count = len(agent.model_inputs)
+        await acp_agent._drain_queued_prompts(state)
         assert state.queued_prompts == []
+        assert len(agent.model_inputs) == model_count + 1
+        assert agent.model_inputs[-1] == "autonomous same-generation continuation"
 
         state.is_running = True
         state.queued_prompts.clear()
