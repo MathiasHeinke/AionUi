@@ -1464,6 +1464,9 @@ describe('Command EVE runtime bootstrap core', () => {
         mode_channel_dead: true,
         terminal_yolo_disabled: ['session-auto'],
         session_cwd_recorded: true,
+        server_factory_bound: true,
+        rung_five_command_auto_approved_once: true,
+        closed_decision_reaches_human: true,
         idempotent_install: true,
       });
       // ACP session-restore endpoint contract: a base_url frozen at session

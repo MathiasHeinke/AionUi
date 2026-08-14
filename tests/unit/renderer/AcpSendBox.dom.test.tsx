@@ -61,6 +61,8 @@ const {
   layoutIsMobileMock,
   mobileActionSheetPropsMock,
   agentModesMock,
+  agentModeSelectorPropsMock,
+  configSubscribersMock,
   getModeInvokeMock,
   setModeInvokeMock,
   messageErrorMock,
@@ -172,6 +174,8 @@ const {
   agentModesMock: {
     current: [] as Array<{ value: string; label: string; description?: string }>,
   },
+  agentModeSelectorPropsMock: { current: null as Record<string, unknown> | null },
+  configSubscribersMock: new Map<string, Set<() => void>>(),
   getModeInvokeMock: vi.fn(),
   setModeInvokeMock: vi.fn(),
   messageErrorMock: vi.fn(),
@@ -377,7 +381,12 @@ vi.mock('@/common/config/configService', () => ({
   configService: {
     get: configGetMock,
     set: configSetMock,
-    subscribe: vi.fn(() => vi.fn()),
+    subscribe: vi.fn((key: string, listener: () => void) => {
+      const listeners = configSubscribersMock.get(key) ?? new Set<() => void>();
+      listeners.add(listener);
+      configSubscribersMock.set(key, listeners);
+      return () => listeners.delete(listener);
+    }),
     // AcpSendBox now reads the MAIN-process lane decision (useEveMaxAuthority →
     // useActiveSeatId), so the stub has to cover the seat-binding surface too.
     getCurrentSeatId: () => 'seat-1',
@@ -471,7 +480,12 @@ vi.mock('@/renderer/components/chat/UnifiedSendBar', () => ({
   ),
 }));
 
-vi.mock('@/renderer/components/agent/AgentModeSelector', () => ({ default: () => null }));
+vi.mock('@/renderer/components/agent/AgentModeSelector', () => ({
+  default: (props: Record<string, unknown>) => {
+    agentModeSelectorPropsMock.current = props;
+    return <span data-testid='agent-mode-selector-double'>{String(props.compactLabelOverride ?? '')}</span>;
+  },
+}));
 // The non-EVE model picker lives in the bottom bar's modelSlot. An EVE composer
 // has NO cloud intelligence picker at all (MAT-1749) — only the MAX toggle, which
 // is stubbed here so this test stays focused on the send/reset path, mirroring
@@ -738,6 +752,8 @@ describe('AcpSendBox', () => {
     queuePanelPropsMock.current = null;
     queueOnExecuteMock.current = null;
     mobileActionSheetPropsMock.current = null;
+    agentModeSelectorPropsMock.current = null;
+    configSubscribersMock.clear();
     initialMessageParamsMock.current = null;
     speechButtonPropsMock.current = null;
     messageListState.current = [];
@@ -760,9 +776,8 @@ describe('AcpSendBox', () => {
     agentModesMock.current = [];
     getModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: true });
     setModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: true });
-    configGetMock.mockImplementation((key: string) =>
-      key === 'acp.config' ? { hermes: { preferredMode: 'default' } } : undefined
-    );
+    const defaultAcpConfig = { hermes: { preferredMode: 'default' } };
+    configGetMock.mockImplementation((key: string) => (key === 'acp.config' ? defaultAcpConfig : undefined));
     configSetMock.mockResolvedValue(undefined);
     pdfPrepareInvokeMock.mockReset();
     imagePrepareInvokeMock.mockReset();
@@ -899,6 +914,45 @@ describe('AcpSendBox', () => {
     queueRemoveMock.mockResolvedValue(undefined);
     queueRestoreMock.mockResolvedValue(undefined);
     warmupConversationMock.mockResolvedValue(undefined);
+  });
+
+  it('shows the seat-scoped Full authority in chat instead of the three-mode ACP projection', async () => {
+    let authority: { ladder: 1 | 5; capabilities: Record<string, never>; updatedBy: 'user' } = {
+      ladder: 5,
+      capabilities: {},
+      updatedBy: 'user',
+    };
+    const legacyAcpConfig = { hermes: { preferredMode: 'dont_ask' } };
+    configGetMock.mockImplementation((key: string) => {
+      if (key === 'commandEve.authority') return authority;
+      if (key === 'acp.config') return legacyAcpConfig;
+      return undefined;
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        session_mode='dont_ask'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await waitFor(() =>
+      expect(agentModeSelectorPropsMock.current?.compactLabelOverride).toBe('commandEve.authority.rung.full.title')
+    );
+    expect(screen.getByTestId('agent-mode-selector-double')).toHaveTextContent('commandEve.authority.rung.full.title');
+
+    authority = { ladder: 1, capabilities: {}, updatedBy: 'user' };
+    act(() => {
+      configSubscribersMock.get('commandEve.authority')?.forEach((listener) => listener());
+    });
+
+    await waitFor(() =>
+      expect(agentModeSelectorPropsMock.current?.compactLabelOverride).toBe('commandEve.authority.rung.ask.title')
+    );
+    expect(screen.getByTestId('agent-mode-selector-double')).toHaveTextContent('commandEve.authority.rung.ask.title');
   });
 
   it('shows PDF preparation before dispatching the analysis to EVE', async () => {

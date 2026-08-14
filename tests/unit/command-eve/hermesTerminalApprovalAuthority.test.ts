@@ -146,6 +146,23 @@ describe("THE REWRITTEN HALF — the seat's grant decides the class, not a const
     expect(patch).toContain('return inner(command, description, **cb)');
   });
 
+  it('rebinds the factory Hermes server.py actually captured and fails closed on drift', () => {
+    const patch = source.slice(
+      source.indexOf("'def _install_command_eve_approval_class_patch() -> None:'"),
+      source.indexOf("'def _install_command_eve_permission_authority_patch() -> None:'")
+    );
+    expect(patch).toContain('from acp_adapter import server as acp_server');
+    expect(patch).toContain('acp_server.make_approval_callback = command_eve_make_approval_callback');
+    expect(patch).toContain('acp_server.make_approval_callback is not acp_permissions.make_approval_callback');
+
+    const stateGate = source.slice(
+      source.indexOf("'def _command_eve_permission_authority_patch_state() -> tuple[bool, str]:'"),
+      source.indexOf("'def _require_command_eve_permission_authority_patch() -> None:'")
+    );
+    expect(stateGate).toContain('server approval factory not bound to seat authority');
+    expect(stateGate).toContain('_ce_approval_factory is not getattr(_ce_permissions, "make_approval_callback", None)');
+  });
+
   it('the session folder is recorded where the ACP layer actually hands it over', () => {
     // Without a cwd every command counts as OUTSIDE the workspace, which needs
     // rung 4/5 — the strict direction. Pin that the ledger is written in the one

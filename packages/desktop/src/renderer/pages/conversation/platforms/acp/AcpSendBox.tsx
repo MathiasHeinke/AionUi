@@ -39,6 +39,8 @@ import { isEveInferenceSelection, resolveWireTierFromSelection } from '@/common/
 import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
+import { type EveLadderRung } from '@/common/config/eveAuthorityCore';
+import { resolveStoredGrant } from '@/common/config/eveAuthorityStoreCore';
 import {
   markConversationGenerating,
   clearConversationGenerating,
@@ -109,7 +111,7 @@ import {
 } from '@/common/config/visual/cloudVisualPolicyCore';
 import { Message, Modal, Tag } from '@arco-design/web-react';
 import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { buildSendFailureError } from './buildSendFailureError';
 import { runProjectChatIntentGate } from '@/renderer/pages/conversation/shared/projectChatIntentGate';
@@ -176,6 +178,15 @@ class CommandEveVisionPolicyDisabledError extends Error {
 }
 
 type AcpDispatchResult = ConversationCommandDispatchResult;
+
+const COMMAND_EVE_AUTHORITY_RUNG_KEYS: Readonly<Record<EveLadderRung, string>> = {
+  0: 'authority.rung.watch',
+  1: 'authority.rung.ask',
+  2: 'authority.rung.routine',
+  3: 'authority.rung.work',
+  4: 'authority.rung.independent',
+  5: 'authority.rung.full',
+};
 
 const useAcpSendBoxDraft = getSendBoxDraftHook('acp', {
   _type: 'acp',
@@ -370,6 +381,33 @@ const AcpSendBox: React.FC<{
   });
   const availableAgentModes = useAgentModesForBackend(backend);
   const isEveConversation = isCommandEveAcpConversation(backend);
+  // Display the same seat-scoped grant Settings → Permissions enforces. The
+  // three-value ACP mode is only a compatibility projection and cannot express
+  // Independent or Full, so using it as the chat label made a rung-5 seat look
+  // like generic Auto even while the authority resolver was supposed to allow
+  // the work. Both subscriptions re-home with the active seat.
+  const subscribeEveAuthority = useCallback(
+    (listener: () => void) => configService.subscribe('commandEve.authority', listener),
+    []
+  );
+  const readEveAuthorityLadder = useCallback(
+    () =>
+      resolveStoredGrant(configService.get('commandEve.authority'), {
+        hermes: { preferredMode: currentMode ?? session_mode },
+      }).ladder,
+    [currentMode, session_mode]
+  );
+  // A primitive snapshot stays referentially stable even if a test double or
+  // future config backend reconstructs the stored JSON object on every read.
+  const eveAuthorityLadder = useSyncExternalStore(
+    subscribeEveAuthority,
+    readEveAuthorityLadder,
+    readEveAuthorityLadder
+  );
+  const eveAuthorityLabel = useMemo(() => {
+    if (!isEveConversation) return undefined;
+    return t(`commandEve.${COMMAND_EVE_AUTHORITY_RUNG_KEYS[eveAuthorityLadder]}.title`);
+  }, [eveAuthorityLadder, isEveConversation, t]);
   const { preparePresentationFiles, prepareImageFiles } = useCommandEveVisualPreparation({
     isEveConversation,
     workspacePath,
@@ -2431,6 +2469,7 @@ Please check your local CLI tool authentication status`,
       model_info?.current_model_label || model_info?.current_model_id || t('conversation.welcome.useCliModel');
     const currentModeLabel =
       modeOptions.find((opt) => opt.active)?.label ?? t('agentMode.default', { defaultValue: 'Default' });
+    const currentPermissionLabel = isEveConversation ? (eveAuthorityLabel ?? currentModeLabel) : currentModeLabel;
 
     const entries: MobileActionSheetEntry[] = [];
 
@@ -2464,7 +2503,7 @@ Please check your local CLI tool authentication status`,
         key: 'permission',
         icon: <Shield theme='outline' size='16' />,
         label: t('agentMode.permission', { defaultValue: 'Permission' }),
-        meta: currentModeLabel,
+        meta: currentPermissionLabel,
         submenu: {
           title: t('agentMode.permission', { defaultValue: 'Permission' }),
           options: modeOptions,
@@ -2569,6 +2608,7 @@ Please check your local CLI tool authentication status`,
     canSwitchModel,
     currentMode,
     busySendMode,
+    eveAuthorityLabel,
     formatModeLabel,
     handleSheetModeChange,
     isEveConversation,
@@ -2762,6 +2802,7 @@ Please check your local CLI tool authentication status`,
                   initialMode={session_mode}
                   compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
                   modeLabelFormatter={formatModeLabel}
+                  compactLabelOverride={eveAuthorityLabel}
                   compactLabelPrefix={t('agentMode.permission')}
                   hideCompactLabelPrefixOnMobile
                   onModeChanged={handleDesktopModeChanged}
