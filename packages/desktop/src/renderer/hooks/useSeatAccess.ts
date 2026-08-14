@@ -347,6 +347,7 @@ export function useSeatAccess(): SeatAccessState {
       // Promise indirection turns a synchronous bridge throw into the same
       // terminal rejection path, so the transition fence is always completed.
       const invokePromise = Promise.resolve().then(() => commandEve.switchSeat.invoke({ seatId }));
+      let terminalBindingSucceeded = true;
 
       // (2) Authoritative rebind, decoupled from the UI timeout. Resolves the renderer
       // cache to whatever seat MAIN reports it ACTUALLY ended on, whenever it settles.
@@ -361,6 +362,7 @@ export function useSeatAccess(): SeatAccessState {
           try {
             await configService.completeSeatTransition(seatTransition, settled);
           } catch (rebindError) {
+            terminalBindingSucceeded = false;
             console.error('configService.completeSeatTransition (authoritative, post-settle) failed:', rebindError);
           }
           try {
@@ -385,6 +387,7 @@ export function useSeatAccess(): SeatAccessState {
           try {
             await configService.completeSeatTransition(seatTransition, settled);
           } catch (rebindError) {
+            terminalBindingSucceeded = false;
             console.error('configService.completeSeatTransition after IPC reject failed:', rebindError);
           }
         });
@@ -406,9 +409,13 @@ export function useSeatAccess(): SeatAccessState {
         // The race resolved via the REAL response ⇒ main settled. Await the authoritative
         // rebind so the renderer cache is re-homed to main's terminal seat before return.
         await rebindWhenSettled;
-        const ok = response?.data?.ok === true && response?.success !== false;
+        const ok = response?.data?.ok === true && response?.success !== false && terminalBindingSucceeded;
         if (!ok && mountedRef.current) {
-          flagSwitchError(response?.data?.reason_code ?? 'SWITCH_SEAT_FAILED');
+          flagSwitchError(
+            terminalBindingSucceeded
+              ? (response?.data?.reason_code ?? 'SWITCH_SEAT_FAILED')
+              : 'SWITCH_SEAT_BINDING_FAILED'
+          );
         }
         return ok;
       } catch (error) {

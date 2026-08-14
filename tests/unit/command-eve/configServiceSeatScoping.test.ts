@@ -161,13 +161,29 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
       rebindEpoch: 2,
       initialized: true,
     });
+    const malformed = configService.beginSeatTransition();
+    await expect(configService.completeSeatTransition(malformed, '../../unsafe')).rejects.toThrow();
+    expect(configService.getSeatBindingSnapshot()).toEqual({
+      seatId: SEAT_B,
+      rebindEpoch: 3,
+      initialized: false,
+    });
+    // The invalid terminal cannot strand the token: a later valid transition
+    // can restore the trusted binding and runtime transport.
+    const recovered = configService.beginSeatTransition();
+    await configService.completeSeatTransition(recovered, SEAT_B);
+    expect(configService.getSeatBindingSnapshot()).toEqual({
+      seatId: SEAT_B,
+      rebindEpoch: 4,
+      initialized: true,
+    });
     await configService.rebindSeat(SEAT_A);
-    expect(configService.getSeatBindingSnapshot().rebindEpoch).toBe(3);
+    expect(configService.getSeatBindingSnapshot().rebindEpoch).toBe(5);
 
     configService.reset();
     expect(configService.getSeatBindingSnapshot()).toEqual({
       seatId: 'seat-1',
-      rebindEpoch: 4,
+      rebindEpoch: 6,
       initialized: false,
     });
   });

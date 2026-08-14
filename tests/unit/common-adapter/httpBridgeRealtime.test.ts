@@ -185,6 +185,32 @@ describe('httpBridge realtime recovery', () => {
     expect(FakeWebSocket.instances[1].url).toBe('ws://127.0.0.1:24567/ws');
   });
 
+  it('keeps an invalid terminal disconnected but lets the next valid transition recover', async () => {
+    let livePort = 13400;
+    vi.stubGlobal('window', { __backendPort: 13400, __aionBackend: { getPort: () => livePort } });
+    const {
+      beginRealtimeTransportSeatTransition,
+      completeRealtimeTransportSeatTransition,
+      rejectRealtimeTransportSeatTransition,
+      wsEmitter,
+    } = await import('@/common/adapter/httpBridge');
+    wsEmitter('message.stream').on(vi.fn());
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    beginRealtimeTransportSeatTransition();
+    livePort = 24567;
+    rejectRealtimeTransportSeatTransition();
+    wsEmitter('realtime.connected').on(vi.fn());
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    beginRealtimeTransportSeatTransition();
+    livePort = 25678;
+    completeRealtimeTransportSeatTransition();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(FakeWebSocket.instances[1].url).toBe('ws://127.0.0.1:25678/ws');
+  });
+
   it('maps turn completion evidence fail-closed and preserves explicit AionCore proof', async () => {
     const { mapConversationTurnCompletedEvent } = await import('@/common/adapter/conversationTurnCompletedMapper');
     const legacy = mapConversationTurnCompletedEvent({

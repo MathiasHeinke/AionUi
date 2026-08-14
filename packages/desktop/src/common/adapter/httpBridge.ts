@@ -389,6 +389,7 @@ let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let wsReconnectAttempt = 0;
 let wsTransportGeneration = 0;
 let wsSeatTransitionPending = false;
+let wsRealtimeFailClosed = false;
 
 function dispatchWsEvent(eventName: string, payload: unknown): void {
   const handlers = wsListeners.get(eventName);
@@ -406,7 +407,7 @@ function ensureWs(): void {
   // MAIN publishes the target backend port before a seat-switch IPC is
   // terminal. During that interval the renderer must not reconnect through the
   // dynamic port: doing so would attach old-seat listeners to the target seat.
-  if (wsSeatTransitionPending) return;
+  if (wsSeatTransitionPending || wsRealtimeFailClosed) return;
   if (typeof window === 'undefined') {
     console.debug('[ensureWs] skipped: no window');
     return;
@@ -518,8 +519,20 @@ export function completeRealtimeTransportSeatTransition(): void {
   // Advance again so even a constructor/listener queued around completion can
   // never share identity with the pre-terminal transition generation.
   invalidateRealtimeTransport();
+  wsRealtimeFailClosed = false;
   wsSeatTransitionPending = false;
   ensureWs();
+}
+
+/**
+ * Release the transaction after an untrusted terminal response without ever
+ * connecting to its backend. A later valid begin/complete pair can recover;
+ * ordinary subscriptions cannot bypass the fail-closed hold in the meantime.
+ */
+export function rejectRealtimeTransportSeatTransition(): void {
+  invalidateRealtimeTransport();
+  wsSeatTransitionPending = false;
+  wsRealtimeFailClosed = true;
 }
 
 /** Immediate rotation for non-transactional callers and legacy tests. */

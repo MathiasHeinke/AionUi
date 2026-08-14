@@ -9,6 +9,7 @@ import {
 import {
   beginRealtimeTransportSeatTransition,
   completeRealtimeTransportSeatTransition,
+  rejectRealtimeTransportSeatTransition,
 } from '@/common/adapter/httpBridge';
 
 type Subscriber = (value: unknown) => void;
@@ -250,30 +251,35 @@ class ConfigServiceImpl {
     if (!this.activeSeatTransition || token.id !== this.activeSeatTransition.id) {
       throw new Error('Stale or unknown seat transition token');
     }
-    const sanitized = assertSeatId(seatId);
-    // Snapshot the pre-switch seat-scoped values so we can fire change events for
-    // any whose value differs under the new seat.
+    let sanitized: string | null = null;
+    let completionError: unknown;
     const previous = new Map<string, unknown>();
-    for (const key of this.cache.keys()) {
-      if (isSeatScopedConfigKey(key)) previous.set(key, this.cache.get(key));
-    }
-    this.currentSeatId = sanitized;
-    this.cache.clear();
-    this.initialized = false;
-    this.initPromise = null;
-    let initializeError: unknown;
     try {
+      sanitized = assertSeatId(seatId);
+      // Snapshot the pre-switch seat-scoped values so we can fire change events
+      // for any whose value differs under the new seat.
+      for (const key of this.cache.keys()) {
+        if (isSeatScopedConfigKey(key)) previous.set(key, this.cache.get(key));
+      }
+      this.currentSeatId = sanitized;
+      this.cache.clear();
+      this.initialized = false;
+      this.initPromise = null;
       await this.initialize();
     } catch (error) {
-      initializeError = error;
+      completionError = error;
+      // The terminal identity was not trustworthy (or its config could not be
+      // hydrated). Keep the last trusted seat id but expose no cached authority.
+      this.currentSeatId = token.priorSeatId;
+      this.cache.clear();
+      this.initialized = false;
+      this.initPromise = null;
     } finally {
-      // MAIN is terminal now. Reconnect to that exact live port even if config
-      // hydration failed; runtime admission remains fail-closed while
-      // `initialized` is false.
-      completeRealtimeTransportSeatTransition();
+      if (completionError === undefined) completeRealtimeTransportSeatTransition();
+      else rejectRealtimeTransportSeatTransition();
       this.activeSeatTransition = null;
     }
-    if (initializeError !== undefined) throw initializeError;
+    if (completionError !== undefined) throw completionError;
     // Re-notify seat-scoped keys whose value changed (or cleared) on the switch.
     const seen = new Set<string>(previous.keys());
     for (const key of this.cache.keys()) {
