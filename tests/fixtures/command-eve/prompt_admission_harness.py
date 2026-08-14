@@ -538,6 +538,22 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
             raise AssertionError("post-commit boundary response failure was swallowed")
         assert state._command_eve_active_correction_receipt["in_flight"] is False
 
+        state.is_running = False
+        idle_retry_update_count = len(session_updates)
+        idle_retry_model_count = len(agent.model_inputs)
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="ordinary after ambiguous turn terminal")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        assert len(agent.model_inputs) == idle_retry_model_count
+        assert state.queued_prompts == []
+        assert len(session_updates) == idle_retry_update_count + 1
+        assert session_updates[-1].content.text == (
+            "A correction is still being committed. Please send this again."
+        )
+        assert state._command_eve_active_correction_receipt["request_id"] == retry_request_id
+
         boundary_request_count = len(boundary_requests)
         response = await acp_agent.prompt(
             [TextContentBlock(type="text", text="/correct retry boundary")],
