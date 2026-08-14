@@ -30,13 +30,17 @@ let bag: Record<string, unknown> = {};
 // What the (mocked) main process reports as the active seat for the NEXT
 // initialize() that has to resolve it from the bridge.
 let activeSeatFromMain = 'seat-1';
+let activeSeatReadBlock: Promise<never> | null = null;
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
   commandEve: {
     activeSeat: {
-      invoke: vi.fn(async () => ({
-        data: { version: 'command-eve-active-seat/v0', ok: true, seat_id: activeSeatFromMain },
-      })),
+      invoke: vi.fn(async () => {
+        if (activeSeatReadBlock) return activeSeatReadBlock;
+        return {
+          data: { version: 'command-eve-active-seat/v0', ok: true, seat_id: activeSeatFromMain },
+        };
+      }),
     },
   },
 }));
@@ -81,6 +85,7 @@ async function freshConfigService() {
 beforeEach(() => {
   bag = {};
   activeSeatFromMain = 'seat-1';
+  activeSeatReadBlock = null;
 });
 
 afterEach(() => {
@@ -236,6 +241,72 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
     activeSeatFromMain = SEAT_A;
     await configService.rebindSeat(SEAT_A);
     expect(configService.get('commandEve.clientSeeded')).toBe(true);
+  });
+
+  it('times out a hung Main authority read, stays latched, and recovers only through a later authoritative terminal', async () => {
+    vi.useFakeTimers();
+    try {
+      activeSeatFromMain = SEAT_A;
+      const configService = await freshConfigService();
+      await configService.initialize();
+
+      activeSeatReadBlock = new Promise<never>(() => {});
+      const transition = configService.beginSeatTransition();
+      const completion = configService.completeSeatTransition(transition, SEAT_B);
+      const rejected = expect(completion).rejects.toThrow('timed out');
+      await vi.advanceTimersByTimeAsync(15_000);
+      await rejected;
+
+      expect(configService.getSeatBindingSnapshot()).toMatchObject({ seatId: SEAT_A, initialized: false });
+      await expect(configService.whenReady()).rejects.toThrow('untrusted');
+      activeSeatReadBlock = null;
+      activeSeatFromMain = SEAT_B;
+      const recovery = configService.beginSeatTransition();
+      await configService.completeSeatTransition(recovery, SEAT_B);
+      expect(configService.getSeatBindingSnapshot()).toMatchObject({ seatId: SEAT_B, initialized: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('times out hung settings hydration without letting its late result reopen the old binding', async () => {
+    vi.useFakeTimers();
+    try {
+      activeSeatFromMain = SEAT_A;
+      const configService = await freshConfigService();
+      await configService.initialize();
+      const stableFetch = global.fetch;
+      let releaseSettings!: () => void;
+      const settingsBlocked = new Promise<void>((resolve) => {
+        releaseSettings = resolve;
+      });
+      global.fetch = vi.fn(async (url: unknown, init?: { method?: string; body?: string }) => {
+        if ((init?.method || 'GET') === 'GET') await settingsBlocked;
+        return stableFetch(url as RequestInfo | URL, init as RequestInit);
+      }) as typeof fetch;
+
+      activeSeatFromMain = SEAT_B;
+      const transition = configService.beginSeatTransition();
+      const completion = configService.completeSeatTransition(transition, SEAT_B);
+      const rejected = expect(completion).rejects.toThrow('timed out');
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(15_000);
+      await rejected;
+      expect(configService.getSeatBindingSnapshot()).toMatchObject({ seatId: SEAT_A, initialized: false });
+      await expect(configService.whenReady()).rejects.toThrow('untrusted');
+
+      releaseSettings();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(configService.getSeatBindingSnapshot()).toMatchObject({ seatId: SEAT_A, initialized: false });
+
+      global.fetch = stableFetch;
+      const recovery = configService.beginSeatTransition();
+      await configService.completeSeatTransition(recovery, SEAT_B);
+      expect(configService.getSeatBindingSnapshot()).toMatchObject({ seatId: SEAT_B, initialized: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

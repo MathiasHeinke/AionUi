@@ -102,7 +102,7 @@ function getBaseUrl(): string {
   return `http://127.0.0.1:${port}`;
 }
 
-async function fetchJson<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function fetchJson<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const url = `${getBaseUrl()}${path}`;
   const headers: Record<string, string> = {};
   if (body !== undefined) {
@@ -112,6 +112,7 @@ async function fetchJson<T>(method: string, path: string, body?: unknown): Promi
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
   });
   if (!response.ok) {
     const errorBody = await response.text();
@@ -158,6 +159,7 @@ async function fetchAuthoritativeActiveSeatId(): Promise<string> {
 }
 
 class ConfigServiceImpl {
+  private static readonly SEAT_TERMINAL_TIMEOUT_MS = 15_000;
   // The cache is keyed by LOGICAL key (the public ConfigKey the renderer uses).
   // The seat namespacing happens only on the WIRE (the PUT/GET physical key), so
   // every renderer consumer keeps calling get/set with the plain key.
@@ -194,6 +196,12 @@ class ConfigServiceImpl {
   private assertSeatBindingTrusted(): void {
     if (!this.seatBindingTrusted) {
       throw new Error('Seat binding is untrusted; a validated seat transition is required');
+    }
+  }
+
+  private assertSeatCompletionActive(token: ConfigSeatTransitionToken, signal: AbortSignal): void {
+    if (signal.aborted || !this.activeSeatTransition || this.activeSeatTransition.id !== token.id) {
+      throw new Error('Seat terminal binding timed out or was superseded');
     }
   }
 
@@ -271,27 +279,40 @@ class ConfigServiceImpl {
     let sanitized: string | null = null;
     let completionError: unknown;
     const previous = new Map<string, unknown>();
+    const abortController = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      const reportedSeatId = assertSeatId(seatId);
-      const authoritativeSeatId = await fetchAuthoritativeActiveSeatId();
-      if (reportedSeatId !== authoritativeSeatId) {
-        throw new Error('Terminal seat does not match Main active-seat authority');
-      }
-      sanitized = authoritativeSeatId;
-      // A syntactically valid authoritative terminal identity is allowed to
-      // attempt hydration even when a prior terminal left the latch closed.
-      // Any hydration failure below closes it again.
-      this.seatBindingTrusted = true;
-      // Snapshot the pre-switch seat-scoped values so we can fire change events
-      // for any whose value differs under the new seat.
-      for (const key of this.cache.keys()) {
-        if (isSeatScopedConfigKey(key)) previous.set(key, this.cache.get(key));
-      }
-      this.currentSeatId = sanitized;
-      this.cache.clear();
-      this.initialized = false;
-      this.initPromise = null;
-      await this.initialize();
+      const terminalCompletion = async (): Promise<void> => {
+        const reportedSeatId = assertSeatId(seatId);
+        const authoritativeSeatId = await fetchAuthoritativeActiveSeatId();
+        this.assertSeatCompletionActive(token, abortController.signal);
+        if (reportedSeatId !== authoritativeSeatId) {
+          throw new Error('Terminal seat does not match Main active-seat authority');
+        }
+        sanitized = authoritativeSeatId;
+        // A syntactically valid authoritative terminal identity is allowed to
+        // attempt hydration even when a prior terminal left the latch closed.
+        // Any hydration failure below closes it again.
+        this.seatBindingTrusted = true;
+        // Snapshot the pre-switch seat-scoped values so we can fire change
+        // events for any whose value differs under the new seat.
+        for (const key of this.cache.keys()) {
+          if (isSeatScopedConfigKey(key)) previous.set(key, this.cache.get(key));
+        }
+        this.currentSeatId = sanitized;
+        this.cache.clear();
+        this.initialized = false;
+        this.initPromise = null;
+        await this.initialize({ signal: abortController.signal });
+        this.assertSeatCompletionActive(token, abortController.signal);
+      };
+      const deadline = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          abortController.abort();
+          reject(new Error('Seat terminal binding timed out'));
+        }, ConfigServiceImpl.SEAT_TERMINAL_TIMEOUT_MS);
+      });
+      await Promise.race([terminalCompletion(), deadline]);
     } catch (error) {
       completionError = error;
       // The terminal identity was not trustworthy (or its config could not be
@@ -302,6 +323,8 @@ class ConfigServiceImpl {
       this.initPromise = null;
       this.seatBindingTrusted = false;
     } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      abortController.abort();
       if (completionError === undefined) completeRealtimeTransportSeatTransition();
       else rejectRealtimeTransportSeatTransition();
       this.activeSeatTransition = null;
@@ -353,20 +376,27 @@ class ConfigServiceImpl {
   // Idempotent: concurrent callers share the same in-flight promise, and a
   // resolved init returns immediately. Modules that need persisted settings on
   // module load (theme/colorScheme/language) await whenReady() before reading.
-  initialize(): Promise<void> {
+  initialize(options: { signal?: AbortSignal } = {}): Promise<void> {
     if (!this.seatBindingTrusted) {
       return Promise.reject(new Error('Seat binding is untrusted; initialize is blocked until a validated transition'));
     }
     if (this.initPromise) return this.initPromise;
-    this.initPromise = (async () => {
+    const assertInitializationActive = () => {
+      if (options.signal?.aborted) throw new Error('Seat terminal binding timed out');
+      this.assertSeatBindingTrusted();
+    };
+    const initPromise = (async () => {
       // Resolve the active seat from main BEFORE mapping the bag, so seat-scoped
       // physical keys are demultiplexed for the correct seat. Skips the IPC for
       // the legacy default unless a rebind already moved us off it (a switcher
       // sets currentSeatId via rebindSeat, which re-enters initialize()).
       if (this.currentSeatId === LEGACY_SEAT_ID) {
-        this.currentSeatId = await fetchActiveSeatId();
+        const activeSeatId = await fetchActiveSeatId();
+        assertInitializationActive();
+        this.currentSeatId = activeSeatId;
       }
-      const data = await fetchJson<Record<string, unknown>>('GET', '/api/settings/client');
+      const data = await fetchJson<Record<string, unknown>>('GET', '/api/settings/client', undefined, options.signal);
+      assertInitializationActive();
       this.cache.clear();
       if (data) {
         for (const [physKey, value] of Object.entries(data)) {
@@ -377,6 +407,7 @@ class ConfigServiceImpl {
       // One-time theme migration: only when new keys are absent (idempotent).
       if (!this.cache.has('theme.activeId')) {
         const { migrateThemeConfig } = await import('@/common/theme/migrateThemeConfig');
+        assertInitializationActive();
         const migrated = migrateThemeConfig({
           theme: this.cache.get('theme') as string | undefined,
           'css.activeThemeId': this.cache.get('css.activeThemeId') as string | undefined,
@@ -400,13 +431,15 @@ class ConfigServiceImpl {
         //      emit is therefore always strictly after init completes.
         void this.persist(migrated, Object.entries(migrated) as Array<[ConfigKey, unknown]>).catch(() => {});
       }
+      assertInitializationActive();
       this.initialized = true;
     })();
-    this.initPromise.catch(() => {
+    this.initPromise = initPromise;
+    initPromise.catch(() => {
       // Allow a future caller to retry after a transient failure
-      this.initPromise = null;
+      if (this.initPromise === initPromise) this.initPromise = null;
     });
-    return this.initPromise;
+    return initPromise;
   }
 
   whenReady(): Promise<void> {
