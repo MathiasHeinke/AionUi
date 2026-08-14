@@ -309,7 +309,7 @@ class ConfigServiceImpl {
         this.cache.clear();
         this.initialized = false;
         this.initPromise = null;
-        await this.initialize({ signal: abortController.signal });
+        await this.initializeForSeatTransition(token, abortController.signal);
         this.assertSeatCompletionActive(token, abortController.signal);
       };
       const deadline = new Promise<never>((_, reject) => {
@@ -382,7 +382,25 @@ class ConfigServiceImpl {
   // Idempotent: concurrent callers share the same in-flight promise, and a
   // resolved init returns immediately. Modules that need persisted settings on
   // module load (theme/colorScheme/language) await whenReady() before reading.
-  initialize(options: { signal?: AbortSignal } = {}): Promise<void> {
+  initialize(): Promise<void> {
+    return this.initializeInternal({});
+  }
+
+  private initializeForSeatTransition(token: ConfigSeatTransitionToken, signal: AbortSignal): Promise<void> {
+    return this.initializeInternal({ signal, transitionToken: token });
+  }
+
+  private initializeInternal(options: {
+    signal?: AbortSignal;
+    transitionToken?: ConfigSeatTransitionToken;
+  }): Promise<void> {
+    if (this.activeSeatTransition) {
+      if (options.transitionToken !== this.activeSeatTransition) {
+        return Promise.reject(new Error('Config initialization is blocked during a seat transition'));
+      }
+    } else if (options.transitionToken) {
+      return Promise.reject(new Error('Seat transition initialization token is no longer active'));
+    }
     if (!this.seatBindingTrusted) {
       return Promise.reject(new Error('Seat binding is untrusted; initialize is blocked until a validated transition'));
     }
@@ -390,6 +408,8 @@ class ConfigServiceImpl {
     const initGeneration = this.initGeneration;
     const assertInitializationActive = () => {
       if (options.signal?.aborted) throw new Error('Seat terminal binding timed out');
+      if (options.transitionToken) this.assertSeatCompletionActive(options.transitionToken, options.signal!);
+      else if (this.activeSeatTransition) throw new Error('Config initialization was superseded by a seat transition');
       if (this.initGeneration !== initGeneration)
         throw new Error('Config initialization was superseded by a seat transition');
       this.assertSeatBindingTrusted();

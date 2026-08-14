@@ -30,7 +30,10 @@ let bag: Record<string, unknown> = {};
 // What the (mocked) main process reports as the active seat for the NEXT
 // initialize() that has to resolve it from the bridge.
 let activeSeatFromMain = 'seat-1';
-let activeSeatReadBlock: Promise<never> | null = null;
+type ActiveSeatResponse = {
+  data: { version: 'command-eve-active-seat/v0'; ok: true; seat_id: string };
+};
+let activeSeatReadBlock: Promise<ActiveSeatResponse> | null = null;
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
   commandEve: {
@@ -350,6 +353,33 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
     expect(configService.getSeatBindingSnapshot()).toMatchObject({ seatId: SEAT_B, initialized: true });
     expect(configService.get('commandEve.clientSeeded')).toBe(false);
     expect(configService.whenReady()).toBe(currentReady);
+  });
+
+  it('blocks ordinary whenReady between transition begin and terminal authority', async () => {
+    activeSeatFromMain = SEAT_A;
+    bag[`seat:${SEAT_A}:commandEve.clientSeeded`] = true;
+    bag[`seat:${SEAT_B}:commandEve.clientSeeded`] = false;
+    const configService = await freshConfigService();
+    await configService.initialize();
+
+    let releaseAuthority!: (response: ActiveSeatResponse) => void;
+    activeSeatReadBlock = new Promise<ActiveSeatResponse>((resolve) => {
+      releaseAuthority = resolve;
+    });
+    const transition = configService.beginSeatTransition();
+    const completion = configService.completeSeatTransition(transition, SEAT_B);
+    await Promise.resolve();
+
+    await expect(configService.whenReady()).rejects.toThrow('blocked during a seat transition');
+    expect(configService.getSeatBindingSnapshot()).toMatchObject({ seatId: SEAT_A, initialized: false });
+
+    releaseAuthority({
+      data: { version: 'command-eve-active-seat/v0', ok: true, seat_id: SEAT_B },
+    });
+    await completion;
+    expect(configService.getSeatBindingSnapshot()).toMatchObject({ seatId: SEAT_B, initialized: true });
+    expect(configService.get('commandEve.clientSeeded')).toBe(false);
+    await expect(configService.whenReady()).resolves.toBeUndefined();
   });
 });
 
