@@ -28,7 +28,13 @@ import {
 } from '@process/commandEve/document/presentationIntelligenceService';
 import { readCommandEveLimitedResponseText } from '@process/commandEve/limitedFetchResponse';
 import { areCommandEveFileSelectionPathsGranted } from '@process/commandEve/fileSelectionGrantCore';
-import { getActiveSeatContextRevision, getActiveSeatId, resolveSeatHome } from '@process/commandEve/seatContextCore';
+import {
+  getActiveSeatContextRevision,
+  getActiveSeatId,
+  getCommandEvePaidArtifactBlockReason,
+  resolveSeatHome,
+  tryBeginCommandEvePaidArtifactOperation,
+} from '@process/commandEve/seatContextCore';
 import {
   readCommandEveCloudVisualPolicy,
   verifyCommandEveCloudVisualPolicyReceipt,
@@ -45,6 +51,8 @@ export type CommandEvePresentationBridgeDeps = {
   areFileSelectionPathsGranted: typeof areCommandEveFileSelectionPathsGranted;
   readVisualPolicy: typeof readCommandEveCloudVisualPolicy;
   verifyVisualPolicyReceipt: typeof verifyCommandEveCloudVisualPolicyReceipt;
+  getPaidArtifactBlockReason: typeof getCommandEvePaidArtifactBlockReason;
+  tryBeginPaidArtifactOperation: typeof tryBeginCommandEvePaidArtifactOperation;
   fetch: typeof fetch;
 };
 
@@ -56,6 +64,8 @@ const productionDeps: CommandEvePresentationBridgeDeps = {
   areFileSelectionPathsGranted: areCommandEveFileSelectionPathsGranted,
   readVisualPolicy: readCommandEveCloudVisualPolicy,
   verifyVisualPolicyReceipt: verifyCommandEveCloudVisualPolicyReceipt,
+  getPaidArtifactBlockReason: getCommandEvePaidArtifactBlockReason,
+  tryBeginPaidArtifactOperation: tryBeginCommandEvePaidArtifactOperation,
   fetch: (...args) => fetch(...args),
 };
 
@@ -193,6 +203,26 @@ export async function handleCommandEvePresentationPrepare(
     if (!wireResult.ok || !wireResult.wire) return failure(wireResult.reason_code || 'EVE_PRESENTATION_NO_BEARER');
 
     for (const inspection of pending) {
+      const paidArtifactBlockReason = deps.getPaidArtifactBlockReason();
+      if (paidArtifactBlockReason === 'seat_recovery_required') {
+        return failure(
+          'EVE_PRESENTATION_SEAT_RECOVERY_REQUIRED',
+          'The previous Seat switch did not settle. Relaunch Command EVE before retrying presentation analysis.'
+        );
+      }
+      if (paidArtifactBlockReason === 'seat_transition_in_progress') {
+        return failure(
+          'EVE_PRESENTATION_SEAT_TRANSITION_IN_PROGRESS',
+          'The active Seat is changing. Retry afterward.'
+        );
+      }
+      const releasePaidArtifactOperation = deps.tryBeginPaidArtifactOperation();
+      if (!releasePaidArtifactOperation) {
+        return failure(
+          'EVE_PRESENTATION_SEAT_TRANSITION_IN_PROGRESS',
+          'The active Seat is changing. Retry afterward.'
+        );
+      }
       try {
         const document = await preparePresentationWithVision({
           inspection,
@@ -326,6 +356,8 @@ export async function handleCommandEvePresentationPrepare(
         const reasonCode =
           error instanceof CommandEvePresentationPreparationError ? error.reasonCode : 'EVE_PRESENTATION_VISION_FAILED';
         return failure(reasonCode, error instanceof Error ? error.message.slice(0, 300) : undefined);
+      } finally {
+        releasePaidArtifactOperation();
       }
     }
   }

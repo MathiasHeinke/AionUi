@@ -40,6 +40,7 @@ import { getDataPath } from '@process/utils/utils';
 import {
   getActiveSeatContextRevision,
   getActiveSeatId,
+  getCommandEvePaidArtifactBlockReason,
   tryBeginCommandEvePaidArtifactOperation,
 } from './seatContextCore';
 
@@ -155,6 +156,7 @@ export type CommandEveManagedImageGenerationOptions = {
   dataPath?: string;
   getActiveSeatId?: () => string;
   getActiveSeatContextRevision?: () => number;
+  getPaidArtifactBlockReason?: typeof getCommandEvePaidArtifactBlockReason;
   /**
    * MAT-1769 seams, injectable for tests. Production reads the seat's stored
    * preference and the server-owned registry through the main-process
@@ -312,6 +314,16 @@ export async function executeCommandEveManagedImageGeneration(
 
   if (!seatStillMatches()) return seatChanged();
 
+  const paidArtifactBlockReason =
+    (options.getPaidArtifactBlockReason ?? getCommandEvePaidArtifactBlockReason)();
+  if (paidArtifactBlockReason === 'seat_recovery_required') {
+    return failure(
+      409,
+      'managed_image_seat_recovery_required',
+      'The previous Seat switch did not settle. Relaunch Command EVE before retrying image generation.'
+    );
+  }
+  if (paidArtifactBlockReason === 'seat_transition_in_progress') return seatChanged();
   const releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation();
   if (!releasePaidArtifactOperation) return seatChanged();
   const controller = new AbortController();

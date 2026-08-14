@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   switchTo: vi.fn(),
   navigate: vi.fn(),
   resetCreateAttempt: vi.fn(),
+  retryPending: false,
 }));
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
@@ -58,7 +59,7 @@ vi.mock('@/renderer/hooks/useSeatAccess', () => ({
 vi.mock('@/renderer/hooks/useSeedLifecycle', () => ({
   useSeedLifecycle: () => ({
     provisioning: false,
-    retryPending: false,
+    retryPending: mocks.retryPending,
     createSeed: mocks.seedCreate,
     resetCreateAttempt: mocks.resetCreateAttempt,
   }),
@@ -129,6 +130,7 @@ import AccountModalContent from '@/renderer/components/settings/SettingsModal/co
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  mocks.retryPending = false;
 });
 
 describe('AccountModalContent profile propagation', () => {
@@ -234,5 +236,16 @@ describe('AccountModalContent profile propagation', () => {
 
     await waitFor(() => expect(mocks.switchTo).toHaveBeenCalledWith('seed-1'));
     expect(mocks.navigate).toHaveBeenCalledWith('/settings/company-brain');
+  });
+
+  it('preserves the idempotency key when a timed-out create dialog is reopened', async () => {
+    mocks.registrationStatus.mockResolvedValue({ data: { ok: true, has_session: true } });
+    mocks.retryPending = true;
+
+    render(<AccountModalContent />);
+    fireEvent.click(await screen.findByTestId('account-seat-add'));
+
+    expect(mocks.resetCreateAttempt).not.toHaveBeenCalled();
+    expect(screen.getByTestId('account-seat-create-submit').textContent).toContain('Erneut abgleichen');
   });
 });

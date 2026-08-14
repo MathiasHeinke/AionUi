@@ -12,10 +12,11 @@
  * - PRICING, per the Founder ruling 1.820.1 — ONE plan and one only: a 14-day /
  *   100,000-credit trial that ends in an EXPLICIT decision (no card at entry, no
  *   automatic conversion), then "Standard" at 99 €/month INCLUDING 100,000
- *   credits and EVERY seat (team / project / client) at no per-seat charge.
+ *   credits; customer workspaces are created free inside Command EVE and are
+ *   not a billing product.
  *   Optional monthly top-ups at 25/50/100/200 € are sold at FACE VALUE
  *   (1 € = 1.000 credits, no purchase-time bonus) and deep-link to
- *   /account?pack_eur=<n>; seats are added on /account?intent=add_seat.
+ *   /account?pack_eur=<n>; customer Seats are managed in Account settings.
  * - WHAT IS GONE, AND MUST NOT COME BACK: the 99 €-per-CLIENT-SEAT ladder, the
  *   "your own seat is 0 € forever" promise, the +20 % pack bonus, the 250 € pack,
  *   and the legacy 79 € Starter / 49 € Solo plan UI. Growth is credits, never a
@@ -36,7 +37,6 @@ import { useSeatUsage } from '@renderer/hooks/useSeatUsage';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
 import { isLegacySeatId } from '@process/commandEve/seatSwitchCore';
 import {
-  ADDITIONAL_SEAT_EUR,
   buildSeatBillingStatus,
   CREDIT_UNIT_EUR,
   CREDITS_PER_EUR,
@@ -50,16 +50,14 @@ import {
 import { buildSeatUsageCardRows, currentUsageMonth, priorUsageMonth } from '@/common/config/seatUsageCore';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 
-// The web money surface. The desktop holds no card; it opens the web account where
-// the Standard subscription is managed, seats are added (at no charge) and credit
-// top-ups are bought. The ?intent=add_seat and ?pack_eur=<n> consumers are LIVE on
-// command-eve.com/account
-// (Gen B: scroll + highlight the relevant section). We open these via openAccountWeb
-// (MAIN attaches the desktop session so the browser lands LOGGED IN → checkout can
-// start); paths are RELATIVE — openAccountWeb pins the command-eve.com origin.
-const ADD_SEAT_PATH = '/account?intent=add_seat';
+// Only money actions leave the app. Customer Seats are free product workspaces and
+// therefore open the Account tab in this same settings modal.
 
-const BillingModalContent: React.FC = () => {
+interface BillingModalContentProps {
+  onOpenAccount?: () => void;
+}
+
+const BillingModalContent: React.FC<BillingModalContentProps> = ({ onOpenAccount }) => {
   const { t, i18n } = useTranslation();
   const { meter, status, setSpendCap } = useCreditsStatus();
 
@@ -180,7 +178,7 @@ const BillingModalContent: React.FC = () => {
   };
 
   const openAddSeat = () => {
-    void openAccountWeb(ADD_SEAT_PATH).catch((): undefined => undefined);
+    onOpenAccount?.();
   };
   const openPackCheckout = (eur: number) => {
     void openAccountWeb(`/account?pack_eur=${eur}`).catch((): undefined => undefined);
@@ -339,9 +337,8 @@ const BillingModalContent: React.FC = () => {
         </div>
       </SettingsSection>
 
-      {/* THE ONE PLAN (1.820.1). There is no ladder to climb and no seat to buy:
-          Standard includes every seat. The CTA still opens /account?intent=add_seat
-          because adding a seat is a real action — it just costs nothing. */}
+      {/* THE ONE PLAN (1.820.1). There is no ladder to climb and no Seat to buy.
+          The CTA stays in-app and opens Account → customer Seat management. */}
       <SettingsSection
         className='billing-settings__plans'
         title={t('credits.settings.planTitle', { defaultValue: 'Your plan' })}
@@ -379,8 +376,7 @@ const BillingModalContent: React.FC = () => {
         </div>
         <Button type='primary' onClick={openAddSeat} data-testid='billing-add-seat'>
           {t('credits.settings.addSeatIncluded', {
-            defaultValue: 'Add a seat — {{eur}} € extra, included in Standard',
-            eur: ADDITIONAL_SEAT_EUR,
+            defaultValue: 'Add a free customer Seat in Account settings',
           })}
         </Button>
       </SettingsSection>

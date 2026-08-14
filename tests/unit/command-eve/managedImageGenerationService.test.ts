@@ -237,6 +237,24 @@ describe('managed image generation main-process service', () => {
     expect(seams.stageArtifact).not.toHaveBeenCalled();
   });
 
+  it('reports Seat recovery before calling the paid image gateway', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+
+    const result = await executeCommandEveManagedImageGeneration(request(), {
+      fetchFn: fetchFn as typeof fetch,
+      dataPath: '/tmp/eve-managed-image-test',
+      getActiveSeatId: () => ACTIVE_SEED_ID,
+      getPaidArtifactBlockReason: () => 'seat_recovery_required',
+      ...imageLaneSeams(),
+    });
+
+    expect(result).toMatchObject({
+      status: 409,
+      body: { error: { code: 'managed_image_seat_recovery_required' } },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it('holds the paid fence through POST and preserves the billed artifact despite hostile direct Seat mutation', async () => {
     let activeSeatId = ACTIVE_SEED_ID;
     let activeSeatContextRevision = 9;

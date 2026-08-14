@@ -211,11 +211,13 @@ import {
   getActiveSeatContextRevision,
   getActiveSeatId,
   getActiveSeatKind,
+  getCommandEvePaidArtifactBlockReason,
   hasCommandEvePaidArtifactOperationInFlight,
   isActiveSeatLegacy,
   resolveActiveSeatHome,
   resolveSeatHermesHome,
   sanitizeSeatId,
+  setCommandEvePaidArtifactSeatRecoveryRequired,
   tryBeginCommandEvePaidArtifactOperation,
   tryBeginCommandEvePaidArtifactSeatTransition,
 } from '@process/commandEve/seatContextCore';
@@ -223,7 +225,6 @@ import { writeActiveSeatPointer } from '@process/commandEve/activeSeatPointerSto
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore, type MySeatsWireFailure } from '@process/commandEve/seatWireFetchCore';
 import {
-  ACCOUNT_SEED_ABUSE_CEILING,
   createSeedSingleFlight,
   renameSeed,
 } from '@process/commandEve/seedLifecycleFetchCore';
@@ -2249,6 +2250,15 @@ export function initCommandEveBridge(): void {
             return failure(wireResult.reason_code || 'EVE_PDF_NO_BEARER');
           }
 
+          const paidArtifactBlockReason = getCommandEvePaidArtifactBlockReason();
+          if (paidArtifactBlockReason === 'seat_recovery_required') {
+            return failure(
+              'EVE_PDF_SEAT_RECOVERY_REQUIRED',
+              'The previous Seat switch did not settle. Relaunch Command EVE before retrying cloud OCR.',
+              { suppressDocuments: true }
+            );
+          }
+          if (paidArtifactBlockReason === 'seat_transition_in_progress') return seatChanged();
           releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation() ?? undefined;
           if (!releasePaidArtifactOperation) return seatChanged();
           for (const prepared of pending) {
@@ -3871,7 +3881,7 @@ export function initCommandEveBridge(): void {
 
   // -------------------------------------------------------------------------
   // APP→WEB AUTH HANDOFF (money-critical). Open command-eve.com/account (and its
-  // ?intent=add_seat / ?pack_eur=<n> deep-links) in the system browser WITH the
+  // /account and ?pack_eur=<n> money deep-links) in the system browser WITH the
   // desktop session carried across, so the user lands LOGGED IN and checkout can
   // start. Before this, the browser had its own empty localStorage session, so the
   // user arrived logged out and the purchase never began (Alois could not buy
@@ -4245,7 +4255,7 @@ export function initCommandEveBridge(): void {
           data: {
             version,
             ok: false,
-            seed_limit: ACCOUNT_SEED_ABUSE_CEILING,
+            seed_limit: null,
             reason_code: 'SEED_CREATE_BRIDGE_FAILED',
           },
         };
@@ -4375,6 +4385,7 @@ export function initCommandEveBridge(): void {
       if (commandEveSwitchSeatEpoch === myEpoch) {
         commandEveSwitchSeatInFlight = false;
         commandEveSwitchSeatRecoveryRequired = false;
+        setCommandEvePaidArtifactSeatRecoveryRequired(false);
       }
     };
     const releaseAllSwitchFences = () => {
@@ -4382,12 +4393,16 @@ export function initCommandEveBridge(): void {
       releasePaidArtifactSeatTransition();
     };
     // A respawn that exceeds the hard bound is no longer described as an
-    // ordinary in-flight switch. It remains fully fenced, but callers receive
-    // an honest recovery-required state until the original operation settles
-    // (or the app is relaunched). Reopening any mutation lane here would admit
-    // work into an unknown Seed context.
+    // ordinary in-flight switch. Recovery remains fail-closed through the
+    // explicit recovery marker, while the transition reservation itself is
+    // released so paid consumers can distinguish this terminal state from an
+    // ordinary retryable transition.
     const lockWatchdog = setTimeout(() => {
-      if (commandEveSwitchSeatEpoch === myEpoch) commandEveSwitchSeatRecoveryRequired = true;
+      if (commandEveSwitchSeatEpoch === myEpoch) {
+        commandEveSwitchSeatRecoveryRequired = true;
+        setCommandEvePaidArtifactSeatRecoveryRequired(true);
+        releasePaidArtifactSeatTransition();
+      }
     }, COMMAND_EVE_SWITCH_SEAT_LOCK_TIMEOUT_MS);
     try {
       const targetSeatId = typeof request?.seatId === 'string' ? request.seatId : '';

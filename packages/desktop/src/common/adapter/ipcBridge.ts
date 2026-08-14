@@ -1495,7 +1495,7 @@ export interface ICommandEveAuthLogoutResult {
  * APP→WEB AUTH HANDOFF request (money-critical). The renderer asks MAIN to open a
  * command-eve.com account path in the system browser; MAIN attaches the desktop
  * session (refresh token) as a URL fragment so the user lands LOGGED IN and can
- * check out. `path` is an absolute app path ('/account?intent=add_seat', etc.) —
+ * check out. `path` is an absolute app path ('/account?pack_eur=100', etc.) —
  * MAIN pins the origin. The renderer NEVER supplies or receives the token.
  */
 export interface ICommandEveOpenAccountWebRequest {
@@ -1860,7 +1860,7 @@ export interface ICommandEveSeedCreateResult {
   seed_id?: string;
   created?: boolean;
   seed_count?: number;
-  seed_limit: number;
+  seed_limit: number | null;
   reason_code?: string;
 }
 

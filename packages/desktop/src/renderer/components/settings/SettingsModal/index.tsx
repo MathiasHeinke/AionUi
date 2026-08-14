@@ -336,7 +336,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onCancel, defaul
       case 'authority':
         return <AuthorityModalContent />;
       case 'billing':
-        return <BillingModalContent />;
+        return <BillingModalContent onOpenAccount={() => setActiveTab('account')} />;
       case 'account':
         return <AccountModalContent />;
       case 'webui':

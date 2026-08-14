@@ -365,6 +365,21 @@ let activeSeatContextRevision = 0;
 // so no second durable state machine is needed.
 let paidArtifactOperationsInFlight = 0;
 let paidArtifactSeatTransitionInFlight = false;
+let paidArtifactSeatRecoveryRequired = false;
+
+export type CommandEvePaidArtifactBlockReason = 'seat_transition_in_progress' | 'seat_recovery_required' | null;
+
+/** Explain why a paid artifact may not start without weakening the existing fence. */
+export function getCommandEvePaidArtifactBlockReason(): CommandEvePaidArtifactBlockReason {
+  if (paidArtifactSeatRecoveryRequired) return 'seat_recovery_required';
+  if (paidArtifactSeatTransitionInFlight) return 'seat_transition_in_progress';
+  return null;
+}
+
+/** Switch-watchdog recovery marker. Paid consumers render this state honestly. */
+export function setCommandEvePaidArtifactSeatRecoveryRequired(required: boolean): void {
+  paidArtifactSeatRecoveryRequired = required;
+}
 
 /** Start one paid artifact only while no Seed transition owns this fence. */
 export function tryBeginCommandEvePaidArtifactOperation(): (() => void) | null {
@@ -562,4 +577,5 @@ export function __resetActiveSeatForTests(): void {
   activeSeatKind = DEFAULT_SEAT_KIND;
   paidArtifactOperationsInFlight = 0;
   paidArtifactSeatTransitionInFlight = false;
+  paidArtifactSeatRecoveryRequired = false;
 }

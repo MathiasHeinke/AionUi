@@ -80,6 +80,8 @@ const VERIFIED_RECEIPT = {
 function imageHarness() {
   let revision = 7;
   const fetchMock = vi.fn<typeof fetch>();
+  const releasePaidArtifactMock = vi.fn();
+  const beginPaidArtifactMock = vi.fn(() => releasePaidArtifactMock);
   const deps: CommandEveImageBridgeDeps = {
     getActiveSeatId: () => SEAT_ID,
     getActiveSeatContextRevision: () => revision,
@@ -93,11 +95,15 @@ function imageHarness() {
     areFileSelectionPathsGranted: () => true,
     readVisualPolicy: async () => ENABLED_POLICY,
     verifyVisualPolicyReceipt: () => VERIFIED_RECEIPT,
+    getPaidArtifactBlockReason: () => null,
+    tryBeginPaidArtifactOperation: beginPaidArtifactMock,
     fetch: fetchMock,
   };
   return {
     deps,
     fetchMock,
+    beginPaidArtifactMock,
+    releasePaidArtifactMock,
     bumpRevision: () => {
       revision += 1;
     },
@@ -107,6 +113,8 @@ function imageHarness() {
 function presentationHarness() {
   let revision = 7;
   const fetchMock = vi.fn<typeof fetch>();
+  const releasePaidArtifactMock = vi.fn();
+  const beginPaidArtifactMock = vi.fn(() => releasePaidArtifactMock);
   const deps: CommandEvePresentationBridgeDeps = {
     getActiveSeatId: () => SEAT_ID,
     getActiveSeatContextRevision: () => revision,
@@ -120,11 +128,15 @@ function presentationHarness() {
     areFileSelectionPathsGranted: () => true,
     readVisualPolicy: async () => ENABLED_POLICY,
     verifyVisualPolicyReceipt: () => VERIFIED_RECEIPT,
+    getPaidArtifactBlockReason: () => null,
+    tryBeginPaidArtifactOperation: beginPaidArtifactMock,
     fetch: fetchMock,
   };
   return {
     deps,
     fetchMock,
+    beginPaidArtifactMock,
+    releasePaidArtifactMock,
     bumpRevision: () => {
       revision += 1;
     },
@@ -208,6 +220,27 @@ describe('Command EVE image preparation bridge authority', () => {
 
     const body = JSON.parse(String(state.fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.seat_id).toBe(SEAT_ID);
+    expect(state.beginPaidArtifactMock).toHaveBeenCalledOnce();
+    expect(state.releasePaidArtifactMock).toHaveBeenCalledOnce();
+  });
+
+  it('reports recovery-required without starting a billed image operation', async () => {
+    const state = imageHarness();
+    state.deps.getPaidArtifactBlockReason = () => 'seat_recovery_required';
+
+    const result = await handleCommandEveImagePrepare(
+      {
+        filePaths: ['/tmp/selected.png'],
+        flowId: FLOW_ID,
+        visualPolicyReceipt: RECEIPT,
+        privacyLane: 'cloud_auto',
+      },
+      state.deps
+    );
+
+    expect(result).toMatchObject({ success: false, data: { reason_code: 'EVE_IMAGE_SEAT_RECOVERY_REQUIRED' } });
+    expect(state.beginPaidArtifactMock).not.toHaveBeenCalled();
+    expect(state.fetchMock).not.toHaveBeenCalled();
   });
 
   it('does not treat historical allowCloudVision as authority', async () => {
@@ -384,6 +417,30 @@ describe('Command EVE presentation preparation bridge authority', () => {
 
     const body = JSON.parse(String(state.fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.seat_id).toBe(SEAT_ID);
+    expect(state.beginPaidArtifactMock).toHaveBeenCalledOnce();
+    expect(state.releasePaidArtifactMock).toHaveBeenCalledOnce();
+  });
+
+  it('reports recovery-required without starting a billed presentation operation', async () => {
+    const state = presentationHarness();
+    state.deps.getPaidArtifactBlockReason = () => 'seat_recovery_required';
+
+    const result = await handleCommandEvePresentationPrepare(
+      {
+        filePaths: ['/tmp/selected.pptx'],
+        flowId: FLOW_ID,
+        visualPolicyReceipt: RECEIPT,
+        privacyLane: 'cloud_auto',
+      },
+      state.deps
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      data: { reason_code: 'EVE_PRESENTATION_SEAT_RECOVERY_REQUIRED' },
+    });
+    expect(state.beginPaidArtifactMock).not.toHaveBeenCalled();
+    expect(state.fetchMock).not.toHaveBeenCalled();
   });
 
   it('does not treat historical allowCloudVision as authority', async () => {

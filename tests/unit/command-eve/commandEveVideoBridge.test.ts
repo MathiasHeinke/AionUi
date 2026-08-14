@@ -182,6 +182,24 @@ describe('handleCommandEveVideoGenerate', () => {
     expect(hasCommandEvePaidArtifactOperationInFlight()).toBe(false);
   });
 
+  it('reports Seat recovery as non-retryable before calling the paid gateway', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
+
+    const result = await handleCommandEveVideoGenerate(
+      { prompt: 'ein Produktclip', tierId: 'fast', durationSeconds: 5 },
+      deps(fetchMock as unknown as typeof fetch, {
+        getPaidArtifactBlockReason: () => 'seat_recovery_required',
+      })
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      reasonCode: 'video-seat-recovery-required',
+      retryable: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('never calls the gateway without a licence wire', async () => {
     readLicenseWireMock.mockReturnValue({ ok: false, wire: null });
     const fetchMock = vi.fn(async () => jsonResponse(200, okBody));

@@ -36,7 +36,7 @@ export interface SeedCreateResult {
   seedId?: string;
   created?: boolean;
   seedCount?: number;
-  seedLimit: number;
+  seedLimit: number | null;
   reasonCode?: string;
 }
 
@@ -57,6 +57,7 @@ function validUuid(value: unknown): value is string {
 }
 
 function positiveInt(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
   const number = Number(value);
   return Number.isInteger(number) && number >= 0 ? number : undefined;
 }
@@ -126,7 +127,7 @@ export async function createSeed(
 ): Promise<SeedCreateResult> {
   const name = input.displayName.trim();
   if (!name || name.length > 200 || !validUuid(input.clientRequestId)) {
-    return { ok: false, seedLimit: ACCOUNT_SEED_ABUSE_CEILING, reasonCode: 'SEED_INVALID_INPUT' };
+    return { ok: false, seedLimit: null, reasonCode: 'SEED_INVALID_INPUT' };
   }
   const response = await postSeedFunction(
     userDataPath,
@@ -135,18 +136,21 @@ export async function createSeed(
     deps
   );
   if (!response.ok || !response.raw) {
-    return { ok: false, seedLimit: ACCOUNT_SEED_ABUSE_CEILING, reasonCode: response.reasonCode };
+    return { ok: false, seedLimit: null, reasonCode: response.reasonCode };
   }
   const seedId = response.raw.seed_id ?? response.raw.tenant_id;
   if (!validUuid(seedId)) {
-    return { ok: false, seedLimit: ACCOUNT_SEED_ABUSE_CEILING, reasonCode: 'SEED_MALFORMED_RESPONSE' };
+    return { ok: false, seedLimit: null, reasonCode: 'SEED_MALFORMED_RESPONSE' };
   }
   return {
     ok: true,
     seedId,
     created: response.raw.created !== false,
     seedCount: positiveInt(response.raw.seed_count ?? response.raw.seats_used),
-    seedLimit: positiveInt(response.raw.seed_limit ?? response.raw.client_seat_count) ?? ACCOUNT_SEED_ABUSE_CEILING,
+    seedLimit:
+      response.raw.unlimited === true
+        ? null
+        : (positiveInt(response.raw.seed_limit ?? response.raw.client_seat_count) ?? null),
   };
 }
 
@@ -174,7 +178,7 @@ export async function renameSeed(
   return { ok: true, seedId, displayName: returnedName.trim() };
 }
 
-let createInFlight: Promise<SeedCreateResult> | null = null;
+const createInFlightByRequest = new Map<string, Promise<SeedCreateResult>>();
 
 /** MAIN-level single-flight is the second belt behind the renderer button/ref.
  * A timeout releases the flight; the renderer retries with the SAME request id,
@@ -184,15 +188,18 @@ export function createSeedSingleFlight(
   input: SeedCreateInput,
   deps: SeedLifecycleDeps = {}
 ): Promise<SeedCreateResult> {
-  if (createInFlight) return createInFlight;
+  const existing = createInFlightByRequest.get(input.clientRequestId);
+  if (existing) return existing;
   const pending = createSeed(userDataPath, input, deps);
-  createInFlight = pending;
+  createInFlightByRequest.set(input.clientRequestId, pending);
   void pending.finally(() => {
-    if (createInFlight === pending) createInFlight = null;
+    if (createInFlightByRequest.get(input.clientRequestId) === pending) {
+      createInFlightByRequest.delete(input.clientRequestId);
+    }
   });
   return pending;
 }
 
 export function resetSeedCreateSingleFlightForTests(): void {
-  createInFlight = null;
+  createInFlightByRequest.clear();
 }

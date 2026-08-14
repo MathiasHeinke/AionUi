@@ -28,7 +28,13 @@ import {
 } from '@process/commandEve/document/imageIntelligenceService';
 import { readCommandEveLimitedResponseText } from '@process/commandEve/limitedFetchResponse';
 import { areCommandEveFileSelectionPathsGranted } from '@process/commandEve/fileSelectionGrantCore';
-import { getActiveSeatContextRevision, getActiveSeatId, resolveSeatHome } from '@process/commandEve/seatContextCore';
+import {
+  getActiveSeatContextRevision,
+  getActiveSeatId,
+  getCommandEvePaidArtifactBlockReason,
+  resolveSeatHome,
+  tryBeginCommandEvePaidArtifactOperation,
+} from '@process/commandEve/seatContextCore';
 import {
   readCommandEveCloudVisualPolicy,
   verifyCommandEveCloudVisualPolicyReceipt,
@@ -45,6 +51,8 @@ export type CommandEveImageBridgeDeps = {
   areFileSelectionPathsGranted: typeof areCommandEveFileSelectionPathsGranted;
   readVisualPolicy: typeof readCommandEveCloudVisualPolicy;
   verifyVisualPolicyReceipt: typeof verifyCommandEveCloudVisualPolicyReceipt;
+  getPaidArtifactBlockReason: typeof getCommandEvePaidArtifactBlockReason;
+  tryBeginPaidArtifactOperation: typeof tryBeginCommandEvePaidArtifactOperation;
   fetch: typeof fetch;
 };
 
@@ -56,6 +64,8 @@ const productionDeps: CommandEveImageBridgeDeps = {
   areFileSelectionPathsGranted: areCommandEveFileSelectionPathsGranted,
   readVisualPolicy: readCommandEveCloudVisualPolicy,
   verifyVisualPolicyReceipt: verifyCommandEveCloudVisualPolicyReceipt,
+  getPaidArtifactBlockReason: getCommandEvePaidArtifactBlockReason,
+  tryBeginPaidArtifactOperation: tryBeginCommandEvePaidArtifactOperation,
   fetch: (...args) => fetch(...args),
 };
 
@@ -185,6 +195,20 @@ export async function handleCommandEveImagePrepare(
     if (!wireResult.ok || !wireResult.wire) return failure(wireResult.reason_code || 'EVE_IMAGE_NO_BEARER');
 
     for (const [index, inspection] of pending.entries()) {
+      const paidArtifactBlockReason = deps.getPaidArtifactBlockReason();
+      if (paidArtifactBlockReason === 'seat_recovery_required') {
+        return failure(
+          'EVE_IMAGE_SEAT_RECOVERY_REQUIRED',
+          'The previous Seat switch did not settle. Relaunch Command EVE before retrying image analysis.'
+        );
+      }
+      if (paidArtifactBlockReason === 'seat_transition_in_progress') {
+        return failure('EVE_IMAGE_SEAT_TRANSITION_IN_PROGRESS', 'The active Seat is changing. Retry afterward.');
+      }
+      const releasePaidArtifactOperation = deps.tryBeginPaidArtifactOperation();
+      if (!releasePaidArtifactOperation) {
+        return failure('EVE_IMAGE_SEAT_TRANSITION_IN_PROGRESS', 'The active Seat is changing. Retry afterward.');
+      }
       try {
         const document = await prepareImageWithVision({
           inspection,
@@ -306,6 +330,8 @@ export async function handleCommandEveImagePrepare(
         const reasonCode =
           error instanceof CommandEveImagePreparationError ? error.reasonCode : 'EVE_IMAGE_VISION_FAILED';
         return failure(reasonCode, error instanceof Error ? error.message.slice(0, 300) : undefined);
+      } finally {
+        releasePaidArtifactOperation();
       }
     }
   }

@@ -25,6 +25,7 @@ import { areCommandEveFileSelectionPathsGranted } from '@process/commandEve/file
 import {
   getActiveSeatContextRevision,
   getActiveSeatId,
+  getCommandEvePaidArtifactBlockReason,
   tryBeginCommandEvePaidArtifactOperation,
 } from '@process/commandEve/seatContextCore';
 import { readBoundedImageSource } from '@process/commandEve/document/imageIntelligenceService';
@@ -118,6 +119,7 @@ export interface CommandEveVideoBridgeDeps {
   /** Optional only for compatibility with older test seams; production always
    * supplies the monotonic revision and binds it to the captured seat id. */
   getActiveSeatContextRevision?: typeof getActiveSeatContextRevision;
+  getPaidArtifactBlockReason?: typeof getCommandEvePaidArtifactBlockReason;
   areFileSelectionPathsGranted: typeof areCommandEveFileSelectionPathsGranted;
   /** Reads and validates the attached image at rest — the same bounded local
    * boundary `imageIntelligenceService` uses for the vision lane. */
@@ -201,6 +203,7 @@ const productionDeps: CommandEveVideoBridgeDeps = {
   newArtifactId: () => randomUUID(),
   getActiveSeatId,
   getActiveSeatContextRevision,
+  getPaidArtifactBlockReason: getCommandEvePaidArtifactBlockReason,
   areFileSelectionPathsGranted: areCommandEveFileSelectionPathsGranted,
   readImageSource: (filePath: string) => readBoundedImageSource(filePath),
   saveVideoFile: saveGeneratedVideoFile,
@@ -271,6 +274,15 @@ function videoSeatChangedResult(): CommandEveVideoGenerateResult {
     reasonCode: 'video-seat-changed',
     message: 'Der aktive Seed wurde während der Vorbereitung gewechselt. Starte die Videoerstellung erneut.',
     retryable: true,
+  };
+}
+
+function videoSeatRecoveryRequiredResult(): CommandEveVideoGenerateResult {
+  return {
+    ok: false,
+    reasonCode: 'video-seat-recovery-required',
+    message: 'Der letzte Seed-Wechsel wurde nicht abgeschlossen. Starte Command EVE neu, bevor du erneut ein Video erstellst.',
+    retryable: false,
   };
 }
 
@@ -424,6 +436,9 @@ export async function handleCommandEveVideoGenerate(
 
   if (!seatStillMatches()) return videoSeatChangedResult();
 
+  const paidArtifactBlockReason = (deps.getPaidArtifactBlockReason ?? getCommandEvePaidArtifactBlockReason)();
+  if (paidArtifactBlockReason === 'seat_recovery_required') return videoSeatRecoveryRequiredResult();
+  if (paidArtifactBlockReason === 'seat_transition_in_progress') return videoSeatChangedResult();
   const releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation();
   if (!releasePaidArtifactOperation) return videoSeatChangedResult();
   const controller = new AbortController();
@@ -1579,6 +1594,21 @@ export async function handleCommandEveVideoEdit(
     return refuseEdit(
       'video-seat-changed',
       'Der aktive Seed wurde während der Vorbereitung gewechselt. Starte die Videobearbeitung erneut.',
+      true
+    );
+  }
+  const paidArtifactBlockReason = (deps.getPaidArtifactBlockReason ?? getCommandEvePaidArtifactBlockReason)();
+  if (paidArtifactBlockReason === 'seat_recovery_required') {
+    return refuseEdit(
+      'video-seat-recovery-required',
+      'Der letzte Seed-Wechsel wurde nicht abgeschlossen. Starte Command EVE neu, bevor du die Videobearbeitung erneut versuchst.',
+      false
+    );
+  }
+  if (paidArtifactBlockReason === 'seat_transition_in_progress') {
+    return refuseEdit(
+      'video-seat-changed',
+      'Der aktive Seed wird gerade gewechselt. Starte die Videobearbeitung danach erneut.',
       true
     );
   }

@@ -18,7 +18,7 @@
     "planTrial": "Testphase — {{days}} Tage mit {{credits}} Credits. Sie endet mit deiner Entscheidung; es wird nichts automatisch abgebucht.",
     "planNone": "Kein aktives Abo — Standard kostet {{eur}} €/Monat.",
     "standardPlanHint": "Ein Plan: Standard — {{eur}} €/Monat, inkl. {{credits}} Credits. Jeder weitere Seat (Team, Projekt, Kunde) ist ohne Aufpreis enthalten.",
-    "addSeatIncluded": "Seat hinzufügen — {{eur}} € Aufpreis, in Standard enthalten",
+    "addSeatIncluded": "Kostenlosen Kunden-Seat in den Account-Einstellungen hinzufügen",
     "packsTitle": "Credit-Pakete",
     "packsHint": "Credits aufgebraucht? Monatliche Top-ups zum Nennwert — 1 € = {{perEur}} Credits. Mehr Verbrauch = größeres Paket, nie ein höherer Tarif.",
     "packCredits": "{{n}} Credits",

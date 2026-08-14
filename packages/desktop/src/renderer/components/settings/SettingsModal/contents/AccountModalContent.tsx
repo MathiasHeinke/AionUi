@@ -457,7 +457,7 @@ const AccountModalContent: React.FC = () => {
               type='primary'
               disabled={switching}
               onClick={() => {
-                resetCreateAttempt();
+                if (!retryPending) resetCreateAttempt();
                 setCreateSeedVisible(true);
               }}
               data-testid='account-seat-add'

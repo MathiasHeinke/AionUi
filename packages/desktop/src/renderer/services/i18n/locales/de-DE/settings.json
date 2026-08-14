@@ -1244,7 +1244,7 @@
     },
     "kunde": {
       "title": "Ersten Kunden anlegen",
-      "desc": "Als Agentur einen Kunden-Seat hinzufügen (öffnet dein Konto im Browser)."
+      "desc": "Als Agentur einen kostenlosen Kunden-Seat direkt in EVE hinzufügen."
     },
     "connectors": {
       "title": "Integration verbinden",

@@ -7,7 +7,7 @@ export interface SeedCreateOutcome {
   seedId?: string;
   created?: boolean;
   seedCount?: number;
-  seedLimit: number;
+  seedLimit: number | null;
   reasonCode?: string;
 }
 
@@ -42,7 +42,7 @@ export function useSeedLifecycle() {
           ...(data?.seed_id ? { seedId: data.seed_id } : {}),
           ...(data?.created !== undefined ? { created: data.created } : {}),
           ...(data?.seed_count !== undefined ? { seedCount: data.seed_count } : {}),
-          seedLimit: data?.seed_limit ?? 1000,
+          seedLimit: data?.seed_limit ?? null,
           ...(data?.reason_code ? { reasonCode: data.reason_code } : {}),
         };
         if (outcome.ok) {
@@ -54,7 +54,7 @@ export function useSeedLifecycle() {
         return outcome;
       } catch {
         setRetryPending(true);
-        return { ok: false, seedLimit: 1000, reasonCode: 'SEED_PROVISION_TIMEOUT' };
+        return { ok: false, seedLimit: null, reasonCode: 'SEED_PROVISION_TIMEOUT' };
       } finally {
         setProvisioning(false);
       }
