@@ -308,6 +308,49 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
       vi.useRealTimers();
     }
   });
+
+  it('rejects a pre-transition initialize result after authoritative seat B has completed', async () => {
+    activeSeatFromMain = SEAT_A;
+    bag[`seat:${SEAT_A}:commandEve.clientSeeded`] = true;
+    bag[`seat:${SEAT_B}:commandEve.clientSeeded`] = false;
+    const configService = await freshConfigService();
+    const stableFetch = global.fetch;
+    let releaseOldSettings!: (response: Response) => void;
+    let oldSettingsRequested = false;
+    const oldSettingsResponse = new Promise<Response>((resolve) => {
+      releaseOldSettings = resolve;
+    });
+    global.fetch = vi.fn((url: unknown, init?: { method?: string; body?: string }) => {
+      if (!oldSettingsRequested && (init?.method || 'GET') === 'GET') {
+        oldSettingsRequested = true;
+        return oldSettingsResponse;
+      }
+      return stableFetch(url as RequestInfo | URL, init as RequestInit);
+    }) as typeof fetch;
+
+    const oldInitialize = configService.initialize();
+    await vi.waitFor(() => expect(oldSettingsRequested).toBe(true));
+
+    activeSeatFromMain = SEAT_B;
+    const transition = configService.beginSeatTransition();
+    await configService.completeSeatTransition(transition, SEAT_B);
+    const currentReady = configService.whenReady();
+    expect(configService.getSeatBindingSnapshot()).toMatchObject({ seatId: SEAT_B, initialized: true });
+    expect(configService.get('commandEve.clientSeeded')).toBe(false);
+
+    releaseOldSettings({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ [`seat:${SEAT_A}:commandEve.clientSeeded`]: true }),
+      text: async () => JSON.stringify({ [`seat:${SEAT_A}:commandEve.clientSeeded`]: true }),
+    } as unknown as Response);
+    await expect(oldInitialize).rejects.toThrow('superseded');
+
+    expect(configService.getSeatBindingSnapshot()).toMatchObject({ seatId: SEAT_B, initialized: true });
+    expect(configService.get('commandEve.clientSeeded')).toBe(false);
+    expect(configService.whenReady()).toBe(currentReady);
+  });
 });
 
 describe('(3) repeat for teamWorkerStatus + executionMode', () => {

@@ -176,6 +176,10 @@ class ConfigServiceImpl {
   private seatSubscribers = new Set<SeatSubscriber>();
   private initialized = false;
   private initPromise: Promise<void> | null = null;
+  // Every initialize run captures this generation. A seat transition advances
+  // it synchronously, before MAIN can expose another backend, so an older
+  // un-abortable fetch may settle but can never mutate the new seat's cache.
+  private initGeneration = 0;
   // Monotonic renderer fence. Boot-time legacy -> authoritative-seat discovery
   // is deliberately NOT a rebind; only an explicit seat-id transition advances
   // this epoch, synchronously before rebindSeat's first await.
@@ -262,6 +266,8 @@ class ConfigServiceImpl {
       rebindEpoch: ++this.seatRebindEpoch,
     };
     this.activeSeatTransition = token;
+    this.initGeneration += 1;
+    this.initPromise = null;
     this.initialized = false;
     beginRealtimeTransportSeatTransition();
     return token;
@@ -381,8 +387,11 @@ class ConfigServiceImpl {
       return Promise.reject(new Error('Seat binding is untrusted; initialize is blocked until a validated transition'));
     }
     if (this.initPromise) return this.initPromise;
+    const initGeneration = this.initGeneration;
     const assertInitializationActive = () => {
       if (options.signal?.aborted) throw new Error('Seat terminal binding timed out');
+      if (this.initGeneration !== initGeneration)
+        throw new Error('Config initialization was superseded by a seat transition');
       this.assertSeatBindingTrusted();
     };
     const initPromise = (async () => {
@@ -575,6 +584,7 @@ class ConfigServiceImpl {
     this.persistSubscribers.clear();
     this.seatSubscribers.clear();
     this.initialized = false;
+    this.initGeneration += 1;
     this.initPromise = null;
     this.activeSeatTransition = null;
     this.seatBindingTrusted = true;
