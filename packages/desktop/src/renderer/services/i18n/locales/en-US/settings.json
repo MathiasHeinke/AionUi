@@ -279,6 +279,20 @@
       "saveError": "The Seed name could not be saved.",
       "nameRequired": "The Seed name must not be empty."
     },
+    "seats": {
+      "title": "Your Seats",
+      "description": "Every customer Seat is free and has a fully isolated workspace with its own Company Brain.",
+      "add": "Add customer Seat",
+      "founder": "Founder",
+      "customer": "Customer",
+      "active": "Active",
+      "companyBrain": "Company Brain",
+      "switchError": "The customer Seat could not be activated.",
+      "createTitle": "Create a customer Seat",
+      "createAction": "Create Seat",
+      "createHelp": "Free, immediately available, and fully isolated from the Founder Seat and every other customer Seat.",
+      "namePlaceholder": "e.g. Malte"
+    },
     "eveCloud": {
       "title": "EVE Cloud",
       "activeStatus": "Active",

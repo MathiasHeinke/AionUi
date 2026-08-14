@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  ACCOUNT_SEED_LIMIT,
+  ACCOUNT_SEED_ABUSE_CEILING,
   createSeed,
   createSeedSingleFlight,
   renameSeed,
@@ -38,7 +38,13 @@ describe('seedLifecycleFetchCore', () => {
         anonKey: 'anon-test',
       }
     );
-    expect(result).toEqual({ ok: true, seedId: SEED_ID, created: true, seedCount: 2, seedLimit: ACCOUNT_SEED_LIMIT });
+    expect(result).toEqual({
+      ok: true,
+      seedId: SEED_ID,
+      created: true,
+      seedCount: 2,
+      seedLimit: ACCOUNT_SEED_ABUSE_CEILING,
+    });
     const body = JSON.parse(fetch.mock.calls[0][1].body);
     expect(body).toEqual({ name: 'Zweiter Seed', client_request_id: REQUEST_ID });
   });
@@ -59,7 +65,11 @@ describe('seedLifecycleFetchCore', () => {
     );
     expect(first).toBe(second);
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    release(new Response(JSON.stringify({ ok: true, seed_id: SEED_ID, created: true, seed_count: 2, seed_limit: 10 })));
+    release(
+      new Response(
+        JSON.stringify({ ok: true, seed_id: SEED_ID, created: true, seed_count: 2, unlimited: true, seed_limit: null })
+      )
+    );
     expect((await first).ok).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
@@ -70,7 +80,16 @@ describe('seedLifecycleFetchCore', () => {
       .fn()
       .mockRejectedValueOnce(abortError)
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, seed_id: SEED_ID, created: false, seed_count: 2, seed_limit: 10 }))
+        new Response(
+          JSON.stringify({
+            ok: true,
+            seed_id: SEED_ID,
+            created: false,
+            seed_count: 2,
+            unlimited: true,
+            seed_limit: null,
+          })
+        )
       );
     const deps = { fetch, getFreshSession: vi.fn().mockResolvedValue(session), anonKey: 'anon-test', timeoutMs: 1 };
     const first = await createSeedSingleFlight(

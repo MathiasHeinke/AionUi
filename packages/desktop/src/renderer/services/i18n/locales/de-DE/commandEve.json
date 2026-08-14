@@ -21,7 +21,7 @@
     "timeoutRetry": "Zeitüberschreitung. Noch einmal abgleichen — es wird kein zweiter Seed erzeugt.",
     "created": "Seed wurde erstellt.",
     "createError": "Seed konnte nicht erstellt werden.",
-    "limitReached": "Maximal 10 Seeds pro Account."
+    "abuseCeilingReached": "Zu viele automatische Seat-Anlagen. Bitte kontaktiere den Support."
   },
   "authority": {
     "notConfirmedYet": "Diese Einstellung stammt noch aus einer älteren Version und wurde von dir nie bestätigt. Sieh sie einmal durch.",

@@ -10,7 +10,9 @@ import { getFreshSession } from './accountSessionAtRest';
 
 export const CREATE_SEED_FUNCTION_URL = `${COMMAND_EVE_SUPABASE_URL}/functions/v1/create-seat`;
 export const RENAME_SEED_FUNCTION_URL = `${COMMAND_EVE_SUPABASE_URL}/functions/v1/rename-seed`;
-export const ACCOUNT_SEED_LIMIT = 10;
+// Product contract is unlimited/free. This constant is only the server's
+// non-commercial safety valve and must never be rendered as a quota.
+export const ACCOUNT_SEED_ABUSE_CEILING = 1000;
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -61,8 +63,8 @@ function positiveInt(value: unknown): number | undefined {
 
 function mapReason(raw: Record<string, unknown> | null, status: number): string {
   const server = typeof raw?.reason_code === 'string' ? raw.reason_code : '';
-  if (/LIMIT_REACHED/i.test(server) || raw?.error === 'client_seat_limit_reached' || status === 409) {
-    return 'SEED_LIMIT_REACHED';
+  if (/ABUSE_CEILING_REACHED/i.test(server) || raw?.error === 'seat_abuse_ceiling_reached' || status === 429) {
+    return 'SEED_ABUSE_CEILING_REACHED';
   }
   if (/NOT_ACCOUNT_ADMIN|FORBIDDEN/i.test(server) || status === 403) return 'SEED_NOT_ACCOUNT_ADMIN';
   if (/NOT_FOUND/i.test(server) || status === 404) return 'SEED_NOT_FOUND';
@@ -124,7 +126,7 @@ export async function createSeed(
 ): Promise<SeedCreateResult> {
   const name = input.displayName.trim();
   if (!name || name.length > 200 || !validUuid(input.clientRequestId)) {
-    return { ok: false, seedLimit: ACCOUNT_SEED_LIMIT, reasonCode: 'SEED_INVALID_INPUT' };
+    return { ok: false, seedLimit: ACCOUNT_SEED_ABUSE_CEILING, reasonCode: 'SEED_INVALID_INPUT' };
   }
   const response = await postSeedFunction(
     userDataPath,
@@ -133,18 +135,18 @@ export async function createSeed(
     deps
   );
   if (!response.ok || !response.raw) {
-    return { ok: false, seedLimit: ACCOUNT_SEED_LIMIT, reasonCode: response.reasonCode };
+    return { ok: false, seedLimit: ACCOUNT_SEED_ABUSE_CEILING, reasonCode: response.reasonCode };
   }
   const seedId = response.raw.seed_id ?? response.raw.tenant_id;
   if (!validUuid(seedId)) {
-    return { ok: false, seedLimit: ACCOUNT_SEED_LIMIT, reasonCode: 'SEED_MALFORMED_RESPONSE' };
+    return { ok: false, seedLimit: ACCOUNT_SEED_ABUSE_CEILING, reasonCode: 'SEED_MALFORMED_RESPONSE' };
   }
   return {
     ok: true,
     seedId,
     created: response.raw.created !== false,
     seedCount: positiveInt(response.raw.seed_count ?? response.raw.seats_used),
-    seedLimit: positiveInt(response.raw.seed_limit ?? response.raw.client_seat_count) ?? ACCOUNT_SEED_LIMIT,
+    seedLimit: positiveInt(response.raw.seed_limit ?? response.raw.client_seat_count) ?? ACCOUNT_SEED_ABUSE_CEILING,
   };
 }
 

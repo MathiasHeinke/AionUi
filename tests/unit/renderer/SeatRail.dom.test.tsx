@@ -233,7 +233,7 @@ describe('SeatRail', () => {
       seedId: '44444444-4444-4444-8444-444444444444',
       created: true,
       seedCount: 4,
-      seedLimit: 10,
+      seedLimit: 1000,
     });
     mockAccess();
     render(<SeatRail />);
@@ -244,14 +244,14 @@ describe('SeatRail', () => {
     expect(messageSuccessMock).toHaveBeenCalledTimes(1);
   });
 
-  it('disables creation at the account-wide ten Seed limit', () => {
+  it('keeps free in-app creation enabled beyond the obsolete ten-Seat limit', () => {
     mockAccess({
       access: {
         role: 'admin',
         canSwitch: true,
         pinnedSeatId: 's1',
         activeSeatId: 's1',
-        seats: Array.from({ length: 10 }, (_, index) => ({
+        seats: Array.from({ length: 20 }, (_, index) => ({
           seat_id: `s${index + 1}`,
           name: `Seed ${index + 1}`,
           role: 'admin',
@@ -260,11 +260,11 @@ describe('SeatRail', () => {
       },
     });
     render(<SeatRail />);
-    expect(screen.getByTestId('seat-rail-add').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('seat-rail-add').hasAttribute('disabled')).toBe(false);
   });
 
   it('keeps a timed-out attempt in reconciliation mode', () => {
-    createSeedMock.mockResolvedValue({ ok: false, seedLimit: 10, reasonCode: 'SEED_PROVISION_TIMEOUT' });
+    createSeedMock.mockResolvedValue({ ok: false, seedLimit: 1000, reasonCode: 'SEED_PROVISION_TIMEOUT' });
     mockAccess();
     useSeedLifecycleMock.mockReturnValue({
       provisioning: false,

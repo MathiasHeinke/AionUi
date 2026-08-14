@@ -12,8 +12,12 @@ const mocks = vi.hoisted(() => ({
   registrationStatus: vi.fn(),
   registrationUpdate: vi.fn(),
   seedRename: vi.fn(),
+  seedCreate: vi.fn(),
   refreshSharedProfile: vi.fn(),
   refreshSeeds: vi.fn(),
+  switchTo: vi.fn(),
+  navigate: vi.fn(),
+  resetCreateAttempt: vi.fn(),
 }));
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
@@ -21,6 +25,7 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
     registrationStatus: { invoke: mocks.registrationStatus },
     registrationUpdate: { invoke: mocks.registrationUpdate },
     seedRename: { invoke: mocks.seedRename },
+    seedCreate: { invoke: mocks.seedCreate },
     licenseWireStatus: { invoke: vi.fn().mockResolvedValue({ data: { available: true } }) },
     entitlementActivate: { invoke: vi.fn() },
     authLogout: { invoke: vi.fn() },
@@ -46,8 +51,25 @@ vi.mock('@/renderer/hooks/useSeatAccess', () => ({
     lastSwitchError: null,
     switchErrorNonce: 0,
     refresh: mocks.refreshSeeds,
-    switchTo: vi.fn(),
+    switchTo: mocks.switchTo,
   }),
+}));
+
+vi.mock('@/renderer/hooks/useSeedLifecycle', () => ({
+  useSeedLifecycle: () => ({
+    provisioning: false,
+    retryPending: false,
+    createSeed: mocks.seedCreate,
+    resetCreateAttempt: mocks.resetCreateAttempt,
+  }),
+}));
+
+vi.mock('@/renderer/services/commandEveGenerationActivity', () => ({
+  isAnyGenerating: () => false,
+}));
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => mocks.navigate,
 }));
 
 vi.mock('@/renderer/components/account/useCommandEveProfile', () => ({
@@ -75,6 +97,16 @@ vi.mock('@arco-design/web-react', () => ({
   ),
   Message: { error: vi.fn(), success: vi.fn() },
   Popconfirm: ({ children }: React.PropsWithChildren) => <>{children}</>,
+  Modal: Object.assign(
+    ({ children, footer, visible }: React.PropsWithChildren<{ footer?: React.ReactNode; visible?: boolean }>) =>
+      visible ? (
+        <div>
+          {children}
+          {footer}
+        </div>
+      ) : null,
+    { confirm: vi.fn() }
+  ),
   Tag: ({ children }: React.PropsWithChildren) => <span>{children}</span>,
 }));
 
@@ -153,7 +185,7 @@ describe('AccountModalContent profile propagation', () => {
     mocks.refreshSeeds.mockResolvedValue(undefined);
 
     render(<AccountModalContent />);
-    await waitFor(() => expect(screen.getByTestId('seed-name').textContent).toBe('Zweiter Seed'));
+    await waitFor(() => expect(screen.getByTestId('seed-edit')).toBeTruthy());
 
     fireEvent.click(screen.getByTestId('seed-edit'));
     fireEvent.change(screen.getByTestId('seed-name-input'), { target: { value: 'Kundenprojekt Nord' } });
@@ -165,5 +197,42 @@ describe('AccountModalContent profile propagation', () => {
     await waitFor(() => expect(mocks.refreshSeeds).toHaveBeenCalledTimes(1));
     expect(mocks.registrationUpdate).not.toHaveBeenCalled();
     expect(mocks.refreshSharedProfile).not.toHaveBeenCalled();
+  });
+
+  it('renames an inactive customer Seat without changing or switching the Account', async () => {
+    mocks.registrationStatus.mockResolvedValue({
+      data: {
+        ok: true,
+        has_session: true,
+        name: 'Account Name',
+        company: 'Account Company',
+        email: 'account@example.com',
+      },
+    });
+    mocks.seedRename.mockResolvedValue({
+      data: { ok: true, seed_id: 'seed-1', display_name: 'Kunde Malte' },
+    });
+
+    render(<AccountModalContent />);
+    fireEvent.click(await screen.findByTestId('seed-edit-seed-1'));
+    fireEvent.change(screen.getByTestId('seed-name-input'), { target: { value: 'Kunde Malte' } });
+    fireEvent.click(screen.getByTestId('seed-save'));
+
+    await waitFor(() =>
+      expect(mocks.seedRename).toHaveBeenCalledWith({ seedId: 'seed-1', displayName: 'Kunde Malte' })
+    );
+    expect(mocks.switchTo).not.toHaveBeenCalled();
+    expect(mocks.registrationUpdate).not.toHaveBeenCalled();
+  });
+
+  it('switches first and then opens the selected Seat Company Brain', async () => {
+    mocks.registrationStatus.mockResolvedValue({ data: { ok: true, has_session: true } });
+    mocks.switchTo.mockResolvedValue(true);
+
+    render(<AccountModalContent />);
+    fireEvent.click(await screen.findByTestId('seed-company-brain-seed-1'));
+
+    await waitFor(() => expect(mocks.switchTo).toHaveBeenCalledWith('seed-1'));
+    expect(mocks.navigate).toHaveBeenCalledWith('/settings/company-brain');
   });
 });

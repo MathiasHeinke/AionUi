@@ -33,7 +33,7 @@ describe('useSeedLifecycle', () => {
           seed_id: '22222222-2222-4222-8222-222222222222',
           created: true,
           seed_count: 2,
-          seed_limit: 10,
+          seed_limit: 1000,
         },
       });
       await first;
@@ -43,14 +43,14 @@ describe('useSeedLifecycle', () => {
 
   it('reuses the idempotency key when reconciling after a timeout', async () => {
     seedCreateInvoke
-      .mockResolvedValueOnce({ data: { ok: false, seed_limit: 10, reason_code: 'SEED_PROVISION_TIMEOUT' } })
+      .mockResolvedValueOnce({ data: { ok: false, seed_limit: 1000, reason_code: 'SEED_PROVISION_TIMEOUT' } })
       .mockResolvedValueOnce({
         data: {
           ok: true,
           seed_id: '22222222-2222-4222-8222-222222222222',
           created: false,
           seed_count: 2,
-          seed_limit: 10,
+          seed_limit: 1000,
         },
       });
     const { result } = renderHook(() => useSeedLifecycle());

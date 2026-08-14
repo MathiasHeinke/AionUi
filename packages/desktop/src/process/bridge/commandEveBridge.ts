@@ -222,7 +222,11 @@ import {
 import { writeActiveSeatPointer } from '@process/commandEve/activeSeatPointerStore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore, type MySeatsWireFailure } from '@process/commandEve/seatWireFetchCore';
-import { createSeedSingleFlight, renameSeed } from '@process/commandEve/seedLifecycleFetchCore';
+import {
+  ACCOUNT_SEED_ABUSE_CEILING,
+  createSeedSingleFlight,
+  renameSeed,
+} from '@process/commandEve/seedLifecycleFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
 import { COMMAND_EVE_HANDOVER_NOTE_RELPATH, HANDOVER_NOTE_MAX_RAW_CHARS } from '@/common/config/startscreenNoteCore';
 import nodePath from 'node:path';
@@ -4238,7 +4242,12 @@ export function initCommandEveBridge(): void {
         return {
           success: false,
           msg: error instanceof Error ? error.message : 'Seed creation failed.',
-          data: { version, ok: false, seed_limit: 10, reason_code: 'SEED_CREATE_BRIDGE_FAILED' },
+          data: {
+            version,
+            ok: false,
+            seed_limit: ACCOUNT_SEED_ABUSE_CEILING,
+            reason_code: 'SEED_CREATE_BRIDGE_FAILED',
+          },
         };
       }
     });

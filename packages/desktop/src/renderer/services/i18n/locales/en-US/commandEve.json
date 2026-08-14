@@ -21,7 +21,7 @@
     "timeoutRetry": "The request timed out. Reconcile again — no second Seed will be created.",
     "created": "Seed created.",
     "createError": "The Seed could not be created.",
-    "limitReached": "Up to 10 Seeds per Account."
+    "abuseCeilingReached": "Too many automated Seat creations. Please contact support."
   },
   "authority": {
     "notConfirmedYet": "This setting came from an older version and you never confirmed it. Have a look.",

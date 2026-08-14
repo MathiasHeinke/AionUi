@@ -12,8 +12,8 @@
  * clicking another seat switches the whole app to it (same authoritative path as the
  * SeatSwitcher: useSeatAccess.switchTo drives the main-process stop + re-spawn under
  * the new HERMES_HOME). The "+" (pinned to the bottom) provisions a free Seed
- * directly in the app. The account-wide cap is ten Seeds; every Seed consumes the
- * same account credit pool and retains its own usage attribution.
+ * directly in the app at no extra cost. Every Seed consumes the same account
+ * credit pool and retains its own usage attribution.
  *
  * SECURITY / VISIBILITY: renders ONLY for an admin. useSeatAccess is fail-closed —
  * a delegate, a single-seat legacy install, or no bridge all resolve to
@@ -238,7 +238,6 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
     ? t('commandEve.seatRail.collapse', 'Leiste einklappen')
     : t('commandEve.seatRail.expand', 'Leiste ausklappen');
 
-  const atSeedLimit = access.seats.length >= 10;
   const closeCreateSeed = () => {
     if (provisioning) return;
     setCreateSeedVisible(false);
@@ -271,9 +270,13 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
       Message.success(t('commandEve.seatRail.created', 'Seed wurde erstellt.'));
       return;
     }
-    if (result.reasonCode === 'SEED_LIMIT_REACHED') {
-      setSeedCreateAnnouncement(t('commandEve.seatRail.limitReached', 'Maximal 10 Seeds pro Account.'));
-      Message.error(t('commandEve.seatRail.limitReached', 'Maximal 10 Seeds pro Account.'));
+    if (result.reasonCode === 'SEED_ABUSE_CEILING_REACHED') {
+      const message = t(
+        'commandEve.seatRail.abuseCeilingReached',
+        'Zu viele automatische Seat-Anlagen. Bitte kontaktiere den Support.'
+      );
+      setSeedCreateAnnouncement(message);
+      Message.error(message);
       return;
     }
     if (result.reasonCode === 'SEED_PROVISION_TIMEOUT') {
@@ -397,11 +400,7 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
         </div>
 
         <Tooltip
-          content={
-            atSeedLimit
-              ? t('commandEve.seatRail.limitReached', 'Maximal 10 Seeds pro Account.')
-              : t('commandEve.seatRail.add', 'Seed hinzufügen')
-          }
+          content={t('commandEve.seatRail.add', 'Seed hinzufügen')}
           position='right'
           trigger={['hover', 'focus']}
         >
@@ -410,7 +409,7 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
             className='seat-rail__add'
             data-testid='seat-rail-add'
             aria-label={t('commandEve.seatRail.add', 'Seed hinzufügen')}
-            disabled={atSeedLimit || provisioning || switching}
+            disabled={provisioning || switching}
             aria-busy={provisioning || undefined}
             onClick={() => {
               if (!retryPending) resetCreateAttempt();
@@ -439,7 +438,7 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
             <Button
               type='primary'
               loading={provisioning}
-              disabled={!seedName.trim() || atSeedLimit}
+              disabled={!seedName.trim()}
               onClick={() => void handleCreateSeed()}
               data-testid='seed-create-submit'
             >
