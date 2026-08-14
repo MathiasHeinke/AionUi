@@ -224,10 +224,7 @@ import {
 import { writeActiveSeatPointer } from '@process/commandEve/activeSeatPointerStore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore, type MySeatsWireFailure } from '@process/commandEve/seatWireFetchCore';
-import {
-  createSeedSingleFlight,
-  renameSeed,
-} from '@process/commandEve/seedLifecycleFetchCore';
+import { createSeedSingleFlight, renameSeed } from '@process/commandEve/seedLifecycleFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
 import { COMMAND_EVE_HANDOVER_NOTE_RELPATH, HANDOVER_NOTE_MAX_RAW_CHARS } from '@/common/config/startscreenNoteCore';
 import nodePath from 'node:path';
@@ -1969,8 +1966,7 @@ export function initCommandEveBridge(): void {
     .provider(
       async (
         request?:
-          | CommandEveMultimodalTtsConsentSetRequest
-          | CommandEveBridgeEnvelope<CommandEveMultimodalTtsConsentSetRequest>
+          CommandEveMultimodalTtsConsentSetRequest | CommandEveBridgeEnvelope<CommandEveMultimodalTtsConsentSetRequest>
       ) => {
         const payload = unwrapBridgeRequest<CommandEveMultimodalTtsConsentSetRequest>(request);
         const data = setCommandEveMultimodalTtsConsent(getDataPath(), payload);
@@ -2057,6 +2053,31 @@ export function initCommandEveBridge(): void {
           return { success: false, msg: reason, data };
         }
 
+        const capturedSeatId = getActiveSeatId();
+        const capturedSeatContextRevision = getActiveSeatContextRevision();
+        const seatStillMatches = () =>
+          getActiveSeatId() === capturedSeatId && getActiveSeatContextRevision() === capturedSeatContextRevision;
+        const paidArtifactBlockReason = getCommandEvePaidArtifactBlockReason();
+        if (paidArtifactBlockReason === 'seat_recovery_required') {
+          const reason = 'EVE_MULTIMODAL_TTS_SEAT_RECOVERY_REQUIRED';
+          const data = commandEveMultimodalTtsFailure(
+            reason,
+            'The previous Seat switch did not settle. Relaunch Command EVE before retrying cloud TTS.'
+          );
+          return { success: false, msg: reason, data };
+        }
+        if (paidArtifactBlockReason === 'seat_transition_in_progress') {
+          const reason = 'EVE_MULTIMODAL_TTS_SEAT_TRANSITION_IN_PROGRESS';
+          const data = commandEveMultimodalTtsFailure(reason, 'The active Seat is changing. Retry afterward.');
+          return { success: false, msg: reason, data };
+        }
+        const releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation();
+        if (!releasePaidArtifactOperation) {
+          const reason = 'EVE_MULTIMODAL_TTS_SEAT_TRANSITION_IN_PROGRESS';
+          const data = commandEveMultimodalTtsFailure(reason, 'The active Seat is changing. Retry afterward.');
+          return { success: false, msg: reason, data };
+        }
+
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), TTS_TIMEOUT_MS);
         try {
@@ -2069,7 +2090,7 @@ export function initCommandEveBridge(): void {
             },
             redirect: 'error',
             cache: 'no-store',
-            body: JSON.stringify({ ...built.body, ...commandEveMediaSeedAttribution(getActiveSeatId()) }),
+            body: JSON.stringify({ ...built.body, ...commandEveMediaSeedAttribution(capturedSeatId) }),
             signal: controller.signal,
           });
           const responseText = await readCommandEveLimitedResponseText(
@@ -2079,6 +2100,11 @@ export function initCommandEveBridge(): void {
           if (responseText.ok === false) {
             const data = commandEveMultimodalTtsFailure(responseText.reason_code);
             return { success: false, msg: data.reason_code, data };
+          }
+          if (!seatStillMatches()) {
+            const reason = 'EVE_MULTIMODAL_TTS_SEAT_CHANGED';
+            const data = commandEveMultimodalTtsFailure(reason, 'The active Seat changed before TTS completed.');
+            return { success: false, msg: reason, data };
           }
 
           let raw: unknown = null;
@@ -2130,6 +2156,7 @@ export function initCommandEveBridge(): void {
           };
         } finally {
           clearTimeout(timer);
+          releasePaidArtifactOperation();
         }
       }
     );
@@ -3721,6 +3748,7 @@ export function initCommandEveBridge(): void {
           ok: result.activated,
           entitled: result.status.state === 'entitled',
           needs_paste: result.needsPaste,
+          starter_seat_ready: result.starterSeatReady,
           reason_code: result.reason_code,
           status: result.status,
           account: { name: session.user.name, email: session.user.email, company: session.user.company },
@@ -3840,6 +3868,7 @@ export function initCommandEveBridge(): void {
             ok: result.activated,
             entitled: result.status.state === 'entitled',
             needs_paste: result.needsPaste,
+            starter_seat_ready: result.starterSeatReady,
             reason_code: result.reason_code,
             status: result.status,
             account: { name: session.user.name, email: session.user.email, company: session.user.company },

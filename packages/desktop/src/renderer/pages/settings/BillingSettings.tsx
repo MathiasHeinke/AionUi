@@ -5,14 +5,17 @@
  */
 
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import BillingModalContent from '@/renderer/components/settings/SettingsModal/contents/BillingModalContent';
 import SettingsPageWrapper from './components/SettingsPageWrapper';
 
 /** Route-based billing settings page (Lane 3): meter + spend cap + pricing + packs. */
 const BillingSettings: React.FC = () => {
+  const navigate = useNavigate();
+
   return (
     <SettingsPageWrapper contentClassName='max-w-640px'>
-      <BillingModalContent />
+      <BillingModalContent onOpenAccount={() => navigate('/settings/account')} />
     </SettingsPageWrapper>
   );
 };

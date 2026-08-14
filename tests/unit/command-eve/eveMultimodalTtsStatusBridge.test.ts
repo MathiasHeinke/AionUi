@@ -48,6 +48,10 @@ vi.mock('@/common/config/licenseWireAtRest', () => ({
 }));
 
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
+import {
+  __resetActiveSeatForTests,
+  setCommandEvePaidArtifactSeatRecoveryRequired,
+} from '@process/commandEve/seatContextCore';
 
 type StatusEnvelope = {
   success: boolean;
@@ -100,6 +104,7 @@ const successfulTtsResponse = () =>
 
 describe('Command EVE multimodal TTS status bridge', () => {
   beforeEach(() => {
+    __resetActiveSeatForTests();
     fs.rmSync(consentPath, { force: true });
     registered.clear();
     readLicenseWireMock.mockClear();
@@ -115,6 +120,7 @@ describe('Command EVE multimodal TTS status bridge', () => {
   });
 
   afterEach(() => {
+    __resetActiveSeatForTests();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -232,6 +238,25 @@ describe('Command EVE multimodal TTS status bridge', () => {
     expect(JSON.parse(String(fetchInit.body)).seat_id).toBe('a2000000-0000-4000-8000-000000000001');
     expect(String(fetchInit.body)).not.toContain('apiKey');
     expect(JSON.stringify(result.data)).not.toContain('test-license-wire');
+  });
+
+  it('fails closed without egress while a timed-out Seat switch requires recovery', async () => {
+    const fetchSpy = vi.mocked(globalThis.fetch);
+    await call('command-eve.multimodal-tts-consent-set', {
+      data: { consent: true, privacyLane: 'cloud_auto' },
+    });
+    setCommandEvePaidArtifactSeatRecoveryRequired(true);
+
+    const result = await call('command-eve.multimodal-tts', {
+      data: { text: 'Assistant answer', language: 'de-DE' },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.data).toMatchObject({
+      ok: false,
+      reason_code: 'EVE_MULTIMODAL_TTS_SEAT_RECOVERY_REQUIRED',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('blocks egress again after cloud voice consent is revoked', async () => {

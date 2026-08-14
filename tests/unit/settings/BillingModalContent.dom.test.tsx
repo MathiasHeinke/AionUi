@@ -20,6 +20,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CreditMeterModel } from '@/common/config/creditsCore';
+import { MemoryRouter } from 'react-router-dom';
+
+const navigateMock = vi.hoisted(() => vi.fn());
+vi.mock('react-router-dom', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-router-dom')>()),
+  useNavigate: () => navigateMock,
+}));
+vi.mock('@/renderer/pages/settings/components/SettingsPageWrapper', async () => {
+  const react = await import('react');
+  return {
+    default: ({ children }: { children: React.ReactNode }) => react.createElement(react.Fragment, null, children),
+  };
+});
 
 // i18next: return the defaultValue with naive {{var}} interpolation so assertions
 // match the real Gen-B copy.
@@ -99,6 +112,7 @@ vi.mock('@process/commandEve/seatSwitchCore', () => ({
 }));
 
 import BillingModalContent from '@/renderer/components/settings/SettingsModal/contents/BillingModalContent';
+import BillingSettings from '@/renderer/pages/settings/BillingSettings';
 
 function meterFor(tier: CreditMeterModel['tier']): CreditMeterModel {
   return {
@@ -170,6 +184,19 @@ describe('BillingModalContent — in-app customer Seats + pack deep-links', () =
     render(<BillingModalContent onOpenAccount={openAccount} />);
     await user.click(screen.getByTestId('billing-add-seat'));
     expect(openAccount).toHaveBeenCalledTimes(1);
+    expect(openAccountWebMock).not.toHaveBeenCalled();
+  });
+
+  it('the shipped /settings/billing route wires the CTA to /settings/account', async () => {
+    stubStatus('free');
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/settings/billing']}>
+        <BillingSettings />
+      </MemoryRouter>
+    );
+    await user.click(screen.getByTestId('billing-add-seat'));
+    expect(navigateMock).toHaveBeenCalledWith('/settings/account');
     expect(openAccountWebMock).not.toHaveBeenCalled();
   });
 

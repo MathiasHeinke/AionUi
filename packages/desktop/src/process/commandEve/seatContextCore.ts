@@ -383,7 +383,7 @@ export function setCommandEvePaidArtifactSeatRecoveryRequired(required: boolean)
 
 /** Start one paid artifact only while no Seed transition owns this fence. */
 export function tryBeginCommandEvePaidArtifactOperation(): (() => void) | null {
-  if (paidArtifactSeatTransitionInFlight) return null;
+  if (paidArtifactSeatRecoveryRequired || paidArtifactSeatTransitionInFlight) return null;
   paidArtifactOperationsInFlight += 1;
   let released = false;
   return () => {

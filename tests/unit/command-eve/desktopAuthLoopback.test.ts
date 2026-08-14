@@ -394,6 +394,34 @@ describe('accountAuthOrchestratorCore — (5) login->code->activate happy path',
     expect(storeWire).toHaveBeenCalledWith(root, code);
   });
 
+  it('consumes starter_seat_ready and retries one idempotent reconciliation when it is false', async () => {
+    setSafeStorageForTesting(makeAvailableAdapter());
+    const root = makeRoot();
+    const { publicKeyPem, privateKey } = makeKeypair();
+    const code = signCode(privateKey, validPayload());
+    let registerCalls = 0;
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (String(url).includes('register-profile')) {
+        registerCalls += 1;
+        return new Response(JSON.stringify({ ok: true, starter_seat_ready: registerCalls > 1 }), { status: 200 });
+      }
+      if (String(url).includes('my-license')) return new Response(JSON.stringify({ code }), { status: 200 });
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    const result = await activateEntitlementFromSession(root, futureSession(), {
+      storeLicenseWire,
+      fetch: fetchSpy as unknown as typeof fetch,
+      anonKey: 'anon-test',
+      env: orchestratorEnv(root, publicKeyPem),
+      sleep: async () => {},
+    });
+
+    expect(result.activated).toBe(true);
+    expect(result.starterSeatReady).toBe(true);
+    expect(registerCalls).toBe(2);
+  });
+
   it('derives a name + company from the email when the web omitted them', () => {
     expect(deriveProfileFromEmail('jane.doe@acme-corp.com')).toEqual({
       name: 'Jane Doe',

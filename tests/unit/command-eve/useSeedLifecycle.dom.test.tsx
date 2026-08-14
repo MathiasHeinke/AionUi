@@ -7,9 +7,13 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
   commandEve: { seedCreate: { invoke: seedCreateInvoke } },
 }));
 
-import { useSeedLifecycle } from '@/renderer/hooks/useSeedLifecycle';
+import { resetSeedLifecycleAttemptsForTests, useSeedLifecycle } from '@/renderer/hooks/useSeedLifecycle';
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  resetSeedLifecycleAttemptsForTests();
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
 
 describe('useSeedLifecycle', () => {
   it('coalesces rapid renderer calls into one IPC request', async () => {
@@ -68,5 +72,82 @@ describe('useSeedLifecycle', () => {
     expect(firstId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(retryId).toBe(firstId);
     expect(result.current.retryPending).toBe(false);
+  });
+
+  it('reuses a commit-uncertain network key after the original hook unmounts', async () => {
+    seedCreateInvoke
+      .mockResolvedValueOnce({ data: { ok: false, seed_limit: null, reason_code: 'SEED_NETWORK' } })
+      .mockResolvedValueOnce({
+        data: {
+          ok: true,
+          seed_id: '22222222-2222-4222-8222-222222222222',
+          created: false,
+          seed_count: 2,
+          seed_limit: null,
+        },
+      });
+    const firstHook = renderHook(() => useSeedLifecycle());
+    await act(async () => {
+      expect((await firstHook.result.current.createSeed('Malte')).reasonCode).toBe('SEED_NETWORK');
+    });
+    expect(firstHook.result.current.retryPending).toBe(true);
+    firstHook.unmount();
+
+    const secondHook = renderHook(() => useSeedLifecycle());
+    await act(async () => {
+      expect((await secondHook.result.current.createSeed('Malte')).ok).toBe(true);
+    });
+
+    expect(seedCreateInvoke.mock.calls[1]?.[0]?.clientRequestId).toBe(
+      seedCreateInvoke.mock.calls[0]?.[0]?.clientRequestId
+    );
+  });
+
+  it('shares one request key across create surfaces while distinct names stay independent', async () => {
+    const releases: Array<(value: unknown) => void> = [];
+    seedCreateInvoke.mockImplementation(
+      () => new Promise((resolve) => releases.push(resolve as (value: unknown) => void))
+    );
+    const rail = renderHook(() => useSeedLifecycle());
+    const account = renderHook(() => useSeedLifecycle());
+
+    let railRequest!: ReturnType<typeof rail.result.current.createSeed>;
+    let accountRequest!: ReturnType<typeof account.result.current.createSeed>;
+    act(() => {
+      railRequest = rail.result.current.createSeed('Malte');
+      accountRequest = account.result.current.createSeed('Malte');
+    });
+    expect(seedCreateInvoke.mock.calls[0]?.[0]?.clientRequestId).toBe(
+      seedCreateInvoke.mock.calls[1]?.[0]?.clientRequestId
+    );
+    releases.forEach((release) =>
+      release({ data: { ok: true, seed_id: '22222222-2222-4222-8222-222222222222', seed_limit: null } })
+    );
+    await act(async () => {
+      await Promise.all([railRequest, accountRequest]);
+    });
+
+    seedCreateInvoke.mockResolvedValue({
+      data: { ok: true, seed_id: '33333333-3333-4333-8333-333333333333', seed_limit: null },
+    });
+    await act(async () => {
+      await rail.result.current.createSeed('Kunde A');
+      await account.result.current.createSeed('Kunde B');
+    });
+    expect(seedCreateInvoke.mock.calls[2]?.[0]?.clientRequestId).not.toBe(
+      seedCreateInvoke.mock.calls[3]?.[0]?.clientRequestId
+    );
+  });
+
+  it('fails closed instead of emitting a constant UUID when Web Crypto is unavailable', async () => {
+    vi.stubGlobal('crypto', {});
+    const { result } = renderHook(() => useSeedLifecycle());
+    await act(async () => {
+      expect(await result.current.createSeed('Malte')).toMatchObject({
+        ok: false,
+        reasonCode: 'SEED_REQUEST_ID_UNAVAILABLE',
+      });
+    });
+    expect(seedCreateInvoke).not.toHaveBeenCalled();
   });
 });

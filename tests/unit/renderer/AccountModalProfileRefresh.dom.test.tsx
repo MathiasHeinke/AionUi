@@ -13,12 +13,15 @@ const mocks = vi.hoisted(() => ({
   registrationUpdate: vi.fn(),
   seedRename: vi.fn(),
   seedCreate: vi.fn(),
+  authWebLogin: vi.fn(),
   refreshSharedProfile: vi.fn(),
   refreshSeeds: vi.fn(),
   switchTo: vi.fn(),
   navigate: vi.fn(),
   resetCreateAttempt: vi.fn(),
   retryPending: false,
+  mySeatsSource: 'my_seats' as 'my_seats' | 'legacy_fallback' | 'bridge_error',
+  mySeatsWireError: null as { kind: string; reasonCode: string } | null,
 }));
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
@@ -31,7 +34,7 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
     entitlementActivate: { invoke: vi.fn() },
     authLogout: { invoke: vi.fn() },
     entitlementReset: { invoke: vi.fn() },
-    authWebLogin: { invoke: vi.fn() },
+    authWebLogin: { invoke: mocks.authWebLogin },
   },
 }));
 
@@ -51,6 +54,8 @@ vi.mock('@/renderer/hooks/useSeatAccess', () => ({
     switching: false,
     lastSwitchError: null,
     switchErrorNonce: 0,
+    mySeatsSource: mocks.mySeatsSource,
+    mySeatsWireError: mocks.mySeatsWireError,
     refresh: mocks.refreshSeeds,
     switchTo: mocks.switchTo,
   }),
@@ -131,6 +136,8 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   mocks.retryPending = false;
+  mocks.mySeatsSource = 'my_seats';
+  mocks.mySeatsWireError = null;
 });
 
 describe('AccountModalContent profile propagation', () => {
@@ -247,5 +254,21 @@ describe('AccountModalContent profile propagation', () => {
 
     expect(mocks.resetCreateAttempt).not.toHaveBeenCalled();
     expect(screen.getByTestId('account-seat-create-submit').textContent).toContain('Erneut abgleichen');
+  });
+
+  it('repairs a dead desktop Seat session and reloads the authoritative Seat list', async () => {
+    mocks.registrationStatus.mockResolvedValue({ data: { ok: true, has_session: true } });
+    mocks.authWebLogin.mockResolvedValue({ data: { ok: true } });
+    mocks.refreshSharedProfile.mockResolvedValue(undefined);
+    mocks.refreshSeeds.mockResolvedValue(undefined);
+    mocks.mySeatsSource = 'legacy_fallback';
+    mocks.mySeatsWireError = { kind: 'session', reasonCode: 'REFRESH_HTTP_400' };
+
+    render(<AccountModalContent />);
+    fireEvent.click(await screen.findByTestId('account-seats-repair'));
+
+    await waitFor(() => expect(mocks.authWebLogin).toHaveBeenCalledWith({ intent: 'login' }));
+    await waitFor(() => expect(mocks.refreshSeeds).toHaveBeenCalledTimes(1));
+    expect(mocks.authWebLogin.mock.invocationCallOrder[0]).toBeLessThan(mocks.refreshSeeds.mock.invocationCallOrder[0]);
   });
 });

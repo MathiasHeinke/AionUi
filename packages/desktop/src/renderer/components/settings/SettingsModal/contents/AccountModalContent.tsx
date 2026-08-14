@@ -33,18 +33,20 @@ import { refreshCommandEveProfile } from '@/renderer/components/account/useComma
 import { useSeatAccess } from '@/renderer/hooks/useSeatAccess';
 import { useSeedLifecycle } from '@/renderer/hooks/useSeedLifecycle';
 import { isAnyGenerating } from '@/renderer/services/commandEveGenerationActivity';
+import { isDeadSessionFailure } from '@/common/config/seatWireFailureCore';
 import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 
 const AccountModalContent: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { access, refresh: refreshSeeds, switchTo, switching } = useSeatAccess();
+  const { access, refresh: refreshSeeds, switchTo, switching, mySeatsSource, mySeatsWireError } = useSeatAccess();
   const { provisioning, retryPending, createSeed, resetCreateAttempt } = useSeedLifecycle();
   const [info, setInfo] = useState<ICommandEveRegistrationStatusResult | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
+  const [repairingSeatRead, setRepairingSeatRead] = useState(false);
   // EVE Cloud (license-wire) re-activation. `bearer` = is the cloud bearer at
   // rest present? An entitled device whose activation predates the wire-at-rest
   // feature (or hit a keychain failure at activation) is entitled but bearer-less
@@ -69,6 +71,9 @@ const AccountModalContent: React.FC = () => {
   const [seedCreateAnnouncement, setSeedCreateAnnouncement] = useState('');
   const [openingBrainSeatId, setOpeningBrainSeatId] = useState<string | null>(null);
   const editingSeed = access.seats.find((seat) => seat.seat_id === editingSeedId) ?? null;
+  const seatReadDegraded =
+    access.role === 'admin' && (mySeatsSource === 'legacy_fallback' || mySeatsSource === 'bridge_error');
+  const seatSessionDead = isDeadSessionFailure(mySeatsWireError);
 
   const refresh = useCallback(async () => {
     try {
@@ -328,12 +333,33 @@ const AccountModalContent: React.FC = () => {
       await commandEve.authWebLogin.invoke({ intent: 'login' });
       await refresh();
       await refreshCommandEveProfile();
+      await refreshSeeds();
     } catch {
       // self-quiet; the gate / avatar reflect the real state
     } finally {
       setLoggingIn(false);
     }
-  }, [refresh]);
+  }, [refresh, refreshSeeds]);
+
+  const handleRepairSeatRead = useCallback(async () => {
+    setRepairingSeatRead(true);
+    try {
+      if (seatSessionDead) {
+        await commandEve.authWebLogin.invoke({ intent: 'login' });
+        await refresh();
+        await refreshCommandEveProfile();
+      }
+      await refreshSeeds();
+    } catch {
+      Message.error(
+        t('settings.accountPanel.seats.repairError', {
+          defaultValue: 'Die Seat-Liste konnte nicht erneuert werden.',
+        })
+      );
+    } finally {
+      setRepairingSeatRead(false);
+    }
+  }, [refresh, refreshSeeds, seatSessionDead, t]);
 
   const signedIn = Boolean(info?.has_session);
 
@@ -467,6 +493,29 @@ const AccountModalContent: React.FC = () => {
           }
           bodyClassName='eve-settings-list'
         >
+          {seatReadDegraded ? (
+            <div className='eve-settings-action-row' data-testid='account-seats-degraded'>
+              <p>
+                {t('settings.accountPanel.seats.degraded', {
+                  defaultValue:
+                    'Die Seat-Liste ist gerade unvollständig. Lade sie neu, bevor du einen Kunden-Seat öffnest oder anlegst.',
+                })}
+              </p>
+              <Button
+                size='small'
+                type='outline'
+                loading={repairingSeatRead}
+                onClick={() => void handleRepairSeatRead()}
+                data-testid='account-seats-repair'
+              >
+                {seatSessionDead
+                  ? t('settings.accountPanel.seats.reauthenticate', {
+                      defaultValue: 'Erneut anmelden und Seats laden',
+                    })
+                  : t('settings.accountPanel.seats.reload', { defaultValue: 'Seats neu laden' })}
+              </Button>
+            </div>
+          ) : null}
           {access.seats.map((seat) => {
             const active = seat.seat_id === access.activeSeatId;
             const founder = seat.kind === 'own_company' || seat.seat_id === access.pinnedSeatId;

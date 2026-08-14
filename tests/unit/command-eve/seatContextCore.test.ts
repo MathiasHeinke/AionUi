@@ -43,6 +43,7 @@ import {
   resolveSeatHermesHome,
   resolveSeatHome,
   sanitizeSeatId,
+  setCommandEvePaidArtifactSeatRecoveryRequired,
   setActiveSeatId,
   tryBeginCommandEvePaidArtifactOperation,
   tryBeginCommandEvePaidArtifactSeatTransition,
@@ -71,6 +72,13 @@ describe('paid artifact / Seed transition fence', () => {
     expect(releaseTransition).toBeTypeOf('function');
     expect(tryBeginCommandEvePaidArtifactOperation()).toBeNull();
     releaseTransition?.();
+    expect(tryBeginCommandEvePaidArtifactOperation()).toBeTypeOf('function');
+  });
+
+  it('the reservation primitive itself stays fail-closed during recovery', () => {
+    setCommandEvePaidArtifactSeatRecoveryRequired(true);
+    expect(tryBeginCommandEvePaidArtifactOperation()).toBeNull();
+    setCommandEvePaidArtifactSeatRecoveryRequired(false);
     expect(tryBeginCommandEvePaidArtifactOperation()).toBeTypeOf('function');
   });
 });
