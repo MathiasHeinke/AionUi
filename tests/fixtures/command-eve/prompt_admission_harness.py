@@ -234,6 +234,14 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
                 request_id = str(params["request_id"])
                 assert request_id
                 boundary_requests.append(dict(params))
+                if self.reject_boundary_reason is None:
+                    boundary_commits.add(request_id)
+                if self.pause_boundary_response:
+                    assert self.boundary_started is not None
+                    assert self.boundary_release is not None
+                    self.boundary_started.set()
+                    await self.boundary_release.wait()
+                    self.pause_boundary_response = False
                 if self.reject_boundary_reason is not None:
                     return {
                         "version": "command-eve-correction-boundary/v2",
@@ -241,13 +249,6 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
                         "status": "rejected",
                         "rejection": self.reject_boundary_reason,
                     }
-                boundary_commits.add(request_id)
-                if self.pause_boundary_response:
-                    assert self.boundary_started is not None
-                    assert self.boundary_release is not None
-                    self.boundary_started.set()
-                    await self.boundary_release.wait()
-                    self.pause_boundary_response = False
                 if self.fail_boundary_response_after_commit:
                     self.fail_boundary_response_after_commit = False
                     raise RuntimeError("correction boundary response unavailable")
@@ -517,14 +518,16 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
             [TextContentBlock(type="text", text="ordinary while correction pending")],
             "session-1",
         )
-        assert response.stop_reason == "end_turn"
-        assert state.queued_prompts == ["ordinary while correction pending"]
+        assert response.stop_reason == "refusal"
+        assert state.queued_prompts == []
         assert len(agent.redirect_calls) == redirect_count + 1
         assert len(session_updates) == queued_update_count + 1
-        assert session_updates[-1].content.text == "Queued for the next turn. (1 queued)"
+        assert session_updates[-1].content.text == (
+            "A correction is still being committed. Please send this again."
+        )
 
         await acp_agent._drain_queued_prompts(state)
-        assert state.queued_prompts == ["ordinary while correction pending"]
+        assert state.queued_prompts == []
 
         connection.boundary_release.set()
         try:
@@ -561,14 +564,28 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
 
         state.is_running = False
         model_count = len(agent.model_inputs)
-        await acp_agent._drain_queued_prompts(state)
-        assert state.queued_prompts == []
+        await acp_agent.prompt(
+            [TextContentBlock(type="text", text="ordinary after correction")],
+            "session-1",
+        )
         assert len(agent.model_inputs) == model_count + 1
-        assert agent.model_inputs[-1] == "ordinary while correction pending"
+        assert agent.model_inputs[-1] == "ordinary after correction"
         assert not hasattr(state, "_command_eve_completed_active_corrections")
 
         state.is_running = True
-        state.queued_prompts[:] = ["same-generation queued work"]
+        state.queued_prompts[:] = ["older native FIFO work"]
+        preexisting_redirect_count = len(agent.redirect_calls)
+        preexisting_request_count = len(boundary_requests)
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct cannot overtake FIFO")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        assert state.queued_prompts == ["older native FIFO work"]
+        assert len(agent.redirect_calls) == preexisting_redirect_count
+        assert len(boundary_requests) == preexisting_request_count
+        state.queued_prompts.clear()
+
         retryable_redirect_count = len(agent.redirect_calls)
         retryable_request_count = len(boundary_requests)
         retryable_commit_count = len(boundary_commits)
@@ -581,10 +598,22 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
         retryable_receipt = state._command_eve_active_correction_receipt
         retryable_request_id = retryable_receipt["request_id"]
         assert retryable_receipt["in_flight"] is False
-        assert state.queued_prompts == ["same-generation queued work"]
+        assert state.queued_prompts == []
         assert agent.redirect_calls[retryable_redirect_count:] == ["retryable boundary"]
         assert len(boundary_requests) == retryable_request_count + 1
         assert len(boundary_commits) == retryable_commit_count
+
+        retryable_update_count = len(session_updates)
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="ordinary during same-generation retry")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        assert state.queued_prompts == []
+        assert len(session_updates) == retryable_update_count + 1
+        assert session_updates[-1].content.text == (
+            "A correction is still being committed. Please send this again."
+        )
 
         connection.reject_boundary_reason = None
         response = await acp_agent.prompt(
@@ -596,24 +625,28 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
         assert agent.redirect_calls[retryable_redirect_count:] == ["retryable boundary"]
         assert len(boundary_commits) == retryable_commit_count + 1
         assert not hasattr(state, "_command_eve_active_correction_receipt")
-        state.is_running = False
-        model_count = len(agent.model_inputs)
-        await acp_agent._drain_queued_prompts(state)
         assert state.queued_prompts == []
-        assert len(agent.model_inputs) == model_count + 1
-        assert agent.model_inputs[-1] == "same-generation queued work"
 
         state.is_running = True
-        state.queued_prompts[:] = ["stale lifecycle queued work"]
+        state.queued_prompts.clear()
         rejected_redirect_count = len(agent.redirect_calls)
         rejected_request_count = len(boundary_requests)
         rejected_commit_count = len(boundary_commits)
         rejected_update_count = len(session_updates)
         connection.reject_boundary_reason = "lifecycle_changed"
-        response = await acp_agent.prompt(
-            [TextContentBlock(type="text", text="/correct lifecycle rejected")],
-            "session-1",
+        connection.pause_boundary_response = True
+        connection.boundary_started = asyncio.Event()
+        connection.boundary_release = asyncio.Event()
+        rejected_task = asyncio.create_task(
+            acp_agent.prompt(
+                [TextContentBlock(type="text", text="/correct lifecycle rejected")],
+                "session-1",
+            )
         )
+        await asyncio.wait_for(connection.boundary_started.wait(), timeout=2)
+        state.queued_prompts.append("stale lifecycle queued work")
+        connection.boundary_release.set()
+        response = await rejected_task
         assert response.stop_reason == "refusal"
         assert not hasattr(state, "_command_eve_active_correction_receipt")
         assert agent.redirect_calls[rejected_redirect_count:] == ["lifecycle rejected"]
@@ -699,11 +732,13 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
             [TextContentBlock(type="text", text="ordinary concurrent correction")],
             "session-1",
         )
-        assert response.stop_reason == "end_turn"
+        assert response.stop_reason == "refusal"
         assert len(agent.redirect_calls) == redirect_count
-        assert state.queued_prompts == ["ordinary concurrent correction"]
+        assert state.queued_prompts == []
         assert len(session_updates) == update_count + 1
-        assert session_updates[-1].content.text == "Queued for the next turn. (1 queued)"
+        assert session_updates[-1].content.text == (
+            "A correction is still being committed. Please send this again."
+        )
         del state._command_eve_active_correction_receipt
 
         acp_agent._conn = None
