@@ -209,9 +209,15 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
 
     class Connection:
         reject_phase: str | None = None
+        fail_update_on_call: int | None = None
+        update_call_count = 0
 
         async def session_update(self, session_id: str, update: Any) -> None:
             assert session_id == "session-1"
+            self.update_call_count += 1
+            if self.fail_update_on_call == self.update_call_count:
+                self.fail_update_on_call = None
+                raise RuntimeError("session update unavailable")
             session_updates.append(update)
 
         async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, str]:
@@ -391,6 +397,125 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
         assert correction_updates[1].content.text.startswith(
             "Correction accepted for the active turn: authoritative fix"
         )
+        assert not hasattr(state, "_command_eve_active_correction_receipt")
+        assert state._command_eve_completed_active_corrections == {"authoritative fix"}
+        redirect_count = len(agent.redirect_calls)
+        update_count = len(session_updates)
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct authoritative fix")],
+            "session-1",
+        )
+        assert response.stop_reason == "end_turn"
+        assert len(agent.redirect_calls) == redirect_count
+        assert len(session_updates) == update_count
+        assert state._command_eve_completed_active_corrections == {"authoritative fix"}
+
+        state.is_running = True
+        redirect_count = len(agent.redirect_calls)
+        update_count = len(session_updates)
+        acp_agent._conn = None
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct no boundary")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        assert len(agent.redirect_calls) == redirect_count
+        assert len(session_updates) == update_count
+        assert state._command_eve_completed_active_corrections == {"authoritative fix"}
+
+        acp_agent._conn = connection
+        agent._supports_active_turn_redirect = False
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct unsupported redirect")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        assert len(agent.redirect_calls) == redirect_count
+        assert len(session_updates) == update_count
+        assert state._command_eve_completed_active_corrections == {"authoritative fix"}
+        agent._supports_active_turn_redirect = True
+
+        redirect_count = len(agent.redirect_calls)
+        update_count = len(session_updates)
+        connection.fail_update_on_call = connection.update_call_count + 1
+        try:
+            await acp_agent.prompt(
+                [TextContentBlock(type="text", text="/correct retry boundary")],
+                "session-1",
+            )
+        except RuntimeError as error:
+            assert "session update unavailable" in str(error)
+        else:
+            raise AssertionError("boundary failure was swallowed")
+        assert agent.redirect_calls[redirect_count:] == ["retry boundary"]
+        assert len(session_updates) == update_count
+        assert state._command_eve_active_correction_receipt == {
+            "text": "retry boundary",
+            "phase": "redirected",
+            "in_flight": False,
+        }
+        state.is_running = False
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct retry boundary")],
+            "session-1",
+        )
+        assert response.stop_reason == "end_turn"
+        assert agent.redirect_calls[redirect_count:] == ["retry boundary"]
+        assert len(session_updates) == update_count + 2
+        assert not hasattr(state, "_command_eve_active_correction_receipt")
+        assert state._command_eve_completed_active_corrections == {
+            "authoritative fix",
+            "retry boundary",
+        }
+
+        state.is_running = True
+        redirect_count = len(agent.redirect_calls)
+        update_count = len(session_updates)
+        connection.fail_update_on_call = connection.update_call_count + 2
+        try:
+            await acp_agent.prompt(
+                [TextContentBlock(type="text", text="/correct retry acknowledgement")],
+                "session-1",
+            )
+        except RuntimeError as error:
+            assert "session update unavailable" in str(error)
+        else:
+            raise AssertionError("acknowledgement failure was swallowed")
+        assert agent.redirect_calls[redirect_count:] == ["retry acknowledgement"]
+        assert len(session_updates) == update_count + 1
+        assert state._command_eve_active_correction_receipt == {
+            "text": "retry acknowledgement",
+            "phase": "boundary_sent",
+            "in_flight": False,
+        }
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct retry acknowledgement")],
+            "session-1",
+        )
+        assert response.stop_reason == "end_turn"
+        assert agent.redirect_calls[redirect_count:] == ["retry acknowledgement"]
+        assert len(session_updates) == update_count + 2
+        assert not hasattr(state, "_command_eve_active_correction_receipt")
+        assert state._command_eve_completed_active_corrections == {
+            "authoritative fix",
+            "retry acknowledgement",
+            "retry boundary",
+        }
+        redirect_count = len(agent.redirect_calls)
+        update_count = len(session_updates)
+        await acp_agent.prompt(
+            [TextContentBlock(type="text", text="new ordinary guidance")],
+            "session-1",
+        )
+        assert agent.redirect_calls[redirect_count:] == ["new ordinary guidance"]
+        update_count = len(session_updates)
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct authoritative fix")],
+            "session-1",
+        )
+        assert response.stop_reason == "end_turn"
+        assert agent.redirect_calls[redirect_count:] == ["new ordinary guidance"]
+        assert len(session_updates) == update_count
 
         def reject_redirect(text: str) -> bool:
             agent.redirect_calls.append(text)
@@ -407,7 +532,6 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
         assert response.stop_reason == "refusal"
         assert state.queued_prompts == []
         assert len(session_updates) == update_count
-        acp_agent._conn = None
 
         def broken_redirect(text: str) -> bool:
             agent.redirect_calls.append(text)
@@ -416,6 +540,44 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
         agent.redirect = broken_redirect
         state.is_running = True
         state.queued_prompts.clear()
+        update_count = len(session_updates)
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct redirect exception")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        assert len(session_updates) == update_count
+        assert not hasattr(state, "_command_eve_active_correction_receipt")
+
+        agent.redirect = types.MethodType(AgentProxy.redirect, agent)
+        state._command_eve_active_correction_receipt = {
+            "text": "concurrent correction",
+            "phase": "redirected",
+            "in_flight": True,
+        }
+        redirect_count = len(agent.redirect_calls)
+        update_count = len(session_updates)
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct concurrent correction")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct different correction")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="ordinary concurrent correction")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        assert len(agent.redirect_calls) == redirect_count
+        assert len(session_updates) == update_count
+        del state._command_eve_active_correction_receipt
+
+        acp_agent._conn = None
+        agent.redirect = broken_redirect
         await acp_agent.prompt(
             [TextContentBlock(type="text", text="queued correction")],
             "session-1",
@@ -506,6 +668,15 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
                 "real_wheel_busy_redirect_quarantined": True,
                 "real_wheel_active_correct_authoritative": True,
                 "real_wheel_active_correct_terminal_race_refused": True,
+                "real_wheel_active_correct_requires_boundary": True,
+                "real_wheel_active_correct_boundary_retry_idempotent": True,
+                "real_wheel_active_correct_ack_retry_idempotent": True,
+                "real_wheel_active_correct_redirect_exception_refused": True,
+                "real_wheel_active_correct_concurrency_refused": True,
+                "real_wheel_active_correct_requires_redirect_capability": True,
+                "real_wheel_active_correct_completed_replay_idempotent": True,
+                "real_wheel_active_correct_delayed_replay_idempotent": True,
+                "real_wheel_active_correct_fences_ordinary_busy_prompt": True,
                 "real_wheel_session_cwd_recorded": True,
                 "real_wheel_queued_correction_quarantined": True,
                 "real_wheel_post_cancel_correction_quarantined": True,
