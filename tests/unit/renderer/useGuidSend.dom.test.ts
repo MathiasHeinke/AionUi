@@ -267,6 +267,13 @@ describe('useGuidSend blocked cloud lane', () => {
 
     const deps = createDeps();
     deps.input = 'Erstelle ein Video: eine lila Aubergine dreht sich langsam.';
+    deps.getComposerSelection = () => ({
+      mode: 'video',
+      authority: 'explicit_user_selection',
+      hasSelectedReference: false,
+      selectedReferenceKind: null,
+      imageOptions: null,
+    });
     deps.getVideoSelection = () => ({ modelId: 'google/veo-3.1', resolution: '1080p', durationSeconds: 8 });
     const { result } = renderHook(() => useGuidSend(deps));
 

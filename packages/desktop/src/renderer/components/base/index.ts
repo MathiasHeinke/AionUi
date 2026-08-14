@@ -18,6 +18,7 @@ export { default as AionCollapse } from './AionCollapse';
 export { default as AionSelect } from './AionSelect';
 export { default as AionScrollArea } from './AionScrollArea';
 export { default as AionSteps } from './AionSteps';
+export { default as PremiumIconProvider, PREMIUM_ICON_CONFIG } from './PremiumIconProvider';
 
 // ==================== 类型导出 / Type Exports ====================
 

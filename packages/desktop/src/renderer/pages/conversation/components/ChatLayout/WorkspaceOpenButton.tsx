@@ -1,6 +1,6 @@
 import { ipcBridge } from '@/common';
 import { isElectronDesktop } from '@/renderer/utils/platform';
-import { Command, Down, Folder, Terminal } from '@icon-park/react';
+import { CheckSmall, Command, Down, Folder, Terminal } from '@icon-park/react';
 import { Button, Dropdown, Tooltip } from '@arco-design/web-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -137,7 +137,9 @@ const WorkspaceOpenButton: React.FC<WorkspaceOpenButtonProps> = ({ workspacePath
         >
           <span className='flex items-center justify-center w-20px h-20px'>{option.icon}</span>
           <span className='text-14px'>{option.label}</span>
-          {currentTool === option.key && <span className='ml-auto text-12px text-[var(--color-text-3)]'>✓</span>}
+          {currentTool === option.key && (
+            <CheckSmall className='ml-auto text-t-secondary' size={15} fill='currentColor' aria-hidden='true' />
+          )}
         </button>
       ))}
     </div>
@@ -169,7 +171,7 @@ const WorkspaceOpenButton: React.FC<WorkspaceOpenButtonProps> = ({ workspacePath
           className='workspace-open-button__dropdown-btn pl-2px pr-4px'
           style={{ marginLeft: '-4px' }}
         >
-          <Down size={12} className={`transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`} />
+          <Down size={12} className={`transition-transform duration-400 ${dropdownOpen ? 'rotate-180' : ''}`} />
         </Button>
       </Dropdown>
     </div>

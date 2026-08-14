@@ -227,16 +227,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-1);
+  background: var(--eve-scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-4);
+  background: var(--eve-scrollbar-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--brand);
+  background: var(--eve-scrollbar-thumb-hover);
 }
 
 /* ===== Message Headings (H1-H5) ===== */

@@ -16,7 +16,7 @@ import { configService } from '@/common/config/configService';
 import { answerAllowsExecution, canOfferRemember } from '@/common/config/eveRememberedCommandsCore';
 import { resolveStoredGrant, withRememberedCommand } from '@/common/config/eveAuthorityStoreCore';
 import { Button, Card, Checkbox, Radio, Typography } from '@arco-design/web-react';
-import { IconBook, IconEdit, IconLink, IconLock, IconThunderbolt } from '@arco-design/web-react/icon';
+import { Book, CheckOne, Edit, Lightning, Link, Lock } from '@icon-park/react';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -67,7 +67,7 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
       return {
         title: t('messages.permissionRequest'),
         description: t('messages.agentRequestingPermission'),
-        icon: <IconLock aria-hidden />,
+        icon: <Lock theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
       };
     }
 
@@ -75,15 +75,17 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
 
     // 简单的图标映射
     const kindIcons: Record<string, React.ReactNode> = {
-      edit: <IconEdit aria-hidden />,
-      read: <IconBook aria-hidden />,
-      fetch: <IconLink aria-hidden />,
-      execute: <IconThunderbolt aria-hidden />,
+      edit: <Edit theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
+      read: <Book theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
+      fetch: <Link theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
+      execute: <Lightning theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
     };
 
     return {
       title: displayTitle,
-      icon: kindIcons[tool_call.kind || 'execute'] || <IconThunderbolt aria-hidden />,
+      icon: kindIcons[tool_call.kind || 'execute'] || (
+        <Lightning theme='outline' size={17} fill='currentColor' aria-hidden='true' />
+      ),
     };
   };
   const { title, icon } = getToolInfo();
@@ -275,7 +277,10 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
             style={{ backgroundColor: 'var(--color-success-light-1)', borderColor: 'rgb(var(--success-3))' }}
           >
             <Text className='text-sm' style={{ color: 'rgb(var(--success-6))' }}>
-              ✓ {t('messages.responseSentSuccessfully')}
+              <span className='inline-flex items-center gap-6px'>
+                <CheckOne theme='outline' size={15} fill='currentColor' aria-hidden='true' />
+                {t('messages.responseSentSuccessfully')}
+              </span>
             </Text>
           </div>
         )}

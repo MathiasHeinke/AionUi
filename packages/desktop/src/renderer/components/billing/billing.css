@@ -341,7 +341,7 @@
 .video-quality-pill__chevron {
   display: inline-block;
   margin-left: 4px;
-  transition: transform 180ms ease;
+  transition: transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 .video-quality-pill__model-trigger[aria-expanded='true'] .video-quality-pill__chevron {
   transform: rotate(180deg);

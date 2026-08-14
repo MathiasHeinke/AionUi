@@ -142,7 +142,7 @@ const ExtensionSettingsTabContent: React.FC<ExtensionSettingsTabContentProps> = 
             style={{
               minHeight: '200px',
               opacity: loading ? 0 : 1,
-              transition: 'opacity 150ms ease-in',
+              transition: 'opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-enter, ease-in)',
             }}
             title={`Extension settings: ${tabId}`}
           />

@@ -40,8 +40,8 @@
   background: color-mix(in srgb, var(--color-text-2) 72%, transparent);
   flex: 0 0 auto;
   transition:
-    height 120ms ease,
-    background-color 120ms ease;
+    height var(--eve-motion-duration-state, 400ms) ease,
+    background-color var(--eve-motion-duration-feedback, 300ms) ease;
 }
 
 .speech-input-feedback--processing .speech-input-feedback__bar {

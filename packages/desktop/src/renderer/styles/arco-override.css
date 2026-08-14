@@ -9,18 +9,18 @@
     ui-monospace, 'SF Mono', SFMono-Regular, Menlo, 'Cascadia Code', 'Roboto Mono', Consolas, 'Liberation Mono',
     monospace;
   --code-font-size: 13px;
-  --aion-overlay-bg: #ffffff;
-  --aion-overlay-text: #1d2129;
-  --aion-overlay-border: #e5e6eb;
-  --aion-overlay-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  --aion-overlay-bg: var(--eve-overlay-surface-solid, #ffffff);
+  --aion-overlay-text: var(--eve-overlay-text, #1d2129);
+  --aion-overlay-border: var(--eve-overlay-border, #e5e6eb);
+  --aion-overlay-shadow: var(--eve-overlay-shadow, 0 8px 24px rgba(15, 23, 42, 0.12));
 }
 
 html[data-theme='dark'],
 body[arco-theme='dark'] {
-  --aion-overlay-bg: #0e0e0e;
-  --aion-overlay-text: #f2f3f5;
-  --aion-overlay-border: #333333;
-  --aion-overlay-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --aion-overlay-bg: var(--eve-overlay-surface-solid, #0e0e0e);
+  --aion-overlay-text: var(--eve-overlay-text, #f2f3f5);
+  --aion-overlay-border: var(--eve-overlay-border, #333333);
+  --aion-overlay-shadow: var(--eve-overlay-shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
 }
 
 /* Arco's arco.css puts 'Inter' first in font-family, which causes very thin
@@ -35,12 +35,12 @@ body {
 html body .arco-tooltip-content,
 html body .arco-popover-content,
 html body .arco-popconfirm-content {
-  background: var(--glass-overlay-bg, var(--aion-overlay-bg)) !important;
+  background: var(--eve-overlay-surface, var(--glass-overlay-bg, var(--aion-overlay-bg))) !important;
   color: var(--aion-overlay-text) !important;
-  border: 1px solid var(--glass-overlay-border, var(--aion-overlay-border)) !important;
-  box-shadow: var(--glass-shadow-soft, var(--aion-overlay-shadow)) !important;
-  -webkit-backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
-  backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
+  border: 1px solid var(--eve-overlay-border, var(--glass-overlay-border, var(--aion-overlay-border))) !important;
+  box-shadow: var(--eve-overlay-shadow, var(--glass-shadow-soft, var(--aion-overlay-shadow))) !important;
+  -webkit-backdrop-filter: var(--eve-overlay-filter, var(--glass-overlay-filter, blur(18px) saturate(125%)));
+  backdrop-filter: var(--eve-overlay-filter, var(--glass-overlay-filter, blur(18px) saturate(125%)));
 }
 
 html body .arco-tooltip-content {
@@ -59,12 +59,12 @@ html[data-theme='dark'] body .arco-popconfirm-content,
 body[arco-theme='dark'] .arco-tooltip-content,
 body[arco-theme='dark'] .arco-popover-content,
 body[arco-theme='dark'] .arco-popconfirm-content {
-  background: var(--glass-overlay-bg, var(--aion-overlay-bg)) !important;
+  background: var(--eve-overlay-surface, var(--glass-overlay-bg, var(--aion-overlay-bg))) !important;
   color: var(--aion-overlay-text) !important;
-  border: 1px solid var(--glass-overlay-border, var(--aion-overlay-border)) !important;
-  box-shadow: var(--glass-shadow-soft, var(--aion-overlay-shadow)) !important;
-  -webkit-backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
-  backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
+  border: 1px solid var(--eve-overlay-border, var(--glass-overlay-border, var(--aion-overlay-border))) !important;
+  box-shadow: var(--eve-overlay-shadow, var(--glass-shadow-soft, var(--aion-overlay-shadow))) !important;
+  -webkit-backdrop-filter: var(--eve-overlay-filter, var(--glass-overlay-filter, blur(18px) saturate(125%)));
+  backdrop-filter: var(--eve-overlay-filter, var(--glass-overlay-filter, blur(18px) saturate(125%)));
 }
 
 html body .arco-tooltip-content-inner,
@@ -78,8 +78,8 @@ html body .arco-popconfirm-inner-content {
 html body .arco-trigger-arrow.arco-tooltip-arrow,
 html body .arco-popover-arrow.arco-trigger-arrow,
 html body .arco-popconfirm-arrow.arco-trigger-arrow {
-  background: var(--glass-overlay-bg, var(--aion-overlay-bg)) !important;
-  border: 1px solid var(--glass-overlay-border, var(--aion-overlay-border)) !important;
+  background: var(--eve-overlay-surface, var(--glass-overlay-bg, var(--aion-overlay-bg))) !important;
+  border: 1px solid var(--eve-overlay-border, var(--glass-overlay-border, var(--aion-overlay-border))) !important;
 }
 
 /* Menus and pickers are overlays, not nested opaque cards. Keep them more
@@ -89,14 +89,30 @@ html body .arco-dropdown-menu,
 html body .arco-select-popup,
 html body .arco-picker-container,
 html body .arco-menu-pop {
-  background: var(--glass-overlay-bg, var(--aion-overlay-bg)) !important;
-  border-color: var(--glass-overlay-border, var(--aion-overlay-border)) !important;
-  overflow: hidden;
-  border: 1px solid var(--glass-overlay-border, var(--aion-overlay-border)) !important;
+  background: var(--eve-overlay-surface, var(--glass-overlay-bg, var(--aion-overlay-bg))) !important;
+  border-color: var(--eve-overlay-border, var(--glass-overlay-border, var(--aion-overlay-border))) !important;
+  max-height: min(430px, calc(100dvh - 88px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--eve-overlay-border, var(--glass-overlay-border, var(--aion-overlay-border))) !important;
   border-radius: var(--eve-overlay-radius, 14px) !important;
-  box-shadow: var(--glass-shadow-soft, var(--aion-overlay-shadow)) !important;
-  -webkit-backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
-  backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
+  box-shadow: var(--eve-overlay-shadow, var(--glass-shadow-soft, var(--aion-overlay-shadow))) !important;
+  -webkit-backdrop-filter: var(--eve-overlay-filter, var(--glass-overlay-filter, blur(18px) saturate(125%)));
+  backdrop-filter: var(--eve-overlay-filter, var(--glass-overlay-filter, blur(18px) saturate(125%)));
+  overscroll-behavior: contain;
+  scrollbar-color: var(--eve-scrollbar-thumb) var(--eve-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+html body .arco-select-popup .arco-select-popup-inner,
+html body .arco-picker-container .arco-picker-body,
+html body .arco-menu-pop .arco-menu-inner {
+  max-height: min(418px, calc(100dvh - 100px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--eve-scrollbar-thumb) var(--eve-scrollbar-track);
+  scrollbar-width: thin;
 }
 
 /* Composer-owned menus share one calmer cadence in both the start and active
@@ -105,7 +121,7 @@ html body .arco-menu-pop {
 .eveComposerMenuMotion-enter,
 .eveComposerMenuMotion-appear {
   opacity: 0;
-  transform: translateY(5px) scale(0.975) translateZ(0);
+  transform: translateY(var(--eve-motion-distance-overlay, 5px)) scale(0.975) translateZ(0);
 }
 
 .eveComposerMenuMotion-enter-active,
@@ -113,8 +129,10 @@ html body .arco-menu-pop {
   opacity: 1;
   transform: translateY(0) scale(1) translateZ(0);
   transition:
-    opacity var(--eve-composer-menu-enter-duration, 480ms) cubic-bezier(0.22, 1, 0.36, 1),
-    transform var(--eve-composer-menu-enter-duration, 480ms) cubic-bezier(0.22, 1, 0.36, 1);
+    opacity var(--eve-composer-menu-enter-duration, var(--eve-motion-duration-overlay-enter, 480ms))
+      var(--eve-motion-ease-enter, cubic-bezier(0.22, 1, 0.36, 1)),
+    transform var(--eve-composer-menu-enter-duration, var(--eve-motion-duration-overlay-enter, 480ms))
+      var(--eve-motion-ease-enter, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
 .eveComposerMenuMotion-exit {
@@ -124,10 +142,12 @@ html body .arco-menu-pop {
 
 .eveComposerMenuMotion-exit-active {
   opacity: 0;
-  transform: translateY(3px) scale(0.985) translateZ(0);
+  transform: translateY(calc(var(--eve-motion-distance-overlay, 5px) * 0.6)) scale(0.985) translateZ(0);
   transition:
-    opacity var(--eve-composer-menu-exit-duration, 380ms) cubic-bezier(0.4, 0, 0.2, 1),
-    transform var(--eve-composer-menu-exit-duration, 380ms) cubic-bezier(0.4, 0, 0.2, 1);
+    opacity var(--eve-composer-menu-exit-duration, var(--eve-motion-duration-overlay-exit, 380ms))
+      var(--eve-motion-ease-exit, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform var(--eve-composer-menu-exit-duration, var(--eve-motion-duration-overlay-exit, 380ms))
+      var(--eve-motion-ease-exit, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -145,7 +165,7 @@ html body .arco-menu-pop {
 :root[data-eve-reduced-effects='true'] body .arco-select-popup,
 :root[data-eve-reduced-effects='true'] body .arco-picker-container,
 :root[data-eve-reduced-effects='true'] body .arco-menu-pop {
-  background: var(--glass-overlay-bg-solid, var(--aion-overlay-bg)) !important;
+  background: var(--eve-overlay-surface-solid, var(--glass-overlay-bg-solid, var(--aion-overlay-bg))) !important;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -158,7 +178,21 @@ html body .arco-menu-pop {
   html body .arco-select-popup,
   html body .arco-picker-container,
   html body .arco-menu-pop {
-    background: var(--glass-overlay-bg-solid, var(--aion-overlay-bg)) !important;
+    background: var(--eve-overlay-surface-solid, var(--glass-overlay-bg-solid, var(--aion-overlay-bg))) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  html body .arco-tooltip-content,
+  html body .arco-popover-content,
+  html body .arco-popconfirm-content,
+  html body .arco-dropdown-menu,
+  html body .arco-select-popup,
+  html body .arco-picker-container,
+  html body .arco-menu-pop {
+    background: var(--eve-overlay-surface-solid, var(--glass-overlay-bg-solid, var(--aion-overlay-bg))) !important;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -213,11 +247,296 @@ html body .arco-btn:not(.arco-btn-shape-circle):not(.arco-btn-shape-round) {
   border-radius: var(--eve-control-radius, 10px);
 }
 
+/* One premium icon baseline for both the canonical Icon Park set and any
+   third-party icon still rendered by Arco internals. The icon inherits the
+   control color instead of carrying its own light-only fill. */
+html body :where(.i-icon, .arco-icon) {
+  display: inline-flex;
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  color: inherit;
+  font-size: inherit;
+  line-height: 1;
+  vertical-align: -0.125em;
+}
+
+html body :where(.i-icon, .arco-icon) > svg {
+  display: block;
+  width: 1em;
+  height: 1em;
+  overflow: visible;
+}
+
+html body :where(.arco-btn, .arco-menu-item, .arco-dropdown-menu-item, .arco-select-option) > .i-icon,
+html body :where(.arco-btn, .arco-menu-item, .arco-dropdown-menu-item, .arco-select-option) > .arco-icon {
+  position: relative;
+  top: 0;
+}
+
+/* Arco remains the implementation detail; EVE owns the interaction cadence.
+   `transition-duration` preserves each component's existing property list and
+   only normalizes how deliberately the state arrives. */
+html
+  body
+  :where(
+    .arco-btn,
+    .arco-input,
+    .arco-input-wrapper,
+    .arco-input-inner-wrapper,
+    .arco-textarea,
+    .arco-select-view,
+    .arco-picker,
+    .arco-input-number,
+    .arco-cascader-view,
+    .arco-tree-select-view,
+    .arco-switch,
+    .arco-checkbox-icon,
+    .arco-radio-mask
+  ) {
+  transition-duration: var(--eve-motion-duration-feedback, 300ms) !important;
+  transition-timing-function: var(--eve-motion-ease-standard, cubic-bezier(0.2, 0, 0, 1)) !important;
+}
+
+html body :where(.arco-btn, .arco-input, .arco-textarea):focus-visible {
+  outline: 2px solid var(--eve-focus-ring) !important;
+  outline-offset: 2px;
+}
+
+/* Native controls remain common in the shell, previews and settings. Give
+   them the same timing, keyboard focus and disabled language without taking
+   ownership of each component's deliberate layout or surface. */
+html
+  body
+  :where(
+    button:not(.arco-btn),
+    [role='button']:not(.arco-btn),
+    [role='menuitem'],
+    [role='option'],
+    input:not(.arco-input),
+    select,
+    textarea:not(.arco-textarea)
+  ) {
+  font: inherit;
+  transition-duration: var(--eve-motion-duration-feedback, 300ms) !important;
+  transition-timing-function: var(--eve-motion-ease-standard, cubic-bezier(0.2, 0, 0, 1)) !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html
+  body
+  :where(
+    button:not(.arco-btn),
+    [role='button']:not(.arco-btn),
+    [role='menuitem'],
+    [role='option'],
+    input:not(.arco-input),
+    select,
+    textarea:not(.arco-textarea)
+  ):focus-visible {
+  outline: 2px solid var(--eve-focus-ring) !important;
+  outline-offset: 2px;
+}
+
+html body :where(button, input, select, textarea, [role='button'], [role='menuitem'], [role='option']):disabled,
+html body :where([role='button'], [role='menuitem'], [role='option'])[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: var(--eve-interaction-disabled-opacity, 0.5);
+}
+
+html body [role='menuitem']:not([aria-disabled='true']):hover,
+html body [role='option']:not([aria-disabled='true']):hover {
+  background-color: var(--eve-interaction-hover-bg);
+}
+
+html body [role='menuitem']:not([aria-disabled='true']):active,
+html body [role='option']:not([aria-disabled='true']):active {
+  background-color: var(--eve-interaction-pressed-bg);
+}
+
+html body [role='menuitem'][aria-selected='true'],
+html body [role='option'][aria-selected='true'] {
+  background-color: var(--eve-interaction-selected-bg);
+}
+
+/* Menus, dropdowns and selects share one neutral state ladder. Selection uses
+   action blue through --eve-accent; the EVE orange never enters this adapter. */
+html
+  body
+  :where(.arco-dropdown-menu-item, .arco-select-option, .arco-menu-pop .arco-menu-item, .arco-picker-cell-inner) {
+  transition:
+    background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
+}
+
+html body .arco-dropdown-menu-item:not(.arco-dropdown-menu-item-disabled):hover,
+html body .arco-select-option:not(.arco-select-option-disabled):hover,
+html body .arco-menu-pop .arco-menu-item:not(.arco-menu-item-disabled):hover {
+  background-color: var(--eve-interaction-hover-bg) !important;
+}
+
+html body .arco-dropdown-menu-item-active:not(.arco-dropdown-menu-item-disabled),
+html body .arco-select-option-active:not(.arco-select-option-disabled),
+html body .arco-menu-pop .arco-menu-item:active:not(.arco-menu-item-disabled) {
+  background-color: var(--eve-interaction-pressed-bg) !important;
+}
+
+html body .arco-dropdown-menu-item-selected:not(.arco-dropdown-menu-item-disabled),
+html body .arco-select-option-selected:not(.arco-select-option-disabled),
+html body .arco-menu-pop .arco-menu-item.arco-menu-selected:not(.arco-menu-item-disabled) {
+  background-color: var(--eve-interaction-selected-bg) !important;
+}
+
+html body :where(.arco-dropdown-menu-item-disabled, .arco-select-option-disabled, .arco-menu-item-disabled) {
+  color: var(--eve-control-text-disabled) !important;
+  opacity: var(--eve-interaction-disabled-opacity, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html
+    body
+    :where(
+      .arco-btn,
+      .arco-input,
+      .arco-input-wrapper,
+      .arco-input-inner-wrapper,
+      .arco-textarea,
+      .arco-select-view,
+      .arco-picker,
+      .arco-input-number,
+      .arco-cascader-view,
+      .arco-tree-select-view,
+      .arco-switch,
+      .arco-checkbox-icon,
+      .arco-radio-mask,
+      .arco-dropdown-menu-item,
+      .arco-select-option,
+      .arco-menu-item,
+      .arco-picker-cell-inner
+    ) {
+    transition-duration: 0ms !important;
+  }
+
+  html
+    body
+    :where(
+      button:not(.arco-btn),
+      [role='button']:not(.arco-btn),
+      [role='menuitem'],
+      [role='option'],
+      input:not(.arco-input),
+      select,
+      textarea:not(.arco-textarea)
+    ) {
+    transition-duration: 0ms !important;
+  }
+}
+
+:root[data-eve-reduced-effects='true']
+  body
+  :where(
+    .arco-btn,
+    .arco-input,
+    .arco-input-wrapper,
+    .arco-input-inner-wrapper,
+    .arco-textarea,
+    .arco-select-view,
+    .arco-picker,
+    .arco-input-number,
+    .arco-cascader-view,
+    .arco-tree-select-view,
+    .arco-switch,
+    .arco-checkbox-icon,
+    .arco-radio-mask,
+    .arco-dropdown-menu-item,
+    .arco-select-option,
+    .arco-menu-item,
+    .arco-picker-cell-inner
+  ) {
+  transition-duration: 0ms !important;
+}
+
 .arco-btn {
   &.arco-btn-outline {
-    border-color: #86909c;
-    color: #86909c;
+    border-color: var(--eve-control-border-hover);
+    color: var(--eve-control-text-secondary);
   }
+}
+
+html body .arco-btn-secondary:not(.arco-btn-disabled),
+html body .arco-btn-outline:not(.arco-btn-disabled) {
+  border-color: var(--eve-control-border);
+  background: var(--eve-control-surface);
+  color: var(--eve-control-text);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 34%, transparent);
+}
+
+html body .arco-btn-secondary:not(.arco-btn-disabled):hover,
+html body .arco-btn-outline:not(.arco-btn-disabled):hover {
+  border-color: var(--eve-control-border-hover);
+  background: var(--eve-control-surface-hover);
+  color: var(--eve-control-text);
+}
+
+html body .arco-btn-secondary:not(.arco-btn-disabled):active,
+html body .arco-btn-outline:not(.arco-btn-disabled):active {
+  background: var(--eve-control-surface-pressed);
+}
+
+html body .arco-btn-text:not(.arco-btn-disabled) {
+  color: var(--eve-control-text-secondary);
+}
+
+html body .arco-btn-text:not(.arco-btn-disabled):hover {
+  background: var(--eve-interaction-hover-bg);
+  color: var(--eve-control-text);
+}
+
+html body .arco-btn-primary:not(.arco-btn-disabled) {
+  border-color: var(--eve-action);
+  background: var(--eve-action);
+  color: var(--eve-action-contrast);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 28%, transparent),
+    0 6px 16px color-mix(in srgb, var(--eve-action) 16%, transparent);
+}
+
+html body .arco-btn-primary:not(.arco-btn-disabled):hover {
+  border-color: var(--eve-action-hover);
+  background: var(--eve-action-hover);
+}
+
+html body .arco-btn-primary:not(.arco-btn-disabled):active {
+  border-color: var(--eve-action-active);
+  background: var(--eve-action-active);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--eve-shell-text) 18%, transparent);
+}
+
+html body .arco-btn-disabled,
+html body .arco-btn[disabled] {
+  border-color: var(--eve-control-border-disabled) !important;
+  color: var(--eve-control-text-disabled) !important;
+  box-shadow: none !important;
+  opacity: var(--eve-interaction-disabled-opacity, 0.5);
+}
+
+html body .arco-switch-checked,
+html body .arco-checkbox-checked .arco-checkbox-icon,
+html body .arco-radio-checked .arco-radio-mask {
+  border-color: var(--eve-action) !important;
+  background-color: var(--eve-action) !important;
+}
+
+html body .arco-tabs-header-title-active,
+html body .arco-tabs-header-title:hover {
+  color: var(--eve-action) !important;
+}
+
+html body .arco-tabs-header-ink {
+  background-color: var(--eve-action) !important;
 }
 
 /* Arco 2.66 renders icon-prop buttons without the historical
@@ -253,8 +572,9 @@ html body .arco-btn:not(.arco-btn-shape-circle):not(.arco-btn-shape-round) {
 }
 
 .arco-btn-primary.arco-btn-disabled {
-  background-color: var(--eve-row-selected-bg) !important;
-  border-color: var(--glass-panel-border) !important;
+  background-color: var(--eve-control-surface-disabled) !important;
+  border-color: var(--eve-control-border-disabled) !important;
+  color: var(--eve-control-text-disabled) !important;
 }
 
 .arco-collapse {
@@ -323,12 +643,12 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
 
 .arco-modal.aionui-modal--legacy {
   overflow: hidden;
-  background: var(--glass-overlay-bg) !important;
-  border: 1px solid var(--glass-overlay-border) !important;
+  background: var(--eve-overlay-surface) !important;
+  border: 1px solid var(--eve-overlay-border) !important;
   border-radius: var(--eve-dialog-radius, 20px) !important;
-  box-shadow: var(--glass-shadow-soft) !important;
-  -webkit-backdrop-filter: var(--glass-overlay-filter);
-  backdrop-filter: var(--glass-overlay-filter);
+  box-shadow: var(--eve-overlay-shadow) !important;
+  -webkit-backdrop-filter: var(--eve-overlay-filter);
+  backdrop-filter: var(--eve-overlay-filter);
 }
 
 .aionui-modal .aionui-modal-wrapper {
@@ -337,12 +657,12 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
 
 .arco-modal:not(.aionui-modal):not(.arco-modal-simple) .arco-modal-content,
 .arco-modal.arco-modal-simple {
-  background: var(--glass-overlay-bg) !important;
-  border: 1px solid var(--glass-overlay-border) !important;
+  background: var(--eve-overlay-surface) !important;
+  border: 1px solid var(--eve-overlay-border) !important;
   border-radius: var(--eve-dialog-radius, 20px) !important;
-  box-shadow: var(--glass-shadow-soft) !important;
-  -webkit-backdrop-filter: var(--glass-overlay-filter);
-  backdrop-filter: var(--glass-overlay-filter);
+  box-shadow: var(--eve-overlay-shadow) !important;
+  -webkit-backdrop-filter: var(--eve-overlay-filter);
+  backdrop-filter: var(--eve-overlay-filter);
 }
 
 .arco-modal.arco-modal-simple {
@@ -408,11 +728,11 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
 }
 
 .arco-modal-header {
-  border-bottom-color: var(--glass-overlay-border) !important;
+  border-bottom-color: var(--eve-overlay-border) !important;
 }
 
 .arco-modal-footer {
-  border-top-color: var(--glass-overlay-border) !important;
+  border-top-color: var(--eve-overlay-border) !important;
 }
 
 .arco-modal-title,
@@ -436,19 +756,19 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
 }
 
 .arco-modal-mask {
-  background: var(--glass-overlay-scrim) !important;
+  background: var(--eve-overlay-scrim) !important;
 }
 
 /* Drawers use the same material and large-radius contract as dialogs. Edge
    placement remains owned by Arco; this only normalizes the exposed surface. */
 .arco-drawer {
   overflow: hidden;
-  background: var(--glass-overlay-bg) !important;
-  border: 1px solid var(--glass-overlay-border) !important;
+  background: var(--eve-overlay-surface) !important;
+  border: 1px solid var(--eve-overlay-border) !important;
   border-radius: var(--eve-dialog-radius, 20px) !important;
-  box-shadow: var(--glass-shadow-soft) !important;
-  -webkit-backdrop-filter: var(--glass-overlay-filter);
-  backdrop-filter: var(--glass-overlay-filter);
+  box-shadow: var(--eve-overlay-shadow) !important;
+  -webkit-backdrop-filter: var(--eve-overlay-filter);
+  backdrop-filter: var(--eve-overlay-filter);
 }
 
 .arco-drawer.eve-assistant-drawer--right {
@@ -463,7 +783,7 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
 }
 
 .arco-drawer-mask {
-  background: var(--glass-overlay-scrim) !important;
+  background: var(--eve-overlay-scrim) !important;
 }
 
 :root[data-eve-reduced-effects='true'] .arco-modal:not(.aionui-modal):not(.arco-modal-simple) .arco-modal-content,
@@ -471,7 +791,7 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
 :root[data-eve-reduced-effects='true'] .arco-modal.aionui-modal--legacy,
 :root[data-eve-reduced-effects='true'] .aionui-modal-wrapper.eve-dialog,
 :root[data-eve-reduced-effects='true'] .arco-drawer {
-  background: var(--glass-overlay-bg-solid) !important;
+  background: var(--eve-overlay-surface-solid) !important;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -482,7 +802,7 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
   .arco-modal.aionui-modal--legacy,
   .aionui-modal-wrapper.eve-dialog,
   .arco-drawer {
-    background: var(--glass-overlay-bg-solid) !important;
+    background: var(--eve-overlay-surface-solid) !important;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -526,7 +846,7 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
   .arco-tree-select-view,
 .arco-modal
   .arco-picker:not(.arco-picker-disabled):not(.arco-picker-error):not(.arco-picker-warning):not(.arco-picker-focused) {
-  border-color: var(--border-base) !important;
+  border-color: var(--eve-control-border) !important;
 }
 
 .arco-modal
@@ -558,7 +878,7 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
   .arco-picker:not(.arco-picker-disabled):not(.arco-picker-error):not(.arco-picker-warning):not(
     .arco-picker-focused
   ):hover {
-  border-color: var(--bg-4) !important;
+  border-color: var(--eve-control-border-hover) !important;
 }
 
 .aionui-modal-header {
@@ -582,7 +902,7 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
   align-items: center;
   justify-content: center;
   border-radius: var(--eve-control-radius, 10px);
-  transition: background-color 0.2s;
+  transition: background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
   cursor: pointer;
   border: none;
   background: transparent;
@@ -590,18 +910,18 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
 }
 
 .aionui-modal-close-btn:hover {
-  background: var(--color-fill-1);
+  background: var(--eve-interaction-hover-bg);
 }
 
 /* Arco Message custom styles */
 .arco-message {
   color: var(--eve-shell-text) !important;
-  background: var(--glass-overlay-bg) !important;
-  border: 1px solid var(--glass-overlay-border) !important;
+  background: var(--eve-overlay-surface) !important;
+  border: 1px solid var(--eve-overlay-border) !important;
   border-radius: var(--eve-surface-radius-md) !important;
-  box-shadow: var(--glass-shadow-soft) !important;
-  -webkit-backdrop-filter: var(--glass-overlay-filter);
-  backdrop-filter: var(--glass-overlay-filter);
+  box-shadow: var(--eve-overlay-shadow) !important;
+  -webkit-backdrop-filter: var(--eve-overlay-filter);
+  backdrop-filter: var(--eve-overlay-filter);
 }
 
 .arco-message-success {
@@ -621,14 +941,14 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
 }
 
 :root[data-eve-reduced-effects='true'] .arco-message {
-  background: var(--glass-overlay-bg-solid) !important;
+  background: var(--eve-overlay-surface-solid) !important;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .arco-message {
-    background: var(--glass-overlay-bg-solid) !important;
+    background: var(--eve-overlay-surface-solid) !important;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -637,16 +957,16 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
 /* Workspace tree: full-row hover & selection backgrounds (VSCode-style).
    Paint the whole node row, not the narrower title block. */
 .workspace-tree .arco-tree-node {
-  transition: background-color 0.12s ease;
+  transition: background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .workspace-tree .arco-tree-node:hover {
-  background-color: var(--color-fill-2);
+  background-color: var(--eve-interaction-hover-bg);
 }
 
 .workspace-tree .arco-tree-node-selected,
 .workspace-tree .arco-tree-node-selected:hover {
-  background-color: var(--color-fill-3);
+  background-color: var(--eve-interaction-selected-bg);
 }
 
 /* Clear Arco's title-level backgrounds (incl. its hover rule) so the full-row

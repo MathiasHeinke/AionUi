@@ -125,9 +125,9 @@
   background: color-mix(in srgb, var(--glass-panel-border) 86%, transparent) !important;
   opacity: 1 !important;
   transition:
-    width 120ms ease,
-    background-color 120ms ease,
-    box-shadow 120ms ease !important;
+    width var(--eve-motion-duration-state, 400ms) ease,
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .eve-workbench-divider:hover .eve-workbench-divider__line,
@@ -157,9 +157,9 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--glass-panel-border) 86%, transparent);
   transition:
-    width 120ms ease,
-    background-color 120ms ease,
-    box-shadow 120ms ease;
+    width var(--eve-motion-duration-state, 400ms) ease,
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease;
 }
 
 .eve-workbench-divider--horizontal:hover > span,

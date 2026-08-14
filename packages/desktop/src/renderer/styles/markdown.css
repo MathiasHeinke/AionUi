@@ -205,8 +205,8 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    color var(--eve-motion-duration-feedback, 300ms) ease;
 }
 .aionui-markdown [data-streamdown='code-block-copy-button']:hover {
   background: var(--bg-3);

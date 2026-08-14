@@ -641,7 +641,8 @@
       "audio": "Audio",
       "file": "File"
     },
-    "referenceUnavailable": "This artifact can no longer be used as an editing source."
+    "referenceUnavailable": "This artifact can no longer be used as an editing source.",
+    "singleVideoSource": "Remove either the selected artifact or the attached images."
   },
   "composerDeck": {
     "context": "Context",
@@ -733,6 +734,8 @@
     },
     "noArtifacts": "No artifacts yet",
     "noArtifactsDetail": "Documents, images, and other results appear here automatically.",
+    "continueEditing": "Continue editing in chat",
+    "continueEditingArtifact": "Continue editing {{name}} in chat",
     "openArtifact": "Open {{name}}",
     "project": "Project",
     "noProject": "No project selected",

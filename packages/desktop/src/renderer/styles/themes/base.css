@@ -87,28 +87,34 @@ body,
   }
 }
 
-/* Custom scrollbar styles */
+/* App-wide premium scrollbar contract. Scrollbars are neutral utility chrome:
+   thin, theme-aware and intentionally disconnected from brand/action color. */
+* {
+  scrollbar-color: var(--eve-scrollbar-thumb) var(--eve-scrollbar-track);
+  scrollbar-width: thin;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: var(--eve-scrollbar-size);
+  height: var(--eve-scrollbar-size);
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--eve-scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 3px;
-  transition: background 0.3s;
+  background: var(--eve-scrollbar-thumb);
+  border-radius: var(--eve-scrollbar-radius);
+  transition: background-color var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--eve-scrollbar-thumb-hover);
 }
 
-[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+::-webkit-scrollbar-thumb:active {
+  background: var(--eve-scrollbar-thumb-active);
 }
 
 /* Hide scrollbar while keeping scroll behavior */
@@ -121,10 +127,14 @@ body,
   display: none;
 }
 
-*:hover::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
+@media (prefers-reduced-motion: reduce) {
+  .loading,
+  .bg-animate {
+    animation: none !important;
+  }
 }
 
-[data-theme='dark'] *:hover::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+:root[data-eve-reduced-effects='true'] .loading,
+:root[data-eve-reduced-effects='true'] .bg-animate {
+  animation: none !important;
 }

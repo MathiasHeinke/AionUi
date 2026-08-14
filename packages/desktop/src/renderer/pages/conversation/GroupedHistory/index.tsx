@@ -86,7 +86,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
               <Right
                 theme='outline'
                 size={12}
-                className={classNames('transition-transform duration-150', { 'rotate-90': !isCollapsed })}
+                className={classNames('transition-transform duration-400', { 'rotate-90': !isCollapsed })}
               />
             </span>
             <span className='text-14px text-t-tertiary sider-section-title group-hover/label:text-t-primary transition-colors font-[500] leading-none'>

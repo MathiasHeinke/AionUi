@@ -152,7 +152,7 @@ const ScheduledTasksPage: React.FC = () => {
                 <div
                   key={job.id}
                   className={classNames(
-                    'eve-panel group relative flex flex-col border border-solid transition-colors duration-200 hover:border-[var(--color-border-3)] hover:shadow-sm',
+                    'eve-panel group relative flex flex-col border border-solid transition-colors duration-300 hover:border-[var(--color-border-3)] hover:shadow-sm',
                     isMobile ? 'rounded-8px px-16px py-16px' : 'rounded-8px px-20px py-18px'
                   )}
                 >

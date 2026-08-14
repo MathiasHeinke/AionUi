@@ -5,6 +5,7 @@
  */
 
 import classNames from 'classnames';
+import { Down } from '@icon-park/react';
 import type { CSSProperties } from 'react';
 import React, { useMemo, useState } from 'react';
 
@@ -67,8 +68,10 @@ const normalizeKeys = (keys?: string | string[]): string[] => {
  * 默认展开/收起图标 / Default expand/collapse icon
  */
 const DefaultIcon: React.FC<{ active: boolean }> = ({ active }) => (
-  <span className={classNames('text-xs text-t-secondary transition-transform duration-200', active && 'rotate-180')}>
-    ▼
+  <span
+    className={classNames('inline-flex text-t-secondary transition-transform duration-300', active && 'rotate-180')}
+  >
+    <Down theme='outline' size={14} fill='currentColor' aria-hidden='true' />
   </span>
 );
 

@@ -422,9 +422,9 @@ body::after {
   margin: 2px 6px !important;
   border: 1px solid transparent !important;
   transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease !important;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    border-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .chat-history__item:hover {
@@ -436,9 +436,9 @@ body::after {
   margin: 2px 6px !important;
   border: 1px solid transparent !important;
   transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease !important;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    border-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .settings-sider__item:hover {
@@ -544,7 +544,7 @@ body::after {
 .layout-sider.arco-layout-sider-collapsed .overflow-y-auto::-webkit-scrollbar-thumb,
 .layout-sider.collapsed .arco-layout-sider-children::-webkit-scrollbar-thumb,
 .layout-sider.arco-layout-sider-collapsed .arco-layout-sider-children::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #c4a8d8, #8a7aaa) !important;
+  background: var(--eve-scrollbar-thumb) !important;
   border-radius: 999px !important;
 }
 
@@ -554,7 +554,7 @@ body::after {
 [data-theme='dark'] .layout-sider.arco-layout-sider-collapsed .overflow-y-auto::-webkit-scrollbar-thumb,
 [data-theme='dark'] .layout-sider.collapsed .arco-layout-sider-children::-webkit-scrollbar-thumb,
 [data-theme='dark'] .layout-sider.arco-layout-sider-collapsed .arco-layout-sider-children::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #7a5c90, #4a2e68) !important;
+  background: var(--eve-scrollbar-thumb) !important;
 }
 
 .chat-history--collapsed .chat-history__item > :first-child,
@@ -876,7 +876,7 @@ body::after {
     3px 3px 0 #4a2a68,
     5px 5px 12px rgba(90, 50, 120, 0.25) !important;
   color: #fff !important;
-  transition: all 0.12s ease !important;
+  transition: all var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease) !important;
 }
 
 .send-button-custom:hover,
@@ -997,7 +997,7 @@ body::after {
   box-shadow:
     3px 3px 0 #4a2a68,
     5px 5px 12px rgba(90, 50, 120, 0.25) !important;
-  transition: all 0.12s ease !important;
+  transition: all var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease) !important;
   text-shadow: 0 1px 2px rgba(40, 0, 60, 0.3) !important;
 }
 
@@ -1034,7 +1034,7 @@ body::after {
   box-shadow:
     3px 3px 0 var(--border-base),
     4px 4px 8px rgba(100, 70, 140, 0.1) !important;
-  transition: all 0.12s ease !important;
+  transition: all var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease) !important;
 }
 
 .arco-btn-secondary:hover,
@@ -1080,8 +1080,8 @@ body::after {
   background: var(--bg-base) !important;
   box-shadow: inset 0 2px 4px rgba(80, 40, 100, 0.06) !important;
   transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease !important;
+    border-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .settings-page-wrapper .arco-input-wrapper:focus-within,
@@ -1328,20 +1328,20 @@ body::after {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #c4a8d8, #8a7aaa);
+  background: var(--eve-scrollbar-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #d4b8e8, #9a8aba);
+  background: var(--eve-scrollbar-thumb-hover);
 }
 
 [data-theme='dark'] ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #604878, #382250);
+  background: var(--eve-scrollbar-thumb);
 }
 
 [data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #7a5c90, #4a2e68);
+  background: var(--eve-scrollbar-thumb-hover);
 }
 
 @keyframes retroma-particle-drift {

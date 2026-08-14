@@ -642,7 +642,8 @@
       "audio": "Audio",
       "file": "Datei"
     },
-    "referenceUnavailable": "Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden."
+    "referenceUnavailable": "Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.",
+    "singleVideoSource": "Entferne entweder das ausgewählte Artefakt oder die angehängten Bilder."
   },
   "composerDeck": {
     "context": "Kontext",
@@ -709,6 +710,8 @@
     },
     "noArtifacts": "Noch keine Artefakte",
     "noArtifactsDetail": "Dokumente, Bilder und andere Ergebnisse erscheinen hier automatisch.",
+    "continueEditing": "Im Chat bearbeiten",
+    "continueEditingArtifact": "{{name}} im Chat bearbeiten",
     "openArtifact": "{{name}} öffnen",
     "project": "Projekt",
     "noProject": "Noch kein Projekt gewählt",

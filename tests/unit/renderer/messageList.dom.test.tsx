@@ -185,6 +185,7 @@ vi.mock('@/renderer/pages/conversation/Preview/components/viewers/PDFViewer', ()
 vi.mock('@icon-park/react', () => ({
   Copy: () => <span>copy</span>,
   Down: () => <span>down</span>,
+  EditOne: () => <span>edit-one</span>,
   FolderOpen: () => <span>folder-open</span>,
   Paperclip: () => <span>paperclip</span>,
   PreviewOpen: () => <span>preview-open</span>,

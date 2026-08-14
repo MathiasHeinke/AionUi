@@ -9,7 +9,7 @@ interface InspectMessages {
 }
 
 const DEFAULT_MESSAGES: InspectMessages = {
-  copySuccess: '✓ Copied HTML snippet',
+  copySuccess: 'Copied HTML snippet',
 };
 
 /**
@@ -61,7 +61,6 @@ export function generateInspectScript(inspectMode: boolean, messages: InspectMes
           background: rgba(59, 130, 246, 0.1);
           border: 2px solid #3b82f6;
           z-index: 999999;
-          transition: all 0.1s ease;
         }
       \`;
       document.head.appendChild(style);

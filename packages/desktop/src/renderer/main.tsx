@@ -118,6 +118,7 @@ import {
   showInstallationIntegrityModal,
 } from './components/layout/InstallationIntegrityDialog';
 import BackendStartupFailureScreen from './components/layout/BackendStartupFailureScreen';
+import PremiumIconProvider from './components/base/PremiumIconProvider';
 
 // Patch Korean locale with missing properties from English locale
 const koKRComplete = {
@@ -260,7 +261,11 @@ const Config: React.FC<PropsWithChildren> = ({ children }) => {
   } = useTranslation();
   const arcoLocale = arcoLocales[language] ?? enUS;
 
-  return React.createElement(ConfigProvider, { theme: { primaryColor: '#4E5969' }, locale: arcoLocale }, children);
+  return React.createElement(
+    PremiumIconProvider,
+    null,
+    React.createElement(ConfigProvider, { theme: { primaryColor: '#165DFF' }, locale: arcoLocale }, children)
+  );
 };
 
 const Main = () => {

@@ -82,11 +82,11 @@ const GuidInputCard: React.FC<GuidInputCardProps> = ({
     <div className='eve-composer-container w-full'>
       <div
         ref={composerRef}
-        className={`${styles.guidInputCardWrap} guid-input-card-shell eve-panel eve-composer-surface relative flex flex-col ${mentionOpen ? 'overflow-visible' : 'overflow-hidden'} transition-all duration-200 ${isFileDragging ? 'guid-input-card-shell--dragging eve-composer-surface--dragging' : ''}`}
+        className={`${styles.guidInputCardWrap} guid-input-card-shell eve-panel eve-composer-surface relative flex flex-col ${mentionOpen ? 'overflow-visible' : 'overflow-hidden'} transition-all duration-300 ${isFileDragging ? 'guid-input-card-shell--dragging eve-composer-surface--dragging' : ''}`}
         data-compact={compact ? 'true' : 'false'}
         style={{
           zIndex: 1,
-          transition: 'box-shadow 0.25s ease',
+          transition: 'box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease)',
         }}
         {...composerSpotlightHandlers}
         {...dragHandlers}

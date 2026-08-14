@@ -4,6 +4,7 @@ import { getAgentLogo } from '@renderer/utils/model/agentLogo';
 import { usePresetAssistantInfo } from '@renderer/hooks/agent/usePresetAssistantInfo';
 import { resolveBackendAssetUrl } from '@renderer/utils/platform';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
+import { Crown, Robot } from '@icon-park/react';
 
 type Props = {
   agent_name: string;
@@ -59,27 +60,23 @@ const TeamAgentIdentity: React.FC<Props> = ({
     if (backendLogo) {
       return <img src={backendLogo} alt={agent_type} className={resolvedLogoClassName} />;
     }
-    return <span className={resolvedAvatarClassName}>{agent_name.charAt(0).toUpperCase() || '🤖'}</span>;
+    const initial = agent_name.charAt(0).toUpperCase();
+    return (
+      <span className={resolvedAvatarClassName}>
+        {initial || <Robot theme='outline' size={13} fill='currentColor' aria-hidden='true' />}
+      </span>
+    );
   };
 
   const crownIcon = (
-    <svg
+    <Crown
       data-testid='team-leader-crown-icon'
-      width='15'
-      height='15'
-      viewBox='0 0 16 16'
-      fill='none'
+      theme='outline'
+      size={15}
+      fill='currentColor'
       aria-hidden='true'
-      className='block'
-    >
-      <path
-        d='M2.3 13L1.2 4.7L4.8 6.5L8 2.1L11.2 6.5L14.8 4.7L13.7 13H2.3Z'
-        strokeWidth='1.25'
-        strokeLinejoin='round'
-        style={{ fill: 'var(--warning)', stroke: 'var(--text-primary)' }}
-      />
-      <path d='M5 10.1H11' strokeWidth='1.1' strokeLinecap='round' style={{ stroke: 'var(--text-primary)' }} />
-    </svg>
+      className='block text-warning'
+    />
   );
 
   return (

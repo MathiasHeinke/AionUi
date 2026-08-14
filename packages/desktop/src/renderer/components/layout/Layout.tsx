@@ -24,25 +24,7 @@ import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { useCommandEveFounderBuild } from '@renderer/hooks/useCommandEveFounderBuild';
 import SeatRail from '@renderer/components/seats/SeatRail';
 import '@renderer/styles/layout.css';
-
-const SidebarIcon: React.FC<{ size?: number; strokeWidth?: number }> = ({ size = 18, strokeWidth = 4 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox='0 0 48 48'
-    fill='none'
-    stroke='currentColor'
-    strokeWidth={strokeWidth}
-    strokeLinecap='round'
-    strokeLinejoin='round'
-    aria-hidden='true'
-    focusable='false'
-    style={{ display: 'inline-block', verticalAlign: 'middle' }}
-  >
-    <rect x='6' y='10' width='36' height='28' rx='5' />
-    <line x1='18' y1='10' x2='18' y2='38' />
-  </svg>
-);
+import { LeftBar } from '@icon-park/react';
 
 const useDebug = () => {
   const [count, setCount] = useState(0);
@@ -362,7 +344,7 @@ const Layout: React.FC<{
                     title='Collapse sidebar'
                     aria-label='Collapse sidebar'
                   >
-                    <SidebarIcon size={18} strokeWidth={2.5} />
+                    <LeftBar theme='outline' size={18} fill='currentColor' strokeWidth={3} aria-hidden='true' />
                   </button>
                 )}
                 {/* 侧栏折叠改由标题栏统一控制 / Sidebar folding handled by Titlebar toggle */}
@@ -390,7 +372,7 @@ const Layout: React.FC<{
                   onMouseDown={beginSiderResizeDrag}
                   aria-hidden='true'
                 >
-                  <div className='absolute top-0 left-1/2 h-full w-1px -translate-x-1/2 bg-transparent group-hover:bg-[var(--color-border-2)] transition-colors duration-150' />
+                  <div className='absolute top-0 left-1/2 h-full w-1px -translate-x-1/2 bg-transparent group-hover:bg-[var(--color-border-2)] transition-colors duration-300' />
                 </div>
               )}
             </ArcoLayout.Sider>

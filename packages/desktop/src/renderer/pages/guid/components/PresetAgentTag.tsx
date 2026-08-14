@@ -7,8 +7,7 @@
 import { CUSTOM_AVATAR_IMAGE_MAP } from '../constants';
 import type { AvailableAgent } from '../types';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
-import { IconClose } from '@arco-design/web-react/icon';
-import { Down, Robot } from '@icon-park/react';
+import { CheckSmall, CloseSmall, Down, Robot } from '@icon-park/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
@@ -61,7 +60,7 @@ const PresetAgentTag: React.FC<PresetAgentTagProps> = ({
         <Menu.Item key={item.key}>
           <div className='flex items-center justify-between gap-12px min-w-120px'>
             <span>{item.label}</span>
-            {item.isCurrent ? <span>✓</span> : null}
+            {item.isCurrent ? <CheckSmall theme='outline' size={14} fill='currentColor' aria-hidden='true' /> : null}
           </div>
         </Menu.Item>
       ))}
@@ -120,7 +119,7 @@ const PresetAgentTag: React.FC<PresetAgentTagProps> = ({
           onClose();
         }}
       >
-        <IconClose style={{ fontSize: 12, color: 'var(--color-text-3)' }} />
+        <CloseSmall theme='outline' size={13} fill='currentColor' aria-hidden='true' />
       </button>
     </div>
   );

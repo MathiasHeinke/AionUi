@@ -353,7 +353,7 @@ const ConversationSearchPopover: React.FC<ConversationSearchPopoverProps> = ({
                 key={`${item.message_id}-${item.message_created_at}`}
                 type='button'
                 className={classNames(
-                  'conversation-search-modal__result w-full text-left cursor-pointer transition-all duration-150',
+                  'conversation-search-modal__result w-full text-left cursor-pointer transition-all duration-300',
                   'focus:outline-none'
                 )}
                 onClick={() => {

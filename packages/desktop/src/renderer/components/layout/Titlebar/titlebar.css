@@ -161,7 +161,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .app-titlebar__button:hover {
@@ -250,7 +250,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background-color 0.18s ease;
+  transition: background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .app-window-controls__button:hover {

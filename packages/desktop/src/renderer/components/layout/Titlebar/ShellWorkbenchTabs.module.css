@@ -47,9 +47,9 @@
   border-radius: 9px;
   color: var(--eve-shell-text-secondary, var(--color-text-2));
   transition:
-    color 120ms ease,
-    background-color 120ms ease,
-    box-shadow 120ms ease;
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease);
 }
 
 .tabShell:hover {
@@ -144,8 +144,8 @@
   opacity: 0;
   transform: translateY(-50%);
   transition:
-    opacity 120ms ease,
-    background-color 120ms ease;
+    opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .tabShell:hover .closeButton,
@@ -180,8 +180,8 @@
   color: var(--eve-shell-text-secondary, var(--color-text-2));
   cursor: pointer;
   transition:
-    color 120ms ease,
-    background-color 120ms ease;
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .root[data-launcher-only='true'] .launcherButton {
@@ -201,14 +201,21 @@
   right: 0;
   z-index: 2400;
   width: 240px;
+  max-height: min(430px, calc(100dvh - 88px));
   padding: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid var(--glass-overlay-border, var(--color-border-2));
   border-radius: 14px;
   background: var(--glass-overlay-bg, var(--bg-2));
   box-shadow: var(--glass-shadow-float, 0 18px 50px rgba(0, 0, 0, 0.24));
   -webkit-backdrop-filter: var(--glass-overlay-filter, blur(22px) saturate(135%));
   backdrop-filter: var(--glass-overlay-filter, blur(22px) saturate(135%));
-  animation: workbench-menu-enter 120ms ease-out both;
+  animation: workbench-menu-enter var(--eve-motion-duration-overlay-enter, 480ms) var(--eve-motion-ease-enter, ease-out)
+    both;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--eve-scrollbar-thumb) var(--eve-scrollbar-track);
+  scrollbar-width: thin;
 }
 
 .menuItem {
@@ -315,11 +322,11 @@
   font-weight: 570;
   line-height: 16px;
   transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    box-shadow 120ms ease,
-    color 120ms ease,
-    transform 120ms ease;
+    background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    transform var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease);
 }
 
 .dockZone[data-target='split-bottom'] {

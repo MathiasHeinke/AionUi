@@ -69,7 +69,11 @@ const AgentCard: React.FC<AgentCardProps> = (props) => {
       <div className='flex min-h-[154px] flex-col rounded-12px border border-solid border-[var(--color-border-2)] bg-[var(--color-bg-2)] p-12px transition-colors hover:border-[var(--color-border-3)]'>
         <div className='mb-10px flex justify-center'>
           <Avatar size={40} shape='square' style={{ flexShrink: 0, backgroundColor: 'transparent' }}>
-            {logo ? <img src={logo} alt={agent.name} className='h-full w-full object-contain' /> : '🤖'}
+            {logo ? (
+              <img src={logo} alt={agent.name} className='h-full w-full object-contain' />
+            ) : (
+              <Robot theme='outline' size={22} fill='currentColor' aria-hidden='true' />
+            )}
           </Avatar>
         </div>
 

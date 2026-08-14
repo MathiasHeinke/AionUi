@@ -363,11 +363,11 @@ button[type='primary'] .arco-icon {
 }
 
 *:hover::-webkit-scrollbar-thumb {
-  background: rgba(255, 133, 162, 0.3);
+  background: var(--eve-scrollbar-thumb);
 }
 
 *:hover::-webkit-scrollbar-thumb:hover {
-  background: var(--hk-gradient-primary);
+  background: var(--eve-scrollbar-thumb-hover);
 }
 
 /* ==================== 其他元素 ==================== */
@@ -662,12 +662,12 @@ a:hover {
 
 /* ===== 深色模式滚动条 ===== */
 [data-theme='dark'] *:hover::-webkit-scrollbar-thumb {
-  background: rgba(255, 183, 197, 0.4);
+  background: var(--eve-scrollbar-thumb);
 }
 
 [data-theme='dark'] *:hover::-webkit-scrollbar-thumb:hover {
-  background: var(--hk-gradient-primary);
-  box-shadow: 0 0 8px rgba(255, 183, 197, 0.5);
+  background: var(--eve-scrollbar-thumb-hover);
+  box-shadow: none;
 }
 
 /* ===== 深色模式其他元素 ===== */

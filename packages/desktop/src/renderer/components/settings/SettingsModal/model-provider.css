@@ -6,8 +6,8 @@
   border-color: transparent !important;
   box-shadow: none !important;
   transition:
-    background-color 0.18s ease,
-    color 0.18s ease;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    color var(--eve-motion-duration-feedback, 300ms) ease;
 }
 
 /* Light mode: hover feedback should be visible */

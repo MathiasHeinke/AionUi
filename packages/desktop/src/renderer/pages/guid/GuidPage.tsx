@@ -61,7 +61,7 @@ import { useTypewriterPlaceholder } from './hooks/useTypewriterPlaceholder';
 import { ensureBackendMcpCatalog } from '@/renderer/hooks/mcp/catalog';
 import { resolveAgentLogo } from '@/renderer/utils/model/agentLogo';
 import { Button, ConfigProvider, Dropdown, Menu, Message } from '@arco-design/web-react';
-import { Down, Left, Robot, Write } from '@icon-park/react';
+import { CheckSmall, Down, Left, Robot, Write } from '@icon-park/react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -1022,7 +1022,9 @@ const GuidPage: React.FC = () => {
                                       </span>
                                     ) : null}
                                   </span>
-                                  {item.isCurrent ? <span>✓</span> : null}
+                                  {item.isCurrent ? (
+                                    <CheckSmall theme='outline' size={16} fill='currentColor' aria-hidden='true' />
+                                  ) : null}
                                 </div>
                               </Menu.Item>
                             ))}

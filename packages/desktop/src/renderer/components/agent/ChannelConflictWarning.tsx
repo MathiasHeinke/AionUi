@@ -5,7 +5,7 @@
  */
 
 import { Alert, Button, Link, Space, Typography } from '@arco-design/web-react';
-import { IconExclamationCircle } from '@arco-design/web-react/icon';
+import { Attention, CheckOne, CloseOne } from '@icon-park/react';
 import React from 'react';
 
 const { Paragraph, Text } = Typography;
@@ -32,7 +32,7 @@ export const ChannelConflictWarning: React.FC<ChannelConflictWarningProps> = ({
   return (
     <Alert
       type='warning'
-      icon={<IconExclamationCircle />}
+      icon={<Attention theme='outline' size={18} fill='currentColor' />}
       title={`${platformName} Channel Conflict Detected`}
       content={
         <Space direction='vertical' size='medium' style={{ width: '100%' }}>
@@ -44,13 +44,22 @@ export const ChannelConflictWarning: React.FC<ChannelConflictWarningProps> = ({
             Your {platformName} bot credentials are also configured in OpenClaw. This means:
             <ul>
               <li>
-                <Text type='error'>✗ Switching agents in AionUi will have no effect</Text>
+                <Text type='error' className='inline-flex items-center gap-6px'>
+                  <CloseOne theme='outline' size={14} fill='currentColor' aria-hidden='true' />
+                  Switching agents in AionUi will have no effect
+                </Text>
               </li>
               <li>
-                <Text type='error'>✗ Messages are processed by OpenClaw's agent</Text>
+                <Text type='error' className='inline-flex items-center gap-6px'>
+                  <CloseOne theme='outline' size={14} fill='currentColor' aria-hidden='true' />
+                  Messages are processed by OpenClaw's agent
+                </Text>
               </li>
               <li>
-                <Text type='success'>✓ Messages still work (via OpenClaw)</Text>
+                <Text type='success' className='inline-flex items-center gap-6px'>
+                  <CheckOne theme='outline' size={14} fill='currentColor' aria-hidden='true' />
+                  Messages still work (via OpenClaw)
+                </Text>
               </li>
             </ul>
           </Paragraph>
@@ -115,7 +124,8 @@ export const ChannelConflictBanner: React.FC<{ platform: 'lark' | 'telegram'; on
       type='warning'
       content={
         <Space>
-          <Text>⚠️ OpenClaw {platformName} conflict detected - Agent switching won't work.</Text>
+          <Attention theme='outline' size={16} fill='currentColor' aria-hidden='true' />
+          <Text>OpenClaw {platformName} conflict detected - Agent switching won't work.</Text>
           <Link onClick={onLearnMore}>Learn more</Link>
         </Space>
       }

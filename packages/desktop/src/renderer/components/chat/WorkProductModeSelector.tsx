@@ -11,9 +11,8 @@ import type {
   LocalizedComposerWorkProductActionDescriptor,
   LocalizedComposerWorkProductModeDescriptor,
 } from '@/common/config/composerWorkProductModeCore';
-import { IconApps, IconDesktop, IconFilePdf, IconImage, IconVideoCamera } from '@arco-design/web-react/icon';
 import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
-import { CloseSmall, Magic, Right } from '@icon-park/react';
+import { AllApplication, CloseSmall, FilePdf, Magic, Picture, Projector, Right, Video } from '@icon-park/react';
 import React, { useMemo } from 'react';
 import { COMPOSER_MENU_TRIGGER_PROPS } from '@/renderer/utils/ui/composerMenuMotion';
 import styles from './WorkProductModeSelector.module.css';
@@ -53,16 +52,16 @@ const MODE_ORDER: readonly ComposerWorkProductModeOption[] = ['image', 'video', 
 const MODE_SET = new Set<ComposerWorkProductModeOption>(MODE_ORDER);
 
 function modeIcon(mode: ComposerWorkProductModeOption, size = 17): React.ReactNode {
-  const iconStyle = { fontSize: size, lineHeight: 1 };
+  const iconProps = { theme: 'outline' as const, size, fill: 'currentColor', strokeWidth: 3 };
   switch (mode) {
     case 'image':
-      return <IconImage style={iconStyle} />;
+      return <Picture {...iconProps} />;
     case 'video':
-      return <IconVideoCamera style={iconStyle} />;
+      return <Video {...iconProps} />;
     case 'presentation':
-      return <IconDesktop style={iconStyle} />;
+      return <Projector {...iconProps} />;
     case 'pdf':
-      return <IconFilePdf style={iconStyle} />;
+      return <FilePdf {...iconProps} />;
   }
 }
 
@@ -123,7 +122,7 @@ const WorkProductModeSelector: React.FC<WorkProductModeSelectorProps> = ({
           title={
             <span className={styles.menuItem}>
               <span className={styles.menuIcon} aria-hidden='true'>
-                <IconApps style={{ fontSize: 16, lineHeight: 1 }} />
+                <AllApplication theme='outline' size={16} fill='currentColor' strokeWidth={3} />
               </span>
               <span className={styles.menuLabel}>{capabilityLabel}</span>
               {typeof capabilityCount === 'number' ? <span className={styles.count}>{capabilityCount}</span> : null}
@@ -136,7 +135,7 @@ const WorkProductModeSelector: React.FC<WorkProductModeSelectorProps> = ({
         <Menu.Item key='capabilities'>
           <span className={styles.menuItem}>
             <span className={styles.menuIcon} aria-hidden='true'>
-              <IconApps style={{ fontSize: 16, lineHeight: 1 }} />
+              <AllApplication theme='outline' size={16} fill='currentColor' strokeWidth={3} />
             </span>
             <span className={styles.menuLabel}>{capabilityLabel}</span>
             {typeof capabilityCount === 'number' ? <span className={styles.count}>{capabilityCount}</span> : null}

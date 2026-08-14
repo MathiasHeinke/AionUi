@@ -35,7 +35,10 @@
 .menu {
   position: relative;
   width: min(244px, calc(100vw - 32px));
+  max-height: min(430px, calc(100dvh - 88px));
   padding: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid var(--glass-overlay-border);
   border-radius: 15px;
   background:
@@ -51,6 +54,10 @@
     var(--glass-shadow-soft);
   -webkit-backdrop-filter: var(--glass-overlay-filter);
   backdrop-filter: var(--glass-overlay-filter);
+  overscroll-behavior: contain;
+  scrollbar-color: var(--eve-scrollbar-thumb) var(--eve-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .menu::after {

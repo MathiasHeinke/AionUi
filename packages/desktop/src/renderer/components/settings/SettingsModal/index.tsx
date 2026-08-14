@@ -401,7 +401,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onCancel, defaul
             key={item.key}
             aria-current={activeTab === item.key ? 'page' : undefined}
             className={classNames(
-              'w-full flex items-center px-14px py-10px rd-8px border-none bg-transparent text-left cursor-pointer transition-all duration-150 select-none',
+              'w-full flex items-center px-14px py-10px rd-8px border-none bg-transparent text-left cursor-pointer transition-all duration-300 select-none',
               {
                 'bg-aou-2 text-t-primary': activeTab === item.key,
                 'text-t-secondary hover:bg-fill-1': activeTab !== item.key,

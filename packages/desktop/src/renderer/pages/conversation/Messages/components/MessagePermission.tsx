@@ -14,6 +14,7 @@ import {
   permissionAuthorityFromConfirmation,
 } from '@/renderer/pages/conversation/Messages/acp/permissionCardPolicy';
 import { Button, Card, Radio, Typography } from '@arco-design/web-react';
+import { Book, CheckOne, Edit, Lightning, Link, Lock } from '@icon-park/react';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -24,11 +25,11 @@ interface MessagePermissionProps {
   isCommandEve?: boolean;
 }
 
-const actionIcons: Record<string, string> = {
-  exec: '⚡',
-  edit: '✏️',
-  info: '📖',
-  mcp: '🔌',
+const actionIcons: Record<string, React.ReactNode> = {
+  exec: <Lightning theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
+  edit: <Edit theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
+  info: <Book theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
+  mcp: <Link theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
 };
 
 const MessagePermission: React.FC<MessagePermissionProps> = React.memo(({ message, isCommandEve = false }) => {
@@ -68,7 +69,7 @@ const MessagePermission: React.FC<MessagePermissionProps> = React.memo(({ messag
   const [hasResponded, setHasResponded] = useState(false);
   const [responseError, setResponseError] = useState<string | null>(null);
 
-  const icon = actionIcons[action || ''] || '🔐';
+  const icon = actionIcons[action || ''] || <Lock theme='outline' size={17} fill='currentColor' aria-hidden='true' />;
   const displayTitle = title || description || t('messages.permissionRequest');
 
   const handleConfirm = async () => {
@@ -122,7 +123,7 @@ const MessagePermission: React.FC<MessagePermissionProps> = React.memo(({ messag
     >
       <div className='space-y-4'>
         <div className='flex items-center space-x-2'>
-          <span className='text-2xl'>{icon}</span>
+          <span className='inline-flex size-24px shrink-0 items-center justify-center text-t-secondary'>{icon}</span>
           <Text className='block'>{displayTitle}</Text>
         </div>
         {unverified && (
@@ -213,7 +214,10 @@ const MessagePermission: React.FC<MessagePermissionProps> = React.memo(({ messag
             style={{ backgroundColor: 'var(--color-success-light-1)', borderColor: 'rgb(var(--success-3))' }}
           >
             <Text className='text-sm' style={{ color: 'rgb(var(--success-6))' }}>
-              ✓ {t('messages.responseSentSuccessfully')}
+              <span className='inline-flex items-center gap-6px'>
+                <CheckOne theme='outline' size={15} fill='currentColor' aria-hidden='true' />
+                {t('messages.responseSentSuccessfully')}
+              </span>
             </Text>
           </div>
         )}

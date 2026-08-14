@@ -104,7 +104,7 @@ const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = ({
           <Down
             size={16}
             fill={iconColors.primary}
-            className={`line-height-0 transition-transform duration-200 flex-shrink-0 ${isWorkspaceCollapsed ? '-rotate-90' : 'rotate-0'}`}
+            className={`line-height-0 transition-transform duration-400 flex-shrink-0 ${isWorkspaceCollapsed ? '-rotate-90' : 'rotate-0'}`}
           />
           <span className='workspace-title-label font-bold text-14px text-t-primary overflow-hidden text-ellipsis whitespace-nowrap'>
             {workspaceDisplayName}

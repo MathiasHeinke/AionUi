@@ -85,7 +85,7 @@ describe('ComposerContextDeck', () => {
       path.resolve(__dirname, '../../../packages/desktop/src/renderer/components/chat/ComposerContextDeck.module.css'),
       'utf8'
     );
-    expect(css).toContain('max-height: min(430px, calc(100vh - 52px)) !important');
+    expect(css).toContain('max-height: min(430px, calc(100dvh - 88px)) !important');
     expect(css).toContain('overflow-y: auto !important');
     expect(css).toContain('overscroll-behavior: contain');
     expect(css).toContain('scrollbar-width: thin');

@@ -449,7 +449,7 @@ const CssThemeSettings: React.FC = () => {
           return (
             <div
               key={theme.id}
-              className={`relative rounded-8px overflow-hidden border-2 transition-all duration-200 h-112px w-full ${activeThemeId === theme.id ? 'border-[var(--color-primary)]' : 'border-transparent hover:border-border-2'}`}
+              className={`relative rounded-8px overflow-hidden border-2 transition-all duration-400 h-112px w-full ${activeThemeId === theme.id ? 'border-[var(--color-primary)]' : 'border-transparent hover:border-border-2'}`}
               style={cardStyle}
               onMouseEnter={() => setHoveredThemeId(theme.id)}
               onMouseLeave={() => setHoveredThemeId(null)}
@@ -481,7 +481,7 @@ const CssThemeSettings: React.FC = () => {
                   className='absolute bottom-8px right-8px p-4px rounded-6px border-none bg-white/20 cursor-pointer hover:bg-white/40 transition-colors'
                   onClick={(e) => handleEditTheme(theme, e)}
                 >
-                  <EditTwo theme='outline' size='16' fill='#fff' />
+                  <EditTwo theme='outline' size='16' fill='currentColor' />
                 </button>
               )}
             </div>

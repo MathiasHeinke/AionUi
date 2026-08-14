@@ -17,6 +17,7 @@
 
 import { ipcBridge } from '@/common';
 import { Button, Card, Message, Typography } from '@arco-design/web-react';
+import { People } from '@icon-park/react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 const { Text, Paragraph } = Typography;
@@ -121,12 +122,10 @@ const TeamManageConfirmCard: React.FC = () => {
     >
       <Card
         bordered
-        style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}
+        style={{ boxShadow: 'var(--eve-overlay-shadow, var(--glass-shadow-soft))' }}
         title={
-          <span>
-            <span role='img' aria-label='team' style={{ marginRight: 6 }}>
-              🧑‍💼
-            </span>
+          <span className='inline-flex items-center gap-8px'>
+            <People theme='outline' size={18} fill='currentColor' aria-hidden='true' />
             EVE schlägt eine Team-Änderung vor
           </span>
         }

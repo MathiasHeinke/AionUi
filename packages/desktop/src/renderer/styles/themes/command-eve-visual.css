@@ -22,6 +22,67 @@
   --eve-shell-text-secondary: #596273;
   --eve-shell-chrome-tint: #eef0f2;
 
+  /* Premium semantic contract. Components consume these roles rather than
+     choosing light/dark literals. Blue owns action, selection and keyboard
+     focus. Orange stays with the EVE identity and explicit status moments. */
+  --eve-text-primary: var(--eve-shell-text);
+  --eve-text-secondary: var(--eve-shell-text-secondary);
+  --eve-text-muted: color-mix(in srgb, var(--eve-shell-text-secondary) 78%, transparent);
+  --eve-text-disabled: color-mix(in srgb, var(--eve-shell-text-secondary) 56%, transparent);
+  --eve-icon-primary: var(--eve-shell-text);
+  --eve-icon-secondary: var(--eve-shell-text-secondary);
+  --eve-icon-disabled: var(--eve-text-disabled);
+  --eve-action: var(--eve-accent);
+  --eve-action-hover: color-mix(in srgb, var(--eve-accent) 88%, var(--eve-shell-text));
+  --eve-action-active: color-mix(in srgb, var(--eve-accent) 78%, var(--eve-shell-text));
+  --eve-action-contrast: var(--eve-static-white);
+
+  /* Controls are quiet neutral surfaces until interaction. The state ladder
+     is shared by native EVE primitives and Arco adapters below. */
+  --eve-control-surface: color-mix(in srgb, var(--eve-shell-surface) 76%, transparent);
+  --eve-control-surface-hover: color-mix(in srgb, var(--eve-shell-text) 5%, var(--eve-control-surface));
+  --eve-control-surface-pressed: color-mix(in srgb, var(--eve-shell-text) 8%, var(--eve-control-surface));
+  --eve-control-surface-selected: color-mix(in srgb, var(--eve-accent) 9%, var(--eve-control-surface));
+  --eve-control-surface-disabled: color-mix(in srgb, var(--eve-shell-text) 3%, transparent);
+  --eve-control-border: color-mix(in srgb, var(--eve-shell-text) 14%, transparent);
+  --eve-control-border-hover: color-mix(in srgb, var(--eve-shell-text) 24%, transparent);
+  --eve-control-border-focus: var(--eve-focus-ring);
+  --eve-control-border-disabled: color-mix(in srgb, var(--eve-shell-text) 8%, transparent);
+  --eve-control-text: var(--eve-text-primary);
+  --eve-control-text-secondary: var(--eve-text-secondary);
+  --eve-control-text-disabled: var(--eve-text-disabled);
+
+  /* Overlay aliases make menus, popovers, dialogs and tooltips read from one
+     material contract without replacing the established glass vocabulary. */
+  --eve-overlay-surface: var(--glass-overlay-bg);
+  --eve-overlay-surface-solid: var(--glass-overlay-bg-solid);
+  --eve-overlay-border: var(--glass-overlay-border);
+  --eve-overlay-text: var(--eve-text-primary);
+  --eve-overlay-text-secondary: var(--eve-text-secondary);
+  --eve-overlay-shadow: var(--glass-shadow-soft);
+  --eve-overlay-filter: var(--glass-overlay-filter);
+  --eve-overlay-scrim: var(--glass-overlay-scrim);
+
+  /* Deliberately calm motion: feedback is legible, overlays settle rather than
+     snap, and every duration has a zero-motion override further below. */
+  --eve-motion-duration-feedback: 300ms;
+  --eve-motion-duration-state: 400ms;
+  --eve-motion-duration-overlay-enter: 480ms;
+  --eve-motion-duration-overlay-exit: 380ms;
+  --eve-motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --eve-motion-ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+  --eve-motion-ease-exit: cubic-bezier(0.4, 0, 0.2, 1);
+  --eve-motion-distance-overlay: 5px;
+
+  /* Scrollbars are utility chrome, never brand or action. These neutral tokens
+     are intentionally derived only from theme text, not accent or EVE orange. */
+  --eve-scrollbar-size: 6px;
+  --eve-scrollbar-radius: 999px;
+  --eve-scrollbar-track: transparent;
+  --eve-scrollbar-thumb: color-mix(in srgb, var(--eve-shell-text-secondary) 30%, transparent);
+  --eve-scrollbar-thumb-hover: color-mix(in srgb, var(--eve-shell-text-secondary) 48%, transparent);
+  --eve-scrollbar-thumb-active: color-mix(in srgb, var(--eve-shell-text-secondary) 62%, transparent);
+
   /* User-adjustable glass ceilings. Runtime preferences may lower effects. */
   --eve-glass-chrome-opacity: 41.22%;
   --eve-glass-composer-opacity: 54.29%;
@@ -68,10 +129,15 @@
   --eve-message-surface-filter: blur(10px) saturate(116%);
 
   /* Rows and focus */
+  --eve-interaction-hover-bg: color-mix(in srgb, var(--eve-shell-text) 5%, transparent);
+  --eve-interaction-pressed-bg: color-mix(in srgb, var(--eve-shell-text) 8%, transparent);
+  --eve-interaction-selected-bg: color-mix(in srgb, var(--eve-accent) 9%, transparent);
+  --eve-interaction-selected-indicator: var(--eve-accent);
+  --eve-interaction-disabled-opacity: 0.5;
   --eve-row-surface: transparent;
   --eve-row-hover-bg: color-mix(in srgb, var(--eve-shell-text) 5%, transparent);
   --eve-row-selected-bg: color-mix(in srgb, var(--eve-shell-text) 6%, transparent);
-  --eve-row-selected-hairline: var(--eve-brand-logo);
+  --eve-row-selected-hairline: var(--eve-interaction-selected-indicator);
   --eve-focus-ring: var(--color-primary-6, var(--primary));
   --eve-focus-glow: 0 0 0 3px color-mix(in srgb, var(--eve-focus-ring) 28%, transparent);
 
@@ -238,6 +304,19 @@
   --eve-shell-text-secondary: #aab1bd;
   --eve-shell-chrome-tint: #0b0c0e;
 
+  --eve-control-surface: color-mix(in srgb, var(--eve-shell-surface) 82%, transparent);
+  --eve-control-surface-hover: color-mix(in srgb, var(--eve-static-white) 6%, var(--eve-control-surface));
+  --eve-control-surface-pressed: color-mix(in srgb, var(--eve-static-white) 10%, var(--eve-control-surface));
+  --eve-control-surface-selected: color-mix(in srgb, var(--eve-accent) 13%, var(--eve-control-surface));
+  --eve-control-surface-disabled: color-mix(in srgb, var(--eve-static-white) 4%, transparent);
+  --eve-control-border: color-mix(in srgb, var(--eve-static-white) 14%, transparent);
+  --eve-control-border-hover: color-mix(in srgb, var(--eve-static-white) 24%, transparent);
+  --eve-control-border-disabled: color-mix(in srgb, var(--eve-static-white) 8%, transparent);
+
+  --eve-scrollbar-thumb: color-mix(in srgb, var(--eve-shell-text-secondary) 34%, transparent);
+  --eve-scrollbar-thumb-hover: color-mix(in srgb, var(--eve-shell-text-secondary) 54%, transparent);
+  --eve-scrollbar-thumb-active: color-mix(in srgb, var(--eve-shell-text-secondary) 68%, transparent);
+
   --eve-glass-chrome-opacity: 52.65%;
   --eve-glass-composer-opacity: 57.55%;
   --eve-glass-reading-opacity: 72.24%;
@@ -252,6 +331,9 @@
   --glass-edge-highlight: color-mix(in srgb, #ffffff 9%, transparent);
   --glass-shadow-soft: 0 20px 44px color-mix(in srgb, #000000 38%, transparent);
 
+  --eve-interaction-hover-bg: color-mix(in srgb, var(--eve-static-white) 5%, transparent);
+  --eve-interaction-pressed-bg: color-mix(in srgb, var(--eve-static-white) 9%, transparent);
+  --eve-interaction-selected-bg: color-mix(in srgb, var(--eve-accent) 13%, transparent);
   --eve-row-hover-bg: color-mix(in srgb, #ffffff 5%, transparent);
   --eve-row-selected-bg: color-mix(in srgb, #ffffff 7%, transparent);
   --eve-status-attention: #eab308;
@@ -448,8 +530,8 @@
   border-radius: var(--eve-surface-radius-md);
   background: var(--eve-row-surface);
   transition:
-    background-color 140ms ease,
-    color 140ms ease;
+    background-color var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard),
+    color var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard);
 }
 
 .eve-row:hover {
@@ -1146,8 +1228,8 @@
   min-width: 0;
   border-bottom: 1px solid var(--glass-panel-border);
   transition:
-    background-color 160ms ease,
-    box-shadow 160ms ease;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease;
 }
 
 .eve-skill-row:hover {
@@ -1963,7 +2045,7 @@
 .company-brain-settings__disclosure-icon {
   flex: 0 0 auto;
   color: var(--eve-shell-text-secondary);
-  transition: transform 160ms ease;
+  transition: transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .company-brain-settings__disclosure-icon--open {
@@ -2054,7 +2136,7 @@
   mask-composite: exclude;
   filter: drop-shadow(0 0 7px color-mix(in srgb, var(--eve-spotlight-color) 54%, transparent));
   opacity: 0;
-  transition: opacity 210ms ease;
+  transition: opacity var(--eve-motion-duration-feedback, 300ms) ease;
 }
 
 .eve-composer-surface::after {
@@ -2729,9 +2811,9 @@
   cursor: pointer;
   font: inherit;
   transition:
-    color 140ms ease,
-    background-color 140ms ease,
-    box-shadow 140ms ease;
+    color var(--eve-motion-duration-feedback, 300ms) ease,
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease;
 }
 
 .eve-artifact-action:hover {
@@ -3049,6 +3131,17 @@
   }
 }
 
+/* The product-level reduced-effects switch also collapses shared motion
+   tokens. Individual components keep their visible state; only travel and
+   interpolation disappear. */
+:root[data-eve-reduced-effects='true'] {
+  --eve-motion-duration-feedback: 0ms;
+  --eve-motion-duration-state: 0ms;
+  --eve-motion-duration-overlay-enter: 0ms;
+  --eve-motion-duration-overlay-exit: 0ms;
+  --eve-motion-distance-overlay: 0px;
+}
+
 /* User and OS accessibility switches are independent from reduced motion. */
 :root[data-eve-reduced-effects='true'] .eve-panel {
   background: var(--glass-panel-bg-solid);
@@ -3144,6 +3237,14 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --eve-motion-duration-feedback: 0ms;
+    --eve-motion-duration-state: 0ms;
+    --eve-motion-duration-overlay-enter: 0ms;
+    --eve-motion-duration-overlay-exit: 0ms;
+    --eve-motion-distance-overlay: 0px;
+  }
+
   .eve-row {
     transition: none;
   }

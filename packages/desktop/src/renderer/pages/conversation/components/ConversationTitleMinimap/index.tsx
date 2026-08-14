@@ -5,7 +5,7 @@
  */
 
 import { Empty, Input, Spin } from '@arco-design/web-react';
-import { IconSearch } from '@arco-design/web-react/icon';
+import { Search } from '@icon-park/react';
 import classNames from 'classnames';
 import React, { useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -106,7 +106,7 @@ const ConversationTitleMinimap: React.FC<ConversationTitleMinimapProps> = ({
             onBlur={handleSearchInputBlur}
             onCompositionStartCapture={handleSearchInputCompositionStart}
             onCompositionEndCapture={handleSearchInputCompositionEnd}
-            prefix={<IconSearch className='text-14px text-t-secondary' />}
+            prefix={<Search className='text-14px text-t-secondary' theme='outline' size={14} fill='currentColor' />}
             placeholder={isSearchMode ? '' : t('conversation.minimap.searchHint')}
           />
           {countNode}
@@ -240,7 +240,7 @@ const ConversationTitleMinimap: React.FC<ConversationTitleMinimapProps> = ({
           aria-label={t('conversation.minimap.searchAria', { defaultValue: 'Search conversation' })}
           title={t('conversation.minimap.searchHint', { defaultValue: 'Click here to search keywords' })}
           className={classNames(
-            'conversation-minimap-trigger inline-flex h-24px w-24px items-center justify-center cursor-pointer rounded-full border border-solid border-transparent bg-transparent text-t-secondary transition-all duration-150 focus:outline-none hover:border-[color:color-mix(in_srgb,var(--color-border-2)_72%,transparent)] hover:bg-fill-3 hover:text-[rgb(var(--primary-6))] focus:border-[color:color-mix(in_srgb,var(--color-border-2)_72%,transparent)] focus:bg-fill-3 focus:text-[rgb(var(--primary-6))]',
+            'conversation-minimap-trigger inline-flex h-24px w-24px items-center justify-center cursor-pointer rounded-full border border-solid border-transparent bg-transparent text-t-secondary transition-all duration-300 focus:outline-none hover:border-[color:color-mix(in_srgb,var(--color-border-2)_72%,transparent)] hover:bg-fill-3 hover:text-[rgb(var(--primary-6))] focus:border-[color:color-mix(in_srgb,var(--color-border-2)_72%,transparent)] focus:bg-fill-3 focus:text-[rgb(var(--primary-6))]',
             visible &&
               'border-[color:color-mix(in_srgb,var(--color-border-2)_72%,transparent)] bg-fill-3 text-[rgb(var(--primary-6))]'
           )}
@@ -252,9 +252,12 @@ const ConversationTitleMinimap: React.FC<ConversationTitleMinimapProps> = ({
             }
           }}
         >
-          <IconSearch
+          <Search
+            theme='outline'
+            size={15}
+            fill='currentColor'
             className={classNames(
-              'text-15px transition-all duration-150',
+              'transition-all duration-300',
               visible
                 ? 'scale-103 opacity-100 text-[rgb(var(--primary-6))]'
                 : 'opacity-76 hover:scale-103 hover:opacity-100 focus:scale-103 focus:opacity-100'

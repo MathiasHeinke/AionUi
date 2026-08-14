@@ -12,7 +12,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button, Message, Progress } from '@arco-design/web-react';
-import { CheckOne, CloseOne, Loading, Down, Up } from '@icon-park/react';
+import { CheckOne, CloseOne, Down, EmotionUnhappy, Loading, Up } from '@icon-park/react';
 import classNames from 'classnames';
 import { ipcBridge } from '@/common';
 import type { ICreateConversationParams } from '@/common/adapter/ipcBridge';
@@ -360,7 +360,13 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
             {/* No alternatives found */}
             {!isChecking && availableCount === 0 && availableAgents.length > 0 && (
               <div className='text-center py-12px'>
-                <div className='text-24px mb-4px'>😔</div>
+                <EmotionUnhappy
+                  className='mb-4px text-t-tertiary'
+                  theme='outline'
+                  size={24}
+                  fill='currentColor'
+                  aria-hidden='true'
+                />
                 <div className='text-13px font-medium mb-4px text-t-primary'>
                   {t('agent.setup.noAlternatives', { defaultValue: 'No available agents found' })}
                 </div>

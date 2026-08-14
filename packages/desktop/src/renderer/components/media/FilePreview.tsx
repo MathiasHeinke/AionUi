@@ -132,10 +132,10 @@ const FilePreview: React.FC<FilePreviewProps> = ({ path, onRemove, readonly = fa
           <button
             type='button'
             aria-label={t('common.remove')}
-            className='absolute -top-4px -right-4px w-20px h-20px p-0 rd-50% cursor-pointer flex items-center justify-center bg-[var(--glass-overlay-bg-solid)] border-1 border-solid border-[var(--glass-overlay-border)] shadow-sm hover:shadow-md transition-all z-10'
+            className='absolute -top-4px -right-4px w-20px h-20px p-0 rd-50% cursor-pointer flex items-center justify-center bg-[var(--glass-overlay-bg-solid)] border-1 border-solid border-[var(--glass-overlay-border)] text-t-secondary hover:text-t-primary shadow-sm hover:shadow-md transition-all duration-300 z-10'
             onClick={handleRemove}
           >
-            <Close theme='filled' size='10' fill='#666' />
+            <Close theme='filled' size='10' fill='currentColor' />
           </button>
         )}
       </div>
@@ -159,10 +159,10 @@ const FilePreview: React.FC<FilePreviewProps> = ({ path, onRemove, readonly = fa
         <button
           type='button'
           aria-label={t('common.remove')}
-          className='absolute -top-4px -right-4px w-20px h-20px p-0 rd-50% cursor-pointer flex items-center justify-center bg-[var(--glass-overlay-bg-solid)] border-1 border-solid border-[var(--glass-overlay-border)] shadow-sm hover:shadow-md transition-all z-10'
+          className='absolute -top-4px -right-4px w-20px h-20px p-0 rd-50% cursor-pointer flex items-center justify-center bg-[var(--glass-overlay-bg-solid)] border-1 border-solid border-[var(--glass-overlay-border)] text-t-secondary hover:text-t-primary shadow-sm hover:shadow-md transition-all duration-300 z-10'
           onClick={handleRemove}
         >
-          <Close theme='filled' size='10' fill='#666' />
+          <Close theme='filled' size='10' fill='currentColor' />
         </button>
       )}
     </div>

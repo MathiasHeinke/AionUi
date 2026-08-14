@@ -242,7 +242,7 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
                 border: '1px dashed rgb(var(--primary-6))',
                 borderRadius: '18px',
                 backgroundColor: 'rgba(var(--primary-1), 0.25)',
-                transition: 'all 0.2s ease',
+                transition: 'all var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease)',
               }
             : undefined
         }

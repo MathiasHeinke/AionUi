@@ -4,13 +4,14 @@
   background: rgba(0, 0, 0, 0.36);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--eve-motion-duration-overlay-exit, 380ms) var(--eve-motion-ease-exit, ease);
   z-index: 1100;
 }
 
 .mask.visible {
   opacity: 1;
   pointer-events: auto;
+  transition-duration: var(--eve-motion-duration-overlay-enter, 480ms);
 }
 
 .sheet {
@@ -27,7 +28,7 @@
   border-top-right-radius: 20px;
   box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.12);
   transform: translateY(100%);
-  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform var(--eve-motion-duration-overlay-exit, 380ms) var(--eve-motion-ease-exit, ease);
   z-index: 1101;
   display: flex;
   flex-direction: column;
@@ -37,6 +38,7 @@
 
 .sheet.visible {
   transform: translateY(0);
+  transition-duration: var(--eve-motion-duration-overlay-enter, 480ms);
 }
 
 .handle {
@@ -172,7 +174,7 @@
 .pane {
   display: flex;
   flex-direction: column;
-  transition: transform 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease);
   will-change: transform;
 }
 

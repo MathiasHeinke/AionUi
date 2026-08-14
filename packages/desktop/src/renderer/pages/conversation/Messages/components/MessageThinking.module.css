@@ -48,7 +48,7 @@
   align-items: center;
   flex-shrink: 0;
   color: color-mix(in srgb, var(--eve-shell-text-secondary) 72%, transparent);
-  transition: transform 0.2s ease;
+  transition: transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .arrowExpanded {

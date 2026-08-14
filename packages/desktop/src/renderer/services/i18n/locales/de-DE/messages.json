@@ -35,7 +35,8 @@
     "revealFailed": "Artefakt konnte nicht im Ordner gezeigt werden",
     "failed": "Artefakt fehlgeschlagen",
     "noPreview": "Artefakt erstellt, aber keine Vorschauquelle übergeben.",
-    "previewUnavailable": "Für diesen Dateityp ist keine direkte Vorschau verfügbar."
+    "previewUnavailable": "Für diesen Dateityp ist keine direkte Vorschau verfügbar.",
+    "continueEditing": "Bearbeiten"
   },
   "availableCommands": "{{count}} verfügbare Befehle",
   "atFile.hint": "Tippen, um nach Dateien zu suchen",

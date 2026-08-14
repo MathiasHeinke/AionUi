@@ -21,8 +21,8 @@
   line-height: 1;
   letter-spacing: 0.02em;
   transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    border-color var(--eve-motion-duration-feedback, 300ms) ease;
   -webkit-app-region: no-drag;
   app-region: no-drag;
   user-select: none;

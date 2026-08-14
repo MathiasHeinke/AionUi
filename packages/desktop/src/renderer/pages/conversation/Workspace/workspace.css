@@ -11,7 +11,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .workspace-header__toggle:hover {
@@ -30,7 +30,7 @@
 /* VSCode-style file tree: chevron switcher + per-type icons, no connector lines */
 .chat-workspace .workspace-tree .workspace-tree-chevron {
   opacity: 0.55;
-  transition: transform 0.15s ease;
+  transition: transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 /* Chevron points right when collapsed, rotates down when expanded (VSCode-style).
@@ -38,7 +38,7 @@
    which is applied to the inner <svg>. */
 .chat-workspace .workspace-tree .arco-tree-node-switcher-icon svg {
   transform: rotate(0deg) !important;
-  transition: transform 0.15s ease;
+  transition: transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .chat-workspace .workspace-tree .arco-tree-node-expanded .arco-tree-node-switcher-icon svg {
@@ -105,7 +105,7 @@
     height: 24px !important;
     border-radius: 6px !important;
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
   }
 
   .chat-workspace .workspace-tree .arco-tree-node {

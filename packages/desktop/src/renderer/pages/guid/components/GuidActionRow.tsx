@@ -381,7 +381,7 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
       loading={loading}
       disabled={isButtonDisabled}
       className='send-button-custom'
-      icon={<ArrowUp theme='filled' size='14' fill='white' strokeWidth={5} />}
+      icon={<ArrowUp theme='filled' size='14' fill='currentColor' strokeWidth={5} />}
       onClick={onSend}
       data-testid='guid-send-btn'
       aria-label={t('common.send')}

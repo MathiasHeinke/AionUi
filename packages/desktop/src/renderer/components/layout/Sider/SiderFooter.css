@@ -39,8 +39,8 @@
   padding: 0 8px 0 6px;
   text-align: left;
   transition:
-    color 140ms ease,
-    background-color 140ms ease;
+    color var(--eve-motion-duration-feedback, 300ms) ease,
+    background-color var(--eve-motion-duration-feedback, 300ms) ease;
 }
 
 .sider-footer__identity:hover,
@@ -110,9 +110,9 @@
   background: transparent !important;
   box-shadow: none !important;
   transition:
-    color 140ms ease,
-    filter 160ms ease,
-    transform 160ms ease;
+    color var(--eve-motion-duration-feedback, 300ms) ease,
+    filter var(--eve-motion-duration-feedback, 300ms) ease,
+    transform var(--eve-motion-duration-state, 400ms) ease;
 }
 
 .sider-footer__update:hover,

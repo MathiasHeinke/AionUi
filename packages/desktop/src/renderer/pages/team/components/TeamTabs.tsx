@@ -96,7 +96,7 @@ const TeamTabView: React.FC<TeamTabViewProps> = ({
   return (
     <div
       draggable={!isLeader}
-      className={`relative group flex items-center gap-8px px-12px h-full max-w-240px transition-all duration-200 shrink-0 border-r border-[color:var(--border-base)] ${
+      className={`relative group flex items-center gap-8px px-12px h-full max-w-240px transition-all duration-300 shrink-0 border-r border-[color:var(--border-base)] ${
         isActive
           ? 'bg-[color:var(--color-primary-1)] text-[color:var(--color-text-1)] border-t-2 border-t-solid border-t-[color:var(--color-primary-6)]'
           : 'bg-2 text-[color:var(--color-text-3)] hover:text-[color:var(--color-text-2)] hover:bg-[color:var(--fill-2)] border-b border-[color:var(--border-base)]'
@@ -168,7 +168,7 @@ const TeamTabView: React.FC<TeamTabViewProps> = ({
         <button
           type='button'
           aria-label={t('team.tabs.renameAgent')}
-          className='opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity duration-150 shrink-0 flex items-center border-none bg-transparent p-0'
+          className='opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity duration-300 shrink-0 flex items-center border-none bg-transparent p-0'
           onClick={startEditing}
         >
           <Edit theme='outline' size='12' fill='currentColor' />
@@ -178,7 +178,7 @@ const TeamTabView: React.FC<TeamTabViewProps> = ({
         <button
           type='button'
           aria-label={t('team.tabs.removeAgent')}
-          className='opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity duration-150 shrink-0 flex items-center border-none bg-transparent p-0 text-[color:var(--color-text-3)] hover:text-[color:var(--color-danger-6)]'
+          className='opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity duration-300 shrink-0 flex items-center border-none bg-transparent p-0 text-[color:var(--color-text-3)] hover:text-[color:var(--color-danger-6)]'
           onClick={(e) => {
             e.stopPropagation();
             onRemove(slot_id);

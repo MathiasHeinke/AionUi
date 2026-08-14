@@ -8,7 +8,8 @@
 }
 
 .preview-panel {
-  animation: preview-panel-enter 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: preview-panel-enter var(--eve-motion-duration-overlay-enter, 480ms)
+    var(--eve-motion-ease-enter, cubic-bezier(0.22, 1, 0.36, 1)) forwards;
   will-change: opacity, transform;
 }
 

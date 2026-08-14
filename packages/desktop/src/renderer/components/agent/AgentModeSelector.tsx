@@ -27,7 +27,7 @@ import { emitter } from '@/renderer/utils/emitter';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { AgentLogoIcon } from './AgentBadge';
 import { Button, Dropdown, Menu, Message } from '@arco-design/web-react';
-import { Down } from '@icon-park/react';
+import { CheckSmall, Down } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import MarqueePillLabel from './MarqueePillLabel';
@@ -596,7 +596,9 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
               data-mode-value={mode.value}
               data-testid={`aionrs-mode-option-${mode.value}`}
             >
-              {current_mode === mode.value && <span className='text-primary'>✓</span>}
+              {current_mode === mode.value && (
+                <CheckSmall className='shrink-0 text-primary' size={16} fill='currentColor' aria-hidden='true' />
+              )}
               <span className={`flex min-w-0 flex-col ${current_mode !== mode.value ? 'ml-16px' : ''}`}>
                 <span>{getDisplayModeLabel(mode)}</span>
                 {getDisplayModeDescription(mode) && (
@@ -651,7 +653,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
         size='small'
         style={{
           opacity: isLoading ? 0.6 : 1,
-          transition: 'opacity 0.2s',
+          transition: 'opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease)',
           cursor: canInteract ? 'pointer' : 'default',
         }}
       >
@@ -697,7 +699,10 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       data-mode-sync-state={modeSyncWarning ? 'warning' : 'synced'}
       title={modeSyncWarning ?? undefined}
       className={`flex items-center gap-2 bg-2 w-fit rounded-full px-[8px] py-[2px] ${can_switchMode ? 'cursor-pointer hover:bg-3' : ''}`}
-      style={{ opacity: isLoading ? 0.6 : 1, transition: 'opacity 0.2s' }}
+      style={{
+        opacity: isLoading ? 0.6 : 1,
+        transition: 'opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease)',
+      }}
     >
       {renderLogo()}
       <span className='text-sm text-t-primary'>{agent_name || backend}</span>

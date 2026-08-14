@@ -234,7 +234,7 @@ button:not(.sendbox-model-btn):not([class*='model']):not([class*='Model']) svg,
     inset 1px 1px 0 rgba(255, 255, 255, 0.8),
     inset -1px -1px 0 rgba(0, 0, 0, 0.1),
     0 2px 4px rgba(0, 0, 0, 0.1);
-  transition: all 0.2s ease;
+  transition: all var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 /* 首页输入框对话框 - 白色90%不透明度，确保用户看得清 */
@@ -386,7 +386,7 @@ button[type='primary']:not([class*='icon']):not([class*='circle']):not([class*='
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.3),
     0 2px 4px rgba(0, 0, 0, 0.2);
-  transition: all 0.2s ease;
+  transition: all var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .arco-btn-primary:hover:not([class*='icon']):not([class*='circle']):not([class*='model']):not([class*='Model']),
@@ -413,7 +413,7 @@ button[type='success'] {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.3),
     0 2px 4px rgba(0, 0, 0, 0.2);
-  transition: all 0.2s ease;
+  transition: all var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .arco-btn-success:hover,
@@ -535,7 +535,7 @@ input[type='radio']:checked {
   box-shadow:
     inset 1px 1px 0 rgba(255, 255, 255, 0.5),
     inset -1px -1px 0 rgba(0, 0, 0, 0.2);
-  transition: background 0.2s ease;
+  transition: background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -580,7 +580,7 @@ input[type='radio']:checked {
 /* 链接样式 */
 a:not([class*='button']):not([class*='btn']) {
   color: #0078d4;
-  transition: color 0.2s ease;
+  transition: color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 a:hover:not([class*='button']):not([class*='btn']) {
@@ -592,7 +592,7 @@ a:hover:not([class*='button']):not([class*='btn']) {
 .arco-btn-secondary:not(.sendbox-model-btn):not([class*='model']):not([class*='Model']) svg,
 button[type='secondary']:not(.sendbox-model-btn):not([class*='model']):not([class*='Model']) svg {
   color: #0078d4;
-  transition: color 0.2s ease;
+  transition: color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .arco-btn-secondary:not(.sendbox-model-btn):not([class*='model']):not([class*='Model']) svg:hover,
@@ -604,7 +604,7 @@ button[type='secondary']:not(.sendbox-model-btn):not([class*='model']):not([clas
 .message-item .message-content svg,
 [class*='message'] [class*='content'] svg {
   color: #404040;
-  transition: color 0.2s ease;
+  transition: color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .message-item:hover .message-content svg,
@@ -663,7 +663,7 @@ input[type='search'] {
   padding: 4px 6px;
   font-size: 13px;
   color: var(--color-text-1); /* 确保文字清晰 */
-  transition: all 0.1s ease;
+  transition: all var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .arco-input:focus,
@@ -689,7 +689,7 @@ input[type='radio'] {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  transition: all 0.1s ease;
+  transition: all var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .arco-checkbox:checked,
