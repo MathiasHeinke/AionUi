@@ -769,12 +769,12 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         case 'acp_session_info': {
           const expectedSessionId = activeAcpSessionIdRef.current;
           const expectedTurnId = activeAcpSessionTurnIdRef.current;
-          const messageTurnId = typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
-          if (!expectedSessionId || !expectedTurnId || messageTurnId !== expectedTurnId) break;
+          const sessionInfoTurnId = typeof message.turn_id === 'string' ? message.turn_id.trim() : '';
+          if (!expectedSessionId || !expectedTurnId || sessionInfoTurnId !== expectedTurnId) break;
           const runtimeStatus = parseCommandEveRuntimeStatus(
             message.data,
             expectedSessionId,
-            messageTurnId,
+            sessionInfoTurnId,
             runtimeActiveTurnId ?? acceptedTurnIdRef.current
           );
           if (runtimeStatus) {
