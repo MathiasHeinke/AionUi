@@ -10,10 +10,10 @@
  *
  * WHAT THIS SUITE USED TO PIN, AND WHY IT WAS REWRITTEN RATHER THAN DELETED.
  *
- * The 0.20 wheel ships a MODE-DEPENDENT `_sync_terminal_approval_mode`
- * (whl:acp_adapter/server.py) that switches the SESSION-WIDE command bypass on in
- * the dont_ask mode. Command EVE replaced it with one that only ever DISABLES
- * that bypass, and this suite pinned exactly that. Correct — and the reason the
+ * Earlier 0.20 wheel bytes shipped a MODE-DEPENDENT synchronizer that switched
+ * the SESSION-WIDE command bypass on in dont_ask mode. V22 removes that wheel
+ * path; Command EVE still installs its own replacement that only ever DISABLES
+ * the bypass. That explicit binding remains load-bearing — and the reason the
  * ladder stopped working: the replacement also returned a hardcoded "ask" for
  * edits, so rung 2 accepted no edits and rung 3 still asked. We had chosen
  * between the wheel's all and our own nothing, and taken nothing.
@@ -83,8 +83,8 @@ describe('the shim owns terminal approval — and never reaches the session-wide
       source.indexOf("'def _install_command_eve_permission_authority_patch()")
     );
     expect(block.length).toBeGreaterThan(0);
-    expect(block).toContain('DEAD CODE');
-    expect(block).toContain('whl:acp_adapter/server.py::_sync_terminal_approval_mode');
+    expect(block).toContain('V22 no longer ships the old mode-dependent ACP synchronizer');
+    expect(block).toContain('one explicit source of truth');
   });
 });
 

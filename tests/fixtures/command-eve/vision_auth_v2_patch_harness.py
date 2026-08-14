@@ -67,7 +67,16 @@ def load_exact_wheel_to_async_client():
     function = next(
         node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_to_async_client"
     )
-    module = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
+    probe_stub = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "_AuxProbeClientStub"
+        ),
+        None,
+    )
+    selected = [function] if probe_stub is None else [probe_stub, function]
+    module = ast.fix_missing_locations(ast.Module(body=selected, type_ignores=[]))
     namespace: dict[str, object] = {
         "CodexAuxiliaryClient": OtherClient,
         "AsyncCodexAuxiliaryClient": OtherClient,

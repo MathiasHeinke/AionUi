@@ -106,7 +106,7 @@ const DEFAULT_MODEL_REF = 'hf.co/tripolskypetr/Gemma-4-Uncensored-Aggressive-GGU
 const DEFAULT_HERMES_VERSION = '0.20.0';
 const DEFAULT_HERMES_PACKAGE = 'hermes-agent';
 export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =
-  '9f80183e4db0486bb40f6fa3878b7f7994f81656a42e1c388613e2e3483c8602';
+  'a91cd1edb383dbbab20d0af7d2b6c9d56183d3248a6ee56ae583b427dbd54bfd';
 const COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE = 'bundled-wheel-receipt.json';
 const DEFAULT_FAST_CONTEXT_LENGTH = 65_536;
 const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
@@ -1023,7 +1023,7 @@ export type RuntimeBootstrapOptions = {
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.822.2',
+  release: '1.822.3',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
@@ -1575,7 +1575,7 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.822.2',
+  release: '1.822.3',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
@@ -2877,40 +2877,14 @@ export function prepareCommandEveRuntimeProcessEnv(
   // the ACP config below selects only Command EVE's two-tool allowlist.
   env.HERMES_DESKTOP = '1';
 
-  // Hermes locale root, pinned with the SAME env-inheritance doctrine as
-  // HERMES_HOME above — on the env the backend subtree inherits, not on the
-  // shim bake, so a running agent can never be retroactively re-pointed and
-  // every hermes child (gateway, slash-exec, terminal approval prompt) sees it.
-  // WHY: Hermes ≤0.17 resolved its bundled locales three ways (this env var →
-  // `<repo>/locales` → the sysconfig data path); 0.20 REMOVED the sysconfig
-  // branch, and in a wheel install neither remaining branch matches — 17
-  // languages then silently fall back to English or the bare key.
-  //
-  // WHERE THE FILES ACTUALLY LAND — measured against the VALID 0.20 wheel
-  // (build020h, sha256 9f80183e…) and cross-checked against the official
-  // upstream 0.17 and 0.19 wheels: all of them ship the locales through the
-  // WHEEL-NATIVE data category (`hermes_agent-<v>.data/data/locales/…`,
-  // RECORD `../../../locales/af.yaml`), which pip installs at the venv ROOT —
-  // `<venv>/locales`. A fresh 0.20 install proves it: 17 files in
-  // `venv/locales`, and `venv/data/locales` does not exist at all.
-  //
-  // HISTORY OF THIS LINE, kept on purpose: it briefly pointed at
-  // `<venv>/data/locales`. That detour was measured against an INTERIM
-  // SELF-BUILT wheel (build020g) whose pyproject mistakenly declared
-  // setuptools data-files with a `data/locales` target — doubling the data
-  // segment. That was OUR packaging bug, not upstream behaviour, and it is
-  // fixed in the pyproject. THE SAFEGUARD, so this cannot repeat: every
-  // self-built wheel is DIFFED AGAINST THE UPSTREAM WHEEL LAYOUT before it is
-  // bundled, and the layout-truth test in hermesBundledLocalesEnv.test.ts
-  // derives this path from the bundled wheel's actual zip entries — a wheel
-  // with any other layout goes red instead of silently mis-pinning again.
-  //
-  // The path is DERIVED, never probed: it is already correct on a first run
-  // BEFORE the venv exists — Hermes checks `candidate.is_dir()` and treats a
-  // not-yet-existing directory as "no override" (with a warning) until the
-  // install creates it — so an early bake cannot crash a boot, and no empty
-  // string is ever pinned that a later resolver would silently prefer.
-  env.HERMES_BUNDLED_LOCALES = path.join(paths.hermesVenv, 'locales');
+  // V22's reviewed Nix wheel intentionally excludes bare data directories.
+  // Command EVE ships the 17 locale YAMLs from the same exact Hermes payload
+  // beside the wheel, where the package verifier pins every filename and hash.
+  // Bind that immutable Resources directory on the inherited backend env; do
+  // not copy it into the writable venv or mutate the signed app after launch.
+  env.HERMES_BUNDLED_LOCALES = resourcesPath
+    ? path.join(resourcesPath, BUNDLED_HERMES_DIR, 'locales')
+    : path.resolve(process.cwd(), 'resources', BUNDLED_HERMES_DIR, 'locales');
 
   // The venv is based on the bundled interpreter under the signed app bundle.
   // Every Python descendant must keep bytecode out of Contents/Resources/python,
@@ -4800,6 +4774,63 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    original_run = getattr(AIAgent, "run_conversation", None)',
     '    if not callable(original_prompt) or not callable(original_run):',
     '        raise RuntimeError("Command EVE prompt admission requires Hermes 0.20 prompt/run_conversation seams")',
+    '    # V22 inlines the former _prompt_impl body into prompt(). Recreate the',
+    '    # old internal dispatch seam before any Command EVE wrapper is installed:',
+    '    # public prompt admission stays outermost, while desktop/session wrappers',
+    '    # and native queued self.prompt() re-entry all traverse one dynamic chain.',
+    '    if not callable(getattr(HermesACPAgent, "_prompt_impl", None)):',
+    '        native_prompt = original_prompt',
+    '',
+    '        async def command_eve_native_prompt(self: Any, *args: Any, **kwargs: Any) -> Any:',
+    '            return await native_prompt(self, *args, **kwargs)',
+    '',
+    '        async def command_eve_prompt_dispatch(self: Any, *args: Any, **kwargs: Any) -> Any:',
+    '            prompt_arg = kwargs.get("prompt") if "prompt" in kwargs else (args[0] if args else None)',
+    '            prompt_text = _command_eve_prompt_text(prompt_arg)',
+    '            command_parts = prompt_text.split(maxsplit=1)',
+    '            command = command_parts[0].lower() if command_parts else ""',
+    '            correction_text = command_parts[1].strip() if len(command_parts) > 1 else ""',
+    '            if command == "/correct":',
+    '                session_arg = kwargs.get("session_id")',
+    '                if session_arg is None and len(args) > 1:',
+    '                    session_arg = args[1]',
+    '                manager = getattr(self, "session_manager", None)',
+    '                state = manager.get_session(str(session_arg or "")) if manager is not None else None',
+    '                if state is not None:',
+    '                    lock = getattr(state, "runtime_lock", None)',
+    '                    if lock is None:',
+    '                        is_running = bool(getattr(state, "is_running", False))',
+    '                        has_interrupted = bool(getattr(state, "interrupted_prompt_text", ""))',
+    '                    else:',
+    '                        with lock:',
+    '                            is_running = bool(getattr(state, "is_running", False))',
+    '                            has_interrupted = bool(getattr(state, "interrupted_prompt_text", ""))',
+    '                    if not is_running:',
+    '                        if not correction_text or not has_interrupted:',
+    '                            from acp.schema import PromptResponse',
+    '',
+    '                            return PromptResponse(stop_reason="refusal")',
+    '                        # V22 removed the native /correct branch but retained',
+    '                        # plain-text interrupted-prompt salvage. Strip only the',
+    '                        # control token and let native prompt() consume and',
+    '                        # clear interrupted_prompt_text exactly once.',
+    '                        from acp.schema import TextContentBlock',
+    '',
+    '                        rewritten_prompt = [TextContentBlock(type="text", text=correction_text)]',
+    '                        if "prompt" in kwargs:',
+    '                            kwargs = dict(kwargs)',
+    '                            kwargs["prompt"] = rewritten_prompt',
+    '                        elif args:',
+    '                            args = (rewritten_prompt, *args[1:])',
+    '            prompt_impl = getattr(self, "_prompt_impl", None)',
+    '            if not callable(prompt_impl):',
+    '                raise RuntimeError("Command EVE Hermes prompt implementation unavailable")',
+    '            return await prompt_impl(*args, **kwargs)',
+    '',
+    '        command_eve_prompt_dispatch._command_eve_prompt_impl_compat = True',
+    '        HermesACPAgent._prompt_impl = command_eve_native_prompt',
+    '        HermesACPAgent.prompt = command_eve_prompt_dispatch',
+    '        original_prompt = command_eve_prompt_dispatch',
     '',
     '    def command_eve_validate_prompt_admission(value: Any) -> dict[str, str]:',
     '        required = {"version", "request_id", "turn_id", "receipt_sha256"}',
@@ -5144,15 +5175,12 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '# authority. This patch changes routing only and does not auto-approve.',
     '#',
     '# TERMINAL-APPROVAL AUTHORITY LIVES HERE, not in the wheel (G5, CEVE-18205).',
-    '# The wheel ships its own _sync_terminal_approval_mode',
-    '# (whl:acp_adapter/server.py::_sync_terminal_approval_mode) which is',
-    '# MODE-DEPENDENT: in the dont_ask mode it switches the session-wide command',
-    '# bypass ON. This installer replaces that method AFTER import, so in the',
-    '# shipped product the wheel variant is DEAD CODE and the replacement below',
-    '# is the binding source of truth: it only ever forces approvals back',
+    '# V22 no longer ships the old mode-dependent ACP synchronizer. This',
+    '# installer still binds the Command EVE replacement AFTER import, so the',
+    '# packaged product has one explicit source of truth: it only ever forces approvals back',
     '# THROUGH AionCore, for every mode, with no branch that could reach the',
-    '# bypass. Anyone reading the wheel source alone will believe dont_ask',
-    '# enables the bypass — it does not, and the contract test',
+    '# bypass. A future wheel cannot silently revive the old dont_ask bypass:',
+    '# the contract test',
     '# (hermesTerminalApprovalAuthority.test.ts) reddens if this assignment is',
     '# removed or the replacement grows a mode branch. (The bypass-enabling',
     '# function is deliberately not named in this file — a pinned test greps the',
@@ -5386,6 +5414,9 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        return',
     '',
     '    def command_eve_make_approval_callback(*args: Any, **kwargs: Any) -> Any:',
+    '        if len(args) < 4 and "timeout" not in kwargs:',
+    '            kwargs = dict(kwargs)',
+    '            kwargs["timeout"] = 300.0',
     '        inner = original_factory(*args, **kwargs)',
     '        session_id = str(args[2]) if len(args) >= 3 else str(kwargs.get("session_id", ""))',
     '',
@@ -6767,17 +6798,18 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '            except Exception:',
     '                logging.getLogger(__name__).debug("Command EVE runtime status callback failed", exc_info=True)',
     '',
-    '    def command_eve_wait_notice(self: Any, text: str) -> Any:',
-    '        result = original_wait(self, text)',
+    '    def command_eve_wait_notice(self: Any, *args: Any, **kwargs: Any) -> Any:',
+    '        result = original_wait(self, *args, **kwargs)',
     '        command_eve_emit_runtime_status(self, {"phase": "provider_wait"})',
     '        return result',
     '',
     '    retry_pattern = re.compile(r"^⏳ Retrying in (\\d+(?:\\.\\d+)?)s \\(attempt (\\d+)/(\\d+)\\)\\.\\.\\.$")',
     '    rate_pattern = re.compile(r"^⏱️ (?:Rate limited|Provider overloaded)\\. Waiting (\\d+(?:\\.\\d+)?)s \\(attempt (\\d+)/(\\d+)\\)(?: \\([^\\r\\n]{1,120}\\))?\\.\\.\\.$")',
     '',
-    '    def command_eve_buffer_status(self: Any, message: str) -> Any:',
-    '        result = original_buffer(self, message)',
-    '        match = retry_pattern.fullmatch(message) or rate_pattern.fullmatch(message)',
+    '    def command_eve_buffer_status(self: Any, *args: Any, **kwargs: Any) -> Any:',
+    '        result = original_buffer(self, *args, **kwargs)',
+    '        message = args[0] if args else kwargs.get("message")',
+    '        match = (retry_pattern.fullmatch(message) or rate_pattern.fullmatch(message)) if isinstance(message, str) else None',
     '        if match:',
     '            retry_after_ms = min(600_000, max(0, round(float(match.group(1)) * 1000)))',
     '            attempt = int(match.group(2))',
@@ -7280,9 +7312,8 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '_install_command_eve_acp_disabled_toolsets_patch()',
     '',
     '# The authority patch is the ONE that must not fail quietly. Without it the',
-    '# wheel routes approvals itself: _sync_terminal_approval_mode turns the',
-    '# session-wide bypass ON whenever the session mode is dont_ask',
-    '# (FACT whl:acp_adapter/server.py::_sync_terminal_approval_mode). Every installer above returns',
+    '# product loses its sole explicit Command EVE approval binding. V22 no',
+    '# longer supplies the former mode-dependent wheel synchronizer, but every installer above returns',
     '# silently when its import fails, so a missing patch looked exactly like a',
     '# successful one (P3, Kimi). Assert the marker instead of assuming it.',
     '#',

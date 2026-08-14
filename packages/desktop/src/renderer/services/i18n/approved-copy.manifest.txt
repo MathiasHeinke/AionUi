@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7313
+# entries: 7627
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -962,13 +962,24 @@ copy	1	de-DE/conversation.json	Agentenname:
 copy	1	de-DE/conversation.json	Agentenprotokollversionen sind inkompatibel
 copy	1	de-DE/conversation.json	Agentenvorlage erfolgreich registriert!
 copy	1	de-DE/conversation.json	Agentenwechsel fehlgeschlagen
+copy	1	de-DE/conversation.json	AionCore hat für diesen Turn keinen aktiven Agenten gefunden
+copy	1	de-DE/conversation.json	AionCore stellt für dieses Gate keinen typisierten Pause-Pfad bereit
+copy	1	de-DE/conversation.json	AionCore wartet auf eine Bestätigung
+copy	2	de-DE/conversation.json	AionCore-Receipt-Transport nicht verfügbar
+copy	1	de-DE/conversation.json	Aktion abgelehnt
+copy	1	de-DE/conversation.json	Aktion angenommen
+copy	1	de-DE/conversation.json	Aktion konnte nicht übermittelt werden
+copy	1	de-DE/conversation.json	Aktion nicht verfügbar
 copy	1	de-DE/conversation.json	Aktive Fläche maximieren
 copy	1	de-DE/conversation.json	Aktivierung nötig
 copy	1	de-DE/conversation.json	Aktivität
+copy	1	de-DE/conversation.json	Aktivität nicht verfügbar
+copy	1	de-DE/conversation.json	Aktivitätsaktionen
 copy	1	de-DE/conversation.json	Aktualisiere den Agenten oder behebe die Inkompatibilität der Protokollversion.
 copy	1	de-DE/conversation.json	Aktualisiere den Befehl in der Warteschlange, bevor er ausgeführt wird.
 copy	2	de-DE/conversation.json	Aktualisieren
 copy	1	de-DE/conversation.json	Aktueller Branch
+copy	1	de-DE/conversation.json	Aktueller Schritt
 copy	1	de-DE/conversation.json	Aktuelles Projekt
 copy	1	de-DE/conversation.json	Alle auswählen
 copy	1	de-DE/conversation.json	Alle Änderungen bereitstellen
@@ -1001,9 +1012,11 @@ copy	1	de-DE/conversation.json	Audiotranskription fehlgeschlagen
 copy	1	de-DE/conversation.json	Auf die angeforderte Ressource konnte nicht zugegriffen werden
 copy	1	de-DE/conversation.json	Aufnahme stoppen
 copy	1	de-DE/conversation.json	Aufteilung anpassen
+copy	1	de-DE/conversation.json	Aus
 copy	1	de-DE/conversation.json	Aus Ordner entfernen
 copy	1	de-DE/conversation.json	Aus Ordner entfernt
 copy	1	de-DE/conversation.json	Aus Verlauf generieren
+copy	1	de-DE/conversation.json	Aus persistenten Receipts rekonstruiert
 copy	1	de-DE/conversation.json	Ausschalten
 copy	1	de-DE/conversation.json	Authentifizierung beim Modellanbieter fehlgeschlagen
 copy	1	de-DE/conversation.json	Automatisch
@@ -1014,6 +1027,7 @@ copy	1	de-DE/conversation.json	Befehle in der Warteschlange dürfen nicht leer s
 copy	1	de-DE/conversation.json	Benötigt Aufmerksamkeit
 copy	1	de-DE/conversation.json	Berechtigung wird geprüft
 copy	3	de-DE/conversation.json	Bereit
+copy	1	de-DE/conversation.json	Bereit – Aufnahme startet nur per Klick
 copy	1	de-DE/conversation.json	Bereitgestellte Änderungen
 copy	1	de-DE/conversation.json	Bereitstellen
 copy	1	de-DE/conversation.json	Bereitstellung aller Änderungen aufheben
@@ -1036,6 +1050,8 @@ copy	1	de-DE/conversation.json	Chat in Ordner verschieben
 copy	1	de-DE/conversation.json	Chat links, Arbeitsfläche rechts
 copy	1	de-DE/conversation.json	Chat oben, Arbeitsfläche unten
 copy	1	de-DE/conversation.json	Chat umbenennen
+copy	1	de-DE/conversation.json	Chatverlauf ist kein Live-Receipt
+copy	1	de-DE/conversation.json	Chatverlauf kann keine Live-Aktion autorisieren
 copy	1	de-DE/conversation.json	Cloud
 copy	1	de-DE/conversation.json	Cloud-OCR für dieses PDF erlauben?
 copy	1	de-DE/conversation.json	Cloud-OCR ist fehlgeschlagen. Nachricht und PDF bleiben ungesendet.
@@ -1047,10 +1063,13 @@ copy	1	de-DE/conversation.json	Connector Catalog öffnen
 copy	1	de-DE/conversation.json	Connector-Status wird im Connector Catalog geprüft. Starte dort Read-only-Preflights; rohes MCP-Setup bleibt gegatet.
 copy	1	de-DE/conversation.json	Dadurch wird die Datei von deinem System gelöscht. Fortfahren?
 copy	1	de-DE/conversation.json	Das Anbieterkonto hat keine Berechtigung für dieses Modell oder diesen Vorgang. Überprüfe die Kontoberechtigungen oder wähle ein anderes Modell.
+copy	1	de-DE/conversation.json	Das Ergebnis der dauerhaften Zustellung ist ausdrücklich unbekannt
+copy	1	de-DE/conversation.json	Das Ergebnis des Child-Workers ist nicht typisiert
 copy	1	de-DE/conversation.json	Das Suchergebnis ist leer
 copy	1	de-DE/conversation.json	Das aktuelle Modellkontingent ist aufgebraucht. Zu {{model}} wechseln, um fortzufahren?
 copy	1	de-DE/conversation.json	Das ausgewählte Modell ist nicht verfügbar oder unterstützt die angeforderte Funktion nicht. Wähle ein unterstütztes Modell und versuche es erneut.
 copy	1	de-DE/conversation.json	Das ausgewählte Modell wurde nicht gefunden
+copy	1	de-DE/conversation.json	Das persistente Receipt ist an keinen aktiven AionCore-Turn gebunden
 copy	1	de-DE/conversation.json	Datei hinzufügen
 copy	1	de-DE/conversation.json	Datei konnte nicht gelesen werden
 copy	1	de-DE/conversation.json	Datei löschen
@@ -1078,6 +1097,7 @@ copy	1	de-DE/conversation.json	Der Agent konnte nicht antworten
 copy	1	de-DE/conversation.json	Der Agent meldete, dass das Anfrageformat ungültig war. Versuche, die Nachricht zu vereinfachen, oder wechsle den Agenten.
 copy	1	de-DE/conversation.json	Der Agentenprozess wurde beendet, bevor er bereit war. Überprüfe Installation, Anmeldestatus und lokale Befehlskonfiguration.
 copy	1	de-DE/conversation.json	Der Agentenumgebung fehlen erforderliche Variablen
+copy	1	de-DE/conversation.json	Der AionCore-Turn hat sich vor dem Stoppauftrag geändert
 copy	1	de-DE/conversation.json	Der Anbieter begrenzt vorübergehend die Anfragen. Warte einen Moment, reduziere die Anfragehäufigkeit oder wechsle das Modell.
 copy	1	de-DE/conversation.json	Der Anbieter hat die Anfrage ohne verwertbaren Inhalt abgeschlossen. Versuche es einmal erneut oder wechsle den Anbieter, wenn es sich wiederholt.
 copy	1	de-DE/conversation.json	Der Anbieter hat eine Tool-Definition in dieser Anfrage abgelehnt. Aktualisiere den Agenten oder deaktiviere das inkompatible Tool und versuche es dann erneut.
@@ -1106,6 +1126,7 @@ copy	1	de-DE/conversation.json	Der ausgewählte Workspace-Pfad „{{workspacePat
 copy	1	de-DE/conversation.json	Der bestehende Workspace-Pfad „{{workspacePath}}“ enthält Leerzeichen oder andere Leerraumzeichen. Command EVE unterstützt das Senden von Nachrichten in Gesprächen oder Aufgaben, die diesen Pfad verwenden, nicht mehr. Erstelle ein neues Gespräch oder eine neue Aufgabe mit einem Workspace-Pfad ohne Leerraumzeichen.
 copy	1	de-DE/conversation.json	Der konfigurierte Agentenbefehl konnte nicht gefunden werden. Installiere ihn oder aktualisiere den Befehlspfad in den Einstellungen.
 copy	1	de-DE/conversation.json	Der nächste Befehl in der Warteschlange konnte nicht gestartet werden. Bearbeite, ordne neu an oder entferne ihn, um fortzufahren.
+copy	1	de-DE/conversation.json	Der persistente Adapter hat für dieses Gespräch keinen passenden Receipt-Zustand geliefert.
 copy	1	de-DE/conversation.json	Der vorgelagerte Agent oder Anbieter ist fehlgeschlagen
 copy	1	de-DE/conversation.json	Die Agentensitzung wurde verloren
 copy	1	de-DE/conversation.json	Die Anbieteranfrage konnte aus den aktuellen Einstellungen nicht erstellt werden. Überprüfe Anmeldedaten, Region, Base-URL und anbieterspezifische Konfiguration, bevor du es erneut versuchst.
@@ -1125,6 +1146,7 @@ copy	1	de-DE/conversation.json	Die Warteschlange ist voll. Entferne einen Befehl
 copy	1	de-DE/conversation.json	Die Warteschlangendaten sind zu groß, um sie sicher zu speichern. Entferne zuerst einige Befehle aus der Warteschlange.
 copy	1	de-DE/conversation.json	Die Zwischenfrage hatte im aktuellen Gespräch keine eindeutige Antwort.
 copy	1	de-DE/conversation.json	Die Zwischenfrage konnte nicht beantwortet werden.
+copy	1	de-DE/conversation.json	Die laufende Antwort konnte nicht gestoppt werden. Der Mikrofonstatus bleibt unverändert.
 copy	1	de-DE/conversation.json	Die verwaltete visuelle Analyse konnte nicht freigegeben werden. Entwurf und Dateien bleiben ungesendet.
 copy	1	de-DE/conversation.json	Die visuelle Folienanalyse ist fehlgeschlagen. Nachricht und Präsentation bleiben ungesendet.
 copy	1	de-DE/conversation.json	Dienst des Modellanbieters ist nicht verfügbar
@@ -1138,14 +1160,18 @@ copy	1	de-DE/conversation.json	Dieser Befehl in der Warteschlange ist zu lang. K
 copy	1	de-DE/conversation.json	Dieser Workspace-Pfad wird für die Ausführung nicht mehr unterstützt
 copy	1	de-DE/conversation.json	Dieser Zug hat keine sichtbare Antwort erzeugt. Wenn das wiederholt passiert, starte einen neuen Chat — die Sitzung ist womöglich abgelaufen.
 copy	1	de-DE/conversation.json	Dieses Bild sicher analysieren?
+copy	1	de-DE/conversation.json	Dieses Gate benötigt den bestehenden Bestätigungspfad
+copy	1	de-DE/conversation.json	Dieses Receipt stellt keine Retry-Aktion bereit
 copy	1	de-DE/conversation.json	Dieses bestehende Gespräch bzw. diese Aufgabe verwendet einen Workspace-Pfad, dessen Verzeichnisnamen Leerzeichen oder andere Leerraumzeichen enthalten. Command EVE unterstützt das Senden von Nachrichten über solche Pfade nicht mehr. Erstelle ein neues Gespräch oder eine neue Aufgabe mit einem Workspace-Pfad ohne Leerraumzeichen.
 copy	1	de-DE/conversation.json	Dokumente, Bilder und andere Ergebnisse erscheinen hier automatisch.
 copy	1	de-DE/conversation.json	Download erfolgreich
 copy	1	de-DE/conversation.json	Download fehlgeschlagen
 copy	1	de-DE/conversation.json	Drücke Escape, Enter oder Leertaste zum Schließen
+copy	1	de-DE/conversation.json	Durable Work
 copy	1	de-DE/conversation.json	Durchsuche frühere Nachrichten nach Stichwort, lade beim Scrollen mehr und springe zur passenden Nachricht.
 copy	1	de-DE/conversation.json	EVE Cloud benötigt eine Internetverbindung.
 copy	1	de-DE/conversation.json	EVE Cloud ist erst nach Aktivierung verfügbar.
+copy	1	de-DE/conversation.json	EVE antwortet
 copy	1	de-DE/conversation.json	EVE arbeitet
 copy	1	de-DE/conversation.json	EVE arbeitet weiter
 copy	1	de-DE/conversation.json	EVE arbeitet weiter. Öffne bei Bedarf die Logs oder stoppe die Anfrage.
@@ -1174,15 +1200,18 @@ copy	1	de-DE/conversation.json	Ein Netzwerk- oder DNS-Fehler hat den Zugriff auf
 copy	1	de-DE/conversation.json	Eine andere Antwort läuft noch. Warte, bis sie abgeschlossen ist, bevor du eine neue Nachricht sendest.
 copy	1	de-DE/conversation.json	Eine lokale Berechtigungs- oder Dateisystemprüfung ist fehlgeschlagen. Überprüfe den Projektpfad und die App-Berechtigungen und versuche es erneut.
 copy	1	de-DE/conversation.json	Einfügen
+copy	2	de-DE/conversation.json	Eingabe nötig
 copy	1	de-DE/conversation.json	Elemente-Leiste umschalten
 copy	1	de-DE/conversation.json	Endpunkt des Modellanbieters wurde nicht gefunden
 copy	1	de-DE/conversation.json	Entfernen
+copy	1	de-DE/conversation.json	Erfolgreich
 copy	2	de-DE/conversation.json	Erfolgreich gelöscht
 copy	2	de-DE/conversation.json	Erfolgreich umbenannt
 copy	1	de-DE/conversation.json	Erstellen
 copy	1	de-DE/conversation.json	Erweiterte Einstellungen
 copy	1	de-DE/conversation.json	Es ist leer
 copy	1	de-DE/conversation.json	Es läuft bereits eine Zwischenfrage.
+copy	1	de-DE/conversation.json	Evidence
 copy	1	de-DE/conversation.json	Export abgebrochen
 copy	1	de-DE/conversation.json	Export erfolgreich
 copy	1	de-DE/conversation.json	Export fehlgeschlagen
@@ -1192,13 +1221,18 @@ copy	1	de-DE/conversation.json	Exportiert die Gesprächsverläufe von {{count}} 
 copy	1	de-DE/conversation.json	Fallback-Gespräch konnte nicht erstellt werden.
 copy	2	de-DE/conversation.json	Fehler
 copy	1	de-DE/conversation.json	Fehlercode
-copy	1	de-DE/conversation.json	Fehlgeschlagen
+copy	2	de-DE/conversation.json	Fehlgeschlagen
 copy	1	de-DE/conversation.json	Fertig
 copy	1	de-DE/conversation.json	Fertig – ungelesen
+copy	1	de-DE/conversation.json	Festgefahren
 copy	1	de-DE/conversation.json	Folien einmal analysieren
 copy	1	de-DE/conversation.json	Folien werden sicher visuell analysiert
+copy	1	de-DE/conversation.json	Freigabe angefordert
 copy	1	de-DE/conversation.json	Früher
 copy	1	de-DE/conversation.json	Für die aktuelle Sitzung ist kein Modell ausgewählt, Nachricht kann nicht gesendet werden
+copy	1	de-DE/conversation.json	Für diesen Zustand wurde keine Autorität freigegeben
+copy	1	de-DE/conversation.json	Gates
+copy	1	de-DE/conversation.json	Gauntlet
 copy	1	de-DE/conversation.json	Gedanke abgeschlossen
 copy	1	de-DE/conversation.json	Gefällt es dir? Gib uns einen Stern!
 copy	1	de-DE/conversation.json	Geladen
@@ -1206,7 +1240,8 @@ copy	1	de-DE/conversation.json	Geladene Skills
 copy	1	de-DE/conversation.json	Geladenes MCP
 copy	1	de-DE/conversation.json	Generieren
 copy	1	de-DE/conversation.json	Generierung fehlgeschlagen
-copy	1	de-DE/conversation.json	Geplant
+copy	2	de-DE/conversation.json	Geplant
+copy	1	de-DE/conversation.json	Geplante Aufgabe
 copy	1	de-DE/conversation.json	Gespräch
 copy	1	de-DE/conversation.json	Gespräch durchsuchen
 copy	1	de-DE/conversation.json	Gespräch ist beschäftigt
@@ -1217,17 +1252,23 @@ copy	1	de-DE/conversation.json	Gesprächsinhalt durchsuchen
 copy	1	de-DE/conversation.json	Gesprächsstatus ist nicht synchron
 copy	1	de-DE/conversation.json	Gesprächsverlauf analysieren, um Folgendes zu generieren:
 copy	1	de-DE/conversation.json	Gestern
+copy	1	de-DE/conversation.json	Gestoppt
 copy	1	de-DE/conversation.json	Geänderte Dateien
 copy	1	de-DE/conversation.json	Gib Stichwörter ein, um Nachrichten zu durchsuchen
+copy	1	de-DE/conversation.json	Goal
 copy	1	de-DE/conversation.json	Guten Abend, {{name}}.
 copy	1	de-DE/conversation.json	Guten Morgen, {{name}}.
 copy	1	de-DE/conversation.json	Guten Tag, {{name}}.
 copy	1	de-DE/conversation.json	Hallo.
 copy	1	de-DE/conversation.json	Hauptaufgabe läuft weiterhin im Hintergrund.
+copy	1	de-DE/conversation.json	Hermes stellt für dieses Receipt keinen typisierten Fortsetzen-Pfad bereit
+copy	1	de-DE/conversation.json	Hermes stellt für dieses Receipt keinen typisierten Pause-Pfad bereit
+copy	1	de-DE/conversation.json	Hermes steuert den dauerhaften Retry-Zeitplan
 copy	1	de-DE/conversation.json	Herunterladen
 copy	1	de-DE/conversation.json	Heute
 copy	1	de-DE/conversation.json	Hi, was hast du heute vor?
 copy	1	de-DE/conversation.json	Hier klicken, um nach Stichwörtern zu suchen
+copy	1	de-DE/conversation.json	Hört zu
 copy	1	de-DE/conversation.json	Im Ordner anzeigen
 copy	1	de-DE/conversation.json	Im Projekt chatten
 copy	1	de-DE/conversation.json	Import der abgelegten Dateien fehlgeschlagen.
@@ -1244,15 +1285,21 @@ copy	1	de-DE/conversation.json	Kein Gesprächsverlauf gefunden
 copy	1	de-DE/conversation.json	Kein Mikrofon erkannt
 copy	1	de-DE/conversation.json	Kein Modell konfiguriert. Bitte konfiguriere es in den Einstellungen.
 copy	1	de-DE/conversation.json	Kein Projekt konfiguriert
+copy	1	de-DE/conversation.json	Kein aktiver AionCore-Turn kann gestoppt werden
+copy	1	de-DE/conversation.json	Kein aktives Tool
+copy	1	de-DE/conversation.json	Kein bestätigtes Wake-Receipt
 copy	1	de-DE/conversation.json	Kein passender Inhalt gefunden
 copy	1	de-DE/conversation.json	Keine
 copy	1	de-DE/conversation.json	Keine Agenten verfügbar
+copy	1	de-DE/conversation.json	Keine Evidence gemeldet
+copy	1	de-DE/conversation.json	Keine Gates gemeldet
 copy	1	de-DE/conversation.json	Keine Sprache erkannt
 copy	1	de-DE/conversation.json	Keine bereitgestellten Änderungen
 copy	1	de-DE/conversation.json	Keine gültigen Dateien erkannt. Bitte ziehe sie aus dem Finder/Explorer.
 copy	1	de-DE/conversation.json	Keine nicht bereitgestellten Änderungen
 copy	1	de-DE/conversation.json	Keine passenden Nachrichten gefunden
 copy	1	de-DE/conversation.json	Keine relevanten Dateien im Projekt gefunden
+copy	1	de-DE/conversation.json	Keine typisierte Autorität verfügbar
 copy	1	de-DE/conversation.json	Konfiguration des Modellanbieters ist ungültig
 copy	1	de-DE/conversation.json	Konfiguration erforderlich
 copy	2	de-DE/conversation.json	Kontext
@@ -1263,6 +1310,7 @@ copy	1	de-DE/conversation.json	Korrektur
 copy	1	de-DE/conversation.json	Korrekturen können keine Dateien enthalten. Diese Nachricht wurde deshalb für danach eingereiht.
 copy	1	de-DE/conversation.json	Korrekturen mit Dateien bleiben in der Warteschlange.
 copy	1	de-DE/conversation.json	Letzte 7 Tage
+copy	1	de-DE/conversation.json	Letzte Aktivität: {{value}}
 copy	1	de-DE/conversation.json	Letzter Modellaufruf ohne sensible Treffer.
 copy	1	de-DE/conversation.json	Live-Aufnahme wird hier nicht unterstützt. Bitte lade stattdessen eine Audiodatei hoch
 copy	1	de-DE/conversation.json	Log-Ordner nicht verfügbar
@@ -1270,7 +1318,8 @@ copy	1	de-DE/conversation.json	Logs
 copy	1	de-DE/conversation.json	Logs konnten nicht geöffnet werden
 copy	1	de-DE/conversation.json	Lokal
 copy	1	de-DE/conversation.json	Lokales 64k-Modell: erste Antworten können 30–90 Sekunden dauern.
-copy	1	de-DE/conversation.json	Läuft
+copy	2	de-DE/conversation.json	Läuft
+copy	1	de-DE/conversation.json	Läuft über den bestehenden Freigabepfad
 copy	2	de-DE/conversation.json	Löschen
 copy	2	de-DE/conversation.json	Löschen fehlgeschlagen
 copy	1	de-DE/conversation.json	Lösen
@@ -1316,6 +1365,7 @@ copy	1	de-DE/conversation.json	Neuen Namen eingeben
 copy	2	de-DE/conversation.json	Neuer Chat
 copy	1	de-DE/conversation.json	Neuer Chat in diesem Projekt
 copy	1	de-DE/conversation.json	Neuer Ordner
+copy	1	de-DE/conversation.json	Neuer Versuch in {{seconds}} s ({{attempt}}/{{maxAttempts}})
 copy	1	de-DE/conversation.json	Nicht jetzt
 copy	1	de-DE/conversation.json	Nicht mehr fragen
 copy	1	de-DE/conversation.json	Nicht unterstützt
@@ -1353,11 +1403,14 @@ copy	1	de-DE/conversation.json	Projektdateien
 copy	1	de-DE/conversation.json	Projekte
 copy	1	de-DE/conversation.json	Projektname
 copy	1	de-DE/conversation.json	Projektordner öffnen
+copy	1	de-DE/conversation.json	Provider antwortet nicht – neuer Versuch
 copy	1	de-DE/conversation.json	Prozess beendet
 copy	1	de-DE/conversation.json	Präsentation bereit · Analyse wird vorbereitet
 copy	1	de-DE/conversation.json	Präsentation konnte nicht verarbeitet werden · Nachricht blieb ungesendet
 copy	1	de-DE/conversation.json	Präsentation verstanden · Analyse wird an EVE übergeben
 copy	1	de-DE/conversation.json	Ratenlimit des Modellanbieters erreicht
+copy	1	de-DE/conversation.json	Receipts
+copy	1	de-DE/conversation.json	Reconnect fehlt
 copy	1	de-DE/conversation.json	Reduziere den Nachrichteninhalt, die referenzierten Dateien oder die Kontextgröße und versuche es erneut.
 copy	1	de-DE/conversation.json	Regel (JSON/MD)
 copy	1	de-DE/conversation.json	Regel erfolgreich geladen
@@ -1372,10 +1425,14 @@ copy	1	de-DE/conversation.json	Session-ID kopieren
 copy	1	de-DE/conversation.json	Skill (Python)
 copy	1	de-DE/conversation.json	Skill/Regel generieren
 copy	2	de-DE/conversation.json	Speichern
+copy	1	de-DE/conversation.json	Sprachdialog ausschalten
+copy	1	de-DE/conversation.json	Sprachdialog einschalten
+copy	1	de-DE/conversation.json	Sprachdialog nicht verfügbar
 copy	1	de-DE/conversation.json	Sprache-zu-Text ist noch nicht konfiguriert
 copy	1	de-DE/conversation.json	Spracheingabe fehlgeschlagen. Bitte versuche es erneut
 copy	1	de-DE/conversation.json	Spracheingabe ist in dieser Umgebung nicht verfügbar
 copy	1	de-DE/conversation.json	Spracheingabe starten
+copy	1	de-DE/conversation.json	Spricht
 copy	1	de-DE/conversation.json	Stapelexport
 copy	1	de-DE/conversation.json	Stapellöschung
 copy	1	de-DE/conversation.json	Stapelmodus beenden
@@ -1383,13 +1440,14 @@ copy	1	de-DE/conversation.json	Stapelverwaltung
 copy	1	de-DE/conversation.json	Starte den ausgewählten Agenten neu oder verbinde ihn erneut und versuche es dann erneut.
 copy	1	de-DE/conversation.json	Starte ein neues Gespräch, bevor du fortfährst.
 copy	1	de-DE/conversation.json	Starte einen Auftrag oder öffne einen bestehenden Chat.
-copy	1	de-DE/conversation.json	Startet
+copy	2	de-DE/conversation.json	Startet
 copy	1	de-DE/conversation.json	Stelle eine kurze Frage zum aktuellen Gespräch
 copy	1	de-DE/conversation.json	Stopp
-copy	1	de-DE/conversation.json	Subagent
+copy	2	de-DE/conversation.json	Subagent
 copy	1	de-DE/conversation.json	Subagent {{number}}
 copy	1	de-DE/conversation.json	Subagenten
 copy	1	de-DE/conversation.json	Suchen
+copy	1	de-DE/conversation.json	Supergoal
 copy	1	de-DE/conversation.json	Temporärer Bereich
 copy	2	de-DE/conversation.json	Terminal
 copy	1	de-DE/conversation.json	Themen exportieren
@@ -1397,10 +1455,12 @@ copy	1	de-DE/conversation.json	Tipp: Lege Dateien irgendwo ab, um sie in den aus
 copy	1	de-DE/conversation.json	Tippe / für Befehle, @ um Dateien zu referenzieren
 copy	1	de-DE/conversation.json	Tool läuft
 copy	1	de-DE/conversation.json	Tool-Schema wurde vom Anbieter abgelehnt
+copy	1	de-DE/conversation.json	Transkribiert lokal
 copy	1	de-DE/conversation.json	Transkription erneut versuchen (Aufnahme bleibt erhalten)
 copy	1	de-DE/conversation.json	Treffer
 copy	3	de-DE/conversation.json	Umbenennen
 copy	2	de-DE/conversation.json	Umbenennen fehlgeschlagen
+copy	1	de-DE/conversation.json	Unbekannt
 copy	1	de-DE/conversation.json	Unbenannter Ordner
 copy	1	de-DE/conversation.json	Unbenanntes Gespräch
 copy	1	de-DE/conversation.json	Upstream
@@ -1424,8 +1484,17 @@ copy	1	de-DE/conversation.json	Vorlesen stoppen
 copy	1	de-DE/conversation.json	Vorschau
 copy	1	de-DE/conversation.json	Vorschau fehlgeschlagen
 copy	1	de-DE/conversation.json	Vorschlag:
+copy	1	de-DE/conversation.json	Wake-Ergebnis ausdrücklich unbekannt
+copy	1	de-DE/conversation.json	Wake-Receipt bestätigt
+copy	1	de-DE/conversation.json	Wake-Zustellung abgelehnt
+copy	1	de-DE/conversation.json	Wake-Zustellung angenommen
+copy	1	de-DE/conversation.json	Wake-Zustellung bekannt; Ergebnis des Child-Workers nicht typisiert
+copy	1	de-DE/conversation.json	Wake-Zustellung bereits angewendet
+copy	1	de-DE/conversation.json	Wake-Zustellung wird wiederholt
 copy	1	de-DE/conversation.json	Warte, bis die aktuelle Antwort abgeschlossen ist, bevor du eine weitere Nachricht sendest.
 copy	1	de-DE/conversation.json	Warteschlange leeren
+copy	1	de-DE/conversation.json	Wartet
+copy	1	de-DE/conversation.json	Wartet auf erste Provider-Antwort
 copy	1	de-DE/conversation.json	Was kann Command EVE?
 copy	1	de-DE/conversation.json	Weitere Aktionen
 copy	1	de-DE/conversation.json	Werkzeug: {{tool}}
@@ -1437,6 +1506,7 @@ copy	1	de-DE/conversation.json	Wird bearbeitet
 copy	1	de-DE/conversation.json	Wird exportiert ...
 copy	1	de-DE/conversation.json	Wird verarbeitet ...
 copy	1	de-DE/conversation.json	Woran arbeiten wir heute?
+copy	1	de-DE/conversation.json	Worker
 copy	1	de-DE/conversation.json	Wähle ein Modell, das für das aktuelle Konto verfügbar ist und diese Anfrage unterstützt.
 copy	1	de-DE/conversation.json	Wähle pro Nachricht höchstens sechs Bilder oder Präsentationen aus.
 copy	1	de-DE/conversation.json	Zeitüberschreitung bei der Anfrage an den Modellanbieter
@@ -1459,9 +1529,16 @@ copy	1	de-DE/conversation.json	Zwischenfrage beantwortet.
 copy	1	de-DE/conversation.json	Zwischenfrage wird gestartet ...
 copy	1	de-DE/conversation.json	Zwischenfragen können keine Dateien oder DOM-Snippets enthalten.
 copy	1	de-DE/conversation.json	Zwischenfragen sind für dieses Gespräch nicht verfügbar.
+copy	1	de-DE/conversation.json	bestanden
+copy	1	de-DE/conversation.json	blockiert
 copy	1	de-DE/conversation.json	das ausgewählte Bild
 copy	1	de-DE/conversation.json	den ausgewählten Dokumenten
 copy	1	de-DE/conversation.json	die ausgewählte Präsentation
+copy	1	de-DE/conversation.json	gerade eben
+copy	1	de-DE/conversation.json	offen
+copy	1	de-DE/conversation.json	vor {{count}} Min.
+copy	1	de-DE/conversation.json	vor {{count}} Sek.
+copy	1	de-DE/conversation.json	vor {{count}} Std.
 copy	1	de-DE/conversation.json	z. B. Excel Translator
 copy	1	de-DE/conversation.json	{{count}} Bild wird lokal vorbereitet
 copy	1	de-DE/conversation.json	{{count}} Bilder werden lokal vorbereitet
@@ -1477,6 +1554,11 @@ copy	1	de-DE/conversation.json	{{count}} Treffer
 copy	1	de-DE/conversation.json	{{count}} ausgewählt
 copy	1	de-DE/conversation.json	{{count}} ausgewählte Themen exportieren?
 copy	1	de-DE/conversation.json	{{count}} ausgewählte Themen löschen?
+copy	1	de-DE/conversation.json	{{goal}} erneut versuchen
+copy	1	de-DE/conversation.json	{{goal}} fortsetzen
+copy	1	de-DE/conversation.json	{{goal}} pausieren
+copy	1	de-DE/conversation.json	{{goal}} stoppen
+copy	1	de-DE/conversation.json	{{goal}} öffnen
 copy	1	de-DE/conversation.json	{{name}} öffnen
 copy	1	de-DE/conversation.json	{{percent}} %
 copy	1	de-DE/conversation.json	{{title}} schließen
@@ -1484,7 +1566,7 @@ copy	1	de-DE/conversation.json	{{title}}, nicht gespeicherte Änderungen
 copy	2	de-DE/conversation.json	Änderungen
 copy	1	de-DE/conversation.json	Änderungen verwerfen
 copy	1	de-DE/conversation.json	Änderungen zurücksetzen
-copy	1	de-DE/conversation.json	Öffnen
+copy	2	de-DE/conversation.json	Öffnen
 copy	1	de-DE/conversation.json	Öffnen fehlgeschlagen
 copy	1	de-DE/conversation.json	Übergeordneter Ordner konnte nicht geöffnet werden
 copy	1	de-DE/conversation.json	Überprüfe Base-URL, API-Pfad, Proxy und API-Kompatibilität des Modellanbieters.
@@ -1863,81 +1945,133 @@ copy	1	de-DE/guid.json	Was ist heute dein Plan?
 copy	1	de-DE/guid.json	Zu {{agent}} gewechselt
 copy	1	de-DE/guid.json	{{from}} ist nicht verfügbar, zu {{to}} gewechselt
 copy	1	de-DE/guid.json	{{original}} ist nicht verfügbar, stattdessen wird {{fallback}} verwendet.
-copy	1	de-DE/kanban.json	Abbrechen
+copy	2	de-DE/kanban.json	Abbrechen
 copy	1	de-DE/kanban.json	Aktion fehlgeschlagen.
-copy	1	de-DE/kanban.json	Aktualisieren
+copy	2	de-DE/kanban.json	Aktualisieren
 copy	1	de-DE/kanban.json	Aktualisiert
 copy	1	de-DE/kanban.json	Aktualisiert.
 copy	1	de-DE/kanban.json	Am
-copy	1	de-DE/kanban.json	Anlegen
+copy	2	de-DE/kanban.json	Anlegen
 copy	1	de-DE/kanban.json	Anlegen fehlgeschlagen.
+copy	1	de-DE/kanban.json	Arbeitsboard
 copy	1	de-DE/kanban.json	Assets
 copy	1	de-DE/kanban.json	Audit
 copy	1	de-DE/kanban.json	Audit-Event
+copy	1	de-DE/kanban.json	Aufgabe
 copy	2	de-DE/kanban.json	Aufgaben
+copy	1	de-DE/kanban.json	Bearbeiten
+copy	1	de-DE/kanban.json	Bedienungshilfen
+copy	1	de-DE/kanban.json	Berechtigung nötig
+copy	1	de-DE/kanban.json	Berechtigungen anfragen
+copy	2	de-DE/kanban.json	Bereit
 copy	1	de-DE/kanban.json	Beschreibung
+copy	1	de-DE/kanban.json	Bildschirmaufnahme
 copy	1	de-DE/kanban.json	Blockieren
-copy	1	de-DE/kanban.json	Board
+copy	2	de-DE/kanban.json	Blockiert
+copy	2	de-DE/kanban.json	Board
 copy	1	de-DE/kanban.json	Board konnte nicht geladen werden.
+copy	1	de-DE/kanban.json	Computer Use braucht Aufmerksamkeit.
+copy	1	de-DE/kanban.json	Computer-Use-Aktion abgeschlossen.
 copy	1	de-DE/kanban.json	Controller-Entscheidung
 copy	1	de-DE/kanban.json	Controller-Review
 copy	1	de-DE/kanban.json	Das Board dieses Seats — läuft auf dem nativen Hermes-Kanban.
 copy	1	de-DE/kanban.json	Das Board ist nicht verfügbar.
 copy	1	de-DE/kanban.json	Das Board ist nur in der Desktop-App verfügbar.
+copy	1	de-DE/kanban.json	Das native Hermes-Board ist nicht verfügbar.
+copy	1	de-DE/kanban.json	Datensätze
+copy	1	de-DE/kanban.json	Dauerhafte Datensatzdetails
+copy	1	de-DE/kanban.json	Dauerhaften Datensatz anlegen
+copy	1	de-DE/kanban.json	Dauerhafter Datensatz aktualisiert.
+copy	1	de-DE/kanban.json	Dauerhafter Datensatz angelegt.
 copy	1	de-DE/kanban.json	Deine Notiz
+copy	1	de-DE/kanban.json	Desktop Use
 copy	1	de-DE/kanban.json	Details anzeigen ▾
 copy	1	de-DE/kanban.json	Details ausblenden ▴
+copy	1	de-DE/kanban.json	Die native Hermes-Aktion ist fehlgeschlagen.
 copy	1	de-DE/kanban.json	Dispatch angefragt
 copy	1	de-DE/kanban.json	Dispatcher vorbereitet
 copy	1	de-DE/kanban.json	Draft
 copy	1	de-DE/kanban.json	EVE kann eins anlegen — frag sie im Chat.
 copy	1	de-DE/kanban.json	Ein Titel ist erforderlich
+copy	1	de-DE/kanban.json	Ein Titel ist erforderlich.
 copy	1	de-DE/kanban.json	Eine Notiz ist erforderlich
 copy	1	de-DE/kanban.json	Entblocken
 copy	1	de-DE/kanban.json	Entwurf
 copy	1	de-DE/kanban.json	Entwurf-Audit
-copy	1	de-DE/kanban.json	Erledigt
+copy	1	de-DE/kanban.json	Entzugsschritte anzeigen
+copy	1	de-DE/kanban.json	Ergebnis, Kontext und Akzeptanzkriterien
+copy	2	de-DE/kanban.json	Erledigt
 copy	1	de-DE/kanban.json	Erstellt
+copy	1	de-DE/kanban.json	Erwartete SHA-256
 copy	1	de-DE/kanban.json	Executor freigegeben
 copy	1	de-DE/kanban.json	Executor promoted
 copy	1	de-DE/kanban.json	Fortschritt
 copy	1	de-DE/kanban.json	Freigabe
+copy	1	de-DE/kanban.json	Gepinnten Treiber installieren
+copy	1	de-DE/kanban.json	Gepinnter Release
+copy	1	de-DE/kanban.json	Geplant
 copy	1	de-DE/kanban.json	Governance
 copy	1	de-DE/kanban.json	Governance & Audit
 copy	1	de-DE/kanban.json	Herkunft
+copy	1	de-DE/kanban.json	Hermes computer_use über die Command-EVE-Autoritätsleiter. Capture liest nur; Klick, Eingabe und Scrollen bleiben separat gegatet.
+copy	1	de-DE/kanban.json	Hermes-Arbeitsboard
+copy	1	de-DE/kanban.json	Hermes’ dauerhaftes Kanban in diesem Seat – neben dem bestehenden Chat. Karten erzeugen keinen zweiten Chat.
 copy	1	de-DE/kanban.json	Höchste Stufe
+copy	1	de-DE/kanban.json	Identität
+copy	1	de-DE/kanban.json	In Triage starten; kein Dispatch
+copy	1	de-DE/kanban.json	Installation nötig
 copy	1	de-DE/kanban.json	Ja
 copy	1	de-DE/kanban.json	Karte
 copy	1	de-DE/kanban.json	Karte angelegt.
+copy	1	de-DE/kanban.json	Karte verschieben
 copy	1	de-DE/kanban.json	Karte verschoben.
 copy	1	de-DE/kanban.json	Karten
+copy	1	de-DE/kanban.json	Keine Datensätze
 copy	1	de-DE/kanban.json	Keine Karten
+copy	1	de-DE/kanban.json	Keine verifizierte Treiberversion
 copy	1	de-DE/kanban.json	Kommentar
 copy	1	de-DE/kanban.json	Kommentar hinzufügen
 copy	1	de-DE/kanban.json	Letzte Spalte
+copy	1	de-DE/kanban.json	Läuft
 copy	1	de-DE/kanban.json	Nein
 copy	1	de-DE/kanban.json	Neue Aufgabe
 copy	1	de-DE/kanban.json	Neue Karte
+copy	1	de-DE/kanban.json	Neuer Datensatz
+copy	1	de-DE/kanban.json	Nicht verfügbar
 copy	1	de-DE/kanban.json	Noch kein Board in diesem Seat
 copy	1	de-DE/kanban.json	Noch keine Audit-Belege verknüpft.
 copy	1	de-DE/kanban.json	Nur lesen
+copy	1	de-DE/kanban.json	Nutzeraktion nötig
 copy	1	de-DE/kanban.json	Optionale Details
+copy	1	de-DE/kanban.json	Optionales Hermes-Profil
 copy	1	de-DE/kanban.json	Output freigegeben
 copy	2	de-DE/kanban.json	Owner
+copy	1	de-DE/kanban.json	Projekt
 copy	1	de-DE/kanban.json	Proof geschrieben
 copy	1	de-DE/kanban.json	Quelle
 copy	1	de-DE/kanban.json	Recherche
-copy	1	de-DE/kanban.json	Review
-copy	1	de-DE/kanban.json	Run
+copy	1	de-DE/kanban.json	Release-Prüfsumme verifiziert
+copy	2	de-DE/kanban.json	Review
+copy	2	de-DE/kanban.json	Run
 copy	1	de-DE/kanban.json	Run beobachtet
+copy	1	de-DE/kanban.json	Session
 copy	1	de-DE/kanban.json	Spalte
-copy	1	de-DE/kanban.json	Speichern
+copy	2	de-DE/kanban.json	Speichern
 copy	1	de-DE/kanban.json	Start-Gate
+copy	1	de-DE/kanban.json	Team
 copy	1	de-DE/kanban.json	Titel
+copy	1	de-DE/kanban.json	Treiberherkunft und Doctor-Prüfungen
+copy	1	de-DE/kanban.json	Triage
 copy	1	de-DE/kanban.json	Unbekannt
 copy	1	de-DE/kanban.json	Verschieben fehlgeschlagen.
+copy	1	de-DE/kanban.json	Version
 copy	1	de-DE/kanban.json	Was ist zu tun?
+copy	1	de-DE/kanban.json	Was soll auf dem Board entstehen?
 copy	1	de-DE/kanban.json	Weiter
+copy	1	de-DE/kanban.json	Worker-Run
+copy	1	de-DE/kanban.json	Ziel
+copy	1	de-DE/kanban.json	Zu tun
+copy	1	de-DE/kanban.json	Zuweisung
 copy	1	de-DE/localRuntime.json	Abgeschlossen
 copy	1	de-DE/localRuntime.json	Aktualisieren
 copy	1	de-DE/localRuntime.json	Aktualisierung {{count}}/12
@@ -2145,6 +2279,7 @@ copy	1	de-DE/mcp.json	vor {{count}} Minuten
 copy	1	de-DE/mcp.json	vor {{count}} Stunden
 copy	1	de-DE/mcp.json	vor {{count}} Tagen
 copy	1	de-DE/messages.json	/ eingeben, um das Befehlsmenü zu öffnen
+copy	1	de-DE/messages.json	Abbrechen
 copy	1	de-DE/messages.json	Aktion wählen:
 copy	1	de-DE/messages.json	Aktuelle Unterhaltung in eine Datei oder Zwischenablage exportieren
 copy	1	de-DE/messages.json	Antwort erfolgreich gesendet
@@ -2152,6 +2287,7 @@ copy	1	de-DE/messages.json	Artefakt erstellt, aber keine Vorschauquelle übergeb
 copy	1	de-DE/messages.json	Artefakt fehlgeschlagen
 copy	1	de-DE/messages.json	Artefakt konnte nicht geöffnet werden
 copy	1	de-DE/messages.json	Artefakt konnte nicht im Ordner gezeigt werden
+copy	1	de-DE/messages.json	Artefakt öffnen
 copy	1	de-DE/messages.json	Artefakt-ID
 copy	1	de-DE/messages.json	Assistent
 copy	1	de-DE/messages.json	Audio
@@ -2169,20 +2305,26 @@ copy	1	de-DE/messages.json	Bestätigen
 copy	1	de-DE/messages.json	Bild
 copy	1	de-DE/messages.json	Bild konnte nicht geladen werden
 copy	1	de-DE/messages.json	Bildmodell erkannt, Bild-Tool wurde automatisch aktiviert. Standardmodell: {{platform}}:{{model}}
+copy	1	de-DE/messages.json	Command EVE hat keinen passenden vertrauenswürdigen Generierungsbeleg gefunden. Oberfläche und Aktionen wurden nicht gerendert.
 copy	1	de-DE/messages.json	Datei
 copy	1	de-DE/messages.json	Datei-Erwähnungen
 copy	1	de-DE/messages.json	Dateinamen eingeben
 copy	1	de-DE/messages.json	Dateiänderungen
 copy	1	de-DE/messages.json	Der Agent fordert eine Berechtigung an.
+copy	1	de-DE/messages.json	Die Aktion wurde gestoppt, weil EVE-Authority oder die Belegspeicherung nicht verfügbar war.
 copy	1	de-DE/messages.json	Die Berechtigungsantwort konnte nicht angewendet werden. Die Operation bleibt nicht freigegeben.
+copy	1	de-DE/messages.json	Die Steuerung bleibt deaktiviert, bis der kanonische Durable-Work-Transport verfügbar ist.
+copy	1	de-DE/messages.json	Die deklarative UI hat den Sicherheitsvertrag nicht erfüllt ({{code}}). Es wurde keine Komponente oder Aktion gerendert.
 copy	1	de-DE/messages.json	Diese Berechtigungsanfrage ist abgelaufen.
 copy	2	de-DE/messages.json	Diese Berechtigungsanfrage ist bereits abgeschlossen.
 copy	2	de-DE/messages.json	Diese Berechtigungsanfrage wurde abgebrochen.
 copy	1	de-DE/messages.json	Diese Berechtigungsanfrage wurde durch eine neuere ersetzt.
+copy	1	de-DE/messages.json	Diese Oberfläche konnte nicht verifiziert werden
 copy	2	de-DE/messages.json	Diese Operation wurde bereits abgelehnt.
 copy	1	de-DE/messages.json	Diese Operation wurde bereits erlaubt.
 copy	1	de-DE/messages.json	Diese exakte Operation in dieser Sitzung erlauben
 copy	1	de-DE/messages.json	Diese Änderung anwenden?
+copy	1	de-DE/messages.json	Dieses interaktive Artefakt wurde blockiert
 copy	1	de-DE/messages.json	Download erfolgreich
 copy	1	de-DE/messages.json	Download fehlgeschlagen
 copy	1	de-DE/messages.json	EVE konnte die Sicherheitsklasse dieser Operation nicht verifizieren und fragt deshalb bewusst nach. Prüfen Sie die exakte Operation vor der Freigabe.
@@ -2190,12 +2332,18 @@ copy	1	de-DE/messages.json	Eine Unterhaltung läuft gerade...
 copy	1	de-DE/messages.json	Erfolgreich kopiert
 copy	1	de-DE/messages.json	Export der Unterhaltung konnte nicht vorbereitet werden
 copy	1	de-DE/messages.json	Exportiert am
+copy	1	de-DE/messages.json	Fortsetzen
+copy	1	de-DE/messages.json	Freigabe anfragen
 copy	1	de-DE/messages.json	Für diesen Dateityp ist keine direkte Vorschau verfügbar.
+copy	1	de-DE/messages.json	Generierung durch Command EVE verifiziert
+copy	1	de-DE/messages.json	Generierungsnachweis nicht verfügbar
+copy	1	de-DE/messages.json	Generierungsnachweis wird geprüft…
 copy	1	de-DE/messages.json	HTML
 copy	1	de-DE/messages.json	Im Ordner zeigen
 copy	1	de-DE/messages.json	In Datei speichern
 copy	1	de-DE/messages.json	In Zwischenablage kopieren
 copy	1	de-DE/messages.json	In Zwischenablage kopiert
+copy	1	de-DE/messages.json	Interaktives Artefakt
 copy	1	de-DE/messages.json	Ja, Tool "{{toolName}}" vom Server "{{serverName}}" immer zulassen
 copy	1	de-DE/messages.json	Ja, einmal zulassen
 copy	1	de-DE/messages.json	Ja, immer alle Tools vom Server "{{serverName}}" zulassen
@@ -2212,13 +2360,16 @@ copy	1	de-DE/messages.json	Nein (esc)
 copy	1	de-DE/messages.json	Nicht verifizierte Operation
 copy	1	de-DE/messages.json	Noch keine Antwort zum Kopieren
 copy	1	de-DE/messages.json	Option
+copy	1	de-DE/messages.json	Pausieren
 copy	1	de-DE/messages.json	Request-ID
 copy	1	de-DE/messages.json	Senden fehlgeschlagen.
 copy	1	de-DE/messages.json	Senden fehlgeschlagen: {{reason}}
 copy	1	de-DE/messages.json	Speicherpfad
+copy	1	de-DE/messages.json	Steuerung dauerhafter Arbeit
 copy	1	de-DE/messages.json	System
 copy	1	de-DE/messages.json	Tippen, um nach Dateien zu suchen
 copy	1	de-DE/messages.json	Typ
+copy	1	de-DE/messages.json	Typisiertes interaktives Artefakt
 copy	1	de-DE/messages.json	Unbekannter Nachrichtentyp: {{type}}
 copy	1	de-DE/messages.json	Unterhaltung
 copy	1	de-DE/messages.json	Unterhaltung exportieren
@@ -2230,11 +2381,16 @@ copy	1	de-DE/messages.json	Unterhaltung konnte nicht exportiert werden
 copy	1	de-DE/messages.json	Unterhaltung konnte nicht kopiert werden
 copy	1	de-DE/messages.json	Unterhaltungs-ID
 copy	1	de-DE/messages.json	Unterhaltungsexport ist nicht verfügbar
+copy	1	de-DE/messages.json	Validierte Oberfläche wird aufgebaut…
 copy	1	de-DE/messages.json	Video
+copy	1	de-DE/messages.json	Vollansicht im Workbench öffnen
+copy	1	de-DE/messages.json	Wird geladen
 copy	1	de-DE/messages.json	Wird geladen...
 copy	1	de-DE/messages.json	Wird verarbeitet...
 copy	1	de-DE/messages.json	Wählen, wie die aktuelle Unterhaltung exportiert werden soll
 copy	1	de-DE/messages.json	conversation-export.txt
+copy	1	de-DE/messages.json	{{action}} wurde durch EVE-Authority blockiert ({{gate}}).
+copy	1	de-DE/messages.json	{{action}} wurde über EVE-Authority ausgeführt ({{gate}}).
 copy	1	de-DE/messages.json	{{count}} Dateiänderungen
 copy	1	de-DE/messages.json	{{count}} verfügbare Befehle
 copy	1	de-DE/messages.json	{{type}}-Artefakt
@@ -4593,8 +4749,14 @@ copy	1	en-US/conversation.json	A network or DNS error prevented access to the pr
 copy	1	en-US/conversation.json	A side question is already running.
 copy	1	en-US/conversation.json	API error occurred. No CLI agent available for fallback.
 copy	1	en-US/conversation.json	API error, auto-switched to {{cli}} CLI
+copy	1	en-US/conversation.json	Action accepted
+copy	1	en-US/conversation.json	Action could not be submitted
+copy	1	en-US/conversation.json	Action rejected
+copy	1	en-US/conversation.json	Action unavailable
 copy	1	en-US/conversation.json	Activation required
 copy	1	en-US/conversation.json	Activity
+copy	1	en-US/conversation.json	Activity actions
+copy	1	en-US/conversation.json	Activity unavailable
 copy	1	en-US/conversation.json	Add File
 copy	1	en-US/conversation.json	Add to chat
 copy	1	en-US/conversation.json	Added to chat
@@ -4609,6 +4771,10 @@ copy	1	en-US/conversation.json	Agent handshake timed out
 copy	1	en-US/conversation.json	Agent preset registered successfully!
 copy	1	en-US/conversation.json	Agent protocol initialization failed
 copy	1	en-US/conversation.json	Agent protocol versions are incompatible
+copy	1	en-US/conversation.json	AionCore exposes no typed pause transport for this gate
+copy	1	en-US/conversation.json	AionCore found no active agent for this turn
+copy	1	en-US/conversation.json	AionCore is waiting for user confirmation
+copy	2	en-US/conversation.json	AionCore receipt transport is unavailable
 copy	1	en-US/conversation.json	Allow OCR once
 copy	1	en-US/conversation.json	Allow cloud OCR for this PDF?
 copy	1	en-US/conversation.json	Allow visual analysis of this presentation?
@@ -4621,6 +4787,7 @@ copy	1	en-US/conversation.json	Analyzing image visually and securely
 copy	1	en-US/conversation.json	Analyzing slides visually and securely
 copy	1	en-US/conversation.json	Another response is still running. Wait for it to finish before sending a new message.
 copy	1	en-US/conversation.json	App
+copy	1	en-US/conversation.json	Approval requested
 copy	2	en-US/conversation.json	Archive
 copy	1	en-US/conversation.json	Archive failed
 copy	1	en-US/conversation.json	Archived
@@ -4680,6 +4847,7 @@ copy	1	en-US/conversation.json	Created marketing card "{{title}}" and checked it
 copy	1	en-US/conversation.json	Created marketing card "{{title}}". Its dispatch plan was not confirmed yet — please continue and approve in the Command Center.
 copy	1	en-US/conversation.json	Current Project
 copy	1	en-US/conversation.json	Current branch
+copy	1	en-US/conversation.json	Current step
 copy	2	en-US/conversation.json	Delete
 copy	2	en-US/conversation.json	Delete failed
 copy	1	en-US/conversation.json	Delete file
@@ -4697,6 +4865,7 @@ copy	1	en-US/conversation.json	Download successful
 copy	1	en-US/conversation.json	Drag files or folders here to copy them into this project.
 copy	1	en-US/conversation.json	Drag to reorder queued command
 copy	1	en-US/conversation.json	Drop to import
+copy	1	en-US/conversation.json	Durable work
 copy	1	en-US/conversation.json	EVE Cloud is available after activation.
 copy	1	en-US/conversation.json	EVE Cloud needs an internet connection.
 copy	1	en-US/conversation.json	EVE blocked sensitive data before model egress ({{count}} finding(s)).
@@ -4714,6 +4883,7 @@ copy	1	en-US/conversation.json	EVE is already preparing your file for analysis. 
 copy	1	en-US/conversation.json	EVE is preparing the local runtime. First start or model switches can take a moment.
 copy	1	en-US/conversation.json	EVE is preparing the task
 copy	1	en-US/conversation.json	EVE is ready
+copy	1	en-US/conversation.json	EVE is replying
 copy	1	en-US/conversation.json	EVE is still working. Open logs if needed or stop the request.
 copy	1	en-US/conversation.json	EVE is waiting for an approval or answer.
 copy	1	en-US/conversation.json	EVE is working
@@ -4733,6 +4903,7 @@ copy	1	en-US/conversation.json	Enter keywords to search messages
 copy	1	en-US/conversation.json	Enter new name
 copy	1	en-US/conversation.json	Error
 copy	1	en-US/conversation.json	Error code
+copy	1	en-US/conversation.json	Evidence
 copy	1	en-US/conversation.json	Existing folders
 copy	1	en-US/conversation.json	Exit Batch Mode
 copy	1	en-US/conversation.json	Export
@@ -4745,7 +4916,7 @@ copy	1	en-US/conversation.json	Export succeeded
 copy	1	en-US/conversation.json	Export {{count}} selected topics' conversation records (JSON + Markdown) and project files into one ZIP package.
 copy	1	en-US/conversation.json	Export {{count}} selected topics?
 copy	1	en-US/conversation.json	Exporting...
-copy	2	en-US/conversation.json	Failed
+copy	3	en-US/conversation.json	Failed
 copy	1	en-US/conversation.json	Failed to answer the side question.
 copy	1	en-US/conversation.json	Failed to create conversation
 copy	1	en-US/conversation.json	Failed to create fallback conversation.
@@ -4773,16 +4944,24 @@ copy	1	en-US/conversation.json	Folder removed
 copy	1	en-US/conversation.json	Folder renamed
 copy	1	en-US/conversation.json	Folder selection follows the same interaction as changing the project.
 copy	1	en-US/conversation.json	Folders
+copy	1	en-US/conversation.json	Gates
+copy	1	en-US/conversation.json	Gauntlet
 copy	1	en-US/conversation.json	Generate
 copy	1	en-US/conversation.json	Generate Skill/Rule
 copy	1	en-US/conversation.json	Generate from History
+copy	1	en-US/conversation.json	Goal
 copy	1	en-US/conversation.json	Good afternoon, {{name}}.
 copy	1	en-US/conversation.json	Good evening, {{name}}.
 copy	1	en-US/conversation.json	Good morning, {{name}}.
 copy	1	en-US/conversation.json	Got feedback or suggestions?
 copy	1	en-US/conversation.json	Got it
 copy	1	en-US/conversation.json	Hello.
+copy	1	en-US/conversation.json	Hermes exposes no typed pause transport for this receipt
+copy	1	en-US/conversation.json	Hermes exposes no typed resume transport for this receipt
+copy	1	en-US/conversation.json	Hermes owns the durable retry schedule
 copy	1	en-US/conversation.json	Hi, what's your plan for today?
+copy	1	en-US/conversation.json	Historical chat cannot authorize a live action
+copy	1	en-US/conversation.json	Historical chat is not a live receipt
 copy	1	en-US/conversation.json	Image analysis failed. The message and image remain unsent.
 copy	1	en-US/conversation.json	Image processing failed · message was not sent
 copy	1	en-US/conversation.json	Image ready · preparing analysis
@@ -4792,8 +4971,10 @@ copy	1	en-US/conversation.json	Install the missing command, or confirm it has be
 copy	1	en-US/conversation.json	Interactive EVE terminal
 copy	1	en-US/conversation.json	It's empty
 copy	1	en-US/conversation.json	Last 7 Days
+copy	1	en-US/conversation.json	Last activity: {{value}}
 copy	1	en-US/conversation.json	Last model call had no sensitive findings.
 copy	1	en-US/conversation.json	Like us? Give us a star!
+copy	1	en-US/conversation.json	Listening
 copy	1	en-US/conversation.json	Live recording is not supported here. Please upload an audio file instead
 copy	2	en-US/conversation.json	Load Rule/Skill
 copy	1	en-US/conversation.json	Loaded
@@ -4840,17 +5021,24 @@ copy	1	en-US/conversation.json	Moved to folder
 copy	1	en-US/conversation.json	Name cannot be empty
 copy	1	en-US/conversation.json	Needs attention
 copy	1	en-US/conversation.json	Needs configuration
+copy	1	en-US/conversation.json	Needs input
 copy	1	en-US/conversation.json	Network error while transcribing audio
 copy	1	en-US/conversation.json	New Chat
 copy	1	en-US/conversation.json	New chat
 copy	1	en-US/conversation.json	New chat in this project
 copy	1	en-US/conversation.json	New folder
 copy	1	en-US/conversation.json	No Q&A turns yet
+copy	1	en-US/conversation.json	No accepted wake receipt
+copy	1	en-US/conversation.json	No active AionCore turn can be cancelled
+copy	1	en-US/conversation.json	No active tool
 copy	1	en-US/conversation.json	No agents available
 copy	1	en-US/conversation.json	No artifacts yet
+copy	1	en-US/conversation.json	No authority was exposed for this state
 copy	1	en-US/conversation.json	No changes yet
 copy	1	en-US/conversation.json	No chat history
 copy	1	en-US/conversation.json	No conversation history found
+copy	1	en-US/conversation.json	No evidence reported
+copy	1	en-US/conversation.json	No gates reported
 copy	1	en-US/conversation.json	No matching content found
 copy	1	en-US/conversation.json	No matching messages found
 copy	1	en-US/conversation.json	No microphone was detected
@@ -4861,18 +5049,21 @@ copy	1	en-US/conversation.json	No project selected
 copy	1	en-US/conversation.json	No relevant files found in project
 copy	1	en-US/conversation.json	No speech was detected
 copy	1	en-US/conversation.json	No staged changes
+copy	1	en-US/conversation.json	No typed authority is available
 copy	1	en-US/conversation.json	No unstaged changes
 copy	1	en-US/conversation.json	No valid files detected. Please drag from Finder/Explorer.
 copy	1	en-US/conversation.json	None
 copy	1	en-US/conversation.json	Not connected yet
 copy	1	en-US/conversation.json	Not now
-copy	1	en-US/conversation.json	Open
+copy	1	en-US/conversation.json	Off
+copy	2	en-US/conversation.json	Open
 copy	1	en-US/conversation.json	Open Connector Catalog
 copy	1	en-US/conversation.json	Open EVE controls
 copy	2	en-US/conversation.json	Open Folder
 copy	1	en-US/conversation.json	Open project folder
 copy	1	en-US/conversation.json	Open the Command EVE log folder
 copy	1	en-US/conversation.json	Open workbench
+copy	1	en-US/conversation.json	Open {{goal}}
 copy	1	en-US/conversation.json	Open {{name}}
 copy	1	en-US/conversation.json	Original values are not shown.
 copy	1	en-US/conversation.json	PDF processing failed · message was not sent
@@ -4881,6 +5072,7 @@ copy	1	en-US/conversation.json	PDF ready · waiting for your OCR approval
 copy	1	en-US/conversation.json	PII protection off
 copy	1	en-US/conversation.json	Paste
 copy	1	en-US/conversation.json	Paste files
+copy	1	en-US/conversation.json	Pause {{goal}}
 copy	1	en-US/conversation.json	Pin
 copy	1	en-US/conversation.json	Pin operation failed
 copy	2	en-US/conversation.json	Pinned
@@ -4912,11 +5104,12 @@ copy	1	en-US/conversation.json	Project actions
 copy	1	en-US/conversation.json	Project files
 copy	1	en-US/conversation.json	Project name
 copy	1	en-US/conversation.json	Projects
+copy	1	en-US/conversation.json	Provider not responding – retrying
 copy	1	en-US/conversation.json	Push as correction now
 copy	1	en-US/conversation.json	Push into the current run after the next tool step.
 copy	1	en-US/conversation.json	Queue data is too large to persist safely. Remove some queued commands first.
 copy	1	en-US/conversation.json	Queue is full. Remove a command before adding more.
-copy	1	en-US/conversation.json	Queued
+copy	2	en-US/conversation.json	Queued
 copy	1	en-US/conversation.json	Queued Commands
 copy	1	en-US/conversation.json	Queued commands cannot be empty.
 copy	1	en-US/conversation.json	Read aloud
@@ -4926,7 +5119,11 @@ copy	1	en-US/conversation.json	Reading file timed out. Please retry.
 copy	1	en-US/conversation.json	Reading {{count}} PDF locally
 copy	1	en-US/conversation.json	Reading {{count}} PDFs locally
 copy	3	en-US/conversation.json	Ready
+copy	1	en-US/conversation.json	Ready – recording starts only after a click
+copy	1	en-US/conversation.json	Receipts
 copy	1	en-US/conversation.json	Recents
+copy	1	en-US/conversation.json	Reconnect unavailable
+copy	1	en-US/conversation.json	Reconstructed from persistent receipts
 copy	1	en-US/conversation.json	Reduce the message content, referenced files, or context size, then retry.
 copy	2	en-US/conversation.json	Refresh
 copy	1	en-US/conversation.json	Remove
@@ -4954,17 +5151,21 @@ copy	1	en-US/conversation.json	Response streaming
 copy	1	en-US/conversation.json	Restart or reconnect the selected agent, then retry.
 copy	1	en-US/conversation.json	Restore
 copy	1	en-US/conversation.json	Restored
+copy	1	en-US/conversation.json	Resume {{goal}}
 copy	1	en-US/conversation.json	Retry later, or send this message again.
 copy	1	en-US/conversation.json	Retry transcription (your recording is kept)
+copy	1	en-US/conversation.json	Retry {{goal}}
 copy	1	en-US/conversation.json	Retryable
+copy	1	en-US/conversation.json	Retrying in {{seconds}}s ({{attempt}}/{{maxAttempts}})
 copy	1	en-US/conversation.json	Return to chat
 copy	1	en-US/conversation.json	Revert Changes
 copy	1	en-US/conversation.json	Review
 copy	1	en-US/conversation.json	Rule (JSON/MD)
 copy	1	en-US/conversation.json	Rule loaded successfully
-copy	1	en-US/conversation.json	Running
+copy	2	en-US/conversation.json	Running
 copy	1	en-US/conversation.json	Runtime error
 copy	2	en-US/conversation.json	Save
+copy	1	en-US/conversation.json	Scheduled task
 copy	1	en-US/conversation.json	Search
 copy	1	en-US/conversation.json	Search and activate community Skills on demand. Configure once, available for all agents.
 copy	1	en-US/conversation.json	Search conversation
@@ -4991,28 +5192,35 @@ copy	1	en-US/conversation.json	Side question answered.
 copy	1	en-US/conversation.json	Side questions are not available for this conversation.
 copy	1	en-US/conversation.json	Side questions cannot include files or DOM snippets.
 copy	1	en-US/conversation.json	Skill (Python)
+copy	1	en-US/conversation.json	Speaking
 copy	1	en-US/conversation.json	Speech-to-text is not configured yet
 copy	1	en-US/conversation.json	Stage
 copy	1	en-US/conversation.json	Stage All Changes
 copy	1	en-US/conversation.json	Staged Changes
+copy	1	en-US/conversation.json	Stalled
 copy	1	en-US/conversation.json	Start a new conversation before continuing.
 copy	1	en-US/conversation.json	Start a task or open an existing chat.
 copy	1	en-US/conversation.json	Start voice input
-copy	1	en-US/conversation.json	Starting
+copy	2	en-US/conversation.json	Starting
 copy	1	en-US/conversation.json	Starting side question...
 copy	1	en-US/conversation.json	Stop
 copy	1	en-US/conversation.json	Stop reading
 copy	1	en-US/conversation.json	Stop recording
-copy	1	en-US/conversation.json	Subagent
+copy	1	en-US/conversation.json	Stop {{goal}}
+copy	1	en-US/conversation.json	Stopped
+copy	2	en-US/conversation.json	Subagent
 copy	1	en-US/conversation.json	Subagent {{number}}
 copy	1	en-US/conversation.json	Subagents
+copy	1	en-US/conversation.json	Succeeded
 copy	1	en-US/conversation.json	Suggestion:
+copy	1	en-US/conversation.json	Supergoal
 copy	1	en-US/conversation.json	Switched to {{agent}}
 copy	1	en-US/conversation.json	Switched to {{model}}.
 copy	1	en-US/conversation.json	Target folder
 copy	1	en-US/conversation.json	Tell EVE what you want to achieve ...
 copy	1	en-US/conversation.json	Temporary Space
 copy	2	en-US/conversation.json	Terminal
+copy	1	en-US/conversation.json	The AionCore turn changed before the stop request arrived
 copy	1	en-US/conversation.json	The Command EVE marketing command failed.
 copy	1	en-US/conversation.json	The Command EVE marketing loop is only available in the desktop app.
 copy	1	en-US/conversation.json	The agent cannot resume the previous session. Start a new conversation to continue.
@@ -5026,6 +5234,7 @@ copy	1	en-US/conversation.json	The agent session was lost
 copy	1	en-US/conversation.json	The app accepted your message but the response stream ended unexpectedly. Please retry; if it happens again, send feedback.
 copy	1	en-US/conversation.json	The app could not initialize the Agent Client Protocol session with this agent. Check the agent version and reconnect.
 copy	1	en-US/conversation.json	The app received an upstream error but could not classify it confidently. Review the details below or send feedback.
+copy	1	en-US/conversation.json	The child worker outcome is not typed
 copy	1	en-US/conversation.json	The configured agent command could not be found. Install it or update the command path in settings.
 copy	1	en-US/conversation.json	The conversation state is out of sync. Restart this chat or reload the app before retrying.
 copy	1	en-US/conversation.json	The correction could not be pushed into the current run.
@@ -5034,8 +5243,11 @@ copy	1	en-US/conversation.json	The current Agent failed to run in this workspace
 copy	1	en-US/conversation.json	The current model quota is exhausted. Switch to {{model}} to continue?
 copy	1	en-US/conversation.json	The current run is not ready for a correction yet.
 copy	1	en-US/conversation.json	The current task is still running.
+copy	1	en-US/conversation.json	The durable delivery outcome is explicitly unknown
 copy	1	en-US/conversation.json	The marketing card could not be created.
 copy	1	en-US/conversation.json	The next queued command could not start. Edit, reorder, or remove it to continue.
+copy	1	en-US/conversation.json	The persisted receipt is not bound to a live AionCore turn
+copy	1	en-US/conversation.json	The persistent adapter returned no matching receipt state for this conversation.
 copy	1	en-US/conversation.json	The privacy filter is off — click to turn it back on in settings.
 copy	1	en-US/conversation.json	The provider account does not have permission for this model or operation. Check account permissions or choose another model.
 copy	1	en-US/conversation.json	The provider completed the request without usable content. Retry once or switch providers if it repeats.
@@ -5049,6 +5261,7 @@ copy	1	en-US/conversation.json	The provider request could not be built from the 
 copy	1	en-US/conversation.json	The provider returned a gateway or service error. Retry later or use another provider.
 copy	1	en-US/conversation.json	The request exceeds the model context limit. Reduce message content, referenced files, or conversation history, then retry.
 copy	1	en-US/conversation.json	The request failed while the app was processing it. Please retry once; if it repeats, send feedback.
+copy	1	en-US/conversation.json	The running reply could not be stopped. Your microphone state is unchanged.
 copy	1	en-US/conversation.json	The search result is empty
 copy	1	en-US/conversation.json	The selected agent could not complete its startup handshake. Restart or reconnect the agent, then retry.
 copy	1	en-US/conversation.json	The selected agent did not finish its startup handshake in time. Check whether it is still starting or blocked, then retry.
@@ -5068,7 +5281,9 @@ copy	1	en-US/conversation.json	The side question did not have a clear answer in 
 copy	1	en-US/conversation.json	The upstream agent or provider failed
 copy	2	en-US/conversation.json	Thinking...
 copy	1	en-US/conversation.json	This agent cannot handle the requested operation. Try another agent or update the current one.
+copy	1	en-US/conversation.json	This gate requires the existing user confirmation path
 copy	1	en-US/conversation.json	This queued command is too long. Shorten it before sending.
+copy	1	en-US/conversation.json	This receipt does not expose a retry action
 copy	1	en-US/conversation.json	This request hit the model's output token limit before any visible reply was produced.
 copy	1	en-US/conversation.json	This request hit the model's request limit before any visible reply was produced.
 copy	1	en-US/conversation.json	This request produced no visible reply.
@@ -5084,11 +5299,15 @@ copy	1	en-US/conversation.json	Tool schema was rejected by the provider
 copy	1	en-US/conversation.json	Tool: {{tool}}
 copy	1	en-US/conversation.json	Tools
 copy	1	en-US/conversation.json	Transcribing audio...
+copy	1	en-US/conversation.json	Transcribing locally
 copy	1	en-US/conversation.json	Try another agent:
 copy	1	en-US/conversation.json	Turn MAX on — full thinking power for hard tasks.
 copy	1	en-US/conversation.json	Turn off
 copy	1	en-US/conversation.json	Turn off PII protection for this seat? Sensitive data (address, IBAN, health, finance) will then go to the model unredacted.
+copy	1	en-US/conversation.json	Turn off voice dialogue
+copy	1	en-US/conversation.json	Turn on voice dialogue
 copy	1	en-US/conversation.json	Type / for commands, @ to reference files
+copy	1	en-US/conversation.json	Unknown
 copy	1	en-US/conversation.json	Unknown model
 copy	1	en-US/conversation.json	Unlock MAX
 copy	1	en-US/conversation.json	Unpin
@@ -5101,6 +5320,7 @@ copy	1	en-US/conversation.json	Update the agent, or fix the protocol version inc
 copy	1	en-US/conversation.json	Update the queued command before it runs.
 copy	1	en-US/conversation.json	Upload Files
 copy	1	en-US/conversation.json	Upstream
+copy	1	en-US/conversation.json	Uses the existing approval path
 copy	1	en-US/conversation.json	VS Code
 copy	1	en-US/conversation.json	View More >>
 copy	1	en-US/conversation.json	Vision could not be enabled. Draft and files are preserved.
@@ -5108,18 +5328,34 @@ copy	1	en-US/conversation.json	Vision is currently unavailable for this seat. Th
 copy	1	en-US/conversation.json	Vision stays off, so the image was not sent. You can enable Vision any time under Settings → Privacy.
 copy	1	en-US/conversation.json	Vision stays off, so the image was not sent. Your decision could not be saved and will be asked again for the next image.
 copy	1	en-US/conversation.json	Visual slide analysis failed. The message and presentation remain unsent.
+copy	1	en-US/conversation.json	Voice dialogue unavailable
 copy	1	en-US/conversation.json	Voice input failed. Please try again
 copy	1	en-US/conversation.json	Voice input is not available in this environment
 copy	1	en-US/conversation.json	Wait for the current response to finish before sending another message.
+copy	1	en-US/conversation.json	Waiting
+copy	1	en-US/conversation.json	Waiting for the provider's first response
+copy	1	en-US/conversation.json	Wake delivery accepted
+copy	1	en-US/conversation.json	Wake delivery already applied
+copy	1	en-US/conversation.json	Wake delivery is known; the child worker outcome is not typed
+copy	1	en-US/conversation.json	Wake delivery outcome explicitly unknown
+copy	1	en-US/conversation.json	Wake delivery rejected
+copy	1	en-US/conversation.json	Wake delivery will retry
+copy	1	en-US/conversation.json	Wake receipt accepted
 copy	1	en-US/conversation.json	What are we working on today?
 copy	1	en-US/conversation.json	What can Command EVE do?
 copy	1	en-US/conversation.json	Workbench left, chat right
+copy	1	en-US/conversation.json	Worker
 copy	1	en-US/conversation.json	Working
 copy	1	en-US/conversation.json	Yesterday
 copy	1	en-US/conversation.json	Your choice is remembered and will be applied as soon as your entitlement is confirmed.
 copy	1	en-US/conversation.json	Your decision is needed
+copy	1	en-US/conversation.json	blocked
 copy	1	en-US/conversation.json	context used
 copy	1	en-US/conversation.json	e.g. Excel Translator
+copy	1	en-US/conversation.json	just now
+copy	1	en-US/conversation.json	needs input
+copy	1	en-US/conversation.json	passed
+copy	1	en-US/conversation.json	pending
 copy	1	en-US/conversation.json	process exited
 copy	1	en-US/conversation.json	the selected documents
 copy	1	en-US/conversation.json	the selected image
@@ -5130,6 +5366,9 @@ copy	1	en-US/conversation.json	{{count}} finding(s)
 copy	1	en-US/conversation.json	{{count}} selected
 copy	1	en-US/conversation.json	{{count}} topics deleted
 copy	1	en-US/conversation.json	{{count}} turns
+copy	1	en-US/conversation.json	{{count}}h ago
+copy	1	en-US/conversation.json	{{count}}m ago
+copy	1	en-US/conversation.json	{{count}}s ago
 copy	1	en-US/conversation.json	{{percent}}%
 copy	1	en-US/conversation.json	{{title}}, unsaved changes
 copy	1	en-US/credits.json	+{{n}} bonus
@@ -5506,16 +5745,20 @@ copy	1	en-US/guid.json	{{from}} is not available, switched to {{to}}
 copy	1	en-US/guid.json	{{original}} is unavailable, using {{fallback}} instead.
 copy	1	en-US/kanban.json	A note is required
 copy	1	en-US/kanban.json	A title is required
+copy	1	en-US/kanban.json	A title is required.
+copy	1	en-US/kanban.json	Accessibility
 copy	1	en-US/kanban.json	Action failed.
 copy	1	en-US/kanban.json	Add comment
 copy	1	en-US/kanban.json	Approval
 copy	1	en-US/kanban.json	Assets
+copy	1	en-US/kanban.json	Assignee
 copy	1	en-US/kanban.json	At
 copy	1	en-US/kanban.json	Audit
 copy	1	en-US/kanban.json	Audit event
 copy	1	en-US/kanban.json	Block
-copy	1	en-US/kanban.json	Board
-copy	1	en-US/kanban.json	Cancel
+copy	2	en-US/kanban.json	Blocked
+copy	2	en-US/kanban.json	Board
+copy	2	en-US/kanban.json	Cancel
 copy	1	en-US/kanban.json	Card
 copy	1	en-US/kanban.json	Card created.
 copy	1	en-US/kanban.json	Card moved.
@@ -5523,58 +5766,107 @@ copy	1	en-US/kanban.json	Cards
 copy	1	en-US/kanban.json	Column
 copy	1	en-US/kanban.json	Comment
 copy	1	en-US/kanban.json	Complete
+copy	1	en-US/kanban.json	Computer Use action completed.
+copy	1	en-US/kanban.json	Computer Use needs attention.
 copy	1	en-US/kanban.json	Controller decision
 copy	1	en-US/kanban.json	Controller review
 copy	1	en-US/kanban.json	Could not load the board.
-copy	1	en-US/kanban.json	Create
+copy	2	en-US/kanban.json	Create
+copy	1	en-US/kanban.json	Create durable record
 copy	1	en-US/kanban.json	Create failed.
 copy	1	en-US/kanban.json	Created
 copy	1	en-US/kanban.json	Description
+copy	1	en-US/kanban.json	Desktop Use
 copy	1	en-US/kanban.json	Dispatch requested
 copy	1	en-US/kanban.json	Dispatcher prepared
+copy	1	en-US/kanban.json	Done
 copy	2	en-US/kanban.json	Draft
 copy	1	en-US/kanban.json	Draft audit
+copy	1	en-US/kanban.json	Driver provenance and doctor checks
+copy	1	en-US/kanban.json	Durable record created.
+copy	1	en-US/kanban.json	Durable record details
+copy	1	en-US/kanban.json	Durable record updated.
 copy	1	en-US/kanban.json	EVE can create one — ask her in the chat.
+copy	1	en-US/kanban.json	Edit
 copy	2	en-US/kanban.json	Executor promoted
+copy	1	en-US/kanban.json	Expected SHA-256
 copy	1	en-US/kanban.json	Final lane
+copy	1	en-US/kanban.json	Goal
 copy	1	en-US/kanban.json	Governance
 copy	1	en-US/kanban.json	Governance & audit
+copy	1	en-US/kanban.json	Hermes computer_use through the Command EVE authority ladder. Capture is read-only; click, type and scroll remain separately gated.
+copy	1	en-US/kanban.json	Hermes work board
+copy	1	en-US/kanban.json	Hermes' durable Kanban in this seat, beside the existing chat. Cards never create a second conversation.
 copy	1	en-US/kanban.json	Hide details ▴
 copy	1	en-US/kanban.json	Highest stage
+copy	1	en-US/kanban.json	Identity
+copy	1	en-US/kanban.json	Install pinned driver
+copy	1	en-US/kanban.json	Move card
 copy	1	en-US/kanban.json	Move failed.
+copy	1	en-US/kanban.json	Needs install
+copy	1	en-US/kanban.json	Needs permission
+copy	1	en-US/kanban.json	Needs user
 copy	1	en-US/kanban.json	New card
+copy	1	en-US/kanban.json	New record
 copy	1	en-US/kanban.json	New task
 copy	1	en-US/kanban.json	Next
 copy	1	en-US/kanban.json	No
 copy	1	en-US/kanban.json	No audit records linked yet.
 copy	1	en-US/kanban.json	No board in this seat yet
 copy	1	en-US/kanban.json	No cards
+copy	1	en-US/kanban.json	No records
+copy	1	en-US/kanban.json	No verified driver version
 copy	1	en-US/kanban.json	Observed run
+copy	1	en-US/kanban.json	Optional Hermes profile
 copy	1	en-US/kanban.json	Optional details
 copy	1	en-US/kanban.json	Origin
+copy	1	en-US/kanban.json	Outcome, context and acceptance criteria
 copy	1	en-US/kanban.json	Output approved
 copy	2	en-US/kanban.json	Owner
+copy	1	en-US/kanban.json	Pinned release
 copy	1	en-US/kanban.json	Progress
+copy	1	en-US/kanban.json	Project
 copy	1	en-US/kanban.json	Proof recorded
 copy	1	en-US/kanban.json	Read-only
-copy	1	en-US/kanban.json	Refresh
+copy	2	en-US/kanban.json	Ready
+copy	1	en-US/kanban.json	Records
+copy	2	en-US/kanban.json	Refresh
+copy	1	en-US/kanban.json	Release checksum verified
+copy	1	en-US/kanban.json	Request permissions
 copy	1	en-US/kanban.json	Research
-copy	1	en-US/kanban.json	Review
-copy	1	en-US/kanban.json	Run
-copy	1	en-US/kanban.json	Save
+copy	2	en-US/kanban.json	Review
+copy	2	en-US/kanban.json	Run
+copy	1	en-US/kanban.json	Running
+copy	2	en-US/kanban.json	Save
+copy	1	en-US/kanban.json	Scheduled
+copy	1	en-US/kanban.json	Screen Recording
+copy	1	en-US/kanban.json	Session
 copy	1	en-US/kanban.json	Show details ▾
+copy	1	en-US/kanban.json	Show revoke steps
 copy	1	en-US/kanban.json	Source
 copy	1	en-US/kanban.json	Start gate
+copy	1	en-US/kanban.json	Start in triage; do not dispatch
+copy	1	en-US/kanban.json	Task
 copy	2	en-US/kanban.json	Tasks
+copy	1	en-US/kanban.json	Team
 copy	1	en-US/kanban.json	The board is only available in the desktop app.
 copy	1	en-US/kanban.json	The board is unavailable.
+copy	1	en-US/kanban.json	The native Hermes board is unavailable.
+copy	1	en-US/kanban.json	The native Hermes operation failed.
 copy	1	en-US/kanban.json	This seat's board — runs on the native Hermes kanban.
 copy	1	en-US/kanban.json	Title
+copy	1	en-US/kanban.json	To do
+copy	1	en-US/kanban.json	Triage
+copy	1	en-US/kanban.json	Unavailable
 copy	1	en-US/kanban.json	Unblock
 copy	1	en-US/kanban.json	Unknown
 copy	1	en-US/kanban.json	Updated
 copy	1	en-US/kanban.json	Updated.
+copy	1	en-US/kanban.json	Version
 copy	1	en-US/kanban.json	What needs doing?
+copy	1	en-US/kanban.json	What should exist on the board?
+copy	1	en-US/kanban.json	Work board
+copy	1	en-US/kanban.json	Worker run
 copy	1	en-US/kanban.json	Yes
 copy	1	en-US/kanban.json	Your note
 copy	1	en-US/localRuntime.json	A bundled component doesn't fit your system. This isn't your fault — reinstalling Command EVE fixes it. We never hand you a terminal command here.
@@ -5794,11 +6086,15 @@ copy	1	en-US/messages.json	Artifact failed
 copy	1	en-US/messages.json	Assistant
 copy	1	en-US/messages.json	Audio
 copy	1	en-US/messages.json	Auto handling permission request: {{request}}
+copy	1	en-US/messages.json	Building the validated interface…
+copy	1	en-US/messages.json	Cancel
 copy	1	en-US/messages.json	Choose an action:
 copy	1	en-US/messages.json	Choose how to export the current conversation
+copy	1	en-US/messages.json	Command EVE did not find a matching trusted generation receipt. No interface or action was rendered.
 copy	1	en-US/messages.json	Command:
 copy	1	en-US/messages.json	Commands
 copy	1	en-US/messages.json	Confirm
+copy	1	en-US/messages.json	Controls are disabled until the canonical Durable Work transport is available.
 copy	1	en-US/messages.json	Conversation
 copy	1	en-US/messages.json	Conversation ID
 copy	1	en-US/messages.json	Conversation copied to clipboard
@@ -5811,6 +6107,7 @@ copy	1	en-US/messages.json	Copy the conversation to your system clipboard
 copy	1	en-US/messages.json	Copy to clipboard
 copy	1	en-US/messages.json	Do you want to proceed?
 copy	1	en-US/messages.json	Download successful
+copy	1	en-US/messages.json	Durable work controls
 copy	1	en-US/messages.json	EVE could not verify this operation's safety class, so it asks by design. Review the exact operation before allowing it.
 copy	1	en-US/messages.json	Enter filename
 copy	1	en-US/messages.json	Execution canceled
@@ -5829,9 +6126,14 @@ copy	1	en-US/messages.json	Failed to show artifact in folder
 copy	1	en-US/messages.json	File
 copy	1	en-US/messages.json	File Changes
 copy	1	en-US/messages.json	File mentions
+copy	1	en-US/messages.json	Generation evidence unavailable
+copy	1	en-US/messages.json	Generation verified by Command EVE
 copy	1	en-US/messages.json	HTML
 copy	1	en-US/messages.json	Image
 copy	1	en-US/messages.json	Image model detected, image tool has been automatically enabled. Default model: {{platform}}:{{model}}
+copy	1	en-US/messages.json	Interactive artifact
+copy	1	en-US/messages.json	Its declarative UI did not pass the safety contract ({{code}}). No component or action was rendered.
+copy	1	en-US/messages.json	Loading
 copy	1	en-US/messages.json	Loading...
 copy	1	en-US/messages.json	No (esc)
 copy	1	en-US/messages.json	No commands found
@@ -5839,13 +6141,18 @@ copy	1	en-US/messages.json	No messages
 copy	1	en-US/messages.json	No options available
 copy	1	en-US/messages.json	No response to copy yet
 copy	1	en-US/messages.json	Open
+copy	1	en-US/messages.json	Open artifact
+copy	1	en-US/messages.json	Open full view in Workbench
 copy	1	en-US/messages.json	Option
+copy	1	en-US/messages.json	Pause
 copy	1	en-US/messages.json	Permission Request
 copy	1	en-US/messages.json	Processing...
 copy	1	en-US/messages.json	Receipt
 copy	1	en-US/messages.json	Receipt file
 copy	1	en-US/messages.json	Request ID
+copy	1	en-US/messages.json	Request approval
 copy	1	en-US/messages.json	Response sent successfully
+copy	1	en-US/messages.json	Resume
 copy	1	en-US/messages.json	Save path
 copy	1	en-US/messages.json	Save the conversation to a file in the current project
 copy	1	en-US/messages.json	Save to file
@@ -5854,8 +6161,11 @@ copy	1	en-US/messages.json	Sending failed.
 copy	1	en-US/messages.json	Sending failed: {{reason}}
 copy	1	en-US/messages.json	Show in folder
 copy	1	en-US/messages.json	System
+copy	1	en-US/messages.json	The action was stopped because EVE authority or receipt persistence was unavailable.
 copy	1	en-US/messages.json	The agent is requesting permission.
 copy	1	en-US/messages.json	The permission response could not be applied. The operation remains unapproved.
+copy	1	en-US/messages.json	This interactive artifact was blocked
+copy	1	en-US/messages.json	This interface could not be verified
 copy	1	en-US/messages.json	This operation was already allowed.
 copy	1	en-US/messages.json	This operation was already denied.
 copy	1	en-US/messages.json	This operation was already rejected.
@@ -5868,15 +6178,19 @@ copy	1	en-US/messages.json	This permission request was replaced by a newer reque
 copy	1	en-US/messages.json	Type
 copy	1	en-US/messages.json	Type / to open command menu
 copy	1	en-US/messages.json	Type to search for files
+copy	1	en-US/messages.json	Typed interactive artifact
 copy	1	en-US/messages.json	Unknown message type: {{type}}
 copy	1	en-US/messages.json	Unverified operation
 copy	1	en-US/messages.json	User
+copy	1	en-US/messages.json	Verifying generation evidence…
 copy	1	en-US/messages.json	Video
 copy	1	en-US/messages.json	Yes, allow always
 copy	1	en-US/messages.json	Yes, allow once
 copy	1	en-US/messages.json	Yes, always allow all tools from server "{{serverName}}"
 copy	1	en-US/messages.json	Yes, always allow tool "{{toolName}}" from server "{{serverName}}"
 copy	1	en-US/messages.json	conversation-export.txt
+copy	1	en-US/messages.json	{{action}} completed through EVE authority ({{gate}}).
+copy	1	en-US/messages.json	{{action}} was blocked by EVE authority ({{gate}}).
 copy	1	en-US/messages.json	{{count}} Available Commands
 copy	1	en-US/messages.json	{{count}} File Changes
 copy	1	en-US/messages.json	{{type}} artifact

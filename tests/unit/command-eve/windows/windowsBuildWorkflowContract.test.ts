@@ -209,6 +209,7 @@ describe('Command EVE Windows build workflow contract', () => {
   it('parses the PowerShell harness and keeps proof postinstall failures fatal', () => {
     const reusable = read('.github/workflows/_build-reusable.yml');
     const builderScript = read('scripts/build-with-builder.js');
+    const builderPolicy = read('scripts/buildWithBuilderConfigCore.cjs');
     const harness = read('scripts/windows/run-phase-a-proof.ps1');
     const sharedBuilderConfig = YAML.parse(read('packages/desktop/electron-builder.yml')) as {
       publish?: { provider?: string; url?: string; publishAutoUpdate?: boolean };
@@ -228,7 +229,8 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(reusable).toContain('-RestartBootstrapTimeoutSeconds 600');
     expect(reusable).toContain('Scope Defender exclusions to ephemeral proof paths');
     expect(reusable).toContain('COMMAND_EVE_PHASE_A_UNSIGNED_BUILD');
-    expect(builderScript).toContain('packages/desktop/electron-builder.phase-a.yml');
+    expect(builderScript).toContain("require('./buildWithBuilderConfigCore.cjs')");
+    expect(builderPolicy).toContain("'packages/desktop/electron-builder.phase-a.yml'");
     expect(builderScript).toContain("const publishArg = '--publish=never'");
     expect(builderScript).not.toContain('--config.publishAutoUpdate');
     expect(builderScript).not.toContain('--config.extraMetadata.commandEvePhaseAUnsignedProof');

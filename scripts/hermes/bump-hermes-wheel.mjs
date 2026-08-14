@@ -7,6 +7,7 @@
  *   node scripts/hermes/bump-hermes-wheel.mjs \
  *     --version 0.20.0 \
  *     --wheel /path/to/hermes_agent-0.20.0-py3-none-any.whl \
+ *     [--repin] \
  *     [--dry-run]
  *
  * The SHA-256 is computed FROM THE WHEEL FILE — it is deliberately not an
@@ -25,11 +26,12 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');
 
 function parseArgs(argv) {
-  const args = { version: '', wheel: '', dryRun: false, help: false };
+  const args = { version: '', wheel: '', repin: false, dryRun: false, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--version' || arg === '-v') args.version = argv[++index] || '';
     else if (arg === '--wheel' || arg === '-w') args.wheel = argv[++index] || '';
+    else if (arg === '--repin') args.repin = true;
     else if (arg === '--dry-run') args.dryRun = true;
     else if (arg === '--help' || arg === '-h') args.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
@@ -39,11 +41,13 @@ function parseArgs(argv) {
 
 function usage() {
   return `Usage:
-  node scripts/hermes/bump-hermes-wheel.mjs --version <X.Y.Z> --wheel <hermes_agent-X.Y.Z-py3-none-any.whl> [--dry-run]
+  node scripts/hermes/bump-hermes-wheel.mjs --version <X.Y.Z> --wheel <hermes_agent-X.Y.Z-py3-none-any.whl> [--repin] [--dry-run]
 
 Flips every Hermes version carrier + the committed wheel SHA-256 pin, swaps the
 bundled wheel under resources/bundled-hermes/, and verifies no old-version
-residue remains. Aborts loudly on any manifest drift. --dry-run plans only.`;
+residue remains. --repin explicitly permits replacing reviewed wheel bytes at
+the already-pinned version without rewriting version carriers. Aborts loudly
+on any manifest drift. --dry-run plans only.`;
 }
 
 function main() {
@@ -56,8 +60,11 @@ function main() {
     repoRoot: REPO_ROOT,
     targetVersion: args.version,
     wheelPath: path.resolve(args.wheel),
+    allowSameVersionRepin: args.repin,
   });
-  console.log(`Hermes bump plan: ${plan.oldVersion} -> ${plan.targetVersion}`);
+  console.log(
+    `Hermes bump plan: ${plan.oldVersion} -> ${plan.targetVersion}${plan.sameVersionRepin ? ' (same-version repin)' : ''}`
+  );
   console.log(`  wheel sha256 (computed): ${plan.newSha256}`);
   const result = applyHermesWheelBump(plan, { dryRun: args.dryRun });
   for (const action of result.actions) {

@@ -7,6 +7,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  COMMAND_EVE_HERMES_LOCALES,
   COMMAND_EVE_HERMES_WHEEL,
   COMMAND_EVE_PRESENTATION_PYTHON_WHEELS,
   COMMAND_EVE_PUBLIC_KEY_FILES,
@@ -44,6 +45,9 @@ describe('packaged Command EVE resource truth', () => {
       path.resolve(`resources/bundled-hermes/${COMMAND_EVE_HERMES_WHEEL.filename}`),
       path.join(resourcesPath, 'bundled-hermes', COMMAND_EVE_HERMES_WHEEL.filename)
     );
+    fs.cpSync(path.resolve('resources/bundled-hermes/locales'), path.join(resourcesPath, 'bundled-hermes', 'locales'), {
+      recursive: true,
+    });
     const runnerRoot = path.join(resourcesPath, 'bundled-hermes', 'uvx', 'aarch64-apple-darwin');
     fs.mkdirSync(runnerRoot, { recursive: true });
     const runnerPath = path.join(runnerRoot, 'uvx');
@@ -169,12 +173,8 @@ describe('packaged Command EVE resource truth', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  const listArchiveEntriesWithReviewedAdapter = (archive: string) => {
-    const entries = execFileSync('/usr/bin/unzip', ['-Z1', archive], { encoding: 'utf8' })
-      .split(/\r?\n/)
-      .filter(Boolean);
-    return archive.endsWith(COMMAND_EVE_HERMES_WHEEL.filename) ? [...entries, 'tools/browser_use_cli.py'] : entries;
-  };
+  const listArchiveEntries = (archive: string) =>
+    execFileSync('/usr/bin/unzip', ['-Z1', archive], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
 
   const verify = (overrides = {}, injected = {}) =>
     verifyPackagedCommandEveResources(
@@ -189,7 +189,7 @@ describe('packaged Command EVE resource truth', () => {
       },
       {
         readArchitectures: () => ['arm64'],
-        listArchiveEntries: listArchiveEntriesWithReviewedAdapter,
+        listArchiveEntries,
         ...injected,
       }
     );
@@ -313,15 +313,27 @@ describe('packaged Command EVE resource truth', () => {
       native_entries: 0,
     });
     expect(result.hermes_wheel.bytes).toBeGreaterThan(0);
+    expect(result.hermes_locales).toMatchObject({
+      source_commit: COMMAND_EVE_HERMES_LOCALES.source_commit,
+      count: 17,
+    });
+    expect(result.hermes_locales.files.map((entry) => entry.file)).toEqual(
+      Object.keys(COMMAND_EVE_HERMES_LOCALES.files).toSorted()
+    );
   });
 
-  it('rejects the current wheel when it lacks the reviewed Browser Use adapter', () => {
+  it('accepts the reviewed Browser Use adapter from the real Hermes wheel', () => {
+    const result = verify();
+    expect(result.hermes_wheel.required_entries).toEqual(COMMAND_EVE_HERMES_WHEEL.required_entries);
+  });
+
+  it('rejects a Hermes wheel listing that lacks the reviewed Browser Use adapter', () => {
     expect(() =>
       verify(
         {},
         {
           listArchiveEntries: (archive: string) =>
-            execFileSync('/usr/bin/unzip', ['-Z1', archive], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean),
+            archive.endsWith(COMMAND_EVE_HERMES_WHEEL.filename) ? ['agent/__init__.py'] : listArchiveEntries(archive),
         }
       )
     ).toThrow(/reviewed Hermes wheel is missing required Browser Use adapter entries/);
@@ -339,6 +351,16 @@ describe('packaged Command EVE resource truth', () => {
     fs.appendFileSync(path.join(resourcesPath, 'bundled-hermes', COMMAND_EVE_HERMES_WHEEL.filename), 'tampered');
 
     expect(() => verify()).toThrow(/hermes_agent-.*failed its SHA-256 pin/);
+  });
+
+  it('fails closed when a managed Hermes locale is missing or differs from its source pin', () => {
+    const localePath = path.join(resourcesPath, 'bundled-hermes', 'locales', 'de.yaml');
+    fs.appendFileSync(localePath, 'tampered');
+    expect(() => verify()).toThrow(/Hermes locale de\.yaml failed its SHA-256 pin/);
+
+    fs.copyFileSync(path.resolve('resources/bundled-hermes/locales/de.yaml'), localePath);
+    fs.rmSync(path.join(resourcesPath, 'bundled-hermes', 'locales', 'af.yaml'));
+    expect(() => verify()).toThrow(/Hermes locale set mismatch/);
   });
 
   it('rejects a Hermes wheel that contains a native binary — the notarization tripwire', () => {

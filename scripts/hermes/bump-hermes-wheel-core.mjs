@@ -36,7 +36,7 @@ export const BUNDLED_HERMES_DIR = 'resources/bundled-hermes';
  */
 export const HERMES_VERSION_SITES = [
   { file: HERMES_PIN_FILE, count: 3 },
-  { file: 'tests/unit/command-eve/runtimeBootstrapCore.test.ts', count: 14 },
+  { file: 'tests/unit/command-eve/runtimeBootstrapCore.test.ts', count: 20 },
   { file: 'tests/unit/command-eve/windows/windowsRuntimeBootstrapCore.test.ts', count: 10 },
   { file: 'tests/unit/command-eve/windows/windowsPhaseALifecycleCore.test.ts', count: 3 },
   { file: 'tests/unit/command-eve/localRuntimeStatusCore.test.ts', count: 2 },
@@ -52,6 +52,8 @@ export const HERMES_VERSION_SITES = [
 /** Files carrying the committed wheel SHA-256 pin. */
 export const HERMES_WHEEL_SHA_SITES = [
   { file: HERMES_PIN_FILE, count: 1 },
+  { file: 'scripts/release/verify-packaged-command-eve-resources.mjs', count: 1 },
+  { file: 'tests/e2e/helpers/nativeKanbanReadiness.ts', count: 1 },
   { file: 'tests/unit/command-eve/hermesAuxiliaryCompatibility.test.ts', count: 1 },
 ];
 
@@ -83,7 +85,14 @@ function countOccurrences(haystack, needle) {
  * precondition or an expected site count does not hold; returns the plan
  * (sites, sha, wheel actions) when everything lines up.
  */
-export function planHermesWheelBump({ repoRoot, targetVersion, wheelPath, versionSites, shaSites }) {
+export function planHermesWheelBump({
+  repoRoot,
+  targetVersion,
+  wheelPath,
+  versionSites,
+  shaSites,
+  allowSameVersionRepin = false,
+}) {
   const sites = versionSites || HERMES_VERSION_SITES;
   const shaCarrierSites = shaSites || HERMES_WHEEL_SHA_SITES;
   if (!/^\d+\.\d+\.\d+$/.test(targetVersion)) {
@@ -99,7 +108,8 @@ export function planHermesWheelBump({ repoRoot, targetVersion, wheelPath, versio
     );
   }
   const current = readCurrentHermesPin(repoRoot);
-  if (current.version === targetVersion) {
+  const sameVersionRepin = current.version === targetVersion;
+  if (sameVersionRepin && !allowSameVersionRepin) {
     throw new Error(`ABORT: repo already pins Hermes ${targetVersion}; nothing to bump`);
   }
   const newSha256 = sha256File(wheelPath);
@@ -117,7 +127,7 @@ export function planHermesWheelBump({ repoRoot, targetVersion, wheelPath, versio
       problems.push(`site drift: ${site.file} carries '${current.version}' ${found}x, expected ${site.count}x`);
       continue;
     }
-    versionEdits.push({ file: site.file, replacements: found });
+    if (!sameVersionRepin) versionEdits.push({ file: site.file, replacements: found });
   }
   const shaEdits = [];
   for (const site of shaCarrierSites) {
@@ -149,6 +159,7 @@ export function planHermesWheelBump({ repoRoot, targetVersion, wheelPath, versio
     oldSha256: current.sha256,
     targetVersion,
     newSha256,
+    sameVersionRepin,
     versionEdits,
     shaEdits,
     wheel: { copyFrom: wheelPath, copyTo: newWheelPath, removeOld: oldWheelPath },
@@ -162,14 +173,19 @@ export function planHermesWheelBump({ repoRoot, targetVersion, wheelPath, versio
  */
 export function applyHermesWheelBump(plan, { dryRun }) {
   const actions = [];
+  if (plan.sameVersionRepin) actions.push(`preserve Hermes version '${plan.targetVersion}'`);
   for (const edit of [...plan.versionEdits]) {
     actions.push(`replace ${edit.replacements}x '${plan.oldVersion}' -> '${plan.targetVersion}' in ${edit.file}`);
   }
   for (const edit of [...plan.shaEdits]) {
     actions.push(`replace ${edit.replacements}x old wheel sha -> ${plan.newSha256} in ${edit.file}`);
   }
-  actions.push(`copy wheel -> ${path.relative(plan.repoRoot, plan.wheel.copyTo)}`);
-  actions.push(`remove old wheel ${path.relative(plan.repoRoot, plan.wheel.removeOld)}`);
+  actions.push(
+    `${plan.sameVersionRepin ? 'replace reviewed wheel bytes at' : 'copy wheel ->'} ${path.relative(plan.repoRoot, plan.wheel.copyTo)}`
+  );
+  if (plan.wheel.removeOld !== plan.wheel.copyTo) {
+    actions.push(`remove old wheel ${path.relative(plan.repoRoot, plan.wheel.removeOld)}`);
+  }
   if (dryRun) {
     return { dryRun: true, actions, verified: false };
   }
@@ -203,7 +219,9 @@ export function verifyNoOldVersionResidue(plan) {
   const findings = [];
   for (const edit of [...plan.versionEdits, ...plan.shaEdits]) {
     const content = fs.readFileSync(path.join(plan.repoRoot, edit.file), 'utf8');
-    if (content.includes(plan.oldVersion)) findings.push(`old version still present in ${edit.file}`);
+    if (!plan.sameVersionRepin && content.includes(plan.oldVersion)) {
+      findings.push(`old version still present in ${edit.file}`);
+    }
     if (content.includes(plan.oldSha256)) findings.push(`old wheel sha still present in ${edit.file}`);
   }
   const pin = readCurrentHermesPin(plan.repoRoot);
@@ -215,7 +233,7 @@ export function verifyNoOldVersionResidue(plan) {
   // purpose — history keeps its numbers). A bare repo-wide grep for the old
   // X.Y.Z would false-positive on unrelated dependency versions, so the scan
   // is anchored to the hermes package spellings.
-  const needles = [`hermes_agent-${plan.oldVersion}`, `hermes-agent==${plan.oldVersion}`];
+  const needles = plan.sameVersionRepin ? [] : [`hermes_agent-${plan.oldVersion}`, `hermes-agent==${plan.oldVersion}`];
   for (const scopeDir of ['packages', 'tests', 'scripts', 'public', BUNDLED_HERMES_DIR]) {
     scanTree(path.join(plan.repoRoot, scopeDir), (filePath) => {
       const relative = path.relative(plan.repoRoot, filePath);

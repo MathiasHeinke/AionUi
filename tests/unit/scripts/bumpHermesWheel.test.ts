@@ -124,13 +124,17 @@ function makeTargetWheel(version: string, bytes = 'new-wheel-bytes'): string {
   return wheelPath;
 }
 
-function fixturePlan(root: string, overrides: Partial<{ targetVersion: string; wheelPath: string }> = {}) {
+function fixturePlan(
+  root: string,
+  overrides: Partial<{ targetVersion: string; wheelPath: string; allowSameVersionRepin: boolean }> = {}
+) {
   return planHermesWheelBump({
     repoRoot: root,
     targetVersion: overrides.targetVersion ?? '0.20.0',
     wheelPath: overrides.wheelPath ?? makeTargetWheel('0.20.0'),
     versionSites: FIXTURE_VERSION_SITES,
     shaSites: FIXTURE_SHA_SITES,
+    allowSameVersionRepin: overrides.allowSameVersionRepin,
   });
 }
 
@@ -171,6 +175,18 @@ describe('planHermesWheelBump (fixture)', () => {
       /already pins/
     );
   });
+
+  it('plans an explicit same-version repin without rewriting version carriers', () => {
+    const root = makeFixtureRepo();
+    const wheelPath = makeTargetWheel('0.17.0', 'reviewed-repin-bytes');
+    const plan = fixturePlan(root, { targetVersion: '0.17.0', wheelPath, allowSameVersionRepin: true });
+    expect(plan.sameVersionRepin).toBe(true);
+    expect(plan.versionEdits).toEqual([]);
+    expect(plan.shaEdits.map((edit: { file: string }) => edit.file)).toEqual([HERMES_PIN_FILE]);
+    expect(plan.newSha256).toBe(sha256File(wheelPath));
+    const dryRun = applyHermesWheelBump(plan, { dryRun: true });
+    expect(dryRun.actions.some((action: string) => action.startsWith('remove old wheel'))).toBe(false);
+  });
 });
 
 describe('applyHermesWheelBump (fixture)', () => {
@@ -196,5 +212,19 @@ describe('applyHermesWheelBump (fixture)', () => {
     expect(fs.readFileSync(path.join(root, 'public', 'manifest.json'), 'utf8')).toContain('0.20.0');
     expect(fs.existsSync(path.join(root, BUNDLED_HERMES_DIR, wheelFileNameForVersion('0.20.0')))).toBe(true);
     expect(fs.existsSync(path.join(root, BUNDLED_HERMES_DIR, wheelFileNameForVersion('0.17.0')))).toBe(false);
+  });
+
+  it('real same-version repin preserves version carriers and replaces only the reviewed bytes and sha', () => {
+    const root = makeFixtureRepo();
+    const manifestBefore = fs.readFileSync(path.join(root, 'public', 'manifest.json'), 'utf8');
+    const wheelPath = makeTargetWheel('0.17.0', 'reviewed-repin-bytes');
+    const plan = fixturePlan(root, { targetVersion: '0.17.0', wheelPath, allowSameVersionRepin: true });
+    const result = applyHermesWheelBump(plan, { dryRun: false });
+    expect(result.verified).toBe(true);
+    expect(readCurrentHermesPin(root)).toEqual({ version: '0.17.0', sha256: sha256File(wheelPath) });
+    expect(fs.readFileSync(path.join(root, 'public', 'manifest.json'), 'utf8')).toBe(manifestBefore);
+    expect(sha256File(path.join(root, BUNDLED_HERMES_DIR, wheelFileNameForVersion('0.17.0')))).toBe(
+      sha256File(wheelPath)
+    );
   });
 });

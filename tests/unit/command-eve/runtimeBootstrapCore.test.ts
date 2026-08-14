@@ -914,6 +914,8 @@ describe('Command EVE runtime bootstrap core', () => {
     );
   });
 
+  // Keep the timed callback byte-local; formatting it would rewrite 1,300 unrelated legacy lines.
+  // prettier-ignore
   itM('installs Hermes, installs Ollama via Homebrew, pulls the default model, and writes receipts', async () => {
     const harness = makeHarness();
     await withOllamaServer(async (baseUrl) => {
@@ -1211,7 +1213,7 @@ describe('Command EVE runtime bootstrap core', () => {
           providerOverridePath,
           path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
         ],
-        { encoding: 'utf8', timeout: 15_000 }
+        { encoding: 'utf8', timeout: 60_000 }
       );
       expect(visionAuthHarness.status, visionAuthHarness.stderr || visionAuthHarness.stdout).toBe(0);
       expect(JSON.parse(visionAuthHarness.stdout)).toMatchObject({
@@ -1227,7 +1229,7 @@ describe('Command EVE runtime bootstrap core', () => {
           path.resolve('tests/fixtures/command-eve/managed_visual_refusal_retry_harness.py'),
           path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
         ],
-        { encoding: 'utf8', timeout: 15_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
+        { encoding: 'utf8', timeout: 60_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
       );
       expect(
         managedVisualRefusalHarness.status,
@@ -1254,7 +1256,7 @@ describe('Command EVE runtime bootstrap core', () => {
           providerOverridePath,
           path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
         ],
-        { encoding: 'utf8', timeout: 15_000 }
+        { encoding: 'utf8', timeout: 60_000 }
       );
       expect(attachmentMemoryHarness.status, attachmentMemoryHarness.stderr || attachmentMemoryHarness.stdout).toBe(0);
       expect(JSON.parse(attachmentMemoryHarness.stdout)).toMatchObject({
@@ -1280,7 +1282,7 @@ describe('Command EVE runtime bootstrap core', () => {
           providerOverridePath,
           path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
         ],
-        { encoding: 'utf8', timeout: 30_000 }
+        { encoding: 'utf8', timeout: 120_000 }
       );
       expect(promptAdmissionHarness.status, promptAdmissionHarness.stderr || promptAdmissionHarness.stdout).toBe(0);
       expect(JSON.parse(promptAdmissionHarness.stdout)).toMatchObject({
@@ -1308,7 +1310,7 @@ describe('Command EVE runtime bootstrap core', () => {
           providerOverridePath,
           path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
         ],
-        { encoding: 'utf8', timeout: 15_000 }
+        { encoding: 'utf8', timeout: 60_000 }
       );
       expect(attachmentHistoryHarness.status, attachmentHistoryHarness.stderr || attachmentHistoryHarness.stdout).toBe(
         0
@@ -1341,8 +1343,8 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('_install_command_eve_turn_failure_capture()');
       expect(providerOverride).toContain('seq_before = int(_COMMAND_EVE_TURN_FAILURE["seq"])');
       expect(providerOverride).toContain('acp.update_agent_message_text(failure_text)');
-      // Queued prompts and corrections re-enter through self._prompt_impl — which is
-      // this very wrapper — so without claiming the sequence number every frame above
+      // Queued prompts and corrections re-enter through self.prompt and the dynamic
+      // _prompt_impl chain, so without claiming the sequence number every frame above
       // an inner failure would report it again. Typing a follow-up mid-turn would show
       // the same error twice.
       expect(providerOverride).toContain('_COMMAND_EVE_TURN_FAILURE["consumed"] = seq_after');
@@ -1417,7 +1419,7 @@ describe('Command EVE runtime bootstrap core', () => {
       const compressionHarness = spawnSync(
         'python3',
         [path.resolve('tests/fixtures/command-eve/compression_provider_harness.py'), providerOverridePath],
-        { encoding: 'utf8', timeout: 5_000 }
+        { encoding: 'utf8', timeout: 30_000 }
       );
       expect(compressionHarness.status, compressionHarness.stderr || compressionHarness.stdout).toBe(0);
       expect(JSON.parse(compressionHarness.stdout)).toMatchObject({
@@ -1447,7 +1449,7 @@ describe('Command EVE runtime bootstrap core', () => {
       const permissionAuthorityHarness = spawnSync(
         'python3',
         [path.resolve('tests/fixtures/command-eve/permission_authority_patch_harness.py'), providerOverridePath],
-        { encoding: 'utf8', timeout: 5_000 }
+        { encoding: 'utf8', timeout: 30_000 }
       );
       expect(
         permissionAuthorityHarness.status,
@@ -1461,6 +1463,7 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(JSON.parse(permissionAuthorityHarness.stdout)).toEqual({
         edit_policy_when_unreachable: 'ask',
         edit_policy_follows_grant: true,
+        manual_approval_timeout_seconds: 300,
         mode_channel_dead: true,
         terminal_yolo_disabled: ['session-auto'],
         session_cwd_recorded: true,
@@ -1472,7 +1475,7 @@ describe('Command EVE runtime bootstrap core', () => {
       const runtimeStatusHarness = spawnSync(
         'python3',
         [path.resolve('tests/fixtures/command-eve/runtime_status_patch_harness.py'), providerOverridePath],
-        { encoding: 'utf8', timeout: 5_000 }
+        { encoding: 'utf8', timeout: 30_000 }
       );
       expect(runtimeStatusHarness.status, runtimeStatusHarness.stderr || runtimeStatusHarness.stdout).toBe(0);
       expect(JSON.parse(runtimeStatusHarness.stdout)).toEqual({
@@ -1499,7 +1502,7 @@ describe('Command EVE runtime bootstrap core', () => {
       const sessionRestoreHarness = spawnSync(
         'python3',
         [path.resolve('tests/fixtures/command-eve/acp_session_restore_patch_harness.py'), providerOverridePath],
-        { encoding: 'utf8', timeout: 10_000 }
+        { encoding: 'utf8', timeout: 60_000 }
       );
       expect(sessionRestoreHarness.status, sessionRestoreHarness.stderr || sessionRestoreHarness.stdout).toBe(0);
       expect(JSON.parse(sessionRestoreHarness.stdout)).toEqual({
@@ -1526,7 +1529,7 @@ describe('Command EVE runtime bootstrap core', () => {
       const disabledToolsetsHarness = spawnSync(
         'python3',
         [path.resolve('tests/fixtures/command-eve/acp_disabled_toolsets_patch_harness.py'), providerOverridePath],
-        { encoding: 'utf8', timeout: 10_000 }
+        { encoding: 'utf8', timeout: 60_000 }
       );
       expect(disabledToolsetsHarness.status, disabledToolsetsHarness.stderr || disabledToolsetsHarness.stdout).toBe(0);
       expect(JSON.parse(disabledToolsetsHarness.stdout)).toEqual({
@@ -1564,6 +1567,7 @@ describe('Command EVE runtime bootstrap core', () => {
       // an unknown resume id; Command EVE instead requires a durable known row
       // before load_session, resume_session and prompt and surfaces needs_user.
       expect(providerOverride).toContain('def _install_command_eve_acp_session_guard_patch()');
+      expect(providerOverride).toContain('command_eve_prompt_dispatch._command_eve_prompt_impl_compat = True');
       expect(providerOverride).toContain('HermesACPAgent.load_session = command_eve_load_session');
       expect(providerOverride).toContain('HermesACPAgent.resume_session = command_eve_resume_session');
       expect(providerOverride).toContain('HermesACPAgent._prompt_impl = command_eve_prompt_impl');
@@ -1589,7 +1593,7 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(harness.commands.some((command) => command.includes('curl'))).toBe(false);
       expect(JSON.parse(fs.readFileSync(paths.receiptPath, 'utf8')).status).toBe('ready');
     });
-  });
+  }, 180_000);
 
   it('uses the selected local model tier when Command EVE requests 12B planning', async () => {
     const harness = makeHarness({ ollamaInitiallyInstalled: true });

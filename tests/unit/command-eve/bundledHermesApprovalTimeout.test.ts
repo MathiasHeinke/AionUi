@@ -54,12 +54,17 @@ function readWheelEntry(wheelPath: string, entryName: string): Promise<string> {
 }
 
 describe('bundled Hermes ACP approval timeout', () => {
-  it('keeps a recovered permission actionable beyond one minute', async () => {
+  it('keeps a recovered permission actionable beyond one minute through the managed shim', async () => {
     const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
     expect(fs.existsSync(wheelPath)).toBe(true);
 
     const source = await readWheelEntry(wheelPath, 'acp_adapter/permissions.py');
-    expect(source).toContain('DEFAULT_PERMISSION_TIMEOUT_SECONDS = 300.0');
-    expect(source).toContain('timeout: float = DEFAULT_PERMISSION_TIMEOUT_SECONDS');
+    expect(source).toContain('timeout: float = 60.0');
+
+    const bootstrapSource = fs.readFileSync(
+      path.resolve('packages/desktop/src/process/commandEve/runtimeBootstrapCore.ts'),
+      'utf8'
+    );
+    expect(bootstrapSource).toContain('kwargs["timeout"] = 300.0');
   });
 });

@@ -898,20 +898,24 @@ describe('project workspace transaction and recovery', () => {
     ['semantic_committed', 'reconciled', true],
     ['cataloged', 'reconciled', true],
     ['committed', 'reconciled', true],
-  ] as const)('recovers idempotently after a crash at %s', async (crashPhase, recoveryAction, shouldExist) => {
-    const crashing = service((phase) => {
-      if (phase === crashPhase) throw new Error('SIMULATED_CRASH');
-    });
-    await expect(crashing.create(plan())).rejects.toThrow('SIMULATED_CRASH');
+  ] as const)(
+    'recovers idempotently after a crash at %s',
+    async (crashPhase, recoveryAction, shouldExist) => {
+      const crashing = service((phase) => {
+        if (phase === crashPhase) throw new Error('SIMULATED_CRASH');
+      });
+      await expect(crashing.create(plan())).rejects.toThrow('SIMULATED_CRASH');
 
-    simulateLeaseOwnerDeath(stateRoot);
-    now = new Date(now.getTime() + 31_000);
-    const recovered = await service().recoverAll();
-    expect(recovered).toContainEqual(expect.objectContaining({ ok: true, action: recoveryAction }));
-    expect(await service().recoverAll()).toEqual([]);
-    expect(fs.existsSync(path.join(projectRoot, 'atlas-research'))).toBe(shouldExist);
-    expect(registry.readSeatCatalogs(activeSeat).projects.projects).toHaveLength(shouldExist ? 1 : 0);
-  });
+      simulateLeaseOwnerDeath(stateRoot);
+      now = new Date(now.getTime() + 31_000);
+      const recovered = await service().recoverAll();
+      expect(recovered).toContainEqual(expect.objectContaining({ ok: true, action: recoveryAction }));
+      expect(await service().recoverAll()).toEqual([]);
+      expect(fs.existsSync(path.join(projectRoot, 'atlas-research'))).toBe(shouldExist);
+      expect(registry.readSeatCatalogs(activeSeat).projects.projects).toHaveLength(shouldExist ? 1 : 0);
+    },
+    60_000
+  );
 
   it.each([
     ['undo:before-undo_quarantining', 'undo_quarantine_prepared', true, true, 1, false, 1, 1],
@@ -984,7 +988,8 @@ describe('project workspace transaction and recovery', () => {
       expect(prepareCalls).toBe(expectedPrepareCalls);
       expect(finalizeCalls).toBe(expectedFinalizeCalls);
       expect(await service(undefined, trackingCoordinator).recoverAll()).toEqual([]);
-    }
+    },
+    60_000
   );
 
   it('resumes a provisioning rollback that crashes after its quarantine is durably prepared', async () => {

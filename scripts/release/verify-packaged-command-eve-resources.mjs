@@ -34,8 +34,34 @@ export const COMMAND_EVE_HERMES_WHEEL = Object.freeze({
   name: 'hermes-agent',
   version: '0.20.0',
   filename: 'hermes_agent-0.20.0-py3-none-any.whl',
-  sha256: '9f80183e4db0486bb40f6fa3878b7f7994f81656a42e1c388613e2e3483c8602',
+  sha256: 'a91cd1edb383dbbab20d0af7d2b6c9d56183d3248a6ee56ae583b427dbd54bfd',
   required_entries: Object.freeze(['tools/browser_use_cli.py']),
+});
+
+// V22's Nix wheel deliberately excludes bare data directories. Command EVE
+// therefore ships the exact locale tree from the same reviewed Hermes payload
+// alongside the wheel and binds every byte here rather than repacking the wheel.
+export const COMMAND_EVE_HERMES_LOCALES = Object.freeze({
+  source_commit: '0e24bdc8f82e8e5974f035c98504d1e6de11cd50',
+  files: Object.freeze({
+    'af.yaml': '5cbe2e72caf41879000b2546ff44a3ba6be72c13c8d1befd2972bb24d32428b4',
+    'ar.yaml': '46ea3b377767338eda627f7b6ac4ca8064e8e386030d0ac21643169c5c8b8bd3',
+    'de.yaml': 'abb8c95a11f3d454dff673c734ecdffd6f1ea4911833ffd36039f4e4130e33ad',
+    'en.yaml': 'fe06b52df673b817691f761b6650bb7513cbc755eca7adef16303df1e4770c8c',
+    'es.yaml': 'd0672b523b2631b9427f05377f803ea3f6093c92666c8488abf7e6927407d271',
+    'fr.yaml': '44a0a249621099dc7186a02293437c34cd8240378c08612d82955a3424577341',
+    'ga.yaml': 'cf96af63a8d1038d2d2864260f3aa300f4b697cf7afb742942f12bed83839661',
+    'hu.yaml': 'e8ac5bce9017a3735fc8a29e63b7cb476dd0a322bd471d623806213f74432a08',
+    'it.yaml': 'a0f5090b19a77d125d06025a6c15ebade7e2fdd65b0857d9eccfc24febc82546',
+    'ja.yaml': '1cfd65dd5f49a139c49b6a28ef93dc66e60f778031313abf135514cad6aba00a',
+    'ko.yaml': '8b69b834d4f727b7cd59493e18efaa2ce288c8d38b6dffc83622eda4e379ff4f',
+    'pt.yaml': 'bfbb3c2c667cdf7e45fb160aecddb44f5708ee7ba771822b629a555531be651f',
+    'ru.yaml': '6aadbff35792d64d2b094b69d922b62baba0c0a02fd4e8049479f190c8d0b590',
+    'tr.yaml': '13f75cc46364b01da7eb4a12cc71fca2339d038f8f403e7e5ceef7c99efbeb5f',
+    'uk.yaml': '62e027a7dd2b5363ec73cf781521236992b030559f39560348396aa4804fce81',
+    'zh-hant.yaml': 'd6e995ca2536a809b00e0e0240f776bfc7723ec783247567a97febf7886cad5f',
+    'zh.yaml': '7391e25126f60cd10421437ce8a951b9b280e45878bbc011e5d0b4559575e4e0',
+  }),
 });
 
 export const COMMAND_EVE_PRESENTATION_PYTHON_WHEELS = Object.freeze([
@@ -145,6 +171,32 @@ function readRequiredRegularFile(filePath, label, deps) {
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+function verifyPackagedHermesLocales(resourcesPath, deps) {
+  const directory = path.join(resourcesPath, 'bundled-hermes', 'locales');
+  assertDirectory(directory, 'packaged Hermes locale directory', deps);
+  const expectedNames = Object.keys(COMMAND_EVE_HERMES_LOCALES.files).toSorted();
+  const entries = deps.readdir(directory, { withFileTypes: true });
+  const actualNames = entries.map((entry) => entry.name).toSorted();
+  if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames)) {
+    throw new Error(
+      `PACKAGED-RESOURCES: packaged Hermes locale set mismatch; expected ${expectedNames.join(', ')}, found ${actualNames.join(', ')}`
+    );
+  }
+  const files = expectedNames.map((name) => {
+    const bytes = readRequiredRegularFile(path.join(directory, name), `packaged Hermes locale ${name}`, deps);
+    const expectedSha256 = COMMAND_EVE_HERMES_LOCALES.files[name];
+    if (sha256(bytes) !== expectedSha256) {
+      throw new Error(`PACKAGED-RESOURCES: packaged Hermes locale ${name} failed its SHA-256 pin`);
+    }
+    return { file: name, bytes: bytes.length, sha256: expectedSha256 };
+  });
+  return {
+    source_commit: COMMAND_EVE_HERMES_LOCALES.source_commit,
+    count: files.length,
+    files,
+  };
 }
 
 function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
@@ -593,6 +645,7 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
     native_entries: 0,
     required_entries: [...COMMAND_EVE_HERMES_WHEEL.required_entries],
   };
+  const hermesLocales = verifyPackagedHermesLocales(resourcesPath, deps);
 
   const browserUseRunner = verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps);
 
@@ -631,6 +684,7 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
       wheels: presentationPython,
     },
     hermes_wheel: hermesWheel,
+    hermes_locales: hermesLocales,
     browser_use_runner: browserUseRunner,
     artifact_python: artifactPython,
     private_key_findings: 0,

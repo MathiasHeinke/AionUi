@@ -84,9 +84,12 @@ class HermesACPAgent:
 
 disabled_sessions: list[str] = []
 manual_approval_calls: list[tuple[str, str]] = []
+factory_calls: list[dict[str, object]] = []
 
 
 def original_make_approval_callback(*_args: object, **_kwargs: object) -> object:
+    factory_calls.append(dict(_kwargs))
+
     def callback(command: str, description: str, **_cb: object) -> str:
         manual_approval_calls.append((command, description))
         return "human"
@@ -169,6 +172,7 @@ install_approval_patch()
 assert permissions_module.make_approval_callback is server_module.make_approval_callback
 assert getattr(server_module.make_approval_callback, "_command_eve_authority_patch", False) is True
 approval_callback = server_module.make_approval_callback(None, None, "session-auto")
+assert factory_calls[-1].get("timeout") == 300.0
 assert approval_callback("curl -s https://example.com", "Read a public page") == "once"
 assert manual_approval_calls == []
 
@@ -190,6 +194,7 @@ print(
             "terminal_yolo_disabled": disabled_sessions,
             "session_cwd_recorded": True,
             "server_factory_bound": True,
+            "manual_approval_timeout_seconds": 300,
             "rung_five_command_auto_approved_once": True,
             "closed_decision_reaches_human": True,
             "idempotent_install": True,

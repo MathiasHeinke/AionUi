@@ -126,7 +126,6 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
     assert Path(sys.modules["acp_adapter.server"].__file__).is_relative_to(Path(wheel_root))
     assert Path(sys.modules["run_agent"].__file__).is_relative_to(Path(wheel_root))
     original_prompt = HermesACPAgent.prompt
-    original_prompt_impl = HermesACPAgent._prompt_impl
     original_run = AIAgent.run_conversation
     original_loop = conversation_loop.run_conversation
 
@@ -134,7 +133,9 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
     namespace["_install_command_eve_prompt_admission_patch"]()
     namespace["_install_command_eve_prompt_admission_patch"]()
     namespace["_require_command_eve_prompt_admission_patch"]()
-    assert closure_contains(HermesACPAgent.prompt, original_prompt)
+    original_prompt_impl = HermesACPAgent._prompt_impl
+    assert closure_contains(original_prompt_impl, original_prompt)
+    assert getattr(HermesACPAgent.prompt, "_command_eve_prompt_admission", False) is True
     assert closure_contains(AIAgent.run_conversation, original_run)
 
     provider_calls: list[str] = []
@@ -323,7 +324,8 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
         assert namespace["_command_eve_turn_memory_quarantined"]("session-1") is False
 
         # Now execute the public correction paths through the wheel's real
-        # _prompt_impl. These branches are exactly where Hermes 0.20 rewrites
+        # V22 prompt body, preserved behind the compatibility _prompt_impl seam.
+        # These branches are exactly where Hermes 0.20 rewrites
         # idle /steer, refuses idle /correct, redirects or queues busy text,
         # and salvages post-cancel plain text.
         acp_agent._prompt_impl = types.MethodType(original_prompt_impl, acp_agent)
