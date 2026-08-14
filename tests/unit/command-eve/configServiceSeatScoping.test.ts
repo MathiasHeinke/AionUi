@@ -133,9 +133,12 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
       return stableFetch(url as RequestInfo | URL, init as RequestInit);
     }) as typeof fetch;
 
+    activeSeatFromMain = SEAT_B;
     const rebind = configService.rebindSeat(SEAT_B);
     expect(configService.getSeatBindingSnapshot()).toEqual({
-      seatId: SEAT_B,
+      // The target is not published inside the renderer until the independent
+      // Main active-seat read confirms it.
+      seatId: SEAT_A,
       rebindEpoch: 1,
       initialized: false,
     });
@@ -147,6 +150,7 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
       initialized: true,
     });
 
+    activeSeatFromMain = SEAT_B;
     await configService.rebindSeat(SEAT_B);
     expect(configService.getSeatBindingSnapshot().rebindEpoch).toBe(1);
     const rollback = configService.beginSeatTransition();
@@ -155,6 +159,7 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
       rebindEpoch: 2,
       initialized: false,
     });
+    activeSeatFromMain = SEAT_B;
     await configService.completeSeatTransition(rollback, SEAT_B);
     expect(configService.getSeatBindingSnapshot()).toEqual({
       seatId: SEAT_B,
@@ -181,19 +186,27 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
     // The invalid terminal cannot strand the token: a later valid transition
     // can restore the trusted binding and runtime transport.
     const recovered = configService.beginSeatTransition();
-    await configService.completeSeatTransition(recovered, SEAT_B);
+    // A syntactically valid caller claim is not recovery authority.
+    activeSeatFromMain = SEAT_A;
+    await expect(configService.completeSeatTransition(recovered, SEAT_B)).rejects.toThrow('Main active-seat');
+    expect(configService.getSeatBindingSnapshot().initialized).toBe(false);
+
+    const authoritativeRecovery = configService.beginSeatTransition();
+    activeSeatFromMain = SEAT_B;
+    await configService.completeSeatTransition(authoritativeRecovery, SEAT_B);
     expect(configService.getSeatBindingSnapshot()).toEqual({
       seatId: SEAT_B,
-      rebindEpoch: 4,
+      rebindEpoch: 5,
       initialized: true,
     });
+    activeSeatFromMain = SEAT_A;
     await configService.rebindSeat(SEAT_A);
-    expect(configService.getSeatBindingSnapshot().rebindEpoch).toBe(5);
+    expect(configService.getSeatBindingSnapshot().rebindEpoch).toBe(6);
 
     configService.reset();
     expect(configService.getSeatBindingSnapshot()).toEqual({
       seatId: 'seat-1',
-      rebindEpoch: 6,
+      rebindEpoch: 7,
       initialized: false,
     });
   });
@@ -208,6 +221,7 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
     expect(configService.get('commandEve.clientSeeded')).toBe(true);
 
     // Switch to seat B (same service instance, same bag).
+    activeSeatFromMain = SEAT_B;
     await configService.rebindSeat(SEAT_B);
     // Seat B has never seeded → must read undefined (THE leak guard).
     expect(configService.get('commandEve.clientSeeded')).toBeUndefined();
@@ -219,6 +233,7 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
     expect(Object.keys(bag).filter((k) => k.endsWith(':commandEve.clientSeeded')).length).toBe(2);
 
     // Switch back to A → A's seed still readable, B's invisible.
+    activeSeatFromMain = SEAT_A;
     await configService.rebindSeat(SEAT_A);
     expect(configService.get('commandEve.clientSeeded')).toBe(true);
   });
@@ -230,6 +245,7 @@ describe('(3) repeat for teamWorkerStatus + executionMode', () => {
     const configService = await freshConfigService();
     await configService.initialize();
     await configService.set('commandEve.teamWorkerStatus', { 'worker-1': 'paused' });
+    activeSeatFromMain = SEAT_B;
     await configService.rebindSeat(SEAT_B);
     expect(configService.get('commandEve.teamWorkerStatus')).toBeUndefined();
     expect(bag[`seat:${SEAT_A}:commandEve.teamWorkerStatus`]).toEqual({ 'worker-1': 'paused' });
@@ -240,6 +256,7 @@ describe('(3) repeat for teamWorkerStatus + executionMode', () => {
     const configService = await freshConfigService();
     await configService.initialize();
     await configService.set('commandEve.executionMode', 'autonomous');
+    activeSeatFromMain = SEAT_B;
     await configService.rebindSeat(SEAT_B);
     expect(configService.get('commandEve.executionMode')).toBeUndefined();
     expect(bag[`seat:${SEAT_A}:commandEve.executionMode`]).toBe('autonomous');
@@ -267,6 +284,7 @@ describe('(5) install-global keys stay un-namespaced across a switch', () => {
     expect(bag['language']).toBe('de-DE');
     expect(bag['theme.activeId']).toBe('midnight');
     // Visible under another seat (intentionally shared).
+    activeSeatFromMain = SEAT_B;
     await configService.rebindSeat(SEAT_B);
     expect(configService.get('language')).toBe('de-DE');
     expect(configService.get('theme.activeId')).toBe('midnight');

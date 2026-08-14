@@ -139,16 +139,22 @@ async function fetchJson<T>(method: string, path: string, body?: unknown): Promi
  */
 async function fetchActiveSeatId(): Promise<string> {
   try {
-    const { commandEve } = await import('@/common/adapter/ipcBridge');
-    const response = await commandEve.activeSeat.invoke();
-    const seatId = response?.data?.seat_id;
-    if (response?.data?.ok && typeof seatId === 'string' && seatId.length > 0) {
-      return seatId;
-    }
+    return await fetchAuthoritativeActiveSeatId();
   } catch {
     // Non-Electron / bridge unavailable / IPC error → legacy seat (no scoping).
   }
   return LEGACY_SEAT_ID;
+}
+
+/** Strict Main-process seat identity; unlike boot discovery it has no fallback. */
+async function fetchAuthoritativeActiveSeatId(): Promise<string> {
+  const { commandEve } = await import('@/common/adapter/ipcBridge');
+  const response = await commandEve.activeSeat.invoke();
+  const seatId = response?.data?.seat_id;
+  if (!response?.data?.ok || typeof seatId !== 'string' || seatId.length === 0) {
+    throw new Error('Main did not provide an authoritative active seat');
+  }
+  return assertSeatId(seatId);
 }
 
 class ConfigServiceImpl {
@@ -266,7 +272,12 @@ class ConfigServiceImpl {
     let completionError: unknown;
     const previous = new Map<string, unknown>();
     try {
-      sanitized = assertSeatId(seatId);
+      const reportedSeatId = assertSeatId(seatId);
+      const authoritativeSeatId = await fetchAuthoritativeActiveSeatId();
+      if (reportedSeatId !== authoritativeSeatId) {
+        throw new Error('Terminal seat does not match Main active-seat authority');
+      }
+      sanitized = authoritativeSeatId;
       // A syntactically valid authoritative terminal identity is allowed to
       // attempt hydration even when a prior terminal left the latch closed.
       // Any hydration failure below closes it again.
