@@ -322,10 +322,15 @@ exports.default = async function afterSign(context) {
         : (() => {
             throw new Error(`Unsupported Browser Use uvx release architecture: ${targetArch}`);
           })();
-  const browserUseRunnerPath = path.join(resourcesPath, 'bundled-hermes', 'uvx', browserUseRunnerTarget, 'uvx');
+  const browserUseBinaryPaths = ['uv', 'uvx'].map((name) =>
+    path.join(resourcesPath, 'bundled-hermes', 'uvx', browserUseRunnerTarget, name)
+  );
   verifyPackagedCommandEveBrowserUseRunner({ resourcesPath, expectedArch: targetArch });
-  const browserUseRunnerBytes = fs.readFileSync(browserUseRunnerPath);
-  const browserUseRunnerMode = fs.lstatSync(browserUseRunnerPath).mode & 0o777;
+  const browserUseBinarySnapshots = browserUseBinaryPaths.map((file) => ({
+    file,
+    bytes: fs.readFileSync(file),
+    mode: fs.lstatSync(file).mode & 0o777,
+  }));
 
   // Check if app is actually signed before attempting notarization
   try {
@@ -344,7 +349,9 @@ exports.default = async function afterSign(context) {
       // Developer-ID uvx that electron-builder deliberately signIgnore'd. Put
       // its exact reviewed bytes back, then re-seal only the outer app. This
       // keeps local/ad-hoc package gates byte-identical to the release path.
-      fs.writeFileSync(browserUseRunnerPath, browserUseRunnerBytes, { mode: browserUseRunnerMode });
+      for (const snapshot of browserUseBinarySnapshots) {
+        fs.writeFileSync(snapshot.file, snapshot.bytes, { mode: snapshot.mode });
+      }
       execFileSync('codesign', ['--force', '--sign', '-', appPath], { stdio: 'inherit' });
       verifyPackagedCommandEveBrowserUseRunner({ resourcesPath, expectedArch: targetArch });
       execFileSync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], { stdio: 'pipe' });

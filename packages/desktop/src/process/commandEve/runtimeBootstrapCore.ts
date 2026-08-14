@@ -1876,9 +1876,11 @@ export function resolveCommandEveManagedNodeExecutable(
 
 export type CommandEvePackagedBrowserUseRunner = {
   path: string;
+  companionPath: string;
   artifactReceiptPath: string;
   version: string;
   sha256: string;
+  companionSha256: string;
   target: string;
   artifactReceiptSha256: string;
   provenance: 'packaged-astral-uvx/v1';
@@ -1895,6 +1897,10 @@ type CommandEveBrowserUseRunnerArtifactReceipt = {
   runner_filename: string;
   source_runner_sha256: string;
   runner_sha256: string;
+  companion_archive_entry: string;
+  companion_filename: 'uv';
+  companion_source_sha256: string;
+  companion_sha256: string;
   provenance: typeof COMMAND_EVE_BROWSER_UVX_PROVENANCE;
   attestation: { repo: 'astral-sh/uv'; release_tag: string };
   signing: {
@@ -1903,15 +1909,23 @@ type CommandEveBrowserUseRunnerArtifactReceipt = {
     identifier: 'uvx';
     hardened_runtime: true;
   };
+  companion_signing: {
+    authority: typeof COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY;
+    team_id: typeof COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM;
+    identifier: 'uv';
+    hardened_runtime: true;
+  };
 };
 
 type CommandEveBrowserUseRunnerDescriptor = {
   schema_version: typeof COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_SCHEMA;
   hermes_home: string;
   path: string;
+  companion_path: string;
   root: string;
   artifact_receipt_path: string;
   sha256: string;
+  companion_sha256: string;
   version: string;
   target: string;
   artifact_receipt_sha256: string;
@@ -1930,10 +1944,15 @@ type CommandEveBrowserUseRunnerManifest = {
     runner_filename: string;
     source_runner_sha256: string;
     runner_sha256: string;
+    companion_archive_entry: string;
+    companion_filename: 'uv';
+    companion_source_sha256: string;
+    companion_sha256: string;
     artifact_receipt_sha256: string;
     provenance: typeof COMMAND_EVE_BROWSER_UVX_PROVENANCE;
     attestation: { repo: 'astral-sh/uv'; release_tag: string };
     signing: CommandEveBrowserUseRunnerArtifactReceipt['signing'];
+    companion_signing: CommandEveBrowserUseRunnerArtifactReceipt['companion_signing'];
   }>;
 };
 
@@ -2024,13 +2043,21 @@ function readCommandEveBrowserUseRunnerArtifactReceipt(
       receipt.runner_filename !== runnerFilename ||
       !/^[a-f0-9]{64}$/.test(String(receipt.source_runner_sha256 || '')) ||
       !/^[a-f0-9]{64}$/.test(String(receipt.runner_sha256 || '')) ||
+      receipt.companion_archive_entry !== packagedBrowserUseRunnerArchiveEntry(target, 'uv') ||
+      receipt.companion_filename !== 'uv' ||
+      !/^[a-f0-9]{64}$/.test(String(receipt.companion_source_sha256 || '')) ||
+      !/^[a-f0-9]{64}$/.test(String(receipt.companion_sha256 || '')) ||
       receipt.provenance !== COMMAND_EVE_BROWSER_UVX_PROVENANCE ||
       receipt.attestation?.repo !== 'astral-sh/uv' ||
       receipt.attestation.release_tag !== receipt.version ||
       receipt.signing?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
       receipt.signing?.team_id !== COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM ||
       receipt.signing?.identifier !== runnerFilename ||
-      receipt.signing?.hardened_runtime !== true
+      receipt.signing?.hardened_runtime !== true ||
+      receipt.companion_signing?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
+      receipt.companion_signing?.team_id !== COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM ||
+      receipt.companion_signing?.identifier !== 'uv' ||
+      receipt.companion_signing?.hardened_runtime !== true
     ) {
       return undefined;
     }
@@ -2055,13 +2082,21 @@ function isCommandEveBrowserUseRunnerArtifactReceiptMatch(
     artifact.runner_filename === receipt.runner_filename &&
     artifact.source_runner_sha256 === receipt.source_runner_sha256 &&
     artifact.runner_sha256 === receipt.runner_sha256 &&
+    artifact.companion_archive_entry === receipt.companion_archive_entry &&
+    artifact.companion_filename === receipt.companion_filename &&
+    artifact.companion_source_sha256 === receipt.companion_source_sha256 &&
+    artifact.companion_sha256 === receipt.companion_sha256 &&
     artifact.provenance === receipt.provenance &&
     artifact.attestation?.repo === receipt.attestation?.repo &&
     artifact.attestation?.release_tag === receipt.attestation?.release_tag &&
     artifact.signing?.authority === receipt.signing?.authority &&
     artifact.signing?.team_id === receipt.signing?.team_id &&
     artifact.signing?.identifier === receipt.signing?.identifier &&
-    artifact.signing?.hardened_runtime === receipt.signing?.hardened_runtime
+    artifact.signing?.hardened_runtime === receipt.signing?.hardened_runtime &&
+    artifact.companion_signing?.authority === receipt.companion_signing?.authority &&
+    artifact.companion_signing?.team_id === receipt.companion_signing?.team_id &&
+    artifact.companion_signing?.identifier === receipt.companion_signing?.identifier &&
+    artifact.companion_signing?.hardened_runtime === receipt.companion_signing?.hardened_runtime
   );
 }
 
@@ -2135,15 +2170,21 @@ function writeCommandEveBrowserUseRunnerDescriptor(
     schema_version: COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_SCHEMA,
     hermes_home: paths.hermesHome,
     path: runner.path,
+    companion_path: runner.companionPath,
     root,
     artifact_receipt_path: path.join(root, COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_FILE),
     sha256: runner.sha256,
+    companion_sha256: runner.companionSha256,
     version: runner.version,
     target: runner.target,
     artifact_receipt_sha256: runner.artifactReceiptSha256,
     provenance: runner.provenance,
   };
-  if (!isSafeCommandEveBrowserUseRunnerFile(runner.path, root, runner.sha256, platform, true)) return false;
+  if (
+    !isSafeCommandEveBrowserUseRunnerFile(runner.path, root, runner.sha256, platform, true) ||
+    !isSafeCommandEveBrowserUseRunnerFile(runner.companionPath, root, runner.companionSha256, platform, true)
+  )
+    return false;
   try {
     writeJsonAtomic(paths.browserUseRunnerDescriptor, descriptor);
     const descriptorInfo = fs.lstatSync(paths.browserUseRunnerDescriptor);
@@ -2208,6 +2249,11 @@ export function resolveCommandEvePackagedBrowserUseRunner(
       typeof artifact.source_runner_sha256 !== 'string' ||
       !/^[a-f0-9]{64}$/.test(artifact.source_runner_sha256) ||
       typeof artifact.runner_sha256 !== 'string' ||
+      artifact.companion_archive_entry !== packagedBrowserUseRunnerArchiveEntry(target, 'uv') ||
+      artifact.companion_filename !== 'uv' ||
+      typeof artifact.companion_source_sha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(artifact.companion_source_sha256) ||
+      typeof artifact.companion_sha256 !== 'string' ||
       artifact.provenance !== COMMAND_EVE_BROWSER_UVX_PROVENANCE ||
       !/^[a-f0-9]{64}$/.test(String(artifact.artifact_receipt_sha256 || '')) ||
       artifact.attestation?.repo !== 'astral-sh/uv' ||
@@ -2215,7 +2261,11 @@ export function resolveCommandEvePackagedBrowserUseRunner(
       artifact.signing?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
       artifact.signing?.team_id !== COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM ||
       artifact.signing?.identifier !== runnerFilename ||
-      artifact.signing?.hardened_runtime !== true
+      artifact.signing?.hardened_runtime !== true ||
+      artifact.companion_signing?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
+      artifact.companion_signing?.team_id !== COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM ||
+      artifact.companion_signing?.identifier !== 'uv' ||
+      artifact.companion_signing?.hardened_runtime !== true
     ) {
       return undefined;
     }
@@ -2230,16 +2280,21 @@ export function resolveCommandEvePackagedBrowserUseRunner(
     }
     const sourceRoot = path.join(artifactRoot, target);
     const runnerPath = path.join(sourceRoot, runnerFilename);
+    const companionPath = path.join(sourceRoot, 'uv');
     if (
       !isSafeCommandEveBrowserUseRunnerFile(runnerPath, sourceRoot, artifact.runner_sha256, platform) ||
-      !isCommandEveBrowserUseRunnerArchitectureValid(runnerPath, platform, arch, deps)
+      !isCommandEveBrowserUseRunnerArchitectureValid(runnerPath, platform, arch, deps) ||
+      !isSafeCommandEveBrowserUseRunnerFile(companionPath, sourceRoot, artifact.companion_sha256, platform) ||
+      !isCommandEveBrowserUseRunnerArchitectureValid(companionPath, platform, arch, deps)
     )
       return undefined;
     return {
       path: runnerPath,
+      companionPath,
       artifactReceiptPath: artifactReceipt.path,
       version: manifest.version,
       sha256: artifact.runner_sha256,
+      companionSha256: artifact.companion_sha256,
       target,
       artifactReceiptSha256: artifactReceipt.sha256,
       provenance: 'packaged-astral-uvx/v1',
@@ -2263,6 +2318,7 @@ export function provisionCommandEveBrowserUseRunner(
   }
   const targetRoot = path.join(paths.hermesHome, 'bin');
   const target = path.join(targetRoot, packagedBrowserUseRunnerFilename(platform));
+  const companionTarget = path.join(targetRoot, 'uv');
   const artifactReceiptTarget = path.join(targetRoot, COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_FILE);
   try {
     fs.mkdirSync(targetRoot, { recursive: true, mode: 0o700 });
@@ -2271,24 +2327,34 @@ export function provisionCommandEveBrowserUseRunner(
       const existing = fs.lstatSync(target);
       if (existing.isSymbolicLink() || !existing.isFile()) return undefined;
     }
+    if (fs.existsSync(companionTarget)) {
+      const existing = fs.lstatSync(companionTarget);
+      if (existing.isSymbolicLink() || !existing.isFile()) return undefined;
+    }
     if (fs.existsSync(artifactReceiptTarget)) {
       const existing = fs.lstatSync(artifactReceiptTarget);
       if (existing.isSymbolicLink() || !existing.isFile()) return undefined;
     }
     const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
+    const companionTemporary = `${companionTarget}.${process.pid}.${Date.now()}.tmp`;
     const receiptTemporary = `${artifactReceiptTarget}.${process.pid}.${Date.now()}.tmp`;
     fs.copyFileSync(source.path, temporary, fs.constants.COPYFILE_EXCL);
     fs.chmodSync(temporary, 0o700);
     fs.renameSync(temporary, target);
+    fs.copyFileSync(source.companionPath, companionTemporary, fs.constants.COPYFILE_EXCL);
+    fs.chmodSync(companionTemporary, 0o700);
+    fs.renameSync(companionTemporary, companionTarget);
     fs.copyFileSync(source.artifactReceiptPath, receiptTemporary, fs.constants.COPYFILE_EXCL);
     fs.chmodSync(receiptTemporary, 0o600);
     fs.renameSync(receiptTemporary, artifactReceiptTarget);
-    const runner = { ...source, path: target };
+    const runner = { ...source, path: target, companionPath: companionTarget };
     const receiptHash = crypto.createHash('sha256').update(fs.readFileSync(artifactReceiptTarget)).digest('hex');
     if (
       receiptHash !== runner.artifactReceiptSha256 ||
       !isSafeCommandEveBrowserUseRunnerFile(target, targetRoot, runner.sha256, platform, true) ||
       !isCommandEveBrowserUseRunnerArchitectureValid(target, platform, arch, deps) ||
+      !isSafeCommandEveBrowserUseRunnerFile(companionTarget, targetRoot, runner.companionSha256, platform, true) ||
+      !isCommandEveBrowserUseRunnerArchitectureValid(companionTarget, platform, arch, deps) ||
       !writeCommandEveBrowserUseRunnerDescriptor(paths, runner, platform)
     ) {
       clearCommandEveBrowserUseRunnerDescriptor(paths);

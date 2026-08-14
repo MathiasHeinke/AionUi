@@ -11,7 +11,11 @@
       "runner_filename": "uvx",
       "source_runner_sha256": "16208d2fbdacbd81f17b49badc2878bbf247d224a511b16e86bb84e56f526168",
       "runner_sha256": "dee9c74266c79c4241f7e556eb986d0efcebe4585bf94543a73911e91c004c18",
-      "artifact_receipt_sha256": "258c0eb6454b27b8d0335e8059d58771efd90b7e7025decdc65cee26d067b48b",
+      "companion_archive_entry": "uv-aarch64-apple-darwin/uv",
+      "companion_filename": "uv",
+      "companion_source_sha256": "905d1df4acf3034441a54ceb6b4fbb16a415638f899c454194e8e81e48f1b900",
+      "companion_sha256": "2eb14ce4a5a6759c63f37f20a8cdb7d039610bfa1a21f3ae539b89a3cccf86c1",
+      "artifact_receipt_sha256": "18bb084fcf3edb552e48d45ae070e1d7a376f12d5d8e5a300fea7a98c2caaf7d",
       "provenance": "official-astral-release-attestation+fynlabs-developer-id/v1",
       "attestation": {
         "repo": "astral-sh/uv",
@@ -21,6 +25,12 @@
         "authority": "Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)",
         "team_id": "NHNQ7Q5H28",
         "identifier": "uvx",
+        "hardened_runtime": true
+      },
+      "companion_signing": {
+        "authority": "Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)",
+        "team_id": "NHNQ7Q5H28",
+        "identifier": "uv",
         "hardened_runtime": true
       }
     }

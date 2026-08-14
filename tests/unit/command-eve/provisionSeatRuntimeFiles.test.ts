@@ -290,6 +290,10 @@ describe('packaged Browser Use runner ownership', () => {
     fs.writeFileSync(runner, body);
     fs.chmodSync(runner, 0o700);
     const sha256 = crypto.createHash('sha256').update(fs.readFileSync(runner)).digest('hex');
+    const companion = path.join(sourceRoot, 'uv');
+    fs.writeFileSync(companion, body);
+    fs.chmodSync(companion, 0o700);
+    const companionSha256 = crypto.createHash('sha256').update(fs.readFileSync(companion)).digest('hex');
     const artifactReceipt = {
       schema_version: 'command-eve-uvx-artifact-receipt/v1',
       upstream: 'astral-sh/uv',
@@ -301,12 +305,22 @@ describe('packaged Browser Use runner ownership', () => {
       runner_filename: 'uvx',
       source_runner_sha256: 'b'.repeat(64),
       runner_sha256: sha256,
+      companion_archive_entry: 'uv-aarch64-apple-darwin/uv',
+      companion_filename: 'uv',
+      companion_source_sha256: 'c'.repeat(64),
+      companion_sha256: companionSha256,
       provenance: 'official-astral-release-attestation+fynlabs-developer-id/v1',
       attestation: { repo: 'astral-sh/uv', release_tag: '0.0.0-test' },
       signing: {
         authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
         team_id: 'NHNQ7Q5H28',
         identifier: 'uvx',
+        hardened_runtime: true,
+      },
+      companion_signing: {
+        authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+        team_id: 'NHNQ7Q5H28',
+        identifier: 'uv',
         hardened_runtime: true,
       },
     };
@@ -327,6 +341,10 @@ describe('packaged Browser Use runner ownership', () => {
             runner_filename: 'uvx',
             source_runner_sha256: 'b'.repeat(64),
             runner_sha256: sha256,
+            companion_archive_entry: 'uv-aarch64-apple-darwin/uv',
+            companion_filename: 'uv',
+            companion_source_sha256: 'c'.repeat(64),
+            companion_sha256: companionSha256,
             artifact_receipt_sha256: crypto.createHash('sha256').update(artifactReceiptBytes).digest('hex'),
             provenance: 'official-astral-release-attestation+fynlabs-developer-id/v1',
             attestation: { repo: 'astral-sh/uv', release_tag: '0.0.0-test' },
@@ -334,6 +352,12 @@ describe('packaged Browser Use runner ownership', () => {
               authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
               team_id: 'NHNQ7Q5H28',
               identifier: 'uvx',
+              hardened_runtime: true,
+            },
+            companion_signing: {
+              authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+              team_id: 'NHNQ7Q5H28',
+              identifier: 'uv',
               hardened_runtime: true,
             },
           },
@@ -352,6 +376,7 @@ describe('packaged Browser Use runner ownership', () => {
     const runner = provisionCommandEveBrowserUseRunner(paths, resourcesPath, 'darwin', 'arm64', browserUseRunnerDeps);
 
     expect(runner?.path).toBe(path.join(paths.hermesHome, 'bin', 'uvx'));
+    expect(runner?.companionPath).toBe(path.join(paths.hermesHome, 'bin', 'uv'));
     expect(runner?.provenance).toBe('packaged-astral-uvx/v1');
     expect(fs.readFileSync(runner!.path, 'utf8')).toContain('exit 0');
     const descriptor = JSON.parse(fs.readFileSync(paths.browserUseRunnerDescriptor, 'utf8'));
@@ -359,14 +384,30 @@ describe('packaged Browser Use runner ownership', () => {
       schema_version: 'command-eve-browser-use-runner/v1',
       hermes_home: paths.hermesHome,
       path: runner!.path,
+      companion_path: runner!.companionPath,
       root: path.join(paths.hermesHome, 'bin'),
       artifact_receipt_path: path.join(paths.hermesHome, 'bin', 'uvx-artifact-receipt.json'),
       sha256: runner!.sha256,
+      companion_sha256: runner!.companionSha256,
       version: '0.0.0-test',
       provenance: 'packaged-astral-uvx/v1',
     });
     expect(fs.existsSync(path.join(paths.hermesHome, 'bin', 'uvx-artifact-receipt.json'))).toBe(true);
-    if (process.platform !== 'win32') expect(fs.statSync(runner!.path).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(runner!.path).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(runner!.companionPath).mode & 0o777).toBe(0o700);
+    }
+  });
+
+  it('fails closed when the packaged uv companion is absent or altered', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(userData);
+    const resourcesPath = writePackagedRunner(userData);
+    fs.appendFileSync(path.join(resourcesPath, 'bundled-hermes', 'uvx', 'aarch64-apple-darwin', 'uv'), 'tampered');
+    expect(
+      provisionCommandEveBrowserUseRunner(paths, resourcesPath, 'darwin', 'arm64', browserUseRunnerDeps)
+    ).toBeUndefined();
   });
 
   it('fails closed when the packaged artifact is absent or altered', () => {

@@ -72,6 +72,9 @@ with tempfile.TemporaryDirectory(prefix="command-eve-uvx-receipt-") as raw_root:
     runner = runner_root / "uvx"
     runner.write_bytes(b"#!/bin/sh\nexit 0\n")
     os.chmod(runner, 0o700)
+    companion = runner_root / "uv"
+    companion.write_bytes(b"#!/bin/sh\nexit 0\n")
+    os.chmod(companion, 0o700)
     receipt_path = runner_root / "uvx-artifact-receipt.json"
     descriptor_path = home / "browser-use-runner.json"
     os.environ["HERMES_HOME"] = str(home)
@@ -93,12 +96,22 @@ with tempfile.TemporaryDirectory(prefix="command-eve-uvx-receipt-") as raw_root:
             "runner_filename": "uvx",
             "source_runner_sha256": "b" * 64,
             "runner_sha256": sha256(runner),
+            "companion_archive_entry": "uv-aarch64-apple-darwin/uv",
+            "companion_filename": "uv",
+            "companion_source_sha256": "c" * 64,
+            "companion_sha256": sha256(companion),
             "provenance": provenance,
             "attestation": {"repo": "astral-sh/uv", "release_tag": release_tag},
             "signing": {
                 "authority": "Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)",
                 "team_id": "NHNQ7Q5H28",
                 "identifier": "uvx",
+                "hardened_runtime": True,
+            },
+            "companion_signing": {
+                "authority": "Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)",
+                "team_id": "NHNQ7Q5H28",
+                "identifier": "uv",
                 "hardened_runtime": True,
             },
         }
@@ -111,6 +124,8 @@ with tempfile.TemporaryDirectory(prefix="command-eve-uvx-receipt-") as raw_root:
             "root": str(runner_root),
             "artifact_receipt_path": str(receipt_path),
             "sha256": sha256(runner),
+            "companion_path": str(companion),
+            "companion_sha256": sha256(companion),
             "version": "0.10.12",
             "target": "aarch64-apple-darwin",
             "artifact_receipt_sha256": sha256(receipt_path),

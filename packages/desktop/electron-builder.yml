@@ -215,6 +215,7 @@ mac:
   # Keep this exact target stable; missing/unsigned/wrong-identity bytes fail the
   # packaged-resource verifier before and after signing.
   signIgnore:
+    - '/Contents/Resources/bundled-hermes/uvx/aarch64-apple-darwin/uv$'
     - '/Contents/Resources/bundled-hermes/uvx/aarch64-apple-darwin/uvx$'
   gatekeeperAssess: false
   entitlements: entitlements.plist

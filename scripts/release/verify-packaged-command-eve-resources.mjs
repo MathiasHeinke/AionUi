@@ -257,6 +257,10 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
     !/^[a-f0-9]{64}$/.test(String(artifact.archive_sha256 || '')) ||
     !/^[a-f0-9]{64}$/.test(String(artifact.source_runner_sha256 || '')) ||
     !/^[a-f0-9]{64}$/.test(String(artifact.runner_sha256 || '')) ||
+    artifact.companion_archive_entry !== `uv-${target}/uv` ||
+    artifact.companion_filename !== 'uv' ||
+    !/^[a-f0-9]{64}$/.test(String(artifact.companion_source_sha256 || '')) ||
+    !/^[a-f0-9]{64}$/.test(String(artifact.companion_sha256 || '')) ||
     !/^[a-f0-9]{64}$/.test(String(artifact.artifact_receipt_sha256 || '')) ||
     artifact.provenance !== COMMAND_EVE_BROWSER_UVX_PROVENANCE ||
     artifact.attestation?.repo !== 'astral-sh/uv' ||
@@ -264,7 +268,11 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
     artifact.signing?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
     artifact.signing?.team_id !== COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM ||
     artifact.signing?.identifier !== artifact.runner_filename ||
-    artifact.signing?.hardened_runtime !== true
+    artifact.signing?.hardened_runtime !== true ||
+    artifact.companion_signing?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
+    artifact.companion_signing?.team_id !== COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM ||
+    artifact.companion_signing?.identifier !== artifact.companion_filename ||
+    artifact.companion_signing?.hardened_runtime !== true
   ) {
     throw new Error('PACKAGED-RESOURCES: Browser Use uvx manifest violates the signed-resource contract');
   }
@@ -294,12 +302,20 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
     artifactReceipt?.runner_filename !== artifact.runner_filename ||
     artifactReceipt?.source_runner_sha256 !== artifact.source_runner_sha256 ||
     artifactReceipt?.runner_sha256 !== artifact.runner_sha256 ||
+    artifactReceipt?.companion_archive_entry !== artifact.companion_archive_entry ||
+    artifactReceipt?.companion_filename !== artifact.companion_filename ||
+    artifactReceipt?.companion_source_sha256 !== artifact.companion_source_sha256 ||
+    artifactReceipt?.companion_sha256 !== artifact.companion_sha256 ||
     artifactReceipt?.attestation?.repo !== 'astral-sh/uv' ||
     artifactReceipt?.attestation?.release_tag !== manifest.version ||
     artifactReceipt?.signing?.authority !== artifact.signing.authority ||
     artifactReceipt?.signing?.team_id !== artifact.signing.team_id ||
     artifactReceipt?.signing?.identifier !== artifact.signing.identifier ||
     artifactReceipt?.signing?.hardened_runtime !== true ||
+    artifactReceipt?.companion_signing?.authority !== artifact.companion_signing.authority ||
+    artifactReceipt?.companion_signing?.team_id !== artifact.companion_signing.team_id ||
+    artifactReceipt?.companion_signing?.identifier !== artifact.companion_signing.identifier ||
+    artifactReceipt?.companion_signing?.hardened_runtime !== true ||
     sha256(artifactReceiptBytes) !== artifact.artifact_receipt_sha256
   ) {
     throw new Error('PACKAGED-RESOURCES: Browser Use uvx artifact receipt violates the reviewed Astral contract');
@@ -316,6 +332,17 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
       `PACKAGED-RESOURCES: Browser Use uvx runner must be thin ${expectedMachOArch}; found ${runnerArchitectures.join(', ') || 'none'}`
     );
   }
+  const companionPath = path.join(targetRoot, artifact.companion_filename);
+  const companionBytes = readRequiredRegularFile(companionPath, 'packaged Browser Use uv companion', deps);
+  if (sha256(companionBytes) !== artifact.companion_sha256) {
+    throw new Error('PACKAGED-RESOURCES: packaged Browser Use uv companion failed its SHA-256 pin');
+  }
+  const companionArchitectures = normalizeArchitectures(deps.readArchitectures(companionPath));
+  if (companionArchitectures.length !== 1 || companionArchitectures[0] !== expectedMachOArch) {
+    throw new Error(
+      `PACKAGED-RESOURCES: Browser Use uv companion must be thin ${expectedMachOArch}; found ${companionArchitectures.join(', ') || 'none'}`
+    );
+  }
   const signature = deps.readCodeSignature(runnerPath);
   if (
     signature?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
@@ -325,6 +352,17 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
   ) {
     throw new Error('PACKAGED-RESOURCES: Browser Use uvx Developer ID signature violates the release contract');
   }
+  const companionSignature = deps.readCodeSignature(companionPath);
+  if (
+    companionSignature?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
+    companionSignature?.team_id !== COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM ||
+    companionSignature?.identifier !== artifact.companion_filename ||
+    companionSignature?.hardened_runtime !== true
+  ) {
+    throw new Error(
+      'PACKAGED-RESOURCES: Browser Use uv companion Developer ID signature violates the release contract'
+    );
+  }
   return {
     version: manifest.version,
     target,
@@ -332,10 +370,15 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
     sha256: artifact.runner_sha256,
     archive_sha256: artifact.archive_sha256,
     source_runner_sha256: artifact.source_runner_sha256,
+    companion_file: artifact.companion_filename,
+    companion_sha256: artifact.companion_sha256,
+    companion_source_sha256: artifact.companion_source_sha256,
     artifact_receipt_sha256: sha256(artifactReceiptBytes),
     attestation: artifact.attestation,
     architectures: runnerArchitectures,
     signing: signature,
+    companion_signing: companionSignature,
+    companion_architectures: companionArchitectures,
   };
 }
 
