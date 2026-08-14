@@ -168,6 +168,16 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
       rebindEpoch: 3,
       initialized: false,
     });
+    await expect(configService.whenReady()).rejects.toThrow('untrusted');
+    await expect(configService.initialize()).rejects.toThrow('untrusted');
+    await expect(configService.set('commandEve.clientSeeded', true)).rejects.toThrow('untrusted');
+    expect(() => configService.setLocal('commandEve.clientSeeded', true)).toThrow('untrusted');
+    await expect(configService.rebindSeat(SEAT_B)).rejects.toThrow('untrusted');
+    expect(configService.getSeatBindingSnapshot()).toEqual({
+      seatId: SEAT_B,
+      rebindEpoch: 3,
+      initialized: false,
+    });
     // The invalid terminal cannot strand the token: a later valid transition
     // can restore the trusted binding and runtime transport.
     const recovered = configService.beginSeatTransition();

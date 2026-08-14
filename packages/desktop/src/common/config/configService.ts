@@ -174,11 +174,22 @@ class ConfigServiceImpl {
   private seatRebindEpoch = 0;
   private nextSeatTransitionId = 0;
   private activeSeatTransition: ConfigSeatTransitionToken | null = null;
+  // Cleared after any malformed terminal identity or failed terminal config
+  // hydration. Ordinary initialize/whenReady/config writes cannot infer that
+  // the prior renderer seat still owns MAIN's now-dynamic backend port; only a
+  // later validated transition may restore trust.
+  private seatBindingTrusted = true;
 
   // The active seat this service is currently bound to (ISO-2). Defaults to the
   // legacy seat so NOTHING changes until a seat switcher calls rebindSeat — for
   // the legacy seat every physical key equals its logical key (zero migration).
   private currentSeatId: string = LEGACY_SEAT_ID;
+
+  private assertSeatBindingTrusted(): void {
+    if (!this.seatBindingTrusted) {
+      throw new Error('Seat binding is untrusted; a validated seat transition is required');
+    }
+  }
 
   /**
    * Map a LOGICAL config key to the PHYSICAL key stored in the backend bag.
@@ -256,6 +267,10 @@ class ConfigServiceImpl {
     const previous = new Map<string, unknown>();
     try {
       sanitized = assertSeatId(seatId);
+      // A syntactically valid authoritative terminal identity is allowed to
+      // attempt hydration even when a prior terminal left the latch closed.
+      // Any hydration failure below closes it again.
+      this.seatBindingTrusted = true;
       // Snapshot the pre-switch seat-scoped values so we can fire change events
       // for any whose value differs under the new seat.
       for (const key of this.cache.keys()) {
@@ -274,6 +289,7 @@ class ConfigServiceImpl {
       this.cache.clear();
       this.initialized = false;
       this.initPromise = null;
+      this.seatBindingTrusted = false;
     } finally {
       if (completionError === undefined) completeRealtimeTransportSeatTransition();
       else rejectRealtimeTransportSeatTransition();
@@ -302,6 +318,7 @@ class ConfigServiceImpl {
    * seat switching uses beginSeatTransition before invoking MAIN.
    */
   async rebindSeat(seatId?: string | null): Promise<void> {
+    this.assertSeatBindingTrusted();
     const sanitized = assertSeatId(seatId);
     if (sanitized === this.currentSeatId && this.initialized && !this.activeSeatTransition) return;
     const token = this.beginSeatTransition();
@@ -318,7 +335,7 @@ class ConfigServiceImpl {
     return {
       seatId: this.currentSeatId,
       rebindEpoch: this.seatRebindEpoch,
-      initialized: this.initialized && this.activeSeatTransition === null,
+      initialized: this.initialized && this.activeSeatTransition === null && this.seatBindingTrusted,
     };
   }
 
@@ -326,6 +343,9 @@ class ConfigServiceImpl {
   // resolved init returns immediately. Modules that need persisted settings on
   // module load (theme/colorScheme/language) await whenReady() before reading.
   initialize(): Promise<void> {
+    if (!this.seatBindingTrusted) {
+      return Promise.reject(new Error('Seat binding is untrusted; initialize is blocked until a validated transition'));
+    }
     if (this.initPromise) return this.initPromise;
     this.initPromise = (async () => {
       // Resolve the active seat from main BEFORE mapping the bag, so seat-scoped
@@ -412,6 +432,7 @@ class ConfigServiceImpl {
   }
 
   async set<K extends ConfigKey>(key: K, value: ConfigKeyMap[K]): Promise<void> {
+    this.assertSeatBindingTrusted();
     // Cache + subscribers stay keyed by the LOGICAL key; only the wire uses the
     // (possibly seat-scoped) physical key (ISO-2).
     this.cache.set(key, value);
@@ -420,6 +441,7 @@ class ConfigServiceImpl {
   }
 
   setLocal<K extends ConfigKey>(key: K, value: ConfigKeyMap[K]): void {
+    this.assertSeatBindingTrusted();
     this.cache.set(key, value);
     this.notify(key, value);
     // Deliberately NO persisted signal: nothing was persisted. A local-only write
@@ -427,12 +449,14 @@ class ConfigServiceImpl {
   }
 
   async remove(key: ConfigKey): Promise<void> {
+    this.assertSeatBindingTrusted();
     this.cache.delete(key);
     this.notify(key, undefined);
     await this.persist({ [this.physicalKey(key)]: null }, [[key, undefined]]);
   }
 
   async setBatch(entries: Partial<{ [K in ConfigKey]: ConfigKeyMap[K] }>): Promise<void> {
+    this.assertSeatBindingTrusted();
     const wire: Record<string, unknown> = {};
     const persisted: Array<[ConfigKey, unknown]> = [];
     for (const [key, value] of Object.entries(entries)) {
@@ -498,7 +522,7 @@ class ConfigServiceImpl {
   }
 
   isInitialized(): boolean {
-    return this.initialized && this.activeSeatTransition === null;
+    return this.initialized && this.activeSeatTransition === null && this.seatBindingTrusted;
   }
 
   reset(): void {
@@ -509,6 +533,7 @@ class ConfigServiceImpl {
     this.initialized = false;
     this.initPromise = null;
     this.activeSeatTransition = null;
+    this.seatBindingTrusted = true;
     this.seatRebindEpoch += 1;
     // Clean-reset returns to the legacy seat so a fresh initialize() re-resolves
     // the active seat from main (ISO-2).
