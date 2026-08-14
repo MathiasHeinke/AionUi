@@ -312,6 +312,20 @@ exports.default = async function afterSign(context) {
   const targetArch = resolveAfterSignTargetArch(context.arch);
   const notarizeOptions = getNotarizeOptions({ appBundleId, appPath });
   const releaseSigningRequired = Boolean(notarizeOptions || getPythonSignIdentity());
+  const { verifyPackagedCommandEveBrowserUseRunner } =
+    await import('./release/verify-packaged-command-eve-resources.mjs');
+  const browserUseRunnerTarget =
+    targetArch === 'arm64'
+      ? 'aarch64-apple-darwin'
+      : targetArch === 'x64'
+        ? 'x86_64-apple-darwin'
+        : (() => {
+            throw new Error(`Unsupported Browser Use uvx release architecture: ${targetArch}`);
+          })();
+  const browserUseRunnerPath = path.join(resourcesPath, 'bundled-hermes', 'uvx', browserUseRunnerTarget, 'uvx');
+  verifyPackagedCommandEveBrowserUseRunner({ resourcesPath, expectedArch: targetArch });
+  const browserUseRunnerBytes = fs.readFileSync(browserUseRunnerPath);
+  const browserUseRunnerMode = fs.lstatSync(browserUseRunnerPath).mode & 0o777;
 
   // Check if app is actually signed before attempting notarization
   try {
@@ -326,6 +340,14 @@ exports.default = async function afterSign(context) {
     console.log(`App ${appName} is not code signed, applying ad-hoc signature...`);
     try {
       execFileSync('codesign', ['--force', '--deep', '--sign', '-', appPath], { stdio: 'inherit' });
+      // `codesign --deep` re-signs every nested Mach-O, including the frozen
+      // Developer-ID uvx that electron-builder deliberately signIgnore'd. Put
+      // its exact reviewed bytes back, then re-seal only the outer app. This
+      // keeps local/ad-hoc package gates byte-identical to the release path.
+      fs.writeFileSync(browserUseRunnerPath, browserUseRunnerBytes, { mode: browserUseRunnerMode });
+      execFileSync('codesign', ['--force', '--sign', '-', appPath], { stdio: 'inherit' });
+      verifyPackagedCommandEveBrowserUseRunner({ resourcesPath, expectedArch: targetArch });
+      execFileSync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], { stdio: 'pipe' });
       console.log(`Ad-hoc signature applied successfully to ${appName}`);
       const { verifyPackagedNodePtySignatures } = await import('./release/verify-packaged-node-pty-core.mjs');
       verifyPackagedNodePtySignatures({ appPath, resourcesPath, expectedArch: targetArch });
@@ -377,6 +399,12 @@ exports.default = async function afterSign(context) {
     execFileSync('codesign', ['--verify', '--verbose=2', appPath], { stdio: 'inherit' });
     console.log(`App ${appName} re-verified after bundled-python deep-sign`);
   }
+
+  // electron-builder must leave the pre-signed uvx byte-identical. This is the
+  // final post-sign check before notarization; a missing signIgnore, altered
+  // receipt, wrong Developer ID or stale hash stops the release here.
+  verifyPackagedCommandEveBrowserUseRunner({ resourcesPath, expectedArch: targetArch });
+  console.log('Packaged Browser Use uvx signature and frozen hash verified before notarization');
 
   const { verifyPackagedNodePtySignatures } = await import('./release/verify-packaged-node-pty-core.mjs');
   verifyPackagedNodePtySignatures({

@@ -1,5 +1,5 @@
 import { createHash, createPublicKey } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,9 @@ import { scanForPrivateKeys } from './verify-no-private-keys.mjs';
 export const PACKAGED_COMMAND_EVE_RESOURCES_VERIFIER_VERSION = 'verify-packaged-command-eve-resources/v3';
 const COMMAND_EVE_BROWSER_UVX_MANIFEST_SCHEMA = 'command-eve-uvx-runner/v1';
 const COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_SCHEMA = 'command-eve-uvx-artifact-receipt/v1';
+const COMMAND_EVE_BROWSER_UVX_PROVENANCE = 'official-astral-release-attestation+fynlabs-developer-id/v1';
+const COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY = 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)';
+const COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM = 'NHNQ7Q5H28';
 
 export const COMMAND_EVE_PUBLIC_KEY_FILES = Object.freeze([
   'command-eve-license-public-key.pem',
@@ -173,6 +176,34 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+function defaultReadCodeSignature(filePath) {
+  const verified = spawnSync('/usr/bin/codesign', ['--verify', '--strict', '--verbose=2', filePath], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (verified.error || verified.status !== 0) {
+    throw new Error(`PACKAGED-RESOURCES: Browser Use uvx Developer ID signature is invalid: ${filePath}`);
+  }
+  const inspected = spawnSync('/usr/bin/codesign', ['-dv', '--verbose=4', filePath], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (inspected.error || inspected.status !== 0) {
+    throw new Error(`PACKAGED-RESOURCES: Browser Use uvx Developer ID signature is unreadable: ${filePath}`);
+  }
+  const details = `${inspected.stderr || ''}\n${inspected.stdout || ''}`;
+  const value = (name) => {
+    const line = details.split(/\r?\n/).find((candidate) => candidate.startsWith(`${name}=`));
+    return line ? line.slice(name.length + 1).trim() : '';
+  };
+  return {
+    authority: value('Authority'),
+    team_id: value('TeamIdentifier'),
+    identifier: value('Identifier'),
+    hardened_runtime: /flags=0x[0-9a-f]+\([^)]*runtime[^)]*\)/i.test(details),
+  };
+}
+
 function verifyPackagedHermesLocales(resourcesPath, deps) {
   const directory = path.join(resourcesPath, 'bundled-hermes', 'locales');
   assertDirectory(directory, 'packaged Hermes locale directory', deps);
@@ -224,10 +255,16 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
     artifact.runner_filename !== 'uvx' ||
     artifact.archive_entry !== archiveEntry ||
     !/^[a-f0-9]{64}$/.test(String(artifact.archive_sha256 || '')) ||
+    !/^[a-f0-9]{64}$/.test(String(artifact.source_runner_sha256 || '')) ||
     !/^[a-f0-9]{64}$/.test(String(artifact.runner_sha256 || '')) ||
     !/^[a-f0-9]{64}$/.test(String(artifact.artifact_receipt_sha256 || '')) ||
+    artifact.provenance !== COMMAND_EVE_BROWSER_UVX_PROVENANCE ||
     artifact.attestation?.repo !== 'astral-sh/uv' ||
-    artifact.attestation?.release_tag !== manifest.version
+    artifact.attestation?.release_tag !== manifest.version ||
+    artifact.signing?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
+    artifact.signing?.team_id !== COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM ||
+    artifact.signing?.identifier !== artifact.runner_filename ||
+    artifact.signing?.hardened_runtime !== true
   ) {
     throw new Error('PACKAGED-RESOURCES: Browser Use uvx manifest violates the signed-resource contract');
   }
@@ -247,7 +284,7 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
   }
   if (
     artifactReceipt?.schema_version !== COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_SCHEMA ||
-    artifactReceipt?.provenance !== 'official-astral-release-attestation/v1' ||
+    artifactReceipt?.provenance !== COMMAND_EVE_BROWSER_UVX_PROVENANCE ||
     artifactReceipt?.upstream !== 'astral-sh/uv' ||
     artifactReceipt?.version !== manifest.version ||
     artifactReceipt?.target !== target ||
@@ -255,9 +292,14 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
     artifactReceipt?.archive_sha256 !== artifact.archive_sha256 ||
     artifactReceipt?.archive_entry !== artifact.archive_entry ||
     artifactReceipt?.runner_filename !== artifact.runner_filename ||
+    artifactReceipt?.source_runner_sha256 !== artifact.source_runner_sha256 ||
     artifactReceipt?.runner_sha256 !== artifact.runner_sha256 ||
     artifactReceipt?.attestation?.repo !== 'astral-sh/uv' ||
     artifactReceipt?.attestation?.release_tag !== manifest.version ||
+    artifactReceipt?.signing?.authority !== artifact.signing.authority ||
+    artifactReceipt?.signing?.team_id !== artifact.signing.team_id ||
+    artifactReceipt?.signing?.identifier !== artifact.signing.identifier ||
+    artifactReceipt?.signing?.hardened_runtime !== true ||
     sha256(artifactReceiptBytes) !== artifact.artifact_receipt_sha256
   ) {
     throw new Error('PACKAGED-RESOURCES: Browser Use uvx artifact receipt violates the reviewed Astral contract');
@@ -274,16 +316,40 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
       `PACKAGED-RESOURCES: Browser Use uvx runner must be thin ${expectedMachOArch}; found ${runnerArchitectures.join(', ') || 'none'}`
     );
   }
+  const signature = deps.readCodeSignature(runnerPath);
+  if (
+    signature?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
+    signature?.team_id !== COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM ||
+    signature?.identifier !== artifact.runner_filename ||
+    signature?.hardened_runtime !== true
+  ) {
+    throw new Error('PACKAGED-RESOURCES: Browser Use uvx Developer ID signature violates the release contract');
+  }
   return {
     version: manifest.version,
     target,
     file: artifact.runner_filename,
     sha256: artifact.runner_sha256,
     archive_sha256: artifact.archive_sha256,
+    source_runner_sha256: artifact.source_runner_sha256,
     artifact_receipt_sha256: sha256(artifactReceiptBytes),
     attestation: artifact.attestation,
     architectures: runnerArchitectures,
+    signing: signature,
   };
+}
+
+export function verifyPackagedCommandEveBrowserUseRunner(options, injected = {}) {
+  const resourcesPath = path.resolve(String(options?.resourcesPath || ''));
+  const expectedArch = String(options?.expectedArch || 'arm64');
+  const deps = {
+    lstat: injected.lstat || fs.lstatSync,
+    readFile: injected.readFile || fs.readFileSync,
+    readArchitectures: injected.readArchitectures || defaultReadArchitectures,
+    readCodeSignature: injected.readCodeSignature || defaultReadCodeSignature,
+  };
+  assertDirectory(resourcesPath, 'packaged resources directory', deps);
+  return verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps);
 }
 
 function assertPublicKeyPem(bytes, fileName) {
@@ -508,6 +574,7 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
     readFile: injected.readFile || fs.readFileSync,
     readdir: injected.readdir || fs.readdirSync,
     readArchitectures: injected.readArchitectures || defaultReadArchitectures,
+    readCodeSignature: injected.readCodeSignature || defaultReadCodeSignature,
     listArchiveEntries: injected.listArchiveEntries || defaultListArchiveEntries,
     scanPrivateKeys: injected.scanPrivateKeys || scanForPrivateKeys,
   };

@@ -127,6 +127,9 @@ export const COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_PATH_ENV = 'COMMAND_EVE_BROWSER_
 const COMMAND_EVE_BROWSER_UVX_MANIFEST_SCHEMA = 'command-eve-uvx-runner/v1';
 const COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_SCHEMA = 'command-eve-uvx-artifact-receipt/v1';
 const COMMAND_EVE_BROWSER_UVX_DESCRIPTOR_SCHEMA = 'command-eve-browser-use-runner/v1';
+const COMMAND_EVE_BROWSER_UVX_PROVENANCE = 'official-astral-release-attestation+fynlabs-developer-id/v1';
+const COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY = 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)';
+const COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM = 'NHNQ7Q5H28';
 const BUNDLED_AIONCORE_DIR = 'bundled-aioncore';
 const MANAGED_RESOURCES_DIR = 'managed-resources';
 const MANAGED_NODE_DIR = 'node';
@@ -1890,9 +1893,16 @@ type CommandEveBrowserUseRunnerArtifactReceipt = {
   archive_sha256: string;
   archive_entry: string;
   runner_filename: string;
+  source_runner_sha256: string;
   runner_sha256: string;
-  provenance: 'official-astral-release-attestation/v1';
+  provenance: typeof COMMAND_EVE_BROWSER_UVX_PROVENANCE;
   attestation: { repo: 'astral-sh/uv'; release_tag: string };
+  signing: {
+    authority: typeof COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY;
+    team_id: typeof COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM;
+    identifier: 'uvx';
+    hardened_runtime: true;
+  };
 };
 
 type CommandEveBrowserUseRunnerDescriptor = {
@@ -1918,9 +1928,12 @@ type CommandEveBrowserUseRunnerManifest = {
     archive_sha256: string;
     archive_entry: string;
     runner_filename: string;
+    source_runner_sha256: string;
     runner_sha256: string;
     artifact_receipt_sha256: string;
+    provenance: typeof COMMAND_EVE_BROWSER_UVX_PROVENANCE;
     attestation: { repo: 'astral-sh/uv'; release_tag: string };
+    signing: CommandEveBrowserUseRunnerArtifactReceipt['signing'];
   }>;
 };
 
@@ -2009,10 +2022,15 @@ function readCommandEveBrowserUseRunnerArtifactReceipt(
       !/^[a-f0-9]{64}$/.test(String(receipt.archive_sha256 || '')) ||
       receipt.archive_entry !== packagedBrowserUseRunnerArchiveEntry(target, runnerFilename) ||
       receipt.runner_filename !== runnerFilename ||
+      !/^[a-f0-9]{64}$/.test(String(receipt.source_runner_sha256 || '')) ||
       !/^[a-f0-9]{64}$/.test(String(receipt.runner_sha256 || '')) ||
-      receipt.provenance !== 'official-astral-release-attestation/v1' ||
+      receipt.provenance !== COMMAND_EVE_BROWSER_UVX_PROVENANCE ||
       receipt.attestation?.repo !== 'astral-sh/uv' ||
-      receipt.attestation.release_tag !== receipt.version
+      receipt.attestation.release_tag !== receipt.version ||
+      receipt.signing?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
+      receipt.signing?.team_id !== COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM ||
+      receipt.signing?.identifier !== runnerFilename ||
+      receipt.signing?.hardened_runtime !== true
     ) {
       return undefined;
     }
@@ -2035,9 +2053,15 @@ function isCommandEveBrowserUseRunnerArtifactReceiptMatch(
     artifact.archive_sha256 === receipt.archive_sha256 &&
     artifact.archive_entry === receipt.archive_entry &&
     artifact.runner_filename === receipt.runner_filename &&
+    artifact.source_runner_sha256 === receipt.source_runner_sha256 &&
     artifact.runner_sha256 === receipt.runner_sha256 &&
+    artifact.provenance === receipt.provenance &&
     artifact.attestation?.repo === receipt.attestation?.repo &&
-    artifact.attestation?.release_tag === receipt.attestation?.release_tag
+    artifact.attestation?.release_tag === receipt.attestation?.release_tag &&
+    artifact.signing?.authority === receipt.signing?.authority &&
+    artifact.signing?.team_id === receipt.signing?.team_id &&
+    artifact.signing?.identifier === receipt.signing?.identifier &&
+    artifact.signing?.hardened_runtime === receipt.signing?.hardened_runtime
   );
 }
 
@@ -2181,10 +2205,17 @@ export function resolveCommandEvePackagedBrowserUseRunner(
       !/^[a-f0-9]{64}$/.test(String(artifact.archive_sha256 || '')) ||
       artifact.archive_entry !== packagedBrowserUseRunnerArchiveEntry(target, runnerFilename) ||
       artifact.runner_filename !== runnerFilename ||
+      typeof artifact.source_runner_sha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(artifact.source_runner_sha256) ||
       typeof artifact.runner_sha256 !== 'string' ||
+      artifact.provenance !== COMMAND_EVE_BROWSER_UVX_PROVENANCE ||
       !/^[a-f0-9]{64}$/.test(String(artifact.artifact_receipt_sha256 || '')) ||
       artifact.attestation?.repo !== 'astral-sh/uv' ||
-      artifact.attestation.release_tag !== manifest.version
+      artifact.attestation.release_tag !== manifest.version ||
+      artifact.signing?.authority !== COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY ||
+      artifact.signing?.team_id !== COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM ||
+      artifact.signing?.identifier !== runnerFilename ||
+      artifact.signing?.hardened_runtime !== true
     ) {
       return undefined;
     }
@@ -4154,6 +4185,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '# which is exactly the kind of noise that teaches a reader to ignore this channel.',
     '_COMMAND_EVE_EXPECTED_PATCHES = (',
     '    "auxiliary_auth",',
+    '    "browser_use_uvx_receipt",',
     '    "attachment_memory_gate",',
     '    "attachment_history",',
     '    "prompt_admission",',
@@ -4259,6 +4291,59 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        )',
     '    except Exception:',
     '        return False',
+    '',
+    '',
+    'def _install_command_eve_browser_use_uvx_receipt_patch() -> None:',
+    '    """Adapt the pinned Hermes 0.20 consumer to the truthful Astral/FYN receipt.',
+    '',
+    "    Hermes 0.20 predates Astral's non-prefixed release tag and assumes the",
+    '    tar member is flat. Command EVE keeps the persisted receipt truthful and',
+    '    changes only those exact comparisons in the frozen consumer function.',
+    '    Source-shape checks make this fail closed on any unreviewed wheel drift.',
+    '    """',
+    '    try:',
+    '        import textwrap',
+    '        from tools import browser_use_cli',
+    '    except Exception:',
+    '        return',
+    '    original = getattr(browser_use_cli, "_find_command_eve_cli", None)',
+    '    if not callable(original):',
+    '        return',
+    '    if getattr(original, "_command_eve_uvx_receipt_patch", False):',
+    '        _command_eve_mark_patch("browser_use_uvx_receipt")',
+    '        return',
+    '    try:',
+    '        source = textwrap.dedent(inspect.getsource(original))',
+    '        replacements = (',
+    '            (',
+    '                "receipt.get(\\\"provenance\\\") != \\\"official-astral-release-attestation/v1\\\"",',
+    '                "receipt.get(\\\"provenance\\\") != \\\"official-astral-release-attestation+fynlabs-developer-id/v1\\\"",',
+    '            ),',
+    '            (',
+    '                "receipt.get(\\\"archive_entry\\\") != os.path.basename(uvx)",',
+    '                "receipt.get(\\\"archive_entry\\\") != f\\\"uv-{descriptor.get(\'target\')}/{os.path.basename(uvx)}\\\"",',
+    '            ),',
+    '            (',
+    '                "!= f\\\"v{descriptor[\'version\']}\\\"",',
+    '                "!= descriptor[\\\"version\\\"]",',
+    '            ),',
+    '        )',
+    '        for before, after in replacements:',
+    '            if source.count(before) != 1:',
+    '                return',
+    '            source = source.replace(before, after, 1)',
+    '        namespace = dict(original.__globals__)',
+    '        exec(compile(source, "<command-eve-browser-use-uvx-receipt>", "exec"), namespace, namespace)',
+    '        patched = namespace.get("_find_command_eve_cli")',
+    '        if not callable(patched):',
+    '            return',
+    '        patched._command_eve_uvx_receipt_patch = True',
+    '        patched.__module__ = original.__module__',
+    '        browser_use_cli._find_command_eve_cli = patched',
+    '    except Exception:',
+    '        logging.getLogger(__name__).exception("Command EVE Browser Use uvx receipt patch failed")',
+    '        return',
+    '    _command_eve_mark_patch("browser_use_uvx_receipt")',
     '',
     '',
     'def _install_command_eve_auxiliary_auth_patch() -> None:',
@@ -7573,6 +7658,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        **ctx: Any,',
     '    ) -> tuple[dict[str, Any], dict[str, Any]]:',
     '        _install_command_eve_auxiliary_auth_patch()',
+    '        _install_command_eve_browser_use_uvx_receipt_patch()',
     '        _install_command_eve_attachment_memory_gate()',
     '        _install_command_eve_attachment_history_patch()',
     '        _install_command_eve_prompt_admission_patch()',
@@ -7647,6 +7733,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    )',
     ')',
     '_install_command_eve_auxiliary_auth_patch()',
+    '_install_command_eve_browser_use_uvx_receipt_patch()',
     '_install_command_eve_attachment_memory_gate()',
     '_install_command_eve_attachment_history_patch()',
     '_install_command_eve_prompt_admission_patch()',

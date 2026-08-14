@@ -209,6 +209,13 @@ mac:
   artifactName: Command-EVE-${version}-${os}-${arch}.${ext}
   category: public.app-category.productivity
   hardenedRuntime: true
+  # The arm64 Browser Use runner is already Developer-ID signed, hardened and
+  # hash-pinned in its package receipt. Re-signing would change the frozen
+  # runner bytes after afterPack and invalidate both MAIN and Hermes at runtime.
+  # Keep this exact target stable; missing/unsigned/wrong-identity bytes fail the
+  # packaged-resource verifier before and after signing.
+  signIgnore:
+    - '/Contents/Resources/bundled-hermes/uvx/aarch64-apple-darwin/uvx$'
   gatekeeperAssess: false
   entitlements: entitlements.plist
   entitlementsInherit: entitlements.plist

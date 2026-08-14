@@ -53,6 +53,12 @@ describe('packaged Command EVE resource truth', () => {
     const runnerPath = path.join(runnerRoot, 'uvx');
     fs.writeFileSync(runnerPath, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
     const runnerSha256 = crypto.createHash('sha256').update(fs.readFileSync(runnerPath)).digest('hex');
+    const uvxSigning = {
+      authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+      team_id: 'NHNQ7Q5H28',
+      identifier: 'uvx',
+      hardened_runtime: true,
+    };
     const artifactReceipt = {
       schema_version: 'command-eve-uvx-artifact-receipt/v1',
       upstream: 'astral-sh/uv',
@@ -62,9 +68,11 @@ describe('packaged Command EVE resource truth', () => {
       archive_sha256: 'a'.repeat(64),
       archive_entry: 'uv-aarch64-apple-darwin/uvx',
       runner_filename: 'uvx',
+      source_runner_sha256: 'b'.repeat(64),
       runner_sha256: runnerSha256,
-      provenance: 'official-astral-release-attestation/v1',
+      provenance: 'official-astral-release-attestation+fynlabs-developer-id/v1',
       attestation: { repo: 'astral-sh/uv', release_tag: '0.0.0-test' },
+      signing: uvxSigning,
     };
     const artifactReceiptPath = path.join(runnerRoot, 'uvx-artifact-receipt.json');
     fs.writeFileSync(artifactReceiptPath, `${JSON.stringify(artifactReceipt)}\n`);
@@ -81,12 +89,15 @@ describe('packaged Command EVE resource truth', () => {
             archive_sha256: 'a'.repeat(64),
             archive_entry: 'uv-aarch64-apple-darwin/uvx',
             runner_filename: 'uvx',
+            source_runner_sha256: 'b'.repeat(64),
             runner_sha256: runnerSha256,
             artifact_receipt_sha256: crypto
               .createHash('sha256')
               .update(fs.readFileSync(artifactReceiptPath))
               .digest('hex'),
             attestation: { repo: 'astral-sh/uv', release_tag: '0.0.0-test' },
+            provenance: 'official-astral-release-attestation+fynlabs-developer-id/v1',
+            signing: uvxSigning,
           },
         ],
       })}\n`
@@ -189,6 +200,12 @@ describe('packaged Command EVE resource truth', () => {
       },
       {
         readArchitectures: () => ['arm64'],
+        readCodeSignature: () => ({
+          authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+          team_id: 'NHNQ7Q5H28',
+          identifier: 'uvx',
+          hardened_runtime: true,
+        }),
         listArchiveEntries,
         ...injected,
       }
@@ -196,9 +213,14 @@ describe('packaged Command EVE resource truth', () => {
 
   it('is wired into the electron-builder afterPack hook', () => {
     const afterPackSource = fs.readFileSync(path.resolve('scripts/afterPack.js'), 'utf8');
+    const afterSignSource = fs.readFileSync(path.resolve('scripts/afterSign.js'), 'utf8');
+    const builderConfig = fs.readFileSync(path.resolve('packages/desktop/electron-builder.yml'), 'utf8');
 
     expect(afterPackSource).toContain("import('./release/verify-packaged-command-eve-resources.mjs')");
     expect(afterPackSource).toContain('await verifyCommandEvePackagedResources');
+    expect(afterSignSource).toContain('verifyPackagedCommandEveBrowserUseRunner');
+    expect(afterSignSource).toContain('fs.writeFileSync(browserUseRunnerPath, browserUseRunnerBytes');
+    expect(builderConfig).toContain("'/Contents/Resources/bundled-hermes/uvx/aarch64-apple-darwin/uvx$'");
   });
 
   it('accepts both byte-identical public keys at the packaged process.resourcesPath', () => {
@@ -217,6 +239,13 @@ describe('packaged Command EVE resource truth', () => {
       target: 'aarch64-apple-darwin',
       file: 'uvx',
       architectures: ['arm64'],
+      source_runner_sha256: 'b'.repeat(64),
+      signing: {
+        authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+        team_id: 'NHNQ7Q5H28',
+        identifier: 'uvx',
+        hardened_runtime: true,
+      },
     });
     expect(result.hermes_wheel.required_entries).toEqual(['tools/browser_use_cli.py']);
   });
@@ -265,7 +294,10 @@ describe('packaged Command EVE resource truth', () => {
 
     fs.writeFileSync(
       receiptPath,
-      `${JSON.stringify({ ...receipt, provenance: 'official-astral-release-attestation/v1' })}\n`
+      `${JSON.stringify({
+        ...receipt,
+        provenance: 'official-astral-release-attestation+fynlabs-developer-id/v1',
+      })}\n`
     );
     expect(() =>
       verify(
@@ -275,6 +307,22 @@ describe('packaged Command EVE resource truth', () => {
         }
       )
     ).toThrow(/runner must be thin arm64/);
+  });
+
+  it('rejects a Browser Use runner whose final Developer ID signature is missing or wrong', () => {
+    expect(() =>
+      verify(
+        {},
+        {
+          readCodeSignature: () => ({
+            authority: 'Developer ID Application: Someone Else (BADTEAM123)',
+            team_id: 'BADTEAM123',
+            identifier: 'uvx',
+            hardened_runtime: true,
+          }),
+        }
+      )
+    ).toThrow(/Developer ID signature violates/);
   });
 
   it('rejects an artifact receipt that is not pinned by the manifest', () => {

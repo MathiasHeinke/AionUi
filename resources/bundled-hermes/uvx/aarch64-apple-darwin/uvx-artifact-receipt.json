@@ -7,10 +7,17 @@
   "archive_sha256": "ae738b5661a900579ec621d3918c0ef17bdec0da2a8a6d8b161137cd15f25414",
   "archive_entry": "uv-aarch64-apple-darwin/uvx",
   "runner_filename": "uvx",
-  "runner_sha256": "16208d2fbdacbd81f17b49badc2878bbf247d224a511b16e86bb84e56f526168",
-  "provenance": "official-astral-release-attestation/v1",
+  "source_runner_sha256": "16208d2fbdacbd81f17b49badc2878bbf247d224a511b16e86bb84e56f526168",
+  "runner_sha256": "dee9c74266c79c4241f7e556eb986d0efcebe4585bf94543a73911e91c004c18",
+  "provenance": "official-astral-release-attestation+fynlabs-developer-id/v1",
   "attestation": {
     "repo": "astral-sh/uv",
     "release_tag": "0.10.12"
+  },
+  "signing": {
+    "authority": "Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)",
+    "team_id": "NHNQ7Q5H28",
+    "identifier": "uvx",
+    "hardened_runtime": true
   }
 }

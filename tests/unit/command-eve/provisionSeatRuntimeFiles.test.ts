@@ -299,9 +299,16 @@ describe('packaged Browser Use runner ownership', () => {
       archive_sha256: 'a'.repeat(64),
       archive_entry: 'uv-aarch64-apple-darwin/uvx',
       runner_filename: 'uvx',
+      source_runner_sha256: 'b'.repeat(64),
       runner_sha256: sha256,
-      provenance: 'official-astral-release-attestation/v1',
+      provenance: 'official-astral-release-attestation+fynlabs-developer-id/v1',
       attestation: { repo: 'astral-sh/uv', release_tag: '0.0.0-test' },
+      signing: {
+        authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+        team_id: 'NHNQ7Q5H28',
+        identifier: 'uvx',
+        hardened_runtime: true,
+      },
     };
     const artifactReceiptBytes = Buffer.from(`${JSON.stringify(artifactReceipt)}\n`);
     fs.writeFileSync(path.join(sourceRoot, 'uvx-artifact-receipt.json'), artifactReceiptBytes, { mode: 0o600 });
@@ -318,9 +325,17 @@ describe('packaged Browser Use runner ownership', () => {
             archive_sha256: 'a'.repeat(64),
             archive_entry: 'uv-aarch64-apple-darwin/uvx',
             runner_filename: 'uvx',
+            source_runner_sha256: 'b'.repeat(64),
             runner_sha256: sha256,
             artifact_receipt_sha256: crypto.createHash('sha256').update(artifactReceiptBytes).digest('hex'),
+            provenance: 'official-astral-release-attestation+fynlabs-developer-id/v1',
             attestation: { repo: 'astral-sh/uv', release_tag: '0.0.0-test' },
+            signing: {
+              authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+              team_id: 'NHNQ7Q5H28',
+              identifier: 'uvx',
+              hardened_runtime: true,
+            },
           },
         ],
       })}\n`

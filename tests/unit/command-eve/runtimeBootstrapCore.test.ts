@@ -1485,6 +1485,27 @@ describe('Command EVE runtime bootstrap core', () => {
         closed_decision_reaches_human: true,
         idempotent_install: true,
       });
+      const browserUseUvXReceiptHarness = spawnSync(
+        'python3',
+        [
+          path.resolve('tests/fixtures/command-eve/browser_use_uvx_receipt_patch_harness.py'),
+          providerOverridePath,
+          path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        ],
+        { encoding: 'utf8', timeout: 30_000 }
+      );
+      expect(
+        browserUseUvXReceiptHarness.status,
+        browserUseUvXReceiptHarness.stderr || browserUseUvXReceiptHarness.stdout
+      ).toBe(0);
+      expect(JSON.parse(browserUseUvXReceiptHarness.stdout)).toEqual({
+        truthful_receipt_accepted: true,
+        old_flattened_entry_rejected: true,
+        old_prefixed_tag_rejected: true,
+        unsigned_provenance_rejected: true,
+        idempotent_install: true,
+        ledger_marked: true,
+      });
       const runtimeStatusHarness = spawnSync(
         'python3',
         [path.resolve('tests/fixtures/command-eve/runtime_status_patch_harness.py'), providerOverridePath],
