@@ -60,11 +60,11 @@ describe('packaged Command EVE resource truth', () => {
       target: 'aarch64-apple-darwin',
       archive_name: 'uv-aarch64-apple-darwin.tar.gz',
       archive_sha256: 'a'.repeat(64),
-      archive_entry: 'uvx',
+      archive_entry: 'uv-aarch64-apple-darwin/uvx',
       runner_filename: 'uvx',
       runner_sha256: runnerSha256,
       provenance: 'official-astral-release-attestation/v1',
-      attestation: { repo: 'astral-sh/uv', release_tag: 'v0.0.0-test' },
+      attestation: { repo: 'astral-sh/uv', release_tag: '0.0.0-test' },
     };
     const artifactReceiptPath = path.join(runnerRoot, 'uvx-artifact-receipt.json');
     fs.writeFileSync(artifactReceiptPath, `${JSON.stringify(artifactReceipt)}\n`);
@@ -79,14 +79,14 @@ describe('packaged Command EVE resource truth', () => {
             target: 'aarch64-apple-darwin',
             archive_name: 'uv-aarch64-apple-darwin.tar.gz',
             archive_sha256: 'a'.repeat(64),
-            archive_entry: 'uvx',
+            archive_entry: 'uv-aarch64-apple-darwin/uvx',
             runner_filename: 'uvx',
             runner_sha256: runnerSha256,
             artifact_receipt_sha256: crypto
               .createHash('sha256')
               .update(fs.readFileSync(artifactReceiptPath))
               .digest('hex'),
-            attestation: { repo: 'astral-sh/uv', release_tag: 'v0.0.0-test' },
+            attestation: { repo: 'astral-sh/uv', release_tag: '0.0.0-test' },
           },
         ],
       })}\n`
@@ -234,6 +234,19 @@ describe('packaged Command EVE resource truth', () => {
     manifest.status = 'BLOCKED_ARTIFACT';
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
 
+    expect(() => verify()).toThrow(/Browser Use uvx manifest violates/);
+  });
+
+  it('rejects the old prefixed release tag and flattened archive entry', () => {
+    const manifestPath = path.join(resourcesPath, 'bundled-hermes', 'uvx', 'uvx-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.artifacts[0].attestation.release_tag = `v${manifest.version}`;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+    expect(() => verify()).toThrow(/Browser Use uvx manifest violates/);
+
+    manifest.artifacts[0].attestation.release_tag = manifest.version;
+    manifest.artifacts[0].archive_entry = 'uvx';
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
     expect(() => verify()).toThrow(/Browser Use uvx manifest violates/);
   });
 

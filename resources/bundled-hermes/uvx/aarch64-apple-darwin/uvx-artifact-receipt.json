@@ -1,0 +1,16 @@
+{
+  "schema_version": "command-eve-uvx-artifact-receipt/v1",
+  "upstream": "astral-sh/uv",
+  "version": "0.10.12",
+  "target": "aarch64-apple-darwin",
+  "archive_name": "uv-aarch64-apple-darwin.tar.gz",
+  "archive_sha256": "ae738b5661a900579ec621d3918c0ef17bdec0da2a8a6d8b161137cd15f25414",
+  "archive_entry": "uv-aarch64-apple-darwin/uvx",
+  "runner_filename": "uvx",
+  "runner_sha256": "16208d2fbdacbd81f17b49badc2878bbf247d224a511b16e86bb84e56f526168",
+  "provenance": "official-astral-release-attestation/v1",
+  "attestation": {
+    "repo": "astral-sh/uv",
+    "release_tag": "0.10.12"
+  }
+}

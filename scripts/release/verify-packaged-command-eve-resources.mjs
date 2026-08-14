@@ -205,6 +205,7 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
   if (!target) throw new Error(`PACKAGED-RESOURCES: unsupported Browser Use runner architecture: ${expectedArch}`);
   const root = path.join(resourcesPath, 'bundled-hermes', 'uvx');
   const manifestPath = path.join(root, 'uvx-manifest.json');
+  const archiveEntry = `uv-${target}/uvx`;
   const manifestBytes = readRequiredRegularFile(manifestPath, 'packaged Browser Use uvx manifest', deps);
   let manifest;
   try {
@@ -221,12 +222,12 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
     !/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(manifest.version) ||
     !artifact ||
     artifact.runner_filename !== 'uvx' ||
-    artifact.archive_entry !== 'uvx' ||
+    artifact.archive_entry !== archiveEntry ||
     !/^[a-f0-9]{64}$/.test(String(artifact.archive_sha256 || '')) ||
     !/^[a-f0-9]{64}$/.test(String(artifact.runner_sha256 || '')) ||
     !/^[a-f0-9]{64}$/.test(String(artifact.artifact_receipt_sha256 || '')) ||
     artifact.attestation?.repo !== 'astral-sh/uv' ||
-    artifact.attestation?.release_tag !== `v${manifest.version}`
+    artifact.attestation?.release_tag !== manifest.version
   ) {
     throw new Error('PACKAGED-RESOURCES: Browser Use uvx manifest violates the signed-resource contract');
   }
@@ -256,7 +257,7 @@ function verifyPackagedBrowserUseRunner(resourcesPath, expectedArch, deps) {
     artifactReceipt?.runner_filename !== artifact.runner_filename ||
     artifactReceipt?.runner_sha256 !== artifact.runner_sha256 ||
     artifactReceipt?.attestation?.repo !== 'astral-sh/uv' ||
-    artifactReceipt?.attestation?.release_tag !== `v${manifest.version}` ||
+    artifactReceipt?.attestation?.release_tag !== manifest.version ||
     sha256(artifactReceiptBytes) !== artifact.artifact_receipt_sha256
   ) {
     throw new Error('PACKAGED-RESOURCES: Browser Use uvx artifact receipt violates the reviewed Astral contract');

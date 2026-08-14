@@ -297,11 +297,11 @@ describe('packaged Browser Use runner ownership', () => {
       target: 'aarch64-apple-darwin',
       archive_name: 'uv-aarch64-apple-darwin.tar.gz',
       archive_sha256: 'a'.repeat(64),
-      archive_entry: 'uvx',
+      archive_entry: 'uv-aarch64-apple-darwin/uvx',
       runner_filename: 'uvx',
       runner_sha256: sha256,
       provenance: 'official-astral-release-attestation/v1',
-      attestation: { repo: 'astral-sh/uv', release_tag: 'v0.0.0-test' },
+      attestation: { repo: 'astral-sh/uv', release_tag: '0.0.0-test' },
     };
     const artifactReceiptBytes = Buffer.from(`${JSON.stringify(artifactReceipt)}\n`);
     fs.writeFileSync(path.join(sourceRoot, 'uvx-artifact-receipt.json'), artifactReceiptBytes, { mode: 0o600 });
@@ -316,11 +316,11 @@ describe('packaged Browser Use runner ownership', () => {
             target: 'aarch64-apple-darwin',
             archive_name: 'uv-aarch64-apple-darwin.tar.gz',
             archive_sha256: 'a'.repeat(64),
-            archive_entry: 'uvx',
+            archive_entry: 'uv-aarch64-apple-darwin/uvx',
             runner_filename: 'uvx',
             runner_sha256: sha256,
             artifact_receipt_sha256: crypto.createHash('sha256').update(artifactReceiptBytes).digest('hex'),
-            attestation: { repo: 'astral-sh/uv', release_tag: 'v0.0.0-test' },
+            attestation: { repo: 'astral-sh/uv', release_tag: '0.0.0-test' },
           },
         ],
       })}\n`
@@ -384,6 +384,38 @@ describe('packaged Browser Use runner ownership', () => {
     manifest.status = 'BLOCKED_ARTIFACT';
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
 
+    expect(
+      provisionCommandEveBrowserUseRunner(
+        resolveCommandEveRuntimeBootstrapPaths(userData),
+        resourcesPath,
+        'darwin',
+        'arm64',
+        browserUseRunnerDeps
+      )
+    ).toBeUndefined();
+  });
+
+  it('rejects noncanonical release tags and archive entries', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const resourcesPath = writePackagedRunner(userData);
+    const manifestPath = path.join(resourcesPath, 'bundled-hermes', 'uvx', 'uvx-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.artifacts[0].attestation.release_tag = `v${manifest.version}`;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+    expect(
+      provisionCommandEveBrowserUseRunner(
+        resolveCommandEveRuntimeBootstrapPaths(userData),
+        resourcesPath,
+        'darwin',
+        'arm64',
+        browserUseRunnerDeps
+      )
+    ).toBeUndefined();
+
+    manifest.artifacts[0].attestation.release_tag = manifest.version;
+    manifest.artifacts[0].archive_entry = 'uvx';
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
     expect(
       provisionCommandEveBrowserUseRunner(
         resolveCommandEveRuntimeBootstrapPaths(userData),

@@ -1938,6 +1938,10 @@ function packagedBrowserUseRunnerFilename(platform: NodeJS.Platform): string {
   return platform === 'win32' ? 'uvx.exe' : 'uvx';
 }
 
+function packagedBrowserUseRunnerArchiveEntry(target: string, runnerFilename: string): string {
+  return `uv-${target}/${runnerFilename}`;
+}
+
 function packagedBrowserUseRunnerTarget(platform: NodeJS.Platform, arch: NodeJS.Architecture): string {
   if (platform === 'darwin' && arch === 'arm64') return 'aarch64-apple-darwin';
   if (platform === 'darwin' && arch === 'x64') return 'x86_64-apple-darwin';
@@ -2003,12 +2007,12 @@ function readCommandEveBrowserUseRunnerArtifactReceipt(
       receipt.target !== target ||
       typeof receipt.archive_name !== 'string' ||
       !/^[a-f0-9]{64}$/.test(String(receipt.archive_sha256 || '')) ||
-      receipt.archive_entry !== runnerFilename ||
+      receipt.archive_entry !== packagedBrowserUseRunnerArchiveEntry(target, runnerFilename) ||
       receipt.runner_filename !== runnerFilename ||
       !/^[a-f0-9]{64}$/.test(String(receipt.runner_sha256 || '')) ||
       receipt.provenance !== 'official-astral-release-attestation/v1' ||
       receipt.attestation?.repo !== 'astral-sh/uv' ||
-      receipt.attestation.release_tag !== `v${receipt.version}`
+      receipt.attestation.release_tag !== receipt.version
     ) {
       return undefined;
     }
@@ -2175,12 +2179,12 @@ export function resolveCommandEvePackagedBrowserUseRunner(
       !artifact ||
       typeof artifact.archive_name !== 'string' ||
       !/^[a-f0-9]{64}$/.test(String(artifact.archive_sha256 || '')) ||
-      artifact.archive_entry !== runnerFilename ||
+      artifact.archive_entry !== packagedBrowserUseRunnerArchiveEntry(target, runnerFilename) ||
       artifact.runner_filename !== runnerFilename ||
       typeof artifact.runner_sha256 !== 'string' ||
       !/^[a-f0-9]{64}$/.test(String(artifact.artifact_receipt_sha256 || '')) ||
       artifact.attestation?.repo !== 'astral-sh/uv' ||
-      artifact.attestation.release_tag !== `v${manifest.version}`
+      artifact.attestation.release_tag !== manifest.version
     ) {
       return undefined;
     }
