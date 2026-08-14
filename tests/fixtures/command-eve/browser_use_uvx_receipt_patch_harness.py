@@ -164,6 +164,35 @@ with tempfile.TemporaryDirectory(prefix="command-eve-uvx-receipt-") as raw_root:
         browser_use_cli.BROWSER_USE_UVX_SPEC,
     ]
 
+    companion.write_bytes(b"tampered\n")
+    os.chmod(companion, 0o700)
+    assert patched() is None
+    companion.unlink()
+    assert patched() is None
+    companion.symlink_to(runner)
+    assert patched() is None
+    companion.unlink()
+    companion.write_bytes(b"#!/bin/sh\nexit 0\n")
+    os.chmod(companion, 0o755)
+    write_receipt(
+        archive_entry="uv-aarch64-apple-darwin/uvx",
+        release_tag="0.10.12",
+        provenance="official-astral-release-attestation+fynlabs-developer-id/v1",
+    )
+    assert patched() is None
+    os.chmod(companion, 0o700)
+    write_receipt(
+        archive_entry="uv-aarch64-apple-darwin/uvx",
+        release_tag="0.10.12",
+        provenance="official-astral-release-attestation+fynlabs-developer-id/v1",
+    )
+    assert patched() == [
+        str(runner),
+        "--with",
+        browser_use_cli.BROWSER_HARNESS_UVX_SPEC,
+        browser_use_cli.BROWSER_USE_UVX_SPEC,
+    ]
+
     write_receipt(
         archive_entry="uvx",
         release_tag="0.10.12",
@@ -190,6 +219,10 @@ with tempfile.TemporaryDirectory(prefix="command-eve-uvx-receipt-") as raw_root:
                 "old_flattened_entry_rejected": True,
                 "old_prefixed_tag_rejected": True,
                 "unsigned_provenance_rejected": True,
+                "missing_companion_rejected": True,
+                "tampered_companion_rejected": True,
+                "symlinked_companion_rejected": True,
+                "nonprivate_companion_rejected": True,
                 "idempotent_install": True,
                 "ledger_marked": "browser_use_uvx_receipt" in namespace["_COMMAND_EVE_INSTALLED_PATCHES"],
             }

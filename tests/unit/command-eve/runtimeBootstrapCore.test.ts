@@ -1503,6 +1503,10 @@ describe('Command EVE runtime bootstrap core', () => {
         old_flattened_entry_rejected: true,
         old_prefixed_tag_rejected: true,
         unsigned_provenance_rejected: true,
+        missing_companion_rejected: true,
+        tampered_companion_rejected: true,
+        symlinked_companion_rejected: true,
+        nonprivate_companion_rejected: true,
         idempotent_install: true,
         ledger_marked: true,
       });
