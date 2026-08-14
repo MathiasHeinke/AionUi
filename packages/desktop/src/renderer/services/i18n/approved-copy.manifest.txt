@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7313
+# entries: 7315
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -530,6 +530,7 @@ copy	1	de-DE/commandEve.json	Dateien anfassen, die nicht zum Projekt gehören.
 copy	1	de-DE/commandEve.json	Deine Freigaben und technischen Grenzen
 copy	1	de-DE/commandEve.json	Deine Stufe regelt die Hermes-Werkzeuge — Terminal, Dateien, Browser, Bildschirmsteuerung, Notizen, Fähigkeiten, Prozesse und Zeitpläne. Diese technischen Grenzen bleiben davon getrennt.
 copy	1	de-DE/commandEve.json	Der Betrag wird gespeichert, aber in dieser Version noch nicht als Tageszähler durchgesetzt. Erkannte Geldbefehle fragt EVE deshalb weiterhin einzeln ab. Wenn du autonome Browser-/Desktop-Steuerung aktivierst, begrenzt dieser Betrag deren Klicks technisch nicht. Das eingetragene Limit ist kein Blankoscheck.
+copy	1	de-DE/commandEve.json	Der Kunden-Wechsel ist nicht sicher abgeschlossen. Starte Command EVE neu und arbeite bis dahin in keinem Kunden-Seat weiter.
 copy	1	de-DE/commandEve.json	Der Seed ist ein eigener Arbeitsraum. Er ist kostenlos und nutzt den Credit-Pool deines Accounts.
 copy	1	de-DE/commandEve.json	Diese Einstellung stammt noch aus einer älteren Version und wurde von dir nie bestätigt. Sieh sie einmal durch.
 copy	1	de-DE/commandEve.json	Diese breite Freigabe ist unabhängig von den fünf Wirkungssiegeln und wird nie aus einer alten Einstellung übernommen.
@@ -4219,6 +4220,7 @@ copy	1	en-US/commandEve.json	Switching seats aborts and discards the running res
 copy	1	en-US/commandEve.json	That is a high daily amount. It is saved — please check you did not mistype.
 copy	1	en-US/commandEve.json	The Seed could not be created.
 copy	1	en-US/commandEve.json	The amount is saved, but this version does not yet enforce it as a daily ledger. EVE therefore still asks separately for recognised money commands. If you enable autonomous Browser/Desktop control, this amount does not technically constrain its clicks. The configured limit is not a blank cheque.
+copy	1	en-US/commandEve.json	The customer switch did not finish safely. Restart Command EVE and do not continue working in any customer Seat until then.
 copy	1	en-US/commandEve.json	The request timed out. Reconcile again — no second Seed will be created.
 copy	1	en-US/commandEve.json	These five hang off no rung. Even on “Full” they stay off until you switch each one on.
 copy	1	en-US/commandEve.json	This broad permission is independent from the five effect seals and is never inherited from an old setting.

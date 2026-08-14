@@ -8,6 +8,7 @@
     "switchWhileGeneratingTitle": "A response is still running",
     "switchWhileGeneratingBody": "Switching seats aborts and discards the running response. Switch anyway?",
     "switchAnyway": "Switch anyway",
+    "switchRecoveryRequired": "The customer switch did not finish safely. Restart Command EVE and do not continue working in any customer Seat until then.",
     "reauth": "Sign in again to load your Seeds",
     "createTitle": "Create a new Seed",
     "createHelp": "A Seed is its own workspace. It is free and uses your Account credit pool.",

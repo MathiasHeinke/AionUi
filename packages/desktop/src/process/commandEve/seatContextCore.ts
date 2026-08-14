@@ -557,7 +557,10 @@ export function getActiveSeatBoardSlug(): string {
 /** Reset the active seat back to the legacy default (for clean-reset / tests). */
 export function clearActiveSeat(): void {
   activeSeatId = LEGACY_SEAT_ID;
-  activeSeatContextRevision = 0;
+  // This is a runtime transition used by rollback/cold-start paths. Preserve the
+  // process-lifetime monotonicity that stale Seat receipts rely on; only the
+  // explicit test helper below may reset the counter to zero.
+  activeSeatContextRevision += 1;
   activeSeatLabel = DEFAULT_SEAT_LABEL;
   activeSeatKind = DEFAULT_SEAT_KIND;
 }

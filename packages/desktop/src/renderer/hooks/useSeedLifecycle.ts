@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { commandEve } from '@/common/adapter/ipcBridge';
 
@@ -15,7 +15,23 @@ export interface SeedCreateOutcome {
 // unmounts and across both shipped create surfaces (SeatRail + Account). The
 // display name is the user's stable retry handle; different names remain
 // independent and MAIN still coalesces identical request IDs.
-const pendingRequestIdByDisplayName = new Map<string, string>();
+type SharedSeedAttempt = {
+  requestId: string;
+  commitUncertain: boolean;
+};
+
+type LocalRetryAttempt = {
+  key: string;
+  requestId: string;
+};
+
+const pendingAttemptByDisplayName = new Map<string, SharedSeedAttempt>();
+// A successful replay can settle an attempt from the other mounted surface.
+// Keep a small process-local receipt by request id so a stale retry click is a
+// no-op reconciliation, never a fresh create. At most the technical Seat
+// ceiling worth of distinct successful attempts can accumulate in one process.
+const settledAttemptByRequestId = new Map<string, SeedCreateOutcome>();
+const attemptResolutionListeners = new Set<(key: string, requestId: string) => void>();
 
 const TERMINAL_CREATE_FAILURES = new Set([
   'SEED_INVALID_INPUT',
@@ -41,16 +57,38 @@ function newRequestId(): string | null {
 
 function requestIdFor(displayName: string): string | null {
   const key = attemptKey(displayName);
-  const existing = pendingRequestIdByDisplayName.get(key);
-  if (existing) return existing;
+  const existing = pendingAttemptByDisplayName.get(key);
+  if (existing) return existing.requestId;
   const created = newRequestId();
-  if (created) pendingRequestIdByDisplayName.set(key, created);
+  if (created) pendingAttemptByDisplayName.set(key, { requestId: created, commitUncertain: false });
   return created;
+}
+
+function markAttemptUncertain(displayName: string, requestId: string): void {
+  const key = attemptKey(displayName);
+  const attempt = pendingAttemptByDisplayName.get(key);
+  if (attempt?.requestId === requestId) attempt.commitUncertain = true;
+}
+
+function notifyAttemptResolved(key: string, requestId: string): void {
+  for (const listener of attemptResolutionListeners) listener(key, requestId);
 }
 
 function clearAttempt(displayName: string, requestId: string): void {
   const key = attemptKey(displayName);
-  if (pendingRequestIdByDisplayName.get(key) === requestId) pendingRequestIdByDisplayName.delete(key);
+  if (pendingAttemptByDisplayName.get(key)?.requestId === requestId) {
+    pendingAttemptByDisplayName.delete(key);
+    notifyAttemptResolved(key, requestId);
+  }
+}
+
+function settleAttempt(displayName: string, requestId: string, outcome: SeedCreateOutcome): void {
+  const key = attemptKey(displayName);
+  const attempt = pendingAttemptByDisplayName.get(key);
+  if (attempt?.requestId !== requestId) return;
+  pendingAttemptByDisplayName.delete(key);
+  settledAttemptByRequestId.set(requestId, { ...outcome, created: false });
+  notifyAttemptResolved(key, requestId);
 }
 
 function isCommitUncertain(reasonCode?: string): boolean {
@@ -58,16 +96,37 @@ function isCommitUncertain(reasonCode?: string): boolean {
 }
 
 export function resetSeedLifecycleAttemptsForTests(): void {
-  pendingRequestIdByDisplayName.clear();
+  pendingAttemptByDisplayName.clear();
+  settledAttemptByRequestId.clear();
 }
 
 export function useSeedLifecycle() {
   const [provisioning, setProvisioning] = useState(false);
   const [retryPending, setRetryPending] = useState(false);
   const inFlightRef = useRef<Promise<SeedCreateOutcome> | null>(null);
+  const retryAttemptRef = useRef<LocalRetryAttempt | null>(null);
+
+  useEffect(() => {
+    const onResolved = (key: string, requestId: string): void => {
+      const retry = retryAttemptRef.current;
+      if (retry?.key === key && retry.requestId === requestId) setRetryPending(false);
+    };
+    attemptResolutionListeners.add(onResolved);
+    return () => {
+      attemptResolutionListeners.delete(onResolved);
+    };
+  }, []);
 
   const createSeed = useCallback((displayName: string): Promise<SeedCreateOutcome> => {
     if (inFlightRef.current) return inFlightRef.current;
+    const key = attemptKey(displayName);
+    const localRetry = retryAttemptRef.current;
+    const externallySettled = localRetry?.key === key ? settledAttemptByRequestId.get(localRetry.requestId) : null;
+    if (externallySettled) {
+      retryAttemptRef.current = null;
+      setRetryPending(false);
+      return Promise.resolve({ ...externallySettled, created: false });
+    }
     const requestId = requestIdFor(displayName);
     if (!requestId) {
       setRetryPending(false);
@@ -88,15 +147,36 @@ export function useSeedLifecycle() {
           ...(data?.reason_code ? { reasonCode: data.reason_code } : {}),
         };
         if (outcome.ok) {
-          clearAttempt(displayName, requestId);
+          settleAttempt(displayName, requestId, outcome);
+          if (retryAttemptRef.current?.requestId === requestId) retryAttemptRef.current = null;
           setRetryPending(false);
         } else {
           const uncertain = isCommitUncertain(outcome.reasonCode);
-          if (!uncertain) clearAttempt(displayName, requestId);
+          if (uncertain) {
+            const externalSuccess = settledAttemptByRequestId.get(requestId);
+            if (externalSuccess) {
+              retryAttemptRef.current = null;
+              setRetryPending(false);
+              return { ...externalSuccess, created: false };
+            }
+            markAttemptUncertain(displayName, requestId);
+            retryAttemptRef.current = { key, requestId };
+          } else {
+            clearAttempt(displayName, requestId);
+            if (retryAttemptRef.current?.requestId === requestId) retryAttemptRef.current = null;
+          }
           setRetryPending(uncertain);
         }
         return outcome;
       } catch {
+        const externalSuccess = settledAttemptByRequestId.get(requestId);
+        if (externalSuccess) {
+          retryAttemptRef.current = null;
+          setRetryPending(false);
+          return { ...externalSuccess, created: false };
+        }
+        markAttemptUncertain(displayName, requestId);
+        retryAttemptRef.current = { key, requestId };
         setRetryPending(true);
         return { ok: false, seedLimit: null, reasonCode: 'SEED_PROVISION_TIMEOUT' };
       } finally {
@@ -115,6 +195,9 @@ export function useSeedLifecycle() {
     if (inFlightRef.current) return;
     // Do not erase a commit-uncertain shared key. A different display name gets
     // its own key; the same name must reconcile the original server request.
+    // Clearing only this hook's stale receipt is the explicit boundary between
+    // acknowledging an externally-settled retry and a later deliberate create.
+    retryAttemptRef.current = null;
     setRetryPending(false);
   }, []);
 

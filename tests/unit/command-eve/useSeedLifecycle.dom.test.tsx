@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const seedCreateInvoke = vi.hoisted(() => vi.fn());
@@ -153,6 +153,54 @@ describe('useSeedLifecycle', () => {
     expect(seedCreateInvoke.mock.calls[2]?.[0]?.clientRequestId).not.toBe(
       seedCreateInvoke.mock.calls[3]?.[0]?.clientRequestId
     );
+  });
+
+  it('turns a stale retry into a no-op after the other surface reconciles it', async () => {
+    seedCreateInvoke
+      .mockResolvedValueOnce({ data: { ok: false, seed_limit: null, reason_code: 'SEED_NETWORK' } })
+      .mockResolvedValueOnce({
+        data: {
+          ok: true,
+          seed_id: '22222222-2222-4222-8222-222222222222',
+          created: false,
+          seed_count: 2,
+          seed_limit: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          ok: true,
+          seed_id: '33333333-3333-4333-8333-333333333333',
+          created: true,
+          seed_count: 3,
+          seed_limit: null,
+        },
+      });
+    const rail = renderHook(() => useSeedLifecycle());
+    const account = renderHook(() => useSeedLifecycle());
+
+    await act(async () => {
+      expect((await rail.result.current.createSeed('Malte')).reasonCode).toBe('SEED_NETWORK');
+    });
+    expect(rail.result.current.retryPending).toBe(true);
+
+    await act(async () => {
+      expect(await account.result.current.createSeed('Malte')).toMatchObject({ ok: true, created: false });
+    });
+    await waitFor(() => expect(rail.result.current.retryPending).toBe(false));
+    const originalRequestId = seedCreateInvoke.mock.calls[0]?.[0]?.clientRequestId;
+    expect(seedCreateInvoke.mock.calls[1]?.[0]?.clientRequestId).toBe(originalRequestId);
+
+    await act(async () => {
+      expect(await rail.result.current.createSeed('Malte')).toMatchObject({ ok: true, created: false });
+    });
+    expect(seedCreateInvoke).toHaveBeenCalledTimes(2);
+
+    act(() => rail.result.current.resetCreateAttempt());
+    await act(async () => {
+      expect(await rail.result.current.createSeed('Malte')).toMatchObject({ ok: true, created: true });
+    });
+    expect(seedCreateInvoke.mock.calls[2]?.[0]?.clientRequestId).not.toBe(originalRequestId);
   });
 
   it('fails closed instead of emitting a constant UUID when Web Crypto is unavailable', async () => {

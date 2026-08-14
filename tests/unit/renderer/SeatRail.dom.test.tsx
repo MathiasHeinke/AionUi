@@ -49,8 +49,15 @@ vi.mock('@renderer/services/commandEveGenerationActivity', () => ({
 }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (_k: string, d?: unknown, vars?: { name?: string }) =>
-      typeof d === 'string' ? (vars?.name ? d.replace('{{name}}', vars.name) : d) : _k,
+    t: (_k: string, d?: unknown, vars?: { name?: string }) => {
+      const fallback =
+        typeof d === 'string'
+          ? d
+          : d && typeof d === 'object' && 'defaultValue' in d
+            ? String((d as { defaultValue: unknown }).defaultValue)
+            : _k;
+      return vars?.name ? fallback.replace('{{name}}', vars.name) : fallback;
+    },
   }),
 }));
 // Arco Tooltip just wraps; Modal renders its content when visible.

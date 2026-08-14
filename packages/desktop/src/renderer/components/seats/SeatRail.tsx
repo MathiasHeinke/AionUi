@@ -123,8 +123,6 @@ function switchErrorMessage(code: string): string {
       return 'Ein Kunden-Wechsel läuft bereits. Bitte kurz warten.';
     case 'SWITCH_SEAT_NO_BRIDGE':
       return 'Kunden-Wechsel ist hier nicht verfügbar.';
-    case 'SWITCH_SEAT_RECOVERY_REQUIRED':
-      return 'Der Kunden-Wechsel ist nicht sicher abgeschlossen. Starte Command EVE neu und arbeite bis dahin in keinem Kunden-Seat weiter.';
     case 'SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN':
       // Hotfix-B: the switch failed AND the backend could not be restarted — do NOT
       // claim "EVE läuft weiter" (it does NOT). Tell the operator a relaunch is needed.
@@ -161,6 +159,16 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
   // render nothing, byte-identical to before.
   const sessionRecovery = !visible && !loading && isDeadSessionFailure(mySeatsWireError);
   const renderedExpanded = !compact && expanded;
+  const localizedSwitchErrorMessage = useCallback(
+    (code: string): string =>
+      code === 'SWITCH_SEAT_RECOVERY_REQUIRED'
+        ? t('commandEve.seatRail.switchRecoveryRequired', {
+            defaultValue:
+              'Der Kunden-Wechsel ist nicht sicher abgeschlossen. Starte Command EVE neu und arbeite bis dahin in keinem Kunden-Seat weiter.',
+          })
+        : switchErrorMessage(code),
+    [t]
+  );
 
   const reauthLabel = t('commandEve.seatRail.reauth', 'Erneut anmelden, um Kundenplätze zu laden');
   const handleReauth = useCallback(async () => {
@@ -200,9 +208,9 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
   // they see NOTHING — believing they are on the new client when they are not.
   useEffect(() => {
     if (!lastSwitchError) return;
-    Message.error({ content: switchErrorMessage(lastSwitchError), duration: 4500 });
+    Message.error({ content: localizedSwitchErrorMessage(lastSwitchError), duration: 4500 });
     // switchErrorNonce in deps ⇒ a repeated identical reject code still re-fires.
-  }, [lastSwitchError, switchErrorNonce]);
+  }, [lastSwitchError, localizedSwitchErrorMessage, switchErrorNonce]);
 
   // Admins only (see the security note above). The ONE exception: a dead stored
   // account session, where the rail's slot shows a single re-authenticate
@@ -319,7 +327,7 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
           nonce so role='alert' remounts and re-announces on every failure, including a
           repeated identical reject code. Empty (silent) when there is no error. */}
         <span key={switchErrorNonce} role='alert' className='seat-rail__sr-only' data-testid='seat-rail-live'>
-          {lastSwitchError ? switchErrorMessage(lastSwitchError) : ''}
+          {lastSwitchError ? localizedSwitchErrorMessage(lastSwitchError) : ''}
         </span>
 
         <div className='seat-rail__brand' data-testid='seat-rail-brand' aria-hidden='true'>

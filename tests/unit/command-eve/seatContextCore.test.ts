@@ -36,6 +36,7 @@ import {
   assertSeatId,
   clearActiveSeat,
   getActiveSeatId,
+  getActiveSeatContextRevision,
   hasCommandEvePaidArtifactOperationInFlight,
   isActiveSeatLegacy,
   isLegacySeatId,
@@ -331,8 +332,10 @@ describe('(d) stability + active-seat holder', () => {
     expect(getActiveSeatId()).toBe(LEGACY_SEAT_ID);
 
     setActiveSeatId(REAL_UUID_B);
+    const beforeClear = getActiveSeatContextRevision();
     clearActiveSeat();
     expect(getActiveSeatId()).toBe(LEGACY_SEAT_ID);
+    expect(getActiveSeatContextRevision()).toBe(beforeClear + 1);
   });
 
   it('two active-seat switches do not bleed: each resolves only its own home', () => {

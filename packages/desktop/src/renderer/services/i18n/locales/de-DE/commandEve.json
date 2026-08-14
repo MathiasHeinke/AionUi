@@ -8,6 +8,7 @@
     "switchWhileGeneratingTitle": "Antwort läuft noch",
     "switchWhileGeneratingBody": "Beim Seat-Wechsel wird die laufende Antwort abgebrochen und verworfen. Trotzdem wechseln?",
     "switchAnyway": "Trotzdem wechseln",
+    "switchRecoveryRequired": "Der Kunden-Wechsel ist nicht sicher abgeschlossen. Starte Command EVE neu und arbeite bis dahin in keinem Kunden-Seat weiter.",
     "reauth": "Erneut anmelden, um Seeds zu laden",
     "createTitle": "Neuen Seed erstellen",
     "createHelp": "Der Seed ist ein eigener Arbeitsraum. Er ist kostenlos und nutzt den Credit-Pool deines Accounts.",
