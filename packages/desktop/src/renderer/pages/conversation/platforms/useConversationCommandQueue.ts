@@ -10,9 +10,16 @@ import {
   normalizeCommandEveAttachmentGroundingRequest,
   type CommandEveAttachmentGroundingRequest,
 } from '@/common/config/eveAttachmentGroundingCore';
+import { configService } from '@/common/config/configService';
+import {
+  captureConversationRuntimeSeatTicket,
+  isConversationRuntimeSeatTicketCurrent,
+  type ConversationRuntimeSeatTicket,
+} from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 
 export type ConversationCommandQueueItem = {
   id: string;
+  conversationId: string;
   input: string;
   /** Files shown back to the user. Internal agent sidecars stay in `files`. */
   displayFiles?: string[];
@@ -23,8 +30,12 @@ export type ConversationCommandQueueItem = {
   /** Exact source/sidecar hashes that AionCore must receipt before send. */
   attachmentGrounding?: CommandEveAttachmentGroundingRequest;
   files: string[];
+  /** Seat-generation authority captured before any async preparation. */
+  seatId: string;
   created_at: number;
 };
+
+export type ConversationCommandDispatchResult = 'accepted' | 'rejected' | 'stale';
 
 export type ConversationCommandQueueState = {
   items: ConversationCommandQueueItem[];
@@ -57,6 +68,7 @@ const COMMAND_QUEUE_LOG_PREFIX = '[conversation-command-queue]';
 
 const summarizeQueuedCommand = (item: ConversationCommandQueueItem): Record<string, unknown> => ({
   id: item.id,
+  conversationId: item.conversationId,
   created_at: item.created_at,
   inputLength: item.input.length,
   fileCount: item.files.length,
@@ -64,6 +76,7 @@ const summarizeQueuedCommand = (item: ConversationCommandQueueItem): Record<stri
   preparedContextLength: item.preparedContext?.length ?? 0,
   managedVisualSourceCount: item.managedVisualSourceCount ?? 0,
   attachmentGroundingEntries: item.attachmentGrounding?.entries.length ?? 0,
+  seatId: item.seatId,
   preview: item.input.replace(/\s+/g, ' ').trim().slice(0, 120),
 });
 
@@ -82,7 +95,9 @@ const createDefaultQueueState = (): ConversationCommandQueueState => ({
 
 const queueStore = new Map<string, ConversationCommandQueueState>();
 
-const getStorageKey = (conversation_id: string): string => `conversation-command-queue/${conversation_id}`;
+const getQueueStoreKey = (seatId: string, conversation_id: string): string => `${seatId}\u0000${conversation_id}`;
+const getStorageKey = (seatId: string, conversation_id: string): string =>
+  `conversation-command-queue/${seatId}/${conversation_id}`;
 const measureQueueStateBytes = (state: ConversationCommandQueueState): number =>
   new TextEncoder().encode(JSON.stringify(state)).length;
 
@@ -116,6 +131,8 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
       : normalizeCommandEveAttachmentGroundingRequest(candidateAttachmentGrounding);
   if (
     typeof candidate.id !== 'string' ||
+    typeof candidate.conversationId !== 'string' ||
+    !candidate.conversationId ||
     typeof candidate.input !== 'string' ||
     !Array.isArray(candidate.files) ||
     !candidate.files.every((file) => typeof file === 'string') ||
@@ -132,6 +149,8 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
         typeof candidatePreparedContext !== 'string' ||
         !candidatePreparedContext.trim())) ||
     (candidateAttachmentGrounding !== undefined && attachmentGrounding === undefined) ||
+    typeof candidate.seatId !== 'string' ||
+    !candidate.seatId ||
     typeof candidate.created_at !== 'number' ||
     !Number.isFinite(candidate.created_at)
   ) {
@@ -141,6 +160,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
   const files = uniqueFiles(candidate.files);
   const normalizedItem: ConversationCommandQueueItem = {
     id: candidate.id,
+    conversationId: candidate.conversationId,
     input: candidate.input,
     files,
     displayFiles: Array.isArray(candidateDisplayFiles)
@@ -153,6 +173,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
       ? { managedVisualSourceCount: candidateManagedVisualSourceCount }
       : {}),
     ...(attachmentGrounding ? { attachmentGrounding } : {}),
+    seatId: candidate.seatId,
     created_at: candidate.created_at,
   };
 
@@ -210,19 +231,38 @@ export const createQueuedCommandItem = ({
   preparedContext,
   managedVisualSourceCount,
   attachmentGrounding,
+  seatTicket,
 }: Pick<
   ConversationCommandQueueItem,
   'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount' | 'attachmentGrounding'
->): ConversationCommandQueueItem => ({
+> & { seatTicket: ConversationRuntimeSeatTicket }): ConversationCommandQueueItem => ({
   id: uuid(),
+  conversationId: seatTicket.conversationId,
   input,
   files: uniqueFiles(files),
   ...(displayFiles ? { displayFiles: uniqueFiles(displayFiles) } : {}),
   ...(preparedContext?.trim() ? { preparedContext } : {}),
   ...(managedVisualSourceCount ? { managedVisualSourceCount } : {}),
   ...(attachmentGrounding ? { attachmentGrounding } : {}),
+  seatId: seatTicket.seatId,
   created_at: Date.now(),
 });
+
+export const isQueuedCommandCurrent = (item: ConversationCommandQueueItem, conversationId?: string): boolean =>
+  item.conversationId.length > 0 &&
+  (conversationId === undefined || item.conversationId === conversationId) &&
+  item.seatId === configService.getCurrentSeatId();
+
+const filterQueueStateForCurrentSeat = (
+  state: ConversationCommandQueueState,
+  conversationId?: string
+): ConversationCommandQueueState => {
+  const items = state.items.filter((item) => isQueuedCommandCurrent(item, conversationId));
+  return {
+    items,
+    isPaused: items.length > 0 ? state.isPaused : false,
+  };
+};
 
 const getQueueValidationFailureReason = (state: ConversationCommandQueueState): QueueValidationFailureReason | null => {
   if (state.items.length > MAX_QUEUED_COMMANDS) {
@@ -283,9 +323,10 @@ const isQueueValidationFailure = (
   validation: QueueValidationSuccess | QueueValidationFailure
 ): validation is QueueValidationFailure => !validation.ok;
 
-const readPersistedQueueState = (conversation_id: string): ConversationCommandQueueState => {
-  if (queueStore.has(conversation_id)) {
-    return queueStore.get(conversation_id) ?? createDefaultQueueState();
+const readPersistedQueueState = (seatId: string, conversation_id: string): ConversationCommandQueueState => {
+  const storeKey = getQueueStoreKey(seatId, conversation_id);
+  if (queueStore.has(storeKey)) {
+    return queueStore.get(storeKey) ?? createDefaultQueueState();
   }
 
   if (typeof window === 'undefined') {
@@ -293,14 +334,14 @@ const readPersistedQueueState = (conversation_id: string): ConversationCommandQu
   }
 
   try {
-    const stored = window.sessionStorage.getItem(getStorageKey(conversation_id));
+    const stored = window.sessionStorage.getItem(getStorageKey(seatId, conversation_id));
     if (!stored) {
       return createDefaultQueueState();
     }
 
     const parsed = JSON.parse(stored) as unknown;
-    const normalized = normalizeQueueState(parsed);
-    queueStore.set(conversation_id, normalized);
+    const normalized = filterQueueStateForCurrentSeat(normalizeQueueState(parsed), conversation_id);
+    queueStore.set(storeKey, normalized);
     logCommandQueue(conversation_id, 'restored', {
       itemCount: normalized.items.length,
       isPaused: normalized.isPaused,
@@ -312,29 +353,29 @@ const readPersistedQueueState = (conversation_id: string): ConversationCommandQu
   }
 };
 
-const removePersistedQueueState = (conversation_id: string): void => {
-  queueStore.delete(conversation_id);
+const removePersistedQueueState = (seatId: string, conversation_id: string): void => {
+  queueStore.delete(getQueueStoreKey(seatId, conversation_id));
   if (typeof window !== 'undefined') {
     try {
-      window.sessionStorage.removeItem(getStorageKey(conversation_id));
+      window.sessionStorage.removeItem(getStorageKey(seatId, conversation_id));
     } catch (error) {
       console.warn('[conversation-command-queue] Failed to remove persisted queue state:', error);
     }
   }
 };
 
-const persistQueueState = (conversation_id: string, state: ConversationCommandQueueState): void => {
-  const normalized = normalizeQueueState(state);
+const persistQueueState = (seatId: string, conversation_id: string, state: ConversationCommandQueueState): void => {
+  const normalized = filterQueueStateForCurrentSeat(normalizeQueueState(state), conversation_id);
 
   if (normalized.items.length === 0 && !normalized.isPaused) {
-    removePersistedQueueState(conversation_id);
+    removePersistedQueueState(seatId, conversation_id);
     return;
   }
 
-  queueStore.set(conversation_id, normalized);
+  queueStore.set(getQueueStoreKey(seatId, conversation_id), normalized);
   if (typeof window !== 'undefined') {
     try {
-      window.sessionStorage.setItem(getStorageKey(conversation_id), JSON.stringify(normalized));
+      window.sessionStorage.setItem(getStorageKey(seatId, conversation_id), JSON.stringify(normalized));
     } catch (error) {
       console.warn('[conversation-command-queue] Failed to persist queue state:', error);
     }
@@ -493,13 +534,16 @@ type UseConversationCommandQueueOptions = {
   isBusy: boolean;
   isHydrated?: boolean;
   runtimeGate?: ConversationCommandQueueRuntimeGate;
-  onExecute: (item: ConversationCommandQueueItem) => Promise<void>;
+  onExecute: (
+    item: ConversationCommandQueueItem,
+    ticket: ConversationRuntimeSeatTicket
+  ) => Promise<ConversationCommandDispatchResult>;
 };
 
 type EnqueueCommandInput = Pick<
   ConversationCommandQueueItem,
   'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount' | 'attachmentGrounding'
->;
+> & { seatTicket?: ConversationRuntimeSeatTicket };
 type UpdateCommandInput = Pick<ConversationCommandQueueItem, 'input'>;
 
 const getQueueValidationMessage = (
@@ -537,10 +581,11 @@ export const useConversationCommandQueue = ({
   onExecute,
 }: UseConversationCommandQueueOptions) => {
   const { t } = useTranslation();
+  const [queueSeatId, setQueueSeatId] = useState(() => configService.getCurrentSeatId());
   const executionGate = getCommandQueueExecutionGate({ isBusy, isHydrated, runtimeGate });
   const { data = createDefaultQueueState(), mutate } = useSWR(
-    [`/conversation-command-queue/${conversation_id}`, conversation_id, enabled],
-    ([, id, is_enabled]) => (is_enabled ? readPersistedQueueState(id) : createDefaultQueueState())
+    [`/conversation-command-queue/${queueSeatId}/${conversation_id}`, queueSeatId, conversation_id, enabled],
+    ([, seatId, id, is_enabled]) => (is_enabled ? readPersistedQueueState(seatId, id) : createDefaultQueueState())
   );
 
   const stateRef = useRef(data);
@@ -549,6 +594,8 @@ export const useConversationCommandQueue = ({
   const waitingForTurnCompletionRef = useRef(false);
   const executeResolvedBeforeTurnStartRef = useRef(false);
   const interactionLockedRef = useRef(false);
+  const activeExecutionItemRef = useRef<ConversationCommandQueueItem | null>(null);
+  const activeExecutionTicketRef = useRef<ConversationRuntimeSeatTicket | null>(null);
   const [isInteractionLocked, setIsInteractionLocked] = useState(false);
   const [executionGateVersion, setExecutionGateVersion] = useState(0);
 
@@ -615,9 +662,9 @@ export const useConversationCommandQueue = ({
     interactionLockedRef.current = false;
     stateRef.current = createDefaultQueueState();
     setIsInteractionLocked(false);
-    removePersistedQueueState(conversation_id);
+    removePersistedQueueState(queueSeatId, conversation_id);
     void mutate(createDefaultQueueState(), { revalidate: false });
-  }, [conversation_id, enabled, mutate]);
+  }, [conversation_id, enabled, mutate, queueSeatId]);
 
   const updateState = useCallback(
     (
@@ -627,22 +674,27 @@ export const useConversationCommandQueue = ({
         const nextState = createDefaultQueueState();
         stateRef.current = nextState;
         pausedRef.current = false;
-        removePersistedQueueState(conversation_id);
+        removePersistedQueueState(queueSeatId, conversation_id);
         return Promise.resolve(nextState);
       }
 
       return mutate(
         (current) => {
-          const nextState = normalizeQueueState(updater(current ?? createDefaultQueueState()));
+          const nextState = filterQueueStateForCurrentSeat(
+            normalizeQueueState(
+              updater(filterQueueStateForCurrentSeat(current ?? createDefaultQueueState(), conversation_id))
+            ),
+            conversation_id
+          );
           stateRef.current = nextState;
           pausedRef.current = nextState.isPaused;
-          persistQueueState(conversation_id, nextState);
+          persistQueueState(queueSeatId, conversation_id, nextState);
           return nextState;
         },
         { revalidate: false }
       );
     },
-    [conversation_id, enabled, mutate]
+    [conversation_id, enabled, mutate, queueSeatId]
   );
 
   const clear = useCallback(() => {
@@ -661,9 +713,26 @@ export const useConversationCommandQueue = ({
         return;
       }
       clear();
-      removePersistedQueueState(conversation_id);
+      removePersistedQueueState(queueSeatId, conversation_id);
     },
-    [clear, conversation_id]
+    [clear, conversation_id, queueSeatId]
+  );
+
+  useEffect(
+    () =>
+      configService.onSeatRebind((nextSeatId) => {
+        waitingForTurnStartRef.current = false;
+        waitingForTurnCompletionRef.current = false;
+        executeResolvedBeforeTurnStartRef.current = false;
+        pausedRef.current = false;
+        interactionLockedRef.current = false;
+        activeExecutionItemRef.current = null;
+        activeExecutionTicketRef.current = null;
+        stateRef.current = createDefaultQueueState();
+        setIsInteractionLocked(false);
+        setQueueSeatId(nextSeatId);
+      }),
+    []
   );
 
   const enqueue = useCallback(
@@ -674,12 +743,21 @@ export const useConversationCommandQueue = ({
       preparedContext,
       managedVisualSourceCount,
       attachmentGrounding,
+      seatTicket,
     }: EnqueueCommandInput) => {
       if (!enabled) {
         return null;
       }
 
-      const currentState = normalizeQueueState(stateRef.current);
+      const effectiveSeatTicket = seatTicket ?? captureConversationRuntimeSeatTicket(conversation_id);
+      if (
+        effectiveSeatTicket.conversationId !== conversation_id ||
+        !isConversationRuntimeSeatTicketCurrent(effectiveSeatTicket)
+      ) {
+        logCommandQueue(conversation_id, 'enqueue-stale-seat');
+        return null;
+      }
+      const currentState = filterQueueStateForCurrentSeat(normalizeQueueState(stateRef.current), conversation_id);
       const item = createQueuedCommandItem({
         input,
         files,
@@ -687,6 +765,7 @@ export const useConversationCommandQueue = ({
         preparedContext,
         managedVisualSourceCount,
         attachmentGrounding,
+        seatTicket: effectiveSeatTicket,
       });
       const validation = validateQueuedCommandItem(item, currentState);
 
@@ -909,7 +988,21 @@ export const useConversationCommandQueue = ({
     }
 
     const [nextCommand, ...remainingCommands] = data.items;
+    const executionTicket = captureConversationRuntimeSeatTicket(conversation_id);
+    if (
+      !isQueuedCommandCurrent(nextCommand, conversation_id) ||
+      executionTicket.conversationId !== conversation_id ||
+      !isConversationRuntimeSeatTicketCurrent(executionTicket)
+    ) {
+      logCommandQueue(conversation_id, 'discarded-stale-seat', {
+        item: summarizeQueuedCommand(nextCommand),
+      });
+      void updateState(() => ({ items: remainingCommands, isPaused: false }));
+      return;
+    }
     waitingForTurnStartRef.current = true;
+    activeExecutionItemRef.current = nextCommand;
+    activeExecutionTicketRef.current = executionTicket;
     executeResolvedBeforeTurnStartRef.current = false;
     logCommandQueue(conversation_id, 'dequeued', {
       item: summarizeQueuedCommand(nextCommand),
@@ -920,16 +1013,66 @@ export const useConversationCommandQueue = ({
       isPaused: false,
     }));
 
-    void onExecute(nextCommand)
-      .then(() => {
+    void onExecute(nextCommand, executionTicket)
+      .then((result) => {
+        if (
+          activeExecutionItemRef.current?.id !== nextCommand.id ||
+          activeExecutionTicketRef.current !== executionTicket
+        ) {
+          return;
+        }
+        if (result === 'stale' || !isQueuedCommandCurrent(nextCommand, conversation_id)) {
+          waitingForTurnStartRef.current = false;
+          waitingForTurnCompletionRef.current = false;
+          executeResolvedBeforeTurnStartRef.current = false;
+          activeExecutionItemRef.current = null;
+          activeExecutionTicketRef.current = null;
+          setExecutionGateVersion((version) => version + 1);
+          return;
+        }
+        if (result === 'rejected') {
+          waitingForTurnStartRef.current = false;
+          waitingForTurnCompletionRef.current = false;
+          executeResolvedBeforeTurnStartRef.current = false;
+          activeExecutionItemRef.current = null;
+          activeExecutionTicketRef.current = null;
+          pausedRef.current = true;
+          void updateState((state) => ({
+            items: restoreQueuedCommand(state.items, nextCommand),
+            isPaused: true,
+          }));
+          Message.warning(
+            t('conversation.commandQueue.pausedAfterFailure', {
+              defaultValue: 'The next queued command could not start. Edit, reorder, or remove it to continue.',
+            })
+          );
+          return;
+        }
         if (!waitingForTurnStartRef.current) {
           return;
         }
 
         executeResolvedBeforeTurnStartRef.current = true;
+        activeExecutionItemRef.current = null;
+        activeExecutionTicketRef.current = null;
         setExecutionGateVersion((version) => version + 1);
       })
       .catch((error) => {
+        if (
+          activeExecutionItemRef.current?.id !== nextCommand.id ||
+          activeExecutionTicketRef.current !== executionTicket
+        ) {
+          return;
+        }
+        if (!isQueuedCommandCurrent(nextCommand, conversation_id)) {
+          waitingForTurnStartRef.current = false;
+          waitingForTurnCompletionRef.current = false;
+          executeResolvedBeforeTurnStartRef.current = false;
+          activeExecutionItemRef.current = null;
+          activeExecutionTicketRef.current = null;
+          setExecutionGateVersion((version) => version + 1);
+          return;
+        }
         console.error('[conversation-command-queue] Failed to execute queued command:', error);
         logCommandQueue(conversation_id, 'execute-failed', {
           item: summarizeQueuedCommand(nextCommand),
@@ -938,6 +1081,8 @@ export const useConversationCommandQueue = ({
         waitingForTurnStartRef.current = false;
         waitingForTurnCompletionRef.current = false;
         executeResolvedBeforeTurnStartRef.current = false;
+        activeExecutionItemRef.current = null;
+        activeExecutionTicketRef.current = null;
         pausedRef.current = true;
         void updateState((state) => ({
           items: restoreQueuedCommand(state.items, nextCommand),

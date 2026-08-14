@@ -4,10 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { IConversationTurnCompletedEvent } from '@/common/adapter/ipcBridge';
 import type { TConversationRuntimeSummary } from '@/common/config/storage';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   beginLocalSendAttempt,
+  admitConversationTurnCompleted,
   createDefaultConversationRuntimeView,
   getConversationRuntimeViewSnapshot,
   hydrateSucceededConversationRuntimeView,
@@ -22,6 +24,8 @@ import {
   localStopRequested as applyLocalStopRequested,
   localStopRequestedConversationRuntimeView,
   resetConversationRuntimeViewStoreForTest,
+  replayDeferredConversationTurnCompleted,
+  subscribeConversationTurnCompletedReplay,
   turnCompleted,
   turnCompletedConversationRuntimeView,
   type ConversationRuntimeAttemptTicket,
@@ -57,7 +61,64 @@ const runtime = (overrides: Partial<TConversationRuntimeSummary>): TConversation
   ...overrides,
 });
 
+const completedEvent = (turnId: string): IConversationTurnCompletedEvent => ({
+  session_id: conversation_id,
+  turn_id: turnId,
+  status: 'finished',
+  state: 'ai_waiting_input',
+  detail: 'done',
+  can_send_message: true,
+  has_substantive_output: true,
+  runtime: runtime({ turn_id: turnId }),
+  workspace: '/tmp/workspace',
+  model: { platform: 'acp', name: 'EVE', use_model: 'eve' },
+  last_message: { id: 'message-1', type: 'content', content: 'done', status: 'finished', created_at: 1 },
+});
+
 describe('conversationRuntimeViewStore', () => {
+  it('defers an exact fast completion and replays it once to both real consumers after acceptance', () => {
+    resetConversationRuntimeViewStoreForTest();
+    const ticket = beginLocalSendAttempt(conversation_id)!;
+    const event = completedEvent('turn-fast');
+    const runtimeConsumer = vi.fn();
+    const listConsumer = vi.fn();
+    subscribeConversationTurnCompletedReplay('runtime_view', runtimeConsumer);
+    subscribeConversationTurnCompletedReplay('conversation_list_sync', listConsumer);
+
+    expect(admitConversationTurnCompleted({ event, consumer: 'runtime_view' })).toBe('defer');
+    expect(admitConversationTurnCompleted({ event, consumer: 'conversation_list_sync' })).toBe('defer');
+    const accepted = applyLocalSendAccepted(
+      conversation_id,
+      'turn-fast',
+      runtime({ turn_id: 'turn-fast' }),
+      'message-fast',
+      ticket
+    );
+
+    expect(accepted.replayTurnCompleted).toEqual(event);
+    if (accepted.replayTurnCompleted) {
+      replayDeferredConversationTurnCompleted(accepted.replayTurnCompleted);
+    }
+    expect(runtimeConsumer).toHaveBeenCalledTimes(1);
+    expect(listConsumer).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a deferred completion whose exact turn does not match the accepted send', () => {
+    resetConversationRuntimeViewStoreForTest();
+    const ticket = beginLocalSendAttempt(conversation_id)!;
+    expect(admitConversationTurnCompleted({ event: completedEvent('turn-old'), consumer: 'runtime_view' })).toBe(
+      'defer'
+    );
+
+    const accepted = applyLocalSendAccepted(
+      conversation_id,
+      'turn-new',
+      runtime({ turn_id: 'turn-new' }),
+      'message-new',
+      ticket
+    );
+    expect(accepted.replayTurnCompleted).toBeUndefined();
+  });
   it('hydrates a running runtime as processing and not sendable', () => {
     const { view } = hydrateSucceededConversationRuntimeView(
       undefined,
@@ -230,12 +291,13 @@ describe('conversationRuntimeViewStore', () => {
     });
   });
 
-  it('ignores a late running send acceptance after turn completion already released the same turn', () => {
+  it('replays a fast completion after send acceptance instead of letting the running response win', () => {
     resetConversationRuntimeViewStoreForTest();
 
-    localSendStarted(conversation_id);
-    turnCompleted(conversation_id, 'turn-1', runtime({}));
-    const logs = localSendAccepted(
+    const ticket = beginLocalSendAttempt(conversation_id)!;
+    const event = completedEvent('turn-1');
+    expect(admitConversationTurnCompleted({ event, consumer: 'runtime_view' })).toBe('defer');
+    const accepted = applyLocalSendAccepted(
       conversation_id,
       'turn-1',
       runtime({
@@ -246,8 +308,11 @@ describe('conversationRuntimeViewStore', () => {
         is_processing: true,
         turn_id: 'turn-1',
       }),
-      'message-1'
+      'message-1',
+      ticket
     );
+    expect(accepted.replayTurnCompleted).toEqual(event);
+    turnCompleted(conversation_id, event.turn_id, event.runtime);
 
     expect(getConversationRuntimeViewSnapshot(conversation_id)).toMatchObject({
       state: 'idle',
@@ -257,15 +322,7 @@ describe('conversationRuntimeViewStore', () => {
       hasBackendRuntime: true,
       hydrated: true,
     });
-    expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatchObject({
-      event: 'local_send_accepted',
-      data: {
-        stale_after_completed: true,
-        turn_id: 'turn-1',
-        runtime_turn_id: 'turn-1',
-      },
-    });
+    expect(accepted.logs.map((log) => log.event)).toContain('local_send_accepted');
   });
 
   it('does not unlock when turn completed has no runtime', () => {

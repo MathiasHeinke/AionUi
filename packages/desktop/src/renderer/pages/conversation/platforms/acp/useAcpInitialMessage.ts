@@ -15,6 +15,7 @@ import { buildSendFailureError } from './buildSendFailureError';
 
 type UseAcpInitialMessageParams = {
   conversation_id: string;
+  seatId: string;
   sendInitialMessage: (input: string, files: string[], videoSelection?: InitialVideoSelection) => Promise<boolean>;
   resetState: () => void;
   addOrUpdateMessage: (message: TMessage, prepend?: boolean) => void;
@@ -90,6 +91,7 @@ const parseInitialVideoSelection = (value: unknown): InitialVideoSelection | und
  */
 export const useAcpInitialMessage = ({
   conversation_id,
+  seatId,
   sendInitialMessage,
   resetState,
   addOrUpdateMessage,
@@ -98,7 +100,7 @@ export const useAcpInitialMessage = ({
   const { t } = useTranslation();
 
   useEffect(() => {
-    const storageKey = `acp_initial_message_${conversation_id}`;
+    const storageKey = `acp_initial_message_${seatId}_${conversation_id}`;
     const storedMessage = sessionStorage.getItem(storageKey);
 
     if (!storedMessage) return;
@@ -180,5 +182,5 @@ export const useAcpInitialMessage = ({
     submitStoredMessage().catch((error) => {
       console.error('Failed to send initial message:', error);
     });
-  }, [addOrUpdateMessage, conversation_id, reportInferenceError, resetState, sendInitialMessage, t]);
+  }, [addOrUpdateMessage, conversation_id, reportInferenceError, resetState, seatId, sendInitialMessage, t]);
 };

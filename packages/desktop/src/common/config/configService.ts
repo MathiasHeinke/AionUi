@@ -6,6 +6,7 @@ import {
   isSeatScopedConfigKey,
   seatScopedKey,
 } from './seatConfigKeyCore';
+import { rotateRealtimeTransportForSeatRebind } from '@/common/adapter/httpBridge';
 
 type Subscriber = (value: unknown) => void;
 /**
@@ -229,6 +230,11 @@ class ConfigServiceImpl {
     if (sanitized !== this.currentSeatId) {
       this.seatRebindEpoch += 1;
       this.currentSeatId = sanitized;
+      // MAIN has already terminally respawned AionCore before rebindSeat is
+      // called. Rotate before any new-seat config fetch or subscriber can open
+      // stream admission: queued frames from the prior socket are invalidated
+      // synchronously by transport generation.
+      rotateRealtimeTransportForSeatRebind();
     }
     this.cache.clear();
     this.initialized = false;

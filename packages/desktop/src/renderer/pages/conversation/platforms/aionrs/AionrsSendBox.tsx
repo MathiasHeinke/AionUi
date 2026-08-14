@@ -33,15 +33,18 @@ import { createSetUploadFile, useSendBoxFiles } from '@/renderer/hooks/chat/useS
 import { useSlashCommands } from '@/renderer/hooks/chat/useSlashCommands';
 import { useOpenFileSelector } from '@/renderer/hooks/file/useOpenFileSelector';
 import { useLatestRef } from '@/renderer/hooks/ui/useLatestRef';
+import { useActiveSeatId } from '@/renderer/hooks/useActiveSeatId';
 import { savePreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import {
   buildConversationBusyControlCommand,
   shouldEnqueueConversationCommand,
   useConversationCommandQueue,
   type ConversationBusyControlMode,
+  type ConversationCommandDispatchResult,
   type ConversationCommandQueueItem,
 } from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
 import ConversationBusyModeControl from '@/renderer/pages/conversation/platforms/ConversationBusyModeControl';
+import type { ConversationRuntimeSeatTicket } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { useConversationRuntimeView } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
 import { getConversationRuntimeWorkspaceErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
@@ -58,7 +61,6 @@ import {
   mergeWithCapabilities,
   type AgentModeOption,
 } from '@/renderer/utils/model/agentModes';
-import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import { Message, Tag } from '@arco-design/web-react';
 import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
@@ -80,8 +82,8 @@ const useAionrsSendBoxDraft = getSendBoxDraftHook('aionrs', {
 const EMPTY_AT_PATH: Array<string | FileOrFolderItem> = [];
 const EMPTY_UPLOAD_FILES: string[] = [];
 
-const useSendBoxDraft = (conversation_id: string) => {
-  const { data, mutate } = useAionrsSendBoxDraft(conversation_id);
+const useSendBoxDraft = (conversation_id: string, seatId: string) => {
+  const { data, mutate } = useAionrsSendBoxDraft(conversation_id, seatId);
 
   const atPath = data?.atPath ?? EMPTY_AT_PATH;
   const uploadFile = data?.uploadFile ?? EMPTY_UPLOAD_FILES;
@@ -138,6 +140,7 @@ const AionrsSendBox: React.FC<{
     conversationContext?.loadedMcpServers
   );
   const { t } = useTranslation();
+  const activeSeatId = useActiveSeatId();
   const { checkAndUpdateTitle } = useAutoTitle();
   const { current_model } = modelSelection;
   const teamPermission = useTeamPermission();
@@ -159,7 +162,10 @@ const AionrsSendBox: React.FC<{
     }
   }, [runtimeView.isProcessing]);
 
-  const { atPath, uploadFile, setAtPath, setUploadFile, content, setContent } = useSendBoxDraft(conversation_id);
+  const { atPath, uploadFile, setAtPath, setUploadFile, content, setContent } = useSendBoxDraft(
+    conversation_id,
+    activeSeatId
+  );
 
   const handleContentChange = useCallback(
     (val: string) => {
@@ -240,17 +246,23 @@ const AionrsSendBox: React.FC<{
   });
 
   const executeCommand = useCallback(
-    async ({ input, files }: Pick<ConversationCommandQueueItem, 'input' | 'files'>): Promise<boolean> => {
+    async (
+      { input, files }: Pick<ConversationCommandQueueItem, 'input' | 'files'>,
+      seatTicket: ConversationRuntimeSeatTicket
+    ): Promise<ConversationCommandDispatchResult> => {
+      const isCurrent = () => runtimeView.isSeatTicketCurrent(seatTicket);
+      if (!isCurrent()) return 'stale';
       if (!current_model?.use_model) {
         Message.warning(t('conversation.chat.noModelSelected'));
-        throw new Error('No model selected');
+        return 'rejected';
       }
+      if (teamPermission) await teamPermission.warmupSession();
+      if (!isCurrent()) return 'stale';
       const sendTicket = runtimeView.issueSendAttempt();
-      if (!sendTicket) return false;
+      if (!sendTicket) return isCurrent() ? 'rejected' : 'stale';
       let sendStarted = false;
       try {
-        if (teamPermission) await teamPermission.warmupSession();
-        if (!runtimeView.markSendStarted(sendTicket)) return false;
+        if (!runtimeView.markSendStarted(sendTicket)) return 'stale';
         sendStarted = true;
         // 1.7.3 (Codex convergence-2): cover the aionrs submit→start window for the
         // seat-switch guard too. Cleared in the catch; the stream's finish/error
@@ -259,13 +271,13 @@ const AionrsSendBox: React.FC<{
         setWaitingResponse(true);
 
         const displayMessage = buildDisplayMessage(input, files, workspacePath);
-        void checkAndUpdateTitle(conversation_id, input);
         const res = await ipcBridge.conversation.sendMessage.invoke({
           input: displayMessage,
           conversation_id,
           files,
         });
-        if (!runtimeView.markSendAccepted(sendTicket, res.turn_id, res.runtime, res.msg_id)) return false;
+        if (!runtimeView.markSendAccepted(sendTicket, res.turn_id, res.runtime, res.msg_id)) return 'stale';
+        void checkAndUpdateTitle(conversation_id, input, isCurrent);
         setActiveMsgId(res.msg_id);
         emitter.emit('chat.history.refresh');
         if (files.length > 0) {
@@ -288,12 +300,12 @@ const AionrsSendBox: React.FC<{
         const attemptApplied = sendStarted
           ? runtimeView.markSendFailed(sendTicket, errorMessage)
           : runtimeView.abandonAttempt(sendTicket);
-        if (!attemptApplied) return false;
+        if (!attemptApplied) return 'stale';
         clearConversationGenerating(conversation_id);
         Message.error(errorMessage);
         throw error;
       }
-      return true;
+      return 'accepted';
     },
     [
       checkAndUpdateTitle,
@@ -303,6 +315,7 @@ const AionrsSendBox: React.FC<{
       setActiveMsgId,
       setWaitingResponse,
       t,
+      teamPermission,
       workspacePath,
     ]
   );
@@ -330,17 +343,15 @@ const AionrsSendBox: React.FC<{
       canSendMessage: runtimeView.canSendMessage,
       isProcessing: runtimeView.isProcessing,
     },
-    onExecute: async (item) => {
-      await executeCommand(item);
-    },
+    onExecute: (item, seatTicket) => executeCommand(item, seatTicket),
   });
 
   // Handle initial message from Guid page — wait until model is ready
   useEffect(() => {
     if (!conversation_id || !current_model?.use_model) return;
 
-    const storageKey = `aionrs_initial_message_${conversation_id}`;
-    const processedKey = `aionrs_initial_processed_${conversation_id}`;
+    const storageKey = `aionrs_initial_message_${activeSeatId}_${conversation_id}`;
+    const processedKey = `aionrs_initial_processed_${activeSeatId}_${conversation_id}`;
 
     const processInitialMessage = async () => {
       if (sessionStorage.getItem(processedKey)) return;
@@ -352,7 +363,9 @@ const AionrsSendBox: React.FC<{
 
       try {
         const { input, files: initialFiles } = JSON.parse(storedMessage);
-        await executeCommand({ input, files: initialFiles || [] });
+        const seatTicket = runtimeView.captureSeatTicket();
+        const result = await executeCommand({ input, files: initialFiles || [] }, seatTicket);
+        if (result === 'rejected') sessionStorage.removeItem(processedKey);
       } catch (error) {
         console.error('[AionrsSendBox] Failed to send initial message:', error);
         sessionStorage.removeItem(processedKey);
@@ -360,7 +373,7 @@ const AionrsSendBox: React.FC<{
     };
 
     void processInitialMessage();
-  }, [conversation_id, current_model?.use_model, executeCommand]);
+  }, [activeSeatId, conversation_id, current_model?.use_model, executeCommand, runtimeView]);
 
   // Command EVE /marketing-loop | /marketing chat intent (v15 A2).
   //
@@ -380,7 +393,9 @@ const AionrsSendBox: React.FC<{
   // ladder rung from chat; it only distinguishes the /marketing-loop verb so
   // the user is told the loop is continued (not run) in the Command Center.
   const runCommandEveLocalMarketingIntent = useCallback(
-    async (message: string): Promise<boolean> => {
+    async (message: string, seatTicket: ConversationRuntimeSeatTicket): Promise<boolean> => {
+      const isCurrent = () => runtimeView.isSeatTicketCurrent(seatTicket);
+      if (!isCurrent()) return true;
       const intent = parseCommandEveLocalMarketingIntent(message);
       if (!intent) return false;
 
@@ -395,8 +410,10 @@ const AionrsSendBox: React.FC<{
           description: intent.description,
           lane_key: intent.laneKey,
           client_token: createCommandEveLocalIntentClientToken(),
+          expectedSeatId: seatTicket.seatId,
           boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
         });
+        if (!isCurrent()) return true;
         const cardResult = createResponse.data ?? null;
         if (!createResponse.success || !cardResult?.ok || !cardResult.card_id) {
           Message.warning(
@@ -420,8 +437,10 @@ const AionrsSendBox: React.FC<{
         const dispatchPlanResponse = await ipcBridge.commandEve.kanbanMarketingDispatchPlan.invoke({
           task_id: cardResult.card_id,
           command: 'decompose',
+          expectedSeatId: seatTicket.seatId,
           boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
         });
+        if (!isCurrent()) return true;
         const dispatchPlan = dispatchPlanResponse.data ?? null;
 
         // Tell the Command Center to re-read the board so the new card + its
@@ -443,20 +462,39 @@ const AionrsSendBox: React.FC<{
           Message.success(t('conversation.commandEveLocalMarketingIntent.createdUnchecked', { title: intent.title }));
         }
       } catch (intentError) {
+        if (!isCurrent()) return true;
         // SCRUBBED (MAT-1749): an in-process failure can still wrap an upstream cause.
         const detail = scrubErrorText(intentError, CLOUD_MODEL_IDENTIFIERS);
         Message.error(`${t('conversation.commandEveLocalMarketingIntent.failed')}: ${detail}`);
       }
       return true;
     },
-    [t]
+    [runtimeView, t]
   );
 
   const onSendHandler = async (message: string) => {
+    // Capture seat ownership before the first intent/policy/preparation await.
+    // Every callback below either proves this ticket or becomes a no-op; stale
+    // seat-A values are never restored into an equal conversation id on seat B.
+    const seatTicket = runtimeView.captureSeatTicket();
+    const isCurrent = () => runtimeView.isSeatTicketCurrent(seatTicket);
+    const draftContent = content || message;
+    const selectedAtPath = [...atPath];
+    const selectedUploadFiles = [...uploadFile];
+    const filesToSend = collectSelectedFiles(selectedUploadFiles, selectedAtPath);
+    const restoreDraftAndFiles = () => {
+      if (!isCurrent()) return;
+      setContent(draftContent);
+      setUploadFile(selectedUploadFiles);
+      setAtPath(selectedAtPath);
+      emitter.emit('aionrs.selected.file', selectedAtPath);
+    };
+
     // Command EVE marketing chat intent is handled fully in-process (create +
     // dispatch-plan receipt only) and never reaches the agent runtime. The
     // promotion ladder lives in the Command Center, not here.
-    if (await runCommandEveLocalMarketingIntent(message)) {
+    if (await runCommandEveLocalMarketingIntent(message, seatTicket)) {
+      if (!isCurrent()) return;
       clearFiles();
       emitter.emit('aionrs.selected.file.clear');
       setContent('');
@@ -465,18 +503,8 @@ const AionrsSendBox: React.FC<{
 
     // S81/R3: bounded, fail-open project intent gate before dispatch; never
     // touches executeCommand/sendMessage.
-    await runProjectChatIntentGate({ conversation_id, message });
-
-    const draftContent = content || message;
-    const selectedAtPath = [...atPath];
-    const selectedUploadFiles = [...uploadFile];
-    const filesToSend = collectSelectedFiles(selectedUploadFiles, selectedAtPath);
-    const restoreDraftAndFiles = () => {
-      setContent(draftContent);
-      setUploadFile(selectedUploadFiles);
-      setAtPath(selectedAtPath);
-      emitter.emit('aionrs.selected.file', selectedAtPath);
-    };
+    await runProjectChatIntentGate({ conversation_id, message, isCurrent });
+    if (!isCurrent()) return;
     clearFiles();
     emitter.emit('aionrs.selected.file.clear');
 
@@ -500,8 +528,10 @@ const AionrsSendBox: React.FC<{
           conversation_id,
           files: [],
         });
+        if (!isCurrent()) return;
         emitter.emit('chat.history.refresh');
       } catch (error) {
+        if (!isCurrent()) return;
         restoreDraftAndFiles();
         Message.error(
           error instanceof Error
@@ -521,15 +551,18 @@ const AionrsSendBox: React.FC<{
         hasPendingCommands,
       })
     ) {
-      if (enqueue({ input: message, files: filesToSend }) === null) {
+      if (enqueue({ input: message, files: filesToSend, seatTicket }) === null) {
         restoreDraftAndFiles();
       }
       return;
     }
 
     try {
-      const accepted = await executeCommand({ input: message, files: filesToSend });
-      if (!accepted) return;
+      const result = await executeCommand({ input: message, files: filesToSend }, seatTicket);
+      if (result !== 'accepted') {
+        if (result === 'rejected') restoreDraftAndFiles();
+        return;
+      }
     } catch (error) {
       restoreDraftAndFiles();
       throw error;

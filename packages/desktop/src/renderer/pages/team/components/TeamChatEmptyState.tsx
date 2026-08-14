@@ -8,6 +8,7 @@ import { getSendBoxDraftHook } from '@renderer/hooks/chat/useSendBoxDraft';
 import { getAgentLogo } from '@renderer/utils/model/agentLogo';
 import { usePresetAssistantInfo } from '@renderer/hooks/agent/usePresetAssistantInfo';
 import { resolveBackendAssetUrl } from '@renderer/utils/platform';
+import { useActiveSeatId } from '@/renderer/hooks/useActiveSeatId';
 
 const useAcpDraft = getSendBoxDraftHook('acp', { _type: 'acp', atPath: [], content: '', uploadFile: [] });
 const useAionrsDraft = getSendBoxDraftHook('aionrs', { _type: 'aionrs', atPath: [], content: '', uploadFile: [] });
@@ -60,6 +61,7 @@ const resolveAgentName = (conversation: TChatConversation, presetName: string | 
 
 const TeamChatEmptyState: React.FC<Props> = ({ conversation_id, icon, isLeader = false }) => {
   const { t } = useTranslation();
+  const activeSeatId = useActiveSeatId();
 
   // Reuse the same SWR key as AgentChatSlot so this hits cache instead of a new fetch.
   const { data: conversation } = useSWR(conversation_id ? ['team-conversation', conversation_id] : null, () =>
@@ -68,8 +70,8 @@ const TeamChatEmptyState: React.FC<Props> = ({ conversation_id, icon, isLeader =
   const { info: presetInfo } = usePresetAssistantInfo(conversation ?? undefined);
 
   // Hooks must run unconditionally; the lookup below picks the right draft at call time.
-  const acpDraft = useAcpDraft(conversation_id);
-  const aionrsDraft = useAionrsDraft(conversation_id);
+  const acpDraft = useAcpDraft(conversation_id, activeSeatId);
+  const aionrsDraft = useAionrsDraft(conversation_id, activeSeatId);
   const setContentByKind = {
     acp: (text: string) => acpDraft.mutate((prev) => ({ ...prev, content: text })),
     aionrs: (text: string) => aionrsDraft.mutate((prev) => ({ ...prev, content: text })),

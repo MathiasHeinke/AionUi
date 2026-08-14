@@ -41,6 +41,11 @@ describe('Command EVE chat marketing gate (v15 A2 CAO invariant)', () => {
     expect(code).toContain('kanbanMarketingDispatchPlan.invoke');
   });
 
+  it('binds both state-changing marketing calls to the captured seat ticket', () => {
+    const expectedSeatBindings = code.match(/expectedSeatId:\s*seatTicket\.seatId/g) ?? [];
+    expect(expectedSeatBindings).toHaveLength(2);
+  });
+
   it('NEVER invokes the worker-executor-promotion provider from chat', () => {
     expect(code).not.toContain('kanbanMarketingWorkerExecutorPromotion');
     expect(code).not.toContain('worker-executor-promotion');

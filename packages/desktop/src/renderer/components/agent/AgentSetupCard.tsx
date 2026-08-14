@@ -16,6 +16,7 @@ import { CheckOne, CloseOne, Loading, Down, Up } from '@icon-park/react';
 import classNames from 'classnames';
 import { ipcBridge } from '@/common';
 import type { ICreateConversationParams } from '@/common/adapter/ipcBridge';
+import { configService } from '@/common/config/configService';
 import type { AgentCheckResult } from '@/renderer/hooks/agent/useAgentReadinessCheck';
 import { applyDefaultConversationName } from '@/renderer/pages/conversation/utils/newConversationName';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
@@ -126,7 +127,10 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
         // 存储初始消息，让新会话自动发送
         if (initialMessage) {
           const messageData = { input: initialMessage, files: [] as string[] };
-          sessionStorage.setItem(`acp_initial_message_${newConversation.id}`, JSON.stringify(messageData));
+          sessionStorage.setItem(
+            `acp_initial_message_${configService.getCurrentSeatId()}_${newConversation.id}`,
+            JSON.stringify(messageData)
+          );
         }
 
         // Show success notification and navigate

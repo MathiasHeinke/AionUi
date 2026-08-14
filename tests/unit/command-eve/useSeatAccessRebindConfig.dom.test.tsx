@@ -37,6 +37,7 @@ const isElectronDesktopMock = vi.fn();
 
 const SEAT_A = '11111111-1111-1111-1111-111111111111';
 const SEAT_B = '22222222-2222-2222-2222-222222222222';
+const rotateRealtimeTransportForSeatRebind = vi.fn();
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
   commandEve: {
@@ -44,6 +45,7 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
     switchSeat: { invoke: (req: { seatId?: string }) => switchSeatInvoke(req) },
   },
 }));
+vi.mock('@/common/adapter/httpBridge', () => ({ rotateRealtimeTransportForSeatRebind }));
 // A faithful tiny fake of the renderer configService cache, declared INSIDE the
 // hoisted factory (no top-level capture): it is bound to ONE seat at a time and
 // only serves a seat-scoped value while bound to that seat. rebindSeat re-homes
@@ -108,6 +110,7 @@ beforeEach(() => {
   fakeConfig.boundSeatId = SEAT_A;
   fakeConfig.store = { [SEAT_A]: true };
   fakeConfig.rebindSeat.mockClear();
+  rotateRealtimeTransportForSeatRebind.mockClear();
 });
 afterEach(() => vi.clearAllMocks());
 

@@ -23,10 +23,16 @@ export const useAutoTitle = () => {
   const { t } = useTranslation();
 
   const syncTitleFromHistory = useCallback(
-    async (conversation_id: string, fallbackContent?: string): Promise<string | null> => {
+    async (
+      conversation_id: string,
+      fallbackContent?: string,
+      isCurrent: () => boolean = () => true
+    ): Promise<string | null> => {
       const defaultTitle = t('conversation.welcome.newConversation');
       try {
+        if (!isCurrent()) return null;
         const conversation = await getConversationOrNull(conversation_id);
+        if (!isCurrent()) return null;
         // Preserve every deliberate/manual name. The only non-default names we
         // heal are greeting-only titles created by the older first-line rule.
         if (
@@ -40,6 +46,7 @@ export const useAutoTitle = () => {
           conversation_id: conversation_id,
           limit: 200,
         });
+        if (!isCurrent()) return null;
         const newTitle = deriveAutoTitleFromMessages(messagesResult.items, fallbackContent);
         if (!newTitle) {
           return null;
@@ -49,7 +56,7 @@ export const useAutoTitle = () => {
           id: conversation_id,
           updates: { name: newTitle },
         });
-        if (!success) {
+        if (!success || !isCurrent()) {
           return null;
         }
 
@@ -64,11 +71,11 @@ export const useAutoTitle = () => {
   );
 
   const checkAndUpdateTitle = useCallback(
-    async (conversation_id: string, messageContent: string) => {
+    async (conversation_id: string, messageContent: string, isCurrent?: () => boolean) => {
       // Set the bounded local title for a default-named conversation, or heal a
       // greeting-only title written by an older build. There is no model call:
       // the first substantive user turn already contains enough naming truth.
-      await syncTitleFromHistory(conversation_id, messageContent);
+      await syncTitleFromHistory(conversation_id, messageContent, isCurrent);
     },
     [syncTitleFromHistory]
   );

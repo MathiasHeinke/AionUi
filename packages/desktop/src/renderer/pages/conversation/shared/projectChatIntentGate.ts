@@ -10,9 +10,13 @@ const GATE_TIMEOUT_MS = 250;
  * Never blocks or delays the send beyond the timeout budget; any failure
  * (no bridge, error, timeout) resolves to a plain pass-through send.
  */
-export async function runProjectChatIntentGate(input: { conversation_id: string; message: string }): Promise<void> {
+export async function runProjectChatIntentGate(input: {
+  conversation_id: string;
+  message: string;
+  isCurrent?: () => boolean;
+}): Promise<void> {
   const message = input.message.trim();
-  if (!message || typeof window === 'undefined' || !window.electronAPI) return;
+  if (!message || input.isCurrent?.() === false || typeof window === 'undefined' || !window.electronAPI) return;
   try {
     const result = await Promise.race([
       ipcBridge.projectWorkspace.chatIntent.invoke({
@@ -24,7 +28,7 @@ export async function runProjectChatIntentGate(input: { conversation_id: string;
       }),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), GATE_TIMEOUT_MS)),
     ]);
-    if (result && result.decision === 'needs_clarification') {
+    if (result && result.decision === 'needs_clarification' && input.isCurrent?.() !== false) {
       // Localize the main-process clarification via its i18n ref when present
       // (1.818 CAO-P2); the raw question is the English fallback.
       Message.info(

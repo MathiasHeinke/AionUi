@@ -115,6 +115,45 @@ describe('httpBridge realtime recovery', () => {
     expect(stream).toHaveBeenCalledWith(payload);
   });
 
+  it('drops a queued old-seat start after transport rotation and accepts the new socket', async () => {
+    const { rotateRealtimeTransportForSeatRebind, wsEmitter } = await import('@/common/adapter/httpBridge');
+    const stream = vi.fn();
+    wsEmitter<IResponseMessage>('message.stream').on(stream);
+
+    const staleSocket = FakeWebSocket.instances[0];
+    staleSocket.dispatchOpen();
+    rotateRealtimeTransportForSeatRebind();
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    const currentSocket = FakeWebSocket.instances[1];
+    currentSocket.dispatchOpen();
+
+    const staleStart: IResponseMessage = {
+      type: 'start',
+      data: {},
+      msg_id: 'old-seat-message',
+      turn_id: 'old-seat-turn',
+      conversation_id: 'shared-conversation',
+    };
+    const currentStart: IResponseMessage = {
+      ...staleStart,
+      msg_id: 'new-seat-message',
+      turn_id: 'new-seat-turn',
+    };
+
+    // Simulate a browser task that was already queued before close(). The old
+    // socket object can still invoke its listener, but its generation is dead.
+    staleSocket.dispatchMessage('message.stream', staleStart);
+    expect(stream).not.toHaveBeenCalled();
+    staleSocket.dispatchClose();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+
+    currentSocket.dispatchMessage('message.stream', currentStart);
+    expect(stream).toHaveBeenCalledOnce();
+    expect(stream).toHaveBeenCalledWith(currentStart);
+  });
+
   it('maps turn completion evidence fail-closed and preserves explicit AionCore proof', async () => {
     const { mapConversationTurnCompletedEvent } = await import('@/common/adapter/conversationTurnCompletedMapper');
     const legacy = mapConversationTurnCompletedEvent({

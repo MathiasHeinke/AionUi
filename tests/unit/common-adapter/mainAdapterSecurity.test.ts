@@ -133,12 +133,20 @@ function validProviderPayload(providerKey: RendererProviderKey): string {
         title: 'Customer task',
         lane_key: 'research',
         client_token: 'customer-task-1',
+        expectedSeatId: 'seat-1',
         boardSlug: 'default',
       });
     case 'command-eve.kanban-marketing-card-move':
       return providerPayload(providerKey, { task_id: 'task-1', to_lane_key: 'draft', boardSlug: 'default' });
     case 'command-eve.kanban-marketing-card-action':
       return providerPayload(providerKey, { task_id: 'task-1', action: 'complete', boardSlug: 'default' });
+    case 'command-eve.kanban-marketing-dispatch-plan':
+      return providerPayload(providerKey, {
+        task_id: 'task-1',
+        command: 'decompose',
+        expectedSeatId: 'seat-1',
+        boardSlug: 'default',
+      });
     case 'command-eve.report-export':
       return providerPayload(providerKey, {
         format: 'pdf',
@@ -579,6 +587,7 @@ describe('main adapter IPC trust boundary', () => {
       title: 'Customer task',
       lane_key: 'research',
       client_token: 'customer-task-2',
+      expectedSeatId: 'seat-1',
       boardSlug: 'default',
       eventLedgerPath: '/tmp/forged-ledger.jsonl',
     };
@@ -589,6 +598,34 @@ describe('main adapter IPC trust boundary', () => {
 
     process.env.COMMAND_EVE_FOUNDER_BUILD = '1';
     await handler(event, providerPayload('command-eve.kanban-marketing-card-create', request));
+    expect(state.emitter.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires an exact seat fence on the founder-only marketing dispatch plan', async () => {
+    process.env.COMMAND_EVE_FOUNDER_BUILD = '1';
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    expect(() =>
+      handler(
+        event,
+        providerPayload('command-eve.kanban-marketing-dispatch-plan', {
+          task_id: 'task-1',
+          command: 'decompose',
+          boardSlug: 'default',
+        })
+      )
+    ).toThrow('expectedSeatId');
+
+    await handler(
+      event,
+      providerPayload('command-eve.kanban-marketing-dispatch-plan', {
+        task_id: 'task-1',
+        command: 'decompose',
+        expectedSeatId: 'seat-1',
+        boardSlug: 'default',
+      })
+    );
     expect(state.emitter.emit).toHaveBeenCalledTimes(1);
   });
 

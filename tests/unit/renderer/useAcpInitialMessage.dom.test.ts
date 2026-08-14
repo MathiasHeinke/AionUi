@@ -13,6 +13,8 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('useAcpInitialMessage', () => {
+  const seatId = 'seat-1';
+  const storageKey = `acp_initial_message_${seatId}_conversation-1`;
   beforeEach(() => {
     sessionStorage.clear();
   });
@@ -26,7 +28,7 @@ describe('useAcpInitialMessage', () => {
     const addOrUpdateMessage = vi.fn();
     const resetState = vi.fn();
     sessionStorage.setItem(
-      'acp_initial_message_conversation-1',
+      storageKey,
       JSON.stringify({
         input: 'Read this PDF',
         files: ['/tmp/source.pdf', 42, null],
@@ -36,6 +38,7 @@ describe('useAcpInitialMessage', () => {
     const { rerender } = renderHook(() =>
       useAcpInitialMessage({
         conversation_id: 'conversation-1',
+        seatId,
         sendInitialMessage,
         resetState,
         addOrUpdateMessage,
@@ -49,7 +52,7 @@ describe('useAcpInitialMessage', () => {
 
     expect(sendInitialMessage).toHaveBeenCalledTimes(1);
     expect(sendInitialMessage).toHaveBeenCalledWith('Read this PDF', ['/tmp/source.pdf'], undefined);
-    expect(sessionStorage.getItem('acp_initial_message_conversation-1')).toBeNull();
+    expect(sessionStorage.getItem(storageKey)).toBeNull();
     expect(addOrUpdateMessage).not.toHaveBeenCalled();
     expect(resetState).not.toHaveBeenCalled();
 
@@ -63,7 +66,7 @@ describe('useAcpInitialMessage', () => {
   it('carries a well-formed guid video selection through to the submission path (MAT-1773 P3)', async () => {
     const sendInitialMessage = vi.fn().mockResolvedValue(true);
     sessionStorage.setItem(
-      'acp_initial_message_conversation-1',
+      storageKey,
       JSON.stringify({
         input: 'Erstelle ein Video: Aubergine.',
         videoSelection: { modelId: 'google/veo-3.1', resolution: '1080p', durationSeconds: 8 },
@@ -73,6 +76,7 @@ describe('useAcpInitialMessage', () => {
     renderHook(() =>
       useAcpInitialMessage({
         conversation_id: 'conversation-1',
+        seatId,
         sendInitialMessage,
         resetState: vi.fn(),
         addOrUpdateMessage: vi.fn(),
@@ -94,7 +98,7 @@ describe('useAcpInitialMessage', () => {
   it('drops a malformed carried selection rather than failing the send', async () => {
     const sendInitialMessage = vi.fn().mockResolvedValue(true);
     sessionStorage.setItem(
-      'acp_initial_message_conversation-1',
+      storageKey,
       JSON.stringify({
         input: 'Erstelle ein Video: Aubergine.',
         videoSelection: { modelId: '', durationSeconds: 'acht' },
@@ -104,6 +108,7 @@ describe('useAcpInitialMessage', () => {
     renderHook(() =>
       useAcpInitialMessage({
         conversation_id: 'conversation-1',
+        seatId,
         sendInitialMessage,
         resetState: vi.fn(),
         addOrUpdateMessage: vi.fn(),
@@ -122,7 +127,7 @@ describe('useAcpInitialMessage', () => {
     const sendInitialMessage = vi.fn().mockResolvedValue(false);
     const resetState = vi.fn();
     sessionStorage.setItem(
-      'acp_initial_message_conversation-1',
+      storageKey,
       JSON.stringify({
         input: 'Analysiere dieses Bild.',
         files: ['/tmp/source.png'],
@@ -132,6 +137,7 @@ describe('useAcpInitialMessage', () => {
     renderHook(() =>
       useAcpInitialMessage({
         conversation_id: 'conversation-1',
+        seatId,
         sendInitialMessage,
         resetState,
         addOrUpdateMessage: vi.fn(),

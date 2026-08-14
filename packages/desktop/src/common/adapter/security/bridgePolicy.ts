@@ -253,6 +253,22 @@ function assertHighRiskProviderPayload(providerKey: RendererProviderKey, payload
       }
       return;
     }
+    case 'command-eve.kanban-marketing-dispatch-plan': {
+      const allowedKeys = new Set(['task_id', 'command', 'expectedSeatId', 'boardSlug', 'eventLedgerPath']);
+      if (!hasOnlyKeys(payload, allowedKeys)) throw new Error('Invalid marketing dispatch-plan payload keys.');
+      for (const key of ['task_id', 'expectedSeatId'] as const) {
+        if (!isNonEmptyString(payload[key])) throw new Error(`Invalid marketing dispatch-plan ${key}.`);
+      }
+      if (Object.hasOwn(payload, 'command') && !['decompose', 'specify'].includes(String(payload.command))) {
+        throw new Error('Invalid marketing dispatch-plan command.');
+      }
+      for (const key of ['boardSlug', 'eventLedgerPath'] as const) {
+        if (Object.hasOwn(payload, key) && !isNonEmptyString(payload[key])) {
+          throw new Error(`Invalid marketing dispatch-plan ${key}.`);
+        }
+      }
+      return;
+    }
     case 'command-eve.managed-visual-turn-authorize': {
       const allowedKeys = new Set(['consentVersion', 'flowId', 'visualPolicyReceipt', 'preferredTier', 'sourceCount']);
       if (!hasOnlyKeys(payload, allowedKeys)) throw new Error('Invalid managed visual turn payload keys.');
@@ -363,7 +379,7 @@ function assertConditionalKanbanPayload(
     case 'command-eve.kanban-marketing-card-create':
       assertExactStringPayload(
         payload,
-        ['title', 'lane_key', 'client_token', 'boardSlug'],
+        ['title', 'lane_key', 'client_token', 'expectedSeatId', 'boardSlug'],
         founderBuild ? ['description', 'eventLedgerPath'] : ['description']
       );
       break;

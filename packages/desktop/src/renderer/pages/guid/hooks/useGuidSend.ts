@@ -34,7 +34,7 @@ import { useCallback, useRef } from 'react';
 import { type TFunction } from 'i18next';
 import type { NavigateFunction } from 'react-router-dom';
 import type { AcpModelInfo, AvailableAgent, EffectiveAgentInfo } from '../types';
-import { scrubErrorText, scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
+import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
 import { isVideoLaneRequest } from '@/common/config/videoCostCore';
 import type { VideoDraftSelection } from '@/renderer/components/billing/useVideoComposerSelection';
@@ -547,7 +547,10 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
           input,
           files: files.length > 0 ? files : undefined,
         };
-        sessionStorage.setItem(`aionrs_initial_message_${conversation.id}`, JSON.stringify(initialMessage));
+        sessionStorage.setItem(
+          `aionrs_initial_message_${configService.getCurrentSeatId()}_${conversation.id}`,
+          JSON.stringify(initialMessage)
+        );
 
         await navigateToConversation(navigate, conversation.id);
       } catch (error: unknown) {
@@ -646,7 +649,10 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
           files: files.length > 0 ? files : undefined,
           ...(carriedVideoSelection ? { videoSelection: carriedVideoSelection } : {}),
         };
-        sessionStorage.setItem(`acp_initial_message_${conversation.id}`, JSON.stringify(initialMessage));
+        sessionStorage.setItem(
+          `acp_initial_message_${configService.getCurrentSeatId()}_${conversation.id}`,
+          JSON.stringify(initialMessage)
+        );
 
         await navigateToConversation(navigate, conversation.id);
       } catch (error: unknown) {

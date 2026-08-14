@@ -13,8 +13,21 @@ import {
   useConversationCommandQueue,
 } from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
 
-const { messageWarningMock } = vi.hoisted(() => ({
+const { messageWarningMock, seatState, seatRebindListeners } = vi.hoisted(() => ({
   messageWarningMock: vi.fn(),
+  seatState: { current: 'seat-1', epoch: 0 },
+  seatRebindListeners: new Set<(seatId: string) => void>(),
+}));
+
+vi.mock('@/common/config/configService', () => ({
+  configService: {
+    getCurrentSeatId: () => seatState.current,
+    getSeatBindingSnapshot: () => ({ seatId: seatState.current, rebindEpoch: seatState.epoch, initialized: true }),
+    onSeatRebind: (listener: (seatId: string) => void) => {
+      seatRebindListeners.add(listener);
+      return () => seatRebindListeners.delete(listener);
+    },
+  },
 }));
 
 vi.mock('@arco-design/web-react', () => ({
@@ -37,14 +50,25 @@ const Wrapper = ({ children }: PropsWithChildren) => (
   <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>{children}</SWRConfig>
 );
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver;
+  });
+  return { promise, resolve };
+}
+
 describe('useConversationCommandQueue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    seatState.current = 'seat-1';
+    seatState.epoch = 0;
+    seatRebindListeners.clear();
     window.sessionStorage.clear();
   });
 
   it('continues after a fast turn resolves without exposing a busy render', async () => {
-    const onExecute = vi.fn().mockResolvedValue(undefined);
+    const onExecute = vi.fn().mockResolvedValue('accepted' as const);
     const { result } = renderHook(
       () =>
         useConversationCommandQueue({
@@ -99,7 +123,7 @@ describe('useConversationCommandQueue', () => {
   });
 
   it('preserves private agent sidecars separately from user-visible files', async () => {
-    const onExecute = vi.fn().mockResolvedValue(undefined);
+    const onExecute = vi.fn().mockResolvedValue('accepted' as const);
     const attachmentGrounding = {
       version: 'command-eve-attachment-grounding/v1' as const,
       entries: [
@@ -149,7 +173,9 @@ describe('useConversationCommandQueue', () => {
         }),
       ])
     );
-    expect(JSON.parse(window.sessionStorage.getItem('conversation-command-queue/pdf-sidecar-queue') ?? '{}')).toEqual(
+    expect(
+      JSON.parse(window.sessionStorage.getItem('conversation-command-queue/seat-1/pdf-sidecar-queue') ?? '{}')
+    ).toEqual(
       expect.objectContaining({
         items: [
           expect.objectContaining({
@@ -164,7 +190,7 @@ describe('useConversationCommandQueue', () => {
     expect(onExecute).not.toHaveBeenCalled();
   });
 
-  it('hides generated PDF sidecars when restoring a queue written before display files existed', () => {
+  it('rejects a legacy unscoped queue item because its seat and conversation cannot be proven', () => {
     expect(
       normalizeQueueState({
         items: [
@@ -177,16 +203,63 @@ describe('useConversationCommandQueue', () => {
         ],
         isPaused: true,
       })
-    ).toEqual({
-      items: [
-        {
-          id: 'legacy-pdf',
-          input: 'Analyze this PDF',
-          files: ['/tmp/report.pdf', '/tmp/hermes/document-intelligence/pdf/abc123/document.md'],
-          displayFiles: ['/tmp/report.pdf'],
-          created_at: 1,
-        },
-      ],
+    ).toEqual({ items: [], isPaused: false });
+  });
+
+  it('drops a seat-A completion after A-to-B rebind without restoring or pausing the seat-B queue', async () => {
+    const deferred = createDeferred<'accepted' | 'rejected' | 'stale'>();
+    const onExecute = vi.fn(() => deferred.promise);
+    window.sessionStorage.setItem(
+      'conversation-command-queue/seat-2/shared-conversation',
+      JSON.stringify({
+        items: [
+          {
+            id: 'seat-b-preserved',
+            conversationId: 'shared-conversation',
+            input: 'seat B preserved command',
+            files: [],
+            displayFiles: [],
+            seatId: 'seat-2',
+            created_at: 2,
+          },
+        ],
+        isPaused: true,
+      })
+    );
+    const { result } = renderHook(
+      () =>
+        useConversationCommandQueue({
+          conversation_id: 'shared-conversation',
+          isBusy: false,
+          runtimeGate: { hydrated: true, canSendMessage: true, isProcessing: false },
+          onExecute,
+        }),
+      { wrapper: Wrapper }
+    );
+
+    act(() => {
+      result.current.enqueue({ input: 'seat A command', files: [] });
+    });
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      seatState.current = 'seat-2';
+      seatState.epoch += 1;
+      seatRebindListeners.forEach((listener) => listener('seat-2'));
+    });
+    deferred.resolve('stale');
+
+    await act(async () => {
+      await deferred.promise;
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.items.map(({ id }) => id)).toEqual(['seat-b-preserved']));
+    expect(result.current.isPaused).toBe(true);
+    expect(messageWarningMock).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(window.sessionStorage.getItem('conversation-command-queue/seat-2/shared-conversation') ?? '{}')
+    ).toMatchObject({
+      items: [expect.objectContaining({ id: 'seat-b-preserved', seatId: 'seat-2' })],
       isPaused: true,
     });
   });

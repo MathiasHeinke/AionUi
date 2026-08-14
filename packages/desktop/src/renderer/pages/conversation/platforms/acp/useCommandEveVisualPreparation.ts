@@ -55,8 +55,10 @@ export function useCommandEveVisualPreparation(input: {
   const preparePresentationFiles = useCallback(
     async (
       files: string[],
-      authority?: CommandEveVisualPreparationAuthority
+      authority?: CommandEveVisualPreparationAuthority,
+      isCurrent: () => boolean = () => true
     ): Promise<CommandEveVisualPreparationResult | null> => {
+      if (!isCurrent()) return null;
       if (!input.isEveConversation)
         return { files, contexts: [], attachmentGroundingEntries: [], requiresVisualPolicyReceipt: false };
       const presentationFiles = files.filter(isCommandEvePresentationPath);
@@ -65,6 +67,7 @@ export function useCommandEveVisualPreparation(input: {
 
       const startedAt = Date.now();
       const startedPreviewFiles: string[] = [];
+      if (!isCurrent()) return null;
       input.setDocumentPreparation({
         phase: 'reading_presentation_local',
         fileCount: presentationFiles.length,
@@ -82,6 +85,7 @@ export function useCommandEveVisualPreparation(input: {
 
       try {
         let response = await invoke();
+        if (!isCurrent()) return null;
         let failure = response.data?.ok === false ? response.data : undefined;
 
         // OfficeCLI bootstrapping remains local and happens only after the safe
@@ -92,6 +96,7 @@ export function useCommandEveVisualPreparation(input: {
             file_path: bootstrapFile,
             ...(input.workspacePath ? { workspace: input.workspacePath } : {}),
           });
+          if (!isCurrent()) return null;
           if (preview.error || !preview.url) {
             input.setDocumentPreparation({
               phase: 'presentation_error',
@@ -103,6 +108,7 @@ export function useCommandEveVisualPreparation(input: {
           }
           startedPreviewFiles.push(bootstrapFile);
           response = await invoke();
+          if (!isCurrent()) return null;
           failure = response.data?.ok === false ? response.data : undefined;
         }
 
@@ -143,6 +149,7 @@ export function useCommandEveVisualPreparation(input: {
           requiresVisualPolicyReceipt: false,
         };
       } catch (error) {
+        if (!isCurrent()) return null;
         console.error('[AcpSendBox] Presentation preparation failed:', error);
         input.setDocumentPreparation({ phase: 'presentation_error', fileCount: presentationFiles.length, startedAt });
         // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream string.
@@ -167,8 +174,10 @@ export function useCommandEveVisualPreparation(input: {
   const prepareImageFiles = useCallback(
     async (
       files: string[],
-      authority?: CommandEveVisualPreparationAuthority
+      authority?: CommandEveVisualPreparationAuthority,
+      isCurrent: () => boolean = () => true
     ): Promise<CommandEveVisualPreparationResult | null> => {
+      if (!isCurrent()) return null;
       if (!input.isEveConversation)
         return { files, contexts: [], attachmentGroundingEntries: [], requiresVisualPolicyReceipt: false };
       const imageFiles = files.filter(isCommandEveImagePath);
@@ -176,6 +185,7 @@ export function useCommandEveVisualPreparation(input: {
         return { files, contexts: [], attachmentGroundingEntries: [], requiresVisualPolicyReceipt: false };
 
       const startedAt = Date.now();
+      if (!isCurrent()) return null;
       input.setDocumentPreparation({ phase: 'reading_image_local', fileCount: imageFiles.length, startedAt });
       try {
         const response = await ipcBridge.commandEve.imagePrepare.invoke({
@@ -185,6 +195,7 @@ export function useCommandEveVisualPreparation(input: {
           locale: resolvedLocale(i18n),
           requestId: `image-${Date.now().toString(36)}`,
         });
+        if (!isCurrent()) return null;
         if (!response.success || !response.data?.ok) {
           const failure = response.data?.ok === false ? response.data : undefined;
           if (failure?.reason_code === 'EVE_IMAGE_CLOUD_VISUAL_POLICY_REQUIRED' && authority === undefined) {
@@ -223,6 +234,7 @@ export function useCommandEveVisualPreparation(input: {
           requiresVisualPolicyReceipt: false,
         };
       } catch (error) {
+        if (!isCurrent()) return null;
         console.error('[AcpSendBox] Image preparation failed:', error);
         input.setDocumentPreparation({ phase: 'image_error', fileCount: imageFiles.length, startedAt });
         // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream string.

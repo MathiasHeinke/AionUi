@@ -2831,11 +2831,29 @@ export function initCommandEveBridge(): void {
         description?: string;
         lane_key?: string;
         client_token?: string;
+        expectedSeatId?: string;
         boardSlug?: string;
         eventLedgerPath?: string;
       }) => {
         const fenced = guardKanbanMutationDuringSwitch('command-eve-kanban-marketing-card-create/v0');
         if (fenced) return fenced;
+        if (request?.expectedSeatId && request.expectedSeatId !== getActiveSeatId()) {
+          return {
+            success: false,
+            msg: 'SEAT_CONTEXT_CHANGED',
+            data: {
+              version: 'command-eve-kanban-marketing-card-create/v0',
+              ok: false,
+              status: 'blocked',
+              reason_code: 'SEAT_CONTEXT_CHANGED',
+              message: 'The active seat changed before the marketing card could be created.',
+              source: {
+                generated_by: 'command-eve-kanban-marketing-board-core',
+                hermes_home: '',
+              },
+            },
+          };
+        }
         try {
           const result = createKanbanMarketingCard({
             userDataPath: getDataPath(),
@@ -2962,9 +2980,32 @@ export function initCommandEveBridge(): void {
       async (request?: {
         task_id?: string;
         command?: 'decompose' | 'specify';
+        expectedSeatId?: string;
         boardSlug?: string;
         eventLedgerPath?: string;
       }) => {
+        const fenced = guardKanbanMutationDuringSwitch('command-eve-kanban-marketing-dispatch-plan/v0');
+        if (fenced) return fenced;
+        if (request?.expectedSeatId && request.expectedSeatId !== getActiveSeatId()) {
+          return {
+            success: false,
+            msg: 'SEAT_CONTEXT_CHANGED',
+            data: {
+              version: 'command-eve-kanban-marketing-dispatch-plan/v0',
+              ok: false,
+              status: 'blocked',
+              reason_code: 'SEAT_CONTEXT_CHANGED',
+              reason_codes: ['SEAT_CONTEXT_CHANGED'],
+              message: 'The active seat changed before the marketing dispatch plan could be recorded.',
+              subprocess_spawned: false,
+              data_boundary_checked: false,
+              source: {
+                generated_by: 'command-eve-kanban-marketing-board-core',
+                hermes_home: '',
+              },
+            },
+          };
+        }
         try {
           const result = planKanbanMarketingCardDispatch({
             userDataPath: getDataPath(),

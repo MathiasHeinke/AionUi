@@ -12,8 +12,10 @@ vi.mock('react-i18next', () => ({
 
 const createItem = (files: string[] = []): ConversationCommandQueueItem => ({
   id: 'queued-1',
+  conversationId: 'conversation-1',
   input: 'Correct the running task now',
   files,
+  seatId: 'seat-1',
   created_at: 1,
 });
 

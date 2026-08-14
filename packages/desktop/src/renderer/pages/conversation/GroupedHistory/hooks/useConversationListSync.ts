@@ -12,9 +12,10 @@ import {
   subscribeConversationDocumentPreparation,
 } from '@/renderer/pages/conversation/runtime/conversationDocumentPreparationStore';
 import {
+  admitConversationTurnCompleted,
   classifyConversationStreamTerminal,
   invalidateConversationRuntimeForSeatRebind,
-  shouldApplyConversationTurnCompleted,
+  subscribeConversationTurnCompletedReplay,
   shouldApplyConversationStreamTurn,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { clearGenerationForBackendRespawn } from '@/renderer/services/commandEveGenerationActivity';
@@ -1090,15 +1091,8 @@ const initializeConversationListSyncStore = () => {
       markGenerating(conversation_id);
     }
   });
-  ipcBridge.conversation.turnCompleted.on((event) => {
-    if (
-      !shouldApplyConversationTurnCompleted({
-        conversation_id: event.session_id,
-        consumer: 'conversation_list_sync',
-        turn_id: event.turn_id,
-        runtime_turn_id: event.runtime?.turn_id,
-      })
-    ) {
+  const handleTurnCompleted = (event: Parameters<Parameters<typeof ipcBridge.conversation.turnCompleted.on>[0]>[0]) => {
+    if (admitConversationTurnCompleted({ event, consumer: 'conversation_list_sync' }) !== 'apply') {
       logLateStreamIgnored(event.session_id, 'turn.completed');
       return;
     }
@@ -1184,7 +1178,9 @@ const initializeConversationListSyncStore = () => {
     clearGenerating(event.session_id);
     clearTurnWorking(event.session_id);
     refreshConversations();
-  });
+  };
+  ipcBridge.conversation.turnCompleted.on(handleTurnCompleted);
+  subscribeConversationTurnCompletedReplay('conversation_list_sync', handleTurnCompleted);
 };
 
 export const useConversationListSync = () => {

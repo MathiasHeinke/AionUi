@@ -119,7 +119,7 @@ const {
   queueLockMock: vi.fn(),
   queueUnlockMock: vi.fn(),
   queueOnExecuteMock: {
-    current: null as ((item: Record<string, unknown>) => Promise<void>) | null,
+    current: null as ((item: Record<string, unknown>, ticket: Record<string, unknown>) => Promise<string>) | null,
   },
   shouldEnqueueMock: vi.fn(),
   runtimeViewMock: {
@@ -128,6 +128,13 @@ const {
     canSendMessage: true,
     activeTurnId: null as string | null,
     localSubmitting: false,
+    captureSeatTicket: vi.fn(() => ({
+      conversationId: 'conv-1',
+      seatId: 'seat-1',
+      rebindEpoch: 0,
+      seatGeneration: 0,
+    })),
+    isSeatTicketCurrent: vi.fn(() => true),
     issueSendAttempt: vi.fn(() => ({
       kind: 'send',
       conversationId: 'conv-1',
@@ -585,7 +592,9 @@ vi.mock('@/renderer/pages/conversation/platforms/useConversationCommandQueue', (
     return mode === 'steer' ? { mode, input: `/steer ${trimmed}` } : null;
   },
   shouldEnqueueConversationCommand: shouldEnqueueMock,
-  useConversationCommandQueue: (input: { onExecute: (item: Record<string, unknown>) => Promise<void> }) => {
+  useConversationCommandQueue: (input: {
+    onExecute: (item: Record<string, unknown>, ticket: Record<string, unknown>) => Promise<string>;
+  }) => {
     queueOnExecuteMock.current = input.onExecute;
     return {
       items: queueItemsMock.current,
@@ -2414,8 +2423,10 @@ describe('AcpSendBox', () => {
   it('removes a queued text command before promoting it into the running turn', async () => {
     const queuedItem = {
       id: 'queued-1',
+      conversationId: 'conv-1',
       input: 'Use the corrected customer segment',
       files: [],
+      seatId: 'seat-1',
       created_at: 1,
     };
     queueItemsMock.current = [queuedItem];
@@ -2463,8 +2474,10 @@ describe('AcpSendBox', () => {
   it('restores a promoted command when the running-turn correction fails', async () => {
     const queuedItem = {
       id: 'queued-1',
+      conversationId: 'conv-1',
       input: 'Use the corrected customer segment',
       files: [],
+      seatId: 'seat-1',
       created_at: 1,
     };
     queueItemsMock.current = [queuedItem];
@@ -2498,8 +2511,10 @@ describe('AcpSendBox', () => {
   it('deduplicates rapid promotion attempts for the same queued command', async () => {
     const queuedItem = {
       id: 'queued-1',
+      conversationId: 'conv-1',
       input: 'Use the corrected customer segment',
       files: [],
+      seatId: 'seat-1',
       created_at: 1,
     };
     queueItemsMock.current = [queuedItem];
@@ -2721,11 +2736,13 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    expect(queueEnqueueMock).toHaveBeenCalledWith({
-      input: 'Run the tests afterwards',
-      files: [],
-      displayFiles: [],
-    });
+    expect(queueEnqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: 'Run the tests afterwards',
+        files: [],
+        displayFiles: [],
+      })
+    );
     expect(steerInvokeMock).not.toHaveBeenCalled();
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });
@@ -2785,11 +2802,13 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    expect(queueEnqueueMock).toHaveBeenCalledWith({
-      input: 'Queue this with context',
-      files: ['/tmp/upload.txt', '/tmp/workspace/context.md'],
-      displayFiles: ['/tmp/upload.txt', '/tmp/workspace/context.md'],
-    });
+    expect(queueEnqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: 'Queue this with context',
+        files: ['/tmp/upload.txt', '/tmp/workspace/context.md'],
+        displayFiles: ['/tmp/upload.txt', '/tmp/workspace/context.md'],
+      })
+    );
     const restoredStates = draftMutateMock.mock.calls.map(([updater]) =>
       typeof updater === 'function' ? updater(draftDataMock.current) : updater
     );
@@ -2824,11 +2843,13 @@ describe('AcpSendBox', () => {
     });
 
     expect(messageWarningMock).toHaveBeenCalled();
-    expect(queueEnqueueMock).toHaveBeenCalledWith({
-      input: 'Use this evidence',
-      files: ['/tmp/evidence.txt'],
-      displayFiles: ['/tmp/evidence.txt'],
-    });
+    expect(queueEnqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: 'Use this evidence',
+        files: ['/tmp/evidence.txt'],
+        displayFiles: ['/tmp/evidence.txt'],
+      })
+    );
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });
 
@@ -4920,7 +4941,14 @@ describe('MAT-1747 round 5 — the production route of a correction, renderer se
     // never saw, which is not a stricter rule, just a wrong one.
     await armConversation('conv-2', MINTING_TURN);
 
-    const queuedItem = { id: 'queued-1', input: '   mach den Hintergrund blau   ', files: [], created_at: 1 };
+    const queuedItem = {
+      id: 'queued-1',
+      conversationId: 'conv-2',
+      input: '   mach den Hintergrund blau   ',
+      files: [],
+      seatId: 'seat-1',
+      created_at: 1,
+    };
     const delivered = '/steer mach den Hintergrund blau';
     queueItemsMock.current = [queuedItem];
     runtimeViewMock.isProcessing = true;

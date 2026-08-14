@@ -5,6 +5,7 @@
  */
 
 import { configService } from '@/common/config/configService';
+import type { IConversationTurnCompletedEvent } from '@/common/adapter/ipcBridge';
 import type { TConversationRuntimeStateKind, TConversationRuntimeSummary } from '@/common/config/storage';
 
 export type ConversationRuntimeView = {
@@ -43,9 +44,23 @@ export type ConversationRuntimeAttemptTicket = {
   seatGeneration: number;
 };
 
+/**
+ * Lightweight renderer authority captured synchronously at the user-action
+ * boundary. Unlike an attempt ticket it does not reserve the conversation; it
+ * only proves that later async preparation/queue callbacks still belong to the
+ * same seat generation.
+ */
+export type ConversationRuntimeSeatTicket = {
+  conversationId: string;
+  seatId: string;
+  rebindEpoch: number;
+  seatGeneration: number;
+};
+
 export type ConversationRuntimeMutationResult = {
   applied: boolean;
   logs: ConversationRuntimeViewLogEntry[];
+  replayTurnCompleted?: IConversationTurnCompletedEvent;
 };
 
 export type ConversationRuntimeViewLogEntry = {
@@ -80,6 +95,7 @@ type ConversationRuntimeMetadata = {
 type PendingSendAttempt = {
   ticket: ConversationRuntimeAttemptTicket;
   stage: 'issued' | 'started';
+  deferredCompletions: Map<string, IConversationTurnCompletedEvent>;
 };
 
 type PendingStopAttempt = {
@@ -94,6 +110,11 @@ const fallbackSnapshots = new Map<string, ConversationRuntimeView>();
 const runtimeMetadata = new Map<string, ConversationRuntimeMetadata>();
 const pendingSendAttempts = new Map<string, PendingSendAttempt>();
 const pendingStopAttempts = new Map<string, PendingStopAttempt>();
+const turnCompletedReceipts = new Map<string, Set<ConversationTurnCompletedConsumer>>();
+const turnCompletedReplayListeners = new Map<
+  ConversationTurnCompletedConsumer,
+  Set<(event: IConversationTurnCompletedEvent) => void>
+>();
 let streamSeatEpoch = 0;
 let requirePositiveStreamIdentity = false;
 let boundStreamSeatId: string | null = null;
@@ -110,6 +131,7 @@ const fenceConversationRuntimeSeat = (seatId: string, rebindEpoch: number): void
   runtimeMetadata.clear();
   pendingSendAttempts.clear();
   pendingStopAttempts.clear();
+  turnCompletedReceipts.clear();
   listeners.forEach((listener) => listener());
 };
 
@@ -450,6 +472,11 @@ export const shouldApplyConversationTurnCompleted = (input: {
   const view = runtimeViews.get(input.conversation_id) ?? fallbackSnapshots.get(input.conversation_id);
   const turnId = normalizeStreamTurnId(input.turn_id) ?? normalizeStreamTurnId(input.runtime_turn_id);
 
+  // A durable completion that races the send response has no seat or attempt
+  // identity of its own. Until local-send acceptance binds the returned turn,
+  // neither real consumer may let that event clear/paint the current seat.
+  if (pendingSendAttempts.has(input.conversation_id)) return false;
+
   if (requirePositiveStreamIdentity) {
     if (!metadata || metadata.streamSeatEpoch !== streamSeatEpoch || !turnId) return false;
 
@@ -465,6 +492,83 @@ export const shouldApplyConversationTurnCompleted = (input: {
   // seat transition, while retaining the existing exact active-turn fence.
   const activeTurnId = view?.activeTurnId ?? metadata?.activeStreamTurnId;
   return !activeTurnId || !turnId || activeTurnId === turnId;
+};
+
+export type ConversationTurnCompletedAdmission = 'apply' | 'defer' | 'reject';
+
+const turnCompletedFingerprint = (event: IConversationTurnCompletedEvent): string =>
+  [
+    event.session_id,
+    event.turn_id,
+    event.status,
+    event.state,
+    event.runtime?.turn_id ?? '',
+    event.runtime?.state ?? '',
+    event.runtime?.is_processing ? '1' : '0',
+    event.can_send_message ? '1' : '0',
+    event.has_substantive_output ? '1' : '0',
+  ].join('\u0000');
+
+export const admitConversationTurnCompleted = (input: {
+  event: IConversationTurnCompletedEvent;
+  consumer: ConversationTurnCompletedConsumer;
+}): ConversationTurnCompletedAdmission => {
+  const conversation_id = input.event.session_id;
+  if (!conversation_id) return 'reject';
+  synchronizeConversationRuntimeSeat();
+
+  const pending = pendingSendAttempts.get(conversation_id);
+  if (pending) {
+    const turnId = normalizeStreamTurnId(input.event.turn_id) ?? normalizeStreamTurnId(input.event.runtime?.turn_id);
+    if (pending.stage !== 'started' || !turnId) return 'reject';
+    pending.deferredCompletions.delete(turnId);
+    pending.deferredCompletions.set(turnId, input.event);
+    while (pending.deferredCompletions.size > 4) {
+      const oldest = pending.deferredCompletions.keys().next().value as string | undefined;
+      if (!oldest) break;
+      pending.deferredCompletions.delete(oldest);
+    }
+    return 'defer';
+  }
+
+  if (
+    !shouldApplyConversationTurnCompleted({
+      conversation_id,
+      consumer: input.consumer,
+      turn_id: input.event.turn_id,
+      runtime_turn_id: input.event.runtime?.turn_id,
+    })
+  ) {
+    return 'reject';
+  }
+
+  const fingerprint = turnCompletedFingerprint(input.event);
+  const consumers = turnCompletedReceipts.get(fingerprint) ?? new Set<ConversationTurnCompletedConsumer>();
+  if (consumers.has(input.consumer)) return 'reject';
+  consumers.add(input.consumer);
+  turnCompletedReceipts.set(fingerprint, consumers);
+  while (turnCompletedReceipts.size > 128) {
+    const oldest = turnCompletedReceipts.keys().next().value as string | undefined;
+    if (!oldest) break;
+    turnCompletedReceipts.delete(oldest);
+  }
+  return 'apply';
+};
+
+export const subscribeConversationTurnCompletedReplay = (
+  consumer: ConversationTurnCompletedConsumer,
+  listener: (event: IConversationTurnCompletedEvent) => void
+): (() => void) => {
+  const listenersForConsumer = turnCompletedReplayListeners.get(consumer) ?? new Set();
+  listenersForConsumer.add(listener);
+  turnCompletedReplayListeners.set(consumer, listenersForConsumer);
+  return () => listenersForConsumer.delete(listener);
+};
+
+export const replayDeferredConversationTurnCompleted = (event: IConversationTurnCompletedEvent): void => {
+  for (const consumer of ['runtime_view', 'conversation_list_sync'] as const) {
+    turnCompletedReplayListeners.get(consumer)?.forEach((listener) => listener(event));
+  }
 };
 
 const withLogs = (
@@ -796,6 +900,7 @@ export const turnCompleted = (
   runtime: TConversationRuntimeSummary | null
 ): ConversationRuntimeViewLogEntry[] => {
   synchronizeConversationRuntimeSeat();
+  if (pendingSendAttempts.has(conversation_id)) return [];
   const metadata = getRuntimeMetadata(conversation_id);
   const view = getConversationRuntimeViewSnapshot(conversation_id);
   const activeTurnId = view.activeTurnId ?? metadata.activeStreamTurnId;
@@ -847,7 +952,7 @@ export const issueLocalSendAttempt = (conversation_id: string): ConversationRunt
   synchronizeConversationRuntimeSeat();
   if (!conversation_id || pendingSendAttempts.has(conversation_id)) return null;
   const ticket = createRuntimeAttemptTicket('send', conversation_id);
-  pendingSendAttempts.set(conversation_id, { ticket, stage: 'issued' });
+  pendingSendAttempts.set(conversation_id, { ticket, stage: 'issued', deferredCompletions: new Map() });
   return ticket;
 };
 
@@ -895,6 +1000,8 @@ export const localSendAccepted = (
   if (!attemptTicketMatches(pending, ticket, 'send') || pending?.stage !== 'started' || !metadata) {
     return { applied: false, logs: [] };
   }
+  const acceptedTurnId = runtime.turn_id ?? turn_id;
+  const replayTurnCompleted = pending.deferredCompletions.get(acceptedTurnId);
   pendingSendAttempts.delete(conversation_id);
   metadata.streamSeatEpoch = streamSeatEpoch;
   const staleAfterCompleted = isStaleCompletedRuntimeSummary(runtime, metadata);
@@ -906,6 +1013,7 @@ export const localSendAccepted = (
   }
   return {
     applied: true,
+    ...(replayTurnCompleted ? { replayTurnCompleted } : {}),
     logs: setConversationRuntimeSnapshot(
       conversation_id,
       staleAfterCompleted
@@ -1081,6 +1189,28 @@ export const getConversationRuntimeSeatGeneration = (): number => {
   return streamSeatEpoch;
 };
 
+export const captureConversationRuntimeSeatTicket = (conversationId: string): ConversationRuntimeSeatTicket => {
+  synchronizeConversationRuntimeSeat();
+  const binding = configService.getSeatBindingSnapshot();
+  return {
+    conversationId,
+    seatId: binding.seatId,
+    rebindEpoch: binding.rebindEpoch,
+    seatGeneration: streamSeatEpoch,
+  };
+};
+
+export const isConversationRuntimeSeatTicketCurrent = (ticket: ConversationRuntimeSeatTicket): boolean => {
+  synchronizeConversationRuntimeSeat();
+  const binding = configService.getSeatBindingSnapshot();
+  return (
+    Boolean(ticket.conversationId) &&
+    ticket.seatId === binding.seatId &&
+    ticket.rebindEpoch === binding.rebindEpoch &&
+    ticket.seatGeneration === streamSeatEpoch
+  );
+};
+
 export const isConversationRuntimeSeatGenerationCurrent = (generation: number): boolean => {
   synchronizeConversationRuntimeSeat();
   return generation === streamSeatEpoch;
@@ -1092,6 +1222,8 @@ export const resetConversationRuntimeViewStoreForTest = () => {
   runtimeMetadata.clear();
   pendingSendAttempts.clear();
   pendingStopAttempts.clear();
+  turnCompletedReceipts.clear();
+  turnCompletedReplayListeners.clear();
   listeners.clear();
   streamSeatEpoch = 0;
   requirePositiveStreamIdentity = false;

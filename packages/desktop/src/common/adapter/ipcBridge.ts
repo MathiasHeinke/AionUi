@@ -1163,6 +1163,8 @@ export interface ICommandEveKanbanMarketingCardCreateRequest {
   description?: string;
   lane_key: ICommandEveKanbanMarketingLaneKey;
   client_token: string;
+  /** Optional stale-action fence for async renderer intents. */
+  expectedSeatId?: string;
   boardSlug?: string;
   eventLedgerPath?: string;
 }
@@ -1185,6 +1187,8 @@ export interface ICommandEveKanbanMarketingCardActionRequest {
 export interface ICommandEveKanbanMarketingDispatchPlanRequest {
   task_id: string;
   command?: 'decompose' | 'specify';
+  /** Optional stale-action fence for async renderer intents. */
+  expectedSeatId?: string;
   boardSlug?: string;
   eventLedgerPath?: string;
 }

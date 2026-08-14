@@ -12,6 +12,7 @@ import { emitter } from '@/renderer/utils/emitter';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import {
   abandonLocalRuntimeAttempt,
+  admitConversationTurnCompleted,
   conversationDeleted,
   getConversationRuntimeSeatGeneration,
   getConversationRuntimeViewSnapshot,
@@ -19,6 +20,7 @@ import {
   hydrateStarted,
   hydrateSucceeded,
   issueLocalSendAttempt,
+  captureConversationRuntimeSeatTicket,
   issueLocalStopAttempt,
   localSendAccepted,
   localSendFailed,
@@ -26,12 +28,15 @@ import {
   localStopAcknowledged,
   localStopRequested,
   resetLocalGate,
+  replayDeferredConversationTurnCompleted,
   isConversationRuntimeSeatGenerationCurrent,
-  shouldApplyConversationTurnCompleted,
+  isConversationRuntimeSeatTicketCurrent,
+  subscribeConversationTurnCompletedReplay,
   subscribeConversationRuntimeView,
   turnCompleted,
   type ConversationRuntimeView,
   type ConversationRuntimeAttemptTicket,
+  type ConversationRuntimeSeatTicket,
   type ConversationRuntimeViewLogEntry,
 } from './conversationRuntimeViewStore';
 
@@ -42,6 +47,8 @@ type UseConversationRuntimeViewReturn = {
   canSendMessage: boolean;
   activeTurnId: string | null;
   issueSendAttempt: () => ConversationRuntimeAttemptTicket | null;
+  captureSeatTicket: () => ConversationRuntimeSeatTicket;
+  isSeatTicketCurrent: (ticket: ConversationRuntimeSeatTicket) => boolean;
   markSendStarted: (ticket: ConversationRuntimeAttemptTicket) => boolean;
   markSendAccepted: (
     ticket: ConversationRuntimeAttemptTicket,
@@ -274,18 +281,11 @@ const retainConversationRuntimeEvents = (conversation_id: string): (() => void) 
     return () => {};
   }
 
-  const disposeTurnCompleted = turnCompletedEmitter.on((event) => {
+  const handleTurnCompleted = (event: Parameters<Parameters<typeof turnCompletedEmitter.on>[0]>[0]) => {
     if (event.session_id !== conversation_id) {
       return;
     }
-    if (
-      !shouldApplyConversationTurnCompleted({
-        conversation_id,
-        consumer: 'runtime_view',
-        turn_id: event.turn_id,
-        runtime_turn_id: event.runtime?.turn_id,
-      })
-    ) {
+    if (admitConversationTurnCompleted({ event, consumer: 'runtime_view' }) !== 'apply') {
       return;
     }
     const currentView = getConversationRuntimeViewSnapshot(conversation_id);
@@ -316,7 +316,9 @@ const retainConversationRuntimeEvents = (conversation_id: string): (() => void) 
       emitMessagesRefresh(conversation_id);
       ensureRuntimeRecoveryMonitor(conversation_id, event.turn_id);
     }
-  });
+  };
+  const disposeTurnCompleted = turnCompletedEmitter.on(handleTurnCompleted);
+  const disposeTurnCompletedReplay = subscribeConversationTurnCompletedReplay('runtime_view', handleTurnCompleted);
 
   const disposeListChanged = listChangedEmitter.on((event) => {
     if (event.conversation_id !== conversation_id || event.action !== 'deleted') {
@@ -330,6 +332,7 @@ const retainConversationRuntimeEvents = (conversation_id: string): (() => void) 
     refCount: 1,
     dispose: () => {
       disposeTurnCompleted();
+      disposeTurnCompletedReplay();
       disposeListChanged();
     },
   };
@@ -404,6 +407,12 @@ export const useConversationRuntimeView = (conversation_id: string): UseConversa
   }, [conversation_id]);
 
   const issueSendAttempt = useCallback(() => issueLocalSendAttempt(conversation_id), [conversation_id]);
+  const captureSeatTicket = useCallback(() => captureConversationRuntimeSeatTicket(conversation_id), [conversation_id]);
+  const isSeatTicketCurrent = useCallback(
+    (ticket: ConversationRuntimeSeatTicket) =>
+      ticket.conversationId === conversation_id && isConversationRuntimeSeatTicketCurrent(ticket),
+    [conversation_id]
+  );
 
   const markSendStarted = useCallback(
     (ticket: ConversationRuntimeAttemptTicket) => {
@@ -435,9 +444,17 @@ export const useConversationRuntimeView = (conversation_id: string): UseConversa
         working: runtime.is_processing === true,
       });
       emitMessagesRefresh(conversation_id, msg_id);
-      if (runtime.is_processing)
+      if (accepted.replayTurnCompleted) {
+        // A deferred terminal event is the sole terminal owner. Replaying it
+        // below drives both real consumers exactly once; emitting an idle
+        // response recovery here as well would double-refresh/persist the same
+        // fast completion.
+        replayDeferredConversationTurnCompleted(accepted.replayTurnCompleted);
+      } else if (runtime.is_processing) {
         ensureRuntimeRecoveryMonitor(conversation_id, runtime.turn_id ?? turn_id, msg_id ?? null);
-      else emitRuntimeRecovered(conversation_id, runtime, msg_id ?? null, runtime.turn_id ?? turn_id);
+      } else {
+        emitRuntimeRecovered(conversation_id, runtime, msg_id ?? null, runtime.turn_id ?? turn_id);
+      }
       return true;
     },
     [conversation_id]
@@ -509,6 +526,8 @@ export const useConversationRuntimeView = (conversation_id: string): UseConversa
     isProcessing: view.isProcessing,
     canSendMessage: view.canSendMessage,
     activeTurnId: view.activeTurnId,
+    captureSeatTicket,
+    isSeatTicketCurrent,
     issueSendAttempt,
     markSendStarted,
     markSendAccepted,

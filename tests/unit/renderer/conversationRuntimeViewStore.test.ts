@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { IConversationTurnCompletedEvent } from '@/common/adapter/ipcBridge';
 import type { TConversationRuntimeSummary } from '@/common/config/storage';
 
 const seatHarness = vi.hoisted(() => ({
@@ -20,6 +21,7 @@ vi.mock('@/common/config/configService', () => ({
 }));
 import {
   abandonLocalRuntimeAttempt,
+  admitConversationTurnCompleted,
   getConversationRuntimeViewSnapshot,
   hydrateSucceeded,
   issueLocalSendAttempt,
@@ -225,9 +227,24 @@ describe('conversationRuntimeViewStore turn id contract', () => {
   });
 
   it('keeps idle when turn.completed arrives before local send accepted', () => {
-    startLocalSend('conv-1');
-    turnCompleted('conv-1', 'turn-1', idleRuntime());
-    acceptLocalSend('conv-1', 'turn-1', runningRuntime('turn-1'), 'msg-1');
+    const ticket = startLocalSend('conv-1');
+    const event: IConversationTurnCompletedEvent = {
+      session_id: 'conv-1',
+      turn_id: 'turn-1',
+      status: 'finished',
+      state: 'ai_waiting_input',
+      detail: 'done',
+      can_send_message: true,
+      has_substantive_output: true,
+      runtime: idleRuntime(),
+      workspace: '/tmp/workspace',
+      model: { platform: 'acp', name: 'EVE', use_model: 'eve' },
+      last_message: { id: 'message-1', type: 'content', content: 'done', status: 'finished', created_at: 1 },
+    };
+    expect(admitConversationTurnCompleted({ event, consumer: 'runtime_view' })).toBe('defer');
+    const accepted = localSendAccepted('conv-1', 'turn-1', runningRuntime('turn-1'), 'msg-1', ticket);
+    expect(accepted.replayTurnCompleted).toEqual(event);
+    turnCompleted('conv-1', event.turn_id, event.runtime);
 
     const view = getConversationRuntimeViewSnapshot('conv-1');
     expect(view.state).toBe('idle');

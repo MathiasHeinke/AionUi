@@ -42,6 +42,13 @@ const {
     isProcessing: false,
     canSendMessage: true,
     activeTurnId: null as string | null,
+    captureSeatTicket: vi.fn(() => ({
+      conversationId: 'conv-1',
+      seatId: 'seat-1',
+      rebindEpoch: 0,
+      seatGeneration: 0,
+    })),
+    isSeatTicketCurrent: vi.fn(() => true),
     issueSendAttempt: vi.fn(() => ({
       kind: 'send',
       conversationId: 'conv-1',
@@ -150,6 +157,7 @@ vi.mock('@/renderer/hooks/context/ConversationContext', () => ({ useConversation
 vi.mock('@/renderer/hooks/context/LayoutContext', () => ({
   useLayoutContext: () => ({ isMobile: layoutIsMobileMock.current }),
 }));
+vi.mock('@/renderer/hooks/useActiveSeatId', () => ({ useActiveSeatId: () => 'seat-1' }));
 vi.mock('@/renderer/hooks/file/useOpenFileSelector', () => ({
   useOpenFileSelector: () => ({ openFileSelector: vi.fn(), onSlashBuiltinCommand: vi.fn() }),
 }));
@@ -162,6 +170,9 @@ vi.mock('@/renderer/pages/conversation/Preview', () => ({
 vi.mock('@/renderer/pages/conversation/platforms/aionrs/commandEveLocalIntent', () => ({
   createCommandEveLocalIntentClientToken: vi.fn(),
   parseCommandEveLocalMarketingIntent: () => null,
+}));
+vi.mock('@/renderer/pages/conversation/shared/projectChatIntentGate', () => ({
+  runProjectChatIntentGate: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('@/renderer/pages/conversation/platforms/aionrs/useAionrsMessage', () => ({
   useAionrsMessage: () => ({
@@ -318,10 +329,12 @@ describe('AionrsSendBox queue recovery', () => {
     });
 
     expect(messageWarningMock).toHaveBeenCalled();
-    expect(queueEnqueueMock).toHaveBeenCalledWith({
-      input: '/steer Use this evidence',
-      files: ['/tmp/evidence.txt', '/tmp/context.md'],
-    });
+    expect(queueEnqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: '/steer Use this evidence',
+        files: ['/tmp/evidence.txt', '/tmp/context.md'],
+      })
+    );
     expect(setUploadFileMock).toHaveBeenCalledWith(['/tmp/evidence.txt']);
     expect(emitterEmitMock).toHaveBeenCalledWith('aionrs.selected.file', ['/tmp/context.md']);
   });

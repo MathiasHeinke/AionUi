@@ -37,8 +37,11 @@ const store: SendBoxDraftStore = {
   aionrs: new Map(),
 };
 
+const draftKey = (seatId: string, conversation_id: string): string => `${seatId}\u0000${conversation_id}`;
+
 const setDraft = <K extends DraftConversationType>(
   type: K,
+  seatId: string,
   conversation_id: string,
   draft: Extract<Draft, { _type: K }> | undefined
 ) => {
@@ -46,23 +49,23 @@ const setDraft = <K extends DraftConversationType>(
   switch (type) {
     case 'acp':
       if (draft) {
-        store.acp.set(conversation_id, draft as Extract<Draft, { _type: 'acp' }>);
+        store.acp.set(draftKey(seatId, conversation_id), draft as Extract<Draft, { _type: 'acp' }>);
       } else {
-        store.acp.delete(conversation_id);
+        store.acp.delete(draftKey(seatId, conversation_id));
       }
       break;
     case 'codex':
       if (draft) {
-        store.codex.set(conversation_id, draft as Extract<Draft, { _type: 'codex' }>);
+        store.codex.set(draftKey(seatId, conversation_id), draft as Extract<Draft, { _type: 'codex' }>);
       } else {
-        store.codex.delete(conversation_id);
+        store.codex.delete(draftKey(seatId, conversation_id));
       }
       break;
     case 'aionrs':
       if (draft) {
-        store.aionrs.set(conversation_id, draft as Extract<Draft, { _type: 'aionrs' }>);
+        store.aionrs.set(draftKey(seatId, conversation_id), draft as Extract<Draft, { _type: 'aionrs' }>);
       } else {
-        store.aionrs.delete(conversation_id);
+        store.aionrs.delete(draftKey(seatId, conversation_id));
       }
       break;
     default:
@@ -72,16 +75,17 @@ const setDraft = <K extends DraftConversationType>(
 
 const getDraft = <K extends DraftConversationType>(
   type: K,
+  seatId: string,
   conversation_id: string
 ): Extract<Draft, { _type: K }> | undefined => {
   // TODO import ts-pattern for exhaustive check
   switch (type) {
     case 'acp':
-      return store.acp.get(conversation_id) as Extract<Draft, { _type: K }>;
+      return store.acp.get(draftKey(seatId, conversation_id)) as Extract<Draft, { _type: K }>;
     case 'codex':
-      return store.codex.get(conversation_id) as Extract<Draft, { _type: K }>;
+      return store.codex.get(draftKey(seatId, conversation_id)) as Extract<Draft, { _type: K }>;
     case 'aionrs':
-      return store.aionrs.get(conversation_id) as Extract<Draft, { _type: K }>;
+      return store.aionrs.get(draftKey(seatId, conversation_id)) as Extract<Draft, { _type: K }>;
     default:
       return undefined;
   }
@@ -94,10 +98,13 @@ export const getSendBoxDraftHook = <K extends DraftConversationType>(
   type: K,
   initialValue: Extract<Draft, { _type: K }>
 ) => {
-  function useDraft(conversation_id: string) {
-    const swrRet = useSWR([`/send-box/${type}/draft/${conversation_id}`, conversation_id], ([_, id]) => {
-      return getDraft(type, id);
-    });
+  function useDraft(conversation_id: string, seatId: string) {
+    const swrRet = useSWR(
+      [`/send-box/${type}/draft/${seatId}/${conversation_id}`, seatId, conversation_id],
+      ([_, seat, id]) => {
+        return getDraft(type, seat, id);
+      }
+    );
 
     const mutateDraft = useCallback(
       (draft: (k: Extract<Draft, { _type: K }>) => typeof k | undefined): void => {
@@ -105,7 +112,7 @@ export const getSendBoxDraftHook = <K extends DraftConversationType>(
           .mutate(
             (prev) => {
               const newDraft = draft(prev ?? initialValue);
-              setDraft(type, conversation_id, newDraft);
+              setDraft(type, seatId, conversation_id, newDraft);
               return newDraft;
             },
             { revalidate: false }
@@ -114,7 +121,7 @@ export const getSendBoxDraftHook = <K extends DraftConversationType>(
             console.error('Failed to mutate draft:', error);
           });
       },
-      [conversation_id]
+      [conversation_id, seatId]
     );
 
     return {

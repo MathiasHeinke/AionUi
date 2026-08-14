@@ -1,9 +1,16 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import { configService } from '@/common/config/configService';
 
 type Listener = () => void;
 
 const preparingConversations = new Set<string>();
 const listeners = new Set<Listener>();
+
+configService.onSeatRebind?.(() => {
+  if (preparingConversations.size === 0) return;
+  preparingConversations.clear();
+  notify();
+});
 
 const notify = (): void => listeners.forEach((listener) => listener());
 

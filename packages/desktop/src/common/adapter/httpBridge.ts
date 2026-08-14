@@ -387,6 +387,7 @@ const wsListeners = new Map<string, Set<WsCallback>>();
 let ws: WebSocket | null = null;
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let wsReconnectAttempt = 0;
+let wsTransportGeneration = 0;
 
 function dispatchWsEvent(eventName: string, payload: unknown): void {
   const handlers = wsListeners.get(eventName);
@@ -411,6 +412,7 @@ function ensureWs(): void {
   }
 
   const url = getWsUrl();
+  const transportGeneration = wsTransportGeneration;
   console.debug('[ensureWs] connecting to', url);
   try {
     ws = new WebSocket(url);
@@ -421,8 +423,10 @@ function ensureWs(): void {
   }
 
   const current = ws;
+  const isCurrentTransport = () => ws === current && transportGeneration === wsTransportGeneration;
 
   current.addEventListener('open', () => {
+    if (!isCurrentTransport()) return;
     console.debug('[ensureWs] CONNECTED');
     const reconnected = wsReconnectAttempt > 0;
     wsReconnectAttempt = 0;
@@ -430,17 +434,24 @@ function ensureWs(): void {
   });
 
   current.addEventListener('close', (e) => {
+    if (!isCurrentTransport()) return;
     console.debug('[ensureWs] CLOSED code=' + e.code + ' reason=' + e.reason);
-    if (ws === current) ws = null;
+    ws = null;
     scheduleWsReconnect();
   });
 
   current.addEventListener('error', (e) => {
+    if (!isCurrentTransport()) return;
     console.error('[ensureWs] ERROR', e);
     current.close();
   });
 
   current.addEventListener('message', (event: MessageEvent) => {
+    // A confirmed seat switch rotates the singleton before the new seat is
+    // exposed to renderer stores. Browser event queues may still contain a
+    // message from the closed socket; identity, not arrival time, decides
+    // whether that frame belongs to the current transport.
+    if (!isCurrentTransport()) return;
     try {
       const msg = JSON.parse(event.data as string) as {
         name?: string;
@@ -468,6 +479,25 @@ function ensureWs(): void {
       // ignore non-JSON
     }
   });
+}
+
+/**
+ * Invalidate every event owned by the current backend WebSocket and connect to
+ * the live backend port again. `configService.rebindSeat` calls this exactly
+ * once for a real seat-id change, after MAIN has terminally respawned AionCore
+ * and before the renderer initializes the new seat namespace.
+ */
+export function rotateRealtimeTransportForSeatRebind(): void {
+  wsTransportGeneration += 1;
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+  }
+  const stale = ws;
+  ws = null;
+  wsReconnectAttempt = 0;
+  stale?.close();
+  ensureWs();
 }
 
 function scheduleWsReconnect(): void {

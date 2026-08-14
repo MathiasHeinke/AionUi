@@ -51,6 +51,7 @@ import { useConversationContextSafe } from '@/renderer/hooks/context/Conversatio
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { useOpenFileSelector } from '@/renderer/hooks/file/useOpenFileSelector';
 import { useLatestRef } from '@/renderer/hooks/ui/useLatestRef';
+import { useActiveSeatId } from '@/renderer/hooks/useActiveSeatId';
 import { useAddOrUpdateMessage, useMessageList } from '@/renderer/pages/conversation/Messages/hooks';
 import { emitAcpPerformanceMark } from '@/renderer/utils/performance/acpPerformanceMarks';
 import {
@@ -58,6 +59,7 @@ import {
   shouldEnqueueConversationCommand,
   useConversationCommandQueue,
   type ConversationBusyControlMode,
+  type ConversationCommandDispatchResult,
   type ConversationCommandQueueItem,
 } from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
 import ConversationBusyModeControl from '@/renderer/pages/conversation/platforms/ConversationBusyModeControl';
@@ -66,6 +68,7 @@ import { useConversationRuntimeView } from '@/renderer/pages/conversation/runtim
 import {
   getConversationRuntimeViewSnapshot,
   waitForConversationActiveTurnId,
+  type ConversationRuntimeSeatTicket,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import {
   markConversationDocumentPreparationSettled,
@@ -172,7 +175,7 @@ class CommandEveVisionPolicyDisabledError extends Error {
   }
 }
 
-type AcpDispatchResult = 'accepted' | 'rejected' | 'stale';
+type AcpDispatchResult = ConversationCommandDispatchResult;
 
 const useAcpSendBoxDraft = getSendBoxDraftHook('acp', {
   _type: 'acp',
@@ -247,8 +250,8 @@ const useNewestCompletedProjectTitle = (conversationId: string): string | null =
   return title;
 };
 
-const useSendBoxDraft = (conversation_id: string) => {
-  const { data, mutate } = useAcpSendBoxDraft(conversation_id);
+const useSendBoxDraft = (conversation_id: string, seatId: string) => {
+  const { data, mutate } = useAcpSendBoxDraft(conversation_id, seatId);
   const atPath = data?.atPath ?? EMPTY_AT_PATH;
   const uploadFile = data?.uploadFile ?? EMPTY_UPLOAD_FILES;
   const content = data?.content ?? '';
@@ -302,12 +305,16 @@ const AcpSendBox: React.FC<{
     quotaWall,
   } = messageState;
   const { t, i18n } = useTranslation();
+  const activeSeatId = useActiveSeatId();
   const teamPermission = useTeamPermission();
   // In team mode, all agents show the permission mode selector (members don't propagate)
   const showModeSelector = true;
   const isLeaderInTeam = teamPermission && conversation_id === teamPermission.leaderConversationId;
   const { checkAndUpdateTitle } = useAutoTitle();
-  const { atPath, uploadFile, setAtPath, setUploadFile, content, setContent } = useSendBoxDraft(conversation_id);
+  const { atPath, uploadFile, setAtPath, setUploadFile, content, setContent } = useSendBoxDraft(
+    conversation_id,
+    activeSeatId
+  );
   const speechInputRef = useRef<SpeechInputButtonHandle | null>(null);
   const [speechInputStatus, setSpeechInputStatus] = useState<SpeechInputStatus>('idle');
   const layout = useLayoutContext();
@@ -327,12 +334,14 @@ const AcpSendBox: React.FC<{
   // send arguments travel with it so "Vision aktivieren" can re-drive the
   // identical send after the policy flips, with the draft already restored.
   const [visionEnablementPending, setVisionEnablementPending] = useState<{
+    seatTicket: ConversationRuntimeSeatTicket;
     message: string;
     allFiles: string[];
     controls: { clearSelection: () => void; restoreDraftAndFiles: () => void };
   } | null>(null);
   const [visionEnablementBusy, setVisionEnablementBusy] = useState(false);
   const documentPreparationInFlightRef = useRef(false);
+  const documentPreparationTicketRef = useRef<ConversationRuntimeSeatTicket | null>(null);
   // Reactive twin of the ref for rendering: the ref serves synchronous guards,
   // the store-backed hook keeps `loading` correct regardless of microtask
   // ordering (the S81/R3 intent gate adds an await before preparation starts).
@@ -595,7 +604,7 @@ const AcpSendBox: React.FC<{
   const messageList = useMessageList();
   const addOrUpdateMessageRef = useLatestRef(addOrUpdateMessage);
   const runtimeView = useConversationRuntimeView(conversation_id);
-  const activeSteerRequestsRef = useRef(new Map<string, Promise<unknown>>());
+  const activeSteerRequestsRef = useRef(new Map<string, Promise<Exclude<AcpDispatchResult, 'rejected'>>>());
   const steerRetryRequestIdsRef = useRef(new Map<string, string>());
 
   // Shared file handling logic
@@ -656,10 +665,12 @@ const AcpSendBox: React.FC<{
       preparedContext,
       managedVisualSourceCount,
       attachmentGrounding,
+      seatTicket,
     }: Pick<
       ConversationCommandQueueItem,
       'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount' | 'attachmentGrounding'
-    >): Promise<Exclude<AcpDispatchResult, 'rejected'>> => {
+    > & { seatTicket: ConversationRuntimeSeatTicket }): Promise<Exclude<AcpDispatchResult, 'rejected'>> => {
+      if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
       const sendTicket = runtimeView.issueSendAttempt();
       if (!sendTicket) return 'stale';
       let sendStarted = false;
@@ -685,6 +696,7 @@ const AcpSendBox: React.FC<{
 
           const flowId = createCommandEveCloudVisualFlowId(uuid(32));
           const receiptResult = await ipcBridge.commandEve.cloudVisualPolicyReceipt.invoke({ flowId });
+          if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
           if (!receiptResult.success || !receiptResult.data?.ok) {
             // MAT-1769: a DISABLED policy is not an error — it is the one case
             // the user can fix in place. Surface it as the typed signal
@@ -712,6 +724,7 @@ const AcpSendBox: React.FC<{
             ),
             sourceCount: managedVisualSourceCount,
           });
+          if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
           if (!authorization.success || !authorization.data?.ok || !authorization.data.marker) {
             throw new Error(
               authorization.data?.message ||
@@ -772,6 +785,7 @@ const AcpSendBox: React.FC<{
             ...(referenceImagePathsForTurn.length === 0 ? {} : { referenceImagePaths: referenceImagePathsForTurn }),
             ...(requestedEditOperation === null ? {} : { requestedEditOperation }),
           });
+          if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
           if (envelopeResult?.success && typeof envelopeResult.data?.envelope === 'string') {
             artifactEnvelope = envelopeResult.data.envelope;
           }
@@ -792,9 +806,11 @@ const AcpSendBox: React.FC<{
         // failed warmup still leaves the draft retryable and unsent.
         if (attachmentGrounding) {
           await warmupConversation(conversation_id, { revalidate: true });
+          if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
         }
 
         if (teamPermission) await teamPermission.warmupSession();
+        if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
         if (!runtimeView.markSendStarted(sendTicket)) return 'stale';
         sendStarted = true;
         // 1.7.3 (Codex #2): mark generation at SEND time so the seat-switch guard
@@ -804,7 +820,6 @@ const AcpSendBox: React.FC<{
         markConversationGenerating(conversation_id);
         setAiProcessing(true);
 
-        void checkAndUpdateTitle(conversation_id, input);
         const result = await ipcBridge.acpConversation.sendMessage.invoke({
           input: displayMessage,
           conversation_id,
@@ -818,6 +833,7 @@ const AcpSendBox: React.FC<{
           throw new Error('ATTACHMENT_GROUNDING_RECEIPT_INVALID');
         }
         if (!runtimeView.markSendAccepted(sendTicket, result.turn_id, result.runtime, result.msg_id)) return 'stale';
+        void checkAndUpdateTitle(conversation_id, input, () => runtimeView.isSeatTicketCurrent(seatTicket));
         emitAcpPerformanceMark({
           stage: 'request_accepted',
           conversationId: conversation_id,
@@ -977,8 +993,8 @@ Please check your local CLI tool authentication status`,
       canSendMessage: runtimeView.canSendMessage,
       isProcessing: runtimeView.isProcessing,
     },
-    onExecute: async (item) => {
-      await executeCommand(item);
+    onExecute: async (item, seatTicket) => {
+      return executeCommand({ ...item, seatTicket });
     },
   });
 
@@ -1222,8 +1238,14 @@ Please check your local CLI tool authentication status`,
   }, []);
 
   const dispatchSteer = useCallback(
-    async (input: string, requestId?: string) => {
+    async (
+      seatTicket: ConversationRuntimeSeatTicket,
+      input: string,
+      requestId?: string
+    ): Promise<Exclude<AcpDispatchResult, 'rejected'>> => {
+      if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
       const turnId = runtimeView.activeTurnId ?? (await waitForConversationActiveTurnId(conversation_id));
+      if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
       if (!turnId) {
         throw new Error(
           t('conversation.commandQueue.activeTurnUnavailable', {
@@ -1233,7 +1255,7 @@ Please check your local CLI tool authentication status`,
       }
 
       const normalizedInput = input.trim();
-      const inFlightKey = `${turnId}\u0000${normalizedInput}`;
+      const inFlightKey = `${seatTicket.seatId}\u0000${seatTicket.rebindEpoch}\u0000${turnId}\u0000${normalizedInput}`;
       const existingRequest = activeSteerRequestsRef.current.get(inFlightKey);
       if (existingRequest) return existingRequest;
 
@@ -1309,15 +1331,17 @@ Please check your local CLI tool authentication status`,
             // the defence.
             steerText: normalizedInput,
           });
+          if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale' as const;
         } catch {
           /* see above: a correction is never blocked by the permit store */
         }
-        return ipcBridge.acpConversation.steer.invoke({
+        await ipcBridge.acpConversation.steer.invoke({
           input: normalizedInput,
           conversation_id,
           turn_id: turnId,
           request_id: stableRequestId,
         });
+        return runtimeView.isSeatTicketCurrent(seatTicket) ? ('accepted' as const) : ('stale' as const);
       })();
       activeSteerRequestsRef.current.set(inFlightKey, pendingRequest);
 
@@ -1334,7 +1358,7 @@ Please check your local CLI tool authentication status`,
       }, clearActiveRequest);
       return pendingRequest;
     },
-    [conversation_id, runtimeView.activeTurnId, t]
+    [conversation_id, runtimeView, t]
   );
 
   // The real dispatch (queue or execute) for an already-cleared message. Both
@@ -1342,6 +1366,7 @@ Please check your local CLI tool authentication status`,
   // queue/in-flight semantics are identical.
   const dispatchMessage = useCallback(
     async (
+      seatTicket: ConversationRuntimeSeatTicket,
       message: string,
       agentFiles: string[],
       displayFiles: string[] = agentFiles,
@@ -1349,6 +1374,7 @@ Please check your local CLI tool authentication status`,
       managedVisualSourceCount?: number,
       attachmentGrounding?: CommandEveAttachmentGroundingRequest
     ): Promise<AcpDispatchResult> => {
+      if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
       const requestedBusyControlCommand = runtimeView.isProcessing
         ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
         : null;
@@ -1364,7 +1390,8 @@ Please check your local CLI tool authentication status`,
 
       if (busyControlCommand?.mode === 'steer') {
         try {
-          await dispatchSteer(busyControlCommand.input);
+          const result = await dispatchSteer(seatTicket, busyControlCommand.input);
+          if (result === 'stale') return 'stale';
           emitter.emit('chat.history.refresh');
           return 'accepted';
         } catch (error) {
@@ -1401,6 +1428,7 @@ Please check your local CLI tool authentication status`,
           preparedContext,
           managedVisualSourceCount,
           attachmentGrounding,
+          seatTicket,
         }) !== null
           ? 'accepted'
           : 'rejected';
@@ -1412,6 +1440,7 @@ Please check your local CLI tool authentication status`,
         preparedContext,
         managedVisualSourceCount,
         attachmentGrounding,
+        seatTicket,
       });
     },
     [busySendMode, dispatchSteer, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing, t]
@@ -1419,8 +1448,10 @@ Please check your local CLI tool authentication status`,
 
   const preparePdfFiles = useCallback(
     async (
-      files: string[]
+      files: string[],
+      isCurrent: () => boolean = () => true
     ): Promise<{ files: string[]; attachmentGroundingEntries: CommandEveAttachmentGroundingExpectation[] } | null> => {
+      if (!isCurrent()) return null;
       if (!isEveConversation) return { files, attachmentGroundingEntries: [] };
       const pdfFiles = files.filter(isCommandEvePdfPath);
       if (pdfFiles.length === 0) return { files, attachmentGroundingEntries: [] };
@@ -1438,6 +1469,7 @@ Please check your local CLI tool authentication status`,
       const acceptPreparedReceipt = (
         raw: unknown
       ): { files: string[]; attachmentGroundingEntries: CommandEveAttachmentGroundingExpectation[] } | null => {
+        if (!isCurrent()) return null;
         const validated = validateCommandEvePdfPrepareReceipt(pdfFiles, raw);
         if (validated.ok === false) {
           setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
@@ -1455,6 +1487,7 @@ Please check your local CLI tool authentication status`,
       };
       try {
         let response = await invoke(false);
+        if (!isCurrent()) return null;
         if (response.success && response.data?.ok) {
           return acceptPreparedReceipt(response.data);
         }
@@ -1488,6 +1521,7 @@ Please check your local CLI tool authentication status`,
             closable: true,
           });
         });
+        if (!isCurrent()) return null;
         if (!approved) {
           setDocumentPreparation(null);
           return null;
@@ -1495,6 +1529,7 @@ Please check your local CLI tool authentication status`,
 
         setDocumentPreparation({ phase: 'reading_cloud', fileCount: pdfFiles.length, startedAt });
         response = await invoke(true);
+        if (!isCurrent()) return null;
         if (!response.success || !response.data?.ok) {
           setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
           const cloudFailure = response.data?.ok === false ? response.data : undefined;
@@ -1512,6 +1547,7 @@ Please check your local CLI tool authentication status`,
         }
         return acceptPreparedReceipt(response.data);
       } catch (error) {
+        if (!isCurrent()) return null;
         setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
         // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream string.
         const prepareFailureText = scrubModelIdentifiers(
@@ -1536,10 +1572,12 @@ Please check your local CLI tool authentication status`,
   // parking the exact send arguments is enough to re-drive it on accept.
   const raiseVisionEnablementPrompt = useCallback(
     (
+      seatTicket: ConversationRuntimeSeatTicket,
       message: string,
       allFiles: string[],
       controls: { clearSelection: () => void; restoreDraftAndFiles: () => void }
     ) => {
+      if (!runtimeView.isSeatTicketCurrent(seatTicket)) return;
       if (configService.get('commandEve.visionEnablementDeclined') === true) {
         Message.warning({
           content: t('conversation.visual.enablement.declinedNotice', {
@@ -1550,13 +1588,14 @@ Please check your local CLI tool authentication status`,
         });
         return;
       }
-      setVisionEnablementPending((previous) => previous ?? { message, allFiles, controls });
+      setVisionEnablementPending((previous) => previous ?? { seatTicket, message, allFiles, controls });
     },
-    [t]
+    [runtimeView, t]
   );
 
   const submitMessage = useCallback(
     async (
+      seatTicket: ConversationRuntimeSeatTicket,
       message: string,
       allFiles: string[],
       controls: {
@@ -1569,15 +1608,18 @@ Please check your local CLI tool authentication status`,
          */
         videoSelection?: VideoDraftSelection;
       }
-    ): Promise<boolean> => {
+    ): Promise<AcpDispatchResult> => {
+      const isCurrent = () => runtimeView.isSeatTicketCurrent(seatTicket);
+      if (!isCurrent()) return 'stale';
       // S81/R3: bounded, fail-open project intent gate — always first, before
       // PDF prep or dispatch, and never touching executeCommand/sendMessage.
-      await runProjectChatIntentGate({ conversation_id, message });
+      await runProjectChatIntentGate({ conversation_id, message, isCurrent });
+      if (!isCurrent()) return 'stale';
 
       if (documentPreparationInFlightRef.current) {
         controls.restoreDraftAndFiles();
         Message.warning(t('conversation.documents.preparationInProgress'));
-        return false;
+        return 'rejected';
       }
 
       // Heavy-lane routing (DUX-6, FAIL-SAFE) classifies BEFORE any document
@@ -1696,6 +1738,7 @@ Please check your local CLI tool authentication status`,
             ...(selectedResolution === undefined ? {} : { resolutionOverride: selectedResolution }),
           },
           (resolved) => {
+            if (!isCurrent()) return;
             // The ONLY provider job this send starts. An earlier revision ALSO
             // dispatched a `[EVE:VIDEO ...]`-stamped message into the normal ACP
             // turn — a second path that could ask the agent/runtime to execute
@@ -1725,6 +1768,7 @@ Please check your local CLI tool authentication status`,
                   : {}),
               })
               .then((response) => {
+                if (!isCurrent()) return;
                 const outcome = response?.data;
                 if (!response?.success || !outcome) {
                   Message.error({
@@ -1769,6 +1813,7 @@ Please check your local CLI tool authentication status`,
                 resetVideoSelection();
               })
               .catch(() => {
+                if (!isCurrent()) return;
                 Message.error({
                   content: t('credits.video.failed', {
                     defaultValue: 'Die Videoerstellung konnte nicht gestartet werden.',
@@ -1788,10 +1833,11 @@ Please check your local CLI tool authentication status`,
             // the success path, where the video it belonged to actually exists.
           },
           () => {
+            if (!isCurrent()) return;
             controls.restoreDraftAndFiles();
           }
         );
-        return true;
+        return 'accepted';
       }
 
       const hasDocumentFiles =
@@ -1799,16 +1845,24 @@ Please check your local CLI tool authentication status`,
         allFiles.some((file) => isCommandEvePdfPath(file) || isCommandEvePresentationPath(file) || isImageFile(file));
       if (hasDocumentFiles) {
         documentPreparationInFlightRef.current = true;
+        documentPreparationTicketRef.current = seatTicket;
         markConversationDocumentPreparationStarted(conversation_id);
       }
+      const settleOwnedDocumentPreparation = () => {
+        if (documentPreparationTicketRef.current !== seatTicket) return false;
+        documentPreparationTicketRef.current = null;
+        documentPreparationInFlightRef.current = false;
+        markConversationDocumentPreparationSettled(conversation_id);
+        return true;
+      };
 
-      const pdfPreparation = await preparePdfFiles(allFiles);
+      const pdfPreparation = await preparePdfFiles(allFiles, isCurrent);
+      if (!isCurrent()) return 'stale';
       // A cancelled/failed OCR gate must leave the draft and selected files intact.
       if (pdfPreparation === null) {
         controls.restoreDraftAndFiles();
-        documentPreparationInFlightRef.current = false;
-        markConversationDocumentPreparationSettled(conversation_id);
-        return false;
+        settleOwnedDocumentPreparation();
+        return 'rejected';
       }
       const pdfPreparedFiles = pdfPreparation.files;
       const visualSourceCount = pdfPreparedFiles.filter(
@@ -1822,15 +1876,14 @@ Please check your local CLI tool authentication status`,
         | undefined;
       if (isEveConversation && visualSourceCount > 6) {
         controls.restoreDraftAndFiles();
-        documentPreparationInFlightRef.current = false;
-        markConversationDocumentPreparationSettled(conversation_id);
+        settleOwnedDocumentPreparation();
         Message.error({
           content: t('conversation.visual.sourceLimit', {
             defaultValue: 'Select no more than six images or presentations per turn.',
           }),
           duration: 6000,
         });
-        return false;
+        return 'rejected';
       }
 
       const flowId = visualSourceCount > 0 ? createCommandEveCloudVisualFlowId(uuid(32)) : undefined;
@@ -1847,6 +1900,7 @@ Please check your local CLI tool authentication status`,
         if (!flowId) return { status: 'none' };
         try {
           const receiptResult = await ipcBridge.commandEve.cloudVisualPolicyReceipt.invoke({ flowId });
+          if (!isCurrent()) return { status: 'failed' };
           if (!receiptResult.success || !receiptResult.data?.ok) {
             const failedPolicy = receiptResult.data?.ok === false ? receiptResult.data.policy : undefined;
             if (failedPolicy?.status === 'disabled') {
@@ -1873,6 +1927,7 @@ Please check your local CLI tool authentication status`,
           }
           return { status: 'issued', flowId, visualPolicyReceipt: receiptResult.data.receipt };
         } catch (error) {
+          if (!isCurrent()) return { status: 'failed' };
           setDocumentPreparation({ phase: 'presentation_error', fileCount: visualSourceCount, startedAt: Date.now() });
           // SCRUBBED (MAT-1749): the builder's own fallback is the RAW upstream string.
           const visualFailureText = scrubModelIdentifiers(
@@ -1892,62 +1947,70 @@ Please check your local CLI tool authentication status`,
       };
       const stopAfterVisualAuthorityFailure = () => {
         controls.restoreDraftAndFiles();
-        documentPreparationInFlightRef.current = false;
-        markConversationDocumentPreparationSettled(conversation_id);
+        settleOwnedDocumentPreparation();
       };
 
       // Always let Main inspect PPTX/image sources locally first. A receipt is
       // requested only when Main reports that uncached cloud work is pending; if
       // every sidecar is already local, issuance is deferred until marker minting.
-      let presentationPreparation = await preparePresentationFiles(pdfPreparedFiles);
+      let presentationPreparation = await preparePresentationFiles(pdfPreparedFiles, undefined, isCurrent);
+      if (!isCurrent()) return 'stale';
       if (presentationPreparation === null) {
         controls.restoreDraftAndFiles();
-        documentPreparationInFlightRef.current = false;
-        markConversationDocumentPreparationSettled(conversation_id);
-        return false;
+        settleOwnedDocumentPreparation();
+        return 'rejected';
       }
-      let imagePreparation = await prepareImageFiles(presentationPreparation.files);
+      let imagePreparation = await prepareImageFiles(presentationPreparation.files, undefined, isCurrent);
+      if (!isCurrent()) return 'stale';
       if (imagePreparation === null) {
         controls.restoreDraftAndFiles();
-        documentPreparationInFlightRef.current = false;
-        markConversationDocumentPreparationSettled(conversation_id);
-        return false;
+        settleOwnedDocumentPreparation();
+        return 'rejected';
       }
 
       if (presentationPreparation.requiresVisualPolicyReceipt || imagePreparation.requiresVisualPolicyReceipt) {
         const issued = await issueVisualAuthority();
+        if (!isCurrent()) return 'stale';
         if (issued.status === 'disabled') {
           // MAT-1769: the dead-end toast is replaced by the contextual in-chat
           // question. The draft and files are restored first, so the pending
           // send parked on the card is exactly the one the user tried.
           stopAfterVisualAuthorityFailure();
-          raiseVisionEnablementPrompt(message, allFiles, controls);
-          return false;
+          raiseVisionEnablementPrompt(seatTicket, message, allFiles, controls);
+          return 'rejected';
         }
         if (issued.status !== 'issued') {
           stopAfterVisualAuthorityFailure();
-          return false;
+          return 'rejected';
         }
         visualAuthority = { flowId: issued.flowId, visualPolicyReceipt: issued.visualPolicyReceipt };
 
         if (presentationPreparation.requiresVisualPolicyReceipt) {
-          const retriedPresentationPreparation = await preparePresentationFiles(pdfPreparedFiles, visualAuthority);
+          const retriedPresentationPreparation = await preparePresentationFiles(
+            pdfPreparedFiles,
+            visualAuthority,
+            isCurrent
+          );
+          if (!isCurrent()) return 'stale';
           if (retriedPresentationPreparation === null) {
             controls.restoreDraftAndFiles();
-            documentPreparationInFlightRef.current = false;
-            markConversationDocumentPreparationSettled(conversation_id);
-            return false;
+            settleOwnedDocumentPreparation();
+            return 'rejected';
           }
           presentationPreparation = retriedPresentationPreparation;
         }
 
         if (imagePreparation.requiresVisualPolicyReceipt) {
-          const retriedImagePreparation = await prepareImageFiles(presentationPreparation.files, visualAuthority);
+          const retriedImagePreparation = await prepareImageFiles(
+            presentationPreparation.files,
+            visualAuthority,
+            isCurrent
+          );
+          if (!isCurrent()) return 'stale';
           if (retriedImagePreparation === null) {
             controls.restoreDraftAndFiles();
-            documentPreparationInFlightRef.current = false;
-            markConversationDocumentPreparationSettled(conversation_id);
-            return false;
+            settleOwnedDocumentPreparation();
+            return 'rejected';
           }
           imagePreparation = retriedImagePreparation;
         } else {
@@ -1962,8 +2025,7 @@ Please check your local CLI tool authentication status`,
       const composedContext = visualContexts.length > 0 ? composeCommandEvePreparedContext(visualContexts) : null;
       if (composedContext?.ok === false) {
         controls.restoreDraftAndFiles();
-        documentPreparationInFlightRef.current = false;
-        markConversationDocumentPreparationSettled(conversation_id);
+        settleOwnedDocumentPreparation();
         Message.error({
           content:
             composedContext.reason_code === 'EVE_PREPARED_CONTEXT_TOO_LARGE'
@@ -1973,7 +2035,7 @@ Please check your local CLI tool authentication status`,
               : t('conversation.presentation.prepareFailed'),
           duration: 6000,
         });
-        return false;
+        return 'rejected';
       }
       const preparedContext = composedContext?.context;
       const visuallyPreparedFiles = imagePreparation.files;
@@ -1989,16 +2051,16 @@ Please check your local CLI tool authentication status`,
         (attachmentGroundingEntries.length !== expectedGroundingCount || !attachmentGrounding)
       ) {
         controls.restoreDraftAndFiles();
-        documentPreparationInFlightRef.current = false;
-        markConversationDocumentPreparationSettled(conversation_id);
+        settleOwnedDocumentPreparation();
         Message.error({ content: t('conversation.documents.prepareFailed'), duration: 6000 });
-        return false;
+        return 'rejected';
       }
 
       controls.clearSelection();
 
       try {
         const dispatchResult = await dispatchMessage(
+          seatTicket,
           message,
           visuallyPreparedFiles,
           allFiles,
@@ -2011,22 +2073,25 @@ Please check your local CLI tool authentication status`,
         // this async send was in flight. Restoring that draft would write old
         // seat input and attachments into the newly bound seat, so stale work
         // is discarded without any shared UI mutation.
-        return dispatchResult === 'accepted';
+        return dispatchResult;
       } catch (error) {
+        if (!isCurrent()) return 'stale';
         controls.restoreDraftAndFiles();
         // MAT-1769: every sidecar was cached, so the disabled policy only
         // surfaced at marker minting inside executeCommand. Same answer as the
         // first wall: ask once, in chat, instead of failing the send.
         if (error instanceof CommandEveVisionPolicyDisabledError) {
-          raiseVisionEnablementPrompt(message, allFiles, controls);
-          return false;
+          raiseVisionEnablementPrompt(seatTicket, message, allFiles, controls);
+          return 'rejected';
         }
         throw error;
       } finally {
-        documentPreparationInFlightRef.current = false;
-        if (hasDocumentFiles) {
+        // A late preparation callback from seat A must not clear seat B's
+        // in-flight preparation after a same-conversation rebind. Ownership is
+        // the exact immutable seat ticket captured before the first await.
+        const settledOwnedPreparation = hasDocumentFiles && settleOwnedDocumentPreparation();
+        if (settledOwnedPreparation && isCurrent()) {
           setDocumentPreparation(null);
-          markConversationDocumentPreparationSettled(conversation_id);
         }
       }
     },
@@ -2062,44 +2127,58 @@ Please check your local CLI tool authentication status`,
   // policy write AND the paid re-drive twice. Busy holds through the re-drive,
   // not just through the policy call.
   const visionEnablementBusyRef = useRef(false);
+  const visionEnablementBusyTicketRef = useRef<ConversationRuntimeSeatTicket | null>(null);
   const handleVisionEnablementAccept = useCallback(async () => {
     const pending = visionEnablementPending;
     if (!pending || visionEnablementBusyRef.current) return;
-    visionEnablementBusyRef.current = true;
-    setVisionEnablementBusy(true);
-    let policyEnabled = false;
-    try {
-      const result = await ipcBridge.commandEve.cloudVisualPolicySet.invoke({
-        expectedSeatId: configService.getCurrentSeatId(),
-        enabled: true,
-      });
-      policyEnabled = Boolean(result.success && result.data?.ok);
-    } catch {
-      policyEnabled = false;
-    }
-    if (!policyEnabled) {
-      // A failed mutation keeps the card open and sends nothing — the image
-      // never leaves the device on a half-made decision.
-      Message.error({
-        content: t('conversation.visual.enablement.enableFailed', {
-          defaultValue: 'Vision could not be enabled. Draft and files are preserved.',
-        }),
-        duration: 6000,
-      });
-      visionEnablementBusyRef.current = false;
-      setVisionEnablementBusy(false);
+    if (!runtimeView.isSeatTicketCurrent(pending.seatTicket)) {
+      setVisionEnablementPending(null);
       return;
     }
-    // The re-drive runs INSIDE the busy window: a second click while it is in
-    // flight is refused by the ref, not by a rendered state.
-    setVisionEnablementPending(null);
+    visionEnablementBusyRef.current = true;
+    visionEnablementBusyTicketRef.current = pending.seatTicket;
+    setVisionEnablementBusy(true);
     try {
-      await submitMessage(pending.message, pending.allFiles, pending.controls);
+      let result: Awaited<ReturnType<typeof ipcBridge.commandEve.cloudVisualPolicySet.invoke>>;
+      try {
+        result = await ipcBridge.commandEve.cloudVisualPolicySet.invoke({
+          expectedSeatId: pending.seatTicket.seatId,
+          enabled: true,
+        });
+      } catch {
+        if (!runtimeView.isSeatTicketCurrent(pending.seatTicket)) return;
+        Message.error({
+          content: t('conversation.visual.enablement.enableFailed', {
+            defaultValue: 'Vision could not be enabled. Draft and files are preserved.',
+          }),
+          duration: 6000,
+        });
+        return;
+      }
+      if (!runtimeView.isSeatTicketCurrent(pending.seatTicket)) return;
+      if (!result.success || !result.data?.ok) {
+        // A failed mutation keeps the card open and sends nothing — the image
+        // never leaves the device on a half-made decision.
+        Message.error({
+          content: t('conversation.visual.enablement.enableFailed', {
+            defaultValue: 'Vision could not be enabled. Draft and files are preserved.',
+          }),
+          duration: 6000,
+        });
+        return;
+      }
+      // The re-drive runs INSIDE the busy window: a second click while it is in
+      // flight is refused by the ref, not by a rendered state.
+      setVisionEnablementPending(null);
+      await submitMessage(pending.seatTicket, pending.message, pending.allFiles, pending.controls);
     } finally {
-      visionEnablementBusyRef.current = false;
-      setVisionEnablementBusy(false);
+      if (visionEnablementBusyTicketRef.current === pending.seatTicket) {
+        visionEnablementBusyTicketRef.current = null;
+        visionEnablementBusyRef.current = false;
+        setVisionEnablementBusy(false);
+      }
     }
-  }, [submitMessage, t, visionEnablementPending]);
+  }, [runtimeView, submitMessage, t, visionEnablementPending]);
 
   // MAT-1769 — "Nicht jetzt": persist the DECLINE (per seat, one-time), dismiss
   // the card, and send nothing. No upload, no provider call and no debit happen
@@ -2107,12 +2186,19 @@ Please check your local CLI tool authentication status`,
   // (Grok review 2026-08-03, MAJOR 3): a failed persist gets the honest notice
   // that the question will come back — the decline itself is always free.
   const handleVisionEnablementDecline = useCallback(async () => {
-    if (visionEnablementBusyRef.current) return;
+    const pending = visionEnablementPending;
+    if (!pending || visionEnablementBusyRef.current) return;
+    if (!runtimeView.isSeatTicketCurrent(pending.seatTicket)) {
+      setVisionEnablementPending(null);
+      return;
+    }
     visionEnablementBusyRef.current = true;
+    visionEnablementBusyTicketRef.current = pending.seatTicket;
     setVisionEnablementBusy(true);
     setVisionEnablementPending(null);
     try {
       await configService.set('commandEve.visionEnablementDeclined', true);
+      if (!runtimeView.isSeatTicketCurrent(pending.seatTicket)) return;
       Message.warning({
         content: t('conversation.visual.enablement.declinedNotice', {
           defaultValue:
@@ -2121,6 +2207,7 @@ Please check your local CLI tool authentication status`,
         duration: 6000,
       });
     } catch {
+      if (!runtimeView.isSeatTicketCurrent(pending.seatTicket)) return;
       Message.warning({
         content: t('conversation.visual.enablement.declineSaveFailed', {
           defaultValue:
@@ -2129,28 +2216,44 @@ Please check your local CLI tool authentication status`,
         duration: 6000,
       });
     } finally {
-      visionEnablementBusyRef.current = false;
-      setVisionEnablementBusy(false);
+      if (visionEnablementBusyTicketRef.current === pending.seatTicket) {
+        visionEnablementBusyTicketRef.current = null;
+        visionEnablementBusyRef.current = false;
+        setVisionEnablementBusy(false);
+      }
     }
-  }, [t]);
+  }, [runtimeView, t, visionEnablementPending]);
 
   useEffect(
     () => () => {
       documentPreparationInFlightRef.current = false;
+      documentPreparationTicketRef.current = null;
+      visionEnablementBusyTicketRef.current = null;
       markConversationDocumentPreparationSettled(conversation_id);
     },
     [conversation_id]
   );
 
+  useEffect(() => {
+    documentPreparationInFlightRef.current = false;
+    documentPreparationTicketRef.current = null;
+    setDocumentPreparation(null);
+    setVisionEnablementPending(null);
+    visionEnablementBusyTicketRef.current = null;
+    visionEnablementBusyRef.current = false;
+    setVisionEnablementBusy(false);
+  }, [activeSeatId]);
+
   const onSendHandler = useCallback(
     async (message: string): Promise<void> => {
+      const seatTicket = runtimeView.captureSeatTicket();
       const draftContent = content || message;
       const selectedAtPath = [...atPath];
       const selectedUploadFiles = [...uploadFile];
       const atPathFiles = selectedAtPath.map((item) => (typeof item === 'string' ? item : item.path));
       const allFiles = [...selectedUploadFiles, ...atPathFiles];
 
-      await submitMessage(message, allFiles, {
+      await submitMessage(seatTicket, message, allFiles, {
         clearSelection: () => {
           clearFiles();
           emitter.emit('acp.selected.file.clear');
@@ -2163,7 +2266,7 @@ Please check your local CLI tool authentication status`,
         },
       });
     },
-    [atPath, clearFiles, content, setAtPath, setContent, setUploadFile, submitMessage, uploadFile]
+    [atPath, clearFiles, content, runtimeView, setAtPath, setContent, setUploadFile, submitMessage, uploadFile]
   );
 
   const sendInitialMessage = useCallback(
@@ -2172,30 +2275,35 @@ Please check your local CLI tool authentication status`,
       // so the pill shows what was sent, and pass it THROUGH as data — state
       // set here would not reach this send's own closure.
       if (videoSelection) applyVideoSelection(videoSelection);
+      const seatTicket = runtimeView.captureSeatTicket();
       try {
-        return await submitMessage(input, files, {
-          clearSelection: () => {},
-          restoreDraftAndFiles: () => {
-            setContent(input);
-            setUploadFile(files);
-            setAtPath([]);
-            emitter.emit('acp.selected.file.clear');
-          },
-          ...(videoSelection === undefined ? {} : { videoSelection }),
-        });
+        return (
+          (await submitMessage(seatTicket, input, files, {
+            clearSelection: () => {},
+            restoreDraftAndFiles: () => {
+              if (!runtimeView.isSeatTicketCurrent(seatTicket)) return;
+              setContent(input);
+              setUploadFile(files);
+              setAtPath([]);
+              emitter.emit('acp.selected.file.clear');
+            },
+            ...(videoSelection === undefined ? {} : { videoSelection }),
+          })) === 'accepted'
+        );
       } catch {
         // executeCommand already rendered the structured failure and restored
         // the fresh-chat draft. Do not add a second generic error message here.
         return false;
       }
     },
-    [applyVideoSelection, setAtPath, setContent, setUploadFile, submitMessage]
+    [applyVideoSelection, runtimeView, setAtPath, setContent, setUploadFile, submitMessage]
   );
 
   // The Guid/startscreen handoff is only transport. All real submission work
   // stays in submitMessage so PDFs, video gates, queues, and recovery cannot drift.
   useAcpInitialMessage({
     conversation_id,
+    seatId: activeSeatId,
     sendInitialMessage,
     resetState,
     addOrUpdateMessage: addOrUpdateMessageRef.current,
@@ -2237,6 +2345,11 @@ Please check your local CLI tool authentication status`,
       promotingQueuedCommandIdsRef.current.add(item.id);
       setPromotingQueuedCommandIds(new Set(promotingQueuedCommandIdsRef.current));
       lockInteraction();
+      const seatTicket = runtimeView.captureSeatTicket();
+      if (!runtimeView.isSeatTicketCurrent(seatTicket) || item.conversationId !== conversation_id) {
+        unlockInteraction();
+        return;
+      }
 
       try {
         // Remove before dispatch so a double click cannot send the same correction
@@ -2246,9 +2359,11 @@ Please check your local CLI tool authentication status`,
         if (!correction) {
           throw new Error('Queued correction is empty.');
         }
-        await dispatchSteer(correction.input, item.id);
+        const result = await dispatchSteer(seatTicket, correction.input, item.id);
+        if (result === 'stale') return;
         emitter.emit('chat.history.refresh');
       } catch (error) {
+        if (!runtimeView.isSeatTicketCurrent(seatTicket)) return;
         await restore(item);
         // SCRUBBED (MAT-1749): a steer dispatch failure can carry upstream text.
         const promoteFailureText = scrubModelIdentifiers(parseError(error), CLOUD_MODEL_IDENTIFIERS);
@@ -2268,6 +2383,7 @@ Please check your local CLI tool authentication status`,
     },
     [
       dispatchSteer,
+      conversation_id,
       isQueueInteractionLocked,
       lockInteraction,
       remove,

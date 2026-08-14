@@ -1006,6 +1006,86 @@ describe('conversation sidebar continuity', () => {
       listHook.unmount();
     }
   );
+
+  it.each([true, false] as const)(
+    'defers a fast completion and replays both real consumers exactly once (runtime first: %s)',
+    async (runtimeFirst) => {
+      const conversationId = 'conversation-fast-completion';
+      const turnId = 'turn-fast-completion';
+      harness.rowsBySeat.set('seat-a', [conversation(conversationId, runtime())]);
+
+      const mountRuntime = () => renderHook(() => useConversationRuntimeView(conversationId));
+      const mountList = () => renderHook(() => useConversationListSync());
+      const runtimeHook = runtimeFirst ? mountRuntime() : null;
+      const listHook = mountList();
+      const mountedRuntimeHook = runtimeHook ?? mountRuntime();
+      await act(flushPromises);
+      expect(harness.turnCompletedHandlers.size).toBe(2);
+
+      const sendTicket = mountedRuntimeHook.result.current.issueSendAttempt();
+      expect(sendTicket).not.toBeNull();
+      act(() => {
+        expect(mountedRuntimeHook.result.current.markSendStarted(sendTicket!)).toBe(true);
+      });
+
+      const completion = terminalTurn(conversationId, turnId, runtime({ turn_id: turnId }));
+      harness.updateConversation.mockClear();
+      const emitSpy = vi.spyOn(emitter, 'emit');
+      emitSpy.mockClear();
+
+      // Both production consumers observe the terminal before the send response
+      // has bound its turn id. Neither may mutate until acceptance proves the
+      // exact id; localSendAccepted then replays the event to each once.
+      act(() => {
+        harness.turnCompletedHandlers.forEach((handler) => handler(completion));
+      });
+      expect(harness.updateConversation).not.toHaveBeenCalled();
+      expect(mountedRuntimeHook.result.current.view.localSubmitting).toBe(true);
+
+      await act(async () => {
+        expect(
+          mountedRuntimeHook.result.current.markSendAccepted(
+            sendTicket!,
+            turnId,
+            runtime({ turn_id: turnId }),
+            'message-fast-completion'
+          )
+        ).toBe(true);
+        await flushPromises();
+      });
+
+      expect(harness.updateConversation).toHaveBeenCalledTimes(1);
+      expect(listHook.result.current.hasCompletionUnread(conversationId)).toBe(true);
+      expect(listHook.result.current.isConversationWaitingInput(conversationId)).toBe(true);
+      expect(mountedRuntimeHook.result.current.view.localSubmitting).toBe(false);
+      expect(mountedRuntimeHook.result.current.isProcessing).toBe(false);
+      expect(
+        emitSpy.mock.calls.filter(
+          ([event, payload]) =>
+            event === 'conversation.runtime.recovered' &&
+            (payload as { conversation_id?: string } | undefined)?.conversation_id === conversationId
+        )
+      ).toHaveLength(1);
+
+      // A native duplicate after replay is tombstoned for both consumers.
+      await act(async () => {
+        harness.turnCompletedHandlers.forEach((handler) => handler(completion));
+        await flushPromises();
+      });
+      expect(harness.updateConversation).toHaveBeenCalledTimes(1);
+      expect(
+        emitSpy.mock.calls.filter(
+          ([event, payload]) =>
+            event === 'conversation.runtime.recovered' &&
+            (payload as { conversation_id?: string } | undefined)?.conversation_id === conversationId
+        )
+      ).toHaveLength(1);
+
+      emitSpy.mockRestore();
+      mountedRuntimeHook.unmount();
+      listHook.unmount();
+    }
+  );
 });
 
 describe('conversation sidebar working phases (1.820.5)', () => {

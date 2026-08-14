@@ -62,6 +62,7 @@ const kanbanCoreSpies = {
   moveKanbanMarketingCard: vi.fn(() => ({ ok: true, status: 'ready' })),
   applyKanbanMarketingCardAction: vi.fn(() => ({ ok: true, status: 'ready' })),
   createKanbanMarketingProofCard: vi.fn(() => ({ ok: true, status: 'ready' })),
+  planKanbanMarketingCardDispatch: vi.fn(() => ({ ok: true, status: 'ready' })),
 };
 vi.mock('@process/commandEve/kanbanPreflightCore', () => ({
   createKanbanMarketingCard: (...a: unknown[]) => kanbanCoreSpies.createKanbanMarketingCard(...a),
@@ -73,7 +74,7 @@ vi.mock('@process/commandEve/kanbanPreflightCore', () => ({
   buildKanbanMarketingBoard: vi.fn(),
   checkKanbanMarketingWorkerStartGate: vi.fn(),
   generateKanbanMarketingDraft: vi.fn(),
-  planKanbanMarketingCardDispatch: vi.fn(),
+  planKanbanMarketingCardDispatch: (...a: unknown[]) => kanbanCoreSpies.planKanbanMarketingCardDispatch(...a),
   prepareKanbanMarketingWorkerDispatcher: vi.fn(),
   promoteKanbanMarketingWorkerExecutor: vi.fn(),
   recordKanbanMarketingDispatchApproval: vi.fn(),
@@ -88,6 +89,7 @@ vi.mock('@process/commandEve/kanbanPreflightCore', () => ({
 // the real ones are fine; we just need the switch to PAUSE at the gate. Keep real.
 
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
+import { __resetActiveSeatForTests, getActiveSeatId, setActiveSeatId } from '@process/commandEve/seatContextCore';
 
 type Envelope = { success: boolean; msg?: string; data?: { reason_code?: string; ok?: boolean; status?: string } };
 
@@ -96,11 +98,13 @@ beforeEach(() => {
   releaseSwitchGate = null;
   readMySeatsWireCoreMock.mockClear();
   Object.values(kanbanCoreSpies).forEach((s) => s.mockClear());
+  __resetActiveSeatForTests();
   initCommandEveBridge();
 });
 afterEach(() => {
   // Release any dangling gate so a failed test never leaks a pending switch.
   releaseSwitchGate?.();
+  __resetActiveSeatForTests();
   vi.clearAllMocks();
 });
 
@@ -178,5 +182,30 @@ describe('H1 mid-switch kanban write-fence (real bridge providers)', () => {
     // No longer fenced: the core ran (returned ok in our spy).
     expect(res.data?.reason_code).not.toBe('SEAT_SWITCH_IN_PROGRESS');
     expect(kanbanCoreSpies.createKanbanMarketingCard).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses stale expected-seat create and dispatch-plan requests before either core mutation', async () => {
+    const activeSeat = getActiveSeatId();
+    const staleSeat = activeSeat === 'seat-stale' ? 'seat-other' : 'seat-stale';
+    setActiveSeatId(activeSeat);
+
+    const create = await call('command-eve.kanban-marketing-card-create', {
+      title: 'stale card',
+      lane_key: 'research',
+      client_token: 'tok-stale',
+      expectedSeatId: staleSeat,
+    });
+    const dispatchPlan = await call('command-eve.kanban-marketing-dispatch-plan', {
+      task_id: 'task-stale',
+      command: 'decompose',
+      expectedSeatId: staleSeat,
+    });
+
+    expect(create.success).toBe(false);
+    expect(create.data?.reason_code).toBe('SEAT_CONTEXT_CHANGED');
+    expect(dispatchPlan.success).toBe(false);
+    expect(dispatchPlan.data?.reason_code).toBe('SEAT_CONTEXT_CHANGED');
+    expect(kanbanCoreSpies.createKanbanMarketingCard).not.toHaveBeenCalled();
+    expect(kanbanCoreSpies.planKanbanMarketingCardDispatch).not.toHaveBeenCalled();
   });
 });

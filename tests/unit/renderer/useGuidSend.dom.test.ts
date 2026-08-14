@@ -274,7 +274,7 @@ describe('useGuidSend blocked cloud lane', () => {
       await result.current.handleSend();
     });
 
-    const stored = sessionStorage.getItem('acp_initial_message_conversation-1');
+    const stored = sessionStorage.getItem('acp_initial_message_seat-1_conversation-1');
     expect(stored).toBeTruthy();
     expect(JSON.parse(stored!)).toMatchObject({
       input: deps.input,
@@ -314,7 +314,7 @@ describe('useGuidSend blocked cloud lane', () => {
       await result.current.handleSend();
     });
 
-    const stored = sessionStorage.getItem('acp_initial_message_conversation-1');
+    const stored = sessionStorage.getItem('acp_initial_message_seat-1_conversation-1');
     expect(stored).toBeTruthy();
     expect(JSON.parse(stored!).videoSelection).toBeUndefined();
   });
