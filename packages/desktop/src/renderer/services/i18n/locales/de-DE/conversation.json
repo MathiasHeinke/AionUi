@@ -399,6 +399,7 @@
     "addFile": "Datei hinzufügen",
     "refresh": "Aktualisieren",
     "temporarySpace": "Temporärer Bereich",
+    "temporaryShort": "Temp",
     "dragOverlayTitle": "Zum Importieren ablegen",
     "dragOverlayDesc": "Ziehe Dateien oder Ordner hierher, um sie in dieses Projekt zu kopieren.",
     "dragOverlayHint": "Tipp: Lege Dateien irgendwo ab, um sie in den ausgewählten Ordner zu importieren.",
@@ -610,6 +611,51 @@
       "loaded": "Geladen",
       "failed": "Fehlgeschlagen",
       "unsupported": "Nicht unterstützt"
+    }
+  },
+  "workProduct": {
+    "toolbarLabel": "Werkzeuge und Arbeitsprodukte",
+    "returnToChat": "Zum normalen Chat zurückkehren",
+    "selectedReference": "Ausgewähltes Referenzartefakt",
+    "referenceImage": "Referenzbild",
+    "removeReference": "Referenz entfernen",
+    "capabilities": "MCPs & Plugins",
+    "capabilitiesEmpty": "Noch keine MCPs oder Plugins verfügbar",
+    "image": {
+      "label": "Bild erstellen",
+      "tooltip": "Bild erstellen oder bearbeiten",
+      "aspectRatio": "Bildformat",
+      "qualityStandard": "Standard",
+      "qualityHigh": "Hoch",
+      "referencesOnly": "Im Bildmodus kannst du nur Bilder als Referenz anhängen.",
+      "generateFailed": "Das Bild konnte nicht erstellt werden. Entwurf und Auswahl bleiben erhalten."
+    },
+    "video": { "label": "Video erstellen", "tooltip": "Video erstellen oder bearbeiten" },
+    "presentation": { "label": "Präsentation erstellen", "tooltip": "Präsentation erstellen oder bearbeiten" },
+    "pdf": { "label": "PDF erstellen", "tooltip": "PDF erstellen oder bearbeiten" },
+    "kind": {
+      "image": "Bild",
+      "video": "Video",
+      "presentation": "PPTX",
+      "pdf": "PDF",
+      "document": "Dokument",
+      "audio": "Audio",
+      "file": "Datei"
+    },
+    "referenceUnavailable": "Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden."
+  },
+  "composerDeck": {
+    "context": "Kontext",
+    "contextPercent": "{{percent}}% Kontext",
+    "contextOpen": "{{value}} öffnen",
+    "authorityLabel": "Freigabe: {{level}}",
+    "authorityShort": {
+      "watch": "Zusehen",
+      "ask": "Fragen",
+      "routine": "Routine",
+      "work": "Arbeiten",
+      "auto": "Auto",
+      "full": "Voll"
     }
   },
   "eveInference": {

@@ -133,6 +133,7 @@
 }
 
 .sendbox-panel.eve-composer-surface {
+  --eve-composer-inset: 16px;
   background: var(--glass-composer-bg);
   border-color: var(--eve-composer-border, var(--glass-panel-border)) !important;
   box-shadow:
@@ -165,6 +166,24 @@
 .eve-composer-icon-button.arco-btn:focus-visible {
   background: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 7%, transparent) !important;
   color: var(--eve-shell-text, var(--color-text-1)) !important;
+}
+
+/* Attachment stays a distinct, quiet affordance beside the blue work-product
+   launcher. The fine glass edge mirrors the approved composer reference. */
+.eve-composer-attach-button,
+.eve-composer-attach-button.arco-btn,
+.eve-composer-attach-button.arco-btn-secondary {
+  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 76%, transparent) !important;
+  background: color-mix(in srgb, var(--eve-shell-surface) 18%, transparent) !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 38%, transparent) !important;
+}
+
+.eve-composer-attach-button:hover,
+.eve-composer-attach-button:focus-visible,
+.eve-composer-attach-button.arco-btn:hover,
+.eve-composer-attach-button.arco-btn:focus-visible {
+  border-color: color-mix(in srgb, var(--eve-accent) 24%, var(--glass-panel-border)) !important;
+  background: color-mix(in srgb, var(--eve-accent) 6%, transparent) !important;
 }
 
 /* Sendbox tools buttons - prevent layout jitter from theme hover transforms (#1075) */

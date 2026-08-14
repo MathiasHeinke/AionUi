@@ -265,6 +265,21 @@ describe('the envelope entries this store produces', () => {
     expect(entries[0].selected).toBe(true);
   });
 
+  it('keeps an explicitly selected older artifact inside the bounded envelope', () => {
+    const older = makeArtifact({ id: 'video-selected-old' });
+    saveVideoArtifactRecord(tmpRoot, older);
+    const newer = { ...makeArtifact({ id: 'video-unselected-new' }), created_at: older.created_at + 10_000 };
+    saveVideoArtifactRecord(tmpRoot, newer);
+
+    const entries = buildConversationArtifactEnvelopeEntries(tmpRoot, 'conv-1', {
+      selectedArtifactIds: ['video-selected-old'],
+      maxEntries: 1,
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ artifactId: 'video-selected-old', selected: true });
+  });
+
   it('never leaks another conversation’s artifacts or handles', () => {
     saveVideoArtifactRecord(tmpRoot, makeArtifact({ id: 'video-mine', conversationId: 'conv-1' }));
     saveVideoArtifactRecord(tmpRoot, makeArtifact({ id: 'video-theirs', conversationId: 'conv-2' }));

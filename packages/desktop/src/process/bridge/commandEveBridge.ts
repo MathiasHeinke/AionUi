@@ -174,10 +174,12 @@ import {
   handleCommandEveImageArtifactImportLegacyBridge,
   handleCommandEveImageArtifactPreviewBridge,
   handleCommandEveImageArtifactsListBridge,
+  handleCommandEveImageGenerateBridge,
 } from '@process/bridge/commandEveImageArtifactBridge';
 import { handleCommandEvePresentationPrepare } from '@process/bridge/commandEvePresentationBridge';
 import { consumeCommandEveFileSelectionPathGrant } from '@process/commandEve/fileSelectionGrantCore';
 import { authorizeCommandEveManagedVisualTurn } from '@process/commandEve/managedVisualTurnAuthorizationCore';
+import type { CommandEveImageGenerateRequest } from '@/common/config/eveManagedImageGenerationCore';
 import {
   issueCommandEveCloudVisualPolicyReceipt,
   readCommandEveCloudVisualPolicy,
@@ -1966,7 +1968,8 @@ export function initCommandEveBridge(): void {
     .provider(
       async (
         request?:
-          CommandEveMultimodalTtsConsentSetRequest | CommandEveBridgeEnvelope<CommandEveMultimodalTtsConsentSetRequest>
+          | CommandEveMultimodalTtsConsentSetRequest
+          | CommandEveBridgeEnvelope<CommandEveMultimodalTtsConsentSetRequest>
       ) => {
         const payload = unwrapBridgeRequest<CommandEveMultimodalTtsConsentSetRequest>(request);
         const data = setCommandEveMultimodalTtsConsent(getDataPath(), payload);
@@ -2408,6 +2411,14 @@ export function initCommandEveBridge(): void {
   // spend permit can be retired when the person corrects a run in flight.
   bridge.buildProvider('command-eve.artifact-turn-steer').provider(handleCommandEveArtifactTurnSteerBridge);
   bridge.buildProvider('command-eve.video-edit').provider(handleCommandEveVideoEditBridge);
+  bridge.buildProvider('command-eve.image-generate').provider((request?: CommandEveImageGenerateRequest) =>
+    handleCommandEveImageGenerateBridge(request, {
+      getDataPath,
+      getActiveSeatId,
+      getActiveSeatContextRevision,
+      onFreshBind: (conversationId) => getImageArtifactsChangedEmitter().emit({ conversation_id: conversationId }),
+    })
+  );
   // 1.820.3 — the managed IMAGE artifact lane (staged-handle contract): bind
   // (display authority at turn end), list + preview (durable, path-free),
   // legacy import (strictly confined one-time adoption).

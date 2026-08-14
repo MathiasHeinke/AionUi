@@ -8,7 +8,10 @@ import { ipcBridge } from '@/common';
 import type { IMcpServer } from '@/common/config/storage';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
 import EveMaxToggle from '@/renderer/components/agent/EveMaxToggle';
+import ComposerContextDeck from '@/renderer/components/chat/ComposerContextDeck';
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
+import WorkProductModeSelector from '@/renderer/components/chat/WorkProductModeSelector';
+import type { ComposerWorkProductMode } from '@/common/config/composerWorkProductModeCore';
 import {
   SKILL_CAPABILITY_MENU_POPUP_STYLE,
   SkillCapabilityCountLabel,
@@ -29,8 +32,8 @@ import { isElectronDesktop } from '@/renderer/utils/platform';
 import type { AvailableAgent } from '../types';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import PresetAgentTag, { type AgentSwitcherItem } from './PresetAgentTag';
-import { Button, Checkbox, Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
-import { ArrowUp, Lightning, Paperclip, Shield, UploadOne } from '@icon-park/react';
+import { Button, Checkbox, Menu, Message, Tooltip } from '@arco-design/web-react';
+import { ArrowUp, Lightning, Plus, Shield } from '@icon-park/react';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from '../index.module.css';
@@ -75,6 +78,10 @@ type GuidActionRowProps = {
   selectedMcpServerIds: string[];
   onToggleMcpServer: (serverId: string) => void;
 
+  // Explicit work-product mode. Text in the draft never changes this value.
+  workProductMode?: ComposerWorkProductMode;
+  onWorkProductModeChange?: (mode: ComposerWorkProductMode) => void;
+
   // Send button
   loading: boolean;
   isButtonDisabled: boolean;
@@ -114,6 +121,8 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
   mcpServers,
   selectedMcpServerIds,
   onToggleMcpServer,
+  workProductMode = 'chat',
+  onWorkProductModeChange,
   hidePresetTag = false,
   loading,
   isButtonDisabled,
@@ -167,49 +176,8 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
 
   const activeMcpCount = selectedMcpServerIds.length;
 
-  const menuContent = (
-    <Menu
-      className='min-w-200px'
-      onClickMenuItem={(key) => {
-        if (key === 'file') {
-          ipcBridge.dialog.showOpen
-            .invoke({ properties: ['openFile', 'multiSelections'] })
-            .then((uploadedFiles) => {
-              if (uploadedFiles && uploadedFiles.length > 0) {
-                onFilesUploaded(uploadedFiles);
-              }
-            })
-            .catch((error) => {
-              console.error('Failed to open file dialog:', error);
-            });
-        } else if (key === 'device') {
-          fileInputRef.current?.click();
-        }
-      }}
-    >
-      {isWebUI ? (
-        <>
-          <Menu.Item key='file'>
-            <div className='flex items-center gap-8px'>
-              <UploadOne theme='outline' size='16' fill={iconColors.secondary} style={{ lineHeight: 0 }} />
-              <span>{t('common.fileAttach.addFiles')}</span>
-            </div>
-          </Menu.Item>
-          <Menu.Item key='device'>
-            <div className='flex items-center gap-8px'>
-              <UploadOne theme='outline' size='16' fill={iconColors.secondary} style={{ lineHeight: 0 }} />
-              <span>{t('common.fileAttach.myDevice')}</span>
-            </div>
-          </Menu.Item>
-        </>
-      ) : (
-        <Menu.Item key='file'>
-          <div className='flex items-center gap-8px'>
-            <UploadOne theme='outline' size='16' fill={iconColors.secondary} style={{ lineHeight: 0 }} />
-            <span>{t('common.fileAttach.addFiles')}</span>
-          </div>
-        </Menu.Item>
-      )}
+  const capabilityMenu = (
+    <>
       {skillCatalog.totalCount > 0 && (
         <Menu.SubMenu
           key='skills'
@@ -270,39 +238,98 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
           ))}
         </Menu.SubMenu>
       )}
-    </Menu>
+      {skillCatalog.totalCount === 0 && mcpServers.length === 0 ? (
+        <Menu.Item key='capabilities-empty' disabled>
+          {t('conversation.workProduct.capabilitiesEmpty')}
+        </Menu.Item>
+      ) : null}
+    </>
   );
 
-  // Left cluster: the [+ file] dropdown (with skills/MCP submenus) + file-count tag.
+  const openFilePicker = useCallback(() => {
+    if (isWebUI) {
+      fileInputRef.current?.click();
+      return;
+    }
+    Promise.resolve(ipcBridge.dialog.showOpen.invoke({ properties: ['openFile', 'multiSelections'] }))
+      .then((uploadedFiles) => {
+        if (uploadedFiles?.length) onFilesUploaded(uploadedFiles);
+      })
+      .catch((error) => console.error('Failed to open file dialog:', error));
+  }, [isWebUI, onFilesUploaded]);
+
+  const workProductModes = [
+    {
+      mode: 'image' as const,
+      label: t('conversation.workProduct.image.label'),
+      tooltip: t('conversation.workProduct.image.tooltip'),
+    },
+    {
+      mode: 'video' as const,
+      label: t('conversation.workProduct.video.label'),
+      tooltip: t('conversation.workProduct.video.tooltip'),
+    },
+    {
+      mode: 'presentation' as const,
+      label: t('conversation.workProduct.presentation.label'),
+      tooltip: t('conversation.workProduct.presentation.tooltip'),
+    },
+    {
+      mode: 'pdf' as const,
+      label: t('conversation.workProduct.pdf.label'),
+      tooltip: t('conversation.workProduct.pdf.tooltip'),
+    },
+  ];
+  const workProductActions = {
+    toolbarLabel: t('conversation.workProduct.toolbarLabel'),
+    returnToChatLabel: t('conversation.workProduct.returnToChat'),
+    selectedReferenceLabel: t('conversation.workProduct.selectedReference'),
+    removeReferenceLabel: t('conversation.workProduct.removeReference'),
+  };
+
+  // The plus does exactly one thing: attach. The adjacent tools button owns
+  // work products and capability discovery, so neither promise changes later.
   const fileAttachSlot = (
     <div className={styles.actionEntry}>
-      <Dropdown trigger='click' droplist={menuContent}>
-        <span className='flex items-center gap-4px cursor-pointer lh-[1]'>
-          <Button
-            type='secondary'
-            shape='circle'
-            className='eve-composer-icon-button'
-            icon={<Paperclip theme='outline' size='17' strokeWidth={2} fill='currentColor' />}
-            loading={uploading}
-            disabled={uploading}
-            data-testid='file-upload-btn'
-            aria-label={t('common.fileAttach.addFiles')}
-          />
-          {files.length > 0 && (
-            <Tooltip
-              className={'!max-w-max'}
-              content={<span className='whitespace-break-spaces'>{getCleanFileNames(files).join('\n')}</span>}
-            >
-              <span className='text-t-primary'>File({files.length})</span>
-            </Tooltip>
-          )}
-        </span>
-      </Dropdown>
+      <span className='flex items-center gap-4px lh-[1]'>
+        <Button
+          type='secondary'
+          shape='circle'
+          className='eve-composer-icon-button eve-composer-attach-button'
+          icon={<Plus theme='outline' size='19' strokeWidth={2.2} fill='currentColor' />}
+          loading={uploading}
+          disabled={uploading}
+          data-testid='file-upload-btn'
+          aria-label={t('common.fileAttach.addFiles')}
+          onClick={openFilePicker}
+        />
+        {files.length > 0 && (
+          <Tooltip
+            className={'!max-w-max'}
+            content={<span className='whitespace-break-spaces'>{getCleanFileNames(files).join('\n')}</span>}
+          >
+            <span className='text-t-primary'>File({files.length})</span>
+          </Tooltip>
+        )}
+      </span>
       {isWebUI && (
         <input ref={fileInputRef} type='file' multiple style={{ display: 'none' }} onChange={handleLocalFileChange} />
       )}
     </div>
   );
+
+  const workProductSlot = COMMAND_EVE_SHELL_ENABLED ? (
+    <WorkProductModeSelector
+      value={workProductMode}
+      onChange={onWorkProductModeChange ?? (() => undefined)}
+      modes={workProductModes}
+      actions={workProductActions}
+      disabled={loading || !onWorkProductModeChange}
+      capabilityLabel={t('conversation.workProduct.capabilities')}
+      capabilityCount={skillCatalog.totalCount + mcpServers.length}
+      capabilityMenu={capabilityMenu}
+    />
+  ) : null;
 
   // Model picker + permission mode form one visual config group (same CSS as
   // before: `.actionConfigGroup :global(.sendbox-model-btn …)` styles the pill).
@@ -366,30 +393,60 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
   // this row; the bar only arranges the controls.
   return (
     <div className={styles.actionRow}>
-      <UnifiedSendBar
-        leftSlot={
-          <>
-            {fileAttachSlot}
-            <WorkspaceContextControl
-              workspacePath={workspaceDir}
-              editable
-              disabled={loading}
-              onSelectWorkspace={onSelectWorkspace}
-              onClearWorkspace={onClearWorkspace}
-            />
-          </>
-        }
-        centerSlot={presetTagSlot}
-        modelSlot={modelSlot}
-        // Start screen: the MAX lane control only exists in the EVE shell, so the
-        // same one-tap switch is reachable before the first message as in-chat.
-        maxSlot={COMMAND_EVE_SHELL_ENABLED ? <EveMaxToggle disabled={loading} /> : null}
-        permissionSlot={permissionSlot}
-        contextSlot={COMMAND_EVE_SHELL_ENABLED ? null : contextIndicatorNode}
-        eveControl={COMMAND_EVE_SHELL_ENABLED ? { tokenUsage: null, disabled: loading } : undefined}
-        micSlot={speechInputNode}
-        sendSlot={sendButton}
-      />
+      {COMMAND_EVE_SHELL_ENABLED ? (
+        <>
+          <UnifiedSendBar
+            leftSlot={
+              <>
+                {fileAttachSlot}
+                {workProductSlot}
+              </>
+            }
+            centerSlot={presetTagSlot}
+            micSlot={speechInputNode}
+            sendSlot={sendButton}
+          />
+          {/* Keep the Hermes session-mode compatibility controller mounted
+              while the six-rung authority becomes the visible control. */}
+          {permissionSlot ? <div className={styles.compatibilityController}>{permissionSlot}</div> : null}
+          <ComposerContextDeck
+            projectSlot={
+              <WorkspaceContextControl
+                workspacePath={workspaceDir}
+                compactLabel
+                editable
+                disabled={loading}
+                onSelectWorkspace={onSelectWorkspace}
+                onClearWorkspace={onClearWorkspace}
+              />
+            }
+            maxSlot={<EveMaxToggle disabled={loading} />}
+            tokenUsage={null}
+            disabled={loading}
+          />
+        </>
+      ) : (
+        <UnifiedSendBar
+          leftSlot={
+            <>
+              {fileAttachSlot}
+              <WorkspaceContextControl
+                workspacePath={workspaceDir}
+                editable
+                disabled={loading}
+                onSelectWorkspace={onSelectWorkspace}
+                onClearWorkspace={onClearWorkspace}
+              />
+            </>
+          }
+          centerSlot={presetTagSlot}
+          modelSlot={modelSlot}
+          permissionSlot={permissionSlot}
+          contextSlot={contextIndicatorNode}
+          micSlot={speechInputNode}
+          sendSlot={sendButton}
+        />
+      )}
     </div>
   );
 };

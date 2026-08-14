@@ -1,0 +1,411 @@
+.trigger:global(.arco-btn) {
+  position: relative;
+  display: inline-flex;
+  width: var(--eve-control-height, 32px);
+  min-width: var(--eve-control-height, 32px);
+  height: var(--eve-control-height, 32px);
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 10px;
+  color: var(--eve-composer-control-color, var(--eve-shell-text-secondary));
+  background: transparent;
+  box-shadow: none;
+}
+
+.trigger:global(.arco-btn):hover:not(:disabled) {
+  color: var(--eve-shell-text);
+  background: var(--eve-row-hover-bg);
+}
+
+.trigger:global(.arco-btn)[data-active='true'] {
+  color: var(--eve-accent);
+  background: color-mix(in srgb, var(--eve-accent) 11%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--eve-accent) 20%, transparent);
+}
+
+.trigger:global(.arco-btn):focus-visible,
+.activeMode:global(.arco-btn):focus-visible,
+.removeReference:global(.arco-btn):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--eve-focus-ring) 42%, transparent);
+  outline-offset: 1px;
+}
+
+.menu {
+  position: relative;
+  width: min(244px, calc(100vw - 32px));
+  padding: 6px;
+  border: 1px solid var(--glass-overlay-border);
+  border-radius: 15px;
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--eve-accent) 3%, transparent),
+      transparent 42%,
+      color-mix(in srgb, var(--eve-brand-logo) 2%, transparent)
+    ),
+    color-mix(in srgb, var(--glass-overlay-bg) 97%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 42%, transparent),
+    var(--glass-shadow-soft);
+  -webkit-backdrop-filter: var(--glass-overlay-filter);
+  backdrop-filter: var(--glass-overlay-filter);
+}
+
+.menu::after {
+  position: absolute;
+  left: 20px;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  border-right: 1px solid var(--glass-overlay-border);
+  border-bottom: 1px solid var(--glass-overlay-border);
+  background: color-mix(in srgb, var(--glass-overlay-bg) 97%, transparent);
+  content: '';
+  transform: rotate(45deg);
+}
+
+.menu :global(.arco-menu-item),
+.menu :global(.arco-menu-inline-header),
+.menu :global(.arco-dropdown-menu-item),
+.menu :global(.arco-dropdown-menu-pop-header) {
+  min-height: 33px;
+  margin: 0;
+  padding-inline: 10px;
+  border-radius: 9px;
+  transition:
+    color var(--eve-composer-menu-hover-duration, 300ms) ease,
+    background-color var(--eve-composer-menu-hover-duration, 300ms) ease,
+    transform var(--eve-composer-menu-hover-duration, 300ms) ease;
+}
+
+.menu :global(.arco-menu-item:active),
+.menu :global(.arco-menu-inline-header:active),
+.menu :global(.arco-dropdown-menu-item:active),
+.menu :global(.arco-dropdown-menu-pop-header:active) {
+  transform: scale(0.985);
+}
+
+.menuItem {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 9px;
+}
+
+.menuIcon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  align-self: center;
+  border: 1px solid color-mix(in srgb, var(--eve-accent) 9%, transparent);
+  border-radius: 7px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--eve-accent) 9%, transparent), transparent 78%),
+    color-mix(in srgb, var(--eve-shell-surface) 24%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 42%, transparent);
+  color: color-mix(in srgb, var(--eve-accent) 86%, var(--eve-shell-text));
+  line-height: 0;
+}
+
+.menuIcon > svg {
+  display: block;
+}
+
+.menuLabel {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--eve-shell-text);
+  font-size: 12px;
+  font-weight: 580;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activeDot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  justify-self: end;
+  border-radius: 999px;
+  background: var(--eve-accent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--eve-accent) 10%, transparent),
+    0 0 8px color-mix(in srgb, var(--eve-accent) 28%, transparent);
+  animation: work-product-selection-settle var(--eve-composer-menu-selection-duration, 400ms)
+    cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes work-product-selection-settle {
+  from {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.count {
+  display: inline-flex;
+  min-width: 20px;
+  height: 18px;
+  padding: 1px 6px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--eve-row-hover-bg);
+  color: var(--eve-shell-text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  justify-self: end;
+  text-align: center;
+}
+
+.chevron {
+  flex: 0 0 auto;
+  justify-self: end;
+  color: var(--eve-shell-text-secondary);
+}
+
+.menuDivider {
+  height: 1px;
+  margin: 5px 8px;
+  background: color-mix(in srgb, var(--glass-overlay-border) 72%, transparent);
+}
+
+.header {
+  display: flex;
+  width: calc(100% + 8px);
+  min-width: 0;
+  min-height: 35px;
+  margin: -4px -4px 7px;
+  padding: 0 4px 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--glass-panel-border) 72%, transparent);
+}
+
+.headerControls,
+.optionRail {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.headerControls {
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.optionRail :global(.image-model-pill),
+.optionRail :global(.video-quality-pill) {
+  flex-wrap: nowrap;
+  margin: 0;
+  padding: 0;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.optionRail :global(.video-quality-pill__option) {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  max-width: 164px;
+  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 64%, transparent);
+  border-radius: 9px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--eve-static-white) 24%, transparent), transparent 72%),
+    color-mix(in srgb, var(--eve-shell-surface) 28%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 38%, transparent);
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  font-weight: 570;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.optionRail :global(.video-quality-pill__option:hover),
+.optionRail :global(.video-quality-pill__option[aria-expanded='true']) {
+  border-color: color-mix(in srgb, var(--eve-accent) 22%, var(--glass-panel-border));
+  background: color-mix(in srgb, var(--eve-accent) 7%, var(--eve-row-hover-bg));
+  color: var(--eve-shell-text);
+}
+
+.optionRail :global(.image-model-pill__label),
+.optionRail :global(.video-quality-pill__label),
+.optionRail :global(.image-model-pill__estimate),
+.optionRail :global(.video-quality-pill__estimate) {
+  display: none;
+}
+
+.headerControls::-webkit-scrollbar {
+  display: none;
+}
+
+.activeMode:global(.arco-btn) {
+  display: inline-flex;
+  width: auto;
+  min-width: max-content;
+  height: 28px;
+  padding: 0 9px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--eve-accent) 16%, transparent);
+  border-radius: 9px;
+  color: var(--eve-accent);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--eve-accent) 13%, transparent),
+      color-mix(in srgb, var(--eve-accent) 6%, transparent) 62%,
+      color-mix(in srgb, var(--eve-brand-logo) 3%, transparent)
+    ),
+    color-mix(in srgb, var(--glass-composer-bg) 82%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 42%, transparent),
+    0 3px 10px color-mix(in srgb, var(--eve-accent) 7%, transparent);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.referenceChip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: min(260px, 38%);
+  height: 28px;
+  flex: 0 1 auto;
+  padding: 0 2px 0 9px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 82%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--eve-row-selected-bg) 58%, transparent);
+  color: var(--eve-shell-text);
+}
+
+.referenceKind {
+  flex: 0 0 auto;
+  color: var(--eve-accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.referencePreview {
+  display: inline-grid;
+  width: 32px;
+  height: 22px;
+  flex: 0 0 32px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 74%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--eve-row-hover-bg) 74%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 36%, transparent);
+}
+
+.referencePreview > img,
+.referencePreview > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.referenceTitle {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.removeReference:global(.arco-btn) {
+  display: inline-grid;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  flex: 0 0 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--eve-shell-text-secondary);
+  background: transparent;
+}
+
+/* Work-product mode is an action lane: blue owns focus and progress; a warm
+   composer hairline keeps EVE's orange identity without reading as a badge. */
+:global(.eve-composer-surface):has(.header) {
+  --eve-spotlight-color: var(--eve-accent);
+  --eve-composer-border: color-mix(in srgb, var(--eve-brand-logo) 28%, var(--glass-panel-border));
+  background:
+    radial-gradient(circle at 5% 6%, color-mix(in srgb, var(--eve-brand-logo) 2.4%, transparent), transparent 32%),
+    radial-gradient(circle at 96% 0%, color-mix(in srgb, var(--eve-accent) 3.2%, transparent), transparent 35%),
+    var(--glass-composer-bg) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 62%, transparent),
+    var(--glass-shadow-soft),
+    0 5px 18px color-mix(in srgb, var(--eve-brand-logo) 5%, transparent);
+}
+
+:global(.eve-composer-surface):has(.header) :global(.eve-composer-icon-button),
+:global(.eve-composer-surface):has(.header) :global(.voice-dialogue-toggle),
+:global(.eve-composer-surface):has(.header) :global(.speech-input-button) {
+  color: color-mix(in srgb, var(--eve-accent) 76%, var(--eve-shell-text-secondary)) !important;
+}
+
+:global(.eve-composer-surface) :global(.eve-composer-icon-button.eve-composer-attach-button),
+:global(.eve-composer-surface) :global(.eve-composer-icon-button.eve-composer-attach-button.arco-btn),
+:global(.eve-composer-surface) :global(.eve-composer-icon-button.eve-composer-attach-button.arco-btn-secondary) {
+  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 76%, transparent) !important;
+  background: color-mix(in srgb, var(--eve-shell-surface) 18%, transparent) !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 38%, transparent) !important;
+}
+
+.removeReference:global(.arco-btn):hover:not(:disabled) {
+  color: var(--eve-shell-text);
+  background: var(--eve-row-hover-bg);
+}
+
+@media (max-width: 640px) {
+  .menu {
+    width: min(240px, calc(100vw - 24px));
+  }
+  .header {
+    align-items: flex-start;
+  }
+  .referenceChip {
+    max-width: 42%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger:global(.arco-btn),
+  .trigger:global(.arco-btn)::after,
+  .menu :global(.arco-menu-item),
+  .menu :global(.arco-menu-inline-header),
+  .menu :global(.arco-dropdown-menu-item),
+  .menu :global(.arco-dropdown-menu-pop-header),
+  .activeDot {
+    animation: none;
+    transition: none;
+  }
+}

@@ -77,6 +77,10 @@ import type {
 import type { CommandEveVideoEditRequest, CommandEveVideoEditResult } from '../config/videoEditRequestCore';
 import type { VideoCatalogEntry } from '../config/videoCatalogCore';
 import type { CommandEveActiveImageArtifact } from '../config/managedImageArtifactCore';
+import type {
+  CommandEveImageGenerateRequest,
+  CommandEveImageGenerateResult,
+} from '../config/eveManagedImageGenerationCore';
 
 /**
  * 1.820.3 — the renderer-facing shapes of the managed image artifact lane.
@@ -2065,6 +2069,11 @@ export const commandEve = {
   // beside the source; the source is never overwritten.
   videoEdit: bridge.buildProvider<IBridgeResponse<CommandEveVideoEditResult>, CommandEveVideoEditRequest>(
     'command-eve.video-edit'
+  ),
+  // Explicit composer image turn. Main validates every option, owns the
+  // gateway request id, and returns an already-bound conversation artifact.
+  imageGenerate: bridge.buildProvider<IBridgeResponse<CommandEveImageGenerateResult>, CommandEveImageGenerateRequest>(
+    'command-eve.image-generate'
   ),
   // 1.820.3 — the managed IMAGE artifact lane (staged-handle contract).
   // BIND: the renderer read the staged handle out of the finished turn's tool

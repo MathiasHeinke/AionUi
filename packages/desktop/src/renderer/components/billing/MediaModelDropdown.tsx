@@ -40,6 +40,7 @@ import {
   resolvePillDropdownPlacement,
   type PillDropdownPlacement,
 } from '@/renderer/components/billing/pillDropdownPlacement';
+import { COMPOSER_MENU_MOTION_STYLE, composerMenuExitDuration } from '@/renderer/utils/ui/composerMenuMotion';
 import './billing.css';
 
 /** Estimated px height per option row, for the placement estimate. */
@@ -81,12 +82,29 @@ export const MediaPillDropdown: React.FC<{
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<PillDropdownPlacement | null>(null);
+  const [rendered, setRendered] = useState(open);
+  const [closing, setClosing] = useState(false);
 
-  useLayoutEffect(() => {
-    if (!open) {
-      setPlacement(null);
+  useEffect(() => {
+    if (open) {
+      setRendered(true);
+      setClosing(false);
       return;
     }
+    if (!rendered) return;
+    setClosing(true);
+    const prefersReducedMotion =
+      typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const timeout = window.setTimeout(() => {
+      setRendered(false);
+      setClosing(false);
+      setPlacement(null);
+    }, composerMenuExitDuration(prefersReducedMotion));
+    return () => window.clearTimeout(timeout);
+  }, [open, rendered]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
     setPlacement(
@@ -162,12 +180,13 @@ export const MediaPillDropdown: React.FC<{
           ▾
         </span>
       </button>
-      {open &&
+      {rendered &&
         placement &&
         createPortal(
           <div
             ref={listRef}
             className={`video-quality-pill__model-list video-quality-pill__model-list--${placement.direction}`}
+            data-state={closing ? 'closing' : 'open'}
             role='listbox'
             aria-label={ariaLabel}
             data-testid={listTestId}
@@ -178,6 +197,7 @@ export const MediaPillDropdown: React.FC<{
               minWidth: placement.minWidth,
               maxWidth: placement.maxWidth,
               maxHeight: placement.maxHeight,
+              ...COMPOSER_MENU_MOTION_STYLE,
             }}
           >
             {children}

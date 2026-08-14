@@ -7,7 +7,7 @@
 import type { IConversationMcpStatus, IConversationMcpStatusKind } from '@/common/config/storage';
 import { userVisibleConversationMcpStatuses } from '@/common/config/eveManagedMcpCore';
 import { Button, Menu, Message, Trigger } from '@arco-design/web-react';
-import { FolderOpen, Lightning, Paperclip, Right, Shield } from '@icon-park/react';
+import { FolderOpen, Lightning, Paperclip, Plus, Right, Shield } from '@icon-park/react';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { useSkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
 import { isElectronDesktop } from '@/renderer/utils/platform';
@@ -29,6 +29,8 @@ interface FileAttachButtonProps {
   onLocalFilesAdded?: (files: FileMetadata[]) => void;
   loadedSkills?: string[];
   loadedMcpStatuses?: IConversationMcpStatus[];
+  /** Command EVE uses the universal add affordance beside its tools launcher. */
+  icon?: 'paperclip' | 'plus';
 }
 
 const MenuItem: React.FC<{
@@ -86,6 +88,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   onLocalFilesAdded,
   loadedSkills,
   loadedMcpStatuses,
+  icon = 'paperclip',
 }) => {
   const conversationContext = useConversationContextSafe();
   const { t } = useTranslation();
@@ -135,7 +138,12 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   const isDesktop = isElectronDesktop();
   const hasSkills = skillCatalog.activeCount > 0;
   const hasMcpServers = mcpStatuses.length > 0;
-  const attachIcon = <Paperclip theme='outline' size='17' strokeWidth={2} fill='currentColor' />;
+  const attachIcon =
+    icon === 'plus' ? (
+      <Plus theme='outline' size='19' strokeWidth={2.2} fill='currentColor' />
+    ) : (
+      <Paperclip theme='outline' size='17' strokeWidth={2} fill='currentColor' />
+    );
 
   // A paperclip has one stable promise: choose files. Skills and connector
   // status live in EVE's dedicated control menu, so loaded capabilities must
@@ -145,7 +153,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
       <Button
         type='secondary'
         shape='circle'
-        className='eve-composer-icon-button'
+        className='eve-composer-icon-button eve-composer-attach-button'
         icon={attachIcon}
         onClick={openFileSelector}
         data-testid='aionrs-attach-folder-btn'
@@ -326,7 +334,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
         <Button
           type='secondary'
           shape='circle'
-          className='eve-composer-icon-button'
+          className='eve-composer-icon-button eve-composer-attach-button'
           icon={attachIcon}
           loading={uploading}
           disabled={uploading}

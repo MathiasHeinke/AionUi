@@ -138,6 +138,25 @@ function readStagedHandleEntry(dataPath: string, handle: unknown): StagedHandleE
   }
 }
 
+/**
+ * Resolve one still-live staged handle back to the record Main minted for it.
+ *
+ * This is intentionally narrower than a directory scan: recovery already owns
+ * the opaque handle from a durable completion receipt, and the handle entry is
+ * the only authority allowed to name the staged record. Expired, bound-to-a-
+ * different-record, unreadable and missing entries all collapse to absent.
+ */
+export function readImageArtifactRecordByStagedHandle(
+  dataPath: string,
+  handle: unknown,
+  nowMs: number = Date.now()
+): CommandEveManagedImageArtifact | undefined {
+  const staged = readStagedHandleEntry(dataPath, handle);
+  if (!staged || nowMs > staged.expires_at_ms) return undefined;
+  const record = readImageArtifactRecordById(dataPath, staged.artifact_id);
+  return record?.id === staged.artifact_id ? record : undefined;
+}
+
 /** A record by id, or `undefined`. Unreadable and malformed both read as absent. */
 export function readImageArtifactRecordById(
   dataPath: string,

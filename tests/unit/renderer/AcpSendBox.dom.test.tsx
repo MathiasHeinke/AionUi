@@ -20,6 +20,10 @@ import { ACP_PERFORMANCE_MARK_EVENT, type AcpPerformanceMark } from '@/renderer/
 import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
 import { stripCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
 import { COMMAND_EVE_PDF_INTELLIGENCE_VERSION } from '@/common/config/evePdfIntelligenceCore';
+import type {
+  ComposerWorkProductModeOption,
+  ComposerWorkProductSelection,
+} from '@/common/config/composerWorkProductModeCore';
 import { ConversationArtifactProvider } from '@/renderer/pages/conversation/Messages/artifacts';
 
 const {
@@ -32,6 +36,7 @@ const {
   presentationPrepareInvokeMock,
   cloudVisualPolicyReceiptInvokeMock,
   managedVisualTurnAuthorizeInvokeMock,
+  imageGenerateInvokeMock,
   videoGenerateInvokeMock,
   pptPreviewStartInvokeMock,
   pptPreviewStopInvokeMock,
@@ -81,6 +86,7 @@ const {
   videoArtifactsListInvokeMock,
   imageArtifactsListInvokeMock,
   chatHistoryRefreshHandlerMock,
+  composerReferenceSelectHandlerMock,
   messageListState,
   readAloudTextMock,
   stopReadAloudMock,
@@ -94,6 +100,7 @@ const {
   presentationPrepareInvokeMock: vi.fn(),
   cloudVisualPolicyReceiptInvokeMock: vi.fn(),
   managedVisualTurnAuthorizeInvokeMock: vi.fn(),
+  imageGenerateInvokeMock: vi.fn(),
   videoGenerateInvokeMock: vi.fn(),
   pptPreviewStartInvokeMock: vi.fn(),
   pptPreviewStopInvokeMock: vi.fn(),
@@ -157,7 +164,14 @@ const {
   configGetMock: vi.fn(),
   configSetMock: vi.fn(),
   initialMessageParamsMock: {
-    current: null as { sendInitialMessage?: (input: string, files: string[]) => Promise<boolean> } | null,
+    current: null as {
+      sendInitialMessage?: (
+        input: string,
+        files: string[],
+        videoSelection?: unknown,
+        composerSelection?: ComposerWorkProductSelection
+      ) => Promise<boolean>;
+    } | null,
   },
   buildDisplayMessageMock: vi.fn((input: string) => input),
   artifactContextEnvelopeInvokeMock: vi.fn(),
@@ -171,6 +185,9 @@ const {
   videoArtifactsListInvokeMock: vi.fn(),
   imageArtifactsListInvokeMock: vi.fn(),
   chatHistoryRefreshHandlerMock: { current: null as null | (() => void) },
+  composerReferenceSelectHandlerMock: {
+    current: null as null | ((event: { conversation_id: string; artifact_id: string }) => void),
+  },
   messageListState: { current: [] as TMessage[] },
   readAloudTextMock: vi.fn(),
   stopReadAloudMock: vi.fn(),
@@ -182,6 +199,33 @@ function createDeferred<T>() {
     resolve = resolver;
   });
   return { promise, resolve };
+}
+
+async function chooseWorkProductMode(mode: ComposerWorkProductModeOption): Promise<void> {
+  if (!screen.queryByTestId(`work-product-mode-${mode}`)) {
+    await act(async () => {
+      screen.getByTestId('work-product-tools-trigger').click();
+    });
+  }
+  const option = await screen.findByTestId(`work-product-mode-${mode}`);
+  await act(async () => {
+    option.click();
+  });
+  await waitFor(() => expect(screen.getByTestId(`work-product-active-${mode}`)).toBeTruthy());
+}
+
+async function chooseArtifactReference(
+  artifactId: string,
+  conversationId = 'conv-1',
+  expectAccepted = true
+): Promise<void> {
+  await waitFor(() => expect(composerReferenceSelectHandlerMock.current).not.toBeNull());
+  await act(async () => {
+    composerReferenceSelectHandlerMock.current?.({ conversation_id: conversationId, artifact_id: artifactId });
+  });
+  if (expectAccepted) {
+    await waitFor(() => expect(screen.getByTestId('work-product-reference-chip')).toBeTruthy());
+  }
 }
 
 const PDF_SIDECAR_PATH = `/tmp/hermes/document-intelligence/pdf/${'a'.repeat(64)}/document.md`;
@@ -262,6 +306,9 @@ vi.mock('@/common', () => ({
       },
       managedVisualTurnAuthorize: {
         invoke: managedVisualTurnAuthorizeInvokeMock,
+      },
+      imageGenerate: {
+        invoke: imageGenerateInvokeMock,
       },
       videoGenerate: {
         invoke: videoGenerateInvokeMock,
@@ -356,6 +403,7 @@ vi.mock('@process/utils/utils', () => ({ getDataPath: () => '/tmp/eve-data-unuse
 vi.mock('@/renderer/components/chat/SendBox', () => ({
   default: (props: {
     onSend: (message: string) => Promise<void>;
+    tools?: React.ReactNode;
     rightTools?: React.ReactNode;
     prefix?: React.ReactNode;
   }) => {
@@ -368,6 +416,7 @@ vi.mock('@/renderer/components/chat/SendBox', () => ({
             tags, the video-quality picker). The double used to drop it, which
             made anything mounted there invisible to these tests. */}
         {props.prefix}
+        {props.tools}
         {props.rightTools}
         <button
           type='button'
@@ -571,7 +620,14 @@ vi.mock('@/renderer/utils/emitter', () => ({
   emitter: {
     emit: emitterEmitMock,
   },
-  useAddEventListener: vi.fn(),
+  useAddEventListener: vi.fn((event: string, handler: (payload: never) => void) => {
+    if (event === 'commandEve.composer.reference.select') {
+      composerReferenceSelectHandlerMock.current = handler as unknown as (event: {
+        conversation_id: string;
+        artifact_id: string;
+      }) => void;
+    }
+  }),
   // The artifact provider's history-refresh subscription (1.820.3 display
   // gap). Tests fire the handler via chatHistoryRefreshHandlerMock.current.
   addEventListener: vi.fn((event: string, handler: () => void) => {
@@ -593,36 +649,86 @@ vi.mock('@/renderer/utils/file/messageFiles', () => ({
 // hook itself is replaced.
 vi.mock('@/renderer/pages/conversation/platforms/acp/useAcpInitialMessage', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  useAcpInitialMessage: (params: { sendInitialMessage?: (input: string, files: string[]) => Promise<boolean> }) => {
-    initialMessageParamsMock.current = params;
+  useAcpInitialMessage: (params: {
+    sendInitialMessage?: (
+      input: string,
+      files: string[],
+      videoSelection: unknown,
+      composerSelection: ComposerWorkProductSelection
+    ) => Promise<boolean>;
+  }) => {
+    initialMessageParamsMock.current = {
+      sendInitialMessage: (input, files, videoSelection, composerSelection) =>
+        params.sendInitialMessage?.(
+          input,
+          files,
+          videoSelection,
+          composerSelection ?? {
+            mode: 'chat',
+            authority: 'none',
+            hasSelectedReference: false,
+            selectedReferenceKind: null,
+          }
+        ) ?? Promise.resolve(false),
+    };
   },
 }));
 
-vi.mock('@arco-design/web-react', () => ({
-  Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type='button' {...props}>
+vi.mock('@arco-design/web-react', () => {
+  type MenuItemProps = React.ButtonHTMLAttributes<HTMLButtonElement> & { onSelect?: () => void };
+  // oxlint-disable-next-line eslint-plugin-unicorn/consistent-function-scoping -- kept inside the hoisted mock factory
+  const MenuItem = ({ children, onSelect, ...props }: MenuItemProps) => (
+    <button type='button' {...props} onClick={onSelect}>
       {children}
     </button>
-  ),
-  Dropdown: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  Menu: Object.assign(({ children }: { children?: React.ReactNode }) => <>{children}</>, {
-    Item: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
-  }),
-  Message: {
-    success: vi.fn(),
-    error: messageErrorMock,
-    warning: messageWarningMock,
-  },
-  Modal: {
-    confirm: modalConfirmMock,
-  },
-  Popover: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  Radio: Object.assign(({ children }: { children?: React.ReactNode }) => <>{children}</>, {
-    Group: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  }),
-  Tag: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  Tooltip: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-}));
+  );
+  const Menu = Object.assign(
+    ({ children, onClickMenuItem }: { children?: React.ReactNode; onClickMenuItem?: (key: string) => void }) => (
+      <div role='menu'>
+        {React.Children.map(children, (child) => {
+          if (!React.isValidElement<MenuItemProps>(child) || child.key === null || !onClickMenuItem) return child;
+          return React.cloneElement(child, { onSelect: () => onClickMenuItem(String(child.key)) });
+        })}
+      </div>
+    ),
+    {
+      Item: MenuItem,
+      SubMenu: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+    }
+  );
+
+  return {
+    Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+      <button type='button' {...props}>
+        {children}
+      </button>
+    ),
+    Dropdown: ({ children, droplist }: { children?: React.ReactNode; droplist?: React.ReactNode }) => {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <>
+          <span onClick={() => setOpen((visible) => !visible)}>{children}</span>
+          {open ? droplist : null}
+        </>
+      );
+    },
+    Menu,
+    Message: {
+      success: vi.fn(),
+      error: messageErrorMock,
+      warning: messageWarningMock,
+    },
+    Modal: {
+      confirm: modalConfirmMock,
+    },
+    Popover: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+    Radio: Object.assign(({ children }: { children?: React.ReactNode }) => <>{children}</>, {
+      Group: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+    }),
+    Tag: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+    Tooltip: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  };
+});
 
 const makeMessageState = (): UseAcpMessageReturn =>
   ({
@@ -703,7 +809,30 @@ describe('AcpSendBox', () => {
     imageArtifactsListInvokeMock.mockReset();
     imageArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
     chatHistoryRefreshHandlerMock.current = null;
+    composerReferenceSelectHandlerMock.current = null;
     managedVisualTurnAuthorizeInvokeMock.mockReset();
+    imageGenerateInvokeMock.mockReset();
+    imageGenerateInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: true,
+        requestId: 'image-request-0001',
+        alreadyCompleted: false,
+        artifact: {
+          id: 'image-artifact-1',
+          conversationId: 'conv-1',
+          status: 'active',
+          createdAt: 1000,
+          updatedAt: 1000,
+          title: 'Generated image',
+          mimeType: 'image/png',
+          width: 1024,
+          height: 1024,
+          sha256: 'f'.repeat(64),
+          relativePath: 'images/generated.png',
+        },
+      },
+    });
     videoGenerateInvokeMock.mockReset();
     videoGenerateInvokeMock.mockResolvedValue({
       success: true,
@@ -2815,15 +2944,15 @@ describe('AcpSendBox', () => {
   // -------------------------------------------------------------------------
   // Video lane: the inline quality picker (1.820.1)
   // -------------------------------------------------------------------------
-  // The pre-submit cost wall is gone — asking for a video IS the authorisation
-  // for it. Removing it also removed the only surface that could select 1080p,
+  // The pre-submit cost wall is gone — explicitly selecting video mode IS the
+  // authorisation for it. Removing it also removed the only surface that could select 1080p,
   // so HD came back as an inline picker. These tests pin the two things that
   // must both hold: HD reaches the dispatched request, and nothing asks a second
   // question on the way there.
 
-  it('offers the quality picker only once the draft actually routes to video', async () => {
-    draftDataMock.current = { atPath: [], uploadFile: [], content: 'summarise this meeting' };
-    const { rerender } = render(
+  it('plain prose never opens video controls; an explicit menu selection does', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    render(
       <AcpSendBox
         conversation_id='conv-1'
         backend='hermes'
@@ -2833,15 +2962,7 @@ describe('AcpSendBox', () => {
     );
     expect(screen.queryByTestId('video-quality-pill')).toBeNull();
 
-    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
-    rerender(
-      <AcpSendBox
-        conversation_id='conv-1'
-        backend='hermes'
-        workspacePath='/tmp/workspace'
-        messageState={makeMessageState()}
-      />
-    );
+    await chooseWorkProductMode('video');
     expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast');
   });
 
@@ -2857,6 +2978,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -2882,6 +3004,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     // MAT-1753: the reason there is no 1080p option here is the ENTITLEMENT, not
     // the input mode. This seat has no grok-imagine-video-1.5 (the default mock),
@@ -2917,6 +3040,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     // The option renders for a TEXT draft with NO attachment at all — since
     // F8b as the 1080p entry of the resolution dropdown.
@@ -2956,6 +3080,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     await waitFor(() => expect(screen.getByTestId('video-model-dropdown-trigger')).toBeTruthy());
     await act(async () => {
@@ -3030,7 +3155,7 @@ describe('AcpSendBox', () => {
     // QA 2026-08-05: on the packaged build against the OLD deployed server
     // (v27, no /video-model-capabilities endpoint) the pill never appeared.
     // The capabilities answer must be irrelevant to the VISIBILITY gate: the
-    // bundled snapshot stands in, and the pill renders on a create intent.
+    // bundled snapshot stands in, and the pill renders for explicitly selected video mode.
     videoCapabilitiesInvokeMock.mockRejectedValue(new Error('ipc bridge unavailable'));
     draftDataMock.current = {
       atPath: [],
@@ -3047,6 +3172,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
     expect(screen.getByTestId('video-model-dropdown-trigger')).toBeTruthy();
@@ -3074,6 +3200,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
     expect(screen.getByTestId('video-model-dropdown-trigger')).toBeTruthy();
@@ -3100,6 +3227,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     // The reference images are the files ALREADY on the draft: no second picker
     // renders, and none is needed.
@@ -3125,9 +3253,7 @@ describe('AcpSendBox', () => {
     // No preset voices for an unentitled seat, so the field never appears.
     expect(sent.presetVoiceIds).toBeUndefined();
   });
-  it('1.820.3: the image model picker shows for an image intent and persists clicks through Main', async () => {
-    // CONTEXTUAL since 1.820.3: the control follows intent, not the bare EVE
-    // conversation. An explicit image draft reveals it…
+  it('1.823.0: the image model picker follows explicit image mode and persists clicks through Main', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein Bild: eine lila Aubergine als Icon.' };
     // Main stores what it is asked and answers with the value it re-proved.
     imageModelPreferenceSetInvokeMock.mockImplementation(async (request: { tier: string }) => ({
@@ -3152,12 +3278,16 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('image');
 
     await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
     expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'quality');
     // The capabilities default in this file is UNPROVEN — no price may appear.
     expect(screen.getByTestId('image-model-pill-estimate')).toHaveAttribute('data-quote-state', 'unavailable');
 
+    await act(async () => {
+      screen.getByTestId('image-model-dropdown-trigger').click();
+    });
     await act(async () => {
       screen.getByTestId('image-model-option-max').click();
     });
@@ -3177,8 +3307,7 @@ describe('AcpSendBox', () => {
       success: true,
       data: { status: 'resolved', tier: 'quality', source: 'stored_default', seatId: 'seat-1' },
     });
-    // 1.820.3: the rollback case only matters when the pill is VISIBLE, so
-    // the draft carries an explicit image intent.
+    // The rollback case only matters while explicit image mode keeps the pill visible.
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein Bild: eine lila Aubergine als Icon.' };
 
     render(
@@ -3189,8 +3318,12 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('image');
     await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
 
+    await act(async () => {
+      screen.getByTestId('image-model-dropdown-trigger').click();
+    });
     await act(async () => {
       screen.getByTestId('image-model-option-max').click();
     });
@@ -3204,8 +3337,103 @@ describe('AcpSendBox', () => {
     );
   });
 
+  it('1.823.0: explicit image create sends one exact Main-authoritative image request and no Hermes turn', async () => {
+    const prompt = 'Erstelle ein ruhiges Editorial-Motiv für Command EVE.';
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/reference.png'], content: prompt };
+    sendBoxMessageMock.current = prompt;
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await chooseWorkProductMode('image');
+    await act(async () => screen.getByTestId('image-model-dropdown-trigger').click());
+    await act(async () => screen.getByTestId('image-model-option-max').click());
+    await act(async () => screen.getByTestId('image-resolution-dropdown-trigger').click());
+    await act(async () => screen.getByTestId('image-resolution-option-2K').click());
+    await act(async () => screen.getByTestId('image-aspect-ratio-dropdown-trigger').click());
+    await act(async () => screen.getByTestId('image-aspect-ratio-option-1-1').click());
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    expect(imageGenerateInvokeMock.mock.calls[0][0]).toMatchObject({
+      prompt,
+      conversationId: 'conv-1',
+      tierId: 'max',
+      resolution: '2K',
+      aspectRatio: '1:1',
+      referenceImagePaths: ['/tmp/reference.png'],
+    });
+    expect(imageGenerateInvokeMock.mock.calls[0][0].requestId).toMatch(/^image-[A-Za-z0-9]+$/);
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(imagePrepareInvokeMock).not.toHaveBeenCalled();
+    expect(cloudVisualPolicyReceiptInvokeMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId('work-product-active-image')).toBeNull());
+  });
+
+  it('1.823.0: an image refusal restores the draft, files and exact request id for a safe retry', async () => {
+    const prompt = 'Erstelle ein Bild mit einer klaren Typografie.';
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/reference.png'], content: prompt };
+    sendBoxMessageMock.current = prompt;
+    imageGenerateInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: false,
+        requestId: 'image-request-refused',
+        reasonCode: 'image-generation-disabled',
+        message: 'Bildgenerierung ist für diesen Seat nicht verfügbar.',
+        retryable: false,
+        artifactState: 'none',
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await chooseWorkProductMode('image');
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(setUploadFileMock).toHaveBeenCalledWith(['/tmp/reference.png']));
+    expect(screen.getByTestId('work-product-active-image')).toBeTruthy();
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(2));
+    expect(imageGenerateInvokeMock.mock.calls[1][0].requestId).toBe(imageGenerateInvokeMock.mock.calls[0][0].requestId);
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('1.823.0: image prose without an explicit mode remains one ordinary Hermes turn', async () => {
+    const prompt = 'Lass uns besprechen, wie wir ein Bild für die Kampagne erstellen.';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: prompt };
+    sendBoxMessageMock.current = prompt;
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
+  });
+
   // ---------------------------------------------------------------------
-  // 1.820.3 — contextual media controls (Founder contract + CoS boundaries)
+  // 1.823.0 — explicit media controls (Founder contract + CoS boundaries)
   // ---------------------------------------------------------------------
 
   const VIDEO_SOURCE_ARTIFACT = {
@@ -3243,8 +3471,12 @@ describe('AcpSendBox', () => {
     );
   };
 
-  it('1.820.3: a plain draft shows ZERO media controls, even in an EVE conversation', async () => {
-    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+  it('1.823.0: plain prose mentioning image/video creation shows ZERO media controls', async () => {
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: [],
+      content: 'Lass uns darüber reden, wie man ein Bild oder Video erstellt.',
+    };
 
     render(
       <AcpSendBox
@@ -3260,7 +3492,7 @@ describe('AcpSendBox', () => {
     expect(screen.queryByTestId('video-edit-hint')).toBeNull();
   });
 
-  it('1.820.3: an image draft shows ONLY the image controls', async () => {
+  it('1.823.0: explicit image mode shows ONLY the image controls', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein Bild: eine lila Aubergine als Icon.' };
 
     render(
@@ -3271,12 +3503,13 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('image');
     await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
     expect(screen.queryByTestId('video-quality-pill')).toBeNull();
     expect(screen.queryByTestId('video-edit-hint')).toBeNull();
   });
 
-  it('1.820.3: a video draft shows ONLY the video creation controls', async () => {
+  it('1.823.0: explicit video mode shows ONLY the video creation controls', async () => {
     draftDataMock.current = {
       atPath: [],
       uploadFile: [],
@@ -3291,14 +3524,15 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
     await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
     expect(screen.queryByTestId('image-model-pill')).toBeNull();
     expect(screen.queryByTestId('video-edit-hint')).toBeNull();
   });
 
-  it('1.820.3: removing or changing the intent hides the stale controls, with no layout ghost', async () => {
+  it('1.823.0: explicit mode changes hide stale controls, with no layout ghost', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein Bild: eine Aubergine.' };
-    const { rerender } = render(
+    render(
       <AcpSendBox
         conversation_id='conv-1'
         backend='hermes'
@@ -3306,53 +3540,33 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('image');
     await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
 
-    // image → plain: everything hides.
-    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
-    rerender(
-      <AcpSendBox
-        conversation_id='conv-1'
-        backend='hermes'
-        workspacePath='/tmp/workspace'
-        messageState={makeMessageState()}
-      />
-    );
+    // Clicking the active image mode returns to ordinary chat.
+    await act(async () => screen.getByTestId('work-product-active-image').click());
     await waitFor(() => expect(screen.queryByTestId('image-model-pill')).toBeNull());
     expect(screen.queryByTestId('video-quality-pill')).toBeNull();
 
-    // plain → video: the video creation controls appear.
-    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein kurzes Video: Aubergine.' };
-    rerender(
-      <AcpSendBox
-        conversation_id='conv-1'
-        backend='hermes'
-        workspacePath='/tmp/workspace'
-        messageState={makeMessageState()}
-      />
-    );
+    // Chat → video requires a fresh explicit selection.
+    await chooseWorkProductMode('video');
     await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
     expect(screen.queryByTestId('image-model-pill')).toBeNull();
 
-    // video → plain: clean again.
-    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
-    rerender(
-      <AcpSendBox
-        conversation_id='conv-1'
-        backend='hermes'
-        workspacePath='/tmp/workspace'
-        messageState={makeMessageState()}
-      />
-    );
+    // Clicking the active video mode returns to a clean chat composer.
+    await act(async () => screen.getByTestId('work-product-active-video').click());
     await waitFor(() => expect(screen.queryByTestId('video-quality-pill')).toBeNull());
   });
 
-  it('1.820.3: the canonical follow-up shows the edit-hint, no creation selector, and the send stays a normal Hermes turn', async () => {
+  it('1.823.0: an exact video reference shows the edit-hint and sends a normal Hermes turn', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'Gib der Aubergine im Video ein Gesicht.' };
     sendBoxMessageMock.current = 'Gib der Aubergine im Video ein Gesicht.';
     sendMessageInvokeMock.mockResolvedValue({});
 
     renderWithVideoArtifact();
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
+    await chooseWorkProductMode('video');
+    await chooseArtifactReference('video-artifact-1');
 
     // The compact affordance with the honest edit price — and NO creation
     // settings the edit tool cannot honour (no quality/resolution selector).
@@ -3364,16 +3578,16 @@ describe('AcpSendBox', () => {
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
 
     // Execution boundary: a NORMAL Hermes dispatch — never the direct
-    // generation branch — and no selectedArtifactIds inferred from "latest".
+    // generation branch — with only the exact user-selected artifact id.
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
     expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
     await waitFor(() => expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalled());
     for (const call of artifactContextEnvelopeInvokeMock.mock.calls) {
-      expect(call[0]).not.toHaveProperty('selectedArtifactIds');
+      expect(call[0]).toMatchObject({ selectedArtifactIds: ['video-artifact-1'] });
     }
   });
 
-  it('1.820.3: a dismissed artifact cannot activate the edit-hint', async () => {
+  it('1.823.0: a dismissed artifact cannot be selected for editing', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'Gib der Aubergine im Video ein Gesicht.' };
     videoArtifactsListInvokeMock.mockResolvedValue({
       success: true,
@@ -3391,18 +3605,23 @@ describe('AcpSendBox', () => {
       </ConversationArtifactProvider>
     );
     await waitFor(() => expect(screen.getByRole('button', { name: 'send' })).toBeTruthy());
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
+    await chooseWorkProductMode('video');
+    await chooseArtifactReference('video-artifact-1', 'conv-1', false);
     expect(screen.queryByTestId('video-edit-hint')).toBeNull();
-    expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+    expect(screen.queryByTestId('work-product-reference-chip')).toBeNull();
+    expect(messageWarningMock).toHaveBeenCalled();
+    expect(screen.getByTestId('video-quality-pill')).toBeTruthy();
     expect(screen.queryByTestId('image-model-pill')).toBeNull();
   });
 
-  it('1.820.3: revealing controls never calls a provider, upload, receipt or paid lane', async () => {
+  it('1.823.0: selecting media controls never calls a provider, upload, receipt or paid lane', async () => {
     draftDataMock.current = {
       atPath: [],
       uploadFile: [],
       content: 'Erstelle ein Bild: eine Aubergine.',
     };
-    const { rerender } = render(
+    render(
       <AcpSendBox
         conversation_id='conv-1'
         backend='hermes'
@@ -3410,17 +3629,11 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('image');
     await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
 
-    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein kurzes Video: Aubergine.' };
-    rerender(
-      <AcpSendBox
-        conversation_id='conv-1'
-        backend='hermes'
-        workspacePath='/tmp/workspace'
-        messageState={makeMessageState()}
-      />
-    );
+    await act(async () => screen.getByTestId('work-product-active-image').click());
+    await chooseWorkProductMode('video');
     await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
 
     expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
@@ -3431,12 +3644,11 @@ describe('AcpSendBox', () => {
   });
 
   it.each(['Gib mir ein Video von einer Aubergine.', 'Give me a video of an eggplant.'])(
-    '1.820.3 ROUTING PARITY: the unambiguous request idiom "%s" shows video controls AND reaches exactly one direct video job',
+    '1.823.0 EXPLICIT AUTHORITY: plain request prose "%s" stays chat-only',
     async (message) => {
-      // The visible selection/quote and the send path use the SAME shared
-      // predicate — a control that shows must be a job that runs, exactly once.
       draftDataMock.current = { atPath: [], uploadFile: [], content: message };
       sendBoxMessageMock.current = message;
+      sendMessageInvokeMock.mockResolvedValue({});
 
       render(
         <AcpSendBox
@@ -3446,13 +3658,13 @@ describe('AcpSendBox', () => {
           messageState={makeMessageState()}
         />
       );
-      await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
+      await waitFor(() => expect(screen.getByRole('button', { name: 'send' })).toBeTruthy());
+      expect(screen.queryByTestId('video-quality-pill')).toBeNull();
 
       await act(async () => screen.getByRole('button', { name: 'send' }).click());
 
-      await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-      // Exactly the single direct job — no second path through a normal turn.
-      expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+      await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+      expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
     }
   );
 
@@ -3479,7 +3691,7 @@ describe('AcpSendBox', () => {
     expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
-  it('1.820.3: an explicit video creation keeps the existing direct videoGenerate path (unchanged boundary)', async () => {
+  it('1.823.0: explicit video mode keeps the direct videoGenerate path', async () => {
     // The other half of the boundary: create+video MAY use the direct lane.
     // This pins that the contextual gate did not disturb the shipped path.
     draftDataMock.current = {
@@ -3497,6 +3709,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
     await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
     await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
@@ -3504,39 +3717,43 @@ describe('AcpSendBox', () => {
   });
 
   it.each(['Schneide das Video.', 'Mach das Video heller.', 'Animate this video.'])(
-    '1.820.3 EDIT VETO: "%s" never direct-generates — edit-hint shown, exactly one normal Hermes dispatch',
+    '1.823.0 EXACT REFERENCE: "%s" never direct-generates — edit-hint shown, exactly one normal Hermes dispatch',
     async (message) => {
       draftDataMock.current = { atPath: [], uploadFile: [], content: message };
       sendBoxMessageMock.current = message;
       sendMessageInvokeMock.mockResolvedValue({});
 
       renderWithVideoArtifact();
+      await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
+      await chooseWorkProductMode('video');
+      await chooseArtifactReference('video-artifact-1');
 
-      // The shared veto drives BOTH surfaces: the compact edit affordance is
-      // visible (explicit medium noun + edit semantics over an eligible
-      // source), the creation pill is NOT…
+      // Exact reference selection drives BOTH surfaces: the compact edit
+      // affordance is visible for the eligible source, the creation pill is NOT…
       await waitFor(() => expect(screen.getByTestId('video-edit-hint')).toBeTruthy());
       expect(screen.queryByTestId('video-quality-pill')).toBeNull();
 
       await act(async () => screen.getByRole('button', { name: 'send' }).click());
 
-      // …and the send NEVER reaches the direct paid generation branch, even
-      // though these texts also satisfy the creation regex. Exactly one
-      // normal Hermes dispatch; no selectedArtifactIds inferred.
+      // …and the send NEVER reaches the direct paid generation branch. Exactly one
+      // normal Hermes dispatch with only the exact selected artifact id.
       await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
       expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
       for (const call of artifactContextEnvelopeInvokeMock.mock.calls) {
-        expect(call[0]).not.toHaveProperty('selectedArtifactIds');
+        expect(call[0]).toMatchObject({ selectedArtifactIds: ['video-artifact-1'] });
       }
     }
   );
 
-  it('1.820.3: umlaut edit intents bind correctly — Ändere das Video => video edit-hint, Ändere das Bild => image affordance', async () => {
+  it('1.823.0: an exact video reference remains active for an umlaut edit instruction', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'Ändere das Video.' };
     sendBoxMessageMock.current = 'Ändere das Video.';
     sendMessageInvokeMock.mockResolvedValue({});
 
     renderWithVideoArtifact();
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
+    await chooseWorkProductMode('video');
+    await chooseArtifactReference('video-artifact-1');
     await waitFor(() => expect(screen.getByTestId('video-edit-hint')).toBeTruthy());
     expect(screen.queryByTestId('video-quality-pill')).toBeNull();
     expect(screen.queryByTestId('image-model-pill')).toBeNull();
@@ -3619,6 +3836,8 @@ describe('AcpSendBox', () => {
       uploadFile: [],
       content: 'Bearbeite das Bild und gib der Aubergine ein Gesicht.',
     };
+    sendBoxMessageMock.current = 'Bearbeite das Bild und gib der Aubergine ein Gesicht.';
+    sendMessageInvokeMock.mockResolvedValue({});
     videoArtifactsListInvokeMock.mockResolvedValue({
       success: true,
       data: [
@@ -3637,6 +3856,7 @@ describe('AcpSendBox', () => {
           },
         },
         VIDEO_SOURCE_ARTIFACT, // newer, but IRRELEVANT: the explicit image edit binds to the image
+        // oxlint-disable-next-line oxc/no-map-spread -- immutable fixture timestamps are clearer than mutating shared artifacts
       ].map((artifact, index) => ({ ...artifact, created_at: 900 + index, updated_at: 900 + index })),
     });
 
@@ -3651,6 +3871,9 @@ describe('AcpSendBox', () => {
       </ConversationArtifactProvider>
     );
 
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
+    await chooseWorkProductMode('image');
+    await chooseArtifactReference('image-artifact-1');
     await waitFor(() => expect(screen.getByTestId('image-edit-hint')).toBeTruthy());
     // The full three-tier selector is NOT offered for an edit…
     expect(screen.queryByTestId('image-model-pill')).toBeNull();
@@ -3663,6 +3886,10 @@ describe('AcpSendBox', () => {
     expect(hintText).not.toContain('Schnell');
     // …and the newer video does NOT produce a video affordance either.
     expect(screen.queryByTestId('video-edit-hint')).toBeNull();
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
   it('1.820.3 price truth: the hint carries edit_credits (never generate_credits) from the effective reference-capable tier', async () => {
@@ -3757,6 +3984,9 @@ describe('AcpSendBox', () => {
       </ConversationArtifactProvider>
     );
 
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
+    await chooseWorkProductMode('image');
+    await chooseArtifactReference('image-artifact-1');
     await waitFor(() => expect(screen.getByTestId('image-edit-hint')).toBeTruthy());
     const hint = screen.getByTestId('image-edit-hint');
     // The effective tier is the reference-capable one…
@@ -3928,17 +4158,10 @@ describe('AcpSendBox', () => {
     expect(screen.queryByTestId('image-model-pill')).toBeNull();
   });
 
-  it('ignores a tier the user never saw: no visible picker means the cheap default', async () => {
-    // CAO's divergence case, made structural. SendBox enriches the draft before
-    // onSend (reply quote, DOM snippets, a speech transcript captured at send
-    // time), so a message can route to video while the draft alone does not —
-    // and the picker was therefore never shown. The double models exactly that:
-    // the draft is inert, the dispatched message is the video request.
-    // Step 1: a real video draft, so the picker IS shown and HD IS chosen. Without
-    // this the test would pass on the default alone and prove nothing.
+  it('does not spend a stale tier after the user returns to chat', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
 
-    const { rerender } = render(
+    render(
       <AcpSendBox
         conversation_id='conv-1'
         backend='hermes'
@@ -3946,33 +4169,25 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
     act(() => {
       screen.getByTestId('video-quality-option-sd').click();
     });
     expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'sd');
 
-    // Step 2: the draft becomes inert, so the picker disappears — but the message
-    // SendBox hands to onSend still carries the video intent via the reply quote.
-    draftDataMock.current = { atPath: [], uploadFile: [], content: 'ja bitte, mach das' };
+    // Returning to chat removes the explicit one-shot authority. Even enriched
+    // prose mentioning a video remains an ordinary Hermes turn.
+    await act(async () => screen.getByTestId('work-product-active-video').click());
     sendBoxMessageMock.current = '> Sollen wir ein Video über den Launch erstellen?\n\nja bitte, mach das';
-    rerender(
-      <AcpSendBox
-        conversation_id='conv-1'
-        backend='hermes'
-        workspacePath='/tmp/workspace'
-        messageState={makeMessageState()}
-      />
-    );
     expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+    sendMessageInvokeMock.mockResolvedValue({});
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    // It still routes to video (the enriched message carries the intent) — but at
-    // the cheap default, never at a stale HD pick the user cannot connect to it.
-    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'fast' });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
   it('does not let an HD pick outlive its own send', async () => {
@@ -3987,6 +4202,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     act(() => {
       screen.getByTestId('video-quality-option-sd').click();
@@ -3997,8 +4213,11 @@ describe('AcpSendBox', () => {
     await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
     expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'sd' });
 
-    // "Default stays Fast/Standard" has to hold for the NEXT video too.
-    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast'));
+    // One successful send consumes authority. The next video needs a fresh
+    // explicit click and starts from Fast/Standard again.
+    await waitFor(() => expect(screen.queryByTestId('video-quality-pill')).toBeNull());
+    await chooseWorkProductMode('video');
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast');
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -4033,6 +4252,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     act(() => {
       screen.getByTestId('video-quality-option-sd').click();
@@ -4072,6 +4292,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -4107,6 +4328,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -4136,6 +4358,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -4166,6 +4389,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -4200,6 +4424,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -4223,6 +4448,7 @@ describe('AcpSendBox', () => {
         messageState={makeMessageState()}
       />
     );
+    await chooseWorkProductMode('video');
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -4619,6 +4845,9 @@ describe('MAT-1747 round 5 — the production route of a correction, renderer se
     );
 
     if (options.visibleVideoSource) {
+      await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
+      await chooseWorkProductMode('video');
+      await chooseArtifactReference(String((options.visibleVideoSource as { id?: unknown }).id), conversationId);
       await screen.findByTestId('video-edit-hint');
     }
 

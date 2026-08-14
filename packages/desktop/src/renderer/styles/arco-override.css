@@ -99,6 +99,45 @@ html body .arco-menu-pop {
   backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
 }
 
+/* Composer-owned menus share one calmer cadence in both the start and active
+   chat surfaces. Keep the inner scale restrained so the overlay feels placed,
+   not inflated. */
+.eveComposerMenuMotion-enter,
+.eveComposerMenuMotion-appear {
+  opacity: 0;
+  transform: translateY(5px) scale(0.975) translateZ(0);
+}
+
+.eveComposerMenuMotion-enter-active,
+.eveComposerMenuMotion-appear-active {
+  opacity: 1;
+  transform: translateY(0) scale(1) translateZ(0);
+  transition:
+    opacity var(--eve-composer-menu-enter-duration, 480ms) cubic-bezier(0.22, 1, 0.36, 1),
+    transform var(--eve-composer-menu-enter-duration, 480ms) cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.eveComposerMenuMotion-exit {
+  opacity: 1;
+  transform: translateY(0) scale(1) translateZ(0);
+}
+
+.eveComposerMenuMotion-exit-active {
+  opacity: 0;
+  transform: translateY(3px) scale(0.985) translateZ(0);
+  transition:
+    opacity var(--eve-composer-menu-exit-duration, 380ms) cubic-bezier(0.4, 0, 0.2, 1),
+    transform var(--eve-composer-menu-exit-duration, 380ms) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eveComposerMenuMotion-enter-active,
+  .eveComposerMenuMotion-appear-active,
+  .eveComposerMenuMotion-exit-active {
+    transition: none !important;
+  }
+}
+
 :root[data-eve-reduced-effects='true'] body .arco-tooltip-content,
 :root[data-eve-reduced-effects='true'] body .arco-popover-content,
 :root[data-eve-reduced-effects='true'] body .arco-popconfirm-content,

@@ -47,9 +47,12 @@ import {
   readArtifactCapabilityGrant,
   resolveVideoEditCapability,
 } from '@process/commandEve/artifactCapabilityHandleStore';
-import { listActiveImageArtifacts } from '@process/commandEve/imageArtifactStore';
+import {
+  listActiveImageArtifacts,
+  readImageArtifactBytes,
+  readImageArtifactRecordById,
+} from '@process/commandEve/imageArtifactStore';
 import { isAgentImageEditAdvertisingEnabled } from '@process/commandEve/agentImageEditFlag';
-import type { CommandEveActiveImageArtifact } from '@/common/config/managedImageArtifactCore';
 import {
   acquireVideoEditInflightLock,
   consumeVideoEditSpendPermit,
@@ -69,6 +72,7 @@ import { emitCommandEveArtifactsChanged } from '@process/commandEve/artifactsCha
 import { hasVisibleCharacters } from '@/common/config/eveOpaqueTokenCore';
 import { isAgentVideoEditAdvertisingEnabled, readVideoSeatCapabilities } from '@process/commandEve/agentVideoEditFlag';
 import {
+  ARTIFACT_ENVELOPE_MAX_ARTIFACTS,
   buildEveArtifactContextEnvelope,
   type EveArtifactEnvelopeEntry,
 } from '@/common/config/eveArtifactContextEnvelopeCore';
@@ -124,6 +128,9 @@ export interface CommandEveVideoBridgeDeps {
   /** Reads and validates the attached image at rest — the same bounded local
    * boundary `imageIntelligenceService` uses for the vision lane. */
   readImageSource: (filePath: string) => { bytes: Uint8Array };
+  /** Resolve a pathless managed image inside Main's active Seat-scoped store. */
+  readManagedImageRecord?: typeof readImageArtifactRecordById;
+  readManagedImageBytes?: typeof readImageArtifactBytes;
   saveVideoFile: typeof saveGeneratedVideoFile;
   saveArtifactRecord: typeof saveVideoArtifactRecord;
   /**
@@ -206,6 +213,8 @@ const productionDeps: CommandEveVideoBridgeDeps = {
   getPaidArtifactBlockReason: getCommandEvePaidArtifactBlockReason,
   areFileSelectionPathsGranted: areCommandEveFileSelectionPathsGranted,
   readImageSource: (filePath: string) => readBoundedImageSource(filePath),
+  readManagedImageRecord: readImageArtifactRecordById,
+  readManagedImageBytes: readImageArtifactBytes,
   saveVideoFile: saveGeneratedVideoFile,
   saveArtifactRecord: saveVideoArtifactRecord,
   getVideoSeatCapabilities: () => readVideoSeatCapabilities(),
@@ -281,7 +290,8 @@ function videoSeatRecoveryRequiredResult(): CommandEveVideoGenerateResult {
   return {
     ok: false,
     reasonCode: 'video-seat-recovery-required',
-    message: 'Der letzte Seed-Wechsel wurde nicht abgeschlossen. Starte Command EVE neu, bevor du erneut ein Video erstellst.',
+    message:
+      'Der letzte Seed-Wechsel wurde nicht abgeschlossen. Starte Command EVE neu, bevor du erneut ein Video erstellst.',
     retryable: false,
   };
 }
@@ -331,9 +341,27 @@ export async function handleCommandEveVideoGenerate(
   // shape that carries two input families, so nothing downstream re-checks it
   // and nothing downstream can get it wrong.
   const capabilities = (deps.getVideoSeatCapabilities ?? readVideoSeatCapabilities)();
-  const modeResult = buildVideoRequestMode<string>({
-    image: typeof request.imagePath === 'string' ? request.imagePath : null,
-    referenceImages: Array.isArray(request.referenceImagePaths) ? request.referenceImagePaths : null,
+  type ImageSource = { kind: 'file'; path: string } | { kind: 'managed'; artifactId: string };
+  const fileImageSource = typeof request.imagePath === 'string' ? request.imagePath : null;
+  const managedImageSource = typeof request.imageArtifactId === 'string' ? request.imageArtifactId : null;
+  if (fileImageSource !== null && managedImageSource !== null) {
+    return {
+      ok: false,
+      reasonCode: 'video-mode-ambiguous',
+      message: describeVideoModeRefusal('video-mode-ambiguous'),
+      retryable: false,
+    };
+  }
+  const modeResult = buildVideoRequestMode<ImageSource>({
+    image:
+      managedImageSource !== null
+        ? { kind: 'managed', artifactId: managedImageSource }
+        : fileImageSource !== null
+          ? { kind: 'file', path: fileImageSource }
+          : null,
+    referenceImages: Array.isArray(request.referenceImagePaths)
+      ? request.referenceImagePaths.map((path) => ({ kind: 'file' as const, path }))
+      : null,
     presetVoiceIds: Array.isArray(request.presetVoiceIds) ? request.presetVoiceIds : null,
     capabilities,
   });
@@ -366,24 +394,19 @@ export async function handleCommandEveVideoGenerate(
   });
   if (tierGateRefusal) return tierGateRefusal;
 
-  const wireResult = readLicenseWire(originDataPath);
-  if (!wireResult.ok || !wireResult.wire) {
-    return {
-      ok: false,
-      reasonCode: 'entitlement-not-drawable',
-      message: 'Für Videos wird ein aktives Command-EVE-Konto benötigt.',
-      retryable: false,
-    };
-  }
-
   // Every attached path — the single image->video source and each of the up-to-7
   // reference images — goes through the SAME grant check and the SAME bounded
   // read. Reference images are not a lighter class of attachment: they are user
   // files leaving the machine, so they get the identical boundary rather than a
   // second, more permissive one written next to it.
   const imagePaths =
-    pathMode.kind === 'image' ? [pathMode.image] : pathMode.kind === 'reference' ? [...pathMode.referenceImages] : [];
+    pathMode.kind === 'image' && pathMode.image.kind === 'file'
+      ? [pathMode.image.path]
+      : pathMode.kind === 'reference'
+        ? pathMode.referenceImages.flatMap((source) => (source.kind === 'file' ? [source.path] : []))
+        : [];
   const assets: VideoAssetPayload[] = [];
+  let parentArtifactId: string | undefined;
   if (imagePaths.length > 0) {
     if (!deps.areFileSelectionPathsGranted({ filePaths: imagePaths, seatId: capturedSeatId, purpose: 'read' })) {
       return {
@@ -409,6 +432,56 @@ export async function handleCommandEveVideoGenerate(
         };
       }
     }
+  }
+
+  if (pathMode.kind === 'image' && pathMode.image.kind === 'managed') {
+    if (!request.conversationId) {
+      return {
+        ok: false,
+        reasonCode: 'video-image-artifact-conversation-required',
+        message: 'Das ausgewählte Bild gehört zu keiner aktiven Unterhaltung.',
+        retryable: false,
+      };
+    }
+    try {
+      const readRecord = deps.readManagedImageRecord ?? readImageArtifactRecordById;
+      const readBytes = deps.readManagedImageBytes ?? readImageArtifactBytes;
+      const record = readRecord(originDataPath, pathMode.image.artifactId);
+      const bytes = readBytes(originDataPath, pathMode.image.artifactId);
+      if (
+        !record ||
+        record.status !== 'active' ||
+        record.conversation_id !== request.conversationId ||
+        !bytes ||
+        bytes.byteLength === 0
+      ) {
+        throw new Error('EVE_VIDEO_IMAGE_ARTIFACT_UNAVAILABLE');
+      }
+      const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+      if (sha256 !== record.payload.sha256) throw new Error('EVE_VIDEO_IMAGE_ARTIFACT_CHANGED');
+      assets.push({ base64: bytes.toString('base64'), sha256 });
+      parentArtifactId = record.id;
+    } catch {
+      return {
+        ok: false,
+        reasonCode: 'video-image-artifact-unavailable',
+        message: 'Das ausgewählte Bild ist nicht mehr verfügbar. Wähle es im Artefaktbereich erneut aus.',
+        retryable: false,
+      };
+    }
+  }
+
+  // Only after every local source has been re-authorized, loaded and hashed do
+  // we touch the account wire. A stale/cross-conversation managed artifact is a
+  // local refusal and must neither draw credentials nor approach a paid lane.
+  const wireResult = readLicenseWire(originDataPath);
+  if (!wireResult.ok || !wireResult.wire) {
+    return {
+      ok: false,
+      reasonCode: 'entitlement-not-drawable',
+      message: 'Für Videos wird ein aktives Command-EVE-Konto benötigt.',
+      retryable: false,
+    };
   }
 
   // The mode is re-expressed over the BYTES, never rebuilt from the loose fields:
@@ -498,6 +571,7 @@ export async function handleCommandEveVideoGenerate(
         id: artifactId,
         conversationId: request.conversationId,
         createdAtMs: Date.now(),
+        ...(parentArtifactId === undefined ? {} : { parentArtifactId }),
       });
       deps.saveArtifactRecord(originDataPath, conversationArtifact);
       // Its OWN try/catch, deliberately. The enclosing catch collapses every
@@ -827,10 +901,16 @@ export async function handleCommandEveArtifactContextEnvelope(
       if (!turnStateEstablished) (deps.denySpend ?? denyVideoEditSpend)(dataPath, conversationId);
     }
 
+    const selectedArtifactIds = Array.isArray(request?.selectedArtifactIds)
+      ? request.selectedArtifactIds
+          .filter((value): value is string => typeof value === 'string' && value.length > 0 && value.length <= 256)
+          .slice(0, ARTIFACT_ENVELOPE_MAX_ARTIFACTS)
+      : [];
+    const selectedArtifactIdSet = new Set(selectedArtifactIds);
     const storedEntries = deps.buildEntries(
       dataPath,
       conversationId,
-      request?.selectedArtifactIds === undefined ? {} : { selectedArtifactIds: request.selectedArtifactIds }
+      selectedArtifactIds.length === 0 ? {} : { selectedArtifactIds }
     );
     // MAT-1753 item C. The reference images pending on the draft ride the SAME
     // envelope, ahead of the stored clips, because they are what the user is
@@ -843,10 +923,10 @@ export async function handleCommandEveArtifactContextEnvelope(
     // newer than the clips the user saw before them, older than the files
     // still on the draft. Read-only entries — no handle, no capability, and
     // deliberately NOT part of the spend-permit binding below.
-    const imageEntries = buildStoredImageEnvelopeEntries(dataPath, conversationId, deps);
+    const imageEntries = buildStoredImageEnvelopeEntries(dataPath, conversationId, selectedArtifactIdSet, deps);
     // 1.820.3 — the MANAGED GENERATED images. EDITABLE kind=image entries with
     // an `evecap_` handle, between the read-only sent images and the clips.
-    const managedImageEntries = buildManagedImageEnvelopeEntries(dataPath, conversationId, deps);
+    const managedImageEntries = buildManagedImageEnvelopeEntries(dataPath, conversationId, selectedArtifactIdSet, deps);
     const entries = [...referenceEntries, ...imageEntries, ...managedImageEntries, ...storedEntries];
     // And THIS turn's attached images become next turns' durable records. The
     // write happens after the listing so the current envelope never shows the
@@ -857,6 +937,15 @@ export async function handleCommandEveArtifactContextEnvelope(
     recordSentImageArtifacts(dataPath, conversationId, request?.referenceImagePaths, referenceEntries, deps);
     const editableVideos = entries.filter((entry) => entry.editable && entry.kind === 'video');
     const editableImages = managedImageEntries.filter((entry) => entry.editable);
+    // Clicking "edit this" is a hard target boundary, not a hint. When an
+    // explicit selection was supplied, a permit may cover only matching,
+    // editable selected entries. An unknown, stale or wrong-medium id therefore
+    // mints nothing instead of falling back to the newest artifact. The legacy
+    // no-selection path remains bounded to the visible editable set.
+    const permitVideos =
+      selectedArtifactIds.length === 0 ? editableVideos : editableVideos.filter((entry) => entry.selected === true);
+    const permitImages =
+      selectedArtifactIds.length === 0 ? editableImages : editableImages.filter((entry) => entry.selected === true);
     // POLICY F per medium: a capability is advertised only when the paid path
     // is really enabled AND there is something editable to spend it on. The
     // two media are advertised INDEPENDENTLY — kill-switching one never
@@ -885,7 +974,7 @@ export async function handleCommandEveArtifactContextEnvelope(
       // many times this path is driven for it. Another is that the mint itself
       // hit a storage failure — in which case it has already denied the
       // conversation on its way out.
-      if (requestedEditOperation === 'video_edit' && paidEnabled && editableVideos.length > 0) {
+      if (requestedEditOperation === 'video_edit' && paidEnabled && permitVideos.length > 0) {
         spendPermit = issue(dataPath, {
           conversationId,
           userTurnSha256,
@@ -913,11 +1002,11 @@ export async function handleCommandEveArtifactContextEnvelope(
           // `videoReferenceEnvelope.test.ts` pins BOTH halves — the mint-side
           // contents AND the absence of a redeem — so whoever adds one has to come
           // past a red test and correct this paragraph.
-          allowedArtifactSha256: [...referenceEntries, ...editableVideos]
+          allowedArtifactSha256: [...referenceEntries, ...permitVideos]
             .map((entry) => entry.artifactSha256)
             .filter((sha): sha is string => typeof sha === 'string'),
         });
-      } else if (requestedEditOperation === 'image_edit' && imagePaidEnabled && editableImages.length > 0) {
+      } else if (requestedEditOperation === 'image_edit' && imagePaidEnabled && permitImages.length > 0) {
         // The image half, bound by the same store, TTL and turn digest — but
         // operation `image_edit`, so a video permit can never buy an image edit
         // and this permit can never buy a video one.
@@ -925,7 +1014,7 @@ export async function handleCommandEveArtifactContextEnvelope(
           conversationId,
           userTurnSha256,
           operation: 'image_edit',
-          allowedArtifactSha256: editableImages
+          allowedArtifactSha256: permitImages
             .map((entry) => entry.artifactSha256)
             .filter((sha): sha is string => typeof sha === 'string'),
         });
@@ -1107,22 +1196,27 @@ function buildReferenceImageEnvelopeEntries(
 function buildStoredImageEnvelopeEntries(
   dataPath: string,
   conversationId: string,
+  selectedArtifactIds: ReadonlySet<string>,
   deps: CommandEveArtifactContextEnvelopeDeps
 ): EveArtifactEnvelopeEntry[] {
   const list = deps.listImageRecords;
   if (!list) return [];
   try {
-    return list(dataPath, conversationId)
-      .toSorted((a, b) => b.created_at - a.created_at)
-      .slice(0, IMAGE_ARTIFACT_ENVELOPE_MAX_ENTRIES)
-      .map((record) => ({
+    const ordered = list(dataPath, conversationId).toSorted((a, b) => b.created_at - a.created_at);
+    const selected = ordered.filter((record) => selectedArtifactIds.has(record.id));
+    const remaining = ordered.filter((record) => !selectedArtifactIds.has(record.id));
+    return [...selected, ...remaining].slice(0, IMAGE_ARTIFACT_ENVELOPE_MAX_ENTRIES).map((record) => {
+      const entry: EveArtifactEnvelopeEntry = {
         artifactId: record.id,
-        kind: 'image' as const,
+        kind: 'image',
         mimeType: record.mimeType,
         durationSeconds: 0,
         editable: false,
         artifactSha256: record.sha256,
-      }));
+      };
+      if (selectedArtifactIds.has(record.id)) entry.selected = true;
+      return entry;
+    });
   } catch {
     return [];
   }
@@ -1143,44 +1237,46 @@ function buildStoredImageEnvelopeEntries(
 function buildManagedImageEnvelopeEntries(
   dataPath: string,
   conversationId: string,
+  selectedArtifactIds: ReadonlySet<string>,
   deps: CommandEveArtifactContextEnvelopeDeps
 ): EveArtifactEnvelopeEntry[] {
   const list = deps.listManagedImageRecords;
   if (!list) return [];
   const nowMs = Date.now();
   try {
-    return list(dataPath, conversationId)
-      .toSorted((a, b) => b.created_at - a.created_at)
-      .slice(0, IMAGE_ARTIFACT_ENVELOPE_MAX_ENTRIES)
-      .map((record) => {
-        let editHandle: string | undefined;
-        try {
-          editHandle = (deps.ensureImageEditHandle ?? ensureImageEditCapabilityHandle)(
-            dataPath,
-            {
-              conversation_id: record.conversation_id,
-              artifact_id: record.id,
-              artifact_sha256: record.payload.sha256,
-            },
-            { nowMs }
-          );
-        } catch {
-          editHandle = undefined;
-        }
-        const entry: EveArtifactEnvelopeEntry = {
-          artifactId: record.id,
-          kind: 'image',
-          mimeType: record.payload.mime_type,
-          durationSeconds: 0,
-          // A handle is minted ONLY for an editable image, so the envelope can
-          // never name an image the edit lane would refuse.
-          editable: Boolean(editHandle),
-          artifactSha256: record.payload.sha256,
-        };
-        if (editHandle !== undefined) entry.editHandle = editHandle;
-        if (record.payload.parent_artifact_id !== undefined) entry.parentArtifactId = record.payload.parent_artifact_id;
-        return entry;
-      });
+    const ordered = list(dataPath, conversationId).toSorted((a, b) => b.created_at - a.created_at);
+    const selected = ordered.filter((record) => selectedArtifactIds.has(record.id));
+    const remaining = ordered.filter((record) => !selectedArtifactIds.has(record.id));
+    return [...selected, ...remaining].slice(0, IMAGE_ARTIFACT_ENVELOPE_MAX_ENTRIES).map((record) => {
+      let editHandle: string | undefined;
+      try {
+        editHandle = (deps.ensureImageEditHandle ?? ensureImageEditCapabilityHandle)(
+          dataPath,
+          {
+            conversation_id: record.conversation_id,
+            artifact_id: record.id,
+            artifact_sha256: record.payload.sha256,
+          },
+          { nowMs }
+        );
+      } catch {
+        editHandle = undefined;
+      }
+      const entry: EveArtifactEnvelopeEntry = {
+        artifactId: record.id,
+        kind: 'image',
+        mimeType: record.payload.mime_type,
+        durationSeconds: 0,
+        // A handle is minted ONLY for an editable image, so the envelope can
+        // never name an image the edit lane would refuse.
+        editable: Boolean(editHandle),
+        artifactSha256: record.payload.sha256,
+      };
+      if (editHandle !== undefined) entry.editHandle = editHandle;
+      if (record.payload.parent_artifact_id !== undefined) entry.parentArtifactId = record.payload.parent_artifact_id;
+      if (selectedArtifactIds.has(record.id)) entry.selected = true;
+      return entry;
+    });
   } catch {
     return [];
   }

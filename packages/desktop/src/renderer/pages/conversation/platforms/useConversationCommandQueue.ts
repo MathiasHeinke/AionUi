@@ -6,6 +6,11 @@ import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 import { COMMAND_EVE_PREPARED_CONTEXT_MAX_CHARS } from '@/common/config/evePreparedContextCore';
 import { extractCommandEveManagedVisualTurnToken } from '@/common/config/eveManagedVisualTurnCore';
+import {
+  consumeComposerWorkProductSelection,
+  selectExplicitComposerWorkProductMode,
+  type ComposerWorkProductSelection,
+} from '@/common/config/composerWorkProductModeCore';
 
 export type ConversationCommandQueueItem = {
   id: string;
@@ -16,6 +21,10 @@ export type ConversationCommandQueueItem = {
   preparedContext?: string;
   /** Non-authoritative hint; Main reissues and validates visual authority at execution time. */
   managedVisualSourceCount?: number;
+  /** Explicit, one-shot composer authority retained when a turn is queued. */
+  composerSelection?: ComposerWorkProductSelection;
+  /** Exact pathless artifact target; valid only with a referenced selection. */
+  selectedArtifactId?: string;
   files: string[];
   created_at: number;
 };
@@ -57,6 +66,8 @@ const summarizeQueuedCommand = (item: ConversationCommandQueueItem): Record<stri
   displayFileCount: (item.displayFiles ?? item.files).length,
   preparedContextLength: item.preparedContext?.length ?? 0,
   managedVisualSourceCount: item.managedVisualSourceCount ?? 0,
+  composerMode: item.composerSelection?.mode ?? 'chat',
+  hasSelectedArtifact: item.selectedArtifactId !== undefined,
   preview: item.input.replace(/\s+/g, ' ').trim().slice(0, 120),
 });
 
@@ -93,6 +104,27 @@ const deriveLegacyDisplayFiles = (files: string[]): string[] => {
   return files.filter((filePath) => !isGeneratedPdfSidecar(filePath));
 };
 
+const SAFE_QUEUED_ARTIFACT_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/;
+
+const normalizeQueuedComposerSelection = (
+  selection: unknown,
+  artifactId: unknown
+): Pick<ConversationCommandQueueItem, 'composerSelection' | 'selectedArtifactId'> | null => {
+  if (selection === undefined && artifactId === undefined) return {};
+  const consumed = consumeComposerWorkProductSelection(selection);
+  if (!consumed.request) return null;
+  const hasReference = consumed.request.hasSelectedReference;
+  if (hasReference !== (typeof artifactId === 'string' && SAFE_QUEUED_ARTIFACT_ID.test(artifactId))) return null;
+  return {
+    composerSelection: selectExplicitComposerWorkProductMode(
+      consumed.request.mode,
+      hasReference ? { selected: true, kind: consumed.request.selectedReferenceKind } : undefined,
+      consumed.request.imageOptions
+    ),
+    ...(hasReference ? { selectedArtifactId: artifactId as string } : {}),
+  };
+};
+
 const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null => {
   if (!item || typeof item !== 'object') {
     return null;
@@ -102,6 +134,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
   const candidateDisplayFiles = candidate.displayFiles;
   const candidatePreparedContext = candidate.preparedContext;
   const candidateManagedVisualSourceCount = candidate.managedVisualSourceCount;
+  const queuedComposer = normalizeQueuedComposerSelection(candidate.composerSelection, candidate.selectedArtifactId);
   if (
     typeof candidate.id !== 'string' ||
     typeof candidate.input !== 'string' ||
@@ -119,6 +152,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
         candidateManagedVisualSourceCount > 6 ||
         typeof candidatePreparedContext !== 'string' ||
         !candidatePreparedContext.trim())) ||
+    queuedComposer === null ||
     typeof candidate.created_at !== 'number' ||
     !Number.isFinite(candidate.created_at)
   ) {
@@ -139,6 +173,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
     ...(typeof candidateManagedVisualSourceCount === 'number'
       ? { managedVisualSourceCount: candidateManagedVisualSourceCount }
       : {}),
+    ...queuedComposer,
     created_at: candidate.created_at,
   };
 
@@ -195,9 +230,17 @@ export const createQueuedCommandItem = ({
   displayFiles,
   preparedContext,
   managedVisualSourceCount,
+  composerSelection,
+  selectedArtifactId,
 }: Pick<
   ConversationCommandQueueItem,
-  'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount'
+  | 'input'
+  | 'files'
+  | 'displayFiles'
+  | 'preparedContext'
+  | 'managedVisualSourceCount'
+  | 'composerSelection'
+  | 'selectedArtifactId'
 >): ConversationCommandQueueItem => ({
   id: uuid(),
   input,
@@ -205,6 +248,8 @@ export const createQueuedCommandItem = ({
   ...(displayFiles ? { displayFiles: uniqueFiles(displayFiles) } : {}),
   ...(preparedContext?.trim() ? { preparedContext } : {}),
   ...(managedVisualSourceCount ? { managedVisualSourceCount } : {}),
+  ...(composerSelection ? { composerSelection } : {}),
+  ...(selectedArtifactId ? { selectedArtifactId } : {}),
   created_at: Date.now(),
 });
 
@@ -482,7 +527,13 @@ type UseConversationCommandQueueOptions = {
 
 type EnqueueCommandInput = Pick<
   ConversationCommandQueueItem,
-  'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount'
+  | 'input'
+  | 'files'
+  | 'displayFiles'
+  | 'preparedContext'
+  | 'managedVisualSourceCount'
+  | 'composerSelection'
+  | 'selectedArtifactId'
 >;
 type UpdateCommandInput = Pick<ConversationCommandQueueItem, 'input'>;
 
@@ -651,7 +702,15 @@ export const useConversationCommandQueue = ({
   );
 
   const enqueue = useCallback(
-    ({ input, files, displayFiles, preparedContext, managedVisualSourceCount }: EnqueueCommandInput) => {
+    ({
+      input,
+      files,
+      displayFiles,
+      preparedContext,
+      managedVisualSourceCount,
+      composerSelection,
+      selectedArtifactId,
+    }: EnqueueCommandInput) => {
       if (!enabled) {
         return null;
       }
@@ -663,6 +722,8 @@ export const useConversationCommandQueue = ({
         displayFiles,
         preparedContext,
         managedVisualSourceCount,
+        composerSelection,
+        selectedArtifactId,
       });
       const validation = validateQueuedCommandItem(item, currentState);
 

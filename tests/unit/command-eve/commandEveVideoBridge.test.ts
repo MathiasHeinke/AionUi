@@ -345,6 +345,150 @@ describe('handleCommandEveVideoGenerate', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('resolves a pathless managed image in Main, verifies its bytes, and preserves immutable parentage', async () => {
+    let sentBody: Record<string, unknown> = {};
+    const fetchMock = vi.fn(async (_url: unknown, init: unknown) => {
+      sentBody = JSON.parse((init as { body: string }).body);
+      return jsonResponse(200, okBody);
+    });
+    const imageBytes = Buffer.from([9, 8, 7, 6]);
+    const sha256 = createHash('sha256').update(imageBytes).digest('hex');
+    const readManagedImageRecord = vi.fn(() => ({
+      id: 'img-source',
+      conversation_id: 'conv-1',
+      kind: 'image' as const,
+      status: 'active' as const,
+      payload: {
+        artifact_type: 'image' as const,
+        title: 'Produktbild',
+        description: '1K · 16:9',
+        managed_image: true as const,
+        mime_type: 'image/png',
+        sha256,
+        size: imageBytes.byteLength,
+        tier: 'quality',
+        model: 'gemini',
+        resolution: '1K',
+        aspect_ratio: '16:9',
+        prompt_sha256: 'a'.repeat(64),
+      },
+      created_at: 1,
+      updated_at: 1,
+    }));
+    const readManagedImageBytes = vi.fn(() => imageBytes);
+    const readImageSourceMock = vi.fn(() => ({ bytes: new Uint8Array([1]) }));
+
+    const result = await handleCommandEveVideoGenerate(
+      {
+        prompt: 'sanfte Kamerafahrt',
+        tierId: 'fast',
+        durationSeconds: 5,
+        conversationId: 'conv-1',
+        imageArtifactId: 'img-source',
+      },
+      deps(fetchMock as unknown as typeof fetch, {
+        readManagedImageRecord,
+        readManagedImageBytes,
+        readImageSource: readImageSourceMock,
+      })
+    );
+
+    expect(readManagedImageRecord).toHaveBeenCalledWith('/tmp/eve-data', 'img-source');
+    expect(readManagedImageBytes).toHaveBeenCalledWith('/tmp/eve-data', 'img-source');
+    expect(readImageSourceMock).not.toHaveBeenCalled();
+    const sentVideo = sentBody.video_generation as Record<string, unknown>;
+    expect(sentVideo.mode).toBe('image');
+    expect(sentVideo.image_base64).toBe(imageBytes.toString('base64'));
+    expect(sentVideo.image_sha256).toBe(sha256);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.conversationArtifact?.payload.parent_artifact_id).toBe('img-source');
+  });
+
+  it.each([
+    {
+      name: 'has no active conversation',
+      request: { imageArtifactId: 'img-source' },
+      recordConversationId: 'conv-1',
+      storedSha256: 'b'.repeat(64),
+      reasonCode: 'video-image-artifact-conversation-required',
+    },
+    {
+      name: 'belongs to another conversation',
+      request: { conversationId: 'conv-1', imageArtifactId: 'img-source' },
+      recordConversationId: 'conv-other',
+      storedSha256: 'b'.repeat(64),
+      reasonCode: 'video-image-artifact-unavailable',
+    },
+    {
+      name: 'changed after its manifest was written',
+      request: { conversationId: 'conv-1', imageArtifactId: 'img-source' },
+      recordConversationId: 'conv-1',
+      storedSha256: '0'.repeat(64),
+      reasonCode: 'video-image-artifact-unavailable',
+    },
+  ])('refuses a managed image that $name before credentials or network', async (scenario) => {
+    const imageBytes = Buffer.from([1, 2, 3, 4]);
+    const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
+    const readManagedImageRecord = vi.fn(() => ({
+      id: 'img-source',
+      conversation_id: scenario.recordConversationId,
+      kind: 'image' as const,
+      status: 'active' as const,
+      payload: {
+        artifact_type: 'image' as const,
+        title: 'Bild',
+        description: '',
+        managed_image: true as const,
+        mime_type: 'image/png',
+        sha256:
+          scenario.storedSha256 === 'b'.repeat(64)
+            ? createHash('sha256').update(imageBytes).digest('hex')
+            : scenario.storedSha256,
+        size: imageBytes.byteLength,
+        tier: 'quality',
+        model: 'gemini',
+        resolution: '1K',
+        aspect_ratio: '1:1',
+        prompt_sha256: 'a'.repeat(64),
+      },
+      created_at: 1,
+      updated_at: 1,
+    }));
+
+    const result = await handleCommandEveVideoGenerate(
+      { prompt: 'p', tierId: 'fast', durationSeconds: 5, ...scenario.request },
+      deps(fetchMock as unknown as typeof fetch, {
+        readManagedImageRecord,
+        readManagedImageBytes: () => imageBytes,
+      })
+    );
+
+    expect(result).toMatchObject({ ok: false, reasonCode: scenario.reasonCode });
+    expect(readLicenseWireMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses simultaneous file and managed image authority before credentials or network', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
+
+    const result = await handleCommandEveVideoGenerate(
+      {
+        prompt: 'p',
+        tierId: 'fast',
+        durationSeconds: 5,
+        conversationId: 'conv-1',
+        imagePath: '/tmp/source.png',
+        imageArtifactId: 'img-source',
+      },
+      deps(fetchMock as unknown as typeof fetch)
+    );
+
+    expect(result).toMatchObject({ ok: false, reasonCode: 'video-mode-ambiguous' });
+    expect(readLicenseWireMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('refuses hd (1080p) when 1.5 is NOT available to the seat, before reading anything', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
     const readImageSourceMock = vi.fn(() => ({ bytes: new Uint8Array([1]) }));

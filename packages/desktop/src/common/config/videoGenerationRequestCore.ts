@@ -75,6 +75,13 @@ export interface CommandEveVideoGenerateRequest {
    * representation at all.
    */
   imagePath?: string;
+  /**
+   * A pathless managed image from this SAME conversation. Mutually exclusive
+   * with both file-based image fields. Renderer sends only the opaque artifact
+   * id; Main resolves the active Seat-scoped record and bytes, verifies the
+   * conversation and SHA-256, and emits neither id nor bytes back to renderer.
+   */
+  imageArtifactId?: string;
   /** Up to 7 grant-verified reference image paths for reference-to-video. */
   referenceImagePaths?: string[];
   /**
@@ -373,7 +380,7 @@ export interface CommandEveVideoConversationArtifactPayload {
   // one and the chain is lost.
   duration_seconds: number;
   origin_capability: 'video_generation' | 'video_edit';
-  /** Set only on derived artifacts — the clip this one was produced FROM. */
+  /** Set only on derived artifacts — the source image/video this one came FROM. */
   parent_artifact_id?: string;
   /**
    * MAT-1773 (Package B) — the remote origin of a HYDRATED clip (the provider
@@ -558,9 +565,9 @@ export function buildVideoConversationArtifact(input: {
   createdAtMs: number;
   originCapability?: 'video_generation' | 'video_edit';
   /**
-   * The clip this one was edited FROM. An edit result is a NEW artifact beside
-   * its source, never a replacement: overwriting would make a bad edit a data
-   * loss, and the user asked to change a video, not to lose one.
+   * The artifact this video was derived FROM. For edits this is the source
+   * clip; for image-to-video it may be the managed source image. The result is
+   * always a NEW artifact beside its source, never a replacement.
    */
   parentArtifactId?: string;
 }): CommandEveVideoConversationArtifact {

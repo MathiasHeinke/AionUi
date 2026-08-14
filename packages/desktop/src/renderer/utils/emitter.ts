@@ -19,6 +19,11 @@ export type ReplyQuote = {
   position: 'left' | 'right' | 'center' | 'pop';
 };
 
+export type CommandEveComposerArtifactReferenceEvent = {
+  conversation_id: string;
+  artifact_id: string;
+};
+
 interface EventTypes {
   'aionrs.selected.file': [Array<string | FileOrFolderItem>];
   'aionrs.selected.file.append': [Array<string | FileOrFolderItem>];
@@ -54,6 +59,8 @@ interface EventTypes {
   // `chat.history.refresh` fires at send-ACCEPTANCE — far too early for an
   // agent-lane artifact (e.g. an eve_video_edit child) to exist on disk.
   'commandEve.artifacts.refresh': [{ conversation_id: string }];
+  /** Explicit user action: bind this exact conversation artifact to the composer. */
+  'commandEve.composer.reference.select': [CommandEveComposerArtifactReferenceEvent];
   // Native Hermes Desktop `focus_pane` is routed into the canonical EVE shell
   // instead of opening the unrelated elements inspector. Conversation scope is
   // mandatory so a late frame cannot move another chat's workbench.

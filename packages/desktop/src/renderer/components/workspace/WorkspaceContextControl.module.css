@@ -41,6 +41,20 @@
   max-width: 320px;
 }
 
+.menu :global(.arco-menu-item),
+.menu :global(.arco-dropdown-menu-item) {
+  transition:
+    color var(--eve-composer-menu-hover-duration, 300ms) ease,
+    background-color var(--eve-composer-menu-hover-duration, 300ms) ease,
+    transform var(--eve-composer-menu-hover-duration, 300ms) ease,
+    box-shadow var(--eve-composer-menu-selection-duration, 400ms) ease;
+}
+
+.menu :global(.arco-menu-item:active),
+.menu :global(.arco-dropdown-menu-item:active) {
+  transform: scale(0.988);
+}
+
 .menuItem {
   display: flex;
   width: 100%;
@@ -96,5 +110,12 @@
   .control {
     max-width: 180px !important;
     padding-inline: 9px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu :global(.arco-menu-item),
+  .menu :global(.arco-dropdown-menu-item) {
+    transition: none;
   }
 }

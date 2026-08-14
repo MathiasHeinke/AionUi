@@ -404,10 +404,15 @@
 
 .guidInputInner {
   min-height: 270px;
+  --eve-composer-inset: 12px;
   background: transparent;
   border: 0;
   border-radius: 23px 23px 0 0;
   box-sizing: border-box;
+}
+
+.guidInputCardWrap[data-compact='true'] .guidInputInner {
+  min-height: 184px;
 }
 
 .assistantPromptPanel {
@@ -481,11 +486,16 @@
 
 .actionRow {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
   width: 100%;
   gap: 8px;
   margin-top: auto;
+}
+
+.compatibilityController {
+  display: none;
 }
 
 .actionEntry {

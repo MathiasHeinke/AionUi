@@ -6,24 +6,28 @@
 
 import { ipcBridge } from '@/common';
 import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
+import { resolveComposerArtifactReference } from '@/common/config/composerArtifactReferenceCore';
 import { eveTeamWorkerLabel } from '@/common/config/eveTeamRoster';
 import type { PreviewContentType } from '@/common/types/office/preview';
 import { useConversationDelegationActivity } from '@/renderer/pages/conversation/runtime/conversationDelegationActivityStore';
 import { useConversationRuntimeView } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
 import {
   isVisibleConversationArtifact,
+  isUsableMediaEditSource,
   mediaArtifactTypeOf,
   useConversationArtifactsById,
 } from '@/renderer/pages/conversation/Messages/artifacts';
+import { emitter } from '@/renderer/utils/emitter';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { LARGE_TEXT_PREVIEW_MAX_LENGTH } from '@/renderer/pages/conversation/Preview/constants';
 import { sanitizeArtifactPreviewSource } from '@/renderer/pages/conversation/Messages/components/artifactPreviewSecurityCore';
 import { ELEMENTS_RAIL_SELECT_EVENT, type ElementsRailTab } from '@/renderer/utils/workspace/workspaceEvents';
-import { Button, Message, Spin } from '@arco-design/web-react';
+import { Button, Message, Spin, Tooltip } from '@arco-design/web-react';
 import {
   Caution,
   CheckOne,
   Code,
+  EditOne,
   FileText,
   FileWord,
   FolderOpen,
@@ -176,7 +180,8 @@ const readPayloadContent = (payload: Record<string, unknown>, keys: string[]): s
 const fileNameOf = (value?: string): string | undefined => {
   if (!value) return undefined;
   const normalized = value.replace(/\\/g, '/').split('?')[0].split('#')[0];
-  return normalized.split('/').filter(Boolean).pop();
+  const lastSeparator = normalized.lastIndexOf('/');
+  return normalized.slice(lastSeparator + 1) || undefined;
 };
 
 const fileExtensionOf = (value?: string): string | undefined => {
@@ -638,23 +643,57 @@ const ShellElementsRail: React.FC<ShellElementsRailProps> = ({
                       readPayloadContent(payload, ARTIFACT_INLINE_CONTENT_KEYS) ||
                       payload.managed_image === true
                     );
+                  const candidateReference = resolveComposerArtifactReference(artifact);
+                  const composerReference =
+                    candidateReference &&
+                    ((candidateReference.mode !== 'image' && candidateReference.mode !== 'video') ||
+                      isUsableMediaEditSource(artifact))
+                      ? candidateReference
+                      : null;
                   return (
-                    <Button
-                      key={artifact.id}
-                      type='text'
-                      className={styles.artifactButton}
-                      disabled={!openable}
-                      onClick={() => {
-                        void openArtifact(artifact);
-                      }}
-                      aria-label={t('conversation.elementsRail.openArtifact', { name: title })}
-                    >
-                      <span className={styles.artifactIcon}>
-                        {artifactIcon(type, readPayloadString(payload, ['file_name']) || title)}
-                      </span>
-                      <span className={styles.artifactName}>{title}</span>
-                      <Right size={13} aria-hidden='true' />
-                    </Button>
+                    <div key={artifact.id} className={styles.artifactRow}>
+                      <Button
+                        type='text'
+                        className={styles.artifactButton}
+                        disabled={!openable}
+                        onClick={() => {
+                          void openArtifact(artifact);
+                        }}
+                        aria-label={t('conversation.elementsRail.openArtifact', { name: title })}
+                      >
+                        <span className={styles.artifactIcon}>
+                          {artifactIcon(type, readPayloadString(payload, ['file_name']) || title)}
+                        </span>
+                        <span className={styles.artifactName}>{title}</span>
+                        <Right size={13} aria-hidden='true' />
+                      </Button>
+                      {composerReference ? (
+                        <Tooltip
+                          content={t('conversation.elementsRail.continueEditing', {
+                            defaultValue: 'Im Chat bearbeiten',
+                          })}
+                          position='left'
+                          mini
+                        >
+                          <Button
+                            type='text'
+                            className={styles.artifactReferenceButton}
+                            aria-label={t('conversation.elementsRail.continueEditingArtifact', {
+                              defaultValue: '{{name}} im Chat bearbeiten',
+                              name: title,
+                            })}
+                            onClick={() => {
+                              emitter.emit('commandEve.composer.reference.select', {
+                                conversation_id: composerReference.conversationId,
+                                artifact_id: composerReference.artifactId,
+                              });
+                            }}
+                          >
+                            <EditOne size={14} aria-hidden='true' />
+                          </Button>
+                        </Tooltip>
+                      ) : null}
+                    </div>
                   );
                 })}
               </div>

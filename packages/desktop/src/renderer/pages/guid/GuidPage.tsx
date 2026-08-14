@@ -10,6 +10,18 @@ import { resolveLocaleKey } from '@/common/utils';
 import { COMMAND_EVE_ASSISTANT_AVATAR, COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
 import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
+import ComposerReferencePreview from '@/renderer/components/chat/ComposerReferencePreview';
+import { WorkProductModeHeader } from '@/renderer/components/chat/WorkProductModeSelector';
+import { resolveComposerAttachmentPresentation } from '@/renderer/components/chat/composerAttachmentPresentation';
+import ImageAspectRatioPill from '@/renderer/components/billing/ImageAspectRatioPill';
+import ImageModelPill from '@/renderer/components/billing/ImageModelPill';
+import { useImageComposerSelection } from '@/renderer/components/billing/useImageComposerSelection';
+import {
+  DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION,
+  selectExplicitComposerWorkProductMode,
+  type ComposerWorkProductMode,
+  type ComposerWorkProductSelection,
+} from '@/common/config/composerWorkProductModeCore';
 import VoiceDialogueControl from '@/renderer/components/chat/voiceDialogue/VoiceDialogueControl';
 import { resolveVoiceDialoguePhase } from '@/renderer/components/chat/voiceDialogue/voiceDialogueCore';
 import { useVoiceDialoguePreference } from '@/renderer/components/chat/voiceDialogue/useVoiceDialoguePreference';
@@ -193,6 +205,75 @@ const GuidPage: React.FC = () => {
   // selection the conversation composer holds, via the shared hook. Rendered
   // by GuidVideoPill and carried into the new conversation on send.
   const videoComposerSelection = useVideoComposerSelection();
+  const imageComposerSelection = useImageComposerSelection();
+  const [composerSelection, setComposerSelection] = useState<ComposerWorkProductSelection>(
+    DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION
+  );
+  const handleComposerModeChange = useCallback(
+    (mode: ComposerWorkProductMode) => {
+      setComposerSelection(
+        mode === 'chat'
+          ? DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION
+          : selectExplicitComposerWorkProductMode(
+              mode,
+              undefined,
+              mode === 'image'
+                ? {
+                    tierId: imageComposerSelection.tierId,
+                    aspectRatio: imageComposerSelection.aspectRatio,
+                    resolution: imageComposerSelection.resolution,
+                  }
+                : undefined
+            )
+      );
+    },
+    [imageComposerSelection.aspectRatio, imageComposerSelection.resolution, imageComposerSelection.tierId]
+  );
+  const handleImageModelTierChange = useCallback(
+    (tierId: typeof imageComposerSelection.tierId) => {
+      imageComposerSelection.setTierId(tierId);
+      setComposerSelection((selection) =>
+        selection.mode === 'image'
+          ? selectExplicitComposerWorkProductMode('image', undefined, {
+              tierId,
+              aspectRatio: imageComposerSelection.aspectRatio,
+              resolution: imageComposerSelection.resolution,
+            })
+          : selection
+      );
+    },
+    [imageComposerSelection.aspectRatio, imageComposerSelection.resolution, imageComposerSelection.setTierId]
+  );
+  const handleImageResolutionChange = useCallback(
+    (resolution: '1K' | '2K') => {
+      imageComposerSelection.setResolution(resolution);
+      setComposerSelection((selection) =>
+        selection.mode === 'image'
+          ? selectExplicitComposerWorkProductMode('image', undefined, {
+              tierId: selection.imageOptions?.tierId ?? imageComposerSelection.tierId,
+              aspectRatio: imageComposerSelection.aspectRatio,
+              resolution,
+            })
+          : selection
+      );
+    },
+    [imageComposerSelection.aspectRatio, imageComposerSelection.setResolution, imageComposerSelection.tierId]
+  );
+  const handleImageAspectRatioChange = useCallback(
+    (aspectRatio: typeof imageComposerSelection.aspectRatio) => {
+      imageComposerSelection.setAspectRatio(aspectRatio);
+      setComposerSelection((selection) =>
+        selection.mode === 'image'
+          ? selectExplicitComposerWorkProductMode('image', undefined, {
+              tierId: selection.imageOptions?.tierId ?? imageComposerSelection.tierId,
+              aspectRatio,
+              resolution: imageComposerSelection.resolution,
+            })
+          : selection
+      );
+    },
+    [imageComposerSelection.resolution, imageComposerSelection.setAspectRatio, imageComposerSelection.tierId]
+  );
 
   const send = useGuidSend({
     // Input state
@@ -234,6 +315,7 @@ const GuidPage: React.FC = () => {
     // Media-lane carry (MAT-1773 P3): a video selection made on this surface
     // rides the initial message into the new conversation.
     getVideoSelection: videoComposerSelection.currentSelection,
+    getComposerSelection: () => composerSelection,
 
     // Navigation
     navigate,
@@ -685,10 +767,89 @@ const GuidPage: React.FC = () => {
   // tokenUsage=null); the credits half of the popover is independent and live.
   const contextIndicatorNode = <ContextUsageIndicator tokenUsage={null} />;
 
+  const workProductModes = [
+    {
+      mode: 'image' as const,
+      label: t('conversation.workProduct.image.label'),
+      tooltip: t('conversation.workProduct.image.tooltip'),
+    },
+    {
+      mode: 'video' as const,
+      label: t('conversation.workProduct.video.label'),
+      tooltip: t('conversation.workProduct.video.tooltip'),
+    },
+    {
+      mode: 'presentation' as const,
+      label: t('conversation.workProduct.presentation.label'),
+      tooltip: t('conversation.workProduct.presentation.tooltip'),
+    },
+    {
+      mode: 'pdf' as const,
+      label: t('conversation.workProduct.pdf.label'),
+      tooltip: t('conversation.workProduct.pdf.tooltip'),
+    },
+  ];
+  const workProductActions = {
+    toolbarLabel: t('conversation.workProduct.toolbarLabel'),
+    returnToChatLabel: t('conversation.workProduct.returnToChat'),
+    selectedReferenceLabel: t('conversation.workProduct.selectedReference'),
+    removeReferenceLabel: t('conversation.workProduct.removeReference'),
+  };
+  const { referenceImagePath: localImageReferencePath, visibleFiles: visibleAttachmentFiles } =
+    resolveComposerAttachmentPresentation(composerSelection.mode, guidInput.files);
+  const workProductControls = (
+    <>
+      <ImageModelPill
+        visible={composerSelection.mode === 'image'}
+        value={imageComposerSelection.tierId}
+        onChange={handleImageModelTierChange}
+        registry={imageComposerSelection.registry}
+        resolution={imageComposerSelection.resolution}
+        onResolutionChange={handleImageResolutionChange}
+      />
+      <ImageAspectRatioPill
+        visible={composerSelection.mode === 'image'}
+        value={imageComposerSelection.aspectRatio}
+        onChange={handleImageAspectRatioChange}
+      />
+      <GuidVideoPill
+        files={guidInput.files}
+        selection={videoComposerSelection}
+        visible={composerSelection.mode === 'video'}
+      />
+    </>
+  );
+  const workProductHeader = !COMMAND_EVE_SHELL_ENABLED ? null : localImageReferencePath ? (
+    <WorkProductModeHeader
+      value={composerSelection.mode}
+      onChange={handleComposerModeChange}
+      modes={workProductModes}
+      actions={workProductActions}
+      disabled={guidInput.loading}
+      controls={workProductControls}
+      selectedReference={{
+        title: localImageReferencePath.split(/[\\/]/).at(-1) || t('conversation.workProduct.referenceImage'),
+        kind: 'image',
+        kindLabel: t('conversation.workProduct.referenceImage'),
+        preview: <ComposerReferencePreview path={localImageReferencePath} alt='' />,
+      }}
+      onRemoveReference={() => guidInput.handleRemoveFile(localImageReferencePath)}
+    />
+  ) : (
+    <WorkProductModeHeader
+      value={composerSelection.mode}
+      onChange={handleComposerModeChange}
+      modes={workProductModes}
+      actions={workProductActions}
+      disabled={guidInput.loading}
+      controls={workProductControls}
+    />
+  );
+
   // Build the action row
   const actionRowNode = (
     <GuidActionRow
-      files={guidInput.files}
+      files={visibleAttachmentFiles}
       onFilesUploaded={guidInput.handleFilesUploaded}
       workspaceDir={guidInput.dir}
       onSelectWorkspace={(dir) => guidInput.setDir(dir)}
@@ -713,6 +874,8 @@ const GuidPage: React.FC = () => {
       mcpServers={availableMcpServers}
       selectedMcpServerIds={guidSelectedMcpServerIds ?? []}
       onToggleMcpServer={handleToggleMcpServer}
+      workProductMode={composerSelection.mode}
+      onWorkProductModeChange={handleComposerModeChange}
       hidePresetTag
       loading={guidInput.loading}
       isButtonDisabled={send.isButtonDisabled}
@@ -931,6 +1094,7 @@ const GuidPage: React.FC = () => {
             ) : null}
 
             <GuidInputCard
+              compact={isCommandEveAssistant}
               input={guidInput.input}
               onInputChange={handleInputChange}
               onKeyDown={handleInputKeyDown}
@@ -956,13 +1120,9 @@ const GuidPage: React.FC = () => {
                 />
               }
               mentionDropdown={mentionDropdownNode}
-              files={guidInput.files}
+              files={visibleAttachmentFiles}
               onRemoveFile={guidInput.handleRemoveFile}
-              mediaPill={
-                isCommandEveAssistant ? (
-                  <GuidVideoPill input={guidInput.input} files={guidInput.files} selection={videoComposerSelection} />
-                ) : undefined
-              }
+              prefix={isCommandEveAssistant ? workProductHeader : undefined}
               actionRow={actionRowNode}
             />
 

@@ -6,11 +6,14 @@
 
 import { ipcBridge } from '@/common';
 import type { IFileMetadata, IGeneratedArtifactType, IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
+import { resolveComposerArtifactReference } from '@/common/config/composerArtifactReferenceCore';
 import MarkdownView from '@/renderer/components/Markdown';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
+import { isUsableMediaEditSource } from '@/renderer/pages/conversation/Messages/artifacts';
+import { emitter } from '@/renderer/utils/emitter';
 import { Message } from '@arco-design/web-react';
-import { FolderOpen, Paperclip, PreviewOpen } from '@icon-park/react';
+import { EditOne, FolderOpen, Paperclip, PreviewOpen } from '@icon-park/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import PDFPreview from '../../Preview/components/viewers/PDFViewer';
@@ -85,7 +88,8 @@ function readRecord(payload: Record<string, unknown>, keys: string[]): Record<st
 function getFileName(value?: string): string | undefined {
   if (!value) return undefined;
   const normalized = value.replace(/\\/g, '/').split('?')[0].split('#')[0];
-  return normalized.split('/').filter(Boolean).pop();
+  const lastSeparator = normalized.lastIndexOf('/');
+  return normalized.slice(lastSeparator + 1) || undefined;
 }
 
 const WINDOWS_ABSOLUTE_PATH_RE = /^[a-z]:[\\/]/i;
@@ -440,6 +444,12 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const previewSource = managedImagePreviewSource ?? (source?.startsWith('file:') ? localFilePreviewSource : source);
   const pdfPreviewSource = openPath ? localFilePreviewSource : source;
   const canOpen = Boolean(openPath || (source && /^https?:/i.test(source)));
+  const composerReference = useMemo(() => {
+    const reference = resolveComposerArtifactReference(artifact);
+    if (!reference) return null;
+    if ((reference.mode === 'image' || reference.mode === 'video') && !isUsableMediaEditSource(artifact)) return null;
+    return reference;
+  }, [artifact]);
   const hasPreview =
     ((type === 'image' || type === 'video' || type === 'audio') && Boolean(previewSource)) ||
     (type === 'pdf' && Boolean(pdfPreviewSource)) ||
@@ -469,6 +479,14 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
       console.error('[MessageGeneratedArtifact] Failed to reveal artifact:', revealError);
       Message.error(t('messages.artifact.revealFailed'));
     }
+  };
+
+  const handleUseInComposer = () => {
+    if (!composerReference) return;
+    emitter.emit('commandEve.composer.reference.select', {
+      conversation_id: composerReference.conversationId,
+      artifact_id: composerReference.artifactId,
+    });
   };
 
   return (
@@ -566,8 +584,19 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
           </div>
         )}
 
-        {(canOpen || openPath) && (
+        {(canOpen || openPath || composerReference) && (
           <div className='eve-artifact-actions flex items-center gap-8px px-14px py-10px'>
+            {composerReference && (
+              <button
+                type='button'
+                data-testid='generated-artifact-use-in-composer'
+                className='eve-artifact-action flex items-center gap-6px px-10px text-12px'
+                onClick={handleUseInComposer}
+              >
+                <EditOne theme='outline' size={14} fill={iconColors.secondary} />
+                <span>{t('messages.artifact.continueEditing', { defaultValue: 'Bearbeiten' })}</span>
+              </button>
+            )}
             {canOpen && (
               <button
                 type='button'

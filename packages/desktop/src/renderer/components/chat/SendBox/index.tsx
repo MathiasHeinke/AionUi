@@ -198,6 +198,8 @@ const SendBox: React.FC<{
   selectedWorkspaceItems?: FileSelectionItem[];
   onSelectedWorkspaceItemsChange?: (items: FileSelectionItem[]) => void;
   bottomHint?: React.ReactNode;
+  /** Secondary composer deck (project, authority, MAX, context). */
+  footerSlot?: React.ReactNode;
   /**
    * Mobile-only: open a parent-supplied action sheet via the `+` button.
    * When provided, mobile renders a single `+` button (left) and send/stop button (right);
@@ -239,6 +241,7 @@ const SendBox: React.FC<{
   selectedWorkspaceItems,
   onSelectedWorkspaceItemsChange,
   bottomHint,
+  footerSlot,
   onMobilePlusClick,
   hideSpeechButton = false,
   hasPendingSpeechInput,
@@ -1826,6 +1829,7 @@ const SendBox: React.FC<{
               </div>
             </div>
           )}
+          {footerSlot}
         </div>
       </div>
     </>

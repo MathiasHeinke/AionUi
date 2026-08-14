@@ -255,6 +255,24 @@ describe('managed image generation main-process service', () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  it('refuses an outer-bridge Seat/revision mismatch before registry or provider work', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+    const seams = imageLaneSeams();
+
+    await expect(
+      executeCommandEveManagedImageGeneration(request(), {
+        fetchFn: fetchFn as typeof fetch,
+        dataPath: '/tmp/eve-managed-image-test',
+        getActiveSeatId: () => ACTIVE_SEED_ID,
+        getActiveSeatContextRevision: () => 10,
+        expectedSeat: { id: ACTIVE_SEED_ID, revision: 9 },
+        ...seams,
+      })
+    ).resolves.toMatchObject({ status: 409, body: { error: { code: 'managed_image_seat_changed' } } });
+    expect(seams.readRegistry).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it('holds the paid fence through POST and preserves the billed artifact despite hostile direct Seat mutation', async () => {
     let activeSeatId = ACTIVE_SEED_ID;
     let activeSeatContextRevision = 9;
@@ -306,6 +324,66 @@ describe('managed image generation main-process service', () => {
 
     const body = JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body));
     expect(body.image_model).toBe('max');
+  });
+
+  it('an explicit composer tier is request-authoritative, bypasses the stored preference and owns the gateway request id', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+    const readPreference = vi.fn();
+
+    await executeCommandEveManagedImageGeneration(request(), {
+      fetchFn: fetchFn as typeof fetch,
+      dataPath: '/tmp/test',
+      ...imageLaneSeams({ readPreference }),
+      requestedTier: 'quality',
+      requestId: 'image-request-0001',
+    });
+
+    const body = JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body));
+    expect(body.image_model).toBe('quality');
+    expect(body.requestId).toBe('image-request-0001');
+    expect(body.resolution).toBe('1K');
+    expect(body.aspect_ratio).toBe('16:9');
+    expect(readPreference).not.toHaveBeenCalled();
+  });
+
+  it('an explicit composer tier that cannot edit refuses before provider instead of silently switching tiers', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+    const readPreference = vi.fn();
+
+    await expect(
+      executeCommandEveManagedImageGeneration(request(), {
+        fetchFn: fetchFn as typeof fetch,
+        dataPath: '/tmp/test',
+        ...imageLaneSeams({ readPreference }),
+        requestedTier: 'max',
+        requestId: 'image-request-0002',
+      })
+    ).resolves.toMatchObject({ status: 400, body: { error: { code: 'image_edit_tier_unsupported' } } });
+    expect(readPreference).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('an explicit tier-resolution combination not offered by the live registry refuses before provider', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+    const { input_references: _refs, ...generationRequest } = request();
+    const maxOneKOnly = {
+      ...REGISTRY,
+      tiers: REGISTRY.tiers.map((tier) => (tier.id === 'max' ? { ...tier, resolutions: ['1K'] as const } : tier)),
+    };
+
+    await expect(
+      executeCommandEveManagedImageGeneration(
+        { ...generationRequest, resolution: '2K' },
+        {
+          fetchFn: fetchFn as typeof fetch,
+          dataPath: '/tmp/test',
+          ...imageLaneSeams({ readRegistry: vi.fn(async () => ({ ok: true as const, registry: maxOneKOnly })) }),
+          requestedTier: 'max',
+          requestId: 'image-request-0003',
+        }
+      )
+    ).resolves.toMatchObject({ status: 400, body: { error: { code: 'image_model_resolution_unsupported' } } });
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   it('1.820.3 edit authority: references ride the reference-capable tier for THIS request only, preference untouched', async () => {

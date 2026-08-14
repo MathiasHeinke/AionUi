@@ -12,6 +12,7 @@ import {
   normalizeQueueState,
   useConversationCommandQueue,
 } from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
+import { selectExplicitComposerWorkProductMode } from '@/common/config/composerWorkProductModeCore';
 
 const { messageWarningMock } = vi.hoisted(() => ({
   messageWarningMock: vi.fn(),
@@ -171,6 +172,31 @@ describe('useConversationCommandQueue', () => {
         },
       ],
       isPaused: true,
+    });
+  });
+
+  it('round-trips exact image output options with explicit one-shot queue authority', () => {
+    const normalized = normalizeQueueState({
+      items: [
+        {
+          id: 'image-create',
+          input: 'Create the campaign key visual',
+          files: [],
+          composerSelection: selectExplicitComposerWorkProductMode('image', undefined, {
+            tierId: 'max',
+            aspectRatio: '1:1',
+            resolution: '2K',
+          }),
+          created_at: 1,
+        },
+      ],
+      isPaused: true,
+    });
+
+    expect(normalized.items[0]?.composerSelection).toMatchObject({
+      mode: 'image',
+      authority: 'explicit_user_selection',
+      imageOptions: { tierId: 'max', aspectRatio: '1:1', resolution: '2K' },
     });
   });
 });

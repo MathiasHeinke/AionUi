@@ -36,7 +36,21 @@
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { COMMAND_EVE_MANAGED_IMAGE_MODEL } from '@/common/config/eveManagedImageGenerationCore';
+import {
+  COMMAND_EVE_MANAGED_IMAGE_ASPECT_RATIOS,
+  COMMAND_EVE_MANAGED_IMAGE_MAX_PROMPT_CHARS,
+  COMMAND_EVE_MANAGED_IMAGE_MAX_REFERENCES,
+  COMMAND_EVE_MANAGED_IMAGE_MODEL,
+  COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS,
+  type CommandEveImageGenerateRequest,
+  type CommandEveImageGenerateResult,
+  type CommandEveManagedImageAspectRatio,
+  type CommandEveManagedImageResolution,
+} from '@/common/config/eveManagedImageGenerationCore';
+import {
+  isCommandEveImageModelTierId,
+  type CommandEveImageModelTierId,
+} from '@/common/config/eveImageModelRegistryCore';
 import { describeArtifactCapabilityRefusal } from '@/common/config/eveArtifactCapabilityHandleCore';
 import { describeSpendPermitRefusal } from '@/common/config/eveVideoEditSpendPermitCore';
 import type { CommandEveActiveImageArtifact } from '@/common/config/managedImageArtifactCore';
@@ -52,20 +66,32 @@ import {
   listActiveImageArtifacts,
   readImageArtifactBytes,
   readImageArtifactRecordById,
+  readImageArtifactRecordByStagedHandle,
   type ImageArtifactBindResult,
   type ImageArtifactImportResult,
 } from '@process/commandEve/imageArtifactStore';
 import {
   executeCommandEveManagedImageGeneration,
+  type CommandEveManagedImageGenerationOptions,
   type CommandEveManagedImageLocalResult,
 } from '@process/commandEve/managedImageGenerationService';
+import { areCommandEveFileSelectionPathsGranted } from '@process/commandEve/fileSelectionGrantCore';
+import { readBoundedImageSource } from '@process/commandEve/document/imageIntelligenceService';
+import {
+  getActiveSeatContextRevision,
+  getActiveSeatId,
+  getCommandEvePaidArtifactBlockReason,
+  tryBeginCommandEvePaidArtifactOperation,
+} from '@process/commandEve/seatContextCore';
 import {
   acquireVideoEditInflightLock,
   consumeVideoEditSpendPermit,
   evaluateStoredVideoEditSpendPermit,
   isVideoEditSpendDenied,
   isVideoEditSpendStoreHealthy,
+  readVideoEditSpendCompletion,
   readVideoEditSpendPermitRecord,
+  recordVideoEditSpendCompletion,
   releaseVideoEditInflightLock,
 } from '@process/commandEve/videoEditSpendPermitStore';
 
@@ -138,6 +164,556 @@ export async function handleCommandEveImageArtifactBindBridge(
   deps: CommandEveImageArtifactBindDeps = productionBindDeps
 ): Promise<{ success: true; data: ImageArtifactBindResult }> {
   return { success: true, data: await handleCommandEveImageArtifactBind(request, deps) };
+}
+
+// ---------------------------------------------------------------------------
+// GENERATE — one explicit composer turn, staged and bound inside Main
+// ---------------------------------------------------------------------------
+
+const IMAGE_GENERATE_SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/;
+const IMAGE_GENERATE_SAFE_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{7,127}$/;
+const IMAGE_GENERATE_COMPLETION_TTL_MS = 10 * 60 * 1000;
+const IMAGE_GENERATE_COMPLETION_MAX = 128;
+
+type NormalizedImageGenerateRequest = {
+  prompt: string;
+  conversationId: string;
+  requestId: string;
+  tierId: CommandEveImageModelTierId;
+  resolution: CommandEveManagedImageResolution;
+  aspectRatio: CommandEveManagedImageAspectRatio;
+  referenceImagePaths: string[];
+};
+
+function refuseImageGenerate(
+  reasonCode: string,
+  message: string,
+  options: {
+    requestId?: string;
+    retryable?: boolean;
+    artifactState?: Extract<CommandEveImageGenerateResult, { ok: false }>['artifactState'];
+  } = {}
+): CommandEveImageGenerateResult {
+  return {
+    ok: false,
+    ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
+    reasonCode,
+    message,
+    retryable: options.retryable ?? false,
+    artifactState: options.artifactState ?? 'none',
+  };
+}
+
+function normalizeImageGenerateRequest(
+  request?: CommandEveImageGenerateRequest
+): { ok: true; request: NormalizedImageGenerateRequest } | { ok: false; result: CommandEveImageGenerateResult } {
+  const requestId = typeof request?.requestId === 'string' ? request.requestId : undefined;
+  const prompt = typeof request?.prompt === 'string' ? request.prompt.replace(/\r\n?/g, '\n').trim() : '';
+  if (!prompt || prompt.length > COMMAND_EVE_MANAGED_IMAGE_MAX_PROMPT_CHARS) {
+    return {
+      ok: false,
+      result: refuseImageGenerate('image-generate-prompt-invalid', 'Beschreibe das gewünschte Bild etwas genauer.', {
+        requestId,
+      }),
+    };
+  }
+  if (typeof request?.conversationId !== 'string' || !IMAGE_GENERATE_SAFE_ID.test(request.conversationId)) {
+    return {
+      ok: false,
+      result: refuseImageGenerate(
+        'image-generate-conversation-invalid',
+        'Die Bildanfrage gehört zu keiner gültigen Unterhaltung.',
+        { requestId }
+      ),
+    };
+  }
+  if (!requestId || !IMAGE_GENERATE_SAFE_REQUEST_ID.test(requestId)) {
+    return {
+      ok: false,
+      result: refuseImageGenerate(
+        'image-generate-request-id-invalid',
+        'Die Bildanfrage hat keinen gültigen Schlüssel.'
+      ),
+    };
+  }
+  if (!isCommandEveImageModelTierId(request.tierId)) {
+    return {
+      ok: false,
+      result: refuseImageGenerate('image-generate-tier-invalid', 'Das ausgewählte Bildmodell ist nicht gültig.', {
+        requestId,
+      }),
+    };
+  }
+  if (!COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS.includes(request.resolution)) {
+    return {
+      ok: false,
+      result: refuseImageGenerate('image-generate-resolution-invalid', 'Die ausgewählte Auflösung ist nicht gültig.', {
+        requestId,
+      }),
+    };
+  }
+  if (!COMMAND_EVE_MANAGED_IMAGE_ASPECT_RATIOS.includes(request.aspectRatio)) {
+    return {
+      ok: false,
+      result: refuseImageGenerate(
+        'image-generate-aspect-ratio-invalid',
+        'Das ausgewählte Bildformat ist nicht gültig.',
+        {
+          requestId,
+        }
+      ),
+    };
+  }
+  const rawPaths = request.referenceImagePaths ?? [];
+  if (!Array.isArray(rawPaths) || rawPaths.length > COMMAND_EVE_MANAGED_IMAGE_MAX_REFERENCES) {
+    return {
+      ok: false,
+      result: refuseImageGenerate(
+        'image-generate-references-invalid',
+        'Es wurden zu viele Referenzbilder ausgewählt.',
+        {
+          requestId,
+        }
+      ),
+    };
+  }
+  const referenceImagePaths: string[] = [];
+  const uniquePaths = new Set<string>();
+  for (const candidate of rawPaths) {
+    if (
+      typeof candidate !== 'string' ||
+      !candidate ||
+      candidate !== candidate.trim() ||
+      candidate.includes('\0') ||
+      !path.isAbsolute(candidate)
+    ) {
+      return {
+        ok: false,
+        result: refuseImageGenerate(
+          'image-generate-reference-path-invalid',
+          'Ein Referenzbild hat keinen gültigen lokalen Pfad.',
+          { requestId }
+        ),
+      };
+    }
+    const normalizedPath = path.resolve(candidate);
+    if (normalizedPath !== candidate || uniquePaths.has(normalizedPath)) {
+      return {
+        ok: false,
+        result: refuseImageGenerate(
+          'image-generate-reference-path-invalid',
+          'Ein Referenzbild wurde doppelt oder mit einem uneindeutigen Pfad angegeben.',
+          { requestId }
+        ),
+      };
+    }
+    uniquePaths.add(normalizedPath);
+    referenceImagePaths.push(normalizedPath);
+  }
+  return {
+    ok: true,
+    request: {
+      prompt,
+      conversationId: request.conversationId,
+      requestId,
+      tierId: request.tierId,
+      resolution: request.resolution,
+      aspectRatio: request.aspectRatio,
+      referenceImagePaths,
+    },
+  };
+}
+
+type CommandEveImageGenerateCoordinator = {
+  run: (
+    input: { conversationId: string; requestId: string; requestDigest: string },
+    work: () => Promise<CommandEveImageGenerateResult>
+  ) => Promise<CommandEveImageGenerateResult>;
+};
+
+/** Process-local response replay; the gateway request id remains the durable debit dedupe after restart. */
+export function createCommandEveImageGenerateCoordinator(): CommandEveImageGenerateCoordinator {
+  const inflightByRequest = new Map<
+    string,
+    { conversationId: string; requestDigest: string; promise: Promise<CommandEveImageGenerateResult> }
+  >();
+  const inflightByConversation = new Map<string, string>();
+  const completed = new Map<
+    string,
+    { conversationId: string; requestDigest: string; result: CommandEveImageGenerateResult; expiresAt: number }
+  >();
+
+  const prune = (nowMs: number): void => {
+    for (const [requestId, entry] of completed) {
+      if (entry.expiresAt <= nowMs) completed.delete(requestId);
+    }
+    while (completed.size > IMAGE_GENERATE_COMPLETION_MAX) {
+      const oldest = completed.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      completed.delete(oldest);
+    }
+  };
+
+  return {
+    async run(input, work) {
+      prune(Date.now());
+      const completedEntry = completed.get(input.requestId);
+      if (completedEntry) {
+        if (
+          completedEntry.conversationId !== input.conversationId ||
+          completedEntry.requestDigest !== input.requestDigest
+        ) {
+          return refuseImageGenerate(
+            'image-generate-request-id-conflict',
+            'Dieser Anfrage-Schlüssel gehört bereits zu einer anderen Bildanfrage.',
+            { requestId: input.requestId }
+          );
+        }
+        return completedEntry.result.ok ? { ...completedEntry.result, alreadyCompleted: true } : completedEntry.result;
+      }
+
+      const requestEntry = inflightByRequest.get(input.requestId);
+      if (requestEntry) {
+        if (
+          requestEntry.conversationId !== input.conversationId ||
+          requestEntry.requestDigest !== input.requestDigest
+        ) {
+          return refuseImageGenerate(
+            'image-generate-request-id-conflict',
+            'Dieser Anfrage-Schlüssel gehört bereits zu einer anderen Bildanfrage.',
+            { requestId: input.requestId }
+          );
+        }
+        return requestEntry.promise;
+      }
+
+      const conversationRequestId = inflightByConversation.get(input.conversationId);
+      if (conversationRequestId) {
+        return refuseImageGenerate(
+          'image-generate-already-in-flight',
+          'Für diese Unterhaltung wird bereits ein Bild erstellt.',
+          { requestId: input.requestId, retryable: true }
+        );
+      }
+
+      const promise = Promise.resolve()
+        .then(work)
+        .catch(() =>
+          refuseImageGenerate('image-generate-failed', 'Die Bildanfrage ist unerwartet fehlgeschlagen.', {
+            requestId: input.requestId,
+            retryable: true,
+            artifactState: 'creation_unverified',
+          })
+        )
+        .then((result) => {
+          // A refusal proven to have happened BEFORE creation remains
+          // retryable with the same id after its cause clears. Successes and
+          // any ambiguous/post-provider outcome are replayed so a retry cannot
+          // accidentally buy the same visual twice.
+          const shouldCache = result.ok === true ? true : result.artifactState !== 'none';
+          if (shouldCache) {
+            completed.set(input.requestId, {
+              conversationId: input.conversationId,
+              requestDigest: input.requestDigest,
+              result,
+              expiresAt: Date.now() + IMAGE_GENERATE_COMPLETION_TTL_MS,
+            });
+          }
+          prune(Date.now());
+          return result;
+        })
+        .finally(() => {
+          inflightByRequest.delete(input.requestId);
+          if (inflightByConversation.get(input.conversationId) === input.requestId) {
+            inflightByConversation.delete(input.conversationId);
+          }
+        });
+      inflightByRequest.set(input.requestId, {
+        conversationId: input.conversationId,
+        requestDigest: input.requestDigest,
+        promise,
+      });
+      inflightByConversation.set(input.conversationId, input.requestId);
+      return promise;
+    },
+  };
+}
+
+export interface CommandEveImageGenerateDeps {
+  getDataPath: typeof getDataPath;
+  getActiveSeatId: typeof getActiveSeatId;
+  getActiveSeatContextRevision: typeof getActiveSeatContextRevision;
+  areFileSelectionPathsGranted?: typeof areCommandEveFileSelectionPathsGranted;
+  readImageSource?: typeof readBoundedImageSource;
+  runManagedGeneration?: (
+    input: Parameters<typeof executeCommandEveManagedImageGeneration>[0],
+    options: CommandEveManagedImageGenerationOptions
+  ) => Promise<CommandEveManagedImageLocalResult>;
+  bind?: typeof bindStagedImageArtifact;
+  acquireInflightLock?: typeof acquireVideoEditInflightLock;
+  releaseInflightLock?: typeof releaseVideoEditInflightLock;
+  coordinator?: CommandEveImageGenerateCoordinator;
+  onFreshBind?: (conversationId: string) => void;
+}
+
+const productionImageGenerateCoordinator = createCommandEveImageGenerateCoordinator();
+
+const productionImageGenerateDeps: CommandEveImageGenerateDeps = {
+  getDataPath,
+  getActiveSeatId,
+  getActiveSeatContextRevision,
+  areFileSelectionPathsGranted: areCommandEveFileSelectionPathsGranted,
+  readImageSource: readBoundedImageSource,
+  runManagedGeneration: executeCommandEveManagedImageGeneration,
+  bind: bindStagedImageArtifact,
+  acquireInflightLock: acquireVideoEditInflightLock,
+  releaseInflightLock: releaseVideoEditInflightLock,
+  coordinator: productionImageGenerateCoordinator,
+};
+
+function managedImageFailureResult(
+  localResult: CommandEveManagedImageLocalResult,
+  requestId: string
+): CommandEveImageGenerateResult {
+  const error =
+    localResult.body.error && typeof localResult.body.error === 'object' && !Array.isArray(localResult.body.error)
+      ? (localResult.body.error as Record<string, unknown>)
+      : {};
+  const reasonCode = typeof error.code === 'string' && error.code ? error.code : 'managed_image_failed';
+  const message =
+    typeof error.message === 'string' && error.message ? error.message : 'Das Bild konnte nicht erstellt werden.';
+  const artifactState =
+    reasonCode === 'managed_image_stage_failed'
+      ? ('created_not_stored' as const)
+      : localResult.status >= 500 &&
+          !['image_model_registry_unavailable', 'image_generation_disabled', 'managed_image_disabled'].includes(
+            reasonCode
+          )
+        ? ('creation_unverified' as const)
+        : ('none' as const);
+  return refuseImageGenerate(reasonCode, message, {
+    requestId,
+    retryable: artifactState === 'creation_unverified' || localResult.status === 429,
+    artifactState,
+  });
+}
+
+/**
+ * Generate and bind an image without exposing the staged handle. The incoming
+ * request id is both the turn-local dedupe key and the gateway idempotency key.
+ */
+export async function handleCommandEveImageGenerate(
+  rawRequest?: CommandEveImageGenerateRequest,
+  deps: CommandEveImageGenerateDeps = productionImageGenerateDeps
+): Promise<CommandEveImageGenerateResult> {
+  const normalized = normalizeImageGenerateRequest(rawRequest);
+  if (normalized.ok === false) return normalized.result;
+  const request = normalized.request;
+  const requestDigest = crypto
+    .createHash('sha256')
+    .update(
+      JSON.stringify({
+        prompt: request.prompt,
+        conversationId: request.conversationId,
+        tierId: request.tierId,
+        resolution: request.resolution,
+        aspectRatio: request.aspectRatio,
+        referenceImagePaths: request.referenceImagePaths,
+      })
+    )
+    .digest('hex');
+  const coordinator = deps.coordinator ?? productionImageGenerateCoordinator;
+
+  return coordinator.run(
+    { conversationId: request.conversationId, requestId: request.requestId, requestDigest },
+    async () => {
+      let dataPath: string;
+      let capturedSeatId: string;
+      let capturedSeatContextRevision: number;
+      try {
+        dataPath = deps.getDataPath();
+        capturedSeatId = deps.getActiveSeatId();
+        capturedSeatContextRevision = deps.getActiveSeatContextRevision();
+      } catch {
+        return refuseImageGenerate('image-generate-seat-unavailable', 'Der aktive Platz ist gerade nicht verfügbar.', {
+          requestId: request.requestId,
+          retryable: true,
+        });
+      }
+      const seatStillMatches = (): boolean => {
+        try {
+          return (
+            deps.getActiveSeatId() === capturedSeatId &&
+            deps.getActiveSeatContextRevision() === capturedSeatContextRevision
+          );
+        } catch {
+          return false;
+        }
+      };
+
+      let lockHeld = false;
+      try {
+        lockHeld = (deps.acquireInflightLock ?? acquireVideoEditInflightLock)(dataPath, request.conversationId);
+      } catch {
+        lockHeld = false;
+      }
+      if (!lockHeld) {
+        return refuseImageGenerate(
+          'image-generate-already-in-flight',
+          'Für diese Unterhaltung wird bereits ein Medienartefakt erstellt.',
+          { requestId: request.requestId, retryable: true }
+        );
+      }
+
+      try {
+        if (!seatStillMatches()) {
+          return refuseImageGenerate(
+            'image-generate-seat-changed',
+            'Der aktive Platz hat gewechselt. Bitte erneut senden.',
+            {
+              requestId: request.requestId,
+              retryable: true,
+            }
+          );
+        }
+
+        const inputReferences: Array<{ type: 'image_url'; image_url: { url: string } }> = [];
+        if (request.referenceImagePaths.length > 0) {
+          let granted = false;
+          try {
+            granted = (deps.areFileSelectionPathsGranted ?? areCommandEveFileSelectionPathsGranted)({
+              filePaths: request.referenceImagePaths,
+              seatId: capturedSeatId,
+              purpose: 'read',
+            });
+          } catch {
+            granted = false;
+          }
+          if (!granted) {
+            return refuseImageGenerate(
+              'image-generate-reference-not-granted',
+              'Wähle das Referenzbild erneut aus, bevor es den Rechner verlässt.',
+              { requestId: request.requestId }
+            );
+          }
+          for (const referencePath of request.referenceImagePaths) {
+            try {
+              const source = (deps.readImageSource ?? readBoundedImageSource)(referencePath);
+              inputReferences.push({
+                type: 'image_url',
+                image_url: { url: `data:${source.mimeType};base64,${Buffer.from(source.bytes).toString('base64')}` },
+              });
+            } catch {
+              return refuseImageGenerate(
+                'image-generate-reference-unreadable',
+                'Ein Referenzbild konnte nicht sicher gelesen werden. Wähle es erneut aus.',
+                { requestId: request.requestId }
+              );
+            }
+          }
+        }
+
+        if (!seatStillMatches()) {
+          return refuseImageGenerate(
+            'image-generate-seat-changed',
+            'Der aktive Platz hat gewechselt. Bitte erneut senden.',
+            {
+              requestId: request.requestId,
+              retryable: true,
+            }
+          );
+        }
+        const localResult = await (deps.runManagedGeneration ?? executeCommandEveManagedImageGeneration)(
+          {
+            model: COMMAND_EVE_MANAGED_IMAGE_MODEL,
+            prompt: request.prompt,
+            n: 1,
+            aspect_ratio: request.aspectRatio,
+            resolution: request.resolution,
+            input_references: inputReferences,
+          },
+          {
+            dataPath,
+            requestedTier: request.tierId,
+            requestId: request.requestId,
+            expectedSeat: { id: capturedSeatId, revision: capturedSeatContextRevision },
+            getActiveSeatId: deps.getActiveSeatId,
+            getActiveSeatContextRevision: deps.getActiveSeatContextRevision,
+          }
+        );
+        if (!seatStillMatches()) {
+          return refuseImageGenerate(
+            'image-generate-seat-changed',
+            'Der aktive Platz hat gewechselt. Bitte erneut senden.',
+            {
+              requestId: request.requestId,
+              retryable: true,
+              artifactState: localResult.status === 200 ? 'stored_not_bound' : 'creation_unverified',
+            }
+          );
+        }
+        if (localResult.status !== 200) return managedImageFailureResult(localResult, request.requestId);
+
+        const first = Array.isArray(localResult.body.data) ? localResult.body.data[0] : undefined;
+        const artifactHandle =
+          first && typeof first === 'object' && !Array.isArray(first) && typeof first.artifact_handle === 'string'
+            ? first.artifact_handle
+            : '';
+        if (!artifactHandle) {
+          return refuseImageGenerate(
+            'image-generate-stage-response-invalid',
+            'Das Bild wurde erstellt, konnte aber keiner Unterhaltung zugeordnet werden.',
+            { requestId: request.requestId, artifactState: 'stored_not_bound' }
+          );
+        }
+
+        let bindResult: ImageArtifactBindResult;
+        try {
+          bindResult = (deps.bind ?? bindStagedImageArtifact)(dataPath, {
+            conversationId: request.conversationId,
+            handle: artifactHandle,
+            toolCallId: `image-generate:${request.requestId}`,
+          });
+        } catch {
+          bindResult = { ok: false, reason: 'artifact-missing' };
+        }
+        if (!bindResult.ok) {
+          return refuseImageGenerate(
+            'image-generate-bind-failed',
+            'Das Bild wurde lokal gespeichert, konnte aber nicht in die Unterhaltung eingefügt werden.',
+            { requestId: request.requestId, artifactState: 'stored_not_bound' }
+          );
+        }
+        if (!bindResult.alreadyBound) {
+          try {
+            deps.onFreshBind?.(request.conversationId);
+          } catch {
+            /* binding is authoritative; a renderer refresh may recover through list */
+          }
+        }
+        return {
+          ok: true,
+          requestId: request.requestId,
+          artifact: bindResult.record,
+          alreadyCompleted: false,
+        };
+      } finally {
+        try {
+          (deps.releaseInflightLock ?? releaseVideoEditInflightLock)(dataPath, request.conversationId);
+        } catch {
+          /* stale lock expires under the store TTL; never mask the generation result */
+        }
+      }
+    }
+  );
+}
+
+/** IPC-facing envelope matching `ipcBridge.commandEve.imageGenerate`. */
+export async function handleCommandEveImageGenerateBridge(
+  request?: CommandEveImageGenerateRequest,
+  deps: CommandEveImageGenerateDeps = productionImageGenerateDeps
+): Promise<{ success: true; data: CommandEveImageGenerateResult }> {
+  return { success: true, data: await handleCommandEveImageGenerate(request, deps) };
 }
 
 // ---------------------------------------------------------------------------
@@ -347,8 +923,22 @@ export type CommandEveImageEditResult =
     }
   | { ok: false; reasonCode: string; message: string; retryable: boolean };
 
+type ImageEditSpendCompletion = {
+  artifact_id: string;
+  source_artifact_id: string;
+  conversation_id: string;
+  instruction_sha256: string;
+  artifact_sha256: string;
+  completed_at_ms: number;
+  artifact_handle?: unknown;
+};
+
 export interface CommandEveImageEditDeps {
   getDataPath: typeof getDataPath;
+  getActiveSeatId?: typeof getActiveSeatId;
+  getActiveSeatContextRevision?: typeof getActiveSeatContextRevision;
+  getPaidArtifactBlockReason?: typeof getCommandEvePaidArtifactBlockReason;
+  tryBeginPaidArtifactOperation?: typeof tryBeginCommandEvePaidArtifactOperation;
   isImageEditEnabled?: () => boolean;
   isSpendStoreHealthy?: typeof isVideoEditSpendStoreHealthy;
   isSpendDenied?: typeof isVideoEditSpendDenied;
@@ -356,9 +946,12 @@ export interface CommandEveImageEditDeps {
   resolveCapability?: typeof resolveImageEditCapability;
   readRecord?: typeof readImageArtifactRecordById;
   readBytes?: typeof readImageArtifactBytes;
+  readRecordByStagedHandle?: typeof readImageArtifactRecordByStagedHandle;
   readSpendPermitRecord?: typeof readVideoEditSpendPermitRecord;
+  readSpendCompletion?: typeof readVideoEditSpendCompletion;
   evaluateSpendPermit?: typeof evaluateStoredVideoEditSpendPermit;
   consumeSpendPermit?: typeof consumeVideoEditSpendPermit;
+  recordSpendCompletion?: typeof recordVideoEditSpendCompletion;
   acquireInflightLock?: typeof acquireVideoEditInflightLock;
   releaseInflightLock?: typeof releaseVideoEditInflightLock;
   /**
@@ -370,11 +963,18 @@ export interface CommandEveImageEditDeps {
     instruction: string;
     referenceDataUrl: string;
     parentArtifactId: string;
+    dataPath: string;
+    expectedSeat: { id: string; revision: number };
+    requestId: string;
   }) => Promise<CommandEveManagedImageLocalResult>;
 }
 
 const productionEditDeps: CommandEveImageEditDeps = {
   getDataPath,
+  getActiveSeatId,
+  getActiveSeatContextRevision,
+  getPaidArtifactBlockReason: getCommandEvePaidArtifactBlockReason,
+  tryBeginPaidArtifactOperation: tryBeginCommandEvePaidArtifactOperation,
   isImageEditEnabled: () => isAgentImageEditAdvertisingEnabled(getDataPath()),
   isSpendStoreHealthy: isVideoEditSpendStoreHealthy,
   isSpendDenied: isVideoEditSpendDenied,
@@ -382,12 +982,15 @@ const productionEditDeps: CommandEveImageEditDeps = {
   resolveCapability: resolveImageEditCapability,
   readRecord: readImageArtifactRecordById,
   readBytes: readImageArtifactBytes,
+  readRecordByStagedHandle: readImageArtifactRecordByStagedHandle,
   readSpendPermitRecord: readVideoEditSpendPermitRecord,
+  readSpendCompletion: readVideoEditSpendCompletion,
   evaluateSpendPermit: evaluateStoredVideoEditSpendPermit,
   consumeSpendPermit: consumeVideoEditSpendPermit,
+  recordSpendCompletion: recordVideoEditSpendCompletion,
   acquireInflightLock: acquireVideoEditInflightLock,
   releaseInflightLock: releaseVideoEditInflightLock,
-  runManagedEdit: ({ instruction, referenceDataUrl, parentArtifactId }) =>
+  runManagedEdit: ({ instruction, referenceDataUrl, parentArtifactId, dataPath, expectedSeat, requestId }) =>
     executeCommandEveManagedImageGeneration(
       {
         model: COMMAND_EVE_MANAGED_IMAGE_MODEL,
@@ -395,7 +998,14 @@ const productionEditDeps: CommandEveImageEditDeps = {
         n: 1,
         input_references: [{ type: 'image_url', image_url: { url: referenceDataUrl } }],
       },
-      { stagedParentArtifactId: parentArtifactId }
+      {
+        dataPath,
+        expectedSeat,
+        getActiveSeatId,
+        getActiveSeatContextRevision,
+        requestId,
+        stagedParentArtifactId: parentArtifactId,
+      }
     ),
 };
 
@@ -460,15 +1070,36 @@ export async function handleCommandEveImageEdit(
     return refuseEdit('image-edit-permit-missing', describeSpendPermitRefusal('permit-missing'));
   }
 
-  const dataPath = deps.getDataPath();
+  const readSeatId = deps.getActiveSeatId ?? getActiveSeatId;
+  const readSeatRevision = deps.getActiveSeatContextRevision ?? getActiveSeatContextRevision;
+  let dataPath: string;
+  let capturedSeatId: string;
+  let capturedSeatContextRevision: number;
+  try {
+    dataPath = deps.getDataPath();
+    capturedSeatId = readSeatId();
+    capturedSeatContextRevision = readSeatRevision();
+  } catch {
+    return refuseEdit('image-edit-seat-unavailable', 'Der aktive Seed konnte nicht sicher bestimmt werden.', true);
+  }
+  const seatStillMatches = (): boolean => {
+    try {
+      return readSeatId() === capturedSeatId && readSeatRevision() === capturedSeatContextRevision;
+    } catch {
+      return false;
+    }
+  };
   const readGrant = deps.readGrant ?? readArtifactCapabilityGrant;
   const resolveCapability = deps.resolveCapability ?? resolveImageEditCapability;
   const readRecord = deps.readRecord ?? readImageArtifactRecordById;
   const readBytes = deps.readBytes ?? readImageArtifactBytes;
+  const readStagedRecord = deps.readRecordByStagedHandle ?? readImageArtifactRecordByStagedHandle;
   const isDenied = deps.isSpendDenied ?? isVideoEditSpendDenied;
   const readPermitRecord = deps.readSpendPermitRecord ?? readVideoEditSpendPermitRecord;
+  const readCompletion = deps.readSpendCompletion ?? readVideoEditSpendCompletion;
   const evaluatePermit = deps.evaluateSpendPermit ?? evaluateStoredVideoEditSpendPermit;
   const consumePermit = deps.consumeSpendPermit ?? consumeVideoEditSpendPermit;
+  const recordCompletion = deps.recordSpendCompletion ?? recordVideoEditSpendCompletion;
   const acquireLock = deps.acquireInflightLock ?? acquireVideoEditInflightLock;
   const releaseLock = deps.releaseInflightLock ?? releaseVideoEditInflightLock;
 
@@ -517,12 +1148,42 @@ export async function handleCommandEveImageEdit(
     return refuseEdit(`image-edit-${capability.reason}`, describeArtifactCapabilityRefusal(capability.reason));
   }
 
+  const instructionSha256 = crypto.createHash('sha256').update(instruction).digest('hex');
+
   // THE permit conversation fence — record against record, before the judgement.
   const permitRecord = readPermitRecord(dataPath, permit);
   if (permitRecord && permitRecord.conversation_id !== grant.conversation_id) {
     return refuseEdit(
       'image-edit-permit-conversation-mismatch',
       describeSpendPermitRefusal('permit-conversation-mismatch')
+    );
+  }
+
+  // A response can be lost after the managed service staged the child. The
+  // same permit + source + instruction then answers from the durable receipt,
+  // before permit judgement or consumption can charge or reject it again.
+  const completion = readCompletion(dataPath, permit, {
+    conversationId: grant.conversation_id,
+    instructionSha256,
+    artifactSha256: observedArtifactSha256,
+  }) as ImageEditSpendCompletion | undefined;
+  if (completion) {
+    const recovered = readStagedRecord(dataPath, completion.artifact_handle);
+    if (
+      recovered?.id === completion.artifact_id &&
+      completion.source_artifact_id === source.id &&
+      recovered.payload.parent_artifact_id === source.id &&
+      typeof completion.artifact_handle === 'string'
+    ) {
+      return {
+        ok: true,
+        artifactHandle: completion.artifact_handle,
+        parentArtifactId: source.id,
+      };
+    }
+    return refuseEdit(
+      'image-edit-result-unavailable',
+      'Diese Bearbeitung wurde bereits ausgeführt, das Ergebnis ist aber nicht mehr auffindbar. Es wurde nichts erneut berechnet.'
     );
   }
 
@@ -538,9 +1199,49 @@ export async function handleCommandEveImageEdit(
     return refuseEdit(`image-edit-${permitEvaluation.reason}`, describeSpendPermitRefusal(permitEvaluation.reason));
   }
 
+  if (!seatStillMatches()) {
+    return refuseEdit(
+      'image-edit-seat-changed',
+      'Der aktive Seed wurde während der Vorbereitung gewechselt. Starte die Bildbearbeitung erneut.',
+      true
+    );
+  }
+  const paidArtifactBlockReason = (deps.getPaidArtifactBlockReason ?? getCommandEvePaidArtifactBlockReason)();
+  if (paidArtifactBlockReason === 'seat_recovery_required') {
+    return refuseEdit(
+      'image-edit-seat-recovery-required',
+      'Der letzte Seed-Wechsel wurde nicht abgeschlossen. Starte Command EVE neu, bevor du die Bildbearbeitung erneut versuchst.'
+    );
+  }
+  if (paidArtifactBlockReason === 'seat_transition_in_progress') {
+    return refuseEdit(
+      'image-edit-seat-changed',
+      'Der aktive Seed wird gerade gewechselt. Starte die Bildbearbeitung danach erneut.',
+      true
+    );
+  }
+  const releasePaidArtifactOperation = (
+    deps.tryBeginPaidArtifactOperation ?? tryBeginCommandEvePaidArtifactOperation
+  )();
+  if (!releasePaidArtifactOperation) {
+    return refuseEdit(
+      'image-edit-seat-changed',
+      'Der aktive Seed wird gerade gewechselt. Starte die Bildbearbeitung danach erneut.',
+      true
+    );
+  }
+
   // At most ONE paid edit in flight per conversation — shared with the video
   // lane, because two tool calls in the same breath must not spend twice.
-  if (!acquireLock(dataPath, grant.conversation_id)) {
+  let conversationLockAcquired = false;
+  try {
+    conversationLockAcquired = acquireLock(dataPath, grant.conversation_id);
+  } catch {
+    releasePaidArtifactOperation();
+    return refuseEdit('image-edit-lock-unavailable', describeSpendPermitRefusal('edit-already-in-flight'), true);
+  }
+  if (!conversationLockAcquired) {
+    releasePaidArtifactOperation();
     return refuseEdit('image-edit-already-in-flight', describeSpendPermitRefusal('edit-already-in-flight'), true);
   }
 
@@ -551,7 +1252,7 @@ export async function handleCommandEveImageEdit(
       permit,
       conversationId: grant.conversation_id,
       userTurnSha256: permitEvaluation.record.user_turn_sha256,
-      instructionSha256: crypto.createHash('sha256').update(instruction).digest('hex'),
+      instructionSha256,
       artifactSha256: observedArtifactSha256,
     });
     if (consumption.ok === false) {
@@ -562,17 +1263,35 @@ export async function handleCommandEveImageEdit(
       );
     }
 
+    const requestId = crypto
+      .createHash('sha256')
+      .update(`${grant.conversation_id}\n${source.id}\n${observedArtifactSha256}\n${instructionSha256}`)
+      .digest('hex');
+
     const managed = await (deps.runManagedEdit ?? productionEditDeps.runManagedEdit!)({
       instruction,
       referenceDataUrl: `data:${source.payload.mime_type};base64,${sourceBytes.toString('base64')}`,
       parentArtifactId: source.id,
+      dataPath,
+      expectedSeat: { id: capturedSeatId, revision: capturedSeatContextRevision },
+      requestId,
     });
+    if (!seatStillMatches()) {
+      return refuseEdit(
+        'image-edit-seat-changed',
+        'Der aktive Seed wurde während der Bildbearbeitung gewechselt. Das Ergebnis bleibt dem ursprünglichen Seed zugeordnet.',
+        false
+      );
+    }
     if (managed.status !== 200) {
       const error = managed.body.error as { code?: unknown; message?: unknown } | undefined;
       const code = error && typeof error.code === 'string' ? error.code : 'managed_image_failed';
       const message =
         error && typeof error.message === 'string' ? error.message : 'Die Bildbearbeitung ist fehlgeschlagen.';
-      return refuseEdit(`image-edit-${code}`, message, true);
+      // The durable permit was consumed before the managed service ran. The
+      // same permit cannot honestly be advertised as retryable; a new user
+      // turn may retry with the deterministic request id above.
+      return refuseEdit(`image-edit-${code}`, message, false);
     }
     const data = Array.isArray(managed.body.data)
       ? (managed.body.data[0] as Record<string, unknown> | undefined)
@@ -584,11 +1303,31 @@ export async function handleCommandEveImageEdit(
         'Das bearbeitete Bild wurde erstellt, konnte aber nicht lokal gespeichert werden.'
       );
     }
+    const stagedChild = readStagedRecord(dataPath, artifactHandle);
+    if (stagedChild?.payload.parent_artifact_id === source.id) {
+      try {
+        recordCompletion(dataPath, permit, {
+          artifact_id: stagedChild.id,
+          source_artifact_id: source.id,
+          conversation_id: grant.conversation_id,
+          instruction_sha256: instructionSha256,
+          artifact_sha256: observedArtifactSha256,
+          completed_at_ms: Date.now(),
+          artifact_handle: artifactHandle,
+        } as ImageEditSpendCompletion);
+      } catch {
+        /* staged and returnable; losing the receipt only costs free recovery */
+      }
+    }
     // PATH-FREE by construction: the staged handle and the parent id are the
     // whole answer. The child binds through the terminal flow, exactly like a
     // fresh generation.
     return { ok: true, artifactHandle, parentArtifactId: source.id };
   } finally {
-    releaseLock(dataPath, grant.conversation_id);
+    try {
+      releaseLock(dataPath, grant.conversation_id);
+    } finally {
+      releasePaidArtifactOperation();
+    }
   }
 }
