@@ -395,7 +395,8 @@ export function tryBeginCommandEvePaidArtifactOperation(): (() => void) | null {
 
 /** Atomically reserve a Seed transition against new paid artifact starts. */
 export function tryBeginCommandEvePaidArtifactSeatTransition(): (() => void) | null {
-  if (paidArtifactSeatTransitionInFlight || paidArtifactOperationsInFlight > 0) return null;
+  if (paidArtifactSeatRecoveryRequired || paidArtifactSeatTransitionInFlight || paidArtifactOperationsInFlight > 0)
+    return null;
   paidArtifactSeatTransitionInFlight = true;
   let released = false;
   return () => {

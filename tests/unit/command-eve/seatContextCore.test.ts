@@ -78,6 +78,7 @@ describe('paid artifact / Seed transition fence', () => {
   it('the reservation primitive itself stays fail-closed during recovery', () => {
     setCommandEvePaidArtifactSeatRecoveryRequired(true);
     expect(tryBeginCommandEvePaidArtifactOperation()).toBeNull();
+    expect(tryBeginCommandEvePaidArtifactSeatTransition()).toBeNull();
     setCommandEvePaidArtifactSeatRecoveryRequired(false);
     expect(tryBeginCommandEvePaidArtifactOperation()).toBeTypeOf('function');
   });

@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7303
+# entries: 7313
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -572,6 +572,7 @@ copy	1	de-DE/commandEve.json	Seed hinzufügen
 copy	1	de-DE/commandEve.json	Seed konnte nicht erstellt werden.
 copy	1	de-DE/commandEve.json	Seed wird abgeglichen …
 copy	1	de-DE/commandEve.json	Seed wird erstellt …
+copy	1	de-DE/commandEve.json	Seed wurde abgeglichen.
 copy	1	de-DE/commandEve.json	Seed wurde erstellt.
 copy	1	de-DE/commandEve.json	Seed-Name
 copy	1	de-DE/commandEve.json	Seeds
@@ -2733,6 +2734,8 @@ copy	1	de-DE/settings.json	Die Fähigkeiten-Bibliothek — inklusive von EVE sel
 copy	1	de-DE/settings.json	Die GPU zum Rendern der Oberfläche verwenden. Deaktivieren, falls die App beim Start abstürzt oder die Grafik flackert.
 copy	1	de-DE/settings.json	Die Konfiguration ist möglicherweise fehlerhaft. Überprüfe die MCP-JSON und teste erneut.
 copy	1	de-DE/settings.json	Die Passwörter stimmen nicht überein
+copy	1	de-DE/settings.json	Die Seat-Liste ist gerade unvollständig. Lade sie neu, bevor du einen Kunden-Seat öffnest oder anlegst.
+copy	1	de-DE/settings.json	Die Seat-Liste konnte nicht erneuert werden.
 copy	1	de-DE/settings.json	Die Verbindung wird aufgebaut. Bitte warten …
 copy	1	de-DE/settings.json	Die WebSocket-Verbindung wird aufgebaut. Bitte warten …
 copy	1	de-DE/settings.json	Die installierte App und ihre aktuelle Version.
@@ -2821,6 +2824,7 @@ copy	1	de-DE/settings.json	Erforderlich
 copy	1	de-DE/settings.json	Erfordert zuerst eine Authentifizierung in der CLI
 copy	1	de-DE/settings.json	Erfordert {{command}} auf diesem Rechner
 copy	1	de-DE/settings.json	Erkannt
+copy	1	de-DE/settings.json	Erneut anmelden und Seats laden
 copy	1	de-DE/settings.json	Erste Schritte
 copy	1	de-DE/settings.json	Erstelle aufgabenspezifische Assistenten, indem du einen KI-Agenten mit eigenen Regeln und Skills kombinierst.
 copy	1	de-DE/settings.json	Ersten Kunden anlegen
@@ -3250,6 +3254,7 @@ copy	1	de-DE/settings.json	Schritt 1: WebUI aktivieren; Schritt 2: Zugangs-URL k
 copy	1	de-DE/settings.json	Screenshots
 copy	1	de-DE/settings.json	Screenshots hier klicken, ziehen oder einfügen
 copy	1	de-DE/settings.json	Seat erstellen
+copy	1	de-DE/settings.json	Seats neu laden
 copy	1	de-DE/settings.json	Secret Access Key
 copy	1	de-DE/settings.json	Seed speichern
 copy	1	de-DE/settings.json	Seed umbenennen
@@ -4201,6 +4206,7 @@ copy	1	en-US/commandEve.json	Screen control: visibility and navigation follow yo
 copy	1	en-US/commandEve.json	See secrets and keys in clear text.
 copy	1	en-US/commandEve.json	Seed created.
 copy	1	en-US/commandEve.json	Seed name
+copy	1	en-US/commandEve.json	Seed reconciled.
 copy	1	en-US/commandEve.json	Seeds
 copy	1	en-US/commandEve.json	Set up full release
 copy	1	en-US/commandEve.json	Sign in again to load your Seeds
@@ -6895,6 +6901,7 @@ copy	1	en-US/settings.json	Reduce transparency
 copy	1	en-US/settings.json	Refresh
 copy	1	en-US/settings.json	Refresh QR Code
 copy	2	en-US/settings.json	Reject
+copy	1	en-US/settings.json	Reload Seats
 copy	2	en-US/settings.json	Remote
 copy	2	en-US/settings.json	Remote Agents
 copy	1	en-US/settings.json	Remote agent created
@@ -6982,6 +6989,7 @@ copy	1	en-US/settings.json	Show data-boundary signal
 copy	1	en-US/settings.json	Show optional settings
 copy	1	en-US/settings.json	Shows whether EVE's local processing and response stream are currently working. You can hide it at any time.
 copy	1	en-US/settings.json	Sign in
+copy	1	en-US/settings.json	Sign in again and load Seats
 copy	1	en-US/settings.json	Sign out
 copy	1	en-US/settings.json	Sign out & reset device
 copy	1	en-US/settings.json	Sign out on this Mac
@@ -7057,6 +7065,8 @@ copy	1	en-US/settings.json	Testing
 copy	1	en-US/settings.json	Testing...
 copy	1	en-US/settings.json	The MCP server returned HTTP {{status}}.
 copy	1	en-US/settings.json	The MCP server returned an RPC error while handling {{method}}.
+copy	1	en-US/settings.json	The Seat list could not be refreshed.
+copy	1	en-US/settings.json	The Seat list is currently incomplete. Reload it before opening or creating a customer Seat.
 copy	1	en-US/settings.json	The Seed name could not be saved.
 copy	1	en-US/settings.json	The Seed name must not be empty.
 copy	1	en-US/settings.json	The background image could not be stored. Choose a PNG, JPEG, WebP, GIF or BMP below 2 MB.

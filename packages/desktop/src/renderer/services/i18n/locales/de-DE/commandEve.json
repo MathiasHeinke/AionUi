@@ -20,6 +20,7 @@
     "retryReconcile": "Erneut abgleichen",
     "timeoutRetry": "Zeitüberschreitung. Noch einmal abgleichen — es wird kein zweiter Seed erzeugt.",
     "created": "Seed wurde erstellt.",
+    "reconciled": "Seed wurde abgeglichen.",
     "createError": "Seed konnte nicht erstellt werden.",
     "abuseCeilingReached": "Zu viele automatische Seat-Anlagen. Bitte kontaktiere den Support."
   },

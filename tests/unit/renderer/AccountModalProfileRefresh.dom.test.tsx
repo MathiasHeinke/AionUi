@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   retryPending: false,
   mySeatsSource: 'my_seats' as 'my_seats' | 'legacy_fallback' | 'bridge_error',
   mySeatsWireError: null as { kind: string; reasonCode: string } | null,
+  customerSeatId: '22222222-2222-4222-8222-222222222222',
 }));
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
@@ -44,11 +45,11 @@ vi.mock('@/renderer/hooks/useSeatAccess', () => ({
     access: {
       role: 'admin',
       canSwitch: true,
-      pinnedSeatId: 'seed-1',
-      activeSeatId: 'seed-2',
+      pinnedSeatId: 'seat-1',
+      activeSeatId: mocks.customerSeatId,
       seats: [
-        { seat_id: 'seed-1', name: 'Founder Seed', role: 'admin', is_active: false },
-        { seat_id: 'seed-2', name: 'Zweiter Seed', role: 'admin', is_active: true },
+        { seat_id: 'seat-1', name: 'Founder Seed', role: 'admin', is_active: false },
+        { seat_id: mocks.customerSeatId, name: 'Zweiter Seed', role: 'admin', is_active: true },
       ],
     },
     switching: false,
@@ -189,7 +190,7 @@ describe('AccountModalContent profile propagation', () => {
       },
     });
     mocks.seedRename.mockResolvedValue({
-      data: { ok: true, seed_id: 'seed-2', display_name: 'Kundenprojekt Nord' },
+      data: { ok: true, seed_id: mocks.customerSeatId, display_name: 'Kundenprojekt Nord' },
     });
     mocks.refreshSeeds.mockResolvedValue(undefined);
 
@@ -201,14 +202,17 @@ describe('AccountModalContent profile propagation', () => {
     fireEvent.click(screen.getByTestId('seed-save'));
 
     await waitFor(() =>
-      expect(mocks.seedRename).toHaveBeenCalledWith({ seedId: 'seed-2', displayName: 'Kundenprojekt Nord' })
+      expect(mocks.seedRename).toHaveBeenCalledWith({
+        seedId: mocks.customerSeatId,
+        displayName: 'Kundenprojekt Nord',
+      })
     );
     await waitFor(() => expect(mocks.refreshSeeds).toHaveBeenCalledTimes(1));
     expect(mocks.registrationUpdate).not.toHaveBeenCalled();
     expect(mocks.refreshSharedProfile).not.toHaveBeenCalled();
   });
 
-  it('renames an inactive customer Seat without changing or switching the Account', async () => {
+  it('does not offer the impossible rename action for the synthetic Founder Seat', async () => {
     mocks.registrationStatus.mockResolvedValue({
       data: {
         ok: true,
@@ -218,18 +222,10 @@ describe('AccountModalContent profile propagation', () => {
         email: 'account@example.com',
       },
     });
-    mocks.seedRename.mockResolvedValue({
-      data: { ok: true, seed_id: 'seed-1', display_name: 'Kunde Malte' },
-    });
-
     render(<AccountModalContent />);
-    fireEvent.click(await screen.findByTestId('seed-edit-seed-1'));
-    fireEvent.change(screen.getByTestId('seed-name-input'), { target: { value: 'Kunde Malte' } });
-    fireEvent.click(screen.getByTestId('seed-save'));
-
-    await waitFor(() =>
-      expect(mocks.seedRename).toHaveBeenCalledWith({ seedId: 'seed-1', displayName: 'Kunde Malte' })
-    );
+    await screen.findByTestId('seed-edit');
+    expect(screen.queryByTestId('seed-edit-seat-1')).toBeNull();
+    expect(mocks.seedRename).not.toHaveBeenCalled();
     expect(mocks.switchTo).not.toHaveBeenCalled();
     expect(mocks.registrationUpdate).not.toHaveBeenCalled();
   });
@@ -239,9 +235,9 @@ describe('AccountModalContent profile propagation', () => {
     mocks.switchTo.mockResolvedValue(true);
 
     render(<AccountModalContent />);
-    fireEvent.click(await screen.findByTestId('seed-company-brain-seed-1'));
+    fireEvent.click(await screen.findByTestId('seed-company-brain-seat-1'));
 
-    await waitFor(() => expect(mocks.switchTo).toHaveBeenCalledWith('seed-1'));
+    await waitFor(() => expect(mocks.switchTo).toHaveBeenCalledWith('seat-1'));
     expect(mocks.navigate).toHaveBeenCalledWith('/settings/company-brain');
   });
 
@@ -265,6 +261,9 @@ describe('AccountModalContent profile propagation', () => {
     mocks.mySeatsWireError = { kind: 'session', reasonCode: 'REFRESH_HTTP_400' };
 
     render(<AccountModalContent />);
+    expect((await screen.findByTestId('account-seat-add')).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('seed-edit').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('seed-company-brain').hasAttribute('disabled')).toBe(true);
     fireEvent.click(await screen.findByTestId('account-seats-repair'));
 
     await waitFor(() => expect(mocks.authWebLogin).toHaveBeenCalledWith({ intent: 'login' }));

@@ -56,6 +56,15 @@ describe('useSeedLifecycle', () => {
           seed_count: 2,
           seed_limit: 1000,
         },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          ok: true,
+          seed_id: '33333333-3333-4333-8333-333333333333',
+          created: true,
+          seed_count: 3,
+          seed_limit: 1000,
+        },
       });
     const { result } = renderHook(() => useSeedLifecycle());
 
@@ -63,15 +72,22 @@ describe('useSeedLifecycle', () => {
       expect((await result.current.createSeed('Seed A')).reasonCode).toBe('SEED_PROVISION_TIMEOUT');
     });
     expect(result.current.retryPending).toBe(true);
+    let reconciled!: Awaited<ReturnType<typeof result.current.createSeed>>;
     await act(async () => {
-      expect((await result.current.createSeed('Seed A')).ok).toBe(true);
+      reconciled = await result.current.createSeed('Seed A');
     });
+    expect(reconciled).toMatchObject({ ok: true, created: false });
 
     const firstId = seedCreateInvoke.mock.calls[0]?.[0]?.clientRequestId;
     const retryId = seedCreateInvoke.mock.calls[1]?.[0]?.clientRequestId;
     expect(firstId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(retryId).toBe(firstId);
     expect(result.current.retryPending).toBe(false);
+
+    await act(async () => {
+      expect((await result.current.createSeed('Seed A')).created).toBe(true);
+    });
+    expect(seedCreateInvoke.mock.calls[2]?.[0]?.clientRequestId).not.toBe(firstId);
   });
 
   it('reuses a commit-uncertain network key after the original hook unmounts', async () => {

@@ -123,6 +123,8 @@ function switchErrorMessage(code: string): string {
       return 'Ein Kunden-Wechsel läuft bereits. Bitte kurz warten.';
     case 'SWITCH_SEAT_NO_BRIDGE':
       return 'Kunden-Wechsel ist hier nicht verfügbar.';
+    case 'SWITCH_SEAT_RECOVERY_REQUIRED':
+      return 'Der Kunden-Wechsel ist nicht sicher abgeschlossen. Starte Command EVE neu und arbeite bis dahin in keinem Kunden-Seat weiter.';
     case 'SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN':
       // Hotfix-B: the switch failed AND the backend could not be restarted — do NOT
       // claim "EVE läuft weiter" (it does NOT). Tell the operator a relaunch is needed.
@@ -266,8 +268,12 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
       await refresh();
       setCreateSeedVisible(false);
       setSeedName('');
-      setSeedCreateAnnouncement(t('commandEve.seatRail.created', 'Seed wurde erstellt.'));
-      Message.success(t('commandEve.seatRail.created', 'Seed wurde erstellt.'));
+      const successMessage =
+        result.created === false
+          ? t('commandEve.seatRail.reconciled', 'Seed wurde abgeglichen.')
+          : t('commandEve.seatRail.created', 'Seed wurde erstellt.');
+      setSeedCreateAnnouncement(successMessage);
+      Message.success(successMessage);
       return;
     }
     if (result.reasonCode === 'SEED_ABUSE_CEILING_REACHED') {

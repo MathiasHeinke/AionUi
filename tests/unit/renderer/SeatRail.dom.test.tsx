@@ -325,6 +325,15 @@ describe('SeatRail', () => {
     expect(content).not.toContain('läuft weiter');
   });
 
+  it('tells the operator to relaunch after an uncertain committed switch', () => {
+    mockAccess({ lastSwitchError: 'SWITCH_SEAT_RECOVERY_REQUIRED' });
+    render(<SeatRail />);
+    const content = String(messageErrorMock.mock.calls[0][0].content);
+    expect(content).toContain('Starte Command EVE neu');
+    expect(content).toContain('keinem Kunden-Seat');
+    expect(content).not.toContain('bisherigen Kunden');
+  });
+
   it('re-fires the toast when the SAME reject code repeats (nonce bump)', () => {
     mockAccess({ lastSwitchError: 'SWITCH_SEAT_FORBIDDEN', switchErrorNonce: 1 });
     const { rerender } = render(<SeatRail />);

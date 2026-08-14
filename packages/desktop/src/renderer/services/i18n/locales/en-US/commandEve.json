@@ -20,6 +20,7 @@
     "retryReconcile": "Reconcile again",
     "timeoutRetry": "The request timed out. Reconcile again — no second Seed will be created.",
     "created": "Seed created.",
+    "reconciled": "Seed reconciled.",
     "createError": "The Seed could not be created.",
     "abuseCeilingReached": "Too many automated Seat creations. Please contact support."
   },

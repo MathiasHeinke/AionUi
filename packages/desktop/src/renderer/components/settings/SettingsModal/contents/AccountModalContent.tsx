@@ -34,6 +34,7 @@ import { useSeatAccess } from '@/renderer/hooks/useSeatAccess';
 import { useSeedLifecycle } from '@/renderer/hooks/useSeedLifecycle';
 import { isAnyGenerating } from '@/renderer/services/commandEveGenerationActivity';
 import { isDeadSessionFailure } from '@/common/config/seatWireFailureCore';
+import { isLegacySeatId } from '@/process/commandEve/seatContextCore';
 import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 
@@ -125,6 +126,7 @@ const AccountModalContent: React.FC = () => {
 
   const handleSaveSeed = useCallback(async () => {
     const displayName = draftSeedName.trim();
+    if (seatReadDegraded) return;
     if (!editingSeed?.seat_id || !displayName) {
       Message.error(
         t('settings.accountPanel.seed.nameRequired', { defaultValue: 'Der Seed-Name darf nicht leer sein.' })
@@ -150,7 +152,7 @@ const AccountModalContent: React.FC = () => {
     } finally {
       setSavingSeed(false);
     }
-  }, [draftSeedName, editingSeed?.seat_id, refreshSeeds, t]);
+  }, [draftSeedName, editingSeed?.seat_id, refreshSeeds, seatReadDegraded, t]);
 
   const closeCreateSeed = useCallback(() => {
     if (provisioning) return;
@@ -164,6 +166,7 @@ const AccountModalContent: React.FC = () => {
 
   const handleCreateSeed = useCallback(async () => {
     const displayName = newSeedName.trim();
+    if (seatReadDegraded) return;
     if (!displayName) {
       Message.error(t('commandEve.seatRail.createNameRequired', { defaultValue: 'Bitte gib dem Seat einen Namen.' }));
       return;
@@ -179,7 +182,11 @@ const AccountModalContent: React.FC = () => {
       setCreateSeedVisible(false);
       setNewSeedName('');
       setSeedCreateAnnouncement('');
-      Message.success(t('commandEve.seatRail.created', { defaultValue: 'Kunden-Seat wurde erstellt.' }));
+      Message.success(
+        result.created === false
+          ? t('commandEve.seatRail.reconciled', { defaultValue: 'Kunden-Seat wurde abgeglichen.' })
+          : t('commandEve.seatRail.created', { defaultValue: 'Kunden-Seat wurde erstellt.' })
+      );
       return;
     }
     if (result.reasonCode === 'SEED_PROVISION_TIMEOUT') {
@@ -194,7 +201,7 @@ const AccountModalContent: React.FC = () => {
       t('commandEve.seatRail.createError', { defaultValue: 'Kunden-Seat konnte nicht erstellt werden.' })
     );
     Message.error(t('commandEve.seatRail.createError', { defaultValue: 'Kunden-Seat konnte nicht erstellt werden.' }));
-  }, [createSeed, newSeedName, refreshSeeds, retryPending, t]);
+  }, [createSeed, newSeedName, refreshSeeds, retryPending, seatReadDegraded, t]);
 
   const openCompanyBrain = useCallback(
     async (seatId: string) => {
@@ -481,7 +488,7 @@ const AccountModalContent: React.FC = () => {
             <Button
               size='small'
               type='primary'
-              disabled={switching}
+              disabled={switching || seatReadDegraded}
               onClick={() => {
                 if (!retryPending) resetCreateAttempt();
                 setCreateSeedVisible(true);
@@ -528,7 +535,7 @@ const AccountModalContent: React.FC = () => {
                     value={draftSeedName}
                     maxLength={200}
                     onChange={setDraftSeedName}
-                    disabled={savingSeed}
+                    disabled={savingSeed || seatReadDegraded}
                     data-testid='seed-name-input'
                   />
                 </label>
@@ -536,6 +543,7 @@ const AccountModalContent: React.FC = () => {
                   <Button
                     type='primary'
                     loading={savingSeed}
+                    disabled={seatReadDegraded}
                     onClick={() => void handleSaveSeed()}
                     data-testid='seed-save'
                   >
@@ -561,18 +569,21 @@ const AccountModalContent: React.FC = () => {
                       <Tag color='green'>{t('settings.accountPanel.seats.active', { defaultValue: 'Aktiv' })}</Tag>
                     ) : null}
                   </span>
-                  <Button
-                    size='small'
-                    onClick={() => beginSeedEdit(seat.seat_id, seat.name)}
-                    data-testid={active ? 'seed-edit' : `seed-edit-${seat.seat_id}`}
-                  >
-                    {t('settings.accountPanel.seed.edit', { defaultValue: 'Umbenennen' })}
-                  </Button>
+                  {!isLegacySeatId(seat.seat_id) ? (
+                    <Button
+                      size='small'
+                      disabled={seatReadDegraded}
+                      onClick={() => beginSeedEdit(seat.seat_id, seat.name)}
+                      data-testid={active ? 'seed-edit' : `seed-edit-${seat.seat_id}`}
+                    >
+                      {t('settings.accountPanel.seed.edit', { defaultValue: 'Umbenennen' })}
+                    </Button>
+                  ) : null}
                   <Button
                     size='small'
                     type={active ? 'primary' : 'outline'}
                     loading={openingBrainSeatId === seat.seat_id}
-                    disabled={switching || openingBrainSeatId !== null}
+                    disabled={seatReadDegraded || switching || openingBrainSeatId !== null}
                     onClick={() => requestOpenCompanyBrain(seat.seat_id)}
                     data-testid={active ? 'seed-company-brain' : `seed-company-brain-${seat.seat_id}`}
                   >
@@ -600,7 +611,7 @@ const AccountModalContent: React.FC = () => {
             <Button
               type='primary'
               loading={provisioning}
-              disabled={!newSeedName.trim()}
+              disabled={seatReadDegraded || !newSeedName.trim()}
               onClick={() => void handleCreateSeed()}
               data-testid='account-seat-create-submit'
             >
