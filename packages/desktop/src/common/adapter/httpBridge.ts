@@ -388,6 +388,7 @@ let ws: WebSocket | null = null;
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let wsReconnectAttempt = 0;
 let wsTransportGeneration = 0;
+let wsSeatTransitionPending = false;
 
 function dispatchWsEvent(eventName: string, payload: unknown): void {
   const handlers = wsListeners.get(eventName);
@@ -402,6 +403,10 @@ function dispatchWsEvent(eventName: string, payload: unknown): void {
 }
 
 function ensureWs(): void {
+  // MAIN publishes the target backend port before a seat-switch IPC is
+  // terminal. During that interval the renderer must not reconnect through the
+  // dynamic port: doing so would attach old-seat listeners to the target seat.
+  if (wsSeatTransitionPending) return;
   if (typeof window === 'undefined') {
     console.debug('[ensureWs] skipped: no window');
     return;
@@ -481,13 +486,7 @@ function ensureWs(): void {
   });
 }
 
-/**
- * Invalidate every event owned by the current backend WebSocket and connect to
- * the live backend port again. `configService.rebindSeat` calls this exactly
- * once for a real seat-id change, after MAIN has terminally respawned AionCore
- * and before the renderer initializes the new seat namespace.
- */
-export function rotateRealtimeTransportForSeatRebind(): void {
+function invalidateRealtimeTransport(): void {
   wsTransportGeneration += 1;
   if (wsReconnectTimer) {
     clearTimeout(wsReconnectTimer);
@@ -496,8 +495,37 @@ export function rotateRealtimeTransportForSeatRebind(): void {
   const stale = ws;
   ws = null;
   wsReconnectAttempt = 0;
-  stale?.close();
+  try {
+    stale?.close();
+  } catch {
+    // Generation identity already invalidated the socket. A platform-specific
+    // close() failure cannot be allowed to strand the seat-transition fence.
+  }
+}
+
+/**
+ * Synchronously close and fence the old transport before MAIN begins a seat
+ * switch. `ensureWs` remains disabled until the IPC terminally resolves, even
+ * if MAIN has already published a target backend port in the meantime.
+ */
+export function beginRealtimeTransportSeatTransition(): void {
+  wsSeatTransitionPending = true;
+  invalidateRealtimeTransport();
+}
+
+/** Bind listeners to MAIN's authoritative terminal backend generation. */
+export function completeRealtimeTransportSeatTransition(): void {
+  // Advance again so even a constructor/listener queued around completion can
+  // never share identity with the pre-terminal transition generation.
+  invalidateRealtimeTransport();
+  wsSeatTransitionPending = false;
   ensureWs();
+}
+
+/** Immediate rotation for non-transactional callers and legacy tests. */
+export function rotateRealtimeTransportForSeatRebind(): void {
+  beginRealtimeTransportSeatTransition();
+  completeRealtimeTransportSeatTransition();
 }
 
 function scheduleWsReconnect(): void {

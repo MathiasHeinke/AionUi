@@ -6,7 +6,10 @@ import {
   isSeatScopedConfigKey,
   seatScopedKey,
 } from './seatConfigKeyCore';
-import { rotateRealtimeTransportForSeatRebind } from '@/common/adapter/httpBridge';
+import {
+  beginRealtimeTransportSeatTransition,
+  completeRealtimeTransportSeatTransition,
+} from '@/common/adapter/httpBridge';
 
 type Subscriber = (value: unknown) => void;
 /**
@@ -39,6 +42,12 @@ export type ConfigSeatBindingSnapshot = {
   rebindEpoch: number;
   initialized: boolean;
 };
+
+export type ConfigSeatTransitionToken = Readonly<{
+  id: number;
+  priorSeatId: string;
+  rebindEpoch: number;
+}>;
 
 /**
  * A persisted-subscriber blew up. The write ITSELF succeeded — this is a bug in
@@ -162,6 +171,8 @@ class ConfigServiceImpl {
   // is deliberately NOT a rebind; only an explicit seat-id transition advances
   // this epoch, synchronously before rebindSeat's first await.
   private seatRebindEpoch = 0;
+  private nextSeatTransitionId = 0;
+  private activeSeatTransition: ConfigSeatTransitionToken | null = null;
 
   // The active seat this service is currently bound to (ISO-2). Defaults to the
   // legacy seat so NOTHING changes until a seat switcher calls rebindSeat — for
@@ -211,35 +222,58 @@ class ConfigServiceImpl {
   }
 
   /**
-   * Rebind the service to a different active seat (ISO-2). Called by the seat
-   * switcher (Task #2) AFTER setActiveSeatId on the main side. Sanitizes the id
-   * (throws on an unsafe id so a crafted id can never become a key prefix),
-   * invalidates the in-memory cache, and re-initializes so subsequent reads
-   * re-resolve under the new seat's namespace. Notifies subscribers of every
-   * seat-scoped key that changed value across the switch.
+   * Publish the renderer fence BEFORE the main-process switch IPC starts. The
+   * current seat id deliberately remains unchanged until MAIN reports its
+   * terminal seat, but every old ticket and socket becomes stale immediately.
    */
-  async rebindSeat(seatId?: string | null): Promise<void> {
+  beginSeatTransition(): ConfigSeatTransitionToken {
+    if (this.activeSeatTransition) {
+      throw new Error('A seat transition is already active');
+    }
+    const token: ConfigSeatTransitionToken = {
+      id: ++this.nextSeatTransitionId,
+      priorSeatId: this.currentSeatId,
+      rebindEpoch: ++this.seatRebindEpoch,
+    };
+    this.activeSeatTransition = token;
+    this.initialized = false;
+    beginRealtimeTransportSeatTransition();
+    return token;
+  }
+
+  /**
+   * Re-home to MAIN's authoritative terminal seat. This is intentionally
+   * forced even when MAIN rolled back to the prior seat id: the backend process
+   * generation still changed, so cache and transport identity must rotate.
+   */
+  async completeSeatTransition(token: ConfigSeatTransitionToken, seatId?: string | null): Promise<void> {
+    if (!this.activeSeatTransition || token.id !== this.activeSeatTransition.id) {
+      throw new Error('Stale or unknown seat transition token');
+    }
     const sanitized = assertSeatId(seatId);
-    if (sanitized === this.currentSeatId && this.initialized) return;
     // Snapshot the pre-switch seat-scoped values so we can fire change events for
     // any whose value differs under the new seat.
     const previous = new Map<string, unknown>();
     for (const key of this.cache.keys()) {
       if (isSeatScopedConfigKey(key)) previous.set(key, this.cache.get(key));
     }
-    if (sanitized !== this.currentSeatId) {
-      this.seatRebindEpoch += 1;
-      this.currentSeatId = sanitized;
-      // MAIN has already terminally respawned AionCore before rebindSeat is
-      // called. Rotate before any new-seat config fetch or subscriber can open
-      // stream admission: queued frames from the prior socket are invalidated
-      // synchronously by transport generation.
-      rotateRealtimeTransportForSeatRebind();
-    }
+    this.currentSeatId = sanitized;
     this.cache.clear();
     this.initialized = false;
     this.initPromise = null;
-    await this.initialize();
+    let initializeError: unknown;
+    try {
+      await this.initialize();
+    } catch (error) {
+      initializeError = error;
+    } finally {
+      // MAIN is terminal now. Reconnect to that exact live port even if config
+      // hydration failed; runtime admission remains fail-closed while
+      // `initialized` is false.
+      completeRealtimeTransportSeatTransition();
+      this.activeSeatTransition = null;
+    }
+    if (initializeError !== undefined) throw initializeError;
     // Re-notify seat-scoped keys whose value changed (or cleared) on the switch.
     const seen = new Set<string>(previous.keys());
     for (const key of this.cache.keys()) {
@@ -257,6 +291,17 @@ class ConfigServiceImpl {
     for (const cb of this.seatSubscribers) cb(this.currentSeatId);
   }
 
+  /**
+   * Backwards-compatible immediate rebind for non-switch callers/tests. Real
+   * seat switching uses beginSeatTransition before invoking MAIN.
+   */
+  async rebindSeat(seatId?: string | null): Promise<void> {
+    const sanitized = assertSeatId(seatId);
+    if (sanitized === this.currentSeatId && this.initialized && !this.activeSeatTransition) return;
+    const token = this.beginSeatTransition();
+    await this.completeSeatTransition(token, sanitized);
+  }
+
   /** The active seat id this service is currently bound to (ISO-2). */
   getCurrentSeatId(): string {
     return this.currentSeatId;
@@ -267,7 +312,7 @@ class ConfigServiceImpl {
     return {
       seatId: this.currentSeatId,
       rebindEpoch: this.seatRebindEpoch,
-      initialized: this.initialized,
+      initialized: this.initialized && this.activeSeatTransition === null,
     };
   }
 
@@ -447,7 +492,7 @@ class ConfigServiceImpl {
   }
 
   isInitialized(): boolean {
-    return this.initialized;
+    return this.initialized && this.activeSeatTransition === null;
   }
 
   reset(): void {
@@ -457,6 +502,7 @@ class ConfigServiceImpl {
     this.seatSubscribers.clear();
     this.initialized = false;
     this.initPromise = null;
+    this.activeSeatTransition = null;
     this.seatRebindEpoch += 1;
     // Clean-reset returns to the legacy seat so a fresh initialize() re-resolves
     // the active seat from main (ISO-2).

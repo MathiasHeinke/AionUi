@@ -149,13 +149,25 @@ describe('(2) cross-seat fence — seat B does not read seat A clientSeeded', ()
 
     await configService.rebindSeat(SEAT_B);
     expect(configService.getSeatBindingSnapshot().rebindEpoch).toBe(1);
+    const rollback = configService.beginSeatTransition();
+    expect(configService.getSeatBindingSnapshot()).toEqual({
+      seatId: SEAT_B,
+      rebindEpoch: 2,
+      initialized: false,
+    });
+    await configService.completeSeatTransition(rollback, SEAT_B);
+    expect(configService.getSeatBindingSnapshot()).toEqual({
+      seatId: SEAT_B,
+      rebindEpoch: 2,
+      initialized: true,
+    });
     await configService.rebindSeat(SEAT_A);
-    expect(configService.getSeatBindingSnapshot().rebindEpoch).toBe(2);
+    expect(configService.getSeatBindingSnapshot().rebindEpoch).toBe(3);
 
     configService.reset();
     expect(configService.getSeatBindingSnapshot()).toEqual({
       seatId: 'seat-1',
-      rebindEpoch: 3,
+      rebindEpoch: 4,
       initialized: false,
     });
   });

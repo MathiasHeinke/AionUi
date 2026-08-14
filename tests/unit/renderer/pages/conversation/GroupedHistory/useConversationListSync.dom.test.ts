@@ -90,6 +90,9 @@ const harness = vi.hoisted(() => {
       currentSeatId = seatId;
       seatBindingInitialized = false;
     },
+    completeSeatBinding: () => {
+      seatBindingInitialized = true;
+    },
     onResponse: (handler: (message: IResponseMessage) => void) => {
       responseHandlers.add(handler);
       return () => responseHandlers.delete(handler);
@@ -709,6 +712,7 @@ describe('conversation sidebar continuity', () => {
 
     await act(async () => {
       harness.setCurrentSeatId('seat-b');
+      harness.completeSeatBinding();
       harness.seatRebindHandlers.forEach((handler) => handler('seat-b'));
       await flushPromises();
     });
@@ -727,6 +731,7 @@ describe('conversation sidebar continuity', () => {
 
     await act(async () => {
       harness.setCurrentSeatId('seat-a');
+      harness.completeSeatBinding();
       harness.seatRebindHandlers.forEach((handler) => handler('seat-a'));
       await flushPromises();
     });
@@ -777,9 +782,11 @@ describe('conversation sidebar continuity', () => {
     // the old turn from reappearing as a stale spinner.
     await act(async () => {
       harness.setCurrentSeatId('seat-b');
+      harness.completeSeatBinding();
       harness.seatRebindHandlers.forEach((handler) => handler('seat-b'));
       await flushPromises();
       harness.setCurrentSeatId('seat-a');
+      harness.completeSeatBinding();
       harness.seatRebindHandlers.forEach((handler) => handler('seat-a'));
       await flushPromises();
     });
@@ -833,6 +840,7 @@ describe('conversation sidebar continuity', () => {
 
       await act(async () => {
         harness.setCurrentSeatId('seat-b');
+        harness.completeSeatBinding();
         harness.seatRebindHandlers.forEach((handler) => handler('seat-b'));
         await flushPromises();
       });
@@ -946,6 +954,7 @@ describe('conversation sidebar continuity', () => {
       expect(mountedRuntimeHook.result.current.isProcessing).toBe(false);
 
       await act(async () => {
+        harness.completeSeatBinding();
         harness.seatRebindHandlers.forEach((handler) => handler('seat-b'));
         await flushPromises();
       });
@@ -1236,6 +1245,7 @@ describe('conversation sidebar working phases (1.820.5)', () => {
 
     await act(async () => {
       harness.setCurrentSeatId('seat-b');
+      harness.completeSeatBinding();
       harness.seatRebindHandlers.forEach((handler) => handler('seat-b'));
       await flushPromises();
     });

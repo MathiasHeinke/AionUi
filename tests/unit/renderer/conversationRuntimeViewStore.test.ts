@@ -126,6 +126,39 @@ describe('conversationRuntimeViewStore turn id contract', () => {
     invalidateConversationRuntimeForSeatRebind();
   };
 
+  it('blocks old and new runtime admission for the entire pre-terminal seat-switch interval', () => {
+    const oldSend = issueLocalSendAttempt('conv-transition');
+    expect(oldSend).not.toBeNull();
+
+    seatHarness.rebindEpoch += 1;
+    seatHarness.initialized = false;
+
+    expect(localSendStarted('conv-transition', oldSend!)).toEqual({ applied: false, logs: [] });
+    expect(issueLocalSendAttempt('conv-new')).toBeNull();
+    expect(issueLocalStopAttempt('conv-transition')).toBeNull();
+    expect(
+      shouldApplyConversationStreamTurn({
+        conversation_id: 'conv-transition',
+        consumer: 'runtime_view',
+        terminal: false,
+        turn_id: 'target-seat-turn',
+        type: 'start',
+      })
+    ).toBe(false);
+    expect(
+      shouldApplyConversationTurnCompleted({
+        conversation_id: 'conv-transition',
+        consumer: 'conversation_list_sync',
+        turn_id: 'target-seat-turn',
+      })
+    ).toBe(false);
+
+    // MAIN terminally rolls back to the SAME seat id, but a new backend/config
+    // generation still has to become authoritative before admission reopens.
+    seatHarness.initialized = true;
+    expect(issueLocalSendAttempt('conv-new')).not.toBeNull();
+  });
+
   it('seals the authoritative boot seat without fencing background completion', () => {
     seatHarness.currentSeatId = 'seat-1';
     seatHarness.initialized = false;

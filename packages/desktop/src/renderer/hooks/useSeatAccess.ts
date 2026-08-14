@@ -29,7 +29,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { application, commandEve } from '@/common/adapter/ipcBridge';
-import { configService } from '@/common/config/configService';
+import { configService, type ConfigSeatTransitionToken } from '@/common/config/configService';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import {
   isLegacySeatId,
@@ -319,6 +319,18 @@ export function useSeatAccess(): SeatAccessState {
         return false;
       }
       setSwitching(true);
+      let seatTransition: ConfigSeatTransitionToken;
+      try {
+        // This MUST precede the IPC invocation. MAIN may publish a target
+        // backend port before its remaining bootstrap work terminally succeeds
+        // or rolls back; old-seat sends/queues/sockets are invalid from here.
+        seatTransition = configService.beginSeatTransition();
+      } catch (transitionError) {
+        console.error('configService.beginSeatTransition failed:', transitionError);
+        setSwitching(false);
+        flagSwitchError('SWITCH_SEAT_TRANSITION_BUSY');
+        return false;
+      }
       // A switch is a real backend STOP + RE-SPAWN whose TRUE terminal seat only MAIN
       // knows. Two concerns are deliberately DECOUPLED:
       //   (1) UI liveness — bound how long the rail stays frozen so a hung/slow respawn
@@ -332,7 +344,9 @@ export function useSeatAccess(): SeatAccessState {
       //       rebind is driven by the REAL IPC response WHENEVER it settles — even after
       //       the UI un-freezes — never by a mid-flight guess.
       const SWITCH_TIMEOUT_MS = 45_000;
-      const invokePromise = commandEve.switchSeat.invoke({ seatId });
+      // Promise indirection turns a synchronous bridge throw into the same
+      // terminal rejection path, so the transition fence is always completed.
+      const invokePromise = Promise.resolve().then(() => commandEve.switchSeat.invoke({ seatId }));
 
       // (2) Authoritative rebind, decoupled from the UI timeout. Resolves the renderer
       // cache to whatever seat MAIN reports it ACTUALLY ended on, whenever it settles.
@@ -345,20 +359,33 @@ export function useSeatAccess(): SeatAccessState {
                 ? seatId
                 : access.activeSeatId;
           try {
-            await configService.rebindSeat(settled);
+            await configService.completeSeatTransition(seatTransition, settled);
           } catch (rebindError) {
-            console.error('configService.rebindSeat (authoritative, post-settle) failed:', rebindError);
+            console.error('configService.completeSeatTransition (authoritative, post-settle) failed:', rebindError);
           }
-          await refresh();
+          try {
+            await refresh();
+          } catch (refreshError) {
+            // The renderer fence is already terminally completed. A diagnostic
+            // refresh failure must not re-enter the IPC-rejection branch and
+            // attempt to consume the same transition token twice.
+            console.error('refresh after terminal seat switch failed:', refreshError);
+          }
         })
         .catch(async (ipcError) => {
           // The IPC ITSELF rejected (a real failure, NOT the UI timeout — that rejects a
           // separate promise). main is on whatever it was; re-pull + rebind to that.
           console.error('switch-seat IPC rejected:', ipcError);
+          let settled = access.activeSeatId;
           try {
-            await configService.rebindSeat((await refresh()).activeSeatId);
+            settled = (await refresh()).activeSeatId;
+          } catch (refreshError) {
+            console.error('refresh after switch-seat IPC reject failed:', refreshError);
+          }
+          try {
+            await configService.completeSeatTransition(seatTransition, settled);
           } catch (rebindError) {
-            console.error('configService.rebindSeat after IPC reject failed:', rebindError);
+            console.error('configService.completeSeatTransition after IPC reject failed:', rebindError);
           }
         });
 

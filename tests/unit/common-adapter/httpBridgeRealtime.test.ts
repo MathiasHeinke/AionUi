@@ -154,6 +154,37 @@ describe('httpBridge realtime recovery', () => {
     expect(stream).toHaveBeenCalledWith(currentStart);
   });
 
+  it('keeps realtime disconnected while MAIN exposes a non-terminal target port, then binds the terminal generation', async () => {
+    let livePort = 13400;
+    vi.stubGlobal('window', { __backendPort: 13400, __aionBackend: { getPort: () => livePort } });
+    const { beginRealtimeTransportSeatTransition, completeRealtimeTransportSeatTransition, wsEmitter } =
+      await import('@/common/adapter/httpBridge');
+    const stream = vi.fn();
+    wsEmitter<IResponseMessage>('message.stream').on(stream);
+
+    const oldSeatSocket = FakeWebSocket.instances[0];
+    oldSeatSocket.dispatchOpen();
+    beginRealtimeTransportSeatTransition();
+
+    // MAIN has published the target port but its switch IPC is still pending.
+    livePort = 24567;
+    wsEmitter('realtime.connected').on(vi.fn());
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    oldSeatSocket.dispatchMessage('message.stream', {
+      type: 'start',
+      data: {},
+      conversation_id: 'shared-conversation',
+      turn_id: 'old-seat-turn',
+    });
+    expect(stream).not.toHaveBeenCalled();
+
+    completeRealtimeTransportSeatTransition();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(FakeWebSocket.instances[1].url).toBe('ws://127.0.0.1:24567/ws');
+  });
+
   it('maps turn completion evidence fail-closed and preserves explicit AionCore proof', async () => {
     const { mapConversationTurnCompletedEvent } = await import('@/common/adapter/conversationTurnCompletedMapper');
     const legacy = mapConversationTurnCompletedEvent({

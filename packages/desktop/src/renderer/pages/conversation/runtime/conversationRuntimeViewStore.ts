@@ -183,20 +183,33 @@ const createRuntimeAttemptTicket = (
   seatGeneration: streamSeatEpoch,
 });
 
+const isRuntimeSeatAdmissionBlocked = (): boolean => {
+  const binding = configService.getSeatBindingSnapshot();
+  // Epoch zero + uninitialized is the historical boot window. Once an explicit
+  // renderer transition has advanced the epoch, admission remains closed until
+  // the authoritative terminal seat cache is fully initialized.
+  return binding.rebindEpoch > 0 && !binding.initialized;
+};
+
 const attemptTicketMatches = (
   pending: PendingSendAttempt | PendingStopAttempt | undefined,
   ticket: ConversationRuntimeAttemptTicket,
   kind: ConversationRuntimeAttemptTicket['kind']
-): boolean =>
-  pending !== undefined &&
-  pending.ticket.kind === kind &&
-  ticket.kind === kind &&
-  pending.ticket.conversationId === ticket.conversationId &&
-  pending.ticket.seatId === ticket.seatId &&
-  pending.ticket.seatGeneration === ticket.seatGeneration &&
-  pending.ticket.attemptId === ticket.attemptId &&
-  ticket.seatId === configService.getSeatBindingSnapshot().seatId &&
-  ticket.seatGeneration === streamSeatEpoch;
+): boolean => {
+  const binding = configService.getSeatBindingSnapshot();
+  return (
+    !isRuntimeSeatAdmissionBlocked() &&
+    pending !== undefined &&
+    pending.ticket.kind === kind &&
+    ticket.kind === kind &&
+    pending.ticket.conversationId === ticket.conversationId &&
+    pending.ticket.seatId === ticket.seatId &&
+    pending.ticket.seatGeneration === ticket.seatGeneration &&
+    pending.ticket.attemptId === ticket.attemptId &&
+    ticket.seatId === binding.seatId &&
+    ticket.seatGeneration === streamSeatEpoch
+  );
+};
 
 const getRuntimeMetadata = (conversation_id: string): ConversationRuntimeMetadata => {
   const existing = runtimeMetadata.get(conversation_id);
@@ -328,6 +341,7 @@ export const shouldApplyConversationStreamTurn = (input: {
   const conversation_id = input.conversation_id;
   if (!conversation_id) return false;
   synchronizeConversationRuntimeSeat();
+  if (isRuntimeSeatAdmissionBlocked()) return false;
 
   const metadata = getRuntimeMetadata(conversation_id);
   const view = getConversationRuntimeViewSnapshot(conversation_id);
@@ -467,6 +481,7 @@ export const shouldApplyConversationTurnCompleted = (input: {
 }): boolean => {
   if (!input.conversation_id) return false;
   synchronizeConversationRuntimeSeat();
+  if (isRuntimeSeatAdmissionBlocked()) return false;
 
   const metadata = runtimeMetadata.get(input.conversation_id);
   const view = runtimeViews.get(input.conversation_id) ?? fallbackSnapshots.get(input.conversation_id);
@@ -950,7 +965,7 @@ export const conversationDeleted = (conversation_id: string): ConversationRuntim
 
 export const issueLocalSendAttempt = (conversation_id: string): ConversationRuntimeAttemptTicket | null => {
   synchronizeConversationRuntimeSeat();
-  if (!conversation_id || pendingSendAttempts.has(conversation_id)) return null;
+  if (!conversation_id || isRuntimeSeatAdmissionBlocked() || pendingSendAttempts.has(conversation_id)) return null;
   const ticket = createRuntimeAttemptTicket('send', conversation_id);
   pendingSendAttempts.set(conversation_id, { ticket, stage: 'issued', deferredCompletions: new Map() });
   return ticket;
@@ -1061,7 +1076,7 @@ export const localSendFailed = (
 
 export const issueLocalStopAttempt = (conversation_id: string): ConversationRuntimeAttemptTicket | null => {
   synchronizeConversationRuntimeSeat();
-  if (!conversation_id || pendingStopAttempts.has(conversation_id)) return null;
+  if (!conversation_id || isRuntimeSeatAdmissionBlocked() || pendingStopAttempts.has(conversation_id)) return null;
   const ticket = createRuntimeAttemptTicket('stop', conversation_id);
   pendingStopAttempts.set(conversation_id, { ticket, stage: 'issued', turnId: null });
   return ticket;
@@ -1205,6 +1220,7 @@ export const isConversationRuntimeSeatTicketCurrent = (ticket: ConversationRunti
   const binding = configService.getSeatBindingSnapshot();
   return (
     Boolean(ticket.conversationId) &&
+    !isRuntimeSeatAdmissionBlocked() &&
     ticket.seatId === binding.seatId &&
     ticket.rebindEpoch === binding.rebindEpoch &&
     ticket.seatGeneration === streamSeatEpoch
@@ -1213,7 +1229,7 @@ export const isConversationRuntimeSeatTicketCurrent = (ticket: ConversationRunti
 
 export const isConversationRuntimeSeatGenerationCurrent = (generation: number): boolean => {
   synchronizeConversationRuntimeSeat();
-  return generation === streamSeatEpoch;
+  return !isRuntimeSeatAdmissionBlocked() && generation === streamSeatEpoch;
 };
 
 export const resetConversationRuntimeViewStoreForTest = () => {

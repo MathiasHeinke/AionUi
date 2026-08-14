@@ -37,7 +37,7 @@ const isElectronDesktopMock = vi.fn();
 
 const SEAT_A = '11111111-1111-1111-1111-111111111111';
 const SEAT_B = '22222222-2222-2222-2222-222222222222';
-const rotateRealtimeTransportForSeatRebind = vi.fn();
+const transitionOrder = vi.hoisted((): string[] => []);
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
   commandEve: {
@@ -45,7 +45,6 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
     switchSeat: { invoke: (req: { seatId?: string }) => switchSeatInvoke(req) },
   },
 }));
-vi.mock('@/common/adapter/httpBridge', () => ({ rotateRealtimeTransportForSeatRebind }));
 // A faithful tiny fake of the renderer configService cache, declared INSIDE the
 // hoisted factory (no top-level capture): it is bound to ONE seat at a time and
 // only serves a seat-scoped value while bound to that seat. rebindSeat re-homes
@@ -55,10 +54,24 @@ vi.mock('@/common/config/configService', () => {
   const A = '11111111-1111-1111-1111-111111111111';
   const fake = {
     boundSeatId: A,
+    rebindEpoch: 0,
+    transitioning: false,
     store: { [A]: true } as Record<string, unknown>,
-    rebindSeat: vi.fn(async (seatId: string) => {
-      fake.boundSeatId = seatId;
+    transitionId: 0,
+    beginSeatTransition: vi.fn(() => {
+      transitionOrder.push('begin');
+      fake.transitioning = true;
+      fake.rebindEpoch += 1;
+      return { id: ++fake.transitionId, priorSeatId: fake.boundSeatId, rebindEpoch: fake.rebindEpoch };
     }),
+    completeSeatTransition: vi.fn(async (_token: { id: number }, seatId: string) => {
+      transitionOrder.push(`complete:${seatId}`);
+      fake.boundSeatId = seatId;
+      fake.transitioning = false;
+    }),
+    captureActionTicket: () => ({ seatId: fake.boundSeatId, rebindEpoch: fake.rebindEpoch }),
+    isActionTicketCurrent: (ticket: { seatId: string; rebindEpoch: number }) =>
+      !fake.transitioning && ticket.seatId === fake.boundSeatId && ticket.rebindEpoch === fake.rebindEpoch,
     get(_key: string) {
       // Serve ONLY the currently-bound seat's value (mirrors the namespaced cache).
       return fake.store[fake.boundSeatId];
@@ -74,8 +87,14 @@ import { configService as fakeConfigImport } from '@/common/config/configService
 // Typed handle to the fake exposed by the hoisted factory above.
 const fakeConfig = fakeConfigImport as unknown as {
   boundSeatId: string;
+  rebindEpoch: number;
+  transitioning: boolean;
   store: Record<string, unknown>;
-  rebindSeat: ReturnType<typeof vi.fn>;
+  transitionId: number;
+  beginSeatTransition: ReturnType<typeof vi.fn>;
+  completeSeatTransition: ReturnType<typeof vi.fn>;
+  captureActionTicket(): { seatId: string; rebindEpoch: number };
+  isActionTicketCurrent(ticket: { seatId: string; rebindEpoch: number }): boolean;
   get(key: string): unknown;
 };
 
@@ -108,9 +127,13 @@ beforeEach(() => {
   switchSeatInvoke.mockReset();
   isElectronDesktopMock.mockReset().mockReturnValue(true);
   fakeConfig.boundSeatId = SEAT_A;
+  fakeConfig.rebindEpoch = 0;
+  fakeConfig.transitioning = false;
   fakeConfig.store = { [SEAT_A]: true };
-  fakeConfig.rebindSeat.mockClear();
-  rotateRealtimeTransportForSeatRebind.mockClear();
+  fakeConfig.transitionId = 0;
+  fakeConfig.beginSeatTransition.mockClear();
+  fakeConfig.completeSeatTransition.mockClear();
+  transitionOrder.length = 0;
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -141,8 +164,9 @@ describe('useSeatAccess.switchTo — renderer config cache re-homes (CONFIRMED-H
     });
     expect(ok).toBe(true);
 
-    // THE FIX: rebindSeat was driven with the switched-to seat B.
-    expect(fakeConfig.rebindSeat).toHaveBeenCalledWith(SEAT_B);
+    // THE FIX: the fence begins before IPC and terminal completion binds B.
+    expect(fakeConfig.beginSeatTransition).toHaveBeenCalledOnce();
+    expect(fakeConfig.completeSeatTransition).toHaveBeenCalledWith(expect.anything(), SEAT_B);
     // The renderer cache is now bound to B and NO LONGER serves seat A's value.
     expect(fakeConfig.boundSeatId).toBe(SEAT_B);
     expect(fakeConfig.get('commandEve.clientSeeded')).toBeUndefined();
@@ -156,7 +180,7 @@ describe('useSeatAccess.switchTo — renderer config cache re-homes (CONFIRMED-H
     await act(async () => {
       await latest().switchTo(SEAT_B);
     });
-    expect(fakeConfig.rebindSeat).toHaveBeenCalledWith(SEAT_B);
+    expect(fakeConfig.completeSeatTransition).toHaveBeenCalledWith(expect.anything(), SEAT_B);
   });
 
   it('a FAILED / rolled-back switch rebinds back to the PRIOR seat (no drift)', async () => {
@@ -174,8 +198,8 @@ describe('useSeatAccess.switchTo — renderer config cache re-homes (CONFIRMED-H
     expect(ok).toBe(false);
 
     // The renderer must re-home to the PRIOR seat A — never the un-confirmed B.
-    expect(fakeConfig.rebindSeat).toHaveBeenCalledWith(SEAT_A);
-    expect(fakeConfig.rebindSeat).not.toHaveBeenCalledWith(SEAT_B);
+    expect(fakeConfig.completeSeatTransition).toHaveBeenCalledWith(expect.anything(), SEAT_A);
+    expect(fakeConfig.completeSeatTransition).not.toHaveBeenCalledWith(expect.anything(), SEAT_B);
     expect(fakeConfig.boundSeatId).toBe(SEAT_A);
     // Seat A's config is still served (no leak the other way, no drift).
     expect(fakeConfig.get('commandEve.clientSeeded')).toBe(true);
@@ -190,8 +214,8 @@ describe('useSeatAccess.switchTo — renderer config cache re-homes (CONFIRMED-H
       ok = await latest().switchTo(SEAT_B);
     });
     expect(ok).toBe(false);
-    expect(fakeConfig.rebindSeat).toHaveBeenCalledWith(SEAT_A);
-    expect(fakeConfig.rebindSeat).not.toHaveBeenCalledWith(SEAT_B);
+    expect(fakeConfig.completeSeatTransition).toHaveBeenCalledWith(expect.anything(), SEAT_A);
+    expect(fakeConfig.completeSeatTransition).not.toHaveBeenCalledWith(expect.anything(), SEAT_B);
     expect(fakeConfig.boundSeatId).toBe(SEAT_A);
   });
 
@@ -222,7 +246,7 @@ describe('useSeatAccess.switchTo — renderer config cache re-homes (CONFIRMED-H
         await vi.advanceTimersByTimeAsync(45_000);
       });
       expect(result).toBe(false);
-      expect(fakeConfig.rebindSeat).not.toHaveBeenCalledWith(SEAT_B);
+      expect(fakeConfig.completeSeatTransition).not.toHaveBeenCalledWith(expect.anything(), SEAT_B);
 
       // Main settles LATE with a ROLLBACK to the prior seat A.
       await act(async () => {
@@ -236,12 +260,68 @@ describe('useSeatAccess.switchTo — renderer config cache re-homes (CONFIRMED-H
       });
 
       // The renderer ends bound to main's TRUE terminal seat (A) — never the un-confirmed B.
-      expect(fakeConfig.rebindSeat).toHaveBeenCalledWith(SEAT_A);
-      expect(fakeConfig.rebindSeat).not.toHaveBeenCalledWith(SEAT_B);
+      expect(fakeConfig.completeSeatTransition).toHaveBeenCalledWith(expect.anything(), SEAT_A);
+      expect(fakeConfig.completeSeatTransition).not.toHaveBeenCalledWith(expect.anything(), SEAT_B);
       expect(fakeConfig.boundSeatId).toBe(SEAT_A);
       await switchPromise;
     } finally {
       vi.useRealTimers();
     }
   });
+
+  it('publishes the renderer fence synchronously before invoking MAIN and forces same-seat rollback completion', async () => {
+    switchSeatInvoke.mockImplementation(async () => {
+      transitionOrder.push('invoke');
+      return { data: { ok: false, active_seat_id: SEAT_A }, success: false };
+    });
+    const { latest } = await mountAndSettle();
+
+    await act(async () => {
+      await latest().switchTo(SEAT_B);
+    });
+
+    expect(transitionOrder).toEqual(['begin', 'invoke', `complete:${SEAT_A}`]);
+    expect(fakeConfig.boundSeatId).toBe(SEAT_A);
+  });
+
+  it.each([
+    ['success', { data: { ok: true, active_seat_id: SEAT_B }, success: true }, SEAT_B],
+    ['rollback', { data: { ok: false, active_seat_id: SEAT_A }, success: false }, SEAT_A],
+  ] as const)(
+    'invalidates an old action while MAIN has published the target port before %s terminal',
+    async (_case, terminalResponse, terminalSeat) => {
+      let resolveInvoke!: (value: typeof terminalResponse) => void;
+      let targetPortPublished = false;
+      switchSeatInvoke.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            targetPortPublished = true;
+            resolveInvoke = resolve;
+          })
+      );
+      const { latest } = await mountAndSettle();
+      const oldSeatAction = fakeConfig.captureActionTicket();
+      expect(fakeConfig.isActionTicketCurrent(oldSeatAction)).toBe(true);
+
+      let switchPromise!: Promise<boolean>;
+      await act(async () => {
+        switchPromise = latest().switchTo(SEAT_B);
+        await Promise.resolve();
+      });
+      expect(targetPortPublished).toBe(true);
+      expect(fakeConfig.transitioning).toBe(true);
+      expect(fakeConfig.isActionTicketCurrent(oldSeatAction)).toBe(false);
+      expect(fakeConfig.completeSeatTransition).not.toHaveBeenCalled();
+
+      await act(async () => {
+        resolveInvoke(terminalResponse);
+        await switchPromise;
+      });
+      expect(fakeConfig.boundSeatId).toBe(terminalSeat);
+      expect(fakeConfig.transitioning).toBe(false);
+      // Epoch identity, not only seat id, keeps A's pre-switch action stale on
+      // the same-seat rollback path.
+      expect(fakeConfig.isActionTicketCurrent(oldSeatAction)).toBe(false);
+    }
+  );
 });
