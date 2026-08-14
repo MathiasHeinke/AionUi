@@ -73,6 +73,7 @@ def load_selected_symbols() -> dict[str, object]:
         "_COMMAND_EVE_QUARANTINE_DB_BY_SESSION",
         "_COMMAND_EVE_CLAIM_QUARANTINE_VERSION",
         "_COMMAND_EVE_CLAIM_QUARANTINE_META_PREFIX",
+        "_COMMAND_EVE_SESSION_CWD",
     }
     body: list[ast.stmt] = []
     for node in tree.body:
@@ -204,9 +205,14 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
             return None
 
     observations: list[dict[str, Any]] = []
+    session_updates: list[Any] = []
 
     class Connection:
         reject_phase: str | None = None
+
+        async def session_update(self, session_id: str, update: Any) -> None:
+            assert session_id == "session-1"
+            session_updates.append(update)
 
         async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, str]:
             observations.append(
@@ -257,6 +263,7 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
             "session-1",
             commandEvePromptAdmission=verified,
         )
+        assert namespace["_COMMAND_EVE_SESSION_CWD"]["session-1"] == "."
         assert provider_calls == ["provider"]
         assert [item["phase"] for item in observations[-4:]] == ["accept", "commit", "finalize", "ack"]
         assert all(item["method"] == "command_eve/prompt_admission" for item in observations[-4:])
@@ -363,6 +370,45 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
         assert agent.redirect_calls[redirect_count:] == ["busy correction"]
         assert len(agent.model_inputs) == model_count
 
+        state.is_running = True
+        state.queued_prompts.clear()
+        redirect_count = len(agent.redirect_calls)
+        update_count = len(session_updates)
+        acp_agent._conn = connection
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct authoritative fix")],
+            "session-1",
+        )
+        assert response.stop_reason == "end_turn"
+        assert agent.redirect_calls[redirect_count:] == ["authoritative fix"]
+        assert state.queued_prompts == []
+        correction_updates = session_updates[update_count:]
+        assert len(correction_updates) == 2
+        assert correction_updates[0].field_meta == {
+            "command_eve_control": "authoritative_correction"
+        }
+        assert correction_updates[0].content.text == "authoritative fix"
+        assert correction_updates[1].content.text.startswith(
+            "Correction accepted for the active turn: authoritative fix"
+        )
+
+        def reject_redirect(text: str) -> bool:
+            agent.redirect_calls.append(text)
+            return False
+
+        agent.redirect = reject_redirect
+        state.is_running = True
+        state.queued_prompts.clear()
+        update_count = len(session_updates)
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct crossed terminal")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        assert state.queued_prompts == []
+        assert len(session_updates) == update_count
+        acp_agent._conn = None
+
         def broken_redirect(text: str) -> bool:
             agent.redirect_calls.append(text)
             raise RuntimeError("redirect unavailable")
@@ -458,6 +504,9 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
                 "real_wheel_idle_correction_quarantined": True,
                 "real_wheel_idle_steer_quarantined": True,
                 "real_wheel_busy_redirect_quarantined": True,
+                "real_wheel_active_correct_authoritative": True,
+                "real_wheel_active_correct_terminal_race_refused": True,
+                "real_wheel_session_cwd_recorded": True,
                 "real_wheel_queued_correction_quarantined": True,
                 "real_wheel_post_cancel_correction_quarantined": True,
                 "busy_redirect_persistence_failure_blocked": True,
