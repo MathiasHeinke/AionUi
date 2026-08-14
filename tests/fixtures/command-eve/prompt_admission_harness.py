@@ -234,6 +234,12 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
                 request_id = str(params["request_id"])
                 assert request_id
                 boundary_requests.append(dict(params))
+                if self.reject_boundary:
+                    return {
+                        "version": "command-eve-correction-boundary/v1",
+                        "request_id": request_id,
+                        "status": "rejected",
+                    }
                 boundary_commits.add(request_id)
                 if self.pause_boundary_response:
                     assert self.boundary_started is not None
@@ -247,7 +253,7 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
                 return {
                     "version": "command-eve-correction-boundary/v1",
                     "request_id": request_id,
-                    "status": "rejected" if self.reject_boundary else "accepted",
+                    "status": "accepted",
                 }
             observations.append(
                 {
@@ -550,6 +556,39 @@ with TemporaryDirectory(prefix="command-eve-real-wheel-") as wheel_root, Tempora
         )
         assert response.stop_reason == "end_turn"
         assert len(boundary_requests) == boundary_request_count
+
+        rejected_redirect_count = len(agent.redirect_calls)
+        rejected_request_count = len(boundary_requests)
+        rejected_commit_count = len(boundary_commits)
+        connection.reject_boundary = True
+        response = await acp_agent.prompt(
+            [TextContentBlock(type="text", text="/correct lifecycle rejected")],
+            "session-1",
+        )
+        assert response.stop_reason == "refusal"
+        assert not hasattr(state, "_command_eve_active_correction_receipt")
+        assert agent.redirect_calls[rejected_redirect_count:] == ["lifecycle rejected"]
+        assert len(boundary_requests) == rejected_request_count + 1
+        assert len(boundary_commits) == rejected_commit_count
+        connection.reject_boundary = False
+
+        saved_queued_prompts = list(state.queued_prompts)
+        state.queued_prompts[:] = ["atomic drain fence"]
+        state._command_eve_active_correction_receipt = {
+            "text": "atomic fence",
+            "request_id": "atomic-fence-receipt",
+            "phase": "redirected",
+            "in_flight": True,
+        }
+        try:
+            state.queued_prompts.pop(0)
+        except RuntimeError as error:
+            assert type(error).__name__ == "_CommandEveCorrectionDrainFenced"
+        else:
+            raise AssertionError("native FIFO pop bypassed the active correction receipt")
+        assert state.queued_prompts == ["atomic drain fence"]
+        del state._command_eve_active_correction_receipt
+        state.queued_prompts[:] = saved_queued_prompts
 
         state.is_running = False
         model_count = len(agent.model_inputs)
