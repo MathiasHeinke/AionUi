@@ -36,6 +36,8 @@ const DEFAULT_GROQ_MODEL = 'whisper-large-v3-turbo';
 const DEFAULT_TIMEOUT_MS = 180_000; // first call may lazy-install + download a model
 // Groq is a network round-trip; cap it well under the local model-download ceiling.
 const DEFAULT_GROQ_TIMEOUT_MS = 45_000;
+const DEFAULT_RUNTIME_READY_TIMEOUT_MS = 60_000;
+const DEFAULT_RUNTIME_READY_POLL_MS = 250;
 
 // The hermes home that owns ~/.hermes/.env, where the founder stored GROQ_API_KEY.
 // This is the user's PRIMARY hermes home (HERMES default), distinct from the
@@ -101,6 +103,8 @@ const STT_DRIVER = [
   'print(json.dumps(res))',
 ].join('\n');
 
+const STT_RUNTIME_READY_PROBE = 'import tools.transcription_tools';
+
 export type CommandEveSttRunResult = {
   ok: boolean;
   stdout: string;
@@ -130,6 +134,9 @@ export type TranscribeLocalSpeechOptions = {
   // Injectable seam for tests: resolve GROQ_API_KEY without touching the real
   // ~/.hermes/.env. Defaults to reading that file at runtime.
   readGroqApiKey?: () => string | null;
+  runtimeReadyTimeoutMs?: number;
+  runtimeReadyPollMs?: number;
+  sleep?: (delayMs: number) => Promise<void>;
 };
 
 function pythonBinary(hermesVenv: string): string {
@@ -182,6 +189,34 @@ const defaultRunner: CommandEveSttRunner = (command, args, options) =>
       }
     );
   });
+
+async function waitForLocalSttRuntime(
+  python: string,
+  runner: CommandEveSttRunner,
+  options: Pick<TranscribeLocalSpeechOptions, 'runtimeReadyPollMs' | 'runtimeReadyTimeoutMs' | 'sleep'>
+): Promise<void> {
+  const timeoutMs = options.runtimeReadyTimeoutMs ?? DEFAULT_RUNTIME_READY_TIMEOUT_MS;
+  const pollMs = options.runtimeReadyPollMs ?? DEFAULT_RUNTIME_READY_POLL_MS;
+  const sleep = options.sleep ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+  const deadline = Date.now() + timeoutMs;
+  let lastFailure = 'Hermes transcription module is not importable yet.';
+
+  const probeUntilReady = async (): Promise<void> => {
+    const remainingMs = Math.max(1, deadline - Date.now());
+    const probe = await runner(python, ['-c', STT_RUNTIME_READY_PROBE], {
+      timeoutMs: Math.min(5_000, remainingMs),
+    });
+    if (probe.ok) return;
+    lastFailure = (probe.error || probe.stderr || lastFailure).slice(0, 200);
+    if (Date.now() >= deadline) {
+      throw new Error(`STT_LOCAL_RUNTIME_NOT_READY:${lastFailure}`);
+    }
+    await sleep(Math.min(pollMs, Math.max(0, deadline - Date.now())));
+    return probeUntilReady();
+  };
+
+  await probeUntilReady();
+}
 
 type PythonSttResult = {
   success?: boolean;
@@ -237,6 +272,14 @@ export async function transcribeLocalSpeech(
     extraEnv = { GROQ_API_KEY: groqKey };
     timeoutMs = options.timeoutMs ?? DEFAULT_GROQ_TIMEOUT_MS;
   }
+
+  // The desktop deliberately keeps first-run bootstrap in the background so
+  // the UI becomes interactive quickly. A user can therefore press the mic
+  // while pip is still materializing Hermes' top-level `tools` package. The
+  // venv's python executable existing is not readiness; wait for the exact STT
+  // module to import before handing it recorded audio. This is a bounded local
+  // probe only and never installs or downloads anything itself.
+  await waitForLocalSttRuntime(python, runner, options);
 
   const audioPath = path.join(tmpDir, `command-eve-stt-${uuid()}.${audioExtension(request.file_name)}`);
 

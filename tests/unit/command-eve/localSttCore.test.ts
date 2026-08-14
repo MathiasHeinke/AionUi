@@ -23,7 +23,9 @@ function makeRequest(overrides: Partial<CommandEveLocalSttRequest> = {}): Comman
 }
 
 function harness(run: CommandEveSttRunResult, model?: string) {
-  const runner = vi.fn(async () => run);
+  const runner = vi.fn(async (_command: string, args: string[]) =>
+    args[1] === 'import tools.transcription_tools' ? { ok: true, stdout: '', stderr: '' } : run
+  );
   const writeFile = vi.fn();
   const removeFile = vi.fn();
   const options: TranscribeLocalSpeechOptions = {
@@ -56,7 +58,7 @@ describe('transcribeLocalSpeech (on-device STT core)', () => {
     expect(writeFile).toHaveBeenCalledTimes(1);
     expect(removeFile).toHaveBeenCalledTimes(1);
     // the python -c driver is invoked with the audio path + provider + model.
-    const [cmd, args] = runner.mock.calls[0];
+    const [cmd, args] = runner.mock.calls.find(([, runArgs]) => runArgs[1] !== 'import tools.transcription_tools')!;
     expect(cmd).toBe('/venv/bin/python');
     expect(args[0]).toBe('-c');
     expect(args[2]).toBe(path.join('/tmp', 'command-eve-stt-fixed-uuid.webm'));
@@ -72,8 +74,9 @@ describe('transcribeLocalSpeech (on-device STT core)', () => {
     });
     const result = await transcribeLocalSpeech(makeRequest(), options);
     expect(result.model).toBe('small');
-    expect(runner.mock.calls[0][1][3]).toBe('local');
-    expect(runner.mock.calls[0][1][4]).toBe('small');
+    const [, args] = runner.mock.calls.find(([, runArgs]) => runArgs[1] !== 'import tools.transcription_tools')!;
+    expect(args[3]).toBe('local');
+    expect(args[4]).toBe('small');
   });
 
   it('routes provider=groq with the key injected into the child env (never logged)', async () => {
@@ -88,7 +91,9 @@ describe('transcribeLocalSpeech (on-device STT core)', () => {
     });
     expect(result.provider).toBe('groq');
     expect(result.text).toBe('hallo');
-    const [, args, runOptions] = runner.mock.calls[0];
+    const [, args, runOptions] = runner.mock.calls.find(
+      ([, runArgs]) => runArgs[1] !== 'import tools.transcription_tools'
+    )!;
     expect(args[3]).toBe('groq');
     expect(args[4]).toBe('whisper-large-v3-turbo');
     // The secret rides ONLY in the per-call child env, not in argv.
@@ -106,7 +111,8 @@ describe('transcribeLocalSpeech (on-device STT core)', () => {
       ...options,
       readGroqApiKey: () => 'gsk_test_key',
     });
-    expect(runner.mock.calls[0][1][4]).toBe('whisper-large-v3-turbo');
+    const [, args] = runner.mock.calls.find(([, runArgs]) => runArgs[1] !== 'import tools.transcription_tools')!;
+    expect(args[4]).toBe('whisper-large-v3-turbo');
   });
 
   it('throws STT_GROQ_KEY_MISSING when no key is found (and never runs the subprocess)', async () => {
@@ -149,5 +155,52 @@ describe('transcribeLocalSpeech (on-device STT core)', () => {
     });
     const result = await transcribeLocalSpeech(makeRequest(), options);
     expect(result.text).toBe('ok');
+  });
+
+  it('waits for a cold Hermes install to expose the transcription module before running STT', async () => {
+    let probeCalls = 0;
+    const runner = vi.fn(async (_command: string, args: string[]) => {
+      if (args[1] === 'import tools.transcription_tools') {
+        probeCalls += 1;
+        return probeCalls < 3
+          ? { ok: false, stdout: '', stderr: "ModuleNotFoundError: No module named 'tools'" }
+          : { ok: true, stdout: '', stderr: '' };
+      }
+      return {
+        ok: true,
+        stdout: JSON.stringify({ success: true, transcript: 'bereit' }),
+        stderr: '',
+      };
+    });
+
+    const result = await transcribeLocalSpeech(makeRequest(), {
+      ...harness({ ok: true, stdout: '', stderr: '' }).options,
+      runner,
+      runtimeReadyPollMs: 0,
+      sleep: async () => undefined,
+    });
+
+    expect(result.text).toBe('bereit');
+    expect(probeCalls).toBe(3);
+    expect(runner).toHaveBeenCalledTimes(4);
+  });
+
+  it('fails with a bounded readiness error instead of racing a partial venv', async () => {
+    const runner = vi.fn(async () => ({
+      ok: false,
+      stdout: '',
+      stderr: "ModuleNotFoundError: No module named 'tools'",
+    }));
+
+    await expect(
+      transcribeLocalSpeech(makeRequest(), {
+        ...harness({ ok: true, stdout: '', stderr: '' }).options,
+        runner,
+        runtimeReadyTimeoutMs: 0,
+        runtimeReadyPollMs: 0,
+        sleep: async () => undefined,
+      })
+    ).rejects.toThrow(/STT_LOCAL_RUNTIME_NOT_READY:.*No module named 'tools'/);
+    expect(runner).toHaveBeenCalledTimes(1);
   });
 });
