@@ -126,6 +126,24 @@ describe('UpdateModal background update behavior', () => {
     await waitFor(() => expect(bridge.autoCheck).toHaveBeenCalledWith({ includePrerelease: expected }));
   });
 
+  it('reads a preview preference changed after the mounted modal created its open handler', async () => {
+    localStorage.setItem('update.includePrerelease', 'false');
+    updateStore.status = { status: 'idle' };
+    bridge.autoCheck.mockResolvedValue({ success: true });
+    bridge.manualCheck.mockResolvedValue({
+      success: true,
+      data: { currentVersion: '1.8.12', updateAvailable: false },
+    });
+
+    render(<UpdateModal />);
+    localStorage.setItem('update.includePrerelease', 'true');
+    act(() => {
+      window.dispatchEvent(new Event('aionui-open-update-modal'));
+    });
+
+    await waitFor(() => expect(bridge.autoCheck).toHaveBeenCalledWith({ includePrerelease: true }));
+  });
+
   it('does not interrupt the user when a downloaded status arrives', () => {
     render(<UpdateModal />);
 

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Progress, Message } from '@arco-design/web-react';
 import { CheckOne, Download, FolderOpen, Refresh, CloseOne, Install } from '@icon-park/react';
 import { ipcBridge } from '@/common';
@@ -78,7 +78,6 @@ const UpdateModal: React.FC = () => {
     setAutoUpdateInfo(null);
   }, []);
 
-  const includePrerelease = useMemo(() => localStorage.getItem('update.includePrerelease') === 'true', [visible]);
   const hasCompatibleManualAsset = Boolean(updateInfo?.recommendedAsset);
   const manualInfoMatchesAuto = !autoUpdateInfo || !updateInfo || autoUpdateInfo.version === updateInfo.version;
   const displayedUpdateVersion = formatCommandEveDisplayVersion(autoUpdateInfo?.version || updateInfo?.version || '');
@@ -95,6 +94,10 @@ const UpdateModal: React.FC = () => {
   const checkForUpdates = useCallback(async () => {
     setStatus('checking');
     try {
+      // Read at action time. The modal stays mounted while the settings page can
+      // change this preference, so a render-cached value can query the wrong
+      // feed when the user toggles Dev-Builds and immediately clicks check.
+      const includePrerelease = localStorage.getItem('update.includePrerelease') === 'true';
       // Try auto-update (electron-updater) first
       let autoUpdateOk = false;
       try {
@@ -186,7 +189,7 @@ const UpdateModal: React.FC = () => {
       setErrorMsg(msg);
       setStatus('error');
     }
-  }, [includePrerelease, t]);
+  }, [t]);
 
   const startDownload = async () => {
     if (!updateInfo && !autoUpdateAvailable) return;
