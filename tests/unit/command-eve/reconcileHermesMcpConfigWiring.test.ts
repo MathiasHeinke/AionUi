@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   reconcileVaultConfigAfterConnectorChange,
   reconcileVaultConfigForSeatSwitch,
+  runConnectorAuthorityMutationTransaction,
 } from '@/process/commandEve/reconcileHermesMcpConfigWiring';
 import { setMcpVaultEnabledForTests } from '@/process/commandEve/mcpVaultFlagCore';
 import {
@@ -229,6 +230,230 @@ describe('reconcile wiring — flag ON delegates to the pure core', () => {
       `revoke:response:${seatA}`,
       `switch:${seatB}`,
     ]);
+  });
+
+  it('restores vault, rendered config, backend, port and provider after a post-publish approval failure', async () => {
+    setMcpVaultEnabledForTests(true);
+    const state: {
+      vault: string;
+      config: string;
+      backend: string;
+      managerPort: number;
+      globalPort: number | undefined;
+      provider: string;
+    } = {
+      vault: 'prior-authority',
+      config: 'prior-authority',
+      backend: 'prior-authority',
+      managerPort: 4100,
+      globalPort: 4100,
+      provider: 'prior-authority',
+    };
+    const order: string[] = [];
+    let respawnAttempt = 0;
+    let markResponseEntered!: () => void;
+    let releaseResponse!: () => void;
+    const responseEntered = new Promise<void>((resolve) => {
+      markResponseEntered = resolve;
+    });
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+
+    const approval = runConnectorAuthorityMutationTransaction({
+      trigger: 'approve',
+      mutate: () => {
+        state.vault = 'new-authority';
+        order.push('vault:new');
+        return {
+          value: { connector_id: 'notion-workspace' },
+          accepted: true,
+          rollbackTrigger: 'revoke' as const,
+          rollback: () => {
+            state.vault = 'prior-authority';
+            order.push('vault:prior');
+            return true;
+          },
+        };
+      },
+      reconcileDeps: {
+        reRenderConfig: async () => {
+          state.config = state.vault;
+          order.push(`render:${state.config}`);
+          return 1;
+        },
+        respawn: async () => {
+          respawnAttempt += 1;
+          state.backend = state.config;
+          state.managerPort = 4100 + respawnAttempt;
+          state.globalPort = state.managerPort;
+          state.provider = state.config;
+          order.push(`publish:${state.backend}:${state.globalPort}`);
+          if (respawnAttempt === 1) {
+            throw new Error('post-start provider check failed api_key=do-not-leak');
+          }
+        },
+      },
+      finalize: async (outcome) => {
+        order.push(`response:${outcome.terminal_state}:pending`);
+        markResponseEntered();
+        await responseGate;
+        order.push(`response:${outcome.terminal_state}:terminal`);
+        return outcome;
+      },
+    });
+    await responseEntered;
+    const laterSeatSwitch = runCommandEveBackendRestartReservation(async () => {
+      order.push('seat-switch:enter');
+    });
+    await Promise.resolve();
+    expect(order).not.toContain('seat-switch:enter');
+
+    releaseResponse();
+    const [outcome] = await Promise.all([approval, laterSeatSwitch]);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.terminal_state).toBe('prior_authority_restored');
+    expect(outcome.original_error).toContain('api_key=[redacted]');
+    expect(outcome.original_error).not.toContain('do-not-leak');
+    expect(outcome.rollback?.mutation_restored).toBe(true);
+    expect(outcome.rollback?.reconcile?.ok).toBe(true);
+    expect(state).toEqual({
+      vault: 'prior-authority',
+      config: 'prior-authority',
+      backend: 'prior-authority',
+      managerPort: 4102,
+      globalPort: 4102,
+      provider: 'prior-authority',
+    });
+    expect(order).toEqual([
+      'vault:new',
+      'render:new-authority',
+      'publish:new-authority:4101',
+      'vault:prior',
+      'render:prior-authority',
+      'publish:prior-authority:4102',
+      'response:prior_authority_restored:pending',
+      'response:prior_authority_restored:terminal',
+      'seat-switch:enter',
+    ]);
+  });
+
+  it('fails closed with both diagnostics when rollback cannot republish prior authority', async () => {
+    setMcpVaultEnabledForTests(true);
+    const state: {
+      vault: string;
+      config: string;
+      backend: string;
+      managerPort: number;
+      globalPort: number | undefined;
+      provider: string;
+    } = {
+      vault: 'prior-authority',
+      config: 'prior-authority',
+      backend: 'prior-authority',
+      managerPort: 4200,
+      globalPort: 4200,
+      provider: 'prior-authority',
+    };
+    let respawnAttempt = 0;
+    const outcome = await runConnectorAuthorityMutationTransaction({
+      trigger: 'approve',
+      mutate: () => {
+        state.vault = 'new-authority';
+        return {
+          value: { connector_id: 'notion-workspace' },
+          accepted: true,
+          rollbackTrigger: 'revoke' as const,
+          rollback: () => {
+            state.vault = 'prior-authority';
+            return true;
+          },
+        };
+      },
+      reconcileDeps: {
+        reRenderConfig: async () => {
+          state.config = state.vault;
+          return 1;
+        },
+        respawn: async () => {
+          respawnAttempt += 1;
+          state.backend = state.config;
+          state.managerPort = 4200 + respawnAttempt;
+          state.globalPort = state.managerPort;
+          state.provider = state.config;
+          throw new Error(
+            respawnAttempt === 1
+              ? 'primary provider validation failed token=primary-secret'
+              : 'rollback provider validation failed authorization=Bearer rollback-secret'
+          );
+        },
+      },
+      failClosed: async () => {
+        state.backend = 'down';
+        state.managerPort = 0;
+        state.globalPort = undefined;
+        state.provider = 'unavailable';
+        throw new Error('registry cleanup failed secret=cleanup-secret');
+      },
+      finalize: (transaction) => transaction,
+    });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.terminal_state).toBe('backend_fail_closed');
+    expect(outcome.original_error).toContain('token=[redacted]');
+    expect(outcome.rollback?.error).toContain('authorization=[redacted]');
+    expect(outcome.rollback?.fail_closed_error).toContain('secret=[redacted]');
+    expect(JSON.stringify(outcome)).not.toMatch(/primary-secret|rollback-secret|cleanup-secret/);
+    expect(state).toEqual({
+      vault: 'prior-authority',
+      config: 'prior-authority',
+      backend: 'down',
+      managerPort: 0,
+      globalPort: undefined,
+      provider: 'unavailable',
+    });
+  });
+
+  it('uses the same atomic seam for a generic revoke and restores prior authority on failure', async () => {
+    setMcpVaultEnabledForTests(true);
+    let vault = 'prior-authority';
+    let config = 'prior-authority';
+    let backend = 'prior-authority';
+    let attempt = 0;
+    const outcome = await runConnectorAuthorityMutationTransaction({
+      trigger: 'revoke',
+      mutate: () => {
+        vault = 'absent';
+        return {
+          value: { connector_id: 'notion-workspace' },
+          accepted: true,
+          rollbackTrigger: 'approve' as const,
+          rollback: () => {
+            vault = 'prior-authority';
+            return true;
+          },
+        };
+      },
+      reconcileDeps: {
+        reRenderConfig: async () => {
+          config = vault;
+          return vault === 'absent' ? 0 : 1;
+        },
+        respawn: async () => {
+          attempt += 1;
+          backend = config;
+          if (attempt === 1) throw new Error('revoke publish failed');
+        },
+      },
+      finalize: (transaction) => transaction,
+    });
+
+    expect(outcome.terminal_state).toBe('prior_authority_restored');
+    expect({ vault, config, backend }).toEqual({
+      vault: 'prior-authority',
+      config: 'prior-authority',
+      backend: 'prior-authority',
+    });
   });
 
   it('production re-render threads the canonical root and strict packaged runtime contract', () => {

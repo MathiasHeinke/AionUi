@@ -89,9 +89,11 @@ import { shouldRestartWindowsBackendAfterRuntimeBootstrap } from './process/comm
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatContextRevision, getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
+  failCommandEveBackendAuthorityClosed,
   restartCommandEveBackendForSeat,
   runCommandEveBackendCrashRecovery,
   runCommandEveBackendRespawnAfterStop,
+  setCommandEveBackendAuthorityFailClosed,
   setCommandEveBackendRestart,
 } from './process/commandEve/seatSwitchRuntime';
 import { getCdpBridgeHandle } from './process/resources/builtinMcp/cdpBridgeRegistry';
@@ -1233,6 +1235,14 @@ async function waitForCommandEveBackendPort(timeoutMs = 90_000): Promise<number>
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`Command EVE assistant readiness blocked: backend port not available after ${timeoutMs}ms.`);
+}
+
+function commandEveAuthorityDiagnostic(error: unknown, fallback: string): string {
+  return (error instanceof Error ? error.message : typeof error === 'string' ? error : fallback)
+    .replace(/\b(keychain:v1:)[^\s,;]+/gi, '$1[redacted]')
+    .replace(/\b(authorization)(\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi, '$1$2[redacted]')
+    .replace(/\b(api[_-]?key|token|secret)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[redacted]')
+    .slice(0, 600);
 }
 
 function ensureCommandEveAssistantReadiness(): Promise<CommandEveAssistantEnsureResult> {
@@ -2477,7 +2487,34 @@ const handleAppReady = async (): Promise<void> => {
     // finally returns, it must NOT clobber the newer switch's global state with its own
     // (already SIGKILLed) port. Captured at hook entry; re-checked after start().
     let commandEveRespawnGeneration = 0;
-    setCommandEveBackendRestart(async () => {
+    setCommandEveBackendAuthorityFailClosed(async () => {
+      const cleanupErrors: string[] = [];
+      // Remove external truth before the destructive stop. The manager clears
+      // its own port synchronously at stop entry, even if registry cleanup later
+      // throws after the child is already dead.
+      delete (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
+      try {
+        disposeCronResumeListener?.();
+      } catch (error) {
+        cleanupErrors.push(commandEveAuthorityDiagnostic(error, 'cron listener cleanup failed'));
+      } finally {
+        disposeCronResumeListener = null;
+      }
+      try {
+        await backendManager.stop();
+      } catch (error) {
+        cleanupErrors.push(commandEveAuthorityDiagnostic(error, 'backend stop cleanup failed'));
+      } finally {
+        delete (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
+        backendStartedOk = false;
+      }
+      if (cleanupErrors.length > 0) {
+        throw new Error(
+          `Command EVE backend fail-closed stop completed with cleanup errors: ${cleanupErrors.join(' | ')}`
+        );
+      }
+    });
+    setCommandEveBackendRestart(async (restartLease) => {
       const myRespawnGen = ++commandEveRespawnGeneration;
       const { getDataPath: getDataPathForRestart } = await import('./process/utils/utils');
       const { getSystemDir: getSystemDirForRestart, getBackendDataDir: getBackendDataDirForRestart } =
@@ -2601,7 +2638,24 @@ const handleAppReady = async (): Promise<void> => {
       // Seat DBs are physically distinct. Do not complete the switch until the
       // newly-active DB can read back its own provider row. A hard failure
       // propagates into the existing seat-switch rollback path.
-      await ensureCommandEveLocalProviderAfterBackendStart('seat-respawn');
+      try {
+        await ensureCommandEveLocalProviderAfterBackendStart('seat-respawn');
+      } catch (error) {
+        const providerError = commandEveAuthorityDiagnostic(error, 'provider validation failed');
+        let failClosedError: unknown;
+        try {
+          await failCommandEveBackendAuthorityClosed(restartLease);
+        } catch (cleanupError) {
+          failClosedError = cleanupError;
+        }
+        throw new Error(
+          failClosedError
+            ? `Command EVE post-start provider validation failed (${providerError}); backend was stopped with cleanup errors (${commandEveAuthorityDiagnostic(failClosedError, 'cleanup failed')}).`
+            : `Command EVE post-start provider validation failed (${providerError}); backend was stopped fail-closed.`,
+          { cause: error }
+        );
+      }
+      backendStartedOk = true;
       // ISO-6: the EVE assistant skill prompt is a function of the ACTIVE seat —
       // regenerate it so the new seat's client entity (its ISO-3 seed), not the
       // prior seat's nor the admin's, is what the agent runs with. The single

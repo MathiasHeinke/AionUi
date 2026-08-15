@@ -26,6 +26,7 @@
 import { reconcileHermesMcpConfigForActiveSeat, type ReconcileReceipt } from './reconcileHermesMcpConfigCore';
 import { isMcpVaultEnabled } from './mcpVaultFlagCore';
 import {
+  failCommandEveBackendAuthorityClosed,
   restartCommandEveBackendForSeat,
   runCommandEveBackendRestartReservation,
   type CommandEveBackendRestartLease,
@@ -48,6 +49,147 @@ export interface ReconcileWiringDeps {
   respawn?: () => void | Promise<void>;
   /** Test clock. */
   now?: () => Date;
+}
+
+export type ConnectorAuthorityMutation<T> = Readonly<{
+  value: T;
+  accepted: boolean;
+  failureReason?: string;
+  rollback: () => boolean | Promise<boolean>;
+  rollbackTrigger: 'approve' | 'revoke';
+}>;
+
+export type ConnectorAuthorityTransactionOutcome<T> = Readonly<{
+  ok: boolean;
+  value: T;
+  terminal_state: 'committed' | 'mutation_rejected' | 'prior_authority_restored' | 'backend_fail_closed';
+  reconcile?: ReconcileReceipt;
+  original_error?: string;
+  rollback?: Readonly<{
+    mutation_restored: boolean;
+    reconcile?: ReconcileReceipt;
+    error?: string;
+    fail_closed_error?: string;
+  }>;
+}>;
+
+export type ConnectorAuthorityTransactionInput<T, R> = Readonly<{
+  trigger: 'approve' | 'revoke';
+  mutate: () => ConnectorAuthorityMutation<T> | Promise<ConnectorAuthorityMutation<T>>;
+  finalize: (outcome: ConnectorAuthorityTransactionOutcome<T>) => R | Promise<R>;
+  reconcileDeps?: ReconcileWiringDeps;
+  failClosed?: (lease: CommandEveBackendRestartLease) => void | Promise<void>;
+}>;
+
+function sanitizeConnectorAuthorityDiagnostic(value: unknown, fallback: string): string {
+  const message = (value instanceof Error ? value.message : typeof value === 'string' ? value : fallback)
+    .replace(/\b(keychain:v1:)[^\s,;]+/gi, '$1[redacted]')
+    .replace(/\b(authorization)(\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi, '$1$2[redacted]')
+    .replace(/\b(api[_-]?key|token|secret)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[redacted]')
+    .trim();
+  return (message || fallback).slice(0, 600);
+}
+
+function sanitizeConnectorAuthorityReceipt(receipt: ReconcileReceipt): ReconcileReceipt {
+  if (!receipt.reason_code) return receipt;
+  return {
+    ...receipt,
+    reason_code: sanitizeConnectorAuthorityDiagnostic(receipt.reason_code, 'CONNECTOR_AUTHORITY_RECONCILE_FAILED'),
+  };
+}
+
+/**
+ * Atomic connector authority transaction. Reservation begins before `mutate`
+ * (and therefore before its first seat read/vault write), stays held through
+ * primary projection, complete rollback and `finalize`, and is usable by both
+ * the real approve surface and a future revoke owner without inventing an IPC.
+ */
+export function runConnectorAuthorityMutationTransaction<T, R>(
+  input: ConnectorAuthorityTransactionInput<T, R>
+): Promise<R> {
+  return runCommandEveBackendRestartReservation(async (restartLease) => {
+    const mutation = await input.mutate();
+    if (!mutation.accepted) {
+      return input.finalize({
+        ok: false,
+        value: mutation.value,
+        terminal_state: 'mutation_rejected',
+        original_error: sanitizeConnectorAuthorityDiagnostic(
+          mutation.failureReason,
+          'CONNECTOR_AUTHORITY_MUTATION_REJECTED'
+        ),
+      });
+    }
+
+    const primary = sanitizeConnectorAuthorityReceipt(
+      await reconcileVaultConfigAfterConnectorChange(input.trigger, input.reconcileDeps, restartLease)
+    );
+    if (primary.ok) {
+      return input.finalize({
+        ok: true,
+        value: mutation.value,
+        terminal_state: 'committed',
+        reconcile: primary,
+      });
+    }
+
+    const originalError = sanitizeConnectorAuthorityDiagnostic(
+      primary.reason_code,
+      'CONNECTOR_AUTHORITY_PRIMARY_RECONCILE_FAILED'
+    );
+    let mutationRestored = false;
+    let mutationRollbackError: string | undefined;
+    try {
+      mutationRestored = (await mutation.rollback()) === true;
+      if (!mutationRestored) mutationRollbackError = 'CONNECTOR_AUTHORITY_VAULT_ROLLBACK_FAILED';
+    } catch (error) {
+      mutationRollbackError = sanitizeConnectorAuthorityDiagnostic(error, 'CONNECTOR_AUTHORITY_VAULT_ROLLBACK_FAILED');
+    }
+
+    let rollbackReconcile: ReconcileReceipt | undefined;
+    let rollbackError = mutationRollbackError;
+    if (mutationRestored) {
+      rollbackReconcile = sanitizeConnectorAuthorityReceipt(
+        await reconcileVaultConfigAfterConnectorChange(mutation.rollbackTrigger, input.reconcileDeps, restartLease)
+      );
+      if (rollbackReconcile.ok) {
+        return input.finalize({
+          ok: false,
+          value: mutation.value,
+          terminal_state: 'prior_authority_restored',
+          reconcile: primary,
+          original_error: originalError,
+          rollback: { mutation_restored: true, reconcile: rollbackReconcile },
+        });
+      }
+      rollbackError = sanitizeConnectorAuthorityDiagnostic(
+        rollbackReconcile.reason_code,
+        'CONNECTOR_AUTHORITY_ROLLBACK_RECONCILE_FAILED'
+      );
+    }
+
+    let failClosedError: string | undefined;
+    try {
+      await (input.failClosed ?? failCommandEveBackendAuthorityClosed)(restartLease);
+    } catch (error) {
+      // The production hook clears manager/global port truth in `finally`, so a
+      // cleanup error is diagnostic, not permission to report the backend live.
+      failClosedError = sanitizeConnectorAuthorityDiagnostic(error, 'CONNECTOR_AUTHORITY_FAIL_CLOSED_ERROR');
+    }
+    return input.finalize({
+      ok: false,
+      value: mutation.value,
+      terminal_state: 'backend_fail_closed',
+      reconcile: primary,
+      original_error: originalError,
+      rollback: {
+        mutation_restored: mutationRestored,
+        ...(rollbackReconcile ? { reconcile: rollbackReconcile } : {}),
+        ...(rollbackError ? { error: rollbackError } : {}),
+        ...(failClosedError ? { fail_closed_error: failClosedError } : {}),
+      },
+    });
+  });
 }
 
 /**

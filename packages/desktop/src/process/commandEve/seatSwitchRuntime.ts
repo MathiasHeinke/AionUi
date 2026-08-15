@@ -24,9 +24,8 @@
  * unless a real re-spawn ran.
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks';
-
 const commandEveBackendRestartLeaseBrand: unique symbol = Symbol('command-eve-backend-restart-lease');
+const COMMAND_EVE_BACKEND_LIFECYCLE_QUEUE_WAIT_MS = 30_000;
 
 /**
  * An opaque, runtime-validated capability proving that the caller owns the
@@ -44,6 +43,10 @@ export type CommandEveBackendRestartLease = Readonly<{
  * ambient async context. */
 export type CommandEveBackendRestart = (lease: CommandEveBackendRestartLease) => Promise<void>;
 
+/** Destructively stop the current backend and clear every published port after
+ * an authority rollback can no longer prove either projection safe. */
+export type CommandEveBackendAuthorityFailClosed = (lease: CommandEveBackendRestartLease) => Promise<void>;
+
 export type CommandEveStoppedBackendRespawn<T> = Readonly<{
   beforeStop?: () => Promise<void>;
   stop: () => Promise<void>;
@@ -59,14 +62,11 @@ export type CommandEveCrashRecoveryTransaction<T> = Readonly<{
 }>;
 
 let restartHook: CommandEveBackendRestart | null = null;
+let authorityFailClosedHook: CommandEveBackendAuthorityFailClosed | null = null;
 let restartQueueTail: Promise<void> = Promise.resolve();
 const activeRestartLeases = new WeakSet<CommandEveBackendRestartLease>();
 const executingRestartLeases = new WeakSet<CommandEveBackendRestartLease>();
-// Denial-only ambient context. It never grants authority: the opaque lease is
-// still required for every in-reservation restart. Its sole purpose is to turn
-// an accidental unleased nested reservation/restart into an immediate error
-// instead of queueing behind itself forever.
-const restartReservationContext = new AsyncLocalStorage<boolean>();
+const executingAuthorityFailClosedLeases = new WeakSet<CommandEveBackendRestartLease>();
 
 export type CommandEveBackendRestartReservationOptions = Readonly<{
   /**
@@ -115,6 +115,25 @@ async function invokeCommandEveBackendRestartHook(lease: CommandEveBackendRestar
   }
 }
 
+async function invokeCommandEveBackendAuthorityFailClosedHook(lease: CommandEveBackendRestartLease): Promise<void> {
+  if (!activeRestartLeases.has(lease)) {
+    throw new Error('Command EVE: backend authority fail-closed lease is invalid or expired.');
+  }
+  if (executingAuthorityFailClosedLeases.has(lease)) {
+    throw new Error('Command EVE: recursive backend authority fail-closed operation refused.');
+  }
+  const hook = authorityFailClosedHook;
+  if (!hook) {
+    throw new Error('Command EVE: no backend authority fail-closed hook registered.');
+  }
+  executingAuthorityFailClosedLeases.add(lease);
+  try {
+    await hook(lease);
+  } finally {
+    executingAuthorityFailClosedLeases.delete(lease);
+  }
+}
+
 /**
  * Reserve the single backend lifecycle FIFO for one complete authority
  * transaction. Seat switching holds this lease across identity mutation,
@@ -125,14 +144,6 @@ export function runCommandEveBackendRestartReservation<T>(
   operation: (lease: CommandEveBackendRestartLease) => Promise<T>,
   options: CommandEveBackendRestartReservationOptions = {}
 ): Promise<T> {
-  if (restartReservationContext.getStore() === true) {
-    return Promise.reject(
-      new Error(
-        'Command EVE: nested backend lifecycle reservation refused; the active reservation must pass its explicit lease.'
-      )
-    );
-  }
-
   let entered = false;
   let cancelledBeforeEntry = false;
   const queued = enqueueCommandEveBackendLifecycle(async () => {
@@ -143,15 +154,22 @@ export function runCommandEveBackendRestartReservation<T>(
     const lease = createCommandEveBackendRestartLease();
     activeRestartLeases.add(lease);
     try {
-      return await restartReservationContext.run(true, () => operation(lease));
+      return await operation(lease);
     } finally {
       activeRestartLeases.delete(lease);
       executingRestartLeases.delete(lease);
+      executingAuthorityFailClosedLeases.delete(lease);
     }
   });
 
-  const queueWaitTimeoutMs = options.queueWaitTimeoutMs;
-  if (!Number.isFinite(queueWaitTimeoutMs) || (queueWaitTimeoutMs ?? 0) <= 0) return queued;
+  // There is deliberately no ambient async-context marker here. Node propagates
+  // ambient stores through spawned-process listeners and delayed crash timers;
+  // using it as a recursion guard poisoned legitimate crash recovery long after
+  // the owning reservation had ended. Authority is carried only by the opaque
+  // lease. A bounded queue wait keeps accidental unleased nesting fail-closed
+  // without leaking ambient state into child lifetimes.
+  const queueWaitTimeoutMs = options.queueWaitTimeoutMs ?? COMMAND_EVE_BACKEND_LIFECYCLE_QUEUE_WAIT_MS;
+  if (!Number.isFinite(queueWaitTimeoutMs) || queueWaitTimeoutMs <= 0) return queued;
 
   return new Promise<T>((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -175,6 +193,10 @@ export function setCommandEveBackendRestart(hook: CommandEveBackendRestart | nul
   restartHook = hook;
 }
 
+export function setCommandEveBackendAuthorityFailClosed(hook: CommandEveBackendAuthorityFailClosed | null): void {
+  authorityFailClosedHook = hook;
+}
+
 /** True when a real restart hook is wired (a switch can actually re-spawn). */
 export function hasCommandEveBackendRestart(): boolean {
   return restartHook !== null;
@@ -189,12 +211,16 @@ export async function restartCommandEveBackendForSeat(lease?: CommandEveBackendR
     await invokeCommandEveBackendRestartHook(lease);
     return;
   }
-  if (restartReservationContext.getStore() === true) {
-    throw new Error(
-      'Command EVE: unleased backend restart refused inside an active lifecycle reservation; pass the explicit lease.'
-    );
-  }
   await runCommandEveBackendRestartReservation((ownedLease) => invokeCommandEveBackendRestartHook(ownedLease));
+}
+
+/**
+ * Terminal safety valve for an authority transaction whose rollback failed.
+ * It never acquires or inherits authority: the caller must present the exact
+ * still-active opaque lease that already owns the global lifecycle FIFO.
+ */
+export async function failCommandEveBackendAuthorityClosed(lease: CommandEveBackendRestartLease): Promise<void> {
+  await invokeCommandEveBackendAuthorityFailClosedHook(lease);
 }
 
 /**
@@ -247,5 +273,6 @@ export async function runCommandEveBackendCrashRecovery<T>(
 /** Test-only: clear the registered hook between tests. */
 export function __resetCommandEveBackendRestartForTests(): void {
   restartHook = null;
+  authorityFailClosedHook = null;
   restartQueueTail = Promise.resolve();
 }

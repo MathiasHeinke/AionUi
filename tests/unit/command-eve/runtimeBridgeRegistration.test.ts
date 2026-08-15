@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 
 import {
   __resetCommandEveBackendRestartForTests,
+  failCommandEveBackendAuthorityClosed,
   restartCommandEveBackendForSeat,
   runCommandEveBackendCrashRecovery,
   runCommandEveBackendRespawnAfterStop,
   runCommandEveBackendRestartReservation,
+  setCommandEveBackendAuthorityFailClosed,
   setCommandEveBackendRestart,
 } from '@/process/commandEve/seatSwitchRuntime';
 import {
@@ -128,7 +131,7 @@ describe('Command EVE runtime bridge registration', () => {
     const initialRepair = source.indexOf('repairCommandEveAssistantStorage', initialAdmission);
     const initialRecheck = source.indexOf('recheckCommandEveRuntimeBeforeInitialStart?.();', initialRepair);
     const initialStart = source.indexOf('const backendPort = await backendManager.start(', initialAdmission);
-    const hook = source.indexOf('setCommandEveBackendRestart(async () => {');
+    const hook = source.indexOf('setCommandEveBackendRestart(async (restartLease) => {');
     const admission = source.indexOf('await ensureCommandEveRuntimeAdmissionForRespawn(false)', hook);
     const stop = source.indexOf('stop: () => backendManager.stop()', hook);
     const awaitGapRecheck = source.indexOf('recheckCommandEveRuntimeBeforeRespawn?.();', admission);
@@ -183,33 +186,27 @@ describe('Command EVE runtime bridge registration', () => {
     expect(reservationEnd).toBeGreaterThan(terminalRefresh);
   });
 
-  it('reserves guided connector approval before its first seat read or vault write and rolls back under the same lease', () => {
+  it('routes guided approval through the behavior-tested atomic authority transaction seam', () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, '../../../packages/desktop/src/process/bridge/commandEveBridge.ts'),
       'utf8'
     );
     const provider = source.indexOf("bridge.buildProvider('command-eve.guided-auth-setup')");
     const inFlightBlock = source.indexOf('if (commandEveSwitchSeatInFlight) {', provider);
-    const reservation = source.indexOf(
-      'return runCommandEveBackendRestartReservation(async (restartLease) => {',
-      provider
-    );
+    const transaction = source.indexOf('return await runConnectorAuthorityMutationTransaction({', provider);
     const firstSeatRead = source.indexOf("const seatId = scope === 'seat' ? getActiveSeatId() : undefined;", provider);
     const vaultMutation = source.indexOf('const result = runGuidedApiKeySetup({', provider);
-    const leasedReconcile = source.indexOf(
-      "reconcileVaultConfigAfterConnectorChange('approve', {}, restartLease)",
-      provider
-    );
-    const rollback = source.indexOf('const rollbackOk = previousRecord', leasedReconcile);
-    const responseTerminal = source.indexOf("reason_code: 'GUIDED_AUTH_BRIDGE_FAILED'", rollback);
+    const byteSnapshot = source.indexOf('readVaultRecordFileSnapshot(vaultDir, connectorId)', provider);
+    const byteRollback = source.indexOf('restoreVaultRecordFileSnapshot(', vaultMutation);
+    const responseTerminal = source.indexOf('authority_transaction:', byteRollback);
 
     expect(inFlightBlock).toBeGreaterThan(provider);
-    expect(reservation).toBeGreaterThan(inFlightBlock);
-    expect(firstSeatRead).toBeGreaterThan(reservation);
-    expect(vaultMutation).toBeGreaterThan(firstSeatRead);
-    expect(leasedReconcile).toBeGreaterThan(vaultMutation);
-    expect(rollback).toBeGreaterThan(leasedReconcile);
-    expect(responseTerminal).toBeGreaterThan(rollback);
+    expect(transaction).toBeGreaterThan(inFlightBlock);
+    expect(firstSeatRead).toBeGreaterThan(transaction);
+    expect(byteSnapshot).toBeGreaterThan(firstSeatRead);
+    expect(vaultMutation).toBeGreaterThan(byteSnapshot);
+    expect(byteRollback).toBeGreaterThan(vaultMutation);
+    expect(responseTerminal).toBeGreaterThan(byteRollback);
   });
 
   it('preserves the live port and never stops or starts when pre-stop admission fails', async () => {
@@ -574,24 +571,104 @@ describe('Command EVE runtime bridge registration', () => {
     );
   });
 
-  it('rejects unleased nested reservations and restarts after an await while the explicit lease remains valid', async () => {
+  it('lets a child exit callback acquire fresh crash authority after its spawn reservation terminates', async () => {
     const events: string[] = [];
+    let settleCrash!: (value: number | undefined) => void;
+    let rejectCrash!: (error: unknown) => void;
+    const crashTerminal = new Promise<number | undefined>((resolve, reject) => {
+      settleCrash = resolve;
+      rejectCrash = reject;
+    });
     setCommandEveBackendRestart(async () => {
-      events.push('leased-restart');
+      events.push('start:spawned');
+      const child = spawn(process.execPath, ['-e', 'setTimeout(() => process.exit(7), 25)'], { stdio: 'ignore' });
+      child.once('exit', () => {
+        void runCommandEveBackendCrashRecovery({
+          claimIfCurrent: () => {
+            events.push('crash:claimed');
+            return true;
+          },
+          recover: async () => {
+            events.push('crash:recovered');
+            return 4701;
+          },
+          clearDeadBackendPort: () => events.push('crash:cleared'),
+          queueWaitTimeoutMs: 1_000,
+        }).then(settleCrash, rejectCrash);
+      });
     });
 
     await runCommandEveBackendRestartReservation(async (restartLease) => {
-      await Promise.resolve();
-      await expect(runCommandEveBackendRestartReservation(async () => {})).rejects.toThrow(
-        'nested backend lifecycle reservation refused'
-      );
-      await expect(restartCommandEveBackendForSeat()).rejects.toThrow(
-        'unleased backend restart refused inside an active lifecycle reservation'
-      );
       await restartCommandEveBackendForSeat(restartLease);
+      events.push('start:reservation-terminal');
+    });
+    await expect(crashTerminal).resolves.toBe(4701);
+    expect(events).toEqual(['start:spawned', 'start:reservation-terminal', 'crash:claimed', 'crash:recovered']);
+
+    const runtimeSource = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/process/commandEve/seatSwitchRuntime.ts'),
+      'utf8'
+    );
+    expect(runtimeSource).not.toContain('AsyncLocalStorage');
+    expect(runtimeSource).not.toContain('restartReservationContext');
+  });
+
+  it('uses explicit leases at every production restart callsite inside the shared lifecycle lane', () => {
+    const root = path.resolve(__dirname, '../../../packages/desktop/src');
+    const sources = [
+      path.join(root, 'index.ts'),
+      path.join(root, 'process/bridge/commandEveBridge.ts'),
+      path.join(root, 'process/commandEve/reconcileHermesMcpConfigWiring.ts'),
+      path.join(root, 'process/commandEve/seatSwitchRuntime.ts'),
+    ].map((file) => fs.readFileSync(file, 'utf8'));
+    const combined = sources.join('\n');
+
+    expect(combined).not.toMatch(/restartCommandEveBackendForSeat\(\s*\)/);
+    expect(sources[0]).toContain('await restartCommandEveBackendForSeat(restartLease);');
+    expect(sources[1]).toContain('restartBackend: () => restartCommandEveBackendForSeat(restartLease)');
+    expect(sources[2]).toContain('respawn: deps.respawn ?? (() => restartCommandEveBackendForSeat(ownedLease))');
+    expect(sources[2]).toContain('runConnectorAuthorityMutationTransaction');
+  });
+
+  it('bounds an accidental unleased nested restart instead of deadlocking the lifecycle lane', async () => {
+    vi.useFakeTimers();
+    const restart = vi.fn(async () => {});
+    setCommandEveBackendRestart(restart);
+    try {
+      await runCommandEveBackendRestartReservation(async () => {
+        const nested = restartCommandEveBackendForSeat();
+        const nestedAssertion = expect(nested).rejects.toThrow(
+          'backend lifecycle reservation timed out before acquiring the shared lane'
+        );
+        await vi.advanceTimersByTimeAsync(30_000);
+        await nestedAssertion;
+      });
+      await Promise.resolve();
+      expect(restart).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await expect(restartCommandEveBackendForSeat()).resolves.toBeUndefined();
+    expect(restart).toHaveBeenCalledOnce();
+  });
+
+  it('requires an exact active lease for terminal authority fail-closed cleanup', async () => {
+    const calls: string[] = [];
+    let retainedLease: Parameters<typeof failCommandEveBackendAuthorityClosed>[0] | undefined;
+    setCommandEveBackendAuthorityFailClosed(async (lease) => {
+      calls.push('fail-closed');
+      expect(lease).toBe(retainedLease);
     });
 
-    expect(events).toEqual(['leased-restart']);
+    await runCommandEveBackendRestartReservation(async (restartLease) => {
+      retainedLease = restartLease;
+      await failCommandEveBackendAuthorityClosed(restartLease);
+    });
+    expect(calls).toEqual(['fail-closed']);
+    await expect(failCommandEveBackendAuthorityClosed(retainedLease!)).rejects.toThrow(
+      'backend authority fail-closed lease is invalid or expired'
+    );
   });
 
   it('bounds a crash-recovery queue wait without expiring the transaction that already owns mutations', async () => {

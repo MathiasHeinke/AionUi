@@ -81,6 +81,24 @@ function writeJsonAtomic600(file: string, data: unknown): void {
   fs.renameSync(tempFile, file);
 }
 
+function writeBytesAtomic600(file: string, data: Buffer): void {
+  ensureVaultDir(path.dirname(file));
+  const tempFile = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(tempFile, data, { mode: 0o600 });
+    fs.chmodSync(tempFile, 0o600);
+    fs.renameSync(tempFile, file);
+  } finally {
+    try {
+      fs.rmSync(tempFile, { force: true });
+    } catch {
+      // A successful rename makes the temp path absent. Cleanup failure on an
+      // already-published destination must not turn a truthful restore into a
+      // false failure; a remaining temp is ignored by every vault reader.
+    }
+  }
+}
+
 function readJsonFile<T>(file: string): T | null {
   try {
     if (!fs.existsSync(file)) return null;
@@ -191,6 +209,55 @@ export interface WriteVaultRecordResult {
   ok: boolean;
   path?: string;
   reason_code?: string;
+}
+
+/**
+ * Opaque byte snapshot used only to make a connector authority mutation
+ * reversible. The snapshot intentionally does not parse the prior record: a
+ * malformed/tampered record is fail-closed for runtime use but still belongs to
+ * the operator and must be restored byte-for-byte if a later approval fails.
+ */
+export type VaultRecordFileSnapshot = Readonly<
+  | { exists: false }
+  | {
+      exists: true;
+      bytes: Buffer;
+    }
+>;
+
+export type ReadVaultRecordFileSnapshotResult = Readonly<{
+  ok: boolean;
+  snapshot?: VaultRecordFileSnapshot;
+  reason_code?: string;
+}>;
+
+export function readVaultRecordFileSnapshot(vaultDir: string, connectorId: string): ReadVaultRecordFileSnapshotResult {
+  const file = vaultRecordPath(vaultDir, connectorId);
+  try {
+    const stat = fs.lstatSync(file, { throwIfNoEntry: false });
+    if (!stat) return { ok: true, snapshot: { exists: false } };
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      return { ok: false, reason_code: 'VAULT_RECORD_SNAPSHOT_NOT_REGULAR' };
+    }
+    return { ok: true, snapshot: { exists: true, bytes: fs.readFileSync(file) } };
+  } catch {
+    return { ok: false, reason_code: 'VAULT_RECORD_SNAPSHOT_READ_FAILED' };
+  }
+}
+
+export function restoreVaultRecordFileSnapshot(
+  vaultDir: string,
+  connectorId: string,
+  snapshot: VaultRecordFileSnapshot
+): boolean {
+  const file = vaultRecordPath(vaultDir, connectorId);
+  try {
+    if (!snapshot.exists) return deleteVaultRecord(vaultDir, connectorId);
+    writeBytesAtomic600(file, snapshot.bytes);
+    return fs.readFileSync(file).equals(snapshot.bytes);
+  } catch {
+    return false;
+  }
 }
 
 /**

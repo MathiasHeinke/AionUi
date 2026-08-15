@@ -430,6 +430,29 @@ function killBackendProcessTree(childProcess: ChildProcess | null, signal: 'SIGT
   }
 }
 
+function killExitedBackendProcessGroup(childProcess: ChildProcess | null): void {
+  if (!childProcess?.pid) return;
+  if (process.platform === 'win32') {
+    try {
+      spawn('taskkill', ['/F', '/PID', String(childProcess.pid), '/T'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      }).unref();
+    } catch {
+      /* best-effort tree kill */
+    }
+    return;
+  }
+  try {
+    // The process-group id remains usable for detached grandchildren after its
+    // leader has exited. Do not fall back to the positive pid here: that pid may
+    // already have been recycled for an unrelated process.
+    process.kill(-childProcess.pid, 'SIGKILL');
+  } catch {
+    /* group already drained */
+  }
+}
+
 async function probeHealthCheckTcpConnect(port: number, timeoutMs = 1_000): Promise<Partial<HealthCheckDiagnostics>> {
   const start = Date.now();
   return await new Promise((resolve) => {
@@ -903,6 +926,9 @@ export class BackendLifecycleManager {
   async stop(): Promise<void> {
     const dataDir = this._lastDbPath;
     this._status = 'stopped';
+    // A stopped or destructively-stopping manager has no callable port. Clear
+    // this before registry cleanup, which can throw after the child is dead.
+    this._port = 0;
     if (!this.childProcess) {
       // AionCore may exit before Electron's before-quit cleanup runs. Its ACP
       // children can outlive the backend, so the durable process registry must
@@ -919,7 +945,12 @@ export class BackendLifecycleManager {
     const childAlreadyExited =
       (childProcess.exitCode !== null && childProcess.exitCode !== undefined) ||
       (childProcess.signalCode !== null && childProcess.signalCode !== undefined);
-    if (!childAlreadyExited) {
+    if (childAlreadyExited) {
+      // The AionCore leader can crash while ACP grandchildren in its detached
+      // process group remain alive. Drain that group even though no second exit
+      // event can arrive from the leader.
+      killExitedBackendProcessGroup(childProcess);
+    } else {
       killBackendProcessTree(childProcess, 'SIGTERM');
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {

@@ -243,6 +243,8 @@ import {
 import { writeActiveSeatPointer } from '@process/commandEve/activeSeatPointerStore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { runCommandEveBackendRestartReservation } from '@process/commandEve/seatSwitchRuntime';
+import { runConnectorAuthorityMutationTransaction } from '@process/commandEve/reconcileHermesMcpConfigWiring';
+import type { GuidedAuthSetupResult } from '@process/commandEve/guidedAuthSetupCore';
 import { readMySeatsWire as readMySeatsWireCore, type MySeatsWireFailure } from '@process/commandEve/seatWireFetchCore';
 import { createSeedSingleFlight, renameSeed } from '@process/commandEve/seedLifecycleFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
@@ -1312,90 +1314,117 @@ export function initCommandEveBridge(): void {
             data: { version, ok: false, reason_code: 'SEAT_SWITCH_IN_PROGRESS' },
           };
         }
-        return runCommandEveBackendRestartReservation(async (restartLease) => {
-          try {
-            const { runGuidedApiKeySetup } = await import('@process/commandEve/guidedAuthSetupCore');
-            const { referenceMcpInvocationFor } = await import('@process/commandEve/curatedConnectorReference');
-            const { reconcileVaultConfigAfterConnectorChange } =
-              await import('@process/commandEve/reconcileHermesMcpConfigWiring');
-            const { readVaultRecord, writeVaultRecord, deleteVaultRecord } =
-              await import('@process/commandEve/vaultRecordCore');
-            const { founderVaultDir, seatVaultDir } = await import('@process/commandEve/vaultDirCore');
+        try {
+          return await runConnectorAuthorityMutationTransaction({
+            trigger: 'approve',
+            mutate: async () => {
+              const { runGuidedApiKeySetup } = await import('@process/commandEve/guidedAuthSetupCore');
+              const { referenceMcpInvocationFor } = await import('@process/commandEve/curatedConnectorReference');
+              const { readVaultRecordFileSnapshot, restoreVaultRecordFileSnapshot } =
+                await import('@process/commandEve/vaultRecordCore');
+              const { founderVaultDir, seatVaultDir } = await import('@process/commandEve/vaultDirCore');
 
-            const connectorId = typeof request?.connectorId === 'string' ? request.connectorId.trim() : '';
-            if (!connectorId) {
-              return { success: false, msg: 'GUIDED_AUTH_CONNECTOR_ID_MISSING', data: { version, ok: false } };
-            }
-
-            // Resolve the connector's stdio mcp_invocation: prefer the authoritative
-            // manifest (buildConnectorCatalog), fall back to the sandbox reference for
-            // the reference LIVE connector (Notion) so it can be set up sandbox-alone.
-            let invocation = referenceMcpInvocationFor(connectorId);
-            try {
-              const catalog = buildConnectorCatalog({ manifestPath: request?.manifestPath });
-              const fromManifest = catalog.model?.connectors.find((c) => c.id === connectorId)?.mcp_invocation;
-              if (fromManifest) invocation = fromManifest;
-            } catch {
-              // manifest unavailable — keep the reference fallback (Notion) if any.
-            }
-
-            const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
-            const scope = request?.scope === 'seat' ? ('seat' as const) : ('founder' as const);
-            const seatId = scope === 'seat' ? getActiveSeatId() : undefined;
-            const vaultDir =
-              scope === 'seat' ? seatVaultDir(paths.hermesRoot, seatId) : founderVaultDir(paths.userDataPath);
-            const previousRecord = readVaultRecord(vaultDir, connectorId);
-            const result = runGuidedApiKeySetup({
-              connector_id: connectorId,
-              mcp_invocation: invocation,
-              secrets: request?.secrets ?? {},
-              scope,
-              seat_id: seatId,
-              human_gate_receipt: typeof request?.humanGateReceipt === 'string' ? request.humanGateReceipt : '',
-              userDataPath: paths.userDataPath,
-              configRoot: paths.hermesRoot,
-            });
-
-            if (!result.ok) {
-              return { success: false, msg: result.reason_code, data: { version, ...result } };
-            }
-
-            try {
-              // Reconcile under the SAME explicit lease as the credential/vault
-              // write. No seat switch can interleave between mutation and render,
-              // respawn or response terminal.
-              const reconcile = await reconcileVaultConfigAfterConnectorChange('approve', {}, restartLease);
-              if (!reconcile.ok) {
-                throw new Error(reconcile.reason_code ?? 'GUIDED_AUTH_RECONCILE_FAILED');
+              const connectorId = typeof request?.connectorId === 'string' ? request.connectorId.trim() : '';
+              if (!connectorId) {
+                const result: GuidedAuthSetupResult = {
+                  ok: false,
+                  reason_code: 'GUIDED_AUTH_CONNECTOR_ID_MISSING',
+                };
+                return {
+                  value: result,
+                  accepted: false,
+                  failureReason: result.reason_code,
+                  rollback: () => true,
+                  rollbackTrigger: 'revoke' as const,
+                };
               }
+
+              // Resolve the connector's stdio mcp_invocation: prefer the authoritative
+              // manifest (buildConnectorCatalog), fall back to the sandbox reference for
+              // the reference LIVE connector (Notion) so it can be set up sandbox-alone.
+              let invocation = referenceMcpInvocationFor(connectorId);
+              try {
+                const catalog = buildConnectorCatalog({ manifestPath: request?.manifestPath });
+                const fromManifest = catalog.model?.connectors.find((c) => c.id === connectorId)?.mcp_invocation;
+                if (fromManifest) invocation = fromManifest;
+              } catch {
+                // manifest unavailable — keep the reference fallback (Notion) if any.
+              }
+
+              const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+              const scope = request?.scope === 'seat' ? ('seat' as const) : ('founder' as const);
+              const seatId = scope === 'seat' ? getActiveSeatId() : undefined;
+              const vaultDir =
+                scope === 'seat' ? seatVaultDir(paths.hermesRoot, seatId) : founderVaultDir(paths.userDataPath);
+              const previousSnapshot = readVaultRecordFileSnapshot(vaultDir, connectorId);
+              if (!previousSnapshot.ok || !previousSnapshot.snapshot) {
+                const result: GuidedAuthSetupResult = {
+                  ok: false,
+                  connector_id: connectorId,
+                  reason_code: previousSnapshot.reason_code ?? 'VAULT_RECORD_SNAPSHOT_READ_FAILED',
+                };
+                return {
+                  value: result,
+                  accepted: false,
+                  failureReason: result.reason_code,
+                  rollback: () => true,
+                  rollbackTrigger: 'revoke' as const,
+                };
+              }
+              const result = runGuidedApiKeySetup({
+                connector_id: connectorId,
+                mcp_invocation: invocation,
+                secrets: request?.secrets ?? {},
+                scope,
+                seat_id: seatId,
+                human_gate_receipt: typeof request?.humanGateReceipt === 'string' ? request.humanGateReceipt : '',
+                userDataPath: paths.userDataPath,
+                configRoot: paths.hermesRoot,
+              });
+
               return {
-                success: true,
-                data: { version, ...result, reconcile },
+                value: result,
+                accepted: result.ok,
+                failureReason: result.reason_code,
+                rollback: () => restoreVaultRecordFileSnapshot(vaultDir, connectorId, previousSnapshot.snapshot!),
+                rollbackTrigger: 'revoke' as const,
               };
-            } catch (error) {
-              // Restore the exact prior valid record (or remove a newly-created
-              // record) before releasing the authority lease. A failed reconcile
-              // cannot leave a credential write committed on one seat while the
-              // response reports failure after another seat became active.
-              const rollbackOk = previousRecord
-                ? writeVaultRecord(vaultDir, previousRecord).ok
-                : deleteVaultRecord(vaultDir, connectorId);
-              if (!rollbackOk) {
-                throw new Error(
-                  `GUIDED_AUTH_ROLLBACK_FAILED: ${error instanceof Error ? error.message : String(error)}`,
-                  { cause: error }
-                );
+            },
+            finalize: (transaction) => {
+              const result = transaction.value;
+              if (transaction.ok) {
+                return {
+                  success: true,
+                  data: { version, ...result, reconcile: transaction.reconcile },
+                };
               }
-              throw error;
-            }
-          } catch (error) {
-            return {
-              success: false,
-              msg: error instanceof Error ? error.message : 'Command EVE guided auth setup bridge failed.',
-              data: { version, ok: false, reason_code: 'GUIDED_AUTH_BRIDGE_FAILED' },
-            };
-          }
-        });
+              const reasonCode = result.ok
+                ? 'GUIDED_AUTH_AUTHORITY_TRANSACTION_FAILED'
+                : (result.reason_code ?? 'GUIDED_AUTH_BRIDGE_FAILED');
+              return {
+                success: false,
+                msg: transaction.original_error ?? reasonCode,
+                data: {
+                  version,
+                  ...result,
+                  ok: false,
+                  reason_code: reasonCode,
+                  authority_transaction: {
+                    terminal_state: transaction.terminal_state,
+                    original_error: transaction.original_error,
+                    rollback: transaction.rollback,
+                  },
+                },
+              };
+            },
+          });
+        } catch (error) {
+          return {
+            success: false,
+            msg: error instanceof Error ? error.message : 'Command EVE guided auth setup bridge failed.',
+            data: { version, ok: false, reason_code: 'GUIDED_AUTH_BRIDGE_FAILED' },
+          };
+        }
       }
     );
 

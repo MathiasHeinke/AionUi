@@ -32,7 +32,9 @@ import {
   VAULT_CONNECTOR_RECORD_VERSION,
   deleteVaultRecord,
   listVaultRecords,
+  readVaultRecordFileSnapshot,
   readVaultRecord,
+  restoreVaultRecordFileSnapshot,
   validateVaultRecord,
   vaultRecordPath,
   writeVaultRecord,
@@ -230,6 +232,48 @@ describe('vaultRecordCore — read validation (version / shape)', () => {
     const v = validateVaultRecord(bad);
     expect(v.ok).toBe(false);
     expect(v.reason_code).toBe('VAULT_RECORD_SEAT_ID_REQUIRED');
+  });
+});
+
+describe('vaultRecordCore — byte-exact authority rollback', () => {
+  it('restores malformed prior bytes exactly instead of interpreting null as absence', () => {
+    const dir = makeVaultDir();
+    const file = vaultRecordPath(dir, 'tampered-connector');
+    const priorBytes = Buffer.from('{ invalid prior vault bytes\n\u0000opaque-tail', 'utf8');
+    fs.writeFileSync(file, priorBytes, { mode: 0o600 });
+
+    const snapshot = readVaultRecordFileSnapshot(dir, 'tampered-connector');
+    expect(snapshot).toEqual({ ok: true, snapshot: { exists: true, bytes: priorBytes } });
+    expect(readVaultRecord(dir, 'tampered-connector')).toBeNull();
+
+    fs.writeFileSync(file, '{"replacement":true}\n', { mode: 0o600 });
+    expect(restoreVaultRecordFileSnapshot(dir, 'tampered-connector', snapshot.snapshot!)).toBe(true);
+    expect(fs.readFileSync(file)).toEqual(priorBytes);
+    if (process.platform !== 'win32') expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it('restores prior absence by removing a newly-created record', () => {
+    const dir = makeVaultDir();
+    const snapshot = readVaultRecordFileSnapshot(dir, 'new-connector');
+    expect(snapshot).toEqual({ ok: true, snapshot: { exists: false } });
+    fs.writeFileSync(vaultRecordPath(dir, 'new-connector'), '{"new":true}\n', { mode: 0o600 });
+
+    expect(restoreVaultRecordFileSnapshot(dir, 'new-connector', snapshot.snapshot!)).toBe(true);
+    expect(fs.existsSync(vaultRecordPath(dir, 'new-connector'))).toBe(false);
+  });
+
+  it('refuses a symlink snapshot before any connector mutation', () => {
+    if (process.platform === 'win32') return;
+    const dir = makeVaultDir();
+    const foreign = path.join(dir, 'foreign');
+    fs.writeFileSync(foreign, 'foreign');
+    fs.symlinkSync(foreign, vaultRecordPath(dir, 'linked'));
+
+    expect(readVaultRecordFileSnapshot(dir, 'linked')).toEqual({
+      ok: false,
+      reason_code: 'VAULT_RECORD_SNAPSHOT_NOT_REGULAR',
+    });
+    expect(fs.readFileSync(foreign, 'utf8')).toBe('foreign');
   });
 });
 

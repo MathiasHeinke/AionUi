@@ -920,6 +920,42 @@ describe('BackendLifecycleManager.stop', () => {
     expect(mgr.status).toBe('stopped');
   });
 
+  it('kills the detached process group even when the backend leader already exited', async () => {
+    if (process.platform === 'win32') return;
+    const child = makeFakeChild();
+    Object.assign(child, { pid: 31337, exitCode: 1 });
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+    Object.assign(mgr, {
+      childProcess: child,
+      _lastDbPath: '/db-with-detached-grandchildren',
+      _status: 'running',
+      _port: 4811,
+    });
+
+    await mgr.stop();
+
+    expect(killSpy).toHaveBeenCalledWith(-31337, 'SIGKILL');
+    expect(killSpy).not.toHaveBeenCalledWith(31337, 'SIGKILL');
+    expect(cleanupRegisteredAgentProcesses).toHaveBeenCalledWith('/db-with-detached-grandchildren');
+    expect(mgr.port).toBe(0);
+    killSpy.mockRestore();
+  });
+
+  it('clears manager port before registry cleanup can reject after a destructive stop', async () => {
+    const child = makeFakeChild();
+    Object.assign(child, { exitCode: 1 });
+    vi.mocked(cleanupRegisteredAgentProcesses).mockRejectedValueOnce(new Error('registry cleanup failed'));
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+    Object.assign(mgr, { childProcess: child, _lastDbPath: '/db', _status: 'running', _port: 4812 });
+
+    await expect(mgr.stop()).rejects.toThrow('registry cleanup failed');
+    expect(mgr.port).toBe(0);
+    expect(mgr.status).toBe('stopped');
+    killSpy.mockRestore();
+  });
+
   it('rejects startup as cancelled when stopped before health check passes', async () => {
     vi.mocked(createServer).mockImplementation(
       () => makeSyncFakeServer(22221) as unknown as ReturnType<typeof createServer>
