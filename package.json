@@ -333,8 +333,8 @@
     "darwin-arm64": {
       "kind": "command-eve-source-build",
       "repository": "MathiasHeinke/AionCore",
-      "commit": "286dc123886868f9d4532120925787f84bd2eec7",
-      "sha256": "7eb62461dd496441e7942aa423b22cfb3070a562986cad568cc5c7047872cfb9"
+      "commit": "50f4088653924949c702e9e28e9ff9e6eff3a74f",
+      "sha256": "79b2017b1510d108b11fc02ad4aeed701ad867a8d79f66e723ff02c03b3e376a"
     },
     "darwin-x64": {
       "kind": "upstream-release-archive",
@@ -375,7 +375,7 @@
   "aioncoreVersion": "v0.1.37",
   "commandEveAioncoreSource": {
     "repository": "MathiasHeinke/AionCore",
-    "commit": "286dc123886868f9d4532120925787f84bd2eec7",
+    "commit": "50f4088653924949c702e9e28e9ff9e6eff3a74f",
     "rustToolchain": "1.95.0",
     "targets": {
       "macos-arm64": "aarch64-apple-darwin",
