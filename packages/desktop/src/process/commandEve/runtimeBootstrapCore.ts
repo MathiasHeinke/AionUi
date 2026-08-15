@@ -4178,6 +4178,13 @@ function lstatManagedEntry(candidate: string): fs.Stats | null {
   }
 }
 
+/** A cold install has none of these entries; any one makes admission mandatory. */
+export function commandEveRuntimeHasPreexistingArtifacts(paths: RuntimeBootstrapPaths): boolean {
+  return [paths.hermesRoot, paths.hermesVenv, paths.hermesShim, paths.hermesWrapper, paths.receiptPath].some(
+    (candidate) => lstatManagedEntry(candidate) !== null
+  );
+}
+
 function resolveManagedUserDataRoot(paths: RuntimeBootstrapPaths): string | null {
   try {
     const canonicalStat = lstatManagedEntry(paths.canonicalUserDataPath);
@@ -4904,6 +4911,32 @@ export type CommandEveRuntimeBackendAdmissionResult =
       artifactSite?: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }>;
     };
 
+export type CommandEveRuntimeBackendAdmissionPolicy = Readonly<{
+  /**
+   * A boot-time repair owns fresh settings-derived inputs and may rebuild the
+   * runtime. A seat respawn does not: its captured options belong to the boot
+   * seat, so it may repair only the shared mutable launcher surface.
+   */
+  allowFullBootstrapRepair?: boolean;
+}>;
+
+/**
+ * Recheck only the mutable runtime files against an immediately preceding
+ * signed-site admission proof. This deliberately does not cache a pass across
+ * backend starts and does not walk the immutable Resources tree a second time.
+ */
+export function commandEveRuntimeMutableArtifactsMatchAdmissionProof(input: {
+  paths: RuntimeBootstrapPaths;
+  resourcesPath?: string;
+  admission: Extract<CommandEveRuntimeBackendAdmissionResult, { ok: true }>;
+}): boolean {
+  const artifactSite = verifiedPackagedArtifactSiteForResourcesPath(input.admission.artifactSite, input.resourcesPath);
+  if (!artifactSite) return false;
+  const provenance = readBundledPythonProvenance(input.resourcesPath);
+  const selected = provenance ? parsePythonVersion(`Python ${provenance.python_version}`) : null;
+  return Boolean(selected && packagedRuntimeMutableArtifactsAreAdmissible(input.paths, selected.text, artifactSite));
+}
+
 /**
  * Inspect one backend-start boundary with one signed Resources tree walk.
  *
@@ -4962,7 +4995,8 @@ async function repairCommandEvePackagedRuntimeMutableArtifacts(
 /** Repair, re-prove and bake the active seat immediately before AionCore starts. */
 export async function ensureCommandEveRuntimeBackendAdmission(
   options: RuntimeBootstrapOptions,
-  processEnv: NodeJS.ProcessEnv = process.env
+  processEnv: NodeJS.ProcessEnv = process.env,
+  policy: CommandEveRuntimeBackendAdmissionPolicy = {}
 ): Promise<{
   admission: Extract<CommandEveRuntimeBackendAdmissionResult, { ok: true }>;
   receipt?: RuntimeBootstrapReceipt;
@@ -5001,6 +5035,9 @@ export async function ensureCommandEveRuntimeBackendAdmission(
     admission = inspectCommandEveRuntimeBackendAdmission(options);
   }
   if (admission.ok === false) {
+    if (policy.allowFullBootstrapRepair === false) {
+      throw new Error(`COMMAND_EVE_RUNTIME_BACKEND_INADMISSIBLE: ${admission.reason}`);
+    }
     receipt = await ensureCommandEveRuntimeBootstrap({ ...options, stopAfterHermesRuntimeReady: true });
     admission = inspectCommandEveRuntimeBackendAdmission(options);
   }

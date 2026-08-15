@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { runCommandEveBackendRespawnAfterStop } from '@/process/commandEve/seatSwitchRuntime';
+import { describe, expect, it, vi } from 'vitest';
 
 describe('Command EVE runtime bridge registration', () => {
   it('pins packaged license-key resolution to Electron signed resources unconditionally', () => {
@@ -100,25 +101,102 @@ describe('Command EVE runtime bridge registration', () => {
   it('repairs and re-proves the active seat runtime before every packaged macOS respawn', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
     const assignment = source.indexOf('ensureCommandEveRuntimeAdmissionForRespawn = requirePackagedHermesRuntime');
-    const initialAdmission = source.indexOf('await ensureCommandEveRuntimeAdmissionForRespawn();', assignment);
+    const initialAdmission = source.indexOf('await ensureCommandEveRuntimeAdmissionForRespawn(true)', assignment);
+    const initialRepair = source.indexOf('repairCommandEveAssistantStorage', initialAdmission);
+    const initialRecheck = source.indexOf('recheckCommandEveRuntimeBeforeInitialStart?.();', initialRepair);
     const initialStart = source.indexOf('const backendPort = await backendManager.start(', initialAdmission);
     const hook = source.indexOf('setCommandEveBackendRestart(async () => {');
-    const stop = source.indexOf('await backendManager.stop();', hook);
-    const admission = source.indexOf('await ensureCommandEveRuntimeAdmissionForRespawn();', stop);
-    const start = source.indexOf('respawnPort = await backendManager.start(', admission);
+    const admission = source.indexOf('await ensureCommandEveRuntimeAdmissionForRespawn(false)', hook);
+    const stop = source.indexOf('stop: () => backendManager.stop()', hook);
+    const awaitGapRecheck = source.indexOf('recheckCommandEveRuntimeBeforeRespawn?.();', admission);
+    const start = source.indexOf('return backendManager.start(', admission);
 
     expect(assignment).toBeGreaterThan(-1);
     expect(source.slice(assignment, hook)).toContain(
-      'ensureCommandEveRuntimeBackendAdmission(bootstrapOptions, process.env)'
+      'ensureCommandEveRuntimeBackendAdmission(bootstrapOptions, process.env, {'
     );
+    expect(source.slice(assignment, hook)).toContain('allowFullBootstrapRepair');
     expect(initialAdmission).toBeGreaterThan(assignment);
+    expect(initialRepair).toBeGreaterThan(initialAdmission);
+    expect(initialRecheck).toBeGreaterThan(initialRepair);
     expect(initialStart).toBeGreaterThan(initialAdmission);
+    expect(initialStart).toBeGreaterThan(initialRecheck);
     expect(source.slice(assignment, initialAdmission)).toContain('commandEvePackagedRuntimeExistedAtBoot');
     expect(hook).toBeGreaterThan(assignment);
-    expect(stop).toBeGreaterThan(hook);
-    expect(admission).toBeGreaterThan(stop);
+    expect(admission).toBeGreaterThan(hook);
+    expect(stop).toBeGreaterThan(admission);
+    expect(awaitGapRecheck).toBeGreaterThan(stop);
     expect(start).toBeGreaterThan(admission);
+    expect(start).toBeGreaterThan(awaitGapRecheck);
+    expect(source.slice(awaitGapRecheck, start)).not.toContain('await ');
     expect(source.slice(admission, start)).toContain('Dev/Windows preserve the existing lightweight env bake.');
+  });
+
+  it('preserves the live port and never stops or starts when pre-stop admission fails', async () => {
+    const stop = vi.fn(async () => {});
+    const admission = vi.fn(async () => {
+      throw new Error('COMMAND_EVE_RUNTIME_BACKEND_INADMISSIBLE: python_abi_unproven');
+    });
+    const start = vi.fn(async () => 3210);
+    const clearDeadBackendPort = vi.fn();
+
+    await expect(
+      runCommandEveBackendRespawnAfterStop({
+        beforeStop: admission,
+        stop,
+        clearDeadBackendPort,
+        afterStop: start,
+      })
+    ).rejects.toThrow('COMMAND_EVE_RUNTIME_BACKEND_INADMISSIBLE: python_abi_unproven');
+
+    expect(stop).not.toHaveBeenCalled();
+    expect(clearDeadBackendPort).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('clears the dead port when the await-gap recheck detects a launcher mutation', async () => {
+    const stop = vi.fn(async () => {});
+    const start = vi.fn(async () => 3210);
+    const clearDeadBackendPort = vi.fn();
+    let mutableArtifactsExact = true;
+
+    await expect(
+      runCommandEveBackendRespawnAfterStop({
+        stop,
+        clearDeadBackendPort,
+        afterStop: async () => {
+          await Promise.resolve();
+          mutableArtifactsExact = false;
+          if (!mutableArtifactsExact) {
+            throw new Error('COMMAND_EVE_RUNTIME_MUTABLE_ARTIFACTS_CHANGED_BEFORE_START');
+          }
+          return start();
+        },
+      })
+    ).rejects.toThrow('COMMAND_EVE_RUNTIME_MUTABLE_ARTIFACTS_CHANGED_BEFORE_START');
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(clearDeadBackendPort).toHaveBeenCalledOnce();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('clears the dead port when backend start fails after a successful admission', async () => {
+    const start = vi.fn(async () => {
+      throw new Error('backend spawn failed');
+    });
+    const clearDeadBackendPort = vi.fn();
+
+    await expect(
+      runCommandEveBackendRespawnAfterStop({
+        beforeStop: async () => {},
+        stop: async () => {},
+        clearDeadBackendPort,
+        afterStop: start,
+      })
+    ).rejects.toThrow('backend spawn failed');
+
+    expect(clearDeadBackendPort).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledOnce();
   });
 
   it('never falls back to loading a local model before backend settings are readable', () => {

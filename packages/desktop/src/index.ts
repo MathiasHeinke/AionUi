@@ -344,7 +344,9 @@ let backendStartupFailureInfo: unknown = null;
 let backendMigrationsScheduled = false;
 let runDeferredCommandEveRuntimeBootstrap: (() => void) | undefined;
 let commandEveAutomaticRuntimeRepairRequired = false;
-let ensureCommandEveRuntimeAdmissionForRespawn: (() => Promise<void>) | undefined;
+let ensureCommandEveRuntimeAdmissionForRespawn:
+  | ((allowFullBootstrapRepair: boolean) => Promise<() => void>)
+  | undefined;
 let commandEvePackagedRuntimeExistedAtBoot = false;
 
 ipcMain.on('get-backend-port', (event) => {
@@ -2070,7 +2072,9 @@ const handleAppReady = async (): Promise<void> => {
       await import('./process/commandEve/ollamaOpenAiShim');
     const {
       commandEveRuntimeBootstrapStartupWaitReason,
+      commandEveRuntimeHasPreexistingArtifacts,
       commandEveRuntimeManagedAncestryIsSafe,
+      commandEveRuntimeMutableArtifactsMatchAdmissionProof,
       ensureCommandEveRuntimeBootstrap,
       ensureCommandEveRuntimeBackendAdmission,
       inspectCommandEveRuntimeBackendAdmission,
@@ -2086,7 +2090,8 @@ const handleAppReady = async (): Promise<void> => {
       process.platform,
       canonicalRuntimeUserDataPath
     );
-    commandEvePackagedRuntimeExistedAtBoot = requirePackagedHermesRuntime && fs.existsSync(runtimePaths.hermesVenv);
+    commandEvePackagedRuntimeExistedAtBoot =
+      requirePackagedHermesRuntime && commandEveRuntimeHasPreexistingArtifacts(runtimePaths);
     let automaticRuntimeRepairReason: ReturnType<typeof commandEveRuntimeBootstrapStartupWaitReason> = null;
     if (app.isPackaged) {
       try {
@@ -2226,8 +2231,21 @@ const handleAppReady = async (): Promise<void> => {
       ...workerRuntimeInputs,
     } satisfies Parameters<typeof ensureCommandEveRuntimeBootstrap>[0];
     ensureCommandEveRuntimeAdmissionForRespawn = requirePackagedHermesRuntime
-      ? async () => {
-          await ensureCommandEveRuntimeBackendAdmission(bootstrapOptions, process.env);
+      ? async (allowFullBootstrapRepair) => {
+          const proof = await ensureCommandEveRuntimeBackendAdmission(bootstrapOptions, process.env, {
+            allowFullBootstrapRepair,
+          });
+          return () => {
+            if (
+              !commandEveRuntimeMutableArtifactsMatchAdmissionProof({
+                paths: proof.paths,
+                resourcesPath: process.resourcesPath,
+                admission: proof.admission,
+              })
+            ) {
+              throw new Error('COMMAND_EVE_RUNTIME_MUTABLE_ARTIFACTS_CHANGED_BEFORE_START');
+            }
+          };
         }
       : undefined;
     const deferRemainingRuntimeBootstrap = (hermesReadyBeforeBootstrap: boolean): void => {
@@ -2330,9 +2348,10 @@ const handleAppReady = async (): Promise<void> => {
     // a marker-retaining or mode-only launcher mutation cannot reach AionCore.
     // A genuinely cold install still has no venv and keeps the existing
     // interactive/deferred bootstrap behaviour.
-    if (ensureCommandEveRuntimeAdmissionForRespawn && commandEvePackagedRuntimeExistedAtBoot) {
-      await ensureCommandEveRuntimeAdmissionForRespawn();
-    }
+    const recheckCommandEveRuntimeBeforeInitialStart =
+      ensureCommandEveRuntimeAdmissionForRespawn && commandEvePackagedRuntimeExistedAtBoot
+        ? await ensureCommandEveRuntimeAdmissionForRespawn(true)
+        : undefined;
     // ISO-4 CRITICAL: the FIRST positional arg is the backend --data-dir (the
     // live conversation+message SQLite). It MUST be seat-scoped to the ACTIVE
     // seat — NOT the global getDataPath() — else seat B's renderer reads seat A's
@@ -2380,6 +2399,7 @@ const handleAppReady = async (): Promise<void> => {
     } catch (error) {
       console.warn('[CommandEVE] Pre-flight assistant-storage repair skipped:', error);
     }
+    recheckCommandEveRuntimeBeforeInitialStart?.();
     const backendPort = await backendManager.start(getBackendDataDir(), sysDir.logDir, {
       cacheDir: sysDir.cacheDir,
       workDir: sysDir.workDir,
@@ -2407,7 +2427,8 @@ const handleAppReady = async (): Promise<void> => {
     // freshly-baked process.env.HERMES_HOME (a running agent's HERMES_HOME is
     // env-frozen at spawn — runtimeBootstrapCore.ts:1144). The hook re-runs the
     // SAME prepareEnv→start sequence as boot, for the now-active seat.
-    const { setCommandEveBackendRestart } = await import('./process/commandEve/seatSwitchRuntime');
+    const { runCommandEveBackendRespawnAfterStop, setCommandEveBackendRestart } =
+      await import('./process/commandEve/seatSwitchRuntime');
     // RESPAWN GENERATION — guards the GLOBAL post-start writes below (__backendPort,
     // cron-resume bridge, assistant prompt). The bridge's in-flight lock + 300s watchdog
     // can, in the worst case (a respawn whose start() lives past 300s), let a NEWER switch
@@ -2422,67 +2443,82 @@ const handleAppReady = async (): Promise<void> => {
         await import('./process/utils/initStorage');
       const { prepareCommandEveRuntimeProcessEnv, resolveCommandEveRuntimeBootstrapPaths } =
         await import('./process/commandEve/runtimeBootstrapCore');
-      // STOP first so there is no orphan / no in-flight request bleed: stop()
-      // SIGTERMs (then SIGKILLs after 5s) the whole process tree and cleans up
-      // registered agent processes before we re-spawn.
-      await backendManager.stop();
-      // Packaged macOS repeats the SAME full repair + exact admission boundary
-      // as boot before every authoritative seat respawn. This catches stale
-      // execute bits and byte-tampered launchers even when their marker survives,
-      // and rewrites a wrapper/shim that synchronous unreachable-seat
-      // provisioning left baked for the prior HERMES_HOME. Any failed repair
-      // throws here, before backendManager.start can admit work.
-      if (ensureCommandEveRuntimeAdmissionForRespawn) {
-        await ensureCommandEveRuntimeAdmissionForRespawn();
-      } else {
-        // Dev/Windows preserve the existing lightweight env bake.
-        prepareCommandEveRuntimeProcessEnv(
-          getDataPathForRestart(),
-          process.env,
-          process.platform,
-          process.resourcesPath,
-          { requireBundledPython: false }
-        );
-      }
       const runtimePathsForRestart = resolveCommandEveRuntimeBootstrapPaths(getDataPathForRestart());
       const sysDirForRestart = getSystemDirForRestart();
-      // Same pre-flight assistant-storage repair as boot, for the now-active seat's
-      // DB (fail-open). Keeps a seat-switch respawn from hitting the orphaned-
-      // definition bootstrap crash. See assistantStorageRepair.ts.
-      try {
-        const { repairCommandEveAssistantStorage } = await import('./process/commandEve/assistantStorageRepair');
-        const repair = await repairCommandEveAssistantStorage(getBackendDataDirForRestart(), {
-          hermesCommandPath: runtimePathsForRestart.hermesShim,
-          nativeSkillsDirs: [runtimePathsForRestart.managedSkillsRoot],
-        });
-        if (repair.repaired > 0) {
-          console.warn(
-            `[CommandEVE] Pre-flight assistant-storage repair (respawn): re-activated ${repair.repaired} orphaned definition(s).`
-          );
-        }
-        if (repair.rebound && repair.rebound > 0) {
-          console.warn(
-            `[CommandEVE] Pre-flight assistant-storage repair (respawn): re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`
-          );
-        }
-        if (repair.registryRebound && repair.registryRebound > 0) {
-          console.warn(
-            `[CommandEVE] Pre-flight assistant-storage repair (respawn): pinned ${repair.registryRebound} Hermes registry row(s) to the app-managed shim.`
-          );
-        }
-        if (repair.nativeSkillsRebound && repair.nativeSkillsRebound > 0) {
-          console.warn(
-            `[CommandEVE] Pre-flight assistant-storage repair (respawn): enabled native Hermes skill discovery for ${repair.nativeSkillsRebound} registry row(s).`
-          );
-        }
-        if (repair.reseeded && repair.reseeded > 0) {
-          console.warn(
-            `[CommandEVE] Pre-flight assistant-storage repair (respawn): cleared ${repair.reseeded} orphaned EVE mirror row(s) with no live definition (will re-seed via POST).`
-          );
-        }
-      } catch (error) {
-        console.warn('[CommandEVE] Pre-flight assistant-storage repair (respawn) skipped:', error);
-      }
+      let recheckCommandEveRuntimeBeforeRespawn: (() => void) | undefined;
+      const respawnPort = await runCommandEveBackendRespawnAfterStop({
+        // Prove or repair BEFORE stop. A cold/deferred runtime and every deeper
+        // non-artifact failure therefore leave the existing backend and its
+        // published port alive instead of attempting a synchronous bootstrap
+        // with stale boot-seat authority inputs while the backend is down.
+        beforeStop: async () => {
+          if (ensureCommandEveRuntimeAdmissionForRespawn) {
+            recheckCommandEveRuntimeBeforeRespawn = await ensureCommandEveRuntimeAdmissionForRespawn(false);
+          } else {
+            // Dev/Windows preserve the existing lightweight env bake.
+            prepareCommandEveRuntimeProcessEnv(
+              getDataPathForRestart(),
+              process.env,
+              process.platform,
+              process.resourcesPath,
+              { requireBundledPython: false }
+            );
+          }
+        },
+        // STOP only after admission succeeds. From the moment stop() resolves,
+        // every await-gap recheck failure clears the now-dead published port.
+        stop: () => backendManager.stop(),
+        clearDeadBackendPort: () => {
+          if (myRespawnGen === commandEveRespawnGeneration) {
+            delete (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
+          }
+        },
+        afterStop: async () => {
+          // Same pre-flight assistant-storage repair as boot, for the now-active
+          // seat's DB (fail-open). The exact mutable-runtime proof is checked
+          // again after this await and immediately before backend start.
+          try {
+            const { repairCommandEveAssistantStorage } = await import('./process/commandEve/assistantStorageRepair');
+            const repair = await repairCommandEveAssistantStorage(getBackendDataDirForRestart(), {
+              hermesCommandPath: runtimePathsForRestart.hermesShim,
+              nativeSkillsDirs: [runtimePathsForRestart.managedSkillsRoot],
+            });
+            if (repair.repaired > 0) {
+              console.warn(
+                `[CommandEVE] Pre-flight assistant-storage repair (respawn): re-activated ${repair.repaired} orphaned definition(s).`
+              );
+            }
+            if (repair.rebound && repair.rebound > 0) {
+              console.warn(
+                `[CommandEVE] Pre-flight assistant-storage repair (respawn): re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`
+              );
+            }
+            if (repair.registryRebound && repair.registryRebound > 0) {
+              console.warn(
+                `[CommandEVE] Pre-flight assistant-storage repair (respawn): pinned ${repair.registryRebound} Hermes registry row(s) to the app-managed shim.`
+              );
+            }
+            if (repair.nativeSkillsRebound && repair.nativeSkillsRebound > 0) {
+              console.warn(
+                `[CommandEVE] Pre-flight assistant-storage repair (respawn): enabled native Hermes skill discovery for ${repair.nativeSkillsRebound} registry row(s).`
+              );
+            }
+            if (repair.reseeded && repair.reseeded > 0) {
+              console.warn(
+                `[CommandEVE] Pre-flight assistant-storage repair (respawn): cleared ${repair.reseeded} orphaned EVE mirror row(s) with no live definition (will re-seed via POST).`
+              );
+            }
+          } catch (error) {
+            console.warn('[CommandEVE] Pre-flight assistant-storage repair (respawn) skipped:', error);
+          }
+          recheckCommandEveRuntimeBeforeRespawn?.();
+          return backendManager.start(getBackendDataDirForRestart(), sysDirForRestart.logDir, {
+            cacheDir: sysDirForRestart.cacheDir,
+            workDir: sysDirForRestart.workDir,
+            logDir: sysDirForRestart.logDir,
+          });
+        },
+      });
       // ISO-4 CRITICAL: re-spawn the backend with the SAME seat-scoped --data-dir
       // as boot, now for the NEW active seat (set by applySeatSwitch step a). This
       // is what re-homes the conversation+message SQLite on a seat switch — the
@@ -2498,22 +2534,6 @@ const handleAppReady = async (): Promise<void> => {
       // unavailable; the rollback then re-invokes this hook to restart the PRIOR seat
       // (which republishes a live port on success), or surfaces the fail-closed
       // SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN state if that restart also throws.
-      let respawnPort: number;
-      try {
-        respawnPort = await backendManager.start(getBackendDataDirForRestart(), sysDirForRestart.logDir, {
-          cacheDir: sysDirForRestart.cacheDir,
-          workDir: sysDirForRestart.workDir,
-          logDir: sysDirForRestart.logDir,
-        });
-      } catch (startError) {
-        // Only clear if WE still own the current generation — a newer respawn that
-        // already published a live port must not have its port clobbered to unset by
-        // this stale/failed one (mirrors the superseded-respawn guard below).
-        if (myRespawnGen === commandEveRespawnGeneration) {
-          delete (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
-        }
-        throw startError;
-      }
       // SUPERSEDED-RESPAWN GUARD: if a newer switch ran while we were parked on start()
       // (only reachable on a >300s-hung respawn the watchdog force-released), bail BEFORE
       // publishing any global state — our respawnPort points at a process the newer

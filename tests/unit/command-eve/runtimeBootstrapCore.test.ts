@@ -44,7 +44,9 @@ import {
   RETIRED_COMMAND_EVE_MANAGED_SKILL_IDS,
   buildCommandEveEnvironmentHint,
   commandEveRuntimeBootstrapStartupWaitReason,
+  commandEveRuntimeHasPreexistingArtifacts,
   commandEveRuntimeManagedAncestryIsSafe,
+  commandEveRuntimeMutableArtifactsMatchAdmissionProof,
   commandEveRuntimeVenvIsBackendAdmissible,
   ensureCommandEveRuntimeBackendAdmission,
   inspectCommandEveRuntimeBackendAdmission,
@@ -476,6 +478,16 @@ const writeManifest = (root: string, baseUrl: string, overrides = ''): string =>
 };
 
 describe('Command EVE runtime bootstrap core', () => {
+  it('treats a stale shim without a venv as a preexisting runtime that requires admission', () => {
+    const paths = resolveCommandEveRuntimeBootstrapPaths(makeRoot());
+    expect(commandEveRuntimeHasPreexistingArtifacts(paths)).toBe(false);
+    fs.mkdirSync(path.dirname(paths.hermesShim), { recursive: true });
+    fs.writeFileSync(paths.hermesShim, '#!/bin/sh\nexit 1\n', { mode: 0o700 });
+
+    expect(fs.existsSync(paths.hermesVenv)).toBe(false);
+    expect(commandEveRuntimeHasPreexistingArtifacts(paths)).toBe(true);
+  });
+
   it('parses only a pinned Ollama GGUF blob digest from a rendered Modelfile', () => {
     const digest = 'a'.repeat(64);
     expect(parseOllamaModelfileBlobSha256(`FROM /Users/eve/.ollama/models/blobs/sha256-${digest}\n`)).toBe(digest);
@@ -3144,6 +3156,155 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(fs.readFileSync(path.join(pathsB.hermesHome, 'config.yaml'), 'utf8')).toBe('target-seat-last-known-good\n');
     expect(fs.readFileSync(path.join(pathsB.hermesHome, 'SOUL.md'), 'utf8')).toBe('# Target seat exact bytes\n');
     expect(inspectCommandEveRuntimeBackendAdmission(options)).toMatchObject({ ok: true });
+  });
+
+  itM(
+    'fails a respawn closed without rewriting target-seat authority when a non-artifact admission fails',
+    async () => {
+      const root = makeRoot();
+      const resourcesPath = writeBundledPythonRuntime(root);
+      writeSignedHermesArtifactSite(resourcesPath);
+      copyPackagedHermesWheel(resourcesPath);
+      const seatA = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+      const seatB = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+      setActiveSeatId(seatA);
+      const pathsA = resolveCommandEveRuntimeBootstrapPaths(root);
+      const bundledPython = path.join(resourcesPath, 'python', 'bin', 'python3.12');
+      const harness = makePackagedOfflineRunner({ bundledPython, paths: pathsA });
+      const options = {
+        userDataPath: root,
+        canonicalUserDataPath: root,
+        resourcesPath,
+        requireBundledPython: true,
+        stopAfterHermesRuntimeReady: true,
+        runner: harness.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        claudeDelegate: {
+          agent_id: 'boot-seat-stale-delegate',
+          label: 'Boot seat stale delegate',
+          acpCommand: 'must-not-reach-target',
+          acpArgs: [],
+          provider: 'copilot-acp',
+          billingLane: CLAUDE_SEAT_BILLING_LANE,
+          runtimeRoute: CLAUDE_SEAT_RUNTIME_ROUTE,
+          fallbackPolicy: CLAUDE_SEAT_FALLBACK_POLICY,
+        },
+        teamRoles: [
+          {
+            display_name: 'Boot seat worker',
+            outcome: 'Must not reach the target seat',
+            status: 'active',
+            worker: 'boot-seat-worker',
+          },
+        ],
+        rememberedCommands: [
+          {
+            command: 'must-not-reach-target',
+            grantedAt: '2026-08-15T00:00:00.000Z',
+          },
+        ],
+      } satisfies RuntimeBootstrapOptions;
+      expect((await ensureCommandEveRuntimeBootstrap(options)).status).toBe('ready');
+
+      setActiveSeatId(seatB);
+      const pathsB = resolveCommandEveRuntimeBootstrapPaths(root);
+      fs.mkdirSync(pathsB.hermesHome, { recursive: true });
+      const targetConfig = 'command_allowlist:\n  - target-seat-only-authority\napprovals:\n  mode: manual\n';
+      const targetSoul = '# Target-seat last-known-good SOUL\nNo boot-seat delegate.\n';
+      fs.writeFileSync(path.join(pathsB.hermesHome, 'config.yaml'), targetConfig, { mode: 0o600 });
+      fs.writeFileSync(path.join(pathsB.hermesHome, 'SOUL.md'), targetSoul, { mode: 0o600 });
+      const targetBytes = new Map(
+        ['config.yaml', 'SOUL.md'].map((name) => [name, fs.readFileSync(path.join(pathsB.hermesHome, name))])
+      );
+      fs.writeFileSync(pathsB.receiptPath, '{}\n', { mode: 0o600 });
+      const commandsBeforeRespawn = [...harness.commands];
+      const backendStart = vi.fn(async () => 0);
+
+      await expect(
+        (async () => {
+          await ensureCommandEveRuntimeBackendAdmission(options, {}, { allowFullBootstrapRepair: false });
+          await backendStart();
+        })()
+      ).rejects.toThrow('COMMAND_EVE_RUNTIME_BACKEND_INADMISSIBLE: python_abi_unproven');
+
+      expect(backendStart).not.toHaveBeenCalled();
+      expect(harness.commands).toEqual(commandsBeforeRespawn);
+      for (const [name, bytes] of targetBytes) {
+        expect(fs.readFileSync(path.join(pathsB.hermesHome, name)).equals(bytes), name).toBe(true);
+      }
+    }
+  );
+
+  itM('does not synchronously bootstrap a missing venv while a stopped backend waits to respawn', async () => {
+    const root = makeRoot();
+    const resourcesPath = writeBundledPythonRuntime(root);
+    writeSignedHermesArtifactSite(resourcesPath);
+    copyPackagedHermesWheel(resourcesPath);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    const bundledPython = path.join(resourcesPath, 'python', 'bin', 'python3.12');
+    const harness = makePackagedOfflineRunner({ bundledPython, paths });
+    fs.mkdirSync(path.dirname(paths.hermesShim), { recursive: true });
+    fs.writeFileSync(paths.hermesShim, '#!/bin/sh\nexit 1\n', { mode: 0o700 });
+    const backendStart = vi.fn(async () => 0);
+
+    await expect(
+      (async () => {
+        await ensureCommandEveRuntimeBackendAdmission(
+          {
+            userDataPath: root,
+            canonicalUserDataPath: root,
+            resourcesPath,
+            requireBundledPython: true,
+            runner: harness.runner,
+          },
+          {},
+          { allowFullBootstrapRepair: false }
+        );
+        await backendStart();
+      })()
+    ).rejects.toThrow('COMMAND_EVE_RUNTIME_BACKEND_INADMISSIBLE: python_abi_unproven');
+
+    expect(fs.existsSync(paths.hermesVenv)).toBe(false);
+    expect(harness.commands).toEqual([]);
+    expect(backendStart).not.toHaveBeenCalled();
+  });
+
+  itM('detects mutable launcher byte or mode changes against the carried admission proof', async () => {
+    const root = makeRoot();
+    const resourcesPath = writeBundledPythonRuntime(root);
+    writeSignedHermesArtifactSite(resourcesPath);
+    copyPackagedHermesWheel(resourcesPath);
+    const bundledPython = path.join(resourcesPath, 'python', 'bin', 'python3.12');
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    const harness = makePackagedOfflineRunner({ bundledPython, paths });
+    const options = {
+      userDataPath: root,
+      canonicalUserDataPath: root,
+      resourcesPath,
+      requireBundledPython: true,
+      stopAfterHermesRuntimeReady: true,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+    } satisfies RuntimeBootstrapOptions;
+    expect((await ensureCommandEveRuntimeBootstrap(options)).status).toBe('ready');
+    const proof = await ensureCommandEveRuntimeBackendAdmission(options, {});
+    const recheck = () =>
+      commandEveRuntimeMutableArtifactsMatchAdmissionProof({
+        paths: proof.paths,
+        resourcesPath,
+        admission: proof.admission,
+      });
+    expect(recheck()).toBe(true);
+
+    fs.chmodSync(paths.hermesShim, 0o600);
+    expect(recheck()).toBe(false);
+    fs.chmodSync(paths.hermesShim, 0o700);
+    fs.appendFileSync(paths.hermesWrapper, '# await-gap tamper\n');
+    expect(recheck()).toBe(false);
   });
 
   itM('walks the signed Resources tree once for one complete backend admission boundary', async () => {

@@ -28,6 +28,13 @@
  * the new agent inherits the freshly-baked process.env.HERMES_HOME. */
 export type CommandEveBackendRestart = () => Promise<void>;
 
+export type CommandEveStoppedBackendRespawn<T> = Readonly<{
+  beforeStop?: () => Promise<void>;
+  stop: () => Promise<void>;
+  afterStop: () => Promise<T>;
+  clearDeadBackendPort: () => void;
+}>;
+
 let restartHook: CommandEveBackendRestart | null = null;
 
 /**
@@ -54,6 +61,26 @@ export async function restartCommandEveBackendForSeat(): Promise<void> {
     );
   }
   await restartHook();
+}
+
+/**
+ * beforeStop owns admission that must preserve the currently-live backend on
+ * failure (including a cold runtime whose deferred bootstrap is unfinished).
+ *
+ * Once stop() completes, every later failure must make the published port
+ * truthful before the seat-switch rollback observes it. The caller keeps the
+ * generation check inside clearDeadBackendPort so an older respawn cannot erase
+ * a newer live port.
+ */
+export async function runCommandEveBackendRespawnAfterStop<T>(input: CommandEveStoppedBackendRespawn<T>): Promise<T> {
+  await input.beforeStop?.();
+  await input.stop();
+  try {
+    return await input.afterStop();
+  } catch (error) {
+    input.clearDeadBackendPort();
+    throw error;
+  }
 }
 
 /** Test-only: clear the registered hook between tests. */
