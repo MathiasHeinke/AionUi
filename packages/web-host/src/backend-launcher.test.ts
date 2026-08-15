@@ -1057,16 +1057,18 @@ describe('BackendLifecycleManager crash restart', () => {
     const ownerGate = new Promise<void>((resolve) => {
       releaseOwner = resolve;
     });
-    const restartAfterCrash = vi.fn(async (restartIfCurrent: () => Promise<number | undefined>) => {
+    let mgr!: BackendLifecycleManager;
+    const restartAfterCrash = vi.fn(async ({ claimIfCurrent }: { claimIfCurrent: () => boolean }) => {
       markOwnerEntered();
       await ownerGate;
-      return restartIfCurrent();
+      if (!claimIfCurrent()) return undefined;
+      return mgr.start('/db', undefined, undefined, { restartAfterCrash }, 65303);
     });
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response('ok', { status: 200 }) as unknown as Response);
 
-    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+    mgr = new BackendLifecycleManager(APP_META, () => '/x');
     const startPromise = mgr.start('/db', undefined, undefined, { restartAfterCrash });
     await Promise.resolve();
     emitListening(child1, 65303);
@@ -1098,10 +1100,11 @@ describe('BackendLifecycleManager crash restart', () => {
     const ownerGate = new Promise<void>((resolve) => {
       releaseOwner = resolve;
     });
-    const restartAfterCrash = vi.fn(async (restartIfCurrent: () => Promise<number | undefined>) => {
+    const restartAfterCrash = vi.fn(async ({ claimIfCurrent }: { claimIfCurrent: () => boolean }) => {
       markOwnerEntered();
       await ownerGate;
-      return restartIfCurrent();
+      expect(claimIfCurrent()).toBe(false);
+      return undefined;
     });
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
@@ -1129,6 +1132,87 @@ describe('BackendLifecycleManager crash restart', () => {
 
     fetchSpy.mockRestore();
   }, 5_000);
+
+  it('clears manager port truth when the injected crash owner claims the child and then fails', async () => {
+    const child = makeFakeChild();
+    vi.mocked(spawn).mockReturnValueOnce(child as unknown as ChildProcess);
+    const restartAfterCrash = vi.fn(async ({ claimIfCurrent }: { claimIfCurrent: () => boolean }) => {
+      expect(claimIfCurrent()).toBe(true);
+      throw new Error('runtime admission failed before replacement');
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('ok', { status: 200 }) as unknown as Response);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+    const startPromise = mgr.start('/db', undefined, undefined, { restartAfterCrash });
+    await Promise.resolve();
+    emitListening(child, 65303);
+    await startPromise;
+
+    (child as unknown as EventEmitter).emit('exit', 1, 'SIGABRT');
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+
+    expect(restartAfterCrash).toHaveBeenCalledOnce();
+    expect(mgr.status).toBe('error');
+    expect(mgr.port).toBe(0);
+    expect(vi.mocked(spawn)).toHaveBeenCalledOnce();
+
+    errorSpy.mockRestore();
+    fetchSpy.mockRestore();
+  }, 5_000);
+
+  it('binds post-await failure cleanup and output listeners to the child that start actually spawned', async () => {
+    const child1 = makeFakeChild();
+    const child2 = makeFakeChild();
+    Object.assign(child1, { pid: 11111 });
+    Object.assign(child2, { pid: 22222 });
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    vi.mocked(spawn)
+      .mockReturnValueOnce(child1 as unknown as ChildProcess)
+      .mockReturnValueOnce(child2 as unknown as ChildProcess);
+    let releaseFirstHealth!: () => void;
+    let markFirstHealthEntered!: () => void;
+    const firstHealthGate = new Promise<void>((resolve) => {
+      releaseFirstHealth = resolve;
+    });
+    const firstHealthEntered = new Promise<void>((resolve) => {
+      markFirstHealthEntered = resolve;
+    });
+    let healthCall = 0;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      healthCall += 1;
+      if (healthCall === 1) {
+        markFirstHealthEntered();
+        await firstHealthGate;
+      }
+      return new Response('ok', { status: 200 }) as unknown as Response;
+    });
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+
+    const first = mgr.start('/db-one');
+    const firstAssertion = expect(first).rejects.toThrow('superseded before health admission');
+    await Promise.resolve();
+    emitListening(child1, 65301);
+    await firstHealthEntered;
+    const second = mgr.start('/db-two');
+    await Promise.resolve();
+    emitListening(child2, 65302);
+    await expect(second).resolves.toBe(65302);
+
+    releaseFirstHealth();
+    await firstAssertion;
+    child1.stdout?.emit('data', Buffer.from('AIONCORE_LISTENING {"host":"127.0.0.1","port":65499}\n'));
+
+    expect(mgr.status).toBe('running');
+    expect(mgr.port).toBe(65302);
+    expect(killSpy).toHaveBeenCalledWith(-11111, 'SIGKILL');
+    expect(killSpy).not.toHaveBeenCalledWith(-22222, 'SIGKILL');
+    expect((mgr as unknown as { childProcess: ChildProcess | null }).childProcess).toBe(child2);
+
+    killSpy.mockRestore();
+    fetchSpy.mockRestore();
+  });
 
   it('logs crash restart scheduling details', async () => {
     vi.mocked(createServer).mockImplementation(

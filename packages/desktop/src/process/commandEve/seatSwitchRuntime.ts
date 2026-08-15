@@ -24,6 +24,8 @@
  * unless a real re-spawn ran.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 const commandEveBackendRestartLeaseBrand: unique symbol = Symbol('command-eve-backend-restart-lease');
 
 /**
@@ -49,10 +51,31 @@ export type CommandEveStoppedBackendRespawn<T> = Readonly<{
   clearDeadBackendPort: () => void;
 }>;
 
+export type CommandEveCrashRecoveryTransaction<T> = Readonly<{
+  claimIfCurrent: () => boolean;
+  recover: (lease: CommandEveBackendRestartLease) => Promise<T>;
+  clearDeadBackendPort: () => void;
+  queueWaitTimeoutMs: number;
+}>;
+
 let restartHook: CommandEveBackendRestart | null = null;
 let restartQueueTail: Promise<void> = Promise.resolve();
 const activeRestartLeases = new WeakSet<CommandEveBackendRestartLease>();
 const executingRestartLeases = new WeakSet<CommandEveBackendRestartLease>();
+// Denial-only ambient context. It never grants authority: the opaque lease is
+// still required for every in-reservation restart. Its sole purpose is to turn
+// an accidental unleased nested reservation/restart into an immediate error
+// instead of queueing behind itself forever.
+const restartReservationContext = new AsyncLocalStorage<boolean>();
+
+export type CommandEveBackendRestartReservationOptions = Readonly<{
+  /**
+   * Bound queue admission only. Once an operation owns the lease it is never
+   * expired by a timer: releasing a still-mutating authority transaction would
+   * be unsafe. A timed-out waiter is removed before it can mutate anything.
+   */
+  queueWaitTimeoutMs?: number;
+}>;
 
 function enqueueCommandEveBackendLifecycle<T>(operation: () => Promise<T>): Promise<T> {
   const queued = restartQueueTail.then(operation);
@@ -99,17 +122,48 @@ async function invokeCommandEveBackendRestartHook(lease: CommandEveBackendRestar
  * across re-render + restart. The lease expires when the callback settles.
  */
 export function runCommandEveBackendRestartReservation<T>(
-  operation: (lease: CommandEveBackendRestartLease) => Promise<T>
+  operation: (lease: CommandEveBackendRestartLease) => Promise<T>,
+  options: CommandEveBackendRestartReservationOptions = {}
 ): Promise<T> {
-  return enqueueCommandEveBackendLifecycle(async () => {
+  if (restartReservationContext.getStore() === true) {
+    return Promise.reject(
+      new Error(
+        'Command EVE: nested backend lifecycle reservation refused; the active reservation must pass its explicit lease.'
+      )
+    );
+  }
+
+  let entered = false;
+  let cancelledBeforeEntry = false;
+  const queued = enqueueCommandEveBackendLifecycle(async () => {
+    if (cancelledBeforeEntry) {
+      throw new Error('Command EVE: backend lifecycle reservation timed out before acquiring the shared lane.');
+    }
+    entered = true;
     const lease = createCommandEveBackendRestartLease();
     activeRestartLeases.add(lease);
     try {
-      return await operation(lease);
+      return await restartReservationContext.run(true, () => operation(lease));
     } finally {
       activeRestartLeases.delete(lease);
       executingRestartLeases.delete(lease);
     }
+  });
+
+  const queueWaitTimeoutMs = options.queueWaitTimeoutMs;
+  if (!Number.isFinite(queueWaitTimeoutMs) || (queueWaitTimeoutMs ?? 0) <= 0) return queued;
+
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      // Never time out an operation after it has entered: it may already own
+      // identity, vault or process mutations. Only a not-yet-entered waiter is
+      // safe to cancel without weakening serialization.
+      if (entered) return;
+      cancelledBeforeEntry = true;
+      reject(new Error('Command EVE: backend lifecycle reservation timed out before acquiring the shared lane.'));
+    }, queueWaitTimeoutMs);
+    timeout.unref?.();
+    void queued.then(resolve, reject).finally(() => clearTimeout(timeout));
   });
 }
 
@@ -135,6 +189,11 @@ export async function restartCommandEveBackendForSeat(lease?: CommandEveBackendR
     await invokeCommandEveBackendRestartHook(lease);
     return;
   }
+  if (restartReservationContext.getStore() === true) {
+    throw new Error(
+      'Command EVE: unleased backend restart refused inside an active lifecycle reservation; pass the explicit lease.'
+    );
+  }
   await runCommandEveBackendRestartReservation((ownedLease) => invokeCommandEveBackendRestartHook(ownedLease));
 }
 
@@ -157,6 +216,30 @@ export async function runCommandEveBackendRespawnAfterStop<T>(input: CommandEveS
     return await input.afterStop();
   } catch (error) {
     input.clearDeadBackendPort();
+    throw error;
+  }
+}
+
+/**
+ * Run crash recovery as a complete Command-EVE-owned lifecycle transaction.
+ * The exact crashed child is claimed only after FIFO acquisition. A stale timer
+ * therefore cannot start over a newer child, while an admission failure before
+ * stop still clears the dead published port. Queue waiting is bounded; active
+ * mutations are never expired by a timer.
+ */
+export async function runCommandEveBackendCrashRecovery<T>(
+  input: CommandEveCrashRecoveryTransaction<T>
+): Promise<T | undefined> {
+  try {
+    return await runCommandEveBackendRestartReservation(
+      async (restartLease) => {
+        if (!input.claimIfCurrent()) return undefined;
+        return input.recover(restartLease);
+      },
+      { queueWaitTimeoutMs: input.queueWaitTimeoutMs }
+    );
+  } catch (error) {
+    if (input.claimIfCurrent()) input.clearDeadBackendPort();
     throw error;
   }
 }

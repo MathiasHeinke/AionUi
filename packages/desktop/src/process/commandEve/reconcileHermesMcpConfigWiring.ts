@@ -25,7 +25,11 @@
 
 import { reconcileHermesMcpConfigForActiveSeat, type ReconcileReceipt } from './reconcileHermesMcpConfigCore';
 import { isMcpVaultEnabled } from './mcpVaultFlagCore';
-import { restartCommandEveBackendForSeat, runCommandEveBackendRestartReservation } from './seatSwitchRuntime';
+import {
+  restartCommandEveBackendForSeat,
+  runCommandEveBackendRestartReservation,
+  type CommandEveBackendRestartLease,
+} from './seatSwitchRuntime';
 import { getCanonicalDataPath as realGetCanonicalDataPath, getDataPath as realGetDataPath } from '../utils/utils';
 
 /** Injectable seams for the wiring (defaults = the real main-process cores). */
@@ -96,7 +100,8 @@ async function defaultReRenderConfig(getDataPath: () => string, getCanonicalData
  */
 export async function reconcileVaultConfigAfterConnectorChange(
   trigger: 'approve' | 'revoke',
-  deps: ReconcileWiringDeps = {}
+  deps: ReconcileWiringDeps = {},
+  restartLease?: CommandEveBackendRestartLease
 ): Promise<ReconcileReceipt> {
   const getDataPath = deps.getDataPath ?? realGetDataPath;
   const getCanonicalDataPath = deps.getCanonicalDataPath ?? realGetCanonicalDataPath;
@@ -106,20 +111,20 @@ export async function reconcileVaultConfigAfterConnectorChange(
     const now = deps.now ?? (() => new Date());
     return { ok: true, seat_id: getActiveSeatId(), connector_count: 0, at: now().toISOString() };
   }
-  // Reserve BEFORE resolving the active seat or writing config.yaml. A connector
-  // reconcile already in progress therefore reaches its terminal restart before
-  // a queued seat switch may mutate the active-seat holder; a connector queued
-  // later cannot enter until the switch (including rollback) is terminal.
-  return runCommandEveBackendRestartReservation((restartLease) =>
+  const reconcileUnderLease = (ownedLease: CommandEveBackendRestartLease) =>
     reconcileHermesMcpConfigForActiveSeat(
       {
         reRenderConfig: deps.reRenderConfig ?? ((_seatId) => defaultReRenderConfig(getDataPath, getCanonicalDataPath)),
-        respawn: deps.respawn ?? (() => restartCommandEveBackendForSeat(restartLease)),
+        respawn: deps.respawn ?? (() => restartCommandEveBackendForSeat(ownedLease)),
         now: deps.now,
       },
       { trigger, respawnAfter: true }
-    )
-  );
+    );
+  // A guided connector transaction reserves BEFORE its first seat read and
+  // passes that exact lease through vault mutation, render and respawn. Direct
+  // callers retain the safe standalone behavior and acquire their own lease.
+  if (restartLease) return reconcileUnderLease(restartLease);
+  return runCommandEveBackendRestartReservation(reconcileUnderLease);
 }
 
 /**

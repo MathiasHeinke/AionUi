@@ -23,11 +23,14 @@ import { setMcpVaultEnabledForTests } from '@/process/commandEve/mcpVaultFlagCor
 import {
   __resetCommandEveBackendRestartForTests,
   runCommandEveBackendRestartReservation,
+  setCommandEveBackendRestart,
 } from '@/process/commandEve/seatSwitchRuntime';
+import { __resetActiveSeatForTests, getActiveSeatId, setActiveSeatId } from '@/process/commandEve/seatContextCore';
 
 afterEach(() => {
   setMcpVaultEnabledForTests(undefined);
   __resetCommandEveBackendRestartForTests();
+  __resetActiveSeatForTests();
 });
 
 describe('reconcile wiring — flag OFF is a NO-OP (byte-identical safety)', () => {
@@ -116,6 +119,116 @@ describe('reconcile wiring — flag ON delegates to the pure core', () => {
     releaseRender();
     await Promise.all([connector, queuedSeatSwitch]);
     expect(order).toEqual(['connector:render', 'connector:respawn', 'seat-switch:enter']);
+  });
+
+  it('keeps approve mutation, leased reconcile and response terminal ahead of a later seat switch', async () => {
+    setMcpVaultEnabledForTests(true);
+    const seatA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const seatB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const order: string[] = [];
+    let releaseResponse!: () => void;
+    let markResponsePending!: () => void;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    const responsePending = new Promise<void>((resolve) => {
+      markResponsePending = resolve;
+    });
+    setActiveSeatId(seatA);
+    setCommandEveBackendRestart(async () => {
+      order.push(`approve:respawn:${getActiveSeatId()}`);
+    });
+
+    const approve = runCommandEveBackendRestartReservation(async (restartLease) => {
+      order.push(`approve:mutation:${getActiveSeatId()}`);
+      await reconcileVaultConfigAfterConnectorChange(
+        'approve',
+        {
+          reRenderConfig: async () => {
+            order.push(`approve:render:${getActiveSeatId()}`);
+            return 1;
+          },
+        },
+        restartLease
+      );
+      markResponsePending();
+      await responseGate;
+      order.push(`approve:response:${getActiveSeatId()}`);
+    });
+    await responsePending;
+    const seatSwitch = runCommandEveBackendRestartReservation(async () => {
+      setActiveSeatId(seatB);
+      order.push(`switch:${getActiveSeatId()}`);
+    });
+    await Promise.resolve();
+
+    expect(getActiveSeatId()).toBe(seatA);
+    expect(order).toEqual([`approve:mutation:${seatA}`, `approve:render:${seatA}`, `approve:respawn:${seatA}`]);
+    releaseResponse();
+    await Promise.all([approve, seatSwitch]);
+    expect(order).toEqual([
+      `approve:mutation:${seatA}`,
+      `approve:render:${seatA}`,
+      `approve:respawn:${seatA}`,
+      `approve:response:${seatA}`,
+      `switch:${seatB}`,
+    ]);
+  });
+
+  it('keeps revoke rollback on its original seat and blocks a queued switch until the failure response is terminal', async () => {
+    setMcpVaultEnabledForTests(true);
+    const seatA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const seatB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const order: string[] = [];
+    let markRollbackEntered!: () => void;
+    let releaseRollback!: () => void;
+    const rollbackEntered = new Promise<void>((resolve) => {
+      markRollbackEntered = resolve;
+    });
+    const rollbackGate = new Promise<void>((resolve) => {
+      releaseRollback = resolve;
+    });
+    setActiveSeatId(seatA);
+
+    const revoke = runCommandEveBackendRestartReservation(async (restartLease) => {
+      order.push(`revoke:mutation:${getActiveSeatId()}`);
+      try {
+        const receipt = await reconcileVaultConfigAfterConnectorChange(
+          'revoke',
+          {
+            reRenderConfig: async () => {
+              order.push(`revoke:render:${getActiveSeatId()}`);
+              throw new Error('render rejected');
+            },
+          },
+          restartLease
+        );
+        if (!receipt.ok) throw new Error(receipt.reason_code);
+      } catch {
+        order.push(`revoke:rollback:${getActiveSeatId()}`);
+        markRollbackEntered();
+        await rollbackGate;
+        order.push(`revoke:response:${getActiveSeatId()}`);
+      }
+    });
+    await rollbackEntered;
+    const seatSwitch = runCommandEveBackendRestartReservation(async () => {
+      setActiveSeatId(seatB);
+      order.push(`switch:${getActiveSeatId()}`);
+    });
+    await Promise.resolve();
+
+    expect(getActiveSeatId()).toBe(seatA);
+    expect(order).toEqual([`revoke:mutation:${seatA}`, `revoke:render:${seatA}`, `revoke:rollback:${seatA}`]);
+    releaseRollback();
+    await Promise.all([revoke, seatSwitch]);
+    expect(order).toEqual([
+      `revoke:mutation:${seatA}`,
+      `revoke:render:${seatA}`,
+      `revoke:rollback:${seatA}`,
+      `revoke:response:${seatA}`,
+      `switch:${seatB}`,
+    ]);
   });
 
   it('production re-render threads the canonical root and strict packaged runtime contract', () => {

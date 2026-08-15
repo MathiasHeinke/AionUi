@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   __resetCommandEveBackendRestartForTests,
   restartCommandEveBackendForSeat,
+  runCommandEveBackendCrashRecovery,
   runCommandEveBackendRespawnAfterStop,
   runCommandEveBackendRestartReservation,
   setCommandEveBackendRestart,
@@ -154,6 +155,9 @@ describe('Command EVE runtime bridge registration', () => {
     expect(source.slice(awaitGapRecheck, start)).not.toContain('await ');
     expect(source.slice(admission, start)).toContain('Dev/Windows preserve the existing lightweight env bake.');
     expect(source).toContain('restartAfterCrash: runCommandEveCrashRestartUnderReservation');
+    expect(source).toContain('runCommandEveBackendCrashRecovery({');
+    expect(source).toContain('await restartCommandEveBackendForSeat(restartLease);');
+    expect(source).toContain('queueWaitTimeoutMs: COMMAND_EVE_CRASH_RECOVERY_QUEUE_WAIT_MS');
     expect(source.match(/commandEveBackendStartOptions/g)).toHaveLength(3);
   });
 
@@ -177,6 +181,35 @@ describe('Command EVE runtime bridge registration', () => {
     expect(leasedRestart).toBeGreaterThan(authorityMutation);
     expect(terminalRefresh).toBeGreaterThan(leasedRestart);
     expect(reservationEnd).toBeGreaterThan(terminalRefresh);
+  });
+
+  it('reserves guided connector approval before its first seat read or vault write and rolls back under the same lease', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/process/bridge/commandEveBridge.ts'),
+      'utf8'
+    );
+    const provider = source.indexOf("bridge.buildProvider('command-eve.guided-auth-setup')");
+    const inFlightBlock = source.indexOf('if (commandEveSwitchSeatInFlight) {', provider);
+    const reservation = source.indexOf(
+      'return runCommandEveBackendRestartReservation(async (restartLease) => {',
+      provider
+    );
+    const firstSeatRead = source.indexOf("const seatId = scope === 'seat' ? getActiveSeatId() : undefined;", provider);
+    const vaultMutation = source.indexOf('const result = runGuidedApiKeySetup({', provider);
+    const leasedReconcile = source.indexOf(
+      "reconcileVaultConfigAfterConnectorChange('approve', {}, restartLease)",
+      provider
+    );
+    const rollback = source.indexOf('const rollbackOk = previousRecord', leasedReconcile);
+    const responseTerminal = source.indexOf("reason_code: 'GUIDED_AUTH_BRIDGE_FAILED'", rollback);
+
+    expect(inFlightBlock).toBeGreaterThan(provider);
+    expect(reservation).toBeGreaterThan(inFlightBlock);
+    expect(firstSeatRead).toBeGreaterThan(reservation);
+    expect(vaultMutation).toBeGreaterThan(firstSeatRead);
+    expect(leasedReconcile).toBeGreaterThan(vaultMutation);
+    expect(rollback).toBeGreaterThan(leasedReconcile);
+    expect(responseTerminal).toBeGreaterThan(rollback);
   });
 
   it('preserves the live port and never stops or starts when pre-stop admission fails', async () => {
@@ -499,15 +532,22 @@ describe('Command EVE runtime bridge registration', () => {
     });
     await switchPreparationEntered;
 
-    // This mirrors BackendLifecycleManager.restartAfterCrash: enqueue the owner,
-    // then recheck the exact crashed child only after the reservation is acquired.
-    const crashTimer = runCommandEveBackendRestartReservation(async () => {
-      events.push('crash-owner:enter');
-      if (currentChild !== crashedChild) {
-        events.push('crash-owner:suppressed-stale-child');
-        return;
-      }
-      events.push('crash-owner:unexpected-start');
+    const crashTimer = runCommandEveBackendCrashRecovery({
+      claimIfCurrent: () => {
+        events.push('crash-owner:enter');
+        if (currentChild !== crashedChild) {
+          events.push('crash-owner:suppressed-stale-child');
+          return false;
+        }
+        return true;
+      },
+      recover: async () => {
+        events.push('crash-owner:unexpected-start');
+      },
+      clearDeadBackendPort: () => {
+        events.push('crash-owner:clear-port');
+      },
+      queueWaitTimeoutMs: 30_000,
     });
     await Promise.resolve();
     expect(events).toEqual(['switch:prepare']);
@@ -532,6 +572,82 @@ describe('Command EVE runtime bridge registration', () => {
     await expect(restartCommandEveBackendForSeat()).rejects.toThrow(
       'recursive backend restart refused; the shared lifecycle lock is non-reentrant'
     );
+  });
+
+  it('rejects unleased nested reservations and restarts after an await while the explicit lease remains valid', async () => {
+    const events: string[] = [];
+    setCommandEveBackendRestart(async () => {
+      events.push('leased-restart');
+    });
+
+    await runCommandEveBackendRestartReservation(async (restartLease) => {
+      await Promise.resolve();
+      await expect(runCommandEveBackendRestartReservation(async () => {})).rejects.toThrow(
+        'nested backend lifecycle reservation refused'
+      );
+      await expect(restartCommandEveBackendForSeat()).rejects.toThrow(
+        'unleased backend restart refused inside an active lifecycle reservation'
+      );
+      await restartCommandEveBackendForSeat(restartLease);
+    });
+
+    expect(events).toEqual(['leased-restart']);
+  });
+
+  it('bounds a crash-recovery queue wait without expiring the transaction that already owns mutations', async () => {
+    vi.useFakeTimers();
+    let markOwnerEntered!: () => void;
+    let releaseOwner!: () => void;
+    const ownerEntered = new Promise<void>((resolve) => {
+      markOwnerEntered = resolve;
+    });
+    const ownerGate = new Promise<void>((resolve) => {
+      releaseOwner = resolve;
+    });
+    const first = runCommandEveBackendRestartReservation(async () => {
+      markOwnerEntered();
+      await ownerGate;
+    });
+    await ownerEntered;
+
+    const recover = vi.fn(async () => 4900);
+    const clearDeadBackendPort = vi.fn();
+    const timedOut = runCommandEveBackendCrashRecovery({
+      claimIfCurrent: () => true,
+      recover,
+      clearDeadBackendPort,
+      queueWaitTimeoutMs: 50,
+    });
+    const timeoutAssertion = expect(timedOut).rejects.toThrow(
+      'backend lifecycle reservation timed out before acquiring the shared lane'
+    );
+    await vi.advanceTimersByTimeAsync(50);
+    await timeoutAssertion;
+    expect(recover).not.toHaveBeenCalled();
+    expect(clearDeadBackendPort).toHaveBeenCalledOnce();
+
+    releaseOwner();
+    await first;
+    await expect(runCommandEveBackendRestartReservation(async () => 'next')).resolves.toBe('next');
+  });
+
+  it('clears dead published-port truth when crash admission fails before backend mutation', async () => {
+    const clearDeadBackendPort = vi.fn();
+    const recover = vi.fn(async () => {
+      throw new Error('COMMAND_EVE_RUNTIME_MUTABLE_ARTIFACTS_CHANGED_BEFORE_START');
+    });
+
+    await expect(
+      runCommandEveBackendCrashRecovery({
+        claimIfCurrent: () => true,
+        recover,
+        clearDeadBackendPort,
+        queueWaitTimeoutMs: 50,
+      })
+    ).rejects.toThrow('COMMAND_EVE_RUNTIME_MUTABLE_ARTIFACTS_CHANGED_BEFORE_START');
+
+    expect(recover).toHaveBeenCalledOnce();
+    expect(clearDeadBackendPort).toHaveBeenCalledOnce();
   });
 
   it('rejects a retained lease after its reservation has terminated', async () => {

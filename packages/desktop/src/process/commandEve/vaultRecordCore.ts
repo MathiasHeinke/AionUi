@@ -254,11 +254,13 @@ export function listVaultRecords(vaultDir: string): VaultConnectorRecord[] {
 }
 
 /** Delete a connector's record (revoke). Idempotent; never throws. */
-export function deleteVaultRecord(vaultDir: string, connectorId: string): void {
+export function deleteVaultRecord(vaultDir: string, connectorId: string): boolean {
   try {
     const file = vaultRecordPath(vaultDir, connectorId);
     if (fs.existsSync(file)) fs.rmSync(file, { force: true });
+    return !fs.existsSync(file);
   } catch {
     // ignore — delete must never throw
+    return false;
   }
 }

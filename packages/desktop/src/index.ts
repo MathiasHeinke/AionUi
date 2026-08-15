@@ -89,8 +89,9 @@ import { shouldRestartWindowsBackendAfterRuntimeBootstrap } from './process/comm
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatContextRevision, getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
+  restartCommandEveBackendForSeat,
+  runCommandEveBackendCrashRecovery,
   runCommandEveBackendRespawnAfterStop,
-  runCommandEveBackendRestartReservation,
   setCommandEveBackendRestart,
 } from './process/commandEve/seatSwitchRuntime';
 import { getCdpBridgeHandle } from './process/resources/builtinMcp/cdpBridgeRegistry';
@@ -334,9 +335,28 @@ const backendManager = new BackendLifecycleManager(
   },
   resolveBinaryPath
 );
-const runCommandEveCrashRestartUnderReservation = (
-  restartIfCurrent: () => Promise<number | undefined>
-): Promise<number | undefined> => runCommandEveBackendRestartReservation(() => restartIfCurrent());
+const COMMAND_EVE_CRASH_RECOVERY_QUEUE_WAIT_MS = 60_000;
+const runCommandEveCrashRestartUnderReservation = async (crash: {
+  claimIfCurrent: () => boolean;
+}): Promise<number | undefined> =>
+  runCommandEveBackendCrashRecovery({
+    claimIfCurrent: crash.claimIfCurrent,
+    recover: async (restartLease) => {
+      // Command EVE owns the complete recovery transaction. Reuse the same
+      // packaged admission, mutable-artifact recheck, assistant-storage repair,
+      // spawn and port publication hook as every seat/connector restart; the
+      // web-host crash supervisor never receives a direct start capability.
+      await restartCommandEveBackendForSeat(restartLease);
+      return backendManager.status === 'running' && backendManager.port > 0 ? backendManager.port : undefined;
+    },
+    clearDeadBackendPort: () => {
+      delete (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
+    },
+    // Bound only the safe pre-entry wait. Once acquired, the admission runner,
+    // SQLite repair and backend launcher each have their own terminal timeout;
+    // the FIFO never expires a still-mutating transaction.
+    queueWaitTimeoutMs: COMMAND_EVE_CRASH_RECOVERY_QUEUE_WAIT_MS,
+  });
 const commandEveBackendStartOptions = {
   // Explicitly preserve the previous false/default behavior while giving the
   // workspace package's newer runtime an injected crash-restart owner. Keeping
@@ -2280,8 +2300,9 @@ const handleAppReady = async (): Promise<void> => {
                   hermesReadyAfterBootstrap: fs.existsSync(runtimePaths.hermesShim),
                 })
               ) {
-                const { restartCommandEveBackendForSeat } = await import('./process/commandEve/seatSwitchRuntime');
-                await restartCommandEveBackendForSeat();
+                const { restartCommandEveBackendForSeat: restartCommandEveBackendAfterWindowsBootstrap } =
+                  await import('./process/commandEve/seatSwitchRuntime');
+                await restartCommandEveBackendAfterWindowsBootstrap();
                 mark('commandEveBackendRestartAfterRuntimeBootstrap');
               }
               scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark);
