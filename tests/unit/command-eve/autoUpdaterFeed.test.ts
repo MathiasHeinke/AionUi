@@ -244,15 +244,13 @@ describe('autoUpdaterService.configureFeed', () => {
   });
 
   it('reconfigures the CE default between preview and stable without enabling updater downgrade mode', async () => {
-    autoUpdaterService.setAllowPrerelease(true);
-    const preview = await autoUpdaterService.configureFeed(async () => undefined);
+    const preview = await autoUpdaterService.configureFeed(async () => undefined, true);
     expect(preview.url).toBe(COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL);
     expect(setFeedURL.mock.calls.at(-1)?.[0]?.url).toBe(COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL);
     expect(autoUpdater.allowPrerelease).toBe(false);
     expect(autoUpdater.allowDowngrade).toBe(false);
 
-    autoUpdaterService.setAllowPrerelease(false);
-    const stable = await autoUpdaterService.configureFeed(async () => undefined);
+    const stable = await autoUpdaterService.configureFeed(async () => undefined, false);
     expect(stable.url).toBe(COMMAND_EVE_UPDATE_FEED_BASE_URL);
     expect(setFeedURL.mock.calls.at(-1)?.[0]?.url).toBe(COMMAND_EVE_UPDATE_FEED_BASE_URL);
     expect(autoUpdater.allowDowngrade).toBe(false);
@@ -273,6 +271,47 @@ describe('autoUpdaterService.checkForUpdatesAndNotify', () => {
 
     expect(checkForUpdates).toHaveBeenCalledTimes(1);
     expect(checkForUpdatesAndNotify).not.toHaveBeenCalled();
+  });
+
+  it('returns to the stable feed for background checks after an explicit preview check', async () => {
+    checkForUpdates.mockResolvedValue({ isUpdateAvailable: false });
+    autoUpdaterService.initialize();
+
+    await autoUpdaterService.checkForUpdates(async () => undefined, true);
+    await autoUpdaterService.checkForUpdatesAndNotify(async () => undefined);
+
+    expect(setFeedURL).toHaveBeenCalledTimes(2);
+    expect(setFeedURL.mock.calls[0]?.[0]?.url).toBe(COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL);
+    expect(setFeedURL.mock.calls[1]?.[0]?.url).toBe(COMMAND_EVE_UPDATE_FEED_BASE_URL);
+    expect(autoUpdater.allowPrerelease).toBe(false);
+    expect(autoUpdater.allowDowngrade).toBe(false);
+  });
+
+  it('serializes an explicit preview check with a concurrent stable background check', async () => {
+    let releasePreview!: (value: { isUpdateAvailable: false }) => void;
+    checkForUpdates
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ isUpdateAvailable: false }>((resolve) => {
+            releasePreview = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ isUpdateAvailable: false });
+    autoUpdaterService.initialize();
+
+    const previewCheck = autoUpdaterService.checkForUpdates(async () => undefined, true);
+    await vi.waitFor(() => expect(setFeedURL).toHaveBeenCalledTimes(1));
+    const backgroundCheck = autoUpdaterService.checkForUpdatesAndNotify(async () => undefined);
+    await Promise.resolve();
+
+    expect(setFeedURL).toHaveBeenCalledTimes(1);
+    expect(setFeedURL.mock.calls[0]?.[0]?.url).toBe(COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL);
+
+    releasePreview({ isUpdateAvailable: false });
+    await Promise.all([previewCheck, backgroundCheck]);
+
+    expect(setFeedURL).toHaveBeenCalledTimes(2);
+    expect(setFeedURL.mock.calls[1]?.[0]?.url).toBe(COMMAND_EVE_UPDATE_FEED_BASE_URL);
   });
 
   it('does not throw and no-ops when CE shell is OFF and no feed is configured', async () => {

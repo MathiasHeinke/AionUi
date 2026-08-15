@@ -149,9 +149,14 @@ export interface AutoUpdaterEvents {
 class AutoUpdaterService extends EventEmitter {
   private _isInitialized = false;
   private _eventHandlersSetup = false;
-  private _allowPrerelease = false;
   /** True once a generic feed URL has been resolved and applied via setFeedURL */
   private _feedConfigured = false;
+  /**
+   * Serializes feed selection together with the matching electron-updater check.
+   * electron-updater owns one process-global feed, so overlapping explicit and
+   * background checks must not reconfigure each other mid-request.
+   */
+  private _updateCheckTail: Promise<void> = Promise.resolve();
   private _statusBroadcastCallback: StatusBroadcastCallback | null = null;
   private _lastStatus: AutoUpdateStatus | null = null;
   private _recurringCheckTimer: ReturnType<typeof setTimeout> | null = null;
@@ -214,7 +219,6 @@ class AutoUpdaterService extends EventEmitter {
     this.clearRecurringCheck();
     this._isInitialized = false;
     // Note: _eventHandlersSetup is NOT reset to avoid duplicate handler registration
-    this._allowPrerelease = false;
     this._feedConfigured = false;
     this._statusBroadcastCallback = null;
     this._lastStatus = null;
@@ -229,7 +233,6 @@ class AutoUpdaterService extends EventEmitter {
     this.clearRecurringCheck();
     this._isInitialized = false;
     this._eventHandlersSetup = false;
-    this._allowPrerelease = false;
     this._feedConfigured = false;
     this._statusBroadcastCallback = null;
     this._lastStatus = null;
@@ -261,34 +264,6 @@ class AutoUpdaterService extends EventEmitter {
   }
 
   /**
-   * Select the explicit Command EVE preview feed for the next check.
-   *
-   * This must never enable electron-updater's semver prerelease or downgrade
-   * modes: the stable and preview feeds both advertise the same final release
-   * version/bytes, and the feed origin is the only opt-in boundary.
-   */
-  setAllowPrerelease(allow: boolean): void {
-    this._allowPrerelease = allow;
-    // Do NOT enable autoUpdater.allowPrerelease here.
-    // electron-updater's prerelease mode conflicts with custom channel names
-    // (e.g. 'latest-arm64'): it treats the channel as a prerelease identifier
-    // and tries to match it against tag prerelease components, which always fails
-    // with "No published versions on GitHub".
-    // Keep both unsafe implicit modes fail-closed even if another caller or a
-    // previous library state changed them.
-    autoUpdater.allowPrerelease = false;
-    autoUpdater.allowDowngrade = false;
-    log.info(`Command EVE preview feed ${allow ? 'selected' : 'not selected'} for explicit update checks`);
-  }
-
-  /**
-   * Get current prerelease setting
-   */
-  get allowPrerelease(): boolean {
-    return this._allowPrerelease;
-  }
-
-  /**
    * Whether a generic update feed has been resolved and applied.
    */
   get isFeedConfigured(): boolean {
@@ -316,9 +291,15 @@ class AutoUpdaterService extends EventEmitter {
    * ProcessConfig.get.
    */
   async configureFeed(
-    readConfig?: (key: typeof UPDATE_FEED_URL_CONFIG_KEY) => Promise<string | undefined>
+    readConfig?: (key: typeof UPDATE_FEED_URL_CONFIG_KEY) => Promise<string | undefined>,
+    includePreview = false
   ): Promise<{ configured: boolean; url?: string; channel?: string }> {
-    const url = await resolveUpdateFeedUrl(readConfig, this._allowPrerelease);
+    // The stable and preview feeds advertise final semver artifacts. Never use
+    // electron-updater's prerelease/downgrade modes; the selected feed URL is
+    // the only opt-in boundary and is scoped to this one serialized check.
+    autoUpdater.allowPrerelease = false;
+    autoUpdater.allowDowngrade = false;
+    const url = await resolveUpdateFeedUrl(readConfig, includePreview);
     if (!url) {
       this._feedConfigured = false;
       log.info(
@@ -426,6 +407,25 @@ class AutoUpdaterService extends EventEmitter {
     this._recurringCheckTimer = null;
   }
 
+  private async runUpdateCheckExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const predecessor = this._updateCheckTail;
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this._updateCheckTail = predecessor.then(
+      () => current,
+      () => current
+    );
+
+    await predecessor.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
   private scheduleRecurringCheck(): void {
     if (!COMMAND_EVE_SHELL_ENABLED || !this._isInitialized) return;
     this.clearRecurringCheck();
@@ -437,49 +437,52 @@ class AutoUpdaterService extends EventEmitter {
   }
 
   async checkForUpdates(
-    readConfig?: (key: typeof UPDATE_FEED_URL_CONFIG_KEY) => Promise<string | undefined>
+    readConfig?: (key: typeof UPDATE_FEED_URL_CONFIG_KEY) => Promise<string | undefined>,
+    includePreview = false
   ): Promise<{ success: boolean; updateInfo?: UpdateInfo; error?: string }> {
-    try {
-      if (!this._isInitialized) {
-        throw new Error('AutoUpdaterService not initialized');
-      }
+    return this.runUpdateCheckExclusive(async () => {
+      try {
+        if (!this._isInitialized) {
+          throw new Error('AutoUpdaterService not initialized');
+        }
 
-      let reader = readConfig;
-      if (!reader) {
-        const { ProcessConfig } = await import('@process/utils/initStorage');
-        reader = (key) => ProcessConfig.get(key);
-      }
-      const feed = await this.configureFeed(reader);
-      if (!feed.configured) {
-        // No feed source: surface a clean, localized reason rather than letting
-        // electron-updater throw an opaque error.
-        const { default: i18n } = await import('./i18n');
-        return { success: false, error: i18n.t('update.errors.noFeedConfigured') };
-      }
+        let reader = readConfig;
+        if (!reader) {
+          const { ProcessConfig } = await import('@process/utils/initStorage');
+          reader = (key) => ProcessConfig.get(key);
+        }
+        const feed = await this.configureFeed(reader, includePreview);
+        if (!feed.configured) {
+          // No feed source: surface a clean, localized reason rather than letting
+          // electron-updater throw an opaque error.
+          const { default: i18n } = await import('./i18n');
+          return { success: false, error: i18n.t('update.errors.noFeedConfigured') };
+        }
 
-      const result = await autoUpdater.checkForUpdates();
-      if (!result) {
-        const { default: i18n } = await import('./i18n');
-        return { success: false, error: i18n.t('update.errors.checkReturnedNull') };
+        const result = await autoUpdater.checkForUpdates();
+        if (!result) {
+          const { default: i18n } = await import('./i18n');
+          return { success: false, error: i18n.t('update.errors.checkReturnedNull') };
+        }
+        // Only report updateInfo when electron-updater internally confirms the update is available.
+        // When isUpdateAvailable is false, updateInfoAndProvider is NOT set internally,
+        // so a subsequent downloadUpdate() call would fail with "Please check update first".
+        if (!result.isUpdateAvailable) {
+          return { success: true };
+        }
+        return {
+          success: true,
+          updateInfo: result.updateInfo,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        log.error('Check for updates failed:', message);
+        return {
+          success: false,
+          error: message,
+        };
       }
-      // Only report updateInfo when electron-updater internally confirms the update is available.
-      // When isUpdateAvailable is false, updateInfoAndProvider is NOT set internally,
-      // so a subsequent downloadUpdate() call would fail with "Please check update first".
-      if (!result.isUpdateAvailable) {
-        return { success: true };
-      }
-      return {
-        success: true,
-        updateInfo: result.updateInfo,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      log.error('Check for updates failed:', message);
-      return {
-        success: false,
-        error: message,
-      };
-    }
+    });
   }
 
   async downloadUpdate(): Promise<{ success: boolean; error?: string }> {
@@ -529,34 +532,36 @@ class AutoUpdaterService extends EventEmitter {
   async checkForUpdatesAndNotify(
     readConfig?: (key: typeof UPDATE_FEED_URL_CONFIG_KEY) => Promise<string | undefined>
   ): Promise<void> {
-    let shouldScheduleNextCheck = false;
-    try {
-      let reader = readConfig;
-      if (!reader) {
-        const { ProcessConfig } = await import('@process/utils/initStorage');
-        reader = (key) => ProcessConfig.get(key);
+    return this.runUpdateCheckExclusive(async () => {
+      let shouldScheduleNextCheck = false;
+      try {
+        let reader = readConfig;
+        if (!reader) {
+          const { ProcessConfig } = await import('@process/utils/initStorage');
+          reader = (key) => ProcessConfig.get(key);
+        }
+        // Background/startup checks are always stable. Preview is available only
+        // to the explicit user-triggered check that supplies includePreview=true.
+        const feed = await this.configureFeed(reader, false);
+        if (!feed.configured) {
+          // First-class quiet state: nothing to check against, so do not call into
+          // electron-updater (which would otherwise error into the void).
+          return;
+        }
+        shouldScheduleNextCheck = COMMAND_EVE_SHELL_ENABLED;
+        if (COMMAND_EVE_SHELL_ENABLED) {
+          // Do not call checkForUpdatesAndNotify here: it creates a native popup.
+          // autoDownload=true starts the verified generic-feed download quietly.
+          await autoUpdater.checkForUpdates();
+        } else {
+          await autoUpdater.checkForUpdatesAndNotify();
+        }
+      } catch (error) {
+        log.error('Auto-update check failed:', error);
+      } finally {
+        if (shouldScheduleNextCheck) this.scheduleRecurringCheck();
       }
-      const feed = await this.configureFeed(reader);
-      if (!feed.configured) {
-        // First-class quiet state: nothing to check against, so do not call into
-        // electron-updater (which would otherwise error into the void).
-        return;
-      }
-      shouldScheduleNextCheck = COMMAND_EVE_SHELL_ENABLED;
-      // Ensure clean state: prevent stale allowDowngrade=true from prior setAllowPrerelease(true) calls
-      autoUpdater.allowDowngrade = false;
-      if (COMMAND_EVE_SHELL_ENABLED) {
-        // Do not call checkForUpdatesAndNotify here: it creates a native popup.
-        // autoDownload=true starts the verified generic-feed download quietly.
-        await autoUpdater.checkForUpdates();
-      } else {
-        await autoUpdater.checkForUpdatesAndNotify();
-      }
-    } catch (error) {
-      log.error('Auto-update check failed:', error);
-    } finally {
-      if (shouldScheduleNextCheck) this.scheduleRecurringCheck();
-    }
+    });
   }
 }
 

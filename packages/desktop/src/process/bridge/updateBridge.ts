@@ -621,11 +621,8 @@ export function initUpdateBridge(): void {
       msg?: string;
     }> => {
       try {
-        // Set prerelease preference before checking
         const includePrerelease = Boolean(params?.includePrerelease);
-        autoUpdaterService.setAllowPrerelease(includePrerelease);
-
-        const result = await autoUpdaterService.checkForUpdates();
+        const result = await autoUpdaterService.checkForUpdates(undefined, includePrerelease);
         if (result.success && result.updateInfo) {
           // autoUpdaterService.checkForUpdates() only returns updateInfo when
           // electron-updater confirms isUpdateAvailable, so we can trust it directly.
