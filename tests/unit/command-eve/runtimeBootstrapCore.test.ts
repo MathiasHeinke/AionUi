@@ -2350,6 +2350,114 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(commands.some((command) => command === '/usr/bin/python3 --version')).toBe(false);
   });
 
+  itM('rebuilds an existing Hermes venv when a packaged update changes the Python ABI', async () => {
+    const harness = makeHarness();
+    const manifestPath = writeManifest(harness.root, 'http://127.0.0.1:11434');
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+    const bundledPython = '/bundle/python/bin/python3.12';
+    const venvPython = path.join(paths.hermesVenv, 'bin', 'python');
+    const staleSentinel = path.join(paths.hermesVenv, 'stale-cp313.txt');
+    fs.mkdirSync(path.dirname(venvPython), { recursive: true });
+    fs.writeFileSync(venvPython, '#!/usr/bin/env bash\n');
+    fs.writeFileSync(path.join(paths.hermesVenv, 'pyvenv.cfg'), 'version = 3.13.7\n');
+    fs.writeFileSync(staleSentinel, 'stale\n');
+    stubAbsolutePythonExistence([bundledPython]);
+
+    const runner: RuntimeBootstrapRunner = async (command, args, options) => {
+      if (command === bundledPython && args[0] === '--version') {
+        return commandResult(command, args, true, 'Python 3.12.13\n');
+      }
+      if (command === bundledPython && args[0] === '-m' && args[1] === 'venv') {
+        expect(fs.existsSync(staleSentinel)).toBe(false);
+        const venv = args[2];
+        fs.mkdirSync(path.join(venv, 'bin'), { recursive: true });
+        fs.writeFileSync(path.join(venv, 'bin', 'python'), '#!/usr/bin/env bash\n');
+        fs.writeFileSync(path.join(venv, 'pyvenv.cfg'), 'version = 3.12.13\n');
+        return commandResult(command, args);
+      }
+      return harness.runner(command, args, options);
+    };
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      manifestPath,
+      runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 8 * 1024 ** 3,
+      ollamaBinaryCandidates: [],
+      env: { COMMAND_EVE_BUNDLED_PYTHON: bundledPython },
+    });
+
+    expect(receipt.stages.find((stage) => stage.id === 'python')?.detail).toContain('rebuilt for Python 3.12.13');
+    expect(fs.readFileSync(path.join(paths.hermesVenv, 'pyvenv.cfg'), 'utf8')).toContain('3.12.13');
+    expect(fs.existsSync(staleSentinel)).toBe(false);
+  });
+
+  it('reports an existing Hermes venv ABI mismatch without mutating it in check mode', async () => {
+    const root = makeRoot();
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    const bundledPython = '/bundle/python/bin/python3.12';
+    const venvPython = path.join(paths.hermesVenv, 'bin', 'python');
+    fs.mkdirSync(path.dirname(venvPython), { recursive: true });
+    fs.writeFileSync(venvPython, '#!/usr/bin/env bash\n');
+    fs.writeFileSync(path.join(paths.hermesVenv, 'pyvenv.cfg'), 'version = 3.13.7\n');
+    stubAbsolutePythonExistence([bundledPython]);
+    const runner: RuntimeBootstrapRunner = async (command, args) => {
+      if (command === bundledPython && args[0] === '--version') {
+        return commandResult(command, args, true, 'Python 3.12.13\n');
+      }
+      return commandResult(command, args);
+    };
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: root,
+      mode: 'check',
+      runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+      env: { COMMAND_EVE_BUNDLED_PYTHON: bundledPython },
+    });
+
+    const pythonStage = receipt.stages.find((stage) => stage.id === 'python');
+    expect(pythonStage?.status).toBe('blocked');
+    expect(pythonStage?.code).toBe('PYTHON_VENV_ABI_MISMATCH');
+    expect(fs.readFileSync(path.join(paths.hermesVenv, 'pyvenv.cfg'), 'utf8')).toContain('3.13.7');
+  });
+
+  it('keeps an existing Hermes venv when only the selected Python patch version changes', async () => {
+    const root = makeRoot();
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    const bundledPython = '/bundle/python/bin/python3.12';
+    const venvPython = path.join(paths.hermesVenv, 'bin', 'python');
+    const sentinel = path.join(paths.hermesVenv, 'keep-me.txt');
+    fs.mkdirSync(path.dirname(venvPython), { recursive: true });
+    fs.writeFileSync(venvPython, '#!/usr/bin/env bash\n');
+    fs.writeFileSync(path.join(paths.hermesVenv, 'pyvenv.cfg'), 'version = 3.12.8\n');
+    fs.writeFileSync(sentinel, 'preserved\n');
+    stubAbsolutePythonExistence([bundledPython]);
+    const runner: RuntimeBootstrapRunner = async (command, args) => {
+      if (command === bundledPython && args[0] === '--version') {
+        return commandResult(command, args, true, 'Python 3.12.13\n');
+      }
+      return commandResult(command, args);
+    };
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: root,
+      mode: 'check',
+      runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+      env: { COMMAND_EVE_BUNDLED_PYTHON: bundledPython },
+    });
+
+    expect(receipt.stages.find((stage) => stage.id === 'python')?.status).toBe('pass');
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('preserved\n');
+  });
+
   it('falls through to system search when the bundled python is missing (fallback intact)', async () => {
     const root = makeRoot();
     const resourcesPath = '/Applications/Command EVE.app/Contents/Resources';

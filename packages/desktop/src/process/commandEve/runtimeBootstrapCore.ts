@@ -3995,6 +3995,46 @@ function pythonBinary(paths: RuntimeBootstrapPaths): string {
     : path.join(paths.hermesVenv, 'bin', 'python');
 }
 
+function readVenvPythonVersion(paths: RuntimeBootstrapPaths): ReturnType<typeof parsePythonVersion> {
+  const configPath = path.join(paths.hermesVenv, 'pyvenv.cfg');
+  try {
+    const configStat = fs.lstatSync(configPath);
+    if (!configStat.isFile() || configStat.isSymbolicLink() || configStat.size > 16 * 1024) return null;
+    const version = fs
+      .readFileSync(configPath, 'utf8')
+      .split(/\r?\n/)
+      .map((line) => line.match(/^\s*version\s*=\s*(\d+\.\d+(?:\.\d+)?)\s*$/i)?.[1])
+      .find(Boolean);
+    return version ? parsePythonVersion(`Python ${version}`) : null;
+  } catch {
+    return null;
+  }
+}
+
+function venvPythonAbiMismatch(paths: RuntimeBootstrapPaths, selectedVersionText = ''): boolean {
+  if (!fs.existsSync(pythonBinary(paths))) return false;
+  const selected = parsePythonVersion(selectedVersionText);
+  const existing = readVenvPythonVersion(paths);
+  return Boolean(selected && existing && (selected.major !== existing.major || selected.minor !== existing.minor));
+}
+
+function removeMismatchedRuntimeVenv(paths: RuntimeBootstrapPaths): void {
+  const expectedVenv = path.join(paths.hermesRoot, 'venv');
+  if (path.resolve(paths.hermesVenv) !== path.resolve(expectedVenv)) {
+    throw new Error('unsafe Hermes venv path');
+  }
+  const stat = fs.lstatSync(paths.hermesVenv);
+  if (stat.isDirectory() && !stat.isSymbolicLink()) {
+    fs.rmSync(paths.hermesVenv, { recursive: true, force: false });
+    return;
+  }
+  if (stat.isSymbolicLink() || stat.isFile()) {
+    fs.unlinkSync(paths.hermesVenv);
+    return;
+  }
+  throw new Error('unsupported Hermes venv filesystem entry');
+}
+
 const COMMAND_EVE_ARTIFACT_PYTHON_PTH_FILE = 'command-eve-artifact-python.pth';
 
 async function bindCommandEveArtifactPythonSite(input: {
@@ -10135,8 +10175,48 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     ...(pythonUsesBundledCandidate ? { archive: readBundledPythonProvenance(options.resourcesPath) } : {}),
   };
 
+  const existingVenvAbiMismatch = venvPythonAbiMismatch(paths, python.version);
+
   if (mode === 'check') {
-    pushStage(makeStage('python', 'pass', { detail: `${python.path} (${python.version || 'version checked'})` }));
+    pushStage(
+      makeStage('python', existingVenvAbiMismatch ? 'blocked' : 'pass', {
+        code: existingVenvAbiMismatch ? 'PYTHON_VENV_ABI_MISMATCH' : undefined,
+        detail: existingVenvAbiMismatch
+          ? `The existing Hermes environment uses a different Python ABI than ${python.version || python.path}; rebuild required.`
+          : `${python.path} (${python.version || 'version checked'})`,
+      })
+    );
+    if (existingVenvAbiMismatch) return finishReceipt();
+  } else if (existingVenvAbiMismatch) {
+    try {
+      removeMismatchedRuntimeVenv(paths);
+    } catch (error) {
+      pushStage(
+        makeStage('python', 'failed', {
+          code: 'PYTHON_VENV_REBUILD_FAILED',
+          detail: `Could not replace the incompatible Hermes Python environment: ${error instanceof Error ? error.message : String(error)}`,
+        })
+      );
+      return finishReceipt();
+    }
+    const started = Date.now();
+    const venv = await runner(python.path, ['-m', 'venv', paths.hermesVenv], {
+      env,
+      timeoutMs: DEFAULT_STAGE_TIMEOUT_MS,
+    });
+    pushStage(
+      makeStage('python', venv.ok ? 'pass' : 'failed', {
+        code: venv.ok ? undefined : 'PYTHON_VENV_FAILED',
+        detail: venv.ok
+          ? `Hermes Python environment rebuilt for ${python.version || python.path}.`
+          : scrubOutput(venv.stderr || venv.error),
+        command: 'python3 -m venv <command-eve-runtime>',
+        duration_ms: Date.now() - started,
+      })
+    );
+    if (!venv.ok) {
+      return finishReceipt();
+    }
   } else if (!fs.existsSync(pythonBinary(paths))) {
     const started = Date.now();
     const venv = await runner(python.path, ['-m', 'venv', paths.hermesVenv], {
