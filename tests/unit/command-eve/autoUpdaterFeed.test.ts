@@ -289,29 +289,43 @@ describe('autoUpdaterService.checkForUpdatesAndNotify', () => {
 
   it('serializes an explicit preview check with a concurrent stable background check', async () => {
     let releasePreview!: (value: { isUpdateAvailable: false }) => void;
+    const feedUrlsAtCheckEntry: Array<string | undefined> = [];
     checkForUpdates
-      .mockImplementationOnce(
-        () =>
-          new Promise<{ isUpdateAvailable: false }>((resolve) => {
-            releasePreview = resolve;
-          })
-      )
-      .mockResolvedValueOnce({ isUpdateAvailable: false });
+      .mockImplementationOnce(() => {
+        feedUrlsAtCheckEntry.push(setFeedURL.mock.calls.at(-1)?.[0]?.url);
+        return new Promise<{ isUpdateAvailable: false }>((resolve) => {
+          releasePreview = resolve;
+        });
+      })
+      .mockImplementationOnce(async () => {
+        feedUrlsAtCheckEntry.push(setFeedURL.mock.calls.at(-1)?.[0]?.url);
+        return { isUpdateAvailable: false };
+      });
     autoUpdaterService.initialize();
 
     const previewCheck = autoUpdaterService.checkForUpdates(async () => undefined, true);
-    await vi.waitFor(() => expect(setFeedURL).toHaveBeenCalledTimes(1));
-    const backgroundCheck = autoUpdaterService.checkForUpdatesAndNotify(async () => undefined);
-    await Promise.resolve();
+    await vi.waitFor(() => expect(checkForUpdates).toHaveBeenCalledTimes(1));
+    const readStableFeed = vi.fn(async () => undefined);
+    const backgroundCheck = autoUpdaterService.checkForUpdatesAndNotify(readStableFeed);
 
+    // The background operation must not begin while the preview operation owns
+    // the process-global electron-updater feed. Without the exclusive check
+    // gate, an async method enters readStableFeed synchronously before its first
+    // await and this assertion fails.
+    expect(readStableFeed).not.toHaveBeenCalled();
     expect(setFeedURL).toHaveBeenCalledTimes(1);
+    expect(checkForUpdates).toHaveBeenCalledTimes(1);
     expect(setFeedURL.mock.calls[0]?.[0]?.url).toBe(COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL);
+    expect(feedUrlsAtCheckEntry).toEqual([COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL]);
 
     releasePreview({ isUpdateAvailable: false });
     await Promise.all([previewCheck, backgroundCheck]);
 
+    expect(readStableFeed).toHaveBeenCalledTimes(1);
     expect(setFeedURL).toHaveBeenCalledTimes(2);
+    expect(checkForUpdates).toHaveBeenCalledTimes(2);
     expect(setFeedURL.mock.calls[1]?.[0]?.url).toBe(COMMAND_EVE_UPDATE_FEED_BASE_URL);
+    expect(feedUrlsAtCheckEntry).toEqual([COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL, COMMAND_EVE_UPDATE_FEED_BASE_URL]);
   });
 
   it('does not throw and no-ops when CE shell is OFF and no feed is configured', async () => {
