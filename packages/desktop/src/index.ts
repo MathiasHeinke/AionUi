@@ -344,6 +344,8 @@ let backendStartupFailureInfo: unknown = null;
 let backendMigrationsScheduled = false;
 let runDeferredCommandEveRuntimeBootstrap: (() => void) | undefined;
 let commandEveAutomaticRuntimeRepairRequired = false;
+let ensureCommandEveRuntimeAdmissionForRespawn: (() => Promise<void>) | undefined;
+let commandEvePackagedRuntimeExistedAtBoot = false;
 
 ipcMain.on('get-backend-port', (event) => {
   if (!isTrustedAdapterIpcSender(event)) {
@@ -2069,8 +2071,9 @@ const handleAppReady = async (): Promise<void> => {
     const {
       commandEveRuntimeBootstrapStartupWaitReason,
       commandEveRuntimeManagedAncestryIsSafe,
-      commandEveRuntimeVenvIsBackendAdmissible,
       ensureCommandEveRuntimeBootstrap,
+      ensureCommandEveRuntimeBackendAdmission,
+      inspectCommandEveRuntimeBackendAdmission,
       prepareCommandEveRuntimeProcessEnv,
       provisionSeatRuntimeFiles,
       resolveCommandEveRuntimeBootstrapPaths,
@@ -2083,6 +2086,7 @@ const handleAppReady = async (): Promise<void> => {
       process.platform,
       canonicalRuntimeUserDataPath
     );
+    commandEvePackagedRuntimeExistedAtBoot = requirePackagedHermesRuntime && fs.existsSync(runtimePaths.hermesVenv);
     let automaticRuntimeRepairReason: ReturnType<typeof commandEveRuntimeBootstrapStartupWaitReason> = null;
     if (app.isPackaged) {
       try {
@@ -2221,6 +2225,11 @@ const handleAppReady = async (): Promise<void> => {
       uiLanguage: ProcessConfig.getSync('language'),
       ...workerRuntimeInputs,
     } satisfies Parameters<typeof ensureCommandEveRuntimeBootstrap>[0];
+    ensureCommandEveRuntimeAdmissionForRespawn = requirePackagedHermesRuntime
+      ? async () => {
+          await ensureCommandEveRuntimeBackendAdmission(bootstrapOptions, process.env);
+        }
+      : undefined;
     const deferRemainingRuntimeBootstrap = (hermesReadyBeforeBootstrap: boolean): void => {
       runDeferredCommandEveRuntimeBootstrap = () => {
         setTimeout(() => {
@@ -2268,25 +2277,18 @@ const handleAppReady = async (): Promise<void> => {
         ...bootstrapOptions,
         stopAfterHermesRuntimeReady: commandEveAutomaticRuntimeRepairRequired,
       });
-      if (
-        commandEveAutomaticRuntimeRepairRequired &&
-        (commandEveRuntimeBootstrapStartupWaitReason({
-          userDataPath: runtimeUserDataPath,
-          canonicalUserDataPath: canonicalRuntimeUserDataPath,
-          resourcesPath: process.resourcesPath,
-          env: bootstrapOptions.env,
-          requireBundledPython: requirePackagedHermesRuntime,
-        }) !== null ||
-          !commandEveRuntimeVenvIsBackendAdmissible({
+      const repairedAdmission = commandEveAutomaticRuntimeRepairRequired
+        ? inspectCommandEveRuntimeBackendAdmission({
             userDataPath: runtimeUserDataPath,
             canonicalUserDataPath: canonicalRuntimeUserDataPath,
             resourcesPath: process.resourcesPath,
             env: bootstrapOptions.env,
             requireBundledPython: requirePackagedHermesRuntime,
-          }))
-      ) {
+          })
+        : undefined;
+      if (repairedAdmission?.ok === false) {
         throw new Error(
-          `Command EVE automatic Python runtime repair did not reach a backend-admissible state (${automaticRuntimeRepairReason}).`
+          `Command EVE automatic Python runtime repair did not reach a backend-admissible state (${repairedAdmission.reason}).`
         );
       }
       mark(`commandEveRuntimeBootstrap (${receipt.status})`);
@@ -2321,6 +2323,15 @@ const handleAppReady = async (): Promise<void> => {
       throw new Error(
         `Command EVE loopback shim failed to start; refusing to start Hermes backend because it would otherwise talk to a stale or foreign shim. ${detail}`
       );
+    }
+    // Synchronous seat provisioning runs after the early warm-start probe and
+    // intentionally cannot carry a signed Resources proof. Re-prove and repair
+    // an EXISTING packaged runtime at the actual backend-admission boundary so
+    // a marker-retaining or mode-only launcher mutation cannot reach AionCore.
+    // A genuinely cold install still has no venv and keeps the existing
+    // interactive/deferred bootstrap behaviour.
+    if (ensureCommandEveRuntimeAdmissionForRespawn && commandEvePackagedRuntimeExistedAtBoot) {
+      await ensureCommandEveRuntimeAdmissionForRespawn();
     }
     // ISO-4 CRITICAL: the FIRST positional arg is the backend --data-dir (the
     // live conversation+message SQLite). It MUST be seat-scoped to the ACTIVE
@@ -2415,15 +2426,24 @@ const handleAppReady = async (): Promise<void> => {
       // SIGTERMs (then SIGKILLs after 5s) the whole process tree and cleans up
       // registered agent processes before we re-spawn.
       await backendManager.stop();
-      // Re-bake the shim + re-home process.env.HERMES_HOME for the ACTIVE seat
-      // (seatContextCore.getActiveSeatId — already set by applySeatSwitch step a).
-      prepareCommandEveRuntimeProcessEnv(
-        getDataPathForRestart(),
-        process.env,
-        process.platform,
-        process.resourcesPath,
-        { requireBundledPython: app.isPackaged && process.platform === 'darwin' }
-      );
+      // Packaged macOS repeats the SAME full repair + exact admission boundary
+      // as boot before every authoritative seat respawn. This catches stale
+      // execute bits and byte-tampered launchers even when their marker survives,
+      // and rewrites a wrapper/shim that synchronous unreachable-seat
+      // provisioning left baked for the prior HERMES_HOME. Any failed repair
+      // throws here, before backendManager.start can admit work.
+      if (ensureCommandEveRuntimeAdmissionForRespawn) {
+        await ensureCommandEveRuntimeAdmissionForRespawn();
+      } else {
+        // Dev/Windows preserve the existing lightweight env bake.
+        prepareCommandEveRuntimeProcessEnv(
+          getDataPathForRestart(),
+          process.env,
+          process.platform,
+          process.resourcesPath,
+          { requireBundledPython: false }
+        );
+      }
       const runtimePathsForRestart = resolveCommandEveRuntimeBootstrapPaths(getDataPathForRestart());
       const sysDirForRestart = getSystemDirForRestart();
       // Same pre-flight assistant-storage repair as boot, for the now-active seat's

@@ -46,6 +46,8 @@ import {
   commandEveRuntimeBootstrapStartupWaitReason,
   commandEveRuntimeManagedAncestryIsSafe,
   commandEveRuntimeVenvIsBackendAdmissible,
+  ensureCommandEveRuntimeBackendAdmission,
+  inspectCommandEveRuntimeBackendAdmission,
   yamlDoubleQuote,
   stripYamlUnprintables,
   eveBrainWriteDirective,
@@ -63,6 +65,7 @@ import {
   COMMAND_EVE_MARKETING_VERSION,
   COMMAND_EVE_VERSION,
 } from '@/common/config/commandEveShell';
+import { __resetActiveSeatForTests, setActiveSeatId } from '@/process/commandEve/seatContextCore';
 import {
   CLAUDE_SEAT_BILLING_LANE,
   CLAUDE_SEAT_FALLBACK_POLICY,
@@ -83,6 +86,7 @@ import {
   COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256,
   COMMAND_EVE_HERMES_RUNTIME_PACKAGE_COUNT,
   COMMAND_EVE_HERMES_RUNTIME_STAGED_PACKAGE_COUNT,
+  resolveCommandEvePackagedArtifactPythonSite,
   verifyCommandEveArtifactPythonSite,
 } from '@/process/commandEve/presentationPythonRuntimeCore';
 import {
@@ -297,6 +301,7 @@ const makePackagedOfflineRunner = (input: {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  __resetActiveSeatForTests();
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -3011,7 +3016,7 @@ describe('Command EVE runtime bootstrap core', () => {
     for (const file of mutableFiles) {
       const original = fs.readFileSync(file);
       fs.writeFileSync(file, Buffer.concat([original, Buffer.from('# stale\n')]));
-      expect(commandEveRuntimeBootstrapStartupWaitReason(admissionOptions), file).toBe('python_abi_unproven');
+      expect(commandEveRuntimeBootstrapStartupWaitReason(admissionOptions), file).toBe('runtime_artifact_invalid');
       expect(commandEveRuntimeVenvIsBackendAdmissible(admissionOptions), file).toBe(false);
       fs.writeFileSync(file, original);
       expect(commandEveRuntimeBootstrapStartupWaitReason(admissionOptions), file).toBeNull();
@@ -3020,15 +3025,166 @@ describe('Command EVE runtime bootstrap core', () => {
     const pathBinding = mutableFiles[0];
     const pathBindingBytes = fs.readFileSync(pathBinding);
     fs.unlinkSync(pathBinding);
-    expect(commandEveRuntimeBootstrapStartupWaitReason(admissionOptions)).toBe('python_abi_unproven');
+    expect(commandEveRuntimeBootstrapStartupWaitReason(admissionOptions)).toBe('runtime_artifact_invalid');
     expect(commandEveRuntimeVenvIsBackendAdmissible(admissionOptions)).toBe(false);
     fs.writeFileSync(pathBinding, pathBindingBytes, { mode: 0o600 });
 
-    fs.appendFileSync(paths.hermesWrapper, '# tampered wrapper\n');
-    expect(commandEveRuntimeBootstrapStartupWaitReason(admissionOptions)).toBe('python_abi_unproven');
-    expect((await ensureCommandEveRuntimeBootstrap(options)).status).toBe('ready');
+    const markedLauncher = path.join(paths.hermesVenv, 'bin', 'hermes');
+    const exactLauncher = fs.readFileSync(markedLauncher, 'utf8');
+    fs.appendFileSync(markedLauncher, '# marker-retaining tamper\n');
+    expect(fs.readFileSync(markedLauncher, 'utf8')).toContain('# command-eve-packaged-hermes-launcher/v1');
+    expect(inspectCommandEveRuntimeBackendAdmission(admissionOptions)).toMatchObject({
+      ok: false,
+      reason: 'runtime_artifact_invalid',
+    });
+    await ensureCommandEveRuntimeBackendAdmission(options, {});
+    expect(fs.readFileSync(markedLauncher, 'utf8')).toBe(exactLauncher);
     expect(commandEveRuntimeBootstrapStartupWaitReason(admissionOptions)).toBeNull();
     expect(commandEveRuntimeVenvIsBackendAdmissible(admissionOptions)).toBe(true);
+  });
+
+  itM(
+    'rejects byte-exact non-executable runtime files and restores every exact mode before backend admission',
+    async () => {
+      const root = makeRoot();
+      const resourcesPath = writeBundledPythonRuntime(root);
+      writeSignedHermesArtifactSite(resourcesPath);
+      copyPackagedHermesWheel(resourcesPath);
+      const bundledPython = path.join(resourcesPath, 'python', 'bin', 'python3.12');
+      const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+      const harness = makePackagedOfflineRunner({ bundledPython, paths });
+      const options = {
+        userDataPath: root,
+        canonicalUserDataPath: root,
+        resourcesPath,
+        requireBundledPython: true,
+        stopAfterHermesRuntimeReady: true,
+        runner: harness.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+      } satisfies RuntimeBootstrapOptions;
+      expect((await ensureCommandEveRuntimeBootstrap(options)).status).toBe('ready');
+
+      const expectedModes = new Map<string, number>([
+        [path.join(paths.hermesVenv, 'lib', 'python3.12', 'site-packages', 'command-eve-artifact-python.pth'), 0o600],
+        ...['hermes', 'hermes-acp', 'hermes-agent'].map(
+          (name) => [path.join(paths.hermesVenv, 'bin', name), 0o700] as [string, number]
+        ),
+        [paths.hermesShim, 0o700],
+        [paths.hermesWrapper, 0o700],
+      ]);
+      const exactBytes = new Map([...expectedModes.keys()].map((file) => [file, fs.readFileSync(file)]));
+      for (const [file, mode] of expectedModes) {
+        fs.chmodSync(file, mode === 0o600 ? 0o400 : 0o600);
+        expect(fs.readFileSync(file).equals(exactBytes.get(file)!)).toBe(true);
+      }
+
+      expect(inspectCommandEveRuntimeBackendAdmission(options)).toMatchObject({
+        ok: false,
+        reason: 'runtime_artifact_invalid',
+      });
+      const env: NodeJS.ProcessEnv = {};
+      const repaired = await ensureCommandEveRuntimeBackendAdmission(options, env);
+
+      expect(repaired.admission.ok).toBe(true);
+      for (const [file, mode] of expectedModes) {
+        expect(fs.lstatSync(file).mode & 0o7777, file).toBe(mode);
+        expect(fs.readFileSync(file).equals(exactBytes.get(file)!), file).toBe(true);
+      }
+      expect(env.HERMES_HOME).toBe(paths.hermesHome);
+      expect(inspectCommandEveRuntimeBackendAdmission(options)).toMatchObject({ ok: true });
+    }
+  );
+
+  itM('rewrites a prior-seat wrapper before an unreachable seat can start the backend', async () => {
+    const root = makeRoot();
+    const resourcesPath = writeBundledPythonRuntime(root);
+    writeSignedHermesArtifactSite(resourcesPath);
+    copyPackagedHermesWheel(resourcesPath);
+    const seatA = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    const seatB = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+    setActiveSeatId(seatA);
+    const pathsA = resolveCommandEveRuntimeBootstrapPaths(root);
+    const bundledPython = path.join(resourcesPath, 'python', 'bin', 'python3.12');
+    const harness = makePackagedOfflineRunner({ bundledPython, paths: pathsA });
+    const options = {
+      userDataPath: root,
+      canonicalUserDataPath: root,
+      resourcesPath,
+      requireBundledPython: true,
+      stopAfterHermesRuntimeReady: true,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+    } satisfies RuntimeBootstrapOptions;
+    expect((await ensureCommandEveRuntimeBootstrap(options)).status).toBe('ready');
+    expect(fs.readFileSync(pathsA.hermesWrapper, 'utf8')).toBe(renderCommandEveHermesWrapper(pathsA, true));
+
+    // Mirrors the unreachable-settings switch: the pointer changes, but the
+    // best-effort per-seat provisioner is skipped and leaves the shared wrapper
+    // baked with seat A. The authoritative pre-spawn admission owns the repair.
+    setActiveSeatId(seatB);
+    const pathsB = resolveCommandEveRuntimeBootstrapPaths(root);
+    fs.mkdirSync(pathsB.hermesHome, { recursive: true });
+    fs.writeFileSync(path.join(pathsB.hermesHome, 'config.yaml'), 'target-seat-last-known-good\n');
+    fs.writeFileSync(path.join(pathsB.hermesHome, 'SOUL.md'), '# Target seat exact bytes\n');
+    expect(pathsB.hermesWrapper).toBe(pathsA.hermesWrapper);
+    expect(inspectCommandEveRuntimeBackendAdmission(options)).toMatchObject({
+      ok: false,
+      reason: 'runtime_artifact_invalid',
+    });
+
+    const env: NodeJS.ProcessEnv = {};
+    await ensureCommandEveRuntimeBackendAdmission(options, env);
+
+    expect(fs.readFileSync(pathsB.hermesWrapper, 'utf8')).toBe(renderCommandEveHermesWrapper(pathsB, true));
+    expect(env.HERMES_HOME).toBe(pathsB.hermesHome);
+    expect(fs.readFileSync(path.join(pathsB.hermesHome, 'config.yaml'), 'utf8')).toBe('target-seat-last-known-good\n');
+    expect(fs.readFileSync(path.join(pathsB.hermesHome, 'SOUL.md'), 'utf8')).toBe('# Target seat exact bytes\n');
+    expect(inspectCommandEveRuntimeBackendAdmission(options)).toMatchObject({ ok: true });
+  });
+
+  itM('walks the signed Resources tree once for one complete backend admission boundary', async () => {
+    const root = makeRoot();
+    const resourcesPath = writeBundledPythonRuntime(root);
+    const artifactSite = writeSignedHermesArtifactSite(resourcesPath);
+    copyPackagedHermesWheel(resourcesPath);
+    const bundledPython = path.join(resourcesPath, 'python', 'bin', 'python3.12');
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    const harness = makePackagedOfflineRunner({ bundledPython, paths });
+    const options = {
+      userDataPath: root,
+      canonicalUserDataPath: root,
+      resourcesPath,
+      requireBundledPython: true,
+      stopAfterHermesRuntimeReady: true,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+    } satisfies RuntimeBootstrapOptions;
+    expect((await ensureCommandEveRuntimeBootstrap(options)).status).toBe('ready');
+
+    const artifactReceipt = path.join(artifactSite, COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT);
+    const realReadFileSync = fs.readFileSync.bind(fs);
+    let artifactReceiptReads = 0;
+    vi.spyOn(fs, 'readFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, ...args: unknown[]) => {
+      if (typeof file !== 'number' && path.resolve(String(file)) === artifactReceipt) artifactReceiptReads += 1;
+      return realReadFileSync(
+        file,
+        ...(args as Parameters<typeof fs.readFileSync> extends [unknown, ...infer R] ? R : never)
+      );
+    }) as typeof fs.readFileSync);
+
+    expect(resolveCommandEvePackagedArtifactPythonSite(resourcesPath)).toMatchObject({ ok: true });
+    const readsPerSingleVerification = artifactReceiptReads;
+    expect(readsPerSingleVerification).toBeGreaterThan(0);
+
+    artifactReceiptReads = 0;
+    expect(inspectCommandEveRuntimeBackendAdmission(options)).toMatchObject({ ok: true });
+    expect(artifactReceiptReads).toBe(readsPerSingleVerification);
   });
 
   itM('leaves an incompatible venv untouched when the exact packaged dependency site is missing', async () => {

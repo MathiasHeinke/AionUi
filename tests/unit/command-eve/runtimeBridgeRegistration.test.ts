@@ -87,7 +87,7 @@ describe('Command EVE runtime bridge registration', () => {
       'stopAfterHermesRuntimeReady: commandEveAutomaticRuntimeRepairRequired'
     );
     expect(source.slice(waitDecision, backendStart)).toContain('deferRemainingRuntimeBootstrap(true)');
-    expect(source.slice(automaticWait, backendStart)).toContain('commandEveRuntimeVenvIsBackendAdmissible');
+    expect(source.slice(automaticWait, backendStart)).toContain('inspectCommandEveRuntimeBackendAdmission');
     expect(source.slice(automaticWait, backendStart)).toContain('throw new Error(');
     expect(source.slice(automaticWait, waitDecision)).toContain(
       "automaticRuntimeRepairReason = 'python_venv_recovery'"
@@ -95,6 +95,30 @@ describe('Command EVE runtime bridge registration', () => {
     expect(source.slice(backendStart - 500, backendStart)).toContain(
       '!commandEveOllamaShimUrl || commandEveAutomaticRuntimeRepairRequired'
     );
+  });
+
+  it('repairs and re-proves the active seat runtime before every packaged macOS respawn', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const assignment = source.indexOf('ensureCommandEveRuntimeAdmissionForRespawn = requirePackagedHermesRuntime');
+    const initialAdmission = source.indexOf('await ensureCommandEveRuntimeAdmissionForRespawn();', assignment);
+    const initialStart = source.indexOf('const backendPort = await backendManager.start(', initialAdmission);
+    const hook = source.indexOf('setCommandEveBackendRestart(async () => {');
+    const stop = source.indexOf('await backendManager.stop();', hook);
+    const admission = source.indexOf('await ensureCommandEveRuntimeAdmissionForRespawn();', stop);
+    const start = source.indexOf('respawnPort = await backendManager.start(', admission);
+
+    expect(assignment).toBeGreaterThan(-1);
+    expect(source.slice(assignment, hook)).toContain(
+      'ensureCommandEveRuntimeBackendAdmission(bootstrapOptions, process.env)'
+    );
+    expect(initialAdmission).toBeGreaterThan(assignment);
+    expect(initialStart).toBeGreaterThan(initialAdmission);
+    expect(source.slice(assignment, initialAdmission)).toContain('commandEvePackagedRuntimeExistedAtBoot');
+    expect(hook).toBeGreaterThan(assignment);
+    expect(stop).toBeGreaterThan(hook);
+    expect(admission).toBeGreaterThan(stop);
+    expect(start).toBeGreaterThan(admission);
+    expect(source.slice(admission, start)).toContain('Dev/Windows preserve the existing lightweight env bake.');
   });
 
   it('never falls back to loading a local model before backend settings are readable', () => {

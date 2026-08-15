@@ -33,6 +33,9 @@ vi.mock('@office-ai/platform', () => ({
     }),
   },
 }));
+vi.mock('electron', () => ({
+  app: { isPackaged: false },
+}));
 
 // Neutralize the heavy leaf deps the bridge pulls at import.
 vi.mock('@process/utils/initStorage', () => ({
@@ -55,7 +58,10 @@ const { DATA_PATH } = vi.hoisted(() => {
   const nodePath = require('node:path') as typeof import('node:path');
   return { DATA_PATH: nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'ce-rail-data-')) };
 });
-vi.mock('@process/utils/utils', () => ({ getDataPath: () => DATA_PATH }));
+vi.mock('@process/utils/utils', () => ({
+  getDataPath: () => DATA_PATH,
+  getCanonicalDataPath: () => DATA_PATH,
+}));
 
 // Control ONLY the network wire read; the parse + access classification stay REAL.
 let wirePayload: unknown = null;
@@ -70,6 +76,12 @@ vi.mock('@process/commandEve/seatWireFetchCore', () => ({
 const { restartBackendMock } = vi.hoisted(() => ({ restartBackendMock: vi.fn(async () => {}) }));
 vi.mock('@process/commandEve/seatSwitchRuntime', () => ({
   restartCommandEveBackendForSeat: (...args: unknown[]) => restartBackendMock(...args),
+}));
+const { backendSettingsReadMock } = vi.hoisted(() => ({
+  backendSettingsReadMock: vi.fn<() => Promise<Record<string, unknown>>>(),
+}));
+vi.mock('@process/commandEve/commandEveBackendSettingsRead', () => ({
+  readCommandEveSettingsFromBackend: () => backendSettingsReadMock(),
 }));
 
 import fs from 'fs';
@@ -130,6 +142,8 @@ beforeEach(() => {
   wirePayload = null;
   restartBackendMock.mockReset();
   restartBackendMock.mockImplementation(async () => {});
+  backendSettingsReadMock.mockReset();
+  backendSettingsReadMock.mockRejectedValue(new Error('backend unavailable during stop/switch'));
   __resetActiveSeatForTests();
   setActiveSeatId(SEAT_A);
   // Seed valid runtime files for every seat the (b) mirror switches to, so the H4
@@ -261,12 +275,25 @@ describe('mirror (b) — REAL switch-seat handler: admin gate + Founder chip + l
     expect(res.data?.reason_code).toBe('SWITCH_SEAT_FORBIDDEN');
   });
 
-  it('an admin → a listed CLIENT seat is authorized and lands on the target (label threaded from the wire seat record)', async () => {
+  it('an admin reaches the target and invokes the restart contract even when backend settings are unreachable', async () => {
     wirePayload = adminWire();
     const res = await switchSeat(SEAT_B);
     expect(res.success).toBe(true);
     expect(res.data?.ok).toBe(true);
     expect(res.data?.active_seat_id).toBe(SEAT_B);
+    expect(restartBackendMock).toHaveBeenCalledOnce();
+  });
+
+  it('an admin reaches the target and invokes the same restart contract when backend settings are reachable', async () => {
+    wirePayload = adminWire();
+    backendSettingsReadMock.mockResolvedValue({});
+
+    const res = await switchSeat(SEAT_B);
+
+    expect(res.success).toBe(true);
+    expect(res.data?.ok).toBe(true);
+    expect(res.data?.active_seat_id).toBe(SEAT_B);
+    expect(restartBackendMock).toHaveBeenCalledOnce();
   });
 
   it('an admin → the Founder HOME (legacy chip) is authorized (return-home path)', async () => {

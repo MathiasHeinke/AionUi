@@ -87,6 +87,7 @@ import {
   type BundledPythonProvenance,
 } from './windows/runtimeProvenanceCore';
 import {
+  COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR,
   type CommandEveArtifactPythonSiteVerification,
   commandEvePresentationPythonInstallArgs,
   commandEvePresentationPythonProbeArgs,
@@ -1981,6 +1982,8 @@ type CommandEveBrowserUseRunnerDeps = {
 type CommandEveRuntimeProcessEnvDeps = CommandEveBrowserUseRunnerDeps & {
   /** Production main-process proof; never inferred from ambient paths. */
   requireBundledPython?: boolean;
+  /** Already-verified signed Resources tree from the immediately preceding admission boundary. */
+  verifiedPackagedArtifactSite?: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }>;
 };
 
 const MACH_O_ARCH_BY_NODE_ARCH: Partial<Record<NodeJS.Architecture, string>> = {
@@ -2951,6 +2954,23 @@ function prependEnvPathSegment(env: NodeJS.ProcessEnv, key: 'PYTHONPATH', segmen
   env[key] = [segment, ...parts].join(path.delimiter);
 }
 
+function verifiedPackagedArtifactSiteForResourcesPath(
+  candidate: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }> | undefined,
+  resourcesPath: string | undefined
+): Extract<CommandEveArtifactPythonSiteVerification, { ok: true }> | undefined {
+  if (!candidate || !resourcesPath) return undefined;
+  try {
+    const expected = path.join(
+      fs.realpathSync(path.resolve(resourcesPath)),
+      'python',
+      COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR
+    );
+    return fs.realpathSync(candidate.directory) === expected ? candidate : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function prepareCommandEveRuntimeProcessEnv(
   userDataPath: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -2968,7 +2988,14 @@ export function prepareCommandEveRuntimeProcessEnv(
       // The runner capability below validates its own private root and fails closed.
     }
   }
-  writeHermesCliShim(paths);
+  const verifiedPackagedArtifactSite = verifiedPackagedArtifactSiteForResourcesPath(
+    browserUseRunnerDeps.verifiedPackagedArtifactSite,
+    resourcesPath
+  );
+  const artifactSite = browserUseRunnerDeps.requireBundledPython
+    ? (verifiedPackagedArtifactSite ?? resolveCommandEvePackagedArtifactPythonSite(resourcesPath))
+    : resolveCommandEveArtifactPythonSite(env, resourcesPath);
+  writeHermesCliShim(paths, artifactSite.ok ? artifactSite : undefined);
   prependPathSegment(env, platform === 'win32' ? path.join(paths.hermesVenv, 'Scripts') : paths.hermesRoot);
   // GATE-NULL seat-isolation crux: pin the ACTIVE seat's home onto the env the
   // backend (and therefore the hermes ACP agent + ALL its children) inherits.
@@ -3029,9 +3056,6 @@ export function prepareCommandEveRuntimeProcessEnv(
   // interpreter (the .pth binding stays as the env-independent backstop).
   // The resolver returns the already-verified receipt + tree object, so an
   // unverified site is never injected and the same tree is not walked twice.
-  const artifactSite = browserUseRunnerDeps.requireBundledPython
-    ? resolveCommandEvePackagedArtifactPythonSite(resourcesPath)
-    : resolveCommandEveArtifactPythonSite(env, resourcesPath);
   if (browserUseRunnerDeps.requireBundledPython) {
     // A packaged macOS child process may inherit developer shell values. Keep
     // the signed Resources tree as the complete Python import contract rather
@@ -4585,7 +4609,8 @@ function recoverInterruptedRuntimeVenvReplacement(paths: RuntimeBootstrapPaths):
 export type CommandEveRuntimeBootstrapStartupWaitReason =
   | 'python_abi_mismatch'
   | 'python_abi_unproven'
-  | 'python_venv_recovery';
+  | 'python_venv_recovery'
+  | 'runtime_artifact_invalid';
 
 function synchronouslyProbeSelectedPython(candidate: string): string {
   if (!candidate || !fs.existsSync(candidate)) return '';
@@ -4603,10 +4628,15 @@ function synchronouslyProbeSelectedPython(candidate: string): string {
   }
 }
 
-function exactRegularFileBytes(filePath: string, expected: string): boolean {
+function exactRegularFileBytes(filePath: string, expected: string, expectedMode?: number): boolean {
   try {
     const stat = fs.lstatSync(filePath);
-    return stat.isFile() && !stat.isSymbolicLink() && fs.readFileSync(filePath, 'utf8') === expected;
+    return (
+      stat.isFile() &&
+      !stat.isSymbolicLink() &&
+      (expectedMode === undefined || (stat.mode & 0o7777) === expectedMode) &&
+      fs.readFileSync(filePath, 'utf8') === expected
+    );
   } catch {
     return false;
   }
@@ -4647,7 +4677,7 @@ function packagedRuntimeMutableArtifactsAreAdmissible(
   const pathFile = packagedArtifactPathFile(paths, selectedVersion);
   if (
     !pathFile ||
-    !exactRegularFileBytes(pathFile, renderCommandEveArtifactPythonPathBinding(artifactSite.directory))
+    !exactRegularFileBytes(pathFile, renderCommandEveArtifactPythonPathBinding(artifactSite.directory), 0o600)
   ) {
     return false;
   }
@@ -4660,11 +4690,11 @@ function packagedRuntimeMutableArtifactsAreAdmissible(
       moduleName,
       functionName,
     });
-    if (!exactRegularFileBytes(path.join(binDirectory, name), expected)) return false;
+    if (!exactRegularFileBytes(path.join(binDirectory, name), expected, 0o700)) return false;
   }
   return (
-    exactRegularFileBytes(paths.hermesShim, renderCommandEveHermesCliShim(paths, true)) &&
-    exactRegularFileBytes(paths.hermesWrapper, renderCommandEveHermesWrapper(paths, true))
+    exactRegularFileBytes(paths.hermesShim, renderCommandEveHermesCliShim(paths, true), 0o700) &&
+    exactRegularFileBytes(paths.hermesWrapper, renderCommandEveHermesWrapper(paths, true), 0o700)
   );
 }
 
@@ -4694,8 +4724,7 @@ function runtimeReceiptProvesSelectedPython(
       hermes.signed_site.tree_root_sha256 === artifactSite.treeRootSha256 &&
       hermes.signed_site.lock_sha256 === artifactSite.lockSha256 &&
       hermes.signed_site.package_count === artifactSite.packages.length &&
-      hermes.signed_site.origins_verified === true &&
-      packagedRuntimeMutableArtifactsAreAdmissible(paths, selectedVersion, artifactSite)
+      hermes.signed_site.origins_verified === true
     );
   } catch {
     return false;
@@ -4718,6 +4747,7 @@ export function commandEveRuntimeBootstrapStartupWaitReason(options: {
   platform?: NodeJS.Platform;
   seatId?: string | null;
   requireBundledPython?: boolean;
+  verifiedPackagedArtifactSite?: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }>;
 }): CommandEveRuntimeBootstrapStartupWaitReason | null {
   const platform = options.platform ?? process.platform;
   const paths = resolveCommandEveRuntimeBootstrapPaths(
@@ -4733,7 +4763,9 @@ export function commandEveRuntimeBootstrapStartupWaitReason(options: {
   const bundledVersion = requireBundledPython ? synchronouslyProbeSelectedPython(bundledPython) : '';
   let packagedArtifactSite: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }> | undefined;
   if (requireBundledPython) {
-    const verification = resolveCommandEvePackagedArtifactPythonSite(options.resourcesPath);
+    const verification =
+      verifiedPackagedArtifactSiteForResourcesPath(options.verifiedPackagedArtifactSite, options.resourcesPath) ??
+      resolveCommandEvePackagedArtifactPythonSite(options.resourcesPath);
     if (!bundledVersion || !verification.ok) return 'python_abi_unproven';
     packagedArtifactSite = verification;
   }
@@ -4767,11 +4799,18 @@ export function commandEveRuntimeBootstrapStartupWaitReason(options: {
   const compatibility = existingHermesVenvCompatibility(paths, `Python ${provenance.python_version}`, bundledPython);
   if (compatibility === 'mismatch') return 'python_abi_mismatch';
   if (compatibility !== 'compatible') return 'python_abi_unproven';
-  return requireBundledPython &&
-    (!packagedArtifactSite ||
-      !runtimeReceiptProvesSelectedPython(paths, bundledPython, selectedVersion, packagedArtifactSite))
-    ? 'python_abi_unproven'
-    : null;
+  if (requireBundledPython) {
+    if (
+      !packagedArtifactSite ||
+      !runtimeReceiptProvesSelectedPython(paths, bundledPython, selectedVersion, packagedArtifactSite)
+    ) {
+      return 'python_abi_unproven';
+    }
+    if (!packagedRuntimeMutableArtifactsAreAdmissible(paths, selectedVersion, packagedArtifactSite)) {
+      return 'runtime_artifact_invalid';
+    }
+  }
+  return null;
 }
 
 function runtimeVenvEntriesAreBackendAdmissible(paths: RuntimeBootstrapPaths, expectedPythonPath = ''): boolean {
@@ -4818,6 +4857,7 @@ export function commandEveRuntimeVenvIsBackendAdmissible(options: {
   platform?: NodeJS.Platform;
   seatId?: string | null;
   requireBundledPython?: boolean;
+  verifiedPackagedArtifactSite?: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }>;
 }): boolean {
   const platform = options.platform ?? process.platform;
   const paths = resolveCommandEveRuntimeBootstrapPaths(
@@ -4832,11 +4872,14 @@ export function commandEveRuntimeVenvIsBackendAdmissible(options: {
   const bundledPython = resolveBundledPythonCandidate(requireBundledPython ? {} : env, options.resourcesPath, platform);
   const bundledVersion = requireBundledPython ? synchronouslyProbeSelectedPython(bundledPython) : '';
   if (requireBundledPython) {
-    const artifactSite = resolveCommandEvePackagedArtifactPythonSite(options.resourcesPath);
+    const artifactSite =
+      verifiedPackagedArtifactSiteForResourcesPath(options.verifiedPackagedArtifactSite, options.resourcesPath) ??
+      resolveCommandEvePackagedArtifactPythonSite(options.resourcesPath);
     if (
       !bundledVersion ||
       !artifactSite.ok ||
-      !runtimeReceiptProvesSelectedPython(paths, bundledPython, bundledVersion, artifactSite)
+      !runtimeReceiptProvesSelectedPython(paths, bundledPython, bundledVersion, artifactSite) ||
+      !packagedRuntimeMutableArtifactsAreAdmissible(paths, bundledVersion, artifactSite)
     ) {
       return false;
     }
@@ -4848,6 +4891,133 @@ export function commandEveRuntimeVenvIsBackendAdmissible(options: {
   } catch {
     return false;
   }
+}
+
+export type CommandEveRuntimeBackendAdmissionResult =
+  | {
+      ok: true;
+      artifactSite?: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }>;
+    }
+  | {
+      ok: false;
+      reason: CommandEveRuntimeBootstrapStartupWaitReason;
+      artifactSite?: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }>;
+    };
+
+/**
+ * Inspect one backend-start boundary with one signed Resources tree walk.
+ *
+ * The returned verified object may be carried only into the immediately
+ * following environment bake. A later start boundary calls this function
+ * again so mutation detection is never cached across time.
+ */
+export function inspectCommandEveRuntimeBackendAdmission(options: {
+  userDataPath: string;
+  canonicalUserDataPath?: string;
+  resourcesPath?: string;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  seatId?: string | null;
+  requireBundledPython?: boolean;
+}): CommandEveRuntimeBackendAdmissionResult {
+  const artifactSite = options.requireBundledPython
+    ? resolveCommandEvePackagedArtifactPythonSite(options.resourcesPath)
+    : undefined;
+  if (artifactSite && !artifactSite.ok) return { ok: false, reason: 'python_abi_unproven' };
+  const sharedOptions = {
+    ...options,
+    ...(artifactSite?.ok ? { verifiedPackagedArtifactSite: artifactSite } : {}),
+  };
+  const reason = commandEveRuntimeBootstrapStartupWaitReason(sharedOptions);
+  if (reason) return { ok: false, reason, ...(artifactSite?.ok ? { artifactSite } : {}) };
+  if (!commandEveRuntimeVenvIsBackendAdmissible(sharedOptions)) {
+    return { ok: false, reason: 'python_abi_unproven' };
+  }
+  return { ok: true, ...(artifactSite?.ok ? { artifactSite } : {}) };
+}
+
+async function repairCommandEvePackagedRuntimeMutableArtifacts(
+  options: RuntimeBootstrapOptions,
+  artifactSite: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }>
+): Promise<void> {
+  const platform = options.platform ?? process.platform;
+  const paths = resolveCommandEveRuntimeBootstrapPaths(
+    options.userDataPath,
+    getActiveSeatId(),
+    platform,
+    options.canonicalUserDataPath ?? options.userDataPath
+  );
+  const binding = await bindCommandEveArtifactPythonSite({
+    paths,
+    artifactSite: artifactSite.directory,
+    runner: options.runner ?? defaultRunner,
+    env: { ...process.env, ...options.env },
+  });
+  if (binding.ok === false) throw new Error(`COMMAND_EVE_RUNTIME_PATH_BIND_FAILED: ${binding.reason}`);
+  writePackagedHermesConsoleLaunchers(paths, artifactSite);
+  writeHermesCommandWrapper(paths, artifactSite);
+  writeHermesCliShim(paths, artifactSite);
+}
+
+/** Repair, re-prove and bake the active seat immediately before AionCore starts. */
+export async function ensureCommandEveRuntimeBackendAdmission(
+  options: RuntimeBootstrapOptions,
+  processEnv: NodeJS.ProcessEnv = process.env
+): Promise<{
+  admission: Extract<CommandEveRuntimeBackendAdmissionResult, { ok: true }>;
+  receipt?: RuntimeBootstrapReceipt;
+  paths: RuntimeBootstrapPaths;
+}> {
+  let admission = inspectCommandEveRuntimeBackendAdmission(options);
+  let receipt: RuntimeBootstrapReceipt | undefined;
+  if (
+    admission.ok === false &&
+    admission.reason === 'runtime_artifact_invalid' &&
+    admission.artifactSite &&
+    options.requireBundledPython === true
+  ) {
+    // A normal seat transition changes the wrapper's baked fallback even though
+    // the shared venv and signed receipt remain valid. Repair only the admitted
+    // mutable surface here; a full bootstrap would rewrite target-seat config
+    // with boot-seat settings after the old backend has already stopped.
+    const platform = options.platform ?? process.platform;
+    const runtimeRoot = resolveCommandEveRuntimeBootstrapPaths(
+      options.userDataPath,
+      getActiveSeatId(),
+      platform,
+      options.canonicalUserDataPath ?? options.userDataPath
+    ).runtimeRoot;
+    await withRuntimeBootstrapExclusive(platform, runtimeRoot, async () => {
+      const current = inspectCommandEveRuntimeBackendAdmission(options);
+      if (
+        current.ok === false &&
+        current.reason === 'runtime_artifact_invalid' &&
+        current.artifactSite &&
+        options.requireBundledPython === true
+      ) {
+        await repairCommandEvePackagedRuntimeMutableArtifacts(options, current.artifactSite);
+      }
+    });
+    admission = inspectCommandEveRuntimeBackendAdmission(options);
+  }
+  if (admission.ok === false) {
+    receipt = await ensureCommandEveRuntimeBootstrap({ ...options, stopAfterHermesRuntimeReady: true });
+    admission = inspectCommandEveRuntimeBackendAdmission(options);
+  }
+  if (admission.ok === false) {
+    throw new Error(`COMMAND_EVE_RUNTIME_BACKEND_INADMISSIBLE: ${admission.reason}`);
+  }
+  const paths = prepareCommandEveRuntimeProcessEnv(
+    options.userDataPath,
+    processEnv,
+    options.platform ?? process.platform,
+    options.resourcesPath,
+    {
+      requireBundledPython: options.requireBundledPython === true,
+      ...(admission.artifactSite ? { verifiedPackagedArtifactSite: admission.artifactSite } : {}),
+    }
+  );
+  return { admission, ...(receipt ? { receipt } : {}), paths };
 }
 
 const COMMAND_EVE_ARTIFACT_PYTHON_PTH_FILE = 'command-eve-artifact-python.pth';
@@ -4992,13 +5162,19 @@ function writePackagedHermesConsoleLaunchers(
   }
 }
 
-function writeHermesCommandWrapper(paths: RuntimeBootstrapPaths): void {
+function writeHermesCommandWrapper(
+  paths: RuntimeBootstrapPaths,
+  artifactSite?: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }>
+): void {
   if (paths.platform === 'win32') return;
   const existing = lstatManagedEntry(paths.hermesWrapper);
   if (existing && (!existing.isFile() || existing.isSymbolicLink())) {
     throw new Error('Hermes command wrapper is unsafe');
   }
-  const source = renderCommandEveHermesWrapper(paths, packagedHermesConsoleLauncherIsPresent(paths));
+  const source = renderCommandEveHermesWrapper(
+    paths,
+    Boolean(artifactSite && packagedHermesConsoleLauncherIsExact(paths, artifactSite))
+  );
   fs.writeFileSync(paths.hermesWrapper, source, { mode: 0o700 });
   fs.chmodSync(paths.hermesWrapper, 0o700);
 }
@@ -5177,18 +5353,22 @@ export function renderHermesHomeExport(home: string): string[] {
   return [`if [ -z "\${HERMES_HOME:-}" ]; then HERMES_HOME=${shellQuote(home)}; fi`, 'export HERMES_HOME'];
 }
 
-function packagedHermesConsoleLauncherIsPresent(paths: RuntimeBootstrapPaths): boolean {
-  try {
-    const consoleBinary = hermesConsoleBinary(paths);
-    const stat = fs.lstatSync(consoleBinary);
-    return (
-      stat.isFile() &&
-      !stat.isSymbolicLink() &&
-      fs.readFileSync(consoleBinary, 'utf8').split(/\r?\n/, 3).includes(COMMAND_EVE_PACKAGED_HERMES_LAUNCHER_MARKER)
-    );
-  } catch {
-    return false;
-  }
+function packagedHermesConsoleLauncherIsExact(
+  paths: RuntimeBootstrapPaths,
+  artifactSite: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }>
+): boolean {
+  const [name, moduleName, functionName] = COMMAND_EVE_PACKAGED_HERMES_LAUNCHERS[0];
+  return exactRegularFileBytes(
+    hermesConsoleBinary(paths),
+    renderCommandEvePackagedPythonLauncher({
+      python: pythonBinary(paths),
+      artifactSite: artifactSite.directory,
+      commandName: name,
+      moduleName,
+      functionName,
+    }),
+    0o700
+  );
 }
 
 export function renderCommandEveHermesCliShim(paths: RuntimeBootstrapPaths, packagedLauncher: boolean): string {
@@ -5219,7 +5399,10 @@ export function renderCommandEveHermesWrapper(paths: RuntimeBootstrapPaths, pack
   ].join('\n');
 }
 
-function writeHermesCliShim(paths: RuntimeBootstrapPaths): void {
+function writeHermesCliShim(
+  paths: RuntimeBootstrapPaths,
+  artifactSite?: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }>
+): void {
   const consoleBinary = hermesConsoleBinary(paths);
   let consoleStat: fs.Stats;
   try {
@@ -5231,8 +5414,12 @@ function writeHermesCliShim(paths: RuntimeBootstrapPaths): void {
   // On Windows the stable command path is the pip-generated console .exe itself.
   // Writing a Bash shim at that path would overwrite the executable.
   if (paths.platform === 'win32') return;
-  const shim = renderCommandEveHermesCliShim(paths, packagedHermesConsoleLauncherIsPresent(paths));
+  const shim = renderCommandEveHermesCliShim(
+    paths,
+    Boolean(artifactSite && packagedHermesConsoleLauncherIsExact(paths, artifactSite))
+  );
   fs.writeFileSync(paths.hermesShim, shim, { mode: 0o700 });
+  fs.chmodSync(paths.hermesShim, 0o700);
 }
 
 function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
@@ -9770,7 +9957,11 @@ function writeHermesRuntimeFiles(
   // model emits a byte-identical config to today. Hard-wiring the route instead
   // would point every screenshot at a model that is not there — a 502 per image
   // rather than the graceful "no aux vision configured" the wheel already handles.
-  localVisionModelRef = ''
+  localVisionModelRef = '',
+  // Only an exact signed Resources verification may select the native sh
+  // launchers. Synchronous seat provisioning omits it; the pre-backend
+  // admission repair then re-establishes the packaged wrappers.
+  packagedArtifactSite?: Extract<CommandEveArtifactPythonSiteVerification, { ok: true }>
 ): string[] {
   const trustedClaudeSeatDelegate = isClaudeSeatDelegateRoute(claudeDelegate) ? claudeDelegate : null;
   ensureDir(paths.hermesHome);
@@ -10200,8 +10391,8 @@ function writeHermesRuntimeFiles(
     { mode: 0o600 }
   );
   writeHermesOllamaProviderOverride(paths);
-  writeHermesCommandWrapper(paths);
-  writeHermesCliShim(paths);
+  writeHermesCommandWrapper(paths, packagedArtifactSite);
+  writeHermesCliShim(paths, packagedArtifactSite);
   // Surface any missing/invalid bundled strategy skill so the caller can make it
   // VISIBLE (founder-self-detection). Empty = all 15 landed (or no snapshot path).
   return bundledSkillFailures;
@@ -11590,7 +11781,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     if (packagedHermesSiteRequired) {
       try {
         writePackagedHermesConsoleLaunchers(paths, artifactSite);
-        writeHermesCommandWrapper(paths);
+        writeHermesCommandWrapper(paths, artifactSite);
       } catch (error) {
         const detail = rollbackVenvReplacement(
           `The packaged Hermes launchers could not be prepared: ${error instanceof Error ? error.message : String(error)}`
@@ -11800,7 +11991,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   // gate can return (for example a missing/invalid signed document runtime), or
   // the first session remains stuck on `command 'hermes' not found in PATH`
   // until the whole desktop app is restarted.
-  if (mode !== 'check') writeHermesCliShim(paths);
+  if (mode !== 'check') writeHermesCliShim(paths, artifactSite.ok ? artifactSite : undefined);
 
   const browserUseRunner = provisionCommandEveBrowserUseRunner(paths, options.resourcesPath, platform);
   if (runtimeProvenance.hermes && browserUseRunner) {
@@ -12194,7 +12385,8 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       // 1.821.0 — the resolved local vision model, or '' when this box has none.
       // Read at CALL time (this is a closure over the `let` above), so the
       // post-Ollama-ready re-emit picks up the re-probed value.
-      localVisionModelRef
+      localVisionModelRef,
+      artifactSite.ok ? artifactSite : undefined
     );
   const bundledSkillFailures = emitHermesRuntimeFiles();
   // CEVE-1821 B2 — mirror what this write just emitted into the seat-independent
