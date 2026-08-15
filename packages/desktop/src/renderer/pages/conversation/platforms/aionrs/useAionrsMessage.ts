@@ -14,6 +14,7 @@ import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/ho
 import { logStreamTerminalObserved } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
 import { isConversationProcessing } from '@/renderer/pages/conversation/utils/conversationRuntime';
+import { emitAcpPerformanceMark } from '@/renderer/utils/performance/acpPerformanceMarks';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { processLocalCronResponse } from './localCronCommands';
 
@@ -46,6 +47,8 @@ export const useAionrsMessage = (
   const activeMsgIdRef = useRef<string | null>(null);
   const messageBufferRef = useRef(new Map<string, string>());
   const processedCronMsgIdsRef = useRef(new Set<string>());
+  const firstTextTurnKeysRef = useRef(new Set<string>());
+  const finishedTurnKeysRef = useRef(new Set<string>());
 
   // Use refs to avoid useEffect re-subscription when these states change
   const hasActiveToolsRef = useRef(hasActiveTools);
@@ -222,6 +225,16 @@ export const useAionrsMessage = (
         if (chunk) {
           const previous = messageBufferRef.current.get(message.msg_id) ?? '';
           messageBufferRef.current.set(message.msg_id, previous + chunk);
+          const belongsToActiveTurn = !activeMsgIdRef.current || activeMsgIdRef.current === message.msg_id;
+          const turnKey = message.turn_id || message.msg_id;
+          if (belongsToActiveTurn && !firstTextTurnKeysRef.current.has(turnKey)) {
+            firstTextTurnKeysRef.current.add(turnKey);
+            emitAcpPerformanceMark({
+              stage: 'acp_first_text',
+              conversationId: conversation_id,
+              turnId: message.turn_id,
+            });
+          }
         }
       }
 
@@ -242,6 +255,17 @@ export const useAionrsMessage = (
         case 'finish':
           {
             logStreamTerminalObserved(conversation_id, message.turn_id, 'aionrs', message.type);
+            const belongsToActiveTurn =
+              !activeMsgIdRef.current || (Boolean(message.msg_id) && activeMsgIdRef.current === message.msg_id);
+            const turnKey = message.turn_id || message.msg_id;
+            if (belongsToActiveTurn && turnKey && !finishedTurnKeysRef.current.has(turnKey)) {
+              finishedTurnKeysRef.current.add(turnKey);
+              emitAcpPerformanceMark({
+                stage: 'response_finished',
+                conversationId: conversation_id,
+                turnId: message.turn_id,
+              });
+            }
             // aionrs stream_end carries usage in data field
             const usageData = message.data as TokenUsage | undefined;
             if (usageData && typeof usageData === 'object' && 'input_tokens' in usageData) {
@@ -368,6 +392,8 @@ export const useAionrsMessage = (
     setThought({ subject: '', description: '' });
     setTokenUsage(null);
     hasContentInTurnRef.current = false;
+    firstTextTurnKeysRef.current.clear();
+    finishedTurnKeysRef.current.clear();
     setHasHydratedRunningState(false);
 
     // Check actual conversation status from backend before resetting all running states
