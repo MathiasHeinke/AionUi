@@ -3149,9 +3149,12 @@ describe('Command EVE runtime bootstrap core', () => {
     });
 
     const env: NodeJS.ProcessEnv = {};
-    await ensureCommandEveRuntimeBackendAdmission(options, env);
+    const repaired = await ensureCommandEveRuntimeBackendAdmission(options, env, {
+      allowFullBootstrapRepair: false,
+    });
 
     expect(fs.readFileSync(pathsB.hermesWrapper, 'utf8')).toBe(renderCommandEveHermesWrapper(pathsB, true));
+    expect(repaired.receipt).toBeUndefined();
     expect(env.HERMES_HOME).toBe(pathsB.hermesHome);
     expect(fs.readFileSync(path.join(pathsB.hermesHome, 'config.yaml'), 'utf8')).toBe('target-seat-last-known-good\n');
     expect(fs.readFileSync(path.join(pathsB.hermesHome, 'SOUL.md'), 'utf8')).toBe('# Target seat exact bytes\n');

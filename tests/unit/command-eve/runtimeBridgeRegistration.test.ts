@@ -1,8 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runCommandEveBackendRespawnAfterStop } from '@/process/commandEve/seatSwitchRuntime';
-import { describe, expect, it, vi } from 'vitest';
+import {
+  __resetCommandEveBackendRestartForTests,
+  restartCommandEveBackendForSeat,
+  runCommandEveBackendRespawnAfterStop,
+  setCommandEveBackendRestart,
+} from '@/process/commandEve/seatSwitchRuntime';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+afterEach(() => {
+  __resetCommandEveBackendRestartForTests();
+});
 
 describe('Command EVE runtime bridge registration', () => {
   it('pins packaged license-key resolution to Electron signed resources unconditionally', () => {
@@ -121,6 +130,7 @@ describe('Command EVE runtime bridge registration', () => {
     expect(initialRecheck).toBeGreaterThan(initialRepair);
     expect(initialStart).toBeGreaterThan(initialAdmission);
     expect(initialStart).toBeGreaterThan(initialRecheck);
+    expect(source.slice(initialRecheck, initialStart)).not.toContain('await ');
     expect(source.slice(assignment, initialAdmission)).toContain('commandEvePackagedRuntimeExistedAtBoot');
     expect(hook).toBeGreaterThan(assignment);
     expect(admission).toBeGreaterThan(hook);
@@ -197,6 +207,97 @@ describe('Command EVE runtime bridge registration', () => {
 
     expect(clearDeadBackendPort).toHaveBeenCalledOnce();
     expect(start).toHaveBeenCalledOnce();
+  });
+
+  it('serializes concurrent shared-hook callers without overlapping child ownership or port publication', async () => {
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    let markFirstStopped!: () => void;
+    let markSecondStopped!: () => void;
+    const firstBarrier = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const secondBarrier = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const firstStopped = new Promise<void>((resolve) => {
+      markFirstStopped = resolve;
+    });
+    const secondStopped = new Promise<void>((resolve) => {
+      markSecondStopped = resolve;
+    });
+    const events: string[] = [];
+    let call = 0;
+    let childProcess: string | null = 'child-0';
+    let publishedPort = 4100;
+    setCommandEveBackendRestart(async () => {
+      const id = ++call;
+      events.push(`stop:${id}:${childProcess}`);
+      childProcess = null;
+      if (id === 1) {
+        markFirstStopped();
+        await firstBarrier;
+      } else {
+        markSecondStopped();
+        await secondBarrier;
+      }
+      childProcess = `child-${id}`;
+      publishedPort = 4100 + id;
+      events.push(`publish:${id}:${publishedPort}`);
+    });
+
+    const first = restartCommandEveBackendForSeat();
+    await firstStopped;
+    const second = restartCommandEveBackendForSeat();
+    await Promise.resolve();
+    expect(events).toEqual(['stop:1:child-0']);
+    expect(childProcess).toBeNull();
+    expect(publishedPort).toBe(4100);
+
+    releaseFirst();
+    await first;
+    await secondStopped;
+    expect(events).toEqual(['stop:1:child-0', 'publish:1:4101', 'stop:2:child-1']);
+    expect(childProcess).toBeNull();
+
+    releaseSecond();
+    await second;
+    expect(events).toEqual(['stop:1:child-0', 'publish:1:4101', 'stop:2:child-1', 'publish:2:4102']);
+    expect(childProcess).toBe('child-2');
+    expect(publishedPort).toBe(4102);
+  });
+
+  it('rejects a recursive restart instead of deadlocking the shared FIFO', async () => {
+    setCommandEveBackendRestart(async () => {
+      await restartCommandEveBackendForSeat();
+    });
+
+    await expect(restartCommandEveBackendForSeat()).rejects.toThrow(
+      'recursive backend restart refused; the shared lifecycle lock is non-reentrant'
+    );
+  });
+
+  it('clears the published port when stop kills the child and then throws during cleanup', async () => {
+    let childProcess: string | null = 'child-live';
+    let publishedPort: number | undefined = 4199;
+    const afterStop = vi.fn(async () => 4200);
+
+    await expect(
+      runCommandEveBackendRespawnAfterStop({
+        stop: async () => {
+          childProcess = null;
+          throw new Error('process registry cleanup failed');
+        },
+        clearDeadBackendPort: () => {
+          publishedPort = undefined;
+        },
+        afterStop,
+      })
+    ).rejects.toThrow('process registry cleanup failed');
+
+    expect(childProcess).toBeNull();
+    expect(publishedPort).toBeUndefined();
+    expect(afterStop).not.toHaveBeenCalled();
   });
 
   it('never falls back to loading a local model before backend settings are readable', () => {

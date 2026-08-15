@@ -2346,8 +2346,9 @@ const handleAppReady = async (): Promise<void> => {
     // intentionally cannot carry a signed Resources proof. Re-prove and repair
     // an EXISTING packaged runtime at the actual backend-admission boundary so
     // a marker-retaining or mode-only launcher mutation cannot reach AionCore.
-    // A genuinely cold install still has no venv and keeps the existing
-    // interactive/deferred bootstrap behaviour.
+    // A genuinely clean cold install has no managed runtime artifacts and keeps
+    // the existing interactive/deferred bootstrap behaviour. A stale root,
+    // shim, wrapper or receipt without a venv is not cold and must repair here.
     const recheckCommandEveRuntimeBeforeInitialStart =
       ensureCommandEveRuntimeAdmissionForRespawn && commandEvePackagedRuntimeExistedAtBoot
         ? await ensureCommandEveRuntimeAdmissionForRespawn(true)

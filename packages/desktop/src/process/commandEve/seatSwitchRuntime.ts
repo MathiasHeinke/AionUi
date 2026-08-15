@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 /**
  * Command EVE SEAT-SWITCH RUNTIME WIRING (Phase 4 / A5, SLICE B).
  *
@@ -36,6 +38,8 @@ export type CommandEveStoppedBackendRespawn<T> = Readonly<{
 }>;
 
 let restartHook: CommandEveBackendRestart | null = null;
+let restartQueueTail: Promise<void> = Promise.resolve();
+const restartExecutionContext = new AsyncLocalStorage<boolean>();
 
 /**
  * Register the concrete backend re-spawn implementation (called once from
@@ -55,12 +59,22 @@ export function hasCommandEveBackendRestart(): boolean {
  * registered, so a switch never reports success without a real agent re-spawn.
  */
 export async function restartCommandEveBackendForSeat(): Promise<void> {
-  if (!restartHook) {
-    throw new Error(
-      'Command EVE: no backend-restart hook registered; refusing to switch seats without re-spawning the agent (fail-closed).'
-    );
+  if (restartExecutionContext.getStore() === true) {
+    throw new Error('Command EVE: recursive backend restart refused; the shared lifecycle lock is non-reentrant.');
   }
-  await restartHook();
+  const queuedRestart = restartQueueTail.then(async () => {
+    const hook = restartHook;
+    if (!hook) {
+      throw new Error(
+        'Command EVE: no backend-restart hook registered; refusing to switch seats without re-spawning the agent (fail-closed).'
+      );
+    }
+    await restartExecutionContext.run(true, hook);
+  });
+  // A rejected transaction must release the FIFO for the next caller rather
+  // than poisoning the shared lifecycle lane.
+  restartQueueTail = queuedRestart.catch(() => {});
+  await queuedRestart;
 }
 
 /**
@@ -74,8 +88,11 @@ export async function restartCommandEveBackendForSeat(): Promise<void> {
  */
 export async function runCommandEveBackendRespawnAfterStop<T>(input: CommandEveStoppedBackendRespawn<T>): Promise<T> {
   await input.beforeStop?.();
-  await input.stop();
   try {
+    // stop() may terminate the child successfully and then throw while cleaning
+    // its process registry. From this call onward the published port is no
+    // longer trustworthy, so the same cleanup boundary owns stop itself.
+    await input.stop();
     return await input.afterStop();
   } catch (error) {
     input.clearDeadBackendPort();
@@ -86,4 +103,5 @@ export async function runCommandEveBackendRespawnAfterStop<T>(input: CommandEveS
 /** Test-only: clear the registered hook between tests. */
 export function __resetCommandEveBackendRestartForTests(): void {
   restartHook = null;
+  restartQueueTail = Promise.resolve();
 }
