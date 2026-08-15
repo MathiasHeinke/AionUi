@@ -208,7 +208,8 @@ export type BackendTerminationUnprovenDetails = Readonly<{
     | 'child_terminal_timeout'
     | 'group_probe_failed'
     | 'group_identity_unproven'
-    | 'registered_descendants_survived';
+    | 'registered_descendants_survived'
+    | 'registered_descendants_untrusted';
   signal?: 'SIGTERM' | 'SIGKILL' | 0;
   error_code?: string;
 }>;
@@ -457,6 +458,9 @@ function combineStopFailures(primary: unknown, cleanup: unknown): unknown {
   if (primary instanceof BackendTerminationUnprovenError) {
     return new BackendTerminationUnprovenError(primary.message, primary.details, combined);
   }
+  if (cleanup instanceof BackendTerminationUnprovenError) {
+    return new BackendTerminationUnprovenError(cleanup.message, cleanup.details, combined);
+  }
   return combined;
 }
 
@@ -537,12 +541,21 @@ async function cleanupRegisteredAgentsOrThrow(
   identityProbe: RegisteredAgentProcessIdentityProbe | RegisteredAgentProcessIdentityProbeProvider | undefined,
   backendPid?: number
 ): Promise<void> {
-  const cleanup = identityProbe
-    ? await cleanupRegisteredAgentProcesses(
-        dataDir,
-        'open' in identityProbe ? { identityProbeProvider: identityProbe } : { identityProbe }
-      )
-    : await cleanupRegisteredAgentProcesses(dataDir);
+  let cleanup;
+  try {
+    cleanup = identityProbe
+      ? await cleanupRegisteredAgentProcesses(
+          dataDir,
+          'open' in identityProbe ? { identityProbeProvider: identityProbe } : { identityProbe }
+        )
+      : await cleanupRegisteredAgentProcesses(dataDir);
+  } catch (error) {
+    // Registry/quarantine/emergency/fsync failures happen before every
+    // descendant can be proven. Normalize them to the same controlling
+    // termination-unproven boundary so main-process cleanup cannot launder an
+    // ENOSPC/EACCES into a safe-down receipt.
+    throw backendTerminationUnproven(backendPid, 'registered_descendants_untrusted', 0, error);
+  }
   if (cleanup.registry_unproven || cleanup.survivor_pids.length > 0) {
     throw backendTerminationUnproven(backendPid, 'registered_descendants_survived', 0);
   }

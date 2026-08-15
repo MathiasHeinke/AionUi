@@ -337,7 +337,7 @@ const backendManager = new BackendLifecycleManager(
     userDataPath: app.getPath('userData'),
   },
   resolveBinaryPath,
-  createCommandEveRegisteredProcessIdentityProbeProvider()
+  createCommandEveRegisteredProcessIdentityProbeProvider(resolveBinaryPath)
 );
 const COMMAND_EVE_CRASH_RECOVERY_QUEUE_WAIT_MS = 60_000;
 const COMMAND_EVE_DEFERRED_RUNTIME_RESTART_QUEUE_WAIT_MS = 300_000;

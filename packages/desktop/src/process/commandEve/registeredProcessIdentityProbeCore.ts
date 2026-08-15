@@ -1,4 +1,6 @@
+import { spawn } from 'node:child_process';
 import { readFile, readlink } from 'node:fs/promises';
+import path from 'node:path';
 
 import type {
   RegisteredAgentProcessIdentityProbe,
@@ -14,6 +16,7 @@ import {
 const PROCESS_IDENTITY_SENTINEL = 'COMMAND_EVE_PROCESS_IDENTITY_V1';
 const PROCESS_IDENTITY_MAX_OUTPUT = 256 * 1024;
 const PROCESS_IDENTITY_MAX_BATCH = 512;
+const WINDOWS_PROCESS_IDENTITY_SENTINEL = 'COMMAND_EVE_WINDOWS_PROCESS_IDENTITY_V1';
 
 const DARWIN_PROCESS_IDENTITY_SOURCE = String.raw`
 import ctypes, errno, json, os, sys
@@ -99,6 +102,11 @@ export type ObservedDarwinProcessIdentity = Readonly<{
 }>;
 
 export type ObservedLinuxProcessIdentity = ObservedDarwinProcessIdentity;
+export type ObservedWindowsProcessIdentity = Readonly<{
+  pid: number;
+  start_time_value: string;
+  executable_path: string;
+}>;
 
 export type CommandEveDarwinProcessIdentityProbe = Readonly<
   { state: 'absent' | 'unknown' } | { state: 'observed'; observed: ObservedDarwinProcessIdentity }
@@ -138,6 +146,21 @@ export function compareCommandEveLinuxRegisteredProcessIdentity(
   return compareBirthAndGroup(entry, observed);
 }
 
+export function compareCommandEveWindowsRegisteredProcessIdentity(
+  entry: RegisteredAgentProcessV2,
+  observed: ObservedWindowsProcessIdentity
+): RegisteredAgentProcessIdentityProbeResult {
+  if (
+    entry.process_identity.platform !== 'win32' ||
+    entry.process_identity.start_time.kind !== 'windows_filetime_100ns'
+  ) {
+    return 'unknown';
+  }
+  return observed.pid === entry.pid && observed.start_time_value === entry.process_identity.start_time.value
+    ? 'match'
+    : 'mismatch';
+}
+
 function compareBirthAndGroup(
   entry: RegisteredAgentProcessV2,
   observed: ObservedDarwinProcessIdentity
@@ -156,7 +179,9 @@ function compareBirthAndGroup(
   return 'match';
 }
 
-export function createCommandEveRegisteredProcessIdentityProbeProvider(): RegisteredAgentProcessIdentityProbeProvider {
+export function createCommandEveRegisteredProcessIdentityProbeProvider(
+  resolveNativeProbe?: () => string
+): RegisteredAgentProcessIdentityProbeProvider {
   return {
     open: async () => {
       if (process.platform === 'darwin') {
@@ -203,15 +228,142 @@ export function createCommandEveRegisteredProcessIdentityProbeProvider(): Regist
           close: () => undefined,
         };
       }
-      // The paired AionCore producer fails before publishing an unverifiable
-      // Windows identity. A legacy/foreign Windows entry therefore remains
-      // unproven and never authorizes taskkill.
+      if (process.platform === 'win32') {
+        return {
+          probeMany: async (entries) => {
+            const supported = entries
+              .map((entry, index) => ({ entry, index }))
+              .filter(({ entry }) => entry.process_identity.platform === 'win32');
+            const outcomes = entries.map(() => 'unknown' as RegisteredAgentProcessIdentityProbeResult);
+            if (supported.length === 0) return outcomes;
+            if (!resolveNativeProbe) return outcomes;
+            const observed = await probeCommandEveWindowsProcessIdentities(
+              supported.map(({ entry }) => entry.pid),
+              resolveNativeProbe
+            );
+            if (!observed) return outcomes;
+            supported.forEach(({ entry, index }, supportedIndex) => {
+              const result = observed[supportedIndex];
+              outcomes[index] =
+                result.state === 'observed'
+                  ? compareCommandEveWindowsRegisteredProcessIdentity(entry, result.observed)
+                  : result.state;
+            });
+            return outcomes;
+          },
+          close: () => undefined,
+        };
+      }
       return {
         probeMany: async (entries) => entries.map(() => 'unknown' as const),
         close: () => undefined,
       };
     },
   };
+}
+
+type CommandEveWindowsProcessIdentityProbe = Readonly<
+  { state: 'absent' | 'unknown' } | { state: 'observed'; observed: ObservedWindowsProcessIdentity }
+>;
+
+export async function probeCommandEveWindowsProcessIdentities(
+  pids: readonly number[],
+  resolveNativeProbe: () => string
+): Promise<readonly CommandEveWindowsProcessIdentityProbe[] | undefined> {
+  if (
+    pids.length > PROCESS_IDENTITY_MAX_BATCH ||
+    pids.some((pid) => !Number.isInteger(pid) || pid <= 0 || pid > 0xffff_ffff) ||
+    new Set(pids).size !== pids.length
+  ) {
+    return undefined;
+  }
+  let nativeProbe: string;
+  try {
+    nativeProbe = resolveNativeProbe();
+  } catch {
+    return undefined;
+  }
+  if (!nativeProbe) return undefined;
+  const output = await new Promise<{ stdout: string; ok: boolean }>((resolve) => {
+    let settled = false;
+    let stdout = '';
+    let timeout: NodeJS.Timeout | undefined;
+    const finish = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      resolve({ stdout, ok });
+    };
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(nativeProbe, ['process-identity-probe'], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+    } catch {
+      finish(false);
+      return;
+    }
+    timeout = setTimeout(() => {
+      child.kill();
+      finish(false);
+    }, 2_000);
+    timeout.unref?.();
+    child.once('error', () => finish(false));
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+      if (Buffer.byteLength(stdout) > PROCESS_IDENTITY_MAX_OUTPUT) {
+        child.kill();
+        finish(false);
+      }
+    });
+    child.once('exit', (code) => finish(code === 0));
+    child.stdin?.end(JSON.stringify({ pids }));
+  });
+  return output.ok ? parseWindowsBatch(output.stdout, pids.length) : undefined;
+}
+
+export function parseWindowsBatch(
+  stdout: string,
+  expectedCount: number
+): readonly CommandEveWindowsProcessIdentityProbe[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    if (
+      !isRecord(parsed) ||
+      !hasExactKeys(parsed, ['results', 'sentinel']) ||
+      parsed.sentinel !== WINDOWS_PROCESS_IDENTITY_SENTINEL ||
+      !Array.isArray(parsed.results) ||
+      parsed.results.length !== expectedCount
+    ) {
+      return undefined;
+    }
+    const results = parsed.results.map((value): CommandEveWindowsProcessIdentityProbe | undefined => {
+      if (!isRecord(value)) return undefined;
+      if (value.state === 'absent' || value.state === 'unknown') {
+        return hasExactKeys(value, ['state']) ? { state: value.state } : undefined;
+      }
+      if (
+        value.state !== 'observed' ||
+        !hasExactKeys(value, ['executable_path', 'pid', 'start_time_value', 'state']) ||
+        !isPositiveU32(value.pid) ||
+        typeof value.start_time_value !== 'string' ||
+        !/^[0-9]+$/.test(value.start_time_value) ||
+        typeof value.executable_path !== 'string' ||
+        !path.win32.isAbsolute(value.executable_path)
+      ) {
+        return undefined;
+      }
+      return {
+        state: 'observed',
+        observed: {
+          pid: value.pid,
+          start_time_value: value.start_time_value,
+          executable_path: value.executable_path,
+        },
+      };
+    });
+    return results.every(Boolean) ? (results as CommandEveWindowsProcessIdentityProbe[]) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function createCommandEveRegisteredProcessIdentityProbe(): RegisteredAgentProcessIdentityProbe {

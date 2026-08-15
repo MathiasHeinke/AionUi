@@ -1046,7 +1046,7 @@ describe('BackendLifecycleManager.stop', () => {
     killSpy.mockRestore();
   });
 
-  it('clears manager port before registry cleanup can reject after a destructive stop', async () => {
+  it('normalizes registry cleanup rejection to termination_unproven after a destructive stop', async () => {
     const child = makeFakeChild();
     Object.assign(child, { exitCode: 1 });
     vi.mocked(cleanupRegisteredAgentProcesses).mockRejectedValueOnce(new Error('registry cleanup failed'));
@@ -1057,7 +1057,10 @@ describe('BackendLifecycleManager.stop', () => {
     const mgr = new BackendLifecycleManager(APP_META, () => '/x');
     Object.assign(mgr, { childProcess: child, _lastDbPath: '/db', _status: 'running', _port: 4812 });
 
-    await expect(mgr.stop()).rejects.toThrow('registry cleanup failed');
+    await expect(mgr.stop()).rejects.toMatchObject({
+      code: COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN,
+      details: { phase: 'registered_descendants_untrusted', signal: 0 },
+    });
     expect(mgr.port).toBe(0);
     expect(mgr.status).toBe('stopped');
     killSpy.mockRestore();

@@ -497,6 +497,33 @@ describe('reconcile wiring — flag ON delegates to the pure core', () => {
     expect(JSON.stringify(outcome)).not.toContain('do-not-leak');
   });
 
+  it('never launders an untrusted registry cleanup into backend_fail_closed', async () => {
+    setMcpVaultEnabledForTests(true);
+    const outcome = await runConnectorAuthorityMutationTransaction({
+      trigger: 'approve',
+      mutate: () => ({
+        value: { connector_id: 'notion-workspace' },
+        accepted: true,
+        rollbackTrigger: 'revoke' as const,
+        rollback: () => false,
+      }),
+      reconcileDeps: {
+        reRenderConfig: async () => {
+          throw new Error('primary projection failed');
+        },
+      },
+      failClosed: async () => {
+        throw Object.assign(new Error('registry evidence could not be probed'), {
+          code: 'COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN',
+        });
+      },
+      finalize: (transaction) => transaction,
+    });
+
+    expect(outcome.terminal_state).toBe('termination_unproven');
+    expect(outcome.rollback?.fail_closed_error).toContain('registry evidence could not be probed');
+  });
+
   it('uses the same atomic seam for a generic revoke and restores prior authority on failure', async () => {
     setMcpVaultEnabledForTests(true);
     let vault = 'prior-authority';

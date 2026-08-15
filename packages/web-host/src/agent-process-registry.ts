@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { lstat, mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 export type RegisteredProcessStartTime = Readonly<{
@@ -65,10 +66,13 @@ export type AgentProcessCleanupOptions = Readonly<{
   identityProbe?: RegisteredAgentProcessIdentityProbe;
   identityProbeProvider?: RegisteredAgentProcessIdentityProbeProvider;
   termGraceMs?: number;
+  bootEpochMs?: number;
 }>;
 
 export const AGENT_PROCESS_REGISTRY_RELATIVE_PATH = path.join('runtime', 'agent-process-registry.json');
 export const AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR = path.join('runtime', 'agent-process-registry-emergency');
+export const AGENT_PROCESS_REGISTRY_FALLBACK_RELATIVE_DIR = '.command-eve-agent-process-registry-emergency-v2';
+export const AGENT_PROCESS_REGISTRY_EXTERNAL_FALLBACK_DIR_NAME = 'command-eve-agent-process-registry-emergency-v2';
 export const AGENT_PROCESS_REGISTRY_QUARANTINE_RELATIVE_DIR = path.join('runtime', 'agent-process-registry-quarantine');
 
 const TERM_GRACE_MS = 1_000;
@@ -76,9 +80,22 @@ const REGISTRY_VERSION = 2;
 const ENTRY_REQUIRED_KEYS = ['agent_type', 'conversation_id', 'pid', 'process_identity', 'registered_at_ms'] as const;
 const ENTRY_OPTIONAL_KEYS = ['backend', 'command_preview', 'process_group_id'] as const;
 const EMERGENCY_REQUIRED_KEYS = ['process', 'reason', 'version'] as const;
+const QUARANTINE_VERSION = 2;
+const BOOT_EPOCH_TOLERANCE_MS = 5_000;
 
 export function resolveAgentProcessRegistryPath(dataDir: string): string {
   return path.join(dataDir, AGENT_PROCESS_REGISTRY_RELATIVE_PATH);
+}
+
+export async function resolveExternalAgentProcessEmergencyDirectory(dataDir: string): Promise<string> {
+  let canonical: string;
+  try {
+    canonical = await realpath(dataDir);
+  } catch {
+    canonical = path.resolve(dataDir);
+  }
+  const key = createHash('sha256').update(canonical).digest('hex');
+  return path.join(os.tmpdir(), AGENT_PROCESS_REGISTRY_EXTERNAL_FALLBACK_DIR_NAME, key);
 }
 
 export async function cleanupRegisteredAgentProcesses(
@@ -89,11 +106,22 @@ export async function cleanupRegisteredAgentProcesses(
 
   const registryPath = resolveAgentProcessRegistryPath(dataDir);
   const quarantineDirectory = path.join(dataDir, AGENT_PROCESS_REGISTRY_QUARANTINE_RELATIVE_DIR);
-  const emergencyDirectory = path.join(dataDir, AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR);
-  const diagnosticPaths = await listDiagnosticPaths(quarantineDirectory);
+  const emergencyDirectories = [
+    path.join(dataDir, AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR),
+    path.join(dataDir, AGENT_PROCESS_REGISTRY_FALLBACK_RELATIVE_DIR),
+    await resolveExternalAgentProcessEmergencyDirectory(dataDir),
+  ];
+  const observationMs = Math.max(0, options.termGraceMs ?? TERM_GRACE_MS);
+  const bootEpochMs = options.bootEpochMs ?? Math.floor(Date.now() - os.uptime() * 1_000);
+  const diagnosticPaths = await recoverQuarantineDiagnostics(quarantineDirectory, observationMs, bootEpochMs);
   const registry = await readRegistry(registryPath);
   if (!registry.structurallyValid || ![1, REGISTRY_VERSION].includes(registry.version)) {
-    const diagnosticPath = await quarantineMalformedRegistry(registryPath, quarantineDirectory, registry.reason);
+    const diagnosticPath = await quarantineMalformedRegistry(
+      registryPath,
+      quarantineDirectory,
+      registry.reason,
+      bootEpochMs
+    );
     if (diagnosticPath) diagnosticPaths.push(diagnosticPath);
     return {
       survivor_pids: numericPids(registry.processes),
@@ -102,7 +130,6 @@ export async function cleanupRegisteredAgentProcesses(
     };
   }
 
-  const observationMs = Math.max(0, options.termGraceMs ?? TERM_GRACE_MS);
   const primaryProven: RegisteredAgentProcessV2[] = [];
   const primaryUnproven: CanonicalAgentProcessV2[] = [];
   const malformedSurvivors: unknown[] = [];
@@ -110,7 +137,7 @@ export async function cleanupRegisteredAgentProcesses(
 
   const primaryClassifications = await Promise.all(
     registry.processes.map(async (entry) => {
-      if (isRegisteredProcessV2(entry)) return { kind: 'proven' as const, entry };
+      if (isRegisteredProcessV2(entry)) return { kind: 'proven' as const, entry: redactRegisteredProcess(entry) };
       const absent = await observeUnprovenProcessAbsence(entry, observationMs);
       if (absent) return { kind: 'absent' as const, entry };
       const canonical = normalizeUnprovenRegistryEntry(entry);
@@ -124,13 +151,19 @@ export async function cleanupRegisteredAgentProcesses(
     if (classification.kind === 'absent') changed = true;
   }
   if (malformedSurvivors.length > 0) {
-    const diagnosticPath = await writeQuarantineEntries(quarantineDirectory, malformedSurvivors);
+    const diagnosticPath = await writeQuarantineEntries(quarantineDirectory, malformedSurvivors, bootEpochMs);
     diagnosticPaths.push(diagnosticPath);
     changed = true;
   }
 
-  const emergency = await readEmergencyEvidence(emergencyDirectory);
-  const emergencyProven = emergency.filter((item) => item.process && isRegisteredProcessV2(item.process));
+  const emergency = (await Promise.all(emergencyDirectories.map(readEmergencyEvidence))).flat();
+  const emergencyProven = emergency
+    .filter((item) => item.process && isRegisteredProcessV2(item.process))
+    .map((item) => ({
+      path: item.path,
+      directory: item.directory,
+      process: redactRegisteredProcess(item.process as RegisteredAgentProcessV2),
+    }));
   const emergencyUnproven = emergency.filter((item) => item.process && !isRegisteredProcessV2(item.process));
   const malformedEmergency = emergency.filter((item) => !item.process);
   diagnosticPaths.push(...malformedEmergency.map((item) => item.path));
@@ -144,7 +177,7 @@ export async function cleanupRegisteredAgentProcesses(
   await Promise.all(
     emergencyUnprovenStates
       .filter(({ absent }) => absent)
-      .map(({ item }) => removeEmergencyEvidence(item.path, emergencyDirectory))
+      .map(({ item }) => removeEmergencyEvidence(item.path, item.directory))
   );
 
   const provenItems = [
@@ -164,7 +197,12 @@ export async function cleanupRegisteredAgentProcesses(
         (item): item is typeof item & { sourcePath: string } =>
           Boolean(item.sourcePath) && !provenSurvivorSet.has(item.entry)
       )
-      .map((item) => removeEmergencyEvidence(item.sourcePath, emergencyDirectory))
+      .map((item) =>
+        removeEmergencyEvidence(
+          item.sourcePath,
+          emergency.find((evidence) => evidence.path === item.sourcePath)?.directory ?? path.dirname(item.sourcePath)
+        )
+      )
   );
   if (primaryProvenSurvivors.length !== primaryProven.length) changed = true;
 
@@ -176,7 +214,7 @@ export async function cleanupRegisteredAgentProcesses(
     });
   }
 
-  const remainingEmergency = await readEmergencyEvidence(emergencyDirectory);
+  const remainingEmergency = (await Promise.all(emergencyDirectories.map(readEmergencyEvidence))).flat();
   const survivorEntries = [
     ...retainedPrimary,
     ...remainingEmergency.flatMap((item) => (item.process ? [item.process] : [])),
@@ -196,57 +234,168 @@ export async function cleanupRegisteredAgentProcesses(
   };
 }
 
-type EmergencyEvidence = Readonly<{ path: string; process?: unknown }>;
+type EmergencyEvidence = Readonly<{ path: string; directory: string; process?: unknown }>;
 
-async function listDiagnosticPaths(directory: string): Promise<string[]> {
+async function recoverQuarantineDiagnostics(
+  directory: string,
+  observationMs: number,
+  bootEpochMs: number
+): Promise<string[]> {
+  let names: string[];
   try {
-    return (await readdir(directory)).map((entry) => path.join(directory, entry)).toSorted();
+    const directoryIdentity = await lstat(directory);
+    if (!directoryIdentity.isDirectory() || directoryIdentity.isSymbolicLink()) return [directory];
+    names = (await readdir(directory)).toSorted();
   } catch (error) {
     return isNotFound(error) ? [] : [directory];
+  }
+  const outcomes = await Promise.all(
+    names.map((name) => recoverQuarantineDiagnostic(path.join(directory, name), observationMs, bootEpochMs))
+  );
+  if (outcomes.some((outcome) => outcome === 'removed')) await syncDirectory(directory);
+  return names.flatMap((name, index) => (outcomes[index] === 'retained' ? [path.join(directory, name)] : []));
+}
+
+async function recoverQuarantineDiagnostic(
+  filePath: string,
+  observationMs: number,
+  bootEpochMs: number
+): Promise<'removed' | 'retained'> {
+  try {
+    const identity = await lstat(filePath);
+    if (!identity.isFile() || identity.isSymbolicLink()) return 'retained';
+    const parsed: unknown = JSON.parse(await readFile(filePath, 'utf8'));
+    if (
+      !isPlainObject(parsed) ||
+      parsed.version !== QUARANTINE_VERSION ||
+      !Array.isArray(parsed.entries) ||
+      !isNonNegativeSafeInteger(parsed.boot_epoch_ms)
+    ) {
+      return 'retained';
+    }
+    const entries = parsed.entries as unknown[];
+    const rebooted = bootEpochMs > Number(parsed.boot_epoch_ms) + BOOT_EPOCH_TOLERANCE_MS;
+    const observations = await Promise.all(entries.map((entry) => observeUnprovenProcessAbsence(entry, observationMs)));
+    const safelyRetired =
+      (entries.length > 0 && observations.every(Boolean)) ||
+      (rebooted && observations.every((absent, index) => absent || !hasRetirablePidAndGroup(entries[index])));
+    if (!safelyRetired) return 'retained';
+    await rm(filePath);
+    return 'removed';
+  } catch {
+    return 'retained';
   }
 }
 
 async function quarantineMalformedRegistry(
   registryPath: string,
   quarantineDirectory: string,
-  reason = 'registry_structure_invalid'
+  reason = 'registry_structure_invalid',
+  bootEpochMs: number
 ): Promise<string | undefined> {
   try {
     const identity = await lstat(registryPath);
     if (!identity.isFile() || identity.isSymbolicLink()) return registryPath;
-    await mkdir(quarantineDirectory, { recursive: true });
+    const raw = await readFile(registryPath);
+    let entries: unknown[] = [];
+    try {
+      const parsed: unknown = JSON.parse(raw.toString('utf8'));
+      if (isPlainObject(parsed) && Array.isArray(parsed.processes)) entries = parsed.processes;
+    } catch {
+      // Invalid bytes are represented only by bounded digest/size metadata.
+    }
     const target = path.join(quarantineDirectory, `agent-process-registry.${reason}.${randomUUID()}.json`);
-    await rename(registryPath, target);
+    await writeAtomicPayload(
+      target,
+      `${JSON.stringify(
+        {
+          version: QUARANTINE_VERSION,
+          reason,
+          boot_epoch_ms: bootEpochMs,
+          source_sha256: createHash('sha256').update(raw).digest('hex'),
+          source_size: raw.length,
+          entries: entries.map(sanitizeQuarantineEntry),
+        },
+        null,
+        2
+      )}\n`
+    );
+    await rm(registryPath);
     await syncDirectory(path.dirname(registryPath));
-    await syncDirectory(quarantineDirectory);
     return target;
   } catch (error) {
     return isNotFound(error) ? undefined : registryPath;
   }
 }
 
-async function writeQuarantineEntries(directory: string, entries: readonly unknown[]): Promise<string> {
+async function writeQuarantineEntries(
+  directory: string,
+  entries: readonly unknown[],
+  bootEpochMs: number
+): Promise<string> {
   const target = path.join(directory, `agent-process-registry.entries.${randomUUID()}.json`);
   await writeAtomicPayload(
     target,
-    `${JSON.stringify({ version: 1, reason: 'malformed_registry_entries', entries }, null, 2)}\n`
+    `${JSON.stringify(
+      {
+        version: QUARANTINE_VERSION,
+        reason: 'malformed_registry_entries',
+        boot_epoch_ms: bootEpochMs,
+        entries: entries.map(sanitizeQuarantineEntry),
+      },
+      null,
+      2
+    )}\n`
   );
   return target;
+}
+
+function sanitizeQuarantineEntry(value: unknown): Record<string, unknown> {
+  if (!isPlainObject(value)) {
+    const encoded = JSON.stringify(value) ?? '';
+    return {
+      entry_sha256: createHash('sha256').update(encoded).digest('hex'),
+      entry_size: Buffer.byteLength(encoded),
+    };
+  }
+  const sanitized: Record<string, unknown> = {};
+  if (isPositiveU32(value.pid)) sanitized.pid = value.pid;
+  if (isPositiveU32(value.process_group_id)) sanitized.process_group_id = value.process_group_id;
+  if (isNonNegativeSafeInteger(value.registered_at_ms)) sanitized.registered_at_ms = value.registered_at_ms;
+  if (isRegisteredProcessIdentity(value.process_identity)) sanitized.process_identity = value.process_identity;
+  return Object.keys(sanitized).length > 0
+    ? sanitized
+    : {
+        entry_sha256: createHash('sha256').update(JSON.stringify(value)).digest('hex'),
+        entry_size: Buffer.byteLength(JSON.stringify(value)),
+      };
+}
+
+function hasRetirablePidAndGroup(value: unknown): boolean {
+  return (
+    process.platform !== 'win32' &&
+    isPlainObject(value) &&
+    isPositiveU32(value.pid) &&
+    isPositiveU32(value.process_group_id) &&
+    value.process_group_id > 1
+  );
 }
 
 async function readEmergencyEvidence(directory: string): Promise<EmergencyEvidence[]> {
   let entries: string[];
   try {
+    const directoryIdentity = await lstat(directory);
+    if (!directoryIdentity.isDirectory() || directoryIdentity.isSymbolicLink()) return [{ path: directory, directory }];
     entries = (await readdir(directory)).toSorted();
   } catch (error) {
-    return isNotFound(error) ? [] : [{ path: directory }];
+    return isNotFound(error) ? [] : [{ path: directory, directory }];
   }
   return Promise.all(
     entries.map(async (entry) => {
       const filePath = path.join(directory, entry);
       try {
         const identity = await lstat(filePath);
-        if (!identity.isFile() || identity.isSymbolicLink()) return { path: filePath };
+        if (!identity.isFile() || identity.isSymbolicLink()) return { path: filePath, directory };
         const parsed: unknown = JSON.parse(await readFile(filePath, 'utf8'));
         if (
           !isPlainObject(parsed) ||
@@ -254,11 +403,11 @@ async function readEmergencyEvidence(directory: string): Promise<EmergencyEviden
           parsed.version !== 1 ||
           parsed.reason !== 'registry_write_failed_cleanup_unproven'
         ) {
-          return { path: filePath };
+          return { path: filePath, directory };
         }
-        return { path: filePath, process: parsed.process };
+        return { path: filePath, directory, process: parsed.process };
       } catch {
-        return { path: filePath };
+        return { path: filePath, directory };
       }
     })
   );
@@ -294,25 +443,32 @@ function normalizeUnprovenRegistryEntry(value: unknown): CanonicalAgentProcessV2
   }
   const processGroupId = value.process_group_id as number | undefined;
   const backend = value.backend as string | undefined;
-  const commandPreview = value.command_preview as string | undefined;
   return {
     pid: value.pid,
     ...(processGroupId === undefined ? {} : { process_group_id: processGroupId }),
     conversation_id: value.conversation_id,
     agent_type: value.agent_type,
     ...(backend === undefined ? {} : { backend }),
-    ...(commandPreview === undefined ? {} : { command_preview: commandPreview }),
     registered_at_ms: value.registered_at_ms,
     process_identity: null,
   };
 }
 
+function redactRegisteredProcess(value: RegisteredAgentProcessV2): RegisteredAgentProcessV2 {
+  const { command_preview: _commandPreview, ...redacted } = value;
+  return redacted;
+}
+
 async function observeUnprovenProcessAbsence(value: unknown, timeoutMs: number): Promise<boolean> {
   if (!isPlainObject(value) || !isPositiveU32(value.pid)) return false;
-  if ((await observeNumericTargetAbsence(value.pid, timeoutMs)) !== 'absent') return false;
+  // Numeric legacy evidence has no birth identity. Retirement is permitted
+  // only when both the exact PID target and a valid detached PGID are absent.
+  // Windows has no POSIX PGID proof, so unproven Windows records remain
+  // quarantined until a reboot-boundary diagnostic recovery.
   if (process.platform === 'win32' || !isPositiveU32(value.process_group_id) || value.process_group_id <= 1) {
-    return true;
+    return false;
   }
+  if ((await observeNumericTargetAbsence(value.pid, timeoutMs)) !== 'absent') return false;
   return (await observeNumericTargetAbsence(-value.process_group_id, timeoutMs)) === 'absent';
 }
 

@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR,
+  AGENT_PROCESS_REGISTRY_FALLBACK_RELATIVE_DIR,
   cleanupRegisteredAgentProcesses,
+  resolveExternalAgentProcessEmergencyDirectory,
   resolveAgentProcessRegistryPath,
   type RegisteredAgentProcessIdentityProbe,
   type RegisteredAgentProcessIdentityProbeProvider,
@@ -227,6 +229,22 @@ describe('cleanupRegisteredAgentProcesses', () => {
     expect(JSON.parse(await readFile(registryPath, 'utf8'))).toEqual({ version: 2, processes: [] });
   });
 
+  it('retains an absent legacy PID when its PGID is missing or nonpositive', async () => {
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-legacy-no-pgid-'));
+    const legacy = { ...registeredProcess({ process_identity: undefined as never }) } as Record<string, unknown>;
+    delete legacy.process_group_id;
+    const registryPath = await writeRegistry(dataDir, 1, [legacy]);
+    const killSpy = vi.spyOn(process, 'kill');
+
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { termGraceMs: 0 })).resolves.toEqual({
+      survivor_pids: [6883],
+      registry_unproven: true,
+    });
+
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(registryPath, 'utf8')).processes).toEqual([{ ...legacy, process_identity: null }]);
+  });
+
   it('retains an EPERM pre-v2 record as nullable v2 and never sends a terminating signal', async () => {
     const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-legacy-eperm-'));
     const registryPath = await writeRegistry(dataDir, 1, [registeredProcess({ process_identity: undefined as never })]);
@@ -259,23 +277,29 @@ describe('cleanupRegisteredAgentProcesses', () => {
     expect(JSON.parse(await readFile(result.diagnostic_paths![0], 'utf8')).entries).toHaveLength(1);
   });
 
-  it('moves malformed registry bytes to a durable diagnostic quarantine and remains blocked', async () => {
+  it('stores only redacted digest evidence for malformed bytes and recovers after a proven reboot boundary', async () => {
     const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-malformed-'));
     const registryPath = resolveAgentProcessRegistryPath(dataDir);
     await mkdir(path.dirname(registryPath), { recursive: true });
     await writeFile(registryPath, 'null', 'utf8');
     const killSpy = vi.spyOn(process, 'kill');
 
-    const first = await cleanupRegisteredAgentProcesses(dataDir);
+    const first = await cleanupRegisteredAgentProcesses(dataDir, { bootEpochMs: 1_000 });
     expect(first).toMatchObject({ survivor_pids: [], registry_unproven: true });
     expect(first.diagnostic_paths).toHaveLength(1);
     expect(killSpy).not.toHaveBeenCalled();
     await expect(lstat(registryPath)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(await readFile(first.diagnostic_paths![0], 'utf8')).toBe('null');
-    await expect(cleanupRegisteredAgentProcesses(dataDir)).resolves.toMatchObject({
+    const diagnostic = JSON.parse(await readFile(first.diagnostic_paths![0], 'utf8'));
+    expect(diagnostic).toMatchObject({ version: 2, source_size: 4, entries: [] });
+    expect(JSON.stringify(diagnostic)).not.toContain('null');
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { bootEpochMs: 1_000 })).resolves.toMatchObject({
       survivor_pids: [],
       registry_unproven: true,
       diagnostic_paths: first.diagnostic_paths,
+    });
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { bootEpochMs: 10_000 })).resolves.toEqual({
+      survivor_pids: [],
+      registry_unproven: false,
     });
   });
 
@@ -287,7 +311,10 @@ describe('cleanupRegisteredAgentProcesses', () => {
     expect(result).toMatchObject({ survivor_pids: [], registry_unproven: true });
     expect(result.diagnostic_paths).toHaveLength(1);
     await expect(lstat(registryPath)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(JSON.parse(await readFile(result.diagnostic_paths![0], 'utf8')).version).toBe('evil');
+    expect(JSON.parse(await readFile(result.diagnostic_paths![0], 'utf8'))).toMatchObject({
+      version: 2,
+      reason: 'registry_structure_invalid',
+    });
   });
 
   it('opens one batch probe session for many v2 entries and closes it once', async () => {
@@ -378,5 +405,97 @@ describe('cleanupRegisteredAgentProcesses', () => {
     });
     expect(killSpy.mock.calls).toEqual([[6883, 0]]);
     expect(await lstat(evidencePath)).toMatchObject({ mode: expect.any(Number) });
+  });
+
+  it('consumes the independent Core fallback evidence directory', async () => {
+    if (process.platform === 'win32') return;
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-fallback-drain-'));
+    const emergencyDir = path.join(dataDir, AGENT_PROCESS_REGISTRY_FALLBACK_RELATIVE_DIR);
+    await mkdir(emergencyDir, { recursive: true });
+    const evidencePath = path.join(emergencyDir, 'agent-process-2-6883.json');
+    await writeFile(
+      evidencePath,
+      JSON.stringify({
+        version: 1,
+        reason: 'registry_write_failed_cleanup_unproven',
+        process: registeredProcess(),
+      })
+    );
+    const identityProbe = vi.fn<RegisteredAgentProcessIdentityProbe>().mockResolvedValue('absent');
+    vi.spyOn(process, 'kill').mockImplementation((_target, signal) => {
+      expect(signal).toBe(0);
+      throw Object.assign(new Error('group absent'), { code: 'ESRCH' });
+    });
+
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { identityProbe, termGraceMs: 0 })).resolves.toEqual({
+      survivor_pids: [],
+      registry_unproven: false,
+    });
+    await expect(lstat(evidencePath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('consumes the external fallback when the data-root evidence location failed', async () => {
+    if (process.platform === 'win32') return;
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-external-fallback-'));
+    const emergencyDir = await resolveExternalAgentProcessEmergencyDirectory(dataDir);
+    await mkdir(emergencyDir, { recursive: true });
+    const evidencePath = path.join(emergencyDir, 'agent-process-3-6883.json');
+    await writeFile(
+      evidencePath,
+      JSON.stringify({
+        version: 1,
+        reason: 'registry_write_failed_cleanup_unproven',
+        process: registeredProcess(),
+      })
+    );
+    const identityProbe = vi.fn<RegisteredAgentProcessIdentityProbe>().mockResolvedValue('absent');
+    vi.spyOn(process, 'kill').mockImplementation((_target, signal) => {
+      expect(signal).toBe(0);
+      throw Object.assign(new Error('group absent'), { code: 'ESRCH' });
+    });
+
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { identityProbe, termGraceMs: 0 })).resolves.toEqual({
+      survivor_pids: [],
+      registry_unproven: false,
+    });
+    await expect(lstat(evidencePath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await rm(emergencyDir, { recursive: true, force: true });
+  });
+
+  it('re-evaluates structured quarantine entries and retires only after PID and PGID are both absent', async () => {
+    if (process.platform === 'win32') return;
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-quarantine-recovery-'));
+    await writeRegistry(dataDir, 2, [{ ...registeredProcess(), injected: true }]);
+    const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
+
+    const first = await cleanupRegisteredAgentProcesses(dataDir, { termGraceMs: 0, bootEpochMs: 1_000 });
+    expect(first.registry_unproven).toBe(true);
+    expect(first.diagnostic_paths).toHaveLength(1);
+
+    killSpy.mockImplementation((_target, signal) => {
+      expect(signal).toBe(0);
+      throw Object.assign(new Error('absent'), { code: 'ESRCH' });
+    });
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { termGraceMs: 0, bootEpochMs: 1_000 })).resolves.toEqual({
+      survivor_pids: [],
+      registry_unproven: false,
+    });
+    await expect(lstat(first.diagnostic_paths![0])).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('scrubs raw ACP arguments from migrated and quarantined evidence', async () => {
+    const secret = '--api-key=secret-arg-value';
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-redaction-'));
+    const legacy = { ...registeredProcess({ process_identity: undefined as never }), command_preview: secret };
+    const registryPath = await writeRegistry(dataDir, 1, [legacy]);
+    vi.spyOn(process, 'kill').mockReturnValue(true);
+
+    await cleanupRegisteredAgentProcesses(dataDir, { termGraceMs: 0 });
+    expect(await readFile(registryPath, 'utf8')).not.toContain(secret);
+
+    await writeRegistry(dataDir, 2, [{ ...registeredProcess(), command_preview: secret, injected: true }]);
+    const quarantined = await cleanupRegisteredAgentProcesses(dataDir, { termGraceMs: 0 });
+    expect(quarantined.diagnostic_paths).toHaveLength(1);
+    expect(await readFile(quarantined.diagnostic_paths![0], 'utf8')).not.toContain(secret);
   });
 });

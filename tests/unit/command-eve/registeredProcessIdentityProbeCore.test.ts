@@ -1,11 +1,17 @@
 import fs from 'node:fs';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { RegisteredAgentProcessV2 } from '@aionui/web-host';
 import {
   compareCommandEveLinuxRegisteredProcessIdentity,
   compareCommandEveRegisteredProcessIdentity,
+  compareCommandEveWindowsRegisteredProcessIdentity,
   createCommandEveRegisteredProcessIdentityProbe,
+  parseWindowsBatch,
+  probeCommandEveWindowsProcessIdentities,
   probeCommandEveDarwinProcessIdentity,
   probeCommandEveLinuxProcessIdentity,
   type LinuxProcessIdentityReader,
@@ -136,6 +142,99 @@ describe('registeredProcessIdentityProbeCore', () => {
       },
     };
     await expect(probeCommandEveLinuxProcessIdentity(7021, reader)).resolves.toEqual({ state: 'absent' });
+  });
+
+  it('accepts only the exact Windows FILETIME birth identity', () => {
+    const windowsEntry = entry({
+      process_group_id: undefined,
+      process_identity: {
+        platform: 'win32',
+        start_time: { kind: 'windows_filetime_100ns', value: '133999999999999999' },
+        parent_pid: 6001,
+        executable_path: 'C:\\Program Files\\Command EVE\\hermes-command-eve.exe',
+      },
+    });
+    expect(
+      compareCommandEveWindowsRegisteredProcessIdentity(windowsEntry, {
+        pid: 7021,
+        start_time_value: '133999999999999999',
+        executable_path: 'C:\\Program Files\\Command EVE\\hermes-command-eve.exe',
+      })
+    ).toBe('match');
+    expect(
+      compareCommandEveWindowsRegisteredProcessIdentity(windowsEntry, {
+        pid: 7021,
+        start_time_value: '133999999999999998',
+        executable_path: 'C:\\Windows\\System32\\cmd.exe',
+      })
+    ).toBe('mismatch');
+  });
+
+  it('parses only a closed Windows native probe result', () => {
+    expect(
+      parseWindowsBatch(
+        JSON.stringify({
+          sentinel: 'COMMAND_EVE_WINDOWS_PROCESS_IDENTITY_V1',
+          results: [
+            {
+              state: 'observed',
+              pid: 7021,
+              start_time_value: '133999999999999999',
+              executable_path: 'C:\\Program Files\\Command EVE\\hermes-command-eve.exe',
+            },
+          ],
+        }),
+        1
+      )
+    ).toEqual([
+      {
+        state: 'observed',
+        observed: {
+          pid: 7021,
+          start_time_value: '133999999999999999',
+          executable_path: 'C:\\Program Files\\Command EVE\\hermes-command-eve.exe',
+        },
+      },
+    ]);
+    expect(
+      parseWindowsBatch(
+        JSON.stringify({
+          sentinel: 'COMMAND_EVE_WINDOWS_PROCESS_IDENTITY_V1',
+          results: [{ state: 'observed', pid: 7021, start_time_value: '1', executable_path: 'relative.exe' }],
+        }),
+        1
+      )
+    ).toBeUndefined();
+  });
+
+  it('runs the resolved native AionCore probe instead of an inherited system interpreter', async () => {
+    if (process.platform === 'win32') return;
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'command-eve-native-process-probe-'));
+    const helper = path.join(directory, 'aioncore-fixture');
+    await writeFile(
+      helper,
+      `#!/bin/sh
+test "$1" = "process-identity-probe" || exit 2
+cat >/dev/null
+printf '%s' '{"sentinel":"COMMAND_EVE_WINDOWS_PROCESS_IDENTITY_V1","results":[{"state":"observed","pid":7021,"start_time_value":"133999999999999999","executable_path":"C:\\\\Program Files\\\\Command EVE\\\\aioncore.exe"}]}'
+`
+    );
+    await chmod(helper, 0o700);
+
+    try {
+      await expect(probeCommandEveWindowsProcessIdentities([7021], () => helper)).resolves.toEqual([
+        {
+          state: 'observed',
+          observed: {
+            pid: 7021,
+            start_time_value: '133999999999999999',
+            executable_path: 'C:\\Program Files\\Command EVE\\aioncore.exe',
+          },
+        },
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('round-trips the live Darwin birth and PGID through the verified packaged interpreter helper', async () => {
