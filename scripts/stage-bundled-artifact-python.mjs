@@ -34,6 +34,8 @@ const DEFAULT_MANIFEST = path.join(REPO_ROOT, 'resources', 'bundled-python-artif
 const DEFAULT_PYTHON_ROOT = path.join(REPO_ROOT, 'build', 'bundled-python', 'python');
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const NATIVE_ENTRY_PATTERN = /\.(?:so|dylib|dll|pyd)$/i;
+const MARKER_EVALUATOR_VERSION = 'command-eve-pep508-marker-evaluator/v1';
+const MARKER_EVALUATOR_MAX_OUTPUT_BYTES = 256 * 1024;
 const WINDOWS_RESERVED_BASENAMES = new Set([
   'con',
   'prn',
@@ -91,33 +93,63 @@ function markerIsActive(marker, runtimeKey, pythonVersion) {
   // Optional extras are deliberately not enabled in the baseline artifact pack.
   if (/\bextra\b/.test(normalized)) return false;
 
-  const sysPlatform = normalized.match(/^sys_platform\s*==\s*["']([^"']+)["']$/);
-  if (sysPlatform) {
-    const targetPlatform = runtimeKey.startsWith('win32-') ? 'win32' : runtimeKey.startsWith('darwin-') ? 'darwin' : '';
-    return targetPlatform === sysPlatform[1];
+  const targetPlatform = runtimeKey.startsWith('win32-')
+    ? 'win32'
+    : runtimeKey.startsWith('darwin-')
+      ? 'darwin'
+      : runtimeKey.startsWith('linux-')
+        ? 'linux'
+        : '';
+  if (!targetPlatform) {
+    throw new Error(`Unsupported Artifact Python marker runtime: ${runtimeKey}`);
   }
+  const [pythonMajor = '0', pythonMinor = '0'] = String(pythonVersion).split('.');
+  const environment = {
+    implementation_name: 'cpython',
+    os_name: targetPlatform === 'win32' ? 'nt' : 'posix',
+    platform_python_implementation: 'CPython',
+    platform_system: targetPlatform === 'win32' ? 'Windows' : targetPlatform === 'darwin' ? 'Darwin' : 'Linux',
+    python_full_version: String(pythonVersion),
+    python_version: `${pythonMajor}.${pythonMinor}`,
+    sys_platform: targetPlatform,
+  };
 
-  const pythonMarker = normalized.match(/^python_version\s*(<=|>=|==|!=|<|>)\s*["']([^"']+)["']$/);
-  if (pythonMarker) {
-    const comparison = comparePythonVersions(pythonVersion, pythonMarker[2]);
-    return {
-      '<': comparison < 0,
-      '<=': comparison <= 0,
-      '==': comparison === 0,
-      '!=': comparison !== 0,
-      '>=': comparison >= 0,
-      '>': comparison > 0,
-    }[pythonMarker[1]];
+  const evaluateTerm = (term) => {
+    const comparisonMarker = term.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(<=|>=|==|!=|<|>)\s*["']([^"']+)["']$/);
+    if (!comparisonMarker || !(comparisonMarker[1] in environment)) {
+      throw new Error(`Unsupported Artifact Python dependency marker: ${normalized}`);
+    }
+    const [, variable, operator, expected] = comparisonMarker;
+    const actual = environment[variable];
+    if (variable === 'python_version' || variable === 'python_full_version') {
+      const comparison = comparePythonVersions(actual, expected);
+      return {
+        '<': comparison < 0,
+        '<=': comparison <= 0,
+        '==': comparison === 0,
+        '!=': comparison !== 0,
+        '>=': comparison >= 0,
+        '>': comparison > 0,
+      }[operator];
+    }
+    if (operator === '==') return actual === expected;
+    if (operator === '!=') return actual !== expected;
+    throw new Error(`Unsupported Artifact Python dependency marker: ${normalized}`);
+  };
+
+  const conjunction = normalized.split(/\s+and\s+/i);
+  if (conjunction.length > 0 && conjunction.every((term) => term.trim())) {
+    return conjunction.every(evaluateTerm);
   }
 
   throw new Error(`Unsupported Artifact Python dependency marker: ${normalized}`);
 }
 
-function activeRuntimeRequirements(metadata, runtimeKey, pythonVersion) {
+function activeRuntimeRequirements(metadata, runtimeKey, pythonVersion, evaluateMarker = markerIsActive) {
   const required = [];
   for (const match of String(metadata || '').matchAll(/^Requires-Dist:\s*(.+)$/gm)) {
     const [requirement, marker = ''] = match[1].trim().split(/\s*;\s*/, 2);
-    if (!markerIsActive(marker, runtimeKey, pythonVersion)) continue;
+    if (!evaluateMarker(marker, runtimeKey, pythonVersion)) continue;
     const dependencyName = requirement.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)/)?.[1];
     if (!dependencyName) throw new Error(`Invalid Artifact Python dependency declaration: ${match[1]}`);
     required.push(dependencyName);
@@ -125,9 +157,14 @@ function activeRuntimeRequirements(metadata, runtimeKey, pythonVersion) {
   return required;
 }
 
-export function assertRuntimeDependencyClosure(installed, runtimeKey, pythonVersion) {
+export function assertRuntimeDependencyClosure(installed, runtimeKey, pythonVersion, evaluateMarker = markerIsActive) {
   for (const distribution of installed.values()) {
-    for (const dependencyName of activeRuntimeRequirements(distribution.metadata, runtimeKey, pythonVersion)) {
+    for (const dependencyName of activeRuntimeRequirements(
+      distribution.metadata,
+      runtimeKey,
+      pythonVersion,
+      evaluateMarker
+    )) {
       if (!installed.has(normalizeDistributionName(dependencyName))) {
         throw new Error(
           `Artifact Python dependency closure is incomplete for ${distribution.name}: missing ${dependencyName} on ${runtimeKey}.`
@@ -667,6 +704,82 @@ function sanitizePythonEnvironment(environment = process.env) {
   );
 }
 
+function collectDependencyMarkers(installed) {
+  const markers = new Set();
+  for (const distribution of installed.values()) {
+    for (const match of String(distribution.metadata || '').matchAll(/^Requires-Dist:\s*(.+)$/gm)) {
+      const marker = match[1]
+        .trim()
+        .split(/\s*;\s*/, 2)[1]
+        ?.trim();
+      if (marker) markers.add(marker);
+    }
+  }
+  return [...markers].sort();
+}
+
+const PACKAGING_MARKER_EVALUATOR_SOURCE = `
+import json
+import sys
+
+site_root = sys.argv[1]
+sys.path.insert(0, site_root)
+
+from packaging.markers import Marker, default_environment
+
+markers = json.load(sys.stdin)
+if not isinstance(markers, list) or not all(isinstance(marker, str) for marker in markers):
+    raise TypeError("marker payload must be a string list")
+
+environment = default_environment()
+results = [Marker(marker).evaluate(environment=environment) for marker in markers]
+sys.stdout.write(json.dumps({"version": ${JSON.stringify(MARKER_EVALUATOR_VERSION)}, "results": results}, separators=(",", ":")))
+`;
+
+export function evaluateDependencyMarkersWithPackaging(
+  { installed, interpreter, targetDirectory },
+  deps = { spawnSync }
+) {
+  assertRegularFile(interpreter, 'Bundled Python marker interpreter');
+  assertDirectory(targetDirectory, 'Artifact Python marker site');
+  const markers = collectDependencyMarkers(installed);
+  if (markers.length === 0) return new Map();
+  const result = deps.spawnSync(
+    interpreter,
+    ['-B', '-I', '-P', '-S', '-c', PACKAGING_MARKER_EVALUATOR_SOURCE, targetDirectory],
+    {
+      cwd: path.dirname(interpreter),
+      encoding: 'utf8',
+      env: { ...sanitizePythonEnvironment(), PYTHONDONTWRITEBYTECODE: '1' },
+      input: JSON.stringify(markers),
+      maxBuffer: MARKER_EVALUATOR_MAX_OUTPUT_BYTES,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }
+  );
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `Artifact Python dependency marker evaluation failed: ${String(result.stderr || result.stdout || result.error || '').trim()}`
+    );
+  }
+  let payload;
+  try {
+    payload = JSON.parse(String(result.stdout || ''));
+  } catch {
+    throw new Error('Artifact Python dependency marker evaluator returned invalid JSON.');
+  }
+  if (
+    !payload ||
+    Object.keys(payload).sort().join(',') !== 'results,version' ||
+    payload.version !== MARKER_EVALUATOR_VERSION ||
+    !Array.isArray(payload.results) ||
+    payload.results.length !== markers.length ||
+    payload.results.some((active) => typeof active !== 'boolean')
+  ) {
+    throw new Error('Artifact Python dependency marker evaluator returned an invalid receipt.');
+  }
+  return new Map(markers.map((marker, index) => [marker, payload.results[index]]));
+}
+
 function artifactPythonProbeSource(packages, targetDirectory) {
   const packageSpecs = packages.map((entry) => ({
     distribution: entry.name,
@@ -812,7 +925,11 @@ export function stripBytecodeCaches(targetDirectory) {
 
 const COMMAND_EVE_ARTIFACT_SBOM_FILE = 'sbom.cyclonedx.json';
 const COMMAND_EVE_ARTIFACT_NOTICES_FILE = 'THIRD_PARTY_NOTICES.txt';
-const LICENSE_FILE_PATTERN = /(?:^|\/)(?:licenses?\/)?(?:licen[cs]e|copying|notice)(?:\.[^/]*)?$/i;
+const LICENSE_FILE_PATTERN = /(?:^|\/)(?:licenses?\/)?(?:licen[cs]e|copying|notice)(?:[-.][^/]*)?$/i;
+
+function distributionDistInfoPrefix(entry) {
+  return `${String(entry.name).replace(/[-_.]+/g, '_')}-${entry.version}.dist-info/`;
+}
 
 // Collect every license/notice payload shipped inside the staged dist-info
 // directories. Wheels express these either as top-level dist-info/LICENSE or
@@ -848,7 +965,7 @@ function collectDistInfoLicenseFiles(targetDirectory) {
 function collectWheelSbomComponents(targetDirectory, packages) {
   const byDistInfo = new Map();
   for (const entry of packages) {
-    const distInfoDir = `${String(entry.name).replaceAll('-', '_')}-${entry.version}.dist-info`;
+    const distInfoDir = distributionDistInfoPrefix(entry).slice(0, -1);
     byDistInfo.set(distInfoDir.toLowerCase(), entry);
   }
   const embedded = [];
@@ -895,19 +1012,17 @@ function collectWheelSbomComponents(targetDirectory, packages) {
   );
 }
 
-function writeArtifactComplianceFiles({ targetDirectory, packages, manifest }) {
+export function writeArtifactComplianceFiles({ targetDirectory, packages, manifest }) {
   const licenseFiles = collectDistInfoLicenseFiles(targetDirectory);
   const embeddedComponents = collectWheelSbomComponents(targetDirectory, packages);
 
-  // Every staged distribution must carry at least one license payload;
-  // otherwise the notices file would silently under-declare a shipped package.
+  // Exact wheel METADATA is the minimum declaration boundary. Some upstream
+  // wheels (currently primp 1.3.1) declare MIT in METADATA and their embedded
+  // SBOM but ship no separate LICENSE payload. Keep that absence explicit in
+  // THIRD_PARTY_NOTICES instead of inventing or silently omitting license text.
   for (const entry of packages) {
-    const distInfoPrefix = `${String(entry.name).replaceAll('-', '_')}-${entry.version}.dist-info/`;
-    const hasLicense = licenseFiles.some(
-      (file) => file.path.startsWith(distInfoPrefix) || file.path.toLowerCase().startsWith(distInfoPrefix.toLowerCase())
-    );
-    if (!hasLicense) {
-      throw new Error(`Distribution ${entry.name}@${entry.version} ships no license file in its dist-info tree.`);
+    if (typeof entry.license !== 'string' || !entry.license.trim()) {
+      throw new Error(`Distribution ${entry.name}@${entry.version} has no declared license.`);
     }
   }
 
@@ -944,17 +1059,17 @@ function writeArtifactComplianceFiles({ targetDirectory, packages, manifest }) {
       '',
       'This artifact tree ships the Python distributions listed below. Each',
       'section names the distribution, its pinned version, its declared license',
-      'and the full license/notice text exactly as shipped inside the signed',
-      'tree. Embedded native components (bundled shared libraries inside wheels)',
+      'and every license/notice text shipped inside the signed tree. If an',
+      'upstream wheel contains only a METADATA declaration, that absence is',
+      'called out explicitly. Embedded native components (bundled shared',
+      'libraries inside wheels)',
       'are listed in sbom.cyclonedx.json under x-command-eve-embedded-components.',
       '',
     ].join('\n')
   );
   for (const entry of packages) {
     const matching = licenseFiles.filter((file) =>
-      file.path
-        .toLowerCase()
-        .startsWith(`${String(entry.name).replaceAll('-', '_')}-${entry.version}.dist-info/`.toLowerCase())
+      file.path.toLowerCase().startsWith(distributionDistInfoPrefix(entry).toLowerCase())
     );
     noticesSections.push(
       [
@@ -965,7 +1080,13 @@ function writeArtifactComplianceFiles({ targetDirectory, packages, manifest }) {
         `SHA-256: ${entry.sha256}`,
         '='.repeat(72),
         '',
-        ...matching.flatMap((file) => [`--- ${file.path} ---`, '', file.text.trim(), '']),
+        ...(matching.length > 0
+          ? matching.flatMap((file) => [`--- ${file.path} ---`, '', file.text.trim(), ''])
+          : [
+              'No separate license text was shipped in this exact wheel.',
+              'The declaration above comes from its verified METADATA.',
+              '',
+            ]),
       ].join('\n')
     );
   }
@@ -1088,11 +1209,29 @@ export async function stageBundledArtifactPython(options) {
       throw new Error(`Installed Artifact Python metadata mismatch for ${entry.name}@${entry.version}.`);
     }
   }
-  assertRuntimeDependencyClosure(installed, runtimeKey, manifest.python_version);
+  const executableTarget = canExecuteTarget(options.platform, options.arch);
+  let markerActivity;
+  let interpreter;
+  if (executableTarget) {
+    interpreter = resolveInterpreter(pythonRoot, options.platform);
+    markerActivity = evaluateDependencyMarkersWithPackaging({ installed, interpreter, targetDirectory });
+  }
+  assertRuntimeDependencyClosure(
+    installed,
+    runtimeKey,
+    manifest.python_version,
+    (marker, targetRuntime, targetPython) => {
+      const normalized = String(marker || '').trim();
+      if (!normalized || !markerActivity) return markerIsActive(normalized, targetRuntime, targetPython);
+      if (!markerActivity.has(normalized)) {
+        throw new Error(`Artifact Python dependency marker evaluation is missing: ${normalized}`);
+      }
+      return markerActivity.get(normalized);
+    }
+  );
 
   let probeStatus = 'deferred_to_target';
-  if (canExecuteTarget(options.platform, options.arch)) {
-    const interpreter = resolveInterpreter(pythonRoot, options.platform);
+  if (executableTarget) {
     assertRegularFile(interpreter, 'Bundled Python interpreter');
     const probeCwd = path.join(pythonRoot, '.command-eve-artifact-probe-cwd');
     fs.rmSync(probeCwd, { recursive: true, force: true });

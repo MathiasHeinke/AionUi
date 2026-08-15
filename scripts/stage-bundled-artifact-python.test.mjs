@@ -11,6 +11,7 @@ import {
   artifactPythonProbeArgs,
   assertCombinedWheelLayout,
   assertRuntimeDependencyClosure,
+  evaluateDependencyMarkersWithPackaging,
   extractWheel,
   inspectWheel,
   readBuildManifest,
@@ -18,6 +19,7 @@ import {
   resolvePackageSources,
   safeWheelEntryPath,
   stripBytecodeCaches,
+  writeArtifactComplianceFiles,
 } from './stage-bundled-artifact-python.mjs';
 import { HERMES_RUNTIME_LOCK, parseHermesRuntimeLock } from './hermes/fetch-bundled-hermes-runtime.mjs';
 
@@ -121,6 +123,197 @@ test('dependency closure evaluates Windows markers and fails closed when qrcode 
 
   installed.set('colorama', { name: 'colorama', metadata: 'Name: colorama\nVersion: 0.4.6\n' });
   assert.doesNotThrow(() => assertRuntimeDependencyClosure(installed, 'win32-x64', '3.12.13'));
+});
+
+test('dependency closure evaluates the locked CPython implementation and compound platform markers', () => {
+  const root = {
+    name: 'runtime-root',
+    metadata: [
+      'Name: runtime-root',
+      'Version: 1.0.0',
+      'Requires-Dist: pycparser; implementation_name != "PyPy"',
+      "Requires-Dist: cffi; platform_python_implementation != 'PyPy'",
+      'Requires-Dist: colorama; platform_system == "Windows"',
+      "Requires-Dist: typing-extensions; python_full_version < '3.11'",
+      "Requires-Dist: pywin32; sys_platform == 'win32' and python_version < '3.14'",
+      "Requires-Dist: uvicorn; sys_platform != 'emscripten'",
+      'Requires-Dist: ruamel-yaml-clib; platform_python_implementation == "CPython" and python_version < "3.15"',
+      '',
+    ].join('\n'),
+  };
+  const installed = new Map(
+    ['runtime-root', 'pycparser', 'cffi', 'uvicorn', 'ruamel-yaml-clib'].map((name) => [
+      name,
+      name === 'runtime-root' ? root : { name, metadata: `Name: ${name}\nVersion: 1.0.0\n` },
+    ])
+  );
+
+  assert.doesNotThrow(() => assertRuntimeDependencyClosure(installed, 'darwin-arm64', '3.12.13'));
+
+  installed.set('colorama', { name: 'colorama', metadata: 'Name: colorama\nVersion: 0.4.6\n' });
+  installed.set('pywin32', { name: 'pywin32', metadata: 'Name: pywin32\nVersion: 311\n' });
+  assert.doesNotThrow(() => assertRuntimeDependencyClosure(installed, 'win32-x64', '3.12.13'));
+});
+
+test('dependency markers compare python_version as major.minor and reject unknown variables', () => {
+  const exactMinor = new Map([
+    [
+      'runtime-root',
+      {
+        name: 'runtime-root',
+        metadata: 'Name: runtime-root\nVersion: 1.0.0\nRequires-Dist: exact-python; python_version == "3.12"\n',
+      },
+    ],
+  ]);
+  assert.throws(
+    () => assertRuntimeDependencyClosure(exactMinor, 'darwin-arm64', '3.12.13'),
+    /missing exact-python on darwin-arm64/
+  );
+
+  const unknown = new Map([
+    [
+      'runtime-root',
+      {
+        name: 'runtime-root',
+        metadata: 'Name: runtime-root\nVersion: 1.0.0\nRequires-Dist: unsafe; platform_release == "unknown"\n',
+      },
+    ],
+  ]);
+  assert.throws(
+    () => assertRuntimeDependencyClosure(unknown, 'darwin-arm64', '3.12.13'),
+    /Unsupported Artifact Python dependency marker/
+  );
+});
+
+test('dependency marker evaluation delegates full PEP 508 grammar to the pinned packaging runtime', (t) => {
+  const root = makeTempDir(t);
+  const interpreter = path.join(root, 'python3.12');
+  const targetDirectory = path.join(root, 'artifact-site-packages');
+  fs.writeFileSync(interpreter, 'python');
+  fs.mkdirSync(targetDirectory);
+  const complexMarker =
+    '(sys_platform == "darwin" and platform_machine == "arm64") or ' +
+    '(sys_platform == "linux" and "android" not in platform_release)';
+  const installed = new Map([
+    [
+      'runtime-root',
+      {
+        name: 'runtime-root',
+        metadata: [
+          'Name: runtime-root',
+          'Version: 1.0.0',
+          `Requires-Dist: nemo-relay; ${complexMarker}`,
+          "Requires-Dist: colorama; platform_system == 'Windows'",
+          '',
+        ].join('\n'),
+      },
+    ],
+  ]);
+  let invocation;
+  const activity = evaluateDependencyMarkersWithPackaging(
+    { installed, interpreter, targetDirectory },
+    {
+      spawnSync(command, args, options) {
+        invocation = { command, args, options };
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            version: 'command-eve-pep508-marker-evaluator/v1',
+            results: [true, false],
+          }),
+          stderr: '',
+        };
+      },
+    }
+  );
+
+  assert.equal(invocation.command, interpreter);
+  assert.deepEqual(invocation.args.slice(0, 5), ['-B', '-I', '-P', '-S', '-c']);
+  assert.equal(invocation.args.at(-1), targetDirectory);
+  assert.deepEqual(JSON.parse(invocation.options.input), [complexMarker, "platform_system == 'Windows'"]);
+  assert.equal(activity.get(complexMarker), true);
+  assert.equal(activity.get("platform_system == 'Windows'"), false);
+});
+
+test('dependency marker evaluation rejects malformed subprocess receipts', (t) => {
+  const root = makeTempDir(t);
+  const interpreter = path.join(root, 'python3.12');
+  const targetDirectory = path.join(root, 'artifact-site-packages');
+  fs.writeFileSync(interpreter, 'python');
+  fs.mkdirSync(targetDirectory);
+  const installed = new Map([
+    [
+      'runtime-root',
+      {
+        name: 'runtime-root',
+        metadata: 'Name: runtime-root\nVersion: 1.0.0\nRequires-Dist: unsafe; sys_platform == "darwin"\n',
+      },
+    ],
+  ]);
+
+  assert.throws(
+    () =>
+      evaluateDependencyMarkersWithPackaging(
+        { installed, interpreter, targetDirectory },
+        { spawnSync: () => ({ status: 0, stdout: '{"version":"wrong","results":[true]}', stderr: '' }) }
+      ),
+    /invalid receipt/
+  );
+});
+
+test('compliance output preserves a verified metadata-only license declaration without inventing text', (t) => {
+  const targetDirectory = makeTempDir(t);
+  fs.mkdirSync(path.join(targetDirectory, 'primp-1.3.1.dist-info'));
+  fs.mkdirSync(path.join(targetDirectory, 'ruamel_yaml-0.18.17.dist-info', 'licenses'), { recursive: true });
+  fs.writeFileSync(
+    path.join(targetDirectory, 'ruamel_yaml-0.18.17.dist-info', 'licenses', 'LICENSE'),
+    'ruamel exact license text\n'
+  );
+  fs.mkdirSync(path.join(targetDirectory, 'uvloop-0.22.1.dist-info', 'licenses'), { recursive: true });
+  fs.writeFileSync(
+    path.join(targetDirectory, 'uvloop-0.22.1.dist-info', 'licenses', 'LICENSE-APACHE'),
+    'uvloop Apache text\n'
+  );
+  fs.writeFileSync(
+    path.join(targetDirectory, 'uvloop-0.22.1.dist-info', 'licenses', 'LICENSE-MIT'),
+    'uvloop MIT text\n'
+  );
+  const packages = [
+    {
+      name: 'primp',
+      version: '1.3.1',
+      license: 'MIT License',
+      filename: 'primp-1.3.1-cp310-abi3-macosx_11_0_arm64.whl',
+      sha256: 'a'.repeat(64),
+    },
+    {
+      name: 'ruamel.yaml',
+      version: '0.18.17',
+      license: 'MIT License',
+      filename: 'ruamel_yaml-0.18.17-py3-none-any.whl',
+      sha256: 'b'.repeat(64),
+    },
+    {
+      name: 'uvloop',
+      version: '0.22.1',
+      license: 'MIT OR Apache-2.0',
+      filename: 'uvloop-0.22.1-cp312-cp312-macosx_11_0_arm64.whl',
+      sha256: 'c'.repeat(64),
+    },
+  ];
+
+  writeArtifactComplianceFiles({ targetDirectory, packages, manifest: { python_version: '3.12.13' } });
+
+  const notices = fs.readFileSync(path.join(targetDirectory, 'THIRD_PARTY_NOTICES.txt'), 'utf8');
+  assert.match(notices, /primp 1\.3\.1/);
+  assert.match(notices, /License: MIT License/);
+  assert.match(notices, /No separate license text was shipped in this exact wheel/);
+  assert.match(notices, /ruamel exact license text/);
+  assert.match(notices, /uvloop Apache text/);
+  assert.match(notices, /uvloop MIT text/);
+  assert.equal((notices.match(/No separate license text was shipped/g) || []).length, 1);
+  const sbom = JSON.parse(fs.readFileSync(path.join(targetDirectory, 'sbom.cyclonedx.json'), 'utf8'));
+  assert.equal(sbom.components[0].licenses[0].license.name, 'MIT License');
 });
 
 test('isolated artifact probe explicitly disables bytecode writes', () => {
