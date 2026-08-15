@@ -58,7 +58,10 @@ describe('useAionrsMessage performance marks', () => {
     const { result } = renderHook(() => useAionrsMessage('conv-1'));
     await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
 
-    act(() => result.current.setActiveMsgId('msg-current'));
+    act(() => {
+      result.current.setActiveMsgId('msg-request');
+      result.current.setActiveTurnId('turn-current');
+    });
     act(() => {
       responseStreamHandlerRef.current?.({
         type: 'content',
@@ -70,28 +73,28 @@ describe('useAionrsMessage performance marks', () => {
       responseStreamHandlerRef.current?.({
         type: 'content',
         data: 'Hallo',
-        msg_id: 'msg-current',
+        msg_id: 'msg-response',
         turn_id: 'turn-current',
         conversation_id: 'conv-1',
       } as IResponseMessage);
       responseStreamHandlerRef.current?.({
         type: 'content',
         data: ' Welt',
-        msg_id: 'msg-current',
+        msg_id: 'msg-response',
         turn_id: 'turn-current',
         conversation_id: 'conv-1',
       } as IResponseMessage);
       responseStreamHandlerRef.current?.({
         type: 'finish',
         data: {},
-        msg_id: 'msg-current',
+        msg_id: 'msg-response',
         turn_id: 'turn-current',
         conversation_id: 'conv-1',
       } as IResponseMessage);
       responseStreamHandlerRef.current?.({
         type: 'finish',
         data: {},
-        msg_id: 'msg-current',
+        msg_id: 'msg-response',
         turn_id: 'turn-current',
         conversation_id: 'conv-1',
       } as IResponseMessage);

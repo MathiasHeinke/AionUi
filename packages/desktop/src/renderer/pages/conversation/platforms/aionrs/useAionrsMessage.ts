@@ -45,6 +45,7 @@ export const useAionrsMessage = (
   const [tokenUsage, setTokenUsage] = useState<TokenUsageData | null>(null);
   // Current active message ID to filter out events from old requests (prevents aborted request events from interfering with new ones)
   const activeMsgIdRef = useRef<string | null>(null);
+  const activeTurnIdRef = useRef<string | null>(null);
   const messageBufferRef = useRef(new Map<string, string>());
   const processedCronMsgIdsRef = useRef(new Set<string>());
   const firstTextTurnKeysRef = useRef(new Set<string>());
@@ -124,6 +125,10 @@ export const useAionrsMessage = (
   // Set current active message ID
   const setActiveMsgId = useCallback((msgId: string | null) => {
     activeMsgIdRef.current = msgId;
+  }, []);
+
+  const setActiveTurnId = useCallback((turnId: string | null) => {
+    activeTurnIdRef.current = turnId;
   }, []);
 
   const processCompletedAssistantMessage = useCallback(
@@ -225,7 +230,9 @@ export const useAionrsMessage = (
         if (chunk) {
           const previous = messageBufferRef.current.get(message.msg_id) ?? '';
           messageBufferRef.current.set(message.msg_id, previous + chunk);
-          const belongsToActiveTurn = !activeMsgIdRef.current || activeMsgIdRef.current === message.msg_id;
+          const belongsToActiveTurn = activeTurnIdRef.current
+            ? Boolean(message.turn_id) && activeTurnIdRef.current === message.turn_id
+            : !activeMsgIdRef.current || activeMsgIdRef.current === message.msg_id;
           const turnKey = message.turn_id || message.msg_id;
           if (belongsToActiveTurn && !firstTextTurnKeysRef.current.has(turnKey)) {
             firstTextTurnKeysRef.current.add(turnKey);
@@ -255,8 +262,9 @@ export const useAionrsMessage = (
         case 'finish':
           {
             logStreamTerminalObserved(conversation_id, message.turn_id, 'aionrs', message.type);
-            const belongsToActiveTurn =
-              !activeMsgIdRef.current || (Boolean(message.msg_id) && activeMsgIdRef.current === message.msg_id);
+            const belongsToActiveTurn = activeTurnIdRef.current
+              ? Boolean(message.turn_id) && activeTurnIdRef.current === message.turn_id
+              : !activeMsgIdRef.current || (Boolean(message.msg_id) && activeMsgIdRef.current === message.msg_id);
             const turnKey = message.turn_id || message.msg_id;
             if (belongsToActiveTurn && turnKey && !finishedTurnKeysRef.current.has(turnKey)) {
               finishedTurnKeysRef.current.add(turnKey);
@@ -447,6 +455,7 @@ export const useAionrsMessage = (
     hasContentInTurnRef.current = false;
     // Clear active message ID to prevent filtering events from new messages after stop
     activeMsgIdRef.current = null;
+    activeTurnIdRef.current = null;
   }, []);
 
   return {
@@ -456,6 +465,7 @@ export const useAionrsMessage = (
     hasHydratedRunningState,
     tokenUsage,
     setActiveMsgId,
+    setActiveTurnId,
     setWaitingResponse,
     resetState,
   };

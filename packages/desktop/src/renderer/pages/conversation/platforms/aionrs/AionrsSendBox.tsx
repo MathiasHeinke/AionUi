@@ -147,14 +147,17 @@ const AionrsSendBox: React.FC<{
   const teamPermission = useTeamPermission();
   const propagateMode = teamPermission?.propagateMode;
 
-  const { thought, running, setActiveMsgId, setWaitingResponse, resetState } = useAionrsMessage(conversation_id, {
-    onConfigChanged: (capabilities) => {
-      const modes = (capabilities as { modes?: string[] })?.modes;
-      if (modes && modes.length > 0) {
-        setDynamicModes(mergeWithCapabilities('aionrs', modes));
-      }
-    },
-  });
+  const { thought, running, setActiveMsgId, setActiveTurnId, setWaitingResponse, resetState } = useAionrsMessage(
+    conversation_id,
+    {
+      onConfigChanged: (capabilities) => {
+        const modes = (capabilities as { modes?: string[] })?.modes;
+        if (modes && modes.length > 0) {
+          setDynamicModes(mergeWithCapabilities('aionrs', modes));
+        }
+      },
+    }
+  );
   const runtimeView = useConversationRuntimeView(conversation_id);
 
   useEffect(() => {
@@ -284,6 +287,7 @@ const AionrsSendBox: React.FC<{
           turnId: res.turn_id,
         });
         void checkAndUpdateTitle(conversation_id, input, isCurrent);
+        setActiveTurnId(res.turn_id);
         setActiveMsgId(res.msg_id);
         emitter.emit('chat.history.refresh');
         if (files.length > 0) {
@@ -319,6 +323,7 @@ const AionrsSendBox: React.FC<{
       current_model?.use_model,
       runtimeView,
       setActiveMsgId,
+      setActiveTurnId,
       setWaitingResponse,
       t,
       teamPermission,
