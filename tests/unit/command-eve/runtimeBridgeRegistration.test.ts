@@ -44,23 +44,52 @@ describe('Command EVE runtime bridge registration', () => {
     );
   });
 
-  it('checks the completed runtime receipt before a new bootstrap can overwrite it', () => {
+  it('decides ABI recovery before AionCore starts while compatible warm boots remain deferred', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const bootstrapOptions = source.indexOf('const bootstrapOptions =');
+    const deferredHelper = source.indexOf('const deferRemainingRuntimeBootstrap =');
+    const automaticWait = source.indexOf('let automaticRuntimeRepairReason:');
+    const earlyFailClosed = source.indexOf('commandEveAutomaticRuntimeRepairRequired = app.isPackaged;');
+    const ancestryGate = source.indexOf(
+      'if (app.isPackaged && !commandEveRuntimeManagedAncestryIsSafe({ userDataPath: getDataPath() }))',
+      automaticWait
+    );
+    const shimStart = source.indexOf('const shimUrl = rememberCommandEveOllamaShimUrl(', automaticWait);
     const waitDecision = source.indexOf('const mustWaitForRuntimeBootstrap =');
-    const bootstrapOptions = source.indexOf('const bootstrapOptions =', waitDecision);
     const blockingBootstrapStart = source.indexOf(
-      'await ensureCommandEveRuntimeBootstrap(bootstrapOptions)',
+      'const receipt = await ensureCommandEveRuntimeBootstrap({',
       waitDecision
     );
     const deferredBootstrapStart = source.indexOf(
       'void ensureCommandEveRuntimeBootstrap(bootstrapOptions)',
-      waitDecision
+      deferredHelper
     );
+    const backendStart = source.indexOf('// Start aioncore only after initializeProcess()', waitDecision);
 
+    expect(earlyFailClosed).toBeGreaterThan(-1);
+    expect(automaticWait).toBeGreaterThan(earlyFailClosed);
+    expect(ancestryGate).toBeGreaterThan(automaticWait);
+    expect(shimStart).toBeGreaterThan(ancestryGate);
+    expect(bootstrapOptions).toBeGreaterThan(shimStart);
+    expect(deferredHelper).toBeGreaterThan(bootstrapOptions);
+    expect(deferredBootstrapStart).toBeGreaterThan(deferredHelper);
     expect(waitDecision).toBeGreaterThan(-1);
-    expect(bootstrapOptions).toBeGreaterThan(waitDecision);
+    expect(waitDecision).toBeGreaterThan(bootstrapOptions);
     expect(blockingBootstrapStart).toBeGreaterThan(waitDecision);
-    expect(deferredBootstrapStart).toBeGreaterThan(waitDecision);
+    expect(backendStart).toBeGreaterThan(blockingBootstrapStart);
+    expect(source.slice(automaticWait, backendStart)).toContain('commandEveAutomaticRuntimeRepairRequired ||');
+    expect(source.slice(waitDecision, backendStart)).toContain(
+      'stopAfterHermesRuntimeReady: commandEveAutomaticRuntimeRepairRequired'
+    );
+    expect(source.slice(waitDecision, backendStart)).toContain('deferRemainingRuntimeBootstrap(true)');
+    expect(source.slice(automaticWait, backendStart)).toContain('commandEveRuntimeVenvIsBackendAdmissible');
+    expect(source.slice(automaticWait, backendStart)).toContain('throw new Error(');
+    expect(source.slice(automaticWait, waitDecision)).toContain(
+      "automaticRuntimeRepairReason = 'python_venv_recovery'"
+    );
+    expect(source.slice(backendStart - 500, backendStart)).toContain(
+      '!commandEveOllamaShimUrl || commandEveAutomaticRuntimeRepairRequired'
+    );
   });
 
   it('never falls back to loading a local model before backend settings are readable', () => {

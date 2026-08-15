@@ -933,6 +933,13 @@ export type RuntimeBootstrapOptions = {
   capabilityManifestPath?: string;
   mode?: RuntimeBootstrapMode;
   /**
+   * Startup repair seam: stop once the canonical Python/Hermes/document
+   * runtime has been atomically verified. Independent web and local-model
+   * provisioning stays deferred so an ABI repair cannot hold the first chat
+   * behind network installs or multi-gigabyte model downloads.
+   */
+  stopAfterHermesRuntimeReady?: boolean;
+  /**
    * Colibri is a roughly 400 GB install. Normal app bootstrap must never start
    * or resume it implicitly; only the explicit model-settings action sets this.
    */
@@ -4011,28 +4018,596 @@ function readVenvPythonVersion(paths: RuntimeBootstrapPaths): ReturnType<typeof 
   }
 }
 
-function venvPythonAbiMismatch(paths: RuntimeBootstrapPaths, selectedVersionText = ''): boolean {
-  if (!fs.existsSync(pythonBinary(paths))) return false;
-  const selected = parsePythonVersion(selectedVersionText);
-  const existing = readVenvPythonVersion(paths);
-  return Boolean(selected && existing && (selected.major !== existing.major || selected.minor !== existing.minor));
+type ExistingHermesVenvCompatibility = 'absent' | 'compatible' | 'mismatch' | 'unproven';
+
+function existingHermesVenvCompatibility(
+  paths: RuntimeBootstrapPaths,
+  selectedVersionText = '',
+  selectedPythonPath = ''
+): ExistingHermesVenvCompatibility {
+  try {
+    const venv = lstatManagedEntry(paths.hermesVenv);
+    if (!venv) return 'absent';
+    if (!venv.isDirectory() || venv.isSymbolicLink()) return 'unproven';
+    assertManagedHermesEntry(paths, paths.hermesVenv, 'venv');
+
+    const executableDirectory = path.dirname(pythonBinary(paths));
+    const executableDirectoryStat = fs.lstatSync(executableDirectory);
+    if (!executableDirectoryStat.isDirectory() || executableDirectoryStat.isSymbolicLink()) return 'unproven';
+    if (
+      fs.realpathSync(executableDirectory) !==
+      path.join(fs.realpathSync(paths.hermesVenv), paths.platform === 'win32' ? 'Scripts' : 'bin')
+    ) {
+      return 'unproven';
+    }
+
+    const python = lstatManagedEntry(pythonBinary(paths));
+    if (!python) return 'unproven';
+    if (python.isSymbolicLink()) {
+      // POSIX venvs normally symlink bin/python to their base interpreter.
+      // The endpoint still has to resolve to the exact interpreter selected
+      // for this bootstrap; merely sharing a version string in pyvenv.cfg is
+      // not authority to execute an arbitrary external file. Windows venv
+      // launchers are real files and a symlink there is never expected.
+      if (
+        paths.platform === 'win32' ||
+        !selectedPythonPath ||
+        !fs.statSync(pythonBinary(paths)).isFile() ||
+        fs.realpathSync(pythonBinary(paths)) !== fs.realpathSync(selectedPythonPath)
+      ) {
+        return 'unproven';
+      }
+    } else if (!python.isFile()) {
+      return 'unproven';
+    }
+
+    const selected = parsePythonVersion(selectedVersionText);
+    const existing = readVenvPythonVersion(paths);
+    // A standard venv always carries pyvenv.cfg. If it is unreadable,
+    // malformed, symlinked or missing we cannot prove ABI compatibility and
+    // must repair it through the same rollback-safe path as a known mismatch.
+    if (!selected || !existing) return 'unproven';
+    return selected.major === existing.major && selected.minor === existing.minor ? 'compatible' : 'mismatch';
+  } catch {
+    return 'unproven';
+  }
 }
 
-function removeMismatchedRuntimeVenv(paths: RuntimeBootstrapPaths): void {
-  const expectedVenv = path.join(paths.hermesRoot, 'venv');
-  if (path.resolve(paths.hermesVenv) !== path.resolve(expectedVenv)) {
+const RUNTIME_VENV_REPLACEMENT_VERSION = 'command-eve-runtime-venv-replacement/v1' as const;
+const RUNTIME_VENV_REPLACEMENT_MARKER_FILE = 'venv-replacement.json';
+
+type RuntimeVenvReplacementPhase = 'preparing' | 'prepared' | 'candidate_verified' | 'committed' | 'rolled_back';
+
+type RuntimeVenvReplacementMarker = {
+  version: typeof RUNTIME_VENV_REPLACEMENT_VERSION;
+  transaction_id: string;
+  phase: RuntimeVenvReplacementPhase;
+  from_python: string;
+  to_python: string;
+  from_hermes: string;
+  to_hermes: string;
+  had_wheel_receipt: boolean;
+  started_at: string;
+};
+
+type RuntimeVenvReplacement = {
+  markerPath: string;
+  marker: RuntimeVenvReplacementMarker;
+  previousVenv: string;
+  failedVenv: string;
+  wheelReceiptPath: string;
+  previousWheelReceiptPath: string;
+  failedWheelReceiptPath: string;
+};
+
+type ManagedHermesVenvName = 'venv' | 'venv.previous' | `venv.failed.${string}`;
+
+function lstatManagedEntry(candidate: string): fs.Stats | null {
+  try {
+    return fs.lstatSync(candidate);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function managedRuntimeAncestryIsSafe(paths: RuntimeBootstrapPaths): boolean {
+  try {
+    const expectedRuntimeRoot = path.join(paths.userDataPath, 'command-eve-runtime');
+    const expectedHermesRoot = path.join(expectedRuntimeRoot, 'hermes');
+    if (
+      path.resolve(paths.runtimeRoot) !== path.resolve(expectedRuntimeRoot) ||
+      path.resolve(paths.hermesRoot) !== path.resolve(expectedHermesRoot) ||
+      path.resolve(paths.hermesVenv) !== path.resolve(path.join(expectedHermesRoot, 'venv'))
+    ) {
+      return false;
+    }
+
+    const userDataStat = lstatManagedEntry(paths.userDataPath);
+    if (!userDataStat?.isDirectory() || userDataStat.isSymbolicLink()) return false;
+    const userDataReal = fs.realpathSync(paths.userDataPath);
+
+    const runtimeRootStat = lstatManagedEntry(paths.runtimeRoot);
+    if (!runtimeRootStat) return true;
+    if (!runtimeRootStat.isDirectory() || runtimeRootStat.isSymbolicLink()) return false;
+    const runtimeRootReal = fs.realpathSync(paths.runtimeRoot);
+    if (runtimeRootReal !== path.join(userDataReal, 'command-eve-runtime')) return false;
+
+    const hermesRootStat = lstatManagedEntry(paths.hermesRoot);
+    if (!hermesRootStat) return true;
+    if (!hermesRootStat.isDirectory() || hermesRootStat.isSymbolicLink()) return false;
+    return fs.realpathSync(paths.hermesRoot) === path.join(runtimeRootReal, 'hermes');
+  } catch {
+    return false;
+  }
+}
+
+export function commandEveRuntimeManagedAncestryIsSafe(options: {
+  userDataPath: string;
+  platform?: NodeJS.Platform;
+  seatId?: string | null;
+}): boolean {
+  const platform = options.platform ?? process.platform;
+  return managedRuntimeAncestryIsSafe(
+    resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, options.seatId, platform)
+  );
+}
+
+function assertManagedHermesRoot(paths: RuntimeBootstrapPaths): string {
+  const expectedRuntimeRoot = path.join(paths.userDataPath, 'command-eve-runtime');
+  const expectedHermesRoot = path.join(expectedRuntimeRoot, 'hermes');
+  if (
+    path.resolve(paths.runtimeRoot) !== path.resolve(expectedRuntimeRoot) ||
+    path.resolve(paths.hermesRoot) !== path.resolve(expectedHermesRoot) ||
+    path.resolve(paths.hermesVenv) !== path.resolve(path.join(expectedHermesRoot, 'venv'))
+  ) {
     throw new Error('unsafe Hermes venv path');
   }
-  const stat = fs.lstatSync(paths.hermesVenv);
-  if (stat.isDirectory() && !stat.isSymbolicLink()) {
-    fs.rmSync(paths.hermesVenv, { recursive: true, force: false });
+
+  const managedAncestors = [
+    ['user data root', paths.userDataPath],
+    ['runtime root', paths.runtimeRoot],
+    ['Hermes root', paths.hermesRoot],
+  ] as const;
+  for (const [label, directory] of managedAncestors) {
+    const ancestorStat = fs.lstatSync(directory);
+    if (!ancestorStat.isDirectory() || ancestorStat.isSymbolicLink()) {
+      throw new Error(`unsafe ${label}`);
+    }
+  }
+
+  const userDataReal = fs.realpathSync(paths.userDataPath);
+  const runtimeRootReal = fs.realpathSync(paths.runtimeRoot);
+  const hermesRootReal = fs.realpathSync(paths.hermesRoot);
+  if (
+    runtimeRootReal !== path.join(userDataReal, 'command-eve-runtime') ||
+    hermesRootReal !== path.join(runtimeRootReal, 'hermes')
+  ) {
+    throw new Error('Hermes venv ancestry escaped the managed runtime');
+  }
+  return hermesRootReal;
+}
+
+function assertManagedHermesEntry(
+  paths: RuntimeBootstrapPaths,
+  candidate: string,
+  expectedName: ManagedHermesVenvName
+): fs.Stats {
+  const hermesRootReal = assertManagedHermesRoot(paths);
+  if (path.resolve(candidate) !== path.resolve(path.join(paths.hermesRoot, expectedName))) {
+    throw new Error(`unsafe Hermes ${expectedName} path`);
+  }
+  const stat = fs.lstatSync(candidate);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error(`unsafe Hermes ${expectedName} directory`);
+  }
+  if (fs.realpathSync(candidate) !== path.join(hermesRootReal, expectedName)) {
+    throw new Error(`Hermes ${expectedName} escaped the managed runtime`);
+  }
+  return stat;
+}
+
+function removeManagedHermesEntry(
+  paths: RuntimeBootstrapPaths,
+  candidate: string,
+  expectedName: ManagedHermesVenvName
+): void {
+  const stat = lstatManagedEntry(candidate);
+  if (!stat) return;
+  assertManagedHermesEntry(paths, candidate, expectedName);
+  fs.rmSync(candidate, { recursive: true, force: false, maxRetries: 3, retryDelay: 100 });
+}
+
+function assertManagedHermesFile(paths: RuntimeBootstrapPaths, file: string, expectedName: string): fs.Stats {
+  const hermesRootReal = assertManagedHermesRoot(paths);
+  if (path.resolve(file) !== path.resolve(path.join(paths.hermesRoot, expectedName))) {
+    throw new Error(`unsafe managed Hermes file: ${expectedName}`);
+  }
+  const stat = fs.lstatSync(file);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('unsafe Hermes wheel receipt');
+  if (fs.realpathSync(file) !== path.join(hermesRootReal, expectedName)) {
+    throw new Error(`managed Hermes file escaped the runtime: ${expectedName}`);
+  }
+  return stat;
+}
+
+function removeManagedHermesFile(paths: RuntimeBootstrapPaths, file: string, expectedName: string): void {
+  if (!lstatManagedEntry(file)) return;
+  assertManagedHermesFile(paths, file, expectedName);
+  fs.unlinkSync(file);
+}
+
+function isRuntimeVenvReplacementTransactionId(value: unknown): value is string {
+  return (
+    typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
+  );
+}
+
+function runtimeVenvReplacementFromMarker(
+  paths: RuntimeBootstrapPaths,
+  marker: RuntimeVenvReplacementMarker
+): RuntimeVenvReplacement {
+  const previousVenv = path.join(paths.hermesRoot, 'venv.previous');
+  const wheelReceiptPath = path.join(paths.hermesRoot, COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE);
+  const previousWheelReceiptPath = `${wheelReceiptPath}.previous`;
+  return {
+    markerPath: path.join(paths.hermesRoot, RUNTIME_VENV_REPLACEMENT_MARKER_FILE),
+    marker,
+    previousVenv,
+    failedVenv: path.join(paths.hermesRoot, `venv.failed.${marker.transaction_id}`),
+    wheelReceiptPath,
+    previousWheelReceiptPath,
+    failedWheelReceiptPath: `${wheelReceiptPath}.failed.${marker.transaction_id}`,
+  };
+}
+
+function writeRuntimeVenvReplacementMarker(
+  paths: RuntimeBootstrapPaths,
+  replacement: RuntimeVenvReplacement,
+  phase: RuntimeVenvReplacementPhase
+): void {
+  const marker = { ...replacement.marker, phase };
+  const markerStat = lstatManagedEntry(replacement.markerPath);
+  if (markerStat) {
+    assertManagedHermesFile(paths, replacement.markerPath, RUNTIME_VENV_REPLACEMENT_MARKER_FILE);
+  }
+  writeJsonAtomic(replacement.markerPath, marker);
+  replacement.marker = marker;
+}
+
+function readRuntimeVenvReplacementMarker(paths: RuntimeBootstrapPaths): RuntimeVenvReplacementMarker | null {
+  const markerPath = path.join(paths.hermesRoot, RUNTIME_VENV_REPLACEMENT_MARKER_FILE);
+  const stat = lstatManagedEntry(markerPath);
+  if (!stat) return null;
+  assertManagedHermesFile(paths, markerPath, RUNTIME_VENV_REPLACEMENT_MARKER_FILE);
+  if (stat.size > 16 * 1024) throw new Error('Hermes venv replacement marker is too large');
+  const parsed = JSON.parse(fs.readFileSync(markerPath, 'utf8')) as Partial<RuntimeVenvReplacementMarker>;
+  const expectedKeys = [
+    'from_hermes',
+    'from_python',
+    'had_wheel_receipt',
+    'phase',
+    'started_at',
+    'to_hermes',
+    'to_python',
+    'transaction_id',
+    'version',
+  ];
+  if (
+    JSON.stringify(Object.keys(parsed).toSorted()) !== JSON.stringify(expectedKeys) ||
+    parsed.version !== RUNTIME_VENV_REPLACEMENT_VERSION ||
+    !isRuntimeVenvReplacementTransactionId(parsed.transaction_id) ||
+    !['preparing', 'prepared', 'candidate_verified', 'committed', 'rolled_back'].includes(String(parsed.phase)) ||
+    typeof parsed.from_python !== 'string' ||
+    typeof parsed.to_python !== 'string' ||
+    typeof parsed.from_hermes !== 'string' ||
+    typeof parsed.to_hermes !== 'string' ||
+    typeof parsed.had_wheel_receipt !== 'boolean' ||
+    typeof parsed.started_at !== 'string' ||
+    !Number.isFinite(Date.parse(parsed.started_at))
+  ) {
+    throw new Error('Hermes venv replacement marker is malformed');
+  }
+  return parsed as RuntimeVenvReplacementMarker;
+}
+
+function beginRuntimeVenvReplacement(
+  paths: RuntimeBootstrapPaths,
+  input: { fromPython: string; toPython: string; fromHermes: string; toHermes: string }
+): RuntimeVenvReplacement {
+  assertManagedHermesEntry(paths, paths.hermesVenv, 'venv');
+  const existing = interruptedRuntimeVenvReplacement(paths);
+  if (existing) throw new Error('a previous Hermes venv replacement is still present');
+  const wheelReceiptPath = path.join(paths.hermesRoot, COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE);
+  const wheelReceiptStat = lstatManagedEntry(wheelReceiptPath);
+  if (wheelReceiptStat) assertManagedHermesFile(paths, wheelReceiptPath, COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE);
+  const marker: RuntimeVenvReplacementMarker = {
+    version: RUNTIME_VENV_REPLACEMENT_VERSION,
+    transaction_id: crypto.randomUUID(),
+    phase: 'preparing',
+    from_python: input.fromPython,
+    to_python: input.toPython,
+    from_hermes: input.fromHermes,
+    to_hermes: input.toHermes,
+    had_wheel_receipt: Boolean(wheelReceiptStat),
+    started_at: new Date().toISOString(),
+  };
+  const replacement = runtimeVenvReplacementFromMarker(paths, marker);
+  for (const [candidate, expectedName] of [
+    [replacement.previousVenv, 'venv.previous'],
+    [replacement.failedVenv, `venv.failed.${marker.transaction_id}`],
+    [replacement.previousWheelReceiptPath, `${COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE}.previous`],
+    [replacement.failedWheelReceiptPath, `${COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE}.failed.${marker.transaction_id}`],
+    [replacement.markerPath, RUNTIME_VENV_REPLACEMENT_MARKER_FILE],
+  ] as const) {
+    if (lstatManagedEntry(candidate)) throw new Error(`stale Hermes replacement artifact: ${expectedName}`);
+  }
+  writeJsonAtomic(replacement.markerPath, marker);
+  try {
+    if (marker.had_wheel_receipt) {
+      fs.renameSync(replacement.wheelReceiptPath, replacement.previousWheelReceiptPath);
+    }
+    fs.renameSync(paths.hermesVenv, replacement.previousVenv);
+    writeRuntimeVenvReplacementMarker(paths, replacement, 'prepared');
+  } catch (error) {
+    try {
+      rollbackRuntimeVenvReplacement(paths, replacement);
+    } catch {
+      // Preserve every artifact and the marker for startup recovery.
+    }
+    throw error;
+  }
+  return replacement;
+}
+
+function rollbackRuntimeVenvReplacement(
+  paths: RuntimeBootstrapPaths,
+  replacement: RuntimeVenvReplacement
+): { cleanupPending: boolean } {
+  if (replacement.marker.phase === 'committed') {
+    throw new Error('a committed Hermes venv replacement cannot be rolled back');
+  }
+  const transactionId = replacement.marker.transaction_id;
+  let cleanupPending = false;
+  if (replacement.marker.phase !== 'rolled_back') {
+    const previousVenvStat = lstatManagedEntry(replacement.previousVenv);
+    const currentVenvStat = lstatManagedEntry(paths.hermesVenv);
+    if (previousVenvStat) {
+      assertManagedHermesEntry(paths, replacement.previousVenv, 'venv.previous');
+      if (currentVenvStat) {
+        assertManagedHermesEntry(paths, paths.hermesVenv, 'venv');
+        if (lstatManagedEntry(replacement.failedVenv)) throw new Error('failed Hermes candidate already exists');
+        fs.renameSync(paths.hermesVenv, replacement.failedVenv);
+      }
+      try {
+        fs.renameSync(replacement.previousVenv, paths.hermesVenv);
+      } catch (error) {
+        if (!lstatManagedEntry(paths.hermesVenv) && lstatManagedEntry(replacement.failedVenv)) {
+          fs.renameSync(replacement.failedVenv, paths.hermesVenv);
+        }
+        throw error;
+      }
+    } else if (!currentVenvStat) {
+      throw new Error('neither the previous nor current Hermes venv exists');
+    }
+
+    const previousReceiptStat = lstatManagedEntry(replacement.previousWheelReceiptPath);
+    const currentReceiptStat = lstatManagedEntry(replacement.wheelReceiptPath);
+    if (replacement.marker.had_wheel_receipt) {
+      if (previousReceiptStat) {
+        assertManagedHermesFile(
+          paths,
+          replacement.previousWheelReceiptPath,
+          `${COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE}.previous`
+        );
+        if (currentReceiptStat) {
+          assertManagedHermesFile(paths, replacement.wheelReceiptPath, COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE);
+          if (lstatManagedEntry(replacement.failedWheelReceiptPath)) {
+            throw new Error('failed Hermes wheel receipt already exists');
+          }
+          fs.renameSync(replacement.wheelReceiptPath, replacement.failedWheelReceiptPath);
+        }
+        fs.renameSync(replacement.previousWheelReceiptPath, replacement.wheelReceiptPath);
+      } else if (!currentReceiptStat) {
+        throw new Error('the previous Hermes wheel receipt is missing');
+      }
+    } else if (currentReceiptStat) {
+      assertManagedHermesFile(paths, replacement.wheelReceiptPath, COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE);
+      if (lstatManagedEntry(replacement.failedWheelReceiptPath)) {
+        throw new Error('failed Hermes wheel receipt already exists');
+      }
+      fs.renameSync(replacement.wheelReceiptPath, replacement.failedWheelReceiptPath);
+    }
+    writeRuntimeVenvReplacementMarker(paths, replacement, 'rolled_back');
+  }
+
+  try {
+    removeManagedHermesEntry(paths, replacement.failedVenv, `venv.failed.${transactionId}`);
+    removeManagedHermesFile(
+      paths,
+      replacement.failedWheelReceiptPath,
+      `${COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE}.failed.${transactionId}`
+    );
+  } catch {
+    cleanupPending = true;
+  }
+  if (!cleanupPending) {
+    try {
+      removeManagedHermesFile(paths, replacement.markerPath, RUNTIME_VENV_REPLACEMENT_MARKER_FILE);
+    } catch {
+      cleanupPending = true;
+    }
+  }
+  return { cleanupPending };
+}
+
+function completeRuntimeVenvReplacement(
+  paths: RuntimeBootstrapPaths,
+  replacement: RuntimeVenvReplacement
+): { cleanupPending: boolean } {
+  assertManagedHermesEntry(paths, paths.hermesVenv, 'venv');
+  if (replacement.marker.phase !== 'committed') {
+    writeRuntimeVenvReplacementMarker(paths, replacement, 'candidate_verified');
+    writeRuntimeVenvReplacementMarker(paths, replacement, 'committed');
+  }
+  let cleanupPending = false;
+  try {
+    removeManagedHermesEntry(paths, replacement.previousVenv, 'venv.previous');
+    removeManagedHermesFile(
+      paths,
+      replacement.previousWheelReceiptPath,
+      `${COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE}.previous`
+    );
+  } catch {
+    cleanupPending = true;
+  }
+  if (!cleanupPending) {
+    try {
+      removeManagedHermesFile(paths, replacement.markerPath, RUNTIME_VENV_REPLACEMENT_MARKER_FILE);
+    } catch {
+      cleanupPending = true;
+    }
+  }
+  return { cleanupPending };
+}
+
+function interruptedRuntimeVenvReplacement(paths: RuntimeBootstrapPaths): RuntimeVenvReplacement | null {
+  const marker = readRuntimeVenvReplacementMarker(paths);
+  const previousVenv = path.join(paths.hermesRoot, 'venv.previous');
+  const previousWheelReceiptPath = path.join(paths.hermesRoot, `${COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE}.previous`);
+  const orphaned =
+    Boolean(lstatManagedEntry(previousVenv)) ||
+    Boolean(lstatManagedEntry(previousWheelReceiptPath)) ||
+    fs
+      .readdirSync(paths.hermesRoot)
+      .some(
+        (name) => name.startsWith('venv.failed.') || name.startsWith(`${COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE}.failed.`)
+      );
+  if (!marker) {
+    if (orphaned) throw new Error('orphaned Hermes venv replacement artifacts exist without a marker');
+    return null;
+  }
+  return runtimeVenvReplacementFromMarker(paths, marker);
+}
+
+function recoverInterruptedRuntimeVenvReplacement(paths: RuntimeBootstrapPaths): void {
+  const interrupted = interruptedRuntimeVenvReplacement(paths);
+  if (!interrupted) return;
+  if (interrupted.marker.phase === 'committed') {
+    completeRuntimeVenvReplacement(paths, interrupted);
     return;
   }
-  if (stat.isSymbolicLink() || stat.isFile()) {
-    fs.unlinkSync(paths.hermesVenv);
-    return;
+  rollbackRuntimeVenvReplacement(paths, interrupted);
+}
+
+export type CommandEveRuntimeBootstrapStartupWaitReason =
+  | 'python_abi_mismatch'
+  | 'python_abi_unproven'
+  | 'python_venv_recovery';
+
+/**
+ * Synchronous, read-only gate used before AionCore starts.
+ *
+ * Cold installs remain interactive. Only an existing runtime that must be
+ * replaced (or recovered) forces the already-existing bootstrap await path,
+ * closing the window where the backend could admit a prompt while `venv` is
+ * temporarily parked as `venv.previous`.
+ */
+export function commandEveRuntimeBootstrapStartupWaitReason(options: {
+  userDataPath: string;
+  resourcesPath?: string;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  seatId?: string | null;
+}): CommandEveRuntimeBootstrapStartupWaitReason | null {
+  const platform = options.platform ?? process.platform;
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, options.seatId, platform);
+  const hermesRootStat = lstatManagedEntry(paths.hermesRoot);
+  if (!hermesRootStat) return null;
+  if (!hermesRootStat.isDirectory() || hermesRootStat.isSymbolicLink()) return 'python_venv_recovery';
+  let interrupted: RuntimeVenvReplacement | null = null;
+  try {
+    interrupted = interruptedRuntimeVenvReplacement(paths);
+    if (interrupted && !['committed', 'rolled_back'].includes(interrupted.marker.phase)) {
+      return 'python_venv_recovery';
+    }
+  } catch {
+    return 'python_venv_recovery';
   }
-  throw new Error('unsupported Hermes venv filesystem entry');
+  const venvStat = lstatManagedEntry(paths.hermesVenv);
+  if (!venvStat) return interrupted ? 'python_venv_recovery' : null;
+  if (!venvStat.isDirectory() || venvStat.isSymbolicLink()) return 'python_venv_recovery';
+
+  const env = { ...process.env, ...options.env };
+  const bundledPython = resolveBundledPythonCandidate(env, options.resourcesPath, platform);
+  if (!bundledPython || !fs.existsSync(bundledPython) || compact(env[COMMAND_EVE_BUNDLED_PYTHON_ENV])) {
+    return 'python_abi_unproven';
+  }
+  const provenance = readBundledPythonProvenance(options.resourcesPath);
+  const selected = provenance ? parsePythonVersion(`Python ${provenance.python_version}`) : null;
+  if (!selected) return 'python_abi_unproven';
+  const compatibility = existingHermesVenvCompatibility(paths, `Python ${provenance.python_version}`, bundledPython);
+  if (compatibility === 'mismatch') return 'python_abi_mismatch';
+  return compatibility === 'compatible' ? null : 'python_abi_unproven';
+}
+
+function runtimeVenvEntriesAreBackendAdmissible(paths: RuntimeBootstrapPaths, expectedPythonPath = ''): boolean {
+  try {
+    assertManagedHermesEntry(paths, paths.hermesVenv, 'venv');
+    const executableDirectory = path.dirname(pythonBinary(paths));
+    const executableDirectoryStat = fs.lstatSync(executableDirectory);
+    if (
+      !executableDirectoryStat.isDirectory() ||
+      executableDirectoryStat.isSymbolicLink() ||
+      fs.realpathSync(executableDirectory) !==
+        path.join(fs.realpathSync(paths.hermesVenv), paths.platform === 'win32' ? 'Scripts' : 'bin')
+    ) {
+      return false;
+    }
+    const pythonPath = pythonBinary(paths);
+    const python = fs.lstatSync(pythonPath);
+    const hermes = fs.lstatSync(hermesConsoleBinary(paths));
+    if (python.isSymbolicLink()) {
+      if (paths.platform === 'win32' || !fs.statSync(pythonPath).isFile()) return false;
+      if (
+        !expectedPythonPath ||
+        !fs.existsSync(expectedPythonPath) ||
+        fs.realpathSync(pythonPath) !== fs.realpathSync(expectedPythonPath)
+      ) {
+        return false;
+      }
+    } else if (!python.isFile()) {
+      return false;
+    }
+    if (!hermes.isFile() || hermes.isSymbolicLink()) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** AionCore may start only when the canonical Hermes entry points are real and no uncommitted swap owns them. */
+export function commandEveRuntimeVenvIsBackendAdmissible(options: {
+  userDataPath: string;
+  resourcesPath?: string;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  seatId?: string | null;
+}): boolean {
+  const platform = options.platform ?? process.platform;
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, options.seatId, platform);
+  const bundledPython = resolveBundledPythonCandidate(
+    { ...process.env, ...options.env },
+    options.resourcesPath,
+    platform
+  );
+  if (!runtimeVenvEntriesAreBackendAdmissible(paths, bundledPython)) return false;
+  try {
+    const interrupted = interruptedRuntimeVenvReplacement(paths);
+    return !interrupted || ['committed', 'rolled_back'].includes(interrupted.marker.phase);
+  } catch {
+    return false;
+  }
 }
 
 const COMMAND_EVE_ARTIFACT_PYTHON_PTH_FILE = 'command-eve-artifact-python.pth';
@@ -9973,6 +10548,9 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, activeSeatId, platform);
   const manifestPath = resolveCommandEveRuntimeBootstrapManifestPath(options);
   const capabilityManifestPath = resolveCommandEveCapabilityManifestPath(options);
+  if (!managedRuntimeAncestryIsSafe(paths)) {
+    throw new Error('unsafe Command EVE managed runtime ancestry');
+  }
   ensureDir(paths.runtimeRoot);
 
   let manifest = DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST;
@@ -10175,21 +10753,104 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     ...(pythonUsesBundledCandidate ? { archive: readBundledPythonProvenance(options.resourcesPath) } : {}),
   };
 
-  const existingVenvAbiMismatch = venvPythonAbiMismatch(paths, python.version);
+  let venvReplacement: RuntimeVenvReplacement | undefined;
+  let venvReplacementPythonStageIndex: number | undefined;
+  let preRebuildStateDbBackups: ReturnType<typeof backupHermesStateDbsBeforeUpgrade> = [];
+  let preRebuildHermesVersion = '';
+  let preRebuildPythonVersion = '';
+  let preRebuildWheelReceipt: HermesWheelInstallReceipt | undefined;
+  const setVenvReplacementPythonStage = (stage: RuntimeBootstrapStage): void => {
+    if (venvReplacementPythonStageIndex === undefined) return;
+    stages[venvReplacementPythonStageIndex] = stage;
+  };
+  const rollbackVenvReplacement = (detail: string): string => {
+    if (!venvReplacement) return detail;
+    try {
+      const rollback = rollbackRuntimeVenvReplacement(paths, venvReplacement);
+      venvReplacement = undefined;
+      setVenvReplacementPythonStage(
+        makeStage('python', 'failed', {
+          code: 'PYTHON_VENV_REBUILD_ROLLED_BACK',
+          detail: `The candidate was rejected and the previous Hermes Python environment was restored.${rollback.cleanupPending ? ' Candidate cleanup remains pending.' : ''}`,
+        })
+      );
+      if (runtimeProvenance.hermes) {
+        runtimeProvenance.hermes.installed_version = preRebuildHermesVersion;
+        runtimeProvenance.hermes.installed_wheel_sha256 = preRebuildWheelReceipt?.wheel_sha256 || '';
+        runtimeProvenance.hermes.installed_wheel_verified = false;
+        runtimeProvenance.hermes.package_snapshot_status = 'unavailable';
+        runtimeProvenance.hermes.resolved_packages = [];
+        delete runtimeProvenance.hermes.browser_use_runner;
+      }
+      return `${detail} The previous Hermes Python environment was restored.${rollback.cleanupPending ? ' Candidate cleanup remains pending.' : ''}`;
+    } catch (error) {
+      setVenvReplacementPythonStage(
+        makeStage('python', 'failed', {
+          code: 'PYTHON_VENV_ROLLBACK_FAILED',
+          detail: `Restoring the previous Hermes Python environment failed: ${error instanceof Error ? error.message : String(error)}`,
+        })
+      );
+      return `${detail} Restoring the previous Hermes Python environment failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  };
+
+  let interruptedVenvReplacement: RuntimeVenvReplacement | null = null;
+  try {
+    interruptedVenvReplacement = interruptedRuntimeVenvReplacement(paths);
+  } catch (error) {
+    pushStage(
+      makeStage('python', mode === 'check' ? 'blocked' : 'failed', {
+        code: 'PYTHON_VENV_REBUILD_RECOVERY_FAILED',
+        detail: `Could not inspect an interrupted Hermes Python environment replacement: ${error instanceof Error ? error.message : String(error)}`,
+      })
+    );
+    return finishReceipt();
+  }
+  if (mode === 'check' && interruptedVenvReplacement) {
+    pushStage(
+      makeStage('python', 'blocked', {
+        code: 'PYTHON_VENV_REBUILD_INTERRUPTED',
+        detail: 'A previous Hermes Python environment replacement was interrupted; automatic recovery is required.',
+      })
+    );
+    return finishReceipt();
+  }
+  if (mode !== 'check') {
+    try {
+      recoverInterruptedRuntimeVenvReplacement(paths);
+    } catch (error) {
+      pushStage(
+        makeStage('python', 'failed', {
+          code: 'PYTHON_VENV_REBUILD_RECOVERY_FAILED',
+          detail: `Could not restore an interrupted Hermes Python environment replacement: ${error instanceof Error ? error.message : String(error)}`,
+        })
+      );
+      return finishReceipt();
+    }
+  }
+
+  const existingVenvCompatibility = existingHermesVenvCompatibility(paths, python.version, python.path);
+  const existingVenvNeedsReplacement = ['mismatch', 'unproven'].includes(existingVenvCompatibility);
 
   if (mode === 'check') {
     pushStage(
-      makeStage('python', existingVenvAbiMismatch ? 'blocked' : 'pass', {
-        code: existingVenvAbiMismatch ? 'PYTHON_VENV_ABI_MISMATCH' : undefined,
-        detail: existingVenvAbiMismatch
-          ? `The existing Hermes environment uses a different Python ABI than ${python.version || python.path}; rebuild required.`
+      makeStage('python', existingVenvNeedsReplacement ? 'blocked' : 'pass', {
+        code: existingVenvNeedsReplacement
+          ? existingVenvCompatibility === 'mismatch'
+            ? 'PYTHON_VENV_ABI_MISMATCH'
+            : 'PYTHON_VENV_ABI_UNPROVEN'
+          : undefined,
+        detail: existingVenvNeedsReplacement
+          ? existingVenvCompatibility === 'mismatch'
+            ? `The existing Hermes environment uses a different Python ABI than ${python.version || python.path}; rebuild required.`
+            : `The existing Hermes environment has no provably usable ${python.version || python.path} interpreter; rebuild required.`
           : `${python.path} (${python.version || 'version checked'})`,
       })
     );
-    if (existingVenvAbiMismatch) return finishReceipt();
-  } else if (existingVenvAbiMismatch) {
+    if (existingVenvNeedsReplacement) return finishReceipt();
+  } else if (existingVenvNeedsReplacement) {
     try {
-      removeMismatchedRuntimeVenv(paths);
+      assertManagedHermesRoot(paths);
     } catch (error) {
       pushStage(
         makeStage('python', 'failed', {
@@ -10199,25 +10860,96 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       );
       return finishReceipt();
     }
+    const existingWheelReceipt = readHermesWheelInstallReceipt(
+      path.join(paths.hermesRoot, COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE)
+    );
+    const detectedHermesVersion = fs.existsSync(hermesConsoleBinary(paths))
+      ? await readInstalledHermesVersion(paths, runner, env)
+      : '';
+    if (
+      detectedHermesVersion &&
+      existingWheelReceipt?.package_version &&
+      detectedHermesVersion !== existingWheelReceipt.package_version
+    ) {
+      pushStage(
+        makeStage('python', 'failed', {
+          code: 'HERMES_PRIOR_VERSION_CONFLICT',
+          detail: `The installed Hermes reports ${detectedHermesVersion}, but its wheel receipt reports ${existingWheelReceipt.package_version}; refusing an ambiguous ABI replacement.`,
+        })
+      );
+      return finishReceipt();
+    }
+    preRebuildHermesVersion = existingWheelReceipt?.package_version || detectedHermesVersion || 'unknown';
+    preRebuildWheelReceipt = existingWheelReceipt;
+    preRebuildPythonVersion = readVenvPythonVersion(paths)?.text || 'unknown';
+    if (preRebuildHermesVersion !== manifest.hermes.version) {
+      preRebuildStateDbBackups = backupHermesStateDbsBeforeUpgrade({
+        hermesRoot: paths.hermesRoot,
+        fromVersion: preRebuildHermesVersion,
+        toVersion: manifest.hermes.version,
+      });
+      const failedBackups = preRebuildStateDbBackups.filter((result) => result.status === 'failed');
+      if (failedBackups.length > 0) {
+        pushStage(
+          makeStage('python', 'failed', {
+            code: 'HERMES_STATE_DB_BACKUP_FAILED',
+            detail: `Could not preserve ${failedBackups.length} Hermes state database backup(s); the existing runtime was left unchanged.`,
+          })
+        );
+        return finishReceipt();
+      }
+    }
+    venvReplacementPythonStageIndex = stages.length;
+    pushStage(
+      makeStage('python', 'blocked', {
+        code: 'PYTHON_VENV_REBUILD_IN_PROGRESS',
+        detail: `Replacing the incompatible Hermes Python environment (${preRebuildPythonVersion} → ${python.version || python.path}); the previous runtime remains available for rollback.`,
+      })
+    );
+    try {
+      venvReplacement = beginRuntimeVenvReplacement(paths, {
+        fromPython: preRebuildPythonVersion,
+        toPython: python.version || 'unknown',
+        fromHermes: preRebuildHermesVersion,
+        toHermes: manifest.hermes.version,
+      });
+    } catch (error) {
+      setVenvReplacementPythonStage(
+        makeStage('python', 'failed', {
+          code: 'PYTHON_VENV_REBUILD_FAILED',
+          detail: `Could not begin the incompatible Hermes Python environment replacement: ${error instanceof Error ? error.message : String(error)}`,
+        })
+      );
+      writeJsonAtomic(paths.receiptPath, finishReceipt());
+      return finishReceipt();
+    }
     const started = Date.now();
     const venv = await runner(python.path, ['-m', 'venv', paths.hermesVenv], {
       env,
       timeoutMs: DEFAULT_STAGE_TIMEOUT_MS,
     });
-    pushStage(
-      makeStage('python', venv.ok ? 'pass' : 'failed', {
-        code: venv.ok ? undefined : 'PYTHON_VENV_FAILED',
-        detail: venv.ok
-          ? `Hermes Python environment rebuilt for ${python.version || python.path}.`
-          : scrubOutput(venv.stderr || venv.error),
+    if (!venv.ok) {
+      const detail = rollbackVenvReplacement(scrubOutput(venv.stderr || venv.error));
+      setVenvReplacementPythonStage(
+        makeStage('python', 'failed', {
+          code: 'PYTHON_VENV_FAILED',
+          detail,
+          command: 'python3 -m venv <command-eve-runtime>',
+          duration_ms: Date.now() - started,
+        })
+      );
+      writeJsonAtomic(paths.receiptPath, finishReceipt());
+      return finishReceipt();
+    }
+    setVenvReplacementPythonStage(
+      makeStage('python', 'blocked', {
+        code: 'PYTHON_VENV_REBUILD_IN_PROGRESS',
+        detail: `The ${python.version || python.path} candidate exists; Hermes and the signed document runtime still require verification.`,
         command: 'python3 -m venv <command-eve-runtime>',
         duration_ms: Date.now() - started,
       })
     );
-    if (!venv.ok) {
-      return finishReceipt();
-    }
-  } else if (!fs.existsSync(pythonBinary(paths))) {
+  } else if (existingVenvCompatibility === 'absent') {
     const started = Date.now();
     const venv = await runner(python.path, ['-m', 'venv', paths.hermesVenv], {
       env,
@@ -10262,21 +10994,33 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     package_snapshot_status: 'pending',
     resolved_packages: [],
   };
+  if (preRebuildStateDbBackups.length > 0) {
+    runtimeProvenance.hermes.state_db_backups = preRebuildStateDbBackups.map((result) => ({
+      seat_home: result.seatHome,
+      backup: path.basename(result.backupPath),
+      status: result.status,
+      ...(result.detail ? { detail: result.detail } : {}),
+    }));
+  }
   if (!bundledHermesWheel) {
+    const detail = rollbackVenvReplacement(
+      'The exact bundled Hermes wheel is missing; package-index fallback is prohibited.'
+    );
     pushStage(
       makeStage('hermes', 'failed', {
         code: 'HERMES_BUNDLED_WHEEL_MISSING',
-        detail: 'The exact bundled Hermes wheel is missing; package-index fallback is prohibited.',
+        detail,
       })
     );
     return finishReceipt();
   }
   const hermesSpec = buildHermesPackageSpec(manifest, bundledHermesWheel);
   if (!hermesWheelSha256Verified) {
+    const detail = rollbackVenvReplacement('Bundled Hermes wheel bytes do not match the committed SHA-256 pin.');
     pushStage(
       makeStage('hermes', 'failed', {
         code: 'HERMES_WHEEL_HASH_MISMATCH',
-        detail: 'Bundled Hermes wheel bytes do not match the committed SHA-256 pin.',
+        detail,
       })
     );
     return finishReceipt();
@@ -10380,14 +11124,15 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       }
     }
     const hermesReady = install.ok && wheelReceiptWritten;
+    const failureDetail = install.ok
+      ? 'Hermes was installed, but its private wheel receipt could not be persisted.'
+      : scrubOutput(install.stderr || install.error);
     pushStage(
       makeStage('hermes', hermesReady ? 'pass' : 'failed', {
         code: hermesReady ? undefined : install.ok ? 'HERMES_WHEEL_RECEIPT_WRITE_FAILED' : 'HERMES_INSTALL_FAILED',
         detail: hermesReady
           ? `${sameVersionWheelRepair ? 'Repaired' : hermesInstalled ? 'Updated' : 'Installed'} ${manifest.hermes.package} ${manifest.hermes.version}.`
-          : install.ok
-            ? 'Hermes was installed, but its private wheel receipt could not be persisted.'
-            : scrubOutput(install.stderr || install.error),
+          : rollbackVenvReplacement(failureDetail),
         command: `${pythonBinary(paths)} ${installArgs.join(' ')}`,
         duration_ms: Date.now() - started,
       })
@@ -10448,10 +11193,13 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   const signedArtifactSiteRequired = pythonUsesBundledCandidate && Boolean(options.resourcesPath);
   if (signedArtifactSiteRequired && !artifactSite.ok) {
     const artifactSiteReason = 'reason' in artifactSite ? artifactSite.reason : 'artifact_site_invalid';
+    const detail = rollbackVenvReplacement(
+      `The packaged app is missing its exact signed document-artifact runtime (${artifactSiteReason}).`
+    );
     pushStage(
       makeStage('presentation-python', mode === 'check' ? 'blocked' : 'failed', {
         code: 'PRESENTATION_PYTHON_SIGNED_SITE_INVALID',
-        detail: `The packaged app is missing its exact signed document-artifact runtime (${artifactSiteReason}).`,
+        detail,
       })
     );
     return finishReceipt();
@@ -10467,10 +11215,13 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     });
     if (!pathBinding.ok) {
       const pathBindingReason = 'reason' in pathBinding ? pathBinding.reason : 'artifact_site_bind_failed';
+      const detail = rollbackVenvReplacement(
+        `The signed document runtime could not be bound to EVE's private Python environment (${pathBindingReason}).`
+      );
       pushStage(
         makeStage('presentation-python', 'failed', {
           code: 'PRESENTATION_PYTHON_SITE_BIND_FAILED',
-          detail: `The signed document runtime could not be bound to EVE's private Python environment (${pathBindingReason}).`,
+          detail,
         })
       );
       return finishReceipt();
@@ -10503,10 +11254,13 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   } else if (!presentationPythonProbe.ok) {
     const started = Date.now();
     if (artifactSite.ok) {
+      const detail = rollbackVenvReplacement(
+        scrubOutput(presentationPythonProbe.stderr || presentationPythonProbe.error)
+      );
       pushStage(
         makeStage('presentation-python', 'failed', {
           code: 'PRESENTATION_PYTHON_IMPORT_FAILED',
-          detail: scrubOutput(presentationPythonProbe.stderr || presentationPythonProbe.error),
+          detail,
           duration_ms: Date.now() - started,
         })
       );
@@ -10518,10 +11272,13 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       : { ok: false as const, reason: 'bundle_directory_missing' };
     if (!bundle.ok) {
       const bundleReason = 'reason' in bundle ? bundle.reason : 'bundle_invalid';
+      const detail = rollbackVenvReplacement(
+        `The development build does not contain the exact offline document wheels (${bundleReason}).`
+      );
       pushStage(
         makeStage('presentation-python', 'failed', {
           code: 'PRESENTATION_PYTHON_BUNDLE_INVALID',
-          detail: `The development build does not contain the exact offline document wheels (${bundleReason}).`,
+          detail,
           duration_ms: Date.now() - started,
         })
       );
@@ -10540,6 +11297,9 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       });
     }
     const ready = install.ok && presentationPythonProbe.ok;
+    const failureDetail = scrubOutput(
+      install.stderr || install.error || presentationPythonProbe.stderr || presentationPythonProbe.error
+    );
     pushStage(
       makeStage('presentation-python', ready ? 'pass' : 'failed', {
         code: ready
@@ -10549,9 +11309,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
             : 'PRESENTATION_PYTHON_INSTALL_FAILED',
         detail: ready
           ? 'Installed the exact pure-Python document fallback without network access.'
-          : scrubOutput(
-              install.stderr || install.error || presentationPythonProbe.stderr || presentationPythonProbe.error
-            ),
+          : rollbackVenvReplacement(failureDetail),
         command: `${pythonBinary(paths)} ${installArgs.join(' ')}`,
         duration_ms: Date.now() - started,
       })
@@ -10565,6 +11323,96 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           : 'Managed document runtime is ready in the private EVE environment.',
       })
     );
+  }
+
+  if (venvReplacement) {
+    const candidatePythonVersion = readVenvPythonVersion(paths);
+    const selectedPythonVersion = parsePythonVersion(python.version);
+    const candidateHermesVersion = await readInstalledHermesVersion(paths, runner, env);
+    const candidateWheelReceipt = readHermesWheelInstallReceipt(
+      path.join(paths.hermesRoot, COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE)
+    );
+    const candidateVerified = Boolean(
+      runtimeVenvEntriesAreBackendAdmissible(paths, python.path) &&
+      candidatePythonVersion &&
+      selectedPythonVersion &&
+      candidatePythonVersion.major === selectedPythonVersion.major &&
+      candidatePythonVersion.minor === selectedPythonVersion.minor &&
+      candidateHermesVersion === manifest.hermes.version &&
+      candidateWheelReceipt?.package_version === manifest.hermes.version &&
+      candidateWheelReceipt.wheel_sha256 === hermesWheelSha256 &&
+      JSON.stringify([...candidateWheelReceipt.extras].toSorted()) ===
+        JSON.stringify([...manifest.hermes.extras].toSorted())
+    );
+    if (!candidateVerified) {
+      const detail = rollbackVenvReplacement(
+        'The rebuilt Hermes environment failed its final Python, package-version, or wheel-receipt verification.'
+      );
+      pushStage(
+        makeStage('hermes', 'failed', {
+          code: 'HERMES_POST_INSTALL_VERIFICATION_FAILED',
+          detail,
+        })
+      );
+      return finishReceipt();
+    }
+
+    let completion: { cleanupPending: boolean };
+    try {
+      // Every receipt written up to this point remains BLOCKED by the in-progress
+      // Python stage. The marker becomes committed before that stage is changed
+      // to PASS, so a crash can never advertise a rollbackable candidate as ready.
+      completion = completeRuntimeVenvReplacement(paths, venvReplacement);
+    } catch (error) {
+      const detail = rollbackVenvReplacement(
+        `The rebuilt Hermes environment could not be committed: ${error instanceof Error ? error.message : String(error)}`
+      );
+      setVenvReplacementPythonStage(
+        makeStage('python', 'failed', {
+          code: 'PYTHON_VENV_REBUILD_COMMIT_FAILED',
+          detail,
+        })
+      );
+      writeJsonAtomic(paths.receiptPath, finishReceipt());
+      return finishReceipt();
+    }
+    venvReplacement = undefined;
+    setVenvReplacementPythonStage(
+      makeStage('python', 'pass', {
+        detail: `Hermes Python environment atomically rebuilt for ${python.version || python.path}.${
+          completion.cleanupPending ? ' Inert rollback artifacts will be cleaned on the next bootstrap.' : ''
+        }`,
+        command: 'python3 -m venv <command-eve-runtime>',
+      })
+    );
+    if (runtimeProvenance.hermes && hermesWheelSha256) {
+      runtimeProvenance.hermes.installed_version = candidateHermesVersion;
+      runtimeProvenance.hermes.installed_wheel_sha256 = hermesWheelSha256;
+      runtimeProvenance.hermes.installed_wheel_verified = true;
+    }
+    writeJsonAtomic(paths.receiptPath, finishReceipt());
+  }
+
+  if (options.stopAfterHermesRuntimeReady) {
+    if (runtimeProvenance.hermes) {
+      runtimeProvenance.hermes.installed_version = hermesVersionMatches
+        ? installedHermesVersion
+        : manifest.hermes.version;
+      runtimeProvenance.hermes.package_snapshot_status = 'unavailable';
+      runtimeProvenance.hermes.resolved_packages = [];
+    }
+    const deferredDetail =
+      'Deferred until after AionCore starts; the verified Python/Hermes/document runtime is already backend-ready.';
+    pushStage(
+      makeStage('web', 'skip', { code: 'RUNTIME_BOOTSTRAP_DEFERRED_AFTER_ABI_REPAIR', detail: deferredDetail })
+    );
+    pushStage(
+      makeStage('ollama', 'skip', { code: 'RUNTIME_BOOTSTRAP_DEFERRED_AFTER_ABI_REPAIR', detail: deferredDetail })
+    );
+    pushStage(
+      makeStage('model', 'skip', { code: 'RUNTIME_BOOTSTRAP_DEFERRED_AFTER_ABI_REPAIR', detail: deferredDetail })
+    );
+    return finishReceipt();
   }
 
   const packageSnapshot =
@@ -11184,9 +12032,25 @@ export async function ensureCommandEveRuntimeBootstrap(
   const activeSeatId = getActiveSeatId();
   const runtimeRoot = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, activeSeatId, platform).runtimeRoot;
   return withRuntimeBootstrapExclusive(platform, runtimeRoot, async () => {
-    const receipt = await ensureCommandEveRuntimeBootstrapUnlocked(options, activeSeatId);
-    await options.afterBootstrapExclusive?.(receipt);
-    return receipt;
+    const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, activeSeatId, platform);
+    try {
+      const receipt = await ensureCommandEveRuntimeBootstrapUnlocked(options, activeSeatId);
+      await options.afterBootstrapExclusive?.(receipt);
+      return receipt;
+    } catch (error) {
+      // A runner, atomic receipt write, shim write or packaged-artifact probe
+      // may throw instead of returning a normal failed result. Restore every
+      // uncommitted ABI transaction before that exception escapes. The last
+      // persisted runtime receipt deliberately remains BLOCKED/IN_PROGRESS;
+      // recovery must never manufacture a ready receipt after an exception.
+      try {
+        recoverInterruptedRuntimeVenvReplacement(paths);
+      } catch {
+        // Preserve both copies and the marker for deterministic next-start
+        // recovery. Never recurse into a second destructive attempt here.
+      }
+      throw error;
+    }
   });
 }
 

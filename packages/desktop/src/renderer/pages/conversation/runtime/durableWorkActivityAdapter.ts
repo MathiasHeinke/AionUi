@@ -87,6 +87,7 @@ const readSnapshot = (conversationId: string): DurableWorkSnapshotV1 | null => {
 };
 
 const subscribe = (conversationId: string, listener: () => void): (() => void) => {
+  if (!conversationId) return () => {};
   let unsubscribeAdapter = activeAdapter?.subscribe(conversationId, listener) ?? (() => {});
   const reconnect = () => {
     unsubscribeAdapter();

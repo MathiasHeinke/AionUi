@@ -343,6 +343,7 @@ let backendStartupFailed = false;
 let backendStartupFailureInfo: unknown = null;
 let backendMigrationsScheduled = false;
 let runDeferredCommandEveRuntimeBootstrap: (() => void) | undefined;
+let commandEveAutomaticRuntimeRepairRequired = false;
 
 ipcMain.on('get-backend-port', (event) => {
   if (!isTrustedAdapterIpcSender(event)) {
@@ -2036,16 +2037,41 @@ const handleAppReady = async (): Promise<void> => {
   }
 
   try {
+    // Until the packaged-runtime preflight itself succeeds, every early error
+    // in this block is treated as a possible ABI-repair failure. This is set
+    // before dynamic imports, shim startup, seat restoration or config reads so
+    // none of those paths can accidentally let AionCore start unverified.
+    commandEveAutomaticRuntimeRepairRequired = app.isPackaged;
     const { getDataPath } = await import('./process/utils/utils');
     const { startCommandEveOllamaOpenAiShim, warmCommandEveLocalModel } =
       await import('./process/commandEve/ollamaOpenAiShim');
     const {
+      commandEveRuntimeBootstrapStartupWaitReason,
+      commandEveRuntimeManagedAncestryIsSafe,
+      commandEveRuntimeVenvIsBackendAdmissible,
       ensureCommandEveRuntimeBootstrap,
       prepareCommandEveRuntimeProcessEnv,
       provisionSeatRuntimeFiles,
       resolveCommandEveRuntimeBootstrapPaths,
     } = await import('./process/commandEve/runtimeBootstrapCore');
     const runtimePaths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+    let automaticRuntimeRepairReason: ReturnType<typeof commandEveRuntimeBootstrapStartupWaitReason> = null;
+    if (app.isPackaged) {
+      try {
+        automaticRuntimeRepairReason = commandEveRuntimeBootstrapStartupWaitReason({
+          userDataPath: getDataPath(),
+          resourcesPath: process.resourcesPath,
+          env: process.env,
+        });
+      } catch (error) {
+        automaticRuntimeRepairReason = 'python_venv_recovery';
+        console.error('[Command EVE] Runtime repair preflight failed closed:', error);
+      }
+    }
+    commandEveAutomaticRuntimeRepairRequired = automaticRuntimeRepairReason !== null;
+    if (app.isPackaged && !commandEveRuntimeManagedAncestryIsSafe({ userDataPath: getDataPath() })) {
+      throw new Error('Command EVE managed runtime ancestry is unsafe; refusing any runtime write or backend start.');
+    }
     const shimUrl = rememberCommandEveOllamaShimUrl(
       await startCommandEveOllamaOpenAiShim({
         promptProofPath: commandEvePromptProofPath(runtimePaths.runtimeRoot),
@@ -2143,16 +2169,6 @@ const handleAppReady = async (): Promise<void> => {
     } else {
       mark('commandEveRuntimeFilesProvisioned');
     }
-    // Inspect the last completed receipt before starting the next bootstrap.
-    // ensureCommandEveRuntimeBootstrap writes partial receipts synchronously up
-    // to its first await; checking afterwards made every warm launch look stale
-    // and forced the full Hermes/Ollama probe back onto the startup path.
-    // First-run runtime provisioning can legitimately spend a minute installing
-    // Hermes. Keep the app interactive and let the runtime status surface guide
-    // the user unless an operator explicitly opts into a blocking startup gate.
-    const mustWaitForRuntimeBootstrap =
-      shouldBlockStartupForCommandEveRuntimeBootstrap &&
-      commandEveRuntimeBootstrapNeedsStartupWait(runtimePaths.receiptPath, app.getVersion());
     const bootstrapOptions = {
       userDataPath: getDataPath(),
       appPath: app.getAppPath(),
@@ -2165,13 +2181,7 @@ const handleAppReady = async (): Promise<void> => {
       uiLanguage: ProcessConfig.getSync('language'),
       ...workerRuntimeInputs,
     } satisfies Parameters<typeof ensureCommandEveRuntimeBootstrap>[0];
-    if (mustWaitForRuntimeBootstrap) {
-      const receipt = await ensureCommandEveRuntimeBootstrap(bootstrapOptions);
-      mark(`commandEveRuntimeBootstrap (${receipt.status})`);
-      scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark);
-      startCommandEveCuratorTick(runtimePaths);
-    } else {
-      const hermesReadyBeforeBootstrap = fs.existsSync(runtimePaths.hermesShim);
+    const deferRemainingRuntimeBootstrap = (hermesReadyBeforeBootstrap: boolean): void => {
       runDeferredCommandEveRuntimeBootstrap = () => {
         setTimeout(() => {
           void ensureCommandEveRuntimeBootstrap(bootstrapOptions)
@@ -2192,8 +2202,6 @@ const handleAppReady = async (): Promise<void> => {
                 mark('commandEveBackendRestartAfterRuntimeBootstrap');
               }
               scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark);
-              // Same call as the awaited branch above; the starter is idempotent
-              // so whichever branch this install takes, exactly one timer runs.
               startCommandEveCuratorTick(runtimePaths);
             })
             .catch((error) => {
@@ -2202,9 +2210,54 @@ const handleAppReady = async (): Promise<void> => {
         }, 1000);
       };
       mark('commandEveRuntimeBootstrap deferred');
+    };
+    // Inspect the last completed receipt before starting the next bootstrap.
+    // ensureCommandEveRuntimeBootstrap writes partial receipts synchronously up
+    // to its first await; checking afterwards made every warm launch look stale
+    // and forced the full Hermes/Ollama probe back onto the startup path.
+    // First-run runtime provisioning can legitimately spend a minute installing
+    // Hermes. Keep a cold install interactive. An EXISTING venv that needs an
+    // ABI swap/recovery is different: the canonical Hermes entry point is moved
+    // during that transaction, so it must finish before AionCore can admit work.
+    const mustWaitForRuntimeBootstrap =
+      commandEveAutomaticRuntimeRepairRequired ||
+      (shouldBlockStartupForCommandEveRuntimeBootstrap &&
+        commandEveRuntimeBootstrapNeedsStartupWait(runtimePaths.receiptPath, app.getVersion()));
+    if (mustWaitForRuntimeBootstrap) {
+      const receipt = await ensureCommandEveRuntimeBootstrap({
+        ...bootstrapOptions,
+        stopAfterHermesRuntimeReady: commandEveAutomaticRuntimeRepairRequired,
+      });
+      if (
+        commandEveAutomaticRuntimeRepairRequired &&
+        (commandEveRuntimeBootstrapStartupWaitReason({
+          userDataPath: getDataPath(),
+          resourcesPath: process.resourcesPath,
+          env: bootstrapOptions.env,
+        }) !== null ||
+          !commandEveRuntimeVenvIsBackendAdmissible({
+            userDataPath: getDataPath(),
+            resourcesPath: process.resourcesPath,
+            env: bootstrapOptions.env,
+          }))
+      ) {
+        throw new Error(
+          `Command EVE automatic Python runtime repair did not reach a backend-admissible state (${automaticRuntimeRepairReason}).`
+        );
+      }
+      mark(`commandEveRuntimeBootstrap (${receipt.status})`);
+      if (commandEveAutomaticRuntimeRepairRequired) {
+        deferRemainingRuntimeBootstrap(true);
+      } else {
+        scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark);
+        startCommandEveCuratorTick(runtimePaths);
+      }
+    } else {
+      const hermesReadyBeforeBootstrap = fs.existsSync(runtimePaths.hermesShim);
+      deferRemainingRuntimeBootstrap(hermesReadyBeforeBootstrap);
     }
   } catch (error) {
-    if (!commandEveOllamaShimUrl) {
+    if (!commandEveOllamaShimUrl || commandEveAutomaticRuntimeRepairRequired) {
       commandEveOllamaShimStartFailure = error;
     }
     console.error('[Command EVE] Runtime bootstrap could not be scheduled:', error);

@@ -47,6 +47,11 @@ function writeFile(filePath: string, content = 'fixture'): void {
   fs.writeFileSync(filePath, content);
 }
 
+function writeWindowsVenv(venvPath: string, pythonContent: string): void {
+  writeFile(path.join(venvPath, 'Scripts', 'python.exe'), pythonContent);
+  writeFile(path.join(venvPath, 'pyvenv.cfg'), 'version = 3.12.13\n');
+}
+
 function writeArtifactPythonSiteFixture(resourcesPath: string): string {
   const sitePath = path.join(resourcesPath, 'python', COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR);
   // The hardened site verifier (Pro-verdict Gate 2) requires the full receipt
@@ -319,7 +324,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
         return { command, args, ok: true, status: 0, stdout: 'Python 3.12.13\n' };
       }
       if (command === bundledPython && args[0] === '-m' && args[1] === 'venv') {
-        writeFile(path.join(args[2], 'Scripts', 'python.exe'), 'venv-python-fixture');
+        writeWindowsVenv(args[2], 'venv-python-fixture');
         return { command, args, ok: true, status: 0 };
       }
       if (command.endsWith(path.join('Scripts', 'python.exe')) && args.join(' ') === '-m pip freeze --all') {
@@ -444,7 +449,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
         return { command, args, ok: true, status: 0, stdout: 'Python 3.12.13\n' };
       }
       if (command === bundledPython && args[0] === '-m' && args[1] === 'venv') {
-        writeFile(path.join(args[2], 'Scripts', 'python.exe'), 'partial-venv-python');
+        writeWindowsVenv(args[2], 'partial-venv-python');
         return { command, args, ok: true, status: 0 };
       }
       return { command, args, ok: false, status: 1, stderr: 'network unavailable' };
@@ -532,7 +537,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
         return { command, args, ok: true, status: 0, stdout: 'Python 3.12.13\n' };
       }
       if (command === bundledPython && args[0] === '-m' && args[1] === 'venv') {
-        writeFile(path.join(args[2], 'Scripts', 'python.exe'), 'venv-python-fixture');
+        writeWindowsVenv(args[2], 'venv-python-fixture');
         return { command, args, ok: true, status: 0 };
       }
       return { command, args, ok: false, status: 1, stderr: 'unexpected command' };

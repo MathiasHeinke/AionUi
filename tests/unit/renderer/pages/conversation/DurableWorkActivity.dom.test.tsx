@@ -156,6 +156,31 @@ describe('DurableWorkActivity', () => {
     uninstall = null;
   });
 
+  it('never subscribes a durable-work transport before a conversation id exists', () => {
+    const unsubscribe = vi.fn();
+    const subscribe = vi.fn(() => unsubscribe);
+    const getSnapshot = vi.fn(() => null);
+    uninstall = installDurableWorkActivityAdapter({
+      version: DURABLE_WORK_ACTIVITY_VERSION,
+      getSnapshot,
+      subscribe,
+      requestAction: vi.fn(),
+    });
+
+    const view = render(<DurableWorkActivity conversationId='' />);
+
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(getSnapshot).not.toHaveBeenCalled();
+
+    view.rerender(<DurableWorkActivity conversationId='conv-1' />);
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(subscribe).toHaveBeenCalledWith('conv-1', expect.any(Function));
+    expect(getSnapshot).toHaveBeenCalledWith('conv-1');
+
+    view.unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
   it('renders every contract lifecycle state inside the owning chat and no second composer', () => {
     installSnapshot(DURABLE_WORK_STATUSES.map((status) => workItem(status, status)));
     render(<DurableWorkActivity conversationId='conv-1' />);
