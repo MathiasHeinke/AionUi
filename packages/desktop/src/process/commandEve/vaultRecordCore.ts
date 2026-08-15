@@ -32,8 +32,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { isKeychainRef } from '@/common/config/keychain';
+import {
+  __setVaultNativeHelperForTests,
+  runVaultNativeHelper,
+  vaultNativeHelperIsRequired,
+  type VaultNativeOperation,
+  type VaultNativeTestHelper,
+} from '@/process/services/vault-native';
 import { resolveCanonicalConnectorId } from './connectorIdCore';
 
 export const VAULT_CONNECTOR_RECORD_VERSION = 'command-eve-vault-connector/v1';
@@ -118,12 +124,9 @@ type VaultDirectoryAnchorResult = Readonly<
   { ok: true; anchor: VaultDirectoryAnchor } | { ok: false; reason_code: 'VAULT_DIR_IDENTITY_UNSAFE' }
 >;
 
-export type VaultRecordFsOperation = 'snapshot' | 'read' | 'write' | 'restore' | 'delete' | 'list';
+export type VaultRecordFsOperation = VaultNativeOperation;
 
 let vaultRecordFsBarrierForTests: ((operation: VaultRecordFsOperation, canonicalVaultDir: string) => void) | undefined;
-let vaultRecordNativeHelperForTests:
-  | Readonly<{ pythonExecutable: string; swapAwayThenBack?: VaultRecordFsOperation }>
-  | undefined;
 
 /** Test-only deterministic race barrier. Production never installs this hook. */
 export function __setVaultRecordFsBarrierForTests(
@@ -133,171 +136,9 @@ export function __setVaultRecordFsBarrierForTests(
 }
 
 /** Test-only: use a real Python openat helper and optionally force a swap-back race inside it. */
-export function __setVaultRecordNativeHelperForTests(
-  helper: Readonly<{ pythonExecutable: string; swapAwayThenBack?: VaultRecordFsOperation }> | undefined
-): void {
-  vaultRecordNativeHelperForTests = helper;
+export function __setVaultRecordNativeHelperForTests(helper: VaultNativeTestHelper | undefined): void {
+  __setVaultNativeHelperForTests(helper);
 }
-
-type VaultNativeHelperResolution = Readonly<{
-  required: boolean;
-  pythonExecutable?: string;
-  swapAwayThenBack?: VaultRecordFsOperation;
-}>;
-
-type VaultNativeHelperResult = Readonly<{
-  ok: boolean;
-  exists?: boolean;
-  bytes_base64?: string;
-  entries?: Array<{ name: string; bytes_base64: string }>;
-  foreign_dir?: string;
-  reason?: string;
-}>;
-
-const VAULT_NATIVE_HELPER_SOURCE = String.raw`
-import base64, json, os, stat, sys, uuid
-
-def emit(value):
-    sys.stdout.write(json.dumps(value, separators=(",", ":")))
-
-def safe_record_stat(value, expected_uid):
-    return stat.S_ISREG(value.st_mode) and value.st_uid == expected_uid and stat.S_IMODE(value.st_mode) == 0o600
-
-def read_record(directory_fd, name, expected_uid):
-    try:
-        record_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
-    except FileNotFoundError:
-        return None
-    try:
-        record_stat = os.fstat(record_fd)
-        if not safe_record_stat(record_stat, expected_uid):
-            raise RuntimeError("record_identity_unsafe")
-        chunks = []
-        while True:
-            chunk = os.read(record_fd, 65536)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        return b"".join(chunks)
-    finally:
-        os.close(record_fd)
-
-def write_record(directory_fd, name, payload, expected_uid):
-    try:
-        current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
-        if not safe_record_stat(current, expected_uid):
-            raise RuntimeError("record_identity_unsafe")
-    except FileNotFoundError:
-        pass
-    temp_name = "." + name + "." + uuid.uuid4().hex + ".tmp"
-    temp_fd = None
-    try:
-        temp_fd = os.open(
-            temp_name,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=directory_fd,
-        )
-        offset = 0
-        while offset < len(payload):
-            offset += os.write(temp_fd, payload[offset:])
-        os.fchmod(temp_fd, 0o600)
-        os.fsync(temp_fd)
-        os.rename(temp_name, name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
-        os.fsync(directory_fd)
-    finally:
-        if temp_fd is not None:
-            os.close(temp_fd)
-        try:
-            os.unlink(temp_name, dir_fd=directory_fd)
-        except FileNotFoundError:
-            pass
-    if read_record(directory_fd, name, expected_uid) != payload:
-        raise RuntimeError("published_bytes_mismatch")
-
-def delete_record(directory_fd, name, expected_uid):
-    try:
-        current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
-    except FileNotFoundError:
-        return
-    if not safe_record_stat(current, expected_uid):
-        raise RuntimeError("record_identity_unsafe")
-    record_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
-    try:
-        opened = os.fstat(record_fd)
-        if opened.st_dev != current.st_dev or opened.st_ino != current.st_ino:
-            raise RuntimeError("record_identity_changed")
-    finally:
-        os.close(record_fd)
-    os.unlink(name, dir_fd=directory_fd)
-    os.fsync(directory_fd)
-
-request = json.loads(sys.stdin.buffer.read())
-directory = request["directory"]
-expected = request["directory_identity"]
-flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-directory_fd = os.open(directory, flags)
-foreign_dir = None
-held_dir = None
-try:
-    directory_stat = os.fstat(directory_fd)
-    if (
-        not stat.S_ISDIR(directory_stat.st_mode)
-        or directory_stat.st_dev != expected["dev"]
-        or directory_stat.st_ino != expected["ino"]
-        or directory_stat.st_uid != expected["uid"]
-        or stat.S_IMODE(directory_stat.st_mode) != expected["mode"]
-    ):
-        raise RuntimeError("directory_identity_changed")
-
-    name = request.get("file_name")
-    operation = request["operation"]
-    if request.get("swap_away_then_back"):
-        suffix = uuid.uuid4().hex
-        held_dir = directory + ".held-" + suffix
-        foreign_dir = directory + ".foreign-" + suffix
-        os.rename(directory, held_dir)
-        os.mkdir(directory, 0o700)
-        if name:
-            foreign_payload = base64.b64decode(request.get("foreign_bytes_base64", "Zm9yZWlnbg=="))
-            foreign_fd = os.open(os.path.join(directory, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            try:
-                os.write(foreign_fd, foreign_payload)
-            finally:
-                os.close(foreign_fd)
-
-    if operation in ("read", "snapshot"):
-        payload = read_record(directory_fd, name, expected["uid"])
-        result = {"ok": True, "exists": payload is not None}
-        if payload is not None:
-            result["bytes_base64"] = base64.b64encode(payload).decode("ascii")
-    elif operation in ("write", "restore"):
-        write_record(directory_fd, name, base64.b64decode(request["bytes_base64"]), expected["uid"])
-        result = {"ok": True}
-    elif operation == "delete":
-        delete_record(directory_fd, name, expected["uid"])
-        result = {"ok": True}
-    elif operation == "list":
-        entries = []
-        for entry in os.listdir(directory_fd):
-            if not entry.endswith(".enc"):
-                continue
-            payload = read_record(directory_fd, entry, expected["uid"])
-            if payload is not None:
-                entries.append({"name": entry, "bytes_base64": base64.b64encode(payload).decode("ascii")})
-        result = {"ok": True, "entries": entries}
-    else:
-        raise RuntimeError("operation_invalid")
-finally:
-    if held_dir is not None:
-        os.rename(directory, foreign_dir)
-        os.rename(held_dir, directory)
-    os.close(directory_fd)
-
-if foreign_dir is not None:
-    result["foreign_dir"] = foreign_dir
-emit(result)
-`;
 
 function lstatIfPresent(file: string): fs.Stats | undefined {
   try {
@@ -388,81 +229,27 @@ function identityFromStats(stat: fs.Stats): VaultDirectoryIdentity {
   return { dev: stat.dev, ino: stat.ino, uid: stat.uid, mode: stat.mode & 0o777 };
 }
 
-function resolveVaultNativeHelper(): VaultNativeHelperResolution {
-  if (vaultRecordNativeHelperForTests) {
-    return {
-      required: true,
-      pythonExecutable: vaultRecordNativeHelperForTests.pythonExecutable,
-      swapAwayThenBack: vaultRecordNativeHelperForTests.swapAwayThenBack,
-    };
-  }
-  const electronProcess = process as NodeJS.Process & { defaultApp?: boolean; resourcesPath?: string };
-  const strictPackagedMac =
-    process.platform === 'darwin' && Boolean(process.versions.electron) && electronProcess.defaultApp !== true;
-  if (!strictPackagedMac) return { required: false };
-  const resourcesPath = electronProcess.resourcesPath;
-  if (!resourcesPath) return { required: true };
-  const candidate = path.join(resourcesPath, 'python', 'bin', 'python3.12');
-  try {
-    const stat = fs.lstatSync(candidate);
-    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) return { required: true };
-    if (fs.realpathSync.native(candidate) !== candidate) return { required: true };
-    return { required: true, pythonExecutable: candidate };
-  } catch {
-    return { required: true };
-  }
-}
-
-function runVaultNativeHelper(
+function runResolvedVaultNativeHelper(
   operation: VaultRecordFsOperation,
   resolved: Extract<VaultRecordFileResult, { ok: true }> | undefined,
   vaultDir: string,
   data?: Buffer
-): VaultNativeHelperResult | undefined {
-  const helper = resolveVaultNativeHelper();
-  if (!helper.required) return undefined;
-  if (!helper.pythonExecutable) return { ok: false, reason: 'native_helper_unavailable' };
+) {
+  if (!vaultNativeHelperIsRequired()) return undefined;
   let directoryStat: fs.Stats;
   try {
     directoryStat = fs.lstatSync(vaultDir);
   } catch {
-    return { ok: false, reason: 'directory_identity_unavailable' };
+    return { ok: false, reason: 'directory_identity_unavailable' } as const;
   }
-  if (!vaultDirectoryStatsAreSafe(directoryStat)) return { ok: false, reason: 'directory_identity_unsafe' };
-  const identity = identityFromStats(directoryStat);
-  vaultRecordFsBarrierForTests?.(operation, vaultDir);
-  const request = {
+  if (!vaultDirectoryStatsAreSafe(directoryStat)) return { ok: false, reason: 'directory_identity_unsafe' } as const;
+  return runVaultNativeHelper({
     operation,
     directory: vaultDir,
-    directory_identity: identity,
-    ...(resolved ? { file_name: resolved.fileName } : {}),
-    ...(data ? { bytes_base64: data.toString('base64') } : {}),
-    ...(helper.swapAwayThenBack === operation
-      ? { swap_away_then_back: true, foreign_bytes_base64: Buffer.from('foreign-unchanged').toString('base64') }
-      : {}),
-  };
-  const child = spawnSync(helper.pythonExecutable, ['-I', '-S', '-c', VAULT_NATIVE_HELPER_SOURCE], {
-    input: JSON.stringify(request),
-    encoding: 'utf8',
-    timeout: 5_000,
-    maxBuffer: 8 * 1024 * 1024,
-    env: {
-      PATH: '/usr/bin:/bin',
-      PYTHONNOUSERSITE: '1',
-      PYTHONDONTWRITEBYTECODE: '1',
-    },
+    directoryIdentity: identityFromStats(directoryStat),
+    ...(resolved ? { fileName: resolved.fileName } : {}),
+    ...(data ? { data } : {}),
   });
-  if (child.status !== 0 || child.error || !child.stdout) {
-    return { ok: false, reason: child.error?.message ?? 'native_helper_failed' };
-  }
-  try {
-    const parsed = JSON.parse(child.stdout) as VaultNativeHelperResult;
-    return parsed && typeof parsed === 'object' && typeof parsed.ok === 'boolean'
-      ? parsed
-      : { ok: false, reason: 'native_helper_result_invalid' };
-  } catch {
-    return { ok: false, reason: 'native_helper_result_invalid' };
-  }
 }
 
 function identitiesMatch(left: VaultDirectoryIdentity, right: VaultDirectoryIdentity): boolean {
@@ -791,7 +578,7 @@ export function readVaultRecordFileSnapshot(vaultDir: string, connectorId: strin
   const resolved = resolveVaultRecordFile(vaultDir, connectorId, false);
   if ('reason_code' in resolved) return resolved;
   if (!resolved.parentExists) return { ok: true, snapshot: { exists: false } };
-  const native = runVaultNativeHelper('snapshot', resolved, resolved.vaultDir);
+  const native = runResolvedVaultNativeHelper('snapshot', resolved, resolved.vaultDir);
   if (native) {
     if (!native.ok) return { ok: false, reason_code: 'VAULT_RECORD_SNAPSHOT_READ_FAILED' };
     if (!native.exists) return { ok: true, snapshot: { exists: false } };
@@ -822,7 +609,7 @@ export function restoreVaultRecordFileSnapshot(
   const resolved = resolveVaultRecordFile(vaultDir, connectorId, snapshot.exists);
   if ('reason_code' in resolved) return false;
   if (!resolved.parentExists) return !snapshot.exists;
-  const native = runVaultNativeHelper(
+  const native = runResolvedVaultNativeHelper(
     snapshot.exists ? 'restore' : 'delete',
     resolved,
     resolved.vaultDir,
@@ -859,9 +646,15 @@ export function writeVaultRecord(vaultDir: string, record: VaultConnectorRecord)
   const resolved = resolveVaultRecordFile(vaultDir, validated.record.connector_id, true);
   if ('reason_code' in resolved) return { ok: false, reason_code: resolved.reason_code };
   const bytes = Buffer.from(`${JSON.stringify(validated.record, null, 2)}\n`, 'utf8');
-  const native = runVaultNativeHelper('write', resolved, resolved.vaultDir, bytes);
+  const native = runResolvedVaultNativeHelper('write', resolved, resolved.vaultDir, bytes);
   if (native) {
-    return native.ok ? { ok: true, path: resolved.file } : { ok: false, reason_code: 'VAULT_RECORD_WRITE_FAILED' };
+    return native.ok
+      ? { ok: true, path: resolved.file }
+      : {
+          ok: false,
+          reason_code:
+            native.mutation_state === 'ambiguous' ? 'VAULT_RECORD_MUTATION_AMBIGUOUS' : 'VAULT_RECORD_WRITE_FAILED',
+        };
   }
   const opened = openVaultDirectoryAnchor(resolved.vaultDir);
   if ('reason_code' in opened) return { ok: false, reason_code: opened.reason_code };
@@ -886,7 +679,7 @@ export function writeVaultRecord(vaultDir: string, record: VaultConnectorRecord)
 export function readVaultRecord(vaultDir: string, connectorId: string): VaultConnectorRecord | null {
   const resolved = resolveVaultRecordFile(vaultDir, connectorId, false);
   if ('reason_code' in resolved || !resolved.parentExists) return null;
-  const native = runVaultNativeHelper('read', resolved, resolved.vaultDir);
+  const native = runResolvedVaultNativeHelper('read', resolved, resolved.vaultDir);
   if (native) {
     if (!native.ok || !native.exists || typeof native.bytes_base64 !== 'string') return null;
     try {
@@ -922,7 +715,7 @@ export function readVaultRecord(vaultDir: string, connectorId: string): VaultCon
 export function listVaultRecords(vaultDir: string): VaultConnectorRecord[] {
   const parent = resolveCanonicalVaultDir(vaultDir, false);
   if ('reason_code' in parent || !parent.exists) return [];
-  const native = runVaultNativeHelper('list', undefined, parent.dir);
+  const native = runResolvedVaultNativeHelper('list', undefined, parent.dir);
   if (native) {
     if (!native.ok || !Array.isArray(native.entries)) return [];
     const out: VaultConnectorRecord[] = [];
@@ -974,7 +767,7 @@ export function deleteVaultRecord(vaultDir: string, connectorId: string): boolea
   const resolved = resolveVaultRecordFile(vaultDir, connectorId, false);
   if ('reason_code' in resolved) return false;
   if (!resolved.parentExists) return true;
-  const native = runVaultNativeHelper('delete', resolved, resolved.vaultDir);
+  const native = runResolvedVaultNativeHelper('delete', resolved, resolved.vaultDir);
   if (native) return native.ok;
   const opened = openVaultDirectoryAnchor(resolved.vaultDir);
   if ('reason_code' in opened) return false;

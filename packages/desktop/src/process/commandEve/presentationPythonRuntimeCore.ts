@@ -159,6 +159,7 @@ type ArtifactPythonRuntimeReceipt = {
     sha256?: unknown;
   }>;
   spread_files?: Array<{ path?: unknown; mode?: unknown; size?: unknown; sha256?: unknown }>;
+  runtime_files?: Array<{ path?: unknown; mode?: unknown; size?: unknown; sha256?: unknown }>;
   packages?: Array<{
     name?: unknown;
     version?: unknown;
@@ -201,8 +202,17 @@ export type CommandEveArtifactPythonSiteVerification =
       runtimeKey: string;
       receiptSha256: string;
       treeRootSha256: string;
+      treePhase: 'staged' | 'signed';
       lockSha256?: string;
       packages: CommandEveArtifactPythonPackageIdentity[];
+      packagedInterpreter?: Readonly<{
+        path: string;
+        relativePath: string;
+        mode: number;
+        size: number;
+        sha256: string;
+      }>;
+      resourcesRoot?: string;
     }
   | { ok: false; reason: string };
 
@@ -268,6 +278,20 @@ function artifactTreeFiles(directory: string, receipt: ArtifactPythonRuntimeRece
       throw new Error(`artifact_spread_path_escaped:${relativePath}`);
     }
     addFile('python-root', relativePath, target);
+  }
+  if (receipt.runtime_files !== undefined) {
+    if (!Array.isArray(receipt.runtime_files)) throw new Error('artifact_runtime_files_receipt_invalid');
+    const spreadPaths = new Set(receipt.spread_files.map((entry) => safeReceiptRelativePath(entry?.path)));
+    for (const entry of receipt.runtime_files) {
+      const relativePath = safeReceiptRelativePath(entry?.path);
+      if (spreadPaths.has(relativePath)) throw new Error(`artifact_runtime_file_duplicate:${relativePath}`);
+      const target = path.resolve(pythonRoot, ...relativePath.split('/'));
+      const relativeToRoot = path.relative(pythonRoot, target);
+      if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+        throw new Error(`artifact_runtime_path_escaped:${relativePath}`);
+      }
+      addFile('python-root', relativePath, target);
+    }
   }
   return files.toSorted((left, right) => `${left.root}/${left.path}`.localeCompare(`${right.root}/${right.path}`));
 }
@@ -411,8 +435,16 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
         runtimeKey: string;
         receiptSha256: string;
         treeRootSha256: string;
+        treePhase: 'staged' | 'signed';
         lockSha256?: string;
         packages: CommandEveArtifactPythonPackageIdentity[];
+        packagedInterpreter?: Readonly<{
+          path: string;
+          relativePath: string;
+          mode: number;
+          size: number;
+          sha256: string;
+        }>;
       }
     | undefined;
   try {
@@ -427,13 +459,14 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
     const receipt = JSON.parse(receiptBytes.toString('utf8')) as ArtifactPythonRuntimeReceipt;
     const runtimeKey = String(receipt.runtime_key || '');
     const hermesRuntimeRequired = runtimeKey === 'darwin-arm64';
+    const treePhase = String(receipt.tree_phase || '');
     const platform: NodeJS.Platform = runtimeKey === 'win32-x64' ? 'win32' : 'darwin';
     const basePackages = commandEveArtifactPythonPackages(platform);
     if (
       receipt.version !== COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION ||
       !['darwin-arm64', 'win32-x64'].includes(runtimeKey) ||
       receipt.network_install_allowed !== false ||
-      !['staged', 'signed'].includes(String(receipt.tree_phase || '')) ||
+      !['staged', 'signed'].includes(treePhase) ||
       typeof receipt.tree_root_sha256 !== 'string' ||
       !/^[a-f0-9]{64}$/.test(receipt.tree_root_sha256) ||
       !Array.isArray(receipt.tree_files) ||
@@ -502,7 +535,43 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
     }
 
     let lockSha256: string | undefined;
+    let packagedInterpreter:
+      | Readonly<{ path: string; relativePath: string; mode: number; size: number; sha256: string }>
+      | undefined;
     if (hermesRuntimeRequired) {
+      const expectedRuntimePaths = ['bin/python3.12', 'command-eve-python-manifest.json'];
+      if (
+        !Array.isArray(receipt.runtime_files) ||
+        receipt.runtime_files.length !== expectedRuntimePaths.length ||
+        JSON.stringify(receipt.runtime_files.map((entry) => entry?.path).toSorted()) !==
+          JSON.stringify(expectedRuntimePaths)
+      ) {
+        return { ok: false, reason: 'artifact_runtime_files_receipt_invalid' };
+      }
+      for (const entry of receipt.runtime_files) {
+        if (
+          typeof entry?.path !== 'string' ||
+          typeof entry.mode !== 'number' ||
+          typeof entry.size !== 'number' ||
+          !Number.isSafeInteger(entry.size) ||
+          entry.size <= 0 ||
+          typeof entry.sha256 !== 'string' ||
+          !/^[a-f0-9]{64}$/.test(entry.sha256)
+        ) {
+          return { ok: false, reason: 'artifact_runtime_file_identity_invalid' };
+        }
+      }
+      const interpreter = receipt.runtime_files.find((entry) => entry?.path === 'bin/python3.12');
+      if (!interpreter || (Number(interpreter.mode) & 0o111) === 0) {
+        return { ok: false, reason: 'artifact_runtime_interpreter_invalid' };
+      }
+      packagedInterpreter = {
+        path: path.join(path.dirname(resolvedDirectory), 'bin', 'python3.12'),
+        relativePath: 'bin/python3.12',
+        mode: Number(interpreter.mode),
+        size: Number(interpreter.size),
+        sha256: String(interpreter.sha256),
+      };
       const locked = parsePackagedHermesRuntimeLock(resolvedDirectory);
       lockSha256 = COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256;
       const baseNames = new Set(basePackages.map((entry) => normalizeDistributionName(entry.name)));
@@ -540,7 +609,9 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
       runtimeKey,
       receiptSha256: crypto.createHash('sha256').update(receiptBytes).digest('hex'),
       treeRootSha256: receipt.tree_root_sha256,
+      treePhase: treePhase as 'staged' | 'signed',
       ...(lockSha256 ? { lockSha256 } : {}),
+      ...(packagedInterpreter ? { packagedInterpreter } : {}),
       packages,
     };
   } catch (error) {
@@ -594,12 +665,19 @@ export function resolveCommandEvePackagedArtifactPythonSite(
       return { ok: false, reason: 'artifact_site_invalid' };
     }
     const verification = verifyCommandEveArtifactPythonSite(artifactSite);
-    return verification.ok && verification.runtimeKey === 'darwin-arm64'
-      ? verification
+    return verification.ok &&
+      verification.runtimeKey === 'darwin-arm64' &&
+      verification.treePhase === 'signed' &&
+      verification.packagedInterpreter
+      ? { ...verification, resourcesRoot: resourcesReal }
       : {
           ok: false,
           reason: verification.ok
-            ? 'artifact_runtime_key_mismatch'
+            ? verification.runtimeKey !== 'darwin-arm64'
+              ? 'artifact_runtime_key_mismatch'
+              : verification.treePhase !== 'signed'
+                ? 'artifact_tree_not_signed'
+                : 'artifact_runtime_interpreter_invalid'
             : 'reason' in verification
               ? verification.reason
               : 'artifact_site_invalid',

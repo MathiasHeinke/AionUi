@@ -601,12 +601,37 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
         JSON.stringify(receipt?.hermes_runtime?.extras) !== JSON.stringify(['acp', 'mcp']) ||
         receipt?.hermes_runtime?.network_install_allowed !== false
       : receipt?.hermes_runtime !== undefined) ||
+    (hermesRuntimeRequired &&
+      (!Array.isArray(receipt?.runtime_files) ||
+        JSON.stringify(receipt.runtime_files.map((entry) => entry?.path).sort()) !==
+          JSON.stringify(['bin/python3.12', 'command-eve-python-manifest.json']))) ||
     !Array.isArray(receipt?.packages) ||
     receipt.packages.length !== expectedPackages.length ||
     !Array.isArray(receipt?.native_files)
   ) {
     throw new Error('PACKAGED-RESOURCES: packaged Artifact Python receipt violates its signed-runtime contract');
   }
+
+  const runtimeFiles = hermesRuntimeRequired
+    ? receipt.runtime_files.map((entry) => {
+        const relativePath = String(entry?.path || '');
+        const filePath = path.join(pythonDirectory, ...relativePath.split('/'));
+        const bytes = readRequiredRegularFile(filePath, `packaged Python runtime file ${relativePath}`, deps);
+        const stat = deps.lstat(filePath);
+        if (
+          typeof entry.mode !== 'number' ||
+          typeof entry.size !== 'number' ||
+          typeof entry.sha256 !== 'string' ||
+          entry.mode !== (stat.mode & 0o777) ||
+          entry.size !== stat.size ||
+          entry.sha256 !== sha256(bytes) ||
+          (relativePath === 'bin/python3.12' && (entry.mode & 0o111) === 0)
+        ) {
+          throw new Error(`PACKAGED-RESOURCES: packaged Python runtime identity mismatch for ${relativePath}`);
+        }
+        return { file: relativePath, mode: entry.mode, size: entry.size, sha256: entry.sha256 };
+      })
+    : [];
 
   const distInfo = new Map();
   for (const entry of deps.readdir(artifactDirectory, { withFileTypes: true })) {
@@ -679,6 +704,7 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
         }
       : {}),
     packages,
+    ...(runtimeFiles.length > 0 ? { runtime_files: runtimeFiles } : {}),
     native_files: nativeArchitectures,
     receipt_path: receiptPath,
   };

@@ -17,6 +17,13 @@ export {
   stopBackend,
 } from './backend-launcher.js';
 export type { BackendDirConfig, BackendLaunchOptions, BackendHandle, BackendStartOptions } from './backend-launcher.js';
+export type {
+  RegisteredAgentProcessIdentity,
+  RegisteredAgentProcessIdentityProbe,
+  RegisteredAgentProcessIdentityProbeResult,
+  RegisteredAgentProcessV2,
+  RegisteredProcessStartTime,
+} from './agent-process-registry.js';
 
 /**
  * Start WebHost (main entry point).

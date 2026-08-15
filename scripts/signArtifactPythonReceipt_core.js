@@ -79,6 +79,37 @@ function refreshSpreadFiles(receipt, pythonRoot, fsDeps) {
   });
 }
 
+function refreshRuntimeFiles(receipt, pythonRoot, fsDeps) {
+  if (receipt.runtime_files === undefined) {
+    if (receipt.runtime_key === 'darwin-arm64') {
+      throw new Error('darwin-arm64 receipt runtime_files contract missing');
+    }
+    return [];
+  }
+  if (!Array.isArray(receipt.runtime_files)) throw new Error('receipt runtime_files contract invalid');
+  const expected = receipt.runtime_key === 'darwin-arm64' ? ['bin/python3.12', 'command-eve-python-manifest.json'] : [];
+  const actual = receipt.runtime_files.map((entry) => String(entry?.path || '')).sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`receipt runtime_files path set invalid: ${actual.join(',')}`);
+  }
+  return receipt.runtime_files.map((entry) => {
+    const relativePath = String(entry?.path || '');
+    if (!relativePath || relativePath.includes('..') || path.isAbsolute(relativePath) || relativePath.includes('\\')) {
+      throw new Error(`receipt runtime file path invalid: ${relativePath}`);
+    }
+    const target = path.resolve(pythonRoot, ...relativePath.split('/'));
+    if (!fsDeps.existsSync(target)) throw new Error(`receipt runtime file missing after sign: ${relativePath}`);
+    const stat = fsDeps.lstatSync(target);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`receipt runtime file invalid: ${relativePath}`);
+    return {
+      path: relativePath,
+      mode: stat.mode & 0o777,
+      size: stat.size,
+      sha256: sha256File(target, fsDeps),
+    };
+  });
+}
+
 function treeRootSha256(files) {
   return crypto.createHash('sha256').update(JSON.stringify(files)).digest('hex');
 }
@@ -167,9 +198,12 @@ function rewriteArtifactPythonReceiptPostSign(appPath, deps = {}) {
   const pythonRoot = path.join(appPath, 'Contents', 'Resources', 'python');
   const treeFiles = enumerateSiteTree(siteDir, fsDeps);
   const spreadFiles = refreshSpreadFiles(receipt, pythonRoot, fsDeps);
-  const allFiles = [...treeFiles, ...spreadFiles.map((entry) => ({ root: 'python-root', ...entry }))].sort(
-    (left, right) => `${left.root}/${left.path}`.localeCompare(`${right.root}/${right.path}`)
-  );
+  const runtimeFiles = refreshRuntimeFiles(receipt, pythonRoot, fsDeps);
+  const allFiles = [
+    ...treeFiles,
+    ...spreadFiles.map((entry) => ({ root: 'python-root', ...entry })),
+    ...runtimeFiles.map((entry) => ({ root: 'python-root', ...entry })),
+  ].sort((left, right) => `${left.root}/${left.path}`.localeCompare(`${right.root}/${right.path}`));
 
   const rewritten = {
     ...receipt,
@@ -177,6 +211,7 @@ function rewriteArtifactPythonReceiptPostSign(appPath, deps = {}) {
     tree_root_sha256: treeRootSha256(allFiles),
     tree_files: allFiles,
     spread_files: spreadFiles,
+    ...(runtimeFiles.length > 0 ? { runtime_files: runtimeFiles } : {}),
   };
   fsDeps.writeFileSync(receiptPath, `${JSON.stringify(rewritten, null, 2)}\n`, { encoding: 'utf8', mode: 0o644 });
   return { rewritten: true, receiptPath, treeFiles: allFiles.length };

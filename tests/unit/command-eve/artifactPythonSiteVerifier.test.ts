@@ -109,8 +109,10 @@ describe('signed artifact-site verifier — Pro Gate 2 mutation battery', () => 
   const tempRoots: string[] = [];
 
   beforeEach(() => {
-    siteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-artifact-site-'));
-    tempRoots.push(siteDir);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-artifact-site-'));
+    tempRoots.push(root);
+    siteDir = path.join(root, 'python', 'artifact-site-packages');
+    fs.mkdirSync(siteDir, { recursive: true });
     writeFile(siteDir, 'pptx/__init__.py', 'from pptx.api import Presentation\n');
     writeFile(siteDir, 'pptx/api.py', 'class Presentation: ...\n');
     writeFile(siteDir, 'PIL/__init__.py', '__version__ = "12.3.0"\n');
@@ -178,11 +180,41 @@ describe('signed artifact-site verifier — Pro Gate 2 mutation battery', () => 
       extras: ['acp', 'mcp'],
       network_install_allowed: false,
     };
-    buildReceipt(siteDir, { runtime_key: 'darwin-arm64', packages, hermes_runtime: hermesRuntime });
+    const pythonRoot = path.dirname(siteDir);
+    writeFile(pythonRoot, 'bin/python3.12', '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(path.join(pythonRoot, 'bin', 'python3.12'), 0o755);
+    writeFile(pythonRoot, 'command-eve-python-manifest.json', '{"version":"test"}\n');
+    const runtimeFiles = ['bin/python3.12', 'command-eve-python-manifest.json'].map((relativePath) => {
+      const file = path.join(pythonRoot, ...relativePath.split('/'));
+      const stat = fs.lstatSync(file);
+      return {
+        path: relativePath,
+        mode: stat.mode & 0o777,
+        size: stat.size,
+        sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+      };
+    });
+    const treeFiles = [
+      ...enumerateTree(siteDir),
+      ...runtimeFiles.map((entry) => ({ root: 'python-root', ...entry })),
+    ].toSorted((left, right) => `${left.root}/${left.path}`.localeCompare(`${right.root}/${right.path}`));
+    const darwinReceipt = {
+      runtime_key: 'darwin-arm64',
+      packages,
+      hermes_runtime: hermesRuntime,
+      runtime_files: runtimeFiles,
+      tree_files: treeFiles,
+      tree_root_sha256: treeRootSha256(treeFiles),
+    };
+    buildReceipt(siteDir, darwinReceipt);
     expect(verifyCommandEveArtifactPythonSite(siteDir)).toMatchObject({ ok: true });
 
+    fs.chmodSync(path.join(pythonRoot, 'bin', 'python3.12'), 0o644);
+    expect(verifyCommandEveArtifactPythonSite(siteDir)).toMatchObject({ ok: false });
+    fs.chmodSync(path.join(pythonRoot, 'bin', 'python3.12'), 0o755);
+
     buildReceipt(siteDir, {
-      runtime_key: 'darwin-arm64',
+      ...darwinReceipt,
       packages: packages.map((entry) =>
         entry.name === 'websockets' ? { ...entry, name: 'websockets-unlocked' } : entry
       ),

@@ -983,7 +983,7 @@ function writeArtifactComplianceFiles({ targetDirectory, packages, manifest }) {
   };
 }
 
-function collectArtifactTreeFiles(targetDirectory, pythonRoot, spreadFiles) {
+function collectArtifactTreeFiles(targetDirectory, pythonRoot, spreadFiles, runtimeFiles = new Set()) {
   const receiptPath = path.join(targetDirectory, COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT);
   const collected = [];
   const addFile = (root, relativePath, filePath) => {
@@ -1015,6 +1015,16 @@ function collectArtifactTreeFiles(targetDirectory, pythonRoot, spreadFiles) {
     const relativeToPython = path.relative(pythonRoot, target);
     if (relativeToPython.startsWith('..') || path.isAbsolute(relativeToPython)) {
       throw new Error(`Artifact Python spread file escaped the runtime: ${relativePath}`);
+    }
+    addFile('python-root', relativeToPython, target);
+  }
+  for (const relativePath of [...runtimeFiles].sort()) {
+    if (spreadFiles.has(relativePath))
+      throw new Error(`Artifact Python runtime file duplicated spread file: ${relativePath}`);
+    const target = path.resolve(pythonRoot, relativePath);
+    const relativeToPython = path.relative(pythonRoot, target);
+    if (relativeToPython.startsWith('..') || path.isAbsolute(relativeToPython)) {
+      throw new Error(`Artifact Python runtime file escaped the runtime: ${relativePath}`);
     }
     addFile('python-root', relativeToPython, target);
   }
@@ -1132,7 +1142,12 @@ export async function stageBundledArtifactPython(options) {
   // copies and signs it.
   stripBytecodeCaches(pythonRoot);
 
-  const tree = collectArtifactTreeFiles(targetDirectory, pythonRoot, spreadFiles);
+  // The post-sign receipt is also the runtime authority for the executable
+  // that performs anchored vault operations. Keep these files separate from
+  // wheel spread files so a staging retry can never delete the interpreter.
+  const runtimeFiles =
+    runtimeKey === 'darwin-arm64' ? new Set(['bin/python3.12', 'command-eve-python-manifest.json']) : new Set();
+  const tree = collectArtifactTreeFiles(targetDirectory, pythonRoot, spreadFiles, runtimeFiles);
 
   const receipt = {
     version: COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
@@ -1160,8 +1175,15 @@ export async function stageBundledArtifactPython(options) {
         }
       : {}),
     spread_files: tree.files
-      .filter((entry) => entry.root === 'python-root')
+      .filter((entry) => entry.root === 'python-root' && spreadFiles.has(entry.path))
       .map(({ path: relativePath, mode, size, sha256 }) => ({ path: relativePath, mode, size, sha256 })),
+    ...(runtimeFiles.size > 0
+      ? {
+          runtime_files: tree.files
+            .filter((entry) => entry.root === 'python-root' && runtimeFiles.has(entry.path))
+            .map(({ path: relativePath, mode, size, sha256 }) => ({ path: relativePath, mode, size, sha256 })),
+        }
+      : {}),
     packages: packages.map((entry) => ({
       name: entry.name,
       version: entry.version,

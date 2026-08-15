@@ -1,10 +1,40 @@
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { cleanupRegisteredAgentProcesses, resolveAgentProcessRegistryPath } from './agent-process-registry.js';
+import {
+  cleanupRegisteredAgentProcesses,
+  resolveAgentProcessRegistryPath,
+  type RegisteredAgentProcessIdentityProbe,
+  type RegisteredAgentProcessV2,
+} from './agent-process-registry.js';
+
+function registeredProcess(overrides: Partial<RegisteredAgentProcessV2> = {}): RegisteredAgentProcessV2 {
+  return {
+    pid: 6883,
+    process_group_id: 6883,
+    conversation_id: 'conv-1',
+    agent_type: 'acp',
+    backend: 'codex',
+    registered_at_ms: 1,
+    process_identity: {
+      platform: 'darwin',
+      start_time: { kind: 'unix_epoch_us', value: '1770000000123456' },
+      parent_pid: 522,
+      executable_path: '/signed/hermes',
+    },
+    ...overrides,
+  };
+}
+
+async function writeRegistry(dataDir: string, version: unknown, processes: unknown[]): Promise<string> {
+  const registryPath = resolveAgentProcessRegistryPath(dataDir);
+  await mkdir(path.dirname(registryPath), { recursive: true });
+  await writeFile(registryPath, `${JSON.stringify({ version, processes }, null, 2)}\n`, 'utf8');
+  return registryPath;
+}
 
 describe('cleanupRegisteredAgentProcesses', () => {
   afterEach(() => {
@@ -12,116 +42,115 @@ describe('cleanupRegisteredAgentProcesses', () => {
     vi.useRealTimers();
   });
 
-  it('does not signal a registered PGID after its wrapper identity is gone', async () => {
-    if (process.platform === 'win32') {
-      return;
-    }
+  it('signals only a fully verified v2 birth and revalidates before every signal', async () => {
+    if (process.platform === 'win32') return;
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-v2-'));
+    const registryPath = await writeRegistry(dataDir, 2, [registeredProcess()]);
+    const identityProbe = vi
+      .fn<RegisteredAgentProcessIdentityProbe>()
+      .mockResolvedValueOnce('match')
+      .mockResolvedValueOnce('match')
+      .mockResolvedValueOnce('match')
+      .mockResolvedValueOnce('absent');
+    const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
 
-    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-'));
-    const registryPath = resolveAgentProcessRegistryPath(dataDir);
-    await mkdir(path.dirname(registryPath), { recursive: true });
-    await writeFile(
-      registryPath,
-      JSON.stringify({
-        version: 1,
-        processes: [
-          {
-            pid: 6883,
-            process_group_id: 6883,
-            conversation_id: 'conv-1',
-            agent_type: 'acp',
-            backend: 'codex',
-            registered_at_ms: 1,
-          },
-        ],
-      }),
-      'utf8'
-    );
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { identityProbe, termGraceMs: 0 })).resolves.toEqual({
+      survivor_pids: [],
+      registry_unproven: false,
+    });
 
-    const notFound = () => Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation(((
-      target: number,
-      signal?: NodeJS.Signals | number
-    ) => {
-      if (target === -6883 && signal === 0) {
-        return true;
-      }
-      if (target === 6883 && signal === 0) {
-        throw notFound();
-      }
-      throw notFound();
-    }) as typeof process.kill);
-
-    const cleanup = await cleanupRegisteredAgentProcesses(dataDir);
-
-    const registry = JSON.parse(await readFile(registryPath, 'utf8')) as {
-      processes: Array<{ pid: number }>;
-    };
-
-    expect(killSpy).not.toHaveBeenCalledWith(-6883, 'SIGTERM');
-    expect(killSpy).not.toHaveBeenCalledWith(-6883, 'SIGKILL');
-    expect(registry.processes).toEqual([
-      {
-        pid: 6883,
-        process_group_id: 6883,
-        conversation_id: 'conv-1',
-        agent_type: 'acp',
-        backend: 'codex',
-        registered_at_ms: 1,
-      },
+    expect(identityProbe).toHaveBeenCalledTimes(4);
+    expect(killSpy.mock.calls).toEqual([
+      [-6883, 'SIGTERM'],
+      [-6883, 'SIGKILL'],
     ]);
-    expect(cleanup).toEqual({ survivor_pids: [6883] });
+    expect(JSON.parse(await readFile(registryPath, 'utf8'))).toEqual({ version: 2, processes: [] });
+    expect((await readdir(path.dirname(registryPath))).filter((entry) => entry.endsWith('.tmp'))).toEqual([]);
   });
 
-  // The registry file is data from disk, and `readRegistry` used to cast it
-  // straight to `Partial<AgentProcessRegistry>`. A cast is not a check: it tells
-  // the compiler to stop asking, and `JSON.parse` is free to return null, a
-  // number, a string or an array. These two tests send a genuinely broken file
-  // through and assert what the program does afterwards — not that a guard
-  // exists.
+  it('retains a recycled PID or PGID identity and sends no numeric signal', async () => {
+    if (process.platform === 'win32') return;
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-reused-'));
+    const entry = registeredProcess();
+    const registryPath = await writeRegistry(dataDir, 2, [entry]);
+    const identityProbe = vi.fn<RegisteredAgentProcessIdentityProbe>().mockResolvedValue('mismatch');
+    const killSpy = vi.spyOn(process, 'kill');
 
-  it('a corrupt registry root does not abort the shutdown that has to kill orphaned agents', async () => {
-    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-null-'));
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { identityProbe, termGraceMs: 0 })).resolves.toEqual({
+      survivor_pids: [6883],
+      registry_unproven: true,
+    });
+
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(registryPath, 'utf8')).processes).toEqual([entry]);
+  });
+
+  it('revalidates the exact v2 identity before a PGID-ESRCH PID fallback', async () => {
+    if (process.platform === 'win32') return;
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-fallback-'));
+    await writeRegistry(dataDir, 2, [registeredProcess()]);
+    const identityProbe = vi
+      .fn<RegisteredAgentProcessIdentityProbe>()
+      .mockResolvedValueOnce('match')
+      .mockResolvedValueOnce('match')
+      .mockResolvedValueOnce('absent');
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (target === -6883 && signal === 'SIGTERM') throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+      return true;
+    });
+
+    await cleanupRegisteredAgentProcesses(dataDir, { identityProbe, termGraceMs: 0 });
+
+    expect(identityProbe).toHaveBeenCalledTimes(3);
+    expect(killSpy.mock.calls).toEqual([
+      [-6883, 'SIGTERM'],
+      [6883, 'SIGTERM'],
+    ]);
+  });
+
+  it.each([
+    ['legacy v1', 1, registeredProcess({ process_identity: undefined as never })],
+    ['nullable v2 identity', 2, { ...registeredProcess(), process_identity: null }],
+    ['v2 entry with an extra key', 2, { ...registeredProcess(), injected: true }],
+  ])('retains %s as unproven and sends no signal', async (_label, version, entry) => {
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-unproven-'));
+    const registryPath = await writeRegistry(dataDir, version, [entry]);
+    const killSpy = vi.spyOn(process, 'kill');
+    const identityProbe = vi.fn<RegisteredAgentProcessIdentityProbe>().mockResolvedValue('match');
+
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { identityProbe, termGraceMs: 0 })).resolves.toEqual({
+      survivor_pids: [6883],
+      registry_unproven: true,
+    });
+
+    expect(identityProbe).not.toHaveBeenCalled();
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(registryPath, 'utf8')).processes).toEqual([entry]);
+  });
+
+  it('keeps malformed registry bytes intact and reports cleanup as unproven', async () => {
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-malformed-'));
     const registryPath = resolveAgentProcessRegistryPath(dataDir);
     await mkdir(path.dirname(registryPath), { recursive: true });
-    // Valid JSON, and not an object. `parsed.version` on it throws a TypeError,
-    // which `isNotFound` does not recognise, so `readRegistry` rethrows.
     await writeFile(registryPath, 'null', 'utf8');
+    const killSpy = vi.spyOn(process, 'kill');
 
-    // WHY A REJECTION HERE IS THE DAMAGE, not merely an untidy error: both call
-    // sites await this without a try/catch (backend-launcher.ts:875 and :892).
-    // A throw therefore aborts `stop()` before `cleanupLocalCapabilityFile()` and
-    // before `this.childProcess = null` — and, the point of the function, before a
-    // single orphaned ACP child has been signalled. One malformed byte on disk
-    // keeps every orphan alive.
-    await expect(cleanupRegisteredAgentProcesses(dataDir)).resolves.toEqual({ survivor_pids: [] });
+    await expect(cleanupRegisteredAgentProcesses(dataDir)).resolves.toEqual({
+      survivor_pids: [],
+      registry_unproven: true,
+    });
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(await readFile(registryPath, 'utf8')).toBe('null');
   });
 
-  it('refuses a non-numeric version instead of writing it back into the file', async () => {
+  it('does not rewrite a nonnumeric registry version or erase its evidence', async () => {
     const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-version-'));
-    const registryPath = resolveAgentProcessRegistryPath(dataDir);
-    await mkdir(path.dirname(registryPath), { recursive: true });
-    // `version` is typed `number`. `?? 1` only replaces null/undefined, so any
-    // other JSON value passed straight through the cast — and back out through
-    // `writeRegistry`, which persists whatever it was handed.
-    await writeFile(
-      registryPath,
-      JSON.stringify({
-        version: 'evil',
-        processes: [{ pid: 2147483646, conversation_id: 'conv-x', agent_type: 'acp', registered_at_ms: 1 }],
-      }),
-      'utf8'
-    );
+    const registryPath = await writeRegistry(dataDir, 'evil', [registeredProcess()]);
 
-    const notFound = () => Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
-    vi.spyOn(process, 'kill').mockImplementation((() => {
-      throw notFound();
-    }) as typeof process.kill);
-
-    await cleanupRegisteredAgentProcesses(dataDir);
-
-    const written = JSON.parse(await readFile(registryPath, 'utf8')) as { version: unknown };
-    expect(typeof written.version).toBe('number');
-    expect(written.version).toBe(1);
+    await expect(cleanupRegisteredAgentProcesses(dataDir)).resolves.toEqual({
+      survivor_pids: [],
+      registry_unproven: true,
+    });
+    expect(JSON.parse(await readFile(registryPath, 'utf8')).version).toBe('evil');
   });
 });

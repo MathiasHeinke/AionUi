@@ -8,9 +8,10 @@ import {
   restartCommandEveBackendForSeat,
   runCommandEveBackendCrashRecovery,
   runCommandEveBackendRespawnAfterStop,
-  runCommandEveBackendRestartReservation,
+  runCommandEveBackendRestartReservation as runCommandEveBackendRestartReservationWithOptions,
   setCommandEveBackendAuthorityFailClosed,
   setCommandEveBackendRestart,
+  type CommandEveBackendRestartLease,
 } from '@/process/commandEve/seatSwitchRuntime';
 import {
   __resetActiveSeatForTests,
@@ -29,6 +30,12 @@ afterEach(() => {
 const AUTHORITY_TEST_USER_DATA = '/tmp/command-eve-backend-authority-test';
 const AUTHORITY_SEAT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const AUTHORITY_SEAT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+function runCommandEveBackendRestartReservation<T>(
+  operation: (lease: CommandEveBackendRestartLease) => Promise<T>
+): Promise<T> {
+  return runCommandEveBackendRestartReservationWithOptions(operation, { queueWaitTimeoutMs: 90_000 });
+}
 
 describe('Command EVE runtime bridge registration', () => {
   it('pins packaged license-key resolution to Electron signed resources unconditionally', () => {
@@ -717,7 +724,15 @@ describe('Command EVE runtime bridge registration', () => {
     await expect(runCommandEveBackendRestartReservation(async () => 'next')).resolves.toBe('next');
   });
 
-  it('does not impose the removed 30s default on a caller that deliberately owns its own terminal bound', async () => {
+  it('rejects a nonpositive explicit queue bound before reservation work enters', async () => {
+    const operation = vi.fn(async () => 'never');
+    await expect(
+      runCommandEveBackendRestartReservationWithOptions(operation, { queueWaitTimeoutMs: 0 })
+    ).rejects.toThrow('requires a positive queue timeout');
+    expect(operation).not.toHaveBeenCalled();
+  });
+
+  it('honors the callers explicit 90s queue bound instead of imposing a hidden 30s default', async () => {
     vi.useFakeTimers();
     let markOwnerEntered!: () => void;
     let releaseOwner!: () => void;

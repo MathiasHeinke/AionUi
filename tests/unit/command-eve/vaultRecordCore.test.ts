@@ -23,6 +23,7 @@
  */
 
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -489,9 +490,16 @@ describe('vaultRecordCore — byte-exact authority rollback', () => {
     const installedCommandEvePython = '/Applications/Command EVE.app/Contents/Resources/python/bin/python3.12';
     const python = fs.existsSync(installedCommandEvePython) ? installedCommandEvePython : '/usr/bin/python3';
 
-    function useNativeHelper(swapAwayThenBack?: 'snapshot' | 'read' | 'write' | 'restore' | 'delete'): void {
+    function useNativeHelper(
+      swapAwayThenBack?: 'snapshot' | 'read' | 'write' | 'restore' | 'delete',
+      overrides: Parameters<typeof __setVaultRecordNativeHelperForTests>[0] = undefined
+    ): void {
       if (!fs.existsSync(python)) return;
-      __setVaultRecordNativeHelperForTests({ pythonExecutable: python, swapAwayThenBack });
+      __setVaultRecordNativeHelperForTests({
+        pythonExecutable: python,
+        ...(swapAwayThenBack ? { swapAwayThenBack } : {}),
+        ...overrides,
+      });
     }
 
     function foreignVault(root: string): string {
@@ -605,6 +613,121 @@ describe('vaultRecordCore — byte-exact authority rollback', () => {
       expect(fs.readFileSync(path.join(foreignVault(root), `${record.connector_id}.enc`), 'utf8')).toBe(
         'foreign-unchanged'
       );
+    });
+
+    it.each([
+      ['exit before stdout', { exitAfterCommitBeforeStdout: 'write' as const }],
+      ['invalid stdout', { corruptStdoutAfterCommit: 'write' as const }],
+      ['timeout after commit', { sleepAfterCommitMs: 1_000, timeoutMs: 300 }],
+    ])('resolves a committed write after helper %s instead of reporting rejection', (_label, fault) => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      useNativeHelper(undefined, fault);
+      const record = makeValidRecord({ connector_id: 'native-commit-resolution' });
+
+      expect(writeVaultRecord(vault, record)).toMatchObject({ ok: true });
+      useNativeHelper();
+      expect(readVaultRecord(vault, record.connector_id)).toEqual(record);
+      expect(fs.readdirSync(vault).filter((entry) => entry.includes('command-eve-transaction'))).toEqual([]);
+    });
+
+    it('quarantines an ambiguous post-commit state and blocks every later feeder operation', () => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      useNativeHelper(undefined, { corruptRecordAfterCommit: 'write' });
+      const record = makeValidRecord({ connector_id: 'native-ambiguous-journal' });
+
+      expect(writeVaultRecord(vault, record)).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_RECORD_MUTATION_AMBIGUOUS',
+      });
+      useNativeHelper();
+      expect(readVaultRecord(vault, record.connector_id)).toBeNull();
+      expect(writeVaultRecord(vault, record)).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_RECORD_MUTATION_AMBIGUOUS',
+      });
+      expect(fs.readdirSync(vault).some((entry) => entry.includes('command-eve-transaction'))).toBe(true);
+    });
+
+    it('sends zero secret bytes when the verified interpreter path is replaced before launch', () => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      const helperRoot = path.join(root, 'helper', 'bin');
+      const candidate = path.join(helperRoot, 'python3.12');
+      const parked = `${candidate}.verified`;
+      const sentinel = path.join(root, 'malicious-stdin.txt');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      fs.mkdirSync(helperRoot, { recursive: true, mode: 0o700 });
+      fs.copyFileSync(python, candidate);
+      fs.chmodSync(candidate, 0o755);
+      const expected = fs.lstatSync(candidate);
+      const expectedSha256 = crypto.createHash('sha256').update(fs.readFileSync(candidate)).digest('hex');
+      __setVaultRecordNativeHelperForTests({
+        pythonExecutable: candidate,
+        expectedInterpreter: {
+          mode: expected.mode & 0o777,
+          size: expected.size,
+          sha256: expectedSha256,
+        },
+        beforeInterpreterLink: () => {
+          fs.renameSync(candidate, parked);
+          fs.writeFileSync(candidate, `#!/bin/sh\ncat > ${JSON.stringify(sentinel)}\n`, { mode: 0o755 });
+        },
+      });
+      const record = makeValidRecord({ connector_id: 'native-replaced-interpreter' });
+
+      expect(writeVaultRecord(vault, record)).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_RECORD_WRITE_FAILED',
+      });
+      expect(fs.existsSync(sentinel)).toBe(false);
+      expect(fs.existsSync(vaultRecordPath(vault, record.connector_id))).toBe(false);
+    });
+
+    it('ignores the test helper entirely on strict packaged macOS', () => {
+      if (process.platform !== 'darwin') return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      const malicious = path.join(root, 'malicious-python');
+      const sentinel = path.join(root, 'malicious-packaged-stdin.txt');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      fs.writeFileSync(malicious, `#!/bin/sh\ncat > ${JSON.stringify(sentinel)}\n`, { mode: 0o755 });
+      __setVaultRecordNativeHelperForTests({ pythonExecutable: malicious });
+      const versionsDescriptor = Object.getOwnPropertyDescriptor(process.versions, 'electron');
+      const resourcesDescriptor = Object.getOwnPropertyDescriptor(process, 'resourcesPath');
+      const defaultAppDescriptor = Object.getOwnPropertyDescriptor(process, 'defaultApp');
+      try {
+        Object.defineProperty(process.versions, 'electron', { configurable: true, value: '99.0.0' });
+        Object.defineProperty(process, 'resourcesPath', {
+          configurable: true,
+          value: path.join(root, 'unsigned-resources'),
+        });
+        Object.defineProperty(process, 'defaultApp', { configurable: true, value: false });
+
+        expect(writeVaultRecord(vault, makeValidRecord({ connector_id: 'strict-packaged-hook' }))).toMatchObject({
+          ok: false,
+          reason_code: 'VAULT_RECORD_WRITE_FAILED',
+        });
+        expect(fs.existsSync(sentinel)).toBe(false);
+        expect(fs.readdirSync(vault)).toEqual([]);
+      } finally {
+        if (versionsDescriptor) Object.defineProperty(process.versions, 'electron', versionsDescriptor);
+        else delete (process.versions as Record<string, string | undefined>).electron;
+        if (resourcesDescriptor) Object.defineProperty(process, 'resourcesPath', resourcesDescriptor);
+        else delete (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+        if (defaultAppDescriptor) Object.defineProperty(process, 'defaultApp', defaultAppDescriptor);
+        else delete (process as NodeJS.Process & { defaultApp?: boolean }).defaultApp;
+      }
     });
   });
 });

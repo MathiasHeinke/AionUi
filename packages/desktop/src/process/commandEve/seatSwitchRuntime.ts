@@ -142,11 +142,11 @@ async function invokeCommandEveBackendAuthorityFailClosedHook(lease: CommandEveB
 export function runCommandEveBackendRestartReservation<T>(
   operation: (lease: CommandEveBackendRestartLease) => Promise<T>,
   options: CommandEveBackendRestartReservationOptions
-): Promise<T>;
-export function runCommandEveBackendRestartReservation<T>(
-  operation: (lease: CommandEveBackendRestartLease) => Promise<T>,
-  options?: CommandEveBackendRestartReservationOptions
 ): Promise<T> {
+  const queueWaitTimeoutMs = options.queueWaitTimeoutMs;
+  if (!Number.isFinite(queueWaitTimeoutMs) || queueWaitTimeoutMs <= 0) {
+    return Promise.reject(new Error('Command EVE: backend lifecycle reservation requires a positive queue timeout.'));
+  }
   let entered = false;
   let cancelledBeforeEntry = false;
   const queued = enqueueCommandEveBackendLifecycle(async () => {
@@ -172,11 +172,6 @@ export function runCommandEveBackendRestartReservation<T>(
   // lease. Queue admission bounds are chosen explicitly by each production
   // transaction: a fixed global 30s default silently shortened guided/seat
   // operations whose own terminal bounds are 90s+.
-  const queueWaitTimeoutMs = options?.queueWaitTimeoutMs;
-  if (queueWaitTimeoutMs === undefined || !Number.isFinite(queueWaitTimeoutMs) || queueWaitTimeoutMs <= 0) {
-    return queued;
-  }
-
   return new Promise<T>((resolve, reject) => {
     const timeout = setTimeout(() => {
       // Never time out an operation after it has entered: it may already own

@@ -210,6 +210,17 @@ const writeSignedHermesArtifactSite = (resourcesPath: string): string => {
     ...runtimePackages,
   ];
   const lockStat = fs.lstatSync(packagedLock);
+  const pythonRoot = path.dirname(site);
+  const runtimeFiles = ['bin/python3.12', 'command-eve-python-manifest.json'].map((relativePath) => {
+    const file = path.join(pythonRoot, ...relativePath.split('/'));
+    const stat = fs.lstatSync(file);
+    return {
+      path: relativePath,
+      mode: stat.mode & 0o777,
+      size: stat.size,
+      sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+    };
+  });
   const treeFiles = [
     {
       root: 'artifact-site',
@@ -218,7 +229,8 @@ const writeSignedHermesArtifactSite = (resourcesPath: string): string => {
       size: lockStat.size,
       sha256: crypto.createHash('sha256').update(sourceLock).digest('hex'),
     },
-  ];
+    ...runtimeFiles.map((entry) => ({ root: 'python-root', ...entry })),
+  ].toSorted((left, right) => `${left.root}/${left.path}`.localeCompare(`${right.root}/${right.path}`));
   const receipt = {
     version: COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
     runtime_key: 'darwin-arm64',
@@ -227,6 +239,7 @@ const writeSignedHermesArtifactSite = (resourcesPath: string): string => {
     tree_root_sha256: crypto.createHash('sha256').update(JSON.stringify(treeFiles)).digest('hex'),
     tree_files: treeFiles,
     spread_files: [],
+    runtime_files: runtimeFiles,
     packages,
     hermes_runtime: {
       version: 'command-eve-hermes-runtime-site/v1',
@@ -4614,8 +4627,7 @@ describe('Command EVE runtime bootstrap core', () => {
     const root = makeRoot();
     const resourcesPath = writeBundledPythonRuntime(root);
     const signedSite = writeSignedHermesArtifactSite(resourcesPath);
-    const externalResources = path.join(makeRoot(), 'External Resources');
-    fs.mkdirSync(path.join(externalResources, 'python'), { recursive: true });
+    const externalResources = writeBundledPythonRuntime(makeRoot());
     const externalSite = writeSignedHermesArtifactSite(externalResources);
     const env: NodeJS.ProcessEnv = {
       PYTHONPATH: [externalSite, '/tmp/foreign-python'].join(path.delimiter),

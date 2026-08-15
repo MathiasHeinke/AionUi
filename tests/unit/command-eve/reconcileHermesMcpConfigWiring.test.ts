@@ -24,10 +24,17 @@ import {
 import { setMcpVaultEnabledForTests } from '@/process/commandEve/mcpVaultFlagCore';
 import {
   __resetCommandEveBackendRestartForTests,
-  runCommandEveBackendRestartReservation,
+  runCommandEveBackendRestartReservation as runCommandEveBackendRestartReservationWithOptions,
   setCommandEveBackendRestart,
+  type CommandEveBackendRestartLease,
 } from '@/process/commandEve/seatSwitchRuntime';
 import { __resetActiveSeatForTests, getActiveSeatId, setActiveSeatId } from '@/process/commandEve/seatContextCore';
+
+function runCommandEveBackendRestartReservation<T>(
+  operation: (lease: CommandEveBackendRestartLease) => Promise<T>
+): Promise<T> {
+  return runCommandEveBackendRestartReservationWithOptions(operation, { queueWaitTimeoutMs: 90_000 });
+}
 
 afterEach(() => {
   setMcpVaultEnabledForTests(undefined);
