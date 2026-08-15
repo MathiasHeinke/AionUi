@@ -9,6 +9,7 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AionrsSendBox from '@/renderer/pages/conversation/platforms/aionrs/AionrsSendBox';
 import type { AionrsModelSelection } from '@/renderer/pages/conversation/platforms/aionrs/useAionrsModelSelection';
+import { ACP_PERFORMANCE_MARK_EVENT, type AcpPerformanceMark } from '@/renderer/utils/performance/acpPerformanceMarks';
 
 const {
   sendMessageInvokeMock,
@@ -308,6 +309,35 @@ describe('AionrsSendBox queue recovery', () => {
     expect(emitterEmitMock).not.toHaveBeenCalledWith('chat.history.refresh');
     expect(emitterEmitMock).not.toHaveBeenCalledWith('aionrs.workspace.refresh');
     expect(messageErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('marks request acceptance only after the AionRS send result is accepted', async () => {
+    const send = createDeferred<unknown>();
+    const marks: AcpPerformanceMark[] = [];
+    const listener = (event: Event) => marks.push((event as CustomEvent<AcpPerformanceMark>).detail);
+    window.addEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
+    sendMessageInvokeMock.mockReturnValue(send.promise);
+
+    render(<AionrsSendBox conversation_id='conv-1' modelSelection={modelSelection} />);
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(marks).toEqual([]);
+
+    await act(async () => {
+      send.resolve({ turn_id: 'turn-accepted', msg_id: 'message-accepted', runtime: null });
+    });
+    await waitFor(() =>
+      expect(marks).toContainEqual(
+        expect.objectContaining({
+          stage: 'request_accepted',
+          conversationId: 'conv-1',
+          turnId: 'turn-accepted',
+        })
+      )
+    );
+    window.removeEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
   });
 
   it('warns and restores files when a steer-with-files enqueue is rejected', async () => {

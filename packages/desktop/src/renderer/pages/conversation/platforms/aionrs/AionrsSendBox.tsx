@@ -56,6 +56,7 @@ import { iconColors } from '@/renderer/styles/colors';
 import { emitter, useAddEventListener } from '@/renderer/utils/emitter';
 import { mergeFileSelectionItems } from '@/renderer/utils/file/fileSelection';
 import { buildDisplayMessage, collectSelectedFiles } from '@/renderer/utils/file/messageFiles';
+import { emitAcpPerformanceMark } from '@/renderer/utils/performance/acpPerformanceMarks';
 import {
   isCommandEveModeExpansion,
   mergeWithCapabilities,
@@ -277,6 +278,11 @@ const AionrsSendBox: React.FC<{
           files,
         });
         if (!runtimeView.markSendAccepted(sendTicket, res.turn_id, res.runtime, res.msg_id)) return 'stale';
+        emitAcpPerformanceMark({
+          stage: 'request_accepted',
+          conversationId: conversation_id,
+          turnId: res.turn_id,
+        });
         void checkAndUpdateTitle(conversation_id, input, isCurrent);
         setActiveMsgId(res.msg_id);
         emitter.emit('chat.history.refresh');
