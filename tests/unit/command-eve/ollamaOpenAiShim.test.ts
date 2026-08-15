@@ -1517,6 +1517,59 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(fnSeen.body).toBeUndefined();
   });
 
+  it('converts OpenAI tool history to Ollama native arguments and tool names', async () => {
+    let ollamaBody: Record<string, unknown> | undefined;
+    const ollamaBaseUrl = await startFakeOpenAiServer((body) => {
+      ollamaBody = body;
+    });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => buildEveCloudRoute({ isEveSelection: false }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [
+          { role: 'user', content: 'Lies die Datei.' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: 'call_read_1',
+                type: 'function',
+                function: { name: 'Read', arguments: '{"path":"/tmp/example.txt"}' },
+              },
+            ],
+          },
+          { role: 'tool', tool_call_id: 'call_read_1', content: 'Inhalt' },
+        ],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(ollamaBody?.messages).toEqual([
+      { role: 'user', content: 'Lies die Datei.' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'call_read_1',
+            function: { name: 'Read', arguments: { path: '/tmp/example.txt' } },
+          },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'call_read_1', tool_name: 'Read', content: 'Inhalt' },
+    ]);
+  });
+
   it('redacts sensitive data on the EVE lane before the function is called (never blocks/hangs)', async () => {
     const fnSeen: EveFnSeen = {};
     const fnUrl = await startFakeEveFunction(fnSeen);

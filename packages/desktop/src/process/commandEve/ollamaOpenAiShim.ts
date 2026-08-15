@@ -1392,6 +1392,48 @@ async function handleContextPolicy(
   jsonResponse(response, 200, policy);
 }
 
+function normalizeOpenAiMessagesForNativeOllama(messages: unknown[]): unknown[] {
+  const toolNamesByCallId = new Map<string, string>();
+  return messages.map((message) => {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) return message;
+    const record = message as Record<string, unknown>;
+    let nextMessage = { ...record };
+    if (Array.isArray(record.tool_calls)) {
+      nextMessage.tool_calls = record.tool_calls.map((toolCall) => {
+        if (!toolCall || typeof toolCall !== 'object' || Array.isArray(toolCall)) return toolCall;
+        const call = toolCall as Record<string, unknown>;
+        const fn = call.function;
+        if (!fn || typeof fn !== 'object' || Array.isArray(fn)) return toolCall;
+        const functionCall = fn as Record<string, unknown>;
+        const callId = typeof call.id === 'string' ? call.id : '';
+        const functionName = typeof functionCall.name === 'string' ? functionCall.name : '';
+        if (callId && functionName) toolNamesByCallId.set(callId, functionName);
+
+        let nativeArguments = functionCall.arguments;
+        if (typeof nativeArguments === 'string') {
+          try {
+            const parsed = JSON.parse(nativeArguments) as unknown;
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) nativeArguments = parsed;
+          } catch {
+            // Keep malformed model output byte-exact so Ollama rejects it rather
+            // than silently changing the requested tool action.
+          }
+        }
+        const { type: _openAiType, ...nativeCall } = call;
+        return {
+          ...nativeCall,
+          function: { ...functionCall, arguments: nativeArguments },
+        };
+      });
+    }
+    if (record.role === 'tool' && typeof record.tool_call_id === 'string' && typeof record.tool_name !== 'string') {
+      const toolName = toolNamesByCallId.get(record.tool_call_id);
+      if (toolName) nextMessage = { ...nextMessage, tool_name: toolName };
+    }
+    return nextMessage;
+  });
+}
+
 function nativeChatPayload(body: Record<string, unknown>, options: Required<CommandEveOllamaShimOptions>): unknown {
   // `custom:` is the ACP namespace used by AionUI/AionCore, not part of the
   // actual Ollama model name. Keep the public/receipt model untouched, but send
@@ -1404,7 +1446,12 @@ function nativeChatPayload(body: Record<string, unknown>, options: Required<Comm
       : options.maxTokens;
   return {
     model,
-    messages: asMessages(body.messages),
+    // Hermes speaks the OpenAI compatibility shape: function.arguments is a
+    // JSON string and tool results correlate with tool_call_id. Ollama's native
+    // /api/chat contract requires an arguments object and tool_name on history
+    // results. Convert only at this private boundary; the public ACP/OpenAI
+    // history and receipts stay unchanged.
+    messages: normalizeOpenAiMessagesForNativeOllama(asMessages(body.messages)),
     stream: Boolean(body.stream),
     think: false,
     ...(Array.isArray(body.tools) ? { tools: body.tools } : {}),
