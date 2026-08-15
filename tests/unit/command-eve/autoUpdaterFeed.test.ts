@@ -21,6 +21,7 @@ vi.mock('electron-updater', () => ({
     logger: { transports: { file: { level: 'info' } } },
     autoDownload: false,
     autoInstallOnAppQuit: false,
+    allowPrerelease: false,
     allowDowngrade: false,
     channel: undefined as string | undefined,
     on: vi.fn(),
@@ -72,7 +73,10 @@ import {
   UPDATE_FEED_URL_CONFIG_KEY,
   autoUpdaterService,
 } from '@/process/services/autoUpdaterService';
-import { COMMAND_EVE_UPDATE_FEED_BASE_URL } from '@/common/config/commandEveShell';
+import {
+  COMMAND_EVE_UPDATE_FEED_BASE_URL,
+  COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL,
+} from '@/common/config/commandEveShell';
 import { autoUpdater } from 'electron-updater';
 
 const ORIGINAL_ENV = process.env[UPDATE_FEED_URL_ENV];
@@ -136,6 +140,26 @@ describe('resolveUpdateFeedUrl', () => {
   it('defaults to the R2 feed base when CE shell is ON and no config reader is supplied', async () => {
     const url = await resolveUpdateFeedUrl();
     expect(url).toBe(COMMAND_EVE_UPDATE_FEED_BASE_URL);
+  });
+
+  it('uses the fixed R2 dev prefix only for an explicit preview check', async () => {
+    const read = vi.fn(async () => undefined);
+    const url = await resolveUpdateFeedUrl(read, true);
+    expect(url).toBe(COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL);
+    expect(COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL).toBe(`${COMMAND_EVE_UPDATE_FEED_BASE_URL}/channels/dev`);
+  });
+
+  it('keeps an explicit env feed byte-exact when preview is enabled', async () => {
+    process.env[UPDATE_FEED_URL_ENV] = 'https://preview-fixture.example/custom-root';
+    const read = vi.fn(async () => undefined);
+    const url = await resolveUpdateFeedUrl(read, true);
+    expect(url).toBe('https://preview-fixture.example/custom-root');
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicit persisted feed byte-exact when preview is enabled', async () => {
+    const url = await resolveUpdateFeedUrl(async () => 'https://config.example/custom-root', true);
+    expect(url).toBe('https://config.example/custom-root');
   });
 
   // FIX 1 — explicit opt-out: a present-but-empty env value forces the quiet
@@ -217,6 +241,21 @@ describe('autoUpdaterService.configureFeed', () => {
     // generic provider so electron-updater reads `<url>/latest-mac.yml` over static HTTPS.
     expect(arg.provider).toBe('generic');
     expect(arg.url).toBe(R2_FEED);
+  });
+
+  it('reconfigures the CE default between preview and stable without enabling updater downgrade mode', async () => {
+    autoUpdaterService.setAllowPrerelease(true);
+    const preview = await autoUpdaterService.configureFeed(async () => undefined);
+    expect(preview.url).toBe(COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL);
+    expect(setFeedURL.mock.calls.at(-1)?.[0]?.url).toBe(COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL);
+    expect(autoUpdater.allowPrerelease).toBe(false);
+    expect(autoUpdater.allowDowngrade).toBe(false);
+
+    autoUpdaterService.setAllowPrerelease(false);
+    const stable = await autoUpdaterService.configureFeed(async () => undefined);
+    expect(stable.url).toBe(COMMAND_EVE_UPDATE_FEED_BASE_URL);
+    expect(setFeedURL.mock.calls.at(-1)?.[0]?.url).toBe(COMMAND_EVE_UPDATE_FEED_BASE_URL);
+    expect(autoUpdater.allowDowngrade).toBe(false);
   });
 });
 

@@ -101,10 +101,31 @@ import UpdateModal from '@/renderer/components/settings/UpdateModal';
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  localStorage.removeItem('update.includePrerelease');
   updateStore.status = downloadedStatus;
 });
 
 describe('UpdateModal background update behavior', () => {
+  it.each([
+    ['true', true],
+    ['false', false],
+  ])('forwards the persisted preview preference %s to the native updater', async (stored, expected) => {
+    localStorage.setItem('update.includePrerelease', stored);
+    updateStore.status = { status: 'idle' };
+    bridge.autoCheck.mockResolvedValue({ success: true });
+    bridge.manualCheck.mockResolvedValue({
+      success: true,
+      data: { currentVersion: '1.8.12', updateAvailable: false },
+    });
+
+    render(<UpdateModal />);
+    act(() => {
+      window.dispatchEvent(new Event('aionui-open-update-modal'));
+    });
+
+    await waitFor(() => expect(bridge.autoCheck).toHaveBeenCalledWith({ includePrerelease: expected }));
+  });
+
   it('does not interrupt the user when a downloaded status arrives', () => {
     render(<UpdateModal />);
 

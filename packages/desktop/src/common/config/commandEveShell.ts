@@ -82,6 +82,14 @@ export const COMMAND_EVE_APP_ID = 'com.fynlabs.commandeve';
  * get this default.
  */
 export const COMMAND_EVE_UPDATE_FEED_BASE_URL = 'https://eve-update-proxy.commandeve.workers.dev';
+/**
+ * Opt-in Command EVE preview feed. The settings toggle selects this fixed R2
+ * prefix only for an explicit user-triggered update check; stable continues to
+ * use COMMAND_EVE_UPDATE_FEED_BASE_URL. Release publishing copies the exact
+ * signed/notarized artifacts here first and writes this prefix's updater yml
+ * last, so later stable promotion never requires rebuilding the app.
+ */
+export const COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL = `${COMMAND_EVE_UPDATE_FEED_BASE_URL}/channels/dev`;
 export const COMMAND_EVE_PROTOCOL_SCHEME = 'command-eve';
 export const COMMAND_EVE_ASSISTANT_ID = 'command-eve-chief-of-staff';
 export const COMMAND_EVE_ASSISTANT_KEY = `custom:${COMMAND_EVE_ASSISTANT_ID}`;

@@ -9,7 +9,11 @@ import type { ProgressInfo, UpdateInfo } from 'electron-updater';
 import { app } from 'electron';
 import log from 'electron-log';
 import { EventEmitter } from 'events';
-import { COMMAND_EVE_SHELL_ENABLED, COMMAND_EVE_UPDATE_FEED_BASE_URL } from '@/common/config/commandEveShell';
+import {
+  COMMAND_EVE_SHELL_ENABLED,
+  COMMAND_EVE_UPDATE_FEED_BASE_URL,
+  COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL,
+} from '@/common/config/commandEveShell';
 import { mergeAutoUpdateStatus } from '@/common/update/autoUpdateState';
 import { resolveInstallableUpdateVersion } from '@/common/update/updateReadyPromptCore';
 import type { AutoUpdateStatus } from '@/common/update/updateTypes';
@@ -48,10 +52,11 @@ export const COMMAND_EVE_BACKGROUND_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
  *      (Suite C launches the packaged CE app with COMMAND_EVE_UPDATE_FEED_URL='').
  *   3. The persisted ProcessConfig `update.feedUrl` setting, when non-empty.
  *   4. CE-SCOPED DEFAULT: when COMMAND_EVE_SHELL_ENABLED is true and nothing
- *      above resolved, fall back to COMMAND_EVE_UPDATE_FEED_BASE_URL (the R2
- *      bucket). This is what makes an installed Command EVE build actually check
- *      `<base>/latest-arm64-mac.yml` on startup with NO env/config set — the
- *      Alois machine path.
+ *      above resolved, use COMMAND_EVE_UPDATE_FEED_BASE_URL for stable checks,
+ *      or the fixed COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL only when the user
+ *      explicitly included preview/dev builds for this check. This is what makes
+ *      an installed Command EVE build actually check the selected R2 feed while
+ *      keeping stable as the startup/background default.
  *   5. Otherwise undefined — the first-class quiet "no feed" state (NOT an
  *      error). Upstream/non-CE builds (COMMAND_EVE_SHELL_ENABLED === false)
  *      always land here when no explicit feed is configured, so the W8
@@ -68,7 +73,8 @@ export const COMMAND_EVE_BACKGROUND_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
  * Electron storage; production passes ProcessConfig.get.
  */
 export async function resolveUpdateFeedUrl(
-  readConfig?: (key: typeof UPDATE_FEED_URL_CONFIG_KEY) => Promise<string | undefined>
+  readConfig?: (key: typeof UPDATE_FEED_URL_CONFIG_KEY) => Promise<string | undefined>,
+  includePrerelease = false
 ): Promise<string | undefined> {
   const rawEnv = process.env[UPDATE_FEED_URL_ENV];
   if (typeof rawEnv === 'string') {
@@ -96,7 +102,7 @@ export async function resolveUpdateFeedUrl(
   // with no env/config set. Upstream (CE shell off) intentionally skips this and
   // falls through to the (5) quiet no-op state.
   if (COMMAND_EVE_SHELL_ENABLED) {
-    return COMMAND_EVE_UPDATE_FEED_BASE_URL;
+    return includePrerelease ? COMMAND_EVE_UPDATE_PREVIEW_FEED_BASE_URL : COMMAND_EVE_UPDATE_FEED_BASE_URL;
   }
   // (5) quiet "no feed" state.
   return undefined;
@@ -255,18 +261,24 @@ class AutoUpdaterService extends EventEmitter {
   }
 
   /**
-   * Set whether to allow prerelease/dev updates
-   * When enabled, also sets allowDowngrade to true
+   * Select the explicit Command EVE preview feed for the next check.
+   *
+   * This must never enable electron-updater's semver prerelease or downgrade
+   * modes: the stable and preview feeds both advertise the same final release
+   * version/bytes, and the feed origin is the only opt-in boundary.
    */
   setAllowPrerelease(allow: boolean): void {
     this._allowPrerelease = allow;
-    // Do NOT set autoUpdater.allowPrerelease here.
+    // Do NOT enable autoUpdater.allowPrerelease here.
     // electron-updater's prerelease mode conflicts with custom channel names
     // (e.g. 'latest-arm64'): it treats the channel as a prerelease identifier
     // and tries to match it against tag prerelease components, which always fails
     // with "No published versions on GitHub".
-    // Prerelease filtering is handled by the manual update check (GitHub API) instead.
-    log.info(`Prerelease updates ${allow ? 'enabled' : 'disabled'} (manual check only)`);
+    // Keep both unsafe implicit modes fail-closed even if another caller or a
+    // previous library state changed them.
+    autoUpdater.allowPrerelease = false;
+    autoUpdater.allowDowngrade = false;
+    log.info(`Command EVE preview feed ${allow ? 'selected' : 'not selected'} for explicit update checks`);
   }
 
   /**
@@ -306,7 +318,7 @@ class AutoUpdaterService extends EventEmitter {
   async configureFeed(
     readConfig?: (key: typeof UPDATE_FEED_URL_CONFIG_KEY) => Promise<string | undefined>
   ): Promise<{ configured: boolean; url?: string; channel?: string }> {
-    const url = await resolveUpdateFeedUrl(readConfig);
+    const url = await resolveUpdateFeedUrl(readConfig, this._allowPrerelease);
     if (!url) {
       this._feedConfigured = false;
       log.info(
