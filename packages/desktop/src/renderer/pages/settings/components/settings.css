@@ -26,6 +26,11 @@
   box-sizing: border-box;
   color: var(--eve-shell-text-secondary);
   font: inherit;
+  border-radius: var(--eve-control-radius);
+  transition:
+    background-color var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard),
+    color var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard),
+    box-shadow var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard);
 }
 
 .settings-sider__item:hover {
@@ -34,6 +39,10 @@
 
 .settings-sider__item[aria-current='page'] {
   color: var(--eve-shell-text);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--eve-accent) 10%, transparent), transparent 78%),
+    var(--eve-row-selected-bg);
+  box-shadow: inset 2px 0 0 var(--eve-accent);
 }
 
 .settings-sider__item[aria-current='page'] .settings-sider__item-label {
@@ -43,6 +52,21 @@
 .settings-sider__item .i-icon,
 .settings-sider__item svg {
   color: currentColor;
+}
+
+.settings-sider__icon-glyph,
+.settings-mobile-top-nav__icon {
+  font-size: 16px;
+  line-height: 0;
+}
+
+.settings-sider__item:hover .settings-sider__icon-tile {
+  color: var(--eve-accent);
+  border-color: color-mix(in srgb, var(--eve-accent) 28%, var(--eve-control-border));
+}
+
+.settings-sider__item[aria-current='page'] .settings-sider__icon-tile {
+  color: var(--eve-accent);
 }
 
 /* Settings mobile top nav */
@@ -106,10 +130,7 @@
   }
 
   .settings-mobile-top-nav__icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 0;
+    flex: 0 0 auto;
   }
 
   .settings-mobile-top-nav__label {

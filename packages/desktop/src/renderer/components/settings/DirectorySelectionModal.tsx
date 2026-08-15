@@ -4,11 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Button, Modal, Spin } from '@arco-design/web-react';
+import AionModal from '@/renderer/components/base/AionModal';
+import AionScrollArea from '@/renderer/components/base/AionScrollArea';
+import { Button, Spin } from '@arco-design/web-react';
 import { FileText, FolderOpen, Up } from '@icon-park/react';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getBaseUrl } from '@/common/adapter/httpBridge';
+import styles from './DirectorySelectionModal.module.css';
 
 interface DirectoryItem {
   name: string;
@@ -41,12 +44,12 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
   const [directoryData, setDirectoryData] = useState<DirectoryData>({ items: [], canGoUp: false });
   const [selectedPath, setSelectedPath] = useState<string>('');
   const [currentPath, setCurrentPath] = useState<string>('');
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadDirectory = useCallback(
     async (dirPath = '') => {
       setLoading(true);
-      setError(null);
+      setLoadError(null);
       try {
         const showFiles = isFileMode ? 'true' : 'false';
         const response = await fetch(
@@ -58,21 +61,21 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
         );
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-          setError(errorData.error || `HTTP ${response.status}`);
+          setLoadError(errorData.error || `HTTP ${response.status}`);
           return;
         }
         const envelope = await response.json();
         // Backend wraps the payload in { success, data, ... }.
         const data = envelope && typeof envelope === 'object' && 'data' in envelope ? envelope.data : envelope;
         if (!data || !Array.isArray(data.items)) {
-          setError('Invalid response from server');
+          setLoadError('Invalid response from server');
           return;
         }
         setDirectoryData(data);
         setCurrentPath(dirPath);
       } catch (err) {
         console.error('Failed to load directory:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load directory');
+        setLoadError(err instanceof Error ? err.message : 'Failed to load directory');
       } finally {
         setLoading(false);
       }
@@ -83,20 +86,14 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
   useEffect(() => {
     if (visible) {
       setSelectedPath('');
-      loadDirectory('').catch((error) => console.error('Failed to load initial directory:', error));
+      loadDirectory('').catch((loadFailure) => console.error('Failed to load initial directory:', loadFailure));
     }
   }, [visible, loadDirectory]);
 
   const handleItemClick = (item: DirectoryItem) => {
     if (item.isDirectory) {
-      loadDirectory(item.path).catch((error) => console.error('Failed to load directory:', error));
+      loadDirectory(item.path).catch((loadFailure) => console.error('Failed to load directory:', loadFailure));
     }
-  };
-
-  // Double-click behavior removed - single click now handles directory navigation
-  // 移除双击行为 - 单击现在处理目录导航
-  const handleItemDoubleClick = (_item: DirectoryItem) => {
-    // No-op: single click already handles navigation
   };
 
   const handleSelect = (path: string) => {
@@ -108,7 +105,7 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
       // Handle '__ROOT__' as empty path to show drive list on Windows
       // 处理 '__ROOT__' 为空路径，在 Windows 上显示驱动器列表
       const targetPath = directoryData.parentPath === '__ROOT__' ? '' : directoryData.parentPath;
-      loadDirectory(targetPath).catch((error) => console.error('Failed to load parent directory:', error));
+      loadDirectory(targetPath).catch((loadFailure) => console.error('Failed to load parent directory:', loadFailure));
     }
   };
 
@@ -123,9 +120,9 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
   };
 
   return (
-    <Modal
+    <AionModal
       visible={visible}
-      title={
+      header={
         <span className='inline-flex items-center gap-8px'>
           {isFileMode ? (
             <FileText theme='outline' size={17} fill='currentColor' aria-hidden='true' />
@@ -138,12 +135,13 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
       onCancel={onCancel}
       onOk={handleConfirm}
       okButtonProps={{ disabled: !selectedPath }}
-      className='w-[90vw] md:w-[600px]'
+      className='directory-selection-modal'
       style={{ width: 'min(600px, 90vw)' }}
       wrapStyle={{ zIndex: 3000 }}
       maskStyle={{ zIndex: 2990 }}
+      contentStyle={{ padding: '14px 20px 0', overflow: 'hidden' }}
       footer={
-        <div className='w-full flex justify-between items-center'>
+        <div className='w-full flex flex-wrap justify-between items-center gap-12px'>
           <div
             className='text-t-secondary text-14px overflow-hidden text-ellipsis whitespace-nowrap max-w-[70vw]'
             title={selectedPath || currentPath}
@@ -162,25 +160,29 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
       }
     >
       <Spin loading={loading} className='w-full'>
-        <div className='w-full border border-b-base rd-4px overflow-hidden' style={{ height: 'min(400px, 60vh)' }}>
-          <div
-            className='h-full overflow-y-auto'
+        <div className={`eve-menu-surface ${styles.browser}`} aria-busy={loading}>
+          <AionScrollArea
+            className={styles.scrollArea}
             role='listbox'
             aria-label={isFileMode ? t('fileSelection.pleaseSelectFile') : t('fileSelection.pleaseSelectDirectory')}
           >
             {directoryData.canGoUp && (
               <button
                 type='button'
-                className='eve-row w-full flex items-center border-none bg-transparent p-10px border-b border-b-light text-left cursor-pointer hover:bg-hover transition'
+                role='option'
+                aria-selected='false'
+                className={`eve-menu-item ${styles.parentRow}`}
                 onClick={handleGoUp}
               >
-                <Up className='mr-10px text-t-secondary' theme='outline' size={16} fill='currentColor' />
-                <span>..</span>
+                <span className='eve-menu-icon'>
+                  <Up theme='outline' size={16} fill='currentColor' />
+                </span>
+                <span>{t('common.historyBack')}</span>
               </button>
             )}
-            {error && (
+            {loadError && (
               <div className='p-16px text-center text-danger text-13px'>
-                <div>{error}</div>
+                <div>{loadError}</div>
                 <Button size='mini' className='mt-8px' onClick={() => loadDirectory(currentPath).catch(() => {})}>
                   {t('common.retry', { defaultValue: 'Retry' })}
                 </Button>
@@ -190,26 +192,24 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
               <div
                 key={item.path}
                 role='presentation'
-                className='flex items-center justify-between p-10px border-b border-b-light cursor-pointer hover:bg-hover transition'
-                style={selectedPath === item.path ? { background: 'var(--brand-light)' } : {}}
+                className={`eve-menu-item ${styles.directoryRow}`}
+                data-selected={selectedPath === item.path ? 'true' : 'false'}
               >
                 <button
                   type='button'
                   role='option'
                   aria-selected={selectedPath === item.path}
-                  className='flex min-w-0 flex-1 cursor-pointer items-center border-none bg-transparent p-0 text-left'
+                  className={styles.itemAction}
                   onClick={() => handleItemClick(item)}
-                  onDoubleClick={() => handleItemDoubleClick(item)}
                 >
                   {item.isDirectory ? (
-                    <FolderOpen
-                      className='mr-10px text-warning shrink-0'
-                      theme='outline'
-                      size={17}
-                      fill='currentColor'
-                    />
+                    <span className='eve-menu-icon'>
+                      <FolderOpen theme='outline' size={17} fill='currentColor' />
+                    </span>
                   ) : (
-                    <FileText className='mr-10px text-primary shrink-0' theme='outline' size={17} fill='currentColor' />
+                    <span className='eve-menu-icon'>
+                      <FileText theme='outline' size={17} fill='currentColor' />
+                    </span>
                   )}
                   <span className='overflow-hidden text-ellipsis whitespace-nowrap'>{item.name}</span>
                 </button>
@@ -227,10 +227,10 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
                 )}
               </div>
             ))}
-          </div>
+          </AionScrollArea>
         </div>
       </Spin>
-    </Modal>
+    </AionModal>
   );
 };
 

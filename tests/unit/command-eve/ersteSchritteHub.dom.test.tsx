@@ -65,6 +65,14 @@ describe('ErsteSchritteModalContent — the 1.7.2 Day-0 hub', () => {
     expect(kiSpur?.getAttribute('data-status')).toBe('done');
   });
 
+  it('renders the verified setup state as the premium semantic status panel', () => {
+    render(<ErsteSchritteModalContent />);
+    const status = screen.getByTestId('erste-schritte-status');
+    expect(status).toHaveClass('erste-schritte-settings__status');
+    expect(status).toHaveAttribute('data-ready', 'true');
+    expect(status.querySelector('.eve-icon-tile')).toHaveAttribute('data-tone', 'success');
+  });
+
   it('navigates in-app for a settings step', () => {
     const { container } = render(<ErsteSchritteModalContent />);
     fireEvent.click(container.querySelector('[data-testid="erste-schritte-step-connectors"]')!);

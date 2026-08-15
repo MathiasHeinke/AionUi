@@ -19,6 +19,7 @@ import { Card } from '@arco-design/web-react';
 import { configService } from '@/common/config/configService';
 import { buildValueReceiptModel, DEFAULT_VALUE_RECEIPT_HOURLY_EUR } from '@/common/config/creditsCore';
 import './billing.css';
+import { Command } from '@icon-park/react';
 
 export interface ValueReceiptProps {
   /** What EVE shipped, in the persona's own verb (e.g. "32 ad variants"). */
@@ -44,7 +45,7 @@ const ValueReceipt: React.FC<ValueReceiptProps> = ({ artifact, estimatedHours, h
   return (
     <Card className='value-receipt' bordered data-testid='value-receipt'>
       <div className='value-receipt__icon' aria-hidden='true'>
-        ⌘
+        <Command size={18} />
       </div>
       <div className='value-receipt__headline' data-testid='value-receipt-headline'>
         {model.headline}

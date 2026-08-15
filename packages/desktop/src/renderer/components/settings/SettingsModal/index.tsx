@@ -6,13 +6,13 @@
 
 import AionModal from '@/renderer/components/base/AionModal';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
-import { iconColors } from '@/renderer/styles/colors';
+import EveIconTile from '@/renderer/components/base/EveIconTile';
 import { isElectronDesktop, resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
 import { Tabs } from '@arco-design/web-react';
-import { Computer, Earth, Info, LinkCloud, Lock, Puzzle, Toolkit, User, Wallet } from '@icon-park/react';
+import { Puzzle } from '@icon-park/react';
 import classNames from 'classnames';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -27,7 +27,10 @@ import SystemModalContent from './contents/SystemModalContent';
 import ToolsModalContent from './contents/ToolsModalContent';
 import WebuiModalContent from './contents/WebuiModalContent';
 import { SettingsViewModeProvider } from './settingsViewContext';
-import { LEGACY_ANCHOR_REMAP } from '@/renderer/pages/settings/components/SettingsSider';
+import {
+  getBuiltinSettingsNavigationItems,
+  LEGACY_ANCHOR_REMAP,
+} from '@/renderer/pages/settings/components/settingsNavigation';
 
 // ==================== 常量定义 / Constants ====================
 
@@ -199,33 +202,36 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onCancel, defaul
   // Modal 模式下内置 Tab 子集（不含 display、agent）
   const menuItems = useMemo((): Array<{ key: SettingTab; label: string; icon: React.ReactNode }> => {
     type MenuItem = { key: string; label: string; icon: React.ReactNode };
+    const navigationItems = getBuiltinSettingsNavigationItems(isDesktop, t);
+    const navigationIcon = (id: string): React.ReactNode =>
+      navigationItems.find((item) => item.id === id)?.icon ?? <Puzzle />;
 
     // Modal built-in tabs (subset — no display/agent route pages)
     const builtinItems: MenuItem[] = [
       {
         key: 'model',
         label: t('settings.model'),
-        icon: <LinkCloud theme='outline' size='20' fill={iconColors.secondary} />,
+        icon: navigationIcon('model'),
       },
       {
         key: 'tools',
         label: t('settings.tools'),
-        icon: <Toolkit theme='outline' size='20' fill={iconColors.secondary} />,
+        icon: navigationIcon('capabilities'),
       },
       {
         key: 'authority',
         label: t('settings.authority', { defaultValue: 'Freigaben' }),
-        icon: <Lock theme='outline' size='20' fill={iconColors.secondary} />,
+        icon: navigationIcon('authority'),
       },
       {
         key: 'billing',
         label: t('settings.billing', { defaultValue: 'Billing' }),
-        icon: <Wallet theme='outline' size='20' fill={iconColors.secondary} />,
+        icon: navigationIcon('billing'),
       },
       {
         key: 'account',
         label: t('settings.account', { defaultValue: 'Account' }),
-        icon: <User theme='outline' size='20' fill={iconColors.secondary} />,
+        icon: navigationIcon('account'),
       },
     ];
 
@@ -233,7 +239,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onCancel, defaul
       builtinItems.push({
         key: 'webui',
         label: t('settings.webui'),
-        icon: <Earth theme='outline' size='20' fill={iconColors.secondary} />,
+        icon: navigationIcon('webui'),
       });
     }
 
@@ -241,9 +247,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onCancel, defaul
       {
         key: 'system',
         label: t('settings.system'),
-        icon: <Computer theme='outline' size='20' fill={iconColors.secondary} />,
+        icon: navigationIcon('system'),
       },
-      { key: 'about', label: t('settings.about'), icon: <Info theme='outline' size='20' fill={iconColors.secondary} /> }
+      { key: 'about', label: t('settings.about'), icon: navigationIcon('about') }
     );
 
     // Extension tabs — position anchoring
@@ -276,11 +282,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onCancel, defaul
       return {
         key: tab.id,
         label: resolveExtTabName(tab),
-        icon: resolvedIcon ? (
-          <img src={resolvedIcon} alt='' className='w-20px h-20px object-contain' />
-        ) : (
-          <Puzzle theme='outline' size='20' fill={iconColors.secondary} />
-        ),
+        icon: resolvedIcon ? <img src={resolvedIcon} alt='' className='w-20px h-20px object-contain' /> : <Puzzle />,
       };
     };
 
@@ -401,15 +403,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onCancel, defaul
             key={item.key}
             aria-current={activeTab === item.key ? 'page' : undefined}
             className={classNames(
-              'w-full flex items-center px-14px py-10px rd-8px border-none bg-transparent text-left cursor-pointer transition-all duration-300 select-none',
-              {
-                'bg-aou-2 text-t-primary': activeTab === item.key,
-                'text-t-secondary hover:bg-fill-1': activeTab !== item.key,
-              }
+              'eve-row eve-focus-ring w-full min-h-42px flex items-center gap-10px px-10px py-7px border-none bg-transparent text-left cursor-pointer select-none',
+              { 'eve-row--selected': activeTab === item.key }
             )}
             onClick={() => setActiveTab(item.key)}
           >
-            <span className='mr-12px text-16px line-height-[10px]'>{item.icon}</span>
+            <EveIconTile tone={activeTab === item.key ? 'action' : 'neutral'} size='small'>
+              {item.icon}
+            </EveIconTile>
             <span className='text-14px font-500 flex-1 lh-22px'>{item.label}</span>
           </button>
         ))}

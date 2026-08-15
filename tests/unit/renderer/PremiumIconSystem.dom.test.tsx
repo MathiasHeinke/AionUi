@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import IconParkHOC from '@/renderer/components/IconParkHOC';
 import PremiumIconProvider, { PREMIUM_ICON_CONFIG } from '@/renderer/components/base/PremiumIconProvider';
+import { PREMIUM_ARCO_COMPONENT_CONFIG } from '@/renderer/components/base/PremiumArcoDefaults';
 
 describe('premium icon system', () => {
   it('uses one round, ambient Icon Park configuration', () => {
@@ -45,5 +46,14 @@ describe('premium icon system', () => {
     expect(wrapper).toHaveClass('eve-icon', 'feature-icon');
     expect(wrapper).not.toHaveClass('cursor-pointer');
     expect(container.querySelector('path')).toHaveAttribute('stroke', 'currentColor');
+  });
+
+  it('replaces Arco internal arrows, close controls and empty art with Icon Park elements', () => {
+    const config = PREMIUM_ARCO_COMPONENT_CONFIG;
+    expect(React.isValidElement(config.Select?.arrowIcon)).toBe(true);
+    expect(React.isValidElement(config.Modal?.closeIcon)).toBe(true);
+    expect(React.isValidElement(config.Empty?.icon)).toBe(true);
+    expect(React.isValidElement(config.Menu?.icons?.popArrowRight)).toBe(true);
+    expect(React.isValidElement(config.Tree?.icons?.switcherIcon)).toBe(true);
   });
 });

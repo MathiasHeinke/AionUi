@@ -107,11 +107,13 @@ const WorkProductModeSelector: React.FC<WorkProductModeSelectorProps> = ({
       {descriptors.map((descriptor) => (
         <Menu.Item key={descriptor.mode} data-testid={`work-product-mode-${descriptor.mode}`}>
           <span className={styles.menuItem}>
-            <span className={styles.menuIcon} aria-hidden='true'>
+            <span className={styles.menuIcon} data-mode={descriptor.mode} aria-hidden='true'>
               {modeIcon(descriptor.mode)}
             </span>
             <span className={styles.menuLabel}>{descriptor.label}</span>
-            {value === descriptor.mode ? <span className={styles.activeDot} aria-hidden='true' /> : null}
+            {value === descriptor.mode ? (
+              <span className={styles.activeDot} data-mode={descriptor.mode} aria-hidden='true' />
+            ) : null}
           </span>
         </Menu.Item>
       ))}

@@ -55,9 +55,46 @@ function lineFor(source: string, offset: number): number {
 }
 
 describe('app-wide premium interactive surface contract', () => {
-  it('uses Icon Park as the only application icon library', () => {
+  it('uses Icon Park as the only application icon library outside file-type content rendering', () => {
     const legacyImports = sources.filter(({ source }) => source.includes("from '@arco-design/web-react/icon'"));
     expect(legacyImports.map(({ path }) => path)).toEqual([]);
+
+    const allowedContentIconLibraries = new Set([
+      'packages/desktop/src/renderer/pages/conversation/Workspace/components/FileTypeIcon.tsx',
+    ]);
+    const foreignIconImports = sources.filter(
+      ({ path, source }) =>
+        /from ['"](?:@iconify|@fortawesome|lucide-react|react-icons)/.test(source) &&
+        !allowedContentIconLibraries.has(path)
+    );
+    expect(foreignIconImports.map(({ path }) => path)).toEqual([]);
+  });
+
+  it('keeps SVG imports limited to content, provider and brand identity assets', () => {
+    const allowedSvgAssets = new Set([
+      'packages/desktop/src/renderer/components/media/FilePreview.tsx',
+      'packages/desktop/src/renderer/hooks/agent/usePresetAssistantInfo.ts',
+      'packages/desktop/src/renderer/pages/settings/AssistantSettings/index.tsx',
+      'packages/desktop/src/renderer/pages/guid/constants.ts',
+      'packages/desktop/src/renderer/pages/guid/components/AssistantSelectionArea.tsx',
+      'packages/desktop/src/renderer/components/settings/SettingsModal/contents/channels/ChannelHeader.tsx',
+    ]);
+    const svgImports = sources.filter(
+      ({ path, source }) => /from ['"][^'"]+\.svg['"]/.test(source) && !allowedSvgAssets.has(path)
+    );
+    expect(svgImports.map(({ path }) => path)).toEqual([]);
+  });
+
+  it('does not fake interactive icons with text glyphs', () => {
+    const fakeGlyph = />\s*[△▴▾✓⌘]\s*</g;
+    const offenders = sources.flatMap(({ path, source }) =>
+      [...source.matchAll(fakeGlyph)].map((match) => ({
+        path,
+        line: lineFor(source, match.index ?? 0),
+        value: match[0],
+      }))
+    );
+    expect(offenders).toEqual([]);
   });
 
   it('keeps handcrafted SVG limited to data visualization/rendering seams', () => {
@@ -72,7 +109,10 @@ describe('app-wide premium interactive surface contract', () => {
   it('mounts the global premium icon provider above Arco controls', () => {
     const main = sources.find(({ path }) => path === 'packages/desktop/src/renderer/main.tsx')?.source ?? '';
     expect(main).toContain('PremiumIconProvider');
-    expect(main).toMatch(/PremiumIconProvider,[\s\S]*React\.createElement\(ConfigProvider/);
+    expect(main).toMatch(
+      /React\.createElement\([\s\S]*PremiumIconProvider[\s\S]*React\.createElement\([\s\S]*ConfigProvider/
+    );
+    expect(main).toContain('componentConfig: PREMIUM_ARCO_COMPONENT_CONFIG');
   });
 
   it('keeps visible app icons free of fixed hex, white or black fills', () => {

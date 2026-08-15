@@ -220,6 +220,25 @@ describe('premium overlay and interaction adapters', () => {
     expect(arcoCss).toContain('opacity: var(--eve-interaction-disabled-opacity, 0.5)');
   });
 
+  it('keeps the composer textarea borderless and expresses focus only on the outer surface', () => {
+    const textareaFocus = block(
+      arcoCss,
+      'html body .eve-composer-surface :where(.arco-textarea, textarea):focus-visible {'
+    );
+    expect(textareaFocus).toContain('outline: 0 !important');
+    expect(textareaFocus).toContain('box-shadow: none !important');
+
+    const textareaWrapper = block(
+      arcoCss,
+      'html body .eve-composer-surface :where(.arco-textarea-wrapper, .arco-textarea-wrapper-focus) {'
+    );
+    expect(textareaWrapper).toContain('border-color: transparent !important');
+    expect(textareaWrapper).toContain('box-shadow: none !important');
+
+    expect(visualCss).toContain('.eve-composer-surface:focus-within,');
+    expect(visualCss).toContain('color-mix(in srgb, var(--eve-spotlight-color) 10%, transparent)');
+  });
+
   it('routes every Arco overlay family through the semantic overlay material', () => {
     for (const token of [
       '--eve-overlay-surface',

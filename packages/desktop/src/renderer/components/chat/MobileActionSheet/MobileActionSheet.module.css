@@ -1,7 +1,7 @@
 .mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.36);
+  background: var(--eve-overlay-scrim);
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--eve-motion-duration-overlay-exit, 380ms) var(--eve-motion-ease-exit, ease);
@@ -20,13 +20,13 @@
   right: 0;
   bottom: 0;
   max-height: min(72vh, 560px);
-  background: var(--glass-overlay-bg, var(--color-bg-1, #ffffff));
-  border-top: 1px solid var(--glass-overlay-border, var(--color-border-2));
-  -webkit-backdrop-filter: var(--glass-overlay-filter, blur(18px));
-  backdrop-filter: var(--glass-overlay-filter, blur(18px));
-  border-top-left-radius: 20px;
-  border-top-right-radius: 20px;
-  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.12);
+  background: var(--eve-overlay-surface);
+  border-top: 1px solid var(--eve-overlay-border);
+  -webkit-backdrop-filter: var(--eve-overlay-filter);
+  backdrop-filter: var(--eve-overlay-filter);
+  border-top-left-radius: var(--eve-dialog-radius);
+  border-top-right-radius: var(--eve-dialog-radius);
+  box-shadow: var(--eve-overlay-shadow);
   transform: translateY(100%);
   transition: transform var(--eve-motion-duration-overlay-exit, 380ms) var(--eve-motion-ease-exit, ease);
   z-index: 1101;
@@ -44,7 +44,7 @@
 .handle {
   width: 36px;
   height: 4px;
-  background: var(--color-fill-3, #c9cdd4);
+  background: var(--eve-scrollbar-thumb);
   border-radius: 2px;
   margin: 6px auto 0;
   flex-shrink: 0;
@@ -54,7 +54,7 @@
   padding: 8px 16px 4px;
   font-size: 14px;
   font-weight: 600;
-  color: var(--color-text-1, #1d2129);
+  color: var(--eve-overlay-text);
   flex-shrink: 0;
 }
 
@@ -62,7 +62,11 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 2px 0 8px;
+  scrollbar-color: var(--eve-scrollbar-thumb) var(--eve-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .item {
@@ -78,13 +82,23 @@
   min-height: 44px;
   cursor: pointer;
   font-size: 14px;
-  color: var(--color-text-1, #1d2129);
+  color: var(--eve-overlay-text);
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  border-radius: var(--eve-control-radius);
+  transition:
+    background-color var(--eve-motion-duration-state) var(--eve-motion-ease-standard),
+    color var(--eve-motion-duration-state) var(--eve-motion-ease-standard),
+    box-shadow var(--eve-motion-duration-state) var(--eve-motion-ease-standard);
+}
+
+.item:hover,
+.item:focus-visible {
+  background: var(--eve-interaction-hover-bg);
 }
 
 .item:active {
-  background: var(--color-fill-1, #f2f3f5);
+  background: var(--eve-interaction-pressed-bg);
 }
 
 .item.disabled {
@@ -100,7 +114,7 @@
 .icon {
   width: 20px;
   height: 20px;
-  color: var(--color-text-2, #4e5969);
+  color: var(--eve-overlay-text-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -111,7 +125,7 @@
 }
 
 .icon.muted {
-  color: var(--color-text-3, #86909c);
+  color: color-mix(in srgb, var(--eve-overlay-text-secondary) 72%, transparent);
 }
 
 .body {
@@ -132,7 +146,7 @@
 
 .desc {
   font-size: 12px;
-  color: var(--color-text-3, #86909c);
+  color: var(--eve-overlay-text-secondary);
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
@@ -144,7 +158,7 @@
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: var(--color-text-3, #86909c);
+  color: var(--eve-overlay-text-secondary);
   max-width: 50%;
 }
 
@@ -155,9 +169,9 @@
 }
 
 .divider {
-  height: 4px;
-  background: var(--color-fill-1, #f2f3f5);
-  margin: 2px 0;
+  height: 1px;
+  background: var(--eve-overlay-border);
+  margin: 5px 16px;
   flex-shrink: 0;
 }
 
@@ -185,7 +199,7 @@
 .paneSub {
   position: absolute;
   inset: 0;
-  background: var(--color-bg-1, #ffffff);
+  background: var(--eve-overlay-surface-solid);
 }
 
 .paneActive {
@@ -207,7 +221,7 @@
   display: flex;
   align-items: center;
   padding: 10px 8px 6px;
-  border-bottom: 1px solid var(--color-border-2, #e5e6eb);
+  border-bottom: 1px solid var(--eve-overlay-border);
   flex-shrink: 0;
 }
 
@@ -217,11 +231,20 @@
   gap: 2px;
   background: none;
   border: none;
-  color: rgb(var(--primary-6, 22 93 255));
+  color: var(--eve-accent);
   font-size: 13px;
   padding: 4px 8px;
   cursor: pointer;
   flex-shrink: 0;
+  border-radius: var(--eve-control-radius);
+  transition:
+    color var(--eve-motion-duration-state) var(--eve-motion-ease-standard),
+    background-color var(--eve-motion-duration-state) var(--eve-motion-ease-standard);
+}
+
+.back:hover,
+.back:focus-visible {
+  background: var(--eve-interaction-hover-bg);
 }
 
 .subtitle {
@@ -236,21 +259,29 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 1.5px solid var(--color-border-3, #c9cdd4);
+  border: 1px solid var(--eve-overlay-border);
   flex-shrink: 0;
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  transition:
+    border-color var(--eve-motion-duration-state) var(--eve-motion-ease-standard),
+    background-color var(--eve-motion-duration-state) var(--eve-motion-ease-standard),
+    color var(--eve-motion-duration-state) var(--eve-motion-ease-standard);
 }
 
 .radio.checked {
-  border-color: rgb(var(--primary-6, 22 93 255));
-  background: rgb(var(--primary-6, 22 93 255));
-  box-shadow: inset 0 0 0 2px var(--color-bg-1, #ffffff);
+  border-color: var(--eve-accent);
+  background: var(--eve-interaction-selected-bg);
+  color: var(--eve-accent);
 }
 
 .empty {
   padding: 20px 16px;
   text-align: center;
-  color: var(--color-text-3, #86909c);
+  color: var(--eve-overlay-text-secondary);
   font-size: 13px;
 }
 
@@ -258,4 +289,15 @@
   opacity: 0.5;
   font-size: 16px;
   line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mask,
+  .sheet,
+  .pane,
+  .item,
+  .back,
+  .radio {
+    transition-duration: 0ms;
+  }
 }

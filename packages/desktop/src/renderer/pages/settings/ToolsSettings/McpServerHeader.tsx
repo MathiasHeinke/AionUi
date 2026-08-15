@@ -1,11 +1,21 @@
 import type { IMcpServer } from '@/common/config/storage';
 import { Button, Dropdown, Menu, Popover, Tooltip } from '@arco-design/web-react';
-import { Check, CloseSmall, Info, LoadingOne, Refresh, Write, DeleteFour, SettingOne, Login } from '@icon-park/react';
+import {
+  Attention,
+  Check,
+  CloseSmall,
+  DeleteFour,
+  Info,
+  LoadingOne,
+  Login,
+  Refresh,
+  SettingOne,
+  Write,
+} from '@icon-park/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { McpOAuthStatus } from '@/renderer/hooks/mcp/useMcpOAuth';
 import FeedbackButton from '@/renderer/components/base/FeedbackButton';
-import { iconColors } from '@/renderer/styles/colors';
 
 interface McpServerHeaderProps {
   server: IMcpServer;
@@ -26,26 +36,26 @@ const getStatusIcon = (
   isTestingConnection?: boolean
 ) => {
   if (isTestingConnection || last_test_status === 'testing' || oauthStatus?.isChecking) {
-    return <LoadingOne fill={iconColors.primary} className='h-[24px]' />;
+    return <LoadingOne className='h-[24px] text-[var(--eve-status-running)]' />;
   }
 
   if (last_test_status === 'error') {
-    return <CloseSmall fill={iconColors.danger} className='h-[24px]' />;
+    return <CloseSmall className='h-[24px] text-[var(--eve-status-error)]' />;
   }
 
   if (oauthStatus?.needsLogin) {
-    return <span className='text-orange-500 text-xl font-bold leading-none'>△</span>;
+    return <Attention className='h-[24px] text-[var(--eve-status-attention)]' />;
   }
 
   if (last_test_status === 'connected') {
-    return <Check fill={iconColors.success} className='h-[24px] items-center' />;
+    return <Check className='h-[24px] items-center text-[var(--eve-status-completed)]' />;
   }
 
   if (oauthStatus?.isAuthenticated) {
-    return <Check fill={iconColors.success} className='h-[24px] items-center' />;
+    return <Check className='h-[24px] items-center text-[var(--eve-status-completed)]' />;
   }
 
-  return <Info theme='outline' fill={iconColors.secondary} className='h-[24px]' />;
+  return <Info className='h-[24px] text-[var(--eve-shell-text-secondary)]' />;
 };
 
 const formatStatusTimestamp = (timestamp?: number): string | null => {

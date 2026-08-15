@@ -11,10 +11,17 @@ import { isElectronDesktop } from '@renderer/utils/platform';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DEFAULT_RECENT_WS_KEY, addRecentWorkspace, getRecentWorkspaces } from './recentWorkspaces';
+import styles from './WorkspaceFolderSelect.module.css';
 
 const MENU_GAP = 4;
 const VIEWPORT_MARGIN = 8;
 const MAX_MENU_HEIGHT = 320;
+const MENU_TRANSITION_MS = 400;
+
+const transitionDelay = () =>
+  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ? 0
+    : MENU_TRANSITION_MS;
 
 type MenuPosition = {
   top?: number;
@@ -60,10 +67,34 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
 }) => {
   const { t } = useTranslation();
   const [menuVisible, setMenuVisible] = useState(false);
+  const [menuMounted, setMenuMounted] = useState(false);
   const [menuPos, setMenuPos] = useState<MenuPosition>({ top: 0, left: 0, width: 0, maxHeight: MAX_MENU_HEIGHT });
   const triggerRef = useRef<HTMLDivElement>(null);
+  const triggerButtonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDesktop = isElectronDesktop();
   const recentWorkspaces = getRecentWorkspaces(recentStorageKey);
+
+  const hideMenu = useCallback((restoreFocus = false) => {
+    setMenuVisible(false);
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = setTimeout(() => setMenuMounted(false), transitionDelay());
+    if (restoreFocus) triggerButtonRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const showMenu = useCallback(() => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    setMenuMounted(true);
+    requestAnimationFrame(() => requestAnimationFrame(() => setMenuVisible(true)));
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    },
+    []
+  );
 
   const updateMenuPosition = useCallback(() => {
     if (!triggerRef.current) return;
@@ -86,13 +117,13 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
   }, [recentWorkspaces.length]);
 
   useEffect(() => {
-    if (!menuVisible) return;
+    if (!menuMounted) return;
 
     updateMenuPosition();
 
     const handleOutsideClick = (event: MouseEvent) => {
       if (triggerRef.current && !triggerRef.current.contains(event.target as Node)) {
-        setMenuVisible(false);
+        hideMenu();
       }
     };
 
@@ -106,10 +137,10 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
       window.removeEventListener('resize', handleViewportChange);
       document.removeEventListener('scroll', handleViewportChange, true);
     };
-  }, [menuVisible, updateMenuPosition]);
+  }, [hideMenu, menuMounted, updateMenuPosition]);
 
   const handleBrowse = async () => {
-    setMenuVisible(false);
+    hideMenu();
 
     const files = await ipcBridge.dialog.showOpen.invoke({ properties: ['openDirectory', 'createDirectory'] });
     if (files?.[0]) {
@@ -121,7 +152,7 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
   const handleSelectRecent = (path: string) => {
     onChange(path);
     addRecentWorkspace(path, recentStorageKey);
-    setMenuVisible(false);
+    hideMenu();
   };
 
   const handleClear = (event: React.MouseEvent) => {
@@ -130,7 +161,7 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
     if (!onClear) {
       onChange('');
     }
-    setMenuVisible(false);
+    hideMenu();
   };
 
   const folderName = value ? value.split(/[\\/]/).pop() || value : '';
@@ -142,18 +173,20 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
   return (
     <div className='relative' ref={triggerRef}>
       <div
-        className={`flex items-center gap-10px rounded-10px border px-12px py-10px transition-all ${
+        className={`flex items-center gap-10px rounded-10px border px-12px py-10px transition-all ${styles.trigger} ${
           menuVisible
             ? 'border-primary-5 bg-fill-2 shadow-sm'
             : 'border-border-2 bg-fill-1 hover:border-border-1 hover:bg-fill-2'
         }`}
       >
         <button
+          ref={triggerButtonRef}
           type='button'
           data-testid={triggerTestId}
           role='combobox'
           aria-expanded={menuVisible}
           aria-haspopup='listbox'
+          aria-controls={menuTestId}
           className='flex min-w-0 flex-1 cursor-pointer items-center gap-10px border-none bg-transparent p-0 text-left'
           onClick={() => {
             if (recentWorkspaces.length === 0) {
@@ -163,17 +196,27 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
 
             if (!menuVisible) {
               updateMenuPosition();
+              showMenu();
+              return;
             }
-            setMenuVisible((visible) => !visible);
+            hideMenu();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && menuMounted) {
+              event.preventDefault();
+              hideMenu(true);
+              return;
+            }
+            if (event.key !== 'ArrowDown') return;
+            event.preventDefault();
+            updateMenuPosition();
+            showMenu();
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => menuRef.current?.querySelector<HTMLElement>('[role="option"]')?.focus())
+            );
           }}
         >
-          <FolderOpen
-            theme='outline'
-            size='16'
-            fill='currentColor'
-            className='block shrink-0 text-t-secondary'
-            style={{ transform: 'translateY(3px)' }}
-          />
+          <FolderOpen theme='outline' size='16' fill='currentColor' className='block shrink-0 text-t-secondary' />
           {value ? (
             <span className='flex min-w-0 flex-1 flex-col justify-center'>
               <span className='text-sm leading-20px text-t-primary'>{folderName}</span>
@@ -200,10 +243,13 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
         ) : null}
       </div>
 
-      {menuVisible && (
+      {menuMounted && (
         <div
+          ref={menuRef}
+          id={menuTestId}
           data-testid={menuTestId}
           role='listbox'
+          data-eve-interaction-role='composite-control'
           style={{
             position: 'fixed',
             top: menuPos.top,
@@ -212,12 +258,30 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
             width: menuPos.width,
             maxHeight: menuPos.maxHeight > 0 ? menuPos.maxHeight : undefined,
             zIndex: menuZIndex,
-            background: 'var(--glass-overlay-bg)',
-            backdropFilter: 'var(--glass-overlay-filter)',
-            WebkitBackdropFilter: 'var(--glass-overlay-filter)',
             isolation: 'isolate',
           }}
-          className='overflow-x-hidden overflow-y-auto rounded-8px border border-[var(--glass-overlay-border)] p-6px shadow-[0_18px_48px_rgba(0,0,0,0.42)]'
+          className={`eve-menu-surface ${styles.menu} ${menuVisible ? styles.menuVisible : ''}`}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              hideMenu(true);
+              return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const options = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? []);
+            if (options.length === 0) return;
+            const currentIndex = options.indexOf(document.activeElement as HTMLElement);
+            const nextIndex =
+              event.key === 'Home'
+                ? 0
+                : event.key === 'End'
+                  ? options.length - 1
+                  : event.key === 'ArrowUp'
+                    ? (currentIndex - 1 + options.length) % options.length
+                    : (currentIndex + 1) % options.length;
+            options[nextIndex]?.focus();
+          }}
         >
           {recentWorkspaces.length > 0 && (
             <>
@@ -235,17 +299,14 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
                     aria-selected={isSelected}
                     key={path}
                     onClick={() => handleSelectRecent(path)}
-                    className={`w-full flex cursor-pointer items-center gap-10px border-none bg-transparent text-left rounded-8px px-10px py-6px transition-colors ${
-                      isSelected ? 'bg-[var(--eve-row-selected-bg)]' : 'hover:bg-fill-2'
-                    }`}
-                    style={isSelected ? { boxShadow: 'inset 0 0 0 1px var(--eve-focus-ring)' } : undefined}
+                    className='eve-menu-item w-full flex cursor-pointer items-center gap-10px border-none bg-transparent text-left px-10px py-7px'
+                    style={{ transitionDuration: 'var(--eve-motion-duration-state)' }}
                   >
                     <FolderClose
                       theme='outline'
                       size='16'
                       fill='currentColor'
-                      className={`block shrink-0 ${isSelected ? 'text-[var(--eve-focus-ring)]' : 'text-t-tertiary'}`}
-                      style={{ transform: 'translateY(3px)' }}
+                      className={`eve-menu-icon ${isSelected ? 'text-[var(--eve-focus-ring)]' : ''}`}
                     />
                     <div className='min-w-0 flex-1'>
                       <div className='truncate text-13px leading-18px text-t-primary'>{recentName}</div>
@@ -259,22 +320,19 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
                   </button>
                 );
               })}
-              <div className='mx-2px my-4px h-1px bg-border-2' />
+              <div className='eve-menu-divider' />
             </>
           )}
 
           <button
             type='button'
+            role='option'
+            aria-selected='false'
             onClick={() => void handleBrowse()}
-            className='w-full flex cursor-pointer items-center gap-10px border-none bg-transparent text-left rounded-8px px-10px py-6px transition-colors hover:bg-fill-2'
+            className='eve-menu-item w-full flex cursor-pointer items-center gap-10px border-none bg-transparent text-left px-10px py-7px'
+            style={{ transitionDuration: 'var(--eve-motion-duration-state)' }}
           >
-            <FolderOpen
-              theme='outline'
-              size='16'
-              fill='currentColor'
-              className='block shrink-0 text-t-tertiary'
-              style={{ transform: 'translateY(3px)' }}
-            />
+            <FolderOpen theme='outline' size='16' fill='currentColor' className='eve-menu-icon' />
             <span className='text-13px text-t-primary'>{chooseDifferentLabel}</span>
           </button>
         </div>

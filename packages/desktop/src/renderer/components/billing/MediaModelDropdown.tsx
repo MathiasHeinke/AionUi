@@ -33,7 +33,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { CheckSmall } from '@icon-park/react';
+import { CheckSmall, Down } from '@icon-park/react';
 import {
   alignMeasuredPillDropdownTop,
   clampPillDropdownLeft,
@@ -177,7 +177,7 @@ export const MediaPillDropdown: React.FC<{
       >
         {triggerContent}
         <span className='video-quality-pill__chevron' aria-hidden='true'>
-          ▾
+          <Down size={12} />
         </span>
       </button>
       {rendered &&

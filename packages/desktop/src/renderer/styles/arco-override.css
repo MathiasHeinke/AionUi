@@ -306,6 +306,28 @@ html body :where(.arco-btn, .arco-input, .arco-textarea):focus-visible {
   outline-offset: 2px;
 }
 
+/* Modal close buttons are deliberately compact and sit against the header
+   edge. A full control outline plus the shared focus utility reads as a thick
+   double ring there. Keep keyboard focus visible with one quiet 1px halo. */
+html body .eve-modal__close.arco-btn:focus-visible {
+  outline: 0 !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--eve-focus-ring) 38%, transparent) !important;
+}
+
+/* The composer is already one large focus surface. Repeating the generic
+   form-field ring around its textarea creates a thick static blue rectangle
+   inside the shell. Keep keyboard state on the outer composer hairline/glow;
+   the editable canvas itself stays visually borderless. */
+html body .eve-composer-surface :where(.arco-textarea, textarea):focus-visible {
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+html body .eve-composer-surface :where(.arco-textarea-wrapper, .arco-textarea-wrapper-focus) {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
 /* Native controls remain common in the shell, previews and settings. Give
    them the same timing, keyboard focus and disabled language without taking
    ownership of each component's deliberate layout or surface. */

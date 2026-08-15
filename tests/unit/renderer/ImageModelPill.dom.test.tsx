@@ -104,13 +104,16 @@ describe('ImageModelPill model dropdown (MAT-1773 PACKAGE A)', () => {
 
   it('shows only the concise registry model name on the trigger', () => {
     const { rerender } = render(<ImageModelPill visible value='quality' onChange={vi.fn()} registry={REGISTRY} />);
+    const trigger = screen.getByTestId('image-model-dropdown-trigger');
 
-    expect(screen.getByTestId('image-model-dropdown-trigger').textContent?.trim()).toBe('Nano Banana 2▾');
+    expect(trigger.textContent?.trim()).toBe('Nano Banana 2');
+    expect(trigger.querySelector('.video-quality-pill__chevron')).toHaveAttribute('aria-hidden', 'true');
+    expect(trigger.querySelector('.video-quality-pill__chevron svg')).not.toBeNull();
 
     // The fast registry display_name equals its tier label — it must render
     // ONCE, never "Schnell Schnell".
     rerender(<ImageModelPill visible value='fast' onChange={vi.fn()} registry={REGISTRY} />);
-    expect(screen.getByTestId('image-model-dropdown-trigger').textContent?.trim()).toBe('Schnell▾');
+    expect(screen.getByTestId('image-model-dropdown-trigger').textContent?.trim()).toBe('Schnell');
   });
 
   it('lists the registry models in the Empfohlen curated section, in server order, with chips and per-row estimates', () => {

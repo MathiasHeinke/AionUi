@@ -6,6 +6,9 @@ import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import MarkdownView from '@renderer/components/Markdown';
+import AionModal from '@/renderer/components/base/AionModal';
+import AionScrollArea from '@/renderer/components/base/AionScrollArea';
+import EveIconTile from '@/renderer/components/base/EveIconTile';
 import SettingsPageWrapper from './components/SettingsPageWrapper';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { EVE_SETTINGS_TAG_COLOR } from '@/renderer/components/settings/settingsSemantics';
@@ -793,24 +796,30 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
         </div>
       </div>
 
-      <Modal
-        title={
-          <div className='flex items-center gap-8px'>
-            <Puzzle theme='filled' size={18} fill='rgb(var(--primary-6))' />
-            <span>{readerTitle || t('settings.skillsHub.readTitle', { defaultValue: 'SKILL.md' })}</span>
-            <Tag color='gray' size='small'>
-              {t('settings.skillsHub.readOnly', { defaultValue: 'Read-only' })}
-            </Tag>
-          </div>
-        }
+      <AionModal
+        header={{
+          title: (
+            <div className='flex items-center gap-8px'>
+              <EveIconTile tone='action' size='small'>
+                <Puzzle />
+              </EveIconTile>
+              <span>{readerTitle || t('settings.skillsHub.readTitle', { defaultValue: 'SKILL.md' })}</span>
+              <Tag color='gray' size='small'>
+                {t('settings.skillsHub.readOnly', { defaultValue: 'Read-only' })}
+              </Tag>
+            </div>
+          ),
+          showClose: true,
+        }}
         visible={readerOpen}
         onCancel={() => setReaderOpen(false)}
-        footer={<Button onClick={() => setReaderOpen(false)}>{t('common.close', { defaultValue: 'Close' })}</Button>}
+        footer={null}
         style={{ width: 'min(820px, 92vw)' }}
-        wrapClassName='eve-settings-dialog eve-settings-reader-modal'
+        className='eve-settings-dialog eve-settings-reader-modal'
+        contentStyle={{ padding: '0 24px 20px', overflow: 'hidden' }}
         unmountOnExit
       >
-        <div className='max-h-[60vh] overflow-y-auto'>
+        <AionScrollArea className='max-h-[60vh] pr-4px'>
           {readerLoading ? (
             <div className='flex items-center justify-center py-40px'>
               <Spin />
@@ -820,8 +829,8 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
           ) : (
             <MarkdownView hiddenCodeCopyButton>{readerMarkdown}</MarkdownView>
           )}
-        </div>
-      </Modal>
+        </AionScrollArea>
+      </AionModal>
     </div>
   );
 

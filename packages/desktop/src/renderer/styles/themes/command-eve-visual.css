@@ -542,6 +542,164 @@
   border-radius: var(--eve-dialog-radius);
 }
 
+/* One optical box for navigation, section and status icons. The glyph remains
+   Icon Park; the material tile supplies the shared baseline and theme-aware
+   blue/orange depth without turning every icon into a loud badge. */
+.eve-icon-tile {
+  --eve-icon-tile-size: 28px;
+  --eve-icon-tile-color: var(--eve-shell-text-secondary);
+  --eve-icon-tile-accent: var(--eve-accent);
+  inline-size: var(--eve-icon-tile-size);
+  block-size: var(--eve-icon-tile-size);
+  flex: 0 0 var(--eve-icon-tile-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--eve-icon-tile-color) 14%, var(--eve-control-border));
+  border-radius: 9px;
+  background:
+    radial-gradient(circle at 82% 18%, color-mix(in srgb, var(--eve-brand-logo) 9%, transparent), transparent 48%),
+    color-mix(in srgb, var(--eve-icon-tile-color) 4%, var(--eve-control-surface));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--glass-edge-highlight) 42%, transparent),
+    0 5px 14px color-mix(in srgb, var(--eve-shell-chrome-tint) 7%, transparent);
+  color: var(--eve-icon-tile-color);
+  line-height: 0;
+  transition:
+    color var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard),
+    border-color var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard),
+    background-color var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard),
+    box-shadow var(--eve-motion-duration-state) var(--eve-motion-ease-standard);
+}
+
+.eve-icon-tile--small {
+  --eve-icon-tile-size: 26px;
+  border-radius: 8px;
+}
+
+.eve-icon-tile--large {
+  --eve-icon-tile-size: 34px;
+  border-radius: 11px;
+}
+
+.eve-icon-tile[data-tone='action'] {
+  --eve-icon-tile-color: var(--eve-accent);
+  border-color: color-mix(in srgb, var(--eve-accent) 30%, var(--eve-control-border));
+  background:
+    radial-gradient(circle at 82% 18%, color-mix(in srgb, var(--eve-brand-logo) 13%, transparent), transparent 48%),
+    color-mix(in srgb, var(--eve-accent) 10%, var(--eve-control-surface));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--glass-edge-highlight) 54%, transparent),
+    0 7px 18px color-mix(in srgb, var(--eve-accent) 12%, transparent);
+}
+
+.eve-icon-tile[data-tone='brand'] {
+  --eve-icon-tile-color: var(--eve-brand-logo);
+  --eve-icon-tile-accent: var(--eve-brand-logo);
+}
+
+.eve-icon-tile[data-tone='success'] {
+  --eve-icon-tile-color: var(--eve-status-completed);
+}
+
+.eve-icon-tile[data-tone='warning'] {
+  --eve-icon-tile-color: var(--eve-status-attention);
+}
+
+.eve-icon-tile[data-tone='danger'] {
+  --eve-icon-tile-color: var(--eve-status-error);
+}
+
+.eve-icon-tile > .i-icon,
+.eve-icon-tile > svg,
+.eve-system-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+  line-height: 0;
+  vertical-align: -0.125em;
+}
+
+/* Shared premium overlay vocabulary for custom menus that cannot use Arco's
+   portalled menu DOM. */
+.eve-menu-surface {
+  box-sizing: border-box;
+  max-block-size: min(430px, calc(100dvh - 88px));
+  padding: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--eve-overlay-border);
+  border-radius: var(--eve-overlay-radius);
+  background: var(--eve-overlay-surface);
+  box-shadow: var(--eve-overlay-shadow);
+  -webkit-backdrop-filter: var(--eve-overlay-filter);
+  backdrop-filter: var(--eve-overlay-filter);
+  color: var(--eve-overlay-text);
+  scrollbar-color: var(--eve-scrollbar-thumb) var(--eve-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.eve-menu-item {
+  box-sizing: border-box;
+  min-block-size: 38px;
+  border-radius: var(--eve-control-radius);
+  color: var(--eve-overlay-text);
+  transition:
+    background-color var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard),
+    color var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard),
+    box-shadow var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard);
+}
+
+.eve-menu-item:not(:disabled):not([aria-disabled='true']):hover {
+  background: var(--eve-interaction-hover-bg);
+}
+
+.eve-menu-item:not(:disabled):not([aria-disabled='true']):active {
+  background: var(--eve-interaction-pressed-bg);
+}
+
+.eve-menu-item[aria-selected='true'] {
+  background: var(--eve-interaction-selected-bg);
+  box-shadow: inset 2px 0 0 var(--eve-interaction-selected-indicator);
+}
+
+.eve-menu-icon {
+  inline-size: 24px;
+  block-size: 24px;
+  flex: 0 0 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--eve-overlay-text-secondary);
+  line-height: 0;
+}
+
+.eve-menu-divider {
+  block-size: 1px;
+  margin: 5px 8px;
+  background: var(--eve-overlay-border);
+}
+
+/* Arco Empty is still the layout primitive, but its visual language now comes
+   from the global Icon Park defaults and this shared quiet state. */
+.eve-empty-state__icon {
+  inline-size: 54px;
+  block-size: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--eve-accent) 18%, var(--glass-panel-border));
+  border-radius: 17px;
+  background:
+    radial-gradient(circle at 80% 20%, color-mix(in srgb, var(--eve-brand-logo) 12%, transparent), transparent 44%),
+    color-mix(in srgb, var(--eve-accent) 7%, var(--glass-panel-bg));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--glass-edge-highlight) 48%, transparent);
+  color: color-mix(in srgb, var(--eve-accent) 70%, var(--eve-shell-text-secondary));
+}
+
 .eve-row {
   min-width: 0;
   border-radius: var(--eve-surface-radius-md);
@@ -1709,32 +1867,58 @@
 }
 
 .erste-schritte-settings__status {
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px 16px;
-  border-left: 2px solid var(--eve-status-attention);
-  border-radius: 0 var(--eve-surface-radius-sm) var(--eve-surface-radius-sm) 0;
-  background: var(--eve-semantic-warning-surface);
+  gap: 14px;
+  padding: 16px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--eve-status-attention) 12%, var(--glass-panel-border));
+  border-radius: var(--eve-surface-radius-lg);
+  background:
+    radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--eve-brand-logo) 5%, transparent), transparent 38%),
+    linear-gradient(125deg, color-mix(in srgb, var(--eve-accent) 2%, transparent), transparent 58%),
+    var(--glass-panel-bg);
+  box-shadow:
+    inset 1px 0 0 color-mix(in srgb, var(--eve-status-attention) 52%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--glass-edge-highlight) 46%, transparent),
+    0 10px 28px color-mix(in srgb, var(--eve-shell-chrome-tint) 7%, transparent);
+  -webkit-backdrop-filter: var(--glass-panel-filter);
+  backdrop-filter: var(--glass-panel-filter);
   color: var(--eve-shell-text-secondary);
   font-size: 13px;
   line-height: 20px;
 }
 
 .erste-schritte-settings__status[data-ready='true'] {
-  border-left-color: var(--eve-status-completed);
-  background: var(--eve-semantic-success-surface);
+  border-color: color-mix(in srgb, var(--eve-status-completed) 13%, var(--glass-panel-border));
+  box-shadow:
+    inset 1px 0 0 color-mix(in srgb, var(--eve-status-completed) 48%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--glass-edge-highlight) 46%, transparent),
+    0 10px 28px color-mix(in srgb, var(--eve-shell-chrome-tint) 7%, transparent);
 }
 
 .erste-schritte-settings__status[data-loading='true'] {
-  border-left-color: var(--eve-focus-ring);
-  background: var(--eve-semantic-info-surface);
+  border-color: color-mix(in srgb, var(--eve-focus-ring) 14%, var(--glass-panel-border));
+  box-shadow:
+    inset 1px 0 0 color-mix(in srgb, var(--eve-focus-ring) 48%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--glass-edge-highlight) 46%, transparent),
+    0 10px 28px color-mix(in srgb, var(--eve-shell-chrome-tint) 7%, transparent);
+}
+
+.erste-schritte-settings__status-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
 }
 
 .erste-schritte-settings__status-copy {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .erste-schritte-settings__status-copy strong {
@@ -1745,7 +1929,7 @@
 
 .erste-schritte-settings__gaps {
   margin: 0;
-  padding: 0;
+  padding: 0 0 0 46px;
   list-style: none;
 }
 
@@ -1754,7 +1938,16 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 0;
+  min-height: 38px;
+  padding: 6px 0;
+}
+
+.erste-schritte-settings__gaps .arco-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: var(--eve-control-radius);
 }
 
 .erste-schritte-settings__gaps li + li {

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { changeLanguage } from '@/renderer/services/i18n';
 import { useNavigate } from 'react-router-dom';
 import AppLoader from '@renderer/components/layout/AppLoader';
-import { Loading, Lock, PreviewCloseOne, PreviewOpen, User } from '@icon-park/react';
+import { Command, Loading, Lock, PreviewCloseOne, PreviewOpen, User } from '@icon-park/react';
 import { useAuth } from '../../hooks/context/AuthContext';
 import { loadRememberedLogin, persistRememberedLogin } from './rememberMeStorage';
 import './LoginPage.css';
@@ -550,7 +550,7 @@ const LoginPage: React.FC = () => {
           </div>
           <h1 className='login-page__title' aria-label={t('login.brand')}>
             <span className='login-page__title-command' aria-hidden='true'>
-              ⌘
+              <Command size='0.9em' />
             </span>
             <span> EVE</span>
           </h1>

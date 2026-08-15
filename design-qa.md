@@ -89,4 +89,46 @@ A separate crop was not required after the final full-view comparison because th
 
 - P3: deduplicate or intentionally swallow the harmless Electron guest-view `ERR_ABORTED (-3)` cancellation during repeated same-URL navigation so developer logs stay quiet.
 
+## 1.823.0 addendum — explicit work-product composer
+
+### Comparison target
+
+- Source visual truth: `/var/folders/dc/rdykb2jj0p7d6qvvyh1bcnt40000gn/T/TemporaryItems/NSIRD_screencaptureui_U8k7OW/Bildschirmfoto 2026-08-15 um 10.23.07.png`
+- Rendered implementation: `/tmp/eve-composer-pdf-accent-final.png`
+- Combined comparison input: `/tmp/eve-composer-pdf-accent-compare-final.png`
+- Viewport/state: Command EVE start composer, light theme, explicit `PDF erstellen` mode active, focus cleared after selection.
+- Source pixels: `1652 x 888`; compared source crop: `1450 x 520` normalized to `1426 x 528`.
+- Implementation pixels: `1426 x 528`, captured from a `713 x 264` CSS-pixel clip at `2x`; composer itself measured `665 x 208` CSS px.
+- Density normalization: both focused regions were compared at `1426 x 528` and placed in one `2852 x 528` image.
+
+### Findings
+
+No actionable P0, P1, or P2 mismatch remains in this focused scope.
+
+- Fonts and typography: the compact PDF label, placeholder, project/authority labels and context controls retain the source hierarchy, optical weight and truncation behavior.
+- Spacing and layout rhythm: header, editable canvas, action row and lower compound controls keep the same composition; the requested tool-coloured frame does not change geometry.
+- Colors and visual tokens: the former neutral composer frame now reads the selected PDF identity through one existing `1px` red hairline. It adds neither a second border nor a coloured fill. Image, video and presentation were runtime-checked through the same contract with violet, cyan and orange accents.
+- Image quality and asset fidelity: this surface contains no raster artwork. Every visible control uses the existing Icon Park family; no text glyph, emoji, CSS drawing or inline-SVG substitute was introduced.
+- Copy and content: the source labels and German work-product copy remain unchanged.
+- Interaction/accessibility: the tools menu opened, all four modes selected, each retained a `1px` frame, and the composer textarea remained visually borderless. Light and dark token variants were checked. Runtime logging captured zero new console exceptions during the four-mode interaction pass.
+
+### Focused region comparison
+
+The focused composer crop was required because the requested difference is a one-pixel frame and is not reliably judgeable in a full-window screenshot. The combined image keeps both surfaces at identical pixel dimensions; the intended difference is the selected PDF colour carried from pill to frame.
+
+### Comparison history
+
+- Initial source state: tool identity was visible on the PDF pill and tools trigger, while the outer composer frame stayed neutral.
+- Requested refinement: carry the selected tool identity onto the existing frame without creating a thick or nested selection border.
+- Fix: introduced one shared light/dark work-product palette and let the existing composer border/spotlight variables consume the active mode colour at `42%` mix.
+- Post-fix evidence: `/tmp/eve-composer-pdf-accent-compare-final.png`; measured border `1px`; image/video/presentation/PDF runtime mapping and zero-console-error pass recorded through Electron CDP.
+
+### Implementation checklist
+
+- [x] One shared colour source for pill, menu icon and composer frame.
+- [x] Exactly one `1px` frame; no added border width, fill or static inner focus rectangle.
+- [x] Four distinct light accents and four dark-mode accents.
+- [x] Start and in-session surfaces share the same selector/CSS contract.
+- [x] Focused DOM contracts and live Electron interaction pass green.
+
 final result: passed
