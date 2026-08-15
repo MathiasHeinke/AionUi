@@ -292,7 +292,15 @@ describe('cleanupRegisteredAgentProcesses', () => {
     const diagnostic = JSON.parse(await readFile(first.diagnostic_paths![0], 'utf8'));
     expect(diagnostic).toMatchObject({ version: 2, source_size: 4, entries: [] });
     expect(JSON.stringify(diagnostic)).not.toContain('null');
-    await expect(cleanupRegisteredAgentProcesses(dataDir, { bootEpochMs: 1_000 })).resolves.toEqual({
+    const second = await cleanupRegisteredAgentProcesses(dataDir, { bootEpochMs: 1_000 });
+    expect(second).toEqual({
+      survivor_pids: [],
+      registry_unproven: true,
+      diagnostic_paths: first.diagnostic_paths,
+    });
+    await expect(lstat(first.diagnostic_paths![0])).resolves.toMatchObject({ mode: expect.any(Number) });
+
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { bootEpochMs: 7_001 })).resolves.toEqual({
       survivor_pids: [],
       registry_unproven: false,
     });

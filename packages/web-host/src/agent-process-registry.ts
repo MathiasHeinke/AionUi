@@ -304,6 +304,9 @@ async function recoverQuarantineDiagnostic(
     }
     const entries = parsed.entries as unknown[];
     const rebooted = bootEpochMs > Number(parsed.boot_epoch_ms) + BOOT_EPOCH_TOLERANCE_MS;
+    const sourceDerivedEmptyRecord =
+      entries.length === 0 && (Object.hasOwn(parsed, 'source_sha256') || Object.hasOwn(parsed, 'source_size'));
+    if (sourceDerivedEmptyRecord && !rebooted) return 'retained';
     const observations = await Promise.all(entries.map((entry) => observeUnprovenProcessAbsence(entry, observationMs)));
     const safelyRetired =
       entries.length === 0 ||
