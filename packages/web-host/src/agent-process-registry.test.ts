@@ -5,8 +5,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR,
   AGENT_PROCESS_REGISTRY_FALLBACK_RELATIVE_DIR,
+  commandEveExternalProcessEvidenceKeyPreimage,
   cleanupRegisteredAgentProcesses,
   resolveExternalAgentProcessEmergencyDirectory,
   resolveAgentProcessRegistryPath,
@@ -292,15 +292,11 @@ describe('cleanupRegisteredAgentProcesses', () => {
     const diagnostic = JSON.parse(await readFile(first.diagnostic_paths![0], 'utf8'));
     expect(diagnostic).toMatchObject({ version: 2, source_size: 4, entries: [] });
     expect(JSON.stringify(diagnostic)).not.toContain('null');
-    await expect(cleanupRegisteredAgentProcesses(dataDir, { bootEpochMs: 1_000 })).resolves.toMatchObject({
-      survivor_pids: [],
-      registry_unproven: true,
-      diagnostic_paths: first.diagnostic_paths,
-    });
-    await expect(cleanupRegisteredAgentProcesses(dataDir, { bootEpochMs: 10_000 })).resolves.toEqual({
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { bootEpochMs: 1_000 })).resolves.toEqual({
       survivor_pids: [],
       registry_unproven: false,
     });
+    await expect(lstat(first.diagnostic_paths![0])).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('quarantines a nonnumeric registry version without erasing its evidence', async () => {
@@ -350,61 +346,6 @@ describe('cleanupRegisteredAgentProcesses', () => {
     expect(probeMany).toHaveBeenCalledTimes(7);
     expect(killSpy.mock.calls.filter(([, signal]) => signal === 'SIGTERM')).toHaveLength(2);
     expect(killSpy.mock.calls.filter(([, signal]) => signal === 'SIGKILL')).toHaveLength(2);
-  });
-
-  it('drains exact Core emergency evidence only after v2 identity and PGID absence proof', async () => {
-    if (process.platform === 'win32') return;
-    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-emergency-drain-'));
-    const emergencyDir = path.join(dataDir, AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR);
-    await mkdir(emergencyDir, { recursive: true });
-    const evidencePath = path.join(emergencyDir, 'agent-process-1-6883.json');
-    await writeFile(
-      evidencePath,
-      JSON.stringify({
-        version: 1,
-        reason: 'registry_write_failed_cleanup_unproven',
-        process: registeredProcess(),
-      })
-    );
-    const identityProbe = vi.fn<RegisteredAgentProcessIdentityProbe>().mockResolvedValue('absent');
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_target, signal) => {
-      expect(signal).toBe(0);
-      throw Object.assign(new Error('group gone'), { code: 'ESRCH' });
-    });
-
-    await expect(cleanupRegisteredAgentProcesses(dataDir, { identityProbe, termGraceMs: 0 })).resolves.toEqual({
-      survivor_pids: [],
-      registry_unproven: false,
-    });
-    await expect(lstat(evidencePath)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(killSpy.mock.calls).toEqual([[-6883, 0]]);
-  });
-
-  it('retains live Core emergency evidence as an explicit diagnostic blocker', async () => {
-    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-emergency-live-'));
-    const emergencyDir = path.join(dataDir, AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR);
-    await mkdir(emergencyDir, { recursive: true });
-    const evidencePath = path.join(emergencyDir, 'agent-process-1-6883.json');
-    await writeFile(
-      evidencePath,
-      JSON.stringify({
-        version: 1,
-        reason: 'registry_write_failed_cleanup_unproven',
-        process: { ...registeredProcess(), process_identity: null },
-      })
-    );
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_target, signal) => {
-      expect(signal).toBe(0);
-      return true;
-    });
-
-    await expect(cleanupRegisteredAgentProcesses(dataDir, { termGraceMs: 0 })).resolves.toEqual({
-      survivor_pids: [6883],
-      registry_unproven: true,
-      diagnostic_paths: [evidencePath],
-    });
-    expect(killSpy.mock.calls).toEqual([[6883, 0]]);
-    expect(await lstat(evidencePath)).toMatchObject({ mode: expect.any(Number) });
   });
 
   it('consumes the independent Core fallback evidence directory', async () => {
@@ -460,6 +401,37 @@ describe('cleanupRegisteredAgentProcesses', () => {
     });
     await expect(lstat(evidencePath)).rejects.toMatchObject({ code: 'ENOENT' });
     await rm(emergencyDir, { recursive: true, force: true });
+  });
+
+  it('derives the exact Core-compatible v1 preimage for Windows drive and UNC canonical roots', () => {
+    expect(
+      commandEveExternalProcessEvidenceKeyPreimage('win32', '\\\\?\\C:\\Users\\Mathias\\AppData\\Roaming\\Command EVE')
+    ).toBe('command-eve-agent-process-registry-external-key/v1\0windows\0c:/users/mathias/appdata/roaming/command eve');
+    expect(commandEveExternalProcessEvidenceKeyPreimage('windows', '\\\\?\\UNC\\Server\\Share\\Command EVE')).toBe(
+      'command-eve-agent-process-registry-external-key/v1\0windows\0//server/share/command eve'
+    );
+  });
+
+  it('retires an empty structured quarantine record without waiting for a reboot', async () => {
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-empty-quarantine-'));
+    const quarantineDir = path.join(dataDir, 'runtime', 'agent-process-registry-quarantine');
+    await mkdir(quarantineDir, { recursive: true });
+    const diagnosticPath = path.join(quarantineDir, 'empty.json');
+    await writeFile(
+      diagnosticPath,
+      JSON.stringify({
+        version: 2,
+        reason: 'registry_structure_invalid',
+        boot_epoch_ms: 1_000,
+        entries: [],
+      })
+    );
+
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { termGraceMs: 0, bootEpochMs: 1_000 })).resolves.toEqual({
+      survivor_pids: [],
+      registry_unproven: false,
+    });
+    await expect(lstat(diagnosticPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('re-evaluates structured quarantine entries and retires only after PID and PGID are both absent', async () => {

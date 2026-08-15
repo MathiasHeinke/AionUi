@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -10,10 +10,12 @@ import {
   compareCommandEveRegisteredProcessIdentity,
   compareCommandEveWindowsRegisteredProcessIdentity,
   createCommandEveRegisteredProcessIdentityProbe,
+  createCommandEveRegisteredProcessIdentityProbeProvider,
   parseWindowsBatch,
   probeCommandEveWindowsProcessIdentities,
   probeCommandEveDarwinProcessIdentity,
   probeCommandEveLinuxProcessIdentity,
+  resolveCommandEvePackagedWindowsProcessIdentityProbe,
   type LinuxProcessIdentityReader,
 } from '@/process/commandEve/registeredProcessIdentityProbeCore';
 import { __setVaultRecordNativeHelperForTests } from '@/process/commandEve/vaultRecordCore';
@@ -222,7 +224,7 @@ printf '%s' '{"sentinel":"COMMAND_EVE_WINDOWS_PROCESS_IDENTITY_V1","results":[{"
     await chmod(helper, 0o700);
 
     try {
-      await expect(probeCommandEveWindowsProcessIdentities([7021], () => helper)).resolves.toEqual([
+      await expect(probeCommandEveWindowsProcessIdentities([7021], helper)).resolves.toEqual([
         {
           state: 'observed',
           observed: {
@@ -234,6 +236,83 @@ printf '%s' '{"sentinel":"COMMAND_EVE_WINDOWS_PROCESS_IDENTITY_V1","results":[{"
       ]);
     } finally {
       await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves only the exact real bundled Windows AionCore endpoint for packaged signal authority', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'command-eve-packaged-windows-probe-'));
+    const runtimeRoot = path.join(directory, 'bundled-aioncore', 'win32-x64');
+    const binary = path.join(runtimeRoot, 'aioncore.exe');
+    await mkdir(runtimeRoot, { recursive: true });
+    await writeFile(path.join(runtimeRoot, 'manifest.json'), '{}');
+    await writeFile(binary, '#!/bin/sh\nexit 0\n');
+    await chmod(binary, 0o700);
+    const canonicalResources = fs.realpathSync.native(directory);
+
+    try {
+      expect(
+        resolveCommandEvePackagedWindowsProcessIdentityProbe({
+          isPackaged: true,
+          resourcesPath: canonicalResources,
+          platform: 'win32',
+          arch: 'x64',
+        })
+      ).toBe(fs.realpathSync.native(binary));
+      expect(
+        resolveCommandEvePackagedWindowsProcessIdentityProbe({
+          isPackaged: false,
+          resourcesPath: canonicalResources,
+          platform: 'win32',
+          arch: 'x64',
+        })
+      ).toBeUndefined();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores malicious Windows env PATH and CWD probes when the exact packaged endpoint is absent', async () => {
+    const resources = await mkdtemp(path.join(os.tmpdir(), 'command-eve-missing-packaged-probe-'));
+    const malicious = await mkdtemp(path.join(os.tmpdir(), 'command-eve-malicious-probe-'));
+    const marker = path.join(malicious, 'executed');
+    const maliciousBinary = path.join(malicious, 'aioncore');
+    await writeFile(maliciousBinary, `#!/bin/sh\nprintf x > "${marker}"\nexit 0\n`);
+    await chmod(maliciousBinary, 0o700);
+    const oldPath = process.env.PATH;
+    const oldOverride = process.env.AIONUI_BACKEND_BINARY;
+    const oldCwd = process.cwd();
+    process.env.PATH = `${malicious}${path.delimiter}${oldPath ?? ''}`;
+    process.env.AIONUI_BACKEND_BINARY = maliciousBinary;
+    process.chdir(malicious);
+
+    try {
+      const provider = createCommandEveRegisteredProcessIdentityProbeProvider({
+        isPackaged: true,
+        resourcesPath: resources,
+        platform: 'win32',
+        arch: 'x64',
+      });
+      const session = await provider.open();
+      const windowsEntry = entry({
+        process_group_id: undefined,
+        process_identity: {
+          platform: 'win32',
+          start_time: { kind: 'windows_filetime_100ns', value: '133999999999999999' },
+          parent_pid: 6001,
+          executable_path: 'C:\\Program Files\\Command EVE\\hermes-command-eve.exe',
+        },
+      });
+      await expect(session.probeMany([windowsEntry])).resolves.toEqual(['unknown']);
+      await session.close();
+      expect(fs.existsSync(marker)).toBe(false);
+    } finally {
+      process.chdir(oldCwd);
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      if (oldOverride === undefined) delete process.env.AIONUI_BACKEND_BINARY;
+      else process.env.AIONUI_BACKEND_BINARY = oldOverride;
+      await rm(resources, { recursive: true, force: true });
+      await rm(malicious, { recursive: true, force: true });
     }
   });
 

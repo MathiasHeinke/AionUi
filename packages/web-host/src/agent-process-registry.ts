@@ -70,32 +70,62 @@ export type AgentProcessCleanupOptions = Readonly<{
 }>;
 
 export const AGENT_PROCESS_REGISTRY_RELATIVE_PATH = path.join('runtime', 'agent-process-registry.json');
-export const AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR = path.join('runtime', 'agent-process-registry-emergency');
 export const AGENT_PROCESS_REGISTRY_FALLBACK_RELATIVE_DIR = '.command-eve-agent-process-registry-emergency-v2';
-export const AGENT_PROCESS_REGISTRY_EXTERNAL_FALLBACK_DIR_NAME = 'command-eve-agent-process-registry-emergency-v2';
+export const AGENT_PROCESS_REGISTRY_EXTERNAL_FALLBACK_DIR_NAME = 'command-eve-agent-process-registry-emergency-v3';
 export const AGENT_PROCESS_REGISTRY_QUARANTINE_RELATIVE_DIR = path.join('runtime', 'agent-process-registry-quarantine');
 
 const TERM_GRACE_MS = 1_000;
+const TASKKILL_TIMEOUT_MS = 2_000;
 const REGISTRY_VERSION = 2;
 const ENTRY_REQUIRED_KEYS = ['agent_type', 'conversation_id', 'pid', 'process_identity', 'registered_at_ms'] as const;
 const ENTRY_OPTIONAL_KEYS = ['backend', 'command_preview', 'process_group_id'] as const;
 const EMERGENCY_REQUIRED_KEYS = ['process', 'reason', 'version'] as const;
 const QUARANTINE_VERSION = 2;
 const BOOT_EPOCH_TOLERANCE_MS = 5_000;
+const EXTERNAL_EVIDENCE_KEY_DOMAIN = 'command-eve-agent-process-registry-external-key/v1';
 
 export function resolveAgentProcessRegistryPath(dataDir: string): string {
   return path.join(dataDir, AGENT_PROCESS_REGISTRY_RELATIVE_PATH);
 }
 
 export async function resolveExternalAgentProcessEmergencyDirectory(dataDir: string): Promise<string> {
-  let canonical: string;
-  try {
-    canonical = await realpath(dataDir);
-  } catch {
-    canonical = path.resolve(dataDir);
-  }
-  const key = createHash('sha256').update(canonical).digest('hex');
+  const canonical = await realpath(dataDir);
+  const preimage = commandEveExternalProcessEvidenceKeyPreimage(process.platform, canonical);
+  const key = createHash('sha256').update(preimage).digest('hex');
   return path.join(os.tmpdir(), AGENT_PROCESS_REGISTRY_EXTERNAL_FALLBACK_DIR_NAME, key);
+}
+
+export function commandEveExternalProcessEvidenceKeyPreimage(platform: string, canonical: string): string {
+  let platformFamily: 'windows' | 'posix';
+  let normalized: string;
+  if (platform === 'win32' || platform === 'windows') {
+    platformFamily = 'windows';
+    normalized = normalizeWindowsCanonicalPath(canonical);
+  } else if (platform === 'darwin' || platform === 'macos' || platform === 'linux') {
+    platformFamily = 'posix';
+    normalized = canonical;
+  } else {
+    throw new Error('unsupported platform for external process evidence');
+  }
+  return `${EXTERNAL_EVIDENCE_KEY_DOMAIN}\0${platformFamily}\0${normalized}`;
+}
+
+function normalizeWindowsCanonicalPath(value: string): string {
+  const withoutNamespace = value.startsWith('\\\\?\\UNC\\')
+    ? `\\\\${value.slice('\\\\?\\UNC\\'.length)}`
+    : value.startsWith('\\\\?\\')
+      ? value.slice('\\\\?\\'.length)
+      : value;
+  const normalized = withoutNamespace
+    .replaceAll('\\', '/')
+    .replace(/[A-Z]/g, (character) => character.toLowerCase())
+    .replace(/\/+$/u, '');
+  const drive = /^[a-z]:\//u.test(normalized);
+  const unc = /^\/\/[^/]+\/[^/]+(?:\/|$)/u.test(normalized);
+  if ((!drive && !unc) || /(?:^|\/)\.\.(?:\/|$)/u.test(normalized)) {
+    throw new Error('canonical Windows data directory has an invalid absolute form');
+  }
+  return normalized;
 }
 
 export async function cleanupRegisteredAgentProcesses(
@@ -107,7 +137,6 @@ export async function cleanupRegisteredAgentProcesses(
   const registryPath = resolveAgentProcessRegistryPath(dataDir);
   const quarantineDirectory = path.join(dataDir, AGENT_PROCESS_REGISTRY_QUARANTINE_RELATIVE_DIR);
   const emergencyDirectories = [
-    path.join(dataDir, AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR),
     path.join(dataDir, AGENT_PROCESS_REGISTRY_FALLBACK_RELATIVE_DIR),
     await resolveExternalAgentProcessEmergencyDirectory(dataDir),
   ];
@@ -277,7 +306,8 @@ async function recoverQuarantineDiagnostic(
     const rebooted = bootEpochMs > Number(parsed.boot_epoch_ms) + BOOT_EPOCH_TOLERANCE_MS;
     const observations = await Promise.all(entries.map((entry) => observeUnprovenProcessAbsence(entry, observationMs)));
     const safelyRetired =
-      (entries.length > 0 && observations.every(Boolean)) ||
+      entries.length === 0 ||
+      observations.every(Boolean) ||
       (rebooted && observations.every((absent, index) => absent || !hasRetirablePidAndGroup(entries[index])));
     if (!safelyRetired) return 'retained';
     await rm(filePath);
@@ -625,8 +655,7 @@ async function signalMatchedProcess(
   const [immediate] = await revalidate([entry]);
   if (immediate !== 'match') return 'unproven';
   if (process.platform === 'win32') {
-    await runTaskkill(entry.pid, signal === 'SIGKILL');
-    return 'signalled';
+    return (await runTaskkill(entry.pid, signal === 'SIGKILL')) ? 'signalled' : 'unproven';
   }
   const target = entry.process_group_id && entry.process_group_id > 1 ? -entry.process_group_id : entry.pid;
   try {
@@ -759,7 +788,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function runTaskkill(pid: number, force: boolean): Promise<void> {
+function runTaskkill(pid: number, force: boolean): Promise<boolean> {
   return new Promise((resolve) => {
     const args = ['/PID', String(pid), '/T'];
     if (force) args.unshift('/F');
@@ -769,10 +798,25 @@ function runTaskkill(pid: number, force: boolean): Promise<void> {
         stdio: 'ignore',
         windowsHide: true,
       });
-      child.once('error', () => resolve());
-      child.once('exit', () => resolve());
+      let settled = false;
+      const finish = (result: boolean): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const timer = setTimeout(() => {
+        try {
+          child.kill('SIGKILL');
+        } finally {
+          finish(false);
+        }
+      }, TASKKILL_TIMEOUT_MS);
+      timer.unref?.();
+      child.once('error', () => finish(false));
+      child.once('exit', (code) => finish(code === 0));
     } catch {
-      resolve();
+      resolve(false);
     }
   });
 }

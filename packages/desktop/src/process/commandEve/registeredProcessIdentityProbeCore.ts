@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { lstatSync, realpathSync } from 'node:fs';
 import { readFile, readlink } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -179,12 +180,20 @@ function compareBirthAndGroup(
   return 'match';
 }
 
+export type CommandEveRegisteredProcessIdentityProbeProviderOptions = Readonly<{
+  isPackaged?: boolean;
+  resourcesPath?: string;
+  platform?: NodeJS.Platform;
+  arch?: string;
+}>;
+
 export function createCommandEveRegisteredProcessIdentityProbeProvider(
-  resolveNativeProbe?: () => string
+  options: CommandEveRegisteredProcessIdentityProbeProviderOptions = {}
 ): RegisteredAgentProcessIdentityProbeProvider {
+  const platform = options.platform ?? process.platform;
   return {
     open: async () => {
-      if (process.platform === 'darwin') {
+      if (platform === 'darwin') {
         const verifiedPython = openVerifiedCommandEveObservationPythonSession();
         return {
           probeMany: async (entries) => {
@@ -213,7 +222,7 @@ export function createCommandEveRegisteredProcessIdentityProbeProvider(
           close: () => verifiedPython?.close(),
         };
       }
-      if (process.platform === 'linux') {
+      if (platform === 'linux') {
         return {
           probeMany: (entries) =>
             Promise.all(
@@ -228,7 +237,7 @@ export function createCommandEveRegisteredProcessIdentityProbeProvider(
           close: () => undefined,
         };
       }
-      if (process.platform === 'win32') {
+      if (platform === 'win32') {
         return {
           probeMany: async (entries) => {
             const supported = entries
@@ -236,10 +245,14 @@ export function createCommandEveRegisteredProcessIdentityProbeProvider(
               .filter(({ entry }) => entry.process_identity.platform === 'win32');
             const outcomes = entries.map(() => 'unknown' as RegisteredAgentProcessIdentityProbeResult);
             if (supported.length === 0) return outcomes;
-            if (!resolveNativeProbe) return outcomes;
+            const nativeProbe = resolveCommandEvePackagedWindowsProcessIdentityProbe({
+              ...options,
+              platform,
+            });
+            if (!nativeProbe) return outcomes;
             const observed = await probeCommandEveWindowsProcessIdentities(
               supported.map(({ entry }) => entry.pid),
-              resolveNativeProbe
+              nativeProbe
             );
             if (!observed) return outcomes;
             supported.forEach(({ entry, index }, supportedIndex) => {
@@ -262,25 +275,57 @@ export function createCommandEveRegisteredProcessIdentityProbeProvider(
   };
 }
 
+export function resolveCommandEvePackagedWindowsProcessIdentityProbe(
+  options: CommandEveRegisteredProcessIdentityProbeProviderOptions
+): string | undefined {
+  const platform = options.platform ?? process.platform;
+  if (platform !== 'win32' || options.isPackaged !== true || !options.resourcesPath) return undefined;
+  const arch = options.arch ?? process.arch;
+  if (!['x64', 'arm64'].includes(arch)) return undefined;
+  try {
+    const resourcesRoot = path.resolve(options.resourcesPath);
+    const bundledRoot = path.join(resourcesRoot, 'bundled-aioncore');
+    const runtimeRoot = path.join(bundledRoot, `win32-${arch}`);
+    const manifestPath = path.join(runtimeRoot, 'manifest.json');
+    const binaryPath = path.join(runtimeRoot, 'aioncore.exe');
+    const directories = [resourcesRoot, bundledRoot, runtimeRoot];
+    if (
+      directories.some((directory) => {
+        const identity = lstatSync(directory);
+        return !identity.isDirectory() || identity.isSymbolicLink();
+      })
+    ) {
+      return undefined;
+    }
+    for (const filePath of [manifestPath, binaryPath]) {
+      const identity = lstatSync(filePath);
+      if (!identity.isFile() || identity.isSymbolicLink()) return undefined;
+    }
+    const canonicalRoot = realpathSync.native(resourcesRoot);
+    const canonicalBinary = realpathSync.native(binaryPath);
+    const expectedCanonicalBinary = path.join(canonicalRoot, 'bundled-aioncore', `win32-${arch}`, 'aioncore.exe');
+    const normalize = (value: string): string => path.normalize(value).replace(/[A-Z]/g, (c) => c.toLowerCase());
+    if (normalize(canonicalRoot) !== normalize(resourcesRoot)) return undefined;
+    if (normalize(canonicalBinary) !== normalize(expectedCanonicalBinary)) return undefined;
+    return canonicalBinary;
+  } catch {
+    return undefined;
+  }
+}
+
 type CommandEveWindowsProcessIdentityProbe = Readonly<
   { state: 'absent' | 'unknown' } | { state: 'observed'; observed: ObservedWindowsProcessIdentity }
 >;
 
 export async function probeCommandEveWindowsProcessIdentities(
   pids: readonly number[],
-  resolveNativeProbe: () => string
+  nativeProbe: string
 ): Promise<readonly CommandEveWindowsProcessIdentityProbe[] | undefined> {
   if (
     pids.length > PROCESS_IDENTITY_MAX_BATCH ||
     pids.some((pid) => !Number.isInteger(pid) || pid <= 0 || pid > 0xffff_ffff) ||
     new Set(pids).size !== pids.length
   ) {
-    return undefined;
-  }
-  let nativeProbe: string;
-  try {
-    nativeProbe = resolveNativeProbe();
-  } catch {
     return undefined;
   }
   if (!nativeProbe) return undefined;
