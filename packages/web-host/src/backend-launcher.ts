@@ -165,6 +165,13 @@ export type BackendStartOptions = {
   onHealthTimeout?: (error: BackendStartupError) => Promise<void> | void;
   onPendingExit?: (error: BackendStartupError) => Promise<void> | void;
   onReady?: (port: number) => Promise<void> | void;
+  /**
+   * Optional owner for an unexpected-child restart. The supplied thunk rechecks
+   * that the crashed child still owns this manager immediately before starting;
+   * Command EVE runs it inside the same explicit FIFO as seat switches and
+   * connector reconciliation. Other hosts retain the direct restart behavior.
+   */
+  restartAfterCrash?: (restartIfCurrent: () => Promise<number | undefined>) => Promise<number | undefined>;
 };
 
 export class BackendStartupError extends Error {
@@ -660,24 +667,26 @@ export class BackendLifecycleManager {
     });
     console.log(`[aioncore] starting: ${binaryPath} ${args.join(' ')}`);
 
+    let startedChildProcess: ChildProcess;
     try {
-      this.childProcess = spawn(binaryPath, args, {
+      startedChildProcess = spawn(binaryPath, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: dirs ? buildSpawnEnv(dirs) : process.env,
         detached: process.platform !== 'win32',
       });
+      this.childProcess = startedChildProcess;
     } catch (error) {
       this._status = 'error';
       this.cleanupLocalCapabilityFile();
       throw makeStartupError('spawn', 'aioncore process spawn threw before startup', error);
     }
 
-    this.childProcess.stdin?.end();
+    startedChildProcess.stdin?.end();
 
-    backendPid = this.childProcess.pid;
+    backendPid = startedChildProcess.pid;
     const pid = backendPid;
     const killOnExit = () => {
-      if (pid) killBackendProcessTree(this.childProcess, 'SIGKILL');
+      if (pid) killBackendProcessTree(startedChildProcess, 'SIGKILL');
     };
     process.on('exit', killOnExit);
 
@@ -697,16 +706,19 @@ export class BackendLifecycleManager {
         reject(error);
       };
 
-      this.childProcess?.once('error', (error) => {
+      startedChildProcess.once('error', (error) => {
         if (startupSettled) return;
         this._status = 'error';
         rejectOnce(makeStartupError('spawn_error', 'aioncore process emitted an error before startup', error));
       });
 
-      this.childProcess?.once('exit', (code, signal) => {
+      startedChildProcess.once('exit', (code, signal) => {
         process.removeListener('exit', killOnExit);
+        // A newer lifecycle transaction may already own another child. An old
+        // listener must never schedule a restart or rewrite manager status for it.
+        if (this.childProcess !== startedChildProcess) return;
         if (this._status === 'running') {
-          this.handleCrash(code, signal);
+          this.handleCrash(code, signal, startedChildProcess, options);
           return;
         }
         pendingStartupExit = {
@@ -718,7 +730,7 @@ export class BackendLifecycleManager {
         if (this._status !== 'stopped') this._status = 'error';
       });
 
-      this.childProcess?.once('close', (code, signal) => {
+      startedChildProcess.once('close', (code, signal) => {
         if (!pendingStartupExit) return;
         const exitCode = pendingStartupExit.code ?? code;
         const exitSignal = pendingStartupExit.signal ?? signal;
@@ -981,7 +993,12 @@ export class BackendLifecycleManager {
     });
   }
 
-  private handleCrash(code: number | null, signal?: NodeJS.Signals | string | null): void {
+  private handleCrash(
+    code: number | null,
+    signal?: NodeJS.Signals | string | null,
+    crashedProcess: ChildProcess | null = this.childProcess,
+    options: BackendStartOptions | undefined = this._lastOptions
+  ): void {
     const now = Date.now();
     if (now - this.restartWindowStart > this.restartWindowMs) {
       this.restartCount = 0;
@@ -1009,17 +1026,30 @@ export class BackendLifecycleManager {
       delayMs: delay,
     });
 
-    setTimeout(() => {
-      if (this._status === 'stopped') return;
+    const crashStillOwnsManager = (): boolean =>
+      crashedProcess !== null && this.childProcess === crashedProcess && this._status === 'running';
+    const restartIfCurrent = async (): Promise<number | undefined> => {
+      // Recheck at execution time, not when the timer fires. A queued seat switch
+      // may have stopped/replaced this child while an external restart owner was
+      // waiting for the shared lifecycle reservation.
+      if (!crashStillOwnsManager()) return undefined;
       this._status = 'starting';
-      this.start(this._lastDbPath, this._lastLogDir, this._lastDirs, this._lastOptions, this._port)
+      return this.start(this._lastDbPath, this._lastLogDir, this._lastDirs, options, this._port);
+    };
+
+    setTimeout(() => {
+      if (!crashStillOwnsManager()) return;
+      const restart = options?.restartAfterCrash ? options.restartAfterCrash(restartIfCurrent) : restartIfCurrent();
+      void restart
         .then(async (port) => {
-          if (this._status === 'running') {
-            await this._lastOptions?.onReady?.(port);
+          if (port !== undefined && this._status === 'running') {
+            await options?.onReady?.(port);
           }
         })
         .catch((error) => {
-          this._status = 'error';
+          // A newer child may have won while an injected owner waited. Never let
+          // the stale crash path mark that live manager as errored.
+          if (crashStillOwnsManager()) this._status = 'error';
           console.error('[aioncore] restart after crash failed', {
             port: this._port,
             restartCount: this.restartCount,

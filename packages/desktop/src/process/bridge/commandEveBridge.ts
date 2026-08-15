@@ -4681,7 +4681,8 @@ export function initCommandEveBridge(): void {
       }
 
       const { applySeatSwitch } = await import('@process/commandEve/seatSwitchCore');
-      const { restartCommandEveBackendForSeat } = await import('@process/commandEve/seatSwitchRuntime');
+      const { restartCommandEveBackendForSeat, runCommandEveBackendRestartReservation } =
+        await import('@process/commandEve/seatSwitchRuntime');
       const { prepareCommandEveRuntimeProcessEnv, provisionSeatRuntimeFiles, hasValidSeatRuntimeFiles } =
         await import('@process/commandEve/runtimeBootstrapCore');
       const { reconcileVaultConfigForSeatSwitch } = await import('@process/commandEve/reconcileHermesMcpConfigWiring');
@@ -4699,158 +4700,164 @@ export function initCommandEveBridge(): void {
       // re-spawn env bake + the tier stamp below carry the correct doctrine.
       const targetKind = targetSeatRecord?.kind;
 
-      const result = await applySeatSwitch(
-        targetSeatId,
-        {
-          prepareEnv: async () => {
-            prepareCommandEveRuntimeProcessEnv(getDataPath(), process.env, process.platform, process.resourcesPath, {
-              requireBundledPython: app.isPackaged && process.platform === 'darwin',
-            });
-            // T0 — PROVISION THE TARGET SEAT'S RUNTIME FILES. applySeatSwitch has
-            // already run setActiveSeatId(target) (step a), so getActiveSeatId() is the
-            // target and prepareCommandEveRuntimeProcessEnv just re-homed HERMES_HOME to
-            // the target seat's home. But the boot bootstrap only ever provisions the
-            // LEGACY/founder home (there is no boot-restore of a saved seat — index.ts
-            // ~1395), so a client seat's home has NO config.yaml/SOUL.md/skills-command-
-            // eve — the agent would boot on WHEEL DEFAULTS (memory_enabled=FALSE, no
-            // SOUL). Write the Desktop-OWNED files into the target home NOW, before
-            // applySeatSwitch's restartBackend re-spawns the agent (which is the very
-            // next step), so the fresh agent finds them. Idempotent + safe: it writes
-            // ONLY config.yaml/SOUL.md/skills-command-eve (+ wrapper/shim/reconciliation)
-            // exactly as boot does and NEVER touches EVE-grown memories/ or the agent's
-            // own skills/. BEST-EFFORT: a provisioning error must NOT fail the switch —
-            // we log it (founder-self-detection) and let the switch proceed.
-            try {
-              const { reachable, ...workerInputs } = await resolveCommandEveWorkerRuntimeInputsForSwitch();
-              // F7 (MEDIUM): if the backend was UNREACHABLE, do NOT re-provision. A
-              // provision run with the degraded (empty) inputs would rewrite the
-              // target seat's SOUL.md/config.yaml WITHOUT the Claude-delegate directive
-              // (silent capability loss). Skipping keeps the last-known-good files that
-              // a prior reachable provisioning wrote. Self-detected via console.warn.
-              if (!reachable) {
-                console.warn(
-                  `[Command EVE] Seat-switch runtime provisioning SKIPPED for ${sanitizedTarget ?? targetSeatId}: backend settings unreachable; keeping last-known-good runtime files (no degraded re-write).`
-                );
-              } else {
-                const provisioned = provisionSeatRuntimeFiles({
-                  userDataPath: getDataPath(),
-                  resourcesPath: process.resourcesPath,
-                  // Setting-driven language, identical to the boot bootstrap, so the
-                  // target seat's SOUL.md defaults to the operator's UI language.
-                  uiLanguage: ProcessConfig.getSync('language'),
-                  ...workerInputs,
-                });
-                if (!provisioned.ok) {
+      // Reserve the shared backend lifecycle BEFORE applySeatSwitch can move the
+      // active-seat holder. The lease stays live through target preparation,
+      // restart, config rebind, informational refresh and any rollback restart.
+      const result = await runCommandEveBackendRestartReservation(async (restartLease) => {
+        const switchResult = await applySeatSwitch(
+          targetSeatId,
+          {
+            prepareEnv: async () => {
+              prepareCommandEveRuntimeProcessEnv(getDataPath(), process.env, process.platform, process.resourcesPath, {
+                requireBundledPython: app.isPackaged && process.platform === 'darwin',
+              });
+              // T0 — PROVISION THE TARGET SEAT'S RUNTIME FILES. applySeatSwitch has
+              // already run setActiveSeatId(target) (step a), so getActiveSeatId() is the
+              // target and prepareCommandEveRuntimeProcessEnv just re-homed HERMES_HOME to
+              // the target seat's home. But the boot bootstrap only ever provisions the
+              // LEGACY/founder home (there is no boot-restore of a saved seat — index.ts
+              // ~1395), so a client seat's home has NO config.yaml/SOUL.md/skills-command-
+              // eve — the agent would boot on WHEEL DEFAULTS (memory_enabled=FALSE, no
+              // SOUL). Write the Desktop-OWNED files into the target home NOW, before
+              // applySeatSwitch's restartBackend re-spawns the agent (which is the very
+              // next step), so the fresh agent finds them. Idempotent + safe: it writes
+              // ONLY config.yaml/SOUL.md/skills-command-eve (+ wrapper/shim/reconciliation)
+              // exactly as boot does and NEVER touches EVE-grown memories/ or the agent's
+              // own skills/. BEST-EFFORT: a provisioning error must NOT fail the switch —
+              // we log it (founder-self-detection) and let the switch proceed.
+              try {
+                const { reachable, ...workerInputs } = await resolveCommandEveWorkerRuntimeInputsForSwitch();
+                // F7 (MEDIUM): if the backend was UNREACHABLE, do NOT re-provision. A
+                // provision run with the degraded (empty) inputs would rewrite the
+                // target seat's SOUL.md/config.yaml WITHOUT the Claude-delegate directive
+                // (silent capability loss). Skipping keeps the last-known-good files that
+                // a prior reachable provisioning wrote. Self-detected via console.warn.
+                if (!reachable) {
                   console.warn(
-                    `[Command EVE] Seat-switch runtime provisioning failed for ${sanitizedTarget ?? targetSeatId} (${provisioned.hermes_home || 'no home'}); the target-file validity gate below decides fail-open vs fail-closed. Cause: ${provisioned.error ?? 'unknown'}`
+                    `[Command EVE] Seat-switch runtime provisioning SKIPPED for ${sanitizedTarget ?? targetSeatId}: backend settings unreachable; keeping last-known-good runtime files (no degraded re-write).`
                   );
-                } else if (provisioned.bundled_skill_failures.length) {
-                  console.warn(
-                    `[Command EVE] Seat-switch runtime provisioning: bundled EVE strategy skills missing/invalid for ${sanitizedTarget ?? targetSeatId}: ${provisioned.bundled_skill_failures.join(', ')}`
-                  );
+                } else {
+                  const provisioned = provisionSeatRuntimeFiles({
+                    userDataPath: getDataPath(),
+                    resourcesPath: process.resourcesPath,
+                    // Setting-driven language, identical to the boot bootstrap, so the
+                    // target seat's SOUL.md defaults to the operator's UI language.
+                    uiLanguage: ProcessConfig.getSync('language'),
+                    ...workerInputs,
+                  });
+                  if (!provisioned.ok) {
+                    console.warn(
+                      `[Command EVE] Seat-switch runtime provisioning failed for ${sanitizedTarget ?? targetSeatId} (${provisioned.hermes_home || 'no home'}); the target-file validity gate below decides fail-open vs fail-closed. Cause: ${provisioned.error ?? 'unknown'}`
+                    );
+                  } else if (provisioned.bundled_skill_failures.length) {
+                    console.warn(
+                      `[Command EVE] Seat-switch runtime provisioning: bundled EVE strategy skills missing/invalid for ${sanitizedTarget ?? targetSeatId}: ${provisioned.bundled_skill_failures.join(', ')}`
+                    );
+                  }
                 }
+              } catch (error) {
+                // Defensive: the resolver / import path itself throwing is caught here so
+                // it does not crash the thunk — but it does NOT decide the switch outcome.
+                // The single fail-closed gate below validates the target's actual files
+                // regardless of HOW provisioning ended (unreachable-skip, ok:false, or a
+                // thrown resolver).
+                console.warn(
+                  '[Command EVE] Seat-switch runtime provisioning threw; validating target files before proceeding:',
+                  error
+                );
               }
-            } catch (error) {
-              // Defensive: the resolver / import path itself throwing is caught here so
-              // it does not crash the thunk — but it does NOT decide the switch outcome.
-              // The single fail-closed gate below validates the target's actual files
-              // regardless of HOW provisioning ended (unreachable-skip, ok:false, or a
-              // thrown resolver).
-              console.warn(
-                '[Command EVE] Seat-switch runtime provisioning threw; validating target files before proceeding:',
-                error
-              );
-            }
-            // H4 (Codex): SINGLE fail-closed gate, OUTSIDE the best-effort try/catch so
-            // its throw actually propagates to applySeatSwitch (whose documented
-            // FAIL-SAFE rolls the runtime back to the prior seat on a throwing
-            // prepareEnv). The invariant regardless of how provisioning ended above
-            // (unreachable-skip / ok:false / thrown resolver): a seat switch must NEVER
-            // leave the seat booting on WHEEL DEFAULTS (memory_enabled=FALSE, no
-            // SOUL.md, no EVE skills) — that silently drops the security / memory /
-            // invisible-delivery posture. If the home holds a valid config.yaml +
-            // SOUL.md (freshly written, or last-known-good from a prior good pass) the
-            // switch proceeds; otherwise it fails closed. The legacy/founder home is
-            // always provisioned at boot, so switching home never trips this.
-            //
-            // Validate getActiveSeatId(), NOT the captured target: applySeatSwitch runs
-            // this thunk AGAIN during rollback with the active seat set back to the
-            // PRIOR seat (and provisionSeatRuntimeFiles above already keys off the
-            // active seat). Using the active seat means the rollback pass validates the
-            // prior seat's (valid) files and proceeds to restart its backend — using the
-            // captured target here would re-throw on rollback and strand a dead backend.
-            const gateSeatId = getActiveSeatId();
-            let gateHome = '';
-            try {
-              gateHome = resolveSeatHermesHome(getDataPath(), gateSeatId);
-            } catch {
-              gateHome = '';
-            }
-            if (!hasValidSeatRuntimeFiles(gateHome)) {
-              console.warn(
-                `[Command EVE] Seat-switch FAIL-CLOSED for ${gateSeatId}: home (${gateHome || 'unresolved'}) has no valid config.yaml + SOUL.md — rolling back rather than booting on wheel defaults.`
-              );
-              throw new Error(`SEAT_SWITCH_PROVISION_FAILED: ${gateSeatId} has no valid runtime files`);
-            }
-            // S5-P2 vault reconcile (arch §7): refresh the TARGET seat's config.yaml
-            // from the vault BEFORE applySeatSwitch's own restartBackend — so a seat's
-            // Founder-connectors are present on entry. respawnAfter:false because the
-            // switch lifecycle already owns the single respawn (the step right after
-            // this prepareEnv). Behind COMMAND_EVE_MCP_VAULT_ENABLED (a kill
-            // switch since 1.821.0, unset = on):
-            // while off, the reRenderConfig closure is a no-op returning 0, so seat
-            // switch behavior stays BYTE-IDENTICAL to today (no extra bootstrap run).
-            // Runs AFTER the base provisioning above so, once the flag is on, the vault
-            // re-render layers on top of a config.yaml that already exists.
-            await reconcileVaultConfigForSeatSwitch();
+              // H4 (Codex): SINGLE fail-closed gate, OUTSIDE the best-effort try/catch so
+              // its throw actually propagates to applySeatSwitch (whose documented
+              // FAIL-SAFE rolls the runtime back to the prior seat on a throwing
+              // prepareEnv). The invariant regardless of how provisioning ended above
+              // (unreachable-skip / ok:false / thrown resolver): a seat switch must NEVER
+              // leave the seat booting on WHEEL DEFAULTS (memory_enabled=FALSE, no
+              // SOUL.md, no EVE skills) — that silently drops the security / memory /
+              // invisible-delivery posture. If the home holds a valid config.yaml +
+              // SOUL.md (freshly written, or last-known-good from a prior good pass) the
+              // switch proceeds; otherwise it fails closed. The legacy/founder home is
+              // always provisioned at boot, so switching home never trips this.
+              //
+              // Validate getActiveSeatId(), NOT the captured target: applySeatSwitch runs
+              // this thunk AGAIN during rollback with the active seat set back to the
+              // PRIOR seat (and provisionSeatRuntimeFiles above already keys off the
+              // active seat). Using the active seat means the rollback pass validates the
+              // prior seat's (valid) files and proceeds to restart its backend — using the
+              // captured target here would re-throw on rollback and strand a dead backend.
+              const gateSeatId = getActiveSeatId();
+              let gateHome = '';
+              try {
+                gateHome = resolveSeatHermesHome(getDataPath(), gateSeatId);
+              } catch {
+                gateHome = '';
+              }
+              if (!hasValidSeatRuntimeFiles(gateHome)) {
+                console.warn(
+                  `[Command EVE] Seat-switch FAIL-CLOSED for ${gateSeatId}: home (${gateHome || 'unresolved'}) has no valid config.yaml + SOUL.md — rolling back rather than booting on wheel defaults.`
+                );
+                throw new Error(`SEAT_SWITCH_PROVISION_FAILED: ${gateSeatId} has no valid runtime files`);
+              }
+              // S5-P2 vault reconcile (arch §7): refresh the TARGET seat's config.yaml
+              // from the vault BEFORE applySeatSwitch's own restartBackend — so a seat's
+              // Founder-connectors are present on entry. respawnAfter:false because the
+              // switch lifecycle already owns the single respawn (the step right after
+              // this prepareEnv). Behind COMMAND_EVE_MCP_VAULT_ENABLED (a kill
+              // switch since 1.821.0, unset = on):
+              // while off, the reRenderConfig closure is a no-op returning 0, so seat
+              // switch behavior stays BYTE-IDENTICAL to today (no extra bootstrap run).
+              // Runs AFTER the base provisioning above so, once the flag is on, the vault
+              // re-render layers on top of a config.yaml that already exists.
+              await reconcileVaultConfigForSeatSwitch();
+            },
+            restartBackend: () => restartCommandEveBackendForSeat(restartLease),
+            rebindConfig: async (seatId) => {
+              // configService lives RENDERER-side, so this MAIN-process seam cannot
+              // touch its in-memory cache. The renderer re-homes its cache itself:
+              // useSeatAccess.switchTo() calls configService.rebindSeat() with the
+              // authoritative active_seat_id this handler returns (the target on
+              // success, the prior seat on rollback). This thunk is intentionally a
+              // no-op in main; the load-bearing rebind is the renderer call. Kept as a
+              // seam so the lifecycle ordering (a→b→c→d) stays explicit and testable.
+              void seatId;
+            },
+            reseedStatus: async (seatId) => {
+              // Re-read the per-seat company-brain seed (informational; never fails the switch).
+              void readCompanyBrainSeedState({ userDataPath: getDataPath(), seatId });
+              // Seat-Context-Bridge (B2, set-point b): re-stamp the target seat's USER.md
+              // tier blocks AFTER the re-spawn env bake, so the newly-spawned agent reads a
+              // §FOUNDER (+ §SEAT for a seeded real seat) that matches the seat it landed on.
+              // Best-effort — a stamp failure is informational and never fails the switch.
+              try {
+                const { stampUserMdTiersForSwitch } = await import('@process/commandEve/userMdTierStampCore');
+                // K3: the kind holder was set by applySeatSwitch's structural phase
+                // (from the wire record) BEFORE reseedStatus runs here, so getActiveSeatKind()
+                // is the target seat's kind — the §SEAT block gets the correct doctrine.
+                stampUserMdTiersForSwitch({ userDataPath: getDataPath(), seatId, kind: getActiveSeatKind() });
+              } catch {
+                // best-effort: the runtime is already on the new seat.
+              }
+            },
+            persistActiveSeat: async (seatId, label, kind) => {
+              // Label + kind ride the SAME wire seat record the switch already
+              // resolved, so a restored boot reproduces id → label → kind exactly as
+              // this switch left them — no second fetch, no drift between the two.
+              //
+              // FORWARDED, not closed over: applySeatSwitch now persists from three
+              // points, and the ROLLBACK one passes the PRIOR seat. Hardcoding
+              // targetLabel/targetKind here would have written the prior seat's id
+              // under the failed target's label — a pointer describing a seat that
+              // never existed. `?? target…` keeps the happy path byte-identical for
+              // any caller that still omits them.
+              await persistActiveSeatPointer(seatId, label ?? targetLabel, kind ?? targetKind);
+            },
           },
-          restartBackend: () => restartCommandEveBackendForSeat(),
-          rebindConfig: async (seatId) => {
-            // configService lives RENDERER-side, so this MAIN-process seam cannot
-            // touch its in-memory cache. The renderer re-homes its cache itself:
-            // useSeatAccess.switchTo() calls configService.rebindSeat() with the
-            // authoritative active_seat_id this handler returns (the target on
-            // success, the prior seat on rollback). This thunk is intentionally a
-            // no-op in main; the load-bearing rebind is the renderer call. Kept as a
-            // seam so the lifecycle ordering (a→b→c→d) stays explicit and testable.
-            void seatId;
-          },
-          reseedStatus: async (seatId) => {
-            // Re-read the per-seat company-brain seed (informational; never fails the switch).
-            void readCompanyBrainSeedState({ userDataPath: getDataPath(), seatId });
-            // Seat-Context-Bridge (B2, set-point b): re-stamp the target seat's USER.md
-            // tier blocks AFTER the re-spawn env bake, so the newly-spawned agent reads a
-            // §FOUNDER (+ §SEAT for a seeded real seat) that matches the seat it landed on.
-            // Best-effort — a stamp failure is informational and never fails the switch.
-            try {
-              const { stampUserMdTiersForSwitch } = await import('@process/commandEve/userMdTierStampCore');
-              // K3: the kind holder was set by applySeatSwitch's structural phase
-              // (from the wire record) BEFORE reseedStatus runs here, so getActiveSeatKind()
-              // is the target seat's kind — the §SEAT block gets the correct doctrine.
-              stampUserMdTiersForSwitch({ userDataPath: getDataPath(), seatId, kind: getActiveSeatKind() });
-            } catch {
-              // best-effort: the runtime is already on the new seat.
-            }
-          },
-          persistActiveSeat: async (seatId, label, kind) => {
-            // Label + kind ride the SAME wire seat record the switch already
-            // resolved, so a restored boot reproduces id → label → kind exactly as
-            // this switch left them — no second fetch, no drift between the two.
-            //
-            // FORWARDED, not closed over: applySeatSwitch now persists from three
-            // points, and the ROLLBACK one passes the PRIOR seat. Hardcoding
-            // targetLabel/targetKind here would have written the prior seat's id
-            // under the failed target's label — a pointer describing a seat that
-            // never existed. `?? target…` keeps the happy path byte-identical for
-            // any caller that still omits them.
-            await persistActiveSeatPointer(seatId, label ?? targetLabel, kind ?? targetKind);
-          },
-        },
-        targetLabel,
-        targetKind
-      );
+          targetLabel,
+          targetKind
+        );
 
-      await refreshBrowserWorkbenchContextBestEffort();
+        await refreshBrowserWorkbenchContextBestEffort();
+        return switchResult;
+      });
 
       return {
         success: result.ok,

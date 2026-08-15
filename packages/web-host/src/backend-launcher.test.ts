@@ -1043,6 +1043,93 @@ describe('BackendLifecycleManager crash restart', () => {
     fetchSpy.mockRestore();
   }, 5_000);
 
+  it('delegates a crash restart to the injected lifecycle owner before starting another child', async () => {
+    const child1 = makeFakeChild();
+    const child2 = makeFakeChild();
+    vi.mocked(spawn)
+      .mockReturnValueOnce(child1 as unknown as ChildProcess)
+      .mockReturnValueOnce(child2 as unknown as ChildProcess);
+    let markOwnerEntered!: () => void;
+    let releaseOwner!: () => void;
+    const ownerEntered = new Promise<void>((resolve) => {
+      markOwnerEntered = resolve;
+    });
+    const ownerGate = new Promise<void>((resolve) => {
+      releaseOwner = resolve;
+    });
+    const restartAfterCrash = vi.fn(async (restartIfCurrent: () => Promise<number | undefined>) => {
+      markOwnerEntered();
+      await ownerGate;
+      return restartIfCurrent();
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('ok', { status: 200 }) as unknown as Response);
+
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+    const startPromise = mgr.start('/db', undefined, undefined, { restartAfterCrash });
+    await Promise.resolve();
+    emitListening(child1, 65303);
+    await startPromise;
+
+    (child1 as unknown as EventEmitter).emit('exit', 1, 'SIGABRT');
+    await ownerEntered;
+    expect(vi.mocked(spawn)).toHaveBeenCalledTimes(1);
+
+    releaseOwner();
+    await Promise.resolve();
+    emitListening(child2, 65303);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(vi.mocked(spawn)).toHaveBeenCalledTimes(2);
+    expect(restartAfterCrash).toHaveBeenCalledOnce();
+
+    fetchSpy.mockRestore();
+  }, 5_000);
+
+  it('suppresses a queued crash restart when another lifecycle transaction replaced the crashed child', async () => {
+    const crashedChild = makeFakeChild();
+    const replacementChild = makeFakeChild();
+    vi.mocked(spawn).mockReturnValueOnce(crashedChild as unknown as ChildProcess);
+    let markOwnerEntered!: () => void;
+    let releaseOwner!: () => void;
+    const ownerEntered = new Promise<void>((resolve) => {
+      markOwnerEntered = resolve;
+    });
+    const ownerGate = new Promise<void>((resolve) => {
+      releaseOwner = resolve;
+    });
+    const restartAfterCrash = vi.fn(async (restartIfCurrent: () => Promise<number | undefined>) => {
+      markOwnerEntered();
+      await ownerGate;
+      return restartIfCurrent();
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('ok', { status: 200 }) as unknown as Response);
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+    const startPromise = mgr.start('/db', undefined, undefined, { restartAfterCrash });
+    await Promise.resolve();
+    emitListening(crashedChild, 65303);
+    await startPromise;
+
+    (crashedChild as unknown as EventEmitter).emit('exit', 1, 'SIGABRT');
+    await ownerEntered;
+    const mutableManager = mgr as unknown as {
+      childProcess: ChildProcess | null;
+      _status: 'stopped' | 'starting' | 'running' | 'error';
+    };
+    mutableManager.childProcess = replacementChild;
+    mutableManager._status = 'running';
+    releaseOwner();
+    await new Promise((resolve) => setTimeout(resolve, 1));
+
+    expect(restartAfterCrash).toHaveBeenCalledOnce();
+    expect(vi.mocked(spawn)).toHaveBeenCalledTimes(1);
+    expect(mgr.status).toBe('running');
+
+    fetchSpy.mockRestore();
+  }, 5_000);
+
   it('logs crash restart scheduling details', async () => {
     vi.mocked(createServer).mockImplementation(
       () => makeFakeServer(65303) as unknown as ReturnType<typeof createServer>

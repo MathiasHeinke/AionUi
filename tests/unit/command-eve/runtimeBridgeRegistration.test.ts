@@ -5,13 +5,26 @@ import {
   __resetCommandEveBackendRestartForTests,
   restartCommandEveBackendForSeat,
   runCommandEveBackendRespawnAfterStop,
+  runCommandEveBackendRestartReservation,
   setCommandEveBackendRestart,
 } from '@/process/commandEve/seatSwitchRuntime';
+import {
+  __resetActiveSeatForTests,
+  getActiveSeatId,
+  resolveActiveSeatScopedStorageRoots,
+  setActiveSeatId,
+} from '@/process/commandEve/seatContextCore';
+import { resolveCommandEveRuntimeBootstrapPaths } from '@/process/commandEve/runtimeBootstrapCore';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
   __resetCommandEveBackendRestartForTests();
+  __resetActiveSeatForTests();
 });
+
+const AUTHORITY_TEST_USER_DATA = '/tmp/command-eve-backend-authority-test';
+const AUTHORITY_SEAT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const AUTHORITY_SEAT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 describe('Command EVE runtime bridge registration', () => {
   it('pins packaged license-key resolution to Electron signed resources unconditionally', () => {
@@ -140,6 +153,30 @@ describe('Command EVE runtime bridge registration', () => {
     expect(start).toBeGreaterThan(awaitGapRecheck);
     expect(source.slice(awaitGapRecheck, start)).not.toContain('await ');
     expect(source.slice(admission, start)).toContain('Dev/Windows preserve the existing lightweight env bake.');
+    expect(source).toContain('restartAfterCrash: runCommandEveCrashRestartUnderReservation');
+    expect(source.match(/commandEveBackendStartOptions/g)).toHaveLength(3);
+  });
+
+  it('reserves the shared lifecycle before the seat authority holder can move', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/process/bridge/commandEveBridge.ts'),
+      'utf8'
+    );
+    const switchProvider = source.indexOf("bridge.buildProvider('command-eve.switch-seat')");
+    const reservation = source.indexOf(
+      'runCommandEveBackendRestartReservation(async (restartLease) => {',
+      switchProvider
+    );
+    const authorityMutation = source.indexOf('applySeatSwitch(', reservation);
+    const leasedRestart = source.indexOf('restartCommandEveBackendForSeat(restartLease)', authorityMutation);
+    const terminalRefresh = source.indexOf('await refreshBrowserWorkbenchContextBestEffort();', leasedRestart);
+    const reservationEnd = source.indexOf('return switchResult;', terminalRefresh);
+
+    expect(reservation).toBeGreaterThan(switchProvider);
+    expect(authorityMutation).toBeGreaterThan(reservation);
+    expect(leasedRestart).toBeGreaterThan(authorityMutation);
+    expect(terminalRefresh).toBeGreaterThan(leasedRestart);
+    expect(reservationEnd).toBeGreaterThan(terminalRefresh);
   });
 
   it('preserves the live port and never stops or starts when pre-stop admission fails', async () => {
@@ -267,14 +304,259 @@ describe('Command EVE runtime bridge registration', () => {
     expect(publishedPort).toBe(4102);
   });
 
-  it('rejects a recursive restart instead of deadlocking the shared FIFO', async () => {
+  it('drains an older connector before authority mutation and excludes later connector work until switch terminal', async () => {
+    type AuthoritySnapshot = Readonly<{
+      operation: string;
+      seatId: string;
+      hermesHome: string;
+      managedSkillsRoot: string;
+      backendDataDir: string;
+      kanbanDb: string;
+    }>;
+    const snapshots: AuthoritySnapshot[] = [];
+    const events: string[] = [];
+    let publishedPort = 4400;
+    let markOldConnectorEntered!: () => void;
+    let releaseOldConnector!: () => void;
+    let markSwitchEntered!: () => void;
+    let releaseSwitchPreparation!: () => void;
+    const oldConnectorEntered = new Promise<void>((resolve) => {
+      markOldConnectorEntered = resolve;
+    });
+    const oldConnectorGate = new Promise<void>((resolve) => {
+      releaseOldConnector = resolve;
+    });
+    const switchEntered = new Promise<void>((resolve) => {
+      markSwitchEntered = resolve;
+    });
+    const switchPreparationGate = new Promise<void>((resolve) => {
+      releaseSwitchPreparation = resolve;
+    });
+    const capture = (operation: string): AuthoritySnapshot => {
+      const seatId = getActiveSeatId();
+      const runtime = resolveCommandEveRuntimeBootstrapPaths(AUTHORITY_TEST_USER_DATA);
+      const storage = resolveActiveSeatScopedStorageRoots(AUTHORITY_TEST_USER_DATA, AUTHORITY_TEST_USER_DATA, seatId);
+      const snapshot = {
+        operation,
+        seatId,
+        hermesHome: runtime.hermesHome,
+        managedSkillsRoot: runtime.managedSkillsRoot,
+        backendDataDir: storage.workRoot,
+        kanbanDb: path.join(runtime.hermesHome, 'kanban.db'),
+      };
+      snapshots.push(snapshot);
+      return snapshot;
+    };
+
+    setActiveSeatId(AUTHORITY_SEAT_A);
     setCommandEveBackendRestart(async () => {
-      await restartCommandEveBackendForSeat();
+      const snapshot = capture(`restart:${snapshots.length}`);
+      publishedPort += 1;
+      events.push(`publish:${snapshot.seatId}:${publishedPort}`);
+    });
+
+    const oldConnector = runCommandEveBackendRestartReservation(async (restartLease) => {
+      events.push('connector-old:enter');
+      capture('connector-old:render');
+      markOldConnectorEntered();
+      await oldConnectorGate;
+      await restartCommandEveBackendForSeat(restartLease);
+      events.push('connector-old:terminal');
+    });
+    await oldConnectorEntered;
+
+    const switchTransaction = runCommandEveBackendRestartReservation(async (restartLease) => {
+      events.push('switch:enter');
+      setActiveSeatId(AUTHORITY_SEAT_B);
+      capture('switch:prepare');
+      markSwitchEntered();
+      await switchPreparationGate;
+      await restartCommandEveBackendForSeat(restartLease);
+      events.push('switch:terminal');
+    });
+    const laterConnector = runCommandEveBackendRestartReservation(async (restartLease) => {
+      events.push('connector-later:enter');
+      capture('connector-later:render');
+      await restartCommandEveBackendForSeat(restartLease);
+      events.push('connector-later:terminal');
+    });
+
+    await Promise.resolve();
+    expect(getActiveSeatId()).toBe(AUTHORITY_SEAT_A);
+    expect(events).toEqual(['connector-old:enter']);
+
+    releaseOldConnector();
+    await oldConnector;
+    await switchEntered;
+    expect(getActiveSeatId()).toBe(AUTHORITY_SEAT_B);
+    expect(events).not.toContain('connector-later:enter');
+
+    releaseSwitchPreparation();
+    await Promise.all([switchTransaction, laterConnector]);
+    expect(events).toEqual([
+      'connector-old:enter',
+      `publish:${AUTHORITY_SEAT_A}:4401`,
+      'connector-old:terminal',
+      'switch:enter',
+      `publish:${AUTHORITY_SEAT_B}:4402`,
+      'switch:terminal',
+      'connector-later:enter',
+      `publish:${AUTHORITY_SEAT_B}:4403`,
+      'connector-later:terminal',
+    ]);
+    expect(publishedPort).toBe(4403);
+
+    for (const snapshot of snapshots) {
+      expect(snapshot.hermesHome).toContain(snapshot.seatId);
+      expect(snapshot.managedSkillsRoot).toContain(snapshot.seatId);
+      expect(snapshot.backendDataDir).toContain(snapshot.seatId);
+      expect(snapshot.kanbanDb).toContain(snapshot.seatId);
+    }
+  });
+
+  it('holds the lease through failed target restart, rollback identity and rollback restart terminal', async () => {
+    const events: string[] = [];
+    let restartAttempt = 0;
+    let publishedPort: number | undefined = 4490;
+    let markRollbackRestartEntered!: () => void;
+    let releaseRollbackRestart!: () => void;
+    const rollbackRestartEntered = new Promise<void>((resolve) => {
+      markRollbackRestartEntered = resolve;
+    });
+    const rollbackRestartGate = new Promise<void>((resolve) => {
+      releaseRollbackRestart = resolve;
+    });
+
+    setActiveSeatId(AUTHORITY_SEAT_A);
+    setCommandEveBackendRestart(async () => {
+      restartAttempt += 1;
+      events.push(`restart:${restartAttempt}:${getActiveSeatId()}`);
+      if (restartAttempt === 1) {
+        publishedPort = undefined;
+        throw new Error('target restart failed after destructive stop');
+      }
+      markRollbackRestartEntered();
+      await rollbackRestartGate;
+      publishedPort = 4492;
+      events.push(`publish:${getActiveSeatId()}:${publishedPort}`);
+    });
+
+    const switchTransaction = runCommandEveBackendRestartReservation(async (restartLease) => {
+      setActiveSeatId(AUTHORITY_SEAT_B);
+      try {
+        await restartCommandEveBackendForSeat(restartLease);
+      } catch {
+        setActiveSeatId(AUTHORITY_SEAT_A);
+        await restartCommandEveBackendForSeat(restartLease);
+      }
+      events.push('switch:terminal');
+    });
+    const laterConnector = runCommandEveBackendRestartReservation(async () => {
+      events.push(`connector-later:${getActiveSeatId()}:${String(publishedPort)}`);
+    });
+
+    await rollbackRestartEntered;
+    expect(getActiveSeatId()).toBe(AUTHORITY_SEAT_A);
+    expect(publishedPort).toBeUndefined();
+    expect(events).not.toContain(`connector-later:${AUTHORITY_SEAT_A}:undefined`);
+
+    releaseRollbackRestart();
+    await Promise.all([switchTransaction, laterConnector]);
+    expect(events).toEqual([
+      `restart:1:${AUTHORITY_SEAT_B}`,
+      `restart:2:${AUTHORITY_SEAT_A}`,
+      `publish:${AUTHORITY_SEAT_A}:4492`,
+      'switch:terminal',
+      `connector-later:${AUTHORITY_SEAT_A}:4492`,
+    ]);
+  });
+
+  it('queues a crash timer behind seat preparation and suppresses its stale child after target start', async () => {
+    const events: string[] = [];
+    const crashedChild = { id: 'crashed-seat-a' };
+    let currentChild = crashedChild;
+    let markSwitchPreparationEntered!: () => void;
+    let releaseSwitchPreparation!: () => void;
+    const switchPreparationEntered = new Promise<void>((resolve) => {
+      markSwitchPreparationEntered = resolve;
+    });
+    const switchPreparationGate = new Promise<void>((resolve) => {
+      releaseSwitchPreparation = resolve;
+    });
+
+    setActiveSeatId(AUTHORITY_SEAT_A);
+    setCommandEveBackendRestart(async () => {
+      currentChild = { id: `live-${getActiveSeatId()}` };
+      events.push(`switch:publish:${currentChild.id}`);
+    });
+    const switchTransaction = runCommandEveBackendRestartReservation(async (restartLease) => {
+      setActiveSeatId(AUTHORITY_SEAT_B);
+      events.push('switch:prepare');
+      markSwitchPreparationEntered();
+      await switchPreparationGate;
+      await restartCommandEveBackendForSeat(restartLease);
+      events.push('switch:terminal');
+    });
+    await switchPreparationEntered;
+
+    // This mirrors BackendLifecycleManager.restartAfterCrash: enqueue the owner,
+    // then recheck the exact crashed child only after the reservation is acquired.
+    const crashTimer = runCommandEveBackendRestartReservation(async () => {
+      events.push('crash-owner:enter');
+      if (currentChild !== crashedChild) {
+        events.push('crash-owner:suppressed-stale-child');
+        return;
+      }
+      events.push('crash-owner:unexpected-start');
+    });
+    await Promise.resolve();
+    expect(events).toEqual(['switch:prepare']);
+
+    releaseSwitchPreparation();
+    await Promise.all([switchTransaction, crashTimer]);
+    expect(events).toEqual([
+      'switch:prepare',
+      `switch:publish:live-${AUTHORITY_SEAT_B}`,
+      'switch:terminal',
+      'crash-owner:enter',
+      'crash-owner:suppressed-stale-child',
+    ]);
+    expect(currentChild.id).toBe(`live-${AUTHORITY_SEAT_B}`);
+  });
+
+  it('rejects a recursive restart instead of deadlocking the shared FIFO', async () => {
+    setCommandEveBackendRestart(async (restartLease) => {
+      await restartCommandEveBackendForSeat(restartLease);
     });
 
     await expect(restartCommandEveBackendForSeat()).rejects.toThrow(
       'recursive backend restart refused; the shared lifecycle lock is non-reentrant'
     );
+  });
+
+  it('rejects a retained lease after its reservation has terminated', async () => {
+    let retainedLease: Parameters<typeof restartCommandEveBackendForSeat>[0];
+    setCommandEveBackendRestart(async () => {});
+    await runCommandEveBackendRestartReservation(async (restartLease) => {
+      retainedLease = restartLease;
+    });
+
+    expect(retainedLease).toBeDefined();
+    await expect(restartCommandEveBackendForSeat(retainedLease!)).rejects.toThrow(
+      'backend restart lease is invalid or expired'
+    );
+  });
+
+  it('releases the FIFO after a rejected transaction so the next owner can restart', async () => {
+    let attempt = 0;
+    setCommandEveBackendRestart(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new Error('first restart rejected');
+    });
+
+    await expect(restartCommandEveBackendForSeat()).rejects.toThrow('first restart rejected');
+    await expect(restartCommandEveBackendForSeat()).resolves.toBeUndefined();
+    expect(attempt).toBe(2);
   });
 
   it('clears the published port when stop kills the child and then throws during cleanup', async () => {

@@ -20,8 +20,15 @@ import {
   reconcileVaultConfigForSeatSwitch,
 } from '@/process/commandEve/reconcileHermesMcpConfigWiring';
 import { setMcpVaultEnabledForTests } from '@/process/commandEve/mcpVaultFlagCore';
+import {
+  __resetCommandEveBackendRestartForTests,
+  runCommandEveBackendRestartReservation,
+} from '@/process/commandEve/seatSwitchRuntime';
 
-afterEach(() => setMcpVaultEnabledForTests(undefined));
+afterEach(() => {
+  setMcpVaultEnabledForTests(undefined);
+  __resetCommandEveBackendRestartForTests();
+});
 
 describe('reconcile wiring — flag OFF is a NO-OP (byte-identical safety)', () => {
   it('reconcileVaultConfigAfterConnectorChange does NOT re-render or respawn when the flag is off', async () => {
@@ -74,6 +81,41 @@ describe('reconcile wiring — flag ON delegates to the pure core', () => {
     expect(order).toEqual(['render', 'respawn']);
     expect(receipt.ok).toBe(true);
     expect(receipt.connector_count).toBe(1);
+  });
+
+  it('holds the shared lifecycle reservation from connector render through respawn terminal', async () => {
+    setMcpVaultEnabledForTests(true);
+    const order: string[] = [];
+    let markRenderEntered!: () => void;
+    let releaseRender!: () => void;
+    const renderEntered = new Promise<void>((resolve) => {
+      markRenderEntered = resolve;
+    });
+    const renderGate = new Promise<void>((resolve) => {
+      releaseRender = resolve;
+    });
+    const connector = reconcileVaultConfigAfterConnectorChange('approve', {
+      reRenderConfig: async () => {
+        order.push('connector:render');
+        markRenderEntered();
+        await renderGate;
+        return 1;
+      },
+      respawn: async () => {
+        order.push('connector:respawn');
+      },
+    });
+    await renderEntered;
+
+    const queuedSeatSwitch = runCommandEveBackendRestartReservation(async () => {
+      order.push('seat-switch:enter');
+    });
+    await Promise.resolve();
+    expect(order).toEqual(['connector:render']);
+
+    releaseRender();
+    await Promise.all([connector, queuedSeatSwitch]);
+    expect(order).toEqual(['connector:render', 'connector:respawn', 'seat-switch:enter']);
   });
 
   it('production re-render threads the canonical root and strict packaged runtime contract', () => {

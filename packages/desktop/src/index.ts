@@ -88,6 +88,11 @@ import {
 import { shouldRestartWindowsBackendAfterRuntimeBootstrap } from './process/commandEve/windows/runtimeActivationCore';
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatContextRevision, getActiveSeatId } from './process/commandEve/seatContextCore';
+import {
+  runCommandEveBackendRespawnAfterStop,
+  runCommandEveBackendRestartReservation,
+  setCommandEveBackendRestart,
+} from './process/commandEve/seatSwitchRuntime';
 import { getCdpBridgeHandle } from './process/resources/builtinMcp/cdpBridgeRegistry';
 import { restoreActiveSeatFromPointer } from './process/commandEve/activeSeatPointerStore';
 import {
@@ -329,6 +334,17 @@ const backendManager = new BackendLifecycleManager(
   },
   resolveBinaryPath
 );
+const runCommandEveCrashRestartUnderReservation = (
+  restartIfCurrent: () => Promise<number | undefined>
+): Promise<number | undefined> => runCommandEveBackendRestartReservation(() => restartIfCurrent());
+const commandEveBackendStartOptions = {
+  // Explicitly preserve the previous false/default behavior while giving the
+  // workspace package's newer runtime an injected crash-restart owner. Keeping
+  // one established option also remains structurally compatible with an older
+  // installed @aionui/web-host declaration during local baseline typechecks.
+  allowPendingOnHealthTimeout: false,
+  restartAfterCrash: runCommandEveCrashRestartUnderReservation,
+};
 installMainProcessLocalBackendCapability({
   getPort: () => backendManager.port,
   getCapability: () => backendManager.localCapability,
@@ -2401,11 +2417,16 @@ const handleAppReady = async (): Promise<void> => {
       console.warn('[CommandEVE] Pre-flight assistant-storage repair skipped:', error);
     }
     recheckCommandEveRuntimeBeforeInitialStart?.();
-    const backendPort = await backendManager.start(getBackendDataDir(), sysDir.logDir, {
-      cacheDir: sysDir.cacheDir,
-      workDir: sysDir.workDir,
-      logDir: sysDir.logDir,
-    });
+    const backendPort = await backendManager.start(
+      getBackendDataDir(),
+      sysDir.logDir,
+      {
+        cacheDir: sysDir.cacheDir,
+        workDir: sysDir.workDir,
+        logDir: sysDir.logDir,
+      },
+      commandEveBackendStartOptions
+    );
     mark(`backendManager.start (port=${backendPort})`);
     // Expose the backend port to main-process callers of httpBridge (e.g. the
     // one-shot assistant migration hook below). Must land BEFORE any
@@ -2428,8 +2449,6 @@ const handleAppReady = async (): Promise<void> => {
     // freshly-baked process.env.HERMES_HOME (a running agent's HERMES_HOME is
     // env-frozen at spawn — runtimeBootstrapCore.ts:1144). The hook re-runs the
     // SAME prepareEnv→start sequence as boot, for the now-active seat.
-    const { runCommandEveBackendRespawnAfterStop, setCommandEveBackendRestart } =
-      await import('./process/commandEve/seatSwitchRuntime');
     // RESPAWN GENERATION — guards the GLOBAL post-start writes below (__backendPort,
     // cron-resume bridge, assistant prompt). The bridge's in-flight lock + 300s watchdog
     // can, in the worst case (a respawn whose start() lives past 300s), let a NEWER switch
@@ -2513,11 +2532,16 @@ const handleAppReady = async (): Promise<void> => {
             console.warn('[CommandEVE] Pre-flight assistant-storage repair (respawn) skipped:', error);
           }
           recheckCommandEveRuntimeBeforeRespawn?.();
-          return backendManager.start(getBackendDataDirForRestart(), sysDirForRestart.logDir, {
-            cacheDir: sysDirForRestart.cacheDir,
-            workDir: sysDirForRestart.workDir,
-            logDir: sysDirForRestart.logDir,
-          });
+          return backendManager.start(
+            getBackendDataDirForRestart(),
+            sysDirForRestart.logDir,
+            {
+              cacheDir: sysDirForRestart.cacheDir,
+              workDir: sysDirForRestart.workDir,
+              logDir: sysDirForRestart.logDir,
+            },
+            commandEveBackendStartOptions
+          );
         },
       });
       // ISO-4 CRITICAL: re-spawn the backend with the SAME seat-scoped --data-dir

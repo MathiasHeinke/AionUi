@@ -25,6 +25,7 @@
 
 import { reconcileHermesMcpConfigForActiveSeat, type ReconcileReceipt } from './reconcileHermesMcpConfigCore';
 import { isMcpVaultEnabled } from './mcpVaultFlagCore';
+import { restartCommandEveBackendForSeat, runCommandEveBackendRestartReservation } from './seatSwitchRuntime';
 import { getCanonicalDataPath as realGetCanonicalDataPath, getDataPath as realGetDataPath } from '../utils/utils';
 
 /** Injectable seams for the wiring (defaults = the real main-process cores). */
@@ -105,13 +106,19 @@ export async function reconcileVaultConfigAfterConnectorChange(
     const now = deps.now ?? (() => new Date());
     return { ok: true, seat_id: getActiveSeatId(), connector_count: 0, at: now().toISOString() };
   }
-  return reconcileHermesMcpConfigForActiveSeat(
-    {
-      reRenderConfig: deps.reRenderConfig ?? ((_seatId) => defaultReRenderConfig(getDataPath, getCanonicalDataPath)),
-      respawn: deps.respawn,
-      now: deps.now,
-    },
-    { trigger, respawnAfter: true }
+  // Reserve BEFORE resolving the active seat or writing config.yaml. A connector
+  // reconcile already in progress therefore reaches its terminal restart before
+  // a queued seat switch may mutate the active-seat holder; a connector queued
+  // later cannot enter until the switch (including rollback) is terminal.
+  return runCommandEveBackendRestartReservation((restartLease) =>
+    reconcileHermesMcpConfigForActiveSeat(
+      {
+        reRenderConfig: deps.reRenderConfig ?? ((_seatId) => defaultReRenderConfig(getDataPath, getCanonicalDataPath)),
+        respawn: deps.respawn ?? (() => restartCommandEveBackendForSeat(restartLease)),
+        now: deps.now,
+      },
+      { trigger, respawnAfter: true }
+    )
   );
 }
 

@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks';
-
 /**
  * Command EVE SEAT-SWITCH RUNTIME WIRING (Phase 4 / A5, SLICE B).
  *
@@ -26,9 +24,23 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  * unless a real re-spawn ran.
  */
 
+const commandEveBackendRestartLeaseBrand: unique symbol = Symbol('command-eve-backend-restart-lease');
+
+/**
+ * An opaque, runtime-validated capability proving that the caller owns the
+ * shared backend lifecycle FIFO. The brand is module-private and every use is
+ * checked against the active WeakSet, so a cast or a retained expired object
+ * cannot bypass serialization.
+ */
+export type CommandEveBackendRestartLease = Readonly<{
+  [commandEveBackendRestartLeaseBrand]: true;
+}>;
+
 /** A backend re-spawn thunk: stop the running aioncore, then start it fresh so
- * the new agent inherits the freshly-baked process.env.HERMES_HOME. */
-export type CommandEveBackendRestart = () => Promise<void>;
+ * the new agent inherits the freshly-baked process.env.HERMES_HOME. The active
+ * lease is passed explicitly so recursive lifecycle work cannot inherit broad
+ * ambient async context. */
+export type CommandEveBackendRestart = (lease: CommandEveBackendRestartLease) => Promise<void>;
 
 export type CommandEveStoppedBackendRespawn<T> = Readonly<{
   beforeStop?: () => Promise<void>;
@@ -39,7 +51,67 @@ export type CommandEveStoppedBackendRespawn<T> = Readonly<{
 
 let restartHook: CommandEveBackendRestart | null = null;
 let restartQueueTail: Promise<void> = Promise.resolve();
-const restartExecutionContext = new AsyncLocalStorage<boolean>();
+const activeRestartLeases = new WeakSet<CommandEveBackendRestartLease>();
+const executingRestartLeases = new WeakSet<CommandEveBackendRestartLease>();
+
+function enqueueCommandEveBackendLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+  const queued = restartQueueTail.then(operation);
+  // A rejected transaction releases the FIFO for the next caller rather than
+  // poisoning the shared lifecycle lane.
+  restartQueueTail = queued.then(
+    (): void => undefined,
+    (): void => undefined
+  );
+  return queued;
+}
+
+function createCommandEveBackendRestartLease(): CommandEveBackendRestartLease {
+  return Object.freeze({
+    [commandEveBackendRestartLeaseBrand]: true,
+  });
+}
+
+async function invokeCommandEveBackendRestartHook(lease: CommandEveBackendRestartLease): Promise<void> {
+  if (!activeRestartLeases.has(lease)) {
+    throw new Error('Command EVE: backend restart lease is invalid or expired.');
+  }
+  if (executingRestartLeases.has(lease)) {
+    throw new Error('Command EVE: recursive backend restart refused; the shared lifecycle lock is non-reentrant.');
+  }
+  const hook = restartHook;
+  if (!hook) {
+    throw new Error(
+      'Command EVE: no backend-restart hook registered; refusing to switch seats without re-spawning the agent (fail-closed).'
+    );
+  }
+  executingRestartLeases.add(lease);
+  try {
+    await hook(lease);
+  } finally {
+    executingRestartLeases.delete(lease);
+  }
+}
+
+/**
+ * Reserve the single backend lifecycle FIFO for one complete authority
+ * transaction. Seat switching holds this lease across identity mutation,
+ * target preparation, restart and rollback; connector reconciliation holds it
+ * across re-render + restart. The lease expires when the callback settles.
+ */
+export function runCommandEveBackendRestartReservation<T>(
+  operation: (lease: CommandEveBackendRestartLease) => Promise<T>
+): Promise<T> {
+  return enqueueCommandEveBackendLifecycle(async () => {
+    const lease = createCommandEveBackendRestartLease();
+    activeRestartLeases.add(lease);
+    try {
+      return await operation(lease);
+    } finally {
+      activeRestartLeases.delete(lease);
+      executingRestartLeases.delete(lease);
+    }
+  });
+}
 
 /**
  * Register the concrete backend re-spawn implementation (called once from
@@ -58,23 +130,12 @@ export function hasCommandEveBackendRestart(): boolean {
  * The restart thunk applySeatSwitch injects. FAIL-CLOSED: throws if no hook is
  * registered, so a switch never reports success without a real agent re-spawn.
  */
-export async function restartCommandEveBackendForSeat(): Promise<void> {
-  if (restartExecutionContext.getStore() === true) {
-    throw new Error('Command EVE: recursive backend restart refused; the shared lifecycle lock is non-reentrant.');
+export async function restartCommandEveBackendForSeat(lease?: CommandEveBackendRestartLease): Promise<void> {
+  if (lease) {
+    await invokeCommandEveBackendRestartHook(lease);
+    return;
   }
-  const queuedRestart = restartQueueTail.then(async () => {
-    const hook = restartHook;
-    if (!hook) {
-      throw new Error(
-        'Command EVE: no backend-restart hook registered; refusing to switch seats without re-spawning the agent (fail-closed).'
-      );
-    }
-    await restartExecutionContext.run(true, hook);
-  });
-  // A rejected transaction must release the FIFO for the next caller rather
-  // than poisoning the shared lifecycle lane.
-  restartQueueTail = queuedRestart.catch(() => {});
-  await queuedRestart;
+  await runCommandEveBackendRestartReservation((ownedLease) => invokeCommandEveBackendRestartHook(ownedLease));
 }
 
 /**

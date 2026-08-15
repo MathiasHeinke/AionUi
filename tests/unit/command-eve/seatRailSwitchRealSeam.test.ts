@@ -76,6 +76,8 @@ vi.mock('@process/commandEve/seatWireFetchCore', () => ({
 const { restartBackendMock } = vi.hoisted(() => ({ restartBackendMock: vi.fn(async () => {}) }));
 vi.mock('@process/commandEve/seatSwitchRuntime', () => ({
   restartCommandEveBackendForSeat: (...args: unknown[]) => restartBackendMock(...args),
+  runCommandEveBackendRestartReservation: async (operation: (lease: object) => Promise<unknown>) =>
+    operation(Object.freeze({ test: 'seat-switch-restart-lease' })),
 }));
 const { backendSettingsReadMock } = vi.hoisted(() => ({
   backendSettingsReadMock: vi.fn<() => Promise<Record<string, unknown>>>(),
