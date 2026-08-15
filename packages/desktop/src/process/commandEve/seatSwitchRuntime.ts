@@ -73,7 +73,7 @@ export type CommandEveBackendRestartReservationOptions = Readonly<{
    * expired by a timer: releasing a still-mutating authority transaction would
    * be unsafe. A timed-out waiter is removed before it can mutate anything.
    */
-  queueWaitTimeoutMs?: number;
+  queueWaitTimeoutMs: number;
 }>;
 
 function enqueueCommandEveBackendLifecycle<T>(operation: () => Promise<T>): Promise<T> {
@@ -141,7 +141,11 @@ async function invokeCommandEveBackendAuthorityFailClosedHook(lease: CommandEveB
  */
 export function runCommandEveBackendRestartReservation<T>(
   operation: (lease: CommandEveBackendRestartLease) => Promise<T>,
-  options: CommandEveBackendRestartReservationOptions = {}
+  options: CommandEveBackendRestartReservationOptions
+): Promise<T>;
+export function runCommandEveBackendRestartReservation<T>(
+  operation: (lease: CommandEveBackendRestartLease) => Promise<T>,
+  options?: CommandEveBackendRestartReservationOptions
 ): Promise<T> {
   let entered = false;
   let cancelledBeforeEntry = false;
@@ -168,7 +172,7 @@ export function runCommandEveBackendRestartReservation<T>(
   // lease. Queue admission bounds are chosen explicitly by each production
   // transaction: a fixed global 30s default silently shortened guided/seat
   // operations whose own terminal bounds are 90s+.
-  const queueWaitTimeoutMs = options.queueWaitTimeoutMs;
+  const queueWaitTimeoutMs = options?.queueWaitTimeoutMs;
   if (queueWaitTimeoutMs === undefined || !Number.isFinite(queueWaitTimeoutMs) || queueWaitTimeoutMs <= 0) {
     return queued;
   }

@@ -25,11 +25,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { encryptSecret, setSafeStorageForTesting, type SafeStorageAdapter } from '@/common/config/keychain';
 import {
   VAULT_CONNECTOR_RECORD_VERSION,
+  __setVaultRecordFsBarrierForTests,
+  __setVaultRecordNativeHelperForTests,
   deleteVaultRecord,
   listVaultRecords,
   readVaultRecordFileSnapshot,
@@ -83,7 +85,10 @@ function makeValidRecord(overrides: Partial<VaultConnectorRecord> = {}): VaultCo
 }
 
 afterEach(() => {
+  __setVaultRecordFsBarrierForTests(undefined);
+  __setVaultRecordNativeHelperForTests(undefined);
   setSafeStorageForTesting(undefined);
+  vi.restoreAllMocks();
   while (tmpDirs.length) {
     const dir = tmpDirs.pop()!;
     try {
@@ -316,7 +321,7 @@ describe('vaultRecordCore — byte-exact authority rollback', () => {
     expect(fs.readdirSync(dir)).toEqual(['sentinel']);
   });
 
-  it('rejects a symlink anywhere in vault ancestry and preserves the foreign target', () => {
+  it('canonicalizes a legitimate external alias above the app-owned vault', () => {
     if (process.platform === 'win32') return;
     setSafeStorageForTesting(makeAvailableAdapter());
     const root = makeVaultDir();
@@ -324,25 +329,33 @@ describe('vaultRecordCore — byte-exact authority rollback', () => {
     const foreign = path.join(root, 'foreign');
     fs.mkdirSync(owned, { mode: 0o700 });
     fs.mkdirSync(foreign, { mode: 0o700 });
-    const sentinel = path.join(foreign, 'sentinel');
-    fs.writeFileSync(sentinel, 'unchanged', { mode: 0o600 });
     fs.symlinkSync(foreign, path.join(owned, 'linked'));
-    const unsafeVault = path.join(owned, 'linked', 'vault');
+    const aliasedVault = path.join(owned, 'linked', 'vault');
     const record = makeValidRecord({ connector_id: 'notion-workspace' });
 
-    expect(writeVaultRecord(unsafeVault, record)).toMatchObject({
+    expect(writeVaultRecord(aliasedVault, record)).toMatchObject({ ok: true });
+    expect(readVaultRecord(aliasedVault, record.connector_id)).toEqual(record);
+    expect(vaultRecordPath(aliasedVault, record.connector_id)).toBe(
+      path.join(fs.realpathSync.native(foreign), 'vault', `${record.connector_id}.enc`)
+    );
+  });
+
+  it('rejects a symlink at the app-owned vault boundary', () => {
+    if (process.platform === 'win32') return;
+    setSafeStorageForTesting(makeAvailableAdapter());
+    const root = makeVaultDir();
+    const parent = path.join(root, 'parent');
+    const foreign = path.join(root, 'foreign');
+    fs.mkdirSync(parent, { mode: 0o700 });
+    fs.mkdirSync(foreign, { mode: 0o700 });
+    fs.symlinkSync(foreign, path.join(parent, 'vault'));
+    const record = makeValidRecord({ connector_id: 'notion-workspace' });
+
+    expect(writeVaultRecord(path.join(parent, 'vault'), record)).toMatchObject({
       ok: false,
       reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE',
     });
-    expect(readVaultRecordFileSnapshot(unsafeVault, record.connector_id)).toMatchObject({
-      ok: false,
-      reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE',
-    });
-    expect(readVaultRecord(unsafeVault, record.connector_id)).toBeNull();
-    expect(deleteVaultRecord(unsafeVault, record.connector_id)).toBe(false);
-    expect(restoreVaultRecordFileSnapshot(unsafeVault, record.connector_id, { exists: false })).toBe(false);
-    expect(fs.readFileSync(sentinel, 'utf8')).toBe('unchanged');
-    expect(fs.existsSync(path.join(foreign, 'vault'))).toBe(false);
+    expect(fs.readdirSync(foreign)).toEqual([]);
   });
 
   it('refuses symlink endpoints for read, write, restore and delete without touching their target', () => {
@@ -363,6 +376,236 @@ describe('vaultRecordCore — byte-exact authority rollback', () => {
     expect(deleteVaultRecord(dir, 'linked')).toBe(false);
     expect(fs.readFileSync(foreign, 'utf8')).toBe('foreign-bytes');
     expect(fs.lstatSync(endpoint).isSymbolicLink()).toBe(true);
+  });
+
+  describe('anchored directory identity', () => {
+    function swapVaultAtBarrier(vaultDir: string, operation: Parameters<typeof __setVaultRecordFsBarrierForTests>[0]) {
+      let swapped = false;
+      __setVaultRecordFsBarrierForTests((actualOperation, canonicalVaultDir) => {
+        if (swapped || !operation) return;
+        operation(actualOperation, canonicalVaultDir);
+        swapped = true;
+        const parked = `${vaultDir}-parked`;
+        fs.renameSync(vaultDir, parked);
+        fs.mkdirSync(vaultDir, { mode: 0o700 });
+        fs.writeFileSync(path.join(vaultDir, 'foreign-sentinel'), 'foreign-unchanged', { mode: 0o600 });
+      });
+    }
+
+    function makeAnchoredVault(): { root: string; vault: string } {
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      return { root, vault };
+    }
+
+    it('rejects a read when the vault directory is swapped after its fd is opened', () => {
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const { vault } = makeAnchoredVault();
+      const record = makeValidRecord({ connector_id: 'read-race' });
+      expect(writeVaultRecord(vault, record).ok).toBe(true);
+      swapVaultAtBarrier(vault, (operation) => expect(operation).toBe('read'));
+
+      expect(readVaultRecord(vault, record.connector_id)).toBeNull();
+      expect(fs.readFileSync(path.join(vault, 'foreign-sentinel'), 'utf8')).toBe('foreign-unchanged');
+    });
+
+    it('rejects a snapshot when the vault directory is swapped after its fd is opened', () => {
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const { vault } = makeAnchoredVault();
+      const record = makeValidRecord({ connector_id: 'snapshot-race' });
+      expect(writeVaultRecord(vault, record).ok).toBe(true);
+      swapVaultAtBarrier(vault, (operation) => expect(operation).toBe('snapshot'));
+
+      expect(readVaultRecordFileSnapshot(vault, record.connector_id)).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_RECORD_SNAPSHOT_READ_FAILED',
+      });
+      expect(fs.readFileSync(path.join(vault, 'foreign-sentinel'), 'utf8')).toBe('foreign-unchanged');
+    });
+
+    it('rejects a write before any byte reaches a swapped vault directory', () => {
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const { vault } = makeAnchoredVault();
+      const record = makeValidRecord({ connector_id: 'write-race' });
+      swapVaultAtBarrier(vault, (operation) => expect(operation).toBe('write'));
+
+      expect(writeVaultRecord(vault, record)).toMatchObject({ ok: false, reason_code: 'VAULT_RECORD_WRITE_FAILED' });
+      expect(fs.readdirSync(vault)).toEqual(['foreign-sentinel']);
+    });
+
+    it('rejects a restore before any byte reaches a swapped vault directory', () => {
+      const { vault } = makeAnchoredVault();
+      swapVaultAtBarrier(vault, (operation) => expect(operation).toBe('restore'));
+
+      expect(
+        restoreVaultRecordFileSnapshot(vault, 'restore-race', {
+          exists: true,
+          bytes: Buffer.from('prior-authority'),
+        })
+      ).toBe(false);
+      expect(fs.readdirSync(vault)).toEqual(['foreign-sentinel']);
+    });
+
+    it('rejects a delete and preserves both the original and swapped vault bytes', () => {
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const { vault } = makeAnchoredVault();
+      const record = makeValidRecord({ connector_id: 'delete-race' });
+      expect(writeVaultRecord(vault, record).ok).toBe(true);
+      swapVaultAtBarrier(vault, (operation) => expect(operation).toBe('delete'));
+
+      expect(deleteVaultRecord(vault, record.connector_id)).toBe(false);
+      expect(fs.existsSync(path.join(`${vault}-parked`, `${record.connector_id}.enc`))).toBe(true);
+      expect(fs.readFileSync(path.join(vault, 'foreign-sentinel'), 'utf8')).toBe('foreign-unchanged');
+    });
+
+    it('rejects an unsafe vault mode before mutation', () => {
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const { vault } = makeAnchoredVault();
+      fs.chmodSync(vault, 0o755);
+
+      expect(writeVaultRecord(vault, makeValidRecord({ connector_id: 'mode-unsafe' }))).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_DIR_IDENTITY_UNSAFE',
+      });
+      expect(fs.readdirSync(vault)).toEqual([]);
+    });
+
+    it('rejects a vault whose owner does not match the effective user', () => {
+      if (process.platform === 'win32' || !process.getuid) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const { vault } = makeAnchoredVault();
+      vi.spyOn(process, 'getuid').mockReturnValue(process.getuid() + 1);
+
+      expect(writeVaultRecord(vault, makeValidRecord({ connector_id: 'owner-unsafe' }))).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_DIR_IDENTITY_UNSAFE',
+      });
+      expect(fs.readdirSync(vault)).toEqual([]);
+    });
+  });
+
+  describe('native dir-fd helper', () => {
+    const installedCommandEvePython = '/Applications/Command EVE.app/Contents/Resources/python/bin/python3.12';
+    const python = fs.existsSync(installedCommandEvePython) ? installedCommandEvePython : '/usr/bin/python3';
+
+    function useNativeHelper(swapAwayThenBack?: 'snapshot' | 'read' | 'write' | 'restore' | 'delete'): void {
+      if (!fs.existsSync(python)) return;
+      __setVaultRecordNativeHelperForTests({ pythonExecutable: python, swapAwayThenBack });
+    }
+
+    function foreignVault(root: string): string {
+      const entry = fs.readdirSync(root).find((candidate) => candidate.startsWith('vault.foreign-'));
+      if (!entry) throw new Error('test setup: native helper did not retain the swapped foreign directory');
+      return path.join(root, entry);
+    }
+
+    it('round-trips through real openat/renameat operations', () => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const { vault } = (() => {
+        const root = makeVaultDir();
+        const candidate = path.join(root, 'vault');
+        fs.mkdirSync(candidate, { mode: 0o700 });
+        return { vault: candidate };
+      })();
+      useNativeHelper();
+      const record = makeValidRecord({ connector_id: 'native-roundtrip' });
+
+      expect(writeVaultRecord(vault, record)).toMatchObject({ ok: true });
+      expect(readVaultRecord(vault, record.connector_id)).toEqual(record);
+      expect(listVaultRecords(vault)).toEqual([record]);
+      expect(deleteVaultRecord(vault, record.connector_id)).toBe(true);
+      expect(readVaultRecord(vault, record.connector_id)).toBeNull();
+    });
+
+    it('binds a read to the opened directory across swap-away and swap-back', () => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      useNativeHelper();
+      const record = makeValidRecord({ connector_id: 'native-read-race' });
+      expect(writeVaultRecord(vault, record).ok).toBe(true);
+      useNativeHelper('read');
+
+      expect(readVaultRecord(vault, record.connector_id)).toEqual(record);
+      expect(fs.readFileSync(path.join(foreignVault(root), `${record.connector_id}.enc`), 'utf8')).toBe(
+        'foreign-unchanged'
+      );
+    });
+
+    it('binds a snapshot to the opened directory across swap-away and swap-back', () => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      useNativeHelper();
+      const record = makeValidRecord({ connector_id: 'native-snapshot-race' });
+      expect(writeVaultRecord(vault, record).ok).toBe(true);
+      const expected = fs.readFileSync(vaultRecordPath(vault, record.connector_id));
+      useNativeHelper('snapshot');
+
+      expect(readVaultRecordFileSnapshot(vault, record.connector_id)).toEqual({
+        ok: true,
+        snapshot: { exists: true, bytes: expected },
+      });
+      expect(fs.readFileSync(path.join(foreignVault(root), `${record.connector_id}.enc`), 'utf8')).toBe(
+        'foreign-unchanged'
+      );
+    });
+
+    it('publishes writes only inside the opened directory across swap-away and swap-back', () => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      const record = makeValidRecord({ connector_id: 'native-write-race' });
+      useNativeHelper('write');
+
+      expect(writeVaultRecord(vault, record)).toMatchObject({ ok: true });
+      useNativeHelper();
+      expect(readVaultRecord(vault, record.connector_id)).toEqual(record);
+      expect(fs.readFileSync(path.join(foreignVault(root), `${record.connector_id}.enc`), 'utf8')).toBe(
+        'foreign-unchanged'
+      );
+    });
+
+    it('restores only inside the opened directory across swap-away and swap-back', () => {
+      if (!fs.existsSync(python)) return;
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      useNativeHelper('restore');
+      const bytes = Buffer.from('prior-authority-bytes');
+
+      expect(restoreVaultRecordFileSnapshot(vault, 'native-restore-race', { exists: true, bytes })).toBe(true);
+      expect(fs.readFileSync(vaultRecordPath(vault, 'native-restore-race'))).toEqual(bytes);
+      expect(fs.readFileSync(path.join(foreignVault(root), 'native-restore-race.enc'), 'utf8')).toBe(
+        'foreign-unchanged'
+      );
+    });
+
+    it('deletes only inside the opened directory across swap-away and swap-back', () => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      useNativeHelper();
+      const record = makeValidRecord({ connector_id: 'native-delete-race' });
+      expect(writeVaultRecord(vault, record).ok).toBe(true);
+      useNativeHelper('delete');
+
+      expect(deleteVaultRecord(vault, record.connector_id)).toBe(true);
+      expect(fs.existsSync(vaultRecordPath(vault, record.connector_id))).toBe(false);
+      expect(fs.readFileSync(path.join(foreignVault(root), `${record.connector_id}.enc`), 'utf8')).toBe(
+        'foreign-unchanged'
+      );
+    });
   });
 });
 

@@ -12,7 +12,7 @@ describe('cleanupRegisteredAgentProcesses', () => {
     vi.useRealTimers();
   });
 
-  it('kills a registered process group even when the wrapper pid has already exited', async () => {
+  it('does not signal a registered PGID after its wrapper identity is gone', async () => {
     if (process.platform === 'win32') {
       return;
     }
@@ -38,38 +38,39 @@ describe('cleanupRegisteredAgentProcesses', () => {
       'utf8'
     );
 
-    let groupAlive = true;
     const notFound = () => Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(((
       target: number,
       signal?: NodeJS.Signals | number
     ) => {
       if (target === -6883 && signal === 0) {
-        if (groupAlive) return true;
-        throw notFound();
+        return true;
       }
       if (target === 6883 && signal === 0) {
         throw notFound();
       }
-      if (target === -6883 && signal === 'SIGTERM') {
-        groupAlive = false;
-        return true;
-      }
-      if (target === -6883 && signal === 'SIGKILL') {
-        groupAlive = false;
-        return true;
-      }
       throw notFound();
     }) as typeof process.kill);
 
-    await cleanupRegisteredAgentProcesses(dataDir);
+    const cleanup = await cleanupRegisteredAgentProcesses(dataDir);
 
     const registry = JSON.parse(await readFile(registryPath, 'utf8')) as {
       processes: Array<{ pid: number }>;
     };
 
-    expect(killSpy).toHaveBeenCalledWith(-6883, 'SIGTERM');
-    expect(registry.processes).toEqual([]);
+    expect(killSpy).not.toHaveBeenCalledWith(-6883, 'SIGTERM');
+    expect(killSpy).not.toHaveBeenCalledWith(-6883, 'SIGKILL');
+    expect(registry.processes).toEqual([
+      {
+        pid: 6883,
+        process_group_id: 6883,
+        conversation_id: 'conv-1',
+        agent_type: 'acp',
+        backend: 'codex',
+        registered_at_ms: 1,
+      },
+    ]);
+    expect(cleanup).toEqual({ survivor_pids: [6883] });
   });
 
   // The registry file is data from disk, and `readRegistry` used to cast it
@@ -93,7 +94,7 @@ describe('cleanupRegisteredAgentProcesses', () => {
     // before `this.childProcess = null` — and, the point of the function, before a
     // single orphaned ACP child has been signalled. One malformed byte on disk
     // keeps every orphan alive.
-    await expect(cleanupRegisteredAgentProcesses(dataDir)).resolves.toBeUndefined();
+    await expect(cleanupRegisteredAgentProcesses(dataDir)).resolves.toEqual({ survivor_pids: [] });
   });
 
   it('refuses a non-numeric version instead of writing it back into the file', async () => {

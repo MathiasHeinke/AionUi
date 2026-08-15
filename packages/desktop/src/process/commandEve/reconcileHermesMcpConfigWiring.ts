@@ -91,9 +91,17 @@ export type ConnectorAuthorityTransactionInput<T, R> = Readonly<{
 }>;
 
 export function sanitizeConnectorAuthorityDiagnostic(value: unknown, fallback: string): string {
-  const message = (value instanceof Error ? value.message : typeof value === 'string' ? value : fallback)
+  // Bound attacker-controlled diagnostics before regex work. The final bridge
+  // message is only 600 bytes; scanning an unbounded prefix creates avoidable
+  // worst-case regex work without improving operator evidence.
+  const bounded = (value instanceof Error ? value.message : typeof value === 'string' ? value : fallback).slice(
+    0,
+    8_000
+  );
+  const message = bounded
     .replace(/\b(keychain:v1:)[^\s,;]+/gi, '$1[redacted]')
     .replace(/\b(authorization)(\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi, '$1$2[redacted]')
+    .replace(/"([a-z0-9_-]*(?:api[_-]?key|token|secret))"\s*:\s*"[^"\r\n]*"/gi, '"$1":"[redacted]"')
     .replace(/\b([a-z0-9_-]*(?:api[_-]?key|token|secret))(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[redacted]')
     .trim();
   return (message || fallback).slice(0, 600);

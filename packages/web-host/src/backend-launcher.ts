@@ -198,7 +198,13 @@ export const COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN = 'COMMAND_EVE_BACKEND_TER
 
 export type BackendTerminationUnprovenDetails = Readonly<{
   pid?: number;
-  phase: 'missing_pid' | 'signal_failed' | 'child_terminal_timeout' | 'group_probe_failed' | 'group_survived';
+  phase:
+    | 'missing_pid'
+    | 'signal_failed'
+    | 'child_terminal_timeout'
+    | 'group_probe_failed'
+    | 'group_identity_unproven'
+    | 'registered_descendants_survived';
   signal?: 'SIGTERM' | 'SIGKILL' | 0;
   error_code?: string;
 }>;
@@ -467,7 +473,17 @@ async function waitForExactChildTerminal(childProcess: ChildProcess, timeoutMs: 
   });
 }
 
-function signalBackendProcessGroup(pid: number, signal: 'SIGTERM' | 'SIGKILL'): 'signalled' | 'absent' {
+function signalLiveBackendProcessGroup(
+  childProcess: ChildProcess,
+  pid: number,
+  signal: 'SIGTERM' | 'SIGKILL'
+): 'signalled' | 'absent' {
+  // The unreaped ChildProcess is the ownership proof for this numeric PGID.
+  // Once the exact leader is terminal, the same number may already belong to
+  // an unrelated process group and must never be signalled based on presence.
+  if (childProcessIsTerminal(childProcess)) {
+    throw backendTerminationUnproven(pid, 'group_identity_unproven', signal);
+  }
   try {
     process.kill(-pid, signal);
     return 'signalled';
@@ -487,16 +503,11 @@ function backendProcessGroupIsAbsent(pid: number): boolean {
   }
 }
 
-async function waitForBackendProcessGroupAbsence(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() <= deadline) {
-    if (backendProcessGroupIsAbsent(pid)) return true;
-    // Sequential polling is the proof protocol; parallel probes cannot observe
-    // the required terminal transition and would defeat the bounded deadline.
-    // eslint-disable-next-line no-await-in-loop
-    await new Promise((resolve) => setTimeout(resolve, 25));
+async function cleanupRegisteredAgentsOrThrow(dataDir: string | undefined, backendPid?: number): Promise<void> {
+  const cleanup = await cleanupRegisteredAgentProcesses(dataDir);
+  if (cleanup.survivor_pids.length > 0) {
+    throw backendTerminationUnproven(backendPid, 'registered_descendants_survived', 0);
   }
-  return backendProcessGroupIsAbsent(pid);
 }
 
 function killWindowsBackendProcessTree(childProcess: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
@@ -530,7 +541,9 @@ function abortUnadmittedBackendProcess(childProcess: ChildProcess, signal: 'SIGK
       return;
     }
     const pid = childProcess.pid;
-    if (!pid) return;
+    // A terminal child no longer owns its numeric PID/PGID. Best-effort
+    // cleanup must therefore stop rather than risk killing a reused group.
+    if (!pid || childProcessIsTerminal(childProcess)) return;
     try {
       process.kill(-pid, signal);
     } catch (error) {
@@ -550,19 +563,25 @@ async function stopPosixBackendProcessGroup(childProcess: ChildProcess): Promise
   let childTerminal = childProcessIsTerminal(childProcess);
   let groupAbsent = false;
   if (!childTerminal) {
-    groupAbsent = signalBackendProcessGroup(pid, 'SIGTERM') === 'absent';
+    groupAbsent = signalLiveBackendProcessGroup(childProcess, pid, 'SIGTERM') === 'absent';
     childTerminal = await waitForExactChildTerminal(childProcess, 5_000);
   }
 
-  if (!groupAbsent && backendProcessGroupIsAbsent(pid)) groupAbsent = true;
-  if (!groupAbsent) {
-    groupAbsent = signalBackendProcessGroup(pid, 'SIGKILL') === 'absent';
-    if (!childTerminal) childTerminal = await waitForExactChildTerminal(childProcess, 2_000);
-    if (!groupAbsent) groupAbsent = await waitForBackendProcessGroupAbsence(pid, 2_000);
+  if (!childTerminal) {
+    // Re-check through the exact ChildProcess immediately before escalation.
+    // If it became terminal, signalLiveBackendProcessGroup rejects without
+    // touching the potentially reused numeric group.
+    groupAbsent = signalLiveBackendProcessGroup(childProcess, pid, 'SIGKILL') === 'absent';
+    childTerminal = await waitForExactChildTerminal(childProcess, 2_000);
   }
 
   if (!childTerminal) throw backendTerminationUnproven(pid, 'child_terminal_timeout', 'SIGKILL');
-  if (!groupAbsent) throw backendTerminationUnproven(pid, 'group_survived', 0);
+  // A zero-signal probe is observation only. ESRCH proves the original group
+  // is gone. Presence cannot prove ownership after the leader is terminal, so
+  // never follow it with TERM/KILL; fail closed instead.
+  if (!groupAbsent && !backendProcessGroupIsAbsent(pid)) {
+    throw backendTerminationUnproven(pid, 'group_identity_unproven', 0);
+  }
 }
 
 async function probeHealthCheckTcpConnect(port: number, timeoutMs = 1_000): Promise<Partial<HealthCheckDiagnostics>> {
@@ -1045,7 +1064,7 @@ export class BackendLifecycleManager {
       // AionCore may exit before Electron's before-quit cleanup runs. Its ACP
       // children can outlive the backend, so the durable process registry must
       // still be drained even when there is no backend wrapper left to signal.
-      await cleanupRegisteredAgentProcesses(dataDir);
+      await cleanupRegisteredAgentsOrThrow(dataDir);
       this.cleanupLocalCapabilityFile();
       return;
     }
@@ -1067,16 +1086,16 @@ export class BackendLifecycleManager {
         }
       }
     } else {
-      // AionCore is the leader of a detached process group. Proof therefore
-      // covers both the exact wrapper child and every ACP descendant in that
-      // group, including the crash case where the leader already emitted exit.
+      // AionCore is the leader of a detached process group. Negative signals
+      // are valid only while that exact wrapper remains unreaped/live. Once it
+      // is terminal, group presence is unowned and must fail closed.
       await stopPosixBackendProcessGroup(childProcess);
     }
 
     // Termination is proven before registry cleanup can fail. Clear the owned
     // wrapper now so a later start never composes with a known-dead child.
     this.childProcess = null;
-    await cleanupRegisteredAgentProcesses(dataDir);
+    await cleanupRegisteredAgentsOrThrow(dataDir, childProcess.pid);
     this.cleanupLocalCapabilityFile();
   }
 

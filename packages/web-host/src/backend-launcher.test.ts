@@ -29,7 +29,7 @@ vi.mock('node:fs', () => ({
 }));
 
 vi.mock('./agent-process-registry.js', () => ({
-  cleanupRegisteredAgentProcesses: vi.fn().mockResolvedValue(undefined),
+  cleanupRegisteredAgentProcesses: vi.fn().mockResolvedValue({ survivor_pids: [] }),
 }));
 
 import { spawn } from 'node:child_process';
@@ -938,16 +938,24 @@ describe('BackendLifecycleManager.stop', () => {
     expect(mgr.status).toBe('stopped');
   });
 
-  it('kills the detached process group even when the backend leader already exited', async () => {
+  it('reports termination_unproven when persisted registered descendants survive cleanup', async () => {
+    vi.mocked(cleanupRegisteredAgentProcesses).mockResolvedValueOnce({ survivor_pids: [7711] });
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+    Object.assign(mgr, { _lastDbPath: '/db-with-survivor', _port: 4816, _status: 'running' });
+
+    await expect(mgr.stop()).rejects.toMatchObject({
+      code: COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN,
+      details: { phase: 'registered_descendants_survived', signal: 0 },
+    });
+
+    expect(mgr.port).toBe(0);
+  });
+
+  it('never signals a terminal leader numeric PGID when the observed group may have been reused', async () => {
     if (process.platform === 'win32') return;
     const child = makeFakeChild();
     Object.assign(child, { pid: 31337, exitCode: 1 });
-    let killed = false;
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
-      if (signal === 'SIGKILL') killed = true;
-      if (signal === 0 && killed) throw processError('ESRCH');
-      return true;
-    });
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
     const mgr = new BackendLifecycleManager(APP_META, () => '/x');
     Object.assign(mgr, {
       childProcess: child,
@@ -956,12 +964,35 @@ describe('BackendLifecycleManager.stop', () => {
       _port: 4811,
     });
 
+    await expect(mgr.stop()).rejects.toMatchObject({
+      code: COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN,
+      details: { phase: 'group_identity_unproven', signal: 0 },
+    });
+
+    expect(killSpy).toHaveBeenCalledTimes(1);
+    expect(killSpy).toHaveBeenCalledWith(-31337, 0);
+    expect(killSpy).not.toHaveBeenCalledWith(-31337, 'SIGTERM');
+    expect(killSpy).not.toHaveBeenCalledWith(-31337, 'SIGKILL');
+    expect(cleanupRegisteredAgentProcesses).not.toHaveBeenCalled();
+    expect(mgr.port).toBe(0);
+    killSpy.mockRestore();
+  });
+
+  it('accepts one ESRCH absence proof and never signals a later reused PGID', async () => {
+    if (process.platform === 'win32') return;
+    const child = makeFakeChild();
+    Object.assign(child, { pid: 31340, exitCode: 1 });
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 0) throw processError('ESRCH');
+      throw new Error('a reused group must never be signalled');
+    });
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+    Object.assign(mgr, { childProcess: child, _lastDbPath: '/db', _status: 'running', _port: 4815 });
+
     await mgr.stop();
 
-    expect(killSpy).toHaveBeenCalledWith(-31337, 'SIGKILL');
-    expect(killSpy).not.toHaveBeenCalledWith(31337, 'SIGKILL');
-    expect(cleanupRegisteredAgentProcesses).toHaveBeenCalledWith('/db-with-detached-grandchildren');
-    expect(mgr.port).toBe(0);
+    expect(killSpy.mock.calls).toEqual([[-31340, 0]]);
+    expect(cleanupRegisteredAgentProcesses).toHaveBeenCalledWith('/db');
     killSpy.mockRestore();
   });
 
@@ -1105,9 +1136,8 @@ describe('BackendLifecycleManager.stop', () => {
     killSpy.mockRestore();
   });
 
-  it('reports termination_unproven when the detached process group survives SIGKILL', async () => {
+  it('reports termination_unproven without signalling when a terminal leader group is still present', async () => {
     if (process.platform === 'win32') return;
-    vi.useFakeTimers();
     const child = makeFakeChild();
     Object.assign(child, { pid: 31339, exitCode: 1 });
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
@@ -1117,12 +1147,12 @@ describe('BackendLifecycleManager.stop', () => {
     const stopPromise = mgr.stop();
     const assertion = expect(stopPromise).rejects.toMatchObject({
       code: COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN,
-      details: { phase: 'group_survived', signal: 0 },
+      details: { phase: 'group_identity_unproven', signal: 0 },
     });
-    await vi.advanceTimersByTimeAsync(2_050);
     await assertion;
 
     expect(mgr.port).toBe(0);
+    expect(killSpy.mock.calls).toEqual([[-31339, 0]]);
     expect(cleanupRegisteredAgentProcesses).not.toHaveBeenCalled();
     killSpy.mockRestore();
   });

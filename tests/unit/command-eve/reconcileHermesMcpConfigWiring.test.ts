@@ -19,6 +19,7 @@ import {
   reconcileVaultConfigAfterConnectorChange,
   reconcileVaultConfigForSeatSwitch,
   runConnectorAuthorityMutationTransaction,
+  sanitizeConnectorAuthorityDiagnostic,
 } from '@/process/commandEve/reconcileHermesMcpConfigWiring';
 import { setMcpVaultEnabledForTests } from '@/process/commandEve/mcpVaultFlagCore';
 import {
@@ -32,6 +33,29 @@ afterEach(() => {
   setMcpVaultEnabledForTests(undefined);
   __resetCommandEveBackendRestartForTests();
   __resetActiveSeatForTests();
+});
+
+describe('connector authority diagnostics', () => {
+  it('redacts JSON-quoted and prefixed secret keys', () => {
+    const diagnostic = sanitizeConnectorAuthorityDiagnostic(
+      'provider failed {"NOTION_TOKEN":"ntn-secret","VENDOR_API_KEY":"vendor-secret"}',
+      'fallback'
+    );
+
+    expect(diagnostic).toContain('"NOTION_TOKEN":"[redacted]"');
+    expect(diagnostic).toContain('"VENDOR_API_KEY":"[redacted]"');
+    expect(diagnostic).not.toMatch(/ntn-secret|vendor-secret/);
+  });
+
+  it('bounds input before redaction work and output before bridge exposure', () => {
+    const diagnostic = sanitizeConnectorAuthorityDiagnostic(
+      `${'x'.repeat(9_000)} NOTION_TOKEN=outside-bounded-prefix`,
+      'fallback'
+    );
+
+    expect(diagnostic).toHaveLength(600);
+    expect(diagnostic).not.toContain('outside-bounded-prefix');
+  });
 });
 
 describe('reconcile wiring — flag OFF is a NO-OP (byte-identical safety)', () => {

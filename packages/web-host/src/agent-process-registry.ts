@@ -17,6 +17,10 @@ type AgentProcessRegistry = {
   processes: RegisteredAgentProcess[];
 };
 
+export type AgentProcessCleanupResult = Readonly<{
+  survivor_pids: number[];
+}>;
+
 export const AGENT_PROCESS_REGISTRY_RELATIVE_PATH = path.join('runtime', 'agent-process-registry.json');
 
 const TERM_GRACE_MS = 1_000;
@@ -25,12 +29,12 @@ export function resolveAgentProcessRegistryPath(dataDir: string): string {
   return path.join(dataDir, AGENT_PROCESS_REGISTRY_RELATIVE_PATH);
 }
 
-export async function cleanupRegisteredAgentProcesses(dataDir?: string): Promise<void> {
-  if (!dataDir) return;
+export async function cleanupRegisteredAgentProcesses(dataDir?: string): Promise<AgentProcessCleanupResult> {
+  if (!dataDir) return { survivor_pids: [] };
 
   const registryPath = resolveAgentProcessRegistryPath(dataDir);
   const registry = await readRegistry(registryPath);
-  if (registry.processes.length === 0) return;
+  if (registry.processes.length === 0) return { survivor_pids: [] };
 
   for (const entry of registry.processes) {
     await terminateRegisteredProcess(entry, 'SIGTERM');
@@ -49,6 +53,7 @@ export async function cleanupRegisteredAgentProcesses(dataDir?: string): Promise
     version: registry.version,
     processes: survivors,
   });
+  return { survivor_pids: survivors.map((entry) => entry.pid) };
 }
 
 async function readRegistry(registryPath: string): Promise<AgentProcessRegistry> {
@@ -107,6 +112,11 @@ async function terminateRegisteredProcess(entry: RegisteredAgentProcess, signal:
     return;
   }
 
+  // The registered wrapper is the only live ownership witness for its numeric
+  // process-group id. If that exact pid is already absent, the old PGID may
+  // have been reused and must remain an explicit survivor rather than being
+  // signalled by number alone.
+  if (!isProcessAlive(entry.pid)) return;
   const target = entry.process_group_id ?? entry.pid;
   try {
     process.kill(-target, signal);
@@ -124,8 +134,10 @@ function isRegisteredProcessTreeAlive(entry: RegisteredAgentProcess): boolean {
     try {
       process.kill(-entry.process_group_id, 0);
       return true;
-    } catch {
-      // fall through to wrapper PID check
+    } catch (error) {
+      // Only ESRCH proves absence. EPERM or an unknown probe failure must keep
+      // the entry as an explicit survivor rather than claim safe-down.
+      if (!isProcessAbsent(error)) return true;
     }
   }
 
@@ -136,8 +148,8 @@ function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return !isProcessAbsent(error);
   }
 }
 
@@ -154,6 +166,10 @@ function isRegisteredProcess(value: unknown): value is RegisteredAgentProcess {
 
 function isNotFound(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+}
+
+function isProcessAbsent(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ESRCH';
 }
 
 function delay(ms: number): Promise<void> {
