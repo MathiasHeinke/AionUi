@@ -509,7 +509,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     }
 
     // Aionrs path (direct selection or preset assistant with aionrs as main agent)
-    if (selectedAgent === 'aionrs' || (is_preset && finalEffectiveAgentType === 'aionrs')) {
+    if ((!isCommandEveAssistant && selectedAgent === 'aionrs') || (is_preset && finalEffectiveAgentType === 'aionrs')) {
       if (!effectiveCurrentModel) {
         Message.warning(t('conversation.noModelConfigured'));
         return false;

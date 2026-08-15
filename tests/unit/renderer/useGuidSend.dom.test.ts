@@ -200,6 +200,48 @@ describe('useGuidSend blocked cloud lane', () => {
     expect(deps.setFiles).not.toHaveBeenCalled();
   });
 
+  it('keeps the Command EVE assistant on Hermes when the raw selector still says aionrs', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+    );
+    bridgeMocks.ensureAssistant.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agent_id: 'hermes-runtime',
+        agent_name: 'EVE',
+        cli_path: '/runtime/hermes',
+        enabled_skills: [],
+      },
+    });
+    bridgeMocks.runtimeStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: { status: 'ready', model: 'command-eve-gemma4-e4b-64k:latest' },
+      },
+    });
+    bridgeMocks.conversationCreate.mockResolvedValue({ id: 'conversation-hermes' });
+
+    const deps = createDeps();
+    deps.selectedAgent = 'aionrs';
+    const { result } = renderHook(() => useGuidSend(deps));
+
+    await act(async () => {
+      await result.current.handleSend();
+    });
+
+    expect(bridgeMocks.conversationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'acp',
+        extra: expect.objectContaining({ backend: 'hermes' }),
+      })
+    );
+    expect(sessionStorage.getItem('aionrs_initial_message_seat-1_conversation-hermes')).toBeNull();
+    expect(sessionStorage.getItem('acp_initial_message_seat-1_conversation-hermes')).toBeTruthy();
+  });
+
   it('shows a neutral error and preserves the draft when the EVE ACP conversation cannot be created', async () => {
     configGetMock.mockImplementation((key: string) =>
       key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
