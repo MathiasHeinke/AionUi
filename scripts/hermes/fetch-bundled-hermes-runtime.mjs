@@ -69,9 +69,9 @@ export function parseHermesRuntimeLock(text) {
     }
     entries.push({ name, version, sha256, source, filename });
   }
-  if (entries.length !== 71 || !names.has('hermes-agent')) {
+  if (entries.length !== 78 || !names.has('hermes-agent') || !names.has('ddgs')) {
     throw new Error(
-      `Hermes runtime lock must contain the exact 71-distribution acp+mcp closure; found ${entries.length}.`
+      `Hermes runtime lock must contain the exact 78-distribution acp+mcp+ddgs closure; found ${entries.length}.`
     );
   }
   const sorted = [...entries].sort((left, right) =>

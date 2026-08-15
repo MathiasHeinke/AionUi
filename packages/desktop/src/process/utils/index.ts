@@ -7,6 +7,7 @@
 export {
   getTempPath,
   getDataPath,
+  getCanonicalDataPath,
   getConfigPath,
   generateHashWithFullName,
   readDirectoryRecursive,

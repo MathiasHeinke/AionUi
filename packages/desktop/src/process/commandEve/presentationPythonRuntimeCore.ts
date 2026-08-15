@@ -15,8 +15,11 @@ export const COMMAND_EVE_ARTIFACT_PYTHON_SITE_DIR_ENV = 'COMMAND_EVE_ARTIFACT_PY
 export const COMMAND_EVE_PRESENTATION_WHEELS_SUBDIR = 'presentation';
 export const COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR = 'artifact-site-packages';
 export const COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT = 'command-eve-artifact-python-runtime.json';
+export const COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE = 'command-eve-hermes-runtime.lock.tsv';
 export const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 =
-  'ff3519f299129bb3b5286ad6df311b6272718323af754290580fa645a469bd78';
+  'ddca1ada6600b05a11268f4129fb8206fe9637b793bcf58824f8d1e984d073de';
+export const COMMAND_EVE_HERMES_RUNTIME_PACKAGE_COUNT = 78;
+export const COMMAND_EVE_HERMES_RUNTIME_STAGED_PACKAGE_COUNT = 75;
 
 export const COMMAND_EVE_PRESENTATION_PYTHON_PACKAGES = Object.freeze([
   {
@@ -168,6 +171,7 @@ type ArtifactPythonRuntimeReceipt = {
   }>;
   hermes_runtime?: {
     version?: unknown;
+    lock_file?: unknown;
     lock_sha256?: unknown;
     package_count?: unknown;
     staged_package_count?: unknown;
@@ -178,6 +182,28 @@ type ArtifactPythonRuntimeReceipt = {
 
 export type CommandEvePresentationPythonBundleVerification =
   | { ok: true; directory: string; manifestPath: string }
+  | { ok: false; reason: string };
+
+export type CommandEveArtifactPythonPackageIdentity = {
+  name: string;
+  version: string;
+  importName: string;
+  wheel: string;
+  wheelSha256: string;
+  scope: string;
+};
+
+export type CommandEveArtifactPythonSiteVerification =
+  | {
+      ok: true;
+      directory: string;
+      manifestPath: string;
+      runtimeKey: string;
+      receiptSha256: string;
+      treeRootSha256: string;
+      lockSha256?: string;
+      packages: CommandEveArtifactPythonPackageIdentity[];
+    }
   | { ok: false; reason: string };
 
 function sha256File(filePath: string): string {
@@ -243,11 +269,62 @@ function artifactTreeFiles(directory: string, receipt: ArtifactPythonRuntimeRece
     }
     addFile('python-root', relativePath, target);
   }
-  return files.sort((left, right) => `${left.root}/${left.path}`.localeCompare(`${right.root}/${right.path}`));
+  return files.toSorted((left, right) => `${left.root}/${left.path}`.localeCompare(`${right.root}/${right.path}`));
 }
 
 function treeRootSha256(files: ArtifactTreeFile[]): string {
   return crypto.createHash('sha256').update(JSON.stringify(files)).digest('hex');
+}
+
+type HermesRuntimeLockEntry = {
+  name: string;
+  version: string;
+  wheel: string;
+  wheelSha256: string;
+};
+
+function normalizeDistributionName(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[-_.]+/g, '-');
+}
+
+function parsePackagedHermesRuntimeLock(directory: string): HermesRuntimeLockEntry[] {
+  const lockPath = path.join(directory, COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE);
+  const lockStat = fs.lstatSync(lockPath);
+  if (!lockStat.isFile() || lockStat.isSymbolicLink()) throw new Error('artifact_runtime_lock_invalid');
+  const bytes = fs.readFileSync(lockPath);
+  if (crypto.createHash('sha256').update(bytes).digest('hex') !== COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256) {
+    throw new Error('artifact_runtime_lock_hash_mismatch');
+  }
+  const names = new Set<string>();
+  const entries: HermesRuntimeLockEntry[] = [];
+  for (const line of bytes.toString('utf8').split(/\r?\n/)) {
+    if (!line) continue;
+    const [name, version, wheelSha256, source, ...extra] = line.split('\t');
+    const normalized = normalizeDistributionName(name);
+    if (
+      extra.length > 0 ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name || '') ||
+      !version ||
+      !/^[a-f0-9]{64}$/.test(wheelSha256 || '') ||
+      !source ||
+      names.has(normalized)
+    ) {
+      throw new Error('artifact_runtime_lock_entry_invalid');
+    }
+    names.add(normalized);
+    const wheel = source.startsWith('repo://')
+      ? path.posix.basename(source.slice('repo://'.length))
+      : path.posix.basename(new URL(source).pathname);
+    if (!wheel.endsWith('.whl')) throw new Error(`artifact_runtime_lock_wheel_invalid:${name}`);
+    entries.push({ name, version, wheel, wheelSha256 });
+  }
+  if (entries.length !== COMMAND_EVE_HERMES_RUNTIME_PACKAGE_COUNT || !names.has('hermes-agent') || !names.has('ddgs')) {
+    throw new Error('artifact_runtime_lock_package_set_invalid');
+  }
+  return entries;
 }
 
 /**
@@ -321,7 +398,7 @@ export function resolveCommandEvePresentationPythonBundleDir(
   return candidates.find((candidate) => verifyCommandEvePresentationPythonBundle(candidate).ok) || '';
 }
 
-export function verifyCommandEveArtifactPythonSite(directory: string): CommandEvePresentationPythonBundleVerification {
+export function verifyCommandEveArtifactPythonSite(directory: string): CommandEveArtifactPythonSiteVerification {
   const resolvedDirectory = path.resolve(String(directory || ''));
   if (!directory || !fs.existsSync(resolvedDirectory)) return { ok: false, reason: 'artifact_site_missing' };
   const directoryStat = fs.lstatSync(resolvedDirectory);
@@ -329,6 +406,15 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
     return { ok: false, reason: 'artifact_site_invalid' };
   }
   const receiptPath = path.join(resolvedDirectory, COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT);
+  let verified:
+    | {
+        runtimeKey: string;
+        receiptSha256: string;
+        treeRootSha256: string;
+        lockSha256?: string;
+        packages: CommandEveArtifactPythonPackageIdentity[];
+      }
+    | undefined;
   try {
     if (!fs.existsSync(receiptPath)) {
       return { ok: false, reason: 'artifact_receipt_invalid' };
@@ -337,10 +423,15 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
     if (!receiptStat.isFile() || receiptStat.isSymbolicLink()) {
       return { ok: false, reason: 'artifact_receipt_invalid' };
     }
-    const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8')) as ArtifactPythonRuntimeReceipt;
-    const hermesRuntimeRequired = receipt.runtime_key === 'darwin-arm64';
+    const receiptBytes = fs.readFileSync(receiptPath);
+    const receipt = JSON.parse(receiptBytes.toString('utf8')) as ArtifactPythonRuntimeReceipt;
+    const runtimeKey = String(receipt.runtime_key || '');
+    const hermesRuntimeRequired = runtimeKey === 'darwin-arm64';
+    const platform: NodeJS.Platform = runtimeKey === 'win32-x64' ? 'win32' : 'darwin';
+    const basePackages = commandEveArtifactPythonPackages(platform);
     if (
       receipt.version !== COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION ||
+      !['darwin-arm64', 'win32-x64'].includes(runtimeKey) ||
       receipt.network_install_allowed !== false ||
       !['staged', 'signed'].includes(String(receipt.tree_phase || '')) ||
       typeof receipt.tree_root_sha256 !== 'string' ||
@@ -349,57 +440,94 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
       !Array.isArray(receipt.spread_files) ||
       !Array.isArray(receipt.packages) ||
       (hermesRuntimeRequired
-        ? receipt.packages.length <= COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES.length ||
+        ? receipt.packages.length !== basePackages.length + COMMAND_EVE_HERMES_RUNTIME_STAGED_PACKAGE_COUNT ||
           receipt.hermes_runtime?.version !== 'command-eve-hermes-runtime-site/v1' ||
+          receipt.hermes_runtime.lock_file !== COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE ||
           receipt.hermes_runtime.lock_sha256 !== COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 ||
-          receipt.hermes_runtime.package_count !== 71 ||
-          receipt.hermes_runtime.staged_package_count !== 68 ||
+          receipt.hermes_runtime.package_count !== COMMAND_EVE_HERMES_RUNTIME_PACKAGE_COUNT ||
+          receipt.hermes_runtime.staged_package_count !== COMMAND_EVE_HERMES_RUNTIME_STAGED_PACKAGE_COUNT ||
           JSON.stringify(receipt.hermes_runtime.extras) !== JSON.stringify(['acp', 'mcp']) ||
           receipt.hermes_runtime.network_install_allowed !== false
-        : receipt.packages.length !== COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES.length ||
-          receipt.hermes_runtime !== undefined)
+        : receipt.packages.length !== basePackages.length || receipt.hermes_runtime !== undefined)
     ) {
       return { ok: false, reason: 'artifact_receipt_contract_mismatch' };
     }
-    if (hermesRuntimeRequired) {
-      const hermes = receipt.packages.find((entry) => entry?.name === 'hermes-agent');
+
+    const packageNames = new Set<string>();
+    const packages: CommandEveArtifactPythonPackageIdentity[] = [];
+    for (const entry of receipt.packages) {
+      const normalized = normalizeDistributionName(entry?.name);
       if (
-        !hermes ||
-        hermes.version !== '0.20.0' ||
-        hermes.wheel_sha256 !== 'a91cd1edb383dbbab20d0af7d2b6c9d56183d3248a6ee56ae583b427dbd54bfd' ||
-        hermes.scope !== 'hermes-runtime'
+        !normalized ||
+        packageNames.has(normalized) ||
+        typeof entry?.name !== 'string' ||
+        typeof entry.version !== 'string' ||
+        typeof entry.import_name !== 'string' ||
+        typeof entry.wheel !== 'string' ||
+        !entry.wheel.endsWith('.whl') ||
+        typeof entry.wheel_sha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(entry.wheel_sha256) ||
+        typeof entry.metadata_sha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(entry.metadata_sha256) ||
+        !Array.isArray(entry.wheel_tags) ||
+        entry.wheel_tags.length === 0 ||
+        typeof entry.scope !== 'string'
       ) {
-        return { ok: false, reason: 'artifact_hermes_runtime_mismatch' };
+        return { ok: false, reason: 'artifact_package_identity_invalid' };
       }
-      const runtimePackages = receipt.packages.filter((entry) => entry?.scope === 'hermes-runtime');
-      if (
-        runtimePackages.length !== 68 ||
-        runtimePackages.some(
-          (entry) =>
-            typeof entry?.name !== 'string' ||
-            typeof entry?.version !== 'string' ||
-            typeof entry?.wheel_sha256 !== 'string' ||
-            !/^[a-f0-9]{64}$/.test(entry.wheel_sha256)
-        )
-      ) {
-        return { ok: false, reason: 'artifact_hermes_runtime_package_set_invalid' };
-      }
+      packageNames.add(normalized);
+      packages.push({
+        name: entry.name,
+        version: entry.version,
+        importName: entry.import_name,
+        wheel: entry.wheel,
+        wheelSha256: entry.wheel_sha256,
+        scope: entry.scope,
+      });
     }
-    for (const expected of COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES) {
-      const declared = receipt.packages.find((entry) => entry?.name === expected.name);
+
+    for (const expected of basePackages) {
+      const declared = packages.find(
+        (entry) => normalizeDistributionName(entry.name) === normalizeDistributionName(expected.name)
+      );
       if (
         !declared ||
         declared.version !== expected.version ||
-        declared.import_name !== expected.importName ||
+        declared.importName !== expected.importName ||
         declared.wheel !== expected.filename ||
-        declared.wheel_sha256 !== expected.sha256 ||
-        typeof declared.metadata_sha256 !== 'string' ||
-        !/^[a-f0-9]{64}$/.test(declared.metadata_sha256) ||
-        !Array.isArray(declared.wheel_tags) ||
-        declared.wheel_tags.length === 0
+        declared.wheelSha256 !== expected.sha256
       ) {
         return { ok: false, reason: `artifact_package_mismatch:${expected.name}` };
       }
+    }
+
+    let lockSha256: string | undefined;
+    if (hermesRuntimeRequired) {
+      const locked = parsePackagedHermesRuntimeLock(resolvedDirectory);
+      lockSha256 = COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256;
+      const baseNames = new Set(basePackages.map((entry) => normalizeDistributionName(entry.name)));
+      for (const expected of locked) {
+        const declared = packages.find(
+          (entry) => normalizeDistributionName(entry.name) === normalizeDistributionName(expected.name)
+        );
+        if (
+          !declared ||
+          declared.version !== expected.version ||
+          declared.wheel !== expected.wheel ||
+          declared.wheelSha256 !== expected.wheelSha256 ||
+          (!baseNames.has(normalizeDistributionName(expected.name)) && declared.scope !== 'hermes-runtime')
+        ) {
+          return { ok: false, reason: `artifact_runtime_lock_mismatch:${expected.name}` };
+        }
+      }
+      if (
+        packages.filter((entry) => entry.scope === 'hermes-runtime').length !==
+        COMMAND_EVE_HERMES_RUNTIME_STAGED_PACKAGE_COUNT
+      ) {
+        return { ok: false, reason: 'artifact_hermes_runtime_package_set_invalid' };
+      }
+    } else if (fs.existsSync(path.join(resolvedDirectory, COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE))) {
+      return { ok: false, reason: 'artifact_runtime_lock_unexpected' };
     }
     const actualTree = artifactTreeFiles(resolvedDirectory, receipt);
     if (JSON.stringify(actualTree) !== JSON.stringify(receipt.tree_files)) {
@@ -408,10 +536,18 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
     if (treeRootSha256(actualTree) !== receipt.tree_root_sha256) {
       return { ok: false, reason: 'artifact_tree_root_mismatch' };
     }
+    verified = {
+      runtimeKey,
+      receiptSha256: crypto.createHash('sha256').update(receiptBytes).digest('hex'),
+      treeRootSha256: receipt.tree_root_sha256,
+      ...(lockSha256 ? { lockSha256 } : {}),
+      packages,
+    };
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : 'artifact_site_verification_failed' };
   }
-  return { ok: true, directory: resolvedDirectory, manifestPath: receiptPath };
+  if (!verified) return { ok: false, reason: 'artifact_site_verification_incomplete' };
+  return { ok: true, directory: resolvedDirectory, manifestPath: receiptPath, ...verified };
 }
 
 export function resolveCommandEveArtifactPythonSiteDir(env: NodeJS.ProcessEnv, resourcesPath?: string): string {
@@ -420,6 +556,33 @@ export function resolveCommandEveArtifactPythonSiteDir(env: NodeJS.ProcessEnv, r
     resourcesPath ? path.join(resourcesPath, 'python', COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR) : '',
   ].filter(Boolean);
   return candidates.find((candidate) => verifyCommandEveArtifactPythonSite(candidate).ok) || '';
+}
+
+/** Strict packaged resolver: the environment can never redirect the signed runtime outside Resources. */
+export function resolveCommandEvePackagedArtifactPythonSiteDir(resourcesPath?: string): string {
+  if (!resourcesPath) return '';
+  const resourcesRoot = path.resolve(resourcesPath);
+  const pythonRoot = path.join(resourcesRoot, 'python');
+  const artifactSite = path.join(pythonRoot, COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR);
+  try {
+    for (const directory of [resourcesRoot, pythonRoot, artifactSite]) {
+      const stat = fs.lstatSync(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) return '';
+    }
+    const resourcesReal = fs.realpathSync(resourcesRoot);
+    const pythonReal = fs.realpathSync(pythonRoot);
+    const artifactReal = fs.realpathSync(artifactSite);
+    if (
+      pythonReal !== path.join(resourcesReal, 'python') ||
+      artifactReal !== path.join(pythonReal, COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR)
+    ) {
+      return '';
+    }
+    const verification = verifyCommandEveArtifactPythonSite(artifactSite);
+    return verification.ok && verification.runtimeKey === 'darwin-arm64' ? verification.directory : '';
+  } catch {
+    return '';
+  }
 }
 
 export function commandEvePresentationPythonProbeArgs(artifactSiteDirectory = ''): string[] {

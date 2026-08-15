@@ -28,10 +28,10 @@ import {
   sha256FileIfPresent,
 } from '@/process/commandEve/windows/runtimeProvenanceCore';
 import {
-  COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES,
   COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT,
   COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
   COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR,
+  commandEveArtifactPythonPackages,
 } from '@/process/commandEve/presentationPythonRuntimeCore';
 
 const roots: string[] = [];
@@ -69,7 +69,7 @@ function writeArtifactPythonSiteFixture(resourcesPath: string): string {
       tree_root_sha256: emptyTreeRoot,
       tree_files: [],
       spread_files: [],
-      packages: COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES.map((entry) => ({
+      packages: commandEveArtifactPythonPackages('win32').map((entry) => ({
         name: entry.name,
         version: entry.version,
         import_name: entry.importName,
@@ -77,6 +77,7 @@ function writeArtifactPythonSiteFixture(resourcesPath: string): string {
         wheel_sha256: entry.sha256,
         metadata_sha256: 'a'.repeat(64),
         wheel_tags: ['py3-none-any'],
+        scope: 'common',
       })),
     })
   );

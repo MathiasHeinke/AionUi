@@ -12,9 +12,13 @@ import {
 
 test('the macOS Hermes runtime lock is sorted, complete and hash-pins local source wheels', () => {
   const entries = parseHermesRuntimeLock(fs.readFileSync(HERMES_RUNTIME_LOCK, 'utf8'));
-  assert.equal(entries.length, 71);
+  assert.equal(entries.length, 78);
   assert.equal(entries[0].name, 'agent-client-protocol');
   assert.equal(entries.at(-1).name, 'websockets');
+  assert.equal(
+    entries.some((entry) => entry.name === 'ddgs' && entry.version === '9.14.4'),
+    true
+  );
   for (const entry of entries.filter((candidate) => candidate.source.startsWith('repo://'))) {
     const resolved = resolveLockedWheelSource(entry);
     assert.equal(resolved.remote, false);

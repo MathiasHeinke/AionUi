@@ -160,6 +160,34 @@ describe('Command EVE runtime bridge registration', () => {
     expect(providerSource).toContain('allowColibriDownload: true');
   });
 
+  it('threads the trusted canonical Electron data root through every production bootstrap entrypoint', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const ensureStart = source.indexOf('ipcBridge.commandEve.ensureLocalModelTier.provider');
+    const warmStart = source.indexOf('ipcBridge.commandEve.warmLocalModel.provider', ensureStart);
+    const providerEnd = source.indexOf('ipcBridge.commandEve.evaluateGateDecision.provider', warmStart);
+    const ensureSource = source.slice(ensureStart, warmStart);
+    const warmSource = source.slice(warmStart, providerEnd);
+    const bootStart = source.indexOf('commandEveAutomaticRuntimeRepairRequired = app.isPackaged;');
+    const bootEnd = source.indexOf('// Start aioncore only after initializeProcess()', bootStart);
+    const bootSource = source.slice(bootStart, bootEnd);
+
+    for (const entrypoint of [ensureSource, warmSource]) {
+      expect(entrypoint).toContain('getCanonicalDataPath');
+      expect(entrypoint).toContain('canonicalUserDataPath');
+      expect(entrypoint).toContain("app.isPackaged && process.platform === 'darwin'");
+      expect(entrypoint).toContain('requireBundledPython');
+    }
+    expect(bootSource).toContain('const canonicalRuntimeUserDataPath = getCanonicalDataPath();');
+    expect(bootSource).not.toContain("path.join(\n      app.getPath('userData')");
+
+    const utilsSource = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/process/utils/utils.ts'),
+      'utf8'
+    );
+    expect(utilsSource).toContain('export const getCanonicalDataPath = (): string =>');
+    expect(utilsSource).toContain('const dataPath = getCanonicalDataPath();');
+  });
+
   it('cancels deferred runtime work after a known backend startup failure', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
     const warmupStart = source.indexOf('function scheduleCommandEveLocalModelWarmup(');

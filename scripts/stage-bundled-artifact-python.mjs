@@ -26,6 +26,7 @@ export const COMMAND_EVE_ARTIFACT_PYTHON_BUILD_VERSION = 'command-eve-artifact-p
 export const COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION = 'command-eve-artifact-python-runtime/v1';
 export const COMMAND_EVE_ARTIFACT_SITE_PACKAGES_DIR = 'artifact-site-packages';
 export const COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT = 'command-eve-artifact-python-runtime.json';
+export const COMMAND_EVE_HERMES_RUNTIME_LOCK_FILE = 'command-eve-hermes-runtime.lock.tsv';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..');
@@ -1063,6 +1064,12 @@ export async function stageBundledArtifactPython(options) {
     // eslint-disable-next-line no-await-in-loop
     await extractWheel(entry.wheelPath, targetDirectory, pythonRoot, options.platform, spreadFiles);
   }
+  if (runtimeKey === 'darwin-arm64') {
+    const lockTarget = path.join(targetDirectory, COMMAND_EVE_HERMES_RUNTIME_LOCK_FILE);
+    assertRegularFile(HERMES_RUNTIME_LOCK, 'Hermes runtime source lock');
+    fs.copyFileSync(HERMES_RUNTIME_LOCK, lockTarget, fs.constants.COPYFILE_EXCL);
+    fs.chmodSync(lockTarget, 0o644);
+  }
 
   const installed = readInstalledDistributions(targetDirectory);
   for (const entry of packages) {
@@ -1143,6 +1150,7 @@ export async function stageBundledArtifactPython(options) {
       ? {
           hermes_runtime: {
             version: 'command-eve-hermes-runtime-site/v1',
+            lock_file: COMMAND_EVE_HERMES_RUNTIME_LOCK_FILE,
             lock_sha256: sha256File(HERMES_RUNTIME_LOCK),
             package_count: parseHermesRuntimeLock(fs.readFileSync(HERMES_RUNTIME_LOCK, 'utf8')).length,
             staged_package_count: packages.filter((entry) => entry.scope === 'hermes-runtime').length,

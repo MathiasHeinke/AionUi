@@ -37,7 +37,6 @@ import { initializeProcess } from './process';
 import { ProcessConfig } from './process/utils/initStorage';
 import { EVE_INFERENCE_FUNCTION_URL, resolveCommandEveWarmupLane } from './common/config/eveInferenceCore';
 import {
-  COMMAND_EVE_DATA_DIR_NAME,
   COMMAND_EVE_SHELL_ENABLED,
   COMMAND_EVE_BONSAI_ACP_MODEL_ID,
   COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
@@ -1302,13 +1301,21 @@ function registerCommandEveRuntimeBridge(): void {
 
   ipcBridge.commandEve.ensureLocalModelTier.provider(async (request) => {
     try {
-      const { getDataPath } = await import('./process/utils/utils');
+      const { getCanonicalDataPath, getDataPath } = await import('./process/utils/utils');
       const { ensureCommandEveRuntimeBootstrap, resolveCommandEveRuntimeBootstrapPaths } =
         await import('./process/commandEve/runtimeBootstrapCore');
       const { startCommandEveOllamaOpenAiShim, warmCommandEveLocalModel } =
         await import('./process/commandEve/ollamaOpenAiShim');
       const tierId = typeof request?.tierId === 'string' ? request.tierId : '';
-      const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+      const userDataPath = getDataPath();
+      const canonicalUserDataPath = getCanonicalDataPath();
+      const requireBundledPython = app.isPackaged && process.platform === 'darwin';
+      const paths = resolveCommandEveRuntimeBootstrapPaths(
+        userDataPath,
+        undefined,
+        process.platform,
+        canonicalUserDataPath
+      );
       const shimUrl = rememberCommandEveOllamaShimUrl(
         commandEveOllamaShimUrl ||
           (await startCommandEveOllamaOpenAiShim({
@@ -1346,9 +1353,11 @@ function registerCommandEveRuntimeBridge(): void {
       let warmupReceipt: CommandEveModelWarmupReceipt | undefined;
       let status: CommandEveRuntimeStatusPayload | undefined;
       const receipt = await ensureCommandEveRuntimeBootstrap({
-        userDataPath: getDataPath(),
+        userDataPath,
+        canonicalUserDataPath,
         appPath: app.getAppPath(),
         resourcesPath: process.resourcesPath,
+        requireBundledPython,
         mode: 'auto',
         allowColibriDownload: true,
         env: tierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: tierId } : undefined,
@@ -1387,13 +1396,21 @@ function registerCommandEveRuntimeBridge(): void {
 
   ipcBridge.commandEve.warmLocalModel.provider(async (request) => {
     try {
-      const { getDataPath } = await import('./process/utils/utils');
+      const { getCanonicalDataPath, getDataPath } = await import('./process/utils/utils');
       const { ensureCommandEveRuntimeBootstrap, resolveCommandEveRuntimeBootstrapPaths } =
         await import('./process/commandEve/runtimeBootstrapCore');
       const { startCommandEveOllamaOpenAiShim, warmCommandEveLocalModel } =
         await import('./process/commandEve/ollamaOpenAiShim');
       const tierId = typeof request?.tierId === 'string' ? request.tierId : '';
-      const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+      const userDataPath = getDataPath();
+      const canonicalUserDataPath = getCanonicalDataPath();
+      const requireBundledPython = app.isPackaged && process.platform === 'darwin';
+      const paths = resolveCommandEveRuntimeBootstrapPaths(
+        userDataPath,
+        undefined,
+        process.platform,
+        canonicalUserDataPath
+      );
       const shimUrl = rememberCommandEveOllamaShimUrl(
         commandEveOllamaShimUrl ||
           (await startCommandEveOllamaOpenAiShim({
@@ -1431,9 +1448,11 @@ function registerCommandEveRuntimeBridge(): void {
       let warmupReceipt: CommandEveModelWarmupReceipt | undefined;
       let status: CommandEveRuntimeStatusPayload | undefined;
       const receipt = await ensureCommandEveRuntimeBootstrap({
-        userDataPath: getDataPath(),
+        userDataPath,
+        canonicalUserDataPath,
         appPath: app.getAppPath(),
         resourcesPath: process.resourcesPath,
+        requireBundledPython,
         mode: 'auto',
         env: tierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: tierId } : undefined,
         egressProxyUrl: shimUrl,
@@ -2044,7 +2063,7 @@ const handleAppReady = async (): Promise<void> => {
     // none of those paths can accidentally let AionCore start unverified.
     commandEveAutomaticRuntimeRepairRequired = app.isPackaged;
     const requirePackagedHermesRuntime = app.isPackaged && process.platform === 'darwin';
-    const { getDataPath } = await import('./process/utils/utils');
+    const { getCanonicalDataPath, getDataPath } = await import('./process/utils/utils');
     const { startCommandEveOllamaOpenAiShim, warmCommandEveLocalModel } =
       await import('./process/commandEve/ollamaOpenAiShim');
     const {
@@ -2057,10 +2076,7 @@ const handleAppReady = async (): Promise<void> => {
       resolveCommandEveRuntimeBootstrapPaths,
     } = await import('./process/commandEve/runtimeBootstrapCore');
     const runtimeUserDataPath = getDataPath();
-    const canonicalRuntimeUserDataPath = path.join(
-      app.getPath('userData'),
-      COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_DATA_DIR_NAME : 'aionui'
-    );
+    const canonicalRuntimeUserDataPath = getCanonicalDataPath();
     const runtimePaths = resolveCommandEveRuntimeBootstrapPaths(
       runtimeUserDataPath,
       undefined,

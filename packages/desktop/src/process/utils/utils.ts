@@ -109,9 +109,14 @@ const ensureCliSafeSymlink = (targetPath: string, symlinkName: string): string =
  * 获取数据目录路径，macOS 上使用符号链接。
  * Release 使用 ~/.aionui，Dev 模式使用 ~/.aionui-dev。
  */
-export const getDataPath = (): string => {
+/** Trusted real Electron-owned Command EVE data root behind the macOS CLI alias. */
+export const getCanonicalDataPath = (): string => {
   const rootPath = getElectronPathOrFallback('userData');
-  const dataPath = path.join(rootPath, COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_DATA_DIR_NAME : 'aionui');
+  return path.join(rootPath, COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_DATA_DIR_NAME : 'aionui');
+};
+
+export const getDataPath = (): string => {
+  const dataPath = getCanonicalDataPath();
   const symlinkName = COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_CLI_DATA_SYMLINK : '.aionui';
   return ensureCliSafeSymlink(dataPath, getEnvAwareName(symlinkName));
 };

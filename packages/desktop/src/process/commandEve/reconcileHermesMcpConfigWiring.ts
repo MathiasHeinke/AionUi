@@ -25,12 +25,14 @@
 
 import { reconcileHermesMcpConfigForActiveSeat, type ReconcileReceipt } from './reconcileHermesMcpConfigCore';
 import { isMcpVaultEnabled } from './mcpVaultFlagCore';
-import { getDataPath as realGetDataPath } from '../utils/utils';
+import { getCanonicalDataPath as realGetCanonicalDataPath, getDataPath as realGetDataPath } from '../utils/utils';
 
 /** Injectable seams for the wiring (defaults = the real main-process cores). */
 export interface ReconcileWiringDeps {
   /** Resolve the userData root. Defaults to utils.getDataPath. */
   getDataPath?: () => string;
+  /** Resolve the trusted real Electron data root behind the macOS CLI alias. */
+  getCanonicalDataPath?: () => string;
   /**
    * FULL config.yaml re-render for a seat (the fs side effect). Defaults to a
    * closure over `ensureCommandEveRuntimeBootstrap` in check/auto mode. Returns the
@@ -49,7 +51,7 @@ export interface ReconcileWiringDeps {
  * imports keep the Electron-only bootstrap out of the pure core's import graph.
  * Only reached when the flag is ON.
  */
-async function defaultReRenderConfig(getDataPath: () => string): Promise<number> {
+async function defaultReRenderConfig(getDataPath: () => string, getCanonicalDataPath: () => string): Promise<number> {
   const {
     ensureCommandEveRuntimeBootstrap,
     countVettedMcpServersForSeat,
@@ -57,14 +59,28 @@ async function defaultReRenderConfig(getDataPath: () => string): Promise<number>
     resolveCommandEveRuntimeBootstrapPaths,
     DEFAULT_COMMAND_EVE_CAPABILITY_PACK,
   } = await import('./runtimeBootstrapCore');
+  const { app } = await import('electron');
   const { getActiveSeatId } = await import('./seatContextCore');
   const userDataPath = getDataPath();
+  const canonicalUserDataPath = getCanonicalDataPath();
+  const packagedMac = app.isPackaged && process.platform === 'darwin';
   // Re-run the bootstrap in check mode: idempotent, re-writes config.yaml from the
   // (now vault-fed) feeder. This is the arch §7 "full re-render via the existing
   // bootstrap path" recommendation.
-  await ensureCommandEveRuntimeBootstrap({ userDataPath, mode: 'check' });
+  await ensureCommandEveRuntimeBootstrap({
+    userDataPath,
+    canonicalUserDataPath,
+    resourcesPath: process.resourcesPath,
+    requireBundledPython: packagedMac,
+    mode: 'check',
+  });
   // Informational count for the receipt (does not write anything).
-  const paths = resolveCommandEveRuntimeBootstrapPaths(userDataPath);
+  const paths = resolveCommandEveRuntimeBootstrapPaths(
+    userDataPath,
+    undefined,
+    process.platform,
+    canonicalUserDataPath
+  );
   return countVettedMcpServersForSeat(DEFAULT_COMMAND_EVE_CAPABILITY_PACK, getActiveSeatId(), {
     userDataPath: paths.userDataPath,
     configRoot: paths.hermesRoot,
@@ -82,6 +98,7 @@ export async function reconcileVaultConfigAfterConnectorChange(
   deps: ReconcileWiringDeps = {}
 ): Promise<ReconcileReceipt> {
   const getDataPath = deps.getDataPath ?? realGetDataPath;
+  const getCanonicalDataPath = deps.getCanonicalDataPath ?? realGetCanonicalDataPath;
   // FLAG OFF → NO-OP: do not re-render, do not respawn (byte-identical to today).
   if (!isMcpVaultEnabled()) {
     const { getActiveSeatId } = await import('./seatContextCore');
@@ -90,7 +107,7 @@ export async function reconcileVaultConfigAfterConnectorChange(
   }
   return reconcileHermesMcpConfigForActiveSeat(
     {
-      reRenderConfig: deps.reRenderConfig ?? ((_seatId) => defaultReRenderConfig(getDataPath)),
+      reRenderConfig: deps.reRenderConfig ?? ((_seatId) => defaultReRenderConfig(getDataPath, getCanonicalDataPath)),
       respawn: deps.respawn,
       now: deps.now,
     },
@@ -106,6 +123,7 @@ export async function reconcileVaultConfigAfterConnectorChange(
  */
 export async function reconcileVaultConfigForSeatSwitch(deps: ReconcileWiringDeps = {}): Promise<ReconcileReceipt> {
   const getDataPath = deps.getDataPath ?? realGetDataPath;
+  const getCanonicalDataPath = deps.getCanonicalDataPath ?? realGetCanonicalDataPath;
   if (!isMcpVaultEnabled()) {
     const { getActiveSeatId } = await import('./seatContextCore');
     const now = deps.now ?? (() => new Date());
@@ -113,7 +131,7 @@ export async function reconcileVaultConfigForSeatSwitch(deps: ReconcileWiringDep
   }
   return reconcileHermesMcpConfigForActiveSeat(
     {
-      reRenderConfig: deps.reRenderConfig ?? ((_seatId) => defaultReRenderConfig(getDataPath)),
+      reRenderConfig: deps.reRenderConfig ?? ((_seatId) => defaultReRenderConfig(getDataPath, getCanonicalDataPath)),
       respawn: deps.respawn,
       now: deps.now,
     },

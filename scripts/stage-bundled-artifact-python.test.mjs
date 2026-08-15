@@ -82,10 +82,14 @@ test('darwin-arm64 adds the exact Hermes runtime closure while Windows remains u
   const baseNames = new Set(darwinBase.packages.map((entry) => entry.name.toLowerCase().replace(/[-_.]+/g, '-')));
   const stagedRuntime = lock.filter((entry) => !baseNames.has(entry.name.toLowerCase().replace(/[-_.]+/g, '-')));
 
-  assert.equal(darwinBase.packages.length + stagedRuntime.length, 81);
-  assert.equal(stagedRuntime.length, 68);
+  assert.equal(darwinBase.packages.length + stagedRuntime.length, 88);
+  assert.equal(stagedRuntime.length, 75);
   assert.equal(
     stagedRuntime.some((entry) => entry.name === 'hermes-agent' && entry.version === '0.20.0'),
+    true
+  );
+  assert.equal(
+    stagedRuntime.some((entry) => entry.name === 'ddgs' && entry.version === '9.14.4'),
     true
   );
   assert.equal(windows.packages.length, 14);

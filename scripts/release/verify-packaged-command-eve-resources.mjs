@@ -140,8 +140,9 @@ const COMMAND_EVE_PRESENTATION_PYTHON_BUNDLE_VERSION = 'command-eve-artifact-pyt
 const COMMAND_EVE_ARTIFACT_PYTHON_BUILD_VERSION = 'command-eve-artifact-python-build/v1';
 const COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION = 'command-eve-artifact-python-runtime/v1';
 const COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT = 'command-eve-artifact-python-runtime.json';
-const COMMAND_EVE_HERMES_RUNTIME_LOCK_FILE = 'hermes-runtime-darwin-arm64.tsv';
-const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 = 'ff3519f299129bb3b5286ad6df311b6272718323af754290580fa645a469bd78';
+const COMMAND_EVE_HERMES_RUNTIME_SOURCE_LOCK_FILE = 'hermes-runtime-darwin-arm64.tsv';
+const COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE = 'command-eve-hermes-runtime.lock.tsv';
+const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 = 'ddca1ada6600b05a11268f4129fb8206fe9637b793bcf58824f8d1e984d073de';
 const NATIVE_ARCHIVE_ENTRY_PATTERN = /\.(?:so|dylib|dll|pyd|node)$/i;
 
 const MACH_O_ARCH_BY_BUILDER_ARCH = Object.freeze({
@@ -207,8 +208,8 @@ function parseHermesRuntimeSourceLock(bytes) {
     }
     entries.push({ name, version, filename, sha256: wheelSha256, import_name: '', scope: 'hermes-runtime' });
   }
-  if (entries.length !== 71 || !names.has('hermes-agent')) {
-    throw new Error(`PACKAGED-RESOURCES: expected 71 Hermes runtime lock entries, found ${entries.length}`);
+  if (entries.length !== 78 || !names.has('hermes-agent') || !names.has('ddgs')) {
+    throw new Error(`PACKAGED-RESOURCES: expected 78 Hermes runtime lock entries, found ${entries.length}`);
   }
   return entries;
 }
@@ -541,10 +542,14 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
     ...platformPackages.map((entry) => ({ ...entry, scope: runtimeKey })),
   ];
   const hermesRuntimeRequired = runtimeKey === 'darwin-arm64';
+  let sourceRuntimeLockBytes;
   if (hermesRuntimeRequired) {
-    const runtimeLockPath = path.join(path.dirname(sourceArtifactManifestPath), COMMAND_EVE_HERMES_RUNTIME_LOCK_FILE);
-    const runtimeLockBytes = readRequiredRegularFile(runtimeLockPath, 'source Hermes runtime lock', deps);
-    const lockedRuntimePackages = parseHermesRuntimeSourceLock(runtimeLockBytes);
+    const runtimeLockPath = path.join(
+      path.dirname(sourceArtifactManifestPath),
+      COMMAND_EVE_HERMES_RUNTIME_SOURCE_LOCK_FILE
+    );
+    sourceRuntimeLockBytes = readRequiredRegularFile(runtimeLockPath, 'source Hermes runtime lock', deps);
+    const lockedRuntimePackages = parseHermesRuntimeSourceLock(sourceRuntimeLockBytes);
     for (const entry of lockedRuntimePackages) {
       const duplicate = expectedPackages.find(
         (candidate) => normalizeDistributionName(candidate.name) === normalizeDistributionName(entry.name)
@@ -568,6 +573,16 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
   }
   const artifactDirectory = path.join(pythonDirectory, 'artifact-site-packages');
   assertDirectory(artifactDirectory, 'packaged signed Artifact Python runtime', deps);
+  if (hermesRuntimeRequired) {
+    const packagedRuntimeLock = readRequiredRegularFile(
+      path.join(artifactDirectory, COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE),
+      'packaged Hermes runtime lock',
+      deps
+    );
+    if (!sourceRuntimeLockBytes || !packagedRuntimeLock.equals(sourceRuntimeLockBytes)) {
+      throw new Error('PACKAGED-RESOURCES: packaged Hermes runtime lock differs from the pinned source lock');
+    }
+  }
   const receiptPath = path.join(artifactDirectory, COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT);
   const { value: receipt } = parseJsonFile(receiptPath, 'packaged Artifact Python receipt', deps);
   if (
@@ -579,9 +594,10 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
     receipt?.probe_status !== 'pass' ||
     (hermesRuntimeRequired
       ? receipt?.hermes_runtime?.version !== 'command-eve-hermes-runtime-site/v1' ||
+        receipt?.hermes_runtime?.lock_file !== COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE ||
         receipt?.hermes_runtime?.lock_sha256 !== COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 ||
-        receipt?.hermes_runtime?.package_count !== 71 ||
-        receipt?.hermes_runtime?.staged_package_count !== 68 ||
+        receipt?.hermes_runtime?.package_count !== 78 ||
+        receipt?.hermes_runtime?.staged_package_count !== 75 ||
         JSON.stringify(receipt?.hermes_runtime?.extras) !== JSON.stringify(['acp', 'mcp']) ||
         receipt?.hermes_runtime?.network_install_allowed !== false
       : receipt?.hermes_runtime !== undefined) ||
@@ -655,6 +671,7 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
       ? {
           hermes_runtime: {
             version: receipt.hermes_runtime.version,
+            lock_file: receipt.hermes_runtime.lock_file,
             lock_sha256: receipt.hermes_runtime.lock_sha256,
             package_count: receipt.hermes_runtime.package_count,
             extras: receipt.hermes_runtime.extras,

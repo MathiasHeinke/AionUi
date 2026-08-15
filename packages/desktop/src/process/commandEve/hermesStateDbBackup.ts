@@ -64,33 +64,88 @@ export function hermesStateDbBackupFileName(fromVersion: string | undefined, toV
  * seat's home. Only existing directories are returned; a missing root yields [].
  */
 export function listHermesSeatHomes(hermesRoot: string): string[] {
+  const rootStat = lstatIfPresent(hermesRoot);
+  if (!rootStat) return [];
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error('Hermes root is not a real directory');
+  }
+  const realRoot = fs.realpathSync(hermesRoot);
   const homes: string[] = [];
   const legacyHome = path.join(hermesRoot, 'home');
-  if (isDirectory(legacyHome)) homes.push(legacyHome);
+  const legacyStat = lstatIfPresent(legacyHome);
+  if (legacyStat) {
+    if (!legacyStat.isDirectory() || legacyStat.isSymbolicLink()) {
+      throw new Error('Hermes legacy home is not a real directory');
+    }
+    assertContainedRealDirectory(realRoot, legacyHome, 'Hermes legacy home');
+    homes.push(legacyHome);
+  }
   const seatsDir = path.join(hermesRoot, 'seats');
-  if (isDirectory(seatsDir)) {
+  const seatsStat = lstatIfPresent(seatsDir);
+  if (seatsStat) {
+    if (!seatsStat.isDirectory() || seatsStat.isSymbolicLink()) {
+      throw new Error('Hermes seats directory is not a real directory');
+    }
+    assertContainedRealDirectory(realRoot, seatsDir, 'Hermes seats directory');
     const entries = fs.readdirSync(seatsDir);
     for (const entry of entries.toSorted()) {
-      const seatHome = path.join(seatsDir, entry, 'home');
-      if (isDirectory(seatHome)) homes.push(seatHome);
+      const seatRoot = path.join(seatsDir, entry);
+      const seatStat = lstatIfPresent(seatRoot);
+      if (!seatStat) throw new Error(`Hermes seat disappeared during enumeration: ${entry}`);
+      if (seatStat.isSymbolicLink()) throw new Error(`Hermes seat is a symlink: ${entry}`);
+      if (!seatStat.isDirectory()) continue;
+      assertContainedRealDirectory(realRoot, seatRoot, `Hermes seat ${entry}`);
+      const seatHome = path.join(seatRoot, 'home');
+      const homeStat = lstatIfPresent(seatHome);
+      if (!homeStat) continue;
+      if (!homeStat.isDirectory() || homeStat.isSymbolicLink()) {
+        throw new Error(`Hermes seat home is not a real directory: ${entry}`);
+      }
+      assertContainedRealDirectory(realRoot, seatHome, `Hermes seat home ${entry}`);
+      homes.push(seatHome);
     }
   }
   return homes;
 }
 
-function isDirectory(candidate: string): boolean {
+function lstatIfPresent(candidate: string): fs.Stats | undefined {
   try {
-    return fs.statSync(candidate).isDirectory();
-  } catch {
-    return false;
+    return fs.lstatSync(candidate);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return undefined;
+    throw error;
   }
+}
+
+function assertContainedPath(realRoot: string, candidate: string, label: string): void {
+  const relative = path.relative(realRoot, candidate);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`${label} escaped the managed Hermes root`);
+  }
+}
+
+function assertContainedRealDirectory(realRoot: string, candidate: string, label: string): void {
+  assertContainedPath(realRoot, fs.realpathSync(candidate), label);
 }
 
 /** Temp-then-rename so a torn copy can never pose as a finished backup. */
 function copyFileAtomic(source: string, target: string): void {
-  const temp = `${target}.tmp`;
-  fs.copyFileSync(source, temp);
-  fs.renameSync(temp, target);
+  const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  let failure: unknown;
+  try {
+    fs.copyFileSync(source, temp, fs.constants.COPYFILE_EXCL);
+    // linkSync publishes the complete temp inode without ever replacing an
+    // already-existing backup. The first pre-migration bytes always win.
+    fs.linkSync(temp, target);
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    fs.unlinkSync(temp);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT' && failure === undefined) failure = error;
+  }
+  if (failure !== undefined) throw failure;
 }
 
 /**
@@ -122,20 +177,47 @@ export function backupHermesStateDbsBeforeUpgrade(options: {
   for (const seatHome of seatHomes) {
     const dbPath = path.join(seatHome, 'state.db');
     const backupPath = path.join(seatHome, backupName);
-    if (!fs.existsSync(dbPath)) {
-      results.push({ seatHome, dbPath, backupPath, status: 'no_db' });
-      continue;
-    }
-    if (fs.existsSync(backupPath)) {
-      results.push({ seatHome, dbPath, backupPath, status: 'already_backed_up' });
-      continue;
-    }
     try {
+      const realRoot = fs.realpathSync(options.hermesRoot);
+      const realSeatHome = fs.realpathSync(seatHome);
+      assertContainedPath(realRoot, realSeatHome, 'Hermes seat home');
+      assertContainedPath(realRoot, path.join(realSeatHome, backupName), 'Hermes backup target');
+      const dbStat = lstatIfPresent(dbPath);
+      if (!dbStat) {
+        results.push({ seatHome, dbPath, backupPath, status: 'no_db' });
+        continue;
+      }
+      if (!dbStat.isFile() || dbStat.isSymbolicLink()) {
+        throw new Error('Hermes state database is not a real regular file');
+      }
+      const backupStat = lstatIfPresent(backupPath);
+      if (backupStat) {
+        if (!backupStat.isFile() || backupStat.isSymbolicLink()) {
+          throw new Error('Hermes state database backup target is unsafe');
+        }
+        results.push({ seatHome, dbPath, backupPath, status: 'already_backed_up' });
+        continue;
+      }
       // Sidecars FIRST, main DB LAST: the main backup's existence is the
       // idempotency marker, so it must only appear once everything is copied.
       for (const suffix of ['-wal', '-shm']) {
         const sidecar = `${dbPath}${suffix}`;
-        if (fs.existsSync(sidecar)) copyFileAtomic(sidecar, `${backupPath}${suffix}`);
+        const sidecarStat = lstatIfPresent(sidecar);
+        if (!sidecarStat) continue;
+        if (!sidecarStat.isFile() || sidecarStat.isSymbolicLink()) {
+          throw new Error(`Hermes state database sidecar is unsafe: ${path.basename(sidecar)}`);
+        }
+        const sidecarBackup = `${backupPath}${suffix}`;
+        assertContainedPath(
+          realRoot,
+          path.join(realSeatHome, `${backupName}${suffix}`),
+          'Hermes sidecar backup target'
+        );
+        const sidecarBackupStat = lstatIfPresent(sidecarBackup);
+        if (!sidecarBackupStat) copyFileAtomic(sidecar, sidecarBackup);
+        else if (!sidecarBackupStat.isFile() || sidecarBackupStat.isSymbolicLink()) {
+          throw new Error(`Hermes state database sidecar backup is unsafe: ${path.basename(sidecarBackup)}`);
+        }
       }
       copyFileAtomic(dbPath, backupPath);
       results.push({ seatHome, dbPath, backupPath, status: 'backed_up' });

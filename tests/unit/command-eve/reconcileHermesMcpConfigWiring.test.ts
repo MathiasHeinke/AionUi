@@ -12,6 +12,8 @@
  * respawnAfter.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   reconcileVaultConfigAfterConnectorChange,
@@ -72,6 +74,18 @@ describe('reconcile wiring — flag ON delegates to the pure core', () => {
     expect(order).toEqual(['render', 'respawn']);
     expect(receipt.ok).toBe(true);
     expect(receipt.connector_count).toBe(1);
+  });
+
+  it('production re-render threads the canonical root and strict packaged runtime contract', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/process/commandEve/reconcileHermesMcpConfigWiring.ts'),
+      'utf8'
+    );
+    expect(source).toContain('getCanonicalDataPath as realGetCanonicalDataPath');
+    expect(source).toContain('canonicalUserDataPath,');
+    expect(source).toContain('resourcesPath: process.resourcesPath');
+    expect(source).toContain('requireBundledPython: packagedMac');
+    expect(source).toContain("app.isPackaged && process.platform === 'darwin'");
   });
 
   it('seat-switch re-renders but does NOT respawn (respawnAfter false — switch owns it)', async () => {

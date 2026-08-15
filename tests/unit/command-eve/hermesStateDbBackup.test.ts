@@ -161,6 +161,59 @@ describe('backupHermesStateDbsBeforeUpgrade', () => {
     expect(results[0].detail).toContain('Could not enumerate Hermes seat homes');
     expect(fs.existsSync(path.join(root, 'home', 'state.db.pre-0.20.0.from-0.17.0.backup'))).toBe(false);
   });
+
+  it('rejects symlinked seat roots and never writes a backup outside the managed Hermes root', () => {
+    const root = makeHermesRoot();
+    const external = makeHermesRoot();
+    const externalHome = seedSeat(external, 'home', 'external-db');
+    fs.mkdirSync(path.join(root, 'seats'), { recursive: true });
+    fs.symlinkSync(external, path.join(root, 'seats', 'escaped-seat'), 'dir');
+
+    const [result] = backupHermesStateDbsBeforeUpgrade({
+      hermesRoot: root,
+      fromVersion: '0.17.0',
+      toVersion: '0.20.0',
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.detail).toContain('symlink');
+    expect(fs.readdirSync(externalHome)).toEqual(['state.db']);
+  });
+
+  it('rejects a symlinked seat home and surfaces per-entry lstat failures', () => {
+    const root = makeHermesRoot();
+    const external = makeHermesRoot();
+    const seatRoot = path.join(root, 'seats', 'seat-a');
+    fs.mkdirSync(seatRoot, { recursive: true });
+    fs.symlinkSync(seedSeat(external, 'home', 'external-db'), path.join(seatRoot, 'home'), 'dir');
+    expect(
+      backupHermesStateDbsBeforeUpgrade({
+        hermesRoot: root,
+        fromVersion: '0.17.0',
+        toVersion: '0.20.0',
+      })[0]
+    ).toMatchObject({ status: 'failed' });
+
+    fs.unlinkSync(path.join(seatRoot, 'home'));
+    fs.mkdirSync(path.join(seatRoot, 'home'));
+    const realLstatSync = fs.lstatSync.bind(fs);
+    vi.spyOn(fs, 'lstatSync').mockImplementation(((target: fs.PathLike, options?: unknown) => {
+      if (path.resolve(String(target)) === seatRoot) {
+        const error = new Error('seat lstat denied') as NodeJS.ErrnoException;
+        error.code = 'EACCES';
+        throw error;
+      }
+      return realLstatSync(target, options as never);
+    }) as typeof fs.lstatSync);
+
+    const [failed] = backupHermesStateDbsBeforeUpgrade({
+      hermesRoot: root,
+      fromVersion: '0.17.0',
+      toVersion: '0.20.0',
+    });
+    expect(failed.status).toBe('failed');
+    expect(failed.detail).toContain('seat lstat denied');
+  });
 });
 
 describe('listHermesSeatHomes', () => {
@@ -189,7 +242,7 @@ describe('boot-path wiring (source contract)', () => {
     const pipInstall = source.indexOf("'-m', 'pip', 'install', '--upgrade', 'pip'");
     expect(pipInstall, 'the pip install seam moved — re-anchor this contract').toBeGreaterThan(-1);
     expect(backupCall, 'the backup must run BEFORE the first pip invocation').toBeLessThan(pipInstall);
-    const offlineProbe = source.indexOf('packagedHermesRuntimeProbeArgs(manifest.hermes.version)');
+    const offlineProbe = source.indexOf('packagedHermesRuntimeProbeArgs(manifest.hermes.version, artifactSite)');
     expect(offlineProbe, 'the packaged offline probe seam moved — re-anchor this contract').toBeGreaterThan(-1);
     expect(backupCall, 'the backup must run BEFORE the packaged offline probe').toBeLessThan(offlineProbe);
     // And it must be gated on a real version CHANGE, not a same-version repair.
