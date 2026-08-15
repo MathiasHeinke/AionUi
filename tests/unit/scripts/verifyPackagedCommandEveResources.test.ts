@@ -147,6 +147,34 @@ describe('packaged Command EVE resource truth', () => {
       ...artifactManifest.common_packages.map((entry) => ({ ...entry, scope: 'common' })),
       ...artifactManifest.platforms[runtimeKey].map((entry) => ({ ...entry, scope: runtimeKey })),
     ];
+    const runtimeLockBytes = fs.readFileSync(
+      path.resolve('resources/bundled-python-artifacts/hermes-runtime-darwin-arm64.tsv')
+    );
+    const runtimeLock = runtimeLockBytes
+      .toString('utf8')
+      .trim()
+      .split('\n')
+      .map((line) => {
+        const [name, version, sha256, source] = line.split('\t');
+        return {
+          name,
+          version,
+          sha256,
+          filename: path.posix.basename(
+            source.startsWith('repo://') ? source.slice('repo://'.length) : new URL(source).pathname
+          ),
+          import_name: '',
+          license: 'wheel-metadata',
+          scope: 'hermes-runtime',
+        };
+      });
+    for (const entry of runtimeLock) {
+      const duplicate = packages.find(
+        (candidate) =>
+          candidate.name.toLowerCase().replace(/[-_.]+/g, '-') === entry.name.toLowerCase().replace(/[-_.]+/g, '-')
+      );
+      if (!duplicate) packages.push(entry);
+    }
     for (const entry of packages) {
       const distName = entry.name.replace(/[-_.]+/g, '_');
       const metadataDirectory = path.join(artifactDirectory, `${distName}-${entry.version}.dist-info`);
@@ -170,6 +198,14 @@ describe('packaged Command EVE resource truth', () => {
           runtime_key: runtimeKey,
           network_install_allowed: false,
           probe_status: 'pass',
+          hermes_runtime: {
+            version: 'command-eve-hermes-runtime-site/v1',
+            lock_sha256: crypto.createHash('sha256').update(runtimeLockBytes).digest('hex'),
+            package_count: 71,
+            staged_package_count: 68,
+            extras: ['acp', 'mcp'],
+            network_install_allowed: false,
+          },
           packages: packages.map((entry) => ({
             name: entry.name,
             version: entry.version,
@@ -248,8 +284,13 @@ describe('packaged Command EVE resource truth', () => {
     expect(result.presentation_python.wheels.map((wheel) => wheel.file)).toEqual(
       COMMAND_EVE_PRESENTATION_PYTHON_WHEELS.map((wheel) => wheel.filename)
     );
-    expect(result.artifact_python.packages).toHaveLength(13);
+    expect(result.artifact_python.packages).toHaveLength(81);
     expect(result.artifact_python.native_files).toHaveLength(2);
+    expect(result.artifact_python.hermes_runtime).toMatchObject({
+      version: 'command-eve-hermes-runtime-site/v1',
+      package_count: 71,
+      extras: ['acp', 'mcp'],
+    });
     expect(result.browser_use_runner).toMatchObject({
       target: 'aarch64-apple-darwin',
       file: 'uvx',
@@ -494,6 +535,21 @@ describe('packaged Command EVE resource truth', () => {
     fs.writeFileSync(receipt, `${JSON.stringify(parsed)}\n`);
 
     expect(() => verify()).toThrow(/Artifact Python receipt violates/);
+  });
+
+  it('fails closed when the packaged Hermes package set differs from the exact source lock', () => {
+    const receipt = path.join(
+      resourcesPath,
+      'python',
+      'artifact-site-packages',
+      'command-eve-artifact-python-runtime.json'
+    );
+    const parsed = JSON.parse(fs.readFileSync(receipt, 'utf8'));
+    const locked = parsed.packages.find((entry: { name?: string }) => entry.name === 'websockets');
+    locked.version = '0.0.0-forged';
+    fs.writeFileSync(receipt, `${JSON.stringify(parsed)}\n`);
+
+    expect(() => verify()).toThrow(/packaged Artifact Python mismatch for websockets/);
   });
 
   it('fails closed when any bundled Python bytecode cache would enter the signed artifact', () => {

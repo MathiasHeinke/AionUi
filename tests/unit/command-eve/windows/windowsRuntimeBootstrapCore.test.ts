@@ -63,6 +63,7 @@ function writeArtifactPythonSiteFixture(resourcesPath: string): string {
     path.join(sitePath, COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT),
     JSON.stringify({
       version: COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
+      runtime_key: 'win32-x64',
       network_install_allowed: false,
       tree_phase: 'signed',
       tree_root_sha256: emptyTreeRoot,

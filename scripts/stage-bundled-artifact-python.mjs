@@ -15,6 +15,12 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import yauzl from 'yauzl';
+import {
+  HERMES_RUNTIME_CACHE,
+  HERMES_RUNTIME_LOCK,
+  parseHermesRuntimeLock,
+  resolveLockedWheelSource,
+} from './hermes/fetch-bundled-hermes-runtime.mjs';
 
 export const COMMAND_EVE_ARTIFACT_PYTHON_BUILD_VERSION = 'command-eve-artifact-python-build/v1';
 export const COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION = 'command-eve-artifact-python-runtime/v1';
@@ -192,7 +198,13 @@ function assertPackageEntry(entry, label) {
   }
 }
 
-export function resolvePackageSources({ manifestPath, manifest, platform, arch }) {
+export function resolvePackageSources({
+  manifestPath,
+  manifest,
+  platform,
+  arch,
+  includeHermesRuntime = platform === 'darwin' && arch === 'arm64',
+}) {
   const runtimeKey = `${platform}-${arch}`;
   const platformPackages = manifest.platforms[runtimeKey];
   if (!Array.isArray(platformPackages)) throw new Error(`No pinned Artifact Python package set for ${runtimeKey}.`);
@@ -206,6 +218,32 @@ export function resolvePackageSources({ manifestPath, manifest, platform, arch }
     ...manifest.common_packages.map((entry) => ({ ...entry, root: commonRoot, scope: 'common' })),
     ...platformPackages.map((entry) => ({ ...entry, root: platformRoot, scope: runtimeKey })),
   ];
+  if (includeHermesRuntime) {
+    const locked = parseHermesRuntimeLock(fs.readFileSync(HERMES_RUNTIME_LOCK, 'utf8'));
+    for (const entry of locked) {
+      const duplicate = packages.find(
+        (candidate) => normalizeDistributionName(candidate.name) === normalizeDistributionName(entry.name)
+      );
+      if (duplicate) {
+        if (duplicate.version !== entry.version || duplicate.sha256 !== entry.sha256) {
+          throw new Error(
+            `Hermes runtime lock conflicts with signed Artifact Python ${entry.name}: ` +
+              `${entry.version}/${entry.sha256} != ${duplicate.version}/${duplicate.sha256}.`
+          );
+        }
+        continue;
+      }
+      const resolved = resolveLockedWheelSource(entry, REPO_ROOT, HERMES_RUNTIME_CACHE);
+      const wheelPath = resolved.remote ? resolved.cachePath : resolved.sourcePath;
+      packages.push({
+        ...entry,
+        root: path.dirname(wheelPath),
+        scope: 'hermes-runtime',
+        import_name: '',
+        license: 'wheel-metadata',
+      });
+    }
+  }
   const names = new Set();
   for (const entry of packages) {
     assertPackageEntry(entry, entry.scope);
@@ -431,6 +469,21 @@ export async function inspectWheel(entry) {
   ) {
     throw new Error(`Wheel core metadata mismatch for ${entry.filename}`);
   }
+  const licenseExpression = metadata.match(/^License-Expression:\s*(.+)$/m)?.[1]?.trim();
+  const licenseField = metadata.match(/^License:\s*(.+)$/m)?.[1]?.trim();
+  const licenseClassifiers = [...metadata.matchAll(/^Classifier:\s*License\s*::\s*(.+)$/gm)].map((match) =>
+    match[1].trim()
+  );
+  const bundledLicenseFiles = files
+    .filter((candidate) => candidate.name.startsWith(distInfoPrefix) && LICENSE_FILE_PATTERN.test(candidate.name))
+    .map((candidate) => candidate.name.slice(distInfoPrefix.length))
+    .toSorted();
+  const declaredLicense =
+    licenseExpression ||
+    (licenseField && !['UNKNOWN', 'NONE'].includes(licenseField.toUpperCase()) ? licenseField : '') ||
+    licenseClassifiers.join(' OR ') ||
+    (bundledLicenseFiles.length > 0 ? `Bundled license file: ${bundledLicenseFiles.join(', ')}` : '');
+  if (!declaredLicense) throw new Error(`Wheel has no declared license metadata: ${entry.filename}`);
   const wheelMetadata = wheelEntries[0].bytes.toString('utf8');
   const [pythonTag, abiTag, platformTag] = entry.filename
     .replace(/\.whl$/, '')
@@ -463,6 +516,7 @@ export async function inspectWheel(entry) {
     filePaths: files.map((file) => file.name),
     metadataSha256: crypto.createHash('sha256').update(metadataEntries[0].bytes).digest('hex'),
     tags: declaredTags,
+    declaredLicense,
   };
 }
 
@@ -646,10 +700,14 @@ def assert_artifact_origin(module_name):
 
 for spec in PACKAGE_SPECS:
     assert version(spec["distribution"]) == spec["version"]
-    assert_artifact_origin(spec["module"])
+    if spec["module"]:
+        assert_artifact_origin(spec["module"])
 
-for native_module in ("lxml.etree", "lxml.objectify", "PIL._imaging"):
+for native_module in ("lxml.etree", "lxml.objectify", "PIL._imaging", "pydantic_core._pydantic_core"):
     assert_artifact_origin(native_module)
+
+for hermes_module in ("hermes_cli.main", "acp_adapter.entry", "mcp", "openai"):
+    assert_artifact_origin(hermes_module)
 
 from PIL import __version__ as pillow_version
 from openpyxl import DEFUSEDXML
@@ -988,6 +1046,7 @@ export async function stageBundledArtifactPython(options) {
     // Sequential verification keeps the exact failing wheel visible and bounds peak memory.
     // eslint-disable-next-line no-await-in-loop
     entry.wheelInspection = await inspectWheel(entry);
+    if (entry.scope === 'hermes-runtime') entry.license = entry.wheelInspection.declaredLicense;
   }
   assertCombinedWheelLayout(packages, options.platform);
   const targetDirectory = path.join(pythonRoot, COMMAND_EVE_ARTIFACT_SITE_PACKAGES_DIR);
@@ -1080,6 +1139,18 @@ export async function stageBundledArtifactPython(options) {
     tree_root_sha256: tree.rootSha256,
     tree_files: tree.files,
     compliance,
+    ...(runtimeKey === 'darwin-arm64'
+      ? {
+          hermes_runtime: {
+            version: 'command-eve-hermes-runtime-site/v1',
+            lock_sha256: sha256File(HERMES_RUNTIME_LOCK),
+            package_count: parseHermesRuntimeLock(fs.readFileSync(HERMES_RUNTIME_LOCK, 'utf8')).length,
+            staged_package_count: packages.filter((entry) => entry.scope === 'hermes-runtime').length,
+            extras: ['acp', 'mcp'],
+            network_install_allowed: false,
+          },
+        }
+      : {}),
     spread_files: tree.files
       .filter((entry) => entry.root === 'python-root')
       .map(({ path: relativePath, mode, size, sha256 }) => ({ path: relativePath, mode, size, sha256 })),

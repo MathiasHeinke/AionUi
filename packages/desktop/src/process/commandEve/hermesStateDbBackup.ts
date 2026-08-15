@@ -26,10 +26,10 @@
  *     overwritten — the first pre-migration copy is the valuable one; a second
  *     boot after a partial migration must not clobber it.
  *   - FIRST RUN IS NOT AN ERROR: a seat without a `state.db` reports `no_db`.
- *   - NEVER THROWS: this runs in the boot path; a failed copy is reported as
- *     `failed` (and lands in the runtime receipt's provenance), it does not
- *     brick the upgrade. Copies go through a temp file + rename so a torn
- *     write can never masquerade as a complete backup.
+ *   - BACKUP API NEVER THROWS: a failed copy or seat enumeration is reported
+ *     as `failed`, so the caller can block the one-way version crossing.
+ *     Copies go through a temp file + rename so a torn write can never
+ *     masquerade as a complete backup.
  *   - WAL/SHM SIDECARS ride along: at bootstrap time no agent is running, but
  *     an unclean previous shutdown can leave `state.db-wal` frames that are
  *     part of the logical DB. They are copied under the same backup prefix.
@@ -69,12 +69,7 @@ export function listHermesSeatHomes(hermesRoot: string): string[] {
   if (isDirectory(legacyHome)) homes.push(legacyHome);
   const seatsDir = path.join(hermesRoot, 'seats');
   if (isDirectory(seatsDir)) {
-    let entries: string[] = [];
-    try {
-      entries = fs.readdirSync(seatsDir);
-    } catch {
-      entries = [];
-    }
+    const entries = fs.readdirSync(seatsDir);
     for (const entry of entries.toSorted()) {
       const seatHome = path.join(seatsDir, entry, 'home');
       if (isDirectory(seatHome)) homes.push(seatHome);
@@ -109,7 +104,22 @@ export function backupHermesStateDbsBeforeUpgrade(options: {
 }): HermesStateDbBackupResult[] {
   const results: HermesStateDbBackupResult[] = [];
   const backupName = hermesStateDbBackupFileName(options.fromVersion, options.toVersion);
-  for (const seatHome of listHermesSeatHomes(options.hermesRoot)) {
+  let seatHomes: string[];
+  try {
+    seatHomes = listHermesSeatHomes(options.hermesRoot);
+  } catch (error) {
+    const seatHome = path.join(options.hermesRoot, 'seats');
+    return [
+      {
+        seatHome,
+        dbPath: path.join(seatHome, '<unreadable>', 'home', 'state.db'),
+        backupPath: path.join(seatHome, '<unreadable>', 'home', backupName),
+        status: 'failed',
+        detail: `Could not enumerate Hermes seat homes: ${error instanceof Error ? error.message : String(error)}`,
+      },
+    ];
+  }
+  for (const seatHome of seatHomes) {
     const dbPath = path.join(seatHome, 'state.db');
     const backupPath = path.join(seatHome, backupName);
     if (!fs.existsSync(dbPath)) {

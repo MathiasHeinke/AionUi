@@ -140,6 +140,8 @@ const COMMAND_EVE_PRESENTATION_PYTHON_BUNDLE_VERSION = 'command-eve-artifact-pyt
 const COMMAND_EVE_ARTIFACT_PYTHON_BUILD_VERSION = 'command-eve-artifact-python-build/v1';
 const COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION = 'command-eve-artifact-python-runtime/v1';
 const COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT = 'command-eve-artifact-python-runtime.json';
+const COMMAND_EVE_HERMES_RUNTIME_LOCK_FILE = 'hermes-runtime-darwin-arm64.tsv';
+const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 = 'ff3519f299129bb3b5286ad6df311b6272718323af754290580fa645a469bd78';
 const NATIVE_ARCHIVE_ENTRY_PATTERN = /\.(?:so|dylib|dll|pyd|node)$/i;
 
 const MACH_O_ARCH_BY_BUILDER_ARCH = Object.freeze({
@@ -174,6 +176,41 @@ function readRequiredRegularFile(filePath, label, deps) {
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+function parseHermesRuntimeSourceLock(bytes) {
+  if (sha256(bytes) !== COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256) {
+    throw new Error('PACKAGED-RESOURCES: Hermes runtime source lock failed its SHA-256 pin');
+  }
+  const entries = [];
+  const names = new Set();
+  for (const rawLine of bytes.toString('utf8').split(/\r?\n/)) {
+    if (!rawLine) continue;
+    const [name, version, wheelSha256, source, ...extra] = rawLine.split('\t');
+    const normalized = normalizeDistributionName(name);
+    if (
+      extra.length > 0 ||
+      !name ||
+      !version ||
+      !/^[a-f0-9]{64}$/.test(wheelSha256 || '') ||
+      !source ||
+      names.has(normalized)
+    ) {
+      throw new Error('PACKAGED-RESOURCES: Hermes runtime source lock is malformed or duplicated');
+    }
+    names.add(normalized);
+    const filename = source.startsWith('repo://')
+      ? path.posix.basename(source.slice('repo://'.length))
+      : path.posix.basename(new URL(source).pathname);
+    if (!filename.endsWith('.whl')) {
+      throw new Error(`PACKAGED-RESOURCES: invalid Hermes runtime wheel filename for ${name}`);
+    }
+    entries.push({ name, version, filename, sha256: wheelSha256, import_name: '', scope: 'hermes-runtime' });
+  }
+  if (entries.length !== 71 || !names.has('hermes-agent')) {
+    throw new Error(`PACKAGED-RESOURCES: expected 71 Hermes runtime lock entries, found ${entries.length}`);
+  }
+  return entries;
 }
 
 function defaultReadCodeSignature(filePath) {
@@ -503,6 +540,24 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
     ...sourceManifest.common_packages.map((entry) => ({ ...entry, scope: 'common' })),
     ...platformPackages.map((entry) => ({ ...entry, scope: runtimeKey })),
   ];
+  const hermesRuntimeRequired = runtimeKey === 'darwin-arm64';
+  if (hermesRuntimeRequired) {
+    const runtimeLockPath = path.join(path.dirname(sourceArtifactManifestPath), COMMAND_EVE_HERMES_RUNTIME_LOCK_FILE);
+    const runtimeLockBytes = readRequiredRegularFile(runtimeLockPath, 'source Hermes runtime lock', deps);
+    const lockedRuntimePackages = parseHermesRuntimeSourceLock(runtimeLockBytes);
+    for (const entry of lockedRuntimePackages) {
+      const duplicate = expectedPackages.find(
+        (candidate) => normalizeDistributionName(candidate.name) === normalizeDistributionName(entry.name)
+      );
+      if (duplicate) {
+        if (duplicate.version !== entry.version || duplicate.sha256 !== entry.sha256) {
+          throw new Error(`PACKAGED-RESOURCES: Hermes runtime lock conflicts with Artifact Python ${entry.name}`);
+        }
+        continue;
+      }
+      expectedPackages.push(entry);
+    }
+  }
   const pythonDirectory = path.join(resourcesPath, 'python');
   assertDirectory(pythonDirectory, 'packaged bundled Python runtime', deps);
   const bytecodeCaches = collectPythonBytecodeCaches(pythonDirectory, deps).sort();
@@ -522,6 +577,14 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
     receipt?.runtime_key !== runtimeKey ||
     receipt?.network_install_allowed !== false ||
     receipt?.probe_status !== 'pass' ||
+    (hermesRuntimeRequired
+      ? receipt?.hermes_runtime?.version !== 'command-eve-hermes-runtime-site/v1' ||
+        receipt?.hermes_runtime?.lock_sha256 !== COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 ||
+        receipt?.hermes_runtime?.package_count !== 71 ||
+        receipt?.hermes_runtime?.staged_package_count !== 68 ||
+        JSON.stringify(receipt?.hermes_runtime?.extras) !== JSON.stringify(['acp', 'mcp']) ||
+        receipt?.hermes_runtime?.network_install_allowed !== false
+      : receipt?.hermes_runtime !== undefined) ||
     !Array.isArray(receipt?.packages) ||
     receipt.packages.length !== expectedPackages.length ||
     !Array.isArray(receipt?.native_files)
@@ -549,7 +612,7 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
       declared.import_name !== expected.import_name ||
       declared.wheel !== expected.filename ||
       declared.wheel_sha256 !== expected.sha256 ||
-      declared.license !== expected.license ||
+      (expected.license ? declared.license !== expected.license : typeof declared.license !== 'string') ||
       declared.scope !== expected.scope ||
       !installed ||
       installed.version !== expected.version
@@ -561,7 +624,7 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
       version: expected.version,
       wheel: expected.filename,
       wheel_sha256: expected.sha256,
-      license: expected.license,
+      license: declared.license,
       scope: expected.scope,
     };
   });
@@ -588,6 +651,16 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
     runtime_version: COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
     runtime_key: runtimeKey,
     network_install_allowed: false,
+    ...(hermesRuntimeRequired
+      ? {
+          hermes_runtime: {
+            version: receipt.hermes_runtime.version,
+            lock_sha256: receipt.hermes_runtime.lock_sha256,
+            package_count: receipt.hermes_runtime.package_count,
+            extras: receipt.hermes_runtime.extras,
+          },
+        }
+      : {}),
     packages,
     native_files: nativeArchitectures,
     receipt_path: receiptPath,

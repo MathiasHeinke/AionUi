@@ -19,6 +19,7 @@ import {
   safeWheelEntryPath,
   stripBytecodeCaches,
 } from './stage-bundled-artifact-python.mjs';
+import { HERMES_RUNTIME_LOCK, parseHermesRuntimeLock } from './hermes/fetch-bundled-hermes-runtime.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MANIFEST = path.resolve(HERE, '..', 'resources', 'bundled-python-artifacts', 'manifest.json');
@@ -31,7 +32,13 @@ test('artifact Python manifest resolves the exact reviewed macOS and Windows clo
     ['darwin', 'arm64', 13],
     ['win32', 'x64', 14],
   ]) {
-    const resolved = resolvePackageSources({ manifestPath: MANIFEST, manifest, platform, arch });
+    const resolved = resolvePackageSources({
+      manifestPath: MANIFEST,
+      manifest,
+      platform,
+      arch,
+      includeHermesRuntime: false,
+    });
     assert.equal(resolved.packages.length, expectedCount);
     const expectedNames = [
       'Pillow',
@@ -59,6 +66,33 @@ test('artifact Python manifest resolves the exact reviewed macOS and Windows clo
       true
     );
   }
+});
+
+test('darwin-arm64 adds the exact Hermes runtime closure while Windows remains unchanged', () => {
+  const manifest = readBuildManifest(MANIFEST);
+  const darwinBase = resolvePackageSources({
+    manifestPath: MANIFEST,
+    manifest,
+    platform: 'darwin',
+    arch: 'arm64',
+    includeHermesRuntime: false,
+  });
+  const windows = resolvePackageSources({ manifestPath: MANIFEST, manifest, platform: 'win32', arch: 'x64' });
+  const lock = parseHermesRuntimeLock(fs.readFileSync(HERMES_RUNTIME_LOCK, 'utf8'));
+  const baseNames = new Set(darwinBase.packages.map((entry) => entry.name.toLowerCase().replace(/[-_.]+/g, '-')));
+  const stagedRuntime = lock.filter((entry) => !baseNames.has(entry.name.toLowerCase().replace(/[-_.]+/g, '-')));
+
+  assert.equal(darwinBase.packages.length + stagedRuntime.length, 81);
+  assert.equal(stagedRuntime.length, 68);
+  assert.equal(
+    stagedRuntime.some((entry) => entry.name === 'hermes-agent' && entry.version === '0.20.0'),
+    true
+  );
+  assert.equal(windows.packages.length, 14);
+  assert.equal(
+    windows.packages.some((entry) => entry.scope === 'hermes-runtime'),
+    false
+  );
 });
 
 test('wheel extraction path guard rejects traversal, absolute paths and symlinky separators', () => {
@@ -234,7 +268,7 @@ function buildSyntheticWheel({ distribution = 'mutation-pkg', version = '1.0.0',
   if (!archiveFiles.has(`${distInfo}/METADATA`)) {
     archiveFiles.set(
       `${distInfo}/METADATA`,
-      Buffer.from(`Metadata-Version: 2.1\nName: ${distribution}\nVersion: ${version}\n`, 'utf8')
+      Buffer.from(`Metadata-Version: 2.1\nName: ${distribution}\nVersion: ${version}\nLicense: MIT\n`, 'utf8')
     );
   }
   if (!archiveFiles.has(`${distInfo}/WHEEL`)) {

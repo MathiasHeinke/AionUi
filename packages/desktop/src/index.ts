@@ -37,6 +37,7 @@ import { initializeProcess } from './process';
 import { ProcessConfig } from './process/utils/initStorage';
 import { EVE_INFERENCE_FUNCTION_URL, resolveCommandEveWarmupLane } from './common/config/eveInferenceCore';
 import {
+  COMMAND_EVE_DATA_DIR_NAME,
   COMMAND_EVE_SHELL_ENABLED,
   COMMAND_EVE_BONSAI_ACP_MODEL_ID,
   COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
@@ -2042,6 +2043,7 @@ const handleAppReady = async (): Promise<void> => {
     // before dynamic imports, shim startup, seat restoration or config reads so
     // none of those paths can accidentally let AionCore start unverified.
     commandEveAutomaticRuntimeRepairRequired = app.isPackaged;
+    const requirePackagedHermesRuntime = app.isPackaged && process.platform === 'darwin';
     const { getDataPath } = await import('./process/utils/utils');
     const { startCommandEveOllamaOpenAiShim, warmCommandEveLocalModel } =
       await import('./process/commandEve/ollamaOpenAiShim');
@@ -2054,14 +2056,26 @@ const handleAppReady = async (): Promise<void> => {
       provisionSeatRuntimeFiles,
       resolveCommandEveRuntimeBootstrapPaths,
     } = await import('./process/commandEve/runtimeBootstrapCore');
-    const runtimePaths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+    const runtimeUserDataPath = getDataPath();
+    const canonicalRuntimeUserDataPath = path.join(
+      app.getPath('userData'),
+      COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_DATA_DIR_NAME : 'aionui'
+    );
+    const runtimePaths = resolveCommandEveRuntimeBootstrapPaths(
+      runtimeUserDataPath,
+      undefined,
+      process.platform,
+      canonicalRuntimeUserDataPath
+    );
     let automaticRuntimeRepairReason: ReturnType<typeof commandEveRuntimeBootstrapStartupWaitReason> = null;
     if (app.isPackaged) {
       try {
         automaticRuntimeRepairReason = commandEveRuntimeBootstrapStartupWaitReason({
-          userDataPath: getDataPath(),
+          userDataPath: runtimeUserDataPath,
+          canonicalUserDataPath: canonicalRuntimeUserDataPath,
           resourcesPath: process.resourcesPath,
           env: process.env,
+          requireBundledPython: requirePackagedHermesRuntime,
         });
       } catch (error) {
         automaticRuntimeRepairReason = 'python_venv_recovery';
@@ -2069,7 +2083,13 @@ const handleAppReady = async (): Promise<void> => {
       }
     }
     commandEveAutomaticRuntimeRepairRequired = automaticRuntimeRepairReason !== null;
-    if (app.isPackaged && !commandEveRuntimeManagedAncestryIsSafe({ userDataPath: getDataPath() })) {
+    if (
+      app.isPackaged &&
+      !commandEveRuntimeManagedAncestryIsSafe({
+        userDataPath: runtimeUserDataPath,
+        canonicalUserDataPath: canonicalRuntimeUserDataPath,
+      })
+    ) {
       throw new Error('Command EVE managed runtime ancestry is unsafe; refusing any runtime write or backend start.');
     }
     const shimUrl = rememberCommandEveOllamaShimUrl(
@@ -2170,9 +2190,11 @@ const handleAppReady = async (): Promise<void> => {
       mark('commandEveRuntimeFilesProvisioned');
     }
     const bootstrapOptions = {
-      userDataPath: getDataPath(),
+      userDataPath: runtimeUserDataPath,
+      canonicalUserDataPath: canonicalRuntimeUserDataPath,
       appPath: app.getAppPath(),
       resourcesPath: process.resourcesPath,
+      requireBundledPython: requirePackagedHermesRuntime,
       mode: 'auto',
       env: localModelTierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: localModelTierId } : undefined,
       egressProxyUrl: shimUrl,
@@ -2231,14 +2253,18 @@ const handleAppReady = async (): Promise<void> => {
       if (
         commandEveAutomaticRuntimeRepairRequired &&
         (commandEveRuntimeBootstrapStartupWaitReason({
-          userDataPath: getDataPath(),
+          userDataPath: runtimeUserDataPath,
+          canonicalUserDataPath: canonicalRuntimeUserDataPath,
           resourcesPath: process.resourcesPath,
           env: bootstrapOptions.env,
+          requireBundledPython: requirePackagedHermesRuntime,
         }) !== null ||
           !commandEveRuntimeVenvIsBackendAdmissible({
-            userDataPath: getDataPath(),
+            userDataPath: runtimeUserDataPath,
+            canonicalUserDataPath: canonicalRuntimeUserDataPath,
             resourcesPath: process.resourcesPath,
             env: bootstrapOptions.env,
+            requireBundledPython: requirePackagedHermesRuntime,
           }))
       ) {
         throw new Error(

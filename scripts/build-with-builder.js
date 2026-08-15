@@ -460,6 +460,22 @@ function fetchBundledPython(platform, arch) {
   }
 }
 
+// Fetch the exact hash-pinned Hermes [acp,mcp] CPython 3.12 closure into a
+// build-only cache. The following Artifact Python stage extracts it into the
+// bundled interpreter; electron-builder never copies these raw native wheels.
+function fetchBundledHermesRuntime(platform, arch) {
+  if (platform !== 'darwin' || arch !== 'arm64') return;
+  const fetchScript = path.join(__dirname, 'hermes', 'fetch-bundled-hermes-runtime.mjs');
+  console.log('🐍 Staging exact offline Hermes runtime wheel closure (darwin/arm64)...');
+  const result = spawnSync(process.execPath, [fetchScript], { stdio: 'inherit', env: process.env });
+  if (result.error) throw new Error(`Hermes runtime closure fetch could not start: ${result.error.message}`);
+  if (result.status !== 0) {
+    throw new Error(
+      `Hermes runtime closure fetch failed (exit ${result.status}) — aborting before Artifact Python staging.`
+    );
+  }
+}
+
 // Populate the verified bundled interpreter with the exact document-artifact
 // package set (PPTX/DOCX/PDF/XLSX/QR). Native extension modules land under the
 // bundled Python root so afterSign's existing deep-sign pass covers them before
@@ -725,6 +741,7 @@ try {
       );
     }
     fetchBundledPython('darwin', 'arm64');
+    fetchBundledHermesRuntime('darwin', 'arm64');
     stageBundledArtifactPython('darwin', 'arm64');
   } else if (buildsWindows) {
     if (multiArch || targetArch !== 'x64') {

@@ -42,6 +42,7 @@ import {
   RETIRED_COMMAND_EVE_MANAGED_SKILL_IDS,
   buildCommandEveEnvironmentHint,
   commandEveRuntimeBootstrapStartupWaitReason,
+  commandEveRuntimeManagedAncestryIsSafe,
   commandEveRuntimeVenvIsBackendAdmissible,
   yamlDoubleQuote,
   stripYamlUnprintables,
@@ -71,6 +72,12 @@ import { findRawKanbanLeaks } from '@/process/commandEve/kanbanAcpToolsetGateCor
 import packageJson from '../../../package.json';
 import { registerTenant } from '@/process/commandEve/entitlementCore';
 import { sha256FileIfPresent } from '@/process/commandEve/windows/runtimeProvenanceCore';
+import {
+  COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES,
+  COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT,
+  COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
+  COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256,
+} from '@/process/commandEve/presentationPythonRuntimeCore';
 import {
   BONSAI_MODEL_ARTIFACT,
   BONSAI_RUNTIME_RELEASE,
@@ -104,8 +111,11 @@ const ensureCommandEveRuntimeBootstrap = (options: RuntimeBootstrapOptions) =>
     platform: options.platform ?? 'darwin',
   });
 
-const resolveCommandEveRuntimeBootstrapPaths = (userDataPath: string, seatId?: string | null) =>
-  resolveCommandEveRuntimeBootstrapPathsCore(userDataPath, seatId, 'darwin');
+const resolveCommandEveRuntimeBootstrapPaths = (
+  userDataPath: string,
+  seatId?: string | null,
+  canonicalUserDataPath = userDataPath
+) => resolveCommandEveRuntimeBootstrapPathsCore(userDataPath, seatId, 'darwin', canonicalUserDataPath);
 
 const tempRoots: string[] = [];
 const DEFAULT_GEMMA_MODEL_REF = COMMAND_EVE_LOCAL_MODEL_TIERS[0].modelRef;
@@ -124,7 +134,7 @@ const writeBundledPythonRuntime = (root: string, pythonVersion = '3.12.13'): str
   const pythonRoot = path.join(resourcesPath, 'python');
   const binary = path.join(pythonRoot, 'bin', 'python3.12');
   fs.mkdirSync(path.dirname(binary), { recursive: true });
-  fs.writeFileSync(binary, '#!/usr/bin/env bash\n');
+  fs.writeFileSync(binary, `#!/usr/bin/env bash\nprintf 'Python ${pythonVersion}\\n'\n`, { mode: 0o700 });
   fs.writeFileSync(
     path.join(pythonRoot, 'command-eve-python-manifest.json'),
     `${JSON.stringify({
@@ -141,6 +151,120 @@ const writeBundledPythonRuntime = (root: string, pythonVersion = '3.12.13'): str
     { mode: 0o600 }
   );
   return resourcesPath;
+};
+
+const writeSignedHermesArtifactSite = (resourcesPath: string): string => {
+  const site = path.join(resourcesPath, 'python', 'artifact-site-packages');
+  fs.mkdirSync(site, { recursive: true });
+  const normalized = (name: string) => name.toLowerCase().replace(/[-_.]+/g, '-');
+  const baseNames = new Set(COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES.map((entry) => normalized(entry.name)));
+  const runtimePackages = fs
+    .readFileSync(path.resolve('resources/bundled-python-artifacts/hermes-runtime-darwin-arm64.tsv'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => {
+      const [name, version, wheelSha256, source] = line.split('\t');
+      return {
+        name,
+        version,
+        import_name: '',
+        wheel: path.posix.basename(
+          source.startsWith('repo://') ? source.slice('repo://'.length) : new URL(source).pathname
+        ),
+        wheel_sha256: wheelSha256,
+        metadata_sha256: 'b'.repeat(64),
+        wheel_tags: ['py3-none-any'],
+        scope: 'hermes-runtime',
+      };
+    })
+    .filter((entry) => !baseNames.has(normalized(entry.name)));
+  const packages = [
+    ...COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES.map((entry) => ({
+      name: entry.name,
+      version: entry.version,
+      import_name: entry.importName,
+      wheel: entry.filename,
+      wheel_sha256: entry.sha256,
+      metadata_sha256: 'a'.repeat(64),
+      wheel_tags: ['py3-none-any'],
+      scope: 'common',
+    })),
+    ...runtimePackages,
+  ];
+  const treeFiles: unknown[] = [];
+  const receipt = {
+    version: COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
+    runtime_key: 'darwin-arm64',
+    network_install_allowed: false,
+    tree_phase: 'signed',
+    tree_root_sha256: crypto.createHash('sha256').update(JSON.stringify(treeFiles)).digest('hex'),
+    tree_files: treeFiles,
+    spread_files: [],
+    packages,
+    hermes_runtime: {
+      version: 'command-eve-hermes-runtime-site/v1',
+      lock_sha256: COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256,
+      package_count: 71,
+      staged_package_count: 68,
+      extras: ['acp', 'mcp'],
+      network_install_allowed: false,
+    },
+  };
+  fs.writeFileSync(
+    path.join(site, COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT),
+    `${JSON.stringify(receipt, null, 2)}\n`,
+    { mode: 0o644 }
+  );
+  return site;
+};
+
+const copyPackagedHermesWheel = (resourcesPath: string): void => {
+  const target = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.copyFileSync(path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'), target);
+};
+
+const makePackagedOfflineRunner = (input: {
+  bundledPython: string;
+  paths: ReturnType<typeof resolveCommandEveRuntimeBootstrapPathsCore>;
+  previousHermesVersion?: string;
+}) => {
+  const commands: string[] = [];
+  let candidateCreated = false;
+  const runner: RuntimeBootstrapRunner = async (command, args) => {
+    commands.push([command, ...args].join(' '));
+    if (command === input.bundledPython && args[0] === '--version') {
+      return commandResult(command, args, true, 'Python 3.12.13\n');
+    }
+    if (command === input.bundledPython && args[0] === '-m' && args[1] === 'venv') {
+      const venv = args[2];
+      const bin = path.join(venv, 'bin');
+      fs.mkdirSync(path.join(venv, 'lib', 'python3.12', 'site-packages'), { recursive: true });
+      fs.mkdirSync(bin, { recursive: true });
+      fs.symlinkSync(input.bundledPython, path.join(bin, 'python'));
+      fs.writeFileSync(path.join(venv, 'pyvenv.cfg'), 'version = 3.12.13\n');
+      candidateCreated = true;
+      return commandResult(command, args);
+    }
+    if (command === path.join(input.paths.hermesVenv, 'bin', 'python')) {
+      const source = args.join(' ');
+      if (source.includes('site.getsitepackages')) {
+        const sitePackages = path.join(input.paths.hermesVenv, 'lib', 'python3.12', 'site-packages');
+        fs.mkdirSync(sitePackages, { recursive: true });
+        return commandResult(command, args, true, `${sitePackages}\n`);
+      }
+      if (source.includes("version('hermes-agent')")) {
+        return commandResult(
+          command,
+          args,
+          true,
+          `${candidateCreated ? '0.20.0' : input.previousHermesVersion || '0.20.0'}\n`
+        );
+      }
+    }
+    return commandResult(command, args);
+  };
+  return { commands, runner };
 };
 
 afterEach(() => {
@@ -2521,6 +2645,218 @@ describe('Command EVE runtime bootstrap core', () => {
 
     expect(fs.readFileSync(externalSentinel, 'utf8')).toBe('external-data\n');
     expect(fs.readFileSync(path.join(externalVenv, 'pyvenv.cfg'), 'utf8')).toContain('3.13.7');
+  });
+
+  itM('allows only the exact macOS CLI root alias and rejects every aliased descendant', () => {
+    const home = makeRoot();
+    const canonicalRoot = path.join(home, 'Library', 'Application Support', 'Command EVE', 'command-eve');
+    const aliasRoot = path.join(home, '.command-eve');
+    fs.mkdirSync(canonicalRoot, { recursive: true });
+    fs.symlinkSync(canonicalRoot, aliasRoot, 'dir');
+
+    expect(
+      commandEveRuntimeManagedAncestryIsSafe({
+        userDataPath: aliasRoot,
+        canonicalUserDataPath: canonicalRoot,
+        platform: 'darwin',
+      })
+    ).toBe(true);
+
+    const paths = resolveCommandEveRuntimeBootstrapPaths(aliasRoot, null, canonicalRoot);
+    const foreignRuntime = makeRoot();
+    fs.symlinkSync(foreignRuntime, paths.runtimeRoot, 'dir');
+    expect(
+      commandEveRuntimeManagedAncestryIsSafe({
+        userDataPath: aliasRoot,
+        canonicalUserDataPath: canonicalRoot,
+        platform: 'darwin',
+      })
+    ).toBe(false);
+  });
+
+  itM('cold-installs the signed offline runtime through the exact macOS root alias', async () => {
+    const home = makeRoot();
+    const canonicalRoot = path.join(home, 'Library', 'Application Support', 'Command EVE', 'command-eve');
+    const aliasRoot = path.join(home, '.command-eve');
+    fs.mkdirSync(canonicalRoot, { recursive: true });
+    fs.symlinkSync(canonicalRoot, aliasRoot, 'dir');
+    const resourcesPath = writeBundledPythonRuntime(home);
+    writeSignedHermesArtifactSite(resourcesPath);
+    copyPackagedHermesWheel(resourcesPath);
+    const bundledPython = path.join(resourcesPath, 'python', 'bin', 'python3.12');
+    const paths = resolveCommandEveRuntimeBootstrapPaths(aliasRoot, null, canonicalRoot);
+    const harness = makePackagedOfflineRunner({ bundledPython, paths });
+
+    expect(
+      commandEveRuntimeBootstrapStartupWaitReason({
+        userDataPath: aliasRoot,
+        canonicalUserDataPath: canonicalRoot,
+        resourcesPath,
+        platform: 'darwin',
+        requireBundledPython: true,
+      })
+    ).toBeNull();
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: aliasRoot,
+      canonicalUserDataPath: canonicalRoot,
+      resourcesPath,
+      requireBundledPython: true,
+      stopAfterHermesRuntimeReady: true,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+    });
+
+    expect(receipt.status).toBe('ready');
+    expect(receipt.runtime_provenance.python).toMatchObject({ source: 'bundled' });
+    expect(receipt.runtime_provenance.python?.executable_sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(receipt.runtime_provenance.hermes?.dependency_resolution).toBe('packaged_signed_site');
+    expect(harness.commands.some((command) => /\bpip\b|https?:\/\/|pythonhosted/i.test(command))).toBe(false);
+    expect(
+      commandEveRuntimeBootstrapStartupWaitReason({
+        userDataPath: aliasRoot,
+        canonicalUserDataPath: canonicalRoot,
+        resourcesPath,
+        platform: 'darwin',
+        requireBundledPython: true,
+      })
+    ).toBeNull();
+    expect(
+      commandEveRuntimeVenvIsBackendAdmissible({
+        userDataPath: aliasRoot,
+        canonicalUserDataPath: canonicalRoot,
+        resourcesPath,
+        platform: 'darwin',
+        requireBundledPython: true,
+      })
+    ).toBe(true);
+  });
+
+  itM('leaves an incompatible venv untouched when the exact packaged dependency site is missing', async () => {
+    const root = makeRoot();
+    const resourcesPath = writeBundledPythonRuntime(root);
+    const bundledPython = path.join(resourcesPath, 'python', 'bin', 'python3.12');
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    const sentinel = path.join(paths.hermesVenv, 'must-survive.txt');
+    fs.mkdirSync(path.join(paths.hermesVenv, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'python'), '#!/usr/bin/env bash\n');
+    fs.writeFileSync(path.join(paths.hermesVenv, 'pyvenv.cfg'), 'version = 3.13.7\n');
+    fs.writeFileSync(sentinel, 'old-runtime\n');
+    const harness = makePackagedOfflineRunner({ bundledPython, paths, previousHermesVersion: '0.17.0' });
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: root,
+      canonicalUserDataPath: root,
+      resourcesPath,
+      requireBundledPython: true,
+      stopAfterHermesRuntimeReady: true,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+    });
+
+    expect(receipt.status).toBe('failed');
+    expect(receipt.stages.some((stage) => stage.code === 'HERMES_PACKAGED_DEPENDENCY_SITE_INVALID')).toBe(true);
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('old-runtime\n');
+    expect(fs.existsSync(path.join(paths.hermesRoot, 'venv.previous'))).toBe(false);
+    expect(harness.commands.some((command) => /\bpip\b|https?:\/\//i.test(command))).toBe(false);
+  });
+
+  itM('never falls through to a valid system Python when the packaged interpreter probe fails', async () => {
+    const root = makeRoot();
+    const resourcesPath = writeBundledPythonRuntime(root);
+    writeSignedHermesArtifactSite(resourcesPath);
+    copyPackagedHermesWheel(resourcesPath);
+    const bundledPython = path.join(resourcesPath, 'python', 'bin', 'python3.12');
+    fs.writeFileSync(bundledPython, '#!/usr/bin/env bash\nexit 1\n', { mode: 0o700 });
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    const sentinel = path.join(paths.hermesVenv, 'must-survive.txt');
+    fs.mkdirSync(path.join(paths.hermesVenv, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'python'), '#!/usr/bin/env bash\n');
+    fs.writeFileSync(path.join(paths.hermesVenv, 'pyvenv.cfg'), 'version = 3.13.7\n');
+    fs.writeFileSync(sentinel, 'old-runtime\n');
+    let systemFallbackAttempted = false;
+    const runner: RuntimeBootstrapRunner = async (command, args) => {
+      if (command === bundledPython && args[0] === '--version') return commandResult(command, args, false);
+      if (command === 'bash' || command === '/usr/bin/python3') {
+        systemFallbackAttempted = true;
+        return commandResult(command, args, true, command === 'bash' ? '/usr/bin/python3\n' : 'Python 3.12.13\n');
+      }
+      return commandResult(command, args);
+    };
+
+    expect(
+      commandEveRuntimeBootstrapStartupWaitReason({
+        userDataPath: root,
+        canonicalUserDataPath: root,
+        resourcesPath,
+        platform: 'darwin',
+        requireBundledPython: true,
+      })
+    ).toBe('python_abi_unproven');
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: root,
+      canonicalUserDataPath: root,
+      resourcesPath,
+      requireBundledPython: true,
+      runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+    });
+
+    expect(receipt.status).toBe('blocked');
+    expect(systemFallbackAttempted).toBe(false);
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('old-runtime\n');
+    expect(fs.existsSync(path.join(paths.hermesRoot, 'venv.previous'))).toBe(false);
+  });
+
+  itM('rejects foreign, broken and chained macOS root aliases before any runtime mutation', async () => {
+    const home = makeRoot();
+    const canonicalRoot = path.join(home, 'canonical-command-eve');
+    const foreignRoot = path.join(home, 'foreign-command-eve');
+    fs.mkdirSync(canonicalRoot);
+    fs.mkdirSync(foreignRoot);
+    const sentinel = path.join(foreignRoot, 'must-survive.txt');
+    fs.writeFileSync(sentinel, 'foreign-data\n');
+
+    const wrongAlias = path.join(home, '.command-eve-wrong');
+    fs.symlinkSync(foreignRoot, wrongAlias, 'dir');
+    await expect(
+      ensureCommandEveRuntimeBootstrap({
+        userDataPath: wrongAlias,
+        canonicalUserDataPath: canonicalRoot,
+        platform: 'darwin',
+        mode: 'off',
+      })
+    ).rejects.toThrow('unsafe Command EVE managed runtime ancestry');
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('foreign-data\n');
+    expect(fs.existsSync(path.join(canonicalRoot, 'command-eve-runtime'))).toBe(false);
+
+    const brokenAlias = path.join(home, '.command-eve-broken');
+    fs.symlinkSync(path.join(home, 'missing-command-eve'), brokenAlias, 'dir');
+    expect(
+      commandEveRuntimeManagedAncestryIsSafe({
+        userDataPath: brokenAlias,
+        canonicalUserDataPath: canonicalRoot,
+        platform: 'darwin',
+      })
+    ).toBe(false);
+
+    const intermediateAlias = path.join(home, 'command-eve-intermediate');
+    fs.symlinkSync(canonicalRoot, intermediateAlias, 'dir');
+    const chainedAlias = path.join(home, '.command-eve-chained');
+    fs.symlinkSync(intermediateAlias, chainedAlias, 'dir');
+    expect(
+      commandEveRuntimeManagedAncestryIsSafe({
+        userDataPath: chainedAlias,
+        canonicalUserDataPath: canonicalRoot,
+        platform: 'darwin',
+      })
+    ).toBe(false);
   });
 
   itM('restores the previous venv and wheel receipt when replacement creation fails', async () => {

@@ -15,6 +15,8 @@ export const COMMAND_EVE_ARTIFACT_PYTHON_SITE_DIR_ENV = 'COMMAND_EVE_ARTIFACT_PY
 export const COMMAND_EVE_PRESENTATION_WHEELS_SUBDIR = 'presentation';
 export const COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR = 'artifact-site-packages';
 export const COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT = 'command-eve-artifact-python-runtime.json';
+export const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 =
+  'ff3519f299129bb3b5286ad6df311b6272718323af754290580fa645a469bd78';
 
 export const COMMAND_EVE_PRESENTATION_PYTHON_PACKAGES = Object.freeze([
   {
@@ -142,6 +144,7 @@ type PresentationBundleManifest = {
 
 type ArtifactPythonRuntimeReceipt = {
   version?: unknown;
+  runtime_key?: unknown;
   network_install_allowed?: unknown;
   tree_phase?: unknown;
   tree_root_sha256?: unknown;
@@ -161,7 +164,16 @@ type ArtifactPythonRuntimeReceipt = {
     wheel_sha256?: unknown;
     metadata_sha256?: unknown;
     wheel_tags?: unknown;
+    scope?: unknown;
   }>;
+  hermes_runtime?: {
+    version?: unknown;
+    lock_sha256?: unknown;
+    package_count?: unknown;
+    staged_package_count?: unknown;
+    extras?: unknown;
+    network_install_allowed?: unknown;
+  };
 };
 
 export type CommandEvePresentationPythonBundleVerification =
@@ -326,6 +338,7 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
       return { ok: false, reason: 'artifact_receipt_invalid' };
     }
     const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8')) as ArtifactPythonRuntimeReceipt;
+    const hermesRuntimeRequired = receipt.runtime_key === 'darwin-arm64';
     if (
       receipt.version !== COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION ||
       receipt.network_install_allowed !== false ||
@@ -335,9 +348,42 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
       !Array.isArray(receipt.tree_files) ||
       !Array.isArray(receipt.spread_files) ||
       !Array.isArray(receipt.packages) ||
-      receipt.packages.length !== COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES.length
+      (hermesRuntimeRequired
+        ? receipt.packages.length <= COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES.length ||
+          receipt.hermes_runtime?.version !== 'command-eve-hermes-runtime-site/v1' ||
+          receipt.hermes_runtime.lock_sha256 !== COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 ||
+          receipt.hermes_runtime.package_count !== 71 ||
+          receipt.hermes_runtime.staged_package_count !== 68 ||
+          JSON.stringify(receipt.hermes_runtime.extras) !== JSON.stringify(['acp', 'mcp']) ||
+          receipt.hermes_runtime.network_install_allowed !== false
+        : receipt.packages.length !== COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES.length ||
+          receipt.hermes_runtime !== undefined)
     ) {
       return { ok: false, reason: 'artifact_receipt_contract_mismatch' };
+    }
+    if (hermesRuntimeRequired) {
+      const hermes = receipt.packages.find((entry) => entry?.name === 'hermes-agent');
+      if (
+        !hermes ||
+        hermes.version !== '0.20.0' ||
+        hermes.wheel_sha256 !== 'a91cd1edb383dbbab20d0af7d2b6c9d56183d3248a6ee56ae583b427dbd54bfd' ||
+        hermes.scope !== 'hermes-runtime'
+      ) {
+        return { ok: false, reason: 'artifact_hermes_runtime_mismatch' };
+      }
+      const runtimePackages = receipt.packages.filter((entry) => entry?.scope === 'hermes-runtime');
+      if (
+        runtimePackages.length !== 68 ||
+        runtimePackages.some(
+          (entry) =>
+            typeof entry?.name !== 'string' ||
+            typeof entry?.version !== 'string' ||
+            typeof entry?.wheel_sha256 !== 'string' ||
+            !/^[a-f0-9]{64}$/.test(entry.wheel_sha256)
+        )
+      ) {
+        return { ok: false, reason: 'artifact_hermes_runtime_package_set_invalid' };
+      }
     }
     for (const expected of COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES) {
       const declared = receipt.packages.find((entry) => entry?.name === expected.name);

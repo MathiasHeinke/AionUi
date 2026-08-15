@@ -139,6 +139,28 @@ describe('backupHermesStateDbsBeforeUpgrade', () => {
     expect(result.status).toBe('failed');
     expect(result.detail).toBeTruthy();
   });
+
+  it('fails closed when the seats directory exists but cannot be enumerated', () => {
+    const root = makeHermesRoot();
+    seedSeat(root, 'home', 'legacy-bytes');
+    fs.mkdirSync(path.join(root, 'seats'), { recursive: true });
+    const realReaddirSync = fs.readdirSync.bind(fs);
+    vi.spyOn(fs, 'readdirSync').mockImplementation(((target: fs.PathLike, options?: unknown) => {
+      if (path.resolve(String(target)) === path.join(root, 'seats')) throw new Error('seat enumeration denied');
+      return realReaddirSync(target, options as never);
+    }) as typeof fs.readdirSync);
+
+    const results = backupHermesStateDbsBeforeUpgrade({
+      hermesRoot: root,
+      fromVersion: '0.17.0',
+      toVersion: '0.20.0',
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe('failed');
+    expect(results[0].detail).toContain('Could not enumerate Hermes seat homes');
+    expect(fs.existsSync(path.join(root, 'home', 'state.db.pre-0.20.0.from-0.17.0.backup'))).toBe(false);
+  });
 });
 
 describe('listHermesSeatHomes', () => {
@@ -153,7 +175,7 @@ describe('listHermesSeatHomes', () => {
 });
 
 describe('boot-path wiring (source contract)', () => {
-  it('takes the backup INSIDE the install branch, BEFORE pip touches the venv', () => {
+  it('takes the backup before either the offline probe or development pip install can cross versions', () => {
     const source = fs
       .readFileSync(
         path.resolve(process.cwd(), 'packages/desktop/src/process/commandEve/runtimeBootstrapCore.ts'),
@@ -167,6 +189,9 @@ describe('boot-path wiring (source contract)', () => {
     const pipInstall = source.indexOf("'-m', 'pip', 'install', '--upgrade', 'pip'");
     expect(pipInstall, 'the pip install seam moved — re-anchor this contract').toBeGreaterThan(-1);
     expect(backupCall, 'the backup must run BEFORE the first pip invocation').toBeLessThan(pipInstall);
+    const offlineProbe = source.indexOf('packagedHermesRuntimeProbeArgs(manifest.hermes.version)');
+    expect(offlineProbe, 'the packaged offline probe seam moved — re-anchor this contract').toBeGreaterThan(-1);
+    expect(backupCall, 'the backup must run BEFORE the packaged offline probe').toBeLessThan(offlineProbe);
     // And it must be gated on a real version CHANGE, not a same-version repair.
     const guard = source.indexOf('hermesInstalled && Boolean(installedHermesVersion) && !hermesVersionMatches');
     expect(guard, 'the cross-version guard around the backup is gone').toBeGreaterThan(-1);

@@ -50,10 +50,7 @@ describe('Command EVE runtime bridge registration', () => {
     const deferredHelper = source.indexOf('const deferRemainingRuntimeBootstrap =');
     const automaticWait = source.indexOf('let automaticRuntimeRepairReason:');
     const earlyFailClosed = source.indexOf('commandEveAutomaticRuntimeRepairRequired = app.isPackaged;');
-    const ancestryGate = source.indexOf(
-      'if (app.isPackaged && !commandEveRuntimeManagedAncestryIsSafe({ userDataPath: getDataPath() }))',
-      automaticWait
-    );
+    const ancestryGate = source.indexOf('!commandEveRuntimeManagedAncestryIsSafe({', automaticWait);
     const shimStart = source.indexOf('const shimUrl = rememberCommandEveOllamaShimUrl(', automaticWait);
     const waitDecision = source.indexOf('const mustWaitForRuntimeBootstrap =');
     const blockingBootstrapStart = source.indexOf(
@@ -78,6 +75,14 @@ describe('Command EVE runtime bridge registration', () => {
     expect(blockingBootstrapStart).toBeGreaterThan(waitDecision);
     expect(backendStart).toBeGreaterThan(blockingBootstrapStart);
     expect(source.slice(automaticWait, backendStart)).toContain('commandEveAutomaticRuntimeRepairRequired ||');
+    expect(source.slice(automaticWait, backendStart)).toContain('canonicalUserDataPath: canonicalRuntimeUserDataPath');
+    expect(source.slice(earlyFailClosed, automaticWait)).toContain(
+      "const requirePackagedHermesRuntime = app.isPackaged && process.platform === 'darwin'"
+    );
+    expect(source.slice(automaticWait, backendStart)).toContain('requireBundledPython: requirePackagedHermesRuntime');
+    expect(source.slice(bootstrapOptions, waitDecision)).toContain(
+      'requireBundledPython: requirePackagedHermesRuntime'
+    );
     expect(source.slice(waitDecision, backendStart)).toContain(
       'stopAfterHermesRuntimeReady: commandEveAutomaticRuntimeRepairRequired'
     );

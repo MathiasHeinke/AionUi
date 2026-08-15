@@ -23,6 +23,7 @@ import {
   COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES,
   COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT,
   COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
+  COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256,
   verifyCommandEveArtifactPythonSite,
 } from '@process/commandEve/presentationPythonRuntimeCore';
 
@@ -74,7 +75,7 @@ function buildReceipt(siteDir: string, overrides: Record<string, unknown> = {}):
     version: COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
     build_manifest_version: 'command-eve-artifact-python-build/v1',
     python_version: '3.12.13',
-    runtime_key: 'darwin-arm64',
+    runtime_key: 'win32-x64',
     network_install_allowed: false,
     probe_status: 'pass',
     tree_phase: 'signed',
@@ -121,6 +122,64 @@ describe('signed artifact-site verifier — Pro Gate 2 mutation battery', () => 
 
   it('accepts the untouched signed tree (happy path)', () => {
     expect(verifyCommandEveArtifactPythonSite(siteDir)).toMatchObject({ ok: true });
+  });
+
+  it('accepts the exact darwin-arm64 Hermes closure and rejects a missing locked package', () => {
+    const normalized = (name: string) => name.toLowerCase().replace(/[-_.]+/g, '-');
+    const baseNames = new Set(COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES.map((entry) => normalized(entry.name)));
+    const runtimePackages = fs
+      .readFileSync(path.resolve('resources/bundled-python-artifacts/hermes-runtime-darwin-arm64.tsv'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => {
+        const [name, version, wheelSha256, source] = line.split('\t');
+        return {
+          name,
+          version,
+          import_name: '',
+          wheel: path.posix.basename(
+            source.startsWith('repo://') ? source.slice('repo://'.length) : new URL(source).pathname
+          ),
+          wheel_sha256: wheelSha256,
+          metadata_sha256: 'b'.repeat(64),
+          wheel_tags: ['py3-none-any'],
+          scope: 'hermes-runtime',
+        };
+      })
+      .filter((entry) => !baseNames.has(normalized(entry.name)));
+    const packages = [
+      ...COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES.map((entry) => ({
+        name: entry.name,
+        version: entry.version,
+        import_name: entry.importName,
+        wheel: entry.filename,
+        wheel_sha256: entry.sha256,
+        metadata_sha256: 'a'.repeat(64),
+        wheel_tags: ['py3-none-any'],
+        scope: 'common',
+      })),
+      ...runtimePackages,
+    ];
+    const hermesRuntime = {
+      version: 'command-eve-hermes-runtime-site/v1',
+      lock_sha256: COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256,
+      package_count: 71,
+      staged_package_count: 68,
+      extras: ['acp', 'mcp'],
+      network_install_allowed: false,
+    };
+    buildReceipt(siteDir, { runtime_key: 'darwin-arm64', packages, hermes_runtime: hermesRuntime });
+    expect(verifyCommandEveArtifactPythonSite(siteDir)).toMatchObject({ ok: true });
+
+    buildReceipt(siteDir, {
+      runtime_key: 'darwin-arm64',
+      packages: packages.filter((entry) => entry.name !== 'websockets'),
+      hermes_runtime: hermesRuntime,
+    });
+    expect(verifyCommandEveArtifactPythonSite(siteDir)).toMatchObject({
+      ok: false,
+      reason: 'artifact_hermes_runtime_package_set_invalid',
+    });
   });
 
   it('fails closed when one byte in a .py file changes', () => {
