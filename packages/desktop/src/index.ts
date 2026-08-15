@@ -2170,7 +2170,9 @@ const handleAppReady = async (): Promise<void> => {
     // otherwise the legacy/founder home with the 'Founder' label default. A real
     // seat's label/kind ride the same pointer, and are re-captured at
     // applySeatSwitch and re-baked on the switch re-spawn.
-    prepareCommandEveRuntimeProcessEnv(getDataPath());
+    prepareCommandEveRuntimeProcessEnv(getDataPath(), process.env, process.platform, process.resourcesPath, {
+      requireBundledPython: requirePackagedHermesRuntime,
+    });
     // S9 #5 store-split fix: `localModelTierId` is a RENDERER-written key (the
     // local-model tier picker persists it to the BACKEND store, not the
     // main-process ProcessConfig this used to read). Read it from the backend so
@@ -2415,7 +2417,13 @@ const handleAppReady = async (): Promise<void> => {
       await backendManager.stop();
       // Re-bake the shim + re-home process.env.HERMES_HOME for the ACTIVE seat
       // (seatContextCore.getActiveSeatId — already set by applySeatSwitch step a).
-      prepareCommandEveRuntimeProcessEnv(getDataPathForRestart());
+      prepareCommandEveRuntimeProcessEnv(
+        getDataPathForRestart(),
+        process.env,
+        process.platform,
+        process.resourcesPath,
+        { requireBundledPython: app.isPackaged && process.platform === 'darwin' }
+      );
       const runtimePathsForRestart = resolveCommandEveRuntimeBootstrapPaths(getDataPathForRestart());
       const sysDirForRestart = getSystemDirForRestart();
       // Same pre-flight assistant-storage repair as boot, for the now-active seat's

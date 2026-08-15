@@ -551,23 +551,38 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
 }
 
 export function resolveCommandEveArtifactPythonSiteDir(env: NodeJS.ProcessEnv, resourcesPath?: string): string {
+  const verification = resolveCommandEveArtifactPythonSite(env, resourcesPath);
+  return verification.ok ? verification.directory : '';
+}
+
+/** Resolve and verify the first development/Windows artifact-site candidate exactly once. */
+export function resolveCommandEveArtifactPythonSite(
+  env: NodeJS.ProcessEnv,
+  resourcesPath?: string
+): CommandEveArtifactPythonSiteVerification {
   const candidates = [
     String(env[COMMAND_EVE_ARTIFACT_PYTHON_SITE_DIR_ENV] || '').trim(),
     resourcesPath ? path.join(resourcesPath, 'python', COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR) : '',
   ].filter(Boolean);
-  return candidates.find((candidate) => verifyCommandEveArtifactPythonSite(candidate).ok) || '';
+  for (const candidate of candidates) {
+    const verification = verifyCommandEveArtifactPythonSite(candidate);
+    if (verification.ok) return verification;
+  }
+  return { ok: false, reason: 'artifact_site_missing' };
 }
 
 /** Strict packaged resolver: the environment can never redirect the signed runtime outside Resources. */
-export function resolveCommandEvePackagedArtifactPythonSiteDir(resourcesPath?: string): string {
-  if (!resourcesPath) return '';
+export function resolveCommandEvePackagedArtifactPythonSite(
+  resourcesPath?: string
+): CommandEveArtifactPythonSiteVerification {
+  if (!resourcesPath) return { ok: false, reason: 'artifact_site_missing' };
   const resourcesRoot = path.resolve(resourcesPath);
   const pythonRoot = path.join(resourcesRoot, 'python');
   const artifactSite = path.join(pythonRoot, COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR);
   try {
     for (const directory of [resourcesRoot, pythonRoot, artifactSite]) {
       const stat = fs.lstatSync(directory);
-      if (!stat.isDirectory() || stat.isSymbolicLink()) return '';
+      if (!stat.isDirectory() || stat.isSymbolicLink()) return { ok: false, reason: 'artifact_site_invalid' };
     }
     const resourcesReal = fs.realpathSync(resourcesRoot);
     const pythonReal = fs.realpathSync(pythonRoot);
@@ -576,13 +591,27 @@ export function resolveCommandEvePackagedArtifactPythonSiteDir(resourcesPath?: s
       pythonReal !== path.join(resourcesReal, 'python') ||
       artifactReal !== path.join(pythonReal, COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR)
     ) {
-      return '';
+      return { ok: false, reason: 'artifact_site_invalid' };
     }
     const verification = verifyCommandEveArtifactPythonSite(artifactSite);
-    return verification.ok && verification.runtimeKey === 'darwin-arm64' ? verification.directory : '';
+    return verification.ok && verification.runtimeKey === 'darwin-arm64'
+      ? verification
+      : {
+          ok: false,
+          reason: verification.ok
+            ? 'artifact_runtime_key_mismatch'
+            : 'reason' in verification
+              ? verification.reason
+              : 'artifact_site_invalid',
+        };
   } catch {
-    return '';
+    return { ok: false, reason: 'artifact_site_invalid' };
   }
+}
+
+export function resolveCommandEvePackagedArtifactPythonSiteDir(resourcesPath?: string): string {
+  const verification = resolveCommandEvePackagedArtifactPythonSite(resourcesPath);
+  return verification.ok ? verification.directory : '';
 }
 
 export function commandEvePresentationPythonProbeArgs(artifactSiteDirectory = ''): string[] {

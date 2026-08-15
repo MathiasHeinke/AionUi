@@ -4703,7 +4703,9 @@ export function initCommandEveBridge(): void {
         targetSeatId,
         {
           prepareEnv: async () => {
-            prepareCommandEveRuntimeProcessEnv(getDataPath());
+            prepareCommandEveRuntimeProcessEnv(getDataPath(), process.env, process.platform, process.resourcesPath, {
+              requireBundledPython: app.isPackaged && process.platform === 'darwin',
+            });
             // T0 — PROVISION THE TARGET SEAT'S RUNTIME FILES. applySeatSwitch has
             // already run setActiveSeatId(target) (step a), so getActiveSeatId() is the
             // target and prepareCommandEveRuntimeProcessEnv just re-homed HERMES_HOME to

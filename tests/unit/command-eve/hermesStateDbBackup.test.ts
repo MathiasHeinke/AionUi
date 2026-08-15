@@ -19,7 +19,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   backupHermesStateDbsBeforeUpgrade,
@@ -43,6 +43,7 @@ function seedSeat(hermesRoot: string, relativeHome: string, dbBytes?: string): s
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -93,6 +94,29 @@ describe('backupHermesStateDbsBeforeUpgrade', () => {
 
     expect(second[0].status).toBe('already_backed_up');
     expect(fs.readFileSync(first[0].backupPath, 'utf8')).toBe('original-pre-migration-bytes');
+  });
+
+  it('reports success when the complete backup was published but temp cleanup fails', () => {
+    const root = makeHermesRoot();
+    seedSeat(root, 'home', 'protected-bytes');
+    const realUnlinkSync = fs.unlinkSync.bind(fs);
+    vi.spyOn(fs, 'unlinkSync').mockImplementation(((target: fs.PathLike) => {
+      if (String(target).includes('.backup.') && String(target).endsWith('.tmp')) {
+        const error = new Error('temp cleanup denied') as NodeJS.ErrnoException;
+        error.code = 'EACCES';
+        throw error;
+      }
+      return realUnlinkSync(target);
+    }) as typeof fs.unlinkSync);
+
+    const [result] = backupHermesStateDbsBeforeUpgrade({
+      hermesRoot: root,
+      fromVersion: '0.19.0',
+      toVersion: '0.20.0',
+    });
+
+    expect(result.status).toBe('backed_up');
+    expect(fs.readFileSync(result.backupPath, 'utf8')).toBe('protected-bytes');
   });
 
   it('treats a missing DB as first run (no_db), and a missing root as nothing to do', () => {

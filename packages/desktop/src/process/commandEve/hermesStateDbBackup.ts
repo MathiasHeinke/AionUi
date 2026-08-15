@@ -132,18 +132,22 @@ function assertContainedRealDirectory(realRoot: string, candidate: string, label
 function copyFileAtomic(source: string, target: string): void {
   const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
   let failure: unknown;
+  let published = false;
   try {
     fs.copyFileSync(source, temp, fs.constants.COPYFILE_EXCL);
     // linkSync publishes the complete temp inode without ever replacing an
     // already-existing backup. The first pre-migration bytes always win.
     fs.linkSync(temp, target);
+    published = true;
   } catch (error) {
     failure = error;
   }
   try {
     fs.unlinkSync(temp);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT' && failure === undefined) failure = error;
+    // A published hardlink is the complete backup. Temp cleanup failure is a
+    // hygiene issue, not evidence that the protected bytes are missing.
+    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT' && failure === undefined && !published) failure = error;
   }
   if (failure !== undefined) throw failure;
 }
