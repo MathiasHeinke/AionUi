@@ -1,6 +1,6 @@
 {
   "name": "command-eve",
-  "version": "1.822.3",
+  "version": "1.822.4",
   "description": "Command EVE local operator shell for Company.OS.",
   "keywords": [],
   "license": "Apache-2.0",
@@ -333,8 +333,8 @@
     "darwin-arm64": {
       "kind": "command-eve-source-build",
       "repository": "MathiasHeinke/AionCore",
-      "commit": "2aa763576f4703f4267b4c701f95158d579e59d9",
-      "sha256": "6e238a2a8ab5820d5b4ddefebaeb5e2e8941985d2c3814b08275fc8f0c0afa50"
+      "commit": "286dc123886868f9d4532120925787f84bd2eec7",
+      "sha256": "7eb62461dd496441e7942aa423b22cfb3070a562986cad568cc5c7047872cfb9"
     },
     "darwin-x64": {
       "kind": "upstream-release-archive",
@@ -375,7 +375,7 @@
   "aioncoreVersion": "v0.1.37",
   "commandEveAioncoreSource": {
     "repository": "MathiasHeinke/AionCore",
-    "commit": "2aa763576f4703f4267b4c701f95158d579e59d9",
+    "commit": "286dc123886868f9d4532120925787f84bd2eec7",
     "rustToolchain": "1.95.0",
     "targets": {
       "macos-arm64": "aarch64-apple-darwin",
