@@ -40,6 +40,7 @@ import {
   type EncryptSecretResult,
 } from '@/common/config/keychain';
 import type { CommandEveConnectorMcpInvocation } from './connectorCatalogCore';
+import { resolveCanonicalConnectorId } from './connectorIdCore';
 import {
   VAULT_CONNECTOR_RECORD_VERSION,
   writeVaultRecord as realWriteVaultRecord,
@@ -113,10 +114,11 @@ export function runGuidedApiKeySetup(
   }
 
   // Basic shape guards.
-  const connectorId = typeof input.connector_id === 'string' ? input.connector_id.trim() : '';
-  if (!connectorId) {
-    return { ok: false, reason_code: 'GUIDED_AUTH_CONNECTOR_ID_MISSING' };
+  const canonicalId = resolveCanonicalConnectorId(input.connector_id);
+  if (!canonicalId.ok) {
+    return { ok: false, reason_code: 'GUIDED_AUTH_CONNECTOR_ID_UNSAFE' };
   }
+  const connectorId = canonicalId.connectorId;
 
   // 2. PREFLIGHT-GATE: need the manifest invocation (which env NAMES the server wants).
   const invocation = input.mcp_invocation;

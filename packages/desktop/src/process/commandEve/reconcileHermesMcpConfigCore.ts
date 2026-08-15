@@ -20,8 +20,8 @@
  *      — arch §7 recommendation: prefer the full re-render, fewer special cases,
  *      the feeder inside it already reads the vault for the active seat);
  *   3. trigger the backend re-spawn via the existing seatSwitchRuntime restart
- *      hook (restartCommandEveBackendForSeat) so the new agent inherits the fresh
- *      config.yaml.
+ *      hook supplied by the lifecycle-reservation owner so the new agent
+ *      inherits the fresh config.yaml without an unleased restart.
  *
  * SAFETY GATE (arch §7/§8/§11.5): the feeder inside the re-render is behind
  * `COMMAND_EVE_MCP_VAULT_ENABLED`, now a kill switch rather than an opt-in
@@ -37,7 +37,6 @@
  */
 
 import { getActiveSeatId as realGetActiveSeatId } from './seatContextCore';
-import { restartCommandEveBackendForSeat as realRestart } from './seatSwitchRuntime';
 
 /** The reconcile receipt (arch §7: `{ seatId, connector_count, at }`). */
 export interface ReconcileReceipt {
@@ -69,8 +68,8 @@ export interface ReconcileOptions {
 }
 
 /**
- * Injectable seams (arch §7 "pure resolve + injectable fs/respawn"). All default
- * to the real cores so production wiring is a single call; tests inject mocks.
+ * Injectable seams (arch §7 "pure resolve + injectable fs/respawn"). Production
+ * wiring supplies the leased respawn owner; tests inject mocks.
  */
 export interface ReconcileDeps {
   /** Resolve the active seat id. Defaults to seatContextCore.getActiveSeatId. */
@@ -103,7 +102,7 @@ export async function reconcileHermesMcpConfigForActiveSeat(
   options: ReconcileOptions = {}
 ): Promise<ReconcileReceipt> {
   const getActiveSeatId = deps.getActiveSeatId ?? realGetActiveSeatId;
-  const respawn = deps.respawn ?? realRestart;
+  const respawn = deps.respawn;
   const now = deps.now ?? (() => new Date());
   const respawnAfter = options.respawnAfter ?? true;
   const seatId = getActiveSeatId();
@@ -126,6 +125,15 @@ export async function reconcileHermesMcpConfigForActiveSeat(
   // caller (seat-switch) owns the single respawn itself. Runs ONLY after a
   // successful re-render (never respawn onto a half-written config).
   if (respawnAfter) {
+    if (!respawn) {
+      return {
+        ok: false,
+        seat_id: seatId,
+        connector_count: connectorCount,
+        at: now().toISOString(),
+        reason_code: 'RECONCILE_RESPAWN_OWNER_REQUIRED',
+      };
+    }
     try {
       await respawn();
     } catch (error) {

@@ -56,6 +56,24 @@ afterEach(() => {
 });
 
 describe('runGuidedApiKeySetup — keychain fail-closed FIRST (arch §6.2/§11.1)', () => {
+  it('rejects a non-canonical connector id before encryption or filesystem mutation', () => {
+    setSafeStorageForTesting(makeAvailableAdapter());
+    const userDataPath = makeTmpRoot();
+    const before = fs.readdirSync(userDataPath);
+    const result = runGuidedApiKeySetup({
+      connector_id: '../../notion',
+      mcp_invocation: NOTION_INVOCATION,
+      secrets: { NOTION_TOKEN: 'plaintext-should-never-land' },
+      scope: 'founder',
+      human_gate_receipt: 'receipt://hg-3/x',
+      userDataPath,
+    });
+
+    expect(result).toEqual({ ok: false, reason_code: 'GUIDED_AUTH_CONNECTOR_ID_UNSAFE' });
+    expect(fs.readdirSync(userDataPath)).toEqual(before);
+    expect(JSON.stringify(result)).not.toContain('plaintext-should-never-land');
+  });
+
   it('REFUSES when secure storage is unavailable and writes NO record + NO plaintext', () => {
     setSafeStorageForTesting(null); // no encryption backend
     const userDataPath = makeTmpRoot();

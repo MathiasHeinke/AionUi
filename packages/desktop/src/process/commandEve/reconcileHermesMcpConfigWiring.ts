@@ -33,6 +33,10 @@ import {
 } from './seatSwitchRuntime';
 import { getCanonicalDataPath as realGetCanonicalDataPath, getDataPath as realGetDataPath } from '../utils/utils';
 
+const COMMAND_EVE_BACKEND_FAIL_CLOSED_PROVEN_WITH_CLEANUP_ERROR =
+  'COMMAND_EVE_BACKEND_FAIL_CLOSED_PROVEN_WITH_CLEANUP_ERROR';
+const COMMAND_EVE_CONNECTOR_AUTHORITY_QUEUE_WAIT_MS = 300_000;
+
 /** Injectable seams for the wiring (defaults = the real main-process cores). */
 export interface ReconcileWiringDeps {
   /** Resolve the userData root. Defaults to utils.getDataPath. */
@@ -62,7 +66,12 @@ export type ConnectorAuthorityMutation<T> = Readonly<{
 export type ConnectorAuthorityTransactionOutcome<T> = Readonly<{
   ok: boolean;
   value: T;
-  terminal_state: 'committed' | 'mutation_rejected' | 'prior_authority_restored' | 'backend_fail_closed';
+  terminal_state:
+    | 'committed'
+    | 'mutation_rejected'
+    | 'prior_authority_restored'
+    | 'backend_fail_closed'
+    | 'termination_unproven';
   reconcile?: ReconcileReceipt;
   original_error?: string;
   rollback?: Readonly<{
@@ -81,13 +90,41 @@ export type ConnectorAuthorityTransactionInput<T, R> = Readonly<{
   failClosed?: (lease: CommandEveBackendRestartLease) => void | Promise<void>;
 }>;
 
-function sanitizeConnectorAuthorityDiagnostic(value: unknown, fallback: string): string {
+export function sanitizeConnectorAuthorityDiagnostic(value: unknown, fallback: string): string {
   const message = (value instanceof Error ? value.message : typeof value === 'string' ? value : fallback)
     .replace(/\b(keychain:v1:)[^\s,;]+/gi, '$1[redacted]')
     .replace(/\b(authorization)(\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi, '$1$2[redacted]')
-    .replace(/\b(api[_-]?key|token|secret)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[redacted]')
+    .replace(/\b([a-z0-9_-]*(?:api[_-]?key|token|secret))(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[redacted]')
     .trim();
   return (message || fallback).slice(0, 600);
+}
+
+function errorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+async function reconcileConnectorAuthority(
+  trigger: 'approve' | 'revoke',
+  deps: ReconcileWiringDeps | undefined,
+  restartLease: CommandEveBackendRestartLease
+): Promise<ReconcileReceipt> {
+  try {
+    return sanitizeConnectorAuthorityReceipt(
+      await reconcileVaultConfigAfterConnectorChange(trigger, deps, restartLease)
+    );
+  } catch (error) {
+    const { getActiveSeatId } = await import('./seatContextCore');
+    const now = deps?.now ?? (() => new Date());
+    return {
+      ok: false,
+      seat_id: getActiveSeatId(),
+      connector_count: 0,
+      at: now().toISOString(),
+      reason_code: sanitizeConnectorAuthorityDiagnostic(error, 'CONNECTOR_AUTHORITY_RECONCILE_THROWN'),
+    };
+  }
 }
 
 function sanitizeConnectorAuthorityReceipt(receipt: ReconcileReceipt): ReconcileReceipt {
@@ -107,89 +144,99 @@ function sanitizeConnectorAuthorityReceipt(receipt: ReconcileReceipt): Reconcile
 export function runConnectorAuthorityMutationTransaction<T, R>(
   input: ConnectorAuthorityTransactionInput<T, R>
 ): Promise<R> {
-  return runCommandEveBackendRestartReservation(async (restartLease) => {
-    const mutation = await input.mutate();
-    if (!mutation.accepted) {
-      return input.finalize({
-        ok: false,
-        value: mutation.value,
-        terminal_state: 'mutation_rejected',
-        original_error: sanitizeConnectorAuthorityDiagnostic(
-          mutation.failureReason,
-          'CONNECTOR_AUTHORITY_MUTATION_REJECTED'
-        ),
-      });
-    }
-
-    const primary = sanitizeConnectorAuthorityReceipt(
-      await reconcileVaultConfigAfterConnectorChange(input.trigger, input.reconcileDeps, restartLease)
-    );
-    if (primary.ok) {
-      return input.finalize({
-        ok: true,
-        value: mutation.value,
-        terminal_state: 'committed',
-        reconcile: primary,
-      });
-    }
-
-    const originalError = sanitizeConnectorAuthorityDiagnostic(
-      primary.reason_code,
-      'CONNECTOR_AUTHORITY_PRIMARY_RECONCILE_FAILED'
-    );
-    let mutationRestored = false;
-    let mutationRollbackError: string | undefined;
-    try {
-      mutationRestored = (await mutation.rollback()) === true;
-      if (!mutationRestored) mutationRollbackError = 'CONNECTOR_AUTHORITY_VAULT_ROLLBACK_FAILED';
-    } catch (error) {
-      mutationRollbackError = sanitizeConnectorAuthorityDiagnostic(error, 'CONNECTOR_AUTHORITY_VAULT_ROLLBACK_FAILED');
-    }
-
-    let rollbackReconcile: ReconcileReceipt | undefined;
-    let rollbackError = mutationRollbackError;
-    if (mutationRestored) {
-      rollbackReconcile = sanitizeConnectorAuthorityReceipt(
-        await reconcileVaultConfigAfterConnectorChange(mutation.rollbackTrigger, input.reconcileDeps, restartLease)
-      );
-      if (rollbackReconcile.ok) {
+  return runCommandEveBackendRestartReservation(
+    async (restartLease) => {
+      const mutation = await input.mutate();
+      if (!mutation.accepted) {
         return input.finalize({
           ok: false,
           value: mutation.value,
-          terminal_state: 'prior_authority_restored',
-          reconcile: primary,
-          original_error: originalError,
-          rollback: { mutation_restored: true, reconcile: rollbackReconcile },
+          terminal_state: 'mutation_rejected',
+          original_error: sanitizeConnectorAuthorityDiagnostic(
+            mutation.failureReason,
+            'CONNECTOR_AUTHORITY_MUTATION_REJECTED'
+          ),
         });
       }
-      rollbackError = sanitizeConnectorAuthorityDiagnostic(
-        rollbackReconcile.reason_code,
-        'CONNECTOR_AUTHORITY_ROLLBACK_RECONCILE_FAILED'
-      );
-    }
 
-    let failClosedError: string | undefined;
-    try {
-      await (input.failClosed ?? failCommandEveBackendAuthorityClosed)(restartLease);
-    } catch (error) {
-      // The production hook clears manager/global port truth in `finally`, so a
-      // cleanup error is diagnostic, not permission to report the backend live.
-      failClosedError = sanitizeConnectorAuthorityDiagnostic(error, 'CONNECTOR_AUTHORITY_FAIL_CLOSED_ERROR');
-    }
-    return input.finalize({
-      ok: false,
-      value: mutation.value,
-      terminal_state: 'backend_fail_closed',
-      reconcile: primary,
-      original_error: originalError,
-      rollback: {
-        mutation_restored: mutationRestored,
-        ...(rollbackReconcile ? { reconcile: rollbackReconcile } : {}),
-        ...(rollbackError ? { error: rollbackError } : {}),
-        ...(failClosedError ? { fail_closed_error: failClosedError } : {}),
-      },
-    });
-  });
+      const primary = await reconcileConnectorAuthority(input.trigger, input.reconcileDeps, restartLease);
+      if (primary.ok) {
+        return input.finalize({
+          ok: true,
+          value: mutation.value,
+          terminal_state: 'committed',
+          reconcile: primary,
+        });
+      }
+
+      const originalError = sanitizeConnectorAuthorityDiagnostic(
+        primary.reason_code,
+        'CONNECTOR_AUTHORITY_PRIMARY_RECONCILE_FAILED'
+      );
+      let mutationRestored = false;
+      let mutationRollbackError: string | undefined;
+      try {
+        mutationRestored = (await mutation.rollback()) === true;
+        if (!mutationRestored) mutationRollbackError = 'CONNECTOR_AUTHORITY_VAULT_ROLLBACK_FAILED';
+      } catch (error) {
+        mutationRollbackError = sanitizeConnectorAuthorityDiagnostic(
+          error,
+          'CONNECTOR_AUTHORITY_VAULT_ROLLBACK_FAILED'
+        );
+      }
+
+      let rollbackReconcile: ReconcileReceipt | undefined;
+      let rollbackError = mutationRollbackError;
+      if (mutationRestored) {
+        rollbackReconcile = await reconcileConnectorAuthority(
+          mutation.rollbackTrigger,
+          input.reconcileDeps,
+          restartLease
+        );
+        if (rollbackReconcile.ok) {
+          return input.finalize({
+            ok: false,
+            value: mutation.value,
+            terminal_state: 'prior_authority_restored',
+            reconcile: primary,
+            original_error: originalError,
+            rollback: { mutation_restored: true, reconcile: rollbackReconcile },
+          });
+        }
+        rollbackError = sanitizeConnectorAuthorityDiagnostic(
+          rollbackReconcile.reason_code,
+          'CONNECTOR_AUTHORITY_ROLLBACK_RECONCILE_FAILED'
+        );
+      }
+
+      let failClosedError: string | undefined;
+      let failClosedProven = false;
+      try {
+        await (input.failClosed ?? failCommandEveBackendAuthorityClosed)(restartLease);
+        failClosedProven = true;
+      } catch (error) {
+        failClosedError = sanitizeConnectorAuthorityDiagnostic(error, 'CONNECTOR_AUTHORITY_FAIL_CLOSED_ERROR');
+        // Only the production hook's explicit proof marker can turn a cleanup
+        // diagnostic into a safe-down claim. A missing hook, failed signal or
+        // unproven process-group absence must remain operationally blocking.
+        failClosedProven = errorCode(error) === COMMAND_EVE_BACKEND_FAIL_CLOSED_PROVEN_WITH_CLEANUP_ERROR;
+      }
+      return input.finalize({
+        ok: false,
+        value: mutation.value,
+        terminal_state: failClosedProven ? 'backend_fail_closed' : 'termination_unproven',
+        reconcile: primary,
+        original_error: originalError,
+        rollback: {
+          mutation_restored: mutationRestored,
+          ...(rollbackReconcile ? { reconcile: rollbackReconcile } : {}),
+          ...(rollbackError ? { error: rollbackError } : {}),
+          ...(failClosedError ? { fail_closed_error: failClosedError } : {}),
+        },
+      });
+    },
+    { queueWaitTimeoutMs: COMMAND_EVE_CONNECTOR_AUTHORITY_QUEUE_WAIT_MS }
+  );
 }
 
 /**
@@ -266,7 +313,9 @@ export async function reconcileVaultConfigAfterConnectorChange(
   // passes that exact lease through vault mutation, render and respawn. Direct
   // callers retain the safe standalone behavior and acquire their own lease.
   if (restartLease) return reconcileUnderLease(restartLease);
-  return runCommandEveBackendRestartReservation(reconcileUnderLease);
+  return runCommandEveBackendRestartReservation(reconcileUnderLease, {
+    queueWaitTimeoutMs: COMMAND_EVE_CONNECTOR_AUTHORITY_QUEUE_WAIT_MS,
+  });
 }
 
 /**

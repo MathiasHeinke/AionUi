@@ -338,7 +338,7 @@ describe('reconcile wiring — flag ON delegates to the pure core', () => {
     ]);
   });
 
-  it('fails closed with both diagnostics when rollback cannot republish prior authority', async () => {
+  it('reports termination unproven with redacted diagnostics when fail-closed itself throws without proof', async () => {
     setMcpVaultEnabledForTests(true);
     const state: {
       vault: string;
@@ -383,8 +383,8 @@ describe('reconcile wiring — flag ON delegates to the pure core', () => {
           state.provider = state.config;
           throw new Error(
             respawnAttempt === 1
-              ? 'primary provider validation failed token=primary-secret'
-              : 'rollback provider validation failed authorization=Bearer rollback-secret'
+              ? 'primary provider validation failed NOTION_TOKEN=primary-secret'
+              : 'rollback provider validation failed VENDOR_API_KEY=rollback-secret'
           );
         },
       },
@@ -393,16 +393,16 @@ describe('reconcile wiring — flag ON delegates to the pure core', () => {
         state.managerPort = 0;
         state.globalPort = undefined;
         state.provider = 'unavailable';
-        throw new Error('registry cleanup failed secret=cleanup-secret');
+        throw new Error('registry cleanup failed SERVICE_SECRET=cleanup-secret');
       },
       finalize: (transaction) => transaction,
     });
 
     expect(outcome.ok).toBe(false);
-    expect(outcome.terminal_state).toBe('backend_fail_closed');
-    expect(outcome.original_error).toContain('token=[redacted]');
-    expect(outcome.rollback?.error).toContain('authorization=[redacted]');
-    expect(outcome.rollback?.fail_closed_error).toContain('secret=[redacted]');
+    expect(outcome.terminal_state).toBe('termination_unproven');
+    expect(outcome.original_error).toContain('NOTION_TOKEN=[redacted]');
+    expect(outcome.rollback?.error).toContain('VENDOR_API_KEY=[redacted]');
+    expect(outcome.rollback?.fail_closed_error).toContain('SERVICE_SECRET=[redacted]');
     expect(JSON.stringify(outcome)).not.toMatch(/primary-secret|rollback-secret|cleanup-secret/);
     expect(state).toEqual({
       vault: 'prior-authority',
@@ -412,6 +412,58 @@ describe('reconcile wiring — flag ON delegates to the pure core', () => {
       globalPort: undefined,
       provider: 'unavailable',
     });
+  });
+
+  it('claims backend_fail_closed only after an explicit safe-down proof', async () => {
+    setMcpVaultEnabledForTests(true);
+    const failClosed = vi.fn(async () => undefined);
+    const outcome = await runConnectorAuthorityMutationTransaction({
+      trigger: 'approve',
+      mutate: () => ({
+        value: { connector_id: 'notion-workspace' },
+        accepted: true,
+        rollbackTrigger: 'revoke' as const,
+        rollback: () => false,
+      }),
+      reconcileDeps: {
+        reRenderConfig: async () => {
+          throw new Error('primary projection failed');
+        },
+      },
+      failClosed,
+      finalize: (transaction) => transaction,
+    });
+
+    expect(failClosed).toHaveBeenCalledOnce();
+    expect(outcome.terminal_state).toBe('backend_fail_closed');
+  });
+
+  it('keeps a proven stop with a tagged cleanup diagnostic distinct from termination_unproven', async () => {
+    setMcpVaultEnabledForTests(true);
+    const outcome = await runConnectorAuthorityMutationTransaction({
+      trigger: 'approve',
+      mutate: () => ({
+        value: { connector_id: 'notion-workspace' },
+        accepted: true,
+        rollbackTrigger: 'revoke' as const,
+        rollback: () => false,
+      }),
+      reconcileDeps: {
+        reRenderConfig: async () => {
+          throw new Error('primary projection failed');
+        },
+      },
+      failClosed: async () => {
+        throw Object.assign(new Error('cleanup NOTION_TOKEN=do-not-leak'), {
+          code: 'COMMAND_EVE_BACKEND_FAIL_CLOSED_PROVEN_WITH_CLEANUP_ERROR',
+        });
+      },
+      finalize: (transaction) => transaction,
+    });
+
+    expect(outcome.terminal_state).toBe('backend_fail_closed');
+    expect(outcome.rollback?.fail_closed_error).toContain('NOTION_TOKEN=[redacted]');
+    expect(JSON.stringify(outcome)).not.toContain('do-not-leak');
   });
 
   it('uses the same atomic seam for a generic revoke and restores prior authority on failure', async () => {

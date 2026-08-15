@@ -133,7 +133,7 @@ import {
 } from './process/commandEve/companyOsRootResolveCore';
 import { getDataPath } from '@process/utils/utils';
 import { registerWindowMaximizeListeners } from '@process/bridge';
-import { BackendLifecycleManager } from '@aionui/web-host';
+import { COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN, BackendLifecycleManager } from '@aionui/web-host';
 import { resolveBinaryPath } from '@process/backend';
 import './process/bridge/feedbackBridge';
 import './process/bridge/desktopShellBridge';
@@ -338,6 +338,7 @@ const backendManager = new BackendLifecycleManager(
   resolveBinaryPath
 );
 const COMMAND_EVE_CRASH_RECOVERY_QUEUE_WAIT_MS = 60_000;
+const COMMAND_EVE_DEFERRED_RUNTIME_RESTART_QUEUE_WAIT_MS = 300_000;
 const runCommandEveCrashRestartUnderReservation = async (crash: {
   claimIfCurrent: () => boolean;
 }): Promise<number | undefined> =>
@@ -1241,8 +1242,14 @@ function commandEveAuthorityDiagnostic(error: unknown, fallback: string): string
   return (error instanceof Error ? error.message : typeof error === 'string' ? error : fallback)
     .replace(/\b(keychain:v1:)[^\s,;]+/gi, '$1[redacted]')
     .replace(/\b(authorization)(\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi, '$1$2[redacted]')
-    .replace(/\b(api[_-]?key|token|secret)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[redacted]')
+    .replace(/\b([a-z0-9_-]*(?:api[_-]?key|token|secret))(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[redacted]')
     .slice(0, 600);
+}
+
+function commandEveAuthorityErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
 }
 
 function ensureCommandEveAssistantReadiness(): Promise<CommandEveAssistantEnsureResult> {
@@ -2310,9 +2317,14 @@ const handleAppReady = async (): Promise<void> => {
                   hermesReadyAfterBootstrap: fs.existsSync(runtimePaths.hermesShim),
                 })
               ) {
-                const { restartCommandEveBackendForSeat: restartCommandEveBackendAfterWindowsBootstrap } =
-                  await import('./process/commandEve/seatSwitchRuntime');
-                await restartCommandEveBackendAfterWindowsBootstrap();
+                const {
+                  restartCommandEveBackendForSeat: restartCommandEveBackendAfterWindowsBootstrap,
+                  runCommandEveBackendRestartReservation: reserveCommandEveBackendAfterWindowsBootstrap,
+                } = await import('./process/commandEve/seatSwitchRuntime');
+                await reserveCommandEveBackendAfterWindowsBootstrap(
+                  (restartLease) => restartCommandEveBackendAfterWindowsBootstrap(restartLease),
+                  { queueWaitTimeoutMs: COMMAND_EVE_DEFERRED_RUNTIME_RESTART_QUEUE_WAIT_MS }
+                );
                 mark('commandEveBackendRestartAfterRuntimeBootstrap');
               }
               scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark);
@@ -2489,6 +2501,7 @@ const handleAppReady = async (): Promise<void> => {
     let commandEveRespawnGeneration = 0;
     setCommandEveBackendAuthorityFailClosed(async () => {
       const cleanupErrors: string[] = [];
+      let terminationError: unknown;
       // Remove external truth before the destructive stop. The manager clears
       // its own port synchronously at stop entry, even if registry cleanup later
       // throws after the child is already dead.
@@ -2503,14 +2516,20 @@ const handleAppReady = async (): Promise<void> => {
       try {
         await backendManager.stop();
       } catch (error) {
-        cleanupErrors.push(commandEveAuthorityDiagnostic(error, 'backend stop cleanup failed'));
+        if (commandEveAuthorityErrorCode(error) === COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN) {
+          terminationError = error;
+        } else {
+          cleanupErrors.push(commandEveAuthorityDiagnostic(error, 'backend stop cleanup failed'));
+        }
       } finally {
         delete (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
         backendStartedOk = false;
       }
+      if (terminationError) throw terminationError;
       if (cleanupErrors.length > 0) {
-        throw new Error(
-          `Command EVE backend fail-closed stop completed with cleanup errors: ${cleanupErrors.join(' | ')}`
+        throw Object.assign(
+          new Error(`Command EVE backend fail-closed stop completed with cleanup errors: ${cleanupErrors.join(' | ')}`),
+          { code: 'COMMAND_EVE_BACKEND_FAIL_CLOSED_PROVEN_WITH_CLEANUP_ERROR' }
         );
       }
     });

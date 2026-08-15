@@ -169,17 +169,18 @@ describe('Command EVE runtime bridge registration', () => {
       path.resolve(__dirname, '../../../packages/desktop/src/process/bridge/commandEveBridge.ts'),
       'utf8'
     );
-    const switchProvider = source.indexOf("bridge.buildProvider('command-eve.switch-seat')");
-    const reservation = source.indexOf(
-      'runCommandEveBackendRestartReservation(async (restartLease) => {',
-      switchProvider
-    );
+    const switchProvider = source.indexOf(".buildProvider('command-eve.switch-seat')");
+    const reservation = source.indexOf('runCommandEveBackendRestartReservation(', switchProvider);
+    const explicitLease = source.indexOf('async (restartLease) => {', reservation);
     const authorityMutation = source.indexOf('applySeatSwitch(', reservation);
     const leasedRestart = source.indexOf('restartCommandEveBackendForSeat(restartLease)', authorityMutation);
     const terminalRefresh = source.indexOf('await refreshBrowserWorkbenchContextBestEffort();', leasedRestart);
     const reservationEnd = source.indexOf('return switchResult;', terminalRefresh);
 
+    expect(switchProvider).toBeGreaterThan(-1);
     expect(reservation).toBeGreaterThan(switchProvider);
+    expect(explicitLease).toBeGreaterThan(reservation);
+    expect(explicitLease).toBeLessThan(authorityMutation);
     expect(authorityMutation).toBeGreaterThan(reservation);
     expect(leasedRestart).toBeGreaterThan(authorityMutation);
     expect(terminalRefresh).toBeGreaterThan(leasedRestart);
@@ -191,22 +192,32 @@ describe('Command EVE runtime bridge registration', () => {
       path.resolve(__dirname, '../../../packages/desktop/src/process/bridge/commandEveBridge.ts'),
       'utf8'
     );
-    const provider = source.indexOf("bridge.buildProvider('command-eve.guided-auth-setup')");
+    const provider = source.indexOf(".buildProvider('command-eve.guided-auth-setup')");
     const inFlightBlock = source.indexOf('if (commandEveSwitchSeatInFlight) {', provider);
     const transaction = source.indexOf('return await runConnectorAuthorityMutationTransaction({', provider);
+    const canonicalRequest = source.indexOf('resolveCanonicalConnectorId(request?.connectorId)', transaction);
+    const exactManifest = source.indexOf('entry.id === connectorId', canonicalRequest);
     const firstSeatRead = source.indexOf("const seatId = scope === 'seat' ? getActiveSeatId() : undefined;", provider);
     const vaultMutation = source.indexOf('const result = runGuidedApiKeySetup({', provider);
     const byteSnapshot = source.indexOf('readVaultRecordFileSnapshot(vaultDir, connectorId)', provider);
     const byteRollback = source.indexOf('restoreVaultRecordFileSnapshot(', vaultMutation);
     const responseTerminal = source.indexOf('authority_transaction:', byteRollback);
+    const providerEnd = source.indexOf(".buildProvider('command-eve.skill-library')", responseTerminal);
 
+    expect(provider).toBeGreaterThan(-1);
+    expect(providerEnd).toBeGreaterThan(responseTerminal);
     expect(inFlightBlock).toBeGreaterThan(provider);
     expect(transaction).toBeGreaterThan(inFlightBlock);
+    expect(canonicalRequest).toBeGreaterThan(transaction);
+    expect(exactManifest).toBeGreaterThan(canonicalRequest);
     expect(firstSeatRead).toBeGreaterThan(transaction);
     expect(byteSnapshot).toBeGreaterThan(firstSeatRead);
     expect(vaultMutation).toBeGreaterThan(byteSnapshot);
     expect(byteRollback).toBeGreaterThan(vaultMutation);
     expect(responseTerminal).toBeGreaterThan(byteRollback);
+    expect(source.slice(provider, providerEnd)).toContain(
+      "sanitizeConnectorAuthorityDiagnostic(error, 'Command EVE guided auth setup bridge failed.')"
+    );
   });
 
   it('preserves the live port and never stops or starts when pre-stop admission fails', async () => {
@@ -313,9 +324,13 @@ describe('Command EVE runtime bridge registration', () => {
       events.push(`publish:${id}:${publishedPort}`);
     });
 
-    const first = restartCommandEveBackendForSeat();
+    const first = runCommandEveBackendRestartReservation((restartLease) =>
+      restartCommandEveBackendForSeat(restartLease)
+    );
     await firstStopped;
-    const second = restartCommandEveBackendForSeat();
+    const second = runCommandEveBackendRestartReservation((restartLease) =>
+      restartCommandEveBackendForSeat(restartLease)
+    );
     await Promise.resolve();
     expect(events).toEqual(['stop:1:child-0']);
     expect(childProcess).toBeNull();
@@ -566,9 +581,9 @@ describe('Command EVE runtime bridge registration', () => {
       await restartCommandEveBackendForSeat(restartLease);
     });
 
-    await expect(restartCommandEveBackendForSeat()).rejects.toThrow(
-      'recursive backend restart refused; the shared lifecycle lock is non-reentrant'
-    );
+    await expect(
+      runCommandEveBackendRestartReservation((restartLease) => restartCommandEveBackendForSeat(restartLease))
+    ).rejects.toThrow('recursive backend restart refused; the shared lifecycle lock is non-reentrant');
   });
 
   it('lets a child exit callback acquire fresh crash authority after its spawn reservation terminates', async () => {
@@ -630,26 +645,20 @@ describe('Command EVE runtime bridge registration', () => {
     expect(sources[2]).toContain('runConnectorAuthorityMutationTransaction');
   });
 
-  it('bounds an accidental unleased nested restart instead of deadlocking the lifecycle lane', async () => {
-    vi.useFakeTimers();
+  it('rejects an aliased unleased restart immediately instead of queuing behind its owner', async () => {
     const restart = vi.fn(async () => {});
     setCommandEveBackendRestart(restart);
-    try {
-      await runCommandEveBackendRestartReservation(async () => {
-        const nested = restartCommandEveBackendForSeat();
-        const nestedAssertion = expect(nested).rejects.toThrow(
-          'backend lifecycle reservation timed out before acquiring the shared lane'
-        );
-        await vi.advanceTimersByTimeAsync(30_000);
-        await nestedAssertion;
-      });
-      await Promise.resolve();
-      expect(restart).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    const aliasedRestart = restartCommandEveBackendForSeat;
+    await runCommandEveBackendRestartReservation(async () => {
+      await expect(aliasedRestart(undefined as unknown as Parameters<typeof aliasedRestart>[0])).rejects.toThrow(
+        'backend restart requires an explicit active lifecycle lease'
+      );
+    });
+    expect(restart).not.toHaveBeenCalled();
 
-    await expect(restartCommandEveBackendForSeat()).resolves.toBeUndefined();
+    await expect(
+      runCommandEveBackendRestartReservation((restartLease) => aliasedRestart(restartLease))
+    ).resolves.toBeUndefined();
     expect(restart).toHaveBeenCalledOnce();
   });
 
@@ -708,6 +717,34 @@ describe('Command EVE runtime bridge registration', () => {
     await expect(runCommandEveBackendRestartReservation(async () => 'next')).resolves.toBe('next');
   });
 
+  it('does not impose the removed 30s default on a caller that deliberately owns its own terminal bound', async () => {
+    vi.useFakeTimers();
+    let markOwnerEntered!: () => void;
+    let releaseOwner!: () => void;
+    const ownerEntered = new Promise<void>((resolve) => {
+      markOwnerEntered = resolve;
+    });
+    const ownerGate = new Promise<void>((resolve) => {
+      releaseOwner = resolve;
+    });
+    const events: string[] = [];
+    const owner = runCommandEveBackendRestartReservation(async () => {
+      events.push('owner');
+      markOwnerEntered();
+      await ownerGate;
+    });
+    await ownerEntered;
+    const waiter = runCommandEveBackendRestartReservation(async () => {
+      events.push('waiter');
+    });
+
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(events).toEqual(['owner']);
+    releaseOwner();
+    await Promise.all([owner, waiter]);
+    expect(events).toEqual(['owner', 'waiter']);
+  });
+
   it('clears dead published-port truth when crash admission fails before backend mutation', async () => {
     const clearDeadBackendPort = vi.fn();
     const recover = vi.fn(async () => {
@@ -747,8 +784,12 @@ describe('Command EVE runtime bridge registration', () => {
       if (attempt === 1) throw new Error('first restart rejected');
     });
 
-    await expect(restartCommandEveBackendForSeat()).rejects.toThrow('first restart rejected');
-    await expect(restartCommandEveBackendForSeat()).resolves.toBeUndefined();
+    await expect(
+      runCommandEveBackendRestartReservation((restartLease) => restartCommandEveBackendForSeat(restartLease))
+    ).rejects.toThrow('first restart rejected');
+    await expect(
+      runCommandEveBackendRestartReservation((restartLease) => restartCommandEveBackendForSeat(restartLease))
+    ).resolves.toBeUndefined();
     expect(attempt).toBe(2);
   });
 

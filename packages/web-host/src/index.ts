@@ -6,6 +6,8 @@ export type { StaticServerOptions, StaticServerHandle } from './static-server.js
 
 // Backend launcher exports (M4)
 export {
+  COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN,
+  BackendTerminationUnprovenError,
   BackendStartupCancelledError,
   BackendLifecycleManager,
   buildSpawnArgs,

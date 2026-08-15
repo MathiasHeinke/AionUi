@@ -456,7 +456,8 @@ describe('Command EVE Windows build workflow contract', () => {
 
     expect(main).toContain('shouldRestartWindowsBackendAfterRuntimeBootstrap');
     expect(main).toContain("surface: isWebUIMode ? 'webui' : 'desktop'");
-    expect(main).toContain('await restartCommandEveBackendForSeat()');
+    expect(main).toContain('restartCommandEveBackendAfterWindowsBootstrap(restartLease)');
+    expect(main).toContain('queueWaitTimeoutMs: COMMAND_EVE_DEFERRED_RUNTIME_RESTART_QUEUE_WAIT_MS');
     expect(main).toContain('commandEveBackendRestartAfterRuntimeBootstrap');
   });
 });

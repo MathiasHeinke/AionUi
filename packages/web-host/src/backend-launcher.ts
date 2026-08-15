@@ -194,6 +194,28 @@ export class BackendStartupCancelledError extends Error {
   }
 }
 
+export const COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN = 'COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN' as const;
+
+export type BackendTerminationUnprovenDetails = Readonly<{
+  pid?: number;
+  phase: 'missing_pid' | 'signal_failed' | 'child_terminal_timeout' | 'group_probe_failed' | 'group_survived';
+  signal?: 'SIGTERM' | 'SIGKILL' | 0;
+  error_code?: string;
+}>;
+
+export class BackendTerminationUnprovenError extends Error {
+  readonly code = COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN;
+  readonly details: BackendTerminationUnprovenDetails;
+  readonly cause?: unknown;
+
+  constructor(message: string, details: BackendTerminationUnprovenDetails, cause?: unknown) {
+    super(message);
+    this.name = 'BackendTerminationUnprovenError';
+    this.details = details;
+    this.cause = cause;
+  }
+}
+
 export function buildSpawnArgs(config: SpawnConfig): string[] {
   const logLevel = process.env.AIONUI_LOG_LEVEL || (config.isPackaged ? 'info' : 'debug');
   const args = [
@@ -400,57 +422,147 @@ function getResolveDiagnostics(error: unknown): Partial<BackendStartupErrorDetai
   return diagnostics as Partial<BackendStartupErrorDetails>;
 }
 
-function killBackendProcessTree(childProcess: ChildProcess | null, signal: 'SIGTERM' | 'SIGKILL'): void {
-  if (!childProcess?.pid) return;
+function processErrorCode(error: unknown): string | undefined {
+  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : undefined;
+}
 
-  if (process.platform === 'win32') {
-    const args = ['/PID', String(childProcess.pid), '/T'];
-    if (signal === 'SIGKILL') {
-      args.unshift('/F');
-    }
-    try {
-      spawn('taskkill', args, {
-        stdio: 'ignore',
-        windowsHide: true,
-      }).unref();
-    } catch {
-      /* best-effort tree kill */
-    }
-    return;
-  }
+function backendTerminationUnproven(
+  pid: number | undefined,
+  phase: BackendTerminationUnprovenDetails['phase'],
+  signal: BackendTerminationUnprovenDetails['signal'],
+  error?: unknown
+): BackendTerminationUnprovenError {
+  const errorCode = processErrorCode(error);
+  return new BackendTerminationUnprovenError(
+    `aioncore termination could not be proven (phase=${phase}, pid=${String(pid ?? 'missing')}, signal=${String(signal)}, code=${errorCode ?? 'unknown'})`,
+    { pid, phase, signal, ...(errorCode ? { error_code: errorCode } : {}) },
+    error
+  );
+}
 
+function childProcessIsTerminal(childProcess: ChildProcess): boolean {
+  return (
+    (childProcess.exitCode !== null && childProcess.exitCode !== undefined) ||
+    (childProcess.signalCode !== null && childProcess.signalCode !== undefined)
+  );
+}
+
+async function waitForExactChildTerminal(childProcess: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (childProcessIsTerminal(childProcess)) return true;
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (terminal: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      childProcess.removeListener('exit', onExit);
+      resolve(terminal);
+    };
+    const onExit = (): void => finish(true);
+    const timeout = setTimeout(() => finish(childProcessIsTerminal(childProcess)), timeoutMs);
+    timeout.unref?.();
+    childProcess.once('exit', onExit);
+  });
+}
+
+function signalBackendProcessGroup(pid: number, signal: 'SIGTERM' | 'SIGKILL'): 'signalled' | 'absent' {
   try {
-    process.kill(-childProcess.pid, signal);
-  } catch {
-    try {
-      process.kill(childProcess.pid, signal);
-    } catch {
-      /* already exited */
-    }
+    process.kill(-pid, signal);
+    return 'signalled';
+  } catch (error) {
+    if (processErrorCode(error) === 'ESRCH') return 'absent';
+    throw backendTerminationUnproven(pid, 'signal_failed', signal, error);
   }
 }
 
-function killExitedBackendProcessGroup(childProcess: ChildProcess | null): void {
-  if (!childProcess?.pid) return;
-  if (process.platform === 'win32') {
-    try {
-      spawn('taskkill', ['/F', '/PID', String(childProcess.pid), '/T'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      }).unref();
-    } catch {
-      /* best-effort tree kill */
-    }
-    return;
+function backendProcessGroupIsAbsent(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return false;
+  } catch (error) {
+    if (processErrorCode(error) === 'ESRCH') return true;
+    throw backendTerminationUnproven(pid, 'group_probe_failed', 0, error);
+  }
+}
+
+async function waitForBackendProcessGroupAbsence(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (backendProcessGroupIsAbsent(pid)) return true;
+    // Sequential polling is the proof protocol; parallel probes cannot observe
+    // the required terminal transition and would defeat the bounded deadline.
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return backendProcessGroupIsAbsent(pid);
+}
+
+function killWindowsBackendProcessTree(childProcess: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
+  if (!childProcess.pid) throw backendTerminationUnproven(undefined, 'missing_pid', signal);
+
+  const args = ['/PID', String(childProcess.pid), '/T'];
+  if (signal === 'SIGKILL') {
+    args.unshift('/F');
   }
   try {
-    // The process-group id remains usable for detached grandchildren after its
-    // leader has exited. Do not fall back to the positive pid here: that pid may
-    // already have been recycled for an unrelated process.
-    process.kill(-childProcess.pid, 'SIGKILL');
-  } catch {
-    /* group already drained */
+    spawn('taskkill', args, {
+      stdio: 'ignore',
+      windowsHide: true,
+    }).unref();
+  } catch (error) {
+    throw backendTerminationUnproven(childProcess.pid, 'signal_failed', signal, error);
   }
+}
+
+/**
+ * Best-effort cleanup for a start that never reached runtime admission. This
+ * helper deliberately does not make a safe-down claim; authoritative stop()
+ * uses the terminal + process-group proof below and propagates every failure.
+ */
+function abortUnadmittedBackendProcess(childProcess: ChildProcess, signal: 'SIGKILL'): void {
+  try {
+    if (process.platform === 'win32') {
+      // A Windows child is not detached. Never taskkill an already-terminal
+      // (and therefore potentially recycled) pid.
+      if (!childProcessIsTerminal(childProcess)) killWindowsBackendProcessTree(childProcess, signal);
+      return;
+    }
+    const pid = childProcess.pid;
+    if (!pid) return;
+    try {
+      process.kill(-pid, signal);
+    } catch (error) {
+      if (processErrorCode(error) !== 'ESRCH') {
+        console.error('[aioncore] best-effort startup cleanup could not signal detached process group:', error);
+      }
+    }
+  } catch (error) {
+    console.error('[aioncore] best-effort startup cleanup failed:', error);
+  }
+}
+
+async function stopPosixBackendProcessGroup(childProcess: ChildProcess): Promise<void> {
+  const pid = childProcess.pid;
+  if (!pid) throw backendTerminationUnproven(undefined, 'missing_pid', 'SIGTERM');
+
+  let childTerminal = childProcessIsTerminal(childProcess);
+  let groupAbsent = false;
+  if (!childTerminal) {
+    groupAbsent = signalBackendProcessGroup(pid, 'SIGTERM') === 'absent';
+    childTerminal = await waitForExactChildTerminal(childProcess, 5_000);
+  }
+
+  if (!groupAbsent && backendProcessGroupIsAbsent(pid)) groupAbsent = true;
+  if (!groupAbsent) {
+    groupAbsent = signalBackendProcessGroup(pid, 'SIGKILL') === 'absent';
+    if (!childTerminal) childTerminal = await waitForExactChildTerminal(childProcess, 2_000);
+    if (!groupAbsent) groupAbsent = await waitForBackendProcessGroupAbsence(pid, 2_000);
+  }
+
+  if (!childTerminal) throw backendTerminationUnproven(pid, 'child_terminal_timeout', 'SIGKILL');
+  if (!groupAbsent) throw backendTerminationUnproven(pid, 'group_survived', 0);
 }
 
 async function probeHealthCheckTcpConnect(port: number, timeoutMs = 1_000): Promise<Partial<HealthCheckDiagnostics>> {
@@ -710,7 +822,7 @@ export class BackendLifecycleManager {
     backendPid = startedChildProcess.pid;
     const pid = backendPid;
     const killOnExit = () => {
-      if (pid) killBackendProcessTree(startedChildProcess, 'SIGKILL');
+      if (pid) abortUnadmittedBackendProcess(startedChildProcess, 'SIGKILL');
     };
     process.on('exit', killOnExit);
 
@@ -855,7 +967,7 @@ export class BackendLifecycleManager {
       this.unlinkLocalCapabilityFileAfterBootstrap();
     } catch (error) {
       startupSettled = true;
-      killBackendProcessTree(startedChildProcess, 'SIGKILL');
+      abortUnadmittedBackendProcess(startedChildProcess, 'SIGKILL');
       if (this.childProcess === startedChildProcess) {
         this.childProcess = null;
         this.markStartupErrorIfActive();
@@ -878,7 +990,7 @@ export class BackendLifecycleManager {
       }
     } catch (error) {
       startupSettled = true;
-      killBackendProcessTree(startedChildProcess, 'SIGKILL');
+      abortUnadmittedBackendProcess(startedChildProcess, 'SIGKILL');
       if (this.childProcess === startedChildProcess) {
         this.childProcess = null;
         this.markStartupErrorIfActive();
@@ -905,7 +1017,7 @@ export class BackendLifecycleManager {
         return this._port;
       }
       startupSettled = true;
-      killBackendProcessTree(startedChildProcess, 'SIGKILL');
+      abortUnadmittedBackendProcess(startedChildProcess, 'SIGKILL');
       if (this.childProcess === startedChildProcess) {
         this.childProcess = null;
         this._status = 'error';
@@ -939,32 +1051,32 @@ export class BackendLifecycleManager {
     }
     const childProcess = this.childProcess;
 
-    // A crash-recovery owner reaches stop after the exact child already emitted
-    // `exit`. Node records exitCode/signalCode before that event; do not wait five
-    // seconds for an event that cannot fire twice.
-    const childAlreadyExited =
-      (childProcess.exitCode !== null && childProcess.exitCode !== undefined) ||
-      (childProcess.signalCode !== null && childProcess.signalCode !== undefined);
-    if (childAlreadyExited) {
-      // The AionCore leader can crash while ACP grandchildren in its detached
-      // process group remain alive. Drain that group even though no second exit
-      // event can arrive from the leader.
-      killExitedBackendProcessGroup(childProcess);
+    if (process.platform === 'win32') {
+      // Windows children are not detached. If the exact child is already
+      // terminal, its pid can have been recycled and must never be handed to
+      // taskkill. For a live child, terminal observation is the proof boundary.
+      if (!childProcessIsTerminal(childProcess)) {
+        killWindowsBackendProcessTree(childProcess, 'SIGTERM');
+        let terminal = await waitForExactChildTerminal(childProcess, 5_000);
+        if (!terminal) {
+          killWindowsBackendProcessTree(childProcess, 'SIGKILL');
+          terminal = await waitForExactChildTerminal(childProcess, 2_000);
+        }
+        if (!terminal) {
+          throw backendTerminationUnproven(childProcess.pid, 'child_terminal_timeout', 'SIGKILL');
+        }
+      }
     } else {
-      killBackendProcessTree(childProcess, 'SIGTERM');
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          killBackendProcessTree(childProcess, 'SIGKILL');
-          resolve();
-        }, 5000);
-        childProcess.on('exit', () => {
-          clearTimeout(timeout);
-          resolve();
-        });
-      });
+      // AionCore is the leader of a detached process group. Proof therefore
+      // covers both the exact wrapper child and every ACP descendant in that
+      // group, including the crash case where the leader already emitted exit.
+      await stopPosixBackendProcessGroup(childProcess);
     }
-    await cleanupRegisteredAgentProcesses(dataDir);
+
+    // Termination is proven before registry cleanup can fail. Clear the owned
+    // wrapper now so a later start never composes with a known-dead child.
     this.childProcess = null;
+    await cleanupRegisteredAgentProcesses(dataDir);
     this.cleanupLocalCapabilityFile();
   }
 

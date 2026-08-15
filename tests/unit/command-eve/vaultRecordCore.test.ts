@@ -275,6 +275,95 @@ describe('vaultRecordCore — byte-exact authority rollback', () => {
     });
     expect(fs.readFileSync(foreign, 'utf8')).toBe('foreign');
   });
+
+  it('rejects every non-canonical connector filename component before mutation', () => {
+    setSafeStorageForTesting(makeAvailableAdapter());
+    const dir = makeVaultDir();
+    const sentinel = path.join(dir, 'sentinel');
+    fs.writeFileSync(sentinel, 'unchanged', { mode: 0o600 });
+    const unsafeIds = [
+      '../../escape',
+      'folder/name',
+      'folder\\name',
+      '.',
+      '..',
+      '%2e%2e%2fescape',
+      'NOTION_TOKEN',
+      'notion workspace',
+      'notion\u0000workspace',
+      'notio\u0301n',
+      'noti\u00f3n',
+    ];
+
+    for (const connectorId of unsafeIds) {
+      expect(validateVaultRecord(makeValidRecord({ connector_id: connectorId }))).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_RECORD_CONNECTOR_ID_INVALID',
+      });
+      expect(writeVaultRecord(dir, makeValidRecord({ connector_id: connectorId }))).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_RECORD_CONNECTOR_ID_INVALID',
+      });
+      expect(readVaultRecordFileSnapshot(dir, connectorId)).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_RECORD_CONNECTOR_ID_INVALID',
+      });
+      expect(deleteVaultRecord(dir, connectorId)).toBe(false);
+      expect(() => vaultRecordPath(dir, connectorId)).toThrow('VAULT_RECORD_CONNECTOR_ID_INVALID');
+    }
+
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('unchanged');
+    expect(fs.readdirSync(dir)).toEqual(['sentinel']);
+  });
+
+  it('rejects a symlink anywhere in vault ancestry and preserves the foreign target', () => {
+    if (process.platform === 'win32') return;
+    setSafeStorageForTesting(makeAvailableAdapter());
+    const root = makeVaultDir();
+    const owned = path.join(root, 'owned');
+    const foreign = path.join(root, 'foreign');
+    fs.mkdirSync(owned, { mode: 0o700 });
+    fs.mkdirSync(foreign, { mode: 0o700 });
+    const sentinel = path.join(foreign, 'sentinel');
+    fs.writeFileSync(sentinel, 'unchanged', { mode: 0o600 });
+    fs.symlinkSync(foreign, path.join(owned, 'linked'));
+    const unsafeVault = path.join(owned, 'linked', 'vault');
+    const record = makeValidRecord({ connector_id: 'notion-workspace' });
+
+    expect(writeVaultRecord(unsafeVault, record)).toMatchObject({
+      ok: false,
+      reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE',
+    });
+    expect(readVaultRecordFileSnapshot(unsafeVault, record.connector_id)).toMatchObject({
+      ok: false,
+      reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE',
+    });
+    expect(readVaultRecord(unsafeVault, record.connector_id)).toBeNull();
+    expect(deleteVaultRecord(unsafeVault, record.connector_id)).toBe(false);
+    expect(restoreVaultRecordFileSnapshot(unsafeVault, record.connector_id, { exists: false })).toBe(false);
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('unchanged');
+    expect(fs.existsSync(path.join(foreign, 'vault'))).toBe(false);
+  });
+
+  it('refuses symlink endpoints for read, write, restore and delete without touching their target', () => {
+    if (process.platform === 'win32') return;
+    setSafeStorageForTesting(makeAvailableAdapter());
+    const dir = makeVaultDir();
+    const foreign = path.join(dir, 'foreign');
+    const endpoint = vaultRecordPath(dir, 'linked');
+    fs.writeFileSync(foreign, 'foreign-bytes', { mode: 0o600 });
+    fs.symlinkSync(foreign, endpoint);
+
+    expect(readVaultRecord(dir, 'linked')).toBeNull();
+    expect(writeVaultRecord(dir, makeValidRecord({ connector_id: 'linked' }))).toMatchObject({
+      ok: false,
+      reason_code: 'VAULT_RECORD_WRITE_FAILED',
+    });
+    expect(restoreVaultRecordFileSnapshot(dir, 'linked', { exists: true, bytes: Buffer.from('prior') })).toBe(false);
+    expect(deleteVaultRecord(dir, 'linked')).toBe(false);
+    expect(fs.readFileSync(foreign, 'utf8')).toBe('foreign-bytes');
+    expect(fs.lstatSync(endpoint).isSymbolicLink()).toBe(true);
+  });
 });
 
 describe('vaultRecordCore — list / delete', () => {

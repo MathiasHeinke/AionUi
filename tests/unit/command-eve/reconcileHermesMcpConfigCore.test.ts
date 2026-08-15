@@ -9,6 +9,7 @@
  *  - re-render runs BEFORE respawn, respawn EXACTLY once (approve/revoke);
  *  - respawnAfter:false (seat-switch) → re-render only, NO respawn;
  *  - re-render throws → respawn NEVER runs (fail-closed);
+ *  - a respawn-owning call without an explicit lifecycle owner fails closed;
  *  - respawn throws → fail-closed receipt, connector_count preserved;
  *  - the receipt carries seat_id + connector_count + at.
  */
@@ -82,5 +83,21 @@ describe('reconcileHermesMcpConfigForActiveSeat', () => {
     expect(receipt.ok).toBe(false);
     expect(receipt.connector_count).toBe(3);
     expect(receipt.reason_code).toContain('RECONCILE_RESPAWN_FAILED');
+  });
+
+  it('requires an explicit lifecycle owner whenever this reconcile owns the respawn', async () => {
+    const receipt = await reconcileHermesMcpConfigForActiveSeat({
+      getActiveSeatId: () => 'seat-a',
+      reRenderConfig: async () => 2,
+      now: () => FIXED,
+    });
+
+    expect(receipt).toEqual({
+      ok: false,
+      seat_id: 'seat-a',
+      connector_count: 2,
+      at: FIXED.toISOString(),
+      reason_code: 'RECONCILE_RESPAWN_OWNER_REQUIRED',
+    });
   });
 });

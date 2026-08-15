@@ -40,6 +40,7 @@ import {
   buildSpawnEnv,
   findAvailablePort,
   BackendLifecycleManager,
+  COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN,
   resolveLocalBackendOrigins,
 } from './backend-launcher.js';
 import type { AppMetadata } from './types.js';
@@ -89,6 +90,20 @@ function makeFakeChild(): ChildProcess {
   child.kill = vi.fn() as unknown as ChildProcess['kill'];
   child.pid = 99999;
   return child as ChildProcess;
+}
+
+function processError(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(code), { code });
+}
+
+function markChildTerminal(
+  child: ChildProcess,
+  exitCode: number | null = 0,
+  signalCode: NodeJS.Signals | null = null
+): void {
+  Object.assign(child, { exitCode, signalCode });
+  (child as unknown as EventEmitter).emit('exit', exitCode, signalCode);
+  (child as unknown as EventEmitter).emit('close', exitCode, signalCode);
 }
 
 function emitListening(child: ChildProcess, port: number): void {
@@ -448,7 +463,10 @@ describe('BackendLifecycleManager.start (success path)', () => {
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response('ok', { status: 200 }) as unknown as Response);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 0) throw processError('ESRCH');
+      return true;
+    });
     const mgr = new BackendLifecycleManager(APP_META_PACKAGED, () => '/abs/path/aioncore');
 
     try {
@@ -471,7 +489,7 @@ describe('BackendLifecycleManager.start (success path)', () => {
       );
 
       const stopPromise = mgr.stop();
-      child.emit('exit', 0, null);
+      markChildTerminal(child, 0, null);
       await stopPromise;
 
       expect(rmSync).toHaveBeenCalledWith(capabilityPath, { force: true });
@@ -924,7 +942,12 @@ describe('BackendLifecycleManager.stop', () => {
     if (process.platform === 'win32') return;
     const child = makeFakeChild();
     Object.assign(child, { pid: 31337, exitCode: 1 });
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    let killed = false;
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 'SIGKILL') killed = true;
+      if (signal === 0 && killed) throw processError('ESRCH');
+      return true;
+    });
     const mgr = new BackendLifecycleManager(APP_META, () => '/x');
     Object.assign(mgr, {
       childProcess: child,
@@ -946,7 +969,10 @@ describe('BackendLifecycleManager.stop', () => {
     const child = makeFakeChild();
     Object.assign(child, { exitCode: 1 });
     vi.mocked(cleanupRegisteredAgentProcesses).mockRejectedValueOnce(new Error('registry cleanup failed'));
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 0) throw processError('ESRCH');
+      return true;
+    });
     const mgr = new BackendLifecycleManager(APP_META, () => '/x');
     Object.assign(mgr, { childProcess: child, _lastDbPath: '/db', _status: 'running', _port: 4812 });
 
@@ -970,8 +996,7 @@ describe('BackendLifecycleManager.stop', () => {
 
     await Promise.resolve();
     const stopPromise = mgr.stop();
-    (child as unknown as EventEmitter).emit('exit', null, 'SIGTERM');
-    (child as unknown as EventEmitter).emit('close', null, 'SIGTERM');
+    markChildTerminal(child, null, 'SIGTERM');
     await stopPromise;
 
     await expect(startPromise).rejects.toMatchObject({
@@ -992,7 +1017,10 @@ describe('BackendLifecycleManager.stop', () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response('ok', { status: 200 }) as unknown as Response);
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 0) throw processError('ESRCH');
+      return true;
+    });
 
     const mgr = new BackendLifecycleManager(APP_META, () => '/x');
     const startPromise = mgr.start('/db');
@@ -1002,7 +1030,7 @@ describe('BackendLifecycleManager.stop', () => {
 
     const stopPromise = mgr.stop();
     // Simulate graceful child exit
-    (child as unknown as EventEmitter).emit('exit', 0);
+    markChildTerminal(child, 0);
     await stopPromise;
 
     expect(killSpy).toHaveBeenCalled();
@@ -1014,6 +1042,7 @@ describe('BackendLifecycleManager.stop', () => {
   });
 
   it('escalates to SIGKILL when SIGTERM times out', async () => {
+    vi.useFakeTimers();
     vi.mocked(createServer).mockImplementation(
       () => makeFakeServer(22223) as unknown as ReturnType<typeof createServer>
     );
@@ -1023,7 +1052,15 @@ describe('BackendLifecycleManager.stop', () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response('ok', { status: 200 }) as unknown as Response);
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    let killed = false;
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 'SIGKILL') {
+        killed = true;
+        markChildTerminal(child, null, 'SIGKILL');
+      }
+      if (signal === 0 && killed) throw processError('ESRCH');
+      return true;
+    });
 
     const mgr = new BackendLifecycleManager(APP_META, () => '/x');
     const startPromise = mgr.start('/db');
@@ -1032,8 +1069,7 @@ describe('BackendLifecycleManager.stop', () => {
     await startPromise;
 
     const stopPromise = mgr.stop();
-    // Let real timeout happen (5s), then check result
-    await new Promise((r) => setTimeout(r, 5_200));
+    await vi.advanceTimersByTimeAsync(5_000);
     await stopPromise;
 
     expect(killSpy.mock.calls).toEqual(expect.arrayContaining([[expect.any(Number), 'SIGTERM']]));
@@ -1042,7 +1078,54 @@ describe('BackendLifecycleManager.stop', () => {
 
     fetchSpy.mockRestore();
     killSpy.mockRestore();
-  }, 7_000);
+  });
+
+  it('reports termination_unproven when SIGKILL is refused and never runs registry cleanup', async () => {
+    if (process.platform === 'win32') return;
+    vi.useFakeTimers();
+    const child = makeFakeChild();
+    Object.assign(child, { pid: 31338 });
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 'SIGKILL') throw processError('EPERM');
+      return true;
+    });
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+    Object.assign(mgr, { childProcess: child, _lastDbPath: '/db', _status: 'running', _port: 4813 });
+
+    const stopPromise = mgr.stop();
+    const assertion = expect(stopPromise).rejects.toMatchObject({
+      code: COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN,
+      details: { phase: 'signal_failed', signal: 'SIGKILL', error_code: 'EPERM' },
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await assertion;
+
+    expect(mgr.port).toBe(0);
+    expect(cleanupRegisteredAgentProcesses).not.toHaveBeenCalled();
+    killSpy.mockRestore();
+  });
+
+  it('reports termination_unproven when the detached process group survives SIGKILL', async () => {
+    if (process.platform === 'win32') return;
+    vi.useFakeTimers();
+    const child = makeFakeChild();
+    Object.assign(child, { pid: 31339, exitCode: 1 });
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+    Object.assign(mgr, { childProcess: child, _lastDbPath: '/db', _status: 'running', _port: 4814 });
+
+    const stopPromise = mgr.stop();
+    const assertion = expect(stopPromise).rejects.toMatchObject({
+      code: COMMAND_EVE_BACKEND_TERMINATION_UNPROVEN,
+      details: { phase: 'group_survived', signal: 0 },
+    });
+    await vi.advanceTimersByTimeAsync(2_050);
+    await assertion;
+
+    expect(mgr.port).toBe(0);
+    expect(cleanupRegisteredAgentProcesses).not.toHaveBeenCalled();
+    killSpy.mockRestore();
+  });
 });
 
 describe('BackendLifecycleManager crash restart', () => {

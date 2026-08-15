@@ -25,7 +25,6 @@
  */
 
 const commandEveBackendRestartLeaseBrand: unique symbol = Symbol('command-eve-backend-restart-lease');
-const COMMAND_EVE_BACKEND_LIFECYCLE_QUEUE_WAIT_MS = 30_000;
 
 /**
  * An opaque, runtime-validated capability proving that the caller owns the
@@ -166,10 +165,13 @@ export function runCommandEveBackendRestartReservation<T>(
   // ambient stores through spawned-process listeners and delayed crash timers;
   // using it as a recursion guard poisoned legitimate crash recovery long after
   // the owning reservation had ended. Authority is carried only by the opaque
-  // lease. A bounded queue wait keeps accidental unleased nesting fail-closed
-  // without leaking ambient state into child lifetimes.
-  const queueWaitTimeoutMs = options.queueWaitTimeoutMs ?? COMMAND_EVE_BACKEND_LIFECYCLE_QUEUE_WAIT_MS;
-  if (!Number.isFinite(queueWaitTimeoutMs) || queueWaitTimeoutMs <= 0) return queued;
+  // lease. Queue admission bounds are chosen explicitly by each production
+  // transaction: a fixed global 30s default silently shortened guided/seat
+  // operations whose own terminal bounds are 90s+.
+  const queueWaitTimeoutMs = options.queueWaitTimeoutMs;
+  if (queueWaitTimeoutMs === undefined || !Number.isFinite(queueWaitTimeoutMs) || queueWaitTimeoutMs <= 0) {
+    return queued;
+  }
 
   return new Promise<T>((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -206,12 +208,11 @@ export function hasCommandEveBackendRestart(): boolean {
  * The restart thunk applySeatSwitch injects. FAIL-CLOSED: throws if no hook is
  * registered, so a switch never reports success without a real agent re-spawn.
  */
-export async function restartCommandEveBackendForSeat(lease?: CommandEveBackendRestartLease): Promise<void> {
-  if (lease) {
-    await invokeCommandEveBackendRestartHook(lease);
-    return;
+export async function restartCommandEveBackendForSeat(lease: CommandEveBackendRestartLease): Promise<void> {
+  if (!lease) {
+    throw new Error('Command EVE: backend restart requires an explicit active lifecycle lease.');
   }
-  await runCommandEveBackendRestartReservation((ownedLease) => invokeCommandEveBackendRestartHook(ownedLease));
+  await invokeCommandEveBackendRestartHook(lease);
 }
 
 /**

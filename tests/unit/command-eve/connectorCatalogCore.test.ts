@@ -23,6 +23,24 @@ const writeJson = (filePath: string, value: unknown): void => {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
 };
 
+const manifestConnector = (id: string) => ({
+  id,
+  name: id,
+  tier: 'recommended',
+  purpose: 'p',
+  required_for: ['x'],
+  auth_method: 'API key',
+  auth_surface: 'w',
+  setup_mode: 'guided_connector',
+  safe_preflight: ['s'],
+  verify_command: 'v',
+  allowed_actions: ['read'],
+  blocked_actions: ['write'],
+  human_gate: 'HG-3',
+  memory_policy: 'm',
+  preflight_result_file: `.company-os/operations/preflight-results/${id}-latest.json`,
+});
+
 const writeManifest = (root: string): string => {
   const manifestPath = path.join(root, 'kits', 'company-os-kit', '.company-os', 'eve', 'connector-manifests.json');
   writeJson(manifestPath, {
@@ -404,5 +422,25 @@ describe('Command EVE connector catalog core', () => {
     expect(result.ok).toBe(false);
     expect(result.status).toBe('failed');
     expect(result.reason_code).toBe('CONNECTOR_MANIFEST_SCHEMA_MISMATCH');
+  });
+
+  it('drops connector ids that are not one canonical safe filename component', () => {
+    const root = makeRoot();
+    const manifestPath = path.join(root, 'manifest.json');
+    writeJson(manifestPath, {
+      version: 'eve-connector-manifest/v0',
+      policy: { state_authority: 'local-preflight-result-files-only' },
+      connectors: [
+        manifestConnector('notion-workspace'),
+        manifestConnector('../../escape'),
+        manifestConnector('notion\\workspace'),
+        manifestConnector('NOTION_WORKSPACE'),
+        manifestConnector('notio\u0301n'),
+      ],
+    });
+
+    const result = buildConnectorCatalog({ manifestPath, env: {} });
+    expect(result.ok).toBe(true);
+    expect(result.model?.connectors.map((entry) => entry.id)).toEqual(['notion-workspace']);
   });
 });

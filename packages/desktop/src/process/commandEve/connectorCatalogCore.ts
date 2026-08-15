@@ -6,6 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { resolveCanonicalConnectorId } from './connectorIdCore';
 
 export const COMMAND_EVE_CONNECTOR_CATALOG_BRIDGE_VERSION = 'command-eve-connector-catalog/v0';
 
@@ -231,9 +232,10 @@ function normalizeMcpInvocation(value: unknown): CommandEveConnectorMcpInvocatio
 
 function normalizeConnector(value: unknown): CommandEveConnectorManifestConnector | null {
   if (!isRecord(value)) return null;
-  const id = asString(value.id).trim();
+  const canonicalId = resolveCanonicalConnectorId(value.id);
   const name = asString(value.name).trim();
-  if (!id || !name) return null;
+  if (!canonicalId.ok || !name) return null;
+  const id = canonicalId.connectorId;
 
   const mcpInvocation = normalizeMcpInvocation(value.mcp_invocation);
 

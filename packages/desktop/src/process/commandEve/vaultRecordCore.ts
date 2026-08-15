@@ -33,7 +33,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isKeychainRef } from '@/common/config/keychain';
-import { ensureVaultDir } from './vaultDirCore';
+import { resolveCanonicalConnectorId } from './connectorIdCore';
 
 export const VAULT_CONNECTOR_RECORD_VERSION = 'command-eve-vault-connector/v1';
 
@@ -75,17 +75,13 @@ export interface VaultConnectorRecord {
 
 /** Atomic 0600 write via a same-dir temp + rename. Dir ensured 0700 first. */
 function writeJsonAtomic600(file: string, data: unknown): void {
-  ensureVaultDir(path.dirname(file));
-  const tempFile = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tempFile, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tempFile, file);
+  writeBytesAtomic600(file, Buffer.from(`${JSON.stringify(data, null, 2)}\n`, 'utf8'));
 }
 
 function writeBytesAtomic600(file: string, data: Buffer): void {
-  ensureVaultDir(path.dirname(file));
-  const tempFile = `${file}.${process.pid}.${Date.now()}.tmp`;
+  const tempFile = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
   try {
-    fs.writeFileSync(tempFile, data, { mode: 0o600 });
+    fs.writeFileSync(tempFile, data, { mode: 0o600, flag: 'wx' });
     fs.chmodSync(tempFile, 0o600);
     fs.renameSync(tempFile, file);
   } finally {
@@ -101,11 +97,108 @@ function writeBytesAtomic600(file: string, data: Buffer): void {
 
 function readJsonFile<T>(file: string): T | null {
   try {
-    if (!fs.existsSync(file)) return null;
     return JSON.parse(fs.readFileSync(file, 'utf8')) as T;
   } catch {
     return null;
   }
+}
+
+type CanonicalVaultDirResult = Readonly<
+  | { ok: true; dir: string; exists: boolean }
+  | { ok: false; reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE' | 'VAULT_DIR_CREATE_FAILED' }
+>;
+
+type VaultRecordFileResult = Readonly<
+  | { ok: true; connectorId: string; vaultDir: string; file: string; parentExists: boolean }
+  | {
+      ok: false;
+      reason_code: 'VAULT_RECORD_CONNECTOR_ID_INVALID' | 'VAULT_DIR_ANCESTRY_UNSAFE' | 'VAULT_DIR_CREATE_FAILED';
+    }
+>;
+
+function lstatIfPresent(file: string): fs.Stats | undefined {
+  try {
+    return fs.lstatSync(file, { throwIfNoEntry: false });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve the platform's first path component (`/var` -> `/private/var` on
+ * macOS), then lstat every lower component. This permits only the OS-level root
+ * alias while refusing a symlink anywhere inside the app-owned vault ancestry.
+ */
+function resolveCanonicalVaultDir(vaultDir: string, create: boolean): CanonicalVaultDirResult {
+  const absolute = path.resolve(vaultDir);
+  const parsed = path.parse(absolute);
+  const segments = absolute.slice(parsed.root.length).split(path.sep).filter(Boolean);
+  if (segments.length === 0) return { ok: false, reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE' };
+
+  let anchor = path.join(parsed.root, segments[0]);
+  try {
+    const anchorStat = fs.lstatSync(anchor);
+    if (anchorStat.isSymbolicLink()) anchor = fs.realpathSync.native(anchor);
+    else if (!anchorStat.isDirectory()) return { ok: false, reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE' };
+  } catch {
+    return { ok: false, reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE' };
+  }
+
+  let current = anchor;
+  let exists = true;
+  for (const segment of segments.slice(1)) {
+    current = path.join(current, segment);
+    const stat = lstatIfPresent(current);
+    if (!stat) {
+      exists = false;
+      if (!create) continue;
+      try {
+        fs.mkdirSync(current, { mode: 0o700 });
+        const created = fs.lstatSync(current);
+        if (!created.isDirectory() || created.isSymbolicLink()) {
+          return { ok: false, reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE' };
+        }
+        exists = true;
+      } catch {
+        return { ok: false, reason_code: 'VAULT_DIR_CREATE_FAILED' };
+      }
+      continue;
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      return { ok: false, reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE' };
+    }
+    if (!exists) return { ok: false, reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE' };
+  }
+
+  if (exists) {
+    try {
+      if (fs.realpathSync.native(current) !== current) {
+        return { ok: false, reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE' };
+      }
+    } catch {
+      return { ok: false, reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE' };
+    }
+  }
+  return { ok: true, dir: current, exists };
+}
+
+function resolveVaultRecordFile(vaultDir: string, connectorId: unknown, createParent: boolean): VaultRecordFileResult {
+  const canonicalId = resolveCanonicalConnectorId(connectorId);
+  if (!canonicalId.ok) return { ok: false, reason_code: 'VAULT_RECORD_CONNECTOR_ID_INVALID' };
+  const parent = resolveCanonicalVaultDir(vaultDir, createParent);
+  if (!parent.ok) return parent;
+  const fileName = `${canonicalId.connectorId}${RECORD_EXT}`;
+  const file = path.join(parent.dir, fileName);
+  if (path.dirname(file) !== parent.dir || path.relative(parent.dir, file) !== fileName) {
+    return { ok: false, reason_code: 'VAULT_DIR_ANCESTRY_UNSAFE' };
+  }
+  return {
+    ok: true,
+    connectorId: canonicalId.connectorId,
+    vaultDir: parent.dir,
+    file,
+    parentExists: parent.exists,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +239,8 @@ export function validateVaultRecord(value: unknown): ValidateRecordResult {
   if (r.version !== VAULT_CONNECTOR_RECORD_VERSION) {
     return { ok: false, reason_code: 'VAULT_RECORD_VERSION_MISMATCH' };
   }
-  if (typeof r.connector_id !== 'string' || r.connector_id.trim().length === 0) {
+  const connectorId = resolveCanonicalConnectorId(r.connector_id);
+  if (!connectorId.ok) {
     return { ok: false, reason_code: 'VAULT_RECORD_CONNECTOR_ID_INVALID' };
   }
   if (r.scope !== 'founder' && r.scope !== 'seat') {
@@ -180,7 +274,7 @@ export function validateVaultRecord(value: unknown): ValidateRecordResult {
     ok: true,
     record: {
       version: VAULT_CONNECTOR_RECORD_VERSION,
-      connector_id: r.connector_id,
+      connector_id: connectorId.connectorId,
       scope: r.scope,
       ...(typeof r.seat_id === 'string' ? { seat_id: r.seat_id } : {}),
       env_refs: r.env_refs as Record<string, string>,
@@ -198,7 +292,9 @@ export function validateVaultRecord(value: unknown): ValidateRecordResult {
 
 /** Absolute path of a connector's record file: <vaultDir>/<connector_id>.enc. */
 export function vaultRecordPath(vaultDir: string, connectorId: string): string {
-  return path.join(vaultDir, `${connectorId}${RECORD_EXT}`);
+  const resolved = resolveVaultRecordFile(vaultDir, connectorId, false);
+  if (!resolved.ok) throw new Error(resolved.reason_code);
+  return resolved.file;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,14 +328,16 @@ export type ReadVaultRecordFileSnapshotResult = Readonly<{
 }>;
 
 export function readVaultRecordFileSnapshot(vaultDir: string, connectorId: string): ReadVaultRecordFileSnapshotResult {
-  const file = vaultRecordPath(vaultDir, connectorId);
+  const resolved = resolveVaultRecordFile(vaultDir, connectorId, false);
+  if (!resolved.ok) return resolved;
+  if (!resolved.parentExists) return { ok: true, snapshot: { exists: false } };
   try {
-    const stat = fs.lstatSync(file, { throwIfNoEntry: false });
+    const stat = fs.lstatSync(resolved.file, { throwIfNoEntry: false });
     if (!stat) return { ok: true, snapshot: { exists: false } };
     if (!stat.isFile() || stat.isSymbolicLink()) {
       return { ok: false, reason_code: 'VAULT_RECORD_SNAPSHOT_NOT_REGULAR' };
     }
-    return { ok: true, snapshot: { exists: true, bytes: fs.readFileSync(file) } };
+    return { ok: true, snapshot: { exists: true, bytes: fs.readFileSync(resolved.file) } };
   } catch {
     return { ok: false, reason_code: 'VAULT_RECORD_SNAPSHOT_READ_FAILED' };
   }
@@ -250,11 +348,15 @@ export function restoreVaultRecordFileSnapshot(
   connectorId: string,
   snapshot: VaultRecordFileSnapshot
 ): boolean {
-  const file = vaultRecordPath(vaultDir, connectorId);
   try {
     if (!snapshot.exists) return deleteVaultRecord(vaultDir, connectorId);
-    writeBytesAtomic600(file, snapshot.bytes);
-    return fs.readFileSync(file).equals(snapshot.bytes);
+    const resolved = resolveVaultRecordFile(vaultDir, connectorId, true);
+    if (!resolved.ok) return false;
+    const endpoint = fs.lstatSync(resolved.file, { throwIfNoEntry: false });
+    if (endpoint && (!endpoint.isFile() || endpoint.isSymbolicLink())) return false;
+    writeBytesAtomic600(resolved.file, snapshot.bytes);
+    const published = fs.lstatSync(resolved.file);
+    return published.isFile() && !published.isSymbolicLink() && fs.readFileSync(resolved.file).equals(snapshot.bytes);
   } catch {
     return false;
   }
@@ -273,13 +375,22 @@ export function writeVaultRecord(vaultDir: string, record: VaultConnectorRecord)
   if (!validated.ok || !validated.record) {
     return { ok: false, reason_code: validated.reason_code ?? 'VAULT_RECORD_INVALID' };
   }
-  const file = vaultRecordPath(vaultDir, validated.record.connector_id);
+  const resolved = resolveVaultRecordFile(vaultDir, validated.record.connector_id, true);
+  if (!resolved.ok) return { ok: false, reason_code: resolved.reason_code };
   try {
-    writeJsonAtomic600(file, validated.record);
+    const endpoint = fs.lstatSync(resolved.file, { throwIfNoEntry: false });
+    if (endpoint && (!endpoint.isFile() || endpoint.isSymbolicLink())) {
+      return { ok: false, reason_code: 'VAULT_RECORD_WRITE_FAILED' };
+    }
+    writeJsonAtomic600(resolved.file, validated.record);
+    const published = fs.lstatSync(resolved.file);
+    if (!published.isFile() || published.isSymbolicLink()) {
+      return { ok: false, reason_code: 'VAULT_RECORD_WRITE_FAILED' };
+    }
   } catch {
     return { ok: false, reason_code: 'VAULT_RECORD_WRITE_FAILED' };
   }
-  return { ok: true, path: file };
+  return { ok: true, path: resolved.file };
 }
 
 /**
@@ -290,10 +401,16 @@ export function writeVaultRecord(vaultDir: string, record: VaultConnectorRecord)
  * line of defense.
  */
 export function readVaultRecord(vaultDir: string, connectorId: string): VaultConnectorRecord | null {
-  const raw = readJsonFile<unknown>(vaultRecordPath(vaultDir, connectorId));
+  const resolved = resolveVaultRecordFile(vaultDir, connectorId, false);
+  if (!resolved.ok || !resolved.parentExists) return null;
+  const endpoint = lstatIfPresent(resolved.file);
+  if (!endpoint?.isFile() || endpoint.isSymbolicLink()) return null;
+  const raw = readJsonFile<unknown>(resolved.file);
   if (raw === null) return null;
   const validated = validateVaultRecord(raw);
-  return validated.ok && validated.record ? validated.record : null;
+  return validated.ok && validated.record && validated.record.connector_id === resolved.connectorId
+    ? validated.record
+    : null;
 }
 
 /**
@@ -303,9 +420,11 @@ export function readVaultRecord(vaultDir: string, connectorId: string): VaultCon
  * A non-existent dir yields `[]`. Never throws.
  */
 export function listVaultRecords(vaultDir: string): VaultConnectorRecord[] {
+  const parent = resolveCanonicalVaultDir(vaultDir, false);
+  if (!parent.ok || !parent.exists) return [];
   let entries: string[];
   try {
-    entries = fs.readdirSync(vaultDir);
+    entries = fs.readdirSync(parent.dir);
   } catch {
     return [];
   }
@@ -313,8 +432,8 @@ export function listVaultRecords(vaultDir: string): VaultConnectorRecord[] {
   for (const entry of entries) {
     if (!entry.endsWith(RECORD_EXT)) continue;
     const connectorId = entry.slice(0, -RECORD_EXT.length);
-    if (connectorId.length === 0) continue;
-    const record = readVaultRecord(vaultDir, connectorId);
+    if (!resolveCanonicalConnectorId(connectorId).ok) continue;
+    const record = readVaultRecord(parent.dir, connectorId);
     if (record) out.push(record);
   }
   return out;
@@ -323,9 +442,14 @@ export function listVaultRecords(vaultDir: string): VaultConnectorRecord[] {
 /** Delete a connector's record (revoke). Idempotent; never throws. */
 export function deleteVaultRecord(vaultDir: string, connectorId: string): boolean {
   try {
-    const file = vaultRecordPath(vaultDir, connectorId);
-    if (fs.existsSync(file)) fs.rmSync(file, { force: true });
-    return !fs.existsSync(file);
+    const resolved = resolveVaultRecordFile(vaultDir, connectorId, false);
+    if (!resolved.ok) return false;
+    if (!resolved.parentExists) return true;
+    const endpoint = fs.lstatSync(resolved.file, { throwIfNoEntry: false });
+    if (!endpoint) return true;
+    if (!endpoint.isFile() || endpoint.isSymbolicLink()) return false;
+    fs.rmSync(resolved.file, { force: true });
+    return fs.lstatSync(resolved.file, { throwIfNoEntry: false }) === undefined;
   } catch {
     // ignore — delete must never throw
     return false;
