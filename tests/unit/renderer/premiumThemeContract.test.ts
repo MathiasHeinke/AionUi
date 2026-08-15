@@ -125,6 +125,27 @@ describe('Command EVE premium semantic token foundation', () => {
     }
   });
 
+  it('keeps button chrome tonal and much quieter than form-field outlines in dark mode', () => {
+    for (const token of [
+      '--eve-button-surface',
+      '--eve-button-surface-hover',
+      '--eve-button-border',
+      '--eve-button-border-hover',
+      '--eve-button-divider',
+      '--eve-button-edge-highlight',
+      '--eve-button-primary-edge-highlight',
+    ]) {
+      expect(declaration(light, token), `${token} missing from the light contract`).toBeTruthy();
+      expect(declaration(dark, token), `${token} missing from the dark contract`).toBeTruthy();
+    }
+
+    expect(declaration(dark, '--eve-button-border')).toBe('transparent');
+    expect(declaration(dark, '--eve-button-divider')).toContain('7%');
+    expect(declaration(dark, '--eve-button-edge-highlight')).toContain('2%');
+    expect(declaration(dark, '--eve-button-primary-edge-highlight')).toContain('8%');
+    expect(declaration(dark, '--eve-button-border')).not.toContain('--eve-accent');
+  });
+
   it('keeps every scrollbar color neutral and independent of action/brand tokens', () => {
     const scrollbarDeclarations = [...visualCss.matchAll(/(--eve-scrollbar-[\w-]+)\s*:\s*([^;]+);/g)];
     expect(scrollbarDeclarations.length).toBeGreaterThanOrEqual(9);
@@ -184,6 +205,9 @@ describe('premium overlay and interaction adapters', () => {
     }
     expect(block(arcoCss, 'html body .arco-btn-primary:not(.arco-btn-disabled) {')).toContain(
       'background: var(--eve-action)'
+    );
+    expect(block(arcoCss, 'html body .arco-btn-secondary:not(.arco-btn-disabled),')).toContain(
+      'border-color: var(--eve-button-border)'
     );
   });
 

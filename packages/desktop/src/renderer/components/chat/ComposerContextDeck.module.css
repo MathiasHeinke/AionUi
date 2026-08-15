@@ -19,12 +19,12 @@
   height: 30px;
   align-items: center;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 68%, transparent);
+  border: 1px solid var(--eve-button-border);
   border-radius: 999px;
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--eve-brand-logo) 3.5%, transparent), transparent 54%),
-    color-mix(in srgb, var(--eve-shell-surface) 26%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 38%, transparent);
+    var(--eve-button-surface);
+  box-shadow: inset 0 1px 0 var(--eve-button-edge-highlight);
 }
 
 .leftCompound {
@@ -37,7 +37,7 @@
   flex: 0 0 auto;
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--eve-accent) 3%, transparent), transparent 58%),
-    color-mix(in srgb, var(--eve-shell-surface) 26%, transparent);
+    var(--eve-button-surface);
 }
 
 .projectSlot {
@@ -64,7 +64,7 @@
   width: 1px;
   height: 18px;
   flex: 0 0 1px;
-  background: color-mix(in srgb, var(--glass-panel-border) 92%, transparent);
+  background: var(--eve-button-divider);
 }
 
 .authorityButton:global(.arco-btn) {
@@ -195,7 +195,7 @@
   display: inline-flex;
   height: 28px;
   align-items: center;
-  border-right: 1px solid color-mix(in srgb, var(--glass-panel-border) 84%, transparent);
+  border-right: 1px solid var(--eve-button-divider);
 }
 
 .rightCompound :global(.eve-max-toggle-anchor),

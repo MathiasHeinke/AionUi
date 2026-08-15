@@ -52,6 +52,16 @@
   --eve-control-text-secondary: var(--eve-text-secondary);
   --eve-control-text-disabled: var(--eve-text-disabled);
 
+  /* Buttons use a quieter tonal edge than form fields. This keeps clickable
+     chrome legible without wrapping every action in a bright outlined capsule. */
+  --eve-button-surface: color-mix(in srgb, var(--eve-shell-text) 2.5%, transparent);
+  --eve-button-surface-hover: color-mix(in srgb, var(--eve-shell-text) 6%, transparent);
+  --eve-button-border: color-mix(in srgb, var(--eve-shell-text) 9%, transparent);
+  --eve-button-border-hover: color-mix(in srgb, var(--eve-shell-text) 17%, transparent);
+  --eve-button-divider: color-mix(in srgb, var(--eve-shell-text) 9%, transparent);
+  --eve-button-edge-highlight: color-mix(in srgb, var(--eve-static-white) 30%, transparent);
+  --eve-button-primary-edge-highlight: color-mix(in srgb, var(--eve-static-white) 24%, transparent);
+
   /* Overlay aliases make menus, popovers, dialogs and tooltips read from one
      material contract without replacing the established glass vocabulary. */
   --eve-overlay-surface: var(--glass-overlay-bg);
@@ -312,6 +322,13 @@
   --eve-control-border: color-mix(in srgb, var(--eve-static-white) 14%, transparent);
   --eve-control-border-hover: color-mix(in srgb, var(--eve-static-white) 24%, transparent);
   --eve-control-border-disabled: color-mix(in srgb, var(--eve-static-white) 8%, transparent);
+  --eve-button-surface: color-mix(in srgb, var(--eve-static-white) 3.5%, transparent);
+  --eve-button-surface-hover: color-mix(in srgb, var(--eve-static-white) 7%, transparent);
+  --eve-button-border: transparent;
+  --eve-button-border-hover: color-mix(in srgb, var(--eve-static-white) 12%, transparent);
+  --eve-button-divider: color-mix(in srgb, var(--eve-static-white) 7%, transparent);
+  --eve-button-edge-highlight: color-mix(in srgb, var(--eve-static-white) 2%, transparent);
+  --eve-button-primary-edge-highlight: color-mix(in srgb, var(--eve-static-white) 8%, transparent);
 
   --eve-scrollbar-thumb: color-mix(in srgb, var(--eve-shell-text-secondary) 34%, transparent);
   --eve-scrollbar-thumb-hover: color-mix(in srgb, var(--eve-shell-text-secondary) 54%, transparent);

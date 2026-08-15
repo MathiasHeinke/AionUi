@@ -100,7 +100,7 @@
   color: #ffffff !important;
   box-shadow:
     0 10px 22px color-mix(in srgb, var(--eve-brand-logo) 26%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 28%, transparent) !important;
+    inset 0 1px 0 var(--eve-button-primary-edge-highlight) !important;
 }
 
 .unified-send-bar .send-button-custom:not(:disabled):hover,

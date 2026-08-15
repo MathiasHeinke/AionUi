@@ -50,7 +50,7 @@
     ),
     color-mix(in srgb, var(--glass-overlay-bg) 97%, transparent);
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 42%, transparent),
+    inset 0 1px 0 var(--glass-edge-highlight),
     var(--glass-shadow-soft);
   -webkit-backdrop-filter: var(--glass-overlay-filter);
   backdrop-filter: var(--glass-overlay-filter);
@@ -114,7 +114,7 @@
   background:
     linear-gradient(145deg, color-mix(in srgb, var(--eve-accent) 9%, transparent), transparent 78%),
     color-mix(in srgb, var(--eve-shell-surface) 24%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 42%, transparent);
+  box-shadow: inset 0 1px 0 var(--eve-button-edge-highlight);
   color: color-mix(in srgb, var(--eve-accent) 86%, var(--eve-shell-text));
   line-height: 0;
 }
@@ -232,12 +232,10 @@
   min-height: 28px;
   padding: 0 10px;
   max-width: 164px;
-  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 64%, transparent);
+  border: 1px solid var(--eve-button-border);
   border-radius: 9px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--eve-static-white) 24%, transparent), transparent 72%),
-    color-mix(in srgb, var(--eve-shell-surface) 28%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 38%, transparent);
+  background: linear-gradient(180deg, var(--eve-button-edge-highlight), transparent 72%), var(--eve-button-surface);
+  box-shadow: inset 0 1px 0 var(--eve-button-edge-highlight);
   color: var(--eve-shell-text-secondary);
   font-size: 12px;
   font-weight: 570;
@@ -248,8 +246,8 @@
 
 .optionRail :global(.video-quality-pill__option:hover),
 .optionRail :global(.video-quality-pill__option[aria-expanded='true']) {
-  border-color: color-mix(in srgb, var(--eve-accent) 22%, var(--glass-panel-border));
-  background: color-mix(in srgb, var(--eve-accent) 7%, var(--eve-row-hover-bg));
+  border-color: var(--eve-button-border-hover);
+  background: var(--eve-button-surface-hover);
   color: var(--eve-shell-text);
 }
 
@@ -284,7 +282,7 @@
     ),
     color-mix(in srgb, var(--glass-composer-bg) 82%, transparent);
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 42%, transparent),
+    inset 0 1px 0 var(--eve-button-primary-edge-highlight),
     0 3px 10px color-mix(in srgb, var(--eve-accent) 7%, transparent);
   font-size: 12px;
   font-weight: 650;
@@ -382,9 +380,9 @@
 :global(.eve-composer-surface) :global(.eve-composer-icon-button.eve-composer-attach-button),
 :global(.eve-composer-surface) :global(.eve-composer-icon-button.eve-composer-attach-button.arco-btn),
 :global(.eve-composer-surface) :global(.eve-composer-icon-button.eve-composer-attach-button.arco-btn-secondary) {
-  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 76%, transparent) !important;
-  background: color-mix(in srgb, var(--eve-shell-surface) 18%, transparent) !important;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-static-white) 38%, transparent) !important;
+  border: 1px solid var(--eve-button-border) !important;
+  background: var(--eve-button-surface) !important;
+  box-shadow: inset 0 1px 0 var(--eve-button-edge-highlight) !important;
 }
 
 .removeReference:global(.arco-btn):hover:not(:disabled) {

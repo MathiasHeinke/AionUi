@@ -3,19 +3,19 @@
   min-height: var(--eve-control-height, 34px) !important;
   height: var(--eve-control-height, 34px) !important;
   padding: 0 12px !important;
-  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 76%, transparent) !important;
+  border: 1px solid var(--eve-button-border) !important;
   border-radius: 999px !important;
-  background: color-mix(in srgb, var(--eve-shell-surface) 34%, transparent) !important;
+  background: var(--eve-button-surface) !important;
   color: var(--eve-shell-text-secondary, var(--color-text-2)) !important;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-shell-text) 8%, transparent) !important;
+  box-shadow: inset 0 1px 0 var(--eve-button-edge-highlight) !important;
   -webkit-backdrop-filter: blur(12px) saturate(120%);
   backdrop-filter: blur(12px) saturate(120%);
 }
 
 .control:hover,
 .control:focus-visible {
-  background: color-mix(in srgb, var(--eve-shell-surface) 52%, transparent) !important;
-  border-color: color-mix(in srgb, var(--eve-accent) 32%, var(--glass-panel-border)) !important;
+  background: var(--eve-button-surface-hover) !important;
+  border-color: var(--eve-button-border-hover) !important;
   color: var(--eve-shell-text, var(--color-text-1)) !important;
 }
 
