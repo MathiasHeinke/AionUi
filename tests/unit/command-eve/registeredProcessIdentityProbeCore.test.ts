@@ -3,9 +3,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { RegisteredAgentProcessV2 } from '@aionui/web-host';
 import {
+  compareCommandEveLinuxRegisteredProcessIdentity,
   compareCommandEveRegisteredProcessIdentity,
   createCommandEveRegisteredProcessIdentityProbe,
   probeCommandEveDarwinProcessIdentity,
+  probeCommandEveLinuxProcessIdentity,
+  type LinuxProcessIdentityReader,
 } from '@/process/commandEve/registeredProcessIdentityProbeCore';
 import { __setVaultRecordNativeHelperForTests } from '@/process/commandEve/vaultRecordCore';
 
@@ -77,6 +80,62 @@ describe('registeredProcessIdentityProbeCore', () => {
         executable_path: '/signed/hermes-after-exec',
       })
     ).toBe('unknown');
+  });
+
+  it('validates the exact Linux boot-id, start ticks, PID and PGID', async () => {
+    const bootId = '11111111-2222-3333-4444-555555555555';
+    const fields = ['S', '6001', '7021', ...Array.from({ length: 16 }, () => '0'), '123456', '0'];
+    const reader: LinuxProcessIdentityReader = {
+      readText: async (filePath) =>
+        filePath.endsWith('/stat') ? '7021 (hermes agent) ' + fields.join(' ') : bootId + '\n',
+      readLink: async () => '/signed/hermes-after-exec',
+    };
+    const observed = await probeCommandEveLinuxProcessIdentity(7021, reader);
+    expect(observed).toEqual({
+      state: 'observed',
+      observed: {
+        pid: 7021,
+        process_group_id: 7021,
+        start_time_value: bootId + ':123456',
+        parent_pid: 6001,
+        executable_path: '/signed/hermes-after-exec',
+      },
+    });
+    if (observed.state !== 'observed') return;
+    const linuxEntry = entry({
+      process_identity: {
+        platform: 'linux',
+        start_time: { kind: 'linux_boot_ticks', value: bootId + ':123456' },
+        parent_pid: 6001,
+        executable_path: '/signed/wrapper-before-exec',
+      },
+    });
+    expect(compareCommandEveLinuxRegisteredProcessIdentity(linuxEntry, observed.observed)).toBe('match');
+    expect(
+      compareCommandEveLinuxRegisteredProcessIdentity(
+        {
+          ...linuxEntry,
+          process_identity: {
+            ...linuxEntry.process_identity,
+            start_time: { kind: 'linux_boot_ticks', value: bootId + ':123457' },
+          },
+        },
+        observed.observed
+      )
+    ).toBe('mismatch');
+  });
+
+  it('classifies an absent Linux proc identity without signal authority', async () => {
+    const missing = Object.assign(new Error('gone'), { code: 'ENOENT' });
+    const reader: LinuxProcessIdentityReader = {
+      readText: async () => {
+        throw missing;
+      },
+      readLink: async () => {
+        throw missing;
+      },
+    };
+    await expect(probeCommandEveLinuxProcessIdentity(7021, reader)).resolves.toEqual({ state: 'absent' });
   });
 
   it('round-trips the live Darwin birth and PGID through the verified packaged interpreter helper', async () => {

@@ -1,3 +1,5 @@
+import type { CommandEvePythonCodeSignature } from '@/process/commandEve/presentationPythonRuntimeCore';
+
 export type VaultNativeOperation = 'snapshot' | 'read' | 'write' | 'restore' | 'delete' | 'list';
 
 export type VaultNativeDirectoryIdentity = Readonly<{
@@ -28,7 +30,15 @@ export type VaultNativeRequest = Readonly<{
 
 export type VaultNativeTestHelper = Readonly<{
   pythonExecutable: string;
-  expectedInterpreter?: Readonly<{ mode: number; size: number; sha256: string }>;
+  appPath?: string;
+  expectedInterpreter?: Readonly<{
+    mode: number;
+    size: number;
+    sha256: string;
+    codeSignature?: CommandEvePythonCodeSignature;
+  }>;
+  verifyAppSeal?: (appPath: string) => boolean;
+  readCodeSignature?: (filePath: string) => CommandEvePythonCodeSignature | undefined;
   swapAwayThenBack?: VaultNativeOperation;
   exitAfterCommitBeforeStdout?: VaultNativeOperation;
   corruptStdoutAfterCommit?: VaultNativeOperation;

@@ -126,7 +126,7 @@ import {
 import { attestDurableTypedUIArtifact } from './process/commandEve/typedUIArtifactAttestationMain';
 import { renderEveAuthorityRuntime, type EveAuthorityRuntime } from './common/config/eveAuthorityRuntimeCore';
 import { createEgressRedactionModeResolver } from './process/commandEve/egressRedactionModeResolverCore';
-import { createCommandEveRegisteredProcessIdentityProbe } from './process/commandEve/registeredProcessIdentityProbeCore';
+import { createCommandEveRegisteredProcessIdentityProbeProvider } from './process/commandEve/registeredProcessIdentityProbeCore';
 import {
   buildCompanyOsRootCandidates,
   COMPANY_OS_ROOT_MARKER,
@@ -337,7 +337,7 @@ const backendManager = new BackendLifecycleManager(
     userDataPath: app.getPath('userData'),
   },
   resolveBinaryPath,
-  createCommandEveRegisteredProcessIdentityProbe()
+  createCommandEveRegisteredProcessIdentityProbeProvider()
 );
 const COMMAND_EVE_CRASH_RECOVERY_QUEUE_WAIT_MS = 60_000;
 const COMMAND_EVE_DEFERRED_RUNTIME_RESTART_QUEUE_WAIT_MS = 300_000;

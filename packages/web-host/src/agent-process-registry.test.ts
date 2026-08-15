@@ -1,13 +1,15 @@
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR,
   cleanupRegisteredAgentProcesses,
   resolveAgentProcessRegistryPath,
   type RegisteredAgentProcessIdentityProbe,
+  type RegisteredAgentProcessIdentityProbeProvider,
   type RegisteredAgentProcessV2,
 } from './agent-process-registry.js';
 
@@ -51,6 +53,7 @@ describe('cleanupRegisteredAgentProcesses', () => {
       .mockResolvedValueOnce('match')
       .mockResolvedValueOnce('match')
       .mockResolvedValueOnce('match')
+      .mockResolvedValueOnce('match')
       .mockResolvedValueOnce('absent');
     const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
     killSpy.mockImplementation((target, signal) => {
@@ -63,7 +66,7 @@ describe('cleanupRegisteredAgentProcesses', () => {
       registry_unproven: false,
     });
 
-    expect(identityProbe).toHaveBeenCalledTimes(4);
+    expect(identityProbe).toHaveBeenCalledTimes(5);
     expect(killSpy.mock.calls).toEqual([
       [-6883, 'SIGTERM'],
       [-6883, 'SIGKILL'],
@@ -119,6 +122,7 @@ describe('cleanupRegisteredAgentProcesses', () => {
     const identityProbe = vi
       .fn<RegisteredAgentProcessIdentityProbe>()
       .mockResolvedValueOnce('match')
+      .mockResolvedValueOnce('match')
       .mockResolvedValue('absent');
     const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
 
@@ -160,6 +164,7 @@ describe('cleanupRegisteredAgentProcesses', () => {
       .fn<RegisteredAgentProcessIdentityProbe>()
       .mockResolvedValueOnce('match')
       .mockResolvedValueOnce('match')
+      .mockResolvedValueOnce('match')
       .mockResolvedValueOnce('absent');
     const killSpy = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
       if (target === -6883 && signal === 'SIGTERM') throw Object.assign(new Error('gone'), { code: 'ESRCH' });
@@ -169,7 +174,7 @@ describe('cleanupRegisteredAgentProcesses', () => {
 
     await cleanupRegisteredAgentProcesses(dataDir, { identityProbe, termGraceMs: 0 });
 
-    expect(identityProbe).toHaveBeenCalledTimes(3);
+    expect(identityProbe).toHaveBeenCalledTimes(4);
     expect(killSpy.mock.calls).toEqual([
       [-6883, 'SIGTERM'],
       [6883, 'SIGTERM'],
@@ -180,11 +185,13 @@ describe('cleanupRegisteredAgentProcesses', () => {
   it.each([
     ['legacy v1', 1, registeredProcess({ process_identity: undefined as never })],
     ['nullable v2 identity', 2, { ...registeredProcess(), process_identity: null }],
-    ['v2 entry with an extra key', 2, { ...registeredProcess(), injected: true }],
-  ])('retains %s as unproven and sends no signal', async (_label, version, entry) => {
+  ])('migrates live %s to exact nullable v2 and sends observation-only probes', async (_label, version, entry) => {
     const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-unproven-'));
     const registryPath = await writeRegistry(dataDir, version, [entry]);
-    const killSpy = vi.spyOn(process, 'kill');
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_target, signal) => {
+      expect(signal).toBe(0);
+      return true;
+    });
     const identityProbe = vi.fn<RegisteredAgentProcessIdentityProbe>().mockResolvedValue('match');
 
     await expect(cleanupRegisteredAgentProcesses(dataDir, { identityProbe, termGraceMs: 0 })).resolves.toEqual({
@@ -193,33 +200,183 @@ describe('cleanupRegisteredAgentProcesses', () => {
     });
 
     expect(identityProbe).not.toHaveBeenCalled();
-    expect(killSpy).not.toHaveBeenCalled();
-    expect(JSON.parse(await readFile(registryPath, 'utf8')).processes).toEqual([entry]);
+    expect(killSpy.mock.calls).toEqual([[6883, 0]]);
+    expect(JSON.parse(await readFile(registryPath, 'utf8'))).toEqual({
+      version: 2,
+      processes: [{ ...entry, process_identity: null }],
+    });
   });
 
-  it('keeps malformed registry bytes intact and reports cleanup as unproven', async () => {
+  it('retires an absent pre-v2 record only after both PID and PGID observation prove ESRCH', async () => {
+    if (process.platform === 'win32') return;
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-legacy-absent-'));
+    const registryPath = await writeRegistry(dataDir, 1, [registeredProcess({ process_identity: undefined as never })]);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_target, signal) => {
+      expect(signal).toBe(0);
+      throw Object.assign(new Error('absent'), { code: 'ESRCH' });
+    });
+
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { termGraceMs: 0 })).resolves.toEqual({
+      survivor_pids: [],
+      registry_unproven: false,
+    });
+    expect(killSpy.mock.calls).toEqual([
+      [6883, 0],
+      [-6883, 0],
+    ]);
+    expect(JSON.parse(await readFile(registryPath, 'utf8'))).toEqual({ version: 2, processes: [] });
+  });
+
+  it('retains an EPERM pre-v2 record as nullable v2 and never sends a terminating signal', async () => {
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-legacy-eperm-'));
+    const registryPath = await writeRegistry(dataDir, 1, [registeredProcess({ process_identity: undefined as never })]);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_target, signal) => {
+      expect(signal).toBe(0);
+      throw Object.assign(new Error('permission denied'), { code: 'EPERM' });
+    });
+
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { termGraceMs: 0 })).resolves.toMatchObject({
+      survivor_pids: [6883],
+      registry_unproven: true,
+    });
+    expect(killSpy.mock.calls).toEqual([[6883, 0]]);
+    expect(JSON.parse(await readFile(registryPath, 'utf8')).processes[0].process_identity).toBeNull();
+  });
+
+  it('quarantines a live malformed entry without sending TERM or KILL', async () => {
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-entry-quarantine-'));
+    const registryPath = await writeRegistry(dataDir, 2, [{ ...registeredProcess(), injected: true }]);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_target, signal) => {
+      expect(signal).toBe(0);
+      return true;
+    });
+
+    const result = await cleanupRegisteredAgentProcesses(dataDir, { termGraceMs: 0 });
+    expect(result).toMatchObject({ survivor_pids: [6883], registry_unproven: true });
+    expect(result.diagnostic_paths).toHaveLength(1);
+    expect(killSpy.mock.calls).toEqual([[6883, 0]]);
+    expect(JSON.parse(await readFile(registryPath, 'utf8'))).toEqual({ version: 2, processes: [] });
+    expect(JSON.parse(await readFile(result.diagnostic_paths![0], 'utf8')).entries).toHaveLength(1);
+  });
+
+  it('moves malformed registry bytes to a durable diagnostic quarantine and remains blocked', async () => {
     const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-malformed-'));
     const registryPath = resolveAgentProcessRegistryPath(dataDir);
     await mkdir(path.dirname(registryPath), { recursive: true });
     await writeFile(registryPath, 'null', 'utf8');
     const killSpy = vi.spyOn(process, 'kill');
 
-    await expect(cleanupRegisteredAgentProcesses(dataDir)).resolves.toEqual({
+    const first = await cleanupRegisteredAgentProcesses(dataDir);
+    expect(first).toMatchObject({ survivor_pids: [], registry_unproven: true });
+    expect(first.diagnostic_paths).toHaveLength(1);
+    expect(killSpy).not.toHaveBeenCalled();
+    await expect(lstat(registryPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(first.diagnostic_paths![0], 'utf8')).toBe('null');
+    await expect(cleanupRegisteredAgentProcesses(dataDir)).resolves.toMatchObject({
       survivor_pids: [],
       registry_unproven: true,
+      diagnostic_paths: first.diagnostic_paths,
     });
-    expect(killSpy).not.toHaveBeenCalled();
-    expect(await readFile(registryPath, 'utf8')).toBe('null');
   });
 
-  it('does not rewrite a nonnumeric registry version or erase its evidence', async () => {
+  it('quarantines a nonnumeric registry version without erasing its evidence', async () => {
     const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-version-'));
     const registryPath = await writeRegistry(dataDir, 'evil', [registeredProcess()]);
 
-    await expect(cleanupRegisteredAgentProcesses(dataDir)).resolves.toEqual({
-      survivor_pids: [],
-      registry_unproven: true,
+    const result = await cleanupRegisteredAgentProcesses(dataDir);
+    expect(result).toMatchObject({ survivor_pids: [], registry_unproven: true });
+    expect(result.diagnostic_paths).toHaveLength(1);
+    await expect(lstat(registryPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(JSON.parse(await readFile(result.diagnostic_paths![0], 'utf8')).version).toBe('evil');
+  });
+
+  it('opens one batch probe session for many v2 entries and closes it once', async () => {
+    if (process.platform === 'win32') return;
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-batch-'));
+    const entries = [registeredProcess(), registeredProcess({ pid: 6884, process_group_id: 6884 })];
+    await writeRegistry(dataDir, 2, entries);
+    const probeMany = vi
+      .fn()
+      .mockResolvedValueOnce(['match', 'match'])
+      .mockResolvedValueOnce(['match'])
+      .mockResolvedValueOnce(['match'])
+      .mockResolvedValueOnce(['match', 'match'])
+      .mockResolvedValueOnce(['match'])
+      .mockResolvedValueOnce(['match'])
+      .mockResolvedValueOnce(['absent', 'absent']);
+    const close = vi.fn();
+    const provider: RegisteredAgentProcessIdentityProbeProvider = {
+      open: vi.fn().mockResolvedValue({ probeMany, close }),
+    };
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (signal === 0 && (target === -6883 || target === -6884)) {
+        throw Object.assign(new Error('group gone'), { code: 'ESRCH' });
+      }
+      return true;
     });
-    expect(JSON.parse(await readFile(registryPath, 'utf8')).version).toBe('evil');
+
+    await expect(
+      cleanupRegisteredAgentProcesses(dataDir, { identityProbeProvider: provider, termGraceMs: 0 })
+    ).resolves.toEqual({ survivor_pids: [], registry_unproven: false });
+    expect(provider.open).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(probeMany).toHaveBeenCalledTimes(7);
+    expect(killSpy.mock.calls.filter(([, signal]) => signal === 'SIGTERM')).toHaveLength(2);
+    expect(killSpy.mock.calls.filter(([, signal]) => signal === 'SIGKILL')).toHaveLength(2);
+  });
+
+  it('drains exact Core emergency evidence only after v2 identity and PGID absence proof', async () => {
+    if (process.platform === 'win32') return;
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-emergency-drain-'));
+    const emergencyDir = path.join(dataDir, AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR);
+    await mkdir(emergencyDir, { recursive: true });
+    const evidencePath = path.join(emergencyDir, 'agent-process-1-6883.json');
+    await writeFile(
+      evidencePath,
+      JSON.stringify({
+        version: 1,
+        reason: 'registry_write_failed_cleanup_unproven',
+        process: registeredProcess(),
+      })
+    );
+    const identityProbe = vi.fn<RegisteredAgentProcessIdentityProbe>().mockResolvedValue('absent');
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_target, signal) => {
+      expect(signal).toBe(0);
+      throw Object.assign(new Error('group gone'), { code: 'ESRCH' });
+    });
+
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { identityProbe, termGraceMs: 0 })).resolves.toEqual({
+      survivor_pids: [],
+      registry_unproven: false,
+    });
+    await expect(lstat(evidencePath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(killSpy.mock.calls).toEqual([[-6883, 0]]);
+  });
+
+  it('retains live Core emergency evidence as an explicit diagnostic blocker', async () => {
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'aionui-agent-registry-emergency-live-'));
+    const emergencyDir = path.join(dataDir, AGENT_PROCESS_REGISTRY_EMERGENCY_RELATIVE_DIR);
+    await mkdir(emergencyDir, { recursive: true });
+    const evidencePath = path.join(emergencyDir, 'agent-process-1-6883.json');
+    await writeFile(
+      evidencePath,
+      JSON.stringify({
+        version: 1,
+        reason: 'registry_write_failed_cleanup_unproven',
+        process: { ...registeredProcess(), process_identity: null },
+      })
+    );
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_target, signal) => {
+      expect(signal).toBe(0);
+      return true;
+    });
+
+    await expect(cleanupRegisteredAgentProcesses(dataDir, { termGraceMs: 0 })).resolves.toEqual({
+      survivor_pids: [6883],
+      registry_unproven: true,
+      diagnostic_paths: [evidencePath],
+    });
+    expect(killSpy.mock.calls).toEqual([[6883, 0]]);
+    expect(await lstat(evidencePath)).toMatchObject({ mode: expect.any(Number) });
   });
 });

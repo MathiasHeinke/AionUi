@@ -1,5 +1,6 @@
 export {
   __setVaultNativeHelperForTests,
+  openVerifiedCommandEveObservationPythonSession,
   runVerifiedCommandEvePythonSource,
   runVaultNativeHelper,
   vaultNativeHelperIsRequired,
@@ -11,3 +12,4 @@ export type {
   VaultNativeResult,
   VaultNativeTestHelper,
 } from './types';
+export type { VerifiedCommandEveObservationPythonSession } from './nativeHelperCore';

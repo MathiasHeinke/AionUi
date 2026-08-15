@@ -20,6 +20,8 @@ export type { BackendDirConfig, BackendLaunchOptions, BackendHandle, BackendStar
 export type {
   RegisteredAgentProcessIdentity,
   RegisteredAgentProcessIdentityProbe,
+  RegisteredAgentProcessIdentityProbeProvider,
+  RegisteredAgentProcessIdentityProbeSession,
   RegisteredAgentProcessIdentityProbeResult,
   RegisteredAgentProcessV2,
   RegisteredProcessStartTime,

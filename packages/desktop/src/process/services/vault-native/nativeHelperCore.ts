@@ -1,10 +1,16 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import crypto, { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { resolveCommandEvePackagedArtifactPythonSite } from '@/process/commandEve/presentationPythonRuntimeCore';
+import {
+  COMMAND_EVE_PYTHON_SIGNING_AUTHORITY,
+  COMMAND_EVE_PYTHON_SIGNING_IDENTIFIER,
+  COMMAND_EVE_PYTHON_SIGNING_TEAM,
+  resolveCommandEvePackagedArtifactPythonSite,
+  type CommandEvePythonCodeSignature,
+} from '@/process/commandEve/presentationPythonRuntimeCore';
 import type { VaultNativeOperation, VaultNativeRequest, VaultNativeResult, VaultNativeTestHelper } from './types';
 
 const MAX_RECORD_BYTES = 1024 * 1024;
@@ -23,13 +29,19 @@ type HelperResolution = Readonly<{
   required: boolean;
   pythonExecutable?: string;
   pythonHome?: string;
-  expected?: Readonly<{ mode: number; size: number; sha256: string }>;
+  appPath?: string;
+  expected?: Readonly<{
+    mode: number;
+    size: number;
+    sha256: string;
+    codeSignature?: CommandEvePythonCodeSignature;
+  }>;
   test?: VaultNativeTestHelper;
 }>;
 
 type PreparedInterpreter = Readonly<{
   executable: string;
-  assertCurrent: () => boolean;
+  assertCurrent: (recheckRuntimeAuthority?: boolean) => boolean;
   cleanup: () => void;
 }>;
 
@@ -314,6 +326,96 @@ function strictPackagedMac(): boolean {
   return process.platform === 'darwin' && Boolean(process.versions.electron) && electronProcess.defaultApp !== true;
 }
 
+function readVerifiedCodeSignature(filePath: string): CommandEvePythonCodeSignature | undefined {
+  const verified = spawnSync('/usr/bin/codesign', ['--verify', '--strict', '--verbose=4', filePath], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (verified.error || verified.status !== 0) return undefined;
+  const inspected = spawnSync('/usr/bin/codesign', ['-dv', '--verbose=4', filePath], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (inspected.error || inspected.status !== 0) return undefined;
+  const details = `${inspected.stderr || ''}\n${inspected.stdout || ''}`;
+  const value = (name: string): string => {
+    const line = details.split(/\r?\n/).find((candidate) => candidate.startsWith(`${name}=`));
+    return line ? line.slice(name.length + 1).trim() : '';
+  };
+  const signature = {
+    authority: value('Authority'),
+    teamId: value('TeamIdentifier'),
+    identifier: value('Identifier'),
+    cdhash: value('CDHash').toLowerCase(),
+    hardenedRuntime: /flags=0x[0-9a-f]+\([^)]*runtime[^)]*\)/i.test(details),
+  };
+  return signature.authority === COMMAND_EVE_PYTHON_SIGNING_AUTHORITY &&
+    signature.teamId === COMMAND_EVE_PYTHON_SIGNING_TEAM &&
+    signature.identifier === COMMAND_EVE_PYTHON_SIGNING_IDENTIFIER &&
+    /^[a-f0-9]{40}$/.test(signature.cdhash) &&
+    signature.hardenedRuntime
+    ? ({ ...signature, hardenedRuntime: true } as CommandEvePythonCodeSignature)
+    : undefined;
+}
+
+function verifyPackagedAppSeal(appPath: string): boolean {
+  try {
+    const identity = fs.lstatSync(appPath);
+    if (!identity.isDirectory() || identity.isSymbolicLink() || !appPath.endsWith('.app')) return false;
+    const verified = spawnSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=4', appPath], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (verified.error || verified.status !== 0) return false;
+    const inspected = spawnSync('/usr/bin/codesign', ['-dv', '--verbose=4', appPath], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (inspected.error || inspected.status !== 0) return false;
+    const details = `${inspected.stderr || ''}\n${inspected.stdout || ''}`;
+    return (
+      details.split(/\r?\n/).some((line) => line.trim() === `Authority=${COMMAND_EVE_PYTHON_SIGNING_AUTHORITY}`) &&
+      details.split(/\r?\n/).some((line) => line.trim() === `TeamIdentifier=${COMMAND_EVE_PYTHON_SIGNING_TEAM}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function runtimeAuthorityIsCurrent(resolution: HelperResolution, interpreterPath: string): boolean {
+  if (resolution.appPath) {
+    const verifySeal = resolution.test?.verifyAppSeal ?? verifyPackagedAppSeal;
+    if (!verifySeal(resolution.appPath)) return false;
+  }
+  if (resolution.expected?.codeSignature) {
+    const readSignature = resolution.test?.readCodeSignature ?? readVerifiedCodeSignature;
+    if (!codeSignaturesEqual(readSignature(interpreterPath), resolution.expected.codeSignature)) return false;
+  }
+  return true;
+}
+
+function interpreterSignatureIsCurrent(resolution: HelperResolution, interpreterPath: string): boolean {
+  if (!resolution.expected?.codeSignature) return true;
+  const readSignature = resolution.test?.readCodeSignature ?? readVerifiedCodeSignature;
+  return codeSignaturesEqual(readSignature(interpreterPath), resolution.expected.codeSignature);
+}
+
+function codeSignaturesEqual(
+  left: CommandEvePythonCodeSignature | undefined,
+  right: CommandEvePythonCodeSignature | undefined
+): boolean {
+  return Boolean(
+    left &&
+    right &&
+    left.authority === right.authority &&
+    left.teamId === right.teamId &&
+    left.identifier === right.identifier &&
+    left.cdhash === right.cdhash &&
+    left.hardenedRuntime === true &&
+    right.hardenedRuntime === true
+  );
+}
+
 function resolveHelper(): HelperResolution {
   if (strictPackagedMac()) {
     const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
@@ -325,10 +427,12 @@ function resolveHelper(): HelperResolution {
       required: true,
       pythonExecutable: expectedPath,
       pythonHome: path.join(site.resourcesRoot, 'python'),
+      appPath: path.dirname(path.dirname(site.resourcesRoot)),
       expected: {
         mode: site.packagedInterpreter.mode,
         size: site.packagedInterpreter.size,
         sha256: site.packagedInterpreter.sha256,
+        codeSignature: site.packagedInterpreter.codeSignature,
       },
     };
   }
@@ -337,6 +441,7 @@ function resolveHelper(): HelperResolution {
       required: true,
       pythonExecutable: testHelper.pythonExecutable,
       pythonHome: path.dirname(path.dirname(testHelper.pythonExecutable)),
+      ...(testHelper.appPath ? { appPath: testHelper.appPath } : {}),
       ...(testHelper.expectedInterpreter ? { expected: testHelper.expectedInterpreter } : {}),
       test: testHelper,
     };
@@ -387,6 +492,7 @@ function prepareInterpreter(resolution: HelperResolution): PreparedInterpreter |
   let executable = '';
   let prepared = false;
   try {
+    if (resolution.appPath && !runtimeAuthorityIsCurrent(resolution, candidate)) return undefined;
     const visibleBefore = fs.lstatSync(candidate);
     if (!visibleBefore.isFile() || visibleBefore.isSymbolicLink() || (visibleBefore.mode & 0o111) === 0)
       return undefined;
@@ -468,7 +574,7 @@ function prepareInterpreter(resolution: HelperResolution): PreparedInterpreter |
     // random owner-only directory and 0500 file are re-proven against the held
     // private descriptor immediately before spawn.
     fs.chmodSync(temporaryDirectory, 0o500);
-    const assertCurrent = (): boolean => {
+    const assertCurrent = (recheckRuntimeAuthority = true): boolean => {
       try {
         if (privateDescriptor === undefined) return false;
         const directory = fs.lstatSync(temporaryDirectory);
@@ -488,13 +594,14 @@ function prepareInterpreter(resolution: HelperResolution): PreparedInterpreter |
           held.size === opened.size &&
           (visible.mode & 0o777) === 0o500 &&
           (held.mode & 0o777) === 0o500 &&
-          sha256Descriptor(privateDescriptor) === sha256
+          sha256Descriptor(privateDescriptor) === sha256 &&
+          (!recheckRuntimeAuthority || runtimeAuthorityIsCurrent(resolution, executable))
         );
       } catch {
         return false;
       }
     };
-    if (!assertCurrent()) return undefined;
+    if (!assertCurrent(false) || !interpreterSignatureIsCurrent(resolution, executable)) return undefined;
     prepared = true;
     return {
       executable,
@@ -538,6 +645,118 @@ function prepareInterpreter(resolution: HelperResolution): PreparedInterpreter |
 
 type VerifiedPythonResult = Readonly<{ ok: true; stdout: string } | { ok: false; reason: string }>;
 
+export type VerifiedCommandEveObservationPythonSession = Readonly<{
+  run: (
+    source: string,
+    input: string,
+    options?: Readonly<{ timeoutMs?: number; maxBuffer?: number }>
+  ) => Promise<VerifiedPythonResult>;
+  close: () => void;
+}>;
+
+function verifiedPythonFailureReason(
+  child: Readonly<{ status?: number | null; signal?: NodeJS.Signals | null }>
+): string {
+  if (child.signal) return `native_helper_signal_${child.signal}`;
+  return `native_helper_exit_${String(child.status ?? 'unknown')}`;
+}
+
+function runPreparedPythonAsync(
+  prepared: PreparedInterpreter,
+  resolution: HelperResolution,
+  source: string,
+  input: string,
+  options: Readonly<{ timeoutMs: number; maxBuffer: number }>
+): Promise<VerifiedPythonResult> {
+  if (Buffer.byteLength(input) > MAX_REQUEST_BYTES) {
+    return Promise.resolve({ ok: false, reason: 'native_helper_request_too_large' });
+  }
+  if (!prepared.assertCurrent(false)) {
+    return Promise.resolve({ ok: false, reason: 'native_helper_identity_unproven' });
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    let stdout = '';
+    let stdoutBytes = 0;
+    let child: ReturnType<typeof spawn>;
+    let timer: NodeJS.Timeout | undefined;
+    const finish = (result: VerifiedPythonResult): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
+    try {
+      child = spawn(prepared.executable, ['-B', '-s', '-S', '-c', source], {
+        stdio: ['pipe', 'pipe', 'ignore'],
+        env: {
+          PATH: '/usr/bin:/bin',
+          ...(resolution.pythonHome ? { PYTHONHOME: resolution.pythonHome } : {}),
+          PYTHONNOUSERSITE: '1',
+          PYTHONDONTWRITEBYTECODE: '1',
+        },
+      });
+    } catch {
+      return finish({ ok: false, reason: 'native_helper_spawn_failed' });
+    }
+    timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish({ ok: false, reason: 'native_helper_timeout' });
+    }, options.timeoutMs);
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdoutBytes += Buffer.byteLength(chunk);
+      if (stdoutBytes > options.maxBuffer) {
+        child.kill('SIGKILL');
+        finish({ ok: false, reason: 'native_helper_output_too_large' });
+        return;
+      }
+      stdout += chunk;
+    });
+    child.once('error', () => finish({ ok: false, reason: 'native_helper_spawn_failed' }));
+    child.once('close', (status, signal) => {
+      finish(
+        status === 0 && stdout
+          ? { ok: true, stdout }
+          : { ok: false, reason: verifiedPythonFailureReason({ status, signal }) }
+      );
+    });
+    // This session is restricted to non-secret process-identity observations.
+    // Reuse the one full signed-runtime admission from open while still
+    // rehashing/reproving the private interpreter before every bounded probe.
+    if (!prepared.assertCurrent(false)) {
+      child.kill('SIGKILL');
+      finish({ ok: false, reason: 'native_helper_identity_unproven' });
+      return;
+    }
+    child.stdin?.end(input);
+  });
+}
+
+export function openVerifiedCommandEveObservationPythonSession():
+  | VerifiedCommandEveObservationPythonSession
+  | undefined {
+  const resolution = resolveHelper();
+  if (!resolution.required || !resolution.pythonExecutable) return undefined;
+  const prepared = prepareInterpreter(resolution);
+  if (!prepared) return undefined;
+  let closed = false;
+  return {
+    run: async (source, input, options = {}) => {
+      if (closed) return { ok: false, reason: 'native_helper_session_closed' };
+      return runPreparedPythonAsync(prepared, resolution, source, input, {
+        timeoutMs: options.timeoutMs ?? resolution.test?.timeoutMs ?? DEFAULT_HELPER_TIMEOUT_MS,
+        maxBuffer: options.maxBuffer ?? MAX_RESPONSE_BYTES,
+      });
+    },
+    close: () => {
+      if (closed) return;
+      closed = true;
+      prepared.cleanup();
+    },
+  };
+}
+
 function invokeVerifiedPython(
   resolution: HelperResolution,
   source: string,
@@ -564,19 +783,8 @@ function invokeVerifiedPython(
         PYTHONDONTWRITEBYTECODE: '1',
       },
     });
-    if (child.status !== 0 || child.error || !child.stdout) {
-      const stderrTail = String(child.stderr ?? '')
-        .split('\n')
-        .map((line) => line.trim())
-        .findLast((line) => Boolean(line))
-        ?.replaceAll(/[^a-zA-Z0-9_.:-]/g, '_')
-        .slice(0, 160);
-      return {
-        ok: false,
-        reason:
-          child.error?.message ?? `native_helper_exit_${String(child.status)}${stderrTail ? `_${stderrTail}` : ''}`,
-      };
-    }
+    if (child.status !== 0 || child.error || !child.stdout)
+      return { ok: false, reason: child.error ? 'native_helper_spawn_failed' : verifiedPythonFailureReason(child) };
     return { ok: true, stdout: child.stdout };
   } finally {
     prepared.cleanup();

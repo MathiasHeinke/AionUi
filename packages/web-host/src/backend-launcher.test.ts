@@ -928,6 +928,18 @@ describe('BackendLifecycleManager.start (health timeout)', () => {
 });
 
 describe('BackendLifecycleManager.stop', () => {
+  it('carries one verified batch identity provider through registered-agent cleanup', async () => {
+    const provider = { open: vi.fn() };
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x', provider);
+    Object.assign(mgr, { _lastDbPath: '/db-with-batch-provider' });
+
+    await mgr.stop();
+
+    expect(cleanupRegisteredAgentProcesses).toHaveBeenCalledWith('/db-with-batch-provider', {
+      identityProbeProvider: provider,
+    });
+  });
+
   it('cleans registered agent children even when no backend process remains', async () => {
     const mgr = new BackendLifecycleManager(APP_META, () => '/x');
     Object.assign(mgr, { _lastDbPath: '/db-with-orphaned-agents' });

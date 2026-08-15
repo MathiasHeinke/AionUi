@@ -13,7 +13,11 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { connect, createServer, type Socket } from 'node:net';
 import { join } from 'node:path';
-import { cleanupRegisteredAgentProcesses, type RegisteredAgentProcessIdentityProbe } from './agent-process-registry.js';
+import {
+  cleanupRegisteredAgentProcesses,
+  type RegisteredAgentProcessIdentityProbe,
+  type RegisteredAgentProcessIdentityProbeProvider,
+} from './agent-process-registry.js';
 import type { AppMetadata, BackendBinaryResolver } from './types.js';
 
 type BackendStatus = 'stopped' | 'starting' | 'running' | 'error';
@@ -530,11 +534,14 @@ async function observeBackendProcessGroupAbsence(
 
 async function cleanupRegisteredAgentsOrThrow(
   dataDir: string | undefined,
-  identityProbe: RegisteredAgentProcessIdentityProbe | undefined,
+  identityProbe: RegisteredAgentProcessIdentityProbe | RegisteredAgentProcessIdentityProbeProvider | undefined,
   backendPid?: number
 ): Promise<void> {
   const cleanup = identityProbe
-    ? await cleanupRegisteredAgentProcesses(dataDir, { identityProbe })
+    ? await cleanupRegisteredAgentProcesses(
+        dataDir,
+        'open' in identityProbe ? { identityProbeProvider: identityProbe } : { identityProbe }
+      )
     : await cleanupRegisteredAgentProcesses(dataDir);
   if (cleanup.registry_unproven || cleanup.survivor_pids.length > 0) {
     throw backendTerminationUnproven(backendPid, 'registered_descendants_survived', 0);
@@ -687,7 +694,9 @@ export class BackendLifecycleManager {
   constructor(
     private readonly appMeta: AppMetadata,
     private readonly resolveBackend: BackendBinaryResolver,
-    private readonly registeredProcessIdentityProbe?: RegisteredAgentProcessIdentityProbe
+    private readonly registeredProcessIdentityProbe?:
+      | RegisteredAgentProcessIdentityProbe
+      | RegisteredAgentProcessIdentityProbeProvider
   ) {}
 
   get port(): number {

@@ -30,6 +30,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { encryptSecret, setSafeStorageForTesting, type SafeStorageAdapter } from '@/common/config/keychain';
 import {
+  COMMAND_EVE_PYTHON_SIGNING_AUTHORITY,
+  COMMAND_EVE_PYTHON_SIGNING_IDENTIFIER,
+  COMMAND_EVE_PYTHON_SIGNING_TEAM,
+  type CommandEvePythonCodeSignature,
+} from '@/process/commandEve/presentationPythonRuntimeCore';
+import { runVerifiedCommandEvePythonSource } from '@/process/services/vault-native';
+import {
   VAULT_CONNECTOR_RECORD_VERSION,
   __setVaultRecordFsBarrierForTests,
   __setVaultRecordNativeHelperForTests,
@@ -508,6 +515,14 @@ describe('vaultRecordCore — byte-exact authority rollback', () => {
       return path.join(root, entry);
     }
 
+    const signedInterpreterIdentity: CommandEvePythonCodeSignature = {
+      authority: COMMAND_EVE_PYTHON_SIGNING_AUTHORITY,
+      teamId: COMMAND_EVE_PYTHON_SIGNING_TEAM,
+      identifier: COMMAND_EVE_PYTHON_SIGNING_IDENTIFIER,
+      cdhash: 'a'.repeat(40),
+      hardenedRuntime: true,
+    };
+
     it('round-trips through real openat/renameat operations', () => {
       if (!fs.existsSync(python)) return;
       setSafeStorageForTesting(makeAvailableAdapter());
@@ -525,6 +540,84 @@ describe('vaultRecordCore — byte-exact authority rollback', () => {
       expect(listVaultRecords(vault)).toEqual([record]);
       expect(deleteVaultRecord(vault, record.connector_id)).toBe(true);
       expect(readVaultRecord(vault, record.connector_id)).toBeNull();
+    });
+
+    it('re-proves the signed app seal and exact private interpreter CDHash before stdin', () => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      const expected = fs.lstatSync(python);
+      const verifyAppSeal = vi.fn().mockReturnValue(true);
+      const readCodeSignature = vi.fn().mockReturnValue(signedInterpreterIdentity);
+      useNativeHelper(undefined, {
+        appPath: path.join(root, 'Command EVE.app'),
+        expectedInterpreter: {
+          mode: expected.mode & 0o777,
+          size: expected.size,
+          sha256: crypto.createHash('sha256').update(fs.readFileSync(python)).digest('hex'),
+          codeSignature: signedInterpreterIdentity,
+        },
+        verifyAppSeal,
+        readCodeSignature,
+      });
+      const record = makeValidRecord({ connector_id: 'signed-helper-authority' });
+
+      expect(writeVaultRecord(vault, record)).toMatchObject({ ok: true });
+      expect(verifyAppSeal).toHaveBeenCalled();
+      expect(readCodeSignature.mock.calls.some(([filePath]) => filePath === python)).toBe(true);
+      expect(readCodeSignature.mock.calls.some(([filePath]) => filePath !== python)).toBe(true);
+    });
+
+    it('sends zero secret bytes when the private interpreter signature differs from the signed receipt', () => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      const expected = fs.lstatSync(python);
+      const readCodeSignature = vi.fn((filePath: string) =>
+        filePath === python ? signedInterpreterIdentity : undefined
+      );
+      useNativeHelper(undefined, {
+        appPath: path.join(root, 'Command EVE.app'),
+        expectedInterpreter: {
+          mode: expected.mode & 0o777,
+          size: expected.size,
+          sha256: crypto.createHash('sha256').update(fs.readFileSync(python)).digest('hex'),
+          codeSignature: signedInterpreterIdentity,
+        },
+        verifyAppSeal: () => true,
+        readCodeSignature,
+      });
+      const record = makeValidRecord({ connector_id: 'wrong-private-cdhash' });
+
+      expect(writeVaultRecord(vault, record)).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_RECORD_WRITE_FAILED',
+      });
+      expect(fs.existsSync(vaultRecordPath(vault, record.connector_id))).toBe(false);
+      expect(fs.readdirSync(vault)).toEqual([]);
+    });
+
+    it('never returns helper stderr or token-shaped input through an error reason', () => {
+      const root = makeVaultDir();
+      const helperRoot = path.join(fs.realpathSync.native(root), 'helper', 'bin');
+      const malicious = path.join(helperRoot, 'python3.12');
+      fs.mkdirSync(helperRoot, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(
+        malicious,
+        "#!/bin/sh\ncat >/dev/null\necho 'NOTION_TOKEN=redact-me VENDOR_API_KEY=also-redact' >&2\nexit 9\n",
+        { mode: 0o755 }
+      );
+      __setVaultRecordNativeHelperForTests({ pythonExecutable: malicious });
+
+      const result = runVerifiedCommandEvePythonSource('raise RuntimeError()', 'SUPER_SECRET_INPUT=do-not-return');
+      expect(result).toEqual({ ok: false, reason: 'native_helper_exit_9' });
+      expect(JSON.stringify(result)).not.toContain('NOTION_TOKEN');
+      expect(JSON.stringify(result)).not.toContain('VENDOR_API_KEY');
+      expect(JSON.stringify(result)).not.toContain('SUPER_SECRET_INPUT');
     });
 
     it('binds a read to the opened directory across swap-away and swap-back', () => {
