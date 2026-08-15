@@ -16,6 +16,17 @@ const {
 } = require('./signArtifactPythonReceipt_core.js');
 
 const RECEIPT_NAME = 'command-eve-artifact-python-runtime.json';
+const PYTHON_SIGNATURE = Object.freeze({
+  authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+  team_id: 'NHNQ7Q5H28',
+  identifier: 'python3',
+  cdhash: 'a'.repeat(40),
+  hardened_runtime: true,
+});
+
+function rewrite(appPath, deps = {}) {
+  return rewriteArtifactPythonReceiptPostSign(appPath, { interpreterSignature: PYTHON_SIGNATURE, ...deps });
+}
 
 function sha256File(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
@@ -120,7 +131,7 @@ test('post-sign rewrite refreshes stale native hashes and flips tree_phase to si
   fs.appendFileSync(path.join(siteDir, 'native.so'), Buffer.from([0xaa]));
   fs.appendFileSync(path.join(path.dirname(siteDir), 'bin', 'python3.12'), Buffer.from([0xbb]));
 
-  const result = rewriteArtifactPythonReceiptPostSign(appPath);
+  const result = rewrite(appPath);
   assert.equal(result.rewritten, true);
 
   const rewritten = JSON.parse(fs.readFileSync(path.join(siteDir, RECEIPT_NAME), 'utf8'));
@@ -138,12 +149,16 @@ test('post-sign rewrite refreshes stale native hashes and flips tree_phase to si
     rewritten.runtime_files.find((entry) => entry.path === 'bin/python3.12').sha256,
     sha256File(path.join(path.dirname(siteDir), 'bin', 'python3.12'))
   );
+  assert.deepEqual(
+    rewritten.runtime_files.find((entry) => entry.path === 'bin/python3.12').code_signature,
+    PYTHON_SIGNATURE
+  );
 });
 
 test('post-sign rewrite skips gracefully without an artifact site (non-bundle build)', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-post-sign-empty-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const result = rewriteArtifactPythonReceiptPostSign(path.join(root, 'Command EVE.app'));
+  const result = rewrite(path.join(root, 'Command EVE.app'));
   assert.deepEqual(result, { rewritten: false, reason: 'no-artifact-site' });
 });
 
@@ -172,12 +187,24 @@ test('updater preparation makes files 0644 and dirs 0755, and the receipt record
   assert.equal(fileMode, 0o644);
   assert.equal(dirMode, 0o755);
 
-  const result = rewriteArtifactPythonReceiptPostSign(appPath);
+  const result = rewrite(appPath);
   assert.equal(result.rewritten, true);
   const rewritten = JSON.parse(fs.readFileSync(path.join(siteDir, RECEIPT_NAME), 'utf8'));
   const apiEntry = rewritten.tree_files.find((entry) => entry.path === 'pptx/api.py');
   assert.equal(apiEntry.mode, 0o644);
   assert.equal(fs.statSync(path.join(siteDir, RECEIPT_NAME)).mode & 0o777, 0o644);
+});
+
+test('post-sign rewrite rejects an unsigned or wrong-team bundled interpreter', (t) => {
+  const { appPath, siteDir } = makeApp(t);
+  writeStagingReceipt(siteDir);
+  assert.throws(
+    () =>
+      rewriteArtifactPythonReceiptPostSign(appPath, {
+        interpreterSignature: { ...PYTHON_SIGNATURE, team_id: 'BADTEAM123' },
+      }),
+    /Developer ID signature violates/
+  );
 });
 
 test(

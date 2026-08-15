@@ -20,6 +20,9 @@ export const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 =
   'ddca1ada6600b05a11268f4129fb8206fe9637b793bcf58824f8d1e984d073de';
 export const COMMAND_EVE_HERMES_RUNTIME_PACKAGE_COUNT = 78;
 export const COMMAND_EVE_HERMES_RUNTIME_STAGED_PACKAGE_COUNT = 75;
+export const COMMAND_EVE_PYTHON_SIGNING_AUTHORITY = 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)';
+export const COMMAND_EVE_PYTHON_SIGNING_TEAM = 'NHNQ7Q5H28';
+export const COMMAND_EVE_PYTHON_SIGNING_IDENTIFIER = 'python3';
 
 export const COMMAND_EVE_PRESENTATION_PYTHON_PACKAGES = Object.freeze([
   {
@@ -159,7 +162,13 @@ type ArtifactPythonRuntimeReceipt = {
     sha256?: unknown;
   }>;
   spread_files?: Array<{ path?: unknown; mode?: unknown; size?: unknown; sha256?: unknown }>;
-  runtime_files?: Array<{ path?: unknown; mode?: unknown; size?: unknown; sha256?: unknown }>;
+  runtime_files?: Array<{
+    path?: unknown;
+    mode?: unknown;
+    size?: unknown;
+    sha256?: unknown;
+    code_signature?: unknown;
+  }>;
   packages?: Array<{
     name?: unknown;
     version?: unknown;
@@ -194,6 +203,14 @@ export type CommandEveArtifactPythonPackageIdentity = {
   scope: string;
 };
 
+export type CommandEvePythonCodeSignature = Readonly<{
+  authority: typeof COMMAND_EVE_PYTHON_SIGNING_AUTHORITY;
+  teamId: typeof COMMAND_EVE_PYTHON_SIGNING_TEAM;
+  identifier: typeof COMMAND_EVE_PYTHON_SIGNING_IDENTIFIER;
+  cdhash: string;
+  hardenedRuntime: true;
+}>;
+
 export type CommandEveArtifactPythonSiteVerification =
   | {
       ok: true;
@@ -211,6 +228,7 @@ export type CommandEveArtifactPythonSiteVerification =
         mode: number;
         size: number;
         sha256: string;
+        codeSignature: CommandEvePythonCodeSignature;
       }>;
       resourcesRoot?: string;
     }
@@ -312,6 +330,30 @@ function normalizeDistributionName(value: unknown): string {
     .trim()
     .toLowerCase()
     .replace(/[-_.]+/g, '-');
+}
+
+function parseCommandEvePythonCodeSignature(value: unknown): CommandEvePythonCodeSignature | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const signature = value as Record<string, unknown>;
+  if (
+    JSON.stringify(Object.keys(signature).toSorted()) !==
+      JSON.stringify(['authority', 'cdhash', 'hardened_runtime', 'identifier', 'team_id']) ||
+    signature.authority !== COMMAND_EVE_PYTHON_SIGNING_AUTHORITY ||
+    signature.team_id !== COMMAND_EVE_PYTHON_SIGNING_TEAM ||
+    signature.identifier !== COMMAND_EVE_PYTHON_SIGNING_IDENTIFIER ||
+    typeof signature.cdhash !== 'string' ||
+    !/^[a-f0-9]{40}$/.test(signature.cdhash) ||
+    signature.hardened_runtime !== true
+  ) {
+    return undefined;
+  }
+  return {
+    authority: COMMAND_EVE_PYTHON_SIGNING_AUTHORITY,
+    teamId: COMMAND_EVE_PYTHON_SIGNING_TEAM,
+    identifier: COMMAND_EVE_PYTHON_SIGNING_IDENTIFIER,
+    cdhash: signature.cdhash,
+    hardenedRuntime: true,
+  };
 }
 
 function parsePackagedHermesRuntimeLock(directory: string): HermesRuntimeLockEntry[] {
@@ -444,6 +486,7 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
           mode: number;
           size: number;
           sha256: string;
+          codeSignature: CommandEvePythonCodeSignature;
         }>;
       }
     | undefined;
@@ -536,7 +579,14 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
 
     let lockSha256: string | undefined;
     let packagedInterpreter:
-      | Readonly<{ path: string; relativePath: string; mode: number; size: number; sha256: string }>
+      | Readonly<{
+          path: string;
+          relativePath: string;
+          mode: number;
+          size: number;
+          sha256: string;
+          codeSignature: CommandEvePythonCodeSignature;
+        }>
       | undefined;
     if (hermesRuntimeRequired) {
       const expectedRuntimePaths = ['bin/python3.12', 'command-eve-python-manifest.json'];
@@ -549,6 +599,8 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
         return { ok: false, reason: 'artifact_runtime_files_receipt_invalid' };
       }
       for (const entry of receipt.runtime_files) {
+        const relativePath = String(entry?.path || '');
+        const codeSignature = parseCommandEvePythonCodeSignature(entry?.code_signature);
         if (
           typeof entry?.path !== 'string' ||
           typeof entry.mode !== 'number' ||
@@ -556,22 +608,31 @@ export function verifyCommandEveArtifactPythonSite(directory: string): CommandEv
           !Number.isSafeInteger(entry.size) ||
           entry.size <= 0 ||
           typeof entry.sha256 !== 'string' ||
-          !/^[a-f0-9]{64}$/.test(entry.sha256)
+          !/^[a-f0-9]{64}$/.test(entry.sha256) ||
+          (relativePath === 'bin/python3.12'
+            ? treePhase === 'signed'
+              ? !codeSignature
+              : entry?.code_signature !== undefined
+            : entry?.code_signature !== undefined)
         ) {
           return { ok: false, reason: 'artifact_runtime_file_identity_invalid' };
         }
       }
       const interpreter = receipt.runtime_files.find((entry) => entry?.path === 'bin/python3.12');
+      const interpreterSignature = parseCommandEvePythonCodeSignature(interpreter?.code_signature);
       if (!interpreter || (Number(interpreter.mode) & 0o111) === 0) {
         return { ok: false, reason: 'artifact_runtime_interpreter_invalid' };
       }
-      packagedInterpreter = {
-        path: path.join(path.dirname(resolvedDirectory), 'bin', 'python3.12'),
-        relativePath: 'bin/python3.12',
-        mode: Number(interpreter.mode),
-        size: Number(interpreter.size),
-        sha256: String(interpreter.sha256),
-      };
+      if (interpreterSignature) {
+        packagedInterpreter = {
+          path: path.join(path.dirname(resolvedDirectory), 'bin', 'python3.12'),
+          relativePath: 'bin/python3.12',
+          mode: Number(interpreter.mode),
+          size: Number(interpreter.size),
+          sha256: String(interpreter.sha256),
+          codeSignature: interpreterSignature,
+        };
+      }
       const locked = parsePackagedHermesRuntimeLock(resolvedDirectory);
       lockSha256 = COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256;
       const baseNames = new Set(basePackages.map((entry) => normalizeDistributionName(entry.name)));

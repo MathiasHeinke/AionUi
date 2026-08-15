@@ -21,6 +21,33 @@ const path = require('node:path');
 const RECEIPT_NAME = 'command-eve-artifact-python-runtime.json';
 const RECEIPT_VERSION = 'command-eve-artifact-python-runtime/v1';
 const SITE_SUBDIR = path.join('python', 'artifact-site-packages');
+const PYTHON_SIGNING_AUTHORITY = 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)';
+const PYTHON_SIGNING_TEAM = 'NHNQ7Q5H28';
+const PYTHON_SIGNING_IDENTIFIER = 'python3';
+
+function normalizeInterpreterSignature(value) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    JSON.stringify(Object.keys(value).sort()) !==
+      JSON.stringify(['authority', 'cdhash', 'hardened_runtime', 'identifier', 'team_id']) ||
+    value.authority !== PYTHON_SIGNING_AUTHORITY ||
+    value.team_id !== PYTHON_SIGNING_TEAM ||
+    value.identifier !== PYTHON_SIGNING_IDENTIFIER ||
+    typeof value.cdhash !== 'string' ||
+    !/^[a-f0-9]{40}$/.test(value.cdhash) ||
+    value.hardened_runtime !== true
+  ) {
+    throw new Error('bundled Python interpreter Developer ID signature violates the release contract');
+  }
+  return {
+    authority: value.authority,
+    team_id: value.team_id,
+    identifier: value.identifier,
+    cdhash: value.cdhash,
+    hardened_runtime: true,
+  };
+}
 
 function sha256File(filePath, fsDeps) {
   return crypto.createHash('sha256').update(fsDeps.readFileSync(filePath)).digest('hex');
@@ -79,7 +106,7 @@ function refreshSpreadFiles(receipt, pythonRoot, fsDeps) {
   });
 }
 
-function refreshRuntimeFiles(receipt, pythonRoot, fsDeps) {
+function refreshRuntimeFiles(receipt, pythonRoot, fsDeps, interpreterSignature) {
   if (receipt.runtime_files === undefined) {
     if (receipt.runtime_key === 'darwin-arm64') {
       throw new Error('darwin-arm64 receipt runtime_files contract missing');
@@ -101,12 +128,16 @@ function refreshRuntimeFiles(receipt, pythonRoot, fsDeps) {
     if (!fsDeps.existsSync(target)) throw new Error(`receipt runtime file missing after sign: ${relativePath}`);
     const stat = fsDeps.lstatSync(target);
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`receipt runtime file invalid: ${relativePath}`);
-    return {
+    const refreshed = {
       path: relativePath,
       mode: stat.mode & 0o777,
       size: stat.size,
       sha256: sha256File(target, fsDeps),
     };
+    if (relativePath === 'bin/python3.12') {
+      return { ...refreshed, code_signature: normalizeInterpreterSignature(interpreterSignature) };
+    }
+    return refreshed;
   });
 }
 
@@ -198,11 +229,11 @@ function rewriteArtifactPythonReceiptPostSign(appPath, deps = {}) {
   const pythonRoot = path.join(appPath, 'Contents', 'Resources', 'python');
   const treeFiles = enumerateSiteTree(siteDir, fsDeps);
   const spreadFiles = refreshSpreadFiles(receipt, pythonRoot, fsDeps);
-  const runtimeFiles = refreshRuntimeFiles(receipt, pythonRoot, fsDeps);
+  const runtimeFiles = refreshRuntimeFiles(receipt, pythonRoot, fsDeps, deps.interpreterSignature);
   const allFiles = [
     ...treeFiles,
     ...spreadFiles.map((entry) => ({ root: 'python-root', ...entry })),
-    ...runtimeFiles.map((entry) => ({ root: 'python-root', ...entry })),
+    ...runtimeFiles.map(({ code_signature: _codeSignature, ...entry }) => ({ root: 'python-root', ...entry })),
   ].sort((left, right) => `${left.root}/${left.path}`.localeCompare(`${right.root}/${right.path}`));
 
   const rewritten = {
@@ -220,7 +251,11 @@ function rewriteArtifactPythonReceiptPostSign(appPath, deps = {}) {
 module.exports = {
   RECEIPT_NAME,
   RECEIPT_VERSION,
+  PYTHON_SIGNING_AUTHORITY,
+  PYTHON_SIGNING_IDENTIFIER,
+  PYTHON_SIGNING_TEAM,
   enumerateSiteTree,
+  normalizeInterpreterSignature,
   prepareArtifactPythonSiteForUpdater,
   rewriteArtifactPythonReceiptPostSign,
   treeRootSha256,

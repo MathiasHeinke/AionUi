@@ -219,6 +219,17 @@ const writeSignedHermesArtifactSite = (resourcesPath: string): string => {
       mode: stat.mode & 0o777,
       size: stat.size,
       sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+      ...(relativePath === 'bin/python3.12'
+        ? {
+            code_signature: {
+              authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+              team_id: 'NHNQ7Q5H28',
+              identifier: 'python3',
+              cdhash: 'a'.repeat(40),
+              hardened_runtime: true,
+            },
+          }
+        : {}),
     };
   });
   const treeFiles = [
@@ -229,7 +240,7 @@ const writeSignedHermesArtifactSite = (resourcesPath: string): string => {
       size: lockStat.size,
       sha256: crypto.createHash('sha256').update(sourceLock).digest('hex'),
     },
-    ...runtimeFiles.map((entry) => ({ root: 'python-root', ...entry })),
+    ...runtimeFiles.map(({ code_signature: _codeSignature, ...entry }) => ({ root: 'python-root', ...entry })),
   ].toSorted((left, right) => `${left.root}/${left.path}`.localeCompare(`${right.root}/${right.path}`));
   const receipt = {
     version: COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,

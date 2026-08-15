@@ -33,6 +33,14 @@ import {
 
 type TreeEntry = { root: string; path: string; mode: number; size: number; sha256: string };
 
+const PYTHON_SIGNATURE = Object.freeze({
+  authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+  team_id: 'NHNQ7Q5H28',
+  identifier: 'python3',
+  cdhash: 'a'.repeat(40),
+  hardened_runtime: true,
+});
+
 const RECEIPT_NAME = COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT;
 
 // Mirrors artifactTreeFiles() in presentationPythonRuntimeCore.ts: enumerate
@@ -192,11 +200,12 @@ describe('signed artifact-site verifier — Pro Gate 2 mutation battery', () => 
         mode: stat.mode & 0o777,
         size: stat.size,
         sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+        ...(relativePath === 'bin/python3.12' ? { code_signature: PYTHON_SIGNATURE } : {}),
       };
     });
     const treeFiles = [
       ...enumerateTree(siteDir),
-      ...runtimeFiles.map((entry) => ({ root: 'python-root', ...entry })),
+      ...runtimeFiles.map(({ code_signature: _codeSignature, ...entry }) => ({ root: 'python-root', ...entry })),
     ].toSorted((left, right) => `${left.root}/${left.path}`.localeCompare(`${right.root}/${right.path}`));
     const darwinReceipt = {
       runtime_key: 'darwin-arm64',
@@ -208,6 +217,20 @@ describe('signed artifact-site verifier — Pro Gate 2 mutation battery', () => 
     };
     buildReceipt(siteDir, darwinReceipt);
     expect(verifyCommandEveArtifactPythonSite(siteDir)).toMatchObject({ ok: true });
+
+    buildReceipt(siteDir, {
+      ...darwinReceipt,
+      runtime_files: runtimeFiles.map((entry) =>
+        entry.path === 'bin/python3.12'
+          ? { ...entry, code_signature: { ...PYTHON_SIGNATURE, team_id: 'BADTEAM123' } }
+          : entry
+      ),
+    });
+    expect(verifyCommandEveArtifactPythonSite(siteDir)).toMatchObject({
+      ok: false,
+      reason: 'artifact_runtime_file_identity_invalid',
+    });
+    buildReceipt(siteDir, darwinReceipt);
 
     fs.chmodSync(path.join(pythonRoot, 'bin', 'python3.12'), 0o644);
     expect(verifyCommandEveArtifactPythonSite(siteDir)).toMatchObject({ ok: false });

@@ -618,7 +618,7 @@ describe('vaultRecordCore — byte-exact authority rollback', () => {
     it.each([
       ['exit before stdout', { exitAfterCommitBeforeStdout: 'write' as const }],
       ['invalid stdout', { corruptStdoutAfterCommit: 'write' as const }],
-      ['timeout after commit', { sleepAfterCommitMs: 1_000, timeoutMs: 300 }],
+      ['timeout after commit', { sleepAfterCommitMs: 2_000, timeoutMs: 1_000 }],
     ])('resolves a committed write after helper %s instead of reporting rejection', (_label, fault) => {
       if (!fs.existsSync(python)) return;
       setSafeStorageForTesting(makeAvailableAdapter());
@@ -656,6 +656,29 @@ describe('vaultRecordCore — byte-exact authority rollback', () => {
       expect(fs.readdirSync(vault).some((entry) => entry.includes('command-eve-transaction'))).toBe(true);
     });
 
+    it('never exposes a committed intended record when owning recovery is unavailable', () => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      useNativeHelper(undefined, { recoveryUnavailableAfterCommit: 'write' });
+      const record = makeValidRecord({ connector_id: 'native-recovery-required' });
+
+      expect(writeVaultRecord(vault, record)).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_RECORD_MUTATION_AMBIGUOUS',
+      });
+      const journal = fs.readdirSync(vault).find((entry) => entry.includes('command-eve-transaction'));
+      expect(journal).toBeTruthy();
+      expect(fs.existsSync(vaultRecordPath(vault, record.connector_id))).toBe(true);
+
+      useNativeHelper();
+      expect(readVaultRecord(vault, record.connector_id)).toBeNull();
+      expect(listVaultRecords(vault)).toEqual([]);
+      expect(fs.readdirSync(vault)).toContain(journal);
+    });
+
     it('sends zero secret bytes when the verified interpreter path is replaced before launch', () => {
       if (!fs.existsSync(python)) return;
       setSafeStorageForTesting(makeAvailableAdapter());
@@ -684,6 +707,45 @@ describe('vaultRecordCore — byte-exact authority rollback', () => {
         },
       });
       const record = makeValidRecord({ connector_id: 'native-replaced-interpreter' });
+
+      expect(writeVaultRecord(vault, record)).toMatchObject({
+        ok: false,
+        reason_code: 'VAULT_RECORD_WRITE_FAILED',
+      });
+      expect(fs.existsSync(sentinel)).toBe(false);
+      expect(fs.existsSync(vaultRecordPath(vault, record.connector_id))).toBe(false);
+    });
+
+    it('sends zero secret bytes when the admitted interpreter inode is mutated in place before private copy', () => {
+      if (!fs.existsSync(python)) return;
+      setSafeStorageForTesting(makeAvailableAdapter());
+      const root = makeVaultDir();
+      const vault = path.join(root, 'vault');
+      const helperRoot = path.join(root, 'helper', 'bin');
+      const candidate = path.join(helperRoot, 'python3.12');
+      const sentinel = path.join(root, 'same-inode-malicious-stdin.txt');
+      fs.mkdirSync(vault, { mode: 0o700 });
+      fs.mkdirSync(helperRoot, { recursive: true, mode: 0o700 });
+      fs.copyFileSync(python, candidate);
+      fs.chmodSync(candidate, 0o755);
+      const expected = fs.lstatSync(candidate);
+      const expectedSha256 = crypto.createHash('sha256').update(fs.readFileSync(candidate)).digest('hex');
+      const originalInode = expected.ino;
+      __setVaultRecordNativeHelperForTests({
+        pythonExecutable: candidate,
+        expectedInterpreter: {
+          mode: expected.mode & 0o777,
+          size: expected.size,
+          sha256: expectedSha256,
+        },
+        beforeInterpreterLink: () => {
+          const replacement = Buffer.alloc(expected.size, 0x20);
+          replacement.write(`#!/bin/sh\ncat > ${JSON.stringify(sentinel)}\n`);
+          fs.writeFileSync(candidate, replacement);
+          expect(fs.lstatSync(candidate).ino).toBe(originalInode);
+        },
+      });
+      const record = makeValidRecord({ connector_id: 'native-inplace-interpreter' });
 
       expect(writeVaultRecord(vault, record)).toMatchObject({
         ok: false,

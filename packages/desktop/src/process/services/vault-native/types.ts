@@ -33,6 +33,7 @@ export type VaultNativeTestHelper = Readonly<{
   exitAfterCommitBeforeStdout?: VaultNativeOperation;
   corruptStdoutAfterCommit?: VaultNativeOperation;
   corruptRecordAfterCommit?: VaultNativeOperation;
+  recoveryUnavailableAfterCommit?: VaultNativeOperation;
   sleepAfterCommitMs?: number;
   timeoutMs?: number;
   beforeInterpreterLink?: () => void;

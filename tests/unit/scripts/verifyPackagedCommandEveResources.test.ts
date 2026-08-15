@@ -15,6 +15,13 @@ import {
 } from '../../../scripts/release/verify-packaged-command-eve-resources.mjs';
 
 describe('packaged Command EVE resource truth', () => {
+  const pythonSigning = {
+    authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+    team_id: 'NHNQ7Q5H28',
+    identifier: 'python3',
+    cdhash: 'd'.repeat(40),
+    hardened_runtime: true,
+  };
   let tempRoot = '';
   let appPath = '';
   let resourcesPath = '';
@@ -141,6 +148,25 @@ describe('packaged Command EVE resource truth', () => {
       >;
     };
     const runtimeKey = 'darwin-arm64';
+    const pythonRoot = path.join(resourcesPath, 'python');
+    const interpreterPath = path.join(pythonRoot, 'bin', 'python3.12');
+    const pythonManifestPath = path.join(pythonRoot, 'command-eve-python-manifest.json');
+    fs.mkdirSync(path.dirname(interpreterPath), { recursive: true });
+    fs.writeFileSync(interpreterPath, 'signed bundled python fixture', { mode: 0o755 });
+    fs.writeFileSync(pythonManifestPath, '{"version":"fixture"}\n', { mode: 0o644 });
+    const runtimeFiles = [
+      { path: 'bin/python3.12', file: interpreterPath, code_signature: pythonSigning },
+      { path: 'command-eve-python-manifest.json', file: pythonManifestPath },
+    ].map(({ path: relativePath, file, ...extra }) => {
+      const stat = fs.lstatSync(file);
+      return {
+        path: relativePath,
+        mode: stat.mode & 0o777,
+        size: stat.size,
+        sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+        ...extra,
+      };
+    });
     const artifactDirectory = path.join(resourcesPath, 'python', 'artifact-site-packages');
     fs.mkdirSync(artifactDirectory, { recursive: true });
     const packages = [
@@ -150,6 +176,7 @@ describe('packaged Command EVE resource truth', () => {
     const runtimeLockBytes = fs.readFileSync(
       path.resolve('resources/bundled-python-artifacts/hermes-runtime-darwin-arm64.tsv')
     );
+    fs.writeFileSync(path.join(artifactDirectory, 'command-eve-hermes-runtime.lock.tsv'), runtimeLockBytes);
     const runtimeLock = runtimeLockBytes
       .toString('utf8')
       .trim()
@@ -198,11 +225,13 @@ describe('packaged Command EVE resource truth', () => {
           runtime_key: runtimeKey,
           network_install_allowed: false,
           probe_status: 'pass',
+          tree_phase: 'signed',
           hermes_runtime: {
             version: 'command-eve-hermes-runtime-site/v1',
+            lock_file: 'command-eve-hermes-runtime.lock.tsv',
             lock_sha256: crypto.createHash('sha256').update(runtimeLockBytes).digest('hex'),
-            package_count: 71,
-            staged_package_count: 68,
+            package_count: 78,
+            staged_package_count: 75,
             extras: ['acp', 'mcp'],
             network_install_allowed: false,
           },
@@ -215,6 +244,7 @@ describe('packaged Command EVE resource truth', () => {
             license: entry.license,
             scope: entry.scope,
           })),
+          runtime_files: runtimeFiles,
           native_files: nativeFiles,
         },
         null,
@@ -236,6 +266,17 @@ describe('packaged Command EVE resource truth', () => {
   const listArchiveEntries = (archive: string) =>
     execFileSync('/usr/bin/unzip', ['-Z1', archive], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
 
+  const readFixtureCodeSignature = (file: string) =>
+    path.basename(file) === 'python3.12'
+      ? pythonSigning
+      : {
+          authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
+          team_id: 'NHNQ7Q5H28',
+          identifier: path.basename(file),
+          cdhash: 'e'.repeat(40),
+          hardened_runtime: true,
+        };
+
   const verify = (overrides = {}, injected = {}) =>
     verifyPackagedCommandEveResources(
       {
@@ -249,12 +290,7 @@ describe('packaged Command EVE resource truth', () => {
       },
       {
         readArchitectures: () => ['arm64'],
-        readCodeSignature: (file: string) => ({
-          authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
-          team_id: 'NHNQ7Q5H28',
-          identifier: path.basename(file),
-          hardened_runtime: true,
-        }),
+        readCodeSignature: readFixtureCodeSignature,
         listArchiveEntries,
         ...injected,
       }
@@ -284,11 +320,11 @@ describe('packaged Command EVE resource truth', () => {
     expect(result.presentation_python.wheels.map((wheel) => wheel.file)).toEqual(
       COMMAND_EVE_PRESENTATION_PYTHON_WHEELS.map((wheel) => wheel.filename)
     );
-    expect(result.artifact_python.packages).toHaveLength(81);
+    expect(result.artifact_python.packages).toHaveLength(88);
     expect(result.artifact_python.native_files).toHaveLength(2);
     expect(result.artifact_python.hermes_runtime).toMatchObject({
       version: 'command-eve-hermes-runtime-site/v1',
-      package_count: 71,
+      package_count: 78,
       extras: ['acp', 'mcp'],
     });
     expect(result.browser_use_runner).toMatchObject({
@@ -380,12 +416,14 @@ describe('packaged Command EVE resource truth', () => {
       verify(
         {},
         {
-          readCodeSignature: () => ({
-            authority: 'Developer ID Application: Someone Else (BADTEAM123)',
-            team_id: 'BADTEAM123',
-            identifier: 'uvx',
-            hardened_runtime: true,
-          }),
+          readCodeSignature: (file: string) =>
+            path.basename(file) === 'python3.12'
+              ? readFixtureCodeSignature(file)
+              : {
+                  ...readFixtureCodeSignature(file),
+                  authority: 'Developer ID Application: Someone Else (BADTEAM123)',
+                  team_id: 'BADTEAM123',
+                },
         }
       )
     ).toThrow(/Developer ID signature violates/);
@@ -396,12 +434,10 @@ describe('packaged Command EVE resource truth', () => {
       verify(
         {},
         {
-          readCodeSignature: (file: string) => ({
-            authority: 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)',
-            team_id: 'NHNQ7Q5H28',
-            identifier: path.basename(file) === 'uv' ? 'wrong' : 'uvx',
-            hardened_runtime: true,
-          }),
+          readCodeSignature: (file: string) =>
+            path.basename(file) === 'python3.12'
+              ? readFixtureCodeSignature(file)
+              : { ...readFixtureCodeSignature(file), identifier: path.basename(file) === 'uv' ? 'wrong' : 'uvx' },
         }
       )
     ).toThrow(/uv companion Developer ID signature violates/);
@@ -535,6 +571,32 @@ describe('packaged Command EVE resource truth', () => {
     fs.writeFileSync(receipt, `${JSON.stringify(parsed)}\n`);
 
     expect(() => verify()).toThrow(/Artifact Python receipt violates/);
+  });
+
+  it('rejects an unsigned, wrong-team or receipt-mismatched bundled Python interpreter', () => {
+    expect(() =>
+      verify(
+        {},
+        {
+          readCodeSignature: (file: string) =>
+            path.basename(file) === 'python3.12'
+              ? { ...pythonSigning, authority: 'Developer ID Application: Other (BADTEAM123)', team_id: 'BADTEAM123' }
+              : readFixtureCodeSignature(file),
+        }
+      )
+    ).toThrow(/packaged Python runtime identity mismatch/);
+
+    const receiptPath = path.join(
+      resourcesPath,
+      'python',
+      'artifact-site-packages',
+      'command-eve-artifact-python-runtime.json'
+    );
+    const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+    receipt.runtime_files.find((entry: { path?: string }) => entry.path === 'bin/python3.12').code_signature.cdhash =
+      'f'.repeat(40);
+    fs.writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`);
+    expect(() => verify()).toThrow(/packaged Python runtime identity mismatch/);
   });
 
   it('fails closed when the packaged Hermes package set differs from the exact source lock', () => {

@@ -1,4 +1,7 @@
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -6,7 +9,9 @@ const require = createRequire(import.meta.url);
 const {
   getNotarizeAuthMode,
   getNotarizeOptions,
+  deepSignBundledPython,
   parseFirstCodesignAuthority,
+  readVerifiedPythonCodeSignature,
   resolveAfterSignTargetArch,
   resolvePythonSignIdentity,
 } = require('../../../scripts/afterSign.js');
@@ -106,6 +111,74 @@ Authority=Apple Root CA`)
         }
       )
     ).toThrow(/codesign exited with status 1/);
+  });
+});
+
+describe('afterSign bundled-python terminal signing gate', () => {
+  const identity = 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)';
+
+  it('rejects immediately when any nested Python codesign step fails', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-after-sign-nested-failure-'));
+    try {
+      const appPath = path.join(root, 'Command EVE.app');
+      const interpreter = path.join(appPath, 'Contents', 'Resources', 'python', 'bin', 'python3.12');
+      fs.mkdirSync(path.dirname(interpreter), { recursive: true });
+      fs.writeFileSync(interpreter, 'fake Mach-O', { mode: 0o755 });
+
+      expect(() =>
+        deepSignBundledPython(
+          appPath,
+          { CSC_NAME: identity },
+          {
+            fs,
+            runCodesign: () => {
+              throw new Error('nested codesign rejected');
+            },
+          }
+        )
+      ).toThrow(/nested codesign rejected/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('requires strict FYN Labs Developer ID, team, identifier and CDHash evidence', () => {
+    const calls: string[][] = [];
+    expect(
+      readVerifiedPythonCodeSignature('/tmp/python3.12', {
+        runCodesignInspection: (args: string[]) => {
+          calls.push(args);
+          return args[0] === '--verify'
+            ? { status: 0, signal: null, stdout: '', stderr: '' }
+            : {
+                status: 0,
+                signal: null,
+                stdout: '',
+                stderr: `Identifier=python3\nCDHash=${'b'.repeat(40)}\nAuthority=${identity}\nTeamIdentifier=NHNQ7Q5H28\nflags=0x10000(runtime)\n`,
+              };
+        },
+      })
+    ).toMatchObject({ team_id: 'NHNQ7Q5H28', identifier: 'python3', cdhash: 'b'.repeat(40) });
+    expect(calls).toEqual([
+      ['--verify', '--strict', '--verbose=4', '/tmp/python3.12'],
+      ['-dv', '--verbose=4', '/tmp/python3.12'],
+    ]);
+  });
+
+  it('rejects a strictly valid signature from the wrong team', () => {
+    expect(() =>
+      readVerifiedPythonCodeSignature('/tmp/python3.12', {
+        runCodesignInspection: (args: string[]) =>
+          args[0] === '--verify'
+            ? { status: 0, signal: null, stdout: '', stderr: '' }
+            : {
+                status: 0,
+                signal: null,
+                stdout: '',
+                stderr: `Identifier=python3\nCDHash=${'c'.repeat(40)}\nAuthority=Developer ID Application: Other (BADTEAM123)\nTeamIdentifier=BADTEAM123\nflags=0x10000(runtime)\n`,
+              },
+      })
+    ).toThrow(/Developer ID signature violates/);
   });
 });
 

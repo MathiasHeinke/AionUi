@@ -29,6 +29,7 @@ type HelperResolution = Readonly<{
 
 type PreparedInterpreter = Readonly<{
   executable: string;
+  assertCurrent: () => boolean;
   cleanup: () => void;
 }>;
 
@@ -40,6 +41,7 @@ MAX_RECORD_BYTES = ${MAX_RECORD_BYTES}
 MAX_LIST_ENTRIES = 512
 MAX_LIST_BYTES = 8 * 1024 * 1024
 JOURNAL_VERSION = "command-eve-vault-transaction/v1"
+JOURNAL_SUFFIX = ".command-eve-transaction.json"
 
 def emit(value):
     sys.stdout.write(json.dumps(value, separators=(",", ":")))
@@ -132,7 +134,7 @@ def state_matches(payload, exists, expected_digest):
     return (payload is not None) == exists and (not exists or digest(payload) == expected_digest)
 
 def journal_name(name):
-    return "." + name + ".command-eve-transaction.json"
+    return "." + name + JOURNAL_SUFFIX
 
 def read_journal(directory_fd, name, expected_uid):
     payload = read_record(directory_fd, journal_name(name), expected_uid)
@@ -178,6 +180,10 @@ def classify_journal(directory_fd, name, expected_uid, transaction_id=None, clea
         remove_journal(directory_fd, name)
     return state
 
+def require_no_journal(directory_fd, name, expected_uid):
+    if read_journal(directory_fd, name, expected_uid) is not None:
+        raise RuntimeError("mutation_recovery_required")
+
 request_bytes = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
 if len(request_bytes) > MAX_REQUEST_BYTES:
     raise RuntimeError("request_size_exceeded")
@@ -220,24 +226,20 @@ try:
         transaction_id = request["transaction_id"]
         state = classify_journal(directory_fd, name, expected["uid"], transaction_id, cleanup=True)
         if state is None:
-            current = read_record(directory_fd, name, expected["uid"])
-            state = (
-                "committed"
-                if state_matches(current, bool(request.get("intended_exists")), request.get("intended_sha256"))
-                else "not_committed"
-            )
+            # Only the exact transaction journal proves that this transaction
+            # crossed the publication point. Identical pre-existing bytes are
+            # not authority to retroactively claim a commit.
+            state = "not_committed"
         result = {"ok": state == "committed", "mutation_state": state, "transaction_id": transaction_id}
     elif operation in ("read", "snapshot"):
-        if classify_journal(directory_fd, name, expected["uid"], cleanup=True) == "ambiguous":
-            raise RuntimeError("mutation_ambiguous")
+        require_no_journal(directory_fd, name, expected["uid"])
         payload = read_record(directory_fd, name, expected["uid"])
         result = {"ok": True, "exists": payload is not None}
         if payload is not None:
             result["bytes_base64"] = base64.b64encode(payload).decode("ascii")
     elif operation in ("write", "restore", "delete"):
         transaction_id = request["transaction_id"]
-        if classify_journal(directory_fd, name, expected["uid"], cleanup=True) == "ambiguous":
-            raise RuntimeError("mutation_ambiguous")
+        require_no_journal(directory_fd, name, expected["uid"])
         prior = read_record(directory_fd, name, expected["uid"])
         intended = None if operation == "delete" else base64.b64decode(request["bytes_base64"], validate=True)
         if intended is not None and len(intended) > MAX_RECORD_BYTES:
@@ -271,13 +273,14 @@ try:
     elif operation == "list":
         entries = []
         total = 0
-        for entry in sorted(os.listdir(directory_fd)):
+        directory_entries = sorted(os.listdir(directory_fd))
+        if any(entry.startswith(".") and entry.endswith(JOURNAL_SUFFIX) for entry in directory_entries):
+            raise RuntimeError("mutation_recovery_required")
+        for entry in directory_entries:
             if not entry.endswith(".enc"):
                 continue
             if len(entries) >= MAX_LIST_ENTRIES:
                 raise RuntimeError("list_entry_limit_exceeded")
-            if classify_journal(directory_fd, entry, expected["uid"], cleanup=True) == "ambiguous":
-                raise RuntimeError("mutation_ambiguous")
             payload = read_record(directory_fd, entry, expected["uid"])
             if payload is not None:
                 total += len(payload)
@@ -358,10 +361,28 @@ function sha256Descriptor(descriptor: number): string {
   return hash.digest('hex');
 }
 
+function copyDescriptor(source: number, destination: number, expectedSize: number): void {
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let position = 0;
+  while (position < expectedSize) {
+    const bytesRead = fs.readSync(source, buffer, 0, Math.min(buffer.length, expectedSize - position), position);
+    if (bytesRead <= 0) throw new Error('native_helper_source_truncated');
+    let written = 0;
+    while (written < bytesRead) {
+      const bytesWritten = fs.writeSync(destination, buffer, written, bytesRead - written, position + written);
+      if (bytesWritten <= 0) throw new Error('native_helper_private_copy_incomplete');
+      written += bytesWritten;
+    }
+    position += bytesRead;
+  }
+}
+
 function prepareInterpreter(resolution: HelperResolution): PreparedInterpreter | undefined {
   const candidate = resolution.pythonExecutable;
   if (!candidate) return undefined;
   let sourceDescriptor: number | undefined;
+  let privateWriteDescriptor: number | undefined;
+  let privateDescriptor: number | undefined;
   let temporaryDirectory = '';
   let executable = '';
   let prepared = false;
@@ -391,6 +412,17 @@ function prepareInterpreter(resolution: HelperResolution): PreparedInterpreter |
     }
 
     resolution.test?.beforeInterpreterLink?.();
+    const visibleAfterAdmission = fs.lstatSync(candidate);
+    if (
+      !visibleAfterAdmission.isFile() ||
+      visibleAfterAdmission.isSymbolicLink() ||
+      visibleAfterAdmission.dev !== opened.dev ||
+      visibleAfterAdmission.ino !== opened.ino ||
+      visibleAfterAdmission.size !== opened.size ||
+      (visibleAfterAdmission.mode & 0o777) !== (opened.mode & 0o777)
+    ) {
+      return undefined;
+    }
     temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-vault-python-'));
     fs.chmodSync(temporaryDirectory, 0o700);
     const temporaryStat = fs.lstatSync(temporaryDirectory);
@@ -404,24 +436,80 @@ function prepareInterpreter(resolution: HelperResolution): PreparedInterpreter |
       return undefined;
     }
     executable = path.join(temporaryDirectory, 'python3.12');
-    fs.linkSync(candidate, executable);
+    privateWriteDescriptor = fs.openSync(
+      executable,
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+      0o700
+    );
+    copyDescriptor(sourceDescriptor, privateWriteDescriptor, opened.size);
+    fs.fchmodSync(privateWriteDescriptor, 0o500);
+    fs.fsyncSync(privateWriteDescriptor);
+    fs.closeSync(privateWriteDescriptor);
+    privateWriteDescriptor = undefined;
+    privateDescriptor = fs.openSync(executable, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    const privateOpened = fs.fstatSync(privateDescriptor);
     const linked = fs.lstatSync(executable);
     if (
       !linked.isFile() ||
       linked.isSymbolicLink() ||
-      linked.dev !== opened.dev ||
-      linked.ino !== opened.ino ||
+      !privateOpened.isFile() ||
+      linked.dev !== privateOpened.dev ||
+      linked.ino !== privateOpened.ino ||
       linked.size !== opened.size ||
-      (linked.mode & 0o777) !== (opened.mode & 0o777)
+      privateOpened.size !== opened.size ||
+      (linked.mode & 0o777) !== 0o500 ||
+      (privateOpened.mode & 0o777) !== 0o500 ||
+      sha256Descriptor(privateDescriptor) !== sha256
     ) {
       return undefined;
     }
+    // macOS rejects executing an inherited /dev/fd descriptor (EACCES), so
+    // detach from the mutable Resources inode with a byte copy instead. The
+    // random owner-only directory and 0500 file are re-proven against the held
+    // private descriptor immediately before spawn.
+    fs.chmodSync(temporaryDirectory, 0o500);
+    const assertCurrent = (): boolean => {
+      try {
+        if (privateDescriptor === undefined) return false;
+        const directory = fs.lstatSync(temporaryDirectory);
+        const visible = fs.lstatSync(executable);
+        const held = fs.fstatSync(privateDescriptor);
+        return (
+          directory.isDirectory() &&
+          !directory.isSymbolicLink() &&
+          (directory.mode & 0o777) === 0o500 &&
+          (process.platform === 'win32' || process.getuid?.() === undefined || directory.uid === process.getuid?.()) &&
+          visible.isFile() &&
+          !visible.isSymbolicLink() &&
+          held.isFile() &&
+          visible.dev === held.dev &&
+          visible.ino === held.ino &&
+          visible.size === opened.size &&
+          held.size === opened.size &&
+          (visible.mode & 0o777) === 0o500 &&
+          (held.mode & 0o777) === 0o500 &&
+          sha256Descriptor(privateDescriptor) === sha256
+        );
+      } catch {
+        return false;
+      }
+    };
+    if (!assertCurrent()) return undefined;
     prepared = true;
     return {
       executable,
+      assertCurrent,
       cleanup: () => {
         try {
-          fs.unlinkSync(executable);
+          if (privateDescriptor !== undefined) {
+            fs.closeSync(privateDescriptor);
+            privateDescriptor = undefined;
+          }
+          fs.chmodSync(temporaryDirectory, 0o700);
+          if (fs.existsSync(executable)) {
+            fs.chmodSync(executable, 0o700);
+            fs.unlinkSync(executable);
+          }
         } finally {
           fs.rmdirSync(temporaryDirectory);
         }
@@ -431,9 +519,15 @@ function prepareInterpreter(resolution: HelperResolution): PreparedInterpreter |
     return undefined;
   } finally {
     if (sourceDescriptor !== undefined) fs.closeSync(sourceDescriptor);
+    if (privateWriteDescriptor !== undefined) fs.closeSync(privateWriteDescriptor);
     if (!prepared && temporaryDirectory) {
       try {
-        if (executable && fs.existsSync(executable)) fs.unlinkSync(executable);
+        if (privateDescriptor !== undefined) fs.closeSync(privateDescriptor);
+        fs.chmodSync(temporaryDirectory, 0o700);
+        if (executable && fs.existsSync(executable)) {
+          fs.chmodSync(executable, 0o700);
+          fs.unlinkSync(executable);
+        }
         fs.rmdirSync(temporaryDirectory);
       } catch {
         // A failed identity handoff remains authoritative.
@@ -453,8 +547,9 @@ function invokeVerifiedPython(
   const prepared = prepareInterpreter(resolution);
   if (!prepared) return { ok: false, reason: 'native_helper_identity_unproven' };
   try {
+    if (!prepared.assertCurrent()) return { ok: false, reason: 'native_helper_identity_unproven' };
     // `-I` implies `-E` and would ignore the exact PYTHONHOME needed after the
-    // verified executable is hard-linked into a private launch directory.
+    // verified executable is copied into a private launch directory.
     // `-s -S` plus the closed environment below disables user/global site
     // loading without discarding that explicit signed-runtime binding.
     const child = spawnSync(prepared.executable, ['-B', '-s', '-S', '-c', source], {
@@ -573,6 +668,15 @@ export function runVaultNativeHelper(request: VaultNativeRequest): VaultNativeRe
       ? { sleep_after_commit_ms: resolution.test.sleepAfterCommitMs }
       : {}),
   });
+
+  if (resolution.test?.recoveryUnavailableAfterCommit === request.operation) {
+    return {
+      ok: false,
+      mutation_state: 'ambiguous',
+      transaction_id: transactionId,
+      reason: 'mutation_ambiguous__recovery_unavailable',
+    };
+  }
 
   // Interpreter/request admission fails before the helper receives stdin, so
   // no journal or authority mutation can exist and recovery must not execute a

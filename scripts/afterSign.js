@@ -12,6 +12,9 @@ const {
 const { writeFinalAioncoreArtifactReceipt } = require('./finalAioncoreArtifactReceipt.js');
 const {
   prepareArtifactPythonSiteForUpdater,
+  PYTHON_SIGNING_AUTHORITY,
+  PYTHON_SIGNING_IDENTIFIER,
+  PYTHON_SIGNING_TEAM,
   rewriteArtifactPythonReceiptPostSign,
 } = require('./signArtifactPythonReceipt_core.js');
 const { normalizeArch } = require('./rebuildNativeModules');
@@ -112,6 +115,46 @@ function parseFirstCodesignAuthority(output) {
   }
 
   return undefined;
+}
+
+function readVerifiedPythonCodeSignature(filePath, deps = {}) {
+  const runCodesignInspection =
+    deps.runCodesignInspection ||
+    ((args) =>
+      spawnSync('/usr/bin/codesign', args, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }));
+  const verified = runCodesignInspection(['--verify', '--strict', '--verbose=4', filePath]);
+  if (!verified || verified.error || verified.status !== 0) {
+    throw new Error(`Bundled Python interpreter strict codesign verification failed: ${filePath}`);
+  }
+  const inspected = runCodesignInspection(['-dv', '--verbose=4', filePath]);
+  if (!inspected || inspected.error || inspected.status !== 0) {
+    throw new Error(`Bundled Python interpreter codesign identity is unreadable: ${filePath}`);
+  }
+  const details = `${inspected.stderr || ''}\n${inspected.stdout || ''}`;
+  const value = (name) => {
+    const line = details.split(/\r?\n/).find((candidate) => candidate.startsWith(`${name}=`));
+    return line ? line.slice(name.length + 1).trim() : '';
+  };
+  const signature = {
+    authority: value('Authority'),
+    team_id: value('TeamIdentifier'),
+    identifier: value('Identifier'),
+    cdhash: value('CDHash').toLowerCase(),
+    hardened_runtime: /flags=0x[0-9a-f]+\([^)]*runtime[^)]*\)/i.test(details),
+  };
+  if (
+    signature.authority !== PYTHON_SIGNING_AUTHORITY ||
+    signature.team_id !== PYTHON_SIGNING_TEAM ||
+    signature.identifier !== PYTHON_SIGNING_IDENTIFIER ||
+    !/^[a-f0-9]{40}$/.test(signature.cdhash) ||
+    signature.hardened_runtime !== true
+  ) {
+    throw new Error('Bundled Python interpreter Developer ID signature violates the release contract');
+  }
+  return signature;
 }
 
 function resolvePythonSignIdentity(appPath, env = process.env, deps = {}) {
@@ -242,27 +285,16 @@ function deepSignBundledPython(appPath, env = process.env, deps = {}) {
     entitlementsPlist: pythonEntitlements,
   });
 
-  // Resilient: a single non-signable file (a false-positive non-Mach-O that slips the
-  // probe, or a transient codesign hiccup) must NOT abort the deep-sign before the outer
-  // .app is re-sealed — an aborted deep-sign leaves the .app seal STALE relative to the
-  // .so already re-signed ("file modified" → notarization rejects, the exact failure that
-  // blocked alpha.9). Skip-and-log instead; the re-seal below ALWAYS runs, and a genuinely
-  // unsigned Mach-O still surfaces loudly at the notarization gate (never silent).
-  const skipped = [];
+  // Every enumerated nested Mach-O is part of the notarized interpreter trust
+  // boundary. A single codesign failure invalidates the build immediately;
+  // never continue with a partially signed tree and a plausible outer seal.
   for (const step of plan) {
-    try {
-      runCodesign(step.args);
-    } catch (err) {
-      skipped.push(step.filePath);
-      const msg = err && err.message ? String(err.message).split('\n')[0] : String(err);
-      console.warn(`  ⚠ deep-sign skipped (not signable): ${step.filePath} — ${msg}`);
-    }
+    runCodesign(step.args);
   }
-  if (skipped.length) {
-    console.warn(
-      `Bundled-python deep-sign: skipped ${skipped.length} non-signable file(s); continuing to re-seal the .app.`
-    );
-  }
+
+  const interpreterPath = path.join(pythonRoot, 'bin', 'python3.12');
+  const readCodeSignature = deps.readCodeSignature || readVerifiedPythonCodeSignature;
+  const interpreterSignature = readCodeSignature(interpreterPath);
 
   // Pro-verdict Gate 2/3 (GPT-5.6-Pro 1.819 review) + C9 finding (1.819 first
   // run): codesign rewrote the artifact-site Mach-O bytes, so the staging
@@ -274,13 +306,15 @@ function deepSignBundledPython(appPath, env = process.env, deps = {}) {
   // 0644/0755, then rewrite the receipt with post-sign hashes + final modes +
   // tree_phase 'signed', BEFORE the outer re-seal. Non-bundle builds skip.
   try {
-    const updaterPreparation = prepareArtifactPythonSiteForUpdater(appPath);
+    const prepareUpdater = deps.prepareArtifactPythonSiteForUpdater || prepareArtifactPythonSiteForUpdater;
+    const rewriteReceipt = deps.rewriteArtifactPythonReceiptPostSign || rewriteArtifactPythonReceiptPostSign;
+    const updaterPreparation = prepareUpdater(appPath);
     if (updaterPreparation.prepared) {
       console.log(
         `Artifact Python site prepared for updater (${updaterPreparation.files} files, ${updaterPreparation.directories} directories; modes 0644/0755).`
       );
     }
-    const receiptRewrite = rewriteArtifactPythonReceiptPostSign(appPath);
+    const receiptRewrite = rewriteReceipt(appPath, { interpreterSignature });
     if (receiptRewrite.rewritten) {
       console.log(
         `Artifact Python receipt rewritten post-sign (${receiptRewrite.treeFiles} tree files, tree_phase=signed).`
@@ -294,6 +328,10 @@ function deepSignBundledPython(appPath, env = process.env, deps = {}) {
 
   // Re-seal the outer .app so its signature covers the re-signed python tree.
   runCodesign(buildAppResignArgs(appPath, { identity, appEntitlementsPlist: appEntitlements }));
+  const postResealSignature = readCodeSignature(interpreterPath);
+  if (JSON.stringify(postResealSignature) !== JSON.stringify(interpreterSignature)) {
+    throw new Error('Bundled Python interpreter signature changed across outer app re-seal');
+  }
   console.log(`Bundled-python deep-sign complete; outer .app re-sealed with ${identity}.`);
   return true;
 }
@@ -312,7 +350,7 @@ exports.default = async function afterSign(context) {
   const targetArch = resolveAfterSignTargetArch(context.arch);
   const notarizeOptions = getNotarizeOptions({ appBundleId, appPath });
   const releaseSigningRequired = Boolean(notarizeOptions || getPythonSignIdentity());
-  const { verifyPackagedCommandEveBrowserUseRunner } =
+  const { verifyPackagedCommandEveBrowserUseRunner, verifyPackagedCommandEveResources } =
     await import('./release/verify-packaged-command-eve-resources.mjs');
   const browserUseRunnerTarget =
     targetArch === 'arm64'
@@ -404,6 +442,20 @@ exports.default = async function afterSign(context) {
     // Re-verify the outer signature is valid after the re-seal so we never
     // hand a broken .app to notarytool.
     execFileSync('codesign', ['--verify', '--verbose=2', appPath], { stdio: 'inherit' });
+    verifyPackagedCommandEveResources({
+      appPath,
+      sourcePublicDir: path.resolve(__dirname, '..', 'public'),
+      sourceArtifactManifestPath: path.resolve(
+        __dirname,
+        '..',
+        'resources',
+        'bundled-python-artifacts',
+        'manifest.json'
+      ),
+      resourcesPath,
+      expectedArch: targetArch,
+      productFilename: appName,
+    });
     console.log(`App ${appName} re-verified after bundled-python deep-sign`);
   }
 
@@ -455,6 +507,7 @@ exports.getNotarizeOptions = getNotarizeOptions;
 exports.getNotarizeAuthMode = getNotarizeAuthMode;
 exports.getPythonSignIdentity = getPythonSignIdentity;
 exports.parseFirstCodesignAuthority = parseFirstCodesignAuthority;
+exports.readVerifiedPythonCodeSignature = readVerifiedPythonCodeSignature;
 exports.resolvePythonSignIdentity = resolvePythonSignIdentity;
 exports.resolvePythonEntitlementsPlist = resolvePythonEntitlementsPlist;
 exports.resolveAppEntitlementsPlist = resolveAppEntitlementsPlist;

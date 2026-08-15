@@ -80,23 +80,24 @@ export async function cleanupRegisteredAgentProcesses(
   }
 
   const identityProbe = options.identityProbe;
+  const observationMs = Math.max(0, options.termGraceMs ?? TERM_GRACE_MS);
   const retainedUnknown = registry.processes.filter((entry) => !isRegisteredProcessV2(entry));
   let candidates = registry.processes.filter(isRegisteredProcessV2);
   let changed = false;
 
   const afterTerm: RegisteredAgentProcessV2[] = [];
   for (const entry of candidates) {
-    const outcome = await signalVerifiedProcess(entry, 'SIGTERM', identityProbe);
+    const outcome = await signalVerifiedProcess(entry, 'SIGTERM', identityProbe, observationMs);
     if (outcome === 'absent') changed = true;
     else afterTerm.push(entry);
   }
   candidates = afterTerm;
 
-  if (candidates.length > 0) await delay(options.termGraceMs ?? TERM_GRACE_MS);
+  if (candidates.length > 0) await delay(observationMs);
 
   const afterKill: RegisteredAgentProcessV2[] = [];
   for (const entry of candidates) {
-    const observed = await probeRegisteredProcess(entry, identityProbe);
+    const observed = await probeRegisteredProcessTree(entry, identityProbe, observationMs);
     if (observed === 'absent') {
       changed = true;
       continue;
@@ -105,14 +106,14 @@ export async function cleanupRegisteredAgentProcesses(
       afterKill.push(entry);
       continue;
     }
-    const outcome = await signalVerifiedProcess(entry, 'SIGKILL', identityProbe);
+    const outcome = await signalVerifiedProcess(entry, 'SIGKILL', identityProbe, observationMs);
     if (outcome === 'absent') changed = true;
     else afterKill.push(entry);
   }
 
   const survivors: RegisteredAgentProcessV2[] = [];
   for (const entry of afterKill) {
-    const observed = await probeRegisteredProcess(entry, identityProbe);
+    const observed = await probeRegisteredProcessTree(entry, identityProbe, observationMs);
     if (observed === 'absent') changed = true;
     else survivors.push(entry);
   }
@@ -192,9 +193,10 @@ async function syncDirectory(directory: string): Promise<void> {
 async function signalVerifiedProcess(
   entry: RegisteredAgentProcessV2,
   signal: 'SIGTERM' | 'SIGKILL',
-  identityProbe: RegisteredAgentProcessIdentityProbe | undefined
+  identityProbe: RegisteredAgentProcessIdentityProbe | undefined,
+  observationMs: number
 ): Promise<'signalled' | 'absent' | 'unproven'> {
-  const observed = await probeRegisteredProcess(entry, identityProbe);
+  const observed = await probeRegisteredProcessTree(entry, identityProbe, observationMs);
   if (observed === 'absent') return 'absent';
   if (observed !== 'match') return 'unproven';
 
@@ -224,6 +226,43 @@ async function signalVerifiedProcess(
       return isProcessAbsent(fallbackError) ? 'absent' : 'unproven';
     }
   }
+}
+
+async function probeRegisteredProcessTree(
+  entry: RegisteredAgentProcessV2,
+  identityProbe: RegisteredAgentProcessIdentityProbe | undefined,
+  observationMs: number
+): Promise<RegisteredAgentProcessIdentityProbeResult> {
+  const leader = await probeRegisteredProcess(entry, identityProbe);
+  if (leader !== 'absent') return leader;
+  if (process.platform === 'win32' || !entry.process_group_id || entry.process_group_id <= 1) return 'absent';
+
+  // A terminal/missing leader does not prove its detached descendants are
+  // gone. Once the exact birth is absent, numeric TERM/KILL is forbidden: the
+  // PGID may already have been reused. Observe only with signal 0 and retain
+  // the registry evidence unless ESRCH proves group absence.
+  const group = await observeRegisteredProcessGroupAbsence(entry.process_group_id, observationMs);
+  return group === 'absent' ? 'absent' : 'unknown';
+}
+
+async function observeRegisteredProcessGroupAbsence(
+  processGroupId: number,
+  timeoutMs: number,
+  intervalMs = 100
+): Promise<'absent' | 'present' | 'unknown'> {
+  const deadline = Date.now() + timeoutMs;
+  let last: 'present' | 'unknown' = 'present';
+  do {
+    try {
+      process.kill(-processGroupId, 0);
+      last = 'present';
+    } catch (error) {
+      if (isProcessAbsent(error)) return 'absent';
+      last = 'unknown';
+    }
+    if (Date.now() >= deadline) return last;
+    await delay(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
+  } while (true);
 }
 
 async function probeRegisteredProcess(

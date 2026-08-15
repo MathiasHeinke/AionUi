@@ -12,6 +12,9 @@ const COMMAND_EVE_BROWSER_UVX_ARTIFACT_RECEIPT_SCHEMA = 'command-eve-uvx-artifac
 const COMMAND_EVE_BROWSER_UVX_PROVENANCE = 'official-astral-release-attestation+fynlabs-developer-id/v1';
 const COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY = 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)';
 const COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM = 'NHNQ7Q5H28';
+const COMMAND_EVE_PYTHON_SIGNING_AUTHORITY = COMMAND_EVE_BROWSER_UVX_SIGNING_AUTHORITY;
+const COMMAND_EVE_PYTHON_SIGNING_TEAM = COMMAND_EVE_BROWSER_UVX_SIGNING_TEAM;
+const COMMAND_EVE_PYTHON_SIGNING_IDENTIFIER = 'python3';
 
 export const COMMAND_EVE_PUBLIC_KEY_FILES = Object.freeze([
   'command-eve-license-public-key.pem',
@@ -220,14 +223,14 @@ function defaultReadCodeSignature(filePath) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (verified.error || verified.status !== 0) {
-    throw new Error(`PACKAGED-RESOURCES: Browser Use uvx Developer ID signature is invalid: ${filePath}`);
+    throw new Error(`PACKAGED-RESOURCES: Developer ID signature is invalid: ${filePath}`);
   }
   const inspected = spawnSync('/usr/bin/codesign', ['-dv', '--verbose=4', filePath], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (inspected.error || inspected.status !== 0) {
-    throw new Error(`PACKAGED-RESOURCES: Browser Use uvx Developer ID signature is unreadable: ${filePath}`);
+    throw new Error(`PACKAGED-RESOURCES: Developer ID signature is unreadable: ${filePath}`);
   }
   const details = `${inspected.stderr || ''}\n${inspected.stdout || ''}`;
   const value = (name) => {
@@ -238,7 +241,32 @@ function defaultReadCodeSignature(filePath) {
     authority: value('Authority'),
     team_id: value('TeamIdentifier'),
     identifier: value('Identifier'),
+    cdhash: value('CDHash').toLowerCase(),
     hardened_runtime: /flags=0x[0-9a-f]+\([^)]*runtime[^)]*\)/i.test(details),
+  };
+}
+
+function normalizePythonCodeSignature(value) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    JSON.stringify(Object.keys(value).sort()) !==
+      JSON.stringify(['authority', 'cdhash', 'hardened_runtime', 'identifier', 'team_id']) ||
+    value.authority !== COMMAND_EVE_PYTHON_SIGNING_AUTHORITY ||
+    value.team_id !== COMMAND_EVE_PYTHON_SIGNING_TEAM ||
+    value.identifier !== COMMAND_EVE_PYTHON_SIGNING_IDENTIFIER ||
+    typeof value.cdhash !== 'string' ||
+    !/^[a-f0-9]{40}$/.test(value.cdhash) ||
+    value.hardened_runtime !== true
+  ) {
+    return null;
+  }
+  return {
+    authority: value.authority,
+    team_id: value.team_id,
+    identifier: value.identifier,
+    cdhash: value.cdhash,
+    hardened_runtime: true,
   };
 }
 
@@ -592,6 +620,7 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
     receipt?.runtime_key !== runtimeKey ||
     receipt?.network_install_allowed !== false ||
     receipt?.probe_status !== 'pass' ||
+    !['staged', 'signed'].includes(receipt?.tree_phase) ||
     (hermesRuntimeRequired
       ? receipt?.hermes_runtime?.version !== 'command-eve-hermes-runtime-site/v1' ||
         receipt?.hermes_runtime?.lock_file !== COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE ||
@@ -618,6 +647,12 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
         const filePath = path.join(pythonDirectory, ...relativePath.split('/'));
         const bytes = readRequiredRegularFile(filePath, `packaged Python runtime file ${relativePath}`, deps);
         const stat = deps.lstat(filePath);
+        const declaredSignature =
+          relativePath === 'bin/python3.12' ? normalizePythonCodeSignature(entry?.code_signature) : null;
+        const actualSignature =
+          relativePath === 'bin/python3.12' && receipt.tree_phase === 'signed'
+            ? normalizePythonCodeSignature(deps.readCodeSignature(filePath))
+            : null;
         if (
           typeof entry.mode !== 'number' ||
           typeof entry.size !== 'number' ||
@@ -625,11 +660,24 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
           entry.mode !== (stat.mode & 0o777) ||
           entry.size !== stat.size ||
           entry.sha256 !== sha256(bytes) ||
-          (relativePath === 'bin/python3.12' && (entry.mode & 0o111) === 0)
+          (relativePath === 'bin/python3.12' &&
+            ((entry.mode & 0o111) === 0 ||
+              (receipt.tree_phase === 'signed'
+                ? !declaredSignature ||
+                  !actualSignature ||
+                  JSON.stringify(actualSignature) !== JSON.stringify(declaredSignature)
+                : entry?.code_signature !== undefined))) ||
+          (relativePath !== 'bin/python3.12' && entry?.code_signature !== undefined)
         ) {
           throw new Error(`PACKAGED-RESOURCES: packaged Python runtime identity mismatch for ${relativePath}`);
         }
-        return { file: relativePath, mode: entry.mode, size: entry.size, sha256: entry.sha256 };
+        return {
+          file: relativePath,
+          mode: entry.mode,
+          size: entry.size,
+          sha256: entry.sha256,
+          ...(declaredSignature ? { signing: declaredSignature } : {}),
+        };
       })
     : [];
 
