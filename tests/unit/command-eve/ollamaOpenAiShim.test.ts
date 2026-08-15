@@ -224,7 +224,9 @@ async function startFakeEveFunction(
   return `http://127.0.0.1:${address.port}`;
 }
 
-function runManagedVisualRefusalHarness(args: string[]): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+function runManagedVisualRefusalHarness(
+  args: string[]
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn('python3', ['tests/fixtures/command-eve/managed_visual_refusal_retry_harness.py', ...args], {
       cwd: path.resolve(__dirname, '../../..'),
@@ -1482,8 +1484,10 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
   it('keeps a local-selection chat on Ollama (EVE route inactive)', async () => {
     let ollamaSeen = false;
-    const ollamaBaseUrl = await startFakeOpenAiServer(() => {
+    let ollamaBody: Record<string, unknown> | undefined;
+    const ollamaBaseUrl = await startFakeOpenAiServer((body) => {
       ollamaSeen = true;
+      ollamaBody = body;
     });
     const fnSeen: EveFnSeen = {};
     await startFakeEveFunction(fnSeen);
@@ -1508,6 +1512,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('x-command-eve-inference-lane')).toBe('ollama_local');
     expect(ollamaSeen).toBe(true);
+    expect(ollamaBody?.model).toBe('command-eve-gemma4-e4b-64k');
     // The EVE function was never touched.
     expect(fnSeen.body).toBeUndefined();
   });

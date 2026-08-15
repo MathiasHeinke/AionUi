@@ -46,6 +46,7 @@ import {
   COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
   COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
   getCommandEveLocalModelTier,
+  normalizeCommandEveLocalRuntimeModelId,
 } from '../../common/config/commandEveShell';
 import { HONCHO_DERIVER_FORCED_TIER } from './honchoRuntimeConfigCore';
 import { stripCommandEveManagedVisualTurnMarkers } from '../../common/config/eveManagedVisualTurnCore';
@@ -1392,7 +1393,11 @@ async function handleContextPolicy(
 }
 
 function nativeChatPayload(body: Record<string, unknown>, options: Required<CommandEveOllamaShimOptions>): unknown {
-  const model = String(body.model || '');
+  // `custom:` is the ACP namespace used by AionUI/AionCore, not part of the
+  // actual Ollama model name. Keep the public/receipt model untouched, but send
+  // only the normalized runtime id to Ollama. Newer Ollama versions reject the
+  // ACP-prefixed value as an invalid model name.
+  const model = normalizeCommandEveLocalRuntimeModelId(String(body.model || ''));
   const maxTokens =
     typeof body.max_tokens === 'number' && Number.isFinite(body.max_tokens)
       ? Math.max(1, Math.min(Math.floor(body.max_tokens), options.maxTokens))
