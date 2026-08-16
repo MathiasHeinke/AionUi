@@ -8,7 +8,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button, Message, Switch, Popconfirm, Spin, Empty } from '@arco-design/web-react';
-import { Left, Delete, Write, Attention, Robot } from '@icon-park/react';
+import { Left, Delete, Write, Attention, Robot } from '@renderer/components/icons';
 import { ipcBridge } from '@/common';
 import type { ICronJob } from '@/common/adapter/ipcBridge';
 import type { TChatConversation } from '@/common/config/storage';

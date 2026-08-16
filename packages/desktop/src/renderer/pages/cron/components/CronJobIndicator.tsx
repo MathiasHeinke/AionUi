@@ -6,7 +6,7 @@
 
 import { iconColors } from '@/renderer/styles/colors';
 import { Tooltip } from '@arco-design/web-react';
-import { AlarmClock, Attention, PauseOne } from '@icon-park/react';
+import { AlarmClock, Attention, PauseOne } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 

@@ -6,7 +6,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { Button } from '@arco-design/web-react';
-import { Caution, Download, FileText, Refresh } from '@icon-park/react';
+import { Caution, Download, FileText, Refresh } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import { ipcBridge } from '@/common';
 import type { BackendStartupFailureInfo } from '@/common/types/platform/electron';

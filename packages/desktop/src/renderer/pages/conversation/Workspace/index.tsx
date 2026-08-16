@@ -12,7 +12,7 @@ import { usePreviewContext } from '@/renderer/pages/conversation/Preview/context
 import { getWorkspaceDisplayName as getDisplayName } from '@/renderer/utils/workspace/workspace';
 import { WORKSPACE_TAB_SELECT_EVENT, type WorkspaceSurfaceTab } from '@/renderer/utils/workspace/workspaceEvents';
 import { Empty, Message, Tree } from '@arco-design/web-react';
-import { Right } from '@icon-park/react';
+import { Right } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import FileChangeList from './components/FileChangeList';

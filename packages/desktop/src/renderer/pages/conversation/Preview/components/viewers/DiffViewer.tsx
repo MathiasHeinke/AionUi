@@ -7,7 +7,7 @@
 import type { PreviewMetadata } from '../../context/PreviewContext';
 import { useTextSelection } from '@/renderer/hooks/ui/useTextSelection';
 import { Checkbox } from '@arco-design/web-react';
-import { Download } from '@icon-park/react';
+import { Download } from '@renderer/components/icons';
 import classNames from 'classnames';
 import { html } from 'diff2html';
 import 'diff2html/bundles/css/diff2html.min.css';

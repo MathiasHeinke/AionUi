@@ -19,7 +19,7 @@ describe('premium custom menu surface migration', () => {
     expect(content).toContain('eve-menu-item');
   });
 
-  it('uses semantic colors and Icon Park chevrons throughout the migrated surfaces', () => {
+  it('uses semantic colors and Phosphor chevrons throughout the migrated surfaces', () => {
     const content = [
       ...customSurfaceFiles,
       'packages/desktop/src/renderer/components/chat/MobileActionSheet/MobileActionSheet.tsx',

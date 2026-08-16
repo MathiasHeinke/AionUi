@@ -3,7 +3,7 @@
  */
 import type { AssistantListItem } from './types';
 import { Avatar } from '@arco-design/web-react';
-import { Robot } from '@icon-park/react';
+import { Robot } from '@renderer/components/icons';
 import React from 'react';
 import { isEmoji, resolveAvatarImageSrc } from './assistantUtils';
 

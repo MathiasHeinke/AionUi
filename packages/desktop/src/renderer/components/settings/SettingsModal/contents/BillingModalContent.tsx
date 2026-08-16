@@ -28,7 +28,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Input, InputNumber, Message, Progress, Upload } from '@arco-design/web-react';
-import { Info, UploadOne } from '@icon-park/react';
+import { Info, UploadOne } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import { openAccountWeb } from '@renderer/utils/platform';
 import { configService } from '@/common/config/configService';

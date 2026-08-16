@@ -11,7 +11,7 @@ import {
   Refresh,
   SettingOne,
   Write,
-} from '@icon-park/react';
+} from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { McpOAuthStatus } from '@/renderer/hooks/mcp/useMcpOAuth';

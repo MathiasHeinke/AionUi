@@ -451,7 +451,8 @@ Branch naming: `fix/issue-<number>` using the primary issue number.
 - `src/process/worker/` = fork workers — no Electron APIs
 - Cross-process communication MUST go through IPC bridge (`src/preload.ts`)
 - Use path aliases: `@/*`, `@process/*`, `@renderer/*`, `@worker/*`
-- Use `@arco-design/web-react` for UI components, `@icon-park/react` for icons
+- Use `@arco-design/web-react` for UI components and the central
+  `@renderer/components/icons` Phosphor facade for interface icons
 - Prefer `type` over `interface`, no `any`, no implicit returns
 
 1. Extract clues from the issue body:

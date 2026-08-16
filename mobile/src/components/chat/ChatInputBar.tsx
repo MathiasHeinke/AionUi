@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, TextInput, TouchableOpacity, StyleSheet, Platform } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { useThemeColor } from '../../hooks/useThemeColor';
 
@@ -48,11 +48,11 @@ export function ChatInputBar({ onSend, onStop, isStreaming, disabled }: ChatInpu
         />
         {isStreaming ? (
           <TouchableOpacity style={styles.stopButton} onPress={onStop} activeOpacity={0.7}>
-            <Ionicons name='stop-circle' size={28} color={error} />
+            <PremiumIcon name='stop-circle' size={28} color={error} />
           </TouchableOpacity>
         ) : showSend ? (
           <TouchableOpacity style={styles.sendButton} onPress={handleSend} activeOpacity={0.7}>
-            <Ionicons name='arrow-up-circle' size={32} color={tint} />
+            <PremiumIcon name='arrow-up-circle' size={32} color={tint} />
           </TouchableOpacity>
         ) : null}
       </View>

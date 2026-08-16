@@ -216,7 +216,7 @@ vi.mock('@/renderer/pages/conversation/Preview/components/viewers/PDFViewer', ()
   ),
 }));
 
-vi.mock('@icon-park/react', () => ({
+vi.mock('@renderer/components/icons', () => ({
   Copy: () => <span>copy</span>,
   Down: () => <span>down</span>,
   EditOne: () => <span>edit-one</span>,

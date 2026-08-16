@@ -26,7 +26,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Input, Message, Modal, Tooltip } from '@arco-design/web-react';
-import { ExpandLeft, ExpandRight, Plus } from '@icon-park/react';
+import { ExpandLeft, ExpandRight, Plus } from '@renderer/components/icons';
 import {
   isAnyGenerating,
   ensureAcpGenerationTracking,

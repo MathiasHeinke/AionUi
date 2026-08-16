@@ -10,7 +10,7 @@ import {
   dispatchWorkspaceOpenEvent,
 } from '@/renderer/utils/workspace/workspaceEvents';
 import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
-import { Check, Down, FolderBlock, FolderOpen, FolderPlus } from '@icon-park/react';
+import { Check, Down, FolderBlock, FolderOpen, FolderPlus } from '@renderer/components/icons';
 import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { COMPOSER_MENU_TRIGGER_PROPS } from '@/renderer/utils/ui/composerMenuMotion';

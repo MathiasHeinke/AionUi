@@ -10,7 +10,7 @@ import { useThemeContext } from '@renderer/hooks/context/ThemeContext.tsx';
 import { iconColors } from '@renderer/styles/colors';
 import { Button, Input, Radio } from '@arco-design/web-react';
 import AionModal from '@renderer/components/base/AionModal.tsx';
-import { Plus, Delete } from '@icon-park/react';
+import { Plus, Delete } from '@renderer/components/icons';
 import CodeMirror from '@uiw/react-codemirror';
 import { css as cssLang } from '@codemirror/lang-css';
 import React, { useCallback, useEffect, useState } from 'react';

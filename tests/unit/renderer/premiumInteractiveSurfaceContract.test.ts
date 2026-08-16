@@ -36,6 +36,12 @@ const productionSources = sourceFilesByExtension(rendererRoot, productionExtensi
   path: relative(process.cwd(), absolute),
   source: withoutBlockComments(readFileSync(absolute, 'utf8')),
 }));
+const localeSources = sourceFilesByExtension(resolve(rendererRoot, 'services/i18n/locales'), new Set(['.json'])).map(
+  (absolute) => ({
+    path: relative(process.cwd(), absolute),
+    source: readFileSync(absolute, 'utf8'),
+  })
+);
 
 function sourceFilesByExtension(root: string, extensions: ReadonlySet<string>): string[] {
   const result: string[] = [];
@@ -55,9 +61,21 @@ function lineFor(source: string, offset: number): number {
 }
 
 describe('app-wide premium interactive surface contract', () => {
-  it('uses Icon Park as the only application icon library outside file-type content rendering', () => {
+  it('uses the shared Phosphor facade outside explicit file-type content rendering', () => {
     const legacyImports = sources.filter(({ source }) => source.includes("from '@arco-design/web-react/icon'"));
     expect(legacyImports.map(({ path }) => path)).toEqual([]);
+
+    const iconParkImports = sources.filter(({ source }) => source.includes('@icon-park/react'));
+    expect(iconParkImports.map(({ path }) => path)).toEqual([]);
+
+    const directPhosphorAllowlist = new Set([
+      'packages/desktop/src/renderer/components/base/PremiumIconProvider.tsx',
+      'packages/desktop/src/renderer/components/icons/index.tsx',
+    ]);
+    const directPhosphorImports = sources.filter(
+      ({ path, source }) => source.includes("from '@phosphor-icons/react'") && !directPhosphorAllowlist.has(path)
+    );
+    expect(directPhosphorImports.map(({ path }) => path)).toEqual([]);
 
     const allowedContentIconLibraries = new Set([
       'packages/desktop/src/renderer/pages/conversation/Workspace/components/FileTypeIcon.tsx',
@@ -95,6 +113,11 @@ describe('app-wide premium interactive surface contract', () => {
       }))
     );
     expect(offenders).toEqual([]);
+  });
+
+  it('keeps connection and completion status glyphs out of localized copy', () => {
+    const offenders = localeSources.filter(({ source }) => /[✅❌⏳✓]/u.test(source));
+    expect(offenders.map(({ path }) => path)).toEqual([]);
   });
 
   it('keeps handcrafted SVG limited to data visualization/rendering seams', () => {

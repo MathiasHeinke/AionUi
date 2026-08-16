@@ -7,7 +7,7 @@
 import React, { useEffect, useReducer, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Message } from '@arco-design/web-react';
-import { Refresh } from '@icon-park/react';
+import { Refresh } from '@renderer/components/icons';
 import { ipcBridge } from '@/common';
 import { INITIAL_UPDATE_READY_PROMPT_STATE, reduceUpdateReadyPrompt } from '@/common/update/updateReadyPromptCore';
 import { useAutoUpdateStatus } from '@renderer/hooks/system/useAutoUpdateStatus';

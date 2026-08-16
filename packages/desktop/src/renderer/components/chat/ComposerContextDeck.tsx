@@ -13,7 +13,7 @@ import { useConfig } from '@/renderer/hooks/config/useConfig';
 import { COMPOSER_MENU_TRIGGER_PROPS } from '@/renderer/utils/ui/composerMenuMotion';
 import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 import { Button, Dropdown, Menu, Popover } from '@arco-design/web-react';
-import { Check, Down, Shield } from '@icon-park/react';
+import { Check, Down, Shield } from '@renderer/components/icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from './ComposerContextDeck.module.css';

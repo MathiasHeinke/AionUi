@@ -16,7 +16,7 @@ import { notifyManualRestartRequired } from '@/renderer/utils/appRestart';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 import { Form, InputNumber, Message, Modal, Switch } from '@arco-design/web-react';
-import { Caution } from '@icon-park/react';
+import { Caution } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';

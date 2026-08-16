@@ -8,7 +8,7 @@ import type { CustomAgentAdvancedOverrides } from '@/common/types/platform/acpTy
 import type { AgentMetadata } from '@/renderer/utils/model/agentTypes';
 import { acpConversation } from '@/common/adapter/ipcBridge';
 import { Alert, Avatar, Button, Collapse, Input, Typography } from '@arco-design/web-react';
-import { Plus, Delete, CheckOne, CloseOne } from '@icon-park/react';
+import { Plus, Delete, CheckOne, CloseOne } from '@renderer/components/icons';
 import EmojiPicker from '@/renderer/components/chat/EmojiPicker';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';

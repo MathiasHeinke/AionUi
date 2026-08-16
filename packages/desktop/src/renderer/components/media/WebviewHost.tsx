@@ -5,7 +5,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Left, Right, Refresh, Loading } from '@icon-park/react';
+import { Left, Right, Refresh, Loading } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { ipcBridge } from '@/common';

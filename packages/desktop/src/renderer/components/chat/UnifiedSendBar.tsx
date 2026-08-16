@@ -41,7 +41,7 @@ import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndic
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
 import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 import { Button, Popover } from '@arco-design/web-react';
-import { Layers, Right, Shield, Tool } from '@icon-park/react';
+import { Layers, Right, Shield, Tool } from '@renderer/components/icons';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';

@@ -5,7 +5,7 @@
  */
 
 import { useConfig } from '@/renderer/hooks/config/useConfig';
-import { Shield } from '@icon-park/react';
+import { Shield } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';

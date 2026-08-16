@@ -1,5 +1,5 @@
 import { Button, Dropdown, Menu } from '@arco-design/web-react';
-import { EditOne, Time } from '@icon-park/react';
+import { EditOne, Time } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationBusyControlMode } from './useConversationCommandQueue';

@@ -94,6 +94,11 @@ describe('CommandEveAppearanceSettings', () => {
   it('routes mode and accent controls through the single visual preference model', () => {
     render(<CommandEveAppearanceSettings />);
 
+    const selectedSwatch = screen.getByTestId('eve-appearance-accent-blue');
+    expect(selectedSwatch).toHaveAttribute('aria-checked', 'true');
+    expect(selectedSwatch.querySelector('svg')).toHaveAttribute('data-icon-family', 'phosphor');
+    expect(screen.getByTestId('eve-appearance-accent-emerald').querySelector('svg')).toBeNull();
+
     fireEvent.click(screen.getByTestId('eve-appearance-mode-dark'));
     const modeUpdater = setVisualPreferencesMock.mock.calls[0][0];
     expect(modeUpdater(preferences)).toMatchObject({ mode: 'dark', accent: 'blue' });

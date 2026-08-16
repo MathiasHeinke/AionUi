@@ -9,7 +9,7 @@ import {
   LeftBar,
   Peoples,
   RightBar,
-} from '@icon-park/react';
+} from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 

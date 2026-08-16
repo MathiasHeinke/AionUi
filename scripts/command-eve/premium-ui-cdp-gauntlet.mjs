@@ -93,7 +93,7 @@ class CdpClient {
 }
 
 const pages = await (await fetch(`${cdpBase}/json/list`)).json();
-const page = pages.find((entry) => entry.type === 'page' && entry.url.includes('localhost:5173'));
+const page = pages.find((entry) => entry.type === 'page' && /^http:\/\/localhost:\d+\//.test(entry.url));
 if (!page) throw new Error(`No Command EVE renderer page exposed by ${cdpBase}`);
 
 const cdp = new CdpClient(page.webSocketDebuggerUrl);
@@ -265,8 +265,8 @@ const openAndAudit = async (selector, label) => {
       .slice(0, 24)
       .map((row) => {
         const rowRect = row.getBoundingClientRect();
-        const icon = row.querySelector('.i-icon,.arco-icon,svg');
-        const text = row.querySelector('span:not(.i-icon):not(.arco-icon)');
+        const icon = row.querySelector('.eve-phosphor-icon,.arco-icon,svg');
+        const text = row.querySelector('span:not(.eve-phosphor-icon):not(.arco-icon)');
         let centerDelta = null;
         if (icon && text) {
           const iconRect = icon.getBoundingClientRect();
@@ -388,6 +388,11 @@ try {
     }
     await setViewport(1440, 1000);
   }
+} catch (error) {
+  report.failures.push({
+    kind: 'harness-error',
+    message: error instanceof Error ? error.message : String(error),
+  });
 } finally {
   const resultPath = resolve(outputDir, 'premium-ui-gauntlet-report.json');
   writeFileSync(resultPath, `${JSON.stringify(report, null, 2)}\n`);

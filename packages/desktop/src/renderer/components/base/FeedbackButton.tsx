@@ -5,7 +5,7 @@
  */
 
 import { useFeedback } from '@/renderer/hooks/context/FeedbackContext';
-import { Comment } from '@icon-park/react';
+import { Comment } from '@renderer/components/icons';
 import classNames from 'classnames';
 import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';

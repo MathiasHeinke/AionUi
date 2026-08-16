@@ -16,7 +16,7 @@ import vscodeIconsData from '../utils/vscodeIconsData.json';
 
 // Register only the bundled subset of vscode-icons once, so <Icon> resolves
 // names offline without hitting the Iconify API. Intentional, isolated
-// deviation from the @icon-park-only icon convention (see AGENTS.md): the file
+// deviation from the Phosphor UI-icon convention (see AGENTS.md): the file
 // tree mirrors VSCode's explorer icons.
 addCollection(vscodeIconsData as IconifyJSON);
 

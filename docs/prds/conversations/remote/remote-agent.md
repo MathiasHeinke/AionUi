@@ -21,7 +21,7 @@
    - 中屏: 2 列 (`md:grid-cols-2`)
    - 大屏: 3 列 (`xl:grid-cols-3`)
 5. 每张卡片显示：
-   - 居中的 Avatar（48x48px, 方形 borderRadius=12, emoji 字号 24px；无 avatar 时显示 Robot outline 图标 18px, @icon-park/react）
+   - 居中的 Avatar（48x48px, 方形 borderRadius=12, emoji 字号 24px；无 avatar 时显示 Robot outline 图标 18px, @renderer/components/icons (Phosphor facade)）
    - 名称（14px 加粗，最多 2 行截断 `line-clamp-2`）
    - 标签区域：连接状态标签（条件渲染）+ 协议标签（始终渲染, arcoblue）
    - URL（12px 次级文字，最多 2 行截断 `line-clamp-2`）

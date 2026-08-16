@@ -24,7 +24,7 @@ import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { useCommandEveFounderBuild } from '@renderer/hooks/useCommandEveFounderBuild';
 import SeatRail from '@renderer/components/seats/SeatRail';
 import '@renderer/styles/layout.css';
-import { LeftBar } from '@icon-park/react';
+import { LeftBar } from '@renderer/components/icons';
 
 const useDebug = () => {
   const [count, setCount] = useState(0);

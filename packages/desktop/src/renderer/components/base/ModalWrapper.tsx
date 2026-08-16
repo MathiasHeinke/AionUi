@@ -1,6 +1,6 @@
 import type { ModalProps } from '@arco-design/web-react';
 import { Button, Modal } from '@arco-design/web-react';
-import { Close } from '@icon-park/react';
+import { Close } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 

@@ -6,7 +6,7 @@
 
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { Dropdown, Menu, Tooltip } from '@arco-design/web-react';
-import { MoreOne, Pushpin } from '@icon-park/react';
+import { MoreOne, Pushpin } from '@renderer/components/icons';
 import classNames from 'classnames';
 import React, { useState } from 'react';
 

@@ -39,7 +39,7 @@
 
 - **框架**: Electron 37 + React 19 + TypeScript 5.8
 - **UI库**: Arco Design (@arco-design/web-react)
-- **图标**: Icon Park (@icon-park/react)
+- **图标**: Phosphor（统一通过 `@renderer/components/icons` 外观层）
 - **CSS**: UnoCSS 原子化样式
 - **状态管理**: React Context (AuthContext / ConversationContext / ThemeContext / LayoutContext)
 - **IPC通信**: @office-ai/platform bridge 系统

@@ -8,7 +8,7 @@ import { ipcBridge } from '@/common';
 import { buildPdfSrc } from '../../previewUrls';
 import { usePreviewToolbarExtras } from '../../context/PreviewToolbarExtrasContext';
 import { Button, Message } from '@arco-design/web-react';
-import { Caution, FilePdf, Open } from '@icon-park/react';
+import { Caution, FilePdf, Open } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

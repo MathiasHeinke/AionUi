@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { ThemedText } from '../ui/ThemedText';
 import { MarkdownContent } from '../chat/MarkdownContent';
 import { bridge } from '../../services/bridge';
@@ -108,7 +108,7 @@ export function FileContentView({ path }: FileContentViewProps) {
   if (contentType === 'unsupported') {
     return (
       <View style={[styles.center, { backgroundColor: bg }]}>
-        <Ionicons name='document-outline' size={48} color={textColor} style={{ opacity: 0.4 }} />
+        <PremiumIcon name='document-outline' size={48} color={textColor} style={{ opacity: 0.4 }} />
         <ThemedText style={styles.message}>{t('filePreview.unsupportedType')}</ThemedText>
       </View>
     );
@@ -126,7 +126,7 @@ export function FileContentView({ path }: FileContentViewProps) {
   if (error) {
     return (
       <View style={[styles.center, { backgroundColor: bg }]}>
-        <Ionicons name='warning-outline' size={48} color={textColor} style={{ opacity: 0.4 }} />
+        <PremiumIcon name='warning-outline' size={48} color={textColor} style={{ opacity: 0.4 }} />
         <ThemedText style={styles.message}>{error}</ThemedText>
         <TouchableOpacity style={[styles.retryButton, { borderColor: tint }]} onPress={loadContent}>
           <ThemedText style={{ color: tint }}>{t('filePreview.retry')}</ThemedText>

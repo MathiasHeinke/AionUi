@@ -8,7 +8,7 @@ import type { AvailableBackend } from '@/renderer/hooks/assistant';
 import EmojiPicker from '@/renderer/components/chat/EmojiPicker';
 import MarkdownView from '@/renderer/components/Markdown';
 import { Avatar, Button, Checkbox, Collapse, Drawer, Input, Select, Tag, Typography } from '@arco-design/web-react';
-import { Close, Delete, Info, Plus, Robot } from '@icon-park/react';
+import { Close, Delete, Info, Plus, Robot } from '@renderer/components/icons';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';

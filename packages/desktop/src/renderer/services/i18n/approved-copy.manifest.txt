@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7822
+# entries: 7814
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -199,6 +199,7 @@ copy	1	de-DE/codex.json	Codex fordert das Lesen von Dateiinhalten an
 copy	1	de-DE/codex.json	Codex fordert das Ändern oder Erstellen von Dateien an
 copy	1	de-DE/codex.json	Codex fordert die Ausführung von Systembefehlen an
 copy	1	de-DE/codex.json	Der Cloudflare-Schutz hat den Zugriff auf {{service}} blockiert. Vorschläge: 1) VPN verwenden 2) Netzwerk wechseln 3) Später erneut versuchen 4) Zu anderen KI-Diensten wechseln
+copy	1	de-DE/codex.json	Dienstverbindung abgelehnt
 copy	1	de-DE/codex.json	Eingabe-Entprellung ist aktiviert ({{delay}} ms Verzögerung)
 copy	1	de-DE/codex.json	Eingabe-Entprellung ist deaktiviert
 copy	1	de-DE/codex.json	Einmal ablehnen
@@ -262,7 +263,6 @@ copy	1	de-DE/codex.json	• Verbindung erneut versuchen
 copy	1	de-DE/codex.json	• Zu anderen verfügbaren Diensten wechseln: ChatGPT, Claude, Qwen, Gemini
 copy	1	de-DE/codex.json	• Zu einer stabileren Netzwerkumgebung wechseln
 copy	1	de-DE/codex.json	⏱️ Netzwerkverbindungs-Timeout
-copy	1	de-DE/codex.json	❌ Dienstverbindung abgelehnt
 copy	1	de-DE/codex.json	💡 **Optionen zum schnellen Wechsel:**
 copy	1	de-DE/codex.json	💭 Denkprozess abgeschlossen
 copy	1	de-DE/codex.json	🔌 Netzwerkverbindungsfehler
@@ -3091,7 +3091,7 @@ copy	1	de-DE/settings.json	Es wird nur das Protokoll http/https unterstützt
 copy	1	de-DE/settings.json	Eve darf selbst Videos generieren
 copy	2	de-DE/settings.json	Experimentell
 copy	1	de-DE/settings.json	Feedback
-copy	2	de-DE/settings.json	Fehler
+copy	3	de-DE/settings.json	Fehler
 copy	1	de-DE/settings.json	Fehler beim Importieren des Skills
 copy	1	de-DE/settings.json	Fehler beim Löschen der MCP-Konfiguration
 copy	1	de-DE/settings.json	Fehler beim Löschen des Skills
@@ -3192,8 +3192,7 @@ copy	1	de-DE/settings.json	In der CLI deaktiviert
 copy	1	de-DE/settings.json	Inaktive Agentenprozesse nach dieser Dauer beenden, um Speicher freizugeben
 copy	1	de-DE/settings.json	Initiales Passwort
 copy	1	de-DE/settings.json	Installieren
-copy	1	de-DE/settings.json	Installiert
-copy	1	de-DE/settings.json	Installiert ✓
+copy	2	de-DE/settings.json	Installiert
 copy	1	de-DE/settings.json	Integration verbinden
 copy	2	de-DE/settings.json	Integriert
 copy	1	de-DE/settings.json	Integrierte Assistenten können nicht gelöscht werden
@@ -3638,14 +3637,14 @@ copy	4	de-DE/settings.json	Verbindung fehlgeschlagen
 copy	1	de-DE/settings.json	Verbindung fehlgeschlagen. Bitte überprüfe deine Anmeldedaten.
 copy	1	de-DE/settings.json	Verbindung fehlgeschlagen: {{error}}
 copy	3	de-DE/settings.json	Verbindung testen
-copy	3	de-DE/settings.json	Verbindung wird hergestellt …
+copy	4	de-DE/settings.json	Verbindung wird hergestellt …
 copy	1	de-DE/settings.json	Verbindungen verwalten
 copy	1	de-DE/settings.json	Verbindungs-Timeout, bitte überprüfe Netzwerk oder API-URL
 copy	3	de-DE/settings.json	Verbindungsstatus
 copy	1	de-DE/settings.json	Verbindungstest erfolgreich
 copy	1	de-DE/settings.json	Verbindungstest nach {{seconds}} s abgelaufen.
 copy	1	de-DE/settings.json	Verbleibende Zeit: {{time}}
-copy	4	de-DE/settings.json	Verbunden
+copy	5	de-DE/settings.json	Verbunden
 copy	2	de-DE/settings.json	Verbunden! Bot: @{{username}}
 copy	1	de-DE/settings.json	Verbundene Werkzeuge
 copy	2	de-DE/settings.json	Verfügbar
@@ -3807,9 +3806,6 @@ copy	1	de-DE/settings.json	Über WeCom mit EVE chatten
 copy	1	de-DE/settings.json	Überlagerung an Darstellung anpassen
 copy	1	de-DE/settings.json	Übersprungen
 copy	1	de-DE/settings.json	öffnen
-copy	1	de-DE/settings.json	⏳ Verbindung wird hergestellt …
-copy	1	de-DE/settings.json	✅ Verbunden
-copy	1	de-DE/settings.json	❌ Fehler
 copy	1	de-DE/settings.json	💡 Um mehrere API-Schlüssel für die automatische Rotation hinzuzufügen, konfiguriere dies später in der Plattformbearbeitung
 copy	1	de-DE/skillLibrary.json	Aktualisieren
 copy	2	de-DE/skillLibrary.json	Ausführbar
@@ -4130,6 +4126,7 @@ copy	1	en-US/codex.json	Reject this request only
 copy	1	en-US/codex.json	Response sent successfully
 copy	1	en-US/codex.json	Retry Count
 copy	1	en-US/codex.json	Retrying attempt {{current}}...
+copy	1	en-US/codex.json	Service connection refused
 copy	1	en-US/codex.json	Session timed out, please retry
 copy	1	en-US/codex.json	Summary:
 copy	1	en-US/codex.json	Troubleshooting Suggestions
@@ -4153,7 +4150,6 @@ copy	1	en-US/codex.json	• Use VPN or proxy service
 copy	1	en-US/codex.json	• Verify service configuration and API keys
 copy	1	en-US/codex.json	• Wait 10-30 minutes and retry
 copy	1	en-US/codex.json	⏱️ Network connection timeout
-copy	1	en-US/codex.json	❌ Service connection refused
 copy	1	en-US/codex.json	💡 **Quick Switch Options:**
 copy	1	en-US/codex.json	💭 Thinking process completed
 copy	1	en-US/codex.json	🔌 Network connection error
@@ -6817,12 +6813,12 @@ copy	1	en-US/settings.json	Connect Telegram, Lark, DingTalk, and WeChat to inter
 copy	1	en-US/settings.json	Connect a messaging channel so you can reach EVE outside the desktop app.
 copy	1	en-US/settings.json	Connect an integration
 copy	1	en-US/settings.json	Connect your first Agent
-copy	5	en-US/settings.json	Connected
+copy	6	en-US/settings.json	Connected
 copy	1	en-US/settings.json	Connected to DingTalk API!
 copy	1	en-US/settings.json	Connected to Lark API!
 copy	1	en-US/settings.json	Connected tools
 copy	2	en-US/settings.json	Connected! Bot: @{{username}}
-copy	3	en-US/settings.json	Connecting...
+copy	4	en-US/settings.json	Connecting...
 copy	3	en-US/settings.json	Connection Status
 copy	4	en-US/settings.json	Connection failed
 copy	1	en-US/settings.json	Connection failed. Please check your credentials.
@@ -6984,7 +6980,7 @@ copy	1	en-US/settings.json	Enter token
 copy	1	en-US/settings.json	Enter your Google Cloud Project ID
 copy	1	en-US/settings.json	Env
 copy	1	en-US/settings.json	Environment Variables
-copy	3	en-US/settings.json	Error
+copy	4	en-US/settings.json	Error
 copy	1	en-US/settings.json	Error deleting MCP configuration
 copy	1	en-US/settings.json	Error deleting skill
 copy	1	en-US/settings.json	Error importing skill
@@ -7118,8 +7114,7 @@ copy	1	en-US/settings.json	Increase
 copy	1	en-US/settings.json	Initial Password
 copy	1	en-US/settings.json	Install
 copy	1	en-US/settings.json	Install from Market
-copy	1	en-US/settings.json	Installed
-copy	1	en-US/settings.json	Installed ✓
+copy	2	en-US/settings.json	Installed
 copy	1	en-US/settings.json	Installing...
 copy	1	en-US/settings.json	Integrity check pending
 copy	1	en-US/settings.json	Interface, Display & Desktop Pet
@@ -7739,9 +7734,6 @@ copy	1	en-US/settings.json	{{name}}: {{error}}. Please review the MCP JSON confi
 copy	1	en-US/settings.json	{{resource}} is not supported on this platform.
 copy	1	en-US/settings.json	{{resource}} is ready.
 copy	1	en-US/settings.json	{{valid}} valid, {{invalid}} invalid
-copy	1	en-US/settings.json	⏳ Connecting...
-copy	1	en-US/settings.json	✅ Connected
-copy	1	en-US/settings.json	❌ Error
 copy	1	en-US/settings.json	💡 To add multiple API Keys for auto-rotation, configure in platform edit later
 copy	1	en-US/skillLibrary.json	Auto-decompose
 copy	1	en-US/skillLibrary.json	Blocked MCP transports

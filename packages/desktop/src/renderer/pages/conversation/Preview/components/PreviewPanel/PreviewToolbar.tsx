@@ -6,7 +6,7 @@
 
 import type { PreviewHistoryTarget } from '@/common/types/office/preview';
 import { Dropdown, Tooltip } from '@arco-design/web-react';
-import { Camera, Close, Download, FileText, History, Inspection, Open, Split } from '@icon-park/react';
+import { Camera, Close, Download, FileText, History, Inspection, Open, Split } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { shouldShowDownload } from './previewToolbarUtils';

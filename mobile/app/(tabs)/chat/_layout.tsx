@@ -1,5 +1,5 @@
 import { Drawer } from 'expo-router/drawer';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../../../src/components/ui/PremiumIcon';
 import { TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { DrawerActions } from '@react-navigation/routers';
@@ -17,7 +17,7 @@ function DrawerMenuButton() {
       onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
       style={{ marginLeft: 16 }}
     >
-      <Ionicons name='menu' size={24} color={tint} />
+      <PremiumIcon name='menu' size={24} color={tint} />
     </TouchableOpacity>
   );
 }
@@ -52,7 +52,7 @@ export default function ChatDrawerLayout() {
             </ThemedText>
             {currentWorkspace && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                <Ionicons name='folder-outline' size={11} color={textSecondary} />
+                <PremiumIcon name='folder-outline' size={11} color={textSecondary} />
                 <ThemedText
                   style={{ fontSize: 12, color: textSecondary }}
                   numberOfLines={1}

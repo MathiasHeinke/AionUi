@@ -23,7 +23,7 @@ import {
   Projector,
   Right,
   Video,
-} from '@icon-park/react';
+} from '@renderer/components/icons';
 import React, { useMemo } from 'react';
 import { COMPOSER_MENU_TRIGGER_PROPS } from '@/renderer/utils/ui/composerMenuMotion';
 import styles from './WorkProductModeSelector.module.css';

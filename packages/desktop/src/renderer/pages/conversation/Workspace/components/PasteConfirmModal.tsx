@@ -5,7 +5,7 @@
  */
 
 import { Checkbox, Modal } from '@arco-design/web-react';
-import { FileText, FolderOpen } from '@icon-park/react';
+import { FileText, FolderOpen } from '@renderer/components/icons';
 import React from 'react';
 import type { TFunction } from 'i18next';
 import type { PasteConfirmState, TargetFolderPath } from '../types';

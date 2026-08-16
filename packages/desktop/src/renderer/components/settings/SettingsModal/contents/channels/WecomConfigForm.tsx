@@ -17,9 +17,10 @@ import {
   normalizeSupportedAgentSelection,
 } from '@/renderer/utils/model/agentTypeSupportPolicy';
 import { Button, Dropdown, Empty, Input, Menu, Message, Spin, Tooltip } from '@arco-design/web-react';
-import { CheckOne, CloseOne, Copy, Delete, Down, Refresh } from '@icon-park/react';
+import { CheckOne, CloseOne, Copy, Delete, Down, Refresh } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import ChannelStatusIcon from './ChannelStatusIcon';
 
 /**
  * Preference row component
@@ -565,8 +566,11 @@ const WecomConfigForm: React.FC<WecomConfigFormProps> = ({
             title={t('settings.wecom.connectionStatus', 'Connection Status')}
             action={
               <span
-                className={`eve-channel-status-label ${pluginStatus?.connected ? 'eve-channel-status-label--success' : pluginStatus?.error ? 'eve-channel-status-label--error' : 'eve-channel-status-label--attention'}`}
+                className={`eve-channel-status-label inline-flex items-center gap-5px ${pluginStatus?.connected ? 'eve-channel-status-label--success' : pluginStatus?.error ? 'eve-channel-status-label--error' : 'eve-channel-status-label--attention'}`}
               >
+                <ChannelStatusIcon
+                  status={pluginStatus?.connected ? 'connected' : pluginStatus?.error ? 'error' : 'connecting'}
+                />
                 {pluginStatus?.connected
                   ? t('settings.wecom.statusConnected', 'Connected')
                   : pluginStatus?.error

@@ -14,7 +14,17 @@ import {
 } from '@/common/config/commandEveShell';
 import type { IProvider } from '@/common/config/storage';
 import { Button, Divider, Message, Popconfirm, Collapse, Tag, Switch, Tooltip } from '@arco-design/web-react';
-import { CheckOne, CloseOne, DeleteFour, Heartbeat, Info, Minus, Plus, Refresh, Write } from '@icon-park/react';
+import {
+  CheckOne,
+  CloseOne,
+  DeleteFour,
+  Heartbeat,
+  Info,
+  Minus,
+  Plus,
+  Refresh,
+  Write,
+} from '@renderer/components/icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import AddModelModal from '@/renderer/pages/settings/components/AddModelModal';
@@ -669,7 +679,7 @@ const ModelModalContent: React.FC = () => {
               const displayLabel = t(`settings.commandEveLocalRuntimeLane.${tier.lane}`);
               const displayDescription = t(`settings.commandEveLocalRuntimeLane.${tier.lane}Description`);
               // 1.6.3 — the card's honest state, from the injected probe:
-              // installed ✓ / lädt X % / nicht geladen / läuft nicht auf
+              // installed / lädt X % / nicht geladen / läuft nicht auf
               // diesem Mac / Status unbekannt (Ollama down). No probe row
               // yet (first render) keeps the old claim-free card.
               const probe = localTiers[tier.id];

@@ -24,34 +24,6 @@ function buildMcpServersPlugin() {
   };
 }
 
-// Icon Park transform plugin (replaces webpack icon-park-loader)
-function iconParkPlugin() {
-  return {
-    name: 'vite-plugin-icon-park',
-    enforce: 'pre' as const,
-    transform(source: string, id: string) {
-      if (!id.endsWith('.tsx') || id.includes('node_modules')) return null;
-      if (!source.includes('@icon-park/react')) return null;
-      const transformedSource = source.replace(
-        /import\s+\{\s+([a-zA-Z, ]*)\s+\}\s+from\s+['"]@icon-park\/react['"](;?)/g,
-        function (str, match) {
-          if (!match) return str;
-          const components = match.split(',');
-          const importComponent = str.replace(
-            match,
-            components.map((key: string) => `${key} as _${key.trim()}`).join(', ')
-          );
-          const hoc = `import IconParkHOC from '@renderer/components/IconParkHOC';
-          ${components.map((key: string) => `const ${key.trim()} = IconParkHOC(_${key.trim()})`).join(';\n')}`;
-          return importComponent + ';' + hoc;
-        }
-      );
-      if (transformedSource !== source) return { code: transformedSource, map: null } as { code: string; map: null };
-      return null;
-    },
-  };
-}
-
 // Common path aliases for main process and workers
 const desktopSrcRoot = resolve('packages/desktop/src');
 const rendererRoot = resolve('packages/desktop/src/renderer');
@@ -227,11 +199,7 @@ export default defineConfig(({ mode }) => {
           '@lezer/highlight',
         ],
       },
-      plugins: [
-        UnoCSS(unoConfig),
-        iconParkPlugin(),
-        ...(enableSentrySourceMaps ? [sentryVitePlugin(sentryPluginOptions)] : []),
-      ],
+      plugins: [UnoCSS(unoConfig), ...(enableSentrySourceMaps ? [sentryVitePlugin(sentryPluginOptions)] : [])],
       build: {
         target: 'es2022',
         sourcemap: enableSentrySourceMaps ? 'hidden' : isDevelopment,
@@ -280,7 +248,7 @@ export default defineConfig(({ mode }) => {
               )
                 return 'vendor-editor';
               if (id.includes('/katex/')) return 'vendor-katex';
-              if (id.includes('/@icon-park/')) return 'vendor-icons';
+              if (id.includes('/@phosphor-icons/')) return 'vendor-icons';
               if (id.includes('/diff2html/')) return 'vendor-diff';
               return undefined;
             },
@@ -307,7 +275,7 @@ export default defineConfig(({ mode }) => {
           'react-i18next',
           'i18next',
           '@arco-design/web-react',
-          '@icon-park/react',
+          '@phosphor-icons/react',
           'react-markdown',
           'react-syntax-highlighter',
           'react-virtuoso',

@@ -1,5 +1,5 @@
 import { Message, Modal, Spin } from '@arco-design/web-react';
-import { CloseSmall, FullScreen, Left, OffScreen, Peoples, Right } from '@icon-park/react';
+import { CloseSmall, FullScreen, Left, OffScreen, Peoples, Right } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR, { useSWRConfig } from 'swr';

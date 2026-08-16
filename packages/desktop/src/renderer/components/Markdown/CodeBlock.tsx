@@ -5,7 +5,7 @@
  */
 
 import { Message } from '@arco-design/web-react';
-import { Copy, Down, Up } from '@icon-park/react';
+import { Copy, Down, Up } from '@renderer/components/icons';
 import katex from 'katex';
 import React, { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

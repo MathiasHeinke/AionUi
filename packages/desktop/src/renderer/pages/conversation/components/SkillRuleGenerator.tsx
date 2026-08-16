@@ -12,7 +12,7 @@ import {
   Typography,
   Input,
 } from '@arco-design/web-react';
-import { Magic, FolderOpen, Lightning } from '@icon-park/react';
+import { Magic, FolderOpen, Lightning } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import { ipcBridge } from '@/common';
 import { uuid } from '@/common/utils';

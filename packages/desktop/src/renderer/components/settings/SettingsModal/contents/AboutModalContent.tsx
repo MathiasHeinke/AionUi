@@ -5,7 +5,7 @@
  */
 
 import { Button, Switch } from '@arco-design/web-react';
-import { Right } from '@icon-park/react';
+import { Right } from '@renderer/components/icons';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsViewMode } from '../settingsViewContext';

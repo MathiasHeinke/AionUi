@@ -1,5 +1,5 @@
 import { Button, Tooltip } from '@arco-design/web-react';
-import { VolumeNotice } from '@icon-park/react';
+import { VolumeNotice } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { iconColors } from '@/renderer/styles/colors';

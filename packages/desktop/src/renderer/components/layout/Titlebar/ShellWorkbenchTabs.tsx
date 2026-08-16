@@ -25,7 +25,7 @@ import {
   Robot,
   Terminal,
   Video,
-} from '@icon-park/react';
+} from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';

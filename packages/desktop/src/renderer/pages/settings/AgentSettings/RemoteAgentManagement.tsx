@@ -23,7 +23,7 @@ import {
   Typography,
 } from '@arco-design/web-react';
 import AionModal from '@/renderer/components/base/AionModal';
-import { Attention, Edit, Plus, ReduceOne, Robot, Speed } from '@icon-park/react';
+import { Attention, Edit, Plus, ReduceOne, Robot, Speed } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';

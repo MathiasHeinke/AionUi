@@ -23,7 +23,7 @@ See [docs/contributing/file-structure.md](docs/contributing/file-structure.md) f
 ### UI Library & Icons
 
 - **Components**: `@arco-design/web-react` — no raw interactive HTML (`<button>`, `<input>`, `<select>`, etc.)
-- **Icons**: `@icon-park/react`
+- **Icons**: `@phosphor-icons/react` through `@renderer/components/icons`
 
 ### CSS
 

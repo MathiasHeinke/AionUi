@@ -6,7 +6,7 @@
 
 import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
 import { iconColors } from '@/renderer/styles/colors';
-import { Robot } from '@icon-park/react';
+import { Robot } from '@renderer/components/icons';
 import React, { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 

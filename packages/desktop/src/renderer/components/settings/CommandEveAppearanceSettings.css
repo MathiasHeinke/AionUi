@@ -80,26 +80,46 @@
 
 .eve-accent-swatches {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .eve-accent-swatch {
   --eve-swatch-color: #2563eb;
-  width: 32px;
-  height: 32px;
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  border: 4px solid var(--glass-panel-bg-solid, var(--color-bg-1));
+  place-items: center;
+  border: 0;
   border-radius: 999px;
   background: var(--eve-swatch-color);
-  box-shadow: 0 0 0 1px var(--glass-panel-border, var(--color-border-2));
+  color: var(--eve-static-white);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--eve-static-white) 20%, transparent),
+    0 1px 2px color-mix(in srgb, var(--eve-shell-text) 14%, transparent);
   cursor: pointer;
+  transition:
+    transform var(--eve-motion-duration-feedback) var(--eve-motion-ease-standard),
+    box-shadow var(--eve-motion-duration-state) var(--eve-motion-ease-standard);
 }
 
 .eve-accent-swatch[aria-checked='true'] {
   box-shadow:
-    0 0 0 2px var(--glass-panel-bg-solid, var(--color-bg-1)),
-    0 0 0 4px var(--eve-swatch-color);
+    inset 0 0 0 1px color-mix(in srgb, var(--eve-static-white) 34%, transparent),
+    0 2px 6px color-mix(in srgb, var(--eve-swatch-color) 28%, transparent);
+}
+
+.eve-accent-swatch:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--eve-static-white) 30%, transparent),
+    0 4px 10px color-mix(in srgb, var(--eve-swatch-color) 24%, transparent);
+}
+
+.eve-accent-swatch .eve-icon {
+  filter: drop-shadow(0 1px 1px color-mix(in srgb, var(--eve-shell-text) 24%, transparent));
 }
 
 .eve-appearance-controls,

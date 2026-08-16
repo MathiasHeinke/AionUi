@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Modal, TouchableOpacity, FlatList, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { useThemeColor } from '../../hooks/useThemeColor';
@@ -46,7 +46,7 @@ export function ModelPickerSheet({
         >
           {item.label}
         </ThemedText>
-        {isActive && <Ionicons name='checkmark' size={20} color={tint} />}
+        {isActive && <PremiumIcon name='checkmark' size={20} color={tint} />}
       </TouchableOpacity>
     );
   };

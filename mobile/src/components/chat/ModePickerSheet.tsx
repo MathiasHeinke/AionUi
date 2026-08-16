@@ -8,7 +8,7 @@ import {
   ActionSheetIOS,
   Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { useThemeColor } from '../../hooks/useThemeColor';
@@ -26,9 +26,10 @@ export function showModeActionSheet(
   modes: AgentModeOption[],
   currentMode: string,
   onSelect: (value: string) => void,
+  cancelLabel: string,
 ) {
   if (Platform.OS === 'ios') {
-    const options = [...modes.map((m) => m.label), t('common.cancel')];
+    const options = [...modes.map((m) => m.label), cancelLabel];
     const cancelButtonIndex = options.length - 1;
     ActionSheetIOS.showActionSheetWithOptions(
       { options, cancelButtonIndex },
@@ -74,7 +75,7 @@ export function ModePickerSheet({
           </ThemedText>
           {item.description && <ThemedText type='caption'>{item.description}</ThemedText>}
         </View>
-        {isActive && <Ionicons name='checkmark' size={20} color={tint} />}
+        {isActive && <PremiumIcon name='checkmark' size={20} color={tint} />}
       </TouchableOpacity>
     );
   };

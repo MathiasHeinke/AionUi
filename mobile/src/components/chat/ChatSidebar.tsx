@@ -9,7 +9,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import type { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { ThemedText } from '../ui/ThemedText';
@@ -203,14 +203,14 @@ export function ChatSidebar({ navigation }: DrawerContentComponentProps) {
       <View style={[styles.header, { borderBottomColor: border }]}>
         <ThemedText style={styles.headerTitle}>{t('tabs.chat')}</ThemedText>
         <TouchableOpacity onPress={() => setShowNewModal(true)} activeOpacity={0.7}>
-          <Ionicons name='add-circle-outline' size={26} color={tint} />
+          <PremiumIcon name='add-circle-outline' size={26} color={tint} />
         </TouchableOpacity>
       </View>
 
       {/* Search bar */}
       <View style={[styles.searchContainer, { borderBottomColor: border }]}>
         <View style={[styles.searchBar, { backgroundColor: surface }]}>
-          <Ionicons name='search' size={16} color={textSecondary} />
+          <PremiumIcon name='search' size={16} color={textSecondary} />
           <TextInput
             style={[styles.searchInput, { color: textColor }]}
             placeholder={t('conversations.searchPlaceholder')}
@@ -223,7 +223,7 @@ export function ChatSidebar({ navigation }: DrawerContentComponentProps) {
           />
           {searchQuery.length > 0 && Platform.OS !== 'ios' && (
             <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name='close-circle' size={16} color={textSecondary} />
+              <PremiumIcon name='close-circle' size={16} color={textSecondary} />
             </TouchableOpacity>
           )}
         </View>
@@ -241,7 +241,7 @@ export function ChatSidebar({ navigation }: DrawerContentComponentProps) {
           {hasPinned && (
             <View>
               <View style={[styles.sectionHeader, { borderBottomColor: border }]}>
-                <Ionicons name='pin' size={14} color={tint} />
+                <PremiumIcon name='pin' size={14} color={tint} />
                 <ThemedText style={styles.sectionTitle}>{t('workspace.pinned')}</ThemedText>
               </View>
               {grouped.pinnedConversations.map(renderConversationItem)}

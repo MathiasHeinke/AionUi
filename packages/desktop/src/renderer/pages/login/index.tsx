@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { changeLanguage } from '@/renderer/services/i18n';
 import { useNavigate } from 'react-router-dom';
 import AppLoader from '@renderer/components/layout/AppLoader';
-import { Command, Loading, Lock, PreviewCloseOne, PreviewOpen, User } from '@icon-park/react';
+import { Command, Loading, Lock, PreviewCloseOne, PreviewOpen, User } from '@renderer/components/icons';
 import { useAuth } from '../../hooks/context/AuthContext';
 import { loadRememberedLogin, persistRememberedLogin } from './rememberMeStorage';
 import './LoginPage.css';

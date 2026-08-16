@@ -45,7 +45,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckSmall } from '@icon-park/react';
+import { CheckSmall } from '@renderer/components/icons';
 import {
   DEFAULT_VIDEO_DURATION_SECONDS,
   estimateVideoCost,

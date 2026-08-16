@@ -29,7 +29,6 @@
     "build:prod:android": "node scripts/build.js --profile production --platform android"
   },
   "dependencies": {
-    "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^7.4.0",
     "@react-navigation/drawer": "^7.9.4",
@@ -49,6 +48,7 @@
     "expo-status-bar": "~55.0.4",
     "expo-system-ui": "~55.0.9",
     "i18next": "^25.8.4",
+    "phosphor-react-native": "^3.0.6",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-i18next": "^16.5.4",

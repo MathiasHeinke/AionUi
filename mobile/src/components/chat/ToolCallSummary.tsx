@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { ToolCallBlock } from './ToolCallBlock';
@@ -87,14 +87,14 @@ function SummaryLine({ messages, complete, isStreaming, expanded, onPress }: Sum
       {!complete && isStreaming ? (
         <ActivityIndicator size='small' color={tint} style={styles.statusIcon} />
       ) : errors > 0 ? (
-        <Ionicons name='alert-circle' size={18} color={errorColor} />
+        <PremiumIcon name='alert-circle' size={18} color={errorColor} />
       ) : (
-        <Ionicons name='checkmark-circle' size={18} color={success} />
+        <PremiumIcon name='checkmark-circle' size={18} color={success} />
       )}
       <ThemedText style={styles.summaryText} numberOfLines={1}>
         {label}
       </ThemedText>
-      <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={iconColor} />
+      <PremiumIcon name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={iconColor} />
     </TouchableOpacity>
   );
 }
@@ -119,29 +119,31 @@ function ToolStepRow({ message }: { message: TMessage }) {
 }
 
 function StepRowHeader({ message, onCollapse }: { message: TMessage; onCollapse: () => void }) {
+  const { t } = useTranslation();
   const iconColor = useThemeColor({}, 'icon');
   const tint = useThemeColor({}, 'tint');
-  const items = getStepItems(message);
+  const items = getStepItems(message, t('chat.toolCall'));
   const label = items.map((i) => i.name).join(', ');
 
   return (
     <TouchableOpacity style={styles.stepHeader} onPress={onCollapse} activeOpacity={0.7}>
-      <Ionicons name='code-slash' size={14} color={tint} />
+      <PremiumIcon name='code-slash' size={14} color={tint} />
       <ThemedText style={styles.stepHeaderText} numberOfLines={1}>
         {label}
       </ThemedText>
-      <Ionicons name='chevron-up' size={14} color={iconColor} />
+      <PremiumIcon name='chevron-up' size={14} color={iconColor} />
     </TouchableOpacity>
   );
 }
 
 function StepRowCollapsed({ message, onPress }: { message: TMessage; onPress: () => void }) {
+  const { t } = useTranslation();
   const iconColor = useThemeColor({}, 'icon');
   const tint = useThemeColor({}, 'tint');
   const success = useThemeColor({}, 'success');
   const errorColor = useThemeColor({}, 'error');
 
-  const items = getStepItems(message);
+  const items = getStepItems(message, t('chat.toolCall'));
 
   return (
     <View>
@@ -162,11 +164,11 @@ function StepRowCollapsed({ message, onPress }: { message: TMessage; onPress: ()
 
         return (
           <TouchableOpacity key={i} style={styles.collapsedStep} onPress={onPress} activeOpacity={0.7}>
-            <Ionicons name={statusIcon} size={16} color={statusColor} />
+            <PremiumIcon name={statusIcon} size={16} color={statusColor} />
             <ThemedText style={styles.stepName} numberOfLines={1}>
               {item.name}
             </ThemedText>
-            <Ionicons name='chevron-forward' size={14} color={iconColor} />
+            <PremiumIcon name='chevron-forward' size={14} color={iconColor} />
           </TouchableOpacity>
         );
       })}
@@ -176,17 +178,17 @@ function StepRowCollapsed({ message, onPress }: { message: TMessage; onPress: ()
 
 type StepItem = { name: string; status: 'executing' | 'success' | 'error' | 'pending' };
 
-function getStepItems(msg: TMessage): StepItem[] {
+function getStepItems(msg: TMessage, defaultToolLabel: string): StepItem[] {
   if (msg.type === 'tool_group' && Array.isArray(msg.content)) {
     return msg.content.map((t: any) => ({
-      name: t.description || t.name || t('chat.toolCall'),
+      name: t.description || t.name || defaultToolLabel,
       status: normalizeStatus(t.status),
     }));
   }
   if (msg.type === 'tool_call') {
     return [
       {
-        name: msg.content?.name || t('chat.toolCall'),
+        name: msg.content?.name || defaultToolLabel,
         status: normalizeStatus(msg.content?.status),
       },
     ];
@@ -195,7 +197,7 @@ function getStepItems(msg: TMessage): StepItem[] {
     const update = msg.content?.update;
     return [
       {
-        name: update?.title || update?.kind || t('chat.toolCall'),
+        name: update?.title || update?.kind || defaultToolLabel,
         status: normalizeAcpStatus(update?.status),
       },
     ];
@@ -203,12 +205,12 @@ function getStepItems(msg: TMessage): StepItem[] {
   if (msg.type === 'codex_tool_call') {
     return [
       {
-        name: msg.content?.title || msg.content?.description || msg.content?.kind || t('chat.toolCall'),
+        name: msg.content?.title || msg.content?.description || msg.content?.kind || defaultToolLabel,
         status: normalizeStatus(msg.content?.status),
       },
     ];
   }
-  return [{ name: t('chat.toolCall'), status: 'pending' }];
+  return [{ name: defaultToolLabel, status: 'pending' }];
 }
 
 function normalizeStatus(s: string | undefined): StepItem['status'] {

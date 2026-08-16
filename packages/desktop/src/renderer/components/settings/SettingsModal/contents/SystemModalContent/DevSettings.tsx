@@ -8,7 +8,7 @@ import { ipcBridge } from '@/common';
 import SettingsSection from '@/renderer/components/settings/SettingsSection';
 import { notifyManualRestartRequired } from '@/renderer/utils/appRestart';
 import { Button, Collapse, Message, Switch, Tooltip } from '@arco-design/web-react';
-import { Caution, Copy, Down, Link } from '@icon-park/react';
+import { Caution, Copy, Down, Link } from '@renderer/components/icons';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR, { mutate } from 'swr';

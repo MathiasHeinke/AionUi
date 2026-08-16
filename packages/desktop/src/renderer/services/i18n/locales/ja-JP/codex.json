@@ -8,7 +8,7 @@
     "retry_attempt": "再試行中 {{current}} 回目...",
     "cloudflare_blocked_title": "🚫 Cloudflare の保護により {{service}} へのアクセスがブロック",
     "network_timeout_title": "⏱️ ネットワーク接続がタイムアウト",
-    "connection_refused_title": "❌ サービス接続が拒否されました",
+    "connection_refused_title": "サービス接続が拒否されました",
     "unknown_error_title": "🔌 ネットワーク接続エラー",
     "recovery_suggestions": "**推奨対処：**",
     "technical_info": "**技術情報：**",

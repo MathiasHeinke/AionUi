@@ -7,7 +7,7 @@
 import type { IConversationMcpStatus, IConversationMcpStatusKind } from '@/common/config/storage';
 import { userVisibleConversationMcpStatuses } from '@/common/config/eveManagedMcpCore';
 import { Button, Menu, Message, Trigger } from '@arco-design/web-react';
-import { FolderOpen, Lightning, Paperclip, Plus, Right, Shield } from '@icon-park/react';
+import { FolderOpen, Lightning, Paperclip, Plus, Right, Shield } from '@renderer/components/icons';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { useSkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
 import { isElectronDesktop } from '@/renderer/utils/platform';

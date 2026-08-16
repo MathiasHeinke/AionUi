@@ -8,7 +8,7 @@
     "retry_attempt": "正在进行第{{current}}次重试...",
     "cloudflare_blocked_title": "🚫 {{service}} 服务被 Cloudflare 防护机制阻止",
     "network_timeout_title": "⏱️ 网络连接超时",
-    "connection_refused_title": "❌ 服务连接被拒绝",
+    "connection_refused_title": "服务连接被拒绝",
     "unknown_error_title": "🔌 网络连接异常",
     "recovery_suggestions": "**建议的解决方案：**",
     "technical_info": "**技术信息：**",

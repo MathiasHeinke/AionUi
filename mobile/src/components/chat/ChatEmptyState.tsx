@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { NewConversationModal } from '../conversation/NewConversationModal';
@@ -20,7 +20,7 @@ export function ChatEmptyState() {
 
   return (
     <View style={[styles.container, { backgroundColor: background }]}>
-      <Ionicons name='chatbubble-ellipses-outline' size={64} color={tint + '40'} />
+      <PremiumIcon name='chatbubble-ellipses-outline' size={64} color={tint + '40'} />
       <ThemedText type='caption' style={styles.hint}>
         {t('chat.noConversation')}
       </ThemedText>
@@ -28,7 +28,7 @@ export function ChatEmptyState() {
         {t('chat.startChatHint')}
       </ThemedText>
       <TouchableOpacity style={[styles.button, { backgroundColor: tint }]} onPress={() => setShowNewModal(true)}>
-        <Ionicons name='add' size={20} color='#fff' />
+        <PremiumIcon name='add' size={20} color='#fff' />
         <ThemedText style={styles.buttonText}>{t('chat.newChat')}</ThemedText>
       </TouchableOpacity>
 

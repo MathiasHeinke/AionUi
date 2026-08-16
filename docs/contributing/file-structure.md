@@ -180,7 +180,7 @@ A single directory must not contain more than **10** direct children (files + su
 ## UI Library & Icon Standards
 
 - **Component library**: `@arco-design/web-react`. All new UI must use Arco components first.
-- **Icon library**: `@icon-park/react`. All icons must come from this library.
+- **Icon library**: `@phosphor-icons/react` through `@renderer/components/icons`. All icons must come from this library.
 - **No raw HTML for interactive elements**: Do not use native `<button>`, `<input>`, `<select>`, `<textarea>`, `<modal>`, etc. Use the corresponding Arco component (`Button`, `Input`, `Select`, `Modal`, etc.).
 - **Layout tags are fine**: `<div>`, `<span>`, `<section>`, `<nav>`, `<main>`, and other pure layout/semantic tags may be used freely.
 

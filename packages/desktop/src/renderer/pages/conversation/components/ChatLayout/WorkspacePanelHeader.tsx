@@ -1,6 +1,6 @@
 import { WORKSPACE_HEADER_HEIGHT } from '@/renderer/pages/conversation/utils/layoutCalc';
 import { dispatchWorkspaceToggleEvent } from '@/renderer/utils/workspace/workspaceEvents';
-import { ExpandLeft, ExpandRight } from '@icon-park/react';
+import { ExpandLeft, ExpandRight } from '@renderer/components/icons';
 import React from 'react';
 import WorkspaceOpenButton from './WorkspaceOpenButton';
 

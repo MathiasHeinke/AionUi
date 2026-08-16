@@ -15,7 +15,7 @@ import styles from '../index.module.css';
 import type { AvailableAgent, EffectiveAgentInfo } from '../types';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import { Button, Message } from '@arco-design/web-react';
-import { ChartLine, ListNumbers, MessageOne, Plus, Right, Robot } from '@icon-park/react';
+import { ChartLine, ListNumbers, MessageOne, Plus, Right, Robot } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { useTranslation } from 'react-i18next';

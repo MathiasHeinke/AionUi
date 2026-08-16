@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Analysis, Microphone, TopicDiscussion } from '@icon-park/react';
+import { Analysis, Microphone, TopicDiscussion } from '@renderer/components/icons';
 import useSWR from 'swr';
 import type { TChatConversation } from '@/common/config/storage';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';

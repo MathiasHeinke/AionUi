@@ -44,7 +44,7 @@ vi.mock('@arco-design/web-react', () => ({
   Message: { error: vi.fn() },
 }));
 
-vi.mock('@icon-park/react', () => ({
+vi.mock('@renderer/components/icons', () => ({
   CheckOne: () => <span />,
   Download: () => <span />,
   FolderOpen: () => <span />,

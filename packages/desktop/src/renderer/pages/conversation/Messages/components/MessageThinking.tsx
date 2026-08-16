@@ -6,7 +6,7 @@
 
 import type { IMessageThinking } from '@/common/chat/chatLib';
 import { Spin } from '@arco-design/web-react';
-import { Brain, Right } from '@icon-park/react';
+import { Brain, Right } from '@renderer/components/icons';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from './MessageThinking.module.css';

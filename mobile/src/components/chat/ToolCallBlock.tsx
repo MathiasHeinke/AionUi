@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { ThemedText } from '../ui/ThemedText';
 import { useTranslation } from 'react-i18next';
 import { useThemeColor } from '../../hooks/useThemeColor';
@@ -34,8 +34,10 @@ export function useStatusIcons() {
   };
 }
 
-// Map ACP status values to mobile icon keys
-export function mapAcpStatus(status: string): string {
+type MappedAcpStatus = 'executing' | 'success' | 'error' | 'pending';
+
+// Map ACP status values to the exact status-icon key union.
+export function mapAcpStatus(status: string): MappedAcpStatus {
   switch (status) {
     case 'in_progress':
       return 'executing';
@@ -112,11 +114,11 @@ export function ToolCallBlock({ content, type }: ToolCallBlockProps) {
           onPress={() => setExpanded(!expanded)}
           activeOpacity={0.7}
         >
-          <Ionicons name={info.icon} size={18} color={info.color} />
+          <PremiumIcon name={info.icon} size={18} color={info.color} />
           <ThemedText style={styles.toolName} numberOfLines={expanded ? undefined : 1}>
             {title}
           </ThemedText>
-          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={iconColor} />
+          <PremiumIcon name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={iconColor} />
         </TouchableOpacity>
         {expanded && update.description && (
           <View style={[styles.detail, { backgroundColor: surface }]}>
@@ -139,11 +141,11 @@ export function ToolCallBlock({ content, type }: ToolCallBlockProps) {
         onPress={() => setExpanded(!expanded)}
         activeOpacity={0.7}
       >
-        <Ionicons name={info.icon} size={18} color={info.color} />
+        <PremiumIcon name={info.icon} size={18} color={info.color} />
         <ThemedText style={styles.toolName} numberOfLines={expanded ? undefined : 1}>
           {title}
         </ThemedText>
-        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={iconColor} />
+        <PremiumIcon name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={iconColor} />
       </TouchableOpacity>
       {expanded && content.description && (
         <View style={[styles.detail, { backgroundColor: surface }]}>
@@ -177,8 +179,8 @@ export function WebSearchBlock({ content }: { content: any }) {
   return (
     <View style={[styles.container, { backgroundColor: surface }]}>
       <View style={[styles.item, { borderBottomColor: border }]}>
-        <Ionicons name='search' size={18} color={tint} />
-        <Ionicons name={info.icon} size={14} color={info.color} />
+        <PremiumIcon name='search' size={18} color={tint} />
+        <PremiumIcon name={info.icon} size={14} color={info.color} />
         <ThemedText style={styles.toolName} numberOfLines={2}>
           {displayTitle}
         </ThemedText>
@@ -199,7 +201,10 @@ export function WebSearchBlock({ content }: { content: any }) {
 
 // --- Diff Display ---
 
-function parseDiffStats(unifiedDiff: string): { fileName: string; insertions: number; deletions: number } {
+function parseDiffStats(
+  unifiedDiff: string,
+  defaultFileLabel: string,
+): { fileName: string; insertions: number; deletions: number } {
   let fileName = '';
   let insertions = 0;
   let deletions = 0;
@@ -232,7 +237,7 @@ function parseDiffStats(unifiedDiff: string): { fileName: string; insertions: nu
     fileName = parts[parts.length - 1];
   }
 
-  return { fileName: fileName || t('files.defaultFile'), insertions, deletions };
+  return { fileName: fileName || defaultFileLabel, insertions, deletions };
 }
 
 export function DiffBlock({ content }: { content: any }) {
@@ -247,7 +252,7 @@ export function DiffBlock({ content }: { content: any }) {
   const text = useThemeColor({}, 'text');
 
   const unifiedDiff = content.data?.unified_diff || '';
-  const stats = parseDiffStats(unifiedDiff);
+  const stats = parseDiffStats(unifiedDiff, t('files.defaultFile'));
 
   return (
     <View style={[styles.container, { backgroundColor: surface }]}>
@@ -268,7 +273,7 @@ export function DiffBlock({ content }: { content: any }) {
             <ThemedText style={[styles.diffStat, { color: error }]}>-{stats.deletions}</ThemedText>
           )}
         </View>
-        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={iconColor} />
+        <PremiumIcon name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={iconColor} />
       </TouchableOpacity>
       {expanded && unifiedDiff && (
         <View style={[styles.diffContent, { backgroundColor: codeBackground }]}>
@@ -301,6 +306,7 @@ export function ToolItem({
   border: string;
   iconColor: string;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const statusIcons = useStatusIcons();
   const status = tool.status || 'Executing';
@@ -313,11 +319,11 @@ export function ToolItem({
         onPress={() => setExpanded(!expanded)}
         activeOpacity={0.7}
       >
-        <Ionicons name={info.icon} size={18} color={info.color} />
+        <PremiumIcon name={info.icon} size={18} color={info.color} />
         <ThemedText style={styles.toolName} numberOfLines={1}>
           {tool.description || tool.name || t('chat.toolCall')}
         </ThemedText>
-        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={iconColor} />
+        <PremiumIcon name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={iconColor} />
       </TouchableOpacity>
       {expanded && (
         <View style={[styles.detail, { backgroundColor: surface }]}>

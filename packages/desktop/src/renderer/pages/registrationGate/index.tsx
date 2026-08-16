@@ -22,7 +22,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Checkbox, Input } from '@arco-design/web-react';
-import { Command } from '@icon-park/react';
+import { Command } from '@renderer/components/icons';
 import { changeLanguage } from '@renderer/services/i18n';
 import { openAccountWeb } from '@renderer/utils/platform';
 import {

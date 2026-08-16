@@ -2,7 +2,7 @@ import React, { useCallback, useMemo } from 'react';
 import { View, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import * as Clipboard from 'expo-clipboard';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { useThemeColor } from '../../hooks/useThemeColor';
@@ -127,7 +127,7 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
             <View style={[fenceStyles.header, { backgroundColor: codeBackground }]}>
               <ThemedText style={[fenceStyles.lang, { color: textSecondary }]}>{language}</ThemedText>
               <TouchableOpacity onPress={() => handleCopy(code)} hitSlop={8}>
-                <Ionicons name='copy-outline' size={16} color={textSecondary} />
+                <PremiumIcon name='copy-outline' size={16} color={textSecondary} />
               </TouchableOpacity>
             </View>
             <ThemedText style={styles.fence}>{code}</ThemedText>

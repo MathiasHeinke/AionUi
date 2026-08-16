@@ -33,7 +33,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { CheckSmall, Down } from '@icon-park/react';
+import { CheckSmall, Down } from '@renderer/components/icons';
 import {
   alignMeasuredPillDropdownTop,
   clampPillDropdownLeft,

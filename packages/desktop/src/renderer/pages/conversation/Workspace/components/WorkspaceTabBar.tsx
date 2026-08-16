@@ -5,7 +5,7 @@
  */
 
 import { Dropdown, Tabs } from '@arco-design/web-react';
-import { BranchOne } from '@icon-park/react';
+import { BranchOne } from '@renderer/components/icons';
 import type { TFunction } from 'i18next';
 import React from 'react';
 import type { WorkspaceTab } from '../types';

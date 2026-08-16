@@ -11,7 +11,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Button, Dropdown, Menu, Tooltip, Typography } from '@arco-design/web-react';
-import { CornerDownRight, CornerUpLeft, Delete, Drag, MoreOne } from '@icon-park/react';
+import { CornerDownRight, CornerUpLeft, Delete, Drag, MoreOne } from '@renderer/components/icons';
 import React, { useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 

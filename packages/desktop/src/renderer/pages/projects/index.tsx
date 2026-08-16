@@ -11,7 +11,7 @@ import {
   Tag,
   Typography,
 } from '@arco-design/web-react';
-import { FolderOpen, Plus, Refresh, Undo } from '@icon-park/react';
+import { FolderOpen, Plus, Refresh, Undo } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createIdempotencyKey, ProjectWorkspaceClientError, useProjectWorkspaceClient } from './client';

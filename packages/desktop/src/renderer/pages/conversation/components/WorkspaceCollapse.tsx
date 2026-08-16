@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { FolderClose, FolderOpen } from '@icon-park/react';
+import { FolderClose, FolderOpen } from '@renderer/components/icons';
 import classNames from 'classnames';
 import React from 'react';
 

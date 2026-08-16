@@ -25,7 +25,7 @@
 
 import React, { useMemo } from 'react';
 import { Button } from '@arco-design/web-react';
-import { Caution, Lightning } from '@icon-park/react';
+import { Caution, Lightning } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 
 import type { TokenUsageData } from '@/common/config/storage';

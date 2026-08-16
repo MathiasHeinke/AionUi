@@ -1,5 +1,5 @@
 import React from 'react';
-import { Robot } from '@icon-park/react';
+import { Robot } from '@renderer/components/icons';
 import { getAgentLogo } from '@renderer/utils/model/agentLogo';
 import { CUSTOM_AVATAR_IMAGE_MAP } from '@renderer/pages/guid/constants';
 import type { AgentMetadata } from '@renderer/utils/model/agentTypes';

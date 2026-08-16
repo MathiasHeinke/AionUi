@@ -15,7 +15,7 @@ import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import { Button, Form, Input, Message, Switch, Tabs, Tooltip } from '@arco-design/web-react';
-import { Communication, Copy, Earth, EditTwo, Refresh } from '@icon-park/react';
+import { Communication, Copy, Earth, EditTwo, Refresh } from '@renderer/components/icons';
 import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsViewMode } from '../settingsViewContext';

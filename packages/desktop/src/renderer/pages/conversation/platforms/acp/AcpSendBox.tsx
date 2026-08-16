@@ -131,7 +131,7 @@ import {
   type CommandEveCloudVisualPolicyReceipt,
 } from '@/common/config/visual/cloudVisualPolicyCore';
 import { Menu, Message, Modal, Tag } from '@arco-design/web-react';
-import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
+import { Brain, EditOne, MagicHat, Shield, Time } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { buildSendFailureError } from './buildSendFailureError';

@@ -1,6 +1,6 @@
 import { Button, Collapse, Modal, Input, Typography } from '@arco-design/web-react';
 import type { Message } from '@arco-design/web-react';
-import { EditTwo, Delete, Lightning } from '@icon-park/react';
+import { EditTwo, Delete, Lightning } from '@renderer/components/icons';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { mutate } from 'swr';

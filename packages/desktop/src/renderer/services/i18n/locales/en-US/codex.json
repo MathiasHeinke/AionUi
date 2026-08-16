@@ -8,7 +8,7 @@
     "retry_attempt": "Retrying attempt {{current}}...",
     "cloudflare_blocked_title": "🚫 {{service}} service blocked by Cloudflare protection",
     "network_timeout_title": "⏱️ Network connection timeout",
-    "connection_refused_title": "❌ Service connection refused",
+    "connection_refused_title": "Service connection refused",
     "unknown_error_title": "🔌 Network connection error",
     "recovery_suggestions": "**Suggested Solutions:**",
     "technical_info": "**Technical Information:**",

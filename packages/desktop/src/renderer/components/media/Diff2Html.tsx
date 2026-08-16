@@ -9,7 +9,7 @@ import { iconColors } from '@/renderer/styles/colors';
 import { extractContentFromDiff, parseFilePathFromDiff } from '@/renderer/utils/file/diffUtils';
 import { getFileTypeInfo } from '@/renderer/utils/file/fileType';
 import { Button, Checkbox, Tooltip } from '@arco-design/web-react';
-import { ExpandDownOne, FoldUpOne, PreviewOpen } from '@icon-park/react';
+import { ExpandDownOne, FoldUpOne, PreviewOpen } from '@renderer/components/icons';
 import classNames from 'classnames';
 import { html } from 'diff2html';
 import 'diff2html/bundles/css/diff2html.min.css';

@@ -6,7 +6,7 @@
 
 import type { ICronTriggerArtifact } from '@/common/adapter/ipcBridge';
 import { iconColors } from '@/renderer/styles/colors';
-import { AlarmClock, Right } from '@icon-park/react';
+import { AlarmClock, Right } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';

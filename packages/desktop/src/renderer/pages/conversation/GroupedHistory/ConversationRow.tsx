@@ -10,7 +10,17 @@ import { cleanupSiderTooltips, getSiderTooltipProps } from '@/renderer/utils/ui/
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { copyText } from '@/renderer/utils/ui/clipboard';
 import { Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
-import { Box, CheckSmall, Copy, DeleteOne, EditOne, Export, FolderOpen, MoreOne, Pushpin } from '@icon-park/react';
+import {
+  Box,
+  CheckSmall,
+  Copy,
+  DeleteOne,
+  EditOne,
+  Export,
+  FolderOpen,
+  MoreOne,
+  Pushpin,
+} from '@renderer/components/icons';
 import classNames from 'classnames';
 import React from 'react';
 import { useTranslation } from 'react-i18next';

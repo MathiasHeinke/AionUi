@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Modal, TouchableOpacity, FlatList, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { useThemeColor } from '../../hooks/useThemeColor';
@@ -43,7 +43,7 @@ export function WorkspacePickerSheet({
         onPress={() => handleSelect(item)}
         activeOpacity={0.6}
       >
-        <Ionicons name='folder-outline' size={20} color={tint} style={styles.icon} />
+        <PremiumIcon name='folder-outline' size={20} color={tint} style={styles.icon} />
         <View style={styles.itemContent}>
           <ThemedText
             style={[styles.itemName, isActive && { color: tint, fontWeight: '600' }]}
@@ -55,7 +55,7 @@ export function WorkspacePickerSheet({
             {item}
           </ThemedText>
         </View>
-        {isActive && <Ionicons name='checkmark' size={20} color={tint} />}
+        {isActive && <PremiumIcon name='checkmark' size={20} color={tint} />}
       </TouchableOpacity>
     );
   };

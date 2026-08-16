@@ -8,7 +8,7 @@ import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import type { AssistantListItem } from './types';
 import AssistantAvatar from './AssistantAvatar';
 import { Button, Input, Switch, Tabs, Tag } from '@arco-design/web-react';
-import { Plus, Search, SettingOne, CloseSmall } from '@icon-park/react';
+import { Plus, Search, SettingOne, CloseSmall } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button, Typography, Tooltip, Link } from '@arco-design/web-react';
-import { Download, Refresh } from '@icon-park/react';
+import { Download, Refresh } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import ModalWrapper from '@/renderer/components/base/ModalWrapper';
 import { useHubAgents } from '@/renderer/hooks/agent/useHubAgents';

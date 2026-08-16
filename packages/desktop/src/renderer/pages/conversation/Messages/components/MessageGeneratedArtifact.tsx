@@ -26,7 +26,7 @@ import {
 } from '@/renderer/pages/conversation/Preview/services/workbenchArtifactResolver';
 import { isUsableMediaEditSource } from '@/renderer/pages/conversation/Messages/artifacts';
 import { Message } from '@arco-design/web-react';
-import { EditOne, FolderOpen, Paperclip, PreviewOpen } from '@icon-park/react';
+import { EditOne, FolderOpen, Paperclip, PreviewOpen } from '@renderer/components/icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import PDFPreview from '../../Preview/components/viewers/PDFViewer';
