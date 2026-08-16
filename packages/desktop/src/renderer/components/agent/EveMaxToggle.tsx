@@ -67,7 +67,7 @@ import {
   COMPOSER_MAX_IGNITION_MS,
 } from '@renderer/components/agent/eveComposerGlowCore';
 import { Button, Tooltip } from '@arco-design/web-react';
-import { Lightning, Lock } from '@icon-park/react';
+import { Lightning, Lock } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 

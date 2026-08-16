@@ -14,7 +14,7 @@ import {
   permissionAuthorityFromConfirmation,
 } from '@/renderer/pages/conversation/Messages/acp/permissionCardPolicy';
 import { Button, Card, Radio, Typography } from '@arco-design/web-react';
-import { Book, CheckOne, Edit, Lightning, Link, Lock } from '@icon-park/react';
+import { Book, CheckOne, Edit, Lightning, Link, Lock } from '@renderer/components/icons';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

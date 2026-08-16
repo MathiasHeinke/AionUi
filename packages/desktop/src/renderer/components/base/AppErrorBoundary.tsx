@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Command } from '@icon-park/react';
+import { Command } from '@renderer/components/icons';
 
 interface AppErrorBoundaryState {
   error: Error | null;

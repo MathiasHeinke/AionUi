@@ -7,7 +7,7 @@
 import { webui } from '@/common/adapter/ipcBridge';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { Tooltip } from '@arco-design/web-react';
-import { Comment, Earth, WebPage } from '@icon-park/react';
+import { Comment, Earth, WebPage } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';

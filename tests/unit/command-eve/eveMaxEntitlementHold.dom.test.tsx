@@ -422,8 +422,9 @@ describe('(c) UNKNOWN → FALSE — Standard, with copy that says why and names 
     expect(hint()).toContain(why);
     expect(hint()).not.toContain('Berechtigung wird geprüft');
 
-    // NON-PROVIDER — the hard scrub contract this repo already holds elsewhere.
-    const rendered = `${button().outerHTML} ${hint()}`;
+    // NON-PROVIDER — inspect user-visible and accessible copy, not SVG implementation markup.
+    // Phosphor legitimately carries the W3C namespace URL, which looks like a provider/model id.
+    const rendered = [button().textContent, button().getAttribute('aria-label'), hint()].filter(Boolean).join(' ');
     expect(rendered).not.toMatch(/\b[a-z0-9]{3,}\/[a-z0-9.-]{2,}\b/i);
     for (const forbidden of ['deepseek', 'glm-', 'gemini', 'flash', 'ollama', 'gemma', 'openrouter', 'anthropic']) {
       expect(rendered.toLowerCase()).not.toContain(forbidden);

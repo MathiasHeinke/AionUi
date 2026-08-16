@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { abortUpload, useActiveUploads, useUploadState, type UploadSource } from '@/renderer/hooks/file/useUploadState';
-import { CloseSmall } from '@icon-park/react';
+import { CloseSmall } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 
 /**

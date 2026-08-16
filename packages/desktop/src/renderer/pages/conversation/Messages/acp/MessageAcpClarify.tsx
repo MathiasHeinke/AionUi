@@ -25,7 +25,7 @@ import {
 } from '@/renderer/pages/conversation/Messages/artifacts';
 import { emitter } from '@/renderer/utils/emitter';
 import { Button, Card } from '@arco-design/web-react';
-import { Comment, FileExcel, FilePdf, FileWord, Picture, Projector, Video } from '@icon-park/react';
+import { Comment, FileExcel, FilePdf, FileWord, Picture, Projector, Video } from '@renderer/components/icons';
 import React, { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isExplicitPermissionFailure, isPermissionCardInactive } from './permissionCardPolicy';

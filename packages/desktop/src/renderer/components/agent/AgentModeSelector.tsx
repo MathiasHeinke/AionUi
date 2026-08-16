@@ -27,7 +27,7 @@ import { emitter } from '@/renderer/utils/emitter';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { AgentLogoIcon } from './AgentBadge';
 import { Button, Dropdown, Menu, Message } from '@arco-design/web-react';
-import { CheckSmall, Down } from '@icon-park/react';
+import { CheckSmall, Down } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import MarqueePillLabel from './MarqueePillLabel';

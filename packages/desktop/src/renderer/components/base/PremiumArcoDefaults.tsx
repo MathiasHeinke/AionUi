@@ -20,7 +20,7 @@ import {
   LoadingOne,
   More,
   Right,
-} from '@icon-park/react';
+} from '@renderer/components/icons';
 import React from 'react';
 
 type PremiumComponentConfig = NonNullable<ConfigProviderProps['componentConfig']>;
@@ -42,9 +42,9 @@ const right = systemIcon(<Right size={14} />);
 const down = systemIcon(<Down size={13} />);
 
 /**
- * One Icon Park vocabulary for Arco's internally rendered controls.
+ * One Phosphor vocabulary for Arco's internally rendered controls.
  *
- * Product code already uses Icon Park directly, but Select, Menu, Empty,
+ * Product code already uses the shared Phosphor facade, but Select, Menu, Empty,
  * Modal and friends otherwise inject a second icon family behind our back.
  * ConfigProvider is the narrow native seam that lets every instance inherit
  * the same round 3px stroke without forking those components.

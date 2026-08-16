@@ -6,7 +6,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Message, Modal, Slider, Switch, Tooltip } from '@arco-design/web-react';
-import { Delete, UploadOne } from '@icon-park/react';
+import { Check, Delete, UploadOne } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import { ipcBridge } from '@/common';
 import { useThemeContext } from '@renderer/hooks/context/ThemeContext';
@@ -232,7 +232,9 @@ const CommandEveAppearanceSettings: React.FC = () => {
                       update((current) => ({ ...current, accent: next }))
                     )
                   }
-                />
+                >
+                  {visualPreferences.accent === accent ? <Check size={15} weight='bold' aria-hidden='true' /> : null}
+                </button>
               </Tooltip>
             );
           })}

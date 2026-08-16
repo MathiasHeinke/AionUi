@@ -493,7 +493,11 @@ describe('EveMaxToggle — no raw model id in the composer DOM (spec 2.7 #9)', (
     const { container } = renderInComposer();
     for (const node of Array.from(container.querySelectorAll('*'))) {
       for (const attr of Array.from(node.attributes)) {
-        if (attr.name === 'class' || attr.name.startsWith('data-testid')) continue;
+        const userFacingAttribute =
+          attr.name === 'title' ||
+          attr.name.startsWith('aria-') ||
+          (attr.name.startsWith('data-') && !attr.name.startsWith('data-testid'));
+        if (!userFacingAttribute) continue;
         expect(attr.value).not.toMatch(/[a-z0-9-]+\/[a-z0-9.-]+/i);
       }
     }

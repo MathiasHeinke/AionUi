@@ -6,7 +6,7 @@
 
 import type { ModalProps } from '@arco-design/web-react';
 import { Modal, Button } from '@arco-design/web-react';
-import { Close } from '@icon-park/react';
+import { Close } from '@renderer/components/icons';
 import classNames from 'classnames';
 import type { CSSProperties } from 'react';
 import React from 'react';

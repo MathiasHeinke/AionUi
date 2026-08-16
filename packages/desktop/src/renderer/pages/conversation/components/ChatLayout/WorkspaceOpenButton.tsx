@@ -1,6 +1,6 @@
 import { ipcBridge } from '@/common';
 import { isElectronDesktop } from '@/renderer/utils/platform';
-import { CheckSmall, Command, Down, Folder, Terminal } from '@icon-park/react';
+import { CheckSmall, Command, Down, Folder, Terminal } from '@renderer/components/icons';
 import { Button, Dropdown, Tooltip } from '@arco-design/web-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';

@@ -47,7 +47,17 @@ import SettingsSection from '@/renderer/components/settings/SettingsSection';
 import { useConfig } from '@/renderer/hooks/config/useConfig';
 import { useActiveSeatId } from '@/renderer/hooks/useActiveSeatId';
 import { Button, InputNumber, Radio, Switch } from '@arco-design/web-react';
-import { Delete, Key, Ladder, Send, SettingComputer, Shield, Unlock, UploadWeb, Wallet } from '@icon-park/react';
+import {
+  Delete,
+  Key,
+  Ladder,
+  Send,
+  SettingComputer,
+  Shield,
+  Unlock,
+  UploadWeb,
+  Wallet,
+} from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ExternalActionPolicySection from './ExternalActionPolicySection';
@@ -71,7 +81,7 @@ const SEAL_KEYS: Record<EveSealedCapability, string> = {
   'deploy.production': 'authority.seal.deploy',
 };
 
-/** One coherent Icon Park glyph per effect. The shared tile owns optical alignment. */
+/** One coherent Phosphor glyph per effect. The shared tile owns optical alignment. */
 const SEAL_ICONS = {
   'spend.money': <Wallet />,
   'publish.outward': <Send />,

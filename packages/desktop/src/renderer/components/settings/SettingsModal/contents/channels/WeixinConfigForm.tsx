@@ -17,7 +17,7 @@ import {
   normalizeSupportedAgentSelection,
 } from '@/renderer/utils/model/agentTypeSupportPolicy';
 import { Button, Dropdown, Empty, Menu, Message, Spin, Tooltip } from '@arco-design/web-react';
-import { CheckOne, CloseOne, Copy, Delete, Down, Refresh } from '@icon-park/react';
+import { CheckOne, CloseOne, Copy, Delete, Down, Refresh } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';

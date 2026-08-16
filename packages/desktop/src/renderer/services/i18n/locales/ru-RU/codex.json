@@ -8,7 +8,7 @@
     "retry_attempt": "Повторная попытка {{current}}...",
     "cloudflare_blocked_title": "🚫 Сервис {{service}} заблокирован защитой Cloudflare",
     "network_timeout_title": "⏱️ Таймаут сетевого подключения",
-    "connection_refused_title": "❌ В соединении отказано",
+    "connection_refused_title": "В соединении отказано",
     "unknown_error_title": "🔌 Ошибка сетевого подключения",
     "recovery_suggestions": "**Предлагаемые решения:**",
     "technical_info": "**Техническая информация:**",

@@ -119,8 +119,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  /* Optical alignment: icon-park glyphs sit slightly high in their viewBox,
-   * so nudge down by 1px to align with the text x-height. */
+  /* Optical alignment: keep the glyph center aligned with the text x-height. */
   transform: translateY(1px);
 }
 

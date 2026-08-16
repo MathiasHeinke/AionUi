@@ -1,6 +1,6 @@
 import type { BadgeProps } from '@arco-design/web-react';
 import { Badge, Spin } from '@arco-design/web-react';
-import { Checklist, Down, Right } from '@icon-park/react';
+import { Checklist, Down, Right } from '@renderer/components/icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ipcBridge } from '@/common';
 import type { NormalizedToolCall, NormalizedToolStatus, ToolMessage } from '@/common/chat/normalizeToolCall';

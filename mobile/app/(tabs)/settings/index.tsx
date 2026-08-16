@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, ScrollView, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../../../src/components/ui/PremiumIcon';
 import { ThemedText } from '../../../src/components/ui/ThemedText';
 import { useConnection } from '../../../src/context/ConnectionContext';
 import { useThemeColor } from '../../../src/hooks/useThemeColor';
@@ -68,7 +68,7 @@ export default function SettingsScreen() {
               {connectionState === 'connecting' ? (
                 <ActivityIndicator size='small' color={tint} />
               ) : (
-                <Ionicons name='refresh-outline' size={18} color={tint} />
+                <PremiumIcon name='refresh-outline' size={18} color={tint} />
               )}
               <ThemedText style={{ color: tint, flex: 1, marginLeft: 8 }}>
                 {t('settings.reconnect')}
@@ -81,7 +81,7 @@ export default function SettingsScreen() {
       {/* Actions */}
       <View style={styles.section}>
         <TouchableOpacity style={[styles.actionButton, { backgroundColor: surface }]} onPress={handleDisconnect}>
-          <Ionicons name='log-out-outline' size={20} color={error} />
+          <PremiumIcon name='log-out-outline' size={20} color={error} />
           <ThemedText style={{ color: error, fontWeight: '500' }}>{t('settings.changeServer')}</ThemedText>
         </TouchableOpacity>
       </View>

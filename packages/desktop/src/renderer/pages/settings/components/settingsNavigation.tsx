@@ -9,20 +9,20 @@ import {
   Cat,
   Communication,
   Computer,
+  Cube,
   Earth,
-  Flag,
+  Heartbeat,
   Info,
-  Lightning,
-  LinkCloud,
+  Link,
   Lock,
-  Puzzle,
-  Robot,
-  Shield,
-  Speed,
+  Pulse,
+  RocketLaunch,
+  Sparkle,
   System,
   User,
+  UsersThree,
   Wallet,
-} from '@icon-park/react';
+} from '@renderer/components/icons';
 import React from 'react';
 
 export const BUILTIN_TAB_IDS = [
@@ -80,38 +80,38 @@ export function getBuiltinSettingsNavigationItems(
     ersteSchritte: {
       id: 'ersteSchritte',
       label: t('settings.ersteSchritte', { defaultValue: 'Erste Schritte' }),
-      icon: <Flag />,
+      icon: <RocketLaunch />,
       path: 'erste-schritte',
     },
-    model: { id: 'model', label: t('settings.model'), icon: <LinkCloud />, path: 'model' },
+    model: { id: 'model', label: t('settings.model'), icon: <Cube />, path: 'model' },
     eveRuntime: {
       id: 'eveRuntime',
       label: t('settings.eveRuntime', { defaultValue: 'EVE-Runtime' }),
-      icon: <Robot />,
+      icon: <Pulse />,
       path: 'eve-runtime',
     },
     capabilities: {
       id: 'capabilities',
       label: t('settings.capabilities', { defaultValue: 'Capabilities' }),
-      icon: <Lightning />,
+      icon: <Sparkle />,
       path: 'capabilities',
     },
     runtime: {
       id: 'runtime',
       label: t('settings.runtime', { defaultValue: 'Runtime' }),
-      icon: <Speed />,
+      icon: <Heartbeat />,
       path: 'runtime',
     },
     connectors: {
       id: 'connectors',
       label: t('settings.connectors', { defaultValue: 'Connectoren' }),
-      icon: <Puzzle />,
+      icon: <Link />,
       path: 'connectors',
     },
     authority: {
       id: 'authority',
       label: t('settings.authority', { defaultValue: 'Freigaben' }),
-      icon: <Lock />,
+      icon: <UsersThree />,
       path: 'authority',
     },
     appearance: {
@@ -130,7 +130,7 @@ export function getBuiltinSettingsNavigationItems(
     privacy: {
       id: 'privacy',
       label: t('settings.privacy.navLabel', { defaultValue: 'Privacy' }),
-      icon: <Shield />,
+      icon: <Lock />,
       path: 'privacy',
     },
     billing: {

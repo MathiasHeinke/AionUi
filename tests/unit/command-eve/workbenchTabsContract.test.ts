@@ -272,7 +272,7 @@ describe('Command EVE workbench tab contract', () => {
     expect(elementsRailCss).toMatch(/\.artifactButton,[\s\S]*?background:\s*transparent !important;/);
     expect(workbenchCss).toContain('@container eve-workbench-tabs (max-width: 620px)');
     expect(workbenchCss).toContain(".tabShell:not([data-selected='true']) .tabLabel");
-    expect(workbenchCss).toContain('.tabButton > :global(.i-icon)');
+    expect(workbenchCss).toContain('.tabButton > :global(.eve-phosphor-icon)');
     expect(workbenchCss).not.toMatch(/\.tabShell\[data-selected='true'\][\s\S]*?inset 0 -2px/);
   });
 

@@ -7,7 +7,7 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { ChatInputBar } from './ChatInputBar';
@@ -119,11 +119,11 @@ export function PendingChatScreen({ agent }: PendingChatScreenProps) {
 
   const handleModePress = useCallback(() => {
     // iOS: use ActionSheet
-    const handled = showModeActionSheet(modes, selectedMode, setSelectedMode);
+    const handled = showModeActionSheet(modes, selectedMode, setSelectedMode, t('common.cancel'));
     if (!handled) {
       setShowModePicker(true);
     }
-  }, [modes, selectedMode]);
+  }, [modes, selectedMode, t]);
 
   const handleSend = async (text: string) => {
     if (isSending) return;
@@ -164,7 +164,7 @@ export function PendingChatScreen({ agent }: PendingChatScreenProps) {
     >
       {/* Hero area */}
       <View style={styles.content}>
-        <Ionicons name='chatbubble-ellipses-outline' size={48} color={tint + '40'} />
+        <PremiumIcon name='chatbubble-ellipses-outline' size={48} color={tint + '40'} />
         <ThemedText style={styles.agentLabel}>{agent.label || agent.name}</ThemedText>
         <ThemedText type='caption'>{t('chat.pendingHint')}</ThemedText>
       </View>
@@ -172,7 +172,7 @@ export function PendingChatScreen({ agent }: PendingChatScreenProps) {
       {/* Selection badge */}
       {hasSelection && (
         <View style={[styles.badge, { backgroundColor: surface, borderColor: border }]}>
-          <Ionicons
+          <PremiumIcon
             name={hasWorkspace ? 'folder-outline' : 'attach'}
             size={16}
             color={tint}
@@ -183,7 +183,7 @@ export function PendingChatScreen({ agent }: PendingChatScreenProps) {
               : t('chat.filesSelected', { count: selectedFiles.length })}
           </ThemedText>
           <TouchableOpacity onPress={handleClearSelection} hitSlop={8}>
-            <Ionicons name='close-circle' size={18} color={iconColor} />
+            <PremiumIcon name='close-circle' size={18} color={iconColor} />
           </TouchableOpacity>
         </View>
       )}
@@ -200,7 +200,7 @@ export function PendingChatScreen({ agent }: PendingChatScreenProps) {
           onPress={() => setShowWorkspacePicker(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name='folder-outline' size={15} color={hasWorkspace ? tint : iconColor} />
+          <PremiumIcon name='folder-outline' size={15} color={hasWorkspace ? tint : iconColor} />
           <ThemedText
             style={[styles.pillText, hasWorkspace && { color: tint }]}
             numberOfLines={1}
@@ -215,7 +215,7 @@ export function PendingChatScreen({ agent }: PendingChatScreenProps) {
           onPress={() => setShowFilePicker(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name='attach' size={15} color={hasFiles ? tint : iconColor} />
+          <PremiumIcon name='attach' size={15} color={hasFiles ? tint : iconColor} />
           <ThemedText style={[styles.pillText, hasFiles && { color: tint }]} numberOfLines={1}>
             {t('chat.selectFiles')}
           </ThemedText>
@@ -228,11 +228,11 @@ export function PendingChatScreen({ agent }: PendingChatScreenProps) {
             onPress={() => setShowModelPicker(true)}
             activeOpacity={0.7}
           >
-            <Ionicons name='hardware-chip-outline' size={15} color={iconColor} />
+            <PremiumIcon name='hardware-chip-outline' size={15} color={iconColor} />
             <ThemedText style={styles.pillText} numberOfLines={1}>
               {currentModelLabel || t('chat.selectModel')}
             </ThemedText>
-            <Ionicons name='chevron-down' size={12} color={iconColor} />
+            <PremiumIcon name='chevron-down' size={12} color={iconColor} />
           </TouchableOpacity>
         )}
 
@@ -242,11 +242,11 @@ export function PendingChatScreen({ agent }: PendingChatScreenProps) {
             onPress={handleModePress}
             activeOpacity={0.7}
           >
-            <Ionicons name='flash-outline' size={15} color={iconColor} />
+            <PremiumIcon name='flash-outline' size={15} color={iconColor} />
             <ThemedText style={styles.pillText} numberOfLines={1}>
               {currentModeLabel}
             </ThemedText>
-            <Ionicons name='chevron-down' size={12} color={iconColor} />
+            <PremiumIcon name='chevron-down' size={12} color={iconColor} />
           </TouchableOpacity>
         )}
       </ScrollView>

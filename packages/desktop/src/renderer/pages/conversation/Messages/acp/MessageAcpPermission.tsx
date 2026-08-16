@@ -16,7 +16,7 @@ import { configService } from '@/common/config/configService';
 import { answerAllowsExecution, canOfferRemember } from '@/common/config/eveRememberedCommandsCore';
 import { resolveStoredGrant, withRememberedCommand } from '@/common/config/eveAuthorityStoreCore';
 import { Button, Card, Checkbox, Radio, Typography } from '@arco-design/web-react';
-import { Book, CheckOne, Edit, Lightning, Link, Lock } from '@icon-park/react';
+import { Book, CheckOne, Edit, Lightning, Link, Lock } from '@renderer/components/icons';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import MessageAcpClarify from './MessageAcpClarify';

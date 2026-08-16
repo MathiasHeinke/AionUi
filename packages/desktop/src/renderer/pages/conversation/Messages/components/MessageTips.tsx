@@ -6,7 +6,7 @@
 
 import type { IMessageTips } from '@/common/chat/chatLib';
 import { Collapse, Tag } from '@arco-design/web-react';
-import { Attention, CheckOne } from '@icon-park/react';
+import { Attention, CheckOne } from '@renderer/components/icons';
 import { theme } from '@office-ai/platform';
 import classNames from 'classnames';
 import React, { useMemo } from 'react';

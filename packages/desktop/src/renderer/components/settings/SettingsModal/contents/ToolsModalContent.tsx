@@ -18,7 +18,7 @@ import { isImageGenSupported } from '@/common/utils/imageModelAllowlist';
 import type { SpeechToTextConfig, SpeechToTextProvider } from '@/common/types/provider/speech';
 import { getAgents } from '@/renderer/hooks/agent/useAgents';
 import { Form, Tooltip, Message, Button, Dropdown, Menu, Modal, Switch, Input } from '@arco-design/web-react';
-import { Down, Help, LinkCloud, Plus } from '@icon-park/react';
+import { Down, Help, LinkCloud, Plus } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useConfigModelListWithImage from '@/renderer/hooks/agent/useConfigModelListWithImage';

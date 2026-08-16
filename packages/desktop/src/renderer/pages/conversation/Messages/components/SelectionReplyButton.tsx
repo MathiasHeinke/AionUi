@@ -7,7 +7,7 @@
 import type { TMessage } from '@/common/chat/chatLib';
 import { emitter } from '@/renderer/utils/emitter';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
-import { Quote } from '@icon-park/react';
+import { Quote } from '@renderer/components/icons';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

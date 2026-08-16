@@ -7,7 +7,7 @@
 import type { MentionOption } from '../types';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { Dropdown, Menu } from '@arco-design/web-react';
-import { Down, Robot } from '@icon-park/react';
+import { Down, Robot } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 

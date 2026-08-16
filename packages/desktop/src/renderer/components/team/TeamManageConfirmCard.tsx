@@ -17,7 +17,7 @@
 
 import { ipcBridge } from '@/common';
 import { Button, Card, Message, Typography } from '@arco-design/web-react';
-import { People } from '@icon-park/react';
+import { People } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 const { Text, Paragraph } = Typography;

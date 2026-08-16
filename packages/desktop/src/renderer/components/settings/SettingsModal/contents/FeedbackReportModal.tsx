@@ -8,7 +8,7 @@ import ModalWrapper from '@renderer/components/base/ModalWrapper';
 import { FEEDBACK_MODULES } from './feedbackModules';
 import { Input, Select, Message, Upload } from '@arco-design/web-react';
 import type { UploadItem } from '@arco-design/web-react/es/Upload';
-import { Info } from '@icon-park/react';
+import { Info } from '@renderer/components/icons';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { RefTextAreaType } from '@arco-design/web-react/es/Input/textarea';
 import { useTranslation } from 'react-i18next';

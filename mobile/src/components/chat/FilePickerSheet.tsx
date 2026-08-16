@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { useThemeColor } from '../../hooks/useThemeColor';
@@ -153,14 +153,14 @@ export function FilePickerSheet({
       activeOpacity={0.6}
     >
       {item.isDir && (
-        <Ionicons
+        <PremiumIcon
           name={item.isExpanded ? 'chevron-down' : 'chevron-forward'}
           size={14}
           color={iconColor}
           style={styles.chevron}
         />
       )}
-      <Ionicons
+      <PremiumIcon
         name={item.isDir ? (item.isExpanded ? 'folder-open' : 'folder') : 'document-outline'}
         size={18}
         color={item.isDir ? tint : iconColor}
@@ -170,7 +170,7 @@ export function FilePickerSheet({
         {item.name}
       </ThemedText>
       {item.isFile && (
-        <Ionicons
+        <PremiumIcon
           name={selected.has(item.fullPath) ? 'checkbox' : 'square-outline'}
           size={22}
           color={selected.has(item.fullPath) ? tint : iconColor}

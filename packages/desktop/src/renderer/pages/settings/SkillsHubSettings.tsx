@@ -1,6 +1,6 @@
 import { ipcBridge } from '@/common';
 import { Button, Input, Message, Modal, Spin, Tag, Tooltip } from '@arco-design/web-react';
-import { Delete, FolderOpen, Info, Lightning, Puzzle, Search, Refresh } from '@icon-park/react';
+import { Delete, FolderOpen, Info, Lightning, Puzzle, Search, Refresh } from '@renderer/components/icons';
 import { bridge } from '@office-ai/platform';
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';

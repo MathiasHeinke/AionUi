@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { ThemedText } from '../ui/ThemedText';
@@ -39,7 +39,7 @@ export function WorkspaceGroup({
         onPress={() => setExpanded((v) => !v)}
         activeOpacity={0.6}
       >
-        <Ionicons name='folder' size={16} color={tint} />
+        <PremiumIcon name='folder' size={16} color={tint} />
         <ThemedText style={styles.displayName} numberOfLines={1}>
           {group.displayName}
         </ThemedText>
@@ -47,7 +47,7 @@ export function WorkspaceGroup({
           {group.conversations.length} {t('workspace.sessions')}
         </ThemedText>
         <Animated.View style={chevronStyle}>
-          <Ionicons name='chevron-forward' size={14} color={tint} />
+          <PremiumIcon name='chevron-forward' size={14} color={tint} />
         </Animated.View>
       </TouchableOpacity>
 

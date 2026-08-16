@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CloseSmall, FullScreen, Minus, OffScreen } from '@icon-park/react';
+import { CloseSmall, FullScreen, Minus, OffScreen } from '@renderer/components/icons';
 import { ipcBridge } from '@/common';
 
 const WindowControls: React.FC = () => {

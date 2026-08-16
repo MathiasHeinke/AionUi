@@ -1,4 +1,4 @@
-import { Attention, CloseSmall, Edit } from '@icon-park/react';
+import { Attention, CloseSmall, Edit } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TeammateStatus } from '@/common/types/team/teamTypes';

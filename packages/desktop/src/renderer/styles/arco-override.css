@@ -247,11 +247,11 @@ html body .arco-btn:not(.arco-btn-shape-circle):not(.arco-btn-shape-round) {
   border-radius: var(--eve-control-radius, 10px);
 }
 
-/* One premium icon baseline for both the canonical Icon Park set and any
+/* One premium icon baseline for both the canonical Phosphor set and any
    third-party icon still rendered by Arco internals. The icon inherits the
    control color instead of carrying its own light-only fill. */
-html body :where(.i-icon, .arco-icon) {
-  display: inline-flex;
+html body :where(.eve-phosphor-icon, .arco-icon) {
+  display: inline-block;
   width: 1em;
   height: 1em;
   flex: 0 0 auto;
@@ -264,14 +264,14 @@ html body :where(.i-icon, .arco-icon) {
   vertical-align: -0.125em;
 }
 
-html body :where(.i-icon, .arco-icon) > svg {
+html body .arco-icon > svg {
   display: block;
   width: 1em;
   height: 1em;
   overflow: visible;
 }
 
-html body :where(.arco-btn, .arco-menu-item, .arco-dropdown-menu-item, .arco-select-option) > .i-icon,
+html body :where(.arco-btn, .arco-menu-item, .arco-dropdown-menu-item, .arco-select-option) > .eve-phosphor-icon,
 html body :where(.arco-btn, .arco-menu-item, .arco-dropdown-menu-item, .arco-select-option) > .arco-icon {
   position: relative;
   top: 0;
@@ -565,7 +565,9 @@ html body .arco-tabs-header-ink {
    `.arco-btn-content` wrapper. Restore a real icon/label rhythm on the button
    itself so icons never sit flush against copy. Specialized compound layouts
    own their own grid/gap and are excluded here. */
-.arco-btn:not(.arco-btn-icon-only):not(.company-brain-settings__item-title):has(> .i-icon:first-child:not(:last-child)),
+.arco-btn:not(.arco-btn-icon-only):not(.company-brain-settings__item-title):has(
+    > .eve-phosphor-icon:first-child:not(:last-child)
+  ),
 .arco-btn:not(.arco-btn-icon-only):not(.company-brain-settings__item-title):has(
     > .arco-icon:first-child:not(:last-child)
   ) {
@@ -575,7 +577,7 @@ html body .arco-tabs-header-ink {
   column-gap: 8px;
 }
 
-.arco-btn-size-mini:not(.arco-btn-icon-only):has(> .i-icon:first-child:not(:last-child)),
+.arco-btn-size-mini:not(.arco-btn-icon-only):has(> .eve-phosphor-icon:first-child:not(:last-child)),
 .arco-btn-size-mini:not(.arco-btn-icon-only):has(> .arco-icon:first-child:not(:last-child)) {
   column-gap: 6px;
 }

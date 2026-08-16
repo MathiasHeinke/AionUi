@@ -9,7 +9,7 @@ import type { FileChangeInfo, SnapshotInfo } from '@/common/types/platform/fileS
 import Diff2Html from '@/renderer/components/media/Diff2Html';
 import { isTextFile } from '@/renderer/services/FileService';
 import { Button, Empty, Spin, Tooltip } from '@arco-design/web-react';
-import { Down, Minus, Plus, PreviewOpen, Redo, Refresh, Right } from '@icon-park/react';
+import { Down, Minus, Plus, PreviewOpen, Redo, Refresh, Right } from '@renderer/components/icons';
 import { createTwoFilesPatch } from 'diff';
 import type { TFunction } from 'i18next';
 import React, { useCallback, useMemo, useState } from 'react';

@@ -5,7 +5,7 @@
  */
 
 import classNames from 'classnames';
-import { Down } from '@icon-park/react';
+import { Down } from '@renderer/components/icons';
 import type { CSSProperties } from 'react';
 import React, { useMemo, useState } from 'react';
 

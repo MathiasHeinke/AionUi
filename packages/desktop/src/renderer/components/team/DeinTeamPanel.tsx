@@ -50,7 +50,7 @@ import { useConfig } from '@renderer/hooks/config/useConfig';
 import { useSeatUsage } from '@renderer/hooks/useSeatUsage';
 import ProjectedSpendMeter from '@renderer/components/team/ProjectedSpendMeter';
 import { Button, Message, Popconfirm, Tag } from '@arco-design/web-react';
-import { Pause, PlayOne, Power, UserPositioning } from '@icon-park/react';
+import { Pause, PlayOne, Power, UserPositioning } from '@renderer/components/icons';
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 

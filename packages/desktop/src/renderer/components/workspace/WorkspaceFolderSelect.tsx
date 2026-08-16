@@ -6,7 +6,7 @@
 
 import { ipcBridge } from '@/common';
 import { Input } from '@arco-design/web-react';
-import { Check, Close, Down, FolderClose, FolderOpen } from '@icon-park/react';
+import { Check, Close, Down, FolderClose, FolderOpen } from '@renderer/components/icons';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

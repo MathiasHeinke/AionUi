@@ -124,7 +124,7 @@ vi.mock('@/renderer/pages/conversation/Messages/components/SelectionReplyButton'
   default: () => null,
 }));
 
-vi.mock('@icon-park/react', () => ({
+vi.mock('@renderer/components/icons', () => ({
   Down: () => <span>down</span>,
 }));
 

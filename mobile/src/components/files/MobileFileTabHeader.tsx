@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { View, TouchableOpacity, StyleSheet, Modal, FlatList, Pressable } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { ThemedText } from '../ui/ThemedText';
@@ -55,7 +55,7 @@ export function MobileFileTabHeader({ onOpenDrawer }: MobileFileTabHeaderProps) 
       <GestureDetector gesture={swipeGesture}>
         <View style={[styles.header, { backgroundColor: background, borderBottomColor: border }]}>
           <TouchableOpacity style={styles.menuButton} onPress={onOpenDrawer}>
-            <Ionicons name='menu-outline' size={26} color={tint} />
+            <PremiumIcon name='menu-outline' size={26} color={tint} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.titleArea} onPress={() => tabs.length > 0 && setShowTabList(true)}>
@@ -90,7 +90,7 @@ export function MobileFileTabHeader({ onOpenDrawer }: MobileFileTabHeaderProps) 
             <View style={[styles.modalHeader, { borderBottomColor: border }]}>
               <ThemedText style={styles.modalTitle}>{t('workspace.openFiles')}</ThemedText>
               <TouchableOpacity onPress={() => setShowTabList(false)}>
-                <Ionicons name='close' size={24} color={text} />
+                <PremiumIcon name='close' size={24} color={text} />
               </TouchableOpacity>
             </View>
 
@@ -122,7 +122,7 @@ export function MobileFileTabHeader({ onOpenDrawer }: MobileFileTabHeaderProps) 
                 onOpenDrawer?.();
               }}
             >
-              <Ionicons name='add-circle-outline' size={20} color={tint} />
+              <PremiumIcon name='add-circle-outline' size={20} color={tint} />
               <ThemedText style={{ color: tint }}>{t('workspace.openNewFile')}</ThemedText>
             </TouchableOpacity>
           </View>
@@ -156,7 +156,7 @@ function TabListItem({ tab, isActive, tint, border, onPress, onClose }: TabListI
         </ThemedText>
       </View>
       <TouchableOpacity style={styles.tabItemClose} onPress={onClose}>
-        <Ionicons name='close-circle' size={20} color={tint + '80'} />
+        <PremiumIcon name='close-circle' size={20} color={tint + '80'} />
       </TouchableOpacity>
     </TouchableOpacity>
   );

@@ -10,7 +10,7 @@ import { vs, vs2015 } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 
 import { copyText } from '@/renderer/utils/ui/clipboard';
 import { Message } from '@arco-design/web-react';
-import { Copy, PreviewOpen } from '@icon-park/react';
+import { Copy, PreviewOpen } from '@renderer/components/icons';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

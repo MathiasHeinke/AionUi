@@ -17,7 +17,7 @@ export interface EveIconTileProps extends React.HTMLAttributes<HTMLSpanElement> 
   decorative?: boolean;
 }
 
-/** A quiet material tile that gives shell icons one optical box and baseline. */
+/** Alignment-only wrapper for naked Phosphor glyphs. */
 const EveIconTile: React.FC<EveIconTileProps> = ({
   children,
   tone = 'neutral',

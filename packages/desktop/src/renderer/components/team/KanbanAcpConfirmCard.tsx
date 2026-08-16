@@ -22,7 +22,7 @@
 import { ipcBridge } from '@/common';
 import { COMMAND_EVE_KANBAN_ACP_APPLIED_EVENT } from '@/common/config/kanbanAcpEvents';
 import { Button, Card, Message, Typography } from '@arco-design/web-react';
-import { Folder } from '@icon-park/react';
+import { Folder } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 const { Text, Paragraph } = Typography;

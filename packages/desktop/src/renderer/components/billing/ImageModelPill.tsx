@@ -35,7 +35,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckSmall } from '@icon-park/react';
+import { CheckSmall } from '@renderer/components/icons';
 import {
   COMMAND_EVE_IMAGE_MODEL_TIER_IDS,
   commandEveImageModelProvider,

@@ -4,7 +4,7 @@ import { getAgentLogo } from '@renderer/utils/model/agentLogo';
 import { usePresetAssistantInfo } from '@renderer/hooks/agent/usePresetAssistantInfo';
 import { resolveBackendAssetUrl } from '@renderer/utils/platform';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
-import { Crown, Robot } from '@icon-park/react';
+import { Crown, Robot } from '@renderer/components/icons';
 
 type Props = {
   agent_name: string;

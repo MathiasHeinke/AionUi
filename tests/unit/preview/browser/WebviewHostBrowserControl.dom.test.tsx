@@ -27,7 +27,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock('@icon-park/react', () => ({
+vi.mock('@renderer/components/icons', () => ({
   Left: () => null,
   Right: () => null,
   Refresh: () => null,

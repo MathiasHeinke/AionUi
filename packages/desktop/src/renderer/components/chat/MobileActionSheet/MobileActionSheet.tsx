@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { CheckSmall, Left, Right } from '@icon-park/react';
+import { CheckSmall, Left, Right } from '@renderer/components/icons';
 import React, { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';

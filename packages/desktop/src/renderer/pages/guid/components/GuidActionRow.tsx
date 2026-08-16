@@ -33,7 +33,7 @@ import type { AvailableAgent } from '../types';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import PresetAgentTag, { type AgentSwitcherItem } from './PresetAgentTag';
 import { Button, Checkbox, Menu, Message, Tooltip } from '@arco-design/web-react';
-import { ArrowUp, Lightning, Plus, Shield } from '@icon-park/react';
+import { ArrowUp, Lightning, Plus, Shield } from '@renderer/components/icons';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from '../index.module.css';

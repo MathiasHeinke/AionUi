@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { Avatar, Button, Switch, Typography } from '@arco-design/web-react';
-import { Delete, EditTwo, Robot } from '@icon-park/react';
+import { Delete, EditTwo, Robot } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import { resolveAgentLogo } from '@/renderer/utils/model/agentLogo';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';

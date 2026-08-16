@@ -7,7 +7,7 @@
 import { iconColors } from '@/renderer/styles/colors';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import { Dropdown, Input, Menu, Tooltip } from '@arco-design/web-react';
-import { Down, Plus, Refresh, Search } from '@icon-park/react';
+import { Down, Plus, Refresh, Search } from '@renderer/components/icons';
 import React from 'react';
 import UploadProgressBar from '@/renderer/components/media/UploadProgressBar';
 import type { TFunction } from 'i18next';

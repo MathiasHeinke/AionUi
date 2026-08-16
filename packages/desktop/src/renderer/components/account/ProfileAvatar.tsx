@@ -16,7 +16,7 @@
 
 import React from 'react';
 import { Tooltip } from '@arco-design/web-react';
-import { User } from '@icon-park/react';
+import { User } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import CommandEveGlyph from '@/renderer/components/commandEve/CommandEveGlyph';
 import { initialsFromName, useCommandEveProfile } from './useCommandEveProfile';

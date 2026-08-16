@@ -18,7 +18,7 @@ import { useConversationAgents } from '@renderer/pages/conversation/hooks/useCon
 import CronStatusTag from './CronStatusTag';
 import CreateTaskDialog from './CreateTaskDialog';
 import { getJobAgentMeta } from './jobAgentMeta';
-import { AddOne, CalendarThirty } from '@icon-park/react';
+import { AddOne, CalendarThirty } from '@renderer/components/icons';
 
 const ScheduledTasksPage: React.FC = () => {
   const layout = useLayoutContext();

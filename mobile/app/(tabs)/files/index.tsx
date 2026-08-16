@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { DrawerActions } from '@react-navigation/routers';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../../../src/components/ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { MobileFileTabHeader } from '../../../src/components/files/MobileFileTabHeader';
 import { FileContentView } from '../../../src/components/files/FileContentView';
@@ -38,7 +38,7 @@ export default function FilesIndexScreen() {
       <View style={[styles.container, { backgroundColor: background }]}>
         <MobileFileTabHeader onOpenDrawer={openDrawer} />
         <View style={styles.emptyState}>
-          <Ionicons name='folder-open-outline' size={48} color={iconColor} style={{ opacity: 0.4 }} />
+          <PremiumIcon name='folder-open-outline' size={48} color={iconColor} style={{ opacity: 0.4 }} />
           <ThemedText style={styles.emptyText}>{t('workspace.noWorkspace')}</ThemedText>
         </View>
       </View>
@@ -51,7 +51,7 @@ export default function FilesIndexScreen() {
       <View style={[styles.container, { backgroundColor: background }]}>
         <MobileFileTabHeader onOpenDrawer={openDrawer} />
         <View style={styles.emptyState}>
-          <Ionicons name='document-outline' size={48} color={iconColor} style={{ opacity: 0.4 }} />
+          <PremiumIcon name='document-outline' size={48} color={iconColor} style={{ opacity: 0.4 }} />
           <ThemedText style={styles.emptyText}>{t('files.empty')}</ThemedText>
         </View>
       </View>

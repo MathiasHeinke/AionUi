@@ -27,7 +27,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Message, Popconfirm, Select, Space, Tag } from '@arco-design/web-react';
-import { Right } from '@icon-park/react';
+import { Right } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import { commandEve, type ICommandEveCompanyBrainEntry } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
@@ -550,7 +550,7 @@ const CompanyBrainModalContent: React.FC = () => {
         <div className='company-brain-settings__status-row' data-testid='company-brain-status'>
           {seeded ? (
             <Tag color='green' data-seeded='true'>
-              {t('credits.companyBrain.seeded', { defaultValue: 'Company Brain: geseedet ✓' })}
+              {t('credits.companyBrain.seeded', { defaultValue: 'Company Brain: geseedet' })}
             </Tag>
           ) : (
             <Tag color='gray' data-seeded='false'>

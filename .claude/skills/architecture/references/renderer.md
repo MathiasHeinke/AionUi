@@ -28,7 +28,11 @@ packages/desktop/src/renderer/
 ## UI Library & Icon Standards
 
 - **Components**: `@arco-design/web-react` — use Arco components first
-- **Icons**: `@icon-park/react` — all icons from this library
+- **Icons**: Phosphor through `@renderer/components/icons` — do not import an
+  icon package directly from feature components
+- **Content exceptions**: file-type/content renderers, brand marks, avatars,
+  native preview assets, and Mermaid/data visualization retain their dedicated
+  seams; never use them for generic controls or status glyphs
 - **No raw HTML** for interactive elements (`<button>`, `<input>`, `<select>`, etc.) — use Arco equivalents
 - **Layout tags** (`<div>`, `<span>`, `<section>`, etc.) may be used freely
 

@@ -6,7 +6,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Progress, Message } from '@arco-design/web-react';
-import { CheckOne, Download, FolderOpen, Refresh, CloseOne, Install } from '@icon-park/react';
+import { CheckOne, Download, FolderOpen, Refresh, CloseOne, Install } from '@renderer/components/icons';
 import { ipcBridge } from '@/common';
 import { COMMAND_EVE_SHELL_ENABLED, formatCommandEveDisplayVersion } from '@/common/config/commandEveShell';
 import AionModal from '@/renderer/components/base/AionModal';

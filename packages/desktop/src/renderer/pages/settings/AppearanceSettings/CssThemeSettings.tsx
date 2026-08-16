@@ -10,7 +10,7 @@ import { ipcBridge } from '@/common';
 import { uuid } from '@/common/utils';
 import { useThemeContext } from '@renderer/hooks/context/ThemeContext.tsx';
 import { Button, Message, Modal } from '@arco-design/web-react';
-import { EditTwo, Plus, CheckOne } from '@icon-park/react';
+import { EditTwo, Plus, CheckOne } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import CssThemeModal from './CssThemeModal.tsx';

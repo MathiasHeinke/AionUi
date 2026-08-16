@@ -10,7 +10,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { DndContext } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import classNames from 'classnames';
-import { Down } from '@icon-park/react';
+import { Down } from '@renderer/components/icons';
 import { Input, Message, Modal } from '@arco-design/web-react';
 import type { ICronJob } from '@/common/adapter/ipcBridge';
 import type { TChatConversation } from '@/common/config/storage';

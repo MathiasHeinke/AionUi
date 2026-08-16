@@ -6,7 +6,7 @@
 
 import { ipcBridge } from '@/common';
 import { Button, Form, Tooltip } from '@arco-design/web-react';
-import { FolderOpen } from '@icon-park/react';
+import { FolderOpen } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 

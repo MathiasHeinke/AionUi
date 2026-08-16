@@ -64,7 +64,7 @@ import {
 } from '@/renderer/utils/model/agentModes';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import { Message, Tag } from '@arco-design/web-react';
-import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
+import { Brain, EditOne, MagicHat, Shield, Time } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createCommandEveLocalIntentClientToken, parseCommandEveLocalMarketingIntent } from './commandEveLocalIntent';

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { View, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Alert } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../ui/PremiumIcon';
 import { useTranslation } from 'react-i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -139,7 +139,7 @@ export function WorkspaceFilesSidebar({ navigation }: WorkspaceFilesSidebarProps
   if (!currentWorkspace) {
     return (
       <View style={[styles.container, styles.emptyContainer, { backgroundColor: background }]}>
-        <Ionicons name='folder-open-outline' size={48} color={iconColor} style={{ opacity: 0.4 }} />
+        <PremiumIcon name='folder-open-outline' size={48} color={iconColor} style={{ opacity: 0.4 }} />
         <ThemedText style={styles.emptyText}>{t('workspace.noWorkspace')}</ThemedText>
       </View>
     );
@@ -152,14 +152,14 @@ export function WorkspaceFilesSidebar({ navigation }: WorkspaceFilesSidebarProps
       activeOpacity={0.6}
     >
       {item.isDir && (
-        <Ionicons
+        <PremiumIcon
           name={item.isExpanded ? 'chevron-down' : 'chevron-forward'}
           size={14}
           color={iconColor}
           style={styles.chevron}
         />
       )}
-      <Ionicons
+      <PremiumIcon
         name={item.isDir ? (item.isExpanded ? 'folder-open' : 'folder') : 'document-outline'}
         size={18}
         color={item.isDir ? tint : iconColor}
@@ -174,12 +174,12 @@ export function WorkspaceFilesSidebar({ navigation }: WorkspaceFilesSidebarProps
   return (
     <View style={[styles.container, { backgroundColor: background }]}>
       <View style={[styles.header, { borderBottomColor: border }]}>
-        <Ionicons name='folder-outline' size={18} color={tint} />
+        <PremiumIcon name='folder-outline' size={18} color={tint} />
         <ThemedText style={styles.headerTitle} numberOfLines={1}>
           {workspaceDisplayName}
         </ThemedText>
         <TouchableOpacity onPress={() => navigation.closeDrawer()}>
-          <Ionicons name='close' size={22} color={iconColor} />
+          <PremiumIcon name='close' size={22} color={iconColor} />
         </TouchableOpacity>
       </View>
 

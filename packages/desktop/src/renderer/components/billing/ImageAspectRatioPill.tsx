@@ -8,7 +8,7 @@ import {
   COMMAND_EVE_MANAGED_IMAGE_ASPECT_RATIOS,
   type CommandEveManagedImageAspectRatio,
 } from '@/common/config/eveManagedImageGenerationCore';
-import { CheckSmall } from '@icon-park/react';
+import { CheckSmall } from '@renderer/components/icons';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MediaPillDropdown } from './MediaModelDropdown';

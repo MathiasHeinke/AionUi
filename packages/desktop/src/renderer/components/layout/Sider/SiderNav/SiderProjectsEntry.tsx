@@ -1,5 +1,5 @@
 import { Button, Tooltip } from '@arco-design/web-react';
-import { FolderFocus } from '@icon-park/react';
+import { FolderFocus } from '@renderer/components/icons';
 import classNames from 'classnames';
 import React from 'react';
 import { useTranslation } from 'react-i18next';

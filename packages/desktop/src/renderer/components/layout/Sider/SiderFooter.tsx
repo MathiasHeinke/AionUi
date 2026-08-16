@@ -7,7 +7,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Tooltip } from '@arco-design/web-react';
-import { ArrowCircleLeft, CloseOne, Moon, Refresh, SunOne, User } from '@icon-park/react';
+import { ArrowCircleLeft, CloseOne, Moon, Refresh, SunOne, User } from '@renderer/components/icons';
 import classNames from 'classnames';
 import { initialsFromName, useCommandEveProfile } from '@renderer/components/account/useCommandEveProfile';
 import { useAutoUpdateStatus } from '@renderer/hooks/system/useAutoUpdateStatus';

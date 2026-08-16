@@ -8,7 +8,7 @@ import { useIsDevMode } from '@/renderer/hooks/useIsDevMode';
 import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 import { emitAcpPerformanceMark } from '@/renderer/utils/performance/acpPerformanceMarks';
 import { Button, Message, Tooltip } from '@arco-design/web-react';
-import { Shield, Time } from '@icon-park/react';
+import { Shield, Time } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { EgressBoundaryStatus } from './EgressBoundaryNotice';

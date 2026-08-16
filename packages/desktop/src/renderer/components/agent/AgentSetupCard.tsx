@@ -12,7 +12,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button, Message, Progress } from '@arco-design/web-react';
-import { CheckOne, CloseOne, Down, EmotionUnhappy, Loading, Up } from '@icon-park/react';
+import { CheckOne, CloseOne, Down, EmotionUnhappy, Loading, Up } from '@renderer/components/icons';
 import classNames from 'classnames';
 import { ipcBridge } from '@/common';
 import type { ICreateConversationParams } from '@/common/adapter/ipcBridge';

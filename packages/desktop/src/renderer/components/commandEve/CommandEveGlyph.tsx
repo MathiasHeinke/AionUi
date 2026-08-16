@@ -5,7 +5,7 @@
  */
 
 import classNames from 'classnames';
-import { Command } from '@icon-park/react';
+import { Command } from '@renderer/components/icons';
 import React from 'react';
 
 export type CommandEveGlyphProps = {

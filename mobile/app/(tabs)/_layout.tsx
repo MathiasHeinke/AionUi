@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Tabs, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { Ionicons } from '@expo/vector-icons';
+import { PremiumIcon } from '../../src/components/ui/PremiumIcon';
 import { SafeAreaView, useSafeAreaInsets, SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { useThemeColor } from '../../src/hooks/useThemeColor';
 import { useConnection } from '../../src/context/ConnectionContext';
@@ -39,7 +39,7 @@ export default function TabLayout() {
           options={{
             title: t('tabs.chat'),
             headerShown: false,
-            tabBarIcon: ({ color, size }) => <Ionicons name='chatbubbles-outline' size={size} color={color} />,
+            tabBarIcon: ({ color, size }) => <PremiumIcon name='chatbubbles-outline' size={size} color={color} />,
           }}
         />
         <Tabs.Screen
@@ -47,7 +47,7 @@ export default function TabLayout() {
           options={{
             title: t('tabs.files'),
             headerShown: false,
-            tabBarIcon: ({ color, size }) => <Ionicons name='folder-outline' size={size} color={color} />,
+            tabBarIcon: ({ color, size }) => <PremiumIcon name='folder-outline' size={size} color={color} />,
           }}
         />
         <Tabs.Screen
@@ -55,7 +55,7 @@ export default function TabLayout() {
           options={{
             title: t('tabs.settings'),
             headerShown: false,
-            tabBarIcon: ({ color, size }) => <Ionicons name='settings-outline' size={size} color={color} />,
+            tabBarIcon: ({ color, size }) => <PremiumIcon name='settings-outline' size={size} color={color} />,
           }}
         />
       </Tabs>

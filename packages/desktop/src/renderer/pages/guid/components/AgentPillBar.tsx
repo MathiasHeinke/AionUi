@@ -9,7 +9,7 @@ import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import type { AgentSource } from '@/renderer/utils/model/agentTypes';
 import type { AvailableAgent } from '../types';
-import { Plus, Robot } from '@icon-park/react';
+import { Plus, Robot } from '@renderer/components/icons';
 import { Tooltip } from '@arco-design/web-react';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';

@@ -14,7 +14,7 @@ import { blockMobileInputFocus, blurActiveElement } from '@/renderer/utils/ui/fo
 import { cleanupSiderTooltips, getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 import { getActivityTime, createTimelineGrouper } from '@/renderer/utils/chat/timeline';
 import { Empty, Popconfirm, Input, Tooltip } from '@arco-design/web-react';
-import { DeleteOne, MessageOne, EditOne } from '@icon-park/react';
+import { DeleteOne, MessageOne, EditOne } from '@renderer/components/icons';
 import classNames from 'classnames';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';

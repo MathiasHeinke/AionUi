@@ -1398,7 +1398,7 @@ normalizeTestId('skill<test>'); // → 'skill-test-'
 - **React**：18.x（函数组件 + Hooks）
 - **React Router**：`useSearchParams`（URL 参数管理）
 - **Arco Design**：Button, Modal, Message, Input, Dropdown, Menu, Typography
-- **Icon Park**：Delete, FolderOpen, Info, Lightning, Puzzle, Search, Plus, Refresh
+- **Phosphor**：Delete, FolderOpen, Info, Lightning, Puzzle, Search, Plus, Refresh
 - **i18next**：`useTranslation` Hook
 
 ---

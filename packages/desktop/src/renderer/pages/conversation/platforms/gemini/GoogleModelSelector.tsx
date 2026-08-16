@@ -4,7 +4,7 @@ import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { getModelDisplayLabel } from '@/renderer/utils/model/agentLogo';
 import { iconColors } from '@/renderer/styles/colors';
 import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
-import { Brain, Down } from '@icon-park/react';
+import { Brain, Down } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import classNames from 'classnames';

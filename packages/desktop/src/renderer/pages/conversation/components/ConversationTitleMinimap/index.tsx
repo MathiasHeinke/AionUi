@@ -5,7 +5,7 @@
  */
 
 import { Empty, Input, Spin } from '@arco-design/web-react';
-import { Search } from '@icon-park/react';
+import { Search } from '@renderer/components/icons';
 import classNames from 'classnames';
 import React, { useMemo } from 'react';
 import { createPortal } from 'react-dom';

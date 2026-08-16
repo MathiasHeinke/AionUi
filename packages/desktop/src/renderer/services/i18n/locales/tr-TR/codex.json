@@ -8,7 +8,7 @@
     "retry_attempt": "{{current}}. deneme yapılıyor...",
     "cloudflare_blocked_title": "🚫 {{service}} servisi Cloudflare koruması tarafından engellendi",
     "network_timeout_title": "⏱️ Ağ bağlantısı zaman aşımı",
-    "connection_refused_title": "❌ Servis bağlantısı reddedildi",
+    "connection_refused_title": "Servis bağlantısı reddedildi",
     "unknown_error_title": "🔌 Ağ bağlantı hatası",
     "recovery_suggestions": "**Çözüm Önerileri:**",
     "technical_info": "**Teknik Bilgiler:**",

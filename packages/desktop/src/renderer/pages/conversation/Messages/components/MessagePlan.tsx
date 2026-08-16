@@ -1,5 +1,5 @@
 import { Badge } from '@arco-design/web-react';
-import { CheckOne, Down, Right } from '@icon-park/react';
+import { CheckOne, Down, Right } from '@renderer/components/icons';
 import React, { useState } from 'react';
 import type { IMessagePlan } from '@/common/chat/chatLib';
 

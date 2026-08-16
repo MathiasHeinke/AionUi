@@ -18,7 +18,7 @@ const agentBadgeColors: Record<string, string> = {
   qwen: '#7C3AED',
 };
 
-function formatTime(timestamp: number): string {
+function formatTime(timestamp: number, yesterdayLabel: string): string {
   const date = new Date(timestamp);
   const now = new Date();
   const isToday = date.toDateString() === now.toDateString();
@@ -30,7 +30,7 @@ function formatTime(timestamp: number): string {
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
   if (date.toDateString() === yesterday.toDateString()) {
-    return t('workspace.yesterday');
+    return yesterdayLabel;
   }
 
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
@@ -90,7 +90,9 @@ export function ConversationItem({ conversation, onPress, onDelete }: Conversati
             {conversation.name || t('conversations.untitled')}
           </ThemedText>
         </View>
-        <ThemedText type='caption'>{formatTime(conversation.modifyTime)}</ThemedText>
+        <ThemedText type='caption'>
+          {formatTime(conversation.modifyTime, t('workspace.yesterday'))}
+        </ThemedText>
       </View>
 
       <View style={styles.row}>

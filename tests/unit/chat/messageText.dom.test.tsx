@@ -90,7 +90,7 @@ vi.mock('@arco-design/web-react', () => ({
   Tooltip: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 
-vi.mock('@icon-park/react', () => ({
+vi.mock('@renderer/components/icons', () => ({
   Copy: () => <span data-testid='copy-icon' />,
   PauseOne: () => <span data-testid='pause-icon' />,
   VolumeNotice: () => <span data-testid='volume-icon' />,

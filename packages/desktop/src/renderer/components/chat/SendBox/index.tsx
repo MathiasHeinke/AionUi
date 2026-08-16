@@ -26,7 +26,7 @@ import { filterWorkspaceMentionItems } from '@/renderer/utils/file/workspaceMent
 import { copyText } from '@/renderer/utils/ui/clipboard';
 import { blurActiveElement, shouldBlockMobileInputFocus } from '@/renderer/utils/ui/focus';
 import { Button, Input, Message, Tag } from '@arco-design/web-react';
-import { ArrowUp, CloseSmall, Plus, Quote, SquareSmall, UploadOne } from '@icon-park/react';
+import { ArrowUp, CloseSmall, Plus, Quote, SquareSmall, UploadOne } from '@renderer/components/icons';
 import type { SlashCommandItem } from '@/common/chat/slash/types';
 import { theme } from '@office-ai/platform';
 import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';

@@ -37,7 +37,7 @@ import {
   resolveAdaptiveWorkbenchLayout,
 } from '@/renderer/pages/conversation/utils/layoutCalc';
 import { Layout as ArcoLayout } from '@arco-design/web-react';
-import { ExpandLeft, ExpandRight } from '@icon-park/react';
+import { ExpandLeft, ExpandRight } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';

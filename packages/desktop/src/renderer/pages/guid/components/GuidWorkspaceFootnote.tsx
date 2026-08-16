@@ -7,7 +7,7 @@
 import { ipcBridge } from '@/common';
 import { addRecentWorkspace, getRecentWorkspaces } from '@/renderer/components/workspace';
 import { Tooltip } from '@arco-design/web-react';
-import { Check, Close, Down, FolderBlock, FolderOpen, FolderPlus, Search } from '@icon-park/react';
+import { Check, Close, Down, FolderBlock, FolderOpen, FolderPlus, Search } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';

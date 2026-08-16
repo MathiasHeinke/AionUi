@@ -6,7 +6,7 @@
 
 import classNames from 'classnames';
 import React, { useState } from 'react';
-import { Down, PreviewOpen } from '@icon-park/react';
+import { Down, PreviewOpen } from '@renderer/components/icons';
 import { diffColors, iconColors } from '@/renderer/styles/colors';
 import { useTranslation } from 'react-i18next';
 

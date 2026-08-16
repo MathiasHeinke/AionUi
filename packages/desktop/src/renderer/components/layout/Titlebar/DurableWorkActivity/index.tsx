@@ -17,7 +17,7 @@ import {
   useDurableWorkActivity,
 } from '@/renderer/pages/conversation/runtime/durableWorkActivityAdapter';
 import { Button, Message, Tooltip } from '@arco-design/web-react';
-import { Pause, PlayOne, Power, Redo, Right, Robot, Time } from '@icon-park/react';
+import { Pause, PlayOne, Power, Redo, Right, Robot, Time } from '@renderer/components/icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from './styles.module.css';

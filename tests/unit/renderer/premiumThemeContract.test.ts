@@ -18,6 +18,9 @@ const loginCss = withoutComments(read('packages/desktop/src/renderer/pages/login
 const registrationCss = withoutComments(
   read('packages/desktop/src/renderer/pages/registrationGate/RegistrationGatePage.css')
 );
+const workProductCss = withoutComments(
+  read('packages/desktop/src/renderer/components/chat/WorkProductModeSelector.module.css')
+);
 
 const longMenuSurfaces = [
   {
@@ -185,12 +188,25 @@ describe('premium scrollbar consumption', () => {
 });
 
 describe('premium overlay and interaction adapters', () => {
-  it('aligns both icon systems to one ambient baseline', () => {
-    const iconBlock = block(arcoCss, 'html body :where(.i-icon, .arco-icon) {');
-    expect(iconBlock).toContain('display: inline-flex');
+  it('aligns Phosphor and Arco internals to one ambient baseline', () => {
+    const iconBlock = block(arcoCss, 'html body :where(.eve-phosphor-icon, .arco-icon) {');
+    expect(iconBlock).toContain('display: inline-block');
     expect(iconBlock).toContain('color: inherit');
     expect(iconBlock).toContain('align-self: center');
     expect(iconBlock).toContain('vertical-align: -0.125em');
+  });
+
+  it('keeps icon alignment wrappers naked in every theme', () => {
+    const iconTile = block(visualCss, '.eve-icon-tile {');
+    expect(iconTile).toContain('border: 0');
+    expect(iconTile).toContain('background: transparent');
+    expect(iconTile).toContain('box-shadow: none');
+
+    const workProductIcon = block(workProductCss, '.menuIcon {');
+    expect(workProductIcon).toContain('border: 0');
+    expect(workProductIcon).toContain('border-radius: 0');
+    expect(workProductIcon).toContain('background: transparent');
+    expect(workProductIcon).toContain('box-shadow: none');
   });
 
   it('routes button, switch, checkbox, radio and tab states through semantic action tokens', () => {

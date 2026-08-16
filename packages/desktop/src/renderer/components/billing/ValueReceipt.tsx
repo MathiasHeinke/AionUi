@@ -19,7 +19,7 @@ import { Card } from '@arco-design/web-react';
 import { configService } from '@/common/config/configService';
 import { buildValueReceiptModel, DEFAULT_VALUE_RECEIPT_HOURLY_EUR } from '@/common/config/creditsCore';
 import './billing.css';
-import { Command } from '@icon-park/react';
+import { Command } from '@renderer/components/icons';
 
 export interface ValueReceiptProps {
   /** What EVE shipped, in the persona's own verb (e.g. "32 ad variants"). */

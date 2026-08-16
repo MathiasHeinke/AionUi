@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Form, Input, Message, Spin } from '@arco-design/web-react';
 import type { RefInputType } from '@arco-design/web-react/es/Input/interface';
-import { Close } from '@icon-park/react';
+import { Close } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import { useSWRConfig } from 'swr';
 import { ipcBridge } from '@/common';

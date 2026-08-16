@@ -5,7 +5,7 @@
  */
 
 import { Alert, Button, Link, Space, Typography } from '@arco-design/web-react';
-import { Attention, CheckOne, CloseOne } from '@icon-park/react';
+import { Attention, CheckOne, CloseOne } from '@renderer/components/icons';
 import React from 'react';
 
 const { Paragraph, Text } = Typography;

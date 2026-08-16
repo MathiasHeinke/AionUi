@@ -98,7 +98,7 @@ vi.mock('@arco-design/web-react', () => ({
   Tooltip: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 
-vi.mock('@icon-park/react', () => ({
+vi.mock('@renderer/components/icons', () => ({
   Copy: () => null,
   Download: () => null,
   FolderOpen: () => null,

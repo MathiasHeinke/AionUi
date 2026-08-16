@@ -8,7 +8,7 @@
     "retry_attempt": "正在重試第 {{current}} 次...",
     "cloudflare_blocked_title": "🚫 由於 Cloudflare 保護，{{service}} 服務被封鎖",
     "network_timeout_title": "⏱️ 網路連線逾時",
-    "connection_refused_title": "❌ 服務連線被拒絕",
+    "connection_refused_title": "服務連線被拒絕",
     "unknown_error_title": "🔌 網路連線錯誤",
     "recovery_suggestions": "**建議解法：**",
     "technical_info": "**技術資訊：**",

@@ -11,7 +11,7 @@ import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import type { ICronJob } from '@/common/adapter/ipcBridge';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { Button, Popover, Tooltip } from '@arco-design/web-react';
-import { AlarmClock } from '@icon-park/react';
+import { AlarmClock } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';

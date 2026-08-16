@@ -5,7 +5,7 @@
  */
 
 import { useThemeContext } from '@/renderer/hooks/context/ThemeContext';
-import { Down, Up } from '@icon-park/react';
+import { Down, Up } from '@renderer/components/icons';
 import classNames from 'classnames';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

@@ -17,7 +17,7 @@ import {
 } from '@/renderer/services/ReadAloudService';
 import { iconColors } from '@/renderer/styles/colors';
 import { Alert, Button, Message, Tooltip } from '@arco-design/web-react';
-import { Copy, PauseOne, VolumeNotice } from '@icon-park/react';
+import { Copy, PauseOne, VolumeNotice } from '@renderer/components/icons';
 import classNames from 'classnames';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

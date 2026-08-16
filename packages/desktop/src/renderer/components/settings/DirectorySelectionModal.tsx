@@ -7,7 +7,7 @@
 import AionModal from '@/renderer/components/base/AionModal';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import { Button, Spin } from '@arco-design/web-react';
-import { FileText, FolderOpen, Up } from '@icon-park/react';
+import { FileText, FolderOpen, Up } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getBaseUrl } from '@/common/adapter/httpBridge';

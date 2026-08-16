@@ -6,7 +6,7 @@
 
 import { configService } from '@/common/config/configService';
 import { Message, Button, Tooltip } from '@arco-design/web-react';
-import { Microphone, Refresh, Square } from '@icon-park/react';
+import { Microphone, Refresh, Square } from '@renderer/components/icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {

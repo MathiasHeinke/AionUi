@@ -1,7 +1,7 @@
 import type { SkillCapabilityCatalog, SkillCapabilityItem } from '@/renderer/hooks/capabilities';
 import { iconColors } from '@/renderer/styles/colors';
 import { Checkbox, Menu } from '@arco-design/web-react';
-import { Lightning } from '@icon-park/react';
+import { Lightning } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 

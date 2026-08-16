@@ -10,7 +10,7 @@ import AionModal from '@/renderer/components/base/AionModal';
 import EveIconTile from '@/renderer/components/base/EveIconTile';
 import { useAgents } from '@/renderer/hooks/agent/useAgents';
 import { Button, Typography } from '@arco-design/web-react';
-import { Command, Home, Plus } from '@icon-park/react';
+import { Command, Home, Plus } from '@renderer/components/icons';
 import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';

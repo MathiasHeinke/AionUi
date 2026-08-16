@@ -6,7 +6,7 @@
 
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import type { WorkbenchLayoutMode } from '@/renderer/pages/conversation/Preview/context/PreviewContext';
-import { BottomBar, FullScreenOne, LeftBar, MessageOne, RightBar } from '@icon-park/react';
+import { BottomBar, FullScreenOne, LeftBar, MessageOne, RightBar } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from './WorkbenchLayoutControls.module.css';

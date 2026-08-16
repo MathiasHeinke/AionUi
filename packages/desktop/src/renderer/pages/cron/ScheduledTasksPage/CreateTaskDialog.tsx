@@ -9,7 +9,7 @@ import useSWR from 'swr';
 import { useTranslation } from 'react-i18next';
 import { Form, Input, Select, Message, TimePicker, Radio, Button } from '@arco-design/web-react';
 import ModalWrapper from '@renderer/components/base/ModalWrapper';
-import { Down, Robot } from '@icon-park/react';
+import { Down, Robot } from '@renderer/components/icons';
 import { ipcBridge } from '@/common';
 import type { ICreateCronJobParams, ICronJob } from '@/common/adapter/ipcBridge';
 import { useConversationAgents } from '@renderer/pages/conversation/hooks/useConversationAgents';

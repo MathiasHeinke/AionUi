@@ -268,7 +268,7 @@ UI 主要组件（引用自 `index.tsx`）：
 - 所有文本通过 `useTranslation()`（`react-i18next`）；默认 fallback 是英文 defaultValue
 - `nameI18n` / `descriptionI18n` / `contextI18n` / `promptsI18n` 按 `localeKey` 查找本地化版本（`filterAssistants` 也用 localeKey 做搜索 key）
 - 列表按钮/输入使用 Arco Design 组件（`@arco-design/web-react`）
-- 图标统一 `@icon-park/react`
+- 图标统一 `@renderer/components/icons（Phosphor）`
 
 ---
 

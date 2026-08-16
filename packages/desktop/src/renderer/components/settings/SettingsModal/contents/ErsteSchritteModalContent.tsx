@@ -27,7 +27,7 @@
 
 import React, { useCallback } from 'react';
 import { Button, Tag } from '@arco-design/web-react';
-import { Attention, CheckOne, LoadingOne, Right } from '@icon-park/react';
+import { Attention, CheckOne, LoadingOne, Right } from '@renderer/components/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { isElectronDesktop, openAccountWeb } from '@renderer/utils/platform';

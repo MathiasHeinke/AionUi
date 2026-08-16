@@ -7,7 +7,7 @@
 import { CUSTOM_AVATAR_IMAGE_MAP } from '../constants';
 import type { AvailableAgent } from '../types';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
-import { CheckSmall, CloseSmall, Down, Robot } from '@icon-park/react';
+import { CheckSmall, CloseSmall, Down, Robot } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';

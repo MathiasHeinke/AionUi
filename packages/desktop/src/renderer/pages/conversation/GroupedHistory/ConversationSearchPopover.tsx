@@ -10,7 +10,7 @@ import AionModal from '@/renderer/components/base/AionModal';
 import CommandEveGlyph from '@/renderer/components/commandEve/CommandEveGlyph';
 import { blockMobileInputFocus, blurActiveElement } from '@/renderer/utils/ui/focus';
 import { Empty, Spin, Typography } from '@arco-design/web-react';
-import { Close, CloseSmall, Search } from '@icon-park/react';
+import { Close, CloseSmall, Search } from '@renderer/components/icons';
 import classNames from 'classnames';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';

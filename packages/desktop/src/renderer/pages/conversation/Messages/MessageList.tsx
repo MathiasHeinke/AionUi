@@ -22,7 +22,7 @@ import { useConversationContextSafe } from '@/renderer/hooks/context/Conversatio
 import { iconColors } from '@/renderer/styles/colors';
 import { CHAT_MESSAGE_JUMP_EVENT, type ChatMessageJumpDetail } from '@/renderer/utils/chat/chatMinimapEvents';
 import { Image } from '@arco-design/web-react';
-import { Down } from '@icon-park/react';
+import { Down } from '@renderer/components/icons';
 import MessageAcpPermission from '@renderer/pages/conversation/Messages/acp/MessageAcpPermission';
 import MessagePermission from './components/MessagePermission';
 import MessageAcpToolCall from '@renderer/pages/conversation/Messages/acp/MessageAcpToolCall';

@@ -39,17 +39,15 @@
 
 .settings-sider__item[aria-current='page'] {
   color: var(--eve-shell-text);
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--eve-accent) 10%, transparent), transparent 78%),
-    var(--eve-row-selected-bg);
-  box-shadow: inset 2px 0 0 var(--eve-accent);
+  background: color-mix(in srgb, var(--eve-brand-logo) 7%, var(--eve-row-selected-bg));
+  box-shadow: none;
 }
 
 .settings-sider__item[aria-current='page'] .settings-sider__item-label {
   font-weight: 600;
 }
 
-.settings-sider__item .i-icon,
+.settings-sider__item .eve-phosphor-icon,
 .settings-sider__item svg {
   color: currentColor;
 }
@@ -62,11 +60,10 @@
 
 .settings-sider__item:hover .settings-sider__icon-tile {
   color: var(--eve-accent);
-  border-color: color-mix(in srgb, var(--eve-accent) 28%, var(--eve-control-border));
 }
 
 .settings-sider__item[aria-current='page'] .settings-sider__icon-tile {
-  color: var(--eve-accent);
+  color: var(--eve-brand-logo);
 }
 
 /* Settings mobile top nav */
