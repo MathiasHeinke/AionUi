@@ -28,7 +28,11 @@ import {
   commandEveOfficeArtifactRelativePath,
   ProjectWorkspaceConversationArtifactStore,
 } from '@process/services/project-workspace/storage/conversationArtifactStore';
-import { currentProcessNonceSha256 } from '@process/services/project-workspace/storage/atomicJson';
+import {
+  currentProcessNonceSha256,
+  processPidIsAlive,
+  processWitnessMatches,
+} from '@process/services/project-workspace/storage/atomicJson';
 import {
   readBoundedOfficeSource,
   resolveCommandEveOfficeConversationAuthority,
@@ -179,6 +183,7 @@ export type CommandEveOfficeArtifactReconcileSummary = {
   candidates: number;
   persisted: number;
   alreadyPersisted: number;
+  abandoned: number;
   refused: Array<{ operationId: string; reason: CommandEveOfficeArtifactReconcileRefusalReason }>;
   transcriptFetched: boolean;
 };
@@ -193,13 +198,15 @@ export type CommandEveOfficeArtifactReconcileRefusalReason =
   | 'result-limit-exceeded'
   | 'persist-failed'
   | 'completion-membership-mismatch'
-  | 'completion-failed';
+  | 'completion-failed'
+  | 'abandonment-failed';
 
 export interface CommandEveOfficeArtifactRuntimeDeps {
   getActiveSeatId?: typeof getActiveSeatId;
   getActiveSeatContextRevision?: typeof getActiveSeatContextRevision;
   getProcessNonceSha256?: typeof currentProcessNonceSha256;
   getProcessId?: () => number;
+  isProcessAlive?: typeof processPidIsAlive;
   resolveAuthority?: (conversationId: string) => Promise<CommandEveOfficeConversationAuthority>;
   readOfficeSource?: typeof readBoundedOfficeSource;
   writeImmutable?: typeof writePrivateDocumentImmutable;
@@ -223,6 +230,7 @@ function runtimeDeps(deps: CommandEveOfficeArtifactRuntimeDeps) {
     getSeatRevision: deps.getActiveSeatContextRevision ?? getActiveSeatContextRevision,
     getProcessNonce: deps.getProcessNonceSha256 ?? currentProcessNonceSha256,
     getProcessId: deps.getProcessId ?? (() => process.pid),
+    isProcessAlive: deps.isProcessAlive ?? processPidIsAlive,
     resolveAuthority:
       deps.resolveAuthority ??
       ((conversationId: string) => resolveCommandEveOfficeConversationAuthority(conversationId)),
@@ -264,6 +272,69 @@ function operationBelongsToActiveGeneration(
     operation.process_nonce_sha256 === active.processNonce &&
     operation.seat_context_revision === active.seatRevision
   );
+}
+
+/**
+ * An operation whose owning Main boot is provably gone can never satisfy the
+ * process fence again, so it is terminally abandoned rather than pending.
+ *
+ * A LIVE pid whose witness still matches the recorded boot nonce is NOT gone:
+ * that is this same running Main under a stale seat revision, and its work may
+ * still complete. Missing witness evidence answers "unknown" and stays pending,
+ * because sealing on absent evidence would strand a recoverable operation.
+ */
+function operationBootIsGone(
+  operation: CommandEveOfficeOperationRecord,
+  witnessDirectory: string,
+  isProcessAlive: typeof processPidIsAlive
+): boolean {
+  if (!isProcessAlive(operation.process_id)) return true;
+  return processWitnessMatches(witnessDirectory, operation.process_id, operation.process_nonce_sha256) === false;
+}
+
+/**
+ * Give every operation from a dead boot a terminal receipt, and answer how many
+ * were sealed in this pass.
+ *
+ * Without this the fence is correct but unbounded: the operation stays pending
+ * forever, its document never becomes an artifact, and the marker accumulates
+ * for the life of the profile. Sealing changes no authority — a sealed
+ * operation is still refused by the same fence; it simply stops being counted
+ * as open work.
+ */
+function sealOperationsFromGoneBoots(input: {
+  conversationId: string;
+  isProcessAlive: typeof processPidIsAlive;
+  operations: readonly CommandEveOfficeOperationRecord[];
+  seatId: string;
+  store: ProjectWorkspaceConversationArtifactStore;
+  summary: CommandEveOfficeArtifactReconcileSummary;
+}): number {
+  const witnessDirectory = input.store.officeOperationBootWitnessDirectory(input.seatId, input.conversationId);
+  let sealed = 0;
+  for (const operation of input.operations) {
+    try {
+      if (
+        input.store.readOfficeOperationAbandonment(input.seatId, input.conversationId, operation.operation_id) ||
+        input.store.readOfficeOperationCompletion(input.seatId, input.conversationId, operation.operation_id) ||
+        !operationBootIsGone(operation, witnessDirectory, input.isProcessAlive)
+      ) {
+        continue;
+      }
+      input.store.createOfficeOperationAbandonment({
+        seat_id: input.seatId,
+        seat_context_revision: operation.seat_context_revision,
+        conversation_id: input.conversationId,
+        operation_id: operation.operation_id,
+      });
+      sealed += 1;
+    } catch {
+      // A seal that cannot be written leaves the operation pending, which is the
+      // pre-existing state — never a reason to abort the reconcile that follows.
+      input.summary.refused.push({ operationId: operation.operation_id, reason: 'abandonment-failed' });
+    }
+  }
+  return sealed;
 }
 
 async function editParentMatchesOperation(
@@ -558,6 +629,7 @@ export async function reconcileConversationOfficeArtifacts(
     candidates: 0,
     persisted: 0,
     alreadyPersisted: 0,
+    abandoned: 0,
     refused: [],
     transcriptFetched: false,
   };
@@ -570,19 +642,27 @@ export async function reconcileConversationOfficeArtifacts(
   const seatStillMatches = () => runtime.getSeatId() === seatId && runtime.getSeatRevision() === seatRevision;
   const store = artifactStore(dataPath);
 
+  let allOperations: CommandEveOfficeOperationRecord[];
   let operations: CommandEveOfficeOperationRecord[];
   let existingArtifacts: CommandEveOfficeConversationArtifact[];
   try {
-    operations = store
-      .listOfficeOperations(seatId, conversationId)
-      .filter((operation) =>
-        operationBelongsToActiveGeneration(operation, { seatId, seatRevision, processId, processNonce, conversationId })
-      );
+    allOperations = store.listOfficeOperations(seatId, conversationId);
+    operations = allOperations.filter((operation) =>
+      operationBelongsToActiveGeneration(operation, { seatId, seatRevision, processId, processNonce, conversationId })
+    );
     existingArtifacts = store.listOfficeArtifacts(seatId, conversationId);
   } catch {
     summary.refused.push({ operationId: 'office-store', reason: 'store-corrupt' });
     return summary;
   }
+  summary.abandoned = sealOperationsFromGoneBoots({
+    conversationId,
+    isProcessAlive: runtime.isProcessAlive,
+    operations: allOperations,
+    seatId,
+    store,
+    summary,
+  });
   const existingById = new Map(existingArtifacts.map((artifact) => [artifact.id, artifact]));
   let completedOperationIds: Set<string>;
   try {

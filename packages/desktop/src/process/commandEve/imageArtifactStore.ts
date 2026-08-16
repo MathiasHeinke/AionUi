@@ -51,6 +51,8 @@ import {
   type CommandEveManagedImageArtifact,
 } from '@/common/config/managedImageArtifactCore';
 import { ensureImageEditCapabilityHandle } from './artifactCapabilityHandleStore';
+import { ensurePrivateDirectory, writeJsonAtomic } from '@process/services/project-workspace/storage/atomicJson';
+import { writePrivateDocumentImmutable } from './document/privateDocumentCache';
 
 const MANAGED_IMAGE_ARTIFACT_DIR = 'command-eve-managed-image-artifacts';
 const RECORDS_SUBDIR = 'records';
@@ -93,18 +95,6 @@ function stagedHandleFile(dataPath: string, handle: string): string {
   return path.join(storeRoot(dataPath), STAGED_SUBDIR, `${key}.json`);
 }
 
-function ensureDir(dir: string): void {
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-}
-
-function writeJsonAtomic(file: string, value: unknown): void {
-  ensureDir(path.dirname(file));
-  const tempFile = `${file}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  fs.writeFileSync(tempFile, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  fs.chmodSync(tempFile, 0o600);
-  fs.renameSync(tempFile, file);
-}
-
 type StagedHandleEntry = {
   handle: string;
   artifact_id: string;
@@ -119,7 +109,7 @@ type StagedHandleEntry = {
 function parseStagedHandleEntry(value: unknown): StagedHandleEntry | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  const seatId = Object.prototype.hasOwnProperty.call(record, 'seat_id') ? record.seat_id : 'seat-1';
+  const seatId = Object.prototype.hasOwnProperty.call(record, 'seat_id') ? record.seat_id : LEGACY_SEAT_ID;
   if (
     !isWellFormedImageStagedHandle(record.handle) ||
     typeof record.artifact_id !== 'string' ||
@@ -136,17 +126,10 @@ function parseStagedHandleEntry(value: unknown): StagedHandleEntry | undefined {
 
 function readStagedHandleFile(file: string): StagedHandleEntry | undefined {
   try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
-    const seatMissing =
-      Boolean(raw) &&
-      typeof raw === 'object' &&
-      !Array.isArray(raw) &&
-      !Object.prototype.hasOwnProperty.call(raw, 'seat_id');
-    const staged = parseStagedHandleEntry(raw);
-    if (!staged) return undefined;
-    if (seatMissing) writeJsonAtomic(file, staged);
-    return staged;
+    return parseStagedHandleEntry(JSON.parse(fs.readFileSync(file, 'utf8')) as unknown);
   } catch {
+    // Unreadable JSON and an unreadable file are the same answer for this
+    // store: no staged authority. Never a write — see readManagedImageRecordFile.
     return undefined;
   }
 }
@@ -158,17 +141,9 @@ function readStagedHandleEntry(dataPath: string, handle: unknown): StagedHandleE
 
 function readManagedImageRecordFile(file: string): CommandEveManagedImageArtifact | undefined {
   try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
-    const seatMissing =
-      Boolean(raw) &&
-      typeof raw === 'object' &&
-      !Array.isArray(raw) &&
-      !Object.prototype.hasOwnProperty.call(raw, 'seat_id');
-    const record = parseManagedImageArtifactRecord(raw);
-    if (!record) return undefined;
-    if (seatMissing) writeJsonAtomic(file, record);
-    return record;
+    return parseManagedImageArtifactRecord(JSON.parse(fs.readFileSync(file, 'utf8')) as unknown);
   } catch {
+    // Same fail-closed answer as the staged reader: absent, never repaired.
     return undefined;
   }
 }
@@ -388,9 +363,11 @@ export function stageGeneratedImageArtifact(
       created_at: nowMs,
       updated_at: nowMs,
     };
-    ensureDir(path.dirname(blobFile(dataPath, artifactId)));
-    fs.writeFileSync(blobFile(dataPath, artifactId), bytes, { mode: 0o600 });
-    fs.chmodSync(blobFile(dataPath, artifactId), 0o600);
+    // The bytes must be durable BEFORE the record that names them: a record
+    // whose blob was lost in a crash reads as a present artifact with absent
+    // bytes, which is exactly the paid-artifact loss this store must not have.
+    ensurePrivateDirectory(storeRoot(dataPath));
+    writePrivateDocumentImmutable(storeRoot(dataPath), blobFile(dataPath, artifactId), bytes);
     writeJsonAtomic(recordFile(dataPath, artifactId), record);
     writeJsonAtomic(stagedHandleFile(dataPath, handle), {
       handle,
@@ -690,9 +667,8 @@ export function importLegacyImageArtifact(
       created_at: stat.mtimeMs > 0 ? Math.round(stat.mtimeMs) : nowMs,
       updated_at: nowMs,
     };
-    ensureDir(path.dirname(blobFile(dataPath, artifactId)));
-    fs.writeFileSync(blobFile(dataPath, artifactId), bytes, { mode: 0o600 });
-    fs.chmodSync(blobFile(dataPath, artifactId), 0o600);
+    ensurePrivateDirectory(storeRoot(dataPath));
+    writePrivateDocumentImmutable(storeRoot(dataPath), blobFile(dataPath, artifactId), bytes);
     writeJsonAtomic(recordFile(dataPath, artifactId), record);
     try {
       (deps.ensureEditHandle ?? ensureImageEditCapabilityHandle)(

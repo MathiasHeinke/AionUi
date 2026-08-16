@@ -10,13 +10,16 @@ import type {
 import {
   COMMAND_EVE_OFFICE_LINEAGE_VERSION,
   COMMAND_EVE_OFFICE_ORIGIN_CAPABILITY,
+  COMMAND_EVE_OFFICE_ABANDONMENT_REASON,
   commandEveOfficeExtension,
   parseCommandEveOfficeConversationArtifact,
+  parseCommandEveOfficeOperationAbandonmentRecord,
   parseCommandEveOfficeOperationCompletionRecord,
   parseCommandEveOfficeOperationRecord,
   type CommandEveOfficeConversationArtifact,
   type CommandEveOfficeConversationArtifactPayload,
   type CommandEveOfficeArtifactMode,
+  type CommandEveOfficeOperationAbandonmentRecord,
   type CommandEveOfficeOperationCompletionRecord,
   type CommandEveOfficeOperationRecord,
 } from '@/common/types/office/artifactLineage';
@@ -533,8 +536,17 @@ export class ProjectWorkspaceConversationArtifactStore {
     return path.join(this.officeOperationDirectory(seatId, conversationId), `${operationId}.json`);
   }
 
+  /**
+   * Where `withExclusiveFileLock` publishes the boot witness for these
+   * operations. A caller comparing an operation against a live process needs
+   * this exact directory, or it judges the wrong boot.
+   */
+  officeOperationBootWitnessDirectory(seatId: string, conversationId: string): string {
+    return path.join(this.officeOperationDirectory(seatId, conversationId), '.locks');
+  }
+
   private officeOperationLock(seatId: string, conversationId: string, operationId: string): string {
-    return path.join(this.officeOperationDirectory(seatId, conversationId), '.locks', `${operationId}.lock`);
+    return path.join(this.officeOperationBootWitnessDirectory(seatId, conversationId), `${operationId}.lock`);
   }
 
   private officeOperationCompletionDirectory(seatId: string, conversationId: string): string {
@@ -548,6 +560,19 @@ export class ProjectWorkspaceConversationArtifactStore {
 
   private officeOperationCompletionLock(seatId: string, conversationId: string, operationId: string): string {
     return path.join(this.officeOperationCompletionDirectory(seatId, conversationId), '.locks', `${operationId}.lock`);
+  }
+
+  private officeOperationAbandonmentDirectory(seatId: string, conversationId: string): string {
+    return path.join(this.officeOperationDirectory(seatId, conversationId), '.abandoned');
+  }
+
+  private officeOperationAbandonmentFile(seatId: string, conversationId: string, operationId: string): string {
+    if (!SAFE_ID.test(operationId)) throw new ProjectWorkspaceError('identity.invalid');
+    return path.join(this.officeOperationAbandonmentDirectory(seatId, conversationId), `${operationId}.json`);
+  }
+
+  private officeOperationAbandonmentLock(seatId: string, conversationId: string, operationId: string): string {
+    return path.join(this.officeOperationAbandonmentDirectory(seatId, conversationId), '.locks', `${operationId}.lock`);
   }
 
   list(seatId: string, conversationId: string): ProjectWorkspaceConversationArtifactDTO[] {
@@ -896,6 +921,79 @@ export class ProjectWorkspaceConversationArtifactStore {
         return winner;
       }
       return completion;
+    });
+  }
+
+  readOfficeOperationAbandonment(
+    seatId: string,
+    conversationId: string,
+    operationId: string
+  ): CommandEveOfficeOperationAbandonmentRecord | null {
+    const file = this.officeOperationAbandonmentFile(seatId, conversationId, operationId);
+    if (!fs.existsSync(file)) return null;
+    assertOfficeRecordChainDurable(this.options.state_root, path.dirname(file));
+    try {
+      const abandonment = parseCommandEveOfficeOperationAbandonmentRecord(readImmutableOfficeRecord(file));
+      if (
+        abandonment.operation_id !== operationId ||
+        abandonment.seat_id !== seatId ||
+        abandonment.conversation_id !== conversationId
+      ) {
+        throw new Error('Office operation abandonment membership mismatch');
+      }
+      return abandonment;
+    } catch {
+      throw new ProjectWorkspaceError('workspace.journal-corrupt');
+    }
+  }
+
+  /**
+   * Seal an operation whose owning Main boot is gone as terminally abandoned.
+   *
+   * The operation record itself is immutable by contract, so the terminal state
+   * is a separate create-only receipt: the pending marker keeps its evidence,
+   * and the operation stops being reported as open work forever.
+   */
+  createOfficeOperationAbandonment(input: {
+    seat_id: string;
+    seat_context_revision: number;
+    conversation_id: string;
+    operation_id: string;
+  }): CommandEveOfficeOperationAbandonmentRecord {
+    const lock = this.officeOperationAbandonmentLock(input.seat_id, input.conversation_id, input.operation_id);
+    ensureOfficeRecordChainDurable(this.options.state_root, path.dirname(lock));
+    return withExclusiveFileLock(lock, () => {
+      const file = this.officeOperationAbandonmentFile(input.seat_id, input.conversation_id, input.operation_id);
+      const build = (abandonedAt: number): CommandEveOfficeOperationAbandonmentRecord => ({
+        version: COMMAND_EVE_OFFICE_LINEAGE_VERSION,
+        operation_id: input.operation_id,
+        seat_id: input.seat_id,
+        seat_context_revision: input.seat_context_revision,
+        conversation_id: input.conversation_id,
+        reason: COMMAND_EVE_OFFICE_ABANDONMENT_REASON,
+        abandoned_at: abandonedAt,
+      });
+      if (fs.existsSync(file)) {
+        const existing = this.readOfficeOperationAbandonment(input.seat_id, input.conversation_id, input.operation_id);
+        if (!existing || !isDeepStrictEqual(existing, build(existing.abandoned_at))) {
+          throw new ProjectWorkspaceError('semantic.bundle-mismatch');
+        }
+        return existing;
+      }
+      let abandonment: CommandEveOfficeOperationAbandonmentRecord;
+      try {
+        abandonment = parseCommandEveOfficeOperationAbandonmentRecord(build(Math.max(0, Math.trunc(this.now()))));
+      } catch {
+        throw new ProjectWorkspaceError('semantic.bundle-mismatch');
+      }
+      if (!publishOfficeRecordOnce(this.options.state_root, file, abandonment)) {
+        const winner = this.readOfficeOperationAbandonment(input.seat_id, input.conversation_id, input.operation_id);
+        if (!winner || !isDeepStrictEqual(winner, build(winner.abandoned_at))) {
+          throw new ProjectWorkspaceError('semantic.bundle-mismatch');
+        }
+        return winner;
+      }
+      return abandonment;
     });
   }
 
