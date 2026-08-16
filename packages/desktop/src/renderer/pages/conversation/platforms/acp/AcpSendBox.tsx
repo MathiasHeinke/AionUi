@@ -134,6 +134,7 @@ import { Menu, Message, Modal, Tag } from '@arco-design/web-react';
 import { Brain, EditOne, MagicHat, Shield, Time } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
+import { describeOfficeArtifactRefusal } from '@renderer/services/i18n/officeArtifactRefusal';
 import { buildSendFailureError } from './buildSendFailureError';
 import { runProjectChatIntentGate } from '@/renderer/pages/conversation/shared/projectChatIntentGate';
 import AcpDocumentPreparationStatus, { type AcpDocumentPreparationState } from './AcpDocumentPreparationStatus';
@@ -857,45 +858,55 @@ const AcpSendBox: React.FC<{
               : workProductRequest?.action === 'edit' && workProductRequest.mode === 'video'
                 ? 'video_edit'
                 : undefined;
-          const envelopeResult = await ipcBridge.commandEve.artifactContextEnvelope.invoke({
-            conversationId: conversation_id,
-            // The raw turn, so Main can bind THIS send's single-use spend permit
-            // to it. Main hashes it and keeps no copy of the TEXT — the digest
-            // is persisted, because that is the binding; the sentence is not. No
-            // permit is minted for a turn that carries no text.
-            //
-            // RAW HERE MEANS RAW, and this is the one path that claim covers.
-            // `input` goes to the mint UNTOUCHED and to `buildCommandEveAgentTurnInput`
-            // below UNTOUCHED, so on an ordinary turn the bytes the permit is
-            // bound to and the bytes the agent reads are the same bytes,
-            // whitespace included. The correction path in `dispatchSteer` is a
-            // different rule and says so at its own call site.
-            userTurnText: input,
-            // MAT-1753 item C. The reference images pending on the draft, as
-            // PATHS — Main grant-verifies and hashes them and emits neither. They
-            // ride this envelope rather than a surface of their own, so the agent
-            // sees exactly the files the user is looking at and there is no
-            // second picker that could show something else.
-            ...(referenceImagePathsForTurn.length === 0 ? {} : { referenceImagePaths: referenceImagePathsForTurn }),
-            ...(selectedArtifactId === undefined ? {} : { selectedArtifactIds: [selectedArtifactId] }),
-            ...(requestedEditOperation === undefined ? {} : { requestedEditOperation }),
-            ...(requestedOfficeMode === undefined ? {} : { requestedOfficeMode }),
-            ...(requestedOfficeMode === undefined ? {} : { officeOperationRequestId: commandId }),
-          });
+          const envelopeResult = await ipcBridge.commandEve.artifactContextEnvelope
+            .invoke({
+              conversationId: conversation_id,
+              // The raw turn, so Main can bind THIS send's single-use spend permit
+              // to it. Main hashes it and keeps no copy of the TEXT — the digest
+              // is persisted, because that is the binding; the sentence is not. No
+              // permit is minted for a turn that carries no text.
+              //
+              // RAW HERE MEANS RAW, and this is the one path that claim covers.
+              // `input` goes to the mint UNTOUCHED and to `buildCommandEveAgentTurnInput`
+              // below UNTOUCHED, so on an ordinary turn the bytes the permit is
+              // bound to and the bytes the agent reads are the same bytes,
+              // whitespace included. The correction path in `dispatchSteer` is a
+              // different rule and says so at its own call site.
+              userTurnText: input,
+              // MAT-1753 item C. The reference images pending on the draft, as
+              // PATHS — Main grant-verifies and hashes them and emits neither. They
+              // ride this envelope rather than a surface of their own, so the agent
+              // sees exactly the files the user is looking at and there is no
+              // second picker that could show something else.
+              ...(referenceImagePathsForTurn.length === 0 ? {} : { referenceImagePaths: referenceImagePathsForTurn }),
+              ...(selectedArtifactId === undefined ? {} : { selectedArtifactIds: [selectedArtifactId] }),
+              ...(requestedEditOperation === undefined ? {} : { requestedEditOperation }),
+              ...(requestedOfficeMode === undefined ? {} : { requestedOfficeMode }),
+              ...(requestedOfficeMode === undefined ? {} : { officeOperationRequestId: commandId }),
+            })
+            .catch((error: unknown) => {
+              if (requestedOfficeMode) {
+                throw new Error(t('conversation.workProduct.officeRefusal.preparationUnavailable'));
+              }
+              throw error;
+            });
           if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
           if (envelopeResult?.success && typeof envelopeResult.data?.envelope === 'string') {
             artifactEnvelope = envelopeResult.data.envelope;
           }
           if (requestedOfficeMode) {
-            if (envelopeResult?.success !== true || envelopeResult.data?.officeOperation?.status !== 'ready') {
-              throw new Error(
-                t('conversation.workProduct.referenceUnavailable', {
-                  defaultValue: 'Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.',
-                })
-              );
+            const officeOperation = envelopeResult?.success === true ? envelopeResult.data?.officeOperation : undefined;
+            if (officeOperation?.status === 'refused') {
+              throw new Error(describeOfficeArtifactRefusal(t, officeOperation.reasonCode));
+            }
+            if (officeOperation?.status !== 'ready') {
+              throw new Error(t('conversation.workProduct.officeRefusal.preparationUnavailable'));
             }
             if (workProductRequest?.action === 'edit') {
               const officeAttachment = envelopeResult?.success ? envelopeResult.data?.officeAttachment : undefined;
+              if (officeAttachment?.status === 'refused') {
+                throw new Error(describeOfficeArtifactRefusal(t, officeAttachment.reasonCode));
+              }
               const officePath = officeAttachment?.status === 'ready' ? officeAttachment.path : '';
               if (
                 !officePath ||
@@ -903,11 +914,7 @@ const AcpSendBox: React.FC<{
                 officePath.includes('\0') ||
                 (!officePath.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(officePath))
               ) {
-                throw new Error(
-                  t('conversation.workProduct.referenceUnavailable', {
-                    defaultValue: 'Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.',
-                  })
-                );
+                throw new Error(t('conversation.workProduct.officeRefusal.attachmentUnavailable'));
               }
               agentFiles = Array.from(new Set([...(files ?? []), officePath]));
             }

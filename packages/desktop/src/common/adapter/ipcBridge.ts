@@ -46,6 +46,7 @@ import type {
   UpdateAssistantRequest,
 } from '../types/agent/assistantTypes';
 import type { PreviewHistoryTarget, PreviewSnapshotInfo } from '../types/office/preview';
+import type { CommandEveOfficeArtifactRefusalReason } from '../types/office/artifactLineage';
 import type {
   ProjectWorkspaceAssignmentCommitRequest,
   ProjectWorkspaceAssignmentPreviewRequest,
@@ -2145,31 +2146,13 @@ export const commandEve = {
         | { status: 'ready'; path: string }
         | {
             status: 'refused';
-            reasonCode:
-              | 'invalid-request'
-              | 'backend-unavailable'
-              | 'conversation-unavailable'
-              | 'artifact-unavailable'
-              | 'source-outside-workspace'
-              | 'source-unsafe'
-              | 'source-format-mismatch'
-              | 'seat-changed'
-              | 'operation-conflict';
+            reasonCode: CommandEveOfficeArtifactRefusalReason;
           };
       officeOperation?:
         | { status: 'ready' }
         | {
             status: 'refused';
-            reasonCode:
-              | 'invalid-request'
-              | 'backend-unavailable'
-              | 'conversation-unavailable'
-              | 'artifact-unavailable'
-              | 'source-outside-workspace'
-              | 'source-unsafe'
-              | 'source-format-mismatch'
-              | 'seat-changed'
-              | 'operation-conflict';
+            reasonCode: CommandEveOfficeArtifactRefusalReason;
           };
     }>,
     {

@@ -646,6 +646,37 @@
       "file": "File"
     },
     "referenceUnavailable": "This artifact can no longer be used as an editing source.",
+    "artifactCapabilityRefusal": {
+      "medium": {
+        "image": {
+          "artifact": "image",
+          "reference": "image reference",
+          "file": "image file"
+        },
+        "video": {
+          "artifact": "video",
+          "reference": "video reference",
+          "file": "video file"
+        }
+      },
+      "handleMalformed": "The reference to the {{artifact}} was unreadable. Name the {{artifact}} again.",
+      "handleUnknown": "This {{reference}} is unknown — nothing was edited.",
+      "conversationMismatch": "This {{artifact}} belongs to another conversation and cannot be edited here.",
+      "operationMismatch": "This {{reference}} does not allow this action.",
+      "artifactChanged": "The {{file}} has changed since it was created — editing was cancelled."
+    },
+    "officeRefusal": {
+      "invalidRequest": "The Office request is invalid — nothing was created or edited.",
+      "backendUnavailable": "The Office action is currently unavailable — nothing was created or edited.",
+      "conversationUnavailable": "This conversation is unavailable for the Office action — nothing was created or edited.",
+      "sourceOutsideWorkspace": "The selected Office file is outside the workspace and was not edited.",
+      "sourceUnsafe": "The Office action was stopped for safety reasons — nothing was created or edited.",
+      "sourceFormatMismatch": "The selected file does not match the chosen Office format and was not edited.",
+      "seatChanged": "The active seat changed — the Office action was cancelled. Please send again.",
+      "operationConflict": "This Office action could not be registered — no second action was run.",
+      "preparationUnavailable": "The Office action could not be prepared — nothing was created or edited.",
+      "attachmentUnavailable": "The editing source could not be provided safely — nothing was edited."
+    },
     "singleVideoSource": "Remove either the selected artifact or the attached images."
   },
   "composerDeck": {

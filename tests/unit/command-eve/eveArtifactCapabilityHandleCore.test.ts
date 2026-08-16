@@ -13,24 +13,39 @@
  * distinguished from — otherwise a function that refused EVERYTHING would pass.
  */
 
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { createInstance } from 'i18next';
 import {
   ARTIFACT_CAPABILITY_HANDLE_ENTROPY_BYTES,
   ARTIFACT_CAPABILITY_HANDLE_PREFIX,
   constantTimeHandleEquals,
+  describeArtifactCapabilityRefusal,
   isWellFormedArtifactCapabilityHandle,
   mintArtifactCapabilityGrant,
   mintVideoEditCapabilityGrant,
   resolveArtifactCapabilityGrant,
   type ArtifactCapabilityGrant,
+  type ArtifactCapabilityOperation,
+  type ArtifactCapabilityRefusal,
 } from '@/common/config/eveArtifactCapabilityHandleCore';
 import {
   buildVideoConversationArtifact,
   type CommandEveVideoConversationArtifact,
 } from '@/common/config/videoGenerationRequestCore';
+import deDE from '@/renderer/services/i18n/locales/de-DE';
 
 const SHA_A = 'a'.repeat(64);
 const SHA_B = 'b'.repeat(64);
+const artifactRefusalI18n = createInstance();
+
+beforeAll(async () => {
+  await artifactRefusalI18n.init({
+    lng: 'de-DE',
+    fallbackLng: 'de-DE',
+    resources: { 'de-DE': { translation: deDE } },
+    interpolation: { escapeValue: false },
+  });
+});
 
 /** A deterministic byte source so a minted handle is predictable in a test. */
 function fixedRandomBytes(fill: number): (size: number) => Uint8Array {
@@ -187,6 +202,85 @@ describe('resolution refuses on every mismatch', () => {
     expect(resolve({ observedArtifactSha256: '' })).toEqual({ ok: false, reason: 'artifact-changed' });
     expect(resolve({ observedArtifactSha256: 'not-a-sha' })).toEqual({ ok: false, reason: 'artifact-changed' });
   });
+});
+
+describe('refusal copy names the operation medium', () => {
+  const cases = [
+    {
+      operation: 'image_edit',
+      reason: 'handle-malformed',
+      expected: 'Der Bezug auf das Bild war unlesbar. Nenne das Bild erneut.',
+      wrongMedium: 'Video',
+    },
+    {
+      operation: 'image_edit',
+      reason: 'handle-unknown',
+      expected: 'Dieser Bildbezug ist unbekannt — es wurde nichts bearbeitet.',
+      wrongMedium: 'Video',
+    },
+    {
+      operation: 'image_edit',
+      reason: 'conversation-mismatch',
+      expected: 'Dieses Bild gehört zu einer anderen Unterhaltung und kann hier nicht bearbeitet werden.',
+      wrongMedium: 'Video',
+    },
+    {
+      operation: 'image_edit',
+      reason: 'operation-mismatch',
+      expected: 'Dieser Bildbezug erlaubt diese Aktion nicht.',
+      wrongMedium: 'Video',
+    },
+    {
+      operation: 'image_edit',
+      reason: 'artifact-changed',
+      expected: 'Die Bilddatei hat sich seit dem Erstellen geändert — die Bearbeitung wurde abgebrochen.',
+      wrongMedium: 'Video',
+    },
+    {
+      operation: 'video_edit',
+      reason: 'handle-malformed',
+      expected: 'Der Bezug auf das Video war unlesbar. Nenne das Video erneut.',
+      wrongMedium: 'Bild',
+    },
+    {
+      operation: 'video_edit',
+      reason: 'handle-unknown',
+      expected: 'Dieser Videobezug ist unbekannt — es wurde nichts bearbeitet.',
+      wrongMedium: 'Bild',
+    },
+    {
+      operation: 'video_edit',
+      reason: 'conversation-mismatch',
+      expected: 'Dieses Video gehört zu einer anderen Unterhaltung und kann hier nicht bearbeitet werden.',
+      wrongMedium: 'Bild',
+    },
+    {
+      operation: 'video_edit',
+      reason: 'operation-mismatch',
+      expected: 'Dieser Videobezug erlaubt diese Aktion nicht.',
+      wrongMedium: 'Bild',
+    },
+    {
+      operation: 'video_edit',
+      reason: 'artifact-changed',
+      expected: 'Die Videodatei hat sich seit dem Erstellen geändert — die Bearbeitung wurde abgebrochen.',
+      wrongMedium: 'Bild',
+    },
+  ] as const satisfies ReadonlyArray<{
+    operation: ArtifactCapabilityOperation;
+    reason: ArtifactCapabilityRefusal;
+    expected: string;
+    wrongMedium: string;
+  }>;
+
+  it.each(cases)(
+    '$operation / $reason keeps its exact medium-specific sentence',
+    ({ operation, reason, expected, wrongMedium }) => {
+      const message = describeArtifactCapabilityRefusal(artifactRefusalI18n.t, { operation, reason });
+      expect(message).toBe(expected);
+      expect(message).not.toContain(wrongMedium);
+    }
+  );
 });
 
 describe('a handle is never minted for a clip that cannot be edited', () => {

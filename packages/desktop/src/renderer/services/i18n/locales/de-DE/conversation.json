@@ -647,6 +647,37 @@
       "file": "Datei"
     },
     "referenceUnavailable": "Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.",
+    "artifactCapabilityRefusal": {
+      "medium": {
+        "image": {
+          "artifact": "Bild",
+          "reference": "Bildbezug",
+          "file": "Bilddatei"
+        },
+        "video": {
+          "artifact": "Video",
+          "reference": "Videobezug",
+          "file": "Videodatei"
+        }
+      },
+      "handleMalformed": "Der Bezug auf das {{artifact}} war unlesbar. Nenne das {{artifact}} erneut.",
+      "handleUnknown": "Dieser {{reference}} ist unbekannt — es wurde nichts bearbeitet.",
+      "conversationMismatch": "Dieses {{artifact}} gehört zu einer anderen Unterhaltung und kann hier nicht bearbeitet werden.",
+      "operationMismatch": "Dieser {{reference}} erlaubt diese Aktion nicht.",
+      "artifactChanged": "Die {{file}} hat sich seit dem Erstellen geändert — die Bearbeitung wurde abgebrochen."
+    },
+    "officeRefusal": {
+      "invalidRequest": "Die Office-Anfrage ist ungültig — es wurde nichts erstellt oder bearbeitet.",
+      "backendUnavailable": "Die Office-Aktion ist gerade nicht verfügbar — es wurde nichts erstellt oder bearbeitet.",
+      "conversationUnavailable": "Diese Unterhaltung ist für die Office-Aktion nicht verfügbar — es wurde nichts erstellt oder bearbeitet.",
+      "sourceOutsideWorkspace": "Die ausgewählte Office-Datei liegt außerhalb des Arbeitsbereichs und wurde nicht bearbeitet.",
+      "sourceUnsafe": "Die Office-Aktion wurde aus Sicherheitsgründen abgebrochen — es wurde nichts erstellt oder bearbeitet.",
+      "sourceFormatMismatch": "Die ausgewählte Datei passt nicht zum gewählten Office-Format und wurde nicht bearbeitet.",
+      "seatChanged": "Der aktive Platz hat gewechselt — die Office-Aktion wurde abgebrochen. Bitte erneut senden.",
+      "operationConflict": "Diese Office-Aktion konnte nicht registriert werden — es wurde keine zweite Aktion ausgeführt.",
+      "preparationUnavailable": "Die Office-Aktion konnte nicht vorbereitet werden — es wurde nichts erstellt oder bearbeitet.",
+      "attachmentUnavailable": "Die Bearbeitungsquelle konnte nicht sicher bereitgestellt werden — es wurde nichts bearbeitet."
+    },
     "singleVideoSource": "Entferne entweder das ausgewählte Artefakt oder die angehängten Bilder."
   },
   "composerDeck": {

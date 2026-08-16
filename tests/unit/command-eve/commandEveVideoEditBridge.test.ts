@@ -453,7 +453,11 @@ describe('every refusal happens before the network', () => {
       permit: permitForTurn('mach es bunt'),
       instruction: 'mach es bunt',
     });
-    expect(result.ok === false && result.reasonCode).toBe('video-edit-handle-unknown');
+    expect(result).toMatchObject({
+      ok: false,
+      reasonCode: 'video-edit-handle-unknown',
+      message: 'Dieser Videobezug ist unbekannt — es wurde nichts bearbeitet.',
+    });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 

@@ -18,6 +18,16 @@ export const COMMAND_EVE_OFFICE_ORIGIN_CAPABILITY = 'office-studio' as const;
 export type CommandEveOfficeArtifactMode = 'word' | 'excel';
 export type CommandEveOfficeArtifactAction = 'create' | 'edit';
 export type CommandEveOfficeArtifactOriginAction = CommandEveOfficeArtifactAction | 'source';
+export type CommandEveOfficeArtifactRefusalReason =
+  | 'invalid-request'
+  | 'backend-unavailable'
+  | 'conversation-unavailable'
+  | 'artifact-unavailable'
+  | 'source-outside-workspace'
+  | 'source-unsafe'
+  | 'source-format-mismatch'
+  | 'seat-changed'
+  | 'operation-conflict';
 
 export type CommandEveOfficeConversationArtifactPayload = {
   artifact_type: 'file';

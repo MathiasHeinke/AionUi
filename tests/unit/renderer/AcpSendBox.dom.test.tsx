@@ -5,8 +5,10 @@
  */
 
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
+import { createInstance } from 'i18next';
+import { I18nextProvider } from 'react-i18next';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -25,6 +27,7 @@ import type {
   ComposerWorkProductSelection,
 } from '@/common/config/composerWorkProductModeCore';
 import { ConversationArtifactProvider } from '@/renderer/pages/conversation/Messages/artifacts';
+import deDE from '@/renderer/services/i18n/locales/de-DE';
 
 const {
   sendMessageInvokeMock,
@@ -269,6 +272,17 @@ async function chooseArtifactReference(
 }
 
 const PDF_SIDECAR_PATH = `/tmp/hermes/document-intelligence/pdf/${'a'.repeat(64)}/document.md`;
+
+const officeRefusalI18n = createInstance();
+
+beforeAll(async () => {
+  await officeRefusalI18n.init({
+    lng: 'de-DE',
+    fallbackLng: 'de-DE',
+    resources: { 'de-DE': { translation: deDE } },
+    interpolation: { escapeValue: false },
+  });
+});
 
 const expectedPdfGrounding = () => ({
   version: 'command-eve-attachment-grounding/v1',
@@ -4019,6 +4033,50 @@ describe('AcpSendBox', () => {
     );
   };
 
+  const renderWithGermanOfficeCopy = (children: React.ReactElement) =>
+    render(<I18nextProvider i18n={officeRefusalI18n}>{children}</I18nextProvider>);
+
+  const renderOfficeRefusalRequest = async (action: 'create' | 'edit') => {
+    const prompt = action === 'create' ? 'Erstelle ein Word-Dokument.' : 'Kürze die Einleitung.';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: prompt };
+    sendBoxMessageMock.current = prompt;
+
+    if (action === 'edit') {
+      const source = OFFICE_SOURCE_ARTIFACTS.word;
+      listArtifactsInvokeMock.mockResolvedValue([source]);
+      renderWithGermanOfficeCopy(
+        <ConversationArtifactProvider conversation_id='conv-1'>
+          <AcpSendBox
+            conversation_id='conv-1'
+            backend='hermes'
+            workspacePath='/tmp/workspace'
+            messageState={makeMessageState()}
+          />
+        </ConversationArtifactProvider>
+      );
+      await waitFor(() => expect(listArtifactsInvokeMock).toHaveBeenCalled());
+      await chooseArtifactReference(source.id);
+      return;
+    }
+
+    renderWithGermanOfficeCopy(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await chooseWorkProductMode('word');
+  };
+
+  const latestSendFailureText = (): string | undefined => {
+    const message = addOrUpdateMessageMock.mock.calls.at(-1)?.[0] as
+      | { content?: { content?: string; type?: string } }
+      | undefined;
+    return message?.content?.content;
+  };
+
   it('1.823.0: an ordinary Office follow-up turn receives an exact pathless registry candidate', async () => {
     sendMessageInvokeMock.mockResolvedValue({});
     renderWithOfficeArtifact('word');
@@ -4075,6 +4133,151 @@ describe('AcpSendBox', () => {
       expect(artifactContextEnvelopeInvokeMock.mock.calls.at(-1)?.[0].selectedArtifactIds).toBeUndefined();
     }
   );
+
+  it.each([
+    {
+      reason: 'invalid-request',
+      action: 'create',
+      expected: 'Die Office-Anfrage ist ungültig — es wurde nichts erstellt oder bearbeitet.',
+      wrong: 'Die Office-Aktion ist gerade nicht verfügbar — es wurde nichts erstellt oder bearbeitet.',
+    },
+    {
+      reason: 'backend-unavailable',
+      action: 'create',
+      expected: 'Die Office-Aktion ist gerade nicht verfügbar — es wurde nichts erstellt oder bearbeitet.',
+      wrong: 'Diese Unterhaltung ist für die Office-Aktion nicht verfügbar — es wurde nichts erstellt oder bearbeitet.',
+    },
+    {
+      reason: 'conversation-unavailable',
+      action: 'create',
+      expected:
+        'Diese Unterhaltung ist für die Office-Aktion nicht verfügbar — es wurde nichts erstellt oder bearbeitet.',
+      wrong: 'Der aktive Platz hat gewechselt — die Office-Aktion wurde abgebrochen. Bitte erneut senden.',
+    },
+    {
+      reason: 'artifact-unavailable',
+      action: 'edit',
+      expected: 'Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.',
+      wrong: 'Die ausgewählte Office-Datei liegt außerhalb des Arbeitsbereichs und wurde nicht bearbeitet.',
+    },
+    {
+      reason: 'source-outside-workspace',
+      action: 'edit',
+      expected: 'Die ausgewählte Office-Datei liegt außerhalb des Arbeitsbereichs und wurde nicht bearbeitet.',
+      wrong: 'Die Office-Aktion wurde aus Sicherheitsgründen abgebrochen — es wurde nichts erstellt oder bearbeitet.',
+    },
+    {
+      reason: 'source-unsafe',
+      action: 'create',
+      expected:
+        'Die Office-Aktion wurde aus Sicherheitsgründen abgebrochen — es wurde nichts erstellt oder bearbeitet.',
+      wrong: 'Die ausgewählte Datei passt nicht zum gewählten Office-Format und wurde nicht bearbeitet.',
+    },
+    {
+      reason: 'source-format-mismatch',
+      action: 'edit',
+      expected: 'Die ausgewählte Datei passt nicht zum gewählten Office-Format und wurde nicht bearbeitet.',
+      wrong: 'Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.',
+    },
+    {
+      reason: 'seat-changed',
+      action: 'create',
+      expected: 'Der aktive Platz hat gewechselt — die Office-Aktion wurde abgebrochen. Bitte erneut senden.',
+      wrong: 'Diese Office-Aktion konnte nicht registriert werden — es wurde keine zweite Aktion ausgeführt.',
+    },
+    {
+      reason: 'operation-conflict',
+      action: 'create',
+      expected: 'Diese Office-Aktion konnte nicht registriert werden — es wurde keine zweite Aktion ausgeführt.',
+      wrong: 'Die Office-Anfrage ist ungültig — es wurde nichts erstellt oder bearbeitet.',
+    },
+  ] as const)(
+    '1.823.0: Office $action refusal $reason reaches the user without collapsing into another cause',
+    async ({ reason, action, expected, wrong }) => {
+      artifactContextEnvelopeInvokeMock.mockResolvedValue({
+        success: true,
+        data: { envelope: '', officeOperation: { status: 'refused', reasonCode: reason } },
+      });
+      await renderOfficeRefusalRequest(action);
+
+      await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+      await waitFor(() => expect(addOrUpdateMessageMock).toHaveBeenCalled());
+      const shown = latestSendFailureText();
+      expect(shown).toBe(expected);
+      expect(shown).not.toBe(wrong);
+      expect(shown).not.toContain(reason);
+      if (action === 'create') expect(shown).not.toContain('Bearbeitungsquelle');
+      expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    {
+      name: 'transport exception',
+      arrange: () => artifactContextEnvelopeInvokeMock.mockRejectedValue(new Error('ECONNRESET provider-tech')),
+    },
+    {
+      name: 'unsuccessful bridge response',
+      arrange: () => artifactContextEnvelopeInvokeMock.mockResolvedValue({ success: false, msg: 'RAW_BRIDGE_CODE' }),
+    },
+    {
+      name: 'missing office operation result',
+      arrange: () => artifactContextEnvelopeInvokeMock.mockResolvedValue({ success: true, data: { envelope: '' } }),
+    },
+  ])('1.823.0: Office $name stays honest when no refusal reason arrives', async ({ arrange }) => {
+    arrange();
+    await renderOfficeRefusalRequest('create');
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(addOrUpdateMessageMock).toHaveBeenCalled());
+    expect(latestSendFailureText()).toBe(
+      'Die Office-Aktion konnte nicht vorbereitet werden — es wurde nichts erstellt oder bearbeitet.'
+    );
+    expect(latestSendFailureText()).not.toMatch(/ECONNRESET|provider-tech|RAW_BRIDGE_CODE/);
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('1.823.0: an attachment refusal remains distinct even if the operation envelope is ready', async () => {
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        envelope: '',
+        officeOperation: { status: 'ready' },
+        officeAttachment: { status: 'refused', reasonCode: 'source-format-mismatch' },
+      },
+    });
+    await renderOfficeRefusalRequest('edit');
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(addOrUpdateMessageMock).toHaveBeenCalled());
+    expect(latestSendFailureText()).toBe(
+      'Die ausgewählte Datei passt nicht zum gewählten Office-Format und wurde nicht bearbeitet.'
+    );
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('1.823.0: a ready attachment with an unsafe renderer path reports the boundary, not a guessed cause', async () => {
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        envelope: '',
+        officeOperation: { status: 'ready' },
+        officeAttachment: { status: 'ready', path: 'relative/report.docx' },
+      },
+    });
+    await renderOfficeRefusalRequest('edit');
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(addOrUpdateMessageMock).toHaveBeenCalled());
+    expect(latestSendFailureText()).toBe(
+      'Die Bearbeitungsquelle konnte nicht sicher bereitgestellt werden — es wurde nichts bearbeitet.'
+    );
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
 
   it.each(['word', 'excel'] as const)(
     '1.823.0: an exact %s edit attaches only the Main-staged source to Hermes',

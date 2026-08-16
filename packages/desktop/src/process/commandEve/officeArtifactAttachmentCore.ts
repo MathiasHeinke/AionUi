@@ -17,6 +17,7 @@ import {
   commandEveOfficeMimeType,
   isCommandEveOfficeArtifactMode,
   type CommandEveOfficeArtifactMode,
+  type CommandEveOfficeArtifactRefusalReason,
   type CommandEveOfficeConversationArtifact,
   type CommandEveOfficeConversationArtifactPayload,
 } from '@/common/types/office/artifactLineage';
@@ -38,18 +39,7 @@ import {
   ProjectWorkspaceConversationArtifactStore,
 } from '@process/services/project-workspace/storage/conversationArtifactStore';
 
-export type { CommandEveOfficeArtifactMode };
-
-export type CommandEveOfficeArtifactRefusalReason =
-  | 'invalid-request'
-  | 'backend-unavailable'
-  | 'conversation-unavailable'
-  | 'artifact-unavailable'
-  | 'source-outside-workspace'
-  | 'source-unsafe'
-  | 'source-format-mismatch'
-  | 'seat-changed'
-  | 'operation-conflict';
+export type { CommandEveOfficeArtifactMode, CommandEveOfficeArtifactRefusalReason };
 
 export type CommandEveOfficeArtifactAttachment =
   | Readonly<{ status: 'ready'; path: string }>
