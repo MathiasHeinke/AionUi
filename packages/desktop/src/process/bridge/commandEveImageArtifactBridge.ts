@@ -51,7 +51,7 @@ import {
   isCommandEveImageModelTierId,
   type CommandEveImageModelTierId,
 } from '@/common/config/eveImageModelRegistryCore';
-import { describeArtifactCapabilityRefusal } from '@/common/config/eveArtifactCapabilityHandleCore';
+import { describeArtifactCapabilityRefusal } from '@process/commandEve/artifactCapabilityRefusalCopy';
 import { describeSpendPermitRefusal } from '@/common/config/eveVideoEditSpendPermitCore';
 import type { CommandEveActiveImageArtifact } from '@/common/config/managedImageArtifactCore';
 import { getDataPath } from '@process/utils/utils';
@@ -1180,16 +1180,28 @@ export async function handleCommandEveImageEdit(
   // never from anything the caller supplied.
   const grant = readGrant(dataPath, request.handle, Date.now(), capturedSeatId);
   if (!grant) {
-    return refuseEdit('image-edit-handle-unknown', describeArtifactCapabilityRefusal('handle-unknown'));
+    return refuseEdit(
+      'image-edit-handle-unknown',
+      await describeArtifactCapabilityRefusal({ operation: 'image_edit', reason: 'handle-unknown' })
+    );
   }
   if (grant.operation !== 'image_edit') {
-    return refuseEdit('image-edit-operation-mismatch', describeArtifactCapabilityRefusal('operation-mismatch'));
+    return refuseEdit(
+      'image-edit-operation-mismatch',
+      await describeArtifactCapabilityRefusal({ operation: 'image_edit', reason: 'operation-mismatch' })
+    );
   }
   if (grant.seat_id !== capturedSeatId) {
-    return refuseEdit('image-edit-handle-unknown', describeArtifactCapabilityRefusal('handle-unknown'));
+    return refuseEdit(
+      'image-edit-handle-unknown',
+      await describeArtifactCapabilityRefusal({ operation: 'image_edit', reason: 'handle-unknown' })
+    );
   }
   if (request.conversationId !== undefined && request.conversationId !== grant.conversation_id) {
-    return refuseEdit('image-edit-conversation-mismatch', describeArtifactCapabilityRefusal('conversation-mismatch'));
+    return refuseEdit(
+      'image-edit-conversation-mismatch',
+      await describeArtifactCapabilityRefusal({ operation: 'image_edit', reason: 'conversation-mismatch' })
+    );
   }
 
   // THE DENY GATE — checked by its own read of its own state, before the source
@@ -1225,7 +1237,10 @@ export async function handleCommandEveImageEdit(
     expectedConversationId: grant.conversation_id,
   });
   if (capability.ok === false) {
-    return refuseEdit(`image-edit-${capability.reason}`, describeArtifactCapabilityRefusal(capability.reason));
+    return refuseEdit(
+      `image-edit-${capability.reason}`,
+      await describeArtifactCapabilityRefusal({ operation: 'image_edit', reason: capability.reason })
+    );
   }
 
   const instructionSha256 = crypto.createHash('sha256').update(instruction).digest('hex');

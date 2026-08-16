@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7814
+# entries: 7854
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -1070,7 +1070,7 @@ copy	1	de-DE/conversation.json	Bereitstellung aller Änderungen aufheben
 copy	1	de-DE/conversation.json	Bereitstellung aufheben
 copy	1	de-DE/conversation.json	Bestehende Ordner
 copy	1	de-DE/conversation.json	Bestätigungsdialog konnte nicht geladen werden
-copy	1	de-DE/conversation.json	Bild
+copy	2	de-DE/conversation.json	Bild
 copy	1	de-DE/conversation.json	Bild bereit · Analyse wird vorbereitet
 copy	1	de-DE/conversation.json	Bild einmal analysieren
 copy	1	de-DE/conversation.json	Bild erstellen
@@ -1078,6 +1078,8 @@ copy	1	de-DE/conversation.json	Bild erstellen oder bearbeiten
 copy	1	de-DE/conversation.json	Bild konnte nicht verarbeitet werden · Nachricht blieb ungesendet
 copy	1	de-DE/conversation.json	Bild verstanden · Analyse wird an EVE übergeben
 copy	1	de-DE/conversation.json	Bild wird sicher visuell analysiert
+copy	1	de-DE/conversation.json	Bildbezug
+copy	1	de-DE/conversation.json	Bilddatei
 copy	1	de-DE/conversation.json	Bildformat
 copy	1	de-DE/conversation.json	Bitte gib einen Namen für die Vorlage ein
 copy	1	de-DE/conversation.json	Bitte gib einen neuen Namen ein
@@ -1148,9 +1150,11 @@ copy	1	de-DE/conversation.json	Der Anbieter hat nicht rechtzeitig geantwortet. V
 copy	1	de-DE/conversation.json	Der Anbieter kennt diesen Modellnamen nicht. Wähle in den Einstellungen ein verfügbares Modell aus und versuche es erneut.
 copy	1	de-DE/conversation.json	Der Anbieter meldete, dass die Anfrage ungültig war. Vereinfache die Nachricht oder überprüfe die Modell-/Anbietereinstellungen.
 copy	1	de-DE/conversation.json	Der Anbieter-Endpunkt oder API-Pfad wurde nicht gefunden. Überprüfe die Base-URL, den Bereitstellungsnamen und die API-Kompatibilität.
+copy	1	de-DE/conversation.json	Der Bezug auf das {{artifact}} war unlesbar. Nenne das {{artifact}} erneut.
 copy	1	de-DE/conversation.json	Der Command-EVE-Marketing-Loop ist nur in der Desktop-App verfügbar.
 copy	1	de-DE/conversation.json	Der Gesprächsstatus ist nicht synchron. Starte diesen Chat neu oder lade die App neu, bevor du es erneut versuchst.
 copy	1	de-DE/conversation.json	Der Name darf nicht leer sein
+copy	1	de-DE/conversation.json	Der aktive Platz hat gewechselt — die Office-Aktion wurde abgebrochen. Bitte erneut senden.
 copy	1	de-DE/conversation.json	Der aktuelle Auftrag läuft weiter.
 copy	1	de-DE/conversation.json	Der aktuelle Lauf ist noch nicht bereit für eine Korrektur.
 copy	1	de-DE/conversation.json	Der ausgewählte Agent benötigt eine Authentifizierung
@@ -1177,35 +1181,48 @@ copy	1	de-DE/conversation.json	Die Anfrage überschreitet das Kontextlimit des M
 copy	1	de-DE/conversation.json	Die App hat deine Nachricht angenommen, aber der Antwort-Stream wurde unerwartet beendet. Bitte versuche es erneut; wenn es erneut auftritt, sende Feedback.
 copy	1	de-DE/conversation.json	Die App hat einen Upstream-Fehler erhalten, konnte ihn aber nicht zuverlässig einordnen. Sieh dir die Details unten an oder sende Feedback.
 copy	1	de-DE/conversation.json	Die App konnte die Agent-Client-Protocol-Sitzung mit diesem Agenten nicht initialisieren. Überprüfe die Agentenversion und verbinde ihn erneut.
+copy	1	de-DE/conversation.json	Die Bearbeitungsquelle konnte nicht sicher bereitgestellt werden — es wurde nichts bearbeitet.
 copy	1	de-DE/conversation.json	Die Bildanalyse ist fehlgeschlagen. Nachricht und Bild bleiben ungesendet.
 copy	1	de-DE/conversation.json	Die Datei existiert nicht oder wurde gelöscht.
 copy	1	de-DE/conversation.json	Die Datei liegt außerhalb der Projekt-Sandbox und kann nicht in der Vorschau angezeigt werden.
 copy	1	de-DE/conversation.json	Die Korrektur konnte nicht in den laufenden Auftrag eingeschoben werden.
 copy	1	de-DE/conversation.json	Die Modellliste ist nach der ersten Verbindung verfügbar. Sende eine Nachricht, um eine Verbindung herzustellen und verfügbare Modelle zu laden.
+copy	1	de-DE/conversation.json	Die Office-Aktion ist gerade nicht verfügbar — es wurde nichts erstellt oder bearbeitet.
+copy	1	de-DE/conversation.json	Die Office-Aktion konnte nicht vorbereitet werden — es wurde nichts erstellt oder bearbeitet.
+copy	1	de-DE/conversation.json	Die Office-Aktion wurde aus Sicherheitsgründen abgebrochen — es wurde nichts erstellt oder bearbeitet.
+copy	1	de-DE/conversation.json	Die Office-Anfrage ist ungültig — es wurde nichts erstellt oder bearbeitet.
 copy	1	de-DE/conversation.json	Die Ordnerauswahl funktioniert wie beim Wechseln des Projekts.
 copy	1	de-DE/conversation.json	Die Verbindung zum Agenten wurde während der Verarbeitung dieser Nachricht geschlossen. Starte den Agenten neu oder verbinde ihn erneut und versuche es dann erneut.
 copy	1	de-DE/conversation.json	Die Warteschlange ist voll. Entferne einen Befehl, bevor du weitere hinzufügst.
 copy	1	de-DE/conversation.json	Die Warteschlangendaten sind zu groß, um sie sicher zu speichern. Entferne zuerst einige Befehle aus der Warteschlange.
 copy	1	de-DE/conversation.json	Die Zwischenfrage hatte im aktuellen Gespräch keine eindeutige Antwort.
 copy	1	de-DE/conversation.json	Die Zwischenfrage konnte nicht beantwortet werden.
+copy	1	de-DE/conversation.json	Die ausgewählte Datei passt nicht zum gewählten Office-Format und wurde nicht bearbeitet.
+copy	1	de-DE/conversation.json	Die ausgewählte Office-Datei liegt außerhalb des Arbeitsbereichs und wurde nicht bearbeitet.
 copy	1	de-DE/conversation.json	Die laufende Antwort konnte nicht gestoppt werden. Der Mikrofonstatus bleibt unverändert.
 copy	1	de-DE/conversation.json	Die verwaltete visuelle Analyse konnte nicht freigegeben werden. Entwurf und Dateien bleiben ungesendet.
 copy	1	de-DE/conversation.json	Die visuelle Folienanalyse ist fehlgeschlagen. Nachricht und Präsentation bleiben ungesendet.
+copy	1	de-DE/conversation.json	Die {{file}} hat sich seit dem Erstellen geändert — die Bearbeitung wurde abgebrochen.
 copy	1	de-DE/conversation.json	Dienst des Modellanbieters ist nicht verfügbar
 copy	1	de-DE/conversation.json	Diese Anfrage hat das Anfragelimit des Modells erreicht, bevor eine sichtbare Antwort erzeugt wurde.
 copy	1	de-DE/conversation.json	Diese Anfrage hat das Ausgabe-Tokenlimit des Modells erreicht, bevor eine sichtbare Antwort erzeugt wurde.
 copy	1	de-DE/conversation.json	Diese Anfrage hat keine sichtbare Antwort erzeugt.
 copy	1	de-DE/conversation.json	Diese Nachricht konnte nicht vorgelesen werden
+copy	1	de-DE/conversation.json	Diese Office-Aktion konnte nicht registriert werden — es wurde keine zweite Aktion ausgeführt.
+copy	1	de-DE/conversation.json	Diese Unterhaltung ist für die Office-Aktion nicht verfügbar — es wurde nichts erstellt oder bearbeitet.
 copy	1	de-DE/conversation.json	Diesen Befehl künftig immer erlauben
 copy	1	de-DE/conversation.json	Dieser Agent kann den angeforderten Vorgang nicht ausführen. Versuche einen anderen Agenten oder aktualisiere den aktuellen.
 copy	1	de-DE/conversation.json	Dieser Befehl in der Warteschlange ist zu lang. Kürze ihn vor dem Senden.
 copy	1	de-DE/conversation.json	Dieser Workspace-Pfad wird für die Ausführung nicht mehr unterstützt
 copy	1	de-DE/conversation.json	Dieser Zug hat keine sichtbare Antwort erzeugt. Wenn das wiederholt passiert, starte einen neuen Chat — die Sitzung ist womöglich abgelaufen.
+copy	1	de-DE/conversation.json	Dieser {{reference}} erlaubt diese Aktion nicht.
+copy	1	de-DE/conversation.json	Dieser {{reference}} ist unbekannt — es wurde nichts bearbeitet.
 copy	1	de-DE/conversation.json	Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.
 copy	1	de-DE/conversation.json	Dieses Bild sicher analysieren?
 copy	1	de-DE/conversation.json	Dieses Gate benötigt den bestehenden Bestätigungspfad
 copy	1	de-DE/conversation.json	Dieses Receipt stellt keine Retry-Aktion bereit
 copy	1	de-DE/conversation.json	Dieses bestehende Gespräch bzw. diese Aufgabe verwendet einen Workspace-Pfad, dessen Verzeichnisnamen Leerzeichen oder andere Leerraumzeichen enthalten. Command EVE unterstützt das Senden von Nachrichten über solche Pfade nicht mehr. Erstelle ein neues Gespräch oder eine neue Aufgabe mit einem Workspace-Pfad ohne Leerraumzeichen.
+copy	1	de-DE/conversation.json	Dieses {{artifact}} gehört zu einer anderen Unterhaltung und kann hier nicht bearbeitet werden.
 copy	1	de-DE/conversation.json	Dokument
 copy	1	de-DE/conversation.json	Dokumente, Bilder und andere Ergebnisse erscheinen hier automatisch.
 copy	1	de-DE/conversation.json	Download erfolgreich
@@ -1535,9 +1552,11 @@ copy	1	de-DE/conversation.json	Verbindungsfehler
 copy	1	de-DE/conversation.json	Verschieben fehlgeschlagen
 copy	1	de-DE/conversation.json	Verstanden
 copy	1	de-DE/conversation.json	Versuche es später erneut oder sende diese Nachricht noch einmal.
-copy	1	de-DE/conversation.json	Video
+copy	2	de-DE/conversation.json	Video
 copy	1	de-DE/conversation.json	Video erstellen
 copy	1	de-DE/conversation.json	Video erstellen oder bearbeiten
+copy	1	de-DE/conversation.json	Videobezug
+copy	1	de-DE/conversation.json	Videodatei
 copy	1	de-DE/conversation.json	Vision aktivieren
 copy	1	de-DE/conversation.json	Vision bleibt deaktiviert – das Bild wurde nicht gesendet. Deine Entscheidung konnte nicht gespeichert werden und wird beim nächsten Bild erneut abgefragt.
 copy	1	de-DE/conversation.json	Vision bleibt deaktiviert – das Bild wurde nicht gesendet. Du kannst Vision jederzeit unter Einstellungen → Datenschutz aktivieren.
@@ -5388,6 +5407,11 @@ copy	2	en-US/conversation.json	Terminal
 copy	1	en-US/conversation.json	The AionCore turn changed before the stop request arrived
 copy	1	en-US/conversation.json	The Command EVE marketing command failed.
 copy	1	en-US/conversation.json	The Command EVE marketing loop is only available in the desktop app.
+copy	1	en-US/conversation.json	The Office action could not be prepared — nothing was created or edited.
+copy	1	en-US/conversation.json	The Office action is currently unavailable — nothing was created or edited.
+copy	1	en-US/conversation.json	The Office action was stopped for safety reasons — nothing was created or edited.
+copy	1	en-US/conversation.json	The Office request is invalid — nothing was created or edited.
+copy	1	en-US/conversation.json	The active seat changed — the Office action was cancelled. Please send again.
 copy	1	en-US/conversation.json	The agent cannot resume the previous session. Start a new conversation to continue.
 copy	1	en-US/conversation.json	The agent connection closed while handling this message. Restart or reconnect the agent, then retry.
 copy	1	en-US/conversation.json	The agent could not reply
@@ -5409,6 +5433,7 @@ copy	1	en-US/conversation.json	The current model quota is exhausted. Switch to {
 copy	1	en-US/conversation.json	The current run is not ready for a correction yet.
 copy	1	en-US/conversation.json	The current task is still running.
 copy	1	en-US/conversation.json	The durable delivery outcome is explicitly unknown
+copy	1	en-US/conversation.json	The editing source could not be provided safely — nothing was edited.
 copy	1	en-US/conversation.json	The image could not be created. Your draft and selection were preserved.
 copy	1	en-US/conversation.json	The marketing card could not be created.
 copy	1	en-US/conversation.json	The next queued command could not start. Edit, reorder, or remove it to continue.
@@ -5425,10 +5450,12 @@ copy	1	en-US/conversation.json	The provider rejected a tool definition in this r
 copy	1	en-US/conversation.json	The provider reported that the request was invalid. Simplify the message or check model/provider settings.
 copy	1	en-US/conversation.json	The provider request could not be built from the current settings. Check credentials, region, Base URL, and provider-specific configuration before retrying.
 copy	1	en-US/conversation.json	The provider returned a gateway or service error. Retry later or use another provider.
+copy	1	en-US/conversation.json	The reference to the {{artifact}} was unreadable. Name the {{artifact}} again.
 copy	1	en-US/conversation.json	The request exceeds the model context limit. Reduce message content, referenced files, or conversation history, then retry.
 copy	1	en-US/conversation.json	The request failed while the app was processing it. Please retry once; if it repeats, send feedback.
 copy	1	en-US/conversation.json	The running reply could not be stopped. Your microphone state is unchanged.
 copy	1	en-US/conversation.json	The search result is empty
+copy	1	en-US/conversation.json	The selected Office file is outside the workspace and was not edited.
 copy	1	en-US/conversation.json	The selected agent could not complete its startup handshake. Restart or reconnect the agent, then retry.
 copy	1	en-US/conversation.json	The selected agent did not finish its startup handshake in time. Check whether it is still starting or blocked, then retry.
 copy	1	en-US/conversation.json	The selected agent disconnected
@@ -5438,6 +5465,7 @@ copy	1	en-US/conversation.json	The selected agent is not installed
 copy	1	en-US/conversation.json	The selected agent is using an incompatible protocol version. Update the agent or switch to a compatible one.
 copy	1	en-US/conversation.json	The selected agent needs authentication
 copy	1	en-US/conversation.json	The selected agent rejected the request
+copy	1	en-US/conversation.json	The selected file does not match the chosen Office format and was not edited.
 copy	1	en-US/conversation.json	The selected model is unavailable or does not support the requested capability. Choose a supported model and retry.
 copy	1	en-US/conversation.json	The selected model was not found
 copy	1	en-US/conversation.json	The selected provider needs active billing, credits, or quota before it can complete this request.
@@ -5445,9 +5473,12 @@ copy	1	en-US/conversation.json	The selected provider rejected the API key or acc
 copy	1	en-US/conversation.json	The selected workspace path is unavailable. Make sure the workspace path "{{workspacePath}}" exists and is accessible.
 copy	1	en-US/conversation.json	The side question did not have a clear answer in the current conversation.
 copy	1	en-US/conversation.json	The upstream agent or provider failed
+copy	1	en-US/conversation.json	The {{file}} has changed since it was created — editing was cancelled.
 copy	2	en-US/conversation.json	Thinking...
+copy	1	en-US/conversation.json	This Office action could not be registered — no second action was run.
 copy	1	en-US/conversation.json	This agent cannot handle the requested operation. Try another agent or update the current one.
 copy	1	en-US/conversation.json	This artifact can no longer be used as an editing source.
+copy	1	en-US/conversation.json	This conversation is unavailable for the Office action — nothing was created or edited.
 copy	1	en-US/conversation.json	This gate requires the existing user confirmation path
 copy	1	en-US/conversation.json	This queued command is too long. Shorten it before sending.
 copy	1	en-US/conversation.json	This receipt does not expose a retry action
@@ -5456,6 +5487,9 @@ copy	1	en-US/conversation.json	This request hit the model's request limit before
 copy	1	en-US/conversation.json	This request produced no visible reply.
 copy	1	en-US/conversation.json	This turn ended without a visible reply. If it keeps happening, start a new chat — the session may have gone stale.
 copy	1	en-US/conversation.json	This will delete the file from your system. Continue?
+copy	1	en-US/conversation.json	This {{artifact}} belongs to another conversation and cannot be edited here.
+copy	1	en-US/conversation.json	This {{reference}} does not allow this action.
+copy	1	en-US/conversation.json	This {{reference}} is unknown — nothing was edited.
 copy	1	en-US/conversation.json	Thought complete
 copy	1	en-US/conversation.json	Tip: drop anywhere to import into the selected folder.
 copy	1	en-US/conversation.json	Today
@@ -5524,6 +5558,9 @@ copy	1	en-US/conversation.json	Your decision is needed
 copy	1	en-US/conversation.json	blocked
 copy	1	en-US/conversation.json	context used
 copy	1	en-US/conversation.json	e.g. Excel Translator
+copy	1	en-US/conversation.json	image
+copy	1	en-US/conversation.json	image file
+copy	1	en-US/conversation.json	image reference
 copy	1	en-US/conversation.json	just now
 copy	1	en-US/conversation.json	needs input
 copy	1	en-US/conversation.json	passed
@@ -5532,6 +5569,9 @@ copy	1	en-US/conversation.json	process exited
 copy	1	en-US/conversation.json	the selected documents
 copy	1	en-US/conversation.json	the selected image
 copy	1	en-US/conversation.json	the selected presentation
+copy	1	en-US/conversation.json	video
+copy	1	en-US/conversation.json	video file
+copy	1	en-US/conversation.json	video reference
 copy	1	en-US/conversation.json	{{count}} file(s) changed
 copy	2	en-US/conversation.json	{{count}} files
 copy	1	en-US/conversation.json	{{count}} finding(s)

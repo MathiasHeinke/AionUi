@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { TFunction } from 'i18next';
+
 /**
  * MAT-1747 Variant C2 — WHICH artifact, and nothing about paying for it.
  *
@@ -255,18 +257,61 @@ export function resolveArtifactCapabilityGrant(input: {
   return { ok: true, grant };
 }
 
+type ArtifactCapabilityMediumNouns = Readonly<{
+  artifact: string;
+  reference: string;
+  file: string;
+}>;
+
+function artifactCapabilityMediumNouns(
+  t: TFunction,
+  operation: ArtifactCapabilityOperation
+): ArtifactCapabilityMediumNouns {
+  switch (operation) {
+    case 'image_edit':
+      return {
+        artifact: t('conversation.workProduct.artifactCapabilityRefusal.medium.image.artifact'),
+        reference: t('conversation.workProduct.artifactCapabilityRefusal.medium.image.reference'),
+        file: t('conversation.workProduct.artifactCapabilityRefusal.medium.image.file'),
+      };
+    case 'video_edit':
+      return {
+        artifact: t('conversation.workProduct.artifactCapabilityRefusal.medium.video.artifact'),
+        reference: t('conversation.workProduct.artifactCapabilityRefusal.medium.video.reference'),
+        file: t('conversation.workProduct.artifactCapabilityRefusal.medium.video.file'),
+      };
+  }
+}
+
 /** A user-facing sentence for each refusal. Named causes, never one generic. */
-export function describeArtifactCapabilityRefusal(reason: ArtifactCapabilityRefusal): string {
-  switch (reason) {
+export function describeArtifactCapabilityRefusal(
+  t: TFunction,
+  input: {
+    operation: ArtifactCapabilityOperation;
+    reason: ArtifactCapabilityRefusal;
+  }
+): string {
+  const medium = artifactCapabilityMediumNouns(t, input.operation);
+  switch (input.reason) {
     case 'handle-malformed':
-      return 'Der Bezug auf das Video war unlesbar. Nenne das Video erneut.';
+      return t('conversation.workProduct.artifactCapabilityRefusal.handleMalformed', {
+        artifact: medium.artifact,
+      });
     case 'handle-unknown':
-      return 'Dieser Videobezug ist unbekannt — es wurde nichts bearbeitet.';
+      return t('conversation.workProduct.artifactCapabilityRefusal.handleUnknown', {
+        reference: medium.reference,
+      });
     case 'conversation-mismatch':
-      return 'Dieses Video gehört zu einer anderen Unterhaltung und kann hier nicht bearbeitet werden.';
+      return t('conversation.workProduct.artifactCapabilityRefusal.conversationMismatch', {
+        artifact: medium.artifact,
+      });
     case 'operation-mismatch':
-      return 'Dieser Videobezug erlaubt diese Aktion nicht.';
+      return t('conversation.workProduct.artifactCapabilityRefusal.operationMismatch', {
+        reference: medium.reference,
+      });
     case 'artifact-changed':
-      return 'Die Videodatei hat sich seit dem Erstellen geändert — die Bearbeitung wurde abgebrochen.';
+      return t('conversation.workProduct.artifactCapabilityRefusal.artifactChanged', {
+        file: medium.file,
+      });
   }
 }

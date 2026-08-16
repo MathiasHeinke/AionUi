@@ -196,7 +196,12 @@ describe('handleCommandEveImageEdit', () => {
       { handle: `evecap_${'2'.repeat(64)}`, permit, instruction: 'heller' },
       editDeps(runManagedEdit)
     );
-    expect(unknown).toMatchObject({ ok: false, reasonCode: 'image-edit-handle-unknown' });
+    expect(unknown).toMatchObject({
+      ok: false,
+      reasonCode: 'image-edit-handle-unknown',
+      message: 'Dieser Bildbezug ist unbekannt — es wurde nichts bearbeitet.',
+    });
+    expect(unknown.ok === false ? unknown.message : '').not.toContain('Video');
 
     const malformed = await handleCommandEveImageEdit(
       { handle: 'evecap_nope', permit, instruction: 'heller' },
@@ -310,7 +315,12 @@ describe('handleCommandEveImageEdit', () => {
       { handle: grantHandle, permit, instruction: 'heller' },
       editDeps(runManagedEdit)
     );
-    expect(result).toMatchObject({ ok: false, reasonCode: 'image-edit-artifact-changed' });
+    expect(result).toMatchObject({
+      ok: false,
+      reasonCode: 'image-edit-artifact-changed',
+      message: 'Die Bilddatei hat sich seit dem Erstellen geändert — die Bearbeitung wurde abgebrochen.',
+    });
+    expect(result.ok === false ? result.message : '').not.toContain('Video');
     expect(runManagedEdit).not.toHaveBeenCalled();
   });
 

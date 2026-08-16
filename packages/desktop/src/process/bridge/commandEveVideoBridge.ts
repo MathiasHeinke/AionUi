@@ -79,7 +79,7 @@ import {
 } from '@/common/config/eveArtifactContextEnvelopeCore';
 import { describeSpendPermitRefusal } from '@/common/config/eveVideoEditSpendPermitCore';
 import { getVideoTier } from '@/common/config/videoCostCore';
-import { describeArtifactCapabilityRefusal } from '@/common/config/eveArtifactCapabilityHandleCore';
+import { describeArtifactCapabilityRefusal } from '@process/commandEve/artifactCapabilityRefusalCopy';
 import {
   buildVideoEditBody,
   buildVideoEditRequestIdMaterial,
@@ -1682,10 +1682,16 @@ export async function handleCommandEveVideoEdit(
   // an arbitrary-file-read dressed as an edit.
   const grant = readGrant(dataPath, request.handle);
   if (!grant) {
-    return refuseEdit('video-edit-handle-unknown', describeArtifactCapabilityRefusal('handle-unknown'));
+    return refuseEdit(
+      'video-edit-handle-unknown',
+      await describeArtifactCapabilityRefusal({ operation: 'video_edit', reason: 'handle-unknown' })
+    );
   }
   if (request.conversationId !== undefined && request.conversationId !== grant.conversation_id) {
-    return refuseEdit('video-edit-conversation-mismatch', describeArtifactCapabilityRefusal('conversation-mismatch'));
+    return refuseEdit(
+      'video-edit-conversation-mismatch',
+      await describeArtifactCapabilityRefusal({ operation: 'video_edit', reason: 'conversation-mismatch' })
+    );
   }
 
   // THE DENY GATE — round 4, and the earliest point at which the conversation
@@ -1749,7 +1755,7 @@ export async function handleCommandEveVideoEdit(
       `video-edit-${reason}`,
       reason === 'artifact-missing'
         ? 'Das Ausgangsvideo ist nicht mehr vorhanden.'
-        : describeArtifactCapabilityRefusal(reason)
+        : await describeArtifactCapabilityRefusal({ operation: 'video_edit', reason })
     );
   }
 
