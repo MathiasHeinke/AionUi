@@ -2936,6 +2936,111 @@ describe('useAcpMessage', () => {
     expect(result.current.runtimeActivity.phase).toBe('idle');
   });
 
+  it('does not let a delayed turn A finish synthesize thinking-done for active turn B', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    act(() => {
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-a', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-a',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-a' },
+        msg_id: 'start-a',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+      turnCompleted('conv-1', 'turn-a', {
+        state: 'idle',
+        can_send_message: true,
+        has_task: false,
+        task_status: 'completed',
+        is_processing: false,
+        pending_confirmations: 0,
+        turn_id: null,
+      });
+      emitter.emit('conversation.runtime.recovered', {
+        conversation_id: 'conv-1',
+        recoveredTurnId: 'turn-a',
+        runtime: {
+          state: 'idle',
+          can_send_message: true,
+          has_task: false,
+          task_status: 'completed',
+          is_processing: false,
+          pending_confirmations: 0,
+          turn_id: null,
+        },
+      });
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-b', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-b',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-b' },
+        msg_id: 'start-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      responseStreamHandlerRef.current?.({
+        type: 'thinking',
+        data: { content: 'active B', status: 'thinking' },
+        msg_id: 'thinking-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+    });
+    addOrUpdateMessageMock.mockClear();
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'finish-a-late',
+        turn_id: 'turn-a',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(addOrUpdateMessageMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'thinking-b-thinking-done' })
+    );
+    expect(result.current.running).toBe(true);
+    expect(result.current.runtimeActivity.phase).toBe('thinking');
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'finish-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(addOrUpdateMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'thinking-b-thinking-done', msg_id: 'thinking-b' })
+    );
+    expect(result.current.lastCompletedTurn).toMatchObject({ turnId: 'turn-b' });
+    expect(result.current.runtimeActivity.phase).toBe('done');
+  });
+
   it('does not let an older recovered turn clear a newer active composer run', async () => {
     conversationGetInvokeMock.mockResolvedValue(null);
     const { result } = renderHook(() => useAcpMessage('conv-1'));

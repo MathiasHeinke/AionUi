@@ -44,6 +44,17 @@ import {
   type CommandEveTtftStage,
 } from './receipt-core';
 import {
+  buildCommandEveTtftFormalReceipt,
+  isCommandEveTtftVisibleElement,
+  selectCommandEveTtftAttemptBinding,
+  selectCommandEveTtftUpstreamEvidence,
+  type CommandEveTtftAttemptBinding,
+  type CommandEveTtftFormalReceipt,
+  type CommandEveTtftRuntimeReadinessEvidence,
+  type CommandEveTtftUpstreamEvidence,
+  type CommandEveTtftVisibleElementSnapshot,
+} from './formal-core';
+import {
   commandEvePackagedQaLaunchEnv,
   requireCommandEvePackagedQaAttachment,
   type CommandEvePackagedQaAttachmentProof,
@@ -52,7 +63,6 @@ import {
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '../../..');
 const GUID_INPUT = '.guid-input-card-shell textarea';
 const EXISTING_INPUT = '.acp-send-box textarea';
-const ASSISTANT_TEXT_CONTENT = '[data-testid="message-text-content"]';
 const LOCAL_SELECTION_KEY = 'commandEve.inferenceSelection';
 const RESPONSE_TIMEOUT_MS = 180_000;
 type Args = {
@@ -92,7 +102,13 @@ type AppHandle = {
 type RendererCollector = {
   marks: AcpPerformanceMark[];
   firstVisibleAt: number | null;
+  firstVisibleMessageId: string | null;
+  firstVisibleSnapshot: CommandEveTtftVisibleElementSnapshot | null;
+  measuredConversationId: string | null;
+  measuredTurnId: string | null;
 };
+
+type MeasuredReceipt = CommandEveTtftReceipt & { formal: CommandEveTtftFormalReceipt };
 
 type LocalOnlyProof = {
   activeSeatId: string;
@@ -124,9 +140,10 @@ type SuiteReport = {
     rejected: number;
   };
   regressionOutcome: 'PASS' | 'FAIL' | 'INSUFFICIENT_EVIDENCE' | 'CAPTURE_ONLY';
+  formalOutcome: 'PASS' | 'INSUFFICIENT_EVIDENCE';
   suiteOutcome: 'PASS' | 'FAIL' | 'INSUFFICIENT_EVIDENCE' | 'CAPTURE_ONLY';
   regressionGates: ReturnType<typeof evaluateCommandEveTtftRegression>[];
-  receipts: CommandEveTtftReceipt[];
+  receipts: MeasuredReceipt[];
 };
 
 function parseArgs(argv = process.argv.slice(2)): Args {
@@ -278,6 +295,45 @@ function runtimeMilestone(
   return atEpochMs === null
     ? { status: 'unavailable', reason: `${evidence} log line was not observed with a timestamp` }
     : { status: 'observed', atEpochMs, source: 'runtime_log', evidence };
+}
+
+function exactRuntimeReadinessEvidence(
+  lines: string[],
+  conversationId: string,
+  turnId: string,
+  notAfterEpochMs: number
+): CommandEveTtftRuntimeReadinessEvidence | null {
+  const matchingTimestamp = (pattern: RegExp, requireTurn: boolean): number | null => {
+    const matches = lines.filter((line) => {
+      const timestamp = logTimestamp(line);
+      return (
+        timestamp !== null &&
+        timestamp <= notAfterEpochMs &&
+        pattern.test(line) &&
+        line.includes(conversationId) &&
+        (!requireTurn || line.includes(turnId))
+      );
+    });
+    return matches.length > 0 ? logTimestamp(matches.at(-1) as string) : null;
+  };
+  const taskReadyAtEpochMs = matchingTimestamp(/Agent task ready/, true);
+  const hermesSessionReadyAtEpochMs = matchingTimestamp(/ACP session warmed up/, false);
+  if (taskReadyAtEpochMs === null || hermesSessionReadyAtEpochMs === null) return null;
+  return {
+    conversationId,
+    turnId,
+    taskReadyAtEpochMs,
+    hermesSessionReadyAtEpochMs,
+  };
+}
+
+function uniqueUpstreamEvidence(
+  lines: string[],
+  turnId: string,
+  notBeforeEpochMs: number,
+  notAfterEpochMs: number
+): { evidence: CommandEveTtftUpstreamEvidence | null; violations: string[] } {
+  return selectCommandEveTtftUpstreamEvidence({ lines, expectedTurnId: turnId, notBeforeEpochMs, notAfterEpochMs });
 }
 
 function observed(
@@ -486,65 +542,143 @@ async function prepareManifestLocalDefault(page: Page, manifestPath: string): Pr
 }
 
 async function resetRendererCollector(page: Page): Promise<void> {
-  await page.evaluate(
-    ({ eventName, assistantTextContent }) => {
-      type CollectorWindow = Window & {
-        __commandEveTtftCleanup?: () => void;
-        __commandEveTtftMarks?: AcpPerformanceMark[];
-        __commandEveTtftFirstVisibleAt?: number | null;
+  await page.evaluate((eventName) => {
+    type CollectorWindow = Window & {
+      __commandEveTtftCleanup?: () => void;
+      __commandEveTtftMarks?: AcpPerformanceMark[];
+      __commandEveTtftFirstVisibleAt?: number | null;
+      __commandEveTtftFirstVisibleMessageId?: string | null;
+      __commandEveTtftFirstVisibleSnapshot?: CommandEveTtftVisibleElementSnapshot | null;
+      __commandEveTtftMeasuredConversationId?: string | null;
+      __commandEveTtftMeasuredTurnId?: string | null;
+      __commandEveTtftTargetMessageId?: string | null;
+      __commandEveTtftNotBefore?: number | null;
+      __commandEveTtftObserveVisibleReply?: () => void;
+    };
+    const state = window as CollectorWindow;
+    state.__commandEveTtftCleanup?.();
+    state.__commandEveTtftMarks = [];
+    state.__commandEveTtftFirstVisibleAt = null;
+    state.__commandEveTtftFirstVisibleMessageId = null;
+    state.__commandEveTtftFirstVisibleSnapshot = null;
+    state.__commandEveTtftMeasuredConversationId = null;
+    state.__commandEveTtftMeasuredTurnId = null;
+    state.__commandEveTtftTargetMessageId = null;
+    state.__commandEveTtftNotBefore = null;
+    let visibleFramePending = false;
+    const baselineMessageIds = new Set(
+      Array.from(document.querySelectorAll<HTMLElement>('[data-stream-message-id]'))
+        .map((element) => element.dataset.streamMessageId)
+        .filter((value): value is string => Boolean(value))
+    );
+    const visibleStreamMessageSnapshot = (
+      element: HTMLElement,
+      expectedMessageId: string
+    ): CommandEveTtftVisibleElementSnapshot => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return {
+        connected: element.isConnected,
+        documentVisible: document.visibilityState === 'visible',
+        messageId: element.dataset.streamMessageId ?? null,
+        expectedMessageId,
+        hasText: Boolean(element.textContent?.trim()),
+        display: style.display,
+        visibility: style.visibility,
+        opacity: Number.parseFloat(style.opacity || '1'),
+        width: rect.width,
+        height: rect.height,
       };
-      const state = window as CollectorWindow;
-      state.__commandEveTtftCleanup?.();
-      state.__commandEveTtftMarks = [];
-      state.__commandEveTtftFirstVisibleAt = null;
-      let visibleFramePending = false;
-      const baselineIds = new Set(
-        Array.from(document.querySelectorAll('[data-testid="message-text-left"]')).map((element) => element.id)
+    };
+    const isVisibleStreamMessage = (snapshot: CommandEveTtftVisibleElementSnapshot): boolean => {
+      return (
+        snapshot.connected &&
+        snapshot.documentVisible &&
+        snapshot.messageId === snapshot.expectedMessageId &&
+        snapshot.hasText &&
+        snapshot.display !== 'none' &&
+        snapshot.visibility !== 'hidden' &&
+        snapshot.opacity > 0 &&
+        snapshot.width > 0 &&
+        snapshot.height > 0
       );
-      const markListener = (event: Event) => {
-        const detail = (event as CustomEvent<AcpPerformanceMark>).detail;
-        if (detail?.version === 'command-eve-acp-performance-mark/v1') state.__commandEveTtftMarks?.push(detail);
-      };
-      const observeVisibleReply = () => {
-        if (state.__commandEveTtftFirstVisibleAt !== null || visibleFramePending) return;
-        const candidates = Array.from(document.querySelectorAll('[data-testid="message-text-left"]'));
-        const fresh = candidates.find(
-          (element) =>
-            !baselineIds.has(element.id) && element.textContent?.trim() && element.querySelector(assistantTextContent)
-        );
-        if (!fresh) return;
-        const style = window.getComputedStyle(fresh);
-        const rect = fresh.getBoundingClientRect();
-        if (
-          document.visibilityState !== 'visible' ||
-          style.display === 'none' ||
-          style.visibility === 'hidden' ||
-          Number.parseFloat(style.opacity || '1') <= 0 ||
-          rect.width <= 0 ||
-          rect.height <= 0
-        ) {
-          return;
-        }
-        visibleFramePending = true;
+    };
+    const observeVisibleReply = () => {
+      if (state.__commandEveTtftFirstVisibleAt !== null || visibleFramePending) return;
+      const targetMessageId = state.__commandEveTtftTargetMessageId;
+      if (!targetMessageId || baselineMessageIds.has(targetMessageId)) return;
+      const fresh = Array.from(document.querySelectorAll<HTMLElement>('[data-stream-message-id]')).find(
+        (element) => element.dataset.streamMessageId === targetMessageId && Boolean(element.textContent?.trim())
+      );
+      if (!fresh) return;
+      if (!isVisibleStreamMessage(visibleStreamMessageSnapshot(fresh, targetMessageId))) return;
+      visibleFramePending = true;
+      requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            visibleFramePending = false;
-            if (state.__commandEveTtftFirstVisibleAt === null && fresh.isConnected) {
-              state.__commandEveTtftFirstVisibleAt = Date.now();
-            }
-          });
+          visibleFramePending = false;
+          const secondFrameSnapshot =
+            typeof state.__commandEveTtftTargetMessageId === 'string'
+              ? visibleStreamMessageSnapshot(fresh, state.__commandEveTtftTargetMessageId)
+              : null;
+          if (
+            state.__commandEveTtftFirstVisibleAt === null &&
+            secondFrameSnapshot &&
+            isVisibleStreamMessage(secondFrameSnapshot)
+          ) {
+            state.__commandEveTtftFirstVisibleAt = Date.now();
+            state.__commandEveTtftFirstVisibleMessageId = fresh.dataset.streamMessageId ?? null;
+            state.__commandEveTtftFirstVisibleSnapshot = secondFrameSnapshot;
+          }
         });
-      };
-      const observer = new MutationObserver(observeVisibleReply);
-      observer.observe(document.body, { childList: true, characterData: true, subtree: true });
-      window.addEventListener(eventName, markListener);
-      state.__commandEveTtftCleanup = () => {
-        observer.disconnect();
-        window.removeEventListener(eventName, markListener);
-      };
-    },
-    { eventName: ACP_PERFORMANCE_MARK_EVENT, assistantTextContent: ASSISTANT_TEXT_CONTENT }
-  );
+      });
+    };
+    state.__commandEveTtftObserveVisibleReply = observeVisibleReply;
+    const markListener = (event: Event) => {
+      const detail = (event as CustomEvent<AcpPerformanceMark>).detail;
+      if (detail?.version !== 'command-eve-acp-performance-mark/v1') return;
+      state.__commandEveTtftMarks?.push(detail);
+      const notBefore = state.__commandEveTtftNotBefore;
+      if (typeof notBefore !== 'number' || detail.atEpochMs < notBefore) return;
+      if (
+        detail.stage === 'first_output_state' &&
+        detail.conversationId === state.__commandEveTtftMeasuredConversationId &&
+        detail.turnId === state.__commandEveTtftMeasuredTurnId &&
+        detail.messageId
+      ) {
+        state.__commandEveTtftTargetMessageId = detail.messageId;
+        observeVisibleReply();
+      }
+    };
+    const observer = new MutationObserver(observeVisibleReply);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class', 'style', 'hidden'],
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    window.addEventListener(eventName, markListener);
+    state.__commandEveTtftCleanup = () => {
+      observer.disconnect();
+      window.removeEventListener(eventName, markListener);
+      delete state.__commandEveTtftObserveVisibleReply;
+    };
+  }, ACP_PERFORMANCE_MARK_EVENT);
+}
+
+async function armRendererCollector(page: Page, notBeforeEpochMs: number): Promise<void> {
+  await page.evaluate((notBefore) => {
+    const state = window as Window & {
+      __commandEveTtftNotBefore?: number | null;
+      __commandEveTtftMeasuredConversationId?: string | null;
+      __commandEveTtftMeasuredTurnId?: string | null;
+      __commandEveTtftTargetMessageId?: string | null;
+    };
+    state.__commandEveTtftNotBefore = notBefore;
+    state.__commandEveTtftMeasuredConversationId = null;
+    state.__commandEveTtftMeasuredTurnId = null;
+    state.__commandEveTtftTargetMessageId = null;
+  }, notBeforeEpochMs);
 }
 
 async function readRendererCollector(page: Page): Promise<RendererCollector> {
@@ -552,21 +686,86 @@ async function readRendererCollector(page: Page): Promise<RendererCollector> {
     const state = window as Window & {
       __commandEveTtftMarks?: AcpPerformanceMark[];
       __commandEveTtftFirstVisibleAt?: number | null;
+      __commandEveTtftFirstVisibleMessageId?: string | null;
+      __commandEveTtftFirstVisibleSnapshot?: CommandEveTtftVisibleElementSnapshot | null;
+      __commandEveTtftMeasuredConversationId?: string | null;
+      __commandEveTtftMeasuredTurnId?: string | null;
     };
     return {
       marks: state.__commandEveTtftMarks ?? [],
       firstVisibleAt: state.__commandEveTtftFirstVisibleAt ?? null,
+      firstVisibleMessageId: state.__commandEveTtftFirstVisibleMessageId ?? null,
+      firstVisibleSnapshot: state.__commandEveTtftFirstVisibleSnapshot ?? null,
+      measuredConversationId: state.__commandEveTtftMeasuredConversationId ?? null,
+      measuredTurnId: state.__commandEveTtftMeasuredTurnId ?? null,
     };
   });
 }
 
-async function waitForTerminalMark(page: Page): Promise<void> {
+async function waitForExactTurnAdmission(
+  page: Page,
+  expectedConversationId: string,
+  notBeforeEpochMs: number
+): Promise<CommandEveTtftAttemptBinding> {
   await page.waitForFunction(
-    () =>
+    ({ conversationId, notBefore }) => {
+      const marks = (window as Window & { __commandEveTtftMarks?: AcpPerformanceMark[] }).__commandEveTtftMarks ?? [];
+      return marks.some(
+        (admission) =>
+          admission.stage === 'turn_admitted' &&
+          admission.conversationId === conversationId &&
+          marks.some(
+            (submit) =>
+              submit.stage === 'submit_started' &&
+              submit.conversationId === conversationId &&
+              submit.atEpochMs >= notBefore &&
+              submit.attemptId === admission.attemptId &&
+              submit.seatGeneration === admission.seatGeneration
+          )
+      );
+    },
+    { conversationId: expectedConversationId, notBefore: notBeforeEpochMs },
+    { timeout: RESPONSE_TIMEOUT_MS }
+  );
+  const collector = await readRendererCollector(page);
+  const selection = selectCommandEveTtftAttemptBinding({
+    marks: collector.marks,
+    expectedConversationId,
+    notBeforeEpochMs,
+  });
+  if (!selection.binding) {
+    throw new Error(`exact TTFT submit/admission binding failed: ${selection.violations.join('; ')}`);
+  }
+  await page.evaluate((binding) => {
+    const state = window as Window & {
+      __commandEveTtftMarks?: AcpPerformanceMark[];
+      __commandEveTtftMeasuredConversationId?: string | null;
+      __commandEveTtftMeasuredTurnId?: string | null;
+      __commandEveTtftTargetMessageId?: string | null;
+      __commandEveTtftObserveVisibleReply?: () => void;
+    };
+    state.__commandEveTtftMeasuredConversationId = binding.conversationId;
+    state.__commandEveTtftMeasuredTurnId = binding.turnId;
+    const firstOutput = (state.__commandEveTtftMarks ?? []).find(
+      (mark) =>
+        mark.stage === 'first_output_state' &&
+        mark.conversationId === binding.conversationId &&
+        mark.turnId === binding.turnId &&
+        Boolean(mark.messageId)
+    );
+    if (firstOutput?.messageId) state.__commandEveTtftTargetMessageId = firstOutput.messageId;
+    state.__commandEveTtftObserveVisibleReply?.();
+  }, selection.binding);
+  return selection.binding;
+}
+
+async function waitForTerminalMark(page: Page, turnId: string): Promise<void> {
+  await page.waitForFunction(
+    (expectedTurnId) =>
       ((window as Window & { __commandEveTtftMarks?: AcpPerformanceMark[] }).__commandEveTtftMarks ?? []).some(
-        (mark) => mark.stage === 'response_finished'
+        (mark) => mark.stage === 'response_finished' && mark.turnId === expectedTurnId
       ),
-    undefined,
+    turnId,
     { timeout: RESPONSE_TIMEOUT_MS }
   );
   await page.waitForFunction(
@@ -646,7 +845,7 @@ async function runMeasuredTurn(input: {
   sessionReadiness?: Partial<
     Pick<CommandEveTtftReceipt['milestones'], 'hermes_spawned' | 'hermes_ready' | 'acp_session_ready'>
   >;
-}): Promise<CommandEveTtftReceipt> {
+}): Promise<MeasuredReceipt> {
   const { page } = input.handle;
   if (input.surface === 'start_chat') {
     await navigateToGuid(page);
@@ -654,16 +853,28 @@ async function runMeasuredTurn(input: {
     await page.locator(EXISTING_INPUT).waitFor({ state: 'visible', timeout: 30_000 });
   }
   const logOffset = input.logOffset ?? fileSize(input.handle.logPath);
+  const upstreamHistoryPath = path.join(
+    input.args.userDataDir,
+    'command-eve-runtime',
+    'upstream-outcome-history.jsonl'
+  );
+  const upstreamHistoryOffset = fileSize(upstreamHistoryPath);
   await resetRendererCollector(page);
   const textarea = page.locator(input.surface === 'start_chat' ? GUID_INPUT : EXISTING_INPUT).last();
   const measuredPrompt = `${input.args.prompt} [${input.iteration}]`;
   await textarea.fill(measuredPrompt);
+  let measuredConversationId = input.surface === 'existing_session' ? windowConversationId(page.url()) : null;
   const sendActionAt = Date.now();
+  await armRendererCollector(page, sendActionAt);
   await textarea.press('Enter');
   if (input.surface === 'start_chat') {
     await page.waitForFunction(() => window.location.hash.includes('/conversation/'), undefined, { timeout: 20_000 });
+    measuredConversationId = windowConversationId(page.url());
   }
-  await waitForTerminalMark(page);
+  if (!measuredConversationId) throw new Error('measured composer conversation id is unavailable');
+  const attemptBinding = await waitForExactTurnAdmission(page, measuredConversationId, sendActionAt);
+  const measuredTurnId = attemptBinding.turnId;
+  await waitForTerminalMark(page, measuredTurnId);
   if (input.args.tts) {
     await page
       .waitForFunction(
@@ -677,11 +888,12 @@ async function runMeasuredTurn(input: {
       .catch((): undefined => undefined);
   }
   const collector = await readRendererCollector(page);
+  const firstVisibleVerified =
+    collector.firstVisibleSnapshot !== null && isCommandEveTtftVisibleElement(collector.firstVisibleSnapshot);
   const logLines = readFromOffset(input.handle.logPath, logOffset);
-  const requestAcceptedEvent = collector.marks.find(
-    (mark) => mark.stage === 'request_accepted' && mark.atEpochMs >= sendActionAt
-  );
-  const measuredTurnId = requestAcceptedEvent?.turnId ?? null;
+  const terminalAtEpochMs = collector.marks.find(
+    (mark) => mark.stage === 'response_finished' && mark.turnId === measuredTurnId
+  )?.atEpochMs;
   const milestones: Partial<Record<CommandEveTtftStage, CommandEveTtftMilestone>> = {
     app_process_started: input.includeColdMilestones
       ? observed(
@@ -703,7 +915,7 @@ async function runMeasuredTurn(input: {
       input.sessionReadiness?.acp_session_ready ??
       rendererMark(collector.marks, 'acp_session_ready', { notBefore: sendActionAt }),
     send_action: observed(sendActionAt, 'harness', 'Enter dispatched from the measured composer'),
-    request_accepted: rendererMark(collector.marks, 'request_accepted', { notBefore: sendActionAt }),
+    request_accepted: rendererMark(collector.marks, 'request_accepted', { turnId: measuredTurnId }),
     model_request_started: rendererMark(collector.marks, 'model_request_started', { turnId: measuredTurnId }),
     model_first_token: {
       status: 'unavailable',
@@ -711,19 +923,25 @@ async function runMeasuredTurn(input: {
     },
     acp_first_text: rendererMark(collector.marks, 'acp_first_text', { turnId: measuredTurnId }),
     renderer_first_visible:
-      collector.firstVisibleAt === null
-        ? { status: 'unavailable', reason: 'new assistant text did not pass the visible-layout frame boundary' }
+      collector.firstVisibleAt === null ||
+      !collector.firstVisibleMessageId ||
+      !firstVisibleVerified ||
+      collector.measuredTurnId !== measuredTurnId
+        ? {
+            status: 'unavailable',
+            reason: 'the admitted turn output did not pass the exact-message visible-layout boundary',
+          }
         : observed(
             collector.firstVisibleAt,
             'harness',
-            'new assistant text passed visible layout checks after two animation-frame boundaries'
+            'the exact first_output_state message passed visible layout checks after two animation-frame boundaries'
           ),
     response_finished: rendererMark(collector.marks, 'response_finished', { turnId: measuredTurnId }),
     tts_playback_started: input.args.tts
       ? rendererMark(collector.marks, 'tts_playback_started', { turnId: measuredTurnId })
       : { status: 'unavailable', reason: 'typed-turn TTS playback timing was not requested' },
   };
-  return buildCommandEveTtftReceipt({
+  const receipt = buildCommandEveTtftReceipt({
     releaseVersion: input.handle.artifactTruth.releaseVersion,
     hermesVersion: input.handle.artifactTruth.hermesVersion,
     appCommit: input.handle.artifactTruth.appCommit,
@@ -734,6 +952,36 @@ async function runMeasuredTurn(input: {
     iteration: input.iteration,
     milestones,
   });
+  const upstreamSelection =
+    terminalAtEpochMs === undefined
+      ? { evidence: null, violations: ['terminal timestamp unavailable for provider receipt correlation'] }
+      : uniqueUpstreamEvidence(
+          readFromOffset(upstreamHistoryPath, upstreamHistoryOffset),
+          measuredTurnId,
+          sendActionAt,
+          terminalAtEpochMs
+        );
+  const formal = buildCommandEveTtftFormalReceipt({
+    notBeforeEpochMs: sendActionAt,
+    marks: collector.marks,
+    attemptBinding,
+    firstVisible:
+      collector.firstVisibleAt !== null && collector.firstVisibleMessageId && firstVisibleVerified
+        ? { messageId: collector.firstVisibleMessageId, atEpochMs: collector.firstVisibleAt }
+        : null,
+    runtimeReadiness:
+      terminalAtEpochMs !== undefined
+        ? exactRuntimeReadinessEvidence(
+            readFromOffset(input.handle.logPath, 0),
+            measuredConversationId,
+            measuredTurnId,
+            terminalAtEpochMs
+          )
+        : null,
+    upstream: upstreamSelection.evidence,
+    evidenceViolations: upstreamSelection.violations,
+  });
+  return { ...receipt, formal };
 }
 
 async function removeCurrentConversation(page: Page): Promise<void> {
@@ -753,7 +1001,7 @@ async function seedExistingConversation(
   args: Args,
   handle: AppHandle,
   localOnlyProof: LocalOnlyProof
-): Promise<CommandEveTtftReceipt> {
+): Promise<MeasuredReceipt> {
   const receipt = await runMeasuredTurn({
     args: { ...args, cohort: 'warm_start_chat', tts: false },
     handle,
@@ -853,7 +1101,7 @@ function isValidBaselineReceipt(value: unknown): value is CommandEveTtftReceipt 
 
 async function main(): Promise<void> {
   const args = parseArgs();
-  const receipts: CommandEveTtftReceipt[] = [];
+  const receipts: MeasuredReceipt[] = [];
   let localOnlyProof: LocalOnlyProof | null = null;
   let artifactTruth: ArtifactTruth | null = null;
 
@@ -963,8 +1211,13 @@ async function main(): Promise<void> {
     ALL_TTFT_METRICS.map((metric) => [metric, summarizeCommandEveTtftMetric(receipts, metric)])
   ) as SuiteReport['summaries'];
   const chronologyInvalid = receipts.some((receipt) => !receipt.chronology.valid);
+  const formalOutcome: SuiteReport['formalOutcome'] = receipts.every((receipt) => receipt.formal.outcome === 'PASS')
+    ? 'PASS'
+    : 'INSUFFICIENT_EVIDENCE';
   const suiteOutcome: SuiteReport['suiteOutcome'] =
-    missingRequiredStages.length > 0 || chronologyInvalid ? 'INSUFFICIENT_EVIDENCE' : regressionOutcome;
+    missingRequiredStages.length > 0 || chronologyInvalid || formalOutcome !== 'PASS'
+      ? 'INSUFFICIENT_EVIDENCE'
+      : regressionOutcome;
   const report: SuiteReport = {
     version: 'command-eve-ttft-suite/v2',
     generatedAt: new Date().toISOString(),
@@ -989,6 +1242,7 @@ async function main(): Promise<void> {
       rejected: importedBaseline.length - baselineReceipts.length,
     },
     regressionOutcome,
+    formalOutcome,
     suiteOutcome,
     regressionGates,
     receipts,
@@ -1000,6 +1254,7 @@ async function main(): Promise<void> {
   console.log(`[command-eve:ttft] local-only selection=${localOnlyProof.selection}`);
   console.log(`[command-eve:ttft] sessions=${receipts.length} missing=${missingRequiredStages.length}`);
   console.log(`[command-eve:ttft] regression=${regressionOutcome}`);
+  console.log(`[command-eve:ttft] formal=${formalOutcome}`);
   console.log(`[command-eve:ttft] suite=${suiteOutcome}`);
   console.log(`[command-eve:ttft] send→visible p95=${summaries.sendToFirstVisibleMs.p95 ?? 'unavailable'}ms`);
 

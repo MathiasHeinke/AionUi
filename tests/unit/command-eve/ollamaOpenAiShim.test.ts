@@ -9,6 +9,7 @@ import {
   buildCommandEvePromptProof,
   buildEveCloudRoute,
   commandEveCacheScope,
+  commandEveOllamaUsageReceipt,
   commandEveOllamaPsHasModel,
   COMMAND_EVE_LOCAL_MODEL_KEEP_ALIVE,
   ensureCommandEveShimAuthToken,
@@ -22,6 +23,7 @@ import {
   stopCommandEveOllamaOpenAiShimForTest,
   warmCommandEveEveLane,
   warmCommandEveLocalModel,
+  type CommandEveBoundUpstreamOutcomeReceipt,
 } from '@/process/commandEve/ollamaOpenAiShim';
 import { commandEveManagedVisualTurnMarker } from '@/common/config/eveManagedVisualTurnCore';
 import {
@@ -130,6 +132,120 @@ describe('Command EVE context and cache policy', () => {
     expect(commandEveCacheScope('hermes-session-1', '')).toBeUndefined();
     expect(commandEveCacheScope('hermes-session-1', ' seat-2 ')).toBeUndefined();
     expect(commandEveCacheScope('hermes-session-1', '../seat-1')).toBeUndefined();
+  });
+
+  it('preserves Ollama prompt-input semantics without inventing evaluated or reuse buckets', () => {
+    expect(commandEveOllamaUsageReceipt({ prompt_eval_count: 480, eval_count: 20 })).toEqual({
+      prompt_tokens: 480,
+      completion_tokens: 20,
+      total_tokens: 500,
+      prompt_eval_count: 480,
+      eval_count: 20,
+      prompt_reuse_status: 'unavailable',
+    });
+  });
+
+  it('ignores unsupported prompt_reused_count instead of double-counting prompt input', () => {
+    expect(commandEveOllamaUsageReceipt({ prompt_eval_count: 300, prompt_reused_count: 200, eval_count: 10 })).toEqual({
+      prompt_tokens: 300,
+      completion_tokens: 10,
+      total_tokens: 310,
+      prompt_eval_count: 300,
+      eval_count: 10,
+      prompt_reuse_status: 'unavailable',
+    });
+  });
+
+  it('fails closed for absent or invalid local usage counters', () => {
+    expect(commandEveOllamaUsageReceipt(undefined)).toBeUndefined();
+    expect(commandEveOllamaUsageReceipt({ prompt_eval_count: -1, eval_count: Number.NaN })).toBeUndefined();
+  });
+
+  it('binds exact local response usage to the final provider payload and Hermes turn/call identity', async () => {
+    const receipts: CommandEveBoundUpstreamOutcomeReceipt[] = [];
+    const ollamaBaseUrl = await startFakeOllamaWarmupServer({
+      model: 'command-eve-gemma4-e4b-64k:latest',
+      responseUsage: { prompt_eval_count: 300, prompt_reused_count: 200, eval_count: 10 },
+    });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      upstreamOutcomeReporter: (receipt) => {
+        if (receipt.version === 'command-eve-upstream-outcome/v3') receipts.push(receipt);
+      },
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        ...SHIM_JSON_HEADERS,
+        'x-command-eve-turn-id': 'turn-local-1',
+        'x-command-eve-call-index': '1',
+      },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'provider-free local receipt probe' }],
+        stream: false,
+      }),
+    });
+    const payload = (await response.json()) as { usage?: Record<string, unknown> };
+
+    expect(response.status).toBe(200);
+    expect(payload.usage).toMatchObject({
+      prompt_tokens: 300,
+      prompt_eval_count: 300,
+      prompt_reuse_status: 'unavailable',
+      total_tokens: 310,
+    });
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0].provider_call).toMatchObject({
+      turn_id: 'turn-local-1',
+      call_index: 1,
+      request_id: 'turn-local-1:api:1',
+      content_included: false,
+      attempt_count: 1,
+      response_usage: {
+        input_tokens: 300,
+        prompt_eval_count: 300,
+        prompt_reuse_status: 'unavailable',
+        prompt_reused_tokens: null,
+        prompt_tokens: 300,
+      },
+    });
+    expect(receipts[0].provider_call.final_request_fingerprint_sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(receipts[0].provider_call.response_usage_fingerprint_sha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('does not mint an exact receipt from malformed turn/call headers', async () => {
+    let exactReceiptObserved = false;
+    const ollamaBaseUrl = await startFakeOllamaWarmupServer({
+      model: 'command-eve-gemma4-e4b-64k:latest',
+      responseUsage: { prompt_eval_count: 3, eval_count: 1 },
+    });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      upstreamOutcomeReporter: (receipt) => {
+        exactReceiptObserved ||= receipt.version === 'command-eve-upstream-outcome/v3';
+      },
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        ...SHIM_JSON_HEADERS,
+        'x-command-eve-turn-id': 'turn-local-1',
+        'x-command-eve-call-index': '0',
+      },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'provider-free malformed identity probe' }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(exactReceiptObserved).toBe(false);
   });
 });
 
@@ -308,6 +424,7 @@ async function startFakeOllamaWarmupServer(options: {
   becomeResidentAfterChat?: boolean;
   malformedPs?: boolean;
   onChat?: (body: Record<string, unknown>) => void;
+  responseUsage?: { prompt_eval_count: number; eval_count: number; prompt_reused_count?: number };
 }): Promise<string> {
   let resident = options.initiallyResident ?? false;
   testServer = http.createServer((request, response) => {
@@ -332,6 +449,7 @@ async function startFakeOllamaWarmupServer(options: {
           message: { role: 'assistant', content: 'ok' },
           done: true,
           done_reason: 'stop',
+          ...options.responseUsage,
         });
         return;
       }

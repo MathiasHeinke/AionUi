@@ -4,5 +4,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["./benchmark.ts", "./packaged-qa-attachment.ts", "./receipt-core.ts"]
+  "include": ["./*.ts"]
 }

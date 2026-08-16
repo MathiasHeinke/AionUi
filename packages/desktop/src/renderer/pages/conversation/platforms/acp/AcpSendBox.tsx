@@ -83,6 +83,7 @@ import {
 } from '@/renderer/pages/conversation/runtime/conversationDocumentPreparationStore';
 import { getConversationRuntimeWorkspaceErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
 import {
+  getWarmupConversationStatus,
   settleConversationWarmupForSend,
   warmupConversation,
 } from '@/renderer/pages/conversation/utils/warmupConversation';
@@ -322,6 +323,9 @@ const AcpSendBox: React.FC<{
     tokenUsage,
     context_limit,
     runtimeActivity,
+    beginSubmitActivity,
+    bindSubmitActivityTurn,
+    clearSubmitActivity,
     lastCompletedTurn,
     quotaWall,
   } = messageState;
@@ -733,6 +737,14 @@ const AcpSendBox: React.FC<{
       const sendTicket = runtimeView.issueSendAttempt();
       if (!sendTicket) return 'stale';
       let sendStarted = false;
+      let sendAccepted = false;
+      beginSubmitActivity({ attemptId: sendTicket.attemptId, seatGeneration: sendTicket.seatGeneration });
+      emitAcpPerformanceMark({
+        stage: 'submit_started',
+        conversationId: conversation_id,
+        attemptId: sendTicket.attemptId,
+        seatGeneration: sendTicket.seatGeneration,
+      });
       // The images travelling with THIS turn, in the order the user attached
       // them. They are what a reference-to-video render would use, and naming
       // them in the envelope is what stops a follow-up from asking the user to
@@ -920,15 +932,57 @@ const AcpSendBox: React.FC<{
         // ACP handshake and Hermes session readiness before prompt admission.
         // This keeps cold boot out of the ordinary 15s send request while a
         // failed warmup still leaves the draft retryable and unsent.
+        const warmupStatus = getWarmupConversationStatus(conversation_id);
+        emitAcpPerformanceMark({
+          stage:
+            warmupStatus.phase === 'preparing'
+              ? 'warmup_joined'
+              : warmupStatus.phase === 'ready'
+                ? 'runtime_resident'
+                : 'warmup_started',
+          conversationId: conversation_id,
+          attemptId: sendTicket.attemptId,
+          seatGeneration: sendTicket.seatGeneration,
+        });
         if (attachmentGrounding) {
-          await warmupConversation(conversation_id, { revalidate: true });
+          try {
+            await warmupConversation(conversation_id, { revalidate: true });
+            emitAcpPerformanceMark({
+              stage: 'warmup_ready',
+              conversationId: conversation_id,
+              attemptId: sendTicket.attemptId,
+              seatGeneration: sendTicket.seatGeneration,
+              outcome: 'ready',
+            });
+          } catch (error) {
+            emitAcpPerformanceMark({
+              stage: 'warmup_failed',
+              conversationId: conversation_id,
+              attemptId: sendTicket.attemptId,
+              seatGeneration: sendTicket.seatGeneration,
+              outcome: 'failed',
+            });
+            throw error;
+          }
           if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
         } else {
           // Join any proactive warmup before prompt admission. This is
           // deliberately fail-open: a failed or slow optimization may not
           // discard an ordinary user message, and the real Core send remains
           // the authoritative task admission path.
-          await settleConversationWarmupForSend(conversation_id);
+          const warmupOutcome = await settleConversationWarmupForSend(conversation_id);
+          emitAcpPerformanceMark({
+            stage:
+              warmupOutcome === 'ready'
+                ? 'warmup_ready'
+                : warmupOutcome === 'failed'
+                  ? 'warmup_failed'
+                  : 'warmup_timeout',
+            conversationId: conversation_id,
+            attemptId: sendTicket.attemptId,
+            seatGeneration: sendTicket.seatGeneration,
+            outcome: warmupOutcome,
+          });
           if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
         }
 
@@ -957,11 +1011,24 @@ const AcpSendBox: React.FC<{
           throw new Error('ATTACHMENT_GROUNDING_RECEIPT_INVALID');
         }
         if (!runtimeView.markSendAccepted(sendTicket, result.turn_id, result.runtime, result.msg_id)) return 'stale';
+        sendAccepted = true;
+        bindSubmitActivityTurn({ attemptId: sendTicket.attemptId, turnId: result.turn_id });
+        emitAcpPerformanceMark({
+          stage: 'turn_admitted',
+          conversationId: conversation_id,
+          turnId: result.turn_id,
+          messageId: result.msg_id,
+          attemptId: sendTicket.attemptId,
+          seatGeneration: sendTicket.seatGeneration,
+        });
         void checkAndUpdateTitle(conversation_id, input, () => runtimeView.isSeatTicketCurrent(seatTicket));
         emitAcpPerformanceMark({
           stage: 'request_accepted',
           conversationId: conversation_id,
           turnId: result.turn_id,
+          messageId: result.msg_id,
+          attemptId: sendTicket.attemptId,
+          seatGeneration: sendTicket.seatGeneration,
         });
         emitter.emit('chat.history.refresh');
       } catch (error: unknown) {
@@ -1071,6 +1138,8 @@ Please check your local CLI tool authentication status`,
         resetState();
         setAiProcessing(false);
         throw error;
+      } finally {
+        if (!sendAccepted) clearSubmitActivity(sendTicket.attemptId);
       }
 
       if (files.length > 0) {
@@ -1080,7 +1149,10 @@ Please check your local CLI tool authentication status`,
     },
     [
       backend,
+      beginSubmitActivity,
+      bindSubmitActivityTurn,
       checkAndUpdateTitle,
+      clearSubmitActivity,
       conversationArtifacts,
       conversation_id,
       eveInference.selection,

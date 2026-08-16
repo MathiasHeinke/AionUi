@@ -712,6 +712,7 @@ vi.mock('@/renderer/pages/conversation/Preview', () => ({
   }),
 }));
 vi.mock('@/renderer/pages/conversation/utils/warmupConversation', () => ({
+  getWarmupConversationStatus: () => ({ phase: 'idle', attempt: 0 }),
   settleConversationWarmupForSend: settleConversationWarmupForSendMock,
   warmupConversation: warmupConversationMock,
 }));
@@ -861,6 +862,9 @@ const makeMessageState = (): UseAcpMessageReturn =>
     // UnifiedSendBar's ContextUsageIndicator, so the message-state stub must
     // provide it (was undefined → crash). quotaWall is part of the contract too.
     runtimeActivity: { phase: 'idle', updatedAt: 0 },
+    beginSubmitActivity: vi.fn(),
+    bindSubmitActivityTurn: vi.fn(),
+    clearSubmitActivity: vi.fn(),
     lastCompletedTurn: null,
     quotaWall: {
       visible: false,
@@ -1240,10 +1244,12 @@ describe('AcpSendBox', () => {
   });
 
   it('marks request acceptance only after the ACP send result is accepted', async () => {
+    const warmup = createDeferred<'ready'>();
     const send = createDeferred<unknown>();
     const marks: AcpPerformanceMark[] = [];
     const listener = (event: Event) => marks.push((event as CustomEvent<AcpPerformanceMark>).detail);
     window.addEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
+    settleConversationWarmupForSendMock.mockReturnValue(warmup.promise);
     sendMessageInvokeMock.mockReturnValue(send.promise);
 
     render(
@@ -1257,9 +1263,14 @@ describe('AcpSendBox', () => {
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
-    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
-    expect(marks).toEqual([]);
+    await waitFor(() =>
+      expect(marks).toContainEqual(expect.objectContaining({ stage: 'submit_started', conversationId: 'conv-1' }))
+    );
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(marks.filter((mark) => mark.stage === 'request_accepted' || mark.stage === 'turn_admitted')).toEqual([]);
 
+    await act(async () => warmup.resolve('ready'));
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
     await act(async () => {
       send.resolve({ turn_id: 'turn-accepted', msg_id: 'message-accepted', runtime: null });
     });
@@ -1272,6 +1283,55 @@ describe('AcpSendBox', () => {
         })
       )
     );
+    expect(marks).toContainEqual(
+      expect.objectContaining({
+        stage: 'turn_admitted',
+        conversationId: 'conv-1',
+        turnId: 'turn-accepted',
+        messageId: 'message-accepted',
+      })
+    );
+    window.removeEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
+  });
+
+  it('marks exactly one submit for a work-product send and never clears a foreign attempt', async () => {
+    // The 1.823.0 composer routes Word/Excel/PDF sends through the same send
+    // attempt as ordinary chat, so the submit marker must fire once there too.
+    // An image/video CREATE send deliberately never reaches this path — it has
+    // no ACP turn to correlate — which is why this covers a document mode.
+    const send = createDeferred<unknown>();
+    const marks: AcpPerformanceMark[] = [];
+    const listener = (event: Event) => marks.push((event as CustomEvent<AcpPerformanceMark>).detail);
+    window.addEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
+    sendMessageInvokeMock.mockReturnValue(send.promise);
+    const messageState = makeMessageState();
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={messageState}
+      />
+    );
+    await chooseWorkProductMode('word');
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const submitMarks = marks.filter((mark) => mark.stage === 'submit_started');
+    expect(submitMarks).toHaveLength(1);
+    expect(submitMarks[0]).toMatchObject({ conversationId: 'conv-1', attemptId: 1, seatGeneration: 0 });
+    expect(messageState.beginSubmitActivity).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      send.resolve({ turn_id: 'turn-word', msg_id: 'message-word', runtime: null });
+    });
+    // An accepted send owns its activity until the turn ends; clearing here
+    // would blank a submitting state that the admitted turn still needs.
+    await waitFor(() => expect(messageState.bindSubmitActivityTurn).toHaveBeenCalledTimes(1));
+    expect(messageState.clearSubmitActivity).not.toHaveBeenCalled();
     window.removeEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
   });
 

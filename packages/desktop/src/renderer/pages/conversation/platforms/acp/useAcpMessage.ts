@@ -83,6 +83,9 @@ export type UseAcpMessageReturn = {
   slashCommands: SlashCommandItem[];
   fetchSlashCommands: () => void;
   runtimeActivity: AcpRuntimeActivity;
+  beginSubmitActivity: (input: { attemptId: number; seatGeneration: number }) => void;
+  bindSubmitActivityTurn: (input: { attemptId: number; turnId: string }) => void;
+  clearSubmitActivity: (attemptId: number) => void;
   lastCompletedTurn: AcpCompletedTurnReceipt | null;
   /**
    * Lane-3 402 quota-exhausted wall controller. Fed by the LIVE ACP stream-error
@@ -127,6 +130,10 @@ export type AcpRuntimeActivity = {
   attempt?: number;
   maxAttempts?: number;
   retryAfterMs?: number;
+  /** Content-free renderer correlation; never a provider, prompt, or model identifier. */
+  attemptId?: number;
+  seatGeneration?: number;
+  turnId?: string;
 };
 
 export type AcpStreamWatchdogStatus =
@@ -216,6 +223,51 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     updatedAt: Date.now(),
   });
   const [lastCompletedTurn, setLastCompletedTurn] = useState<AcpCompletedTurnReceipt | null>(null);
+
+  const beginSubmitActivity = useCallback((input: { attemptId: number; seatGeneration: number }) => {
+    const now = Date.now();
+    setRuntimeActivity((prev) => ({
+      ...prev,
+      phase: 'submitting',
+      startedAt: now,
+      updatedAt: now,
+      elapsedMs: undefined,
+      detail: undefined,
+      attempt: undefined,
+      maxAttempts: undefined,
+      retryAfterMs: undefined,
+      attemptId: input.attemptId,
+      seatGeneration: input.seatGeneration,
+      turnId: undefined,
+    }));
+  }, []);
+
+  const bindSubmitActivityTurn = useCallback((input: { attemptId: number; turnId: string }) => {
+    setRuntimeActivity((prev) =>
+      prev.attemptId === input.attemptId
+        ? {
+            ...prev,
+            turnId: input.turnId,
+            updatedAt: Date.now(),
+          }
+        : prev
+    );
+  }, []);
+
+  const clearSubmitActivity = useCallback((attemptId: number) => {
+    setRuntimeActivity((prev) =>
+      prev.attemptId === attemptId && prev.phase === 'submitting'
+        ? {
+            ...prev,
+            phase: 'idle',
+            updatedAt: Date.now(),
+            attemptId: undefined,
+            seatGeneration: undefined,
+            turnId: undefined,
+          }
+        : prev
+    );
+  }, []);
 
   // Lane-3: the 402 quota-exhausted wall controller. The live stream-error path
   // (the 'error' case below) feeds it via reportInferenceError; the container
@@ -319,7 +371,8 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // Track the in-flight thinking block so a synthetic done update (with a
   // computed duration) can be emitted when the turn finishes or the first
   // non-thinking message arrives, even if the backend never sends a done.
-  const activeThinkingRef = useRef<{ msgId: string; startedAt: number } | null>(null);
+  const activeThinkingRef = useRef<{ msgId: string; turnId: string | null; startedAt: number } | null>(null);
+  const firstOutputTurnIdsRef = useRef<Set<string>>(new Set());
 
   // Track request trace state for displaying complete request lifecycle
   const requestTraceRef = useRef<{
@@ -480,13 +533,15 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
 
   const completeActiveThinking = useCallback(
     (
-      boundaryMessage: Pick<IResponseMessage, 'conversation_id' | 'created_at'>,
+      boundaryMessage: Pick<IResponseMessage, 'conversation_id' | 'created_at' | 'turn_id'>,
       completeOptions?: {
         duration?: number;
       }
     ) => {
       const activeThinking = activeThinkingRef.current;
       if (!activeThinking) return;
+      const boundaryTurnId = typeof boundaryMessage.turn_id === 'string' ? boundaryMessage.turn_id.trim() : '';
+      if (activeThinking.turnId && boundaryTurnId !== activeThinking.turnId) return;
 
       flushPendingThinkingMessage();
 
@@ -664,6 +719,35 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       }
 
       const transformedMessage = transformMessage(message);
+      const firstOutputKind =
+        message.type === 'text' || message.type === 'content'
+          ? 'text'
+          : message.type === 'thought' || message.type === 'thinking'
+            ? 'thought'
+            : message.type === 'tool_call' || message.type === 'acp_tool_call'
+              ? 'tool'
+              : null;
+      const expectedOutputTurnId = runtimeActiveTurnId ?? acceptedTurnIdRef.current;
+      if (
+        firstOutputKind &&
+        messageTurnId &&
+        messageTurnId === expectedOutputTurnId &&
+        message.msg_id &&
+        !firstOutputTurnIdsRef.current.has(messageTurnId)
+      ) {
+        firstOutputTurnIdsRef.current.add(messageTurnId);
+        if (firstOutputTurnIdsRef.current.size > 64) {
+          const oldest = firstOutputTurnIdsRef.current.values().next().value;
+          if (oldest) firstOutputTurnIdsRef.current.delete(oldest);
+        }
+        emitAcpPerformanceMark({
+          stage: 'first_output_state',
+          conversationId: conversation_id,
+          turnId: messageTurnId,
+          messageId: message.msg_id,
+          outputKind: firstOutputKind,
+        });
+      }
       if (
         transformedMessage &&
         message.type === 'acp_tool_call' &&
@@ -712,6 +796,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           if (!activeThinkingRef.current || activeThinkingRef.current.msgId !== message.msg_id) {
             activeThinkingRef.current = {
               msgId: message.msg_id,
+              turnId: typeof message.turn_id === 'string' && message.turn_id.trim() ? message.turn_id.trim() : null,
               startedAt: message.created_at ?? Date.now(),
             };
           }
@@ -938,6 +1023,8 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
               stage: 'acp_first_text',
               conversationId: conversation_id,
               turnId: message.turn_id,
+              messageId: message.msg_id,
+              outputKind: 'text',
             });
             setAiProcessing(false);
             aiProcessingRef.current = false;
@@ -1353,6 +1440,11 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             // an unbound error cannot claim an in-flight accepted turn.
             break;
           }
+          emitAcpPerformanceMark({
+            stage: 'response_error',
+            conversationId: conversation_id,
+            turnId: messageTurnId,
+          });
           if (messageTurnId) {
             completedTurnIdsRef.current.add(messageTurnId);
             recoveredTurnIdsRef.current.delete(messageTurnId);
@@ -1553,6 +1645,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     setSlashCommands([]);
     setRuntimeActivity({ phase: 'idle', updatedAt: Date.now() });
     hasContentInTurnRef.current = false;
+    firstOutputTurnIdsRef.current.clear();
     turnFinishedRef.current = false;
     acceptedTurnIdRef.current = getConversationRuntimeViewSnapshot(conversation_id).activeTurnId;
     recoveredTurnIdsRef.current.clear();
@@ -1722,8 +1815,12 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         backend: prev.backend,
         modelId: prev.modelId,
         updatedAt: Date.now(),
+        attemptId: undefined,
+        seatGeneration: undefined,
+        turnId: undefined,
       }));
       hasContentInTurnRef.current = false;
+      firstOutputTurnIdsRef.current.clear();
       hasThinkingMessageRef.current = false;
       activeThinkingRef.current = null;
       lastBackendEventAtRef.current = undefined;
@@ -1797,6 +1894,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     slashCommands,
     fetchSlashCommands,
     runtimeActivity,
+    beginSubmitActivity,
+    bindSubmitActivityTurn,
+    clearSubmitActivity,
     lastCompletedTurn,
     quotaWall,
   };

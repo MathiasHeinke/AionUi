@@ -6,9 +6,10 @@ import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInference
 import { useConfig } from '@/renderer/hooks/config/useConfig';
 import { useIsDevMode } from '@/renderer/hooks/useIsDevMode';
 import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
+import { emitAcpPerformanceMark } from '@/renderer/utils/performance/acpPerformanceMarks';
 import { Button, Message, Tooltip } from '@arco-design/web-react';
 import { Shield, Time } from '@icon-park/react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { EgressBoundaryStatus } from './EgressBoundaryNotice';
 import type { AcpRuntimeActivity, AcpRuntimeActivityPhase } from './useAcpMessage';
@@ -68,9 +69,10 @@ const AcpRuntimeStatus: React.FC<{
   activity: AcpRuntimeActivity;
   running: boolean;
   aiProcessing: boolean;
+  conversationId?: string;
   backend?: string;
   egressBoundary?: EgressBoundaryStatus | null;
-}> = ({ activity, running, aiProcessing, backend, egressBoundary }) => {
+}> = ({ activity, running, aiProcessing, conversationId, backend, egressBoundary }) => {
   const { t } = useTranslation();
   // Operators see a redacted lifecycle line while work is active. Dev mode adds
   // lane/context/log details, but raw backend and model identifiers never become
@@ -79,6 +81,7 @@ const AcpRuntimeStatus: React.FC<{
   const [visible] = useConfig('commandEve.runtimeStatusVisible');
   const eveInference = useEveInferenceSelection();
   const [now, setNow] = useState(Date.now());
+  const visibleSubmitAttemptRef = useRef<string | null>(null);
   const isVisible = visible ?? true;
   const isActive = running || aiProcessing || ACTIVE_PHASES.has(activity.phase);
 
@@ -129,6 +132,35 @@ const AcpRuntimeStatus: React.FC<{
         ? t('conversation.runtimeStatus.egress.redactedCompact', { defaultValue: 'Sensible Daten bereinigt' })
         : null;
   const showOperatorStatus = isActive || activity.phase === 'error' || Boolean(egressLabel);
+  useLayoutEffect(() => {
+    if (
+      !isVisible ||
+      !showOperatorStatus ||
+      activity.phase !== 'submitting' ||
+      !conversationId ||
+      !Number.isSafeInteger(activity.attemptId)
+    ) {
+      return;
+    }
+    const key = `${conversationId}:${activity.seatGeneration ?? 'unknown'}:${activity.attemptId}`;
+    if (visibleSubmitAttemptRef.current === key) return;
+    visibleSubmitAttemptRef.current = key;
+    emitAcpPerformanceMark({
+      stage: 'runtime_activity_visible',
+      conversationId,
+      attemptId: activity.attemptId,
+      seatGeneration: activity.seatGeneration,
+      turnId: activity.turnId,
+    });
+  }, [
+    activity.attemptId,
+    activity.phase,
+    activity.seatGeneration,
+    activity.turnId,
+    conversationId,
+    isVisible,
+    showOperatorStatus,
+  ]);
   if (!isVisible || (!isDevMode && !showOperatorStatus)) return null;
 
   const elapsedMs = activity.startedAt && isActive ? now - activity.startedAt : activity.elapsedMs;
@@ -166,7 +198,12 @@ const AcpRuntimeStatus: React.FC<{
         : null;
 
   return (
-    <div className='acp-runtime-status' data-testid='acp-runtime-status'>
+    <div
+      className='acp-runtime-status'
+      data-testid='acp-runtime-status'
+      data-ttft-attempt-id={activity.attemptId}
+      data-ttft-turn-id={activity.turnId}
+    >
       <div className='acp-runtime-status__content'>
         <span
           className={`h-8px w-8px rd-50% shrink-0 ${statusDotClass[activity.phase]} ${isActive ? 'animate-pulse' : ''} ${activity.phase === 'thinking' || activity.phase === 'streaming' ? 'acp-runtime-status__dot--active' : ''}`}

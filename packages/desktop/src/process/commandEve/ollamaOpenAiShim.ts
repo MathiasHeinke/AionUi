@@ -49,6 +49,10 @@ import {
   normalizeCommandEveLocalRuntimeModelId,
 } from '../../common/config/commandEveShell';
 import { HONCHO_DERIVER_FORCED_TIER } from './honchoRuntimeConfigCore';
+import {
+  commandEveProviderCallRequestId,
+  isContentFreeCallIdentity,
+} from '../../common/config/commandEveProviderCallIdentity';
 import { stripCommandEveManagedVisualTurnMarkers } from '../../common/config/eveManagedVisualTurnCore';
 import { executeCommandEveManagedImageGeneration } from './managedImageGenerationService';
 import {
@@ -387,6 +391,49 @@ export type CommandEveUpstreamOutcomeReceipt = {
   response_started: boolean;
 };
 
+export type CommandEveProviderCallResponseUsage = {
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  prompt_eval_count: number | null;
+  prompt_reuse_status: 'unavailable';
+  prompt_reused_tokens: null;
+  prompt_tokens: number | null;
+  reasoning_tokens: number | null;
+};
+
+export type CommandEveProviderCallReceipt = {
+  attempt_count: 1;
+  call_index: number;
+  content_included: false;
+  final_request_fingerprint_sha256: string;
+  hash_algorithm: 'sha256';
+  reason_code: null;
+  request_id: string;
+  response_usage: CommandEveProviderCallResponseUsage;
+  response_usage_fingerprint_sha256: string;
+  schema_version: 'command-eve-provider-call/v1';
+  status: 'observed';
+  turn_id: string;
+};
+
+export type CommandEveBoundUpstreamOutcomeReceipt = {
+  version: 'command-eve-upstream-outcome/v3';
+  boundary: 'desktop_upstream_transport';
+  provider_call: CommandEveProviderCallReceipt;
+  started_at: string;
+  headers_received_at: string | null;
+  first_body_chunk_at: string | null;
+  observed_at: string;
+  outcome: CommandEveUpstreamOutcome;
+  response_started: boolean;
+};
+
+export type CommandEveUpstreamEvidenceReceipt =
+  | CommandEveUpstreamOutcomeReceipt
+  | CommandEveBoundUpstreamOutcomeReceipt;
+
 /**
  * Content-free evidence for a deterministic managed-visual refusal. Unlike an
  * upstream outcome receipt, this proves the request stopped at the desktop
@@ -430,7 +477,7 @@ export type CommandEveOllamaShimOptions = {
   /** Bounded JSONL history for correlating every content-free upstream call. */
   upstreamOutcomeHistoryPath?: string;
   /** Test/diagnostic observer for the same content-free transport receipt. */
-  upstreamOutcomeReporter?: (receipt: CommandEveUpstreamOutcomeReceipt) => void;
+  upstreamOutcomeReporter?: (receipt: CommandEveUpstreamEvidenceReceipt) => void;
   egressPolicyAction?: CommandEveEgressPolicyAction;
   /**
    * Optional EVE cloud routing resolver. When omitted, the shim behaves exactly
@@ -943,6 +990,18 @@ function requireShimAuth(request: IncomingMessage, response: ServerResponse, exp
   return false;
 }
 
+function commandEveProviderCallContext(
+  request: IncomingMessage,
+  finalRequestFingerprintSha256: string
+): CommandEveProviderCallContext | undefined {
+  const turnId = headerToken(request.headers['x-command-eve-turn-id']);
+  const callIndexText = headerToken(request.headers['x-command-eve-call-index']);
+  if (!isContentFreeCallIdentity(turnId) || !/^[1-9]\d{0,8}$/.test(callIndexText)) return undefined;
+  const callIndex = Number(callIndexText);
+  if (!Number.isSafeInteger(callIndex)) return undefined;
+  return { turnId, callIndex, finalRequestFingerprintSha256 };
+}
+
 type UpstreamAbortReason = Extract<CommandEveUpstreamOutcome, 'client_closed' | 'first_byte_timeout' | 'idle_timeout'>;
 
 type UpstreamRequestScope = {
@@ -950,11 +1009,52 @@ type UpstreamRequestScope = {
   markHeadersReceived: () => void;
   markBodyChunk: () => void;
   markUpstreamError: () => void;
+  bindResponseUsage: (usage: CommandEveProviderCallResponseUsage | undefined) => void;
   reason: () => UpstreamAbortReason | undefined;
   dispose: () => void;
 };
 
-function writeUpstreamOutcomeReceipt(receiptPath: string, receipt: CommandEveUpstreamOutcomeReceipt): void {
+type CommandEveProviderCallContext = {
+  turnId: string;
+  callIndex: number;
+  finalRequestFingerprintSha256: string;
+};
+
+/**
+ * Mint the immutable provider-call receipt for one observed inference call.
+ *
+ * Kept separate from the transport outcome it travels with: the transport
+ * records what happened to the socket, while this records which exact provider
+ * call the usage belongs to. Fusing them would let a transport-only change
+ * silently alter what the TTFT gate accepts as call identity.
+ */
+function commandEveProviderCallReceipt(
+  providerCall: CommandEveProviderCallContext,
+  responseUsage: CommandEveProviderCallResponseUsage
+): CommandEveProviderCallReceipt {
+  // Sorted keys so the digest is a function of the counters alone; an unstable
+  // key order would produce a different fingerprint for identical usage and
+  // read as tampering to the verifier.
+  const canonicalUsage = JSON.stringify(
+    Object.fromEntries(Object.entries(responseUsage).toSorted(([left], [right]) => left.localeCompare(right)))
+  );
+  return {
+    attempt_count: 1,
+    call_index: providerCall.callIndex,
+    content_included: false,
+    final_request_fingerprint_sha256: providerCall.finalRequestFingerprintSha256,
+    hash_algorithm: 'sha256',
+    reason_code: null,
+    request_id: commandEveProviderCallRequestId(providerCall.turnId, providerCall.callIndex),
+    response_usage: responseUsage,
+    response_usage_fingerprint_sha256: crypto.createHash('sha256').update(canonicalUsage, 'utf8').digest('hex'),
+    schema_version: 'command-eve-provider-call/v1',
+    status: 'observed',
+    turn_id: providerCall.turnId,
+  };
+}
+
+function writeUpstreamOutcomeReceipt(receiptPath: string, receipt: CommandEveUpstreamEvidenceReceipt): void {
   if (!receiptPath) return;
   fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
   const tempFile = `${receiptPath}.${process.pid}.${crypto.randomUUID()}.tmp`;
@@ -973,7 +1073,7 @@ function writeManagedVisualAuthorizationFailureReceipt(
   fs.renameSync(tempFile, receiptPath);
 }
 
-function appendUpstreamOutcomeHistory(historyPath: string, receipt: CommandEveUpstreamOutcomeReceipt): void {
+function appendUpstreamOutcomeHistory(historyPath: string, receipt: CommandEveUpstreamEvidenceReceipt): void {
   if (!historyPath) return;
   fs.mkdirSync(path.dirname(historyPath), { recursive: true });
   fs.appendFileSync(historyPath, `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
@@ -988,7 +1088,8 @@ function appendUpstreamOutcomeHistory(historyPath: string, receipt: CommandEveUp
 function createUpstreamRequestScope(
   request: IncomingMessage,
   response: ServerResponse,
-  options: Required<CommandEveOllamaShimOptions>
+  options: Required<CommandEveOllamaShimOptions>,
+  providerCall?: CommandEveProviderCallContext
 ): UpstreamRequestScope {
   const controller = new AbortController();
   const requestId = crypto.randomUUID();
@@ -998,14 +1099,13 @@ function createUpstreamRequestScope(
   let abortReason: UpstreamAbortReason | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let outcomeRecorded = false;
+  let responseUsage: CommandEveProviderCallResponseUsage | undefined;
 
   const recordOutcome = (outcome: CommandEveUpstreamOutcome): void => {
     if (outcomeRecorded) return;
     outcomeRecorded = true;
-    const receipt: CommandEveUpstreamOutcomeReceipt = {
-      version: 'command-eve-upstream-outcome/v2',
-      boundary: 'desktop_upstream_transport',
-      request_id: requestId,
+    const transport = {
+      boundary: 'desktop_upstream_transport' as const,
       started_at: startedAt,
       headers_received_at: headersReceivedAt,
       first_body_chunk_at: firstBodyChunkAt,
@@ -1013,6 +1113,11 @@ function createUpstreamRequestScope(
       outcome,
       response_started: response.headersSent,
     };
+    const providerReceipt =
+      providerCall && responseUsage ? commandEveProviderCallReceipt(providerCall, responseUsage) : undefined;
+    const receipt: CommandEveUpstreamEvidenceReceipt = providerReceipt
+      ? { version: 'command-eve-upstream-outcome/v3', provider_call: providerReceipt, ...transport }
+      : { version: 'command-eve-upstream-outcome/v2', request_id: requestId, ...transport };
     let evidenceFailed = false;
     for (const sink of [
       () => writeUpstreamOutcomeReceipt(options.upstreamOutcomeReceiptPath, receipt),
@@ -1070,6 +1175,9 @@ function createUpstreamRequestScope(
       arm('idle_timeout', options.upstreamIdleTimeoutMs);
     },
     markUpstreamError: () => recordOutcome('upstream_error'),
+    bindResponseUsage: (usage) => {
+      responseUsage = usage;
+    },
     reason: () => abortReason,
     dispose: () => {
       if (timer) clearTimeout(timer);
@@ -1543,6 +1651,62 @@ function writeStreamChunk(response: ServerResponse, model: string, content: stri
 }
 
 type OllamaToolCallIdState = { nextOrdinal: number };
+
+export type CommandEveOllamaUsageReceipt = {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  prompt_eval_count?: number;
+  eval_count?: number;
+  prompt_reuse_status: 'unavailable';
+};
+
+const nonnegativeInteger = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+
+/**
+ * Preserve Ollama's documented prompt/output token counters in the
+ * OpenAI-compatible response. `prompt_eval_count` is the prompt-input count,
+ * not proof of a newly evaluated or reused bucket. Reuse therefore remains
+ * unavailable unless a future pinned runtime exposes independently verifiable
+ * evidence; an unsupported `prompt_reused_count` field is ignored.
+ */
+export function commandEveOllamaUsageReceipt(payload: unknown): CommandEveOllamaUsageReceipt | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const record = payload as Record<string, unknown>;
+  const prompt = nonnegativeInteger(record.prompt_eval_count);
+  const completion = nonnegativeInteger(record.eval_count);
+  if (prompt === null && completion === null) return undefined;
+  const promptTokens = prompt ?? 0;
+  const completionTokens = completion ?? 0;
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+    ...(prompt === null ? {} : { prompt_eval_count: prompt }),
+    ...(completion === null ? {} : { eval_count: completion }),
+    prompt_reuse_status: 'unavailable',
+  };
+}
+
+function commandEveOllamaProviderCallUsage(payload: unknown): CommandEveProviderCallResponseUsage | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const record = payload as Record<string, unknown>;
+  const prompt = nonnegativeInteger(record.prompt_eval_count);
+  const output = nonnegativeInteger(record.eval_count);
+  if (prompt === null || output === null) return undefined;
+  return {
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    input_tokens: prompt,
+    output_tokens: output,
+    prompt_eval_count: prompt,
+    prompt_reuse_status: 'unavailable',
+    prompt_reused_tokens: null,
+    prompt_tokens: prompt,
+    reasoning_tokens: 0,
+  };
+}
 
 /**
  * Ollama's native tool-call DTO has no call id and may carry arguments as an
@@ -2854,14 +3018,25 @@ async function handleChatCompletions(
     body.messages = preparedVision.messages;
   }
   response.setHeader('x-command-eve-inference-lane', 'ollama_local');
-  const upstreamScope = createUpstreamRequestScope(request, response, options);
+  const finalProviderPayload = nativeChatPayload(body, options);
+  const serializedProviderPayload = JSON.stringify(finalProviderPayload);
+  const finalRequestFingerprintSha256 = crypto
+    .createHash('sha256')
+    .update(serializedProviderPayload, 'utf8')
+    .digest('hex');
+  const upstreamScope = createUpstreamRequestScope(
+    request,
+    response,
+    options,
+    commandEveProviderCallContext(request, finalRequestFingerprintSha256)
+  );
   try {
     const upstream = await fetchOllama(
       '/api/chat',
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(nativeChatPayload(body, options)),
+        body: serializedProviderPayload,
         signal: upstreamScope.signal,
       },
       options
@@ -2880,8 +3055,12 @@ async function handleChatCompletions(
         message?: { content?: string; tool_calls?: unknown };
         done?: boolean;
         done_reason?: string;
+        prompt_eval_count?: number;
+        eval_count?: number;
       };
       upstreamScope.markBodyChunk();
+      const usage = commandEveOllamaUsageReceipt(data);
+      upstreamScope.bindResponseUsage(commandEveOllamaProviderCallUsage(data));
       const normalizedToolCalls = normalizeOllamaToolCallsForOpenAI(data.message?.tool_calls, providerRequestId, {
         nextOrdinal: 0,
       });
@@ -2916,6 +3095,7 @@ async function handleChatCompletions(
             finish_reason: data.done_reason === 'length' ? 'length' : 'stop',
           },
         ],
+        ...(usage ? { usage } : {}),
       });
       return;
     }
@@ -2932,6 +3112,7 @@ async function handleChatCompletions(
     let finishReason = 'stop';
     let sawOllamaTerminal = false;
     let ollamaStreamInvalid = false;
+    let finalUsage: CommandEveOllamaUsageReceipt | undefined;
     const normalizedToolCalls: unknown[] = [];
     const toolCallIdState: OllamaToolCallIdState = { nextOrdinal: 0 };
     const processOllamaLine = (line: string): void => {
@@ -2944,6 +3125,8 @@ async function handleChatCompletions(
         message?: { content?: string; tool_calls?: unknown };
         done?: boolean;
         done_reason?: string;
+        prompt_eval_count?: number;
+        eval_count?: number;
       };
       const nextToolCalls = normalizeOllamaToolCallsForOpenAI(
         chunk.message?.tool_calls,
@@ -2953,6 +3136,8 @@ async function handleChatCompletions(
       if (chunk.done) {
         sawOllamaTerminal = true;
         finishReason = chunk.done_reason === 'length' ? 'length' : 'stop';
+        finalUsage = commandEveOllamaUsageReceipt(chunk);
+        upstreamScope.bindResponseUsage(commandEveOllamaProviderCallUsage(chunk));
         if (finishReason !== 'length') {
           if (Array.isArray(nextToolCalls)) normalizedToolCalls.push(...nextToolCalls);
           if (chunk.message?.content || nextToolCalls) {
@@ -3002,6 +3187,7 @@ async function handleChatCompletions(
         created: Math.floor(Date.now() / 1000),
         model,
         choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+        ...(finalUsage ? { usage: finalUsage } : {}),
       })}\n\n`
     );
     response.write('data: [DONE]\n\n');
