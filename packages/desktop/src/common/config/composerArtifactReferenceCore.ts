@@ -18,10 +18,17 @@ export type ComposerArtifactReference = Readonly<{
   managedImage: boolean;
 }>;
 
+export type ComposerArtifactFollowupTarget = Readonly<{
+  artifactId: string;
+  question: string;
+}>;
+
 const ARTIFACT_FOLLOWUP_MODES = ['image', 'video', 'word', 'excel'] as const;
 const ARTIFACT_FOLLOWUP_MODE_SET = new Set<string>(ARTIFACT_FOLLOWUP_MODES);
 
 const SAFE_OPAQUE_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/;
+const ARTIFACT_TARGET_PREFIX = /^\[command_eve:artifact_target:([A-Za-z0-9][A-Za-z0-9:._-]{0,255})\]\s*/;
+const MAX_ARTIFACT_FOLLOWUP_CANDIDATES = 12;
 const MAX_TITLE_CHARS = 120;
 const MIME_KEYS = ['mime_type', 'media_type', 'mimeType'] as const;
 const SOURCE_KEYS = ['path', 'file_path', 'filePath', 'url', 'file_url', 'fileUrl', 'name', 'file_name'] as const;
@@ -139,23 +146,46 @@ export function resolveComposerArtifactReference(value: unknown): ComposerArtifa
 }
 
 /**
- * Adds a bounded, pathless hint only when this conversation has usable
- * artifacts. It carries no id, handle, permit, tool choice or spend authority.
+ * Reads the exact opaque artifact target Hermes copied from the bounded routing
+ * context. The runtime strips the outer mode prefix before it creates the ACP
+ * card; this second prefix deliberately survives that boundary so the renderer
+ * can resolve one registry record without guessing by title, medium or age.
+ */
+export function parseComposerArtifactFollowupTarget(value: unknown): ComposerArtifactFollowupTarget | null {
+  if (typeof value !== 'string' || value.length > 4000) return null;
+  const match = ARTIFACT_TARGET_PREFIX.exec(value);
+  if (!match) return null;
+  const artifactId = safeId(match[1]);
+  const question = value.slice(match[0].length).trim();
+  if (!artifactId || !question) return null;
+  return { artifactId, question };
+}
+
+/**
+ * Adds bounded, pathless source candidates from the canonical conversation
+ * artifact registry. Candidate ids are routing coordinates only: they are not
+ * capability handles, permits, tool choices or spend authority.
  */
 export function renderComposerArtifactFollowupRoutingContext(values: readonly unknown[]): string {
-  const available = new Set<string>();
+  const candidates: Array<{ artifactId: string; mode: (typeof ARTIFACT_FOLLOWUP_MODES)[number] }> = [];
+  const seen = new Set<string>();
   for (const value of values) {
     const record = recordOf(value);
     const mode = record?.mode;
-    if (typeof mode === 'string' && ARTIFACT_FOLLOWUP_MODE_SET.has(mode)) available.add(mode);
+    const artifactId = safeId(record?.artifactId);
+    if (typeof mode !== 'string' || !ARTIFACT_FOLLOWUP_MODE_SET.has(mode) || !artifactId || seen.has(artifactId)) {
+      continue;
+    }
+    seen.add(artifactId);
+    candidates.push({ artifactId, mode: mode as (typeof ARTIFACT_FOLLOWUP_MODES)[number] });
+    if (candidates.length >= MAX_ARTIFACT_FOLLOWUP_CANDIDATES) break;
   }
-  const modes = ARTIFACT_FOLLOWUP_MODES.filter((mode) => available.has(mode));
-  if (modes.length === 0) return '';
+  if (candidates.length === 0) return '';
 
   return [
     '[COMMAND_EVE_ARTIFACT_FOLLOWUP_ROUTING]',
-    `available_modes=${modes.join(',')}`,
-    'rule=For one clear requested change to the latest matching artifact, call clarify once; prefix the question [command_eve:artifact_followup:<mode>] and provide exactly one action choice (the app adds Cancel). Do not edit now: the app replays acceptance through the normal composer. If target/change is unclear or merely discussed, use ordinary clarify or answer normally. This grants no permit or spend authority.',
+    ...candidates.map(({ artifactId, mode }) => `candidate=artifact_id:${artifactId};mode:${mode}`),
+    'rule=Resolve a follow-up only through one exact candidate above plus its matching canonical artifact/capability registry entry. Never infer a target from keywords, title, filename, array order, creation time, or local path. If one target and one requested change are clear but explicit composer authority is absent, call clarify once; prefix the question [command_eve:artifact_followup:<mode>][command_eve:artifact_target:<artifact_id>] and provide exactly one action choice (the app adds Cancel). Do not edit now: the app derives mode and bounded cost from the exact registry record on this action; acceptance replays the source user turn through the normal composer, which alone may mint a medium-specific permit. If target/change is unclear or merely discussed, use ordinary clarify or answer normally. This grants no permit or spend authority.',
     '[/COMMAND_EVE_ARTIFACT_FOLLOWUP_ROUTING]',
   ].join('\n');
 }

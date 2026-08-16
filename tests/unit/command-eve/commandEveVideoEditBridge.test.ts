@@ -190,6 +190,9 @@ describe('an edit reaches the gateway from a handle AND a live permit', () => {
   it('sends the source, the inherited tier and the bearer — and persists the result beside the source', async () => {
     // THE POSITIVE CONTROL for every "no fetch" assertion below.
     const source = seedSource();
+    const sourceManifestBefore = structuredClone(
+      listVideoArtifactRecords(dataRoot, 'conv-1').find((record) => record.id === source.id)
+    );
     const handle = ensureVideoEditCapabilityHandle(dataRoot, source)!;
     const permit = permitForTurn('gib der Aubergine ein Gesicht');
     let sentAuth = '';
@@ -225,8 +228,17 @@ describe('an edit reaches the gateway from a handle AND a live permit', () => {
     // ACCEPTANCE 5: beside the source, with the parent recorded.
     expect(result.conversationArtifact.payload.origin_capability).toBe('video_edit');
     expect(result.conversationArtifact.payload.parent_artifact_id).toBe('video-aubergine');
+    expect(result.conversationArtifact.payload.hash).toBe(editedBody.artifact.sha256);
+    expect(result.conversationArtifact.conversation_id).toBe(source.conversation_id);
+    expect(result.conversationArtifact.id).not.toBe(source.id);
     expect(result.sourceArtifactId).toBe('video-aubergine');
-    // The source file is untouched: a failed or unwanted edit is never data loss.
+    const recordsAfter = listVideoArtifactRecords(dataRoot, 'conv-1');
+    expect(recordsAfter.find((record) => record.id === source.id)).toEqual(sourceManifestBefore);
+    expect(recordsAfter.find((record) => record.id === result.conversationArtifact.id)).toEqual(
+      result.conversationArtifact
+    );
+    // Both source bytes AND its durable manifest are untouched: a failed or
+    // unwanted edit is never data loss, and provenance lives only on the child.
     expect(fs.readFileSync(sourcePath)).toEqual(SOURCE_BYTES);
 
     // A path, never a data: URL — the chat renderer resolves an https URL or a
@@ -441,6 +453,22 @@ describe('every refusal happens before the network', () => {
       permit: permitForTurn('mach es bunt'),
       instruction: 'mach es bunt',
     });
+    expect(result.ok === false && result.reasonCode).toBe('video-edit-handle-unknown');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('refuses a valid handle and permit from another seat-scoped data root', async () => {
+    const source = seedSource();
+    const handle = ensureVideoEditCapabilityHandle(dataRoot, source)!;
+    const permit = permitForTurn('mach es bunt');
+    const foreignSeatRoot = path.join(dataRoot, 'seat-b');
+    fs.mkdirSync(foreignSeatRoot, { recursive: true });
+
+    const { result, fetchImpl } = await refuseWith(
+      { handle, permit, instruction: 'mach es bunt' },
+      { getDataPath: () => foreignSeatRoot, getActiveSeatId: () => 'seat-b' }
+    );
+
     expect(result.ok === false && result.reasonCode).toBe('video-edit-handle-unknown');
     expect(fetchImpl).not.toHaveBeenCalled();
   });

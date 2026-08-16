@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  parseComposerArtifactFollowupTarget,
   renderComposerArtifactFollowupRoutingContext,
   resolveComposerArtifactReference,
 } from '@/common/config/composerArtifactReferenceCore';
@@ -65,7 +66,7 @@ describe('resolveComposerArtifactReference', () => {
 });
 
 describe('renderComposerArtifactFollowupRoutingContext', () => {
-  it('exposes only fixed available modes and the native clarify handoff contract', () => {
+  it('exposes exact pathless candidates and the native clarify handoff contract', () => {
     const context = renderComposerArtifactFollowupRoutingContext([
       resolveComposerArtifactReference(artifact({ payload: { path: '/private/report.docx', title: 'Secret title' } })),
       resolveComposerArtifactReference(
@@ -74,24 +75,61 @@ describe('renderComposerArtifactFollowupRoutingContext', () => {
       resolveComposerArtifactReference(artifact({ id: 'artifact-3', payload: { path: '/private/model.xlsx' } })),
     ]);
 
-    expect(context).toContain('available_modes=image,word,excel');
-    expect(context).toContain('[command_eve:artifact_followup:<mode>]');
+    expect(context).toContain('candidate=artifact_id:artifact-1;mode:word');
+    expect(context).toContain('candidate=artifact_id:artifact-2;mode:image');
+    expect(context).toContain('candidate=artifact_id:artifact-3;mode:excel');
+    expect(context).toContain('[command_eve:artifact_followup:<mode>][command_eve:artifact_target:<artifact_id>]');
     expect(context).toContain('call clarify once');
     expect(context).toContain('exactly one action choice');
+    expect(context).toContain('Never infer a target from keywords');
     expect(context).toContain('grants no permit or spend authority');
-    expect(context.length).toBeLessThan(600);
-    expect(context).not.toContain('artifact-');
+    expect(context).not.toContain('latest matching');
     expect(context).not.toContain('/private/');
     expect(context).not.toContain('Secret title');
   });
 
-  it('deduplicates and orders only the four complete follow-up lanes', () => {
-    const values = ['excel', 'pdf', 'image', 'presentation', 'word', 'video', 'image'].map((mode) => ({ mode }));
-    expect(renderComposerArtifactFollowupRoutingContext(values)).toContain('available_modes=image,video,word,excel');
+  it('deduplicates ids, keeps registry order and bounds the candidate set', () => {
+    const values = Array.from({ length: 20 }, (_, index) => ({
+      artifactId: `artifact-${index}`,
+      mode: ['excel', 'pdf', 'image', 'presentation', 'word', 'video'][index % 6],
+    }));
+    values.splice(1, 0, { artifactId: 'artifact-0', mode: 'video' });
+    const context = renderComposerArtifactFollowupRoutingContext(values);
+
+    expect(context.match(/^candidate=/gm)).toHaveLength(12);
+    expect(context.match(/artifact_id:artifact-0/g)).toHaveLength(1);
+    expect(context).toContain('candidate=artifact_id:artifact-5;mode:video');
+    expect(context.length).toBeLessThan(5000);
   });
 
   it('is absent for empty, malformed and unsupported candidates', () => {
     expect(renderComposerArtifactFollowupRoutingContext([])).toBe('');
-    expect(renderComposerArtifactFollowupRoutingContext([null, { mode: 'audio' }, { mode: '../image' }])).toBe('');
+    expect(
+      renderComposerArtifactFollowupRoutingContext([
+        null,
+        { artifactId: 'artifact-1', mode: 'audio' },
+        { artifactId: '../escape', mode: 'image' },
+        { mode: 'video' },
+      ])
+    ).toBe('');
+  });
+});
+
+describe('parseComposerArtifactFollowupTarget', () => {
+  it('returns the exact opaque target and strips only its internal marker', () => {
+    expect(
+      parseComposerArtifactFollowupTarget(
+        '[command_eve:artifact_target:video-child_1] Soll ich die Aubergine lächeln lassen?'
+      )
+    ).toEqual({ artifactId: 'video-child_1', question: 'Soll ich die Aubergine lächeln lassen?' });
+  });
+
+  it.each([
+    'Soll ich es ändern?',
+    '[command_eve:artifact_target:../escape] Soll ich es ändern?',
+    '[command_eve:artifact_target:artifact-1]',
+    `[command_eve:artifact_target:${'a'.repeat(257)}] Frage?`,
+  ])('refuses a missing, unsafe, empty or unbounded target marker', (value) => {
+    expect(parseComposerArtifactFollowupTarget(value)).toBeNull();
   });
 });

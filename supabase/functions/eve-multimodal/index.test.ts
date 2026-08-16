@@ -6,6 +6,7 @@ import { assertEquals } from 'jsr:@std/assert@1';
 import crypto from 'node:crypto';
 import { buildLicensePayloadV2, signLicenseCode } from '../_shared/license-code-core.ts';
 import { handleEveMultimodal as handleEveMultimodalRaw, resetEveMultimodalPublicKeyCacheForTests } from './index.ts';
+import { buildXaiVideoEditBody, videoEditDebitExternalRef, videoPromptSha256 } from './video-generation-core.ts';
 
 const NOWISH = '2026-07-07T12:00:00.000Z';
 let testSigningKeyPem: string | null = null;
@@ -112,6 +113,41 @@ function disablePdfOcrProvider(): void {
 function enablePdfOcrProvider(apiKey = 'test-openrouter-key'): void {
   Deno.env.set('EVE_MULTIMODAL_ENABLE_OPENROUTER_PDF_OCR', 'true');
   Deno.env.set('OPENROUTER_API_KEY', apiKey);
+}
+
+function disableVideoEditProvider(): void {
+  Deno.env.delete('EVE_MULTIMODAL_ENABLE_XAI_VIDEO_EDIT');
+  Deno.env.delete('XAI_API_KEY');
+}
+
+function enableVideoEditProvider(apiKey = 'test-xai-key'): void {
+  Deno.env.set('EVE_MULTIMODAL_ENABLE_XAI_VIDEO_EDIT', 'true');
+  Deno.env.set('XAI_API_KEY', apiKey);
+}
+
+const VIDEO_EDIT_PROMPT = 'Gib der Aubergine ein Gesicht.';
+const VIDEO_EDIT_MP4_BYTES = new Uint8Array([
+  0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 0, 0, 0x69, 0x73, 0x6f, 0x6d, 0x6d, 0x70, 0x34,
+  0x32,
+]);
+const VIDEO_EDIT_MP4_BASE64 = btoa(String.fromCharCode(...VIDEO_EDIT_MP4_BYTES));
+const VIDEO_EDIT_MP4_SHA256 = crypto.createHash('sha256').update(VIDEO_EDIT_MP4_BYTES).digest('hex');
+
+function videoEditRequestBody(sourceDurationSeconds = 8.7, requestId = 'video-edit-cost-wall') {
+  return {
+    provider: 'xai',
+    capability: 'video_edit',
+    privacyLane: 'cloud_auto',
+    directProviderKeyPresentInDesktop: false,
+    requestId,
+    video_edit: {
+      prompt: VIDEO_EDIT_PROMPT,
+      tier: 'fast',
+      source_base64: VIDEO_EDIT_MP4_BASE64,
+      source_sha256: VIDEO_EDIT_MP4_SHA256,
+      source_duration_seconds: sourceDurationSeconds,
+    },
+  };
 }
 
 function buildPdfFixture(pageCount: number): Uint8Array {
@@ -830,5 +866,173 @@ Deno.test('rejects a replayed PDF OCR reservation before a second provider call'
     assertEquals(body.reason, 'request-replayed');
   } finally {
     disablePdfOcrProvider();
+  }
+});
+
+Deno.test('video edit provider wire is exactly model, prompt and video', () => {
+  const sourceDataUrl = `data:video/mp4;base64,${VIDEO_EDIT_MP4_BASE64}`;
+  const body = buildXaiVideoEditBody({
+    model: 'grok-imagine-video',
+    prompt: VIDEO_EDIT_PROMPT,
+    sourceDataUrl,
+  });
+
+  assertEquals(Object.keys(body).toSorted(), ['model', 'prompt', 'video']);
+  assertEquals(body, {
+    model: 'grok-imagine-video',
+    prompt: VIDEO_EDIT_PROMPT,
+    video: { url: sourceDataUrl },
+  });
+  assertEquals(Object.keys(body.video as Record<string, unknown>).toSorted(), ['url']);
+});
+
+Deno.test('video edit idempotency includes source SHA but not arrival path', () => {
+  const identity = {
+    tenantId: '00000000-0000-4000-8000-000000000001',
+    promptSha256: videoPromptSha256(VIDEO_EDIT_PROMPT),
+    tierId: 'fast' as const,
+    sourceSha256: VIDEO_EDIT_MP4_SHA256,
+  };
+  const costWallRef = videoEditDebitExternalRef(identity);
+  const hermesToolRef = videoEditDebitExternalRef(identity);
+  const otherSourceRef = videoEditDebitExternalRef({ ...identity, sourceSha256: 'f'.repeat(64) });
+
+  assertEquals(costWallRef, hermesToolRef);
+  assertEquals(costWallRef === otherSourceRef, false);
+});
+
+Deno.test('video edit refuses a source over 8.7 seconds before debit, usage or provider', async () => {
+  try {
+    enableVideoEditProvider();
+    let debitCalls = 0;
+    let usageCalls = 0;
+    let fetchCalls = 0;
+    let reversalCalls = 0;
+
+    const response = await handleEveMultimodal(request(videoEditRequestBody(8.7001)), {
+      commitVideoDebit: () => {
+        debitCalls += 1;
+        throw new Error('over-ceiling source reached debit');
+      },
+      reservePdfOcrUsage: () => {
+        usageCalls += 1;
+        throw new Error('over-ceiling source reached usage accounting');
+      },
+      fetch: () => {
+        fetchCalls += 1;
+        throw new Error('over-ceiling source reached provider');
+      },
+      reverseVideoDebit: () => {
+        reversalCalls += 1;
+        return Promise.resolve({ ok: true });
+      },
+    });
+    const body = await response.json();
+
+    assertEquals(response.status, 400);
+    assertEquals(body.reason, 'video-edit-request-invalid');
+    assertEquals(debitCalls, 0);
+    assertEquals(usageCalls, 0);
+    assertEquals(fetchCalls, 0);
+    assertEquals(reversalCalls, 0);
+  } finally {
+    disableVideoEditProvider();
+  }
+});
+
+Deno.test('dual video edit arrivals apply one debit and make one provider call', async () => {
+  try {
+    enableVideoEditProvider();
+    const debitRefs: string[] = [];
+    const appliedRefs = new Set<string>();
+    let appliedDebits = 0;
+    let usageCalls = 0;
+    let providerCalls = 0;
+    let reversalCalls = 0;
+    let providerEntered!: () => void;
+    let releaseProvider!: () => void;
+    const providerEnteredPromise = new Promise<void>((resolve) => {
+      providerEntered = resolve;
+    });
+    const providerReleasePromise = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+
+    const deps: HandlerDeps = {
+      commitVideoDebit: (input) => {
+        debitRefs.push(input.externalRef);
+        if (appliedRefs.has(input.externalRef)) {
+          return Promise.resolve({
+            status: 'already' as const,
+            entitlementId: input.expectedEntitlementId ?? TEST_ENTITLEMENT_ID,
+            externalRef: input.externalRef,
+          });
+        }
+        appliedRefs.add(input.externalRef);
+        appliedDebits += 1;
+        return Promise.resolve({
+          status: 'applied' as const,
+          entitlementId: input.expectedEntitlementId ?? TEST_ENTITLEMENT_ID,
+          externalRef: input.externalRef,
+          fromAllowance: 1200,
+          fromPurchased: 0,
+        });
+      },
+      reverseVideoDebit: () => {
+        reversalCalls += 1;
+        return Promise.resolve({ ok: true });
+      },
+      reservePdfOcrUsage: () => {
+        usageCalls += 1;
+        return allowPdfOcrUsage();
+      },
+      fetch: async (input, init) => {
+        providerCalls += 1;
+        assertEquals(String(input), 'https://api.x.ai/v1/videos/edits');
+        const providerBody = JSON.parse(String(observedFetchInit(init).body));
+        assertEquals(Object.keys(providerBody).toSorted(), ['model', 'prompt', 'video']);
+        assertEquals(providerBody, {
+          model: 'grok-imagine-video',
+          prompt: VIDEO_EDIT_PROMPT,
+          video: { url: `data:video/mp4;base64,${VIDEO_EDIT_MP4_BASE64}` },
+        });
+        providerEntered();
+        await providerReleasePromise;
+        return new Response('synthetic provider failure', { status: 503 });
+      },
+    };
+
+    const firstResponsePromise = handleEveMultimodal(request(videoEditRequestBody(8.7, 'video-edit-cost-wall')), deps);
+    await providerEnteredPromise;
+
+    const secondResponse = await handleEveMultimodal(
+      request(videoEditRequestBody(8.7, 'video-edit-hermes-tool')),
+      deps
+    );
+    const secondBody = await secondResponse.json();
+    const expectedDebitRef = videoEditDebitExternalRef({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      promptSha256: videoPromptSha256(VIDEO_EDIT_PROMPT),
+      tierId: 'fast',
+      sourceSha256: VIDEO_EDIT_MP4_SHA256,
+    });
+
+    assertEquals(secondResponse.status, 409);
+    assertEquals(secondBody.reason, 'request-replayed');
+    assertEquals(debitRefs, [expectedDebitRef, expectedDebitRef]);
+    assertEquals(appliedDebits, 1);
+    assertEquals(usageCalls, 1);
+    assertEquals(providerCalls, 1);
+    assertEquals(reversalCalls, 0);
+
+    releaseProvider();
+    const firstResponse = await firstResponsePromise;
+    const firstBody = await firstResponse.json();
+    assertEquals(firstResponse.status, 502);
+    assertEquals(firstBody.reason, 'provider-error');
+    assertEquals(reversalCalls, 1);
+    assertEquals(providerCalls, 1);
+  } finally {
+    disableVideoEditProvider();
   }
 });

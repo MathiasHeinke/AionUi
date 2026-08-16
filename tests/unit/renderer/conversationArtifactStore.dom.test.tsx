@@ -63,6 +63,28 @@ const imageArtifact: IConversationArtifact = {
   updated_at: 1000,
 };
 
+const editedVideoChild: IConversationArtifact = {
+  id: 'video-edit-child',
+  conversation_id: 'conv-1',
+  kind: 'video',
+  status: 'active',
+  payload: {
+    artifact_type: 'video',
+    title: 'Edited video',
+    description: '720p · 5s',
+    path: '/private/videos/conv-1/video-edit-child.mp4',
+    mime_type: 'video/mp4',
+    hash: 'e'.repeat(64),
+    size: 24,
+    duration_seconds: 5,
+    origin_capability: 'video_edit',
+    parent_artifact_id: 'video-source',
+    tier_id: 'fast',
+  },
+  created_at: 2000,
+  updated_at: 2000,
+};
+
 const ArtifactIds: React.FC = () => {
   const artifacts = useConversationArtifacts();
   return <div data-testid='provider-ids'>{artifacts.map((a) => a.id).join(',')}</div>;
@@ -91,6 +113,30 @@ describe('shared conversation artifact store (MAT-1773)', () => {
     // Two subscribers, one lifecycle: the durable sources are read ONCE.
     expect(listArtifactsInvokeMock).toHaveBeenCalledTimes(1);
     expect(imageArtifactsListInvokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('registers one durable edit child with provenance in both chat and the right-rail store', async () => {
+    videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [editedVideoChild] });
+
+    const rightRail = renderHook(() => useConversationArtifactsById('conv-1'));
+    render(
+      <ConversationArtifactProvider conversation_id='conv-1'>
+        <ArtifactIds />
+      </ConversationArtifactProvider>
+    );
+
+    await waitFor(() => expect(screen.getByTestId('provider-ids').textContent).toBe('video-edit-child'));
+    expect(rightRail.result.current).toHaveLength(1);
+    expect(rightRail.result.current[0]).toMatchObject({
+      id: 'video-edit-child',
+      conversation_id: 'conv-1',
+      payload: {
+        hash: 'e'.repeat(64),
+        origin_capability: 'video_edit',
+        parent_artifact_id: 'video-source',
+      },
+    });
+    expect(videoArtifactsListInvokeMock).toHaveBeenCalledTimes(1);
   });
 
   it('notifies every subscriber reactively when an artifact is staged outside React', async () => {
