@@ -56,6 +56,9 @@ function setup(mode: CommandEveOfficeArtifactMode = 'word') {
   let seatRevision = 7;
   let processNonce = 'a'.repeat(64);
   let processId = 1001;
+  // The fixture's pid is synthetic, so liveness must be stated rather than
+  // probed against whatever real process happens to own that number.
+  let processAlive = true;
   const authority = async (conversationId: string) => ({
     status: 'ready' as const,
     backendPort: 18181,
@@ -76,6 +79,7 @@ function setup(mode: CommandEveOfficeArtifactMode = 'word') {
     getActiveSeatContextRevision: () => seatRevision,
     getProcessNonceSha256: () => processNonce,
     getProcessId: () => processId,
+    isProcessAlive: () => processAlive,
     resolveAuthority: authority,
   };
   const store = () =>
@@ -102,6 +106,9 @@ function setup(mode: CommandEveOfficeArtifactMode = 'word') {
     },
     setProcessId: (next: number) => {
       processId = next;
+    },
+    setProcessAlive: (next: boolean) => {
+      processAlive = next;
     },
   };
 }
@@ -1242,6 +1249,96 @@ describe('Office artifact lineage Main', () => {
     expect(restarted).toMatchObject({ pendingOperations: 0, persisted: 0 });
     expect(restartFetch).not.toHaveBeenCalled();
     expect(fixture.store().listOfficeArtifacts('seat-office', 'conv-1')).toEqual([]);
+  });
+
+  it('seals an operation from a dead boot as terminally abandoned instead of leaving it pending forever', async () => {
+    const fixture = setup('word');
+    const begun = await beginCommandEveOfficeArtifactOperation(
+      fixture.dataPath,
+      { conversationId: 'conv-1', requestId: 'queue-quit-before-reconcile', action: 'create', mode: 'word' },
+      fixture.beginDeps
+    );
+    expect(begun.status).toBe('ready');
+    if (begun.status !== 'ready') return;
+    const operationId = commandEveOfficeOperationIdForRequest('queue-quit-before-reconcile');
+    const resultPath = path.join(fixture.workspace, 'quit-result.docx');
+    fs.writeFileSync(resultPath, WORD_PACKAGE);
+
+    // Main quit after Hermes wrote the file but before the reconcile: a new boot
+    // with a new pid/nonce can never satisfy the fence for this operation.
+    fixture.setProcessId(2002);
+    fixture.setProcessNonce('b'.repeat(64));
+    fixture.setProcessAlive(false);
+
+    const afterRestart = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
+      ...fixture.runtimeDeps,
+      fetchTranscript: async () => transcript(begun.marker, resultPath),
+    });
+    expect(afterRestart).toMatchObject({ abandoned: 1, pendingOperations: 0, persisted: 0, refused: [] });
+    const sealed = fixture.store().readOfficeOperationAbandonment('seat-office', 'conv-1', operationId);
+    expect(sealed).toMatchObject({ operation_id: operationId, reason: 'process-boot-gone' });
+
+    // The fence is untouched: the sealed operation is still never authorized,
+    // and sealing is idempotent across later boots.
+    fixture.setProcessId(3003);
+    fixture.setProcessNonce('c'.repeat(64));
+    const laterBoot = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
+      ...fixture.runtimeDeps,
+      fetchTranscript: async () => transcript(begun.marker, resultPath),
+    });
+    expect(laterBoot).toMatchObject({ abandoned: 0, pendingOperations: 0, persisted: 0, refused: [] });
+    expect(fixture.store().listOfficeArtifacts('seat-office', 'conv-1')).toEqual([]);
+    // The paid bytes are still on disk under their original name: sealing marks
+    // the operation terminal, it never deletes the user's file.
+    expect(fs.readFileSync(resultPath)).toEqual(WORD_PACKAGE);
+  });
+
+  it('never seals an operation whose boot is still alive under a stale seat revision', async () => {
+    const fixture = setup('word');
+    const begun = await beginCommandEveOfficeArtifactOperation(
+      fixture.dataPath,
+      { conversationId: 'conv-1', requestId: 'queue-live-boot', action: 'create', mode: 'word' },
+      fixture.beginDeps
+    );
+    expect(begun.status).toBe('ready');
+    if (begun.status !== 'ready') return;
+    const operationId = commandEveOfficeOperationIdForRequest('queue-live-boot');
+    const resultPath = path.join(fixture.workspace, 'live-result.docx');
+    fs.writeFileSync(resultPath, WORD_PACKAGE);
+
+    // Same live Main, only the seat revision moved on. This work may still
+    // complete, so sealing it would strand a recoverable operation.
+    fixture.setRevision(8);
+    const stale = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
+      ...fixture.runtimeDeps,
+      fetchTranscript: async () => transcript(begun.marker, resultPath),
+    });
+    expect(stale).toMatchObject({ abandoned: 0, refused: [] });
+    expect(fixture.store().readOfficeOperationAbandonment('seat-office', 'conv-1', operationId)).toBeNull();
+  });
+
+  it('never seals a completed operation, so a delivered artifact keeps its completion receipt', async () => {
+    const fixture = setup('word');
+    const completed = await persistCompletedCreateArtifact(fixture, 'queue-completed-then-restart');
+    const operationId = commandEveOfficeOperationIdForRequest('queue-completed-then-restart');
+
+    fixture.setProcessId(2002);
+    fixture.setProcessNonce('b'.repeat(64));
+    fixture.setProcessAlive(false);
+
+    const afterRestart = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
+      ...fixture.runtimeDeps,
+      fetchTranscript: async () => [],
+    });
+    expect(afterRestart).toMatchObject({ abandoned: 0, refused: [] });
+    expect(fixture.store().readOfficeOperationAbandonment('seat-office', 'conv-1', operationId)).toBeNull();
+    expect(fixture.store().readOfficeOperationCompletion('seat-office', 'conv-1', operationId)).not.toBeNull();
+    expect(
+      fixture
+        .store()
+        .listOfficeArtifacts('seat-office', 'conv-1')
+        .map((artifact) => artifact.id)
+    ).toEqual([completed.artifact.id]);
   });
 
   it('refuses symlink, hardlink, outside-workspace and malformed result sources', async () => {

@@ -85,6 +85,23 @@ export type CommandEveOfficeOperationCompletionRecord = {
   completed_at: number;
 };
 
+/**
+ * The ONLY reason an operation may be sealed without a result: the Main boot
+ * that owned it is provably gone, so the process fence can never authorize it
+ * again. Naming the reason keeps "abandoned" from becoming a silent catch-all.
+ */
+export const COMMAND_EVE_OFFICE_ABANDONMENT_REASON = 'process-boot-gone' as const;
+
+export type CommandEveOfficeOperationAbandonmentRecord = {
+  version: typeof COMMAND_EVE_OFFICE_LINEAGE_VERSION;
+  operation_id: string;
+  seat_id: string;
+  seat_context_revision: number;
+  conversation_id: string;
+  reason: typeof COMMAND_EVE_OFFICE_ABANDONMENT_REASON;
+  abandoned_at: number;
+};
+
 export type CommandEveOfficeResultCandidate = {
   operationId: string;
   messageId: string;
@@ -153,6 +170,15 @@ const OPERATION_COMPLETION_KEYS = [
   'completed_at',
 ] as const;
 const OPERATION_COMPLETION_ARTIFACT_KEYS = ['artifact_id', 'payload_sha256'] as const;
+const OPERATION_ABANDONMENT_KEYS = [
+  'version',
+  'operation_id',
+  'seat_id',
+  'seat_context_revision',
+  'conversation_id',
+  'reason',
+  'abandoned_at',
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -504,4 +530,28 @@ export function parseCommandEveOfficeOperationCompletionRecord(
     throw new Error('invalid Office operation completion membership');
   }
   return value as CommandEveOfficeOperationCompletionRecord;
+}
+
+export function parseCommandEveOfficeOperationAbandonmentRecord(
+  value: unknown
+): CommandEveOfficeOperationAbandonmentRecord {
+  if (!isRecord(value) || !hasExactKeys(value, OPERATION_ABANDONMENT_KEYS)) {
+    throw new Error('invalid Office operation abandonment');
+  }
+  if (
+    value.version !== COMMAND_EVE_OFFICE_LINEAGE_VERSION ||
+    !isCommandEveOfficeOperationId(value.operation_id) ||
+    typeof value.seat_id !== 'string' ||
+    !isSafeOpaqueRecordId(value.seat_id) ||
+    !Number.isSafeInteger(value.seat_context_revision) ||
+    Number(value.seat_context_revision) < 0 ||
+    typeof value.conversation_id !== 'string' ||
+    !isSafeOpaqueRecordId(value.conversation_id) ||
+    value.reason !== COMMAND_EVE_OFFICE_ABANDONMENT_REASON ||
+    !Number.isSafeInteger(value.abandoned_at) ||
+    Number(value.abandoned_at) < 0
+  ) {
+    throw new Error('invalid Office operation abandonment fields');
+  }
+  return value as CommandEveOfficeOperationAbandonmentRecord;
 }

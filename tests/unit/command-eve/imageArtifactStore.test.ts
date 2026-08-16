@@ -50,6 +50,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   fs.rmSync(dataRoot, { recursive: true, force: true });
 });
 
@@ -73,9 +74,70 @@ describe('STAGE', () => {
     stage();
     expect(listActiveImageArtifacts(dataRoot, 'conv-1', SEAT_A)).toEqual([]);
   });
+
+  it('fsyncs every persisted record and blob so a crash after rename cannot empty a paid artifact', () => {
+    const fsyncedFiles: string[] = [];
+    const openPaths = new Map<number, string>();
+    const realOpen = fs.openSync;
+    const realFsync = fs.fsyncSync;
+    vi.spyOn(fs, 'openSync').mockImplementation(((file: fs.PathLike, ...rest: unknown[]) => {
+      const descriptor = (realOpen as (...args: unknown[]) => number)(file, ...rest);
+      openPaths.set(descriptor, String(file));
+      return descriptor;
+    }) as typeof fs.openSync);
+    vi.spyOn(fs, 'fsyncSync').mockImplementation((descriptor: number) => {
+      fsyncedFiles.push(openPaths.get(descriptor) ?? '');
+      realFsync(descriptor);
+    });
+
+    const { record, handle } = stage();
+    const storeRoot = path.join(dataRoot, 'command-eve-managed-image-artifacts');
+    const recordFile = path.join(storeRoot, 'records', `${record.id}.json`);
+    const blob = path.join(storeRoot, 'blobs', record.id);
+    const stagedFile = path.join(
+      storeRoot,
+      'staged',
+      `${crypto.createHash('sha256').update(handle).digest('hex')}.json`
+    );
+
+    // Bytes and manifest each reach the platter while still under their temp
+    // name, and the directory that publishes the link/rename is fsynced too —
+    // otherwise the publish itself can be lost and the artifact reads as absent
+    // while its paid bytes are orphaned.
+    const fsyncedUnderTempName = (file: string): boolean =>
+      fsyncedFiles.some((synced) => path.basename(synced).includes(path.basename(file)));
+    expect(fsyncedUnderTempName(blob)).toBe(true);
+    expect(fsyncedUnderTempName(recordFile)).toBe(true);
+    expect(fsyncedUnderTempName(stagedFile)).toBe(true);
+    expect(fsyncedFiles).toContain(path.dirname(blob));
+    expect(fsyncedFiles).toContain(path.dirname(recordFile));
+    expect(fsyncedFiles).toContain(path.dirname(stagedFile));
+  });
+
+  it('leaves no readable record when the blob write fails, so a record never outlives its bytes', () => {
+    const realWrite = fs.writeFileSync;
+    vi.spyOn(fs, 'writeFileSync').mockImplementation(((file: unknown, data: unknown, options?: unknown) => {
+      if (typeof file === 'number') throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+      return (realWrite as (...args: unknown[]) => void)(file, data, options);
+    }) as typeof fs.writeFileSync);
+
+    const staged = stageGeneratedImageArtifact(dataRoot, {
+      capturedSeatId: SEAT_A,
+      bytes: BYTES,
+      mimeType: 'image/png',
+      tier: 'quality',
+      model: 'gemini',
+      resolution: '1K',
+      aspectRatio: '16:9',
+      promptSha256: PROMPT_SHA,
+    });
+
+    expect(staged).toBeUndefined();
+    expect(fs.existsSync(path.join(dataRoot, 'command-eve-managed-image-artifacts', 'records'))).toBe(false);
+  });
 });
 
-describe('LEGACY SEAT MIGRATION', () => {
+describe('LEGACY SEAT RESOLUTION', () => {
   function recordPath(artifactId: string): string {
     return path.join(dataRoot, 'command-eve-managed-image-artifacts', 'records', `${artifactId}.json`);
   }
@@ -89,7 +151,7 @@ describe('LEGACY SEAT MIGRATION', () => {
     return JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
   }
 
-  it('migrates only completely missing record and staged seat_id values to seat-1, once', () => {
+  it('resolves a seat-less record and staged entry as seat-1 without ever writing on the read path', () => {
     const { record, handle } = stage();
     const recordFile = recordPath(record.id);
     const stagedFile = stagedPath(handle);
@@ -99,17 +161,22 @@ describe('LEGACY SEAT MIGRATION', () => {
     delete legacyStaged.seat_id;
     fs.writeFileSync(recordFile, `${JSON.stringify(legacyRecord, null, 2)}\n`);
     fs.writeFileSync(stagedFile, `${JSON.stringify(legacyStaged, null, 2)}\n`);
+    const recordBytesBefore = fs.readFileSync(recordFile, 'utf8');
+    const stagedBytesBefore = fs.readFileSync(stagedFile, 'utf8');
+    const recordInodeBefore = fs.statSync(recordFile).ino;
+    const stagedInodeBefore = fs.statSync(stagedFile).ino;
 
     expect(readImageArtifactRecordByStagedHandle(dataRoot, handle, LEGACY_SEAT)?.seat_id).toBe(LEGACY_SEAT);
-    expect(readJson(recordFile).seat_id).toBe(LEGACY_SEAT);
-    expect(readJson(stagedFile).seat_id).toBe(LEGACY_SEAT);
     expect(readImageArtifactRecordById(dataRoot, record.id, SEAT_A)).toBeUndefined();
 
-    const recordAfterFirstRead = fs.readFileSync(recordFile, 'utf8');
-    const stagedAfterFirstRead = fs.readFileSync(stagedFile, 'utf8');
-    expect(readImageArtifactRecordByStagedHandle(dataRoot, handle, LEGACY_SEAT)?.seat_id).toBe(LEGACY_SEAT);
-    expect(fs.readFileSync(recordFile, 'utf8')).toBe(recordAfterFirstRead);
-    expect(fs.readFileSync(stagedFile, 'utf8')).toBe(stagedAfterFirstRead);
+    // A paid record must never be rewritten by a reader: the legacy default is
+    // applied in memory only, so a crash mid-read can never blank the file.
+    expect(fs.readFileSync(recordFile, 'utf8')).toBe(recordBytesBefore);
+    expect(fs.readFileSync(stagedFile, 'utf8')).toBe(stagedBytesBefore);
+    expect(readJson(recordFile).seat_id).toBeUndefined();
+    expect(readJson(stagedFile).seat_id).toBeUndefined();
+    expect(fs.statSync(recordFile).ino).toBe(recordInodeBefore);
+    expect(fs.statSync(stagedFile).ino).toBe(stagedInodeBefore);
   });
 
   it.each([null, '', '../seat', 7])('fails closed for an explicit malformed record seat_id: %j', (seatId) => {
