@@ -34,7 +34,7 @@ const e2eStateSandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-sta
 const e2eStateFile = path.join(e2eStateSandboxDir, 'extension-states.json');
 export const E2E_USER_DATA_DIR = path.join(e2eStateSandboxDir, 'user-data');
 const e2eHomeDir = path.join(e2eStateSandboxDir, 'home');
-export const E2E_BACKEND_DATA_DIR = path.join(e2eUserDataDir, 'command-eve');
+export const E2E_BACKEND_DATA_DIR = path.join(E2E_USER_DATA_DIR, 'command-eve');
 // Keep Playwright's process-attach budget aligned with the documented cold
 // runtime-install window below. After any failed test Playwright starts a new
 // worker with a pristine HOME, so a 60s launch timeout turns one known failure
@@ -225,6 +225,7 @@ async function launchApp(): Promise<ElectronApplication> {
     AIONUI_DISABLE_AUTO_UPDATE: '1',
     AIONUI_DISABLE_DEVTOOLS: '1',
     AIONUI_E2E_TEST: '1',
+    COMMAND_EVE_E2E_PACKAGED_ATTACHMENT: '1',
     AIONUI_MULTI_INSTANCE: '1',
     AIONUI_CDP_PORT: '0',
     // Every bridge mutation must stay inside the disposable E2E sandbox even
