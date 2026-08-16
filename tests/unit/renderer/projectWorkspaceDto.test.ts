@@ -7,6 +7,8 @@ import {
   type RawProjectWorkspaceClient,
 } from '@/renderer/pages/projects/client';
 import {
+  parseProjectWorkspaceAssignmentPreviewResult,
+  parseProjectWorkspaceAssignmentReceiptDTO,
   parseProjectWorkspaceArtifactDTO,
   parseProjectWorkspaceListDTO,
   parseProjectWorkspacePreviewDTO,
@@ -31,6 +33,7 @@ const project = {
 const listResponse = {
   seat_label: 'Founder',
   seat_context_revision: 4,
+  catalog_revision: 3,
   automatic_creation_enabled: false,
   placements: [
     {
@@ -98,6 +101,15 @@ const rawClient = (overrides: Partial<RawProjectWorkspaceClient> = {}): RawProje
   undo: async () => receiptResponse,
   bindConversation: async () => receiptResponse,
   unbindConversation: async () => receiptResponse,
+  previewAssignment: async () => ({ ok: false, reason_code: 'stale_snapshot' }),
+  commitAssignment: async () => ({
+    receipt_id: 'receipt-2',
+    outcome: 'rejected',
+    completed_at: 100,
+    assignment: 'keep',
+    reason_code: 'stale_snapshot',
+    safe_follow_ups: [],
+  }),
   ...overrides,
 });
 
@@ -154,6 +166,98 @@ describe('project workspace DTO boundary', () => {
     await expect(client.reveal({ project_id: 'project-1', seat_context_revision: 1 })).rejects.toThrow(
       UnsafeProjectWorkspaceDTOError
     );
+  });
+
+  it('accepts the path-free assignment preview and finalized receipt contract', async () => {
+    const assignmentPreview = {
+      ok: true as const,
+      preview: {
+        preview_id: 'preview-assignment-1',
+        preview_revision: 1,
+        conversation_id: 'conversation-1',
+        artifact_id: 'artifact-1',
+        artifact_updated_at: 20,
+        catalog_revision: 3,
+        binding_revision: 2,
+        choice: { kind: 'keep' as const, title: 'Market launch final' },
+        current_project: { ...project, allowed_actions: [...project.allowed_actions] },
+        target_project: {
+          ...project,
+          title: 'Market launch final',
+          allowed_actions: [...project.allowed_actions],
+        },
+        will_change: true,
+        expires_at: 500,
+      },
+    };
+    const finalizedArtifact = artifact(21, 'completed');
+    finalizedArtifact.payload.assignment_finalized_at = 101;
+    const assignmentReceipt = {
+      receipt_id: 'receipt-assignment-1',
+      outcome: 'completed' as const,
+      completed_at: 101,
+      assignment: 'keep' as const,
+      project: { ...project, title: 'Market launch final', allowed_actions: [...project.allowed_actions] },
+      artifact: finalizedArtifact,
+      safe_follow_ups: ['reveal'],
+    };
+    const client = createSafeProjectWorkspaceClient(
+      rawClient({
+        previewAssignment: async () => assignmentPreview,
+        commitAssignment: async () => assignmentReceipt,
+      })
+    );
+
+    expect(parseProjectWorkspaceAssignmentPreviewResult(assignmentPreview)).toEqual(assignmentPreview);
+    expect(parseProjectWorkspaceAssignmentReceiptDTO(assignmentReceipt).artifact?.payload.assignment_finalized_at).toBe(
+      101
+    );
+    await expect(
+      client.previewAssignment({
+        conversation_id: 'conversation-1',
+        artifact_id: 'artifact-1',
+        expected_artifact_updated_at: 20,
+        expected_catalog_revision: 3,
+        expected_current_project_revision: 3,
+        seat_context_revision: 4,
+        choice: { kind: 'keep', title: 'Market launch final' },
+      })
+    ).resolves.toEqual(assignmentPreview);
+  });
+
+  it('rejects forged assignment preview and receipt fields at the client boundary', async () => {
+    const client = createSafeProjectWorkspaceClient(
+      rawClient({
+        previewAssignment: async () => ({ ok: true, preview: { private_path: '/Users/person/project' } }),
+        commitAssignment: async () => ({
+          receipt_id: 'receipt-assignment-1',
+          outcome: 'completed',
+          completed_at: 101,
+          assignment: 'keep',
+          artifact: { ...artifact(21, 'completed'), journal: 'forged' },
+          safe_follow_ups: [],
+        }),
+      })
+    );
+    await expect(
+      client.previewAssignment({
+        conversation_id: 'conversation-1',
+        artifact_id: 'artifact-1',
+        expected_artifact_updated_at: 20,
+        expected_catalog_revision: 3,
+        expected_current_project_revision: 3,
+        seat_context_revision: 4,
+        choice: { kind: 'keep' },
+      })
+    ).rejects.toThrow(UnsafeProjectWorkspaceDTOError);
+    await expect(
+      client.commitAssignment({
+        preview_id: 'preview-assignment-1',
+        expected_preview_revision: 1,
+        seat_context_revision: 4,
+        idempotency_key: '6f1cb6cb-07fe-4b9e-85f9-2b63cc94d4d3',
+      })
+    ).rejects.toThrow(UnsafeProjectWorkspaceDTOError);
   });
 });
 

@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => {
     undo: makeProvider(),
     bindConversation: makeProvider(),
     unbindConversation: makeProvider(),
+    previewAssignment: makeProvider(),
+    commitAssignment: makeProvider(),
     artifactChanged: {
       on: vi.fn((callback: (payload: unknown) => void) => {
         artifactListenerRef.current = callback;
@@ -60,6 +62,27 @@ describe('rawProjectWorkspaceClient (S81 R1c)', () => {
       ['undo', mutation],
       ['bindConversation', { ...mutation, conversation_id: 'conv-1' }],
       ['unbindConversation', { ...mutation, conversation_id: 'conv-1' }],
+      [
+        'previewAssignment',
+        {
+          conversation_id: 'conv-1',
+          artifact_id: 'artifact-1',
+          expected_artifact_updated_at: 3,
+          expected_catalog_revision: 1,
+          expected_current_project_revision: 1,
+          seat_context_revision: 2,
+          choice: { kind: 'keep' },
+        },
+      ],
+      [
+        'commitAssignment',
+        {
+          preview_id: 'preview-1',
+          expected_preview_revision: 1,
+          seat_context_revision: 2,
+          idempotency_key: '44444444-4444-4444-8444-444444444444',
+        },
+      ],
     ] as const;
     for (const [method, request] of cases) {
       await (rawProjectWorkspaceClient[method] as (req: unknown) => Promise<unknown>)(request);

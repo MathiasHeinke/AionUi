@@ -20,4 +20,6 @@ export const rawProjectWorkspaceClient: RawProjectWorkspaceClient = {
   undo: (request) => ipcBridge.projectWorkspace.undo.invoke(request),
   bindConversation: (request) => ipcBridge.projectWorkspace.bindConversation.invoke(request),
   unbindConversation: (request) => ipcBridge.projectWorkspace.unbindConversation.invoke(request),
+  previewAssignment: (request) => ipcBridge.projectWorkspace.previewAssignment.invoke(request),
+  commitAssignment: (request) => ipcBridge.projectWorkspace.commitAssignment.invoke(request),
 };

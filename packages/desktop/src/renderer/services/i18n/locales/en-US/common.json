@@ -206,6 +206,14 @@
     "artifact": {
       "invalidTitle": "Project update hidden",
       "invalidDescription": "This project update contained unsupported or sensitive fields and was not rendered.",
+      "autoAssigned": "Project assigned automatically",
+      "assignmentFinalized": "Project assignment finalized",
+      "assigned": "Assigned",
+      "finalized": "Finalized",
+      "review": "Review assignment",
+      "changeAssignment": "Change assignment",
+      "revealFailed": "The project could not be opened in Finder.",
+      "technicalDetails": "Technical details",
       "receipt": "Receipt: {{receipt}}",
       "followUps": "Available safe follow-ups",
       "state": {
@@ -215,6 +223,39 @@
         "completed": "Completed",
         "rejected": "Rejected",
         "recovery_required": "Recovery required"
+      }
+    },
+    "assignment": {
+      "title": "Finalize project",
+      "description": "EVE assigned this chat to a project automatically. Review or change the suggestion before finalizing it.",
+      "choiceLabel": "Choose project assignment",
+      "current": "Current",
+      "afterwards": "Afterwards",
+      "search": "Search projects",
+      "noProjects": "No other active projects found.",
+      "later": "Later",
+      "preview": "Review preview",
+      "previewSummary": "Project assignment preview",
+      "previewChange": "This assignment will be applied",
+      "previewKeep": "This assignment will be confirmed",
+      "commit": "Finalize assignment",
+      "reloadCurrent": "Load current state",
+      "temporaryTarget": "Temporary area",
+      "recovery": {
+        "title": "Reload current state",
+        "description": "The assignment changed after the preview. Load the current state before deciding again."
+      },
+      "keep": {
+        "title": "Keep this project",
+        "description": "Confirm the assignment and adjust the project name if needed."
+      },
+      "project": {
+        "title": "Assign another project",
+        "description": "Choose an existing project from this seat."
+      },
+      "temporary": {
+        "title": "Continue temporarily",
+        "description": "Remove the project assignment without deleting user data."
       }
     },
     "chatIntent": {

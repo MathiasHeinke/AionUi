@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7745
+# entries: 7806
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -643,9 +643,13 @@ copy	1	de-DE/common.json	Aktualisiere und arbeite im bestehenden Projekt weiter.
 copy	1	de-DE/common.json	Aktualisieren
 copy	1	de-DE/common.json	Aktualisiert
 copy	1	de-DE/common.json	Aktualisiert {{date}}
+copy	1	de-DE/common.json	Aktuell
+copy	1	de-DE/common.json	Aktuellen Stand laden
+copy	1	de-DE/common.json	Aktuellen Stand neu laden
 copy	1	de-DE/common.json	Aktueller Seat: {{seat}}
 copy	1	de-DE/common.json	Alle Aufgaben pausieren
 copy	1	de-DE/common.json	Alle Bereiche
+copy	1	de-DE/common.json	Anderem Projekt zuordnen
 copy	1	de-DE/common.json	Antworten
 copy	1	de-DE/common.json	Anzeigen
 copy	1	de-DE/common.json	App neu starten
@@ -663,6 +667,7 @@ copy	1	de-DE/common.json	Benutzerdefiniert
 copy	1	de-DE/common.json	Bereich und Stammordner
 copy	1	de-DE/common.json	Beschreibe Ziel, Arbeit und Grenzen des Projekts
 copy	1	de-DE/common.json	Bestehenden Ordner übernehmen
+copy	1	de-DE/common.json	Bestätige die Zuordnung und passe bei Bedarf den Projektnamen an.
 copy	1	de-DE/common.json	Bestätigen
 copy	1	de-DE/common.json	Bestätigung ausstehend
 copy	1	de-DE/common.json	Bildmodell
@@ -676,7 +681,9 @@ copy	1	de-DE/common.json	Command EVE hat vor der Erfolgsbestätigung gestoppt. K
 copy	1	de-DE/common.json	Command EVE macht nur den verifizierten letzten Vorgang für „{{title}}“ rückgängig. Geänderte Nutzerdaten werden niemals gelöscht.
 copy	1	de-DE/common.json	Command EVE neu starten
 copy	1	de-DE/common.json	Command EVE wurde geöffnet, aber das lokale AionCore-Backend kann auf dieser Linux-Version nicht ausgeführt werden. Bitte aktualisieren Sie auf eine unterstützte Linux-Distribution und starten Sie KI-Shell neu.
+copy	1	de-DE/common.json	Danach
 copy	1	de-DE/common.json	Das Command-EVE-Paket passt nicht zu diesem Mac
+copy	1	de-DE/common.json	Das Projekt konnte nicht im Finder geöffnet werden.
 copy	1	de-DE/common.json	Datei
 copy	1	de-DE/common.json	Dateien hinzufügen
 copy	1	de-DE/common.json	Dateien nach links scrollen
@@ -691,18 +698,23 @@ copy	1	de-DE/common.json	Diagnose speichern
 copy	1	de-DE/common.json	Die Command-EVE-Installation ist unvollständig
 copy	1	de-DE/common.json	Die Diagnose konnte nicht gespeichert werden.
 copy	1	de-DE/common.json	Die Diagnose wurde gespeichert.
+copy	1	de-DE/common.json	Die Zuordnung hat sich seit der Vorschau geändert. Lade den aktuellen Stand, bevor du erneut entscheidest.
 copy	1	de-DE/common.json	Die Zuordnung zum Projekt "{{title}}" muss wiederhergestellt werden
 copy	1	de-DE/common.json	Die automatische Projekterstellung bleibt bis zum Abschluss der Kalibrierung pausiert. Manuelles Erstellen und Übernehmen bleibt verfügbar.
 copy	1	de-DE/common.json	Die installierte AionCore-Komponente ist nicht mit dieser Version von Command EVE kompatibel. Laden Sie die neueste Version herunter und installieren Sie sie. Ihre lokalen Daten bleiben erhalten.
 copy	1	de-DE/common.json	Die native Ordnerauswahl gehört Command EVE. Diese Ansicht erhält nur eine sichere Anzeigevorschau, niemals den absoluten Pfad.
 copy	1	de-DE/common.json	Diese Projektaktualisierung enthielt nicht unterstützte oder sensible Felder und wurde nicht dargestellt.
+copy	1	de-DE/common.json	Diese Zuordnung wird bestätigt
+copy	1	de-DE/common.json	Diese Zuordnung wird übernommen
 copy	1	de-DE/common.json	Dieser Installation fehlen erforderliche lokale Ressourcen, daher kann AionCore nicht starten. Bitte laden Sie die neueste Version von Command EVE herunter und installieren Sie sie neu. Falls das Problem nach der Neuinstallation erneut auftritt, prüfen Sie, ob eine Sicherheits- oder Antivirensoftware AionCore in Quarantäne verschoben hat.
 copy	1	de-DE/common.json	Dieser Installation fehlen erforderliche lokale Runtime-Komponenten, daher kann {{resource}} nicht starten. Installieren Sie das neueste Command-EVE-Paket erneut. Falls der Fehler danach wieder auftritt, prüfen Sie, ob Sicherheitssoftware Komponenten von Command EVE blockiert hat.
 copy	1	de-DE/common.json	Dieser Ort gehört zu einem anderen Seat oder Bereich. Wähle einen Stammordner des aktiven Seats.
 copy	1	de-DE/common.json	Dieser Plan gehört zum vorherigen Seat. Aktualisiere und erstelle einen neuen Plan für den aktiven Seat.
 copy	1	de-DE/common.json	Dieses Command-EVE-Paket ist für {{packageArch}}, dieser Mac verwendet jedoch {{deviceArch}}. Laden und installieren Sie das Paket für {{expectedArch}}.
+copy	1	de-DE/common.json	Dieses Projekt behalten
 copy	1	de-DE/common.json	Dieses System wird vom mitgelieferten Backend nicht unterstützt
 copy	1	de-DE/common.json	Durchsuchen
+copy	1	de-DE/common.json	EVE hat diesen Chat automatisch einem Projekt zugeordnet. Prüfe den Vorschlag oder ändere ihn, bevor du ihn finalisierst.
 copy	1	de-DE/common.json	Eigentumskonflikt
 copy	1	de-DE/common.json	Ein Projekt darf nicht in einem anderen verwalteten Projekt liegen. Wähle einen anderen Stammordner.
 copy	1	de-DE/common.json	Ein anderer Command-EVE-Prozess verwendet bereits den lokalen KI-Dienst. Schließen Sie die andere Instanz und starten Sie Command EVE anschließend erneut. Ihre Chats werden dadurch nicht gelöscht.
@@ -724,6 +736,7 @@ copy	1	de-DE/common.json	Fehler
 copy	1	de-DE/common.json	Fehlerbehebung
 copy	1	de-DE/common.json	Fehlerdetails
 copy	1	de-DE/common.json	Fehlgeschlagen
+copy	1	de-DE/common.json	Finalisiert
 copy	1	de-DE/common.json	Fremdes Projektmanifest
 copy	1	de-DE/common.json	Geschäftlich
 copy	1	de-DE/common.json	Gesperrt
@@ -742,6 +755,7 @@ copy	1	de-DE/common.json	In Tray minimieren
 copy	1	de-DE/common.json	In diesem Bereich gibt es noch keine passenden Projekte. Erstelle ein Projekt in einem privaten, geschäftlichen oder eigenen Bereich oder übernimm sicher einen bestehenden Ordner.
 copy	1	de-DE/common.json	Jetzt erstellen
 copy	1	de-DE/common.json	Jetzt übernehmen
+copy	1	de-DE/common.json	Keine weiteren aktiven Projekte gefunden.
 copy	1	de-DE/common.json	Konflikt im Stammordner
 copy	1	de-DE/common.json	Kontakt
 copy	1	de-DE/common.json	Kopieren
@@ -755,6 +769,7 @@ copy	1	de-DE/common.json	Letzten zulässigen Vorgang rückgängig machen?
 copy	1	de-DE/common.json	Löschen
 copy	1	de-DE/common.json	Löschen bestätigen
 copy	1	de-DE/common.json	Löschen fehlgeschlagen
+copy	1	de-DE/common.json	Löse die Projektzuordnung, ohne Nutzerdaten zu löschen.
 copy	1	de-DE/common.json	MAX
 copy	1	de-DE/common.json	Mehr
 copy	1	de-DE/common.json	Mehr anzeigen
@@ -780,13 +795,16 @@ copy	1	de-DE/common.json	Privat
 copy	1	de-DE/common.json	Projekt
 copy	1	de-DE/common.json	Projekt aktualisiert
 copy	1	de-DE/common.json	Projekt archivieren?
+copy	1	de-DE/common.json	Projekt automatisch zugeordnet
 copy	2	de-DE/common.json	Projekt erstellen
 copy	1	de-DE/common.json	Projekt existiert bereits
+copy	1	de-DE/common.json	Projekt finalisieren
 copy	1	de-DE/common.json	Projekt ist gerade gesperrt
 copy	1	de-DE/common.json	Projekt wird erstellt
 copy	1	de-DE/common.json	Projektaktualisierung ausgeblendet
 copy	1	de-DE/common.json	Projektberechtigung konnte nicht geprüft werden
 copy	2	de-DE/common.json	Projekte
+copy	1	de-DE/common.json	Projekte durchsuchen
 copy	1	de-DE/common.json	Projekte nach Bereich filtern
 copy	1	de-DE/common.json	Projekte sind noch nicht verfügbar
 copy	1	de-DE/common.json	Projekte werden geladen…
@@ -799,6 +817,8 @@ copy	1	de-DE/common.json	Projektplan konnte nicht übernommen werden
 copy	1	de-DE/common.json	Projektprofil (optional)
 copy	1	de-DE/common.json	Projektsicherheitsprüfung fehlgeschlagen
 copy	1	de-DE/common.json	Projekttitel
+copy	1	de-DE/common.json	Projektzuordnung auswählen
+copy	1	de-DE/common.json	Projektzuordnung finalisiert
 copy	1	de-DE/common.json	Qualität
 copy	1	de-DE/common.json	Reparieren
 copy	1	de-DE/common.json	Schließen
@@ -808,12 +828,15 @@ copy	1	de-DE/common.json	Senden
 copy	1	de-DE/common.json	Skills
 copy	1	de-DE/common.json	Speichern
 copy	1	de-DE/common.json	Speichern fehlgeschlagen
+copy	1	de-DE/common.json	Später
 copy	1	de-DE/common.json	Standard
 copy	1	de-DE/common.json	Standardmodell
 copy	1	de-DE/common.json	Status
 copy	1	de-DE/common.json	Stoppen
 copy	1	de-DE/common.json	System
-copy	1	de-DE/common.json	Technische Details
+copy	2	de-DE/common.json	Technische Details
+copy	1	de-DE/common.json	Temporär weiterarbeiten
+copy	1	de-DE/common.json	Temporärer Bereich
 copy	1	de-DE/common.json	Unbekannter Fehler
 copy	1	de-DE/common.json	Unterhaltung dem Projekt "{{title}}" zugeordnet
 copy	1	de-DE/common.json	Verfügbare sichere Folgeschritte
@@ -822,6 +845,8 @@ copy	1	de-DE/common.json	Version
 copy	1	de-DE/common.json	Vom Gerät hochladen
 copy	1	de-DE/common.json	Vor dem Erstellen prüfen
 copy	1	de-DE/common.json	Vorschau
+copy	1	de-DE/common.json	Vorschau der Projektzuordnung
+copy	1	de-DE/common.json	Vorschau prüfen
 copy	1	de-DE/common.json	Vorwärts
 copy	1	de-DE/common.json	Website
 copy	1	de-DE/common.json	Wiederherstellen
@@ -829,9 +854,14 @@ copy	2	de-DE/common.json	Wiederherstellung erforderlich
 copy	1	de-DE/common.json	Wiederherstellung ist erforderlich
 copy	1	de-DE/common.json	Wird hochgeladen...
 copy	1	de-DE/common.json	Wird verarbeitet...
+copy	1	de-DE/common.json	Wähle ein bestehendes Projekt dieses Seats.
 copy	1	de-DE/common.json	Wähle einen anderen verifizierten Projektstammordner. Es wurden keine Dateien verändert.
 copy	1	de-DE/common.json	Zu den Einstellungen
+copy	1	de-DE/common.json	Zugeordnet
+copy	1	de-DE/common.json	Zuordnung finalisieren
+copy	1	de-DE/common.json	Zuordnung prüfen
 copy	1	de-DE/common.json	Zuordnung zum Projekt "{{title}}" fehlgeschlagen
+copy	1	de-DE/common.json	Zuordnung ändern
 copy	1	de-DE/common.json	Zurück
 copy	1	de-DE/common.json	Zurück zum Chat
 copy	1	de-DE/common.json	ca. {{credits1k}} Credits (1K) · {{credits2k}} (2K)
@@ -4493,6 +4523,7 @@ copy	1	en-US/common.json	Added
 copy	1	en-US/common.json	Adopt existing folder
 copy	1	en-US/common.json	Adopt folder
 copy	1	en-US/common.json	Adopt now
+copy	1	en-US/common.json	Afterwards
 copy	1	en-US/common.json	Agent Mode
 copy	1	en-US/common.json	AionCore could not start. Restart Command EVE. If the problem returns, review the diagnostics before reinstalling the app.
 copy	1	en-US/common.json	AionUi opened, but the local AionCore backend cannot run on this Linux version. Please upgrade to a supported Linux distribution and restart AionUi.
@@ -4504,6 +4535,8 @@ copy	1	en-US/common.json	Archive
 copy	1	en-US/common.json	Archive project?
 copy	1	en-US/common.json	Archive “{{title}}”? Its files remain untouched and the project can be restored.
 copy	1	en-US/common.json	Archived
+copy	1	en-US/common.json	Assign another project
+copy	1	en-US/common.json	Assigned
 copy	1	en-US/common.json	Automatic project creation is paused until its calibration is complete. Manual Create and Adopt remain available.
 copy	1	en-US/common.json	Available safe follow-ups
 copy	1	en-US/common.json	Awaiting confirmation
@@ -4514,9 +4547,12 @@ copy	1	en-US/common.json	Browse
 copy	1	en-US/common.json	Business
 copy	1	en-US/common.json	Cancel
 copy	1	en-US/common.json	Cancel upload
+copy	1	en-US/common.json	Change assignment
 copy	1	en-US/common.json	Check Update
+copy	1	en-US/common.json	Choose an existing project from this seat.
 copy	1	en-US/common.json	Choose another verified project root. No files were changed.
 copy	1	en-US/common.json	Choose folder
+copy	1	en-US/common.json	Choose project assignment
 copy	1	en-US/common.json	Clear
 copy	1	en-US/common.json	Close
 copy	1	en-US/common.json	Collapse
@@ -4527,7 +4563,9 @@ copy	1	en-US/common.json	Command EVE will undo only the verified latest operatio
 copy	1	en-US/common.json	Completed
 copy	1	en-US/common.json	Confirm
 copy	1	en-US/common.json	Confirm Delete
+copy	1	en-US/common.json	Confirm the assignment and adjust the project name if needed.
 copy	1	en-US/common.json	Contact
+copy	1	en-US/common.json	Continue temporarily
 copy	1	en-US/common.json	Conversation assigned to project "{{title}}"
 copy	1	en-US/common.json	Conversation assignment to project "{{title}}" requires recovery
 copy	1	en-US/common.json	Copied
@@ -4539,6 +4577,7 @@ copy	1	en-US/common.json	Create now
 copy	2	en-US/common.json	Create project
 copy	1	en-US/common.json	Created successfully
 copy	1	en-US/common.json	Creating project
+copy	1	en-US/common.json	Current
 copy	1	en-US/common.json	Current seat: {{seat}}
 copy	1	en-US/common.json	Custom
 copy	1	en-US/common.json	Default
@@ -4551,6 +4590,7 @@ copy	1	en-US/common.json	Diagnostics were saved.
 copy	1	en-US/common.json	Did you mean one of these projects: {{titles}}? Tell me which one you meant.
 copy	1	en-US/common.json	Download
 copy	1	en-US/common.json	Download latest
+copy	1	en-US/common.json	EVE assigned this chat to a project automatically. Review or change the suggestion before finalizing it.
 copy	1	en-US/common.json	Edit
 copy	1	en-US/common.json	Edit metadata
 copy	1	en-US/common.json	Edit project metadata
@@ -4565,6 +4605,9 @@ copy	1	en-US/common.json	Failed to save
 copy	1	en-US/common.json	Fast
 copy	1	en-US/common.json	File
 copy	1	en-US/common.json	Filter projects by realm
+copy	1	en-US/common.json	Finalize assignment
+copy	1	en-US/common.json	Finalize project
+copy	1	en-US/common.json	Finalized
 copy	1	en-US/common.json	Folder
 copy	1	en-US/common.json	Foreign project manifest
 copy	1	en-US/common.json	Forward
@@ -4574,6 +4617,9 @@ copy	1	en-US/common.json	Hide
 copy	1	en-US/common.json	Hide to Tray
 copy	1	en-US/common.json	Image model
 copy	1	en-US/common.json	Import
+copy	1	en-US/common.json	Keep this project
+copy	1	en-US/common.json	Later
+copy	1	en-US/common.json	Load current state
 copy	1	en-US/common.json	Loading projects…
 copy	1	en-US/common.json	Locked
 copy	1	en-US/common.json	MAX
@@ -4584,6 +4630,7 @@ copy	1	en-US/common.json	Nested project blocked
 copy	1	en-US/common.json	New Chat
 copy	1	en-US/common.json	No change was made. Contact the operator with the safe receipt identifier.
 copy	1	en-US/common.json	No changes were made. Review a bounded repair or quarantine proposal.
+copy	1	en-US/common.json	No other active projects found.
 copy	1	en-US/common.json	No projects match this realm. Create a project in a private, business, or custom realm, or safely adopt an existing folder.
 copy	1	en-US/common.json	Open in Finder
 copy	1	en-US/common.json	Organize work by seat, realm, and project without exposing local folders to the chat surface.
@@ -4597,6 +4644,9 @@ copy	1	en-US/common.json	Private
 copy	1	en-US/common.json	Processing...
 copy	1	en-US/common.json	Project
 copy	1	en-US/common.json	Project already exists
+copy	1	en-US/common.json	Project assigned automatically
+copy	1	en-US/common.json	Project assignment finalized
+copy	1	en-US/common.json	Project assignment preview
 copy	1	en-US/common.json	Project authority could not be verified
 copy	1	en-US/common.json	Project format is newer
 copy	1	en-US/common.json	Project information changed
@@ -4625,7 +4675,9 @@ copy	1	en-US/common.json	Refresh to continue with the existing project. Command 
 copy	1	en-US/common.json	Refreshed
 copy	1	en-US/common.json	Rejected
 copy	1	en-US/common.json	Reload
+copy	1	en-US/common.json	Reload current state
 copy	1	en-US/common.json	Remove
+copy	1	en-US/common.json	Remove the project assignment without deleting user data.
 copy	1	en-US/common.json	Reply
 copy	1	en-US/common.json	Required runtime symbols: {{versions}}
 copy	1	en-US/common.json	Restart App
@@ -4633,8 +4685,10 @@ copy	1	en-US/common.json	Restart Command EVE
 copy	1	en-US/common.json	Restart to install v{{version}}
 copy	1	en-US/common.json	Restore
 copy	1	en-US/common.json	Retry
+copy	1	en-US/common.json	Review assignment
 copy	1	en-US/common.json	Review before creating
 copy	1	en-US/common.json	Review plan
+copy	1	en-US/common.json	Review preview
 copy	1	en-US/common.json	Root conflict
 copy	1	en-US/common.json	Running Tasks
 copy	1	en-US/common.json	Save
@@ -4642,6 +4696,7 @@ copy	1	en-US/common.json	Save diagnostics
 copy	1	en-US/common.json	Saved successfully
 copy	1	en-US/common.json	Scroll files left
 copy	1	en-US/common.json	Scroll files right
+copy	1	en-US/common.json	Search projects
 copy	1	en-US/common.json	Select
 copy	1	en-US/common.json	Send
 copy	1	en-US/common.json	Send diagnostics
@@ -4654,7 +4709,10 @@ copy	1	en-US/common.json	Stop
 copy	1	en-US/common.json	Success
 copy	1	en-US/common.json	System
 copy	1	en-US/common.json	Technical Details
+copy	1	en-US/common.json	Technical details
+copy	1	en-US/common.json	Temporary area
 copy	1	en-US/common.json	The Command EVE installation is incomplete
+copy	1	en-US/common.json	The assignment changed after the preview. Load the current state before deciding again.
 copy	1	en-US/common.json	The failure happened before commit and can be retried safely from a fresh preview.
 copy	1	en-US/common.json	The folder cannot be adopted automatically. Review a bounded repair or quarantine proposal.
 copy	1	en-US/common.json	The installed AionCore component is not compatible with this version of Command EVE. Download and install the latest version. Your local data will remain intact.
@@ -4662,8 +4720,11 @@ copy	1	en-US/common.json	The local AI service could not start
 copy	1	en-US/common.json	The local AI service is already in use
 copy	1	en-US/common.json	The local project service is not connected. Refresh after Command EVE has finished starting.
 copy	1	en-US/common.json	The native folder picker is owned by Command EVE. This screen receives only a safe display preview, never the absolute path.
+copy	1	en-US/common.json	The project could not be opened in Finder.
 copy	1	en-US/common.json	This Command EVE package does not match your Mac
 copy	1	en-US/common.json	This Command EVE package is for {{packageArch}}, but this Mac uses {{deviceArch}}. Download and install the {{expectedArch}} package.
+copy	1	en-US/common.json	This assignment will be applied
+copy	1	en-US/common.json	This assignment will be confirmed
 copy	1	en-US/common.json	This installation is missing required bundled runtime components, so {{resource}} cannot start. Reinstall the latest Command EVE package. If it still happens, check whether security software quarantined Command EVE components.
 copy	1	en-US/common.json	This installation is missing required local resources, so AionCore cannot start. Download and reinstall the latest Command EVE. If the issue returns, check whether security software quarantined AionCore.
 copy	1	en-US/common.json	This location belongs to another seat or realm. Choose a root owned by the active seat.

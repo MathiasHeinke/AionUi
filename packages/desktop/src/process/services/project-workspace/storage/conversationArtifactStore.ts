@@ -185,4 +185,43 @@ export class ProjectWorkspaceConversationArtifactStore {
       return next;
     });
   }
+
+  /**
+   * Revision-guarded correction of a completed assignment artifact.
+   *
+   * This is deliberately separate from the lifecycle transition graph: a
+   * user is finalizing the metadata of an already completed assignment, not
+   * reopening the original create/bind operation. The exact `updated_at`
+   * compare-and-swap prevents a stale dialog from overwriting a newer choice.
+   */
+  reviseCompleted(input: {
+    seat_id: string;
+    conversation_id: string;
+    artifact_id: string;
+    expected_updated_at: number;
+    payload: ProjectWorkspaceArtifactDTO;
+  }): ProjectWorkspaceConversationArtifactDTO {
+    return withExclusiveFileLock(this.lock(input.seat_id, input.conversation_id, input.artifact_id), () => {
+      const file = this.file(input.seat_id, input.conversation_id, input.artifact_id);
+      if (!fs.existsSync(file)) throw new ProjectWorkspaceError('catalog.revision-conflict');
+      const current = parseArtifact(readJson(file));
+      if (
+        current.updated_at !== input.expected_updated_at ||
+        current.payload.state !== 'completed' ||
+        input.payload.state !== 'completed' ||
+        input.payload.artifact_id !== input.artifact_id
+      ) {
+        throw new ProjectWorkspaceError('catalog.revision-conflict');
+      }
+      assertSafeValue(input.payload);
+      const next: ProjectWorkspaceConversationArtifactDTO = {
+        ...current,
+        payload: input.payload,
+        updated_at: Math.max(current.updated_at + 1, Math.trunc(this.now())),
+      };
+      writeJsonAtomic(file, next);
+      this.options.on_changed?.(next);
+      return next;
+    });
+  }
 }

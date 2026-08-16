@@ -206,6 +206,14 @@
     "artifact": {
       "invalidTitle": "Projektaktualisierung ausgeblendet",
       "invalidDescription": "Diese Projektaktualisierung enthielt nicht unterstützte oder sensible Felder und wurde nicht dargestellt.",
+      "autoAssigned": "Projekt automatisch zugeordnet",
+      "assignmentFinalized": "Projektzuordnung finalisiert",
+      "assigned": "Zugeordnet",
+      "finalized": "Finalisiert",
+      "review": "Zuordnung prüfen",
+      "changeAssignment": "Zuordnung ändern",
+      "revealFailed": "Das Projekt konnte nicht im Finder geöffnet werden.",
+      "technicalDetails": "Technische Details",
       "receipt": "Beleg: {{receipt}}",
       "followUps": "Verfügbare sichere Folgeschritte",
       "state": {
@@ -215,6 +223,39 @@
         "completed": "Abgeschlossen",
         "rejected": "Abgelehnt",
         "recovery_required": "Wiederherstellung erforderlich"
+      }
+    },
+    "assignment": {
+      "title": "Projekt finalisieren",
+      "description": "EVE hat diesen Chat automatisch einem Projekt zugeordnet. Prüfe den Vorschlag oder ändere ihn, bevor du ihn finalisierst.",
+      "choiceLabel": "Projektzuordnung auswählen",
+      "current": "Aktuell",
+      "afterwards": "Danach",
+      "search": "Projekte durchsuchen",
+      "noProjects": "Keine weiteren aktiven Projekte gefunden.",
+      "later": "Später",
+      "preview": "Vorschau prüfen",
+      "previewSummary": "Vorschau der Projektzuordnung",
+      "previewChange": "Diese Zuordnung wird übernommen",
+      "previewKeep": "Diese Zuordnung wird bestätigt",
+      "commit": "Zuordnung finalisieren",
+      "reloadCurrent": "Aktuellen Stand laden",
+      "temporaryTarget": "Temporärer Bereich",
+      "recovery": {
+        "title": "Aktuellen Stand neu laden",
+        "description": "Die Zuordnung hat sich seit der Vorschau geändert. Lade den aktuellen Stand, bevor du erneut entscheidest."
+      },
+      "keep": {
+        "title": "Dieses Projekt behalten",
+        "description": "Bestätige die Zuordnung und passe bei Bedarf den Projektnamen an."
+      },
+      "project": {
+        "title": "Anderem Projekt zuordnen",
+        "description": "Wähle ein bestehendes Projekt dieses Seats."
+      },
+      "temporary": {
+        "title": "Temporär weiterarbeiten",
+        "description": "Löse die Projektzuordnung, ohne Nutzerdaten zu löschen."
       }
     },
     "chatIntent": {

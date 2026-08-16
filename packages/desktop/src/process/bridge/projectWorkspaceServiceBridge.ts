@@ -4,6 +4,10 @@ import { bridge } from '@office-ai/platform';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { ProjectWorkspaceError } from '@/common/types/project-workspace/reasonCodes';
 import type {
+  ProjectWorkspaceAssignmentCommitRequest,
+  ProjectWorkspaceAssignmentPreviewRequest,
+  ProjectWorkspaceAssignmentPreviewResult,
+  ProjectWorkspaceAssignmentReceiptDTO,
   ProjectWorkspaceConversationArtifactDTO,
   ProjectWorkspaceEnsureAutoProjectRequest,
   ProjectWorkspaceEnsureAutoProjectResult,
@@ -45,7 +49,7 @@ import { getDataPath } from '@process/utils/utils';
  * S81/R1c — production wiring of the project workspace facade.
  *
  * Constructs the EAGER singletons (registry, services, facade) once at bridge
- * init and exposes the 14 request/response methods as `project-workspace.*`
+ * init and exposes the 18 request/response methods as `project-workspace.*`
  * providers. `subscribeConversationArtifacts` deliberately has NO provider —
  * artifact push flows through the `project-workspace.artifact-changed`
  * emitter with an already path-free payload.
@@ -57,6 +61,12 @@ type MutationIdentity = {
   seat_context_revision: number;
   idempotency_key: string;
 };
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function safeReceiptId(value: unknown): string {
+  return typeof value === 'string' && UUID_V4.test(value) ? value : crypto.randomUUID();
+}
 
 /**
  * IPC error mapping (Kimi F1 review finding). The platform's subscribe wrapper
@@ -85,6 +95,7 @@ function noticeListFor(error: unknown): ProjectWorkspaceListDTO {
   return {
     seat_label: getActiveSeatLabel(),
     seat_context_revision: getActiveSeatContextRevision(),
+    catalog_revision: 0,
     automatic_creation_enabled: false,
     placements: [],
     projects: [],
@@ -328,6 +339,35 @@ export function initProjectWorkspaceServiceBridge(): void {
         return await facade.unbindConversation(input);
       } catch (error) {
         return rejectedReceiptFor(error, input.idempotency_key);
+      }
+    });
+  bridge
+    .buildProvider<ProjectWorkspaceAssignmentPreviewResult, ProjectWorkspaceAssignmentPreviewRequest>(
+      'project-workspace.previewAssignment'
+    )
+    .provider(async (input) => {
+      try {
+        return { ok: true as const, preview: await facade.previewAssignment(input) };
+      } catch (error) {
+        return { ok: false as const, reason_code: toReasonCode(error) };
+      }
+    });
+  bridge
+    .buildProvider<ProjectWorkspaceAssignmentReceiptDTO, ProjectWorkspaceAssignmentCommitRequest>(
+      'project-workspace.commitAssignment'
+    )
+    .provider(async (input) => {
+      try {
+        return await facade.commitAssignment(input);
+      } catch (error) {
+        return {
+          receipt_id: safeReceiptId(input.idempotency_key),
+          outcome: 'rejected' as const,
+          completed_at: Date.now(),
+          assignment: 'keep' as const,
+          reason_code: toReasonCode(error),
+          safe_follow_ups: [],
+        };
       }
     });
   bridge

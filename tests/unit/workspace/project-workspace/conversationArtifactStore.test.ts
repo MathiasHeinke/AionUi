@@ -101,4 +101,58 @@ describe('ProjectWorkspaceConversationArtifactStore', () => {
       })
     ).toThrow();
   });
+
+  it('revises a completed artifact only at its exact persisted revision', () => {
+    const { store } = setup();
+    store.create({
+      seat_id: 'seat-alpha',
+      conversation_id: 'conversation-alpha',
+      artifact_id: payload.artifact_id,
+      payload,
+    });
+    const completed = store.transition({
+      seat_id: 'seat-alpha',
+      conversation_id: 'conversation-alpha',
+      artifact_id: payload.artifact_id,
+      expected_state: 'preview',
+      payload: { ...payload, state: 'completed' },
+    });
+    const revised = store.reviseCompleted({
+      seat_id: 'seat-alpha',
+      conversation_id: 'conversation-alpha',
+      artifact_id: payload.artifact_id,
+      expected_updated_at: completed.updated_at,
+      payload: { ...payload, state: 'completed', project_title: 'Final', assignment_finalized_at: 43 },
+    });
+    expect(revised.updated_at).toBeGreaterThan(completed.updated_at);
+    expect(revised.payload).toMatchObject({ project_title: 'Final', assignment_finalized_at: 43 });
+  });
+
+  it('rejects a stale completed-artifact rewrite without emitting', () => {
+    const { store, changed } = setup();
+    store.create({
+      seat_id: 'seat-alpha',
+      conversation_id: 'conversation-alpha',
+      artifact_id: payload.artifact_id,
+      payload,
+    });
+    const completed = store.transition({
+      seat_id: 'seat-alpha',
+      conversation_id: 'conversation-alpha',
+      artifact_id: payload.artifact_id,
+      expected_state: 'preview',
+      payload: { ...payload, state: 'completed' },
+    });
+    changed.mockClear();
+    expect(() =>
+      store.reviseCompleted({
+        seat_id: 'seat-alpha',
+        conversation_id: 'conversation-alpha',
+        artifact_id: payload.artifact_id,
+        expected_updated_at: completed.updated_at - 1,
+        payload: { ...payload, state: 'completed', project_title: 'Stale' },
+      })
+    ).toThrow();
+    expect(changed).not.toHaveBeenCalled();
+  });
 });

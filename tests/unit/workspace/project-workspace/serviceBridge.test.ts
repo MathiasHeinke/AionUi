@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ProjectWorkspaceError } from '@/common/types/project-workspace/reasonCodes';
 import type { ProjectWorkspaceListDTO } from '@/common/types/project-workspace/ui';
 
 const mocks = vi.hoisted(() => {
@@ -55,6 +54,8 @@ const EXPECTED_PROVIDER_CHANNELS = [
   'project-workspace.undo',
   'project-workspace.bindConversation',
   'project-workspace.unbindConversation',
+  'project-workspace.previewAssignment',
+  'project-workspace.commitAssignment',
   'project-workspace.chat-intent',
   'project-workspace.ensureAfterSuccessfulTurn',
 ] as const;
@@ -91,7 +92,7 @@ describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
     mocks.emitters.length = 0;
   });
 
-  it('registers all 15 providers under the exact channel names plus the artifact emitter', async () => {
+  it('registers all 18 providers under the exact channel names plus the artifact emitter', async () => {
     const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
     initProjectWorkspaceServiceBridge();
 
@@ -272,6 +273,31 @@ describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
         conversation_id: 'c1',
       })) as unknown[];
       expect(artifacts).toEqual([]);
+    });
+
+    it('maps a thrown assignment preview to a bounded reason result', async () => {
+      await initWithThrowingFacade('previewAssignment');
+      const result = (await providerFor('project-workspace.previewAssignment')({
+        conversation_id: 'c1',
+        artifact_id: 'a1',
+        expected_artifact_updated_at: 1,
+        expected_catalog_revision: 1,
+        seat_context_revision: 0,
+        choice: { kind: 'keep' },
+      })) as { ok: boolean; reason_code?: string };
+      expect(result).toEqual({ ok: false, reason_code: 'seat_changed' });
+    });
+
+    it('maps a thrown assignment commit to a rejected path-free receipt', async () => {
+      await initWithThrowingFacade('commitAssignment');
+      const result = (await providerFor('project-workspace.commitAssignment')({
+        preview_id: 'p1',
+        expected_preview_revision: 1,
+        seat_context_revision: 0,
+        idempotency_key: '11111111-1111-4111-8111-111111111111',
+      })) as { outcome: string; reason_code?: string; assignment: string };
+      expect(result).toMatchObject({ outcome: 'rejected', reason_code: 'seat_changed', assignment: 'keep' });
+      expect(JSON.stringify(result)).not.toContain(dataRoot);
     });
   });
 });

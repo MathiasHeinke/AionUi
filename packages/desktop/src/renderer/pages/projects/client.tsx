@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
+  parseProjectWorkspaceAssignmentPreviewResult,
+  parseProjectWorkspaceAssignmentReceiptDTO,
   parseProjectWorkspaceConversationArtifactDTO,
   parseProjectWorkspaceListDTO,
   parseProjectWorkspacePreviewDTO,
@@ -9,6 +11,10 @@ import {
 import type {
   ProjectSummaryDTO,
   ProjectWorkspaceAction,
+  ProjectWorkspaceAssignmentCommitRequest,
+  ProjectWorkspaceAssignmentPreviewRequest,
+  ProjectWorkspaceAssignmentPreviewResult,
+  ProjectWorkspaceAssignmentReceiptDTO,
   ProjectWorkspaceConversationArtifactDTO,
   ProjectWorkspaceListDTO,
   ProjectWorkspacePreviewDTO,
@@ -69,6 +75,10 @@ export type ProjectWorkspaceClient = {
   undo: (request: MutationIdentity) => Promise<ProjectWorkspaceReceiptDTO>;
   bindConversation: (request: MutationIdentity & { conversation_id: string }) => Promise<ProjectWorkspaceReceiptDTO>;
   unbindConversation: (request: MutationIdentity & { conversation_id: string }) => Promise<ProjectWorkspaceReceiptDTO>;
+  previewAssignment: (
+    request: ProjectWorkspaceAssignmentPreviewRequest
+  ) => Promise<ProjectWorkspaceAssignmentPreviewResult>;
+  commitAssignment: (request: ProjectWorkspaceAssignmentCommitRequest) => Promise<ProjectWorkspaceAssignmentReceiptDTO>;
 };
 
 export type RawProjectWorkspaceClient = {
@@ -97,6 +107,8 @@ export const unavailableProjectWorkspaceClient: ProjectWorkspaceClient = {
   undo: async () => unavailable(),
   bindConversation: async () => unavailable(),
   unbindConversation: async () => unavailable(),
+  previewAssignment: async () => unavailable(),
+  commitAssignment: async () => unavailable(),
 };
 
 const ProjectWorkspaceClientContext = createContext<ProjectWorkspaceClient>(unavailableProjectWorkspaceClient);
@@ -131,6 +143,9 @@ export const createSafeProjectWorkspaceClient = (raw: RawProjectWorkspaceClient)
   undo: async (request) => parseProjectWorkspaceReceiptDTO(await raw.undo(request)),
   bindConversation: async (request) => parseProjectWorkspaceReceiptDTO(await raw.bindConversation(request)),
   unbindConversation: async (request) => parseProjectWorkspaceReceiptDTO(await raw.unbindConversation(request)),
+  previewAssignment: async (request) =>
+    parseProjectWorkspaceAssignmentPreviewResult(await raw.previewAssignment(request)),
+  commitAssignment: async (request) => parseProjectWorkspaceAssignmentReceiptDTO(await raw.commitAssignment(request)),
 });
 
 export const ProjectWorkspaceClientProvider: React.FC<

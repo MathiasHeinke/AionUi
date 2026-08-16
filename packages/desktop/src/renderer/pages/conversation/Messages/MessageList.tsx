@@ -897,7 +897,7 @@ const MessageList: React.FC<{
           style={highlighted ? highlightStyle : undefined}
         >
           {item.artifact.kind === 'project_workspace' ? (
-            <ProjectWorkspaceCard payload={item.artifact.payload} />
+            <ProjectWorkspaceCard artifact={item.artifact} />
           ) : item.artifact.kind === 'cron_trigger' ? (
             <MessageCronTrigger artifact={item.artifact} />
           ) : item.artifact.kind === 'skill_suggest' ? (

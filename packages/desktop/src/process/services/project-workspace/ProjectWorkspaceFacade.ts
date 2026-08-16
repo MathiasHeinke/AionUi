@@ -7,6 +7,11 @@ import type { ProjectIntentPlan } from '@/common/types/project-workspace/intent'
 import type { ProjectCatalogRecord, RealmRecord, RootRecord } from '@/common/types/project-workspace/registry';
 import { ProjectWorkspaceError } from '@/common/types/project-workspace/reasonCodes';
 import type {
+  ProjectWorkspaceAssignmentChoice,
+  ProjectWorkspaceAssignmentCommitRequest,
+  ProjectWorkspaceAssignmentPreviewDTO,
+  ProjectWorkspaceAssignmentPreviewRequest,
+  ProjectWorkspaceAssignmentReceiptDTO,
   ProjectWorkspaceI18nRef,
   ProjectPlacementDTO,
   ProjectSummaryDTO,
@@ -30,6 +35,8 @@ import type { ProjectCreateResult, ProjectWorkspaceService } from './ProjectWork
 import { matchConversationCandidates, resolveProjectIntent } from './core/intentCore';
 import { mapProjectWorkspaceReason } from './core/lifecycleReasonCore';
 import type {
+  PortableProjectBinding,
+  ProjectBindingSnapshot,
   ProjectConversationMetadata,
   ProjectConversationMetadataClient,
 } from './runtime/conversationBindingClient';
@@ -39,7 +46,7 @@ import type { ProjectWorkspaceRegistryStore } from './storage/registryStore';
 import { PROJECT_SCAFFOLD_DIRECTORIES } from './templates/scaffold';
 
 /**
- * S81/R1b — main-side facade behind the renderer's 15-method project workspace
+ * S81/R1b — main-side facade behind the renderer's 18-method project workspace
  * client contract (renderer/pages/projects/client.tsx).
  *
  * SECURITY DOCTRINE:
@@ -125,6 +132,26 @@ type PreviewStashEntry = {
   directory?: string;
 };
 
+type AssignmentPreviewStashEntry = {
+  preview_revision: 1;
+  expires_at: number;
+  seat_id: string;
+  seat_context_revision: number;
+  conversation_id: string;
+  artifact_id: string;
+  artifact_updated_at: number;
+  catalog_revision: number;
+  current_binding: ProjectBindingSnapshot;
+  choice: ProjectWorkspaceAssignmentChoice;
+  target_binding: PortableProjectBinding | null;
+  current_project?: ProjectSummaryDTO;
+  target_project?: ProjectSummaryDTO;
+  committed?: {
+    idempotency_key: string;
+    receipt: ProjectWorkspaceAssignmentReceiptDTO;
+  };
+};
+
 type ArtifactListener = {
   conversation_id: string;
   listener: (artifact: ProjectWorkspaceConversationArtifactDTO) => void;
@@ -155,6 +182,55 @@ function deterministicUuid(seed: string): string {
   digest[8] = (digest[8] & 0x3f) | 0x80;
   const hex = digest.toString('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const SAFE_ASSIGNMENT_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/;
+const UNSAFE_ASSIGNMENT_TITLE =
+  /(?:^(?:file:\/\/|~(?:\/|\\)|\/|[a-z]:[\\/]|\\\\)|(?:^|\s)(?:\/Users\/|\/home\/|[a-z]:\\Users\\|\\\\[^\s\\]+\\[^\s\\]+))/i;
+
+function samePortableBinding(left: PortableProjectBinding | null, right: PortableProjectBinding | null): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function assertAssignmentRevision(value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0) throw new ProjectWorkspaceError('identity.invalid');
+}
+
+function assertAssignmentOpaqueId(value: string): void {
+  if (!SAFE_ASSIGNMENT_ID.test(value)) throw new ProjectWorkspaceError('identity.invalid');
+}
+
+function normalizeAssignmentChoice(value: ProjectWorkspaceAssignmentChoice): ProjectWorkspaceAssignmentChoice {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ProjectWorkspaceError('identity.invalid');
+  }
+  if (value.kind === 'keep') {
+    if (!Object.keys(value).every((key) => key === 'kind' || key === 'title')) {
+      throw new ProjectWorkspaceError('identity.invalid');
+    }
+    if (value.title === undefined) return { kind: 'keep' };
+    if (typeof value.title !== 'string') throw new ProjectWorkspaceError('identity.invalid');
+    const title = value.title.trim();
+    if (!title || title.length > 120 || title.includes('\0') || UNSAFE_ASSIGNMENT_TITLE.test(title)) {
+      throw new ProjectWorkspaceError('identity.invalid');
+    }
+    return { kind: 'keep', title };
+  }
+  if (value.kind === 'temporary') {
+    if (Object.keys(value).length !== 1) throw new ProjectWorkspaceError('identity.invalid');
+    return { kind: 'temporary' };
+  }
+  if (value.kind !== 'project' || Object.keys(value).length !== 3 || typeof value.project_id !== 'string') {
+    throw new ProjectWorkspaceError('identity.invalid');
+  }
+  assertAssignmentOpaqueId(value.project_id);
+  assertAssignmentRevision(value.expected_project_revision);
+  return {
+    kind: 'project',
+    project_id: value.project_id,
+    expected_project_revision: value.expected_project_revision,
+  };
 }
 
 /**
@@ -203,6 +279,7 @@ export class ProjectWorkspaceFacade {
   private readonly autoProjectTitleRereadDelayMs: number;
   private readonly revealInFolder: (absolutePath: string) => void;
   private readonly previews = new Map<string, PreviewStashEntry>();
+  private readonly assignmentPreviews = new Map<string, AssignmentPreviewStashEntry>();
   private readonly artifactListeners = new Set<ArtifactListener>();
 
   constructor(private readonly deps: ProjectWorkspaceFacadeDeps) {
@@ -224,6 +301,72 @@ export class ProjectWorkspaceFacade {
     const record = catalogs.projects.projects.find((candidate) => candidate.project_id === projectId);
     if (!record) throw new ProjectWorkspaceError('root.not-found');
     return record;
+  }
+
+  private assignmentBoundProject(
+    seatId: string,
+    projectId: string,
+    catalogs: ReturnType<ProjectWorkspaceRegistryStore['readSeatCatalogs']>
+  ): ProjectCatalogRecord {
+    const record = catalogs.projects.projects.find((candidate) => candidate.project_id === projectId);
+    const root = record ? catalogs.roots.roots.find((candidate) => candidate.root_id === record.root_id) : undefined;
+    const realm = record
+      ? catalogs.realms.realms.find((candidate) => candidate.realm_id === record.realm_id)
+      : undefined;
+    if (
+      !record ||
+      !root ||
+      !realm ||
+      record.seat_id !== seatId ||
+      root.realm_id !== record.realm_id ||
+      root.workspace_root_ref !== record.workspace_root_ref
+    ) {
+      throw new ProjectWorkspaceError('catalog.revision-conflict');
+    }
+    return record;
+  }
+
+  private activeAssignmentProject(
+    seatId: string,
+    projectId: string,
+    catalogs: ReturnType<ProjectWorkspaceRegistryStore['readSeatCatalogs']>
+  ): ProjectCatalogRecord {
+    const record = this.assignmentBoundProject(seatId, projectId, catalogs);
+    const root = catalogs.roots.roots.find((candidate) => candidate.root_id === record.root_id)!;
+    const realm = catalogs.realms.realms.find((candidate) => candidate.realm_id === record.realm_id)!;
+    if (record.status !== 'active' || root.status !== 'active' || realm.status !== 'active') {
+      throw new ProjectWorkspaceError('catalog.revision-conflict');
+    }
+    return record;
+  }
+
+  private assignmentArtifact(
+    seatId: string,
+    conversationId: string,
+    artifactId: string
+  ): ProjectWorkspaceConversationArtifactDTO {
+    const artifact = this.deps.artifact_store
+      .list(seatId, conversationId)
+      .find((candidate) => candidate.id === artifactId);
+    if (!artifact || artifact.conversation_id !== conversationId || artifact.payload.state !== 'completed') {
+      throw new ProjectWorkspaceError('catalog.revision-conflict');
+    }
+    return artifact;
+  }
+
+  private rejectedAssignmentReceipt(
+    receiptId: string,
+    assignment: ProjectWorkspaceAssignmentChoice['kind'],
+    reasonCode: ProjectWorkspaceUiReasonCode
+  ): ProjectWorkspaceAssignmentReceiptDTO {
+    return {
+      receipt_id: receiptId,
+      outcome: 'rejected',
+      completed_at: this.nowMs(),
+      assignment,
+      reason_code: reasonCode,
+      safe_follow_ups: [],
+    };
   }
 
   private summaryFor(
@@ -426,6 +569,7 @@ export class ProjectWorkspaceFacade {
     return {
       seat_label: this.deps.get_active_seat_label(),
       seat_context_revision: this.deps.get_active_seat_context_revision(),
+      catalog_revision: catalogs.projects.revision,
       automatic_creation_enabled: this.isAutoProjectPolicyActive(),
       placements,
       projects,
@@ -541,6 +685,266 @@ export class ProjectWorkspaceFacade {
   unbindConversation(request: MutationIdentity & { conversation_id: string }): Promise<ProjectWorkspaceReceiptDTO> {
     this.assertSeat(request.seat_context_revision);
     return this.deps.lifecycle.unbindConversation(request);
+  }
+
+  /**
+   * Build a revision-pinned assignment decision from trusted Main state.
+   * Renderer values are only compare tokens and an opaque choice; Main
+   * re-resolves the artifact, binding and project records before stashing the
+   * preview. No mutation occurs in this phase.
+   */
+  async previewAssignment(
+    request: ProjectWorkspaceAssignmentPreviewRequest
+  ): Promise<ProjectWorkspaceAssignmentPreviewDTO> {
+    this.assertSeat(request.seat_context_revision);
+    assertAssignmentOpaqueId(request.conversation_id);
+    assertAssignmentOpaqueId(request.artifact_id);
+    assertAssignmentRevision(request.expected_artifact_updated_at);
+    assertAssignmentRevision(request.expected_catalog_revision);
+    if (request.expected_current_project_revision !== undefined) {
+      assertAssignmentRevision(request.expected_current_project_revision);
+    }
+    const choice = normalizeAssignmentChoice(request.choice);
+    const seatId = this.deps.get_active_seat_id();
+    const artifact = this.assignmentArtifact(seatId, request.conversation_id, request.artifact_id);
+    if (artifact.updated_at !== request.expected_artifact_updated_at) {
+      throw new ProjectWorkspaceError('catalog.revision-conflict');
+    }
+    const catalogs = this.deps.registry.readSeatCatalogs(seatId);
+    if (catalogs.projects.revision !== request.expected_catalog_revision) {
+      throw new ProjectWorkspaceError('catalog.revision-conflict');
+    }
+    const metadata = await this.deps.binding_client.readMetadata(request.conversation_id);
+    this.assertSeat(request.seat_context_revision);
+    if (metadata.conversation_id !== request.conversation_id) {
+      throw new ProjectWorkspaceError('semantic.bundle-mismatch');
+    }
+
+    const currentRecord = metadata.binding
+      ? this.assignmentBoundProject(seatId, metadata.binding.project_id, catalogs)
+      : undefined;
+    if (
+      (currentRecord && request.expected_current_project_revision !== catalogs.projects.revision) ||
+      (!currentRecord && request.expected_current_project_revision !== undefined) ||
+      currentRecord?.workspace_root_ref !== metadata.binding?.workspace_root_ref ||
+      artifact.payload.project_id !== metadata.binding?.project_id
+    ) {
+      throw new ProjectWorkspaceError('catalog.revision-conflict');
+    }
+    if (choice.kind === 'keep' && choice.title !== undefined && !currentRecord) {
+      throw new ProjectWorkspaceError('identity.invalid');
+    }
+
+    const currentProject = currentRecord
+      ? this.summaryFor(currentRecord, catalogs, catalogs.projects.revision, 0)
+      : undefined;
+    let targetRecord: ProjectCatalogRecord | undefined;
+    if (choice.kind === 'keep') targetRecord = currentRecord;
+    if (choice.kind === 'project') {
+      if (choice.expected_project_revision !== catalogs.projects.revision) {
+        throw new ProjectWorkspaceError('catalog.revision-conflict');
+      }
+      targetRecord = this.activeAssignmentProject(seatId, choice.project_id, catalogs);
+    }
+    const targetProject = targetRecord
+      ? {
+          ...this.summaryFor(targetRecord, catalogs, catalogs.projects.revision, 0),
+          ...(choice.kind === 'keep' && choice.title ? { title: choice.title } : {}),
+        }
+      : undefined;
+    const targetBinding: PortableProjectBinding | null = targetRecord
+      ? { project_id: targetRecord.project_id, workspace_root_ref: targetRecord.workspace_root_ref }
+      : null;
+    const renameRequested =
+      choice.kind === 'keep' && choice.title !== undefined && choice.title !== currentRecord?.title;
+    const previewId = crypto.randomUUID();
+    const entry: AssignmentPreviewStashEntry = {
+      preview_revision: 1,
+      expires_at: this.nowMs() + this.previewTtlMs,
+      seat_id: seatId,
+      seat_context_revision: request.seat_context_revision,
+      conversation_id: request.conversation_id,
+      artifact_id: request.artifact_id,
+      artifact_updated_at: artifact.updated_at,
+      catalog_revision: catalogs.projects.revision,
+      current_binding: {
+        binding: metadata.binding,
+        project_binding_revision: metadata.project_binding_revision,
+        project_binding_receipt_id: metadata.project_binding_receipt_id,
+      },
+      choice,
+      target_binding: targetBinding,
+      ...(currentProject ? { current_project: currentProject } : {}),
+      ...(targetProject ? { target_project: targetProject } : {}),
+    };
+    this.assignmentPreviews.set(previewId, entry);
+    return {
+      preview_id: previewId,
+      preview_revision: entry.preview_revision,
+      conversation_id: entry.conversation_id,
+      artifact_id: entry.artifact_id,
+      artifact_updated_at: entry.artifact_updated_at,
+      catalog_revision: entry.catalog_revision,
+      binding_revision: entry.current_binding.project_binding_revision,
+      choice: entry.choice,
+      ...(entry.current_project ? { current_project: entry.current_project } : {}),
+      ...(entry.target_project ? { target_project: entry.target_project } : {}),
+      will_change: renameRequested || !samePortableBinding(entry.current_binding.binding, entry.target_binding),
+      expires_at: entry.expires_at,
+    };
+  }
+
+  /**
+   * Commit one final assignment without an unbind→bind gap. Reassignment uses
+   * AionCore's existing pair-CAS directly (`A -> B`); temporary mode is the
+   * same CAS with `next: null`. A keep+title decision reuses the existing
+   * journaled metadata mutation at the pinned project catalog revision.
+   */
+  async commitAssignment(
+    request: ProjectWorkspaceAssignmentCommitRequest
+  ): Promise<ProjectWorkspaceAssignmentReceiptDTO> {
+    const entry = this.assignmentPreviews.get(request.preview_id);
+    const assignment = entry?.choice.kind ?? 'keep';
+    if (!UUID_V4.test(request.idempotency_key)) {
+      return this.rejectedAssignmentReceipt(crypto.randomUUID(), assignment, 'invariant_failure');
+    }
+    if (!entry || entry.preview_revision !== request.expected_preview_revision || entry.expires_at < this.nowMs()) {
+      this.assignmentPreviews.delete(request.preview_id);
+      return this.rejectedAssignmentReceipt(request.idempotency_key, assignment, 'stale_snapshot');
+    }
+    if (entry.committed) {
+      return entry.committed.idempotency_key === request.idempotency_key
+        ? entry.committed.receipt
+        : this.rejectedAssignmentReceipt(request.idempotency_key, assignment, 'stale_snapshot');
+    }
+    this.assertSeat(request.seat_context_revision);
+    if (
+      entry.seat_id !== this.deps.get_active_seat_id() ||
+      entry.seat_context_revision !== request.seat_context_revision
+    ) {
+      throw new ProjectWorkspaceError('seat.changed');
+    }
+
+    const artifact = this.assignmentArtifact(entry.seat_id, entry.conversation_id, entry.artifact_id);
+    if (artifact.updated_at !== entry.artifact_updated_at) {
+      throw new ProjectWorkspaceError('catalog.revision-conflict');
+    }
+    const metadata = await this.deps.binding_client.readMetadata(entry.conversation_id);
+    this.assertSeat(request.seat_context_revision);
+    if (metadata.conversation_id !== entry.conversation_id) {
+      throw new ProjectWorkspaceError('semantic.bundle-mismatch');
+    }
+    const pairChanges = !samePortableBinding(entry.current_binding.binding, entry.target_binding);
+    const bindingStillPreviewed =
+      samePortableBinding(metadata.binding, entry.current_binding.binding) &&
+      metadata.project_binding_revision === entry.current_binding.project_binding_revision &&
+      metadata.project_binding_receipt_id === entry.current_binding.project_binding_receipt_id;
+    const bindingAlreadyCommitted =
+      pairChanges &&
+      samePortableBinding(metadata.binding, entry.target_binding) &&
+      metadata.project_binding_revision === entry.current_binding.project_binding_revision + 1 &&
+      metadata.project_binding_receipt_id === request.idempotency_key;
+    if (!bindingStillPreviewed && !bindingAlreadyCommitted) {
+      throw new ProjectWorkspaceError('catalog.revision-conflict');
+    }
+
+    let catalogs = this.deps.registry.readSeatCatalogs(entry.seat_id);
+    const renameTitle = entry.choice.kind === 'keep' ? entry.choice.title : undefined;
+    const currentProjectId = entry.current_binding.binding?.project_id;
+    const renameRequested =
+      renameTitle !== undefined && currentProjectId !== undefined && renameTitle !== entry.current_project?.title;
+    if (renameRequested) {
+      const renameReceipt = await this.deps.lifecycle.updateMetadata({
+        project_id: currentProjectId,
+        expected_revision: entry.catalog_revision,
+        seat_context_revision: request.seat_context_revision,
+        idempotency_key: request.idempotency_key,
+        title: renameTitle,
+      });
+      if (renameReceipt.outcome !== 'completed') {
+        return this.rejectedAssignmentReceipt(
+          request.idempotency_key,
+          assignment,
+          renameReceipt.reason_code ?? 'invariant_failure'
+        );
+      }
+      catalogs = this.deps.registry.readSeatCatalogs(entry.seat_id);
+      const renamed = catalogs.projects.projects.find((candidate) => candidate.project_id === currentProjectId);
+      if (!renamed || renamed.title !== renameTitle || catalogs.projects.revision !== entry.catalog_revision + 1) {
+        throw new ProjectWorkspaceError('semantic.bundle-mismatch');
+      }
+    } else if (catalogs.projects.revision !== entry.catalog_revision) {
+      throw new ProjectWorkspaceError('catalog.revision-conflict');
+    }
+
+    let targetRecord: ProjectCatalogRecord | undefined;
+    if (entry.target_binding) {
+      targetRecord = this.activeAssignmentProject(entry.seat_id, entry.target_binding.project_id, catalogs);
+      if (targetRecord.workspace_root_ref !== entry.target_binding.workspace_root_ref) {
+        throw new ProjectWorkspaceError('catalog.revision-conflict');
+      }
+    }
+    if (pairChanges && bindingStillPreviewed) {
+      await this.deps.binding_client.compareAndSwap({
+        conversation_id: entry.conversation_id,
+        expected: entry.current_binding.binding,
+        expected_project_binding_revision: entry.current_binding.project_binding_revision,
+        expected_project_binding_receipt_id: entry.current_binding.project_binding_receipt_id,
+        project_binding_operation_id: request.idempotency_key,
+        next: entry.target_binding,
+      });
+      this.assertSeat(request.seat_context_revision);
+    }
+
+    const completedAt = this.nowMs();
+    const project = targetRecord ? this.summaryFor(targetRecord, catalogs, catalogs.projects.revision, 0) : undefined;
+    const projectTitle = project?.title ?? 'Temp';
+    const targetLabel = project
+      ? [...new Set([project.realm_label, project.root_label].map((label) => label.trim()).filter(Boolean))].join(' / ')
+      : 'Temporary Space';
+    const delta =
+      assignment === 'temporary'
+        ? 'unbind conversation'
+        : renameRequested
+          ? `rename project -> ${projectTitle}`
+          : pairChanges
+            ? `assign conversation -> ${projectTitle}`
+            : `keep assignment -> ${projectTitle}`;
+    const revisedArtifact = this.deps.artifact_store.reviseCompleted({
+      seat_id: entry.seat_id,
+      conversation_id: entry.conversation_id,
+      artifact_id: entry.artifact_id,
+      expected_updated_at: entry.artifact_updated_at,
+      payload: {
+        artifact_id: entry.artifact_id,
+        state: 'completed',
+        ...(project ? { project_id: project.project_id } : {}),
+        intent_summary: project
+          ? `Conversation assigned to project "${project.title}"`
+          : 'Conversation uses a temporary workspace',
+        target_label: targetLabel,
+        project_title: projectTitle,
+        delta_summary: [delta],
+        assignment_finalized_at: completedAt,
+        receipt: {
+          receipt_id: request.idempotency_key,
+          outcome: 'completed',
+          completed_at: completedAt,
+        },
+        safe_follow_ups: project ? ['reveal', 'edit'] : [],
+      },
+    });
+    const receipt: ProjectWorkspaceAssignmentReceiptDTO = {
+      receipt_id: request.idempotency_key,
+      outcome: 'completed',
+      completed_at: completedAt,
+      assignment,
+      ...(project ? { project } : {}),
+      artifact: revisedArtifact,
+      safe_follow_ups: project ? ['reveal', 'edit'] : [],
+    };
+    entry.committed = { idempotency_key: request.idempotency_key, receipt };
+    return receipt;
   }
 
   /** Resolve the trusted catalog path main-side and reveal it; never returns the path. */

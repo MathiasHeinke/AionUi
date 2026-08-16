@@ -54,6 +54,7 @@ export type ProjectSummaryDTO = {
 export type ProjectWorkspaceListDTO = {
   seat_label: string;
   seat_context_revision: number;
+  catalog_revision: number;
   automatic_creation_enabled: boolean;
   placements: ProjectPlacementDTO[];
   projects: ProjectSummaryDTO[];
@@ -112,6 +113,8 @@ export type ProjectWorkspaceArtifactDTO = {
   delta_summary: string[];
   question?: string;
   question_i18n?: ProjectWorkspaceI18nRef;
+  /** Durable renderer-safe marker set only by the explicit assignment commit. */
+  assignment_finalized_at?: number;
   reason_code?: ProjectWorkspaceUiReasonCode;
   receipt?: Pick<ProjectWorkspaceReceiptDTO, 'receipt_id' | 'outcome' | 'completed_at'>;
   safe_follow_ups: ProjectWorkspaceAction[];
@@ -132,6 +135,63 @@ export type ProjectWorkspaceMutationIdentity = {
   expected_revision: number;
   seat_context_revision: number;
   idempotency_key: string;
+};
+
+/**
+ * Explicit final decision for an automatically proposed/created assignment.
+ * `project` carries the renderer's project snapshot revision; Main re-resolves
+ * the opaque id in the active seat catalog before it previews or commits.
+ */
+export type ProjectWorkspaceAssignmentChoice =
+  | { kind: 'keep'; title?: string }
+  | { kind: 'project'; project_id: string; expected_project_revision: number }
+  | { kind: 'temporary' };
+
+export type ProjectWorkspaceAssignmentPreviewRequest = {
+  conversation_id: string;
+  artifact_id: string;
+  expected_artifact_updated_at: number;
+  expected_catalog_revision: number;
+  expected_current_project_revision?: number;
+  seat_context_revision: number;
+  choice: ProjectWorkspaceAssignmentChoice;
+};
+
+export type ProjectWorkspaceAssignmentPreviewDTO = {
+  preview_id: string;
+  preview_revision: number;
+  conversation_id: string;
+  artifact_id: string;
+  artifact_updated_at: number;
+  catalog_revision: number;
+  binding_revision: number;
+  choice: ProjectWorkspaceAssignmentChoice;
+  current_project?: ProjectSummaryDTO;
+  target_project?: ProjectSummaryDTO;
+  will_change: boolean;
+  expires_at: number;
+};
+
+export type ProjectWorkspaceAssignmentPreviewResult =
+  | { ok: true; preview: ProjectWorkspaceAssignmentPreviewDTO }
+  | { ok: false; reason_code: ProjectWorkspaceUiReasonCode };
+
+export type ProjectWorkspaceAssignmentCommitRequest = {
+  preview_id: string;
+  expected_preview_revision: number;
+  seat_context_revision: number;
+  idempotency_key: string;
+};
+
+export type ProjectWorkspaceAssignmentReceiptDTO = {
+  receipt_id: string;
+  outcome: 'completed' | 'rejected';
+  completed_at: number;
+  assignment: ProjectWorkspaceAssignmentChoice['kind'];
+  project?: ProjectSummaryDTO;
+  artifact?: ProjectWorkspaceConversationArtifactDTO;
+  reason_code?: ProjectWorkspaceUiReasonCode;
+  safe_follow_ups: ProjectWorkspaceAction[];
 };
 
 export type ProjectWorkspaceEnvelope<T> =

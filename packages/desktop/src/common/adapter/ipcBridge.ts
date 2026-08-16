@@ -47,6 +47,10 @@ import type {
 } from '../types/agent/assistantTypes';
 import type { PreviewHistoryTarget, PreviewSnapshotInfo } from '../types/office/preview';
 import type {
+  ProjectWorkspaceAssignmentCommitRequest,
+  ProjectWorkspaceAssignmentPreviewRequest,
+  ProjectWorkspaceAssignmentPreviewResult,
+  ProjectWorkspaceAssignmentReceiptDTO,
   ProjectWorkspaceConversationArtifactDTO,
   ProjectWorkspaceEnsureAutoProjectRequest,
   ProjectWorkspaceEnsureAutoProjectResult,
@@ -374,6 +378,13 @@ export const projectWorkspace = {
     ProjectWorkspaceReceiptDTO,
     ProjectWorkspaceMutationIdentity & { conversation_id: string }
   >('project-workspace.unbindConversation'),
+  previewAssignment: bridge.buildProvider<
+    ProjectWorkspaceAssignmentPreviewResult,
+    ProjectWorkspaceAssignmentPreviewRequest
+  >('project-workspace.previewAssignment'),
+  commitAssignment: bridge.buildProvider<ProjectWorkspaceAssignmentReceiptDTO, ProjectWorkspaceAssignmentCommitRequest>(
+    'project-workspace.commitAssignment'
+  ),
   artifactChanged: bridge.buildEmitter<{ conversation_id: string; artifact: ProjectWorkspaceConversationArtifactDTO }>(
     'project-workspace.artifact-changed'
   ),

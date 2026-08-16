@@ -3,6 +3,10 @@ import {
   type ProjectPlacementDTO,
   type ProjectSummaryDTO,
   type ProjectWorkspaceAction,
+  type ProjectWorkspaceAssignmentChoice,
+  type ProjectWorkspaceAssignmentPreviewDTO,
+  type ProjectWorkspaceAssignmentPreviewResult,
+  type ProjectWorkspaceAssignmentReceiptDTO,
   type ProjectWorkspaceArtifactDTO,
   type ProjectWorkspaceConversationArtifactDTO,
   type ProjectWorkspaceArtifactState,
@@ -87,6 +91,27 @@ const actions = (value: unknown, label: string): ProjectWorkspaceAction[] => {
 const optionalReason = (value: unknown): ProjectWorkspaceReasonCode | undefined =>
   value === undefined ? undefined : enumValue(value, PROJECT_WORKSPACE_REASON_CODES, 'reason_code');
 
+const assignmentChoice = (value: unknown): ProjectWorkspaceAssignmentChoice => {
+  const source = record(value, 'assignment choice');
+  if (source.kind === 'keep') {
+    exactKeys(source, ['kind', 'title'], 'assignment choice');
+    if (source.title === undefined) return { kind: 'keep' };
+    const title = stringValue(source.title, 'assignment choice title');
+    if (title.length > 120) throw new UnsafeProjectWorkspaceDTOError('assignment choice title is too long');
+    return { kind: 'keep', title };
+  }
+  if (source.kind === 'temporary') {
+    exactKeys(source, ['kind'], 'assignment choice');
+    return { kind: 'temporary' };
+  }
+  exactKeys(source, ['kind', 'project_id', 'expected_project_revision'], 'assignment choice');
+  return {
+    kind: enumValue(source.kind, ['project'], 'assignment choice kind'),
+    project_id: stringValue(source.project_id, 'assignment project_id'),
+    expected_project_revision: numberValue(source.expected_project_revision, 'expected_project_revision'),
+  };
+};
+
 /**
  * Validate a main-process i18n reference (1.818 CAO-P2). Bounded like every
  * other display string: param keys must not be sensitive, param values go
@@ -169,7 +194,15 @@ export const parseProjectWorkspaceListDTO = (value: unknown): ProjectWorkspaceLi
   const source = record(value, 'project list');
   exactKeys(
     source,
-    ['seat_label', 'seat_context_revision', 'automatic_creation_enabled', 'placements', 'projects', 'notice_reason'],
+    [
+      'seat_label',
+      'seat_context_revision',
+      'catalog_revision',
+      'automatic_creation_enabled',
+      'placements',
+      'projects',
+      'notice_reason',
+    ],
     'project list'
   );
   if (typeof source.automatic_creation_enabled !== 'boolean') {
@@ -181,6 +214,7 @@ export const parseProjectWorkspaceListDTO = (value: unknown): ProjectWorkspaceLi
   return {
     seat_label: stringValue(source.seat_label, 'seat_label'),
     seat_context_revision: numberValue(source.seat_context_revision, 'seat_context_revision'),
+    catalog_revision: numberValue(source.catalog_revision, 'catalog_revision'),
     automatic_creation_enabled: source.automatic_creation_enabled,
     placements: source.placements.map(placement),
     projects: source.projects.map(parseProjectSummaryDTO),
@@ -241,6 +275,7 @@ export const parseProjectWorkspaceArtifactDTO = (value: unknown): ProjectWorkspa
       'delta_summary',
       'question',
       'question_i18n',
+      'assignment_finalized_at',
       'reason_code',
       'receipt',
       'safe_follow_ups',
@@ -270,6 +305,10 @@ export const parseProjectWorkspaceArtifactDTO = (value: unknown): ProjectWorkspa
     delta_summary: strings(source.delta_summary, 'delta_summary'),
     question: source.question === undefined ? undefined : stringValue(source.question, 'question'),
     question_i18n: source.question_i18n === undefined ? undefined : i18nRefValue(source.question_i18n, 'question_i18n'),
+    assignment_finalized_at:
+      source.assignment_finalized_at === undefined
+        ? undefined
+        : numberValue(source.assignment_finalized_at, 'assignment_finalized_at'),
     reason_code: optionalReason(source.reason_code),
     receipt,
     safe_follow_ups: actions(source.safe_follow_ups, 'safe_follow_ups'),
@@ -304,6 +343,80 @@ export const parseProjectWorkspaceReceiptDTO = (value: unknown): ProjectWorkspac
     outcome: enumValue(source.outcome, ['completed', 'rejected', 'recovery_required'], 'outcome'),
     completed_at: numberValue(source.completed_at, 'completed_at'),
     project: source.project === undefined ? undefined : parseProjectSummaryDTO(source.project),
+    reason_code: optionalReason(source.reason_code),
+    safe_follow_ups: actions(source.safe_follow_ups, 'safe_follow_ups'),
+  };
+};
+
+export const parseProjectWorkspaceAssignmentPreviewDTO = (value: unknown): ProjectWorkspaceAssignmentPreviewDTO => {
+  const source = record(value, 'assignment preview');
+  exactKeys(
+    source,
+    [
+      'preview_id',
+      'preview_revision',
+      'conversation_id',
+      'artifact_id',
+      'artifact_updated_at',
+      'catalog_revision',
+      'binding_revision',
+      'choice',
+      'current_project',
+      'target_project',
+      'will_change',
+      'expires_at',
+    ],
+    'assignment preview'
+  );
+  if (typeof source.will_change !== 'boolean') {
+    throw new UnsafeProjectWorkspaceDTOError('assignment preview will_change is invalid');
+  }
+  return {
+    preview_id: stringValue(source.preview_id, 'assignment preview_id'),
+    preview_revision: numberValue(source.preview_revision, 'assignment preview_revision'),
+    conversation_id: stringValue(source.conversation_id, 'assignment conversation_id'),
+    artifact_id: stringValue(source.artifact_id, 'assignment artifact_id'),
+    artifact_updated_at: numberValue(source.artifact_updated_at, 'assignment artifact_updated_at'),
+    catalog_revision: numberValue(source.catalog_revision, 'assignment catalog_revision'),
+    binding_revision: numberValue(source.binding_revision, 'assignment binding_revision'),
+    choice: assignmentChoice(source.choice),
+    current_project: source.current_project === undefined ? undefined : parseProjectSummaryDTO(source.current_project),
+    target_project: source.target_project === undefined ? undefined : parseProjectSummaryDTO(source.target_project),
+    will_change: source.will_change,
+    expires_at: numberValue(source.expires_at, 'assignment expires_at'),
+  };
+};
+
+export const parseProjectWorkspaceAssignmentPreviewResult = (
+  value: unknown
+): ProjectWorkspaceAssignmentPreviewResult => {
+  const source = record(value, 'assignment preview result');
+  if (source.ok === true) {
+    exactKeys(source, ['ok', 'preview'], 'assignment preview result');
+    return { ok: true, preview: parseProjectWorkspaceAssignmentPreviewDTO(source.preview) };
+  }
+  exactKeys(source, ['ok', 'reason_code'], 'assignment preview result');
+  if (source.ok !== false) throw new UnsafeProjectWorkspaceDTOError('assignment preview result ok is invalid');
+  return {
+    ok: false,
+    reason_code: enumValue(source.reason_code, PROJECT_WORKSPACE_REASON_CODES, 'reason_code'),
+  };
+};
+
+export const parseProjectWorkspaceAssignmentReceiptDTO = (value: unknown): ProjectWorkspaceAssignmentReceiptDTO => {
+  const source = record(value, 'assignment receipt');
+  exactKeys(
+    source,
+    ['receipt_id', 'outcome', 'completed_at', 'assignment', 'project', 'artifact', 'reason_code', 'safe_follow_ups'],
+    'assignment receipt'
+  );
+  return {
+    receipt_id: stringValue(source.receipt_id, 'assignment receipt_id'),
+    outcome: enumValue(source.outcome, ['completed', 'rejected'], 'assignment outcome'),
+    completed_at: numberValue(source.completed_at, 'assignment completed_at'),
+    assignment: enumValue(source.assignment, ['keep', 'project', 'temporary'], 'assignment'),
+    project: source.project === undefined ? undefined : parseProjectSummaryDTO(source.project),
+    artifact: source.artifact === undefined ? undefined : parseProjectWorkspaceConversationArtifactDTO(source.artifact),
     reason_code: optionalReason(source.reason_code),
     safe_follow_ups: actions(source.safe_follow_ups, 'safe_follow_ups'),
   };
