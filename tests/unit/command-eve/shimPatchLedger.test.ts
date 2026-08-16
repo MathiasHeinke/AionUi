@@ -170,6 +170,46 @@ describe('G1 — the shim patch ledger is complete and consumed', () => {
     ).toEqual([]);
   });
 
+  /**
+   * The NameError class the ledger assertions above CANNOT see.
+   *
+   * `acp_session_recovery` was renamed to `acp_session_guard`, and 1.823.0 later
+   * re-added two calls to the retired name. The module-level one runs at import,
+   * so every provisioned seat raised
+   * `NameError: _install_command_eve_acp_session_recovery_patch is not defined`
+   * before the provider ever loaded. The tuple assertion above reddened only
+   * because that rename also left an EXPECTED entry behind; a call reintroduced
+   * WITHOUT a tuple entry stays invisible to every assertion above and is still
+   * fatal at import. Name resolution therefore needs its own gate.
+   */
+  it('every installer CALL resolves to a definition — a rename cannot leave a NameError behind', () => {
+    const shim = emittedShim();
+    const defined = new Set(Array.from(shim.matchAll(/^def (_install_command_eve_[A-Za-z0-9_]*)\s*\(/gm), (m) => m[1]));
+    // `def` lines are declarations, not calls; everything else that names an
+    // installer with parentheses is one, at module level or inside a body.
+    const called = new Set(
+      shim
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*def\s/.test(line))
+        .flatMap((line) => Array.from(line.matchAll(/\b(_install_command_eve_[A-Za-z0-9_]*)\s*\(/g), (m) => m[1]))
+    );
+    // Guards the guard: if the slicer stops finding calls, the assertions below
+    // would pass vacuously on an empty set.
+    expect(called.size, 'no installer calls found — the slicer broke, not the shim').toBeGreaterThanOrEqual(12);
+
+    // Both directions close the call graph: an undefined callee is a NameError at
+    // import, and an installer nobody calls is dead patch machinery that the
+    // ledger would still report as expected.
+    expect(
+      [...called].filter((name) => !defined.has(name)),
+      'installer CALLED but never defined — NameError at import'
+    ).toEqual([]);
+    expect(
+      [...defined].filter((name) => !called.has(name)),
+      'installer DEFINED but never called — dead patch machinery'
+    ).toEqual([]);
+  });
+
   it('the verifier REPORTS and does not raise, and the authority patch keeps its hard gate', () => {
     const shim = emittedShim();
     const bodies = topLevelFunctionBodies(shim);
