@@ -1294,6 +1294,47 @@ describe('AcpSendBox', () => {
     window.removeEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
   });
 
+  it('marks exactly one submit for a work-product send and never clears a foreign attempt', async () => {
+    // The 1.823.0 composer routes Word/Excel/PDF sends through the same send
+    // attempt as ordinary chat, so the submit marker must fire once there too.
+    // An image/video CREATE send deliberately never reaches this path — it has
+    // no ACP turn to correlate — which is why this covers a document mode.
+    const send = createDeferred<unknown>();
+    const marks: AcpPerformanceMark[] = [];
+    const listener = (event: Event) => marks.push((event as CustomEvent<AcpPerformanceMark>).detail);
+    window.addEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
+    sendMessageInvokeMock.mockReturnValue(send.promise);
+    const messageState = makeMessageState();
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={messageState}
+      />
+    );
+    await chooseWorkProductMode('word');
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const submitMarks = marks.filter((mark) => mark.stage === 'submit_started');
+    expect(submitMarks).toHaveLength(1);
+    expect(submitMarks[0]).toMatchObject({ conversationId: 'conv-1', attemptId: 1, seatGeneration: 0 });
+    expect(messageState.beginSubmitActivity).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      send.resolve({ turn_id: 'turn-word', msg_id: 'message-word', runtime: null });
+    });
+    // An accepted send owns its activity until the turn ends; clearing here
+    // would blank a submitting state that the admitted turn still needs.
+    await waitFor(() => expect(messageState.bindSubmitActivityTurn).toHaveBeenCalledTimes(1));
+    expect(messageState.clearSubmitActivity).not.toHaveBeenCalled();
+    window.removeEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
+  });
+
   it('suppresses late ACP send side effects when its seat ticket is stale', async () => {
     const send = createDeferred<unknown>();
     sendMessageInvokeMock.mockReturnValue(send.promise);

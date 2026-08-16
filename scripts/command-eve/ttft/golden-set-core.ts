@@ -1,3 +1,5 @@
+import { validateCommandEveProviderCallReceipt, type CommandEveProviderCallReceipt } from './formal-core';
+
 export const COMMAND_EVE_TTFT_GOLDEN_RESULT_VERSION = 'command-eve-ttft-golden-result/v1' as const;
 
 export const COMMAND_EVE_TTFT_GOLDEN_CATEGORIES = [
@@ -24,8 +26,7 @@ export type CommandEveTtftGoldenResult = {
     workspaceContractSha256: string;
   };
   tokenEvidence: {
-    correlation: 'exact_call' | 'fixture' | 'unavailable';
-    newlyEvaluatedInputTokens: number | null;
+    providerCallReceipt: CommandEveProviderCallReceipt | null;
   };
   tasks: Array<{
     id: string;
@@ -44,11 +45,13 @@ export type CommandEveTtftGoldenGate = {
   observedColdTokenReduction: number | null;
   parityViolations: string[];
   taskViolations: string[];
+  tokenEvidenceViolations: string[];
   categoryPassRates: Record<CommandEveTtftGoldenCategory, { baseline: number; candidate: number }>;
   reason: string;
 };
 
 const SHA256 = /^[a-f0-9]{64}$/;
+const GIT_COMMIT = /^[a-f0-9]{40}$/;
 
 const passRate = (tasks: CommandEveTtftGoldenResult['tasks']): number =>
   tasks.length === 0 ? 0 : tasks.filter((task) => task.passed).length / tasks.length;
@@ -64,15 +67,30 @@ export function evaluateCommandEveTtftGoldenSet(input: {
   requiredColdTokenReduction?: number;
 }): CommandEveTtftGoldenGate {
   const requiredColdTokenReduction = input.requiredColdTokenReduction ?? 0.3;
-  const parityViolations = Object.keys(input.baseline.profileFingerprints).flatMap((key) => {
-    const field = key as keyof CommandEveTtftGoldenResult['profileFingerprints'];
-    const baselineHash = input.baseline.profileFingerprints[field];
-    const candidateHash = input.candidate.profileFingerprints[field];
-    if (!SHA256.test(baselineHash) || !SHA256.test(candidateHash)) return [`${field}: invalid sha256`];
-    return baselineHash === candidateHash ? [] : [`${field}: changed without parity proof`];
-  });
+  const parityViolations = [
+    ...(!GIT_COMMIT.test(input.baseline.artifactCommit) ? ['baseline artifactCommit must be a full git sha'] : []),
+    ...(!GIT_COMMIT.test(input.candidate.artifactCommit) ? ['candidate artifactCommit must be a full git sha'] : []),
+    ...Object.keys(input.baseline.profileFingerprints).flatMap((key) => {
+      const field = key as keyof CommandEveTtftGoldenResult['profileFingerprints'];
+      const baselineHash = input.baseline.profileFingerprints[field];
+      const candidateHash = input.candidate.profileFingerprints[field];
+      if (!SHA256.test(baselineHash) || !SHA256.test(candidateHash)) return [`${field}: invalid sha256`];
+      return baselineHash === candidateHash ? [] : [`${field}: changed without parity proof`];
+    }),
+  ];
 
   const taskViolations: string[] = [];
+  const duplicateIds = (tasks: CommandEveTtftGoldenResult['tasks']): string[] => {
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    for (const task of tasks) {
+      if (seen.has(task.id)) duplicates.add(task.id);
+      seen.add(task.id);
+    }
+    return [...duplicates];
+  };
+  for (const id of duplicateIds(input.baseline.tasks)) taskViolations.push(`${id}: duplicate baseline task id`);
+  for (const id of duplicateIds(input.candidate.tasks)) taskViolations.push(`${id}: duplicate candidate task id`);
   const baselineById = new Map(input.baseline.tasks.map((task) => [task.id, task]));
   const candidateById = new Map(input.candidate.tasks.map((task) => [task.id, task]));
   for (const [id, baselineTask] of baselineById) {
@@ -106,22 +124,44 @@ export function evaluateCommandEveTtftGoldenSet(input: {
     })
   ) as CommandEveTtftGoldenGate['categoryPassRates'];
 
-  const baselineTokens = input.baseline.tokenEvidence.newlyEvaluatedInputTokens;
-  const candidateTokens = input.candidate.tokenEvidence.newlyEvaluatedInputTokens;
-  const exactTokenEvidence =
-    input.baseline.tokenEvidence.correlation === 'exact_call' &&
-    input.candidate.tokenEvidence.correlation === 'exact_call' &&
-    typeof baselineTokens === 'number' &&
-    baselineTokens > 0 &&
-    typeof candidateTokens === 'number' &&
-    candidateTokens >= 0;
+  const tokenEvidenceViolations: string[] = [];
+  const validatedReceipt = (
+    label: 'baseline' | 'candidate',
+    receipt: CommandEveProviderCallReceipt | null
+  ): CommandEveProviderCallReceipt | null => {
+    if (!receipt) return null;
+    const validation = validateCommandEveProviderCallReceipt(receipt);
+    if ('violations' in validation) {
+      tokenEvidenceViolations.push(...validation.violations.map((violation) => `${label}: ${violation}`));
+      return null;
+    }
+    return validation.receipt;
+  };
+  const baselineReceipt = validatedReceipt('baseline', input.baseline.tokenEvidence.providerCallReceipt);
+  const candidateReceipt = validatedReceipt('candidate', input.candidate.tokenEvidence.providerCallReceipt);
+  if (baselineReceipt && candidateReceipt && baselineReceipt.request_id === candidateReceipt.request_id) {
+    tokenEvidenceViolations.push('baseline and candidate reuse the same provider request identity');
+  }
+  const newlyEvaluatedTokens = (receipt: CommandEveProviderCallReceipt | null): number | null => {
+    if (!receipt || receipt.response_usage.prompt_reuse_status !== 'observed') return null;
+    const promptTokens = receipt.response_usage.prompt_tokens;
+    const reusedTokens = receipt.response_usage.prompt_reused_tokens;
+    if (typeof promptTokens !== 'number' || typeof reusedTokens !== 'number' || reusedTokens > promptTokens)
+      return null;
+    return promptTokens - reusedTokens;
+  };
+  const baselineTokens = newlyEvaluatedTokens(baselineReceipt);
+  const candidateTokens = newlyEvaluatedTokens(candidateReceipt);
+  const exactTokenEvidence = baselineTokens !== null && baselineTokens > 0 && candidateTokens !== null;
   const observedColdTokenReduction = exactTokenEvidence ? (baselineTokens - candidateTokens) / baselineTokens : null;
   const coldTokenOutcome =
-    observedColdTokenReduction === null
-      ? 'INSUFFICIENT_EVIDENCE'
-      : observedColdTokenReduction >= requiredColdTokenReduction
-        ? 'PASS'
-        : 'FAIL';
+    tokenEvidenceViolations.length > 0
+      ? 'FAIL'
+      : observedColdTokenReduction === null
+        ? 'INSUFFICIENT_EVIDENCE'
+        : observedColdTokenReduction >= requiredColdTokenReduction
+          ? 'PASS'
+          : 'FAIL';
   const qualityOutcome = parityViolations.length === 0 && taskViolations.length === 0 ? 'PASS' : 'FAIL';
   const outcome =
     qualityOutcome === 'FAIL' || coldTokenOutcome === 'FAIL'
@@ -139,6 +179,7 @@ export function evaluateCommandEveTtftGoldenSet(input: {
     observedColdTokenReduction,
     parityViolations,
     taskViolations,
+    tokenEvidenceViolations,
     categoryPassRates,
     reason:
       outcome === 'PASS'

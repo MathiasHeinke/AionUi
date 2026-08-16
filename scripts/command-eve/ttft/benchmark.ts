@@ -45,9 +45,14 @@ import {
 } from './receipt-core';
 import {
   buildCommandEveTtftFormalReceipt,
+  isCommandEveTtftVisibleElement,
+  selectCommandEveTtftAttemptBinding,
+  selectCommandEveTtftUpstreamEvidence,
+  type CommandEveTtftAttemptBinding,
   type CommandEveTtftFormalReceipt,
   type CommandEveTtftRuntimeReadinessEvidence,
   type CommandEveTtftUpstreamEvidence,
+  type CommandEveTtftVisibleElementSnapshot,
 } from './formal-core';
 import {
   commandEvePackagedQaLaunchEnv,
@@ -98,6 +103,7 @@ type RendererCollector = {
   marks: AcpPerformanceMark[];
   firstVisibleAt: number | null;
   firstVisibleMessageId: string | null;
+  firstVisibleSnapshot: CommandEveTtftVisibleElementSnapshot | null;
   measuredConversationId: string | null;
   measuredTurnId: string | null;
 };
@@ -323,53 +329,11 @@ function exactRuntimeReadinessEvidence(
 
 function uniqueUpstreamEvidence(
   lines: string[],
-  conversationId: string,
   turnId: string,
   notBeforeEpochMs: number,
   notAfterEpochMs: number
-): CommandEveTtftUpstreamEvidence | null {
-  const candidates = lines.flatMap((line) => {
-    try {
-      const parsed = JSON.parse(line) as {
-        version?: unknown;
-        request_id?: unknown;
-        started_at?: unknown;
-        headers_received_at?: unknown;
-        first_body_chunk_at?: unknown;
-        observed_at?: unknown;
-      };
-      if (parsed.version !== 'command-eve-upstream-outcome/v2' || typeof parsed.request_id !== 'string') return [];
-      const startedAtEpochMs = typeof parsed.started_at === 'string' ? Date.parse(parsed.started_at) : Number.NaN;
-      const observedAtEpochMs = typeof parsed.observed_at === 'string' ? Date.parse(parsed.observed_at) : Number.NaN;
-      const headersReceivedAtEpochMs =
-        typeof parsed.headers_received_at === 'string' ? Date.parse(parsed.headers_received_at) : null;
-      const firstBodyChunkAtEpochMs =
-        typeof parsed.first_body_chunk_at === 'string' ? Date.parse(parsed.first_body_chunk_at) : null;
-      if (
-        !Number.isFinite(startedAtEpochMs) ||
-        !Number.isFinite(observedAtEpochMs) ||
-        startedAtEpochMs < notBeforeEpochMs ||
-        observedAtEpochMs > notAfterEpochMs
-      ) {
-        return [];
-      }
-      return [
-        {
-          conversationId,
-          turnId,
-          requestId: parsed.request_id,
-          startedAtEpochMs,
-          headersReceivedAtEpochMs,
-          firstBodyChunkAtEpochMs,
-        },
-      ];
-    } catch {
-      return [];
-    }
-  });
-  // The serial harness binds a transport receipt only when exactly one call
-  // occupied the admitted turn window. Background/deriver calls fail closed.
-  return candidates.length === 1 ? candidates[0] : null;
+): { evidence: CommandEveTtftUpstreamEvidence | null; violations: string[] } {
+  return selectCommandEveTtftUpstreamEvidence({ lines, expectedTurnId: turnId, notBeforeEpochMs, notAfterEpochMs });
 }
 
 function observed(
@@ -584,16 +548,19 @@ async function resetRendererCollector(page: Page): Promise<void> {
       __commandEveTtftMarks?: AcpPerformanceMark[];
       __commandEveTtftFirstVisibleAt?: number | null;
       __commandEveTtftFirstVisibleMessageId?: string | null;
+      __commandEveTtftFirstVisibleSnapshot?: CommandEveTtftVisibleElementSnapshot | null;
       __commandEveTtftMeasuredConversationId?: string | null;
       __commandEveTtftMeasuredTurnId?: string | null;
       __commandEveTtftTargetMessageId?: string | null;
       __commandEveTtftNotBefore?: number | null;
+      __commandEveTtftObserveVisibleReply?: () => void;
     };
     const state = window as CollectorWindow;
     state.__commandEveTtftCleanup?.();
     state.__commandEveTtftMarks = [];
     state.__commandEveTtftFirstVisibleAt = null;
     state.__commandEveTtftFirstVisibleMessageId = null;
+    state.__commandEveTtftFirstVisibleSnapshot = null;
     state.__commandEveTtftMeasuredConversationId = null;
     state.__commandEveTtftMeasuredTurnId = null;
     state.__commandEveTtftTargetMessageId = null;
@@ -604,6 +571,38 @@ async function resetRendererCollector(page: Page): Promise<void> {
         .map((element) => element.dataset.streamMessageId)
         .filter((value): value is string => Boolean(value))
     );
+    const visibleStreamMessageSnapshot = (
+      element: HTMLElement,
+      expectedMessageId: string
+    ): CommandEveTtftVisibleElementSnapshot => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return {
+        connected: element.isConnected,
+        documentVisible: document.visibilityState === 'visible',
+        messageId: element.dataset.streamMessageId ?? null,
+        expectedMessageId,
+        hasText: Boolean(element.textContent?.trim()),
+        display: style.display,
+        visibility: style.visibility,
+        opacity: Number.parseFloat(style.opacity || '1'),
+        width: rect.width,
+        height: rect.height,
+      };
+    };
+    const isVisibleStreamMessage = (snapshot: CommandEveTtftVisibleElementSnapshot): boolean => {
+      return (
+        snapshot.connected &&
+        snapshot.documentVisible &&
+        snapshot.messageId === snapshot.expectedMessageId &&
+        snapshot.hasText &&
+        snapshot.display !== 'none' &&
+        snapshot.visibility !== 'hidden' &&
+        snapshot.opacity > 0 &&
+        snapshot.width > 0 &&
+        snapshot.height > 0
+      );
+    };
     const observeVisibleReply = () => {
       if (state.__commandEveTtftFirstVisibleAt !== null || visibleFramePending) return;
       const targetMessageId = state.__commandEveTtftTargetMessageId;
@@ -612,48 +611,34 @@ async function resetRendererCollector(page: Page): Promise<void> {
         (element) => element.dataset.streamMessageId === targetMessageId && Boolean(element.textContent?.trim())
       );
       if (!fresh) return;
-      const style = window.getComputedStyle(fresh);
-      const rect = fresh.getBoundingClientRect();
-      if (
-        document.visibilityState !== 'visible' ||
-        style.display === 'none' ||
-        style.visibility === 'hidden' ||
-        Number.parseFloat(style.opacity || '1') <= 0 ||
-        rect.width <= 0 ||
-        rect.height <= 0
-      ) {
-        return;
-      }
+      if (!isVisibleStreamMessage(visibleStreamMessageSnapshot(fresh, targetMessageId))) return;
       visibleFramePending = true;
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           visibleFramePending = false;
+          const secondFrameSnapshot =
+            typeof state.__commandEveTtftTargetMessageId === 'string'
+              ? visibleStreamMessageSnapshot(fresh, state.__commandEveTtftTargetMessageId)
+              : null;
           if (
             state.__commandEveTtftFirstVisibleAt === null &&
-            fresh.isConnected &&
-            fresh.dataset.streamMessageId === state.__commandEveTtftTargetMessageId
+            secondFrameSnapshot &&
+            isVisibleStreamMessage(secondFrameSnapshot)
           ) {
             state.__commandEveTtftFirstVisibleAt = Date.now();
             state.__commandEveTtftFirstVisibleMessageId = fresh.dataset.streamMessageId ?? null;
+            state.__commandEveTtftFirstVisibleSnapshot = secondFrameSnapshot;
           }
         });
       });
     };
+    state.__commandEveTtftObserveVisibleReply = observeVisibleReply;
     const markListener = (event: Event) => {
       const detail = (event as CustomEvent<AcpPerformanceMark>).detail;
       if (detail?.version !== 'command-eve-acp-performance-mark/v1') return;
       state.__commandEveTtftMarks?.push(detail);
       const notBefore = state.__commandEveTtftNotBefore;
       if (typeof notBefore !== 'number' || detail.atEpochMs < notBefore) return;
-      if (
-        detail.stage === 'turn_admitted' &&
-        !state.__commandEveTtftMeasuredTurnId &&
-        detail.conversationId &&
-        detail.turnId
-      ) {
-        state.__commandEveTtftMeasuredConversationId = detail.conversationId;
-        state.__commandEveTtftMeasuredTurnId = detail.turnId;
-      }
       if (
         detail.stage === 'first_output_state' &&
         detail.conversationId === state.__commandEveTtftMeasuredConversationId &&
@@ -665,11 +650,18 @@ async function resetRendererCollector(page: Page): Promise<void> {
       }
     };
     const observer = new MutationObserver(observeVisibleReply);
-    observer.observe(document.body, { childList: true, characterData: true, subtree: true });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class', 'style', 'hidden'],
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
     window.addEventListener(eventName, markListener);
     state.__commandEveTtftCleanup = () => {
       observer.disconnect();
       window.removeEventListener(eventName, markListener);
+      delete state.__commandEveTtftObserveVisibleReply;
     };
   }, ACP_PERFORMANCE_MARK_EVENT);
 }
@@ -695,6 +687,7 @@ async function readRendererCollector(page: Page): Promise<RendererCollector> {
       __commandEveTtftMarks?: AcpPerformanceMark[];
       __commandEveTtftFirstVisibleAt?: number | null;
       __commandEveTtftFirstVisibleMessageId?: string | null;
+      __commandEveTtftFirstVisibleSnapshot?: CommandEveTtftVisibleElementSnapshot | null;
       __commandEveTtftMeasuredConversationId?: string | null;
       __commandEveTtftMeasuredTurnId?: string | null;
     };
@@ -702,22 +695,68 @@ async function readRendererCollector(page: Page): Promise<RendererCollector> {
       marks: state.__commandEveTtftMarks ?? [],
       firstVisibleAt: state.__commandEveTtftFirstVisibleAt ?? null,
       firstVisibleMessageId: state.__commandEveTtftFirstVisibleMessageId ?? null,
+      firstVisibleSnapshot: state.__commandEveTtftFirstVisibleSnapshot ?? null,
       measuredConversationId: state.__commandEveTtftMeasuredConversationId ?? null,
       measuredTurnId: state.__commandEveTtftMeasuredTurnId ?? null,
     };
   });
 }
 
-async function waitForTurnAdmission(page: Page): Promise<string> {
+async function waitForExactTurnAdmission(
+  page: Page,
+  expectedConversationId: string,
+  notBeforeEpochMs: number
+): Promise<CommandEveTtftAttemptBinding> {
   await page.waitForFunction(
-    () =>
-      Boolean((window as Window & { __commandEveTtftMeasuredTurnId?: string | null }).__commandEveTtftMeasuredTurnId),
-    undefined,
+    ({ conversationId, notBefore }) => {
+      const marks = (window as Window & { __commandEveTtftMarks?: AcpPerformanceMark[] }).__commandEveTtftMarks ?? [];
+      return marks.some(
+        (admission) =>
+          admission.stage === 'turn_admitted' &&
+          admission.conversationId === conversationId &&
+          marks.some(
+            (submit) =>
+              submit.stage === 'submit_started' &&
+              submit.conversationId === conversationId &&
+              submit.atEpochMs >= notBefore &&
+              submit.attemptId === admission.attemptId &&
+              submit.seatGeneration === admission.seatGeneration
+          )
+      );
+    },
+    { conversationId: expectedConversationId, notBefore: notBeforeEpochMs },
     { timeout: RESPONSE_TIMEOUT_MS }
   );
-  return page.evaluate(
-    () => (window as Window & { __commandEveTtftMeasuredTurnId?: string | null }).__commandEveTtftMeasuredTurnId ?? ''
-  );
+  const collector = await readRendererCollector(page);
+  const selection = selectCommandEveTtftAttemptBinding({
+    marks: collector.marks,
+    expectedConversationId,
+    notBeforeEpochMs,
+  });
+  if (!selection.binding) {
+    throw new Error(`exact TTFT submit/admission binding failed: ${selection.violations.join('; ')}`);
+  }
+  await page.evaluate((binding) => {
+    const state = window as Window & {
+      __commandEveTtftMarks?: AcpPerformanceMark[];
+      __commandEveTtftMeasuredConversationId?: string | null;
+      __commandEveTtftMeasuredTurnId?: string | null;
+      __commandEveTtftTargetMessageId?: string | null;
+      __commandEveTtftObserveVisibleReply?: () => void;
+    };
+    state.__commandEveTtftMeasuredConversationId = binding.conversationId;
+    state.__commandEveTtftMeasuredTurnId = binding.turnId;
+    const firstOutput = (state.__commandEveTtftMarks ?? []).find(
+      (mark) =>
+        mark.stage === 'first_output_state' &&
+        mark.conversationId === binding.conversationId &&
+        mark.turnId === binding.turnId &&
+        Boolean(mark.messageId)
+    );
+    if (firstOutput?.messageId) state.__commandEveTtftTargetMessageId = firstOutput.messageId;
+    state.__commandEveTtftObserveVisibleReply?.();
+  }, selection.binding);
+  return selection.binding;
 }
 
 async function waitForTerminalMark(page: Page, turnId: string): Promise<void> {
@@ -824,13 +863,17 @@ async function runMeasuredTurn(input: {
   const textarea = page.locator(input.surface === 'start_chat' ? GUID_INPUT : EXISTING_INPUT).last();
   const measuredPrompt = `${input.args.prompt} [${input.iteration}]`;
   await textarea.fill(measuredPrompt);
+  let measuredConversationId = input.surface === 'existing_session' ? windowConversationId(page.url()) : null;
   const sendActionAt = Date.now();
   await armRendererCollector(page, sendActionAt);
   await textarea.press('Enter');
   if (input.surface === 'start_chat') {
     await page.waitForFunction(() => window.location.hash.includes('/conversation/'), undefined, { timeout: 20_000 });
+    measuredConversationId = windowConversationId(page.url());
   }
-  const measuredTurnId = await waitForTurnAdmission(page);
+  if (!measuredConversationId) throw new Error('measured composer conversation id is unavailable');
+  const attemptBinding = await waitForExactTurnAdmission(page, measuredConversationId, sendActionAt);
+  const measuredTurnId = attemptBinding.turnId;
   await waitForTerminalMark(page, measuredTurnId);
   if (input.args.tts) {
     await page
@@ -845,6 +888,8 @@ async function runMeasuredTurn(input: {
       .catch((): undefined => undefined);
   }
   const collector = await readRendererCollector(page);
+  const firstVisibleVerified =
+    collector.firstVisibleSnapshot !== null && isCommandEveTtftVisibleElement(collector.firstVisibleSnapshot);
   const logLines = readFromOffset(input.handle.logPath, logOffset);
   const terminalAtEpochMs = collector.marks.find(
     (mark) => mark.stage === 'response_finished' && mark.turnId === measuredTurnId
@@ -870,7 +915,7 @@ async function runMeasuredTurn(input: {
       input.sessionReadiness?.acp_session_ready ??
       rendererMark(collector.marks, 'acp_session_ready', { notBefore: sendActionAt }),
     send_action: observed(sendActionAt, 'harness', 'Enter dispatched from the measured composer'),
-    request_accepted: rendererMark(collector.marks, 'request_accepted', { notBefore: sendActionAt }),
+    request_accepted: rendererMark(collector.marks, 'request_accepted', { turnId: measuredTurnId }),
     model_request_started: rendererMark(collector.marks, 'model_request_started', { turnId: measuredTurnId }),
     model_first_token: {
       status: 'unavailable',
@@ -880,6 +925,7 @@ async function runMeasuredTurn(input: {
     renderer_first_visible:
       collector.firstVisibleAt === null ||
       !collector.firstVisibleMessageId ||
+      !firstVisibleVerified ||
       collector.measuredTurnId !== measuredTurnId
         ? {
             status: 'unavailable',
@@ -906,16 +952,25 @@ async function runMeasuredTurn(input: {
     iteration: input.iteration,
     milestones,
   });
-  const measuredConversationId = collector.measuredConversationId;
+  const upstreamSelection =
+    terminalAtEpochMs === undefined
+      ? { evidence: null, violations: ['terminal timestamp unavailable for provider receipt correlation'] }
+      : uniqueUpstreamEvidence(
+          readFromOffset(upstreamHistoryPath, upstreamHistoryOffset),
+          measuredTurnId,
+          sendActionAt,
+          terminalAtEpochMs
+        );
   const formal = buildCommandEveTtftFormalReceipt({
     notBeforeEpochMs: sendActionAt,
     marks: collector.marks,
+    attemptBinding,
     firstVisible:
-      collector.firstVisibleAt !== null && collector.firstVisibleMessageId
+      collector.firstVisibleAt !== null && collector.firstVisibleMessageId && firstVisibleVerified
         ? { messageId: collector.firstVisibleMessageId, atEpochMs: collector.firstVisibleAt }
         : null,
     runtimeReadiness:
-      measuredConversationId && terminalAtEpochMs !== undefined
+      terminalAtEpochMs !== undefined
         ? exactRuntimeReadinessEvidence(
             readFromOffset(input.handle.logPath, 0),
             measuredConversationId,
@@ -923,16 +978,8 @@ async function runMeasuredTurn(input: {
             terminalAtEpochMs
           )
         : null,
-    upstream:
-      measuredConversationId && terminalAtEpochMs !== undefined
-        ? uniqueUpstreamEvidence(
-            readFromOffset(upstreamHistoryPath, upstreamHistoryOffset),
-            measuredConversationId,
-            measuredTurnId,
-            sendActionAt,
-            terminalAtEpochMs
-          )
-        : null,
+    upstream: upstreamSelection.evidence,
+    evidenceViolations: upstreamSelection.violations,
   });
   return { ...receipt, formal };
 }
