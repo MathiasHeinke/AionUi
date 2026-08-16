@@ -26,7 +26,7 @@
 | --- | --------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------- |
 | 1   | KI-Spur wählen (Cloud + optional Smart-Local) | `/settings/model` (+ `/settings/runtime`) | `first_value_ready` → „aktiv"; lokal: installed-Flag → „geladen" sonst „optional" |
 | 2   | Company-Brain seeden                          | `/settings/company-brain`                 | Brain-Seed-Status (falls erkennbar) → „geseedet" / „offen"                        |
-| 3   | Ersten Kunden anlegen (Reseller)              | Web `/account?intent=add_seat`            | Seat-Count > 1 → „angelegt" sonst „optional"                                      |
+| 3   | Ersten Kunden anlegen (Reseller)              | In-App `/settings/account`                | Seat-Count > 1 → „angelegt" sonst „optional"                                      |
 | 4   | Integration verbinden                         | `/settings/connectors`                    | „optional/entdecken" (kein false todo)                                            |
 | 5   | Dein Team / Belegschaft                       | `/settings/eve-runtime`                   | „optional/entdecken"                                                              |
 | 6   | Was EVE kann (Skills)                         | `/settings/capabilities?tab=skills`       | informativ                                                                        |
@@ -42,7 +42,7 @@
 
 ### Wiring (die Zielseiten + Redirects existieren alle schon)
 
-- **`targetToRoute`** (`OnboardingReadinessGreeting.tsx:47-62`) um Cases erweitern: `connectors`→`/settings/connectors`, `privacy`→`/settings/privacy`, `company-brain`→`/settings/company-brain`, `capabilities`→`/settings/capabilities?tab=skills`, `eve-runtime`→`/settings/eve-runtime`, `model`→`/settings/model`. Seat-Add = Web-Action (`/account?intent=add_seat`, Muster `SeatRail.tsx:98`).
+- **`targetToRoute`** (`OnboardingReadinessGreeting.tsx:47-62`) um Cases erweitern: `connectors`→`/settings/connectors`, `privacy`→`/settings/privacy`, `company-brain`→`/settings/company-brain`, `capabilities`→`/settings/capabilities?tab=skills`, `eve-runtime`→`/settings/eve-runtime`, `model`→`/settings/model`. Kunden-Seats werden kostenlos in `/settings/account` verwaltet.
 - Die Schritt-Karten sind eine **neue Renderer-Sektion in `ErsteSchritteModalContent.tsx`** — eigene Liste (nicht die Blocker-Gap-Liste, die nur `blocked` zeigt). Sie liest bestehende Signale (`first_value_ready`, lokales-Modell-Status, Seat-Count, Brain-Seed) best-effort; wo kein billiges Signal → neutral.
 - **Status-Detection minimal halten:** nur billige, schon vorhandene Reads wiederverwenden. Kein großer neuer Aggregator in 1.7.2 (Auto-Detect-alles = Follow-up). Lieber ehrlich-neutral als teuer-erraten.
 

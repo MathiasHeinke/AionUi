@@ -273,9 +273,9 @@ body {
   border-radius: 999px !important;
   color: var(--text-secondary) !important;
   transition:
-    background-color 0.16s ease,
-    color 0.16s ease,
-    box-shadow 0.16s ease !important;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .app-titlebar__button:hover {
@@ -305,10 +305,10 @@ body {
   border: 1px solid transparent !important;
   border-radius: 14px !important;
   transition:
-    background-color 0.16s ease,
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    color 0.16s ease !important;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    border-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease,
+    color var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .chat-history__item:hover,
@@ -530,10 +530,10 @@ body {
   border-radius: 999px !important;
   font-weight: 600 !important;
   transition:
-    background-color 0.16s ease,
-    border-color 0.16s ease,
-    color 0.16s ease,
-    box-shadow 0.16s ease !important;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    border-color var(--eve-motion-duration-feedback, 300ms) ease,
+    color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .arco-btn-primary,
@@ -586,8 +586,8 @@ body {
   background: color-mix(in srgb, var(--horizon-surface) 92%, var(--aou-1)) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
   transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease !important;
+    border-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .arco-input-wrapper:focus-within,
@@ -623,8 +623,8 @@ body {
   background: color-mix(in srgb, var(--horizon-surface) 92%, var(--aou-1)) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
   transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease !important;
+    border-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .arco-select-view:hover,
@@ -820,8 +820,8 @@ body {
   border-radius: 10px !important;
   color: var(--text-primary) !important;
   transition:
-    background-color 0.16s ease,
-    color 0.16s ease !important;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    color var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .arco-dropdown-menu {
@@ -899,8 +899,8 @@ body {
   padding: 8px 14px !important;
   margin-inline: 4px !important;
   transition:
-    background-color 0.16s ease,
-    color 0.16s ease !important;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    color var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .arco-tabs-nav-tab:hover {
@@ -922,8 +922,8 @@ body {
   border-radius: 14px !important;
   color: var(--text-primary) !important;
   transition:
-    background-color 0.16s ease,
-    color 0.16s ease !important;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    color var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .arco-collapse-item-header:hover {
@@ -941,9 +941,9 @@ body {
 .arco-tree-node-title-wrapper {
   border-radius: 10px !important;
   transition:
-    background-color 0.16s ease,
-    color 0.16s ease,
-    box-shadow 0.16s ease !important;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .workspace-tree .arco-tree-node:hover .arco-tree-node-title,
@@ -1460,20 +1460,20 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #b7bdf0 0%, #7c84d2 100%);
+  background: var(--eve-scrollbar-thumb);
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #9ca5e3 0%, #595bca 100%);
+  background: var(--eve-scrollbar-thumb-hover);
 }
 
 [data-theme='dark'] ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #5f658b 0%, #3b3e56 100%);
+  background: var(--eve-scrollbar-thumb);
 }
 
 [data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #7b81aa 0%, #50567b 100%);
+  background: var(--eve-scrollbar-thumb-hover);
 }
 
 ::selection {

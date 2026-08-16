@@ -101,6 +101,11 @@ describe('MAT-1747 round 6 — the app registers every provider the renderer cal
     expect(registered.size).toBeGreaterThan(10);
   });
 
+  it('registers the turn-bound managed image generation provider beside the artifact lane', () => {
+    expect(registered.has('command-eve.image-generate')).toBe(true);
+    expect(registered.has('command-eve.image-artifact-bind')).toBe(true);
+  });
+
   it('NEGATIVE CONTROL: the probe reports false for a channel nobody registers', () => {
     // The mutation check for the three assertions above, done in-suite because
     // the alternative is editing production source to watch it go red. If

@@ -5,30 +5,13 @@ import { SettingsViewModeProvider } from '@/renderer/components/settings/Setting
 import { isElectronDesktop, resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
-import {
-  Brain,
-  Cat,
-  Communication,
-  Computer,
-  Earth,
-  Flag,
-  Info,
-  Lightning,
-  LinkCloud,
-  Lock,
-  Puzzle,
-  Robot,
-  Shield,
-  Speed,
-  System,
-  User,
-  Wallet,
-} from '@icon-park/react';
+import { Puzzle } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
-import { BUILTIN_TAB_IDS, isSettingsPathActive, LEGACY_ANCHOR_REMAP } from './SettingsSider';
+import { getBuiltinSettingsNavigationItems, isSettingsPathActive, LEGACY_ANCHOR_REMAP } from './settingsNavigation';
 import { Button } from '@arco-design/web-react';
+import EveIconTile from '@/renderer/components/base/EveIconTile';
 import './settings.css';
 
 interface SettingsPageWrapperProps {
@@ -42,93 +25,7 @@ type NavItem = { label: string; icon: React.ReactElement; path: string; id: stri
 type TranslateFn = (key: string, options?: { defaultValue?: string }) => string;
 
 export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): NavItem[] {
-  const builtinMap: Record<string, NavItem> = {
-    ersteSchritte: {
-      id: 'ersteSchritte',
-      label: t('settings.ersteSchritte', { defaultValue: 'Erste Schritte' }),
-      icon: <Flag theme='outline' size='16' />,
-      path: 'erste-schritte',
-    },
-    model: { id: 'model', label: t('settings.model'), icon: <LinkCloud theme='outline' size='16' />, path: 'model' },
-    // 1.2.18 — 'agent' + 'assistants' merged into the single 'eveRuntime' tab; the
-    // formerly-main-sidebar 'runtime' + 'connectors' surfaces moved in here too.
-    // Kept in lockstep with SettingsSider's builtinMap and BUILTIN_TAB_IDS, or the
-    // hardened filter below silently drops the unmapped ids (3 missing nav tabs).
-    eveRuntime: {
-      id: 'eveRuntime',
-      label: t('settings.eveRuntime', { defaultValue: 'EVE-Runtime' }),
-      icon: <Robot theme='outline' size='16' />,
-      path: 'eve-runtime',
-    },
-    runtime: {
-      id: 'runtime',
-      label: t('settings.runtime', { defaultValue: 'Runtime' }),
-      icon: <Speed theme='outline' size='16' />,
-      path: 'runtime',
-    },
-    connectors: {
-      id: 'connectors',
-      label: t('settings.connectors', { defaultValue: 'Connectoren' }),
-      icon: <Puzzle theme='outline' size='16' />,
-      path: 'connectors',
-    },
-    capabilities: {
-      id: 'capabilities',
-      label: t('settings.capabilities', { defaultValue: 'Capabilities' }),
-      icon: <Lightning theme='outline' size='16' />,
-      path: 'capabilities',
-    },
-    appearance: {
-      id: 'appearance',
-      label: t('settings.appearancePanel'),
-      icon: <Computer theme='outline' size='16' />,
-      path: 'appearance',
-    },
-    webui: {
-      id: 'webui',
-      label: t('settings.webui'),
-      icon: isDesktop ? <Earth theme='outline' size='16' /> : <Communication theme='outline' size='16' />,
-      path: 'webui',
-    },
-    pet: { id: 'pet', label: t('pet.desktopPet'), icon: <Cat theme='outline' size='16' />, path: 'pet' },
-    authority: {
-      id: 'authority',
-      label: t('settings.authority', { defaultValue: 'Freigaben' }),
-      icon: <Lock theme='outline' size='16' />,
-      path: 'authority',
-    },
-    privacy: {
-      id: 'privacy',
-      label: t('settings.privacy.navLabel', { defaultValue: 'Privacy' }),
-      icon: <Shield theme='outline' size='16' />,
-      path: 'privacy',
-    },
-    billing: {
-      id: 'billing',
-      label: t('settings.billing', { defaultValue: 'Billing' }),
-      icon: <Wallet theme='outline' size='16' />,
-      path: 'billing',
-    },
-    companyBrain: {
-      id: 'companyBrain',
-      label: t('settings.companyBrain', { defaultValue: 'Company Brain' }),
-      icon: <Brain theme='outline' size='16' />,
-      path: 'company-brain',
-    },
-    account: {
-      id: 'account',
-      label: t('settings.account', { defaultValue: 'Account' }),
-      icon: <User theme='outline' size='16' />,
-      path: 'account',
-    },
-    system: { id: 'system', label: t('settings.system'), icon: <System theme='outline' size='16' />, path: 'system' },
-    about: { id: 'about', label: t('settings.about'), icon: <Info theme='outline' size='16' />, path: 'about' },
-  };
-
-  // Drop any id without a map entry instead of leaving an `undefined` hole that
-  // later crashes the render (`result[i].id`). This is what white-screened the
-  // whole app when `billing`/`account` were in BUILTIN_TAB_IDS but not the map.
-  return BUILTIN_TAB_IDS.map((id) => builtinMap[id]).filter((it): it is NavItem => Boolean(it));
+  return getBuiltinSettingsNavigationItems(isDesktop, t);
 }
 
 const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, className, contentClassName }) => {
@@ -278,7 +175,13 @@ const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, cla
                       void navigate(`/settings/${item.path}`, { replace: true });
                     }}
                   >
-                    <span className='settings-mobile-top-nav__icon'>{item.icon}</span>
+                    <EveIconTile
+                      tone={active ? 'action' : 'neutral'}
+                      size='small'
+                      className='settings-mobile-top-nav__icon'
+                    >
+                      {item.icon}
+                    </EveIconTile>
                     <span className='settings-mobile-top-nav__label'>{item.label}</span>
                   </Button>
                 );

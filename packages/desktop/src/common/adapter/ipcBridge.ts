@@ -92,6 +92,10 @@ import type {
   CommandEveAttachmentGroundingReceipt,
   CommandEveAttachmentGroundingRequest,
 } from '../config/eveAttachmentGroundingCore';
+import type {
+  CommandEveImageGenerateRequest,
+  CommandEveImageGenerateResult,
+} from '../config/eveManagedImageGenerationCore';
 
 /**
  * 1.820.3 — the renderer-facing shapes of the managed image artifact lane.
@@ -1575,7 +1579,7 @@ export interface ICommandEveAuthLogoutResult {
  * APP→WEB AUTH HANDOFF request (money-critical). The renderer asks MAIN to open a
  * command-eve.com account path in the system browser; MAIN attaches the desktop
  * session (refresh token) as a URL fragment so the user lands LOGGED IN and can
- * check out. `path` is an absolute app path ('/account?intent=add_seat', etc.) —
+ * check out. `path` is an absolute app path ('/account?pack_eur=100', etc.) —
  * MAIN pins the origin. The renderer NEVER supplies or receives the token.
  */
 export interface ICommandEveOpenAccountWebRequest {
@@ -1940,7 +1944,7 @@ export interface ICommandEveSeedCreateResult {
   seed_id?: string;
   created?: boolean;
   seed_count?: number;
-  seed_limit: number;
+  seed_limit: number | null;
   reason_code?: string;
 }
 
@@ -1977,7 +1981,6 @@ export type ICommandEveExternalActionExecuteRequest = EveExternalActionProposal;
 export type ICommandEveExternalActionExecuteResult = EveExternalActionExecutionResult;
 export type ICommandEveExternalActionResumeRequest = EveExternalActionResumeRequest;
 export type ICommandEveExternalActionResumeResult = EveExternalActionExecutionResult;
-
 // v1.5 A3: per-seat usage attribution — one seat's aggregated usage for a month.
 // Opaque seat ids ONLY (never names — H3); the LABEL join happens in the renderer.
 export interface ICommandEveSeatUsageRow {
@@ -2166,6 +2169,11 @@ export const commandEve = {
   // beside the source; the source is never overwritten.
   videoEdit: bridge.buildProvider<IBridgeResponse<CommandEveVideoEditResult>, CommandEveVideoEditRequest>(
     'command-eve.video-edit'
+  ),
+  // Explicit composer image turn. Main validates every option, owns the
+  // gateway request id, and returns an already-bound conversation artifact.
+  imageGenerate: bridge.buildProvider<IBridgeResponse<CommandEveImageGenerateResult>, CommandEveImageGenerateRequest>(
+    'command-eve.image-generate'
   ),
   // 1.820.3 — the managed IMAGE artifact lane (staged-handle contract).
   // BIND: the renderer read the staged handle out of the finished turn's tool

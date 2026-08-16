@@ -94,6 +94,7 @@ import type { parseMySeats } from '@process/commandEve/seatSwitchCore';
 import {
   setActiveSeatId,
   __resetActiveSeatForTests,
+  getCommandEvePaidArtifactBlockReason,
   resolveSeatHermesHome,
   tryBeginCommandEvePaidArtifactOperation,
 } from '@process/commandEve/seatContextCore';
@@ -208,7 +209,7 @@ describe('mirror (a) — REAL my-seats provider → resolveSeatAccess → rail v
 });
 
 describe('mirror (b) — REAL switch-seat handler: admin gate + Founder chip + label threading', () => {
-  it('surfaces recovery-required after the hard timeout without reopening the Seed fences', async () => {
+  it('surfaces recovery-required after the hard timeout with an honest paid-lane block reason', async () => {
     vi.useFakeTimers();
     let releaseRestart: (() => void) | undefined;
     let firstSwitch: Promise<SwitchEnvelope> | undefined;
@@ -231,9 +232,11 @@ describe('mirror (b) — REAL switch-seat handler: admin gate + Founder chip + l
       const blocked = await switchSeat(SEAT_A);
       expect(blocked.success).toBe(false);
       expect(blocked.data?.reason_code).toBe('SWITCH_SEAT_RECOVERY_REQUIRED');
+      expect(getCommandEvePaidArtifactBlockReason()).toBe('seat_recovery_required');
 
       releaseRestart?.();
       await expect(firstSwitch).resolves.toMatchObject({ success: true });
+      expect(getCommandEvePaidArtifactBlockReason()).toBeNull();
 
       const recovered = await switchSeat(SEAT_A);
       expect(recovered.success).toBe(true);

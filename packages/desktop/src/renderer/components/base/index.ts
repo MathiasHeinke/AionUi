@@ -18,6 +18,9 @@ export { default as AionCollapse } from './AionCollapse';
 export { default as AionSelect } from './AionSelect';
 export { default as AionScrollArea } from './AionScrollArea';
 export { default as AionSteps } from './AionSteps';
+export { default as PremiumIconProvider, PREMIUM_ICON_CONFIG } from './PremiumIconProvider';
+export { PREMIUM_ARCO_COMPONENT_CONFIG } from './PremiumArcoDefaults';
+export { default as EveIconTile } from './EveIconTile';
 
 // ==================== 类型导出 / Type Exports ====================
 
@@ -39,3 +42,4 @@ export type { AionSelectProps } from './AionSelect';
 
 // AionSteps 类型 / AionSteps types
 export type { AionStepsProps } from './AionSteps';
+export type { EveIconTileProps, EveIconTileSize, EveIconTileTone } from './EveIconTile';

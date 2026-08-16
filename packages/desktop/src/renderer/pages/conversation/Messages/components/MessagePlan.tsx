@@ -1,5 +1,5 @@
 import { Badge } from '@arco-design/web-react';
-import { IconCheckCircle, IconDown, IconRight } from '@arco-design/web-react/icon';
+import { CheckOne, Down, Right } from '@icon-park/react';
 import React, { useState } from 'react';
 import type { IMessagePlan } from '@/common/chat/chatLib';
 
@@ -13,19 +13,23 @@ const MessagePlan: React.FC<{ message: IMessagePlan }> = ({ message }) => {
         onClick={() => setShowMore(!showMore)}
         aria-expanded={showMore}
       >
-        <Badge status='default' text='To do list' className={'![&_span.arco-badge-status-text]:color-#86909C'}></Badge>
-        {showMore ? <IconDown /> : <IconRight />}
+        <Badge status='default' text='To do list' className='![&_span.arco-badge-status-text]:text-t-secondary' />
+        {showMore ? (
+          <Down theme='outline' size={13} fill='currentColor' aria-hidden='true' />
+        ) : (
+          <Right theme='outline' size={13} fill='currentColor' aria-hidden='true' />
+        )}
       </button>
       {showMore && (
         <div className='p-l-20px flex flex-col gap-8px pt-8px'>
           {message.content.entries.map((item, index) => {
             return (
-              <div key={`${index}-${item.content}`} className='flex flex-row items-center color-#86909C gap-8px'>
+              <div key={`${index}-${item.content}`} className='flex flex-row items-center text-t-secondary gap-8px'>
                 {item.status === 'completed' ? (
-                  <IconCheckCircle fontSize={22} strokeWidth={4} className='flex color-#00B42A' />
+                  <CheckOne theme='outline' size={22} strokeWidth={3} className='flex text-success-6' />
                 ) : (
                   <div className='size-22px flex items-center justify-center'>
-                    <div className='size-14px  rd-10px b-2px b-solid b-[rgba(201,205,212,1)]'></div>
+                    <div className='size-14px rd-10px b-2px b-solid border-[var(--eve-control-border,var(--color-border-2))]' />
                   </div>
                 )}
                 <span>{item.content} </span>

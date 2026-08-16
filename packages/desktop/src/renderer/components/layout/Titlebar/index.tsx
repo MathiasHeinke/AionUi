@@ -1,6 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
-import { ArrowCircleLeft, ArrowLeft, ArrowRight, ExpandLeft, ExpandRight, Peoples, RightBar } from '@icon-park/react';
+import {
+  ArrowCircleLeft,
+  ArrowLeft,
+  ArrowRight,
+  ExpandLeft,
+  ExpandRight,
+  LeftBar,
+  Peoples,
+  RightBar,
+} from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -21,35 +30,6 @@ import './titlebar.css';
 interface TitlebarProps {
   workspaceAvailable: boolean;
 }
-
-// Claude-desktop-style sidebar toggle icon: a rounded rectangle with a vertical divider
-// near the left edge, indicating a collapsible side panel. Rendered as inline SVG since
-// @icon-park doesn't ship this exact shape.
-//
-// Uses a 48-unit viewBox to match @icon-park's stroke scale, so passing the same
-// `strokeWidth` value here and to @icon-park icons produces visually identical lines.
-//
-// The rect spans y=10..38 (height 28), slightly taller than @icon-park's
-// ArrowLeft/ArrowRight (which span y=12..36) so the sidebar icon reads a
-// touch larger. The rect remains centered at y=24, matching the arrows'
-// centerline so all three icons stay on the same visual baseline.
-const SidebarIcon: React.FC<{ size?: number; strokeWidth?: number }> = ({ size = 18, strokeWidth = 4 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox='0 0 48 48'
-    fill='none'
-    stroke='currentColor'
-    strokeWidth={strokeWidth}
-    strokeLinecap='round'
-    strokeLinejoin='round'
-    aria-hidden='true'
-    focusable='false'
-  >
-    <rect x='6' y='10' width='36' height='28' rx='5' />
-    <line x1='18' y1='10' x2='18' y2='38' />
-  </svg>
-);
 
 const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
   const { t } = useTranslation();
@@ -285,7 +265,13 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
             aria-label={siderTooltip}
             data-testid='sider-toggle-btn'
           >
-            <SidebarIcon size={iconSize} strokeWidth={desktopIconStroke} />
+            <LeftBar
+              theme='outline'
+              size={iconSize}
+              fill='currentColor'
+              strokeWidth={desktopIconStroke}
+              aria-hidden='true'
+            />
           </button>
         )}
         {showHistoryNav && (

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { changeLanguage } from '@/renderer/services/i18n';
 import { useNavigate } from 'react-router-dom';
 import AppLoader from '@renderer/components/layout/AppLoader';
+import { Command, Loading, Lock, PreviewCloseOne, PreviewOpen, User } from '@icon-park/react';
 import { useAuth } from '../../hooks/context/AuthContext';
 import { loadRememberedLogin, persistRememberedLogin } from './rememberMeStorage';
 import './LoginPage.css';
@@ -549,7 +550,7 @@ const LoginPage: React.FC = () => {
           </div>
           <h1 className='login-page__title' aria-label={t('login.brand')}>
             <span className='login-page__title-command' aria-hidden='true'>
-              ⌘
+              <Command size='0.9em' />
             </span>
             <span> EVE</span>
           </h1>
@@ -563,17 +564,13 @@ const LoginPage: React.FC = () => {
               {t('login.username')}
             </label>
             <div className='login-page__input-wrapper'>
-              <svg
+              <User
                 className='login-page__input-icon'
-                viewBox='0 0 24 24'
-                fill='none'
-                stroke='currentColor'
-                strokeWidth='2'
+                theme='outline'
+                size={17}
+                fill='currentColor'
                 aria-hidden='true'
-              >
-                <path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2' />
-                <circle cx='12' cy='7' r='4' />
-              </svg>
+              />
               <input
                 ref={usernameRef}
                 id='username'
@@ -593,17 +590,13 @@ const LoginPage: React.FC = () => {
               {t('login.password')}
             </label>
             <div className='login-page__input-wrapper'>
-              <svg
+              <Lock
                 className='login-page__input-icon'
-                viewBox='0 0 24 24'
-                fill='none'
-                stroke='currentColor'
-                strokeWidth='2'
+                theme='outline'
+                size={17}
+                fill='currentColor'
                 aria-hidden='true'
-              >
-                <rect x='3' y='11' width='18' height='11' rx='2' ry='2' />
-                <path d='M7 11V7a5 5 0 0 1 10 0v4' />
-              </svg>
+              />
               <input
                 ref={passwordRef}
                 id='password'
@@ -622,19 +615,11 @@ const LoginPage: React.FC = () => {
                 onClick={() => setPasswordVisible((prev) => !prev)}
                 aria-label={passwordVisible ? t('login.hidePassword') : t('login.showPassword')}
               >
-                <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'>
-                  {passwordVisible ? (
-                    <>
-                      <path d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24' />
-                      <line x1='1' y1='1' x2='23' y2='23' />
-                    </>
-                  ) : (
-                    <>
-                      <path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z' />
-                      <circle cx='12' cy='12' r='3' />
-                    </>
-                  )}
-                </svg>
+                {passwordVisible ? (
+                  <PreviewCloseOne theme='outline' size={18} fill='currentColor' aria-hidden='true' />
+                ) : (
+                  <PreviewOpen theme='outline' size={18} fill='currentColor' aria-hidden='true' />
+                )}
               </button>
             </div>
           </div>
@@ -651,19 +636,14 @@ const LoginPage: React.FC = () => {
 
           <button type='submit' className='login-page__submit' disabled={loading}>
             {loading && (
-              <svg className='login-page__spinner' viewBox='0 0 24 24' width='18' height='18'>
-                <circle
-                  cx='12'
-                  cy='12'
-                  r='10'
-                  stroke='currentColor'
-                  strokeWidth='3'
-                  fill='none'
-                  strokeDasharray='50'
-                  strokeDashoffset='25'
-                  strokeLinecap='round'
-                />
-              </svg>
+              <Loading
+                className='login-page__spinner'
+                theme='outline'
+                size={18}
+                fill='currentColor'
+                spin
+                aria-hidden='true'
+              />
             )}
             <span>{loading ? t('login.submitting') : t('login.submit')}</span>
           </button>

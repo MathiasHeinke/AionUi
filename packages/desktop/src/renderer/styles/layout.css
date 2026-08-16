@@ -130,17 +130,17 @@
 .chat-history__item,
 .settings-sider__item {
   transition:
-    padding 0.2s ease,
-    margin 0.2s ease,
-    background-color 0.2s ease;
+    padding var(--eve-motion-duration-state, 400ms) ease,
+    margin var(--eve-motion-duration-state, 400ms) ease,
+    background-color var(--eve-motion-duration-feedback, 300ms) ease;
 }
 
 .chat-history__item-name,
 .chat-history__item-editor,
 .settings-sider__item-label {
   transition:
-    opacity 0.25s ease,
-    transform 0.25s ease;
+    opacity var(--eve-motion-duration-state, 400ms) ease,
+    transform var(--eve-motion-duration-state, 400ms) ease;
   transform-origin: left center;
 }
 

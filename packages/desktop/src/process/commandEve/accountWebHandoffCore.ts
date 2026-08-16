@@ -80,7 +80,7 @@ export function buildAccountWebUrl(baseOrigin: string, path: string, refreshToke
   // token can never be handed to a foreign host.
   const origin = baseOrigin === COMMAND_EVE_WEB_ORIGIN ? baseOrigin : COMMAND_EVE_WEB_ORIGIN;
 
-  // Preserve the caller's query (?intent=add_seat / ?pack_eur=<n>) untouched — the
+  // Preserve the caller's money-surface query (?pack_eur=<n>) untouched — the
   // web deep-links read location.search, which the fragment does not disturb.
   const naked = `${origin}${path}`;
 

@@ -1,0 +1,30 @@
+.trigger {
+  transition-duration: var(--eve-motion-duration-state);
+  transition-timing-function: var(--eve-motion-ease-standard);
+}
+
+.menu {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px) scale(0.985);
+  transform-origin: top center;
+  transition:
+    opacity var(--eve-motion-duration-overlay-exit) var(--eve-motion-ease-exit),
+    transform var(--eve-motion-duration-overlay-exit) var(--eve-motion-ease-exit);
+}
+
+.menuVisible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+  transition-duration: var(--eve-motion-duration-overlay-enter);
+  transition-timing-function: var(--eve-motion-ease-enter);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger,
+  .menu,
+  .menuVisible {
+    transition-duration: 0ms;
+  }
+}

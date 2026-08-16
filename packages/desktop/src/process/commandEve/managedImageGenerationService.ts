@@ -28,6 +28,7 @@ import {
 } from '@/common/config/eveMultimodalGatewayCore';
 import {
   getCommandEveImageModelTierSpec,
+  type CommandEveImageModelTierId,
   type CommandEveImageModelRegistryResult,
 } from '@/common/config/eveImageModelRegistryCore';
 import type { CommandEveImageModelPreferenceState } from '@/common/config/visual/imageModelPreferenceCore';
@@ -40,6 +41,7 @@ import { getDataPath } from '@process/utils/utils';
 import {
   getActiveSeatContextRevision,
   getActiveSeatId,
+  getCommandEvePaidArtifactBlockReason,
   tryBeginCommandEvePaidArtifactOperation,
 } from './seatContextCore';
 
@@ -155,6 +157,7 @@ export type CommandEveManagedImageGenerationOptions = {
   dataPath?: string;
   getActiveSeatId?: () => string;
   getActiveSeatContextRevision?: () => number;
+  getPaidArtifactBlockReason?: typeof getCommandEvePaidArtifactBlockReason;
   /**
    * MAT-1769 seams, injectable for tests. Production reads the seat's stored
    * preference and the server-owned registry through the main-process
@@ -166,6 +169,19 @@ export type CommandEveManagedImageGenerationOptions = {
     fetchFn?: typeof fetch;
     dataPath?: string;
   }) => Promise<CommandEveImageModelRegistryResult>;
+  /**
+   * Explicit composer turns pass the validated BARE tier id here. It remains
+   * Main-authoritative because the live registry must still offer the tier and
+   * resolution; callers can never name a provider slug.
+   */
+  requestedTier?: CommandEveImageModelTierId;
+  /** Stable idempotency key forwarded to the gateway debit ledger. */
+  requestId?: string;
+  /**
+   * Optional outer-bridge seat fence. When supplied, generation may not adopt
+   * a newly active seat between reference validation and this service call.
+   */
+  expectedSeat?: { id: string; revision: number };
   /**
    * 1.820.3 STAGE seam. After the receipt is verified, the provider BYTES are
    * persisted privately and an opaque staged handle is minted — the response
@@ -211,6 +227,16 @@ export async function executeCommandEveManagedImageGeneration(
     originDataPath = options.dataPath ?? getDataPath();
   } catch {
     return failure(503, 'managed_image_seat_unavailable', 'The active Seed could not be determined safely.');
+  }
+  if (
+    options.expectedSeat &&
+    (capturedSeatId !== options.expectedSeat.id || capturedSeatContextRevision !== options.expectedSeat.revision)
+  ) {
+    return failure(
+      409,
+      'managed_image_seat_changed',
+      'The active Seed changed while the image was being prepared. Retry.'
+    );
   }
   const seatStillMatches = (): boolean => {
     try {
@@ -271,9 +297,14 @@ export async function executeCommandEveManagedImageGeneration(
       'Managed image generation is disabled on the gateway; the request is refused, not retried against another model.'
     );
   }
-  const preference = await (options.readPreference ?? (() => readCommandEveImageModelPreference()))();
+  const preference =
+    options.requestedTier === undefined
+      ? await (options.readPreference ?? (() => readCommandEveImageModelPreference()))()
+      : undefined;
   if (!seatStillMatches()) return seatChanged();
-  const tier = preference.status === 'resolved' ? preference.tier : registryResult.registry.default_tier;
+  const tier =
+    options.requestedTier ??
+    (preference?.status === 'resolved' ? preference.tier : registryResult.registry.default_tier);
   const tierSpec = getCommandEveImageModelTierSpec(registryResult.registry, tier);
   if (!tierSpec) {
     return failure(
@@ -293,6 +324,13 @@ export async function executeCommandEveManagedImageGeneration(
   const referenceCount = built.body.input_references?.length ?? 0;
   let effectiveTierSpec = tierSpec;
   if (referenceCount > 0 && tierSpec.supports_references !== true) {
+    if (options.requestedTier !== undefined) {
+      return failure(
+        400,
+        'image_edit_tier_unsupported',
+        'The selected image model tier does not support reference images.'
+      );
+    }
     const referenceCapable = registryResult.registry.tiers.find((candidate) => candidate.supports_references === true);
     if (!referenceCapable) {
       return failure(
@@ -303,15 +341,32 @@ export async function executeCommandEveManagedImageGeneration(
     }
     effectiveTierSpec = referenceCapable;
   }
+  if (!effectiveTierSpec.resolutions.includes(built.body.resolution)) {
+    return failure(
+      400,
+      'image_model_resolution_unsupported',
+      'The selected image model tier does not support this resolution.'
+    );
+  }
   // The bare tier id travels; the server owns tier → slug (CoS contract).
   const body: CommandEveManagedImageEdgeRequest = {
     ...built.body,
+    ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
     image_model: effectiveTierSpec.id,
     ...commandEveMediaSeedAttribution(capturedSeatId),
   };
 
   if (!seatStillMatches()) return seatChanged();
 
+  const paidArtifactBlockReason = (options.getPaidArtifactBlockReason ?? getCommandEvePaidArtifactBlockReason)();
+  if (paidArtifactBlockReason === 'seat_recovery_required') {
+    return failure(
+      409,
+      'managed_image_seat_recovery_required',
+      'The previous Seat switch did not settle. Relaunch Command EVE before retrying image generation.'
+    );
+  }
+  if (paidArtifactBlockReason === 'seat_transition_in_progress') return seatChanged();
   const releasePaidArtifactOperation = tryBeginCommandEvePaidArtifactOperation();
   if (!releasePaidArtifactOperation) return seatChanged();
   const controller = new AbortController();

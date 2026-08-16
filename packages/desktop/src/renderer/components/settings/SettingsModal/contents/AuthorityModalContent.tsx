@@ -41,12 +41,13 @@ import {
   type FullAuthorityOpaqueUi,
 } from '@/common/config/eveAuthorityStoreCore';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
+import EveIconTile from '@/renderer/components/base/EveIconTile';
 import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
 import SettingsSection from '@/renderer/components/settings/SettingsSection';
 import { useConfig } from '@/renderer/hooks/config/useConfig';
 import { useActiveSeatId } from '@/renderer/hooks/useActiveSeatId';
 import { Button, InputNumber, Radio, Switch } from '@arco-design/web-react';
-import { Browser, Computer, Delete, Key, Ladder, Send, Shield, Unlock, UploadWeb, Wallet } from '@icon-park/react';
+import { Delete, Key, Ladder, Send, SettingComputer, Shield, Unlock, UploadWeb, Wallet } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ExternalActionPolicySection from './ExternalActionPolicySection';
@@ -70,24 +71,20 @@ const SEAL_KEYS: Record<EveSealedCapability, string> = {
   'deploy.production': 'authority.seal.deploy',
 };
 
-/** One familiar, unboxed glyph per effect. The 24 px slot keeps text baselines aligned. */
+/** One coherent Icon Park glyph per effect. The shared tile owns optical alignment. */
 const SEAL_ICONS = {
-  'spend.money': <Wallet theme='outline' size={16} fill='currentColor' />,
-  'publish.outward': <Send theme='outline' size={16} fill='currentColor' />,
-  'delete.outside': <Delete theme='outline' size={16} fill='currentColor' />,
-  'credentials.read': <Key theme='outline' size={16} fill='currentColor' />,
-  'deploy.production': <UploadWeb theme='outline' size={16} fill='currentColor' />,
+  'spend.money': <Wallet />,
+  'publish.outward': <Send />,
+  'delete.outside': <Delete />,
+  'credentials.read': <Key />,
+  'deploy.production': <UploadWeb />,
 } satisfies Record<EveSealedCapability, React.ReactNode>;
 
 const authoritySectionTitle = (icon: React.ReactNode, label: React.ReactNode, testId: string): React.ReactNode => (
   <span className='inline-flex min-w-0 items-center gap-8px'>
-    <span
-      aria-hidden='true'
-      className='flex h-24px w-24px shrink-0 items-center justify-center text-[var(--eve-shell-text-secondary)]'
-      data-testid={testId}
-    >
+    <EveIconTile tone='action' size='small' data-testid={testId}>
       {icon}
-    </span>
+    </EveIconTile>
     <span className='min-w-0'>{label}</span>
   </span>
 );
@@ -243,7 +240,7 @@ const AuthorityModalContent: React.FC = () => {
 
         <SettingsSection
           title={authoritySectionTitle(
-            <Ladder theme='outline' size={18} fill='currentColor' />,
+            <Ladder />,
             t('commandEve.authority.ladderTitle'),
             'authority-section-icon-ladder'
           )}
@@ -303,7 +300,7 @@ const AuthorityModalContent: React.FC = () => {
         */}
         <SettingsSection
           title={authoritySectionTitle(
-            <Shield theme='outline' size={18} fill='currentColor' />,
+            <Shield />,
             t('commandEve.authority.sealsTitle'),
             'authority-section-icon-seals'
           )}
@@ -316,13 +313,9 @@ const AuthorityModalContent: React.FC = () => {
               <PreferenceRow
                 label={
                   <span className='flex min-w-0 items-start gap-10px'>
-                    <span
-                      aria-hidden='true'
-                      className='flex h-24px w-24px shrink-0 items-center justify-center text-[var(--eve-shell-text-secondary)]'
-                      data-testid={`authority-seal-icon-${capability}`}
-                    >
+                    <EveIconTile tone='neutral' size='small' data-testid={`authority-seal-icon-${capability}`}>
                       {SEAL_ICONS[capability]}
-                    </span>
+                    </EveIconTile>
                     <span className='min-w-0'>
                       <span className='block'>{t(`commandEve.${SEAL_KEYS[capability]}.title`)}</span>
                       <span className='eve-settings-preference-row__description block'>
@@ -410,15 +403,7 @@ const AuthorityModalContent: React.FC = () => {
         */}
         <SettingsSection
           title={authoritySectionTitle(
-            <span className='relative block h-24px w-24px'>
-              <Browser theme='outline' size={16} fill='currentColor' className='absolute left-0 top-0 leading-none' />
-              <Computer
-                theme='outline'
-                size={16}
-                fill='currentColor'
-                className='absolute bottom-0 right-0 leading-none'
-              />
-            </span>,
+            <SettingComputer />,
             t('commandEve.authority.opaqueUiTitle'),
             'authority-section-icon-opaque-ui'
           )}
@@ -469,7 +454,7 @@ const AuthorityModalContent: React.FC = () => {
         */}
         <SettingsSection
           title={authoritySectionTitle(
-            <Unlock theme='outline' size={18} fill='currentColor' />,
+            <Unlock />,
             t('commandEve.authority.fullReleaseTitle'),
             'authority-section-icon-full-release'
           )}

@@ -12,8 +12,8 @@
  * clicking another seat switches the whole app to it (same authoritative path as the
  * SeatSwitcher: useSeatAccess.switchTo drives the main-process stop + re-spawn under
  * the new HERMES_HOME). The "+" (pinned to the bottom) provisions a free Seed
- * directly in the app. The account-wide cap is ten Seeds; every Seed consumes the
- * same account credit pool and retains its own usage attribution.
+ * directly in the app at no extra cost. Every Seed consumes the same account
+ * credit pool and retains its own usage attribution.
  *
  * SECURITY / VISIBILITY: renders ONLY for an admin. useSeatAccess is fail-closed —
  * a delegate, a single-seat legacy install, or no bridge all resolve to
@@ -159,6 +159,16 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
   // render nothing, byte-identical to before.
   const sessionRecovery = !visible && !loading && isDeadSessionFailure(mySeatsWireError);
   const renderedExpanded = !compact && expanded;
+  const localizedSwitchErrorMessage = useCallback(
+    (code: string): string =>
+      code === 'SWITCH_SEAT_RECOVERY_REQUIRED'
+        ? t('commandEve.seatRail.switchRecoveryRequired', {
+            defaultValue:
+              'Der Kunden-Wechsel ist nicht sicher abgeschlossen. Starte Command EVE neu und arbeite bis dahin in keinem Kunden-Seat weiter.',
+          })
+        : switchErrorMessage(code),
+    [t]
+  );
 
   const reauthLabel = t('commandEve.seatRail.reauth', 'Erneut anmelden, um Kundenplätze zu laden');
   const handleReauth = useCallback(async () => {
@@ -198,9 +208,9 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
   // they see NOTHING — believing they are on the new client when they are not.
   useEffect(() => {
     if (!lastSwitchError) return;
-    Message.error({ content: switchErrorMessage(lastSwitchError), duration: 4500 });
+    Message.error({ content: localizedSwitchErrorMessage(lastSwitchError), duration: 4500 });
     // switchErrorNonce in deps ⇒ a repeated identical reject code still re-fires.
-  }, [lastSwitchError, switchErrorNonce]);
+  }, [lastSwitchError, localizedSwitchErrorMessage, switchErrorNonce]);
 
   // Admins only (see the security note above). The ONE exception: a dead stored
   // account session, where the rail's slot shows a single re-authenticate
@@ -238,7 +248,6 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
     ? t('commandEve.seatRail.collapse', 'Leiste einklappen')
     : t('commandEve.seatRail.expand', 'Leiste ausklappen');
 
-  const atSeedLimit = access.seats.length >= 10;
   const closeCreateSeed = () => {
     if (provisioning) return;
     setCreateSeedVisible(false);
@@ -267,13 +276,21 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
       await refresh();
       setCreateSeedVisible(false);
       setSeedName('');
-      setSeedCreateAnnouncement(t('commandEve.seatRail.created', 'Seed wurde erstellt.'));
-      Message.success(t('commandEve.seatRail.created', 'Seed wurde erstellt.'));
+      const successMessage =
+        result.created === false
+          ? t('commandEve.seatRail.reconciled', 'Seed wurde abgeglichen.')
+          : t('commandEve.seatRail.created', 'Seed wurde erstellt.');
+      setSeedCreateAnnouncement(successMessage);
+      Message.success(successMessage);
       return;
     }
-    if (result.reasonCode === 'SEED_LIMIT_REACHED') {
-      setSeedCreateAnnouncement(t('commandEve.seatRail.limitReached', 'Maximal 10 Seeds pro Account.'));
-      Message.error(t('commandEve.seatRail.limitReached', 'Maximal 10 Seeds pro Account.'));
+    if (result.reasonCode === 'SEED_ABUSE_CEILING_REACHED') {
+      const message = t(
+        'commandEve.seatRail.abuseCeilingReached',
+        'Zu viele automatische Seat-Anlagen. Bitte kontaktiere den Support.'
+      );
+      setSeedCreateAnnouncement(message);
+      Message.error(message);
       return;
     }
     if (result.reasonCode === 'SEED_PROVISION_TIMEOUT') {
@@ -310,7 +327,7 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
           nonce so role='alert' remounts and re-announces on every failure, including a
           repeated identical reject code. Empty (silent) when there is no error. */}
         <span key={switchErrorNonce} role='alert' className='seat-rail__sr-only' data-testid='seat-rail-live'>
-          {lastSwitchError ? switchErrorMessage(lastSwitchError) : ''}
+          {lastSwitchError ? localizedSwitchErrorMessage(lastSwitchError) : ''}
         </span>
 
         <div className='seat-rail__brand' data-testid='seat-rail-brand' aria-hidden='true'>
@@ -397,11 +414,7 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
         </div>
 
         <Tooltip
-          content={
-            atSeedLimit
-              ? t('commandEve.seatRail.limitReached', 'Maximal 10 Seeds pro Account.')
-              : t('commandEve.seatRail.add', 'Seed hinzufügen')
-          }
+          content={t('commandEve.seatRail.add', 'Seed hinzufügen')}
           position='right'
           trigger={['hover', 'focus']}
         >
@@ -410,7 +423,7 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
             className='seat-rail__add'
             data-testid='seat-rail-add'
             aria-label={t('commandEve.seatRail.add', 'Seed hinzufügen')}
-            disabled={atSeedLimit || provisioning || switching}
+            disabled={provisioning || switching}
             aria-busy={provisioning || undefined}
             onClick={() => {
               if (!retryPending) resetCreateAttempt();
@@ -439,7 +452,7 @@ const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
             <Button
               type='primary'
               loading={provisioning}
-              disabled={!seedName.trim() || atSeedLimit}
+              disabled={!seedName.trim()}
               onClick={() => void handleCreateSeed()}
               data-testid='seed-create-submit'
             >

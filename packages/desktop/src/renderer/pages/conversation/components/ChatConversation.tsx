@@ -7,13 +7,11 @@
 import { ipcBridge } from '@/common';
 import type { IConversationMcpStatus, IProvider, TChatConversation, TProviderWithModel } from '@/common/config/storage';
 import { uuid } from '@/common/utils';
-import addChatIcon from '@/renderer/assets/icons/add-chat.svg';
 import { CronJobManager } from '@/renderer/pages/cron';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { usePresetAssistantInfo, resolveAssistantConfigId } from '@/renderer/hooks/agent/usePresetAssistantInfo';
-import { iconColors } from '@/renderer/styles/colors';
 import { Button, Dropdown, Menu, Message, Tooltip, Typography } from '@arco-design/web-react';
-import { History } from '@icon-park/react';
+import { AddOne, History } from '@icon-park/react';
 import React, { useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -75,19 +73,7 @@ const _AssociatedConversation: React.FC<{ conversation_id: string }> = ({ conver
       }
       trigger={['click']}
     >
-      <Button
-        size='mini'
-        icon={
-          <History
-            theme='filled'
-            size='14'
-            fill={iconColors.primary}
-            strokeWidth={2}
-            strokeLinejoin='miter'
-            strokeLinecap='square'
-          />
-        }
-      ></Button>
+      <Button size='mini' icon={<History size={14} />}></Button>
     </Dropdown>
   );
 };
@@ -101,7 +87,7 @@ const _AddNewConversation: React.FC<{ conversation: TChatConversation }> = ({ co
     <Tooltip content={t('conversation.workspace.createNewConversation')}>
       <Button
         size='mini'
-        icon={<img src={addChatIcon} alt='Add chat' className='w-14px h-14px block m-auto' />}
+        icon={<AddOne size={14} />}
         onClick={async () => {
           if (isCreatingRef.current) return;
           isCreatingRef.current = true;

@@ -18,7 +18,7 @@
     "planTrial": "Trial — {{days}} days with {{credits}} credits. It ends with your decision; nothing is charged automatically.",
     "planNone": "No active subscription — Standard costs {{eur}} €/month.",
     "standardPlanHint": "One plan: Standard — {{eur}} €/month, incl. {{credits}} credits. Every further seat (team, project, client) is included at no extra charge.",
-    "addSeatIncluded": "Add a seat — {{eur}} € extra, included in Standard",
+    "addSeatIncluded": "Add a free customer Seat in Account settings",
     "packsTitle": "Credit packs",
     "packsHint": "Out of credits? Monthly top-ups at face value — 1 € = {{perEur}} credits. More usage = a bigger pack, never a higher plan.",
     "packCredits": "{{n}} credits",

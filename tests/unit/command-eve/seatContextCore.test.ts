@@ -36,6 +36,7 @@ import {
   assertSeatId,
   clearActiveSeat,
   getActiveSeatId,
+  getActiveSeatContextRevision,
   hasCommandEvePaidArtifactOperationInFlight,
   isActiveSeatLegacy,
   isLegacySeatId,
@@ -43,6 +44,7 @@ import {
   resolveSeatHermesHome,
   resolveSeatHome,
   sanitizeSeatId,
+  setCommandEvePaidArtifactSeatRecoveryRequired,
   setActiveSeatId,
   tryBeginCommandEvePaidArtifactOperation,
   tryBeginCommandEvePaidArtifactSeatTransition,
@@ -71,6 +73,14 @@ describe('paid artifact / Seed transition fence', () => {
     expect(releaseTransition).toBeTypeOf('function');
     expect(tryBeginCommandEvePaidArtifactOperation()).toBeNull();
     releaseTransition?.();
+    expect(tryBeginCommandEvePaidArtifactOperation()).toBeTypeOf('function');
+  });
+
+  it('the reservation primitive itself stays fail-closed during recovery', () => {
+    setCommandEvePaidArtifactSeatRecoveryRequired(true);
+    expect(tryBeginCommandEvePaidArtifactOperation()).toBeNull();
+    expect(tryBeginCommandEvePaidArtifactSeatTransition()).toBeNull();
+    setCommandEvePaidArtifactSeatRecoveryRequired(false);
     expect(tryBeginCommandEvePaidArtifactOperation()).toBeTypeOf('function');
   });
 });
@@ -322,8 +332,10 @@ describe('(d) stability + active-seat holder', () => {
     expect(getActiveSeatId()).toBe(LEGACY_SEAT_ID);
 
     setActiveSeatId(REAL_UUID_B);
+    const beforeClear = getActiveSeatContextRevision();
     clearActiveSeat();
     expect(getActiveSeatId()).toBe(LEGACY_SEAT_ID);
+    expect(getActiveSeatContextRevision()).toBe(beforeClear + 1);
   });
 
   it('two active-seat switches do not bleed: each resolves only its own home', () => {

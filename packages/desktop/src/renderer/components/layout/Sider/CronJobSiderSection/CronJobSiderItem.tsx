@@ -327,7 +327,7 @@ const CronJobSiderItem: React.FC<CronJobSiderItemProps> = ({
             <Down
               size={16}
               className={classNames(
-                'line-height-0 transition-transform duration-200',
+                'line-height-0 transition-transform duration-400',
                 expanded ? 'rotate-0' : '-rotate-90'
               )}
             />

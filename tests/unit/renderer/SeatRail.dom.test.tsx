@@ -49,8 +49,15 @@ vi.mock('@renderer/services/commandEveGenerationActivity', () => ({
 }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (_k: string, d?: unknown, vars?: { name?: string }) =>
-      typeof d === 'string' ? (vars?.name ? d.replace('{{name}}', vars.name) : d) : _k,
+    t: (_k: string, d?: unknown, vars?: { name?: string }) => {
+      const fallback =
+        typeof d === 'string'
+          ? d
+          : d && typeof d === 'object' && 'defaultValue' in d
+            ? String((d as { defaultValue: unknown }).defaultValue)
+            : _k;
+      return vars?.name ? fallback.replace('{{name}}', vars.name) : fallback;
+    },
   }),
 }));
 // Arco Tooltip just wraps; Modal renders its content when visible.
@@ -233,7 +240,7 @@ describe('SeatRail', () => {
       seedId: '44444444-4444-4444-8444-444444444444',
       created: true,
       seedCount: 4,
-      seedLimit: 10,
+      seedLimit: 1000,
     });
     mockAccess();
     render(<SeatRail />);
@@ -244,14 +251,14 @@ describe('SeatRail', () => {
     expect(messageSuccessMock).toHaveBeenCalledTimes(1);
   });
 
-  it('disables creation at the account-wide ten Seed limit', () => {
+  it('keeps free in-app creation enabled beyond the obsolete ten-Seat limit', () => {
     mockAccess({
       access: {
         role: 'admin',
         canSwitch: true,
         pinnedSeatId: 's1',
         activeSeatId: 's1',
-        seats: Array.from({ length: 10 }, (_, index) => ({
+        seats: Array.from({ length: 20 }, (_, index) => ({
           seat_id: `s${index + 1}`,
           name: `Seed ${index + 1}`,
           role: 'admin',
@@ -260,11 +267,11 @@ describe('SeatRail', () => {
       },
     });
     render(<SeatRail />);
-    expect(screen.getByTestId('seat-rail-add').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('seat-rail-add').hasAttribute('disabled')).toBe(false);
   });
 
   it('keeps a timed-out attempt in reconciliation mode', () => {
-    createSeedMock.mockResolvedValue({ ok: false, seedLimit: 10, reasonCode: 'SEED_PROVISION_TIMEOUT' });
+    createSeedMock.mockResolvedValue({ ok: false, seedLimit: 1000, reasonCode: 'SEED_PROVISION_TIMEOUT' });
     mockAccess();
     useSeedLifecycleMock.mockReturnValue({
       provisioning: false,
@@ -323,6 +330,15 @@ describe('SeatRail', () => {
     // Honest: it tells the operator to relaunch and does NOT claim EVE keeps running.
     expect(content).toContain('neu');
     expect(content).not.toContain('läuft weiter');
+  });
+
+  it('tells the operator to relaunch after an uncertain committed switch', () => {
+    mockAccess({ lastSwitchError: 'SWITCH_SEAT_RECOVERY_REQUIRED' });
+    render(<SeatRail />);
+    const content = String(messageErrorMock.mock.calls[0][0].content);
+    expect(content).toContain('Starte Command EVE neu');
+    expect(content).toContain('keinem Kunden-Seat');
+    expect(content).not.toContain('bisherigen Kunden');
   });
 
   it('re-fires the toast when the SAME reject code repeats (nonce bump)', () => {

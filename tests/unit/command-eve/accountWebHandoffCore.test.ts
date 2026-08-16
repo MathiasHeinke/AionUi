@@ -23,8 +23,8 @@ import {
 
 describe('buildAccountWebUrl (app→web auth handoff)', () => {
   it('appends the refresh token as a URL FRAGMENT (never a query param)', () => {
-    const url = buildAccountWebUrl(COMMAND_EVE_WEB_ORIGIN, '/account?intent=add_seat', 'refresh-abc');
-    expect(url).toBe(`${COMMAND_EVE_WEB_ORIGIN}/account?intent=add_seat#${HANDOFF_FRAGMENT_KEY}=refresh-abc`);
+    const url = buildAccountWebUrl(COMMAND_EVE_WEB_ORIGIN, '/account?pack_eur=100', 'refresh-abc');
+    expect(url).toBe(`${COMMAND_EVE_WEB_ORIGIN}/account?pack_eur=100#${HANDOFF_FRAGMENT_KEY}=refresh-abc`);
     // The token must be after the '#', so a '?h=' query form must NOT appear.
     expect(url).not.toContain('?h=');
     expect(url).not.toContain('&h=');

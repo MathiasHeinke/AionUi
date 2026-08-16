@@ -284,4 +284,19 @@ describe('useSeatAccess — wire_error surfacing (dead-session recovery signal)'
     expect(latest().mySeatsWireError).toBeNull();
     expect(latest().access.role).toBe('admin');
   });
+
+  it('an IPC bridge error clears a stale dead-session wire classification', async () => {
+    const envelope = legacyFallback() as { data: Record<string, unknown> };
+    envelope.data.wire_error = { kind: 'session', reasonCode: 'REFRESH_HTTP_400' };
+    mySeatsInvoke.mockResolvedValueOnce(envelope);
+    const { latest } = await mountAndSettle();
+    expect(latest().mySeatsWireError).toEqual({ kind: 'session', reasonCode: 'REFRESH_HTTP_400' });
+
+    mySeatsInvoke.mockRejectedValueOnce(new Error('ipc unavailable'));
+    await act(async () => {
+      await latest().refresh();
+    });
+    expect(latest().mySeatsSource).toBe('bridge_error');
+    expect(latest().mySeatsWireError).toBeNull();
+  });
 });

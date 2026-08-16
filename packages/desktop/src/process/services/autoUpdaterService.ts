@@ -418,7 +418,11 @@ class AutoUpdaterService extends EventEmitter {
       () => current
     );
 
-    await predecessor.catch(() => undefined);
+    try {
+      await predecessor;
+    } catch {
+      // A failed predecessor must release the serialized lane for the next check.
+    }
     try {
       return await operation();
     } finally {

@@ -129,6 +129,13 @@ export interface BackendCallDeps {
   anonKey?: string;
 }
 
+export interface RegisterProfileResult {
+  ok: boolean;
+  reason_code?: string;
+  /** null means an older backend did not expose the reconciliation receipt. */
+  starterSeatReady: boolean | null;
+}
+
 function authHeaders(accessToken: string, anonKey: string): Record<string, string> {
   return {
     'content-type': 'application/json',
@@ -143,7 +150,7 @@ export async function postRegisterProfile(
   session: CommandEveAccountSession,
   registration: { tenant_id: string; name: string; company: string; email: string },
   deps: BackendCallDeps = {}
-): Promise<{ ok: boolean; reason_code?: string }> {
+): Promise<RegisterProfileResult> {
   const fetchImpl = deps.fetch ?? (globalThis.fetch as typeof fetch);
   const anonKey = deps.anonKey ?? resolveSupabaseAnonKey();
   try {
@@ -157,10 +164,18 @@ export async function postRegisterProfile(
         email: registration.email,
       }),
     });
-    if (!response.ok) return { ok: false, reason_code: `REGISTER_PROFILE_HTTP_${response.status}` };
-    return { ok: true };
+    if (!response.ok) {
+      return { ok: false, reason_code: `REGISTER_PROFILE_HTTP_${response.status}`, starterSeatReady: null };
+    }
+    const raw = (await response.json().catch((): null => null)) as Record<string, unknown> | null;
+    const starterSeatReady = raw?.starter_seat_ready === true ? true : raw?.starter_seat_ready === false ? false : null;
+    return { ok: true, starterSeatReady };
   } catch (err) {
-    return { ok: false, reason_code: err instanceof Error ? 'REGISTER_PROFILE_NETWORK' : 'REGISTER_PROFILE_NETWORK' };
+    return {
+      ok: false,
+      reason_code: err instanceof Error ? 'REGISTER_PROFILE_NETWORK' : 'REGISTER_PROFILE_NETWORK',
+      starterSeatReady: null,
+    };
   }
 }
 
@@ -256,6 +271,7 @@ export interface ActivateFromSessionResult {
   activated: boolean;
   /** True iff my-license never yielded a code ⇒ the UI should show paste fallback. */
   needsPaste: boolean;
+  starterSeatReady: boolean | null;
   reason_code?: string;
 }
 
@@ -307,12 +323,13 @@ export async function activateEntitlementFromSession(
       status: getEntitlementStatus(options),
       activated: false,
       needsPaste: true,
+      starterSeatReady: null,
       reason_code: 'REGISTRATION_FAILED',
     };
   }
 
   // (2) register-profile (non-fatal).
-  await postRegisterProfile(
+  let registerProfile = await postRegisterProfile(
     session,
     {
       tenant_id: registration.tenant_id,
@@ -322,6 +339,21 @@ export async function activateEntitlementFromSession(
     },
     deps
   );
+  // A false receipt means the account exists but the idempotent starter-Seat
+  // reconciliation did not settle. Retry once with the same home/account data;
+  // the server uses the home Seat UUID as request key, so this cannot double-mint.
+  if (registerProfile.ok && registerProfile.starterSeatReady === false) {
+    registerProfile = await postRegisterProfile(
+      session,
+      {
+        tenant_id: registration.tenant_id,
+        name: registration.name,
+        company: registration.company,
+        email: registration.email,
+      },
+      deps
+    );
+  }
 
   // (3) my-license with backoff.
   const license = await fetchMyLicenseWithBackoff(session, {
@@ -336,6 +368,7 @@ export async function activateEntitlementFromSession(
       status: getEntitlementStatus(options),
       activated: false,
       needsPaste: true,
+      starterSeatReady: registerProfile.starterSeatReady,
       reason_code: license.reason_code ?? 'MY_LICENSE_PENDING',
     };
   }
@@ -354,6 +387,7 @@ export async function activateEntitlementFromSession(
     status: getEntitlementStatus(options),
     activated: activation.ok,
     needsPaste: !activation.ok,
+    starterSeatReady: registerProfile.starterSeatReady,
     reason_code: activation.ok ? undefined : (activation.reason_code as string) || 'ACTIVATION_FAILED',
   };
 }
@@ -370,6 +404,7 @@ export interface SilentResumeResult {
   outcome: 'resumed' | 'no-session' | 'refresh-dead' | 'skipped';
   status?: CommandEveEntitlementStatusResult;
   activated?: boolean;
+  starterSeatReady?: boolean | null;
   reason_code?: string;
 }
 
@@ -405,6 +440,7 @@ export async function silentResumeAccountAuth(
     outcome: 'resumed',
     status: result.status,
     activated: result.activated,
+    starterSeatReady: result.starterSeatReady,
     reason_code: result.reason_code,
   };
 }

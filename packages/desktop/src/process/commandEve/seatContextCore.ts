@@ -365,10 +365,25 @@ let activeSeatContextRevision = 0;
 // so no second durable state machine is needed.
 let paidArtifactOperationsInFlight = 0;
 let paidArtifactSeatTransitionInFlight = false;
+let paidArtifactSeatRecoveryRequired = false;
+
+export type CommandEvePaidArtifactBlockReason = 'seat_transition_in_progress' | 'seat_recovery_required' | null;
+
+/** Explain why a paid artifact may not start without weakening the existing fence. */
+export function getCommandEvePaidArtifactBlockReason(): CommandEvePaidArtifactBlockReason {
+  if (paidArtifactSeatRecoveryRequired) return 'seat_recovery_required';
+  if (paidArtifactSeatTransitionInFlight) return 'seat_transition_in_progress';
+  return null;
+}
+
+/** Switch-watchdog recovery marker. Paid consumers render this state honestly. */
+export function setCommandEvePaidArtifactSeatRecoveryRequired(required: boolean): void {
+  paidArtifactSeatRecoveryRequired = required;
+}
 
 /** Start one paid artifact only while no Seed transition owns this fence. */
 export function tryBeginCommandEvePaidArtifactOperation(): (() => void) | null {
-  if (paidArtifactSeatTransitionInFlight) return null;
+  if (paidArtifactSeatRecoveryRequired || paidArtifactSeatTransitionInFlight) return null;
   paidArtifactOperationsInFlight += 1;
   let released = false;
   return () => {
@@ -380,7 +395,8 @@ export function tryBeginCommandEvePaidArtifactOperation(): (() => void) | null {
 
 /** Atomically reserve a Seed transition against new paid artifact starts. */
 export function tryBeginCommandEvePaidArtifactSeatTransition(): (() => void) | null {
-  if (paidArtifactSeatTransitionInFlight || paidArtifactOperationsInFlight > 0) return null;
+  if (paidArtifactSeatRecoveryRequired || paidArtifactSeatTransitionInFlight || paidArtifactOperationsInFlight > 0)
+    return null;
   paidArtifactSeatTransitionInFlight = true;
   let released = false;
   return () => {
@@ -541,7 +557,10 @@ export function getActiveSeatBoardSlug(): string {
 /** Reset the active seat back to the legacy default (for clean-reset / tests). */
 export function clearActiveSeat(): void {
   activeSeatId = LEGACY_SEAT_ID;
-  activeSeatContextRevision = 0;
+  // This is a runtime transition used by rollback/cold-start paths. Preserve the
+  // process-lifetime monotonicity that stale Seat receipts rely on; only the
+  // explicit test helper below may reset the counter to zero.
+  activeSeatContextRevision += 1;
   activeSeatLabel = DEFAULT_SEAT_LABEL;
   activeSeatKind = DEFAULT_SEAT_KIND;
 }
@@ -562,4 +581,5 @@ export function __resetActiveSeatForTests(): void {
   activeSeatKind = DEFAULT_SEAT_KIND;
   paidArtifactOperationsInFlight = 0;
   paidArtifactSeatTransitionInFlight = false;
+  paidArtifactSeatRecoveryRequired = false;
 }

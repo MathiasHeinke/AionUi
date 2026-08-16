@@ -41,16 +41,14 @@ import {
   type VideoDraftSelection,
 } from '@/renderer/components/billing/useVideoComposerSelection';
 
-const VIDEO_INTENT = 'Erstelle ein Video: eine lila Aubergine dreht sich langsam.';
-
 /** Renders the pill over the REAL shared hook and exposes the carried selection. */
-const Harness: React.FC<{ input: string; files?: string[] }> = ({ input, files = [] }) => {
+const Harness: React.FC<{ visible?: boolean; files?: string[] }> = ({ visible = true, files = [] }) => {
   const selection = useVideoComposerSelection();
   const carried: VideoDraftSelection = selection.currentSelection();
   return (
     <>
       <span data-testid='carried-selection'>{JSON.stringify(carried)}</span>
-      <GuidVideoPill input={input} files={files} selection={selection} />
+      <GuidVideoPill files={files} selection={selection} visible={visible} />
     </>
   );
 };
@@ -69,7 +67,7 @@ describe('GuidVideoPill (MAT-1773 P3 parity)', () => {
   });
 
   it('renders the full pill on a video-create intent, with the estimate', async () => {
-    render(<Harness input={VIDEO_INTENT} />);
+    render(<Harness visible />);
 
     // The capabilities answer arrives async; hd15 flips the default to 1.5.
     await waitFor(() =>
@@ -84,12 +82,12 @@ describe('GuidVideoPill (MAT-1773 P3 parity)', () => {
   });
 
   it('renders nothing for an ordinary chat draft', () => {
-    render(<Harness input='Fass die Zahlen von gestern zusammen.' />);
+    render(<Harness visible={false} />);
     expect(screen.queryByTestId('video-quality-pill')).toBeNull();
   });
 
   it('a model pick on guid becomes the selection the send carries', () => {
-    render(<Harness input={VIDEO_INTENT} />);
+    render(<Harness visible />);
 
     fireEvent.click(screen.getByTestId('video-model-dropdown-trigger'));
     fireEvent.click(screen.getByTestId('video-model-show-more'));
@@ -102,7 +100,7 @@ describe('GuidVideoPill (MAT-1773 P3 parity)', () => {
   });
 
   it('a resolution pick on guid is carried with its exact catalog resolution', async () => {
-    render(<Harness input={VIDEO_INTENT} />);
+    render(<Harness visible />);
 
     await waitFor(() => expect(screen.getByTestId('video-resolution-dropdown-trigger')).toBeTruthy());
     fireEvent.click(screen.getByTestId('video-resolution-dropdown-trigger'));

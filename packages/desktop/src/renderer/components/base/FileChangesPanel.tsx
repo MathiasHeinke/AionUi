@@ -91,7 +91,7 @@ const FileChangesPanel: React.FC<FileChangesPanelProps> = ({
           theme='outline'
           size='16'
           fill={iconColors.secondary}
-          className={classNames('transition-transform duration-200', expanded && 'rotate-180')}
+          className={classNames('transition-transform duration-400', expanded && 'rotate-180')}
         />
       </button>
 

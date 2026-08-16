@@ -1,0 +1,73 @@
+.browser {
+  block-size: min(400px, 60vh);
+  min-block-size: 220px;
+  padding: 5px;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.scrollArea {
+  block-size: 100%;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--eve-scrollbar-thumb) var(--eve-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.parentRow {
+  inline-size: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--eve-overlay-text-secondary);
+  text-align: start;
+  cursor: pointer;
+  transition-duration: var(--eve-motion-duration-state);
+}
+
+.directoryRow {
+  inline-size: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 6px 5px 10px;
+  background: transparent;
+  transition-duration: var(--eve-motion-duration-state);
+}
+
+.directoryRow[data-selected='true'] {
+  background: var(--eve-interaction-selected-bg);
+  box-shadow: inset 2px 0 0 var(--eve-interaction-selected-indicator);
+}
+
+.itemAction {
+  min-inline-size: 0;
+  min-block-size: 34px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--eve-overlay-text);
+  text-align: start;
+  cursor: pointer;
+  border-radius: var(--eve-control-radius);
+}
+
+.itemAction:focus-visible {
+  outline: 2px solid var(--eve-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .parentRow,
+  .directoryRow {
+    transition-duration: 0ms;
+  }
+}

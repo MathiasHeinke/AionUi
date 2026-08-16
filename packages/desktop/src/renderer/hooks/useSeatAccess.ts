@@ -259,6 +259,9 @@ export function useSeatAccess(): SeatAccessState {
       if (mountedRef.current) {
         setAccess(fallback);
         setMySeatsSource('bridge_error');
+        // An IPC throw has no current wire envelope. Never carry a previous
+        // dead-session classification into this new failure posture.
+        setMySeatsWireError(null);
       }
       return fallback;
     } finally {

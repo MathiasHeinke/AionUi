@@ -7,6 +7,15 @@
    ========================================================================== */
 
 .registration-gate {
+  --registration-text: var(--eve-shell-text, #e6edf6);
+  --registration-text-secondary: var(--eve-shell-text-secondary, #aeb9c9);
+  --registration-text-muted: var(--eve-text-muted, #7c8aa0);
+  --registration-card-bg: var(--glass-overlay-bg, rgba(13, 21, 38, 0.55));
+  --registration-card-border: var(--glass-overlay-border, rgba(255, 255, 255, 0.14));
+  --registration-control-bg: var(--eve-control-surface, rgba(8, 15, 30, 0.58));
+  --registration-control-bg-hover: var(--eve-control-surface-hover, rgba(8, 15, 30, 0.68));
+  --registration-control-border: var(--eve-control-border, rgba(255, 255, 255, 0.14));
+  --registration-control-border-hover: var(--eve-control-border-hover, rgba(255, 255, 255, 0.24));
   position: relative;
   display: flex;
   align-items: center;
@@ -15,7 +24,7 @@
   padding: 32px 20px;
   overflow: hidden;
   isolation: isolate;
-  color: #e6edf6;
+  color: var(--registration-text);
   font-family:
     Inter,
     -apple-system,
@@ -25,10 +34,10 @@
   /* ONE static paint — soft brand glows over a nightblue fall-off. No animation,
      no animated blur. Cheap to composite. */
   background:
-    radial-gradient(48% 42% at 22% 24%, rgba(249, 115, 22, 0.2), transparent 62%),
-    radial-gradient(46% 42% at 80% 20%, rgba(56, 132, 246, 0.18), transparent 62%),
-    radial-gradient(60% 55% at 64% 90%, rgba(139, 92, 246, 0.16), transparent 62%),
-    radial-gradient(150% 120% at 50% -10%, #0e1a33 0%, #070d1b 52%, #04060e 100%);
+    radial-gradient(48% 42% at 22% 24%, color-mix(in srgb, var(--eve-brand-logo) 20%, transparent), transparent 62%),
+    radial-gradient(46% 42% at 80% 20%, color-mix(in srgb, var(--eve-accent) 18%, transparent), transparent 62%),
+    radial-gradient(60% 55% at 64% 90%, color-mix(in srgb, var(--eve-accent) 10%, transparent), transparent 62%),
+    var(--eve-shell-canvas, #070d1b);
 }
 
 /* Optional generated background image layer (set background-image on this div via
@@ -59,7 +68,11 @@
   position: absolute;
   inset: 0;
   z-index: 2;
-  background: linear-gradient(180deg, rgba(4, 6, 14, 0.35) 0%, rgba(4, 6, 14, 0.55) 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--eve-shell-canvas) 28%, transparent) 0%,
+    color-mix(in srgb, var(--eve-shell-canvas) 52%, transparent) 100%
+  );
 }
 /* Respect reduced-motion: hide the video, fall back to the static poster/image. */
 @media (prefers-reduced-motion: reduce) {
@@ -73,14 +86,14 @@
   z-index: 1;
   width: min(100%, 468px);
   padding: 36px 34px 30px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--registration-card-border);
   border-radius: var(--eve-dialog-radius, 20px);
-  background: rgba(13, 21, 38, 0.55);
+  background: var(--registration-card-bg);
   -webkit-backdrop-filter: blur(28px) saturate(150%);
   backdrop-filter: blur(28px) saturate(150%);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.1) inset,
-    0 24px 64px rgba(0, 0, 0, 0.55);
+    inset 0 1px 0 color-mix(in srgb, var(--eve-shell-text) 10%, transparent),
+    var(--eve-overlay-shadow, 0 24px 64px rgba(0, 0, 0, 0.35));
 }
 
 .registration-gate__lang-toggle {
@@ -94,25 +107,25 @@
   align-items: center;
   gap: 4px;
   padding: 4px 11px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--registration-control-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  color: #aeb9c9;
+  background: var(--registration-control-bg);
+  color: var(--registration-text-secondary);
   font-size: 12px;
   line-height: 16px;
   cursor: pointer;
   transition:
-    border-color 0.18s ease,
-    color 0.18s ease,
-    background 0.18s ease;
+    border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 .registration-gate__lang-option:hover {
-  background: rgba(255, 255, 255, 0.09);
+  background: var(--registration-control-bg-hover);
 }
 .registration-gate__lang-option--active {
-  border-color: rgba(249, 115, 22, 0.6);
-  background: rgba(249, 115, 22, 0.12);
-  color: #fdba74;
+  border-color: color-mix(in srgb, var(--eve-accent) 60%, transparent);
+  background: color-mix(in srgb, var(--eve-accent) 12%, transparent);
+  color: var(--eve-accent);
 }
 
 .registration-gate__header {
@@ -125,17 +138,17 @@
   font-weight: 700;
   line-height: 32px;
   letter-spacing: -0.01em;
-  color: #f4f8fd;
+  color: var(--registration-text);
 }
 .registration-gate__title-command {
   margin-right: 6px;
-  color: #f97316;
+  color: var(--eve-brand-logo, #f97316);
 }
 .registration-gate__subtitle {
   margin: 0;
   font-size: 14px;
   line-height: 21px;
-  color: #9fb0c4;
+  color: var(--registration-text-secondary);
 }
 
 .registration-gate__steps {
@@ -151,10 +164,10 @@
   gap: 6px;
   font-size: 12px;
   line-height: 16px;
-  color: #6b7a90;
+  color: var(--registration-text-muted);
 }
 .registration-gate__step--active {
-  color: #fdba74;
+  color: var(--eve-accent);
   font-weight: 600;
 }
 .registration-gate__step-dot {
@@ -176,8 +189,6 @@
 
 .registration-gate__form {
   --registration-control-radius: var(--eve-control-radius, 10px);
-  --registration-control-bg: rgba(8, 15, 30, 0.58);
-  --registration-control-border: rgba(255, 255, 255, 0.14);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -192,8 +203,8 @@
 .registration-gate__field > .arco-input-wrapper,
 .registration-gate__field > .arco-input-inner-wrapper,
 .registration-gate__field > .arco-textarea {
-  color: #eef3fa !important;
-  -webkit-text-fill-color: #eef3fa !important;
+  color: var(--registration-text) !important;
+  -webkit-text-fill-color: var(--registration-text) !important;
   min-height: 42px;
   box-sizing: border-box;
   background: var(--registration-control-bg) !important;
@@ -203,9 +214,9 @@
   -webkit-backdrop-filter: blur(12px) saturate(118%);
   backdrop-filter: blur(12px) saturate(118%);
   transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease,
-    background 0.18s ease;
+    border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+    background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .registration-gate__field > .arco-input-inner-wrapper > .arco-input {
@@ -218,8 +229,8 @@
 .registration-gate .arco-input::placeholder,
 .registration-gate input::placeholder,
 .registration-gate textarea::placeholder {
-  color: #74859b !important;
-  -webkit-text-fill-color: #74859b !important;
+  color: var(--registration-text-muted) !important;
+  -webkit-text-fill-color: var(--registration-text-muted) !important;
 }
 /* Chromium/password-manager AUTOFILL paints its own light background that
    `background-color` cannot override (only an inset box-shadow can). Without this
@@ -230,10 +241,10 @@
 .registration-gate input:-webkit-autofill:hover,
 .registration-gate input:-webkit-autofill:focus,
 .registration-gate input:-webkit-autofill:active {
-  -webkit-text-fill-color: #eef3fa !important;
-  -webkit-box-shadow: 0 0 0 1000px rgba(13, 21, 38, 0.94) inset !important;
-  box-shadow: 0 0 0 1000px rgba(13, 21, 38, 0.94) inset !important;
-  caret-color: #eef3fa !important;
+  -webkit-text-fill-color: var(--registration-text) !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--eve-shell-surface, rgba(13, 21, 38, 0.94)) inset !important;
+  box-shadow: 0 0 0 1000px var(--eve-shell-surface, rgba(13, 21, 38, 0.94)) inset !important;
+  caret-color: var(--registration-text) !important;
   /* Delay the autofill background repaint so the dark fill stays put. */
   transition: background-color 9999s ease-in-out 0s !important;
 }
@@ -243,8 +254,8 @@
   border: 1px solid var(--registration-control-border);
   border-radius: var(--registration-control-radius);
   transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease;
+    border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease);
 }
 /* Input.Password renders `.arco-input-inner-wrapper` whose own Arco defaults paint a
    LIGHT fill (base `--color-fill-2`, hover `--color-fill-3`, focus white `--color-bg-2`)
@@ -263,30 +274,30 @@
 .registration-gate__field > .arco-input-wrapper:hover,
 .registration-gate__field > .arco-input-inner-wrapper:hover,
 .registration-gate__field > .arco-textarea:hover {
-  border-color: rgba(255, 255, 255, 0.24) !important;
-  background: rgba(8, 15, 30, 0.68) !important;
+  border-color: var(--registration-control-border-hover) !important;
+  background: var(--registration-control-bg-hover) !important;
 }
 .registration-gate .arco-input-wrapper:focus-within,
 .registration-gate .arco-input-inner-wrapper:focus-within,
 .registration-gate__field > .arco-input:focus,
 .registration-gate__field > .arco-textarea:focus {
-  border-color: rgba(249, 115, 22, 0.7) !important;
+  border-color: var(--eve-focus-ring) !important;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.05) inset,
-    0 0 0 1px rgba(249, 115, 22, 0.16),
-    0 0 18px rgba(249, 115, 22, 0.14);
+    0 0 0 1px color-mix(in srgb, var(--eve-focus-ring) 18%, transparent),
+    0 0 18px color-mix(in srgb, var(--eve-focus-ring) 14%, transparent);
 }
 
 .registration-gate__label {
   font-size: 13px;
   font-weight: 600;
   line-height: 18px;
-  color: #cdd8e6;
+  color: var(--registration-text);
 }
 .registration-gate__hint {
   font-size: 11px;
   line-height: 16px;
-  color: #7c8aa0;
+  color: var(--registration-text-muted);
 }
 
 .registration-gate__consent {
@@ -294,23 +305,25 @@
   gap: 10px;
   align-items: flex-start;
   padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--registration-control-border);
   border-radius: var(--registration-control-radius);
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--registration-control-bg) 78%, transparent);
 }
 .registration-gate__consent-text {
   font-size: 12px;
   line-height: 17px;
-  color: #aebccd;
+  color: var(--registration-text-secondary);
 }
 
 .registration-gate .arco-btn-primary {
-  background: linear-gradient(180deg, #fb923c 0%, #f97316 100%) !important;
+  background: linear-gradient(180deg, var(--eve-action-hover) 0%, var(--eve-accent) 100%) !important;
   border: none !important;
   color: #ffffff !important;
   font-weight: 600 !important;
   box-shadow: 0 8px 20px rgba(249, 115, 22, 0.3) !important;
-  transition: filter 0.15s ease !important;
+  transition:
+    filter var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease) !important;
 }
 .registration-gate__form > .arco-btn:not(.arco-btn-shape-circle) {
   border-radius: var(--registration-control-radius) !important;
@@ -321,18 +334,18 @@
 
 .registration-gate .arco-btn-secondary,
 .registration-gate .arco-btn-default {
-  background: rgba(255, 255, 255, 0.06) !important;
-  border: 1px solid rgba(255, 255, 255, 0.18) !important;
-  color: #e6edf6 !important;
+  background: var(--registration-control-bg) !important;
+  border: 1px solid var(--registration-control-border) !important;
+  color: var(--registration-text) !important;
   font-weight: 500 !important;
   transition:
-    background 0.15s ease,
-    border-color 0.15s ease !important;
+    background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease) !important;
 }
 .registration-gate .arco-btn-secondary:hover,
 .registration-gate .arco-btn-default:hover {
-  background: rgba(255, 255, 255, 0.12) !important;
-  border-color: rgba(255, 255, 255, 0.28) !important;
+  background: var(--registration-control-bg-hover) !important;
+  border-color: var(--registration-control-border-hover) !important;
 }
 
 .registration-gate .arco-checkbox-mask {
@@ -343,7 +356,7 @@
 .registration-gate__error {
   font-size: 12px;
   line-height: 17px;
-  color: #fda4a4;
+  color: var(--eve-status-error);
 }
 .registration-gate__browser-primary {
   min-height: 48px !important;
@@ -351,7 +364,7 @@
 }
 .registration-gate__browser-hint {
   margin: -7px 8px 0;
-  color: #8fa0b6;
+  color: var(--registration-text-muted);
   font-size: 12px;
   line-height: 18px;
   text-align: center;
@@ -362,21 +375,21 @@
   border: none;
   border-radius: 7px;
   background: transparent;
-  color: #aebccd;
+  color: var(--registration-text-secondary);
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
   cursor: pointer;
   transition:
-    color 0.15s ease,
-    background 0.15s ease;
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 .registration-gate__password-fallback-toggle:hover:not(:disabled) {
-  color: #e6edf6;
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--registration-text);
+  background: var(--registration-control-bg-hover);
 }
 .registration-gate__password-fallback-toggle:focus-visible {
-  outline: 2px solid rgba(249, 115, 22, 0.72);
+  outline: 2px solid var(--eve-focus-ring);
   outline-offset: 2px;
 }
 .registration-gate__password-fallback-toggle:disabled {
@@ -395,19 +408,19 @@
   padding: 4px 8px;
   border: none;
   background: transparent;
-  color: #8a99ad;
+  color: var(--registration-text-muted);
   font-size: 12px;
   line-height: 17px;
   cursor: pointer;
-  transition: color 0.15s ease;
+  transition: color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 .registration-gate__back:hover {
-  color: #cdd8e6;
+  color: var(--registration-text);
 }
 .registration-gate__registered-as {
   font-size: 12px;
   line-height: 17px;
-  color: #8a99ad;
+  color: var(--registration-text-muted);
   text-align: center;
 }
 .registration-gate__license-setup {
@@ -421,7 +434,7 @@
 }
 .registration-gate__license-setup-copy {
   margin: 0;
-  color: #aebccd;
+  color: var(--registration-text-secondary);
   font-size: 12px;
   line-height: 18px;
   text-align: center;
@@ -434,8 +447,8 @@
   gap: 4px;
   padding: 4px;
   border-radius: calc(var(--registration-control-radius) + 2px);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--registration-control-bg) 74%, transparent);
+  border: 1px solid var(--registration-control-border);
 }
 .registration-gate__authmode-tab {
   flex: 1 1 0;
@@ -443,21 +456,21 @@
   border: none;
   border-radius: calc(var(--registration-control-radius) - 2px);
   background: transparent;
-  color: #8a99ad;
+  color: var(--registration-text-muted);
   font-size: 14px;
   font-weight: 600;
   line-height: 19px;
   cursor: pointer;
   transition:
-    background 0.15s ease,
-    color 0.15s ease;
+    background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 .registration-gate__authmode-tab:hover:not(:disabled) {
-  color: #cdd8e6;
+  color: var(--registration-text);
 }
 .registration-gate__authmode-tab--active {
   background: linear-gradient(180deg, rgba(251, 146, 60, 0.18) 0%, rgba(249, 115, 22, 0.18) 100%);
-  color: #fdba74;
+  color: var(--eve-accent);
   box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.35);
 }
 .registration-gate__authmode-tab:disabled {
@@ -473,14 +486,14 @@
   padding: 0;
   border: none;
   background: transparent;
-  color: #fdba74;
+  color: var(--eve-accent);
   font-size: 12px;
   line-height: 17px;
   cursor: pointer;
-  transition: color 0.15s ease;
+  transition: color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 .registration-gate__suggest-pw:hover:not(:disabled) {
-  color: #fed7aa;
+  color: var(--eve-action-hover);
 }
 .registration-gate__suggest-pw:disabled {
   cursor: default;
@@ -494,7 +507,7 @@
   margin: 0;
   font-size: 14px;
   line-height: 21px;
-  color: #aebccd;
+  color: var(--registration-text-secondary);
 }
 .registration-gate__curtain-preserved {
   display: flex;
@@ -510,19 +523,19 @@
   font-size: 13px;
   font-weight: 600;
   line-height: 18px;
-  color: #fdba74;
+  color: var(--eve-accent);
 }
 .registration-gate__curtain-preserved-body {
   margin: 0;
   font-size: 12px;
   line-height: 18px;
-  color: #9fb0c4;
+  color: var(--registration-text-secondary);
 }
 .registration-gate__curtain-price {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
   line-height: 19px;
-  color: #e6edf6;
+  color: var(--registration-text);
   text-align: center;
 }

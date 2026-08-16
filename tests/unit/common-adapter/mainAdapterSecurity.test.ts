@@ -175,6 +175,16 @@ function validProviderPayload(providerKey: RendererProviderKey): string {
       return providerPayload(providerKey, { expectedSeatId: 'seat-1', enabled: false });
     case 'command-eve.image-prepare':
       return providerPayload(providerKey, { filePaths: ['/tmp/image.png'] });
+    case 'command-eve.image-generate':
+      return providerPayload(providerKey, {
+        prompt: 'Ein ruhiges Editorial-Motiv',
+        conversationId: 'conversation-1',
+        requestId: 'image-request-1',
+        tierId: 'quality',
+        resolution: '2K',
+        aspectRatio: '16:9',
+        referenceImagePaths: ['/tmp/reference.png'],
+      });
     case 'command-eve.presentation-prepare':
       return providerPayload(providerKey, { filePaths: ['/tmp/deck.pptx'] });
     case 'command-eve.managed-visual-turn-authorize':
@@ -428,6 +438,99 @@ describe('main adapter IPC trust boundary', () => {
       )
     ).toThrow('flow id');
     expect(state.emitter.emit).toHaveBeenCalledTimes(5);
+  });
+
+  it('dispatches an exact managed image-generation request to Main', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+    const payload = validProviderPayload('command-eve.image-generate');
+    const expectedEnvelope = (JSON.parse(payload) as { data: unknown }).data;
+
+    await handler(event, payload);
+
+    expect(state.emitter.emit).toHaveBeenCalledWith('subscribe-command-eve.image-generate', expectedEnvelope);
+  });
+
+  it.each([
+    [
+      'an extra provider selector',
+      {
+        prompt: 'Editorial',
+        conversationId: 'conversation-1',
+        requestId: 'image-request-1',
+        tierId: 'quality',
+        resolution: '2K',
+        aspectRatio: '16:9',
+        providerSlug: 'forged/provider',
+      },
+      'payload keys',
+    ],
+    [
+      'a missing request identity',
+      {
+        prompt: 'Editorial',
+        conversationId: 'conversation-1',
+        tierId: 'quality',
+        resolution: '2K',
+        aspectRatio: '16:9',
+      },
+      'payload keys',
+    ],
+    [
+      'an unknown image tier',
+      {
+        prompt: 'Editorial',
+        conversationId: 'conversation-1',
+        requestId: 'image-request-1',
+        tierId: 'ultra',
+        resolution: '2K',
+        aspectRatio: '16:9',
+      },
+      'tier',
+    ],
+    [
+      'a non-string conversation identity',
+      {
+        prompt: 'Editorial',
+        conversationId: 42,
+        requestId: 'image-request-1',
+        tierId: 'quality',
+        resolution: '2K',
+        aspectRatio: '16:9',
+      },
+      'conversation id',
+    ],
+    [
+      'an unsupported resolution',
+      {
+        prompt: 'Editorial',
+        conversationId: 'conversation-1',
+        requestId: 'image-request-1',
+        tierId: 'quality',
+        resolution: '4K',
+        aspectRatio: '16:9',
+      },
+      'resolution',
+    ],
+    [
+      'a relative reference path',
+      {
+        prompt: 'Editorial',
+        conversationId: 'conversation-1',
+        requestId: 'image-request-1',
+        tierId: 'quality',
+        resolution: '2K',
+        aspectRatio: '16:9',
+        referenceImagePaths: ['reference.png'],
+      },
+      'reference path',
+    ],
+  ] as const)('rejects %s before managed image-generation dispatch', async (_case, data, error) => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    expect(() => handler(event, providerPayload('command-eve.image-generate', data))).toThrow(error);
+    expect(state.emitter.emit).not.toHaveBeenCalled();
   });
 
   it('rejects secret-bearing or stale-shape external-action payloads before Main dispatch', async () => {

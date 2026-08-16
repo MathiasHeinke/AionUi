@@ -198,6 +198,8 @@ const SendBox: React.FC<{
   selectedWorkspaceItems?: FileSelectionItem[];
   onSelectedWorkspaceItemsChange?: (items: FileSelectionItem[]) => void;
   bottomHint?: React.ReactNode;
+  /** Secondary composer deck (project, authority, MAX, context). */
+  footerSlot?: React.ReactNode;
   /**
    * Mobile-only: open a parent-supplied action sheet via the `+` button.
    * When provided, mobile renders a single `+` button (left) and send/stop button (right);
@@ -239,6 +241,7 @@ const SendBox: React.FC<{
   selectedWorkspaceItems,
   onSelectedWorkspaceItemsChange,
   bottomHint,
+  footerSlot,
   onMobilePlusClick,
   hideSpeechButton = false,
   hasPendingSpeechInput,
@@ -1423,7 +1426,7 @@ const SendBox: React.FC<{
       type='primary'
       disabled={isButtonDisabled}
       className='send-button-custom'
-      icon={<ArrowUp theme='filled' size='14' fill='white' strokeWidth={5} />}
+      icon={<ArrowUp theme='filled' size='14' fill='currentColor' strokeWidth={5} />}
       onClick={() => {
         void sendMessageHandler({ includePendingSpeech: true });
       }}
@@ -1550,7 +1553,8 @@ const SendBox: React.FC<{
           className={`sendbox-panel eve-panel eve-composer-surface relative p-16px b b-solid flex flex-col ${isOverlayOpen ? 'overflow-visible' : 'overflow-hidden'} ${isFileDragging ? 'eve-composer-surface--dragging' : ''}`}
           data-testid='sendbox-surface'
           style={{
-            transition: 'box-shadow 0.25s ease, border-color 0.25s ease',
+            transition:
+              'box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease), border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease)',
           }}
           onClick={focusComposerInput}
           data-eve-interaction-role='focus-surface'
@@ -1826,6 +1830,7 @@ const SendBox: React.FC<{
               </div>
             </div>
           )}
+          {footerSlot}
         </div>
       </div>
     </>

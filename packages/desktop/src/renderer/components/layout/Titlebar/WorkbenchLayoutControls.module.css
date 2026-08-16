@@ -21,9 +21,9 @@
   color: var(--eve-shell-text-tertiary, var(--color-text-3));
   cursor: pointer;
   transition:
-    color 120ms ease,
-    background-color 120ms ease,
-    box-shadow 120ms ease;
+    color var(--eve-motion-duration-feedback, 300ms) ease,
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease;
 }
 
 .button:hover {

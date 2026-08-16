@@ -217,7 +217,7 @@
   gap: 8px;
   box-sizing: border-box;
   cursor: default;
-  transition: background-color 0.15s;
+  transition: background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .heroSubtitle:hover {
@@ -265,7 +265,7 @@
   box-shadow: none !important;
   background: transparent !important;
   color: var(--color-text-3) !important;
-  transition: transform 0.2s ease;
+  transition: transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .heroSubtitleToggle:hover {
@@ -351,9 +351,9 @@
   user-select: none;
   transform: translateY(-1px);
   transition:
-    background-color 0.2s,
-    border-color 0.2s,
-    color 0.2s;
+    background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .assistantPromptAgentSwitcher:hover {
@@ -404,10 +404,15 @@
 
 .guidInputInner {
   min-height: 270px;
+  --eve-composer-inset: 12px;
   background: transparent;
   border: 0;
   border-radius: 23px 23px 0 0;
   box-sizing: border-box;
+}
+
+.guidInputCardWrap[data-compact='true'] .guidInputInner {
+  min-height: 184px;
 }
 
 .assistantPromptPanel {
@@ -437,8 +442,8 @@
   text-align: left;
   font: inherit;
   transition:
-    background-color 140ms ease,
-    color 140ms ease;
+    background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .assistantPromptRow :global(.arco-btn-content) {
@@ -481,11 +486,16 @@
 
 .actionRow {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
   width: 100%;
   gap: 8px;
   margin-top: auto;
+}
+
+.compatibilityController {
+  display: none;
 }
 
 .actionEntry {
@@ -534,8 +544,8 @@
   cursor: pointer;
   font-family: inherit;
   transition:
-    color 0.15s,
-    background 0.15s;
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
   line-height: 1;
 }
 
@@ -575,8 +585,8 @@
   cursor: pointer;
   font-family: inherit;
   transition:
-    background 0.12s,
-    color 0.12s;
+    background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
   max-width: 220px;
   overflow: hidden;
   white-space: nowrap;
@@ -607,8 +617,8 @@
   color: var(--color-text-4);
   flex-shrink: 0;
   transition:
-    background 0.12s,
-    color 0.12s;
+    background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .workspacePillClose:hover {
@@ -671,7 +681,7 @@
   line-height: 20px;
   text-align: left;
   color: var(--color-text-1);
-  transition: background 0.1s;
+  transition: background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .wsDropdownItem:hover {
@@ -874,9 +884,9 @@
   opacity: 1;
   visibility: visible;
   transition:
-    width 180ms ease,
-    min-width 180ms ease,
-    opacity 120ms ease,
+    width var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+    min-width var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+    opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
     visibility 0s linear;
 }
 
@@ -887,10 +897,10 @@
   pointer-events: none;
   visibility: hidden;
   transition:
-    width 180ms ease,
-    min-width 180ms ease,
-    opacity 120ms ease,
-    visibility 0s linear 180ms;
+    width var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+    min-width var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+    opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    visibility 0s linear var(--eve-motion-duration-state, 400ms);
 }
 
 /* 整体内容块略往上移，减轻「重心偏下」的感觉 */
@@ -915,7 +925,7 @@
   background-color: var(--fill-0);
   transition:
     opacity 0.5s cubic-bezier(0.2, 0.8, 0.3, 1),
-    background-color 0.25s ease-out;
+    background-color var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-exit, ease-out);
   animation: agentSelectPop 0.4s ease-out forwards;
 }
 
@@ -946,9 +956,9 @@
   box-shadow: none;
   cursor: pointer;
   transition:
-    color 140ms ease,
-    background-color 140ms ease,
-    transform 140ms ease;
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .guidQuickActionButton:hover,
@@ -1045,8 +1055,8 @@
   border-radius: 14px;
   cursor: pointer;
   transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
+    border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease);
 }
 
 .assistantCard:hover {
@@ -1120,7 +1130,7 @@
   border: 1px dashed color-mix(in srgb, var(--color-border-2) 70%, transparent);
   border-radius: 14px;
   cursor: pointer;
-  transition: background-color 0.15s;
+  transition: background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
   color: var(--color-text-3);
 }
 
@@ -1146,7 +1156,7 @@
   border-radius: 16px;
   cursor: pointer;
   user-select: none;
-  transition: background-color 0.2s;
+  transition: background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
@@ -1220,7 +1230,7 @@
   border-radius: 50%;
   margin-left: 2px;
   margin-right: 6px;
-  transition: background-color 0.2s;
+  transition: background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
   flex-shrink: 0;
 }
 
@@ -1237,7 +1247,7 @@
   border-radius: 50%;
   margin-left: 2px;
   margin-right: 8px;
-  transition: background-color 0.2s;
+  transition: background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
   flex-shrink: 0;
 }
 

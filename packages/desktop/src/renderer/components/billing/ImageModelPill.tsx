@@ -26,7 +26,7 @@
  * registry (`registry` prop, answered by Main through the non-billable
  * capabilities surface). When the registry is unavailable the control stays
  * usable — a preference can be chosen without a price — but it degrades to the
- * legacy three-radio selector with an honest "price unavailable" line: no
+ * generic tier dropdown with an honest "price unavailable" line: no
  * display names, no dropdown, no client-side fallback number. A stale price
  * would be a lie at the exact moment of choosing. The only thing that may
  * REFUSE an image is the lane itself: generation fails closed when the
@@ -48,6 +48,7 @@ import {
   type CommandEveImageModelTierId,
   type CommandEveImageModelTierSpec,
 } from '@/common/config/eveImageModelRegistryCore';
+import { COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS } from '@/common/config/eveManagedImageGenerationCore';
 import {
   MediaModelDropdown,
   MediaPillDropdown,
@@ -64,8 +65,8 @@ export interface ImageModelPillProps {
   visible: boolean;
   /**
    * The SERVER-OWNED registry as answered by Main. `null`/`undefined` means
-   * "nothing proven" — the fail-closed reading: the legacy radios with no
-   * display names, no prices, and the estimate says so.
+   * "nothing proven" — the fail-closed reading: a generic tier dropdown with
+   * no model names or prices, and the estimate says so.
    */
   registry?: CommandEveImageModelRegistry | null;
   /**
@@ -120,9 +121,9 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
   if (!visible) return null;
 
   // FAIL-CLOSED FALLBACK: without a proven registry there are no display
-  // names and no prices to list — the established three radios stay, and the
-  // estimate is the honest unavailable line. The preference itself stays
-  // selectable either way.
+  // names and no prices to list — only generic tier names stay, in the same
+  // compact dropdown idiom. The estimate is the honest unavailable line and
+  // the preference itself stays selectable either way.
   const tierLabelFor = (tierId: CommandEveImageModelTierId): string =>
     t(TIER_LABELS[tierId].key, { defaultValue: TIER_LABELS[tierId].defaultValue });
 
@@ -142,10 +143,11 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
   };
 
   const tierLabel = tierLabelFor(value);
-  // Never print the same word twice (the 'fast' registry display_name equals
-  // its tier label — "Schnell Schnell" in the live composer).
-  const showModelName =
-    selectedSpec !== undefined && selectedSpec.display_name.trim().toLowerCase() !== tierLabel.trim().toLowerCase();
+  const resolutionOptions = selectedSpec?.resolutions ?? COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS;
+  const resolutionLabelFor = (candidate: CommandEveImageModelResolution): string =>
+    candidate === '2K'
+      ? t('conversation.workProduct.image.qualityHigh', { defaultValue: 'Hoch' })
+      : t('conversation.workProduct.image.qualityStandard', { defaultValue: 'Standard' });
 
   return (
     <div
@@ -157,107 +159,113 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
       <span className='image-model-pill__label'>{t('credits.image.modelLabel', { defaultValue: 'Bildmodell' })}</span>
 
       {registry ? (
-        <>
-          <div className='image-model-pill__group' data-testid='image-model-group'>
-            <MediaModelDropdown
-              open={openDropdown === 'model'}
-              onToggle={() => setOpenDropdown((open) => (open === 'model' ? null : 'model'))}
-              onClose={() => setOpenDropdown(null)}
-              ariaLabel={t('credits.video.modelChoose', { defaultValue: 'Modell wählen' })}
-              testIdPrefix='image-model'
-              triggerContent={
-                <>
-                  {tierLabel}
-                  {showModelName && selectedSpec ? ` · ${selectedSpec.display_name}` : ''}
-                </>
-              }
-              triggerActive={value !== registry.default_tier}
-              recommended={resolveImageModelCuratedTiers(registry).map(toModelRow)}
-              rest={listImageModelsBeyondCurated(registry).map(toModelRow)}
-              selectedId={value}
-              onSelect={(id) => {
-                // The rows ARE the registry tiers, so the pick maps back to
-                // the tier id exactly as the registry defines it — the value
-                // the per-seat preference write carries.
-                if (isCommandEveImageModelTierId(id)) onChange(id);
-              }}
-            />
-          </div>
-
-          {/* RESOLUTION. The image lane's resolutions are the 1K/2K tiers,
-              filtered to the SELECTED model's `resolutions` — an unsupported
-              tier is unselectable. */}
-          {selectedSpec && selectedSpec.resolutions.length > 1 ? (
-            <div className='image-model-pill__group' data-testid='image-resolution-group'>
-              <span className='image-model-pill__label'>
-                {t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}
-              </span>
-              <MediaPillDropdown
-                open={openDropdown === 'resolution'}
-                onToggle={() => setOpenDropdown((open) => (open === 'resolution' ? null : 'resolution'))}
-                onClose={() => setOpenDropdown(null)}
-                ariaLabel={t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}
-                triggerTestId='image-resolution-dropdown-trigger'
-                listTestId='image-resolution-dropdown'
-                estimatedRows={selectedSpec.resolutions.length}
-                triggerContent={effectiveResolution}
-              >
-                {selectedSpec.resolutions.map((option) => {
-                  const selected = option === effectiveResolution;
-                  return (
-                    <button
-                      key={option}
-                      type='button'
-                      role='option'
-                      aria-selected={selected}
-                      data-eve-composite-owner='listbox'
-                      className={`video-quality-pill__model-entry${selected ? ' is-selected' : ''}`}
-                      data-testid={`image-resolution-option-${option}`}
-                      onClick={() => {
-                        setInternalResolution(option);
-                        onResolutionChange?.(option);
-                        setOpenDropdown(null);
-                      }}
-                    >
-                      <span className='video-quality-pill__model-name'>{option}</span>
-                      <span className='video-quality-pill__model-estimate'>
-                        {t('credits.video.modelEstimate', {
-                          defaultValue: '≈ {{credits}} Credits',
-                          credits: selectedSpec.quotes.generate_credits[option],
-                        })}
-                      </span>
-                      {selected && <CheckSmall theme='outline' size={13} className='video-quality-pill__check' />}
-                    </button>
-                  );
-                })}
-              </MediaPillDropdown>
-            </div>
-          ) : null}
-        </>
+        <div className='image-model-pill__group' data-testid='image-model-group'>
+          <MediaModelDropdown
+            open={openDropdown === 'model'}
+            onToggle={() => setOpenDropdown((open) => (open === 'model' ? null : 'model'))}
+            onClose={() => setOpenDropdown(null)}
+            ariaLabel={t('credits.video.modelChoose', { defaultValue: 'Modell wählen' })}
+            testIdPrefix='image-model'
+            triggerContent={selectedSpec?.display_name ?? tierLabel}
+            triggerActive={value !== registry.default_tier}
+            recommended={resolveImageModelCuratedTiers(registry).map(toModelRow)}
+            rest={listImageModelsBeyondCurated(registry).map(toModelRow)}
+            selectedId={value}
+            onSelect={(id) => {
+              // The rows ARE the registry tiers, so the pick maps back to
+              // the tier id exactly as the registry defines it — the value
+              // the per-seat preference write carries.
+              if (isCommandEveImageModelTierId(id)) onChange(id);
+            }}
+          />
+        </div>
       ) : (
-        <div
-          className='image-model-pill__options'
-          role='radiogroup'
-          aria-label={t('credits.image.modelLabel', { defaultValue: 'Bildmodell' })}
-        >
-          {COMMAND_EVE_IMAGE_MODEL_TIER_IDS.map((tierId) => {
-            const selected = tierId === value;
-            return (
-              <button
-                key={tierId}
-                type='button'
-                role='radio'
-                aria-checked={selected}
-                className={`image-model-pill__option${selected ? ' is-selected' : ''}`}
-                data-testid={`image-model-option-${tierId}`}
-                onClick={() => onChange(tierId)}
-              >
-                {tierLabelFor(tierId)}
-              </button>
-            );
-          })}
+        <div className='image-model-pill__group' data-testid='image-model-group'>
+          <MediaPillDropdown
+            open={openDropdown === 'model'}
+            onToggle={() => setOpenDropdown((open) => (open === 'model' ? null : 'model'))}
+            onClose={() => setOpenDropdown(null)}
+            ariaLabel={t('credits.video.modelChoose', { defaultValue: 'Modell wählen' })}
+            triggerTestId='image-model-dropdown-trigger'
+            listTestId='image-model-dropdown'
+            triggerContent={tierLabel}
+            estimatedRows={COMMAND_EVE_IMAGE_MODEL_TIER_IDS.length}
+          >
+            {COMMAND_EVE_IMAGE_MODEL_TIER_IDS.map((tierId) => {
+              const selected = tierId === value;
+              return (
+                <button
+                  key={tierId}
+                  type='button'
+                  role='option'
+                  aria-selected={selected}
+                  data-eve-composite-owner='listbox'
+                  className={`video-quality-pill__model-entry${selected ? ' is-selected' : ''}`}
+                  data-testid={`image-model-option-${tierId}`}
+                  onClick={() => {
+                    onChange(tierId);
+                    setOpenDropdown(null);
+                  }}
+                >
+                  <span className='video-quality-pill__model-name'>{tierLabelFor(tierId)}</span>
+                  {selected ? <CheckSmall theme='outline' size={13} className='video-quality-pill__check' /> : null}
+                </button>
+              );
+            })}
+          </MediaPillDropdown>
         </div>
       )}
+
+      {/* Resolution is an exact managed-lane contract value. With a proven
+          registry the options are filtered to the selected model; without it,
+          the lane's bounded 1K/2K vocabulary remains available but unpriced. */}
+      {resolutionOptions.length > 1 ? (
+        <div className='image-model-pill__group' data-testid='image-resolution-group'>
+          <MediaPillDropdown
+            open={openDropdown === 'resolution'}
+            onToggle={() => setOpenDropdown((open) => (open === 'resolution' ? null : 'resolution'))}
+            onClose={() => setOpenDropdown(null)}
+            ariaLabel={t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}
+            triggerTestId='image-resolution-dropdown-trigger'
+            listTestId='image-resolution-dropdown'
+            estimatedRows={resolutionOptions.length}
+            triggerContent={resolutionLabelFor(effectiveResolution)}
+          >
+            {resolutionOptions.map((option) => {
+              const selected = option === effectiveResolution;
+              return (
+                <button
+                  key={option}
+                  type='button'
+                  role='option'
+                  aria-selected={selected}
+                  data-eve-composite-owner='listbox'
+                  className={`video-quality-pill__model-entry${selected ? ' is-selected' : ''}`}
+                  data-testid={`image-resolution-option-${option}`}
+                  onClick={() => {
+                    setInternalResolution(option);
+                    onResolutionChange?.(option);
+                    setOpenDropdown(null);
+                  }}
+                >
+                  <span className='video-quality-pill__model-name'>
+                    {resolutionLabelFor(option)} · {option}
+                  </span>
+                  {selectedSpec ? (
+                    <span className='video-quality-pill__model-estimate'>
+                      {t('credits.video.modelEstimate', {
+                        defaultValue: '≈ {{credits}} Credits',
+                        credits: selectedSpec.quotes.generate_credits[option],
+                      })}
+                    </span>
+                  ) : null}
+                  {selected ? <CheckSmall theme='outline' size={13} className='video-quality-pill__check' /> : null}
+                </button>
+              );
+            })}
+          </MediaPillDropdown>
+        </div>
+      ) : null}
 
       {/* Price of the CURRENT choice, from the server registry only.
           Informational — this line never gates. */}

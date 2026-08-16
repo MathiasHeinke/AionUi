@@ -491,7 +491,10 @@ const LarkConfigForm: React.FC<LarkConfigFormProps> = ({ pluginStatus, modelSele
         <Down
           theme='outline'
           size={12}
-          style={{ transform: showOptional ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+          style={{
+            transform: showOptional ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease)',
+          }}
         />
         <span>
           {showOptional

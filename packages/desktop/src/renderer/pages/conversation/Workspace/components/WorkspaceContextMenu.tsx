@@ -26,7 +26,7 @@ type WorkspaceContextMenuProps = {
 };
 
 const MENU_BUTTON_BASE =
-  'w-full flex items-center gap-8px px-14px py-6px text-13px text-left text-t-primary rounded-md transition-colors duration-150 hover:bg-2 border-none bg-transparent appearance-none focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eve-focus-ring)]';
+  'w-full flex items-center gap-8px px-14px py-6px text-13px text-left text-t-primary rounded-md transition-colors duration-300 hover:bg-2 border-none bg-transparent appearance-none focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eve-focus-ring)]';
 const MENU_BUTTON_DISABLED = 'opacity-40 cursor-not-allowed hover:bg-transparent';
 
 /** Right-click context menu with file/folder operations. */

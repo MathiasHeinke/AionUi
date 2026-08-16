@@ -19,29 +19,20 @@
  */
 
 import React, { useMemo } from 'react';
-import { resolveMediaLaneIntent } from '@/common/config/mediaLaneIntentCore';
 import type { VideoModeKind } from '@/common/config/videoCostCore';
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
 import type { VideoComposerSelection } from '@/renderer/components/billing/useVideoComposerSelection';
 import { isImageFile } from '@/renderer/pages/conversation/Preview/fileUtils';
 
 const GuidVideoPill: React.FC<{
-  input: string;
   files: string[];
   selection: VideoComposerSelection;
-}> = ({ input, files, selection }) => {
+  visible: boolean;
+}> = ({ files, selection, visible }) => {
   // The mode follows the attachments, mirroring the conversation composer:
   // one image -> image-to-video, several -> reference (1.5 only).
   const imageCount = useMemo(() => files.filter((path) => isImageFile(path)).length, [files]);
   const modeKind: VideoModeKind = imageCount === 0 ? 'text' : imageCount === 1 ? 'image' : 'reference';
-
-  // A fresh start-chat draft has no artifacts yet — sources are empty by
-  // construction, so a create intent is exactly the NL classification.
-  const intent = useMemo(
-    () => resolveMediaLaneIntent({ message: input, resolvedAgentId: null, sources: { image: false, video: false } }),
-    [input]
-  );
-  const visible = intent.operation === 'create' && intent.medium === 'video';
 
   return (
     <VideoQualityPill

@@ -620,7 +620,12 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               color: var(--viewer-text);
               line-height: 1;
               font-size: 12px;
-              transition: all 150ms ease;
+              transition:
+                background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+                border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+                color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+                box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+                transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
               cursor: pointer;
             }
             .aion-url-viewer-toolbar .toolbar-btn.icon-btn {
@@ -677,7 +682,11 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               color: var(--color-text-1);
               font-size: 12px;
               line-height: 30px;
-              transition: all 150ms ease;
+              transition:
+                background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+                border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+                color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+                box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease);
             }
             .aion-url-viewer-toolbar .toolbar-input::placeholder {
               color: var(--viewer-text-muted);
@@ -719,7 +728,9 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               border: 0;
               border-radius: 9px;
               background: transparent;
-              transition: background-color 120ms ease, color 120ms ease;
+              transition:
+                background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+                color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
             }
             .aion-url-viewer-toolbar--workbench .toolbar-btn:hover:not(:disabled) {
               border-color: transparent;
@@ -740,7 +751,9 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               box-shadow: inset 0 0 0 1px var(--glass-panel-border, var(--color-border-2));
               font-size: 13px;
               line-height: 32px;
-              transition: box-shadow 120ms ease, background-color 120ms ease;
+              transition:
+                box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+                background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
             }
             .aion-url-viewer-toolbar--workbench .toolbar-input:hover {
               border-color: transparent;
@@ -861,7 +874,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
           className='border-0 absolute left-0 top-0'
           style={{
             opacity: !showNavBar && isLoading ? 0 : 1,
-            transition: 'opacity 150ms ease-in',
+            transition: 'opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-enter, ease-in)',
             width: '100%',
             height: '100%',
           }}

@@ -7,7 +7,7 @@
 /**
  * 1.7.2 — the "Erste Schritte" hub. Smoke test: the 9 Day-0 step cards render,
  * the cloud-lane chip reflects real readiness, an in-app step navigates, and the
- * seat-add step opens the web account (not an in-app route).
+ * customer-Seat step stays inside the app.
  */
 
 import React from 'react';
@@ -65,6 +65,14 @@ describe('ErsteSchritteModalContent — the 1.7.2 Day-0 hub', () => {
     expect(kiSpur?.getAttribute('data-status')).toBe('done');
   });
 
+  it('renders the verified setup state as the premium semantic status panel', () => {
+    render(<ErsteSchritteModalContent />);
+    const status = screen.getByTestId('erste-schritte-status');
+    expect(status).toHaveClass('erste-schritte-settings__status');
+    expect(status).toHaveAttribute('data-ready', 'true');
+    expect(status.querySelector('.eve-icon-tile')).toHaveAttribute('data-tone', 'success');
+  });
+
   it('navigates in-app for a settings step', () => {
     const { container } = render(<ErsteSchritteModalContent />);
     fireEvent.click(container.querySelector('[data-testid="erste-schritte-step-connectors"]')!);
@@ -72,11 +80,11 @@ describe('ErsteSchritteModalContent — the 1.7.2 Day-0 hub', () => {
     expect(openAccountWebSpy).not.toHaveBeenCalled();
   });
 
-  it('opens the web account for the seat-add step (not an in-app route)', () => {
+  it('opens Account settings in-app for the customer-Seat step', () => {
     const { container } = render(<ErsteSchritteModalContent />);
     fireEvent.click(container.querySelector('[data-testid="erste-schritte-step-kunde"]')!);
-    expect(openAccountWebSpy).toHaveBeenCalledWith('/account?intent=add_seat');
-    expect(navigateSpy).not.toHaveBeenCalled();
+    expect(navigateSpy).toHaveBeenCalledWith('/settings/account');
+    expect(openAccountWebSpy).not.toHaveBeenCalled();
   });
 
   it('discloses the complete sensory boundary and links to tools and privacy', () => {

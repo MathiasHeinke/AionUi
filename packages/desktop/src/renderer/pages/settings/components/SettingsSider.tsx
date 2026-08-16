@@ -3,73 +3,23 @@ import { isElectronDesktop, resolveExtensionAssetUrl } from '@/renderer/utils/pl
 import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
-import {
-  Brain,
-  Cat,
-  Communication,
-  Computer,
-  Earth,
-  Flag,
-  Info,
-  Lightning,
-  LinkCloud,
-  Lock,
-  Puzzle,
-  Robot,
-  Shield,
-  Speed,
-  System,
-  User,
-  Wallet,
-} from '@icon-park/react';
+import { Puzzle } from '@icon-park/react';
 import classNames from 'classnames';
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Tooltip } from '@arco-design/web-react';
 import { getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
+import EveIconTile from '@/renderer/components/base/EveIconTile';
+import {
+  BUILTIN_TAB_IDS,
+  getBuiltinSettingsNavigationItems,
+  isSettingsPathActive,
+  LEGACY_ANCHOR_REMAP,
+} from './settingsNavigation';
 import './settings.css';
 
-/** Builtin settings tab IDs in display order (must match router paths). */
-export const BUILTIN_TAB_IDS = [
-  // 1.2.18 — 'agent' + 'assistants' merged into the single 'eveRuntime' tab; the
-  // formerly-main-sidebar 'runtime' + 'connectors' surfaces moved in here too.
-  'ersteSchritte',
-  'model',
-  'eveRuntime',
-  'capabilities',
-  'runtime',
-  'connectors',
-  'authority',
-  'appearance',
-  'webui',
-  'pet',
-  'privacy',
-  'billing',
-  'companyBrain',
-  'account',
-  'system',
-  'about',
-] as const;
-
-/**
- * Legacy anchor IDs that have been merged into other tabs.
- * When an extension anchors to one of these, it is redirected to the new host.
- * This keeps older extensions working without requiring them to update.
- */
-export const LEGACY_ANCHOR_REMAP: Record<string, string> = {
-  'skills-hub': 'capabilities',
-  tools: 'capabilities',
-  display: 'appearance',
-  // 1.2.18 — Agenten + Assistenten consolidated into EVE-Runtime.
-  agent: 'eveRuntime',
-  assistants: 'eveRuntime',
-};
-
-export function isSettingsPathActive(pathname: string, path: string): boolean {
-  const route = `/settings/${path}`;
-  return pathname === route || pathname.startsWith(`${route}/`);
-}
+export { BUILTIN_TAB_IDS, isSettingsPathActive, LEGACY_ANCHOR_REMAP } from './settingsNavigation';
 
 /**
  * Group headers displayed above specific builtin tabs.
@@ -105,86 +55,7 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
   const { resolveExtTabName } = useExtI18n();
 
   const { menus, groupHeaderAt } = useMemo(() => {
-    // Build builtin items
-    const builtinMap: Record<string, SiderItem> = {
-      ersteSchritte: {
-        id: 'ersteSchritte',
-        label: t('settings.ersteSchritte', { defaultValue: 'Erste Schritte' }),
-        icon: <Flag />,
-        path: 'erste-schritte',
-      },
-      model: { id: 'model', label: t('settings.model'), icon: <LinkCloud />, path: 'model' },
-      // 1.2.18 — merged Agenten + Assistenten + Dein Team. The operator is the
-      // conductor; EVE orchestrates. Backend multi-agent capability stays intact.
-      eveRuntime: {
-        id: 'eveRuntime',
-        label: t('settings.eveRuntime', { defaultValue: 'EVE-Runtime' }),
-        icon: <Robot />,
-        path: 'eve-runtime',
-      },
-      // Moved in from the main sidebar (declutter).
-      runtime: {
-        id: 'runtime',
-        label: t('settings.runtime', { defaultValue: 'Runtime' }),
-        icon: <Speed />,
-        path: 'runtime',
-      },
-      connectors: {
-        id: 'connectors',
-        label: t('settings.connectors', { defaultValue: 'Connectoren' }),
-        icon: <Puzzle />,
-        path: 'connectors',
-      },
-      capabilities: {
-        id: 'capabilities',
-        label: t('settings.capabilities', { defaultValue: 'Capabilities' }),
-        icon: <Lightning />,
-        path: 'capabilities',
-      },
-      appearance: { id: 'appearance', label: t('settings.appearancePanel'), icon: <Computer />, path: 'appearance' },
-      webui: {
-        id: 'webui',
-        label: t('settings.webui'),
-        icon: isDesktop ? <Earth /> : <Communication />,
-        path: 'webui',
-      },
-      pet: { id: 'pet', label: t('pet.desktopPet'), icon: <Cat />, path: 'pet' },
-      authority: {
-        id: 'authority',
-        label: t('settings.authority', { defaultValue: 'Freigaben' }),
-        icon: <Lock />,
-        path: 'authority',
-      },
-      privacy: {
-        id: 'privacy',
-        label: t('settings.privacy.navLabel', { defaultValue: 'Privacy' }),
-        icon: <Shield />,
-        path: 'privacy',
-      },
-      billing: {
-        id: 'billing',
-        label: t('settings.billing', { defaultValue: 'Billing' }),
-        icon: <Wallet />,
-        path: 'billing',
-      },
-      companyBrain: {
-        id: 'companyBrain',
-        label: t('settings.companyBrain', { defaultValue: 'Company Brain' }),
-        icon: <Brain />,
-        path: 'company-brain',
-      },
-      account: {
-        id: 'account',
-        label: t('settings.account', { defaultValue: 'Account' }),
-        icon: <User />,
-        path: 'account',
-      },
-      system: { id: 'system', label: t('settings.system'), icon: <System />, path: 'system' },
-      about: { id: 'about', label: t('settings.about'), icon: <Info />, path: 'about' },
-    };
-
-    // Start with ordered builtin IDs, hiding desktop-only tabs in browser mode
-    const result: SiderItem[] = BUILTIN_TAB_IDS.filter((id) => isDesktop || id !== 'pet').map((id) => builtinMap[id]);
+    const result: SiderItem[] = getBuiltinSettingsNavigationItems(isDesktop, t);
 
     // Extension tabs with position anchoring
     const beforeMap = new Map<string, IExtensionSettingsTab[]>();
@@ -286,7 +157,7 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
                 data-settings-path={item.path}
                 aria-current={isSelected ? 'page' : undefined}
                 className={classNames(
-                  'settings-sider__item eve-row eve-focus-ring h-34px rd-8px flex items-center gap-8px group cursor-pointer relative overflow-hidden shrink-0 border-0 bg-transparent text-left [&+.settings-sider__item]:mt-2px transition-colors',
+                  'settings-sider__item eve-row eve-focus-ring h-42px flex items-center gap-10px group cursor-pointer relative overflow-hidden shrink-0 border-0 bg-transparent text-left [&+.settings-sider__item]:mt-2px',
                   collapsed ? 'w-full justify-center px-0' : 'justify-start px-10px',
                   { 'eve-row--selected': isSelected }
                 )}
@@ -296,27 +167,17 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
                   });
                 }}
               >
-                {/* Leading icon — 22px slot to align with main sider rows */}
-                <span className='size-22px flex items-center justify-center shrink-0 line-height-0'>
+                <EveIconTile
+                  tone={isSelected ? 'action' : 'neutral'}
+                  size='small'
+                  className='settings-sider__icon-tile'
+                >
                   {item.isImageIcon ? (
                     <span className='w-16px h-16px flex items-center justify-center'>{item.icon}</span>
                   ) : (
-                    React.cloneElement(
-                      item.icon as React.ReactElement<{
-                        theme?: string;
-                        size?: string | number;
-                        className?: string;
-                        strokeWidth?: number;
-                      }>,
-                      {
-                        theme: 'outline',
-                        size: '16',
-                        strokeWidth: 3,
-                        className: 'block leading-none text-t-secondary',
-                      }
-                    )
+                    <span className='settings-sider__icon-glyph'>{item.icon}</span>
                   )}
-                </span>
+                </EveIconTile>
                 <FlexFullContainer className='h-24px collapsed-hidden'>
                   <div className='settings-sider__item-label text-nowrap overflow-hidden inline-block w-full text-14px font-[500] lh-24px whitespace-nowrap text-t-primary'>
                     {item.label}

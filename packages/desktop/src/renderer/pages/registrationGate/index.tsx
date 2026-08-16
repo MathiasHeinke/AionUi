@@ -22,6 +22,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Checkbox, Input } from '@arco-design/web-react';
+import { Command } from '@icon-park/react';
 import { changeLanguage } from '@renderer/services/i18n';
 import { openAccountWeb } from '@renderer/utils/platform';
 import {
@@ -585,7 +586,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
           <div className='registration-gate__header'>
             <h1 className='registration-gate__title'>
               <span className='registration-gate__title-command' aria-hidden='true'>
-                ⌘
+                <Command size='0.9em' />
               </span>
               <span>{t('registrationGate.brand')}</span>
             </h1>
@@ -631,7 +632,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
         <div className='registration-gate__header'>
           <h1 className='registration-gate__title'>
             <span className='registration-gate__title-command' aria-hidden='true'>
-              ⌘
+              <Command size='0.9em' />
             </span>
             <span>{t('registrationGate.brand')}</span>
           </h1>

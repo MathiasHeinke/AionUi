@@ -292,6 +292,24 @@
       "saveError": "Seed-Name konnte nicht gespeichert werden.",
       "nameRequired": "Der Seed-Name darf nicht leer sein."
     },
+    "seats": {
+      "title": "Deine Seats",
+      "description": "Jeder Kunden-Seat ist kostenlos und besitzt einen vollständig getrennten Arbeitsraum mit eigenem Company Brain.",
+      "add": "Kunden-Seat hinzufügen",
+      "founder": "Founder",
+      "customer": "Kunde",
+      "active": "Aktiv",
+      "companyBrain": "Company Brain",
+      "switchError": "Der Kunden-Seat konnte nicht aktiviert werden.",
+      "degraded": "Die Seat-Liste ist gerade unvollständig. Lade sie neu, bevor du einen Kunden-Seat öffnest oder anlegst.",
+      "reauthenticate": "Erneut anmelden und Seats laden",
+      "reload": "Seats neu laden",
+      "repairError": "Die Seat-Liste konnte nicht erneuert werden.",
+      "createTitle": "Neuen Kunden-Seat erstellen",
+      "createAction": "Seat erstellen",
+      "createHelp": "Kostenlos, sofort verfügbar und vollständig vom Founder-Seat sowie von anderen Kunden-Seats getrennt.",
+      "namePlaceholder": "z. B. Malte"
+    },
     "eveCloud": {
       "title": "EVE Cloud",
       "activeStatus": "Aktiv",
@@ -1230,7 +1248,7 @@
     },
     "kunde": {
       "title": "Ersten Kunden anlegen",
-      "desc": "Als Agentur einen Kunden-Seat hinzufügen (öffnet dein Konto im Browser)."
+      "desc": "Als Agentur einen kostenlosen Kunden-Seat direkt in EVE hinzufügen."
     },
     "connectors": {
       "title": "Integration verbinden",

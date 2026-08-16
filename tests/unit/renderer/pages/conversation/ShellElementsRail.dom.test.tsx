@@ -50,7 +50,10 @@ const {
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { name?: string; type?: string }) => options?.name ?? options?.type ?? key,
+    t: (key: string, options?: { name?: string; type?: string }) =>
+      key === 'conversation.elementsRail.continueEditingArtifact'
+        ? `Continue editing ${options?.name ?? ''}`
+        : (options?.name ?? options?.type ?? key),
   }),
 }));
 

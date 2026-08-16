@@ -273,16 +273,18 @@ const TeamPageContent: React.FC<TeamPageContentProps> = ({ team, onRenameTeam })
           el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
           // Flash: opacity 1→0→1
           setTimeout(() => {
-            el.style.transition = 'opacity 150ms ease-out';
+            el.style.transition =
+              'opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-exit, ease-out)';
             el.style.opacity = '0';
             setTimeout(() => {
-              el.style.transition = 'opacity 150ms ease-in';
+              el.style.transition =
+                'opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-enter, ease-in)';
               el.style.opacity = '1';
               setTimeout(() => {
                 el.style.transition = '';
-              }, 200);
-            }, 150);
-          }, 200);
+              }, 300);
+            }, 300);
+          }, 300);
         }
       });
     },
@@ -309,16 +311,18 @@ const TeamPageContent: React.FC<TeamPageContentProps> = ({ team, onRenameTeam })
         if (el) {
           el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
           setTimeout(() => {
-            el.style.transition = 'opacity 150ms ease-out';
+            el.style.transition =
+              'opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-exit, ease-out)';
             el.style.opacity = '0';
             setTimeout(() => {
-              el.style.transition = 'opacity 150ms ease-in';
+              el.style.transition =
+                'opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-enter, ease-in)';
               el.style.opacity = '1';
               setTimeout(() => {
                 el.style.transition = '';
-              }, 200);
-            }, 150);
-          }, 200);
+              }, 300);
+            }, 300);
+          }, 300);
         }
       }, 100);
       return () => clearTimeout(timer);
@@ -404,7 +408,7 @@ const TeamPageContent: React.FC<TeamPageContentProps> = ({ team, onRenameTeam })
                     className='eve-overlay w-32px h-32px rd-full flex items-center justify-center'
                     style={{ lineHeight: 0 }}
                   >
-                    <Left size='24' fill='#fff' />
+                    <Left size='24' fill='currentColor' />
                   </span>
                 </button>
               )}
@@ -459,7 +463,7 @@ const TeamPageContent: React.FC<TeamPageContentProps> = ({ team, onRenameTeam })
                     className='eve-overlay w-32px h-32px rd-full flex items-center justify-center'
                     style={{ lineHeight: 0 }}
                   >
-                    <Right size='24' fill='#fff' />
+                    <Right size='24' fill='currentColor' />
                   </span>
                 </button>
               )}

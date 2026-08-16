@@ -12,11 +12,20 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConversationRuntimeWorkspaceErrorMessage } from '../../utils/conversationCreateError';
 import { buildSendFailureError } from './buildSendFailureError';
+import {
+  parseComposerWorkProductSelection,
+  type ComposerWorkProductSelection,
+} from '@/common/config/composerWorkProductModeCore';
 
 type UseAcpInitialMessageParams = {
   conversation_id: string;
   seatId: string;
-  sendInitialMessage: (input: string, files: string[], videoSelection?: InitialVideoSelection) => Promise<boolean>;
+  sendInitialMessage: (
+    input: string,
+    files: string[],
+    videoSelection: InitialVideoSelection | undefined,
+    composerSelection: ComposerWorkProductSelection
+  ) => Promise<boolean>;
   resetState: () => void;
   addOrUpdateMessage: (message: TMessage, prepend?: boolean) => void;
   /**
@@ -114,16 +123,18 @@ export const useAcpInitialMessage = ({
           input?: unknown;
           files?: unknown;
           videoSelection?: unknown;
+          composerSelection?: unknown;
         };
         const input = typeof initialMessage.input === 'string' ? initialMessage.input : '';
         const files = Array.isArray(initialMessage.files)
           ? initialMessage.files.filter((file): file is string => typeof file === 'string')
           : [];
         const videoSelection = parseInitialVideoSelection(initialMessage.videoSelection);
+        const composerSelection = parseComposerWorkProductSelection(initialMessage.composerSelection);
 
         // The fresh-chat handoff must use the exact same preparation, cost-wall,
         // queue, runtime, and recovery path as an in-chat send.
-        const accepted = await sendInitialMessage(input, files, videoSelection);
+        const accepted = await sendInitialMessage(input, files, videoSelection, composerSelection);
         // A shared submission can fail closed without throwing (for example a
         // visual-policy receipt or local preparation failure). The start-chat
         // surface has no stream event in that case, so it must explicitly

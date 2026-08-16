@@ -351,8 +351,9 @@ function normalizeBoard(value: unknown, slug: string): CommandEveNativeKanbanBoa
   if (!isRecord(value) || !isRecord(value.board)) return null;
   const boardPayload = value.board;
   const metadata = isRecord(value.metadata) ? value.metadata : {};
-  if (!Array.isArray(boardPayload.columns)) return null;
-  const upstreamColumnNames = boardPayload.columns.map((entry) => (isRecord(entry) ? boundedText(entry.name, 32) : ''));
+  const rawColumns = boardPayload.columns;
+  if (!Array.isArray(rawColumns)) return null;
+  const upstreamColumnNames = rawColumns.map((entry) => (isRecord(entry) ? boundedText(entry.name, 32) : ''));
   if (
     upstreamColumnNames.length !== COMMAND_EVE_NATIVE_KANBAN_STATUSES.length ||
     new Set(upstreamColumnNames).size !== COMMAND_EVE_NATIVE_KANBAN_STATUSES.length ||
@@ -364,7 +365,7 @@ function normalizeBoard(value: unknown, slug: string): CommandEveNativeKanbanBoa
   }
   const seen = new Set<string>();
   const columns = COMMAND_EVE_NATIVE_KANBAN_STATUSES.map((name) => {
-    const candidate = boardPayload.columns.find((entry) => isRecord(entry) && boundedText(entry.name, 32) === name);
+    const candidate = rawColumns.find((entry) => isRecord(entry) && boundedText(entry.name, 32) === name);
     const tasks: CommandEveNativeKanbanTask[] = [];
     if (isRecord(candidate) && Array.isArray(candidate.tasks)) {
       for (const raw of candidate.tasks.slice(0, 2_000)) {
@@ -377,7 +378,7 @@ function normalizeBoard(value: unknown, slug: string): CommandEveNativeKanbanBoa
     return { name, tasks };
   });
   const knownTaskCount = columns.reduce((sum, column) => sum + column.tasks.length, 0);
-  const rawTaskCount = boardPayload.columns.reduce((sum: number, entry: unknown) => {
+  const rawTaskCount = rawColumns.reduce((sum: number, entry: unknown) => {
     if (!isRecord(entry) || !Array.isArray(entry.tasks)) return sum;
     return sum + entry.tasks.length;
   }, 0);

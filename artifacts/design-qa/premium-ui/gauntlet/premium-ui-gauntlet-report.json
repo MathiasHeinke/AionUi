@@ -1,0 +1,985 @@
+{
+  "generatedAt": "2026-08-14T23:30:36.418Z",
+  "cdp": "http://127.0.0.1:9230",
+  "sourcePage": "http://localhost:5173/#/guid",
+  "routes": [
+    {
+      "theme": "light",
+      "route": "/guid",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-guid.png",
+      "surface": {
+        "route": "#/guid",
+        "theme": "light",
+        "interactiveCount": 29,
+        "fastMotion": [],
+        "smallTargets": [
+          {
+            "label": "Neues Team",
+            "size": [20, 20]
+          }
+        ],
+        "scrollbarDrift": [],
+        "scrollableCount": 0,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#111827",
+          "surface": "#ffffff",
+          "scrollbarThumb": "color-mix(in srgb, #596273 30%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "light",
+      "route": "/settings/appearance",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-settings-appearance.png",
+      "surface": {
+        "route": "#/settings/appearance",
+        "theme": "light",
+        "interactiveCount": 53,
+        "fastMotion": [],
+        "smallTargets": [],
+        "scrollbarDrift": [],
+        "scrollableCount": 1,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#111827",
+          "surface": "#ffffff",
+          "scrollbarThumb": "color-mix(in srgb, #596273 30%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "light",
+      "route": "/settings/authority",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-settings-authority.png",
+      "surface": {
+        "route": "#/settings/authority",
+        "theme": "light",
+        "interactiveCount": 30,
+        "fastMotion": [],
+        "smallTargets": [],
+        "scrollbarDrift": [],
+        "scrollableCount": 1,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#111827",
+          "surface": "#ffffff",
+          "scrollbarThumb": "color-mix(in srgb, #596273 30%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "light",
+      "route": "/settings/capabilities",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-settings-capabilities.png",
+      "surface": {
+        "route": "#/settings/capabilities",
+        "theme": "light",
+        "interactiveCount": 121,
+        "fastMotion": [],
+        "smallTargets": [],
+        "scrollbarDrift": [],
+        "scrollableCount": 1,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#111827",
+          "surface": "#ffffff",
+          "scrollbarThumb": "color-mix(in srgb, #596273 30%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "light",
+      "route": "/settings/system",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-settings-system.png",
+      "surface": {
+        "route": "#/settings/system",
+        "theme": "light",
+        "interactiveCount": 40,
+        "fastMotion": [],
+        "smallTargets": [],
+        "scrollbarDrift": [],
+        "scrollableCount": 1,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#111827",
+          "surface": "#ffffff",
+          "scrollbarThumb": "color-mix(in srgb, #596273 30%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": [
+        {
+          "timestamp": 1786750241230.841,
+          "exceptionDetails": {
+            "exceptionId": 2,
+            "text": "Uncaught (in promise)",
+            "lineNumber": 0,
+            "columnNumber": 0,
+            "scriptId": "1",
+            "url": "http://localhost:5173/#/settings/system",
+            "exception": {
+              "type": "object",
+              "subtype": "error",
+              "className": "Error",
+              "description": "Error: Error invoking remote method 'office-ai-bridge-adapter': Error: Blocked founder-only adapter bridge event: app.get-cdp-status.",
+              "objectId": "-2350066696633267049.61.3",
+              "preview": {
+                "type": "object",
+                "subtype": "error",
+                "description": "Error: Error invoking remote method 'office-ai-bridge-adapter': Error: Blocked founder-only adapter bridge event: app.get-cdp-status.",
+                "overflow": false,
+                "properties": [
+                  {
+                    "name": "stack",
+                    "type": "string",
+                    "value": "Error: Error invoking remote method 'office-ai-bri…er-only adapter bridge event: app.get-cdp-status."
+                  },
+                  {
+                    "name": "message",
+                    "type": "string",
+                    "value": "Error invoking remote method 'office-ai-bridge-ada…er-only adapter bridge event: app.get-cdp-status."
+                  },
+                  {
+                    "name": "__sentry_captured__",
+                    "type": "boolean",
+                    "value": "true"
+                  }
+                ]
+              }
+            },
+            "executionContextId": 61
+          }
+        }
+      ]
+    },
+    {
+      "theme": "light",
+      "route": "/projects",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-projects.png",
+      "surface": {
+        "route": "#/projects",
+        "theme": "light",
+        "interactiveCount": 19,
+        "fastMotion": [],
+        "smallTargets": [
+          {
+            "label": "Neues Team",
+            "size": [20, 20]
+          }
+        ],
+        "scrollbarDrift": [],
+        "scrollableCount": 0,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#111827",
+          "surface": "#ffffff",
+          "scrollbarThumb": "color-mix(in srgb, #596273 30%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "light",
+      "route": "/kanban",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-kanban.png",
+      "surface": {
+        "route": "#/kanban",
+        "theme": "light",
+        "interactiveCount": 16,
+        "fastMotion": [],
+        "smallTargets": [
+          {
+            "label": "Neues Team",
+            "size": [20, 20]
+          }
+        ],
+        "scrollbarDrift": [],
+        "scrollableCount": 0,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#111827",
+          "surface": "#ffffff",
+          "scrollbarThumb": "color-mix(in srgb, #596273 30%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "light",
+      "route": "/scheduled",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-scheduled.png",
+      "surface": {
+        "route": "#/scheduled",
+        "theme": "light",
+        "interactiveCount": 16,
+        "fastMotion": [],
+        "smallTargets": [
+          {
+            "label": "Neues Team",
+            "size": [20, 20]
+          },
+          {
+            "label": "BUTTON",
+            "size": [28, 16]
+          }
+        ],
+        "scrollbarDrift": [],
+        "scrollableCount": 0,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#111827",
+          "surface": "#ffffff",
+          "scrollbarThumb": "color-mix(in srgb, #596273 30%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "light",
+      "route": "/test/components",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-test-components.png",
+      "surface": {
+        "route": "#/test/components",
+        "theme": "light",
+        "interactiveCount": 28,
+        "fastMotion": [],
+        "smallTargets": [
+          {
+            "label": "Neues Team",
+            "size": [20, 20]
+          }
+        ],
+        "scrollbarDrift": [],
+        "scrollableCount": 1,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#111827",
+          "surface": "#ffffff",
+          "scrollbarThumb": "color-mix(in srgb, #596273 30%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "dark",
+      "route": "/guid",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-guid.png",
+      "surface": {
+        "route": "#/guid",
+        "theme": "dark",
+        "interactiveCount": 29,
+        "fastMotion": [],
+        "smallTargets": [
+          {
+            "label": "Neues Team",
+            "size": [20, 20]
+          }
+        ],
+        "scrollbarDrift": [],
+        "scrollableCount": 0,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#f7f8fa",
+          "surface": "#171a1e",
+          "scrollbarThumb": "color-mix(in srgb, #aab1bd 34%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "dark",
+      "route": "/settings/appearance",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-settings-appearance.png",
+      "surface": {
+        "route": "#/settings/appearance",
+        "theme": "dark",
+        "interactiveCount": 53,
+        "fastMotion": [],
+        "smallTargets": [],
+        "scrollbarDrift": [],
+        "scrollableCount": 1,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#f7f8fa",
+          "surface": "#171a1e",
+          "scrollbarThumb": "color-mix(in srgb, #aab1bd 34%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "dark",
+      "route": "/settings/authority",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-settings-authority.png",
+      "surface": {
+        "route": "#/settings/authority",
+        "theme": "dark",
+        "interactiveCount": 30,
+        "fastMotion": [],
+        "smallTargets": [],
+        "scrollbarDrift": [],
+        "scrollableCount": 1,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#f7f8fa",
+          "surface": "#171a1e",
+          "scrollbarThumb": "color-mix(in srgb, #aab1bd 34%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "dark",
+      "route": "/settings/capabilities",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-settings-capabilities.png",
+      "surface": {
+        "route": "#/settings/capabilities",
+        "theme": "dark",
+        "interactiveCount": 121,
+        "fastMotion": [],
+        "smallTargets": [],
+        "scrollbarDrift": [],
+        "scrollableCount": 1,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#f7f8fa",
+          "surface": "#171a1e",
+          "scrollbarThumb": "color-mix(in srgb, #aab1bd 34%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "dark",
+      "route": "/settings/system",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-settings-system.png",
+      "surface": {
+        "route": "#/settings/system",
+        "theme": "dark",
+        "interactiveCount": 40,
+        "fastMotion": [],
+        "smallTargets": [],
+        "scrollbarDrift": [],
+        "scrollableCount": 1,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#f7f8fa",
+          "surface": "#171a1e",
+          "scrollbarThumb": "color-mix(in srgb, #aab1bd 34%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "dark",
+      "route": "/projects",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-projects.png",
+      "surface": {
+        "route": "#/projects",
+        "theme": "dark",
+        "interactiveCount": 19,
+        "fastMotion": [],
+        "smallTargets": [
+          {
+            "label": "Neues Team",
+            "size": [20, 20]
+          }
+        ],
+        "scrollbarDrift": [],
+        "scrollableCount": 0,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#f7f8fa",
+          "surface": "#171a1e",
+          "scrollbarThumb": "color-mix(in srgb, #aab1bd 34%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "dark",
+      "route": "/kanban",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-kanban.png",
+      "surface": {
+        "route": "#/kanban",
+        "theme": "dark",
+        "interactiveCount": 16,
+        "fastMotion": [],
+        "smallTargets": [
+          {
+            "label": "Neues Team",
+            "size": [20, 20]
+          }
+        ],
+        "scrollbarDrift": [],
+        "scrollableCount": 0,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#f7f8fa",
+          "surface": "#171a1e",
+          "scrollbarThumb": "color-mix(in srgb, #aab1bd 34%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "dark",
+      "route": "/scheduled",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-scheduled.png",
+      "surface": {
+        "route": "#/scheduled",
+        "theme": "dark",
+        "interactiveCount": 16,
+        "fastMotion": [],
+        "smallTargets": [
+          {
+            "label": "Neues Team",
+            "size": [20, 20]
+          },
+          {
+            "label": "BUTTON",
+            "size": [28, 16]
+          }
+        ],
+        "scrollbarDrift": [],
+        "scrollableCount": 0,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#f7f8fa",
+          "surface": "#171a1e",
+          "scrollbarThumb": "color-mix(in srgb, #aab1bd 34%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    },
+    {
+      "theme": "dark",
+      "route": "/test/components",
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-test-components.png",
+      "surface": {
+        "route": "#/test/components",
+        "theme": "dark",
+        "interactiveCount": 28,
+        "fastMotion": [],
+        "smallTargets": [
+          {
+            "label": "Neues Team",
+            "size": [20, 20]
+          }
+        ],
+        "scrollbarDrift": [],
+        "scrollableCount": 1,
+        "tokens": {
+          "action": "#2563eb",
+          "brand": "#f97316",
+          "text": "#f7f8fa",
+          "surface": "#171a1e",
+          "scrollbarThumb": "color-mix(in srgb, #aab1bd 34%, transparent)",
+          "feedbackMotion": "300ms",
+          "stateMotion": "400ms"
+        }
+      },
+      "runtimeErrors": [],
+      "expectedRuntimeErrors": []
+    }
+  ],
+  "overlays": [
+    {
+      "theme": "light",
+      "selector": "[data-testid=\"work-product-tools-trigger\"]",
+      "label": "light-guid-tools",
+      "overlay": {
+        "className": "arco-dropdown-menu arco-dropdown-menu-light arco-dropdown-menu-vertical arco-dropdown-menu-collapse arco-dropdown-menu-pop _menu_b73zf_35",
+        "rect": {
+          "x": 418,
+          "y": 416.5,
+          "width": 244,
+          "height": 205
+        },
+        "maxHeight": "430px",
+        "overflowY": "auto",
+        "clientHeight": 203,
+        "scrollHeight": 210,
+        "scrollbarColor": "color(srgb 0.34902 0.384314 0.45098 / 0.3) rgba(0, 0, 0, 0)",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "rows": [
+          {
+            "x": 540,
+            "y": 441.5,
+            "label": "Bild erstellen",
+            "centerDelta": 0
+          },
+          {
+            "x": 540,
+            "y": 477.5,
+            "label": "Video erstellen",
+            "centerDelta": 0
+          },
+          {
+            "x": 540,
+            "y": 513.5,
+            "label": "Präsentation erstellen",
+            "centerDelta": 0
+          },
+          {
+            "x": 540,
+            "y": 549.5,
+            "label": "PDF erstellen",
+            "centerDelta": 0
+          }
+        ]
+      },
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-guid-tools.png"
+    },
+    {
+      "theme": "light",
+      "selector": "[data-testid=\"composer-authority-control\"]",
+      "label": "light-guid-authority",
+      "overlay": {
+        "className": "arco-dropdown-menu arco-dropdown-menu-light arco-dropdown-menu-vertical arco-dropdown-menu-collapse arco-dropdown-menu-pop _authorityMenu_1vs3x_115",
+        "rect": {
+          "x": 480.4453125,
+          "y": 269.5,
+          "width": 330,
+          "height": 410
+        },
+        "maxHeight": "430px",
+        "overflowY": "auto",
+        "clientHeight": 408,
+        "scrollHeight": 408,
+        "scrollbarColor": "color(srgb 0.34902 0.384314 0.45098 / 0.3) rgba(0, 0, 0, 0)",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "rows": [
+          {
+            "x": 645.4453125,
+            "y": 309.5,
+            "label": "Nur zusehenEVE liest, denkt mit und schlägt vor. Sie ändert nichts, auch nichts ",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 375.5,
+            "label": "FragenEVE fragt vor jeder Änderung. Du siehst jeden Schritt, bevor er passiert.",
+            "centerDelta": 0
+          },
+          {
+            "x": 645.4453125,
+            "y": 441.5,
+            "label": "RoutineEVE liest und schreibt in deinem Arbeitsordner. Für Befehle fragt sie.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 507.5,
+            "label": "ArbeitenZusätzlich Routine-Befehle: Tests, Builds, lesende git-Abfragen.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 573.5,
+            "label": "SelbstständigZusätzlich alles Umkehrbare, auch außerhalb des Arbeitsordners.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 639.5,
+            "label": "VollZusätzlich Unumkehrbares. Die fünf unten bleiben trotzdem aus.",
+            "centerDelta": null
+          }
+        ]
+      },
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-guid-authority.png"
+    },
+    {
+      "theme": "light",
+      "selector": "[data-testid=\"workspace-context-control\"]",
+      "label": "light-guid-workspace",
+      "overlay": {
+        "className": "arco-dropdown-menu arco-dropdown-menu-light arco-dropdown-menu-vertical arco-dropdown-menu-collapse arco-dropdown-menu-pop _menu_8eaxt_39",
+        "rect": {
+          "x": 381,
+          "y": 715.5,
+          "width": 248,
+          "height": 82
+        },
+        "maxHeight": "430px",
+        "overflowY": "auto",
+        "clientHeight": 80,
+        "scrollHeight": 80,
+        "scrollbarColor": "color(srgb 0.34902 0.384314 0.45098 / 0.3) rgba(0, 0, 0, 0)",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "rows": [
+          {
+            "x": 505,
+            "y": 738.5,
+            "label": "Anderen Ordner auswählen",
+            "centerDelta": 0
+          },
+          {
+            "x": 505,
+            "y": 774.5,
+            "label": "Kein Projekt",
+            "centerDelta": 0
+          }
+        ]
+      },
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-guid-workspace.png"
+    },
+    {
+      "theme": "light",
+      "selector": "authority-narrow",
+      "label": "light-guid-authority-narrow-scroll",
+      "overlay": {
+        "className": "arco-dropdown-menu arco-dropdown-menu-light arco-dropdown-menu-vertical arco-dropdown-menu-collapse arco-dropdown-menu-pop _authorityMenu_1vs3x_115",
+        "rect": {
+          "x": 480.4453125,
+          "y": 64.3046875,
+          "width": 330,
+          "height": 352
+        },
+        "maxHeight": "352px",
+        "overflowY": "auto",
+        "clientHeight": 350,
+        "scrollHeight": 408,
+        "scrollbarColor": "color(srgb 0.34902 0.384314 0.45098 / 0.3) rgba(0, 0, 0, 0)",
+        "viewport": {
+          "width": 1440,
+          "height": 440
+        },
+        "rows": [
+          {
+            "x": 645.4453125,
+            "y": 104.3046875,
+            "label": "Nur zusehenEVE liest, denkt mit und schlägt vor. Sie ändert nichts, auch nichts ",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 170.3046875,
+            "label": "FragenEVE fragt vor jeder Änderung. Du siehst jeden Schritt, bevor er passiert.",
+            "centerDelta": 0
+          },
+          {
+            "x": 645.4453125,
+            "y": 236.3046875,
+            "label": "RoutineEVE liest und schreibt in deinem Arbeitsordner. Für Befehle fragt sie.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 302.3046875,
+            "label": "ArbeitenZusätzlich Routine-Befehle: Tests, Builds, lesende git-Abfragen.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 368.3046875,
+            "label": "SelbstständigZusätzlich alles Umkehrbare, auch außerhalb des Arbeitsordners.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 434.3046875,
+            "label": "VollZusätzlich Unumkehrbares. Die fünf unten bleiben trotzdem aus.",
+            "centerDelta": null
+          }
+        ]
+      },
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/light-guid-authority-narrow-scroll.png"
+    },
+    {
+      "theme": "dark",
+      "selector": "[data-testid=\"work-product-tools-trigger\"]",
+      "label": "dark-guid-tools",
+      "overlay": {
+        "className": "arco-dropdown-menu arco-dropdown-menu-light arco-dropdown-menu-vertical arco-dropdown-menu-collapse arco-dropdown-menu-pop _menu_b73zf_35",
+        "rect": {
+          "x": 418,
+          "y": 416.5,
+          "width": 244,
+          "height": 205
+        },
+        "maxHeight": "430px",
+        "overflowY": "auto",
+        "clientHeight": 203,
+        "scrollHeight": 210,
+        "scrollbarColor": "color(srgb 0.666667 0.694118 0.741176 / 0.34) rgba(0, 0, 0, 0)",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "rows": [
+          {
+            "x": 540,
+            "y": 441.5,
+            "label": "Bild erstellen",
+            "centerDelta": 0
+          },
+          {
+            "x": 540,
+            "y": 477.5,
+            "label": "Video erstellen",
+            "centerDelta": 0
+          },
+          {
+            "x": 540,
+            "y": 513.5,
+            "label": "Präsentation erstellen",
+            "centerDelta": 0
+          },
+          {
+            "x": 540,
+            "y": 549.5,
+            "label": "PDF erstellen",
+            "centerDelta": 0
+          }
+        ]
+      },
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-guid-tools.png"
+    },
+    {
+      "theme": "dark",
+      "selector": "[data-testid=\"composer-authority-control\"]",
+      "label": "dark-guid-authority",
+      "overlay": {
+        "className": "arco-dropdown-menu arco-dropdown-menu-light arco-dropdown-menu-vertical arco-dropdown-menu-collapse arco-dropdown-menu-pop _authorityMenu_1vs3x_115",
+        "rect": {
+          "x": 480.4453125,
+          "y": 269.5,
+          "width": 330,
+          "height": 410
+        },
+        "maxHeight": "430px",
+        "overflowY": "auto",
+        "clientHeight": 408,
+        "scrollHeight": 408,
+        "scrollbarColor": "color(srgb 0.666667 0.694118 0.741176 / 0.34) rgba(0, 0, 0, 0)",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "rows": [
+          {
+            "x": 645.4453125,
+            "y": 309.5,
+            "label": "Nur zusehenEVE liest, denkt mit und schlägt vor. Sie ändert nichts, auch nichts ",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 375.5,
+            "label": "FragenEVE fragt vor jeder Änderung. Du siehst jeden Schritt, bevor er passiert.",
+            "centerDelta": 0
+          },
+          {
+            "x": 645.4453125,
+            "y": 441.5,
+            "label": "RoutineEVE liest und schreibt in deinem Arbeitsordner. Für Befehle fragt sie.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 507.5,
+            "label": "ArbeitenZusätzlich Routine-Befehle: Tests, Builds, lesende git-Abfragen.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 573.5,
+            "label": "SelbstständigZusätzlich alles Umkehrbare, auch außerhalb des Arbeitsordners.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 639.5,
+            "label": "VollZusätzlich Unumkehrbares. Die fünf unten bleiben trotzdem aus.",
+            "centerDelta": null
+          }
+        ]
+      },
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-guid-authority.png"
+    },
+    {
+      "theme": "dark",
+      "selector": "[data-testid=\"workspace-context-control\"]",
+      "label": "dark-guid-workspace",
+      "overlay": {
+        "className": "arco-dropdown-menu arco-dropdown-menu-light arco-dropdown-menu-vertical arco-dropdown-menu-collapse arco-dropdown-menu-pop _menu_8eaxt_39",
+        "rect": {
+          "x": 381,
+          "y": 715.5,
+          "width": 248,
+          "height": 82
+        },
+        "maxHeight": "430px",
+        "overflowY": "auto",
+        "clientHeight": 80,
+        "scrollHeight": 80,
+        "scrollbarColor": "color(srgb 0.666667 0.694118 0.741176 / 0.34) rgba(0, 0, 0, 0)",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "rows": [
+          {
+            "x": 505,
+            "y": 738.5,
+            "label": "Anderen Ordner auswählen",
+            "centerDelta": 0
+          },
+          {
+            "x": 505,
+            "y": 774.5,
+            "label": "Kein Projekt",
+            "centerDelta": 0
+          }
+        ]
+      },
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-guid-workspace.png"
+    },
+    {
+      "theme": "dark",
+      "selector": "authority-narrow",
+      "label": "dark-guid-authority-narrow-scroll",
+      "overlay": {
+        "className": "arco-dropdown-menu arco-dropdown-menu-light arco-dropdown-menu-vertical arco-dropdown-menu-collapse arco-dropdown-menu-pop _authorityMenu_1vs3x_115",
+        "rect": {
+          "x": 480.4453125,
+          "y": 64.3046875,
+          "width": 330,
+          "height": 352
+        },
+        "maxHeight": "352px",
+        "overflowY": "auto",
+        "clientHeight": 350,
+        "scrollHeight": 408,
+        "scrollbarColor": "color(srgb 0.666667 0.694118 0.741176 / 0.34) rgba(0, 0, 0, 0)",
+        "viewport": {
+          "width": 1440,
+          "height": 440
+        },
+        "rows": [
+          {
+            "x": 645.4453125,
+            "y": 104.3046875,
+            "label": "Nur zusehenEVE liest, denkt mit und schlägt vor. Sie ändert nichts, auch nichts ",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 170.3046875,
+            "label": "FragenEVE fragt vor jeder Änderung. Du siehst jeden Schritt, bevor er passiert.",
+            "centerDelta": 0
+          },
+          {
+            "x": 645.4453125,
+            "y": 236.3046875,
+            "label": "RoutineEVE liest und schreibt in deinem Arbeitsordner. Für Befehle fragt sie.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 302.3046875,
+            "label": "ArbeitenZusätzlich Routine-Befehle: Tests, Builds, lesende git-Abfragen.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 368.3046875,
+            "label": "SelbstständigZusätzlich alles Umkehrbare, auch außerhalb des Arbeitsordners.",
+            "centerDelta": null
+          },
+          {
+            "x": 645.4453125,
+            "y": 434.3046875,
+            "label": "VollZusätzlich Unumkehrbares. Die fünf unten bleiben trotzdem aus.",
+            "centerDelta": null
+          }
+        ]
+      },
+      "screenshot": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-premium-ui-system/artifacts/design-qa/premium-ui/gauntlet/dark-guid-authority-narrow-scroll.png"
+    }
+  ],
+  "failures": []
+}

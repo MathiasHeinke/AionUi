@@ -45,6 +45,16 @@ describe('getBuiltinSettingsNavItems', () => {
     const ids = new Set(getBuiltinSettingsNavItems(true, t).map((item) => item.id));
     for (const id of BUILTIN_TAB_IDS) expect(ids.has(id)).toBe(true);
   });
+
+  it('keeps one provider-owned icon vocabulary without local stroke, fill or theme overrides', () => {
+    const items = getBuiltinSettingsNavItems(true, t);
+    for (const item of items) {
+      expect(item.icon).toBeTruthy();
+      expect(item.icon.props).not.toHaveProperty('strokeWidth');
+      expect(item.icon.props).not.toHaveProperty('fill');
+      expect(item.icon.props).not.toHaveProperty('theme');
+    }
+  });
 });
 
 describe('isSettingsPathActive', () => {

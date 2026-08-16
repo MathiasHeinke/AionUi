@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { IconLeft, IconRight } from '@arco-design/web-react/icon';
+import { Left, Right } from '@icon-park/react';
 import React, { useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -147,7 +147,7 @@ const HorizontalFileList: React.FC<HorizontalFileListProps> = ({ children }) => 
             }}
             aria-label={t('common.scrollFilesLeft')}
           >
-            <IconLeft style={{ fontSize: '14px', color: 'var(--text-t-primary)' }} />
+            <Left theme='outline' size={14} fill='currentColor' aria-hidden='true' />
           </button>
         </div>
       )}
@@ -171,7 +171,7 @@ const HorizontalFileList: React.FC<HorizontalFileListProps> = ({ children }) => 
             }}
             aria-label={t('common.scrollFilesRight')}
           >
-            <IconRight style={{ fontSize: '14px', color: 'var(--text-t-primary)' }} />
+            <Right theme='outline' size={14} fill='currentColor' aria-hidden='true' />
           </button>
         </div>
       )}

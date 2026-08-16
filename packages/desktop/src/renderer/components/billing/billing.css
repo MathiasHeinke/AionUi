@@ -341,7 +341,7 @@
 .video-quality-pill__chevron {
   display: inline-block;
   margin-left: 4px;
-  transition: transform 180ms ease;
+  transition: transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 .video-quality-pill__model-trigger[aria-expanded='true'] .video-quality-pill__chevron {
   transform: rotate(180deg);
@@ -371,10 +371,14 @@
   box-shadow:
     inset 0 1px 0 var(--glass-edge-highlight),
     var(--glass-shadow-soft);
-  animation: eve-pill-dropdown-open 180ms ease-out;
+  animation: eve-pill-dropdown-open var(--eve-composer-menu-enter-duration, 480ms) cubic-bezier(0.22, 1, 0.36, 1);
 }
 .video-quality-pill__model-list--up {
   animation-name: eve-pill-dropdown-open-up;
+}
+.video-quality-pill__model-list[data-state='closing'] {
+  pointer-events: none;
+  animation: eve-pill-dropdown-close var(--eve-composer-menu-exit-duration, 380ms) cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 @keyframes eve-pill-dropdown-open {
   from {
@@ -394,6 +398,16 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+@keyframes eve-pill-dropdown-close {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(3px) scale(0.985);
   }
 }
 .video-quality-pill__section-label {
@@ -425,9 +439,10 @@
   text-align: left;
   cursor: pointer;
   transition:
-    transform 120ms ease,
-    box-shadow 120ms ease,
-    background-color 120ms ease;
+    color var(--eve-composer-menu-hover-duration, 300ms) ease,
+    transform var(--eve-composer-menu-hover-duration, 300ms) ease,
+    box-shadow var(--eve-composer-menu-selection-duration, 400ms) ease,
+    background-color var(--eve-composer-menu-hover-duration, 300ms) ease;
 }
 /* Hover lost its hairline edge too: with the selected row now ring-free, a
    hovered row outlined MORE strongly than the chosen one. Lift plus row tint
@@ -450,7 +465,7 @@
   box-shadow: inset 2px 0 0 var(--eve-max-accent);
   color: var(--eve-max-accent);
   font-weight: 600;
-  animation: eve-pill-option-settle 240ms ease-out;
+  animation: eve-pill-option-settle var(--eve-composer-menu-selection-duration, 400ms) cubic-bezier(0.22, 1, 0.36, 1);
 }
 @keyframes eve-pill-option-settle {
   from {
@@ -575,8 +590,9 @@
    MediaModelDropdown/MediaPillDropdown — their interior (trigger, portaled
    list, chips, rows, checks) reuses the `.video-quality-pill__*` styles above;
    only the pill shell and the label/group wrappers are image-local here.
-   Without a registry the control fails closed to the legacy three radios
-   (Schnell / Qualität / MAX) plus an honest "unavailable" price line. Kept
+   Without a registry the control fails closed to generic tier names in the
+   same shared dropdown plus an honest "unavailable" price line. The retained
+   legacy radio rules below remain for older non-EVE embeds. Kept
    visually quieter than the EVE MAX reasoning toggle: the MAX option borrows
    the same accent token but carries NO background fill and a lighter border
    mix (the reasoning toggle uses 16%/46%; this stays at 40% border only). No

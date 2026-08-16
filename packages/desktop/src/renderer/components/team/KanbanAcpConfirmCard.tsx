@@ -22,6 +22,7 @@
 import { ipcBridge } from '@/common';
 import { COMMAND_EVE_KANBAN_ACP_APPLIED_EVENT } from '@/common/config/kanbanAcpEvents';
 import { Button, Card, Message, Typography } from '@arco-design/web-react';
+import { Folder } from '@icon-park/react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 const { Text, Paragraph } = Typography;
@@ -126,12 +127,10 @@ const KanbanAcpConfirmCard: React.FC = () => {
     >
       <Card
         bordered
-        style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}
+        style={{ boxShadow: 'var(--eve-overlay-shadow, var(--glass-shadow-soft))' }}
         title={
-          <span>
-            <span role='img' aria-label='kanban' style={{ marginRight: 6 }}>
-              🗂️
-            </span>
+          <span className='inline-flex items-center gap-8px'>
+            <Folder theme='outline' size={18} fill='currentColor' aria-hidden='true' />
             EVE schlägt eine Karten-Änderung vor
           </span>
         }

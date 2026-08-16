@@ -4,14 +4,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Left, Right } from '@icon-park/react';
+import { CheckSmall, Left, Right } from '@icon-park/react';
 import React, { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import styles from './MobileActionSheet.module.css';
 import type { MobileActionSheetEntry, MobileActionSheetProps, MobileActionSheetSubMenu } from './types';
 
-const TRANSITION_MS = 260;
+const TRANSITION_MS = 400;
+
+const transitionDelay = () => {
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    return 0;
+  }
+  return TRANSITION_MS;
+};
 
 const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, title, entries }) => {
   const { t } = useTranslation();
@@ -31,16 +38,22 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
   // forces React to commit the off-screen frame before the rAF kicks in.
   const [visible, setVisible] = useState(false);
   const openRafRef = useRef<number | null>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   // Mount / unmount lifecycle — drives DOM presence only.
   useEffect(() => {
     if (open) {
+      previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setMounted(true);
       return;
     }
     setVisible(false);
     setActiveSubKey(null);
-    const closeTimer = setTimeout(() => setMounted(false), 280);
+    const closeTimer = setTimeout(() => {
+      setMounted(false);
+      previousFocusRef.current?.focus({ preventScroll: true });
+    }, transitionDelay());
     return () => clearTimeout(closeTimer);
   }, [open]);
 
@@ -75,7 +88,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
       const id = setTimeout(() => {
         setRenderedSubKey(null);
         setSubPhase('idle');
-      }, TRANSITION_MS);
+      }, transitionDelay());
       return () => clearTimeout(id);
     }
   }, [activeSubKey, renderedSubKey]);
@@ -88,6 +101,51 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
       document.body.style.overflow = previousOverflow;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !visible) return;
+
+    const sheet = sheetRef.current;
+    const collectFocusable = () =>
+      Array.from(
+        sheet?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], [tabindex]:not([tabindex="-1"])') ?? []
+      ).filter((element) => !element.closest('[aria-hidden="true"]'));
+
+    collectFocusable()[0]?.focus({ preventScroll: true });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (activeSubKey) {
+          setActiveSubKey(null);
+        } else {
+          onClose();
+        }
+        return;
+      }
+
+      if (event.key !== 'Tab' || !sheet) return;
+      const focusable = collectFocusable();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        sheet.focus({ preventScroll: true });
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [activeSubKey, onClose, open, subPhase, visible]);
 
   const activeEntry = activeSubKey ? entries.find((e) => e.key === activeSubKey) : null;
   const activeSub: MobileActionSheetSubMenu | undefined = activeEntry?.submenu;
@@ -131,9 +189,12 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
         onClick={onClose}
       />
       <div
+        ref={sheetRef}
         className={`${styles.sheet} ${visible ? styles.visible : ''}`}
         role='dialog'
         aria-modal='true'
+        aria-label={typeof title === 'string' ? title : undefined}
+        tabIndex={-1}
         data-eve-interaction-role='event-boundary'
         onClick={(e) => e.stopPropagation()}
       >
@@ -144,12 +205,13 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
             aria-hidden={subPhase === 'shown'}
           >
             {title && <div className={styles.header}>{title}</div>}
-            <div className={styles.list}>
+            <div className={styles.list} role='menu'>
               {entries.map((entry, index) => (
                 <Fragment key={entry.key}>
                   {entry.dividerBefore && index !== 0 && <div className={styles.divider} />}
                   <button
                     type='button'
+                    role='menuitem'
                     disabled={entry.disabled}
                     className={`${styles.item} ${entry.disabled ? styles.disabled : ''}`}
                     onClick={() => handleEntryClick(entry)}
@@ -190,7 +252,11 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
                 </button>
                 <div className={styles.subtitle}>{renderedSub.title}</div>
               </div>
-              <div className={styles.list}>
+              <div
+                className={styles.list}
+                role='listbox'
+                aria-label={typeof renderedSub.title === 'string' ? renderedSub.title : undefined}
+              >
                 {renderedSub.options.length === 0 ? (
                   <div className={styles.empty}>{renderedSub.emptyText}</div>
                 ) : (
@@ -199,6 +265,8 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
                     return (
                       <button
                         type='button'
+                        role='option'
+                        aria-selected={Boolean(option.active)}
                         disabled={option.disabled}
                         key={option.key}
                         className={`${styles.item} ${option.disabled ? styles.disabled : ''}`}
@@ -213,10 +281,9 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
                           {option.description && <div className={styles.desc}>{option.description}</div>}
                         </div>
                         {showRadio && !option.disabled && (
-                          <div
-                            className={`${styles.radio} ${option.active ? styles.checked : ''}`}
-                            aria-hidden='true'
-                          />
+                          <div className={`${styles.radio} ${option.active ? styles.checked : ''}`} aria-hidden='true'>
+                            {option.active ? <CheckSmall theme='outline' size='12' /> : null}
+                          </div>
                         )}
                       </button>
                     );

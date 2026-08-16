@@ -115,7 +115,7 @@ const COMMAND_EVE_WEB_ORIGIN = 'https://command-eve.com';
 
 /**
  * APP→WEB AUTH HANDOFF (money-critical). Open a command-eve.com account path
- * (`/account?intent=add_seat`, `/account?pack_eur=<n>`, …) in the system browser
+ * (`/account`, `/account?pack_eur=<n>`, …) in the system browser
  * WITH the desktop session carried across, so the user lands LOGGED IN and the
  * checkout can start. This replaces the old `openExternalUrl('https://command-eve.com/account…')`
  * pattern, which opened the browser with its own empty localStorage session → the
@@ -127,7 +127,7 @@ const COMMAND_EVE_WEB_ORIGIN = 'https://command-eve.com';
  * the absolute URL (unchanged behaviour). Never throws — the buy path must not
  * hard-fail; a failure degrades to a naked external open.
  *
- * @param path an ABSOLUTE app path beginning with '/', e.g. '/account?intent=add_seat'.
+ * @param path an ABSOLUTE app path beginning with '/', e.g. '/account?pack_eur=100'.
  */
 export const openAccountWeb = async (path: string): Promise<void> => {
   const safePath = typeof path === 'string' && path.startsWith('/') ? path : '/account';

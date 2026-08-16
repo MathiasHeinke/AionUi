@@ -10,7 +10,9 @@ import { getFreshSession } from './accountSessionAtRest';
 
 export const CREATE_SEED_FUNCTION_URL = `${COMMAND_EVE_SUPABASE_URL}/functions/v1/create-seat`;
 export const RENAME_SEED_FUNCTION_URL = `${COMMAND_EVE_SUPABASE_URL}/functions/v1/rename-seed`;
-export const ACCOUNT_SEED_LIMIT = 10;
+// Product contract is unlimited/free. This constant is only the server's
+// non-commercial safety valve and must never be rendered as a quota.
+export const ACCOUNT_SEED_ABUSE_CEILING = 1000;
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -34,7 +36,7 @@ export interface SeedCreateResult {
   seedId?: string;
   created?: boolean;
   seedCount?: number;
-  seedLimit: number;
+  seedLimit: number | null;
   reasonCode?: string;
 }
 
@@ -55,14 +57,15 @@ function validUuid(value: unknown): value is string {
 }
 
 function positiveInt(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
   const number = Number(value);
   return Number.isInteger(number) && number >= 0 ? number : undefined;
 }
 
 function mapReason(raw: Record<string, unknown> | null, status: number): string {
   const server = typeof raw?.reason_code === 'string' ? raw.reason_code : '';
-  if (/LIMIT_REACHED/i.test(server) || raw?.error === 'client_seat_limit_reached' || status === 409) {
-    return 'SEED_LIMIT_REACHED';
+  if (/ABUSE_CEILING_REACHED/i.test(server) || raw?.error === 'seat_abuse_ceiling_reached' || status === 429) {
+    return 'SEED_ABUSE_CEILING_REACHED';
   }
   if (/NOT_ACCOUNT_ADMIN|FORBIDDEN/i.test(server) || status === 403) return 'SEED_NOT_ACCOUNT_ADMIN';
   if (/NOT_FOUND/i.test(server) || status === 404) return 'SEED_NOT_FOUND';
@@ -124,7 +127,7 @@ export async function createSeed(
 ): Promise<SeedCreateResult> {
   const name = input.displayName.trim();
   if (!name || name.length > 200 || !validUuid(input.clientRequestId)) {
-    return { ok: false, seedLimit: ACCOUNT_SEED_LIMIT, reasonCode: 'SEED_INVALID_INPUT' };
+    return { ok: false, seedLimit: null, reasonCode: 'SEED_INVALID_INPUT' };
   }
   const response = await postSeedFunction(
     userDataPath,
@@ -133,18 +136,21 @@ export async function createSeed(
     deps
   );
   if (!response.ok || !response.raw) {
-    return { ok: false, seedLimit: ACCOUNT_SEED_LIMIT, reasonCode: response.reasonCode };
+    return { ok: false, seedLimit: null, reasonCode: response.reasonCode };
   }
   const seedId = response.raw.seed_id ?? response.raw.tenant_id;
   if (!validUuid(seedId)) {
-    return { ok: false, seedLimit: ACCOUNT_SEED_LIMIT, reasonCode: 'SEED_MALFORMED_RESPONSE' };
+    return { ok: false, seedLimit: null, reasonCode: 'SEED_MALFORMED_RESPONSE' };
   }
   return {
     ok: true,
     seedId,
     created: response.raw.created !== false,
     seedCount: positiveInt(response.raw.seed_count ?? response.raw.seats_used),
-    seedLimit: positiveInt(response.raw.seed_limit ?? response.raw.client_seat_count) ?? ACCOUNT_SEED_LIMIT,
+    seedLimit:
+      response.raw.unlimited === true
+        ? null
+        : (positiveInt(response.raw.seed_limit ?? response.raw.client_seat_count) ?? null),
   };
 }
 
@@ -172,7 +178,7 @@ export async function renameSeed(
   return { ok: true, seedId, displayName: returnedName.trim() };
 }
 
-let createInFlight: Promise<SeedCreateResult> | null = null;
+const createInFlightByRequest = new Map<string, Promise<SeedCreateResult>>();
 
 /** MAIN-level single-flight is the second belt behind the renderer button/ref.
  * A timeout releases the flight; the renderer retries with the SAME request id,
@@ -182,15 +188,18 @@ export function createSeedSingleFlight(
   input: SeedCreateInput,
   deps: SeedLifecycleDeps = {}
 ): Promise<SeedCreateResult> {
-  if (createInFlight) return createInFlight;
+  const existing = createInFlightByRequest.get(input.clientRequestId);
+  if (existing) return existing;
   const pending = createSeed(userDataPath, input, deps);
-  createInFlight = pending;
+  createInFlightByRequest.set(input.clientRequestId, pending);
   void pending.finally(() => {
-    if (createInFlight === pending) createInFlight = null;
+    if (createInFlightByRequest.get(input.clientRequestId) === pending) {
+      createInFlightByRequest.delete(input.clientRequestId);
+    }
   });
   return pending;
 }
 
 export function resetSeedCreateSingleFlightForTests(): void {
-  createInFlight = null;
+  createInFlightByRequest.clear();
 }

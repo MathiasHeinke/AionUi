@@ -197,7 +197,7 @@ const importPanel = async () =>
   (await import('@/renderer/components/settings/SettingsModal/contents/AuthorityModalContent')).default;
 
 // eslint-disable-next-line unicorn/consistent-function-scoping
-const lastWrite = (key: string): unknown => setSpy.mock.calls.filter((call) => call[0] === key).at(-1)?.[1];
+const lastWrite = (key: string): unknown => setSpy.mock.calls.findLast((call) => call[0] === key)?.[1];
 
 beforeEach(() => {
   for (const key of Object.keys(store)) delete store[key];
@@ -211,25 +211,25 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Settings → Freigaben offers only what something enforces', () => {
-  it('uses the shared settings rhythm, unboxed icons and standard switches', async () => {
+  it('uses premium icon tiles, one coherent glyph and standard switches', async () => {
     const Panel = await importPanel();
     render(<Panel />);
 
     const sectionIcons = [
-      ['authority-section-icon-ladder', '18'],
-      ['authority-section-icon-seals', '18'],
-      ['authority-section-icon-full-release', '18'],
+      'authority-section-icon-ladder',
+      'authority-section-icon-seals',
+      'authority-section-icon-full-release',
     ] as const;
-    for (const [testId, size] of sectionIcons) {
-      const slot = await screen.findByTestId(testId);
-      expect(slot.className).toContain('h-24px');
-      expect(slot.className).toContain('w-24px');
-      expect(slot.querySelector('svg')?.getAttribute('width')).toBe(size);
+    const sectionIconSlots = await Promise.all(sectionIcons.map((testId) => screen.findByTestId(testId)));
+    for (const slot of sectionIconSlots) {
+      expect(slot.className).toContain('eve-icon-tile');
+      expect(slot.getAttribute('data-tone')).toBe('action');
+      expect(slot.querySelectorAll('svg')).toHaveLength(1);
     }
 
     const opaqueSlot = screen.getByTestId('authority-section-icon-opaque-ui');
-    expect(opaqueSlot.querySelectorAll('svg')).toHaveLength(2);
-    for (const icon of opaqueSlot.querySelectorAll('svg')) expect(icon.getAttribute('width')).toBe('16');
+    expect(opaqueSlot.className).toContain('eve-icon-tile');
+    expect(opaqueSlot.querySelectorAll('svg')).toHaveLength(1);
 
     for (const capability of [
       'spend.money',
@@ -239,8 +239,9 @@ describe('Settings → Freigaben offers only what something enforces', () => {
       'deploy.production',
     ]) {
       const iconSlot = screen.getByTestId(`authority-seal-icon-${capability}`);
-      expect(iconSlot.className).toContain('h-24px');
-      expect(iconSlot.querySelector('svg')?.getAttribute('width')).toBe('16');
+      expect(iconSlot.className).toContain('eve-icon-tile');
+      expect(iconSlot.getAttribute('data-tone')).toBe('neutral');
+      expect(iconSlot.querySelectorAll('svg')).toHaveLength(1);
       expect(screen.getByTestId(`seal-row-${capability}`).querySelector('.eve-settings-preference-row')).toBeTruthy();
       expect(screen.getByTestId(`seal-switch-${capability}`).getAttribute('data-size')).toBe('default');
     }
@@ -255,8 +256,10 @@ describe('Settings → Freigaben offers only what something enforces', () => {
     const Panel = await importPanel();
     render(<Panel />);
 
-    for (const rung of [0, 1, 2, 3, 4, 5]) {
-      expect(await screen.findByTestId(`rung-${rung}`), `rung ${rung} is missing from the panel`).toBeTruthy();
+    const rungs = [0, 1, 2, 3, 4, 5] as const;
+    const renderedRungs = await Promise.all(rungs.map((rung) => screen.findByTestId(`rung-${rung}`)));
+    for (const [index, renderedRung] of renderedRungs.entries()) {
+      expect(renderedRung, `rung ${rungs[index]} is missing from the panel`).toBeTruthy();
     }
     expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('2');
   });
@@ -266,14 +269,16 @@ describe('Settings → Freigaben offers only what something enforces', () => {
     // seat starts in, and it is the one that must never quietly be permissive.
     const Panel = await importPanel();
     render(<Panel />);
-    for (const capability of [
+    const capabilities = [
       'spend.money',
       'publish.outward',
       'delete.outside',
       'credentials.read',
       'deploy.production',
-    ]) {
-      const seal = await screen.findByTestId(`seal-switch-${capability}`);
+    ] as const;
+    const seals = await Promise.all(capabilities.map((capability) => screen.findByTestId(`seal-switch-${capability}`)));
+    for (const [index, seal] of seals.entries()) {
+      const capability = capabilities[index];
       expect(seal.getAttribute('data-checked'), `${capability} is open on a fresh seat`).toBe('false');
     }
     // The money amount only appears once the seal is open — an amount field on a

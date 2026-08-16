@@ -7,7 +7,7 @@
 import type { IConversationMcpStatus, IConversationMcpStatusKind } from '@/common/config/storage';
 import { userVisibleConversationMcpStatuses } from '@/common/config/eveManagedMcpCore';
 import { Button, Menu, Message, Trigger } from '@arco-design/web-react';
-import { FolderOpen, Lightning, Paperclip, Right, Shield } from '@icon-park/react';
+import { FolderOpen, Lightning, Paperclip, Plus, Right, Shield } from '@icon-park/react';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { useSkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
 import { isElectronDesktop } from '@/renderer/utils/platform';
@@ -29,6 +29,8 @@ interface FileAttachButtonProps {
   onLocalFilesAdded?: (files: FileMetadata[]) => void;
   loadedSkills?: string[];
   loadedMcpStatuses?: IConversationMcpStatus[];
+  /** Command EVE uses the universal add affordance beside its tools launcher. */
+  icon?: 'paperclip' | 'plus';
 }
 
 const MenuItem: React.FC<{
@@ -42,9 +44,7 @@ const MenuItem: React.FC<{
 }> = ({ icon, label, description, suffix, onClick, className = '', title }) => {
   const content = (
     <>
-      <span className='flex-shrink-0 inline-flex items-center justify-center color-#86909c w-18px leading-none'>
-        {icon}
-      </span>
+      <span className='eve-menu-icon'>{icon}</span>
       <span className='min-w-0 flex-1'>
         <span className='block leading-none'>{label}</span>
         {description ? (
@@ -59,7 +59,8 @@ const MenuItem: React.FC<{
     <button
       type='button'
       role='menuitem'
-      className={`w-full flex items-center gap-10px px-12px py-9px rounded-8px border-none bg-transparent text-left cursor-pointer hover:bg-fill-2 transition-colors text-14px text-t-primary select-none ${className}`}
+      className={`eve-menu-item w-full flex items-center gap-10px px-10px py-8px border-none bg-transparent text-left cursor-pointer text-14px select-none ${className}`}
+      style={{ transitionDuration: 'var(--eve-motion-duration-state)' }}
       onClick={onClick}
       title={title}
     >
@@ -67,7 +68,10 @@ const MenuItem: React.FC<{
     </button>
   ) : (
     <div
-      className={`flex items-center gap-10px px-12px py-9px rounded-8px text-14px text-t-primary ${className}`}
+      role='menuitem'
+      aria-disabled='true'
+      className={`eve-menu-item flex items-center gap-10px px-10px py-8px text-14px ${className}`}
+      style={{ transitionDuration: 'var(--eve-motion-duration-state)' }}
       title={title}
     >
       {content}
@@ -86,6 +90,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   onLocalFilesAdded,
   loadedSkills,
   loadedMcpStatuses,
+  icon = 'paperclip',
 }) => {
   const conversationContext = useConversationContextSafe();
   const { t } = useTranslation();
@@ -135,7 +140,12 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   const isDesktop = isElectronDesktop();
   const hasSkills = skillCatalog.activeCount > 0;
   const hasMcpServers = mcpStatuses.length > 0;
-  const attachIcon = <Paperclip theme='outline' size='17' strokeWidth={2} fill='currentColor' />;
+  const attachIcon =
+    icon === 'plus' ? (
+      <Plus theme='outline' size='19' strokeWidth={2.2} fill='currentColor' />
+    ) : (
+      <Paperclip theme='outline' size='17' strokeWidth={2} fill='currentColor' />
+    );
 
   // A paperclip has one stable promise: choose files. Skills and connector
   // status live in EVE's dedicated control menu, so loaded capabilities must
@@ -145,7 +155,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
       <Button
         type='secondary'
         shape='circle'
-        className='eve-composer-icon-button'
+        className='eve-composer-icon-button eve-composer-attach-button'
         icon={attachIcon}
         onClick={openFileSelector}
         data-testid='aionrs-attach-folder-btn'
@@ -154,23 +164,18 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
     );
   }
 
-  const cardStyle: React.CSSProperties = {
-    background: 'var(--glass-overlay-bg)',
-    borderRadius: 8,
-    boxShadow: 'var(--glass-shadow-soft)',
-    border: '1px solid var(--glass-overlay-border)',
-    WebkitBackdropFilter: 'var(--glass-overlay-filter)',
-    backdropFilter: 'var(--glass-overlay-filter)',
-    padding: '6px 0',
+  const menuSizingStyle: React.CSSProperties = {
     minWidth: 220,
+    maxHeight: 'min(430px, calc(100dvh - 88px))',
     zIndex: 1050,
   };
 
   const skillsPanel = (
     <Menu
+      className='eve-menu-surface'
       data-eve-interaction-role='event-boundary'
       style={{
-        ...cardStyle,
+        ...menuSizingStyle,
         ...SKILL_CAPABILITY_MENU_POPUP_STYLE,
         minWidth: 220,
         width: 'min(320px, calc(100vw - 96px))',
@@ -185,9 +190,10 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   const mcpPanel = (
     <div
       role='menu'
+      className='eve-menu-surface'
       data-eve-interaction-role='event-boundary'
       style={{
-        ...cardStyle,
+        ...menuSizingStyle,
         minWidth: 220,
         width: 'min(320px, calc(100vw - 96px))',
         maxWidth: 320,
@@ -197,7 +203,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
       {mcpStatuses.map((item) => (
         <MenuItem
           key={`${item.id}-${item.status}`}
-          icon={<Shield theme='outline' size={15} strokeWidth={2.5} />}
+          icon={<Shield theme='outline' size={16} />}
           label={item.name}
           suffix={
             item.status === 'loaded' ? undefined : (
@@ -206,12 +212,12 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
               </span>
             )
           }
-          className='mx-6px cursor-default hover:bg-transparent'
+          className='cursor-default'
           title={item.reason}
         />
       ))}
-      <div style={{ margin: '4px 12px', height: 1, backgroundColor: 'var(--color-border-1, #e5e6eb)' }} />
-      <div className='px-12px py-8px'>
+      <div className='eve-menu-divider' />
+      <div className='px-10px py-8px'>
         <div className='text-12px leading-16px text-t-secondary whitespace-normal break-words'>
           {t('conversation.mcp.managementHint', {
             defaultValue:
@@ -230,7 +236,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
             })}
           </span>
           <span className='inline-flex h-12px w-12px flex-shrink-0 items-center justify-center'>
-            <Right theme='outline' size={12} strokeWidth={3} className='block' />
+            <Right theme='outline' size={12} className='block' />
           </span>
         </Button>
       </div>
@@ -238,7 +244,13 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   );
 
   const menu = (
-    <div role='menu' data-eve-interaction-role='event-boundary' style={cardStyle} onClick={(e) => e.stopPropagation()}>
+    <div
+      role='menu'
+      className='eve-menu-surface'
+      data-eve-interaction-role='event-boundary'
+      style={menuSizingStyle}
+      onClick={(e) => e.stopPropagation()}
+    >
       {/* Loaded items stay above file actions so the session snapshot is visible */}
       {(hasMcpServers || hasSkills) && (
         <>
@@ -250,14 +262,14 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
                 position='right'
                 popupVisible={mcpOpen}
                 onVisibleChange={setMcpOpen}
-                mouseEnterDelay={100}
-                mouseLeaveDelay={150}
+                mouseEnterDelay={400}
+                mouseLeaveDelay={420}
               >
                 <div>
                   <MenuItem
-                    icon={<Shield theme='outline' size={15} strokeWidth={2.5} />}
+                    icon={<Shield theme='outline' size={16} />}
                     label={`${t('conversation.mcp.loaded', { defaultValue: 'Loaded MCP' })} · ${mcpStatuses.length}`}
-                    suffix={<Right theme='outline' size={12} strokeWidth={3} style={{ color: '#c9cdd4' }} />}
+                    suffix={<Right theme='outline' size={13} className='text-t-tertiary' />}
                   />
                 </div>
               </Trigger>
@@ -271,20 +283,20 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
                 position='right'
                 popupVisible={skillsOpen}
                 onVisibleChange={setSkillsOpen}
-                mouseEnterDelay={100}
-                mouseLeaveDelay={150}
+                mouseEnterDelay={400}
+                mouseLeaveDelay={420}
               >
                 <div>
                   <MenuItem
-                    icon={<Lightning theme='outline' size={15} strokeWidth={2.5} />}
+                    icon={<Lightning theme='outline' size={16} />}
                     label={<SkillCapabilityCountLabel catalog={skillCatalog} />}
-                    suffix={<Right theme='outline' size={12} strokeWidth={3} style={{ color: '#c9cdd4' }} />}
+                    suffix={<Right theme='outline' size={13} className='text-t-tertiary' />}
                   />
                 </div>
               </Trigger>
             </div>
           )}
-          <div style={{ margin: '4px 12px', height: 1, backgroundColor: 'var(--color-border-1, #e5e6eb)' }} />
+          <div className='eve-menu-divider' />
         </>
       )}
 
@@ -292,7 +304,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
       <div className='px-6px'>
         {!isDesktop && (
           <MenuItem
-            icon={<FolderOpen theme='outline' size={15} strokeWidth={2.5} />}
+            icon={<FolderOpen theme='outline' size={16} />}
             label={t('common.fileAttach.myDevice', { defaultValue: 'Upload from device' })}
             onClick={() => {
               fileInputRef.current?.click();
@@ -301,7 +313,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
           />
         )}
         <MenuItem
-          icon={<Paperclip theme='outline' size={15} strokeWidth={2.5} />}
+          icon={<Paperclip theme='outline' size={16} />}
           label={t('common.fileAttach.addFiles', { defaultValue: 'Add files' })}
           onClick={() => {
             openFileSelector();
@@ -326,7 +338,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
         <Button
           type='secondary'
           shape='circle'
-          className='eve-composer-icon-button'
+          className='eve-composer-icon-button eve-composer-attach-button'
           icon={attachIcon}
           loading={uploading}
           disabled={uploading}

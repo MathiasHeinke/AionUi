@@ -82,7 +82,7 @@ const ChatTitleEditor: React.FC<ChatTitleEditorProps> = ({
             role={canRenameTitle ? 'button' : undefined}
             tabIndex={canRenameTitle ? 0 : undefined}
             className={classNames(
-              'block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-16px font-bold text-t-primary transition-colors duration-150',
+              'block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-16px font-bold text-t-primary transition-colors duration-300',
               canRenameTitle &&
                 'cursor-text group-hover:text-[rgb(var(--primary-6))] group-focus-within:text-[rgb(var(--primary-6))] focus:outline-none'
             )}

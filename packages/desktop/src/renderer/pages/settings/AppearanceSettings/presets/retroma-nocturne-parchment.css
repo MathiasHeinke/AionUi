@@ -117,9 +117,9 @@ body,
   border-radius: 14px !important;
   background: transparent !important;
   transition:
-    background-color 0.18s ease,
-    border-color 0.18s ease,
-    box-shadow 0.18s ease !important;
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    border-color var(--eve-motion-duration-feedback, 300ms) ease,
+    box-shadow var(--eve-motion-duration-feedback, 300ms) ease !important;
 }
 
 .chat-history__item:hover,

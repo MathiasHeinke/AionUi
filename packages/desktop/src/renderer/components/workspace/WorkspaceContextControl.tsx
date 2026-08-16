@@ -13,6 +13,7 @@ import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
 import { Check, Down, FolderBlock, FolderOpen, FolderPlus } from '@icon-park/react';
 import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { COMPOSER_MENU_TRIGGER_PROPS } from '@/renderer/utils/ui/composerMenuMotion';
 import { addRecentWorkspace, getRecentWorkspaces } from './recentWorkspaces';
 import styles from './WorkspaceContextControl.module.css';
 
@@ -26,6 +27,8 @@ export type WorkspaceContextControlProps = {
    * project is the truthful context label. Never a path.
    */
   projectName?: string;
+  /** Composer-deck copy: keep the temporary label deliberately short. */
+  compactLabel?: boolean;
   editable?: boolean;
   disabled?: boolean;
   onSelectWorkspace?: (path: string) => void;
@@ -51,6 +54,7 @@ const workspaceNameFromPath = (path?: string): string => {
 const WorkspaceContextControl: React.FC<WorkspaceContextControlProps> = ({
   workspacePath,
   projectName,
+  compactLabel = false,
   editable = false,
   disabled = false,
   onSelectWorkspace,
@@ -63,8 +67,12 @@ const WorkspaceContextControl: React.FC<WorkspaceContextControlProps> = ({
   const isTemporaryWorkspace = !durableProjectName && workspaceName.startsWith('hermes-temp-');
   const displayLabel =
     durableProjectName ||
-    (isTemporaryWorkspace ? t('conversation.workspace.temporarySpace') : workspaceName) ||
-    t('guid.workspace.workInProject');
+    (isTemporaryWorkspace
+      ? compactLabel
+        ? t('conversation.workspace.temporaryShort')
+        : t('conversation.workspace.temporarySpace')
+      : workspaceName) ||
+    (compactLabel ? t('conversation.workspace.temporaryShort') : t('guid.workspace.workInProject'));
   const inspectLabel = `${t('conversation.elementsRail.context')}: ${displayLabel}`;
 
   const inspectContext = useCallback(() => {
@@ -160,6 +168,7 @@ const WorkspaceContextControl: React.FC<WorkspaceContextControlProps> = ({
           position='bl'
           droplist={menu}
           disabled={disabled}
+          triggerProps={COMPOSER_MENU_TRIGGER_PROPS}
           onVisibleChange={(visible) => {
             if (visible) setRecentWorkspaces(getRecentWorkspaces());
           }}

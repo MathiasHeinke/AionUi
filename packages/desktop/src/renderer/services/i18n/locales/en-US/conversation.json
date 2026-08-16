@@ -398,6 +398,7 @@
     "addFile": "Add File",
     "refresh": "Refresh",
     "temporarySpace": "Temporary Space",
+    "temporaryShort": "Temp",
     "dragOverlayTitle": "Drop to import",
     "dragOverlayDesc": "Drag files or folders here to copy them into this project.",
     "dragOverlayHint": "Tip: drop anywhere to import into the selected folder.",
@@ -611,6 +612,52 @@
       "unsupported": "Unsupported"
     }
   },
+  "workProduct": {
+    "toolbarLabel": "Tools and work products",
+    "returnToChat": "Return to regular chat",
+    "selectedReference": "Selected reference artifact",
+    "referenceImage": "Reference image",
+    "removeReference": "Remove reference",
+    "capabilities": "MCPs & Plugins",
+    "capabilitiesEmpty": "No MCPs or plugins available yet",
+    "image": {
+      "label": "Create image",
+      "tooltip": "Create or edit an image",
+      "aspectRatio": "Image format",
+      "qualityStandard": "Standard",
+      "qualityHigh": "High",
+      "referencesOnly": "Image mode accepts image references only.",
+      "generateFailed": "The image could not be created. Your draft and selection were preserved."
+    },
+    "video": { "label": "Create video", "tooltip": "Create or edit a video" },
+    "presentation": { "label": "Create presentation", "tooltip": "Create or edit a presentation" },
+    "pdf": { "label": "Create PDF", "tooltip": "Create or edit a PDF" },
+    "kind": {
+      "image": "Image",
+      "video": "Video",
+      "presentation": "PPTX",
+      "pdf": "PDF",
+      "document": "Document",
+      "audio": "Audio",
+      "file": "File"
+    },
+    "referenceUnavailable": "This artifact can no longer be used as an editing source.",
+    "singleVideoSource": "Remove either the selected artifact or the attached images."
+  },
+  "composerDeck": {
+    "context": "Context",
+    "contextPercent": "{{percent}}% Context",
+    "contextOpen": "Open {{value}}",
+    "authorityLabel": "Permission: {{level}}",
+    "authorityShort": {
+      "watch": "Watch",
+      "ask": "Ask",
+      "routine": "Routine",
+      "work": "Work",
+      "auto": "Auto",
+      "full": "Full"
+    }
+  },
   "runtimePreparing": {
     "sendboxHint": "Preparing the runtime environment. First startup can take a little longer."
   },
@@ -687,6 +734,8 @@
     },
     "noArtifacts": "No artifacts yet",
     "noArtifactsDetail": "Documents, images, and other results appear here automatically.",
+    "continueEditing": "Continue editing in chat",
+    "continueEditingArtifact": "Continue editing {{name}} in chat",
     "openArtifact": "Open {{name}}",
     "project": "Project",
     "noProject": "No project selected",

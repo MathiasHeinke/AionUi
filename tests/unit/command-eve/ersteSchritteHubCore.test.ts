@@ -25,21 +25,20 @@ describe('ersteSchritteHubCore — the Day-0 hub steps (honest status)', () => {
     expect(steps.map((s) => s.id)).toEqual(EXPECTED_ORDER);
   });
 
-  it('maps every step to an existing route; only "kunde" is a web intent', () => {
+  it('maps every step to an existing in-app route, including customer-Seat creation', () => {
     const steps = buildErsteSchritteHubSteps({ firstValueReady: true, identityState: 'ok' });
     const byId = Object.fromEntries(steps.map((s) => [s.id, s]));
     expect(byId['ki-spur'].route).toBe('/settings/model');
     expect(byId['company-brain'].route).toBe('/settings/company-brain');
-    expect(byId['kunde'].route).toBe('/account?intent=add_seat');
-    expect(byId['kunde'].isWebIntent).toBe(true);
+    expect(byId['kunde'].route).toBe('/settings/account');
+    expect(byId['kunde'].isWebIntent).not.toBe(true);
     expect(byId['connectors'].route).toBe('/settings/connectors');
     expect(byId['team'].route).toBe('/settings/eve-runtime');
     expect(byId['skills'].route).toBe('/settings/capabilities?tab=skills');
     expect(byId['privacy'].route).toBe('/settings/privacy');
     expect(byId['budget'].route).toBe('/settings/billing');
     expect(byId['name'].route).toBe('/settings/account');
-    // Only the seat-add step leaves the app.
-    expect(steps.filter((s) => s.isWebIntent).map((s) => s.id)).toEqual(['kunde']);
+    expect(steps.filter((s) => s.isWebIntent).map((s) => s.id)).toEqual([]);
   });
 
   it("marks the cloud lane 'done' ONLY when first value is proven ready", () => {

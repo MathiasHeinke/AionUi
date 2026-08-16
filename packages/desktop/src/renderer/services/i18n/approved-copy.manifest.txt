@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7627
+# entries: 7745
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -536,6 +536,7 @@ copy	1	de-DE/commandEve.json	Dateien anfassen, die nicht zum Projekt gehören.
 copy	1	de-DE/commandEve.json	Deine Freigaben und technischen Grenzen
 copy	1	de-DE/commandEve.json	Deine Stufe regelt die Hermes-Werkzeuge — Terminal, Dateien, Browser, Bildschirmsteuerung, Notizen, Fähigkeiten, Prozesse und Zeitpläne. Diese technischen Grenzen bleiben davon getrennt.
 copy	1	de-DE/commandEve.json	Der Betrag wird gespeichert, aber in dieser Version noch nicht als Tageszähler durchgesetzt. Erkannte Geldbefehle fragt EVE deshalb weiterhin einzeln ab. Wenn du autonome Browser-/Desktop-Steuerung aktivierst, begrenzt dieser Betrag deren Klicks technisch nicht. Das eingetragene Limit ist kein Blankoscheck.
+copy	1	de-DE/commandEve.json	Der Kunden-Wechsel ist nicht sicher abgeschlossen. Starte Command EVE neu und arbeite bis dahin in keinem Kunden-Seat weiter.
 copy	1	de-DE/commandEve.json	Der Seed ist ein eigener Arbeitsraum. Er ist kostenlos und nutzt den Credit-Pool deines Accounts.
 copy	1	de-DE/commandEve.json	Desktop-Aktion
 copy	1	de-DE/commandEve.json	Diese Einstellung stammt noch aus einer älteren Version und wurde von dir nie bestätigt. Sieh sie einmal durch.
@@ -576,7 +577,6 @@ copy	1	de-DE/commandEve.json	Leiste ausklappen
 copy	1	de-DE/commandEve.json	Leiste einklappen
 copy	1	de-DE/commandEve.json	Live-Systeme deployen oder verändern.
 copy	1	de-DE/commandEve.json	Löschen außerhalb des Arbeitsordners
-copy	1	de-DE/commandEve.json	Maximal 10 Seeds pro Account.
 copy	1	de-DE/commandEve.json	Neuen Seed erstellen
 copy	1	de-DE/commandEve.json	Noch nichts gemerkt. EVE fragt bei jedem Befehl.
 copy	1	de-DE/commandEve.json	Notizen, Fähigkeiten und Zeitpläne: Änderungen folgen jetzt deiner Stufe. Auf „Voll“ darf EVE sie selbstständig pflegen; auf niedrigeren Stufen erscheint die normale Freigabe-Karte.
@@ -596,6 +596,7 @@ copy	1	de-DE/commandEve.json	Seed hinzufügen
 copy	1	de-DE/commandEve.json	Seed konnte nicht erstellt werden.
 copy	1	de-DE/commandEve.json	Seed wird abgeglichen …
 copy	1	de-DE/commandEve.json	Seed wird erstellt …
+copy	1	de-DE/commandEve.json	Seed wurde abgeglichen.
 copy	1	de-DE/commandEve.json	Seed wurde erstellt.
 copy	1	de-DE/commandEve.json	Seed-Name
 copy	1	de-DE/commandEve.json	Seeds
@@ -619,6 +620,7 @@ copy	1	de-DE/commandEve.json	Webseiten-Sperrliste: Ist sie fehlerhaft eingericht
 copy	1	de-DE/commandEve.json	Wie selbstständig EVE arbeitet
 copy	1	de-DE/commandEve.json	Wiederkehrende Zahlung
 copy	1	de-DE/commandEve.json	Zeitüberschreitung. Noch einmal abgleichen — es wird kein zweiter Seed erzeugt.
+copy	1	de-DE/commandEve.json	Zu viele automatische Seat-Anlagen. Bitte kontaktiere den Support.
 copy	1	de-DE/commandEve.json	Zugangsdaten lesen
 copy	1	de-DE/commandEve.json	Zurücknehmen
 copy	1	de-DE/commandEve.json	Zusätzlich Routine-Befehle: Tests, Builds, lesende git-Abfragen.
@@ -996,6 +998,7 @@ copy	1	de-DE/conversation.json	Antwort streamt
 copy	1	de-DE/conversation.json	Antwort-Stream wurde unterbrochen
 copy	1	de-DE/conversation.json	Anzeige holt auf
 copy	1	de-DE/conversation.json	App
+copy	1	de-DE/conversation.json	Arbeiten
 copy	1	de-DE/conversation.json	Arbeitet
 copy	1	de-DE/conversation.json	Arbeitsfläche anordnen
 copy	1	de-DE/conversation.json	Arbeitsfläche links, Chat rechts
@@ -1005,6 +1008,7 @@ copy	1	de-DE/conversation.json	Archivieren
 copy	1	de-DE/conversation.json	Archivieren fehlgeschlagen
 copy	1	de-DE/conversation.json	Archiviert
 copy	1	de-DE/conversation.json	Artefakte
+copy	1	de-DE/conversation.json	Audio
 copy	1	de-DE/conversation.json	Audio wird transkribiert ...
 copy	1	de-DE/conversation.json	Audiodatei auswählen
 copy	1	de-DE/conversation.json	Audiodatei ist zu groß
@@ -1017,8 +1021,10 @@ copy	1	de-DE/conversation.json	Aus Ordner entfernen
 copy	1	de-DE/conversation.json	Aus Ordner entfernt
 copy	1	de-DE/conversation.json	Aus Verlauf generieren
 copy	1	de-DE/conversation.json	Aus persistenten Receipts rekonstruiert
+copy	1	de-DE/conversation.json	Ausgewähltes Referenzartefakt
 copy	1	de-DE/conversation.json	Ausschalten
 copy	1	de-DE/conversation.json	Authentifizierung beim Modellanbieter fehlgeschlagen
+copy	1	de-DE/conversation.json	Auto
 copy	1	de-DE/conversation.json	Automatisch
 copy	1	de-DE/conversation.json	Bearbeiten
 copy	1	de-DE/conversation.json	Beendet
@@ -1034,11 +1040,15 @@ copy	1	de-DE/conversation.json	Bereitstellung aller Änderungen aufheben
 copy	1	de-DE/conversation.json	Bereitstellung aufheben
 copy	1	de-DE/conversation.json	Bestehende Ordner
 copy	1	de-DE/conversation.json	Bestätigungsdialog konnte nicht geladen werden
+copy	1	de-DE/conversation.json	Bild
 copy	1	de-DE/conversation.json	Bild bereit · Analyse wird vorbereitet
 copy	1	de-DE/conversation.json	Bild einmal analysieren
+copy	1	de-DE/conversation.json	Bild erstellen
+copy	1	de-DE/conversation.json	Bild erstellen oder bearbeiten
 copy	1	de-DE/conversation.json	Bild konnte nicht verarbeitet werden · Nachricht blieb ungesendet
 copy	1	de-DE/conversation.json	Bild verstanden · Analyse wird an EVE übergeben
 copy	1	de-DE/conversation.json	Bild wird sicher visuell analysiert
+copy	1	de-DE/conversation.json	Bildformat
 copy	1	de-DE/conversation.json	Bitte gib einen Namen für die Vorlage ein
 copy	1	de-DE/conversation.json	Bitte gib einen neuen Namen ein
 copy	1	de-DE/conversation.json	Bitte gib nach /btw eine Zwischenfrage ein.
@@ -1063,6 +1073,7 @@ copy	1	de-DE/conversation.json	Connector Catalog öffnen
 copy	1	de-DE/conversation.json	Connector-Status wird im Connector Catalog geprüft. Starte dort Read-only-Preflights; rohes MCP-Setup bleibt gegatet.
 copy	1	de-DE/conversation.json	Dadurch wird die Datei von deinem System gelöscht. Fortfahren?
 copy	1	de-DE/conversation.json	Das Anbieterkonto hat keine Berechtigung für dieses Modell oder diesen Vorgang. Überprüfe die Kontoberechtigungen oder wähle ein anderes Modell.
+copy	1	de-DE/conversation.json	Das Bild konnte nicht erstellt werden. Entwurf und Auswahl bleiben erhalten.
 copy	1	de-DE/conversation.json	Das Ergebnis der dauerhaften Zustellung ist ausdrücklich unbekannt
 copy	1	de-DE/conversation.json	Das Ergebnis des Child-Workers ist nicht typisiert
 copy	1	de-DE/conversation.json	Das Suchergebnis ist leer
@@ -1070,6 +1081,7 @@ copy	1	de-DE/conversation.json	Das aktuelle Modellkontingent ist aufgebraucht. Z
 copy	1	de-DE/conversation.json	Das ausgewählte Modell ist nicht verfügbar oder unterstützt die angeforderte Funktion nicht. Wähle ein unterstütztes Modell und versuche es erneut.
 copy	1	de-DE/conversation.json	Das ausgewählte Modell wurde nicht gefunden
 copy	1	de-DE/conversation.json	Das persistente Receipt ist an keinen aktiven AionCore-Turn gebunden
+copy	1	de-DE/conversation.json	Datei
 copy	1	de-DE/conversation.json	Datei hinzufügen
 copy	1	de-DE/conversation.json	Datei konnte nicht gelesen werden
 copy	1	de-DE/conversation.json	Datei löschen
@@ -1159,10 +1171,12 @@ copy	1	de-DE/conversation.json	Dieser Agent kann den angeforderten Vorgang nicht
 copy	1	de-DE/conversation.json	Dieser Befehl in der Warteschlange ist zu lang. Kürze ihn vor dem Senden.
 copy	1	de-DE/conversation.json	Dieser Workspace-Pfad wird für die Ausführung nicht mehr unterstützt
 copy	1	de-DE/conversation.json	Dieser Zug hat keine sichtbare Antwort erzeugt. Wenn das wiederholt passiert, starte einen neuen Chat — die Sitzung ist womöglich abgelaufen.
+copy	1	de-DE/conversation.json	Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.
 copy	1	de-DE/conversation.json	Dieses Bild sicher analysieren?
 copy	1	de-DE/conversation.json	Dieses Gate benötigt den bestehenden Bestätigungspfad
 copy	1	de-DE/conversation.json	Dieses Receipt stellt keine Retry-Aktion bereit
 copy	1	de-DE/conversation.json	Dieses bestehende Gespräch bzw. diese Aufgabe verwendet einen Workspace-Pfad, dessen Verzeichnisnamen Leerzeichen oder andere Leerraumzeichen enthalten. Command EVE unterstützt das Senden von Nachrichten über solche Pfade nicht mehr. Erstelle ein neues Gespräch oder eine neue Aufgabe mit einem Workspace-Pfad ohne Leerraumzeichen.
+copy	1	de-DE/conversation.json	Dokument
 copy	1	de-DE/conversation.json	Dokumente, Bilder und andere Ergebnisse erscheinen hier automatisch.
 copy	1	de-DE/conversation.json	Download erfolgreich
 copy	1	de-DE/conversation.json	Download fehlgeschlagen
@@ -1203,6 +1217,7 @@ copy	1	de-DE/conversation.json	Einfügen
 copy	2	de-DE/conversation.json	Eingabe nötig
 copy	1	de-DE/conversation.json	Elemente-Leiste umschalten
 copy	1	de-DE/conversation.json	Endpunkt des Modellanbieters wurde nicht gefunden
+copy	1	de-DE/conversation.json	Entferne entweder das ausgewählte Artefakt oder die angehängten Bilder.
 copy	1	de-DE/conversation.json	Entfernen
 copy	1	de-DE/conversation.json	Erfolgreich
 copy	2	de-DE/conversation.json	Erfolgreich gelöscht
@@ -1227,7 +1242,9 @@ copy	1	de-DE/conversation.json	Fertig – ungelesen
 copy	1	de-DE/conversation.json	Festgefahren
 copy	1	de-DE/conversation.json	Folien einmal analysieren
 copy	1	de-DE/conversation.json	Folien werden sicher visuell analysiert
+copy	1	de-DE/conversation.json	Fragen
 copy	1	de-DE/conversation.json	Freigabe angefordert
+copy	1	de-DE/conversation.json	Freigabe: {{level}}
 copy	1	de-DE/conversation.json	Früher
 copy	1	de-DE/conversation.json	Für die aktuelle Sitzung ist kein Modell ausgewählt, Nachricht kann nicht gesendet werden
 copy	1	de-DE/conversation.json	Für diesen Zustand wurde keine Autorität freigegeben
@@ -1268,7 +1285,10 @@ copy	1	de-DE/conversation.json	Herunterladen
 copy	1	de-DE/conversation.json	Heute
 copy	1	de-DE/conversation.json	Hi, was hast du heute vor?
 copy	1	de-DE/conversation.json	Hier klicken, um nach Stichwörtern zu suchen
+copy	1	de-DE/conversation.json	Hoch
 copy	1	de-DE/conversation.json	Hört zu
+copy	1	de-DE/conversation.json	Im Bildmodus kannst du nur Bilder als Referenz anhängen.
+copy	1	de-DE/conversation.json	Im Chat bearbeiten
 copy	1	de-DE/conversation.json	Im Ordner anzeigen
 copy	1	de-DE/conversation.json	Im Projekt chatten
 copy	1	de-DE/conversation.json	Import der abgelegten Dateien fehlgeschlagen.
@@ -1302,7 +1322,7 @@ copy	1	de-DE/conversation.json	Keine relevanten Dateien im Projekt gefunden
 copy	1	de-DE/conversation.json	Keine typisierte Autorität verfügbar
 copy	1	de-DE/conversation.json	Konfiguration des Modellanbieters ist ungültig
 copy	1	de-DE/conversation.json	Konfiguration erforderlich
-copy	2	de-DE/conversation.json	Kontext
+copy	3	de-DE/conversation.json	Kontext
 copy	1	de-DE/conversation.json	Kontext ist zu groß für das Modell
 copy	1	de-DE/conversation.json	Kontext verwendet
 copy	1	de-DE/conversation.json	Kontext {{used}}/{{size}}
@@ -1330,6 +1350,7 @@ copy	1	de-DE/conversation.json	MAX einschalten — volle Denkkraft für harte Au
 copy	1	de-DE/conversation.json	MAX freischalten
 copy	1	de-DE/conversation.json	MAX ist aktiv — EVE arbeitet mit voller Denkkraft.
 copy	1	de-DE/conversation.json	MAX ist im bezahlten Tarif oder mit gekauften Credits verfügbar.
+copy	1	de-DE/conversation.json	MCPs & Plugins
 copy	1	de-DE/conversation.json	Marketing-Karte "{{title}}" angelegt und Dispatch-Plan (HG-2.5) geprüft. Weiter geht es im Command Center: dort die Stufen freigeben und – bei bewusster Freigabe – zum Executor (HG-3.5) befördern.
 copy	1	de-DE/conversation.json	Marketing-Karte "{{title}}" angelegt. Der Dispatch-Plan wurde noch nicht bestätigt – bitte im Command Center fortsetzen und freigeben.
 copy	1	de-DE/conversation.json	Marketing-Karte konnte nicht angelegt werden.
@@ -1372,6 +1393,7 @@ copy	1	de-DE/conversation.json	Nicht unterstützt
 copy	1	de-DE/conversation.json	Noch kein Projekt gewählt
 copy	1	de-DE/conversation.json	Noch keine Artefakte
 copy	1	de-DE/conversation.json	Noch keine Frage-Antwort-Runden
+copy	1	de-DE/conversation.json	Noch keine MCPs oder Plugins verfügbar
 copy	1	de-DE/conversation.json	Noch keine Änderungen
 copy	1	de-DE/conversation.json	Noch nicht verbunden
 copy	1	de-DE/conversation.json	OCR einmal erlauben
@@ -1387,12 +1409,16 @@ copy	1	de-DE/conversation.json	Ordner „{{name}}“ entfernen? Die {{count}} Ch
 copy	1	de-DE/conversation.json	Ordneraktionen
 copy	2	de-DE/conversation.json	Ordnername
 copy	1	de-DE/conversation.json	Originalwerte werden nicht angezeigt.
+copy	1	de-DE/conversation.json	PDF
 copy	1	de-DE/conversation.json	PDF bereit · wartet auf deine OCR-Freigabe
+copy	1	de-DE/conversation.json	PDF erstellen
+copy	1	de-DE/conversation.json	PDF erstellen oder bearbeiten
 copy	1	de-DE/conversation.json	PDF gelesen · Analyse wird an EVE übergeben
 copy	1	de-DE/conversation.json	PDF konnte nicht verarbeitet werden · Nachricht blieb ungesendet
 copy	1	de-DE/conversation.json	PDF wird mit freigegebener Cloud-OCR gelesen
 copy	1	de-DE/conversation.json	PII-Schutz aus
 copy	1	de-DE/conversation.json	PII-Schutz für diesen Seat ausschalten? Sensible Daten (Adresse, IBAN, Gesundheit, Finanzen) gehen dann unredigiert ans Modell.
+copy	1	de-DE/conversation.json	PPTX
 copy	1	de-DE/conversation.json	Problem melden
 copy	2	de-DE/conversation.json	Projekt
 copy	3	de-DE/conversation.json	Projekt entfernen
@@ -1406,15 +1432,20 @@ copy	1	de-DE/conversation.json	Projektordner öffnen
 copy	1	de-DE/conversation.json	Provider antwortet nicht – neuer Versuch
 copy	1	de-DE/conversation.json	Prozess beendet
 copy	1	de-DE/conversation.json	Präsentation bereit · Analyse wird vorbereitet
+copy	1	de-DE/conversation.json	Präsentation erstellen
+copy	1	de-DE/conversation.json	Präsentation erstellen oder bearbeiten
 copy	1	de-DE/conversation.json	Präsentation konnte nicht verarbeitet werden · Nachricht blieb ungesendet
 copy	1	de-DE/conversation.json	Präsentation verstanden · Analyse wird an EVE übergeben
 copy	1	de-DE/conversation.json	Ratenlimit des Modellanbieters erreicht
 copy	1	de-DE/conversation.json	Receipts
 copy	1	de-DE/conversation.json	Reconnect fehlt
 copy	1	de-DE/conversation.json	Reduziere den Nachrichteninhalt, die referenzierten Dateien oder die Kontextgröße und versuche es erneut.
+copy	1	de-DE/conversation.json	Referenz entfernen
+copy	1	de-DE/conversation.json	Referenzbild
 copy	1	de-DE/conversation.json	Regel (JSON/MD)
 copy	1	de-DE/conversation.json	Regel erfolgreich geladen
 copy	2	de-DE/conversation.json	Regel/Skill laden
+copy	1	de-DE/conversation.json	Routine
 copy	1	de-DE/conversation.json	Runtime-Fehler
 copy	1	de-DE/conversation.json	Schreib EVE, was du erreichen möchtest ...
 copy	1	de-DE/conversation.json	Sende Feedback mit Logs, damit das Team das Problem untersuchen kann.
@@ -1433,6 +1464,7 @@ copy	1	de-DE/conversation.json	Spracheingabe fehlgeschlagen. Bitte versuche es e
 copy	1	de-DE/conversation.json	Spracheingabe ist in dieser Umgebung nicht verfügbar
 copy	1	de-DE/conversation.json	Spracheingabe starten
 copy	1	de-DE/conversation.json	Spricht
+copy	1	de-DE/conversation.json	Standard
 copy	1	de-DE/conversation.json	Stapelexport
 copy	1	de-DE/conversation.json	Stapellöschung
 copy	1	de-DE/conversation.json	Stapelmodus beenden
@@ -1448,6 +1480,7 @@ copy	1	de-DE/conversation.json	Subagent {{number}}
 copy	1	de-DE/conversation.json	Subagenten
 copy	1	de-DE/conversation.json	Suchen
 copy	1	de-DE/conversation.json	Supergoal
+copy	1	de-DE/conversation.json	Temp
 copy	1	de-DE/conversation.json	Temporärer Bereich
 copy	2	de-DE/conversation.json	Terminal
 copy	1	de-DE/conversation.json	Themen exportieren
@@ -1469,6 +1502,9 @@ copy	1	de-DE/conversation.json	Verbindungsfehler
 copy	1	de-DE/conversation.json	Verschieben fehlgeschlagen
 copy	1	de-DE/conversation.json	Verstanden
 copy	1	de-DE/conversation.json	Versuche es später erneut oder sende diese Nachricht noch einmal.
+copy	1	de-DE/conversation.json	Video
+copy	1	de-DE/conversation.json	Video erstellen
+copy	1	de-DE/conversation.json	Video erstellen oder bearbeiten
 copy	1	de-DE/conversation.json	Vision aktivieren
 copy	1	de-DE/conversation.json	Vision bleibt deaktiviert – das Bild wurde nicht gesendet. Deine Entscheidung konnte nicht gespeichert werden und wird beim nächsten Bild erneut abgefragt.
 copy	1	de-DE/conversation.json	Vision bleibt deaktiviert – das Bild wurde nicht gesendet. Du kannst Vision jederzeit unter Einstellungen → Datenschutz aktivieren.
@@ -1476,6 +1512,7 @@ copy	1	de-DE/conversation.json	Vision für dieses Bild aktivieren?
 copy	1	de-DE/conversation.json	Vision ist auf diesem Arbeitsplatz derzeit nicht verfügbar. Das Bild wurde nicht gesendet; Entwurf und Dateien bleiben erhalten.
 copy	1	de-DE/conversation.json	Vision konnte nicht aktiviert werden. Entwurf und Dateien bleiben erhalten.
 copy	1	de-DE/conversation.json	Visuelle Analyse dieser Präsentation erlauben?
+copy	1	de-DE/conversation.json	Voll
 copy	1	de-DE/conversation.json	Vordefinierte Assistenten
 copy	1	de-DE/conversation.json	Vorherige Agentensitzung ist nicht verfügbar
 copy	1	de-DE/conversation.json	Vorlesen
@@ -1499,6 +1536,7 @@ copy	1	de-DE/conversation.json	Was kann Command EVE?
 copy	1	de-DE/conversation.json	Weitere Aktionen
 copy	1	de-DE/conversation.json	Werkzeug: {{tool}}
 copy	1	de-DE/conversation.json	Werkzeuge
+copy	1	de-DE/conversation.json	Werkzeuge und Arbeitsprodukte
 copy	1	de-DE/conversation.json	Wiederhergestellt
 copy	1	de-DE/conversation.json	Wiederherstellen
 copy	1	de-DE/conversation.json	Wiederholbar
@@ -1524,6 +1562,8 @@ copy	1	de-DE/conversation.json	Zum Chat hinzufügen
 copy	1	de-DE/conversation.json	Zum Chat hinzugefügt
 copy	1	de-DE/conversation.json	Zum Chat zurückkehren
 copy	1	de-DE/conversation.json	Zum Importieren ablegen
+copy	1	de-DE/conversation.json	Zum normalen Chat zurückkehren
+copy	1	de-DE/conversation.json	Zusehen
 copy	1	de-DE/conversation.json	Zwischenfrage
 copy	1	de-DE/conversation.json	Zwischenfrage beantwortet.
 copy	1	de-DE/conversation.json	Zwischenfrage wird gestartet ...
@@ -1559,10 +1599,13 @@ copy	1	de-DE/conversation.json	{{goal}} fortsetzen
 copy	1	de-DE/conversation.json	{{goal}} pausieren
 copy	1	de-DE/conversation.json	{{goal}} stoppen
 copy	1	de-DE/conversation.json	{{goal}} öffnen
+copy	1	de-DE/conversation.json	{{name}} im Chat bearbeiten
 copy	1	de-DE/conversation.json	{{name}} öffnen
 copy	1	de-DE/conversation.json	{{percent}} %
+copy	1	de-DE/conversation.json	{{percent}}% Kontext
 copy	1	de-DE/conversation.json	{{title}} schließen
 copy	1	de-DE/conversation.json	{{title}}, nicht gespeicherte Änderungen
+copy	1	de-DE/conversation.json	{{value}} öffnen
 copy	2	de-DE/conversation.json	Änderungen
 copy	1	de-DE/conversation.json	Änderungen verwerfen
 copy	1	de-DE/conversation.json	Änderungen zurücksetzen
@@ -1646,6 +1689,7 @@ copy	1	de-DE/credits.json	Inhalt (Markdown)
 copy	1	de-DE/credits.json	Jetzt nicht
 copy	1	de-DE/credits.json	Kein aktives Abo — Standard kostet {{eur}} €/Monat.
 copy	1	de-DE/credits.json	Kontextfenster
+copy	1	de-DE/credits.json	Kostenlosen Kunden-Seat in den Account-Einstellungen hinzufügen
 copy	1	de-DE/credits.json	Kurz ausgebremst
 copy	1	de-DE/credits.json	Lade Company Brain …
 copy	2	de-DE/credits.json	Leeren
@@ -1662,7 +1706,6 @@ copy	1	de-DE/credits.json	Notiz
 copy	1	de-DE/credits.json	Notizen & Gelerntes
 copy	1	de-DE/credits.json	Report-Branding
 copy	1	de-DE/credits.json	Richtpreise aus dem Offline-Katalog
-copy	1	de-DE/credits.json	Seat hinzufügen — {{eur}} € Aufpreis, in Standard enthalten
 copy	1	de-DE/credits.json	Seat-Status gerade nicht verifizierbar.
 copy	1	de-DE/credits.json	Sektion geleert.
 copy	2	de-DE/credits.json	Speichern
@@ -2294,6 +2337,7 @@ copy	1	de-DE/messages.json	Audio
 copy	1	de-DE/messages.json	Ausführung abgebrochen
 copy	1	de-DE/messages.json	Ausführung des MCP-Tools "{{toolName}}" vom Server "{{serverName}}" zulassen?
 copy	1	de-DE/messages.json	Ausführung zulassen?
+copy	1	de-DE/messages.json	Bearbeiten
 copy	1	de-DE/messages.json	Befehl:
 copy	1	de-DE/messages.json	Befehle
 copy	1	de-DE/messages.json	Beleg
@@ -2651,7 +2695,7 @@ copy	1	de-DE/settings.json	Agentenerkennung & Verbindung
 copy	1	de-DE/settings.json	Agentenmodelle konnten nicht geladen werden
 copy	1	de-DE/settings.json	Agentenname
 copy	1	de-DE/settings.json	Aion CLI ist der integrierte Agent und wird mit der App ausgeliefert – keine Installation nötig. Andere Agenten werden erst erkannt, nachdem ihre CLI lokal installiert wurde.
-copy	2	de-DE/settings.json	Aktiv
+copy	3	de-DE/settings.json	Aktiv
 copy	1	de-DE/settings.json	Aktiviere WebUI, damit dein Telefon oder ein entfernter Browser auf Command EVE zugreifen kann.
 copy	1	de-DE/settings.json	Aktiviere den Kanal und schreibe EVE direkt aus deiner Nachrichten-App.
 copy	1	de-DE/settings.json	Aktiviert
@@ -2665,7 +2709,7 @@ copy	2	de-DE/settings.json	Alle
 copy	1	de-DE/settings.json	Alle Schlüssel testen
 copy	1	de-DE/settings.json	Alle {{total}} Schlüssel sind gültig
 copy	1	de-DE/settings.json	Alle {{total}} Schlüssel sind ungültig
-copy	1	de-DE/settings.json	Als Agentur einen Kunden-Seat hinzufügen (öffnet dein Konto im Browser).
+copy	1	de-DE/settings.json	Als Agentur einen kostenlosen Kunden-Seat direkt in EVE hinzufügen.
 copy	1	de-DE/settings.json	An: Persönliche Daten (Telefon, IBAN, Adressen, Gesundheits-/Finanzdaten) werden vor dem Senden an Cloud-Modelle automatisch geschwärzt. Lokale Modelle sind nicht betroffen — dort verlassen Daten deinen Mac nie. Gilt nur für diesen Seat.
 copy	1	de-DE/settings.json	Anbieter
 copy	1	de-DE/settings.json	Anfrageprotokoll
@@ -2844,6 +2888,7 @@ copy	1	de-DE/settings.json	Command EVE neu starten, um die neue Einstellung zur 
 copy	1	de-DE/settings.json	Command EVE sucht erst nach deiner Bestätigung nach einer neuen Version.
 copy	1	de-DE/settings.json	Command-EVE-Fähigkeiten
 copy	1	de-DE/settings.json	Command-EVE-Modul anfragen
+copy	1	de-DE/settings.json	Company Brain
 copy	1	de-DE/settings.json	Company-Brain füllen
 copy	1	de-DE/settings.json	Connector-Policies
 copy	1	de-DE/settings.json	Connectoren
@@ -2872,6 +2917,7 @@ copy	1	de-DE/settings.json	Dein Startpunkt mit EVE — hier siehst du, ob alles 
 copy	1	de-DE/settings.json	Dein Team
 copy	1	de-DE/settings.json	Deine Identität, Anmeldung und Firma. Änderungen benennen keinen Seed um.
 copy	1	de-DE/settings.json	Deine KI-Operatorin für Planung, Umsetzung und tägliche Arbeit.
+copy	1	de-DE/settings.json	Deine Seats
 copy	1	de-DE/settings.json	Dem System folgen oder EVE dauerhaft hell beziehungsweise dunkel anzeigen.
 copy	1	de-DE/settings.json	Demnächst verfügbar
 copy	1	de-DE/settings.json	Den Telegram-Bot starten, um Nachrichten zu empfangen
@@ -2880,6 +2926,7 @@ copy	1	de-DE/settings.json	Der Benutzername darf maximal 32 Zeichen lang sein
 copy	1	de-DE/settings.json	Der Benutzername darf nicht mit einem Bindestrich oder Unterstrich beginnen oder enden
 copy	1	de-DE/settings.json	Der Benutzername muss mindestens 3 Zeichen lang sein
 copy	1	de-DE/settings.json	Der Inhalt dieser Fähigkeit ist derzeit nicht lesbar.
+copy	1	de-DE/settings.json	Der Kunden-Seat konnte nicht aktiviert werden.
 copy	1	de-DE/settings.json	Der MCP-Name kann während der Bearbeitung nicht geändert werden. Behalte den Servernamen auf oberster Ebene als „{{name}}“ bei.
 copy	1	de-DE/settings.json	Der MCP-Server hat HTTP {{status}} zurückgegeben.
 copy	1	de-DE/settings.json	Der MCP-Server hat bei der Verarbeitung von {{method}} einen RPC-Fehler zurückgegeben.
@@ -2902,6 +2949,8 @@ copy	1	de-DE/settings.json	Die Fähigkeiten-Bibliothek — inklusive von EVE sel
 copy	1	de-DE/settings.json	Die GPU zum Rendern der Oberfläche verwenden. Deaktivieren, falls die App beim Start abstürzt oder die Grafik flackert.
 copy	1	de-DE/settings.json	Die Konfiguration ist möglicherweise fehlerhaft. Überprüfe die MCP-JSON und teste erneut.
 copy	1	de-DE/settings.json	Die Passwörter stimmen nicht überein
+copy	1	de-DE/settings.json	Die Seat-Liste ist gerade unvollständig. Lade sie neu, bevor du einen Kunden-Seat öffnest oder anlegst.
+copy	1	de-DE/settings.json	Die Seat-Liste konnte nicht erneuert werden.
 copy	1	de-DE/settings.json	Die Verbindung wird aufgebaut. Bitte warten …
 copy	1	de-DE/settings.json	Die WebSocket-Verbindung wird aufgebaut. Bitte warten …
 copy	1	de-DE/settings.json	Die installierte App und ihre aktuelle Version.
@@ -2990,6 +3039,7 @@ copy	1	de-DE/settings.json	Erforderlich
 copy	1	de-DE/settings.json	Erfordert zuerst eine Authentifizierung in der CLI
 copy	1	de-DE/settings.json	Erfordert {{command}} auf diesem Rechner
 copy	1	de-DE/settings.json	Erkannt
+copy	1	de-DE/settings.json	Erneut anmelden und Seats laden
 copy	1	de-DE/settings.json	Erste Schritte
 copy	1	de-DE/settings.json	Erstelle aufgabenspezifische Assistenten, indem du einen KI-Agenten mit eigenen Regeln und Skills kombinierst.
 copy	1	de-DE/settings.json	Ersten Kunden anlegen
@@ -3013,6 +3063,7 @@ copy	1	de-DE/settings.json	Finde deinen Bot in WeChat und sende ihm eine Nachric
 copy	1	de-DE/settings.json	Firma
 copy	1	de-DE/settings.json	Folge dem Tutorial
 copy	1	de-DE/settings.json	Fortsetzen & aktivieren
+copy	1	de-DE/settings.json	Founder
 copy	1	de-DE/settings.json	Freigabe konnte nicht gespeichert werden — Änderung nicht übernommen. Bitte erneut versuchen.
 copy	1	de-DE/settings.json	Freigaben
 copy	1	de-DE/settings.json	Frosted Gallery
@@ -3113,6 +3164,7 @@ copy	1	de-DE/settings.json	Integritätsprüfung ausstehend
 copy	1	de-DE/settings.json	Intelligente Formatierung
 copy	1	de-DE/settings.json	Interpunktion hinzufügen
 copy	1	de-DE/settings.json	JSON-Formatfehler
+copy	1	de-DE/settings.json	Jeder Kunden-Seat ist kostenlos und besitzt einen vollständig getrennten Arbeitsraum mit eigenem Company Brain.
 copy	1	de-DE/settings.json	Jeder Server sollte entweder „command“ (stdio) oder „url“ (http/sse) definieren.
 copy	1	de-DE/settings.json	Jetzt neu starten
 copy	1	de-DE/settings.json	KEY
@@ -3172,6 +3224,9 @@ copy	2	de-DE/settings.json	Kopplung genehmigt
 copy	2	de-DE/settings.json	Kopplung konnte nicht abgelehnt werden
 copy	2	de-DE/settings.json	Kopplung konnte nicht genehmigt werden
 copy	2	de-DE/settings.json	Kopplungscode kopieren
+copy	1	de-DE/settings.json	Kostenlos, sofort verfügbar und vollständig vom Founder-Seat sowie von anderen Kunden-Seats getrennt.
+copy	1	de-DE/settings.json	Kunde
+copy	1	de-DE/settings.json	Kunden-Seat hinzufügen
 copy	1	de-DE/settings.json	LAN
 copy	1	de-DE/settings.json	LLM-Prompt-Timeout (s)
 copy	1	de-DE/settings.json	Lark
@@ -3293,6 +3348,7 @@ copy	1	de-DE/settings.json	Netzwerk-URL
 copy	1	de-DE/settings.json	Neu erstellte Word-, Excel- und PowerPoint-Dateien automatisch im aktuellen Projekt öffnen. Temporäre Office-Sperrdateien werden ignoriert.
 copy	1	de-DE/settings.json	Neue Office-Dateien automatisch in der Vorschau anzeigen
 copy	1	de-DE/settings.json	Neuen Benutzernamen festlegen
+copy	1	de-DE/settings.json	Neuen Kunden-Seat erstellen
 copy	1	de-DE/settings.json	Neuer Benutzername
 copy	1	de-DE/settings.json	Neues Passwort
 copy	1	de-DE/settings.json	Neues Passwort eingeben (mindestens 8 Zeichen)
@@ -3412,6 +3468,8 @@ copy	1	de-DE/settings.json	Schriftgröße Markdown
 copy	1	de-DE/settings.json	Schritt 1: WebUI aktivieren; Schritt 2: Zugangs-URL kopieren; Schritt 3: Im entfernten Browser öffnen
 copy	1	de-DE/settings.json	Screenshots
 copy	1	de-DE/settings.json	Screenshots hier klicken, ziehen oder einfügen
+copy	1	de-DE/settings.json	Seat erstellen
+copy	1	de-DE/settings.json	Seats neu laden
 copy	1	de-DE/settings.json	Secret Access Key
 copy	1	de-DE/settings.json	Seed speichern
 copy	1	de-DE/settings.json	Seed umbenennen
@@ -3672,6 +3730,7 @@ copy	1	de-DE/settings.json	sicher verwaltete Verbindungen
 copy	1	de-DE/settings.json	verfügbar
 copy	1	de-DE/settings.json	z. B. --acp --verbose
 copy	1	de-DE/settings.json	z. B. C:\Users\me\.mytools\skills
+copy	1	de-DE/settings.json	z. B. Malte
 copy	1	de-DE/settings.json	z. B. Mein Remote-Agent
 copy	1	de-DE/settings.json	z. B. Meine eigenen Skills
 copy	1	de-DE/settings.json	z. B. my-agent oder /usr/local/bin/my-agent
@@ -4384,6 +4443,7 @@ copy	1	en-US/commandEve.json	Screen control: visibility and navigation follow yo
 copy	1	en-US/commandEve.json	See secrets and keys in clear text.
 copy	1	en-US/commandEve.json	Seed created.
 copy	1	en-US/commandEve.json	Seed name
+copy	1	en-US/commandEve.json	Seed reconciled.
 copy	1	en-US/commandEve.json	Seeds
 copy	1	en-US/commandEve.json	Send communication
 copy	1	en-US/commandEve.json	Set up full release
@@ -4400,13 +4460,14 @@ copy	1	en-US/commandEve.json	Switching seats aborts and discards the running res
 copy	1	en-US/commandEve.json	That is a high daily amount. It is saved — please check you did not mistype.
 copy	1	en-US/commandEve.json	The Seed could not be created.
 copy	1	en-US/commandEve.json	The amount is saved, but this version does not yet enforce it as a daily ledger. EVE therefore still asks separately for recognised money commands. If you enable autonomous Browser/Desktop control, this amount does not technically constrain its clicks. The configured limit is not a blank cheque.
+copy	1	en-US/commandEve.json	The customer switch did not finish safely. Restart Command EVE and do not continue working in any customer Seat until then.
 copy	1	en-US/commandEve.json	The request timed out. Reconcile again — no second Seed will be created.
 copy	1	en-US/commandEve.json	These five hang off no rung. Even on “Full” they stay off until you switch each one on.
 copy	1	en-US/commandEve.json	This broad permission is independent from the five effect seals and is never inherited from an old setting.
 copy	1	en-US/commandEve.json	This setting came from an older version and you never confirmed it. Have a look.
+copy	1	en-US/commandEve.json	Too many automated Seat creations. Please contact support.
 copy	1	en-US/commandEve.json	Touch files that do not belong to the project.
 copy	1	en-US/commandEve.json	Unanswered requests: a permission card you leave unanswered for five minutes counts as denied — not as granted.
-copy	1	en-US/commandEve.json	Up to 10 Seeds per Account.
 copy	1	en-US/commandEve.json	Watch only
 copy	1	en-US/commandEve.json	Website blocklist: if it is misconfigured it counts as empty, and everything is reachable.
 copy	1	en-US/commandEve.json	What EVE has remembered
@@ -4795,9 +4856,12 @@ copy	1	en-US/conversation.json	Are you sure you want to delete this chat?
 copy	1	en-US/conversation.json	Are you sure you want to paste '{{name}}' into the selected folder ({{target}})?
 copy	1	en-US/conversation.json	Arrange workbench
 copy	1	en-US/conversation.json	Artifacts
+copy	1	en-US/conversation.json	Ask
 copy	1	en-US/conversation.json	Ask a quick question about the current conversation
+copy	1	en-US/conversation.json	Audio
 copy	1	en-US/conversation.json	Audio file is too large
 copy	1	en-US/conversation.json	Audio transcription failed
+copy	1	en-US/conversation.json	Auto
 copy	1	en-US/conversation.json	Automatic
 copy	1	en-US/conversation.json	Batch Delete
 copy	1	en-US/conversation.json	Batch Export
@@ -4826,9 +4890,11 @@ copy	1	en-US/conversation.json	Cloud OCR failed. The message and PDF remain unse
 copy	1	en-US/conversation.json	Command EVE Skills
 copy	1	en-US/conversation.json	Connection error
 copy	1	en-US/conversation.json	Connector health is checked in the Connector Catalog. Run read-only preflights there; raw MCP setup stays gated.
-copy	2	en-US/conversation.json	Context
+copy	3	en-US/conversation.json	Context
 copy	1	en-US/conversation.json	Context is too large for the model
 copy	1	en-US/conversation.json	Context {{used}}/{{size}}
+copy	1	en-US/conversation.json	Continue editing in chat
+copy	1	en-US/conversation.json	Continue editing {{name}} in chat
 copy	1	en-US/conversation.json	Conversation
 copy	1	en-US/conversation.json	Conversation is busy
 copy	1	en-US/conversation.json	Conversation not found or has been deleted
@@ -4842,7 +4908,15 @@ copy	1	en-US/conversation.json	Could not access the requested resource
 copy	1	en-US/conversation.json	Could not open logs
 copy	1	en-US/conversation.json	Could not reach the model provider
 copy	1	en-US/conversation.json	Create
+copy	1	en-US/conversation.json	Create PDF
+copy	1	en-US/conversation.json	Create image
 copy	1	en-US/conversation.json	Create new chat in current project
+copy	1	en-US/conversation.json	Create or edit a PDF
+copy	1	en-US/conversation.json	Create or edit a presentation
+copy	1	en-US/conversation.json	Create or edit a video
+copy	1	en-US/conversation.json	Create or edit an image
+copy	1	en-US/conversation.json	Create presentation
+copy	1	en-US/conversation.json	Create video
 copy	1	en-US/conversation.json	Created marketing card "{{title}}" and checked its dispatch plan (HG-2.5). Continue in the Command Center: advance the stages there and — on a deliberate approval — promote to executor (HG-3.5).
 copy	1	en-US/conversation.json	Created marketing card "{{title}}". Its dispatch plan was not confirmed yet — please continue and approve in the Command Center.
 copy	1	en-US/conversation.json	Current Project
@@ -4856,6 +4930,7 @@ copy	2	en-US/conversation.json	Deleted successfully
 copy	1	en-US/conversation.json	Discard Changes
 copy	1	en-US/conversation.json	Display catching up
 copy	1	en-US/conversation.json	Do not ask me again
+copy	1	en-US/conversation.json	Document
 copy	1	en-US/conversation.json	Documents, images, and other results appear here automatically.
 copy	1	en-US/conversation.json	Done
 copy	1	en-US/conversation.json	Done – unread
@@ -4930,6 +5005,7 @@ copy	1	en-US/conversation.json	Failed to preview
 copy	1	en-US/conversation.json	Failed to read file
 copy	1	en-US/conversation.json	Failed to read this message aloud
 copy	1	en-US/conversation.json	Failed to switch agent
+copy	1	en-US/conversation.json	File
 copy	1	en-US/conversation.json	File Explorer
 copy	1	en-US/conversation.json	File changes will appear here when AI modifies files
 copy	1	en-US/conversation.json	File does not exist or has been deleted.
@@ -4944,6 +5020,7 @@ copy	1	en-US/conversation.json	Folder removed
 copy	1	en-US/conversation.json	Folder renamed
 copy	1	en-US/conversation.json	Folder selection follows the same interaction as changing the project.
 copy	1	en-US/conversation.json	Folders
+copy	1	en-US/conversation.json	Full
 copy	1	en-US/conversation.json	Gates
 copy	1	en-US/conversation.json	Gauntlet
 copy	1	en-US/conversation.json	Generate
@@ -4960,9 +5037,13 @@ copy	1	en-US/conversation.json	Hermes exposes no typed pause transport for this 
 copy	1	en-US/conversation.json	Hermes exposes no typed resume transport for this receipt
 copy	1	en-US/conversation.json	Hermes owns the durable retry schedule
 copy	1	en-US/conversation.json	Hi, what's your plan for today?
+copy	1	en-US/conversation.json	High
 copy	1	en-US/conversation.json	Historical chat cannot authorize a live action
 copy	1	en-US/conversation.json	Historical chat is not a live receipt
+copy	1	en-US/conversation.json	Image
 copy	1	en-US/conversation.json	Image analysis failed. The message and image remain unsent.
+copy	1	en-US/conversation.json	Image format
+copy	1	en-US/conversation.json	Image mode accepts image references only.
 copy	1	en-US/conversation.json	Image processing failed · message was not sent
 copy	1	en-US/conversation.json	Image ready · preparing analysis
 copy	1	en-US/conversation.json	Image understood · handing analysis to EVE
@@ -4992,6 +5073,7 @@ copy	1	en-US/conversation.json	MAX is available on a paid plan or with purchased
 copy	1	en-US/conversation.json	MAX is on — EVE is working at full thinking power.
 copy	1	en-US/conversation.json	MAX stays locked — it runs on a paid plan or with purchased credits.
 copy	1	en-US/conversation.json	MAX stays remembered for you, but it runs again only on a paid plan or with purchased credits.
+copy	1	en-US/conversation.json	MCPs & Plugins
 copy	1	en-US/conversation.json	Main task still running in the background.
 copy	1	en-US/conversation.json	Make sure the current workspace path exists.
 copy	1	en-US/conversation.json	Managed visual analysis could not be authorized. The draft and files remain unsent.
@@ -5027,6 +5109,7 @@ copy	1	en-US/conversation.json	New Chat
 copy	1	en-US/conversation.json	New chat
 copy	1	en-US/conversation.json	New chat in this project
 copy	1	en-US/conversation.json	New folder
+copy	1	en-US/conversation.json	No MCPs or plugins available yet
 copy	1	en-US/conversation.json	No Q&A turns yet
 copy	1	en-US/conversation.json	No accepted wake receipt
 copy	1	en-US/conversation.json	No active AionCore turn can be cancelled
@@ -5065,14 +5148,18 @@ copy	1	en-US/conversation.json	Open the Command EVE log folder
 copy	1	en-US/conversation.json	Open workbench
 copy	1	en-US/conversation.json	Open {{goal}}
 copy	1	en-US/conversation.json	Open {{name}}
+copy	1	en-US/conversation.json	Open {{value}}
 copy	1	en-US/conversation.json	Original values are not shown.
+copy	1	en-US/conversation.json	PDF
 copy	1	en-US/conversation.json	PDF processing failed · message was not sent
 copy	1	en-US/conversation.json	PDF read · handing analysis to EVE
 copy	1	en-US/conversation.json	PDF ready · waiting for your OCR approval
 copy	1	en-US/conversation.json	PII protection off
+copy	1	en-US/conversation.json	PPTX
 copy	1	en-US/conversation.json	Paste
 copy	1	en-US/conversation.json	Paste files
 copy	1	en-US/conversation.json	Pause {{goal}}
+copy	1	en-US/conversation.json	Permission: {{level}}
 copy	1	en-US/conversation.json	Pin
 copy	1	en-US/conversation.json	Pin operation failed
 copy	2	en-US/conversation.json	Pinned
@@ -5125,14 +5212,17 @@ copy	1	en-US/conversation.json	Recents
 copy	1	en-US/conversation.json	Reconnect unavailable
 copy	1	en-US/conversation.json	Reconstructed from persistent receipts
 copy	1	en-US/conversation.json	Reduce the message content, referenced files, or context size, then retry.
+copy	1	en-US/conversation.json	Reference image
 copy	2	en-US/conversation.json	Refresh
 copy	1	en-US/conversation.json	Remove
+copy	1	en-US/conversation.json	Remove either the selected artifact or the attached images.
 copy	2	en-US/conversation.json	Remove folder
 copy	1	en-US/conversation.json	Remove folder "{{name}}"? Its {{count}} chat(s) will stay available under Conversations.
 copy	1	en-US/conversation.json	Remove folder failed
 copy	1	en-US/conversation.json	Remove from folder
 copy	3	en-US/conversation.json	Remove project
 copy	1	en-US/conversation.json	Remove project "{{name}}"? Its {{count}} conversation(s) will be removed too.
+copy	1	en-US/conversation.json	Remove reference
 copy	1	en-US/conversation.json	Removed from folder
 copy	3	en-US/conversation.json	Rename
 copy	1	en-US/conversation.json	Rename Chat
@@ -5158,8 +5248,10 @@ copy	1	en-US/conversation.json	Retry {{goal}}
 copy	1	en-US/conversation.json	Retryable
 copy	1	en-US/conversation.json	Retrying in {{seconds}}s ({{attempt}}/{{maxAttempts}})
 copy	1	en-US/conversation.json	Return to chat
+copy	1	en-US/conversation.json	Return to regular chat
 copy	1	en-US/conversation.json	Revert Changes
 copy	1	en-US/conversation.json	Review
+copy	1	en-US/conversation.json	Routine
 copy	1	en-US/conversation.json	Rule (JSON/MD)
 copy	1	en-US/conversation.json	Rule loaded successfully
 copy	2	en-US/conversation.json	Running
@@ -5178,6 +5270,7 @@ copy	1	en-US/conversation.json	Select All
 copy	2	en-US/conversation.json	Select Model
 copy	1	en-US/conversation.json	Select an audio file
 copy	1	en-US/conversation.json	Select no more than six images or presentations per turn.
+copy	1	en-US/conversation.json	Selected reference artifact
 copy	1	en-US/conversation.json	Send a message, upload files, open a folder, or create a scheduled task...
 copy	1	en-US/conversation.json	Send after the current run finishes.
 copy	1	en-US/conversation.json	Send feedback with logs so the team can investigate.
@@ -5198,6 +5291,7 @@ copy	1	en-US/conversation.json	Stage
 copy	1	en-US/conversation.json	Stage All Changes
 copy	1	en-US/conversation.json	Staged Changes
 copy	1	en-US/conversation.json	Stalled
+copy	1	en-US/conversation.json	Standard
 copy	1	en-US/conversation.json	Start a new conversation before continuing.
 copy	1	en-US/conversation.json	Start a task or open an existing chat.
 copy	1	en-US/conversation.json	Start voice input
@@ -5218,6 +5312,7 @@ copy	1	en-US/conversation.json	Switched to {{agent}}
 copy	1	en-US/conversation.json	Switched to {{model}}.
 copy	1	en-US/conversation.json	Target folder
 copy	1	en-US/conversation.json	Tell EVE what you want to achieve ...
+copy	1	en-US/conversation.json	Temp
 copy	1	en-US/conversation.json	Temporary Space
 copy	2	en-US/conversation.json	Terminal
 copy	1	en-US/conversation.json	The AionCore turn changed before the stop request arrived
@@ -5244,6 +5339,7 @@ copy	1	en-US/conversation.json	The current model quota is exhausted. Switch to {
 copy	1	en-US/conversation.json	The current run is not ready for a correction yet.
 copy	1	en-US/conversation.json	The current task is still running.
 copy	1	en-US/conversation.json	The durable delivery outcome is explicitly unknown
+copy	1	en-US/conversation.json	The image could not be created. Your draft and selection were preserved.
 copy	1	en-US/conversation.json	The marketing card could not be created.
 copy	1	en-US/conversation.json	The next queued command could not start. Edit, reorder, or remove it to continue.
 copy	1	en-US/conversation.json	The persisted receipt is not bound to a live AionCore turn
@@ -5281,6 +5377,7 @@ copy	1	en-US/conversation.json	The side question did not have a clear answer in 
 copy	1	en-US/conversation.json	The upstream agent or provider failed
 copy	2	en-US/conversation.json	Thinking...
 copy	1	en-US/conversation.json	This agent cannot handle the requested operation. Try another agent or update the current one.
+copy	1	en-US/conversation.json	This artifact can no longer be used as an editing source.
 copy	1	en-US/conversation.json	This gate requires the existing user confirmation path
 copy	1	en-US/conversation.json	This queued command is too long. Shorten it before sending.
 copy	1	en-US/conversation.json	This receipt does not expose a retry action
@@ -5298,6 +5395,7 @@ copy	1	en-US/conversation.json	Tool running
 copy	1	en-US/conversation.json	Tool schema was rejected by the provider
 copy	1	en-US/conversation.json	Tool: {{tool}}
 copy	1	en-US/conversation.json	Tools
+copy	1	en-US/conversation.json	Tools and work products
 copy	1	en-US/conversation.json	Transcribing audio...
 copy	1	en-US/conversation.json	Transcribing locally
 copy	1	en-US/conversation.json	Try another agent:
@@ -5322,6 +5420,7 @@ copy	1	en-US/conversation.json	Upload Files
 copy	1	en-US/conversation.json	Upstream
 copy	1	en-US/conversation.json	Uses the existing approval path
 copy	1	en-US/conversation.json	VS Code
+copy	1	en-US/conversation.json	Video
 copy	1	en-US/conversation.json	View More >>
 copy	1	en-US/conversation.json	Vision could not be enabled. Draft and files are preserved.
 copy	1	en-US/conversation.json	Vision is currently unavailable for this seat. The image was not sent; draft and files are preserved.
@@ -5341,8 +5440,10 @@ copy	1	en-US/conversation.json	Wake delivery outcome explicitly unknown
 copy	1	en-US/conversation.json	Wake delivery rejected
 copy	1	en-US/conversation.json	Wake delivery will retry
 copy	1	en-US/conversation.json	Wake receipt accepted
+copy	1	en-US/conversation.json	Watch
 copy	1	en-US/conversation.json	What are we working on today?
 copy	1	en-US/conversation.json	What can Command EVE do?
+copy	1	en-US/conversation.json	Work
 copy	1	en-US/conversation.json	Workbench left, chat right
 copy	1	en-US/conversation.json	Worker
 copy	1	en-US/conversation.json	Working
@@ -5370,10 +5471,11 @@ copy	1	en-US/conversation.json	{{count}}h ago
 copy	1	en-US/conversation.json	{{count}}m ago
 copy	1	en-US/conversation.json	{{count}}s ago
 copy	1	en-US/conversation.json	{{percent}}%
+copy	1	en-US/conversation.json	{{percent}}% Context
 copy	1	en-US/conversation.json	{{title}}, unsaved changes
 copy	1	en-US/credits.json	+{{n}} bonus
 copy	2	en-US/credits.json	1,000 credits = €1 (pack price)
-copy	1	en-US/credits.json	Add a seat — {{eur}} € extra, included in Standard
+copy	1	en-US/credits.json	Add a free customer Seat in Account settings
 copy	1	en-US/credits.json	Add briefing
 copy	1	en-US/credits.json	Add entry
 copy	1	en-US/credits.json	All models
@@ -6109,6 +6211,7 @@ copy	1	en-US/messages.json	Do you want to proceed?
 copy	1	en-US/messages.json	Download successful
 copy	1	en-US/messages.json	Durable work controls
 copy	1	en-US/messages.json	EVE could not verify this operation's safety class, so it asks by design. Review the exact operation before allowing it.
+copy	1	en-US/messages.json	Edit
 copy	1	en-US/messages.json	Enter filename
 copy	1	en-US/messages.json	Execution canceled
 copy	1	en-US/messages.json	Export Conversation
@@ -6435,7 +6538,7 @@ copy	1	en-US/settings.json	Account Info
 copy	1	en-US/settings.json	Activate EVE Cloud
 copy	1	en-US/settings.json	Activating …
 copy	1	en-US/settings.json	Activation failed — check the license code.
-copy	2	en-US/settings.json	Active
+copy	3	en-US/settings.json	Active
 copy	1	en-US/settings.json	Adapt overlay to appearance
 copy	2	en-US/settings.json	Add
 copy	1	en-US/settings.json	Add Agent
@@ -6448,6 +6551,7 @@ copy	1	en-US/settings.json	Add Remote Agent
 copy	2	en-US/settings.json	Add Skills
 copy	1	en-US/settings.json	Add Theme
 copy	1	en-US/settings.json	Add Variable
+copy	1	en-US/settings.json	Add customer Seat
 copy	1	en-US/settings.json	Add your first client
 copy	1	en-US/settings.json	Additional messaging channel
 copy	2	en-US/settings.json	Adjust the UI zoom level so the entire interface matches your preferred size.
@@ -6497,7 +6601,7 @@ copy	1	en-US/settings.json	Are you sure you want to remove "{{name}}" from this 
 copy	1	en-US/settings.json	Are you sure you want to remove "{{name}}"? This skill has not been imported yet.
 copy	1	en-US/settings.json	Args
 copy	1	en-US/settings.json	Arguments
-copy	1	en-US/settings.json	As an agency, add a client seat (opens your account in the browser).
+copy	1	en-US/settings.json	As an agency, add a free customer Seat directly in EVE.
 copy	1	en-US/settings.json	Assistant Description
 copy	1	en-US/settings.json	Assistant Details
 copy	1	en-US/settings.json	Assistant created
@@ -6617,6 +6721,7 @@ copy	1	en-US/settings.json	Command {{command}} was not found. Install Python, re
 copy	1	en-US/settings.json	Command {{command}} was not found. Install it or configure this MCP server to use an absolute command path.
 copy	1	en-US/settings.json	Command {{command}} was not found. Install uv, restart AionUI, or configure this MCP server to use an absolute command path.
 copy	1	en-US/settings.json	Company
+copy	1	en-US/settings.json	Company Brain
 copy	1	en-US/settings.json	Configuration Mode
 copy	1	en-US/settings.json	Configuration is invalid
 copy	1	en-US/settings.json	Configuration is valid
@@ -6672,6 +6777,8 @@ copy	1	en-US/settings.json	Could not save the release — the change was not app
 copy	1	en-US/settings.json	Couldn't send {{name}} because the file is outside the allowed send directories
 copy	1	en-US/settings.json	Cover
 copy	1	en-US/settings.json	Create Assistant
+copy	1	en-US/settings.json	Create Seat
+copy	1	en-US/settings.json	Create a customer Seat
 copy	3	en-US/settings.json	Credentials already configured. Enter new values to update.
 copy	1	en-US/settings.json	Credentials and mobile sign-in for your private browser access.
 copy	1	en-US/settings.json	Current Models
@@ -6690,6 +6797,7 @@ copy	1	en-US/settings.json	Custom agent deleted
 copy	1	en-US/settings.json	Custom agent saved
 copy	1	en-US/settings.json	Custom model ID...
 copy	1	en-US/settings.json	Custom models
+copy	1	en-US/settings.json	Customer
 copy	2	en-US/settings.json	Dark
 copy	1	en-US/settings.json	Data permissions
 copy	1	en-US/settings.json	Dawn Alloy
@@ -6803,6 +6911,7 @@ copy	3	en-US/settings.json	Error
 copy	1	en-US/settings.json	Error deleting MCP configuration
 copy	1	en-US/settings.json	Error deleting skill
 copy	1	en-US/settings.json	Error importing skill
+copy	1	en-US/settings.json	Every customer Seat is free and has a fully isolated workspace with its own Company Brain.
 copy	1	en-US/settings.json	Executable
 copy	2	en-US/settings.json	Experimental
 copy	1	en-US/settings.json	Expires at {{time}}
@@ -6877,6 +6986,8 @@ copy	1	en-US/settings.json	For security reasons, WebUI settings can only be mana
 copy	1	en-US/settings.json	Forgot password? Click to set a new one (no current password required)
 copy	1	en-US/settings.json	Forgot your password? Click "Reset" to generate a new random password
 copy	1	en-US/settings.json	Forgot? Click to reset
+copy	1	en-US/settings.json	Founder
+copy	1	en-US/settings.json	Free, immediately available, and fully isolated from the Founder Seat and every other customer Seat.
 copy	1	en-US/settings.json	Frosted Gallery
 copy	2	en-US/settings.json	Full URL
 copy	1	en-US/settings.json	Fully resets this device (license + registration) and returns you to registration.
@@ -7222,6 +7333,7 @@ copy	1	en-US/settings.json	Reduce transparency
 copy	1	en-US/settings.json	Refresh
 copy	1	en-US/settings.json	Refresh QR Code
 copy	2	en-US/settings.json	Reject
+copy	1	en-US/settings.json	Reload Seats
 copy	2	en-US/settings.json	Remote
 copy	2	en-US/settings.json	Remote Agents
 copy	1	en-US/settings.json	Remote agent created
@@ -7309,6 +7421,7 @@ copy	1	en-US/settings.json	Show data-boundary signal
 copy	1	en-US/settings.json	Show optional settings
 copy	1	en-US/settings.json	Shows whether EVE's local processing and response stream are currently working. You can hide it at any time.
 copy	1	en-US/settings.json	Sign in
+copy	1	en-US/settings.json	Sign in again and load Seats
 copy	1	en-US/settings.json	Sign out
 copy	1	en-US/settings.json	Sign out & reset device
 copy	1	en-US/settings.json	Sign out on this Mac
@@ -7384,10 +7497,13 @@ copy	1	en-US/settings.json	Testing
 copy	1	en-US/settings.json	Testing...
 copy	1	en-US/settings.json	The MCP server returned HTTP {{status}}.
 copy	1	en-US/settings.json	The MCP server returned an RPC error while handling {{method}}.
+copy	1	en-US/settings.json	The Seat list could not be refreshed.
+copy	1	en-US/settings.json	The Seat list is currently incomplete. Reload it before opening or creating a customer Seat.
 copy	1	en-US/settings.json	The Seed name could not be saved.
 copy	1	en-US/settings.json	The Seed name must not be empty.
 copy	1	en-US/settings.json	The background image could not be stored. Choose a PNG, JPEG, WebP, GIF or BMP below 2 MB.
 copy	1	en-US/settings.json	The cloud AI answers right away. Optional: load the local AI (Smart Local).
+copy	1	en-US/settings.json	The customer Seat could not be activated.
 copy	1	en-US/settings.json	The executable command to run the agent CLI
 copy	1	en-US/settings.json	The installed app and its current version.
 copy	1	en-US/settings.json	The local copy used by Command EVE will be removed from this device.
@@ -7500,6 +7616,7 @@ copy	1	en-US/settings.json	You can also enter any custom model ID supported by t
 copy	1	en-US/settings.json	You can paste any model name directly. Keep it consistent with the provider console for best compatibility.
 copy	1	en-US/settings.json	You'll find the first steps in the desktop app.
 copy	1	en-US/settings.json	Your AI operator for planning, creating, and getting work done.
+copy	1	en-US/settings.json	Your Seats
 copy	1	en-US/settings.json	Your identity, sign-in, and company. Changes never rename a Seed.
 copy	1	en-US/settings.json	Your own models / API keys are included in the Standard subscription (not unlocked during the trial)
 copy	1	en-US/settings.json	Your starting point with EVE — here you can see whether everything is ready.
@@ -7517,6 +7634,7 @@ copy	1	en-US/settings.json	done
 copy	1	en-US/settings.json	duplicate it
 copy	1	en-US/settings.json	e.g. --acp --verbose
 copy	1	en-US/settings.json	e.g. C:\Users\me\.mytools\skills
+copy	1	en-US/settings.json	e.g. Malte
 copy	1	en-US/settings.json	e.g. My Custom Skills
 copy	1	en-US/settings.json	e.g. My Remote Agent
 copy	1	en-US/settings.json	e.g. my-agent or /usr/local/bin/my-agent

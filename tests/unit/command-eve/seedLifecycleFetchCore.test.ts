@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  ACCOUNT_SEED_LIMIT,
   createSeed,
   createSeedSingleFlight,
   renameSeed,
@@ -38,12 +37,18 @@ describe('seedLifecycleFetchCore', () => {
         anonKey: 'anon-test',
       }
     );
-    expect(result).toEqual({ ok: true, seedId: SEED_ID, created: true, seedCount: 2, seedLimit: ACCOUNT_SEED_LIMIT });
+    expect(result).toEqual({
+      ok: true,
+      seedId: SEED_ID,
+      created: true,
+      seedCount: 2,
+      seedLimit: null,
+    });
     const body = JSON.parse(fetch.mock.calls[0][1].body);
     expect(body).toEqual({ name: 'Zweiter Seed', client_request_id: REQUEST_ID });
   });
 
-  it('coalesces rapid create calls into one network request', async () => {
+  it('coalesces rapid retries only when they carry the same idempotency key', async () => {
     let release!: (value: Response) => void;
     const fetch = vi.fn(() => new Promise<Response>((resolve) => (release = resolve)));
     const deps = { fetch, getFreshSession: vi.fn().mockResolvedValue(session), anonKey: 'anon-test' };
@@ -54,14 +59,49 @@ describe('seedLifecycleFetchCore', () => {
     );
     const second = createSeedSingleFlight(
       '/tmp/user-data',
-      { displayName: 'Seed B', clientRequestId: '33333333-3333-4333-8333-333333333333' },
+      { displayName: 'Seed A', clientRequestId: REQUEST_ID },
       deps
     );
     expect(first).toBe(second);
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    release(new Response(JSON.stringify({ ok: true, seed_id: SEED_ID, created: true, seed_count: 2, seed_limit: 10 })));
+    release(
+      new Response(
+        JSON.stringify({ ok: true, seed_id: SEED_ID, created: true, seed_count: 2, unlimited: true, seed_limit: null })
+      )
+    );
     expect((await first).ok).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps concurrent creates with different idempotency keys independent', async () => {
+    const releases: Array<(value: Response) => void> = [];
+    const fetch = vi.fn(() => new Promise<Response>((resolve) => releases.push(resolve)));
+    const deps = { fetch, getFreshSession: vi.fn().mockResolvedValue(session), anonKey: 'anon-test' };
+    const secondRequestId = '33333333-3333-4333-8333-333333333333';
+    const secondSeedId = '44444444-4444-4444-8444-444444444444';
+
+    const first = createSeedSingleFlight(
+      '/tmp/user-data',
+      { displayName: 'Seed A', clientRequestId: REQUEST_ID },
+      deps
+    );
+    const second = createSeedSingleFlight(
+      '/tmp/user-data',
+      { displayName: 'Seed B', clientRequestId: secondRequestId },
+      deps
+    );
+
+    expect(first).not.toBe(second);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    releases[0]?.(
+      new Response(JSON.stringify({ ok: true, seed_id: SEED_ID, created: true, seed_count: 2, unlimited: true }))
+    );
+    releases[1]?.(
+      new Response(JSON.stringify({ ok: true, seed_id: secondSeedId, created: true, seed_count: 3, unlimited: true }))
+    );
+
+    await expect(first).resolves.toMatchObject({ ok: true, seedId: SEED_ID });
+    await expect(second).resolves.toMatchObject({ ok: true, seedId: secondSeedId });
   });
 
   it('reports timeout and allows same-key reconciliation retry', async () => {
@@ -70,7 +110,16 @@ describe('seedLifecycleFetchCore', () => {
       .fn()
       .mockRejectedValueOnce(abortError)
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, seed_id: SEED_ID, created: false, seed_count: 2, seed_limit: 10 }))
+        new Response(
+          JSON.stringify({
+            ok: true,
+            seed_id: SEED_ID,
+            created: false,
+            seed_count: 2,
+            unlimited: true,
+            seed_limit: null,
+          })
+        )
       );
     const deps = { fetch, getFreshSession: vi.fn().mockResolvedValue(session), anonKey: 'anon-test', timeoutMs: 1 };
     const first = await createSeedSingleFlight(

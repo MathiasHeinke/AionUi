@@ -37,7 +37,10 @@ import type { NavigateFunction } from 'react-router-dom';
 import type { AcpModelInfo, AvailableAgent, EffectiveAgentInfo } from '../types';
 import { scrubModelIdentifiers } from '@/common/config/modelIdentifierScrub';
 import { CLOUD_MODEL_IDENTIFIERS } from '@/renderer/utils/model/modelContextLimits';
-import { isVideoLaneRequest } from '@/common/config/videoCostCore';
+import {
+  DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION,
+  type ComposerWorkProductSelection,
+} from '@/common/config/composerWorkProductModeCore';
 import type { VideoDraftSelection } from '@/renderer/components/billing/useVideoComposerSelection';
 
 export type GuidSendDeps = {
@@ -80,6 +83,8 @@ export type GuidSendDeps = {
    * read at send time. Optional: shells without the pill never carry one.
    */
   getVideoSelection?: () => VideoDraftSelection;
+  /** Explicit selection only; draft wording is intentionally not consulted. */
+  getComposerSelection?: () => ComposerWorkProductSelection;
 
   // Mention state reset
   setMentionOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -167,6 +172,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     t,
   } = deps;
   const getVideoSelection = deps.getVideoSelection;
+  const getComposerSelection = deps.getComposerSelection;
   const sendingRef = useRef(false);
   // The MAIN-process lane decision, read through the SAME authority the composer
   // paints from — never a second derivation. `entitlementPending` is true only
@@ -655,16 +661,15 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
 
         emitter.emit('chat.history.refresh');
 
-        // MAT-1773 (P3): a video selection made on the start-chat surface rides
-        // the initial message, so the new conversation's first send carries the
-        // exact model/resolution/duration the user picked there.
+        // The start composer transports the exact explicit mode into the first
+        // in-session send. Text never activates a paid/generative lane.
+        const composerSelection = getComposerSelection?.() ?? DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION;
         const carriedVideoSelection =
-          COMMAND_EVE_SHELL_ENABLED && isVideoLaneRequest({ message: input, resolvedAgentId: null })
-            ? (getVideoSelection?.() ?? null)
-            : null;
+          COMMAND_EVE_SHELL_ENABLED && composerSelection.mode === 'video' ? (getVideoSelection?.() ?? null) : null;
         const initialMessage = {
           input,
           files: files.length > 0 ? files : undefined,
+          composerSelection,
           ...(carriedVideoSelection ? { videoSelection: carriedVideoSelection } : {}),
         };
         sessionStorage.setItem(
@@ -697,13 +702,14 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     resolvePresetRulesAndSkills,
     availableMcpServers,
     selectedMcpServerIds,
+    getComposerSelection,
+    getVideoSelection,
     skillSelectionReady,
     guidDisabledBuiltinSkills,
     guidEnabledSkills,
     navigate,
     t,
     eveSendHeld,
-    getVideoSelection,
   ]);
 
   const sendMessageHandler = useCallback(() => {

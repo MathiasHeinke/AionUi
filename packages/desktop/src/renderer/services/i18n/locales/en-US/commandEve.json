@@ -8,6 +8,7 @@
     "switchWhileGeneratingTitle": "A response is still running",
     "switchWhileGeneratingBody": "Switching seats aborts and discards the running response. Switch anyway?",
     "switchAnyway": "Switch anyway",
+    "switchRecoveryRequired": "The customer switch did not finish safely. Restart Command EVE and do not continue working in any customer Seat until then.",
     "reauth": "Sign in again to load your Seeds",
     "createTitle": "Create a new Seed",
     "createHelp": "A Seed is its own workspace. It is free and uses your Account credit pool.",
@@ -21,7 +22,8 @@
     "timeoutRetry": "The request timed out. Reconcile again — no second Seed will be created.",
     "created": "Seed created.",
     "createError": "The Seed could not be created.",
-    "limitReached": "Up to 10 Seeds per Account."
+    "reconciled": "Seed reconciled.",
+    "abuseCeilingReached": "Too many automated Seat creations. Please contact support."
   },
   "authority": {
     "notConfirmedYet": "This setting came from an older version and you never confirmed it. Have a look.",

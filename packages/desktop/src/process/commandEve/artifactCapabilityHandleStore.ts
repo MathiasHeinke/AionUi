@@ -428,10 +428,17 @@ export function buildConversationArtifactEnvelopeEntries(
   const nowMs = options.nowMs ?? Date.now();
   const selected = new Set(options.selectedArtifactIds ?? []);
   const limit = options.maxEntries ?? ARTIFACT_ENVELOPE_MAX_ARTIFACTS;
-  const records = deps
+  const orderedRecords = deps
     .listArtifactRecords(dataPath, conversationId)
-    .toSorted((a, b) => b.created_at - a.created_at)
-    .slice(0, limit);
+    .toSorted((a, b) => b.created_at - a.created_at);
+  // An explicit UI selection outranks recency. The old slice-before-selection
+  // order could silently drop an older clip the user had clicked, then mark a
+  // different recent clip as the apparent target. Selected records stay
+  // newest-first among themselves and consume the same bounded entry budget;
+  // unselected recent records fill only the remaining slots.
+  const selectedRecords = orderedRecords.filter((record) => selected.has(record.id));
+  const remainingRecords = orderedRecords.filter((record) => !selected.has(record.id));
+  const records = [...selectedRecords, ...remainingRecords].slice(0, limit);
   return records.map((record) => {
     const payload = hydrateVideoArtifactPayload(record.payload);
     const editable = isVideoArtifactEditable(payload);

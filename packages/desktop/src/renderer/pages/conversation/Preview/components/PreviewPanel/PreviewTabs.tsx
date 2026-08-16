@@ -4,8 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Close } from '@icon-park/react';
-import { IconShrink } from '@arco-design/web-react/icon';
+import { Close, OffScreen } from '@icon-park/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TabFadeState } from '../../hooks/useTabOverflow';
@@ -162,7 +161,7 @@ const PreviewTabs: React.FC<PreviewTabsProps> = ({
               title={t('preview.collapsePanel')}
               aria-label={t('preview.collapsePanel')}
             >
-              <IconShrink style={{ fontSize: 14 }} />
+              <OffScreen theme='outline' size={14} fill='currentColor' aria-hidden='true' />
             </button>
           </div>
         )}

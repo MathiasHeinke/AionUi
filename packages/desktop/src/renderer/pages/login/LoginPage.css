@@ -1,4 +1,15 @@
 .login-page {
+  --login-page-bg: var(--eve-shell-canvas, #fffdfa);
+  --login-card-bg: color-mix(in srgb, var(--eve-shell-surface, #ffffff) 92%, transparent);
+  --login-card-border: var(--eve-control-border, rgba(226, 232, 240, 0.92));
+  --login-control-bg: var(--eve-control-surface, #ffffff);
+  --login-control-bg-hover: var(--eve-control-surface-hover, rgba(239, 246, 255, 0.9));
+  --login-control-border: var(--eve-control-border, #cbd5e1);
+  --login-control-border-hover: var(--eve-control-border-hover, #94a3b8);
+  --login-text: var(--eve-shell-text, #0b1220);
+  --login-text-secondary: var(--eve-shell-text-secondary, #64748b);
+  --login-text-muted: var(--eve-text-muted, #94a3b8);
+  --login-shadow: var(--eve-overlay-shadow, 0 30px 80px -42px rgba(37, 99, 235, 0.46));
   position: relative;
   display: flex;
   align-items: center;
@@ -6,14 +17,14 @@
   min-height: 100vh;
   padding: 32px 20px;
   overflow: hidden;
-  color: #0b1220;
+  color: var(--login-text);
   font-family:
     Inter,
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
     sans-serif;
-  background: #fffdfa;
+  background: var(--login-page-bg);
 }
 
 .login-page::before {
@@ -44,12 +55,17 @@
   z-index: 0;
   height: 176px;
   pointer-events: none;
-  background: linear-gradient(to top, #fffdfa, rgba(255, 253, 250, 0.72), transparent);
+  background: linear-gradient(
+    to top,
+    var(--login-page-bg),
+    color-mix(in srgb, var(--login-page-bg) 72%, transparent),
+    transparent
+  );
 }
 
 body.login-page-active {
   overflow: hidden;
-  background: #fbfcfe;
+  background: var(--eve-shell-canvas, #fbfcfe);
 }
 
 .login-page__background,
@@ -63,18 +79,15 @@ body.login-page-active {
   width: min(100%, 424px);
   overflow: hidden;
   padding: 38px 32px 30px;
-  border: 1px solid rgba(226, 232, 240, 0.92);
+  border: 1px solid var(--login-card-border);
   border-radius: 20px;
-  background: linear-gradient(180deg, #ffffff 0%, rgba(248, 250, 252, 0.82) 100%);
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.04),
-    0 30px 80px -42px rgba(37, 99, 235, 0.46),
-    0 20px 48px -36px rgba(15, 23, 42, 0.36);
+  background: var(--login-card-bg);
+  box-shadow: var(--login-shadow);
   animation: login-slide-up 0.48s ease-out;
   transition:
-    border-color 0.24s ease,
-    box-shadow 0.24s ease,
-    transform 0.24s ease;
+    border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+    transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .login-page__card::before {
@@ -141,7 +154,7 @@ body.login-page-active {
   mask-composite: exclude;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.26s ease-out;
+  transition: opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-exit, ease-out);
   -webkit-mask:
     linear-gradient(#ffffff 0 0) content-box,
     linear-gradient(#ffffff 0 0);
@@ -168,9 +181,9 @@ body.login-page-active {
   align-items: center;
   gap: 4px;
   padding: 4px;
-  border: 1px solid rgba(203, 213, 225, 0.86);
+  border: 1px solid var(--login-card-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.76);
+  background: color-mix(in srgb, var(--login-card-bg) 82%, transparent);
   box-shadow:
     0 1px 2px rgba(15, 23, 42, 0.04),
     0 16px 32px -26px rgba(15, 23, 42, 0.34);
@@ -188,28 +201,28 @@ body.login-page-active {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #64748b;
+  color: var(--login-text-secondary);
   font-size: 12px;
   font-weight: 760;
   line-height: 1;
   cursor: pointer;
   transition:
-    background-color 0.18s ease,
-    color 0.18s ease,
-    box-shadow 0.18s ease,
-    transform 0.18s ease;
+    background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+    transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .login-page__lang-option:hover,
 .login-page__lang-option:focus-visible {
-  color: #0f172a;
-  background: rgba(239, 246, 255, 0.9);
+  color: var(--login-text);
+  background: var(--login-control-bg-hover);
   outline: none;
 }
 
 .login-page__lang-option--active {
-  background: #0f172a;
-  color: #ffffff;
+  background: var(--eve-accent, #2563eb);
+  color: var(--eve-static-white, #ffffff);
   box-shadow:
     0 8px 18px -10px rgba(15, 23, 42, 0.86),
     0 0 0 1px rgba(249, 115, 22, 0.18);
@@ -217,8 +230,8 @@ body.login-page-active {
 
 .login-page__lang-option--active:hover,
 .login-page__lang-option--active:focus-visible {
-  color: #ffffff;
-  background: #0f172a;
+  color: var(--eve-static-white, #ffffff);
+  background: var(--eve-action-hover, #1d4ed8);
 }
 
 .login-page__lang-flag {
@@ -267,7 +280,7 @@ body.login-page-active {
   object-fit: cover;
   object-position: center center;
   pointer-events: none;
-  transition: opacity 0.16s ease;
+  transition: opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .login-page__brand-animation {
@@ -288,7 +301,7 @@ body.login-page-active {
 
 .login-page__title {
   margin: 0 0 4px;
-  color: #0b1220;
+  color: var(--login-text);
   font-family:
     'Instrument Sans',
     Inter,
@@ -303,12 +316,12 @@ body.login-page-active {
 }
 
 .login-page__title-command {
-  color: #f97316;
+  color: var(--eve-brand-logo, #f97316);
 }
 
 .login-page__version {
   margin: 0 0 12px;
-  color: #64748b;
+  color: var(--login-text-secondary);
   font-size: 12px;
   font-weight: 640;
   letter-spacing: 0;
@@ -318,7 +331,7 @@ body.login-page-active {
 .login-page__subtitle {
   max-width: 320px;
   margin: 0 auto;
-  color: #475569;
+  color: var(--login-text-secondary);
   font-size: 14px;
   font-weight: 450;
   line-height: 1.55;
@@ -337,7 +350,7 @@ body.login-page-active {
 .login-page__label {
   display: block;
   margin-bottom: 8px;
-  color: #0f172a;
+  color: var(--login-text);
   font-size: 14px;
   font-weight: 680;
 }
@@ -353,7 +366,7 @@ body.login-page-active {
   left: 14px;
   width: 17px;
   height: 17px;
-  color: #94a3b8;
+  color: var(--login-text-muted);
   pointer-events: none;
 }
 
@@ -361,29 +374,29 @@ body.login-page-active {
   width: 100%;
   height: 48px;
   padding: 11px 14px 11px 44px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--login-control-border);
   border-radius: 14px;
-  background: #ffffff;
-  color: #0f172a;
+  background: var(--login-control-bg);
+  color: var(--login-text);
   font-size: 15px;
   transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease,
-    background-color 0.18s ease;
+    border-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+    background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .login-page__input::placeholder {
-  color: #94a3b8;
+  color: var(--login-text-muted);
 }
 
 .login-page__input:hover {
-  border-color: #94a3b8;
+  border-color: var(--login-control-border-hover);
 }
 
 .login-page__input:focus {
-  border-color: #2563eb;
-  background: #ffffff;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  border-color: var(--eve-control-border-focus, var(--eve-accent, #2563eb));
+  background: var(--login-control-bg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--eve-focus-ring, #2563eb) 22%, transparent);
   outline: none;
 }
 
@@ -398,14 +411,14 @@ body.login-page-active {
   padding: 0;
   border: none;
   background: transparent;
-  color: #94a3b8;
+  color: var(--login-text-muted);
   cursor: pointer;
-  transition: color 0.18s ease;
+  transition: color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .login-page__toggle-password:hover,
 .login-page__toggle-password:focus-visible {
-  color: #2563eb;
+  color: var(--eve-accent, #2563eb);
   outline: none;
 }
 
@@ -421,11 +434,11 @@ body.login-page-active {
   width: 17px;
   height: 17px;
   cursor: pointer;
-  accent-color: #2563eb;
+  accent-color: var(--eve-accent, #2563eb);
 }
 
 .login-page__checkbox label {
-  color: #475569;
+  color: var(--login-text-secondary);
   font-size: 14px;
   cursor: pointer;
   user-select: none;
@@ -441,19 +454,19 @@ body.login-page-active {
   margin-top: 6px;
   border: none;
   border-radius: 14px;
-  background: #2563eb;
-  color: #ffffff;
+  background: var(--eve-accent, #2563eb);
+  color: var(--eve-static-white, #ffffff);
   font-size: 15px;
   font-weight: 720;
   cursor: pointer;
   transition:
-    background-color 0.18s ease,
-    box-shadow 0.18s ease,
-    transform 0.18s ease;
+    background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease),
+    transform var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
 
 .login-page__submit:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--eve-action-hover, #1d4ed8);
   box-shadow: 0 16px 34px -22px rgba(37, 99, 235, 0.9);
   transform: translateY(-1px);
 }
@@ -491,7 +504,7 @@ body.login-page-active {
 
 .login-page__message--visible {
   display: block;
-  animation: login-fade-in 0.22s ease-out;
+  animation: login-fade-in var(--eve-motion-duration-overlay-enter, 480ms) var(--eve-motion-ease-enter, ease-out);
 }
 
 @keyframes login-fade-in {
@@ -506,22 +519,22 @@ body.login-page-active {
 }
 
 .login-page__message--error {
-  border: 1px solid #fecaca;
-  background-color: #fef2f2;
-  color: #b91c1c;
+  border: 1px solid color-mix(in srgb, var(--eve-status-error) 38%, transparent);
+  background-color: var(--eve-semantic-danger-surface);
+  color: var(--eve-status-error);
 }
 
 .login-page__message--success {
-  border: 1px solid #bbf7d0;
-  background-color: #f0fdf4;
-  color: #047857;
+  border: 1px solid color-mix(in srgb, var(--eve-status-completed) 38%, transparent);
+  background-color: var(--eve-semantic-success-surface);
+  color: var(--eve-status-completed);
 }
 
 .login-page__footer {
   position: relative;
   z-index: 1;
   padding-top: 20px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--login-card-border);
   text-align: center;
 }
 
@@ -531,13 +544,13 @@ body.login-page-active {
   justify-content: center;
   flex-wrap: wrap;
   gap: 8px;
-  color: #64748b;
+  color: var(--login-text-secondary);
   font-size: 13px;
   line-height: 1.4;
 }
 
 .login-page__footer-divider {
-  color: #f97316;
+  color: var(--eve-brand-logo, #f97316);
 }
 
 @media (max-width: 600px) {

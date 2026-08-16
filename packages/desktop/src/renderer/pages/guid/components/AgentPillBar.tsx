@@ -101,10 +101,18 @@ const AgentPillBar: React.FC<AgentPillBarProps> = ({
                   style={
                     isSelected
                       ? {
-                          ...(isMobile ? { transition: 'opacity 0.2s ease, background-color 0.2s ease' } : undefined),
+                          ...(isMobile
+                            ? {
+                                transition:
+                                  'opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease), background-color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease)',
+                              }
+                            : undefined),
                           ...(isMobile || suppressSelectionAnimation ? { animation: 'none' } : undefined),
                         }
-                      : { transition: 'opacity 0.2s ease' }
+                      : {
+                          transition:
+                            'opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease)',
+                        }
                   }
                   onClick={() => onSelectAgent(getAgentKey(agent))}
                 >
@@ -144,7 +152,11 @@ const AgentPillBar: React.FC<AgentPillBarProps> = ({
             type='button'
             aria-label={t('settings.agentManagement.discoverMoreAgents', { defaultValue: 'Discover more agents' })}
             className='flex items-center justify-center border-none bg-transparent cursor-pointer p-4px opacity-60 hover:opacity-100 self-center'
-            style={{ transition: 'opacity 0.2s ease', flexShrink: 0, marginTop: 4 }}
+            style={{
+              transition: 'opacity var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease)',
+              flexShrink: 0,
+              marginTop: 4,
+            }}
             onClick={() => navigate('/settings/agent?tab=local')}
           >
             <Plus theme='outline' size={20} fill='currentColor' style={{ flexShrink: 0 }} />

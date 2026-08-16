@@ -1,0 +1,126 @@
+{
+  "schema": "command-eve-preview-eligibility/v2",
+  "status": "ALPHA_SCOPE_FOUND_SOURCE_INTEGRATED_REVIEW_PENDING",
+  "target": {
+    "label": "1.822.3-alpha.1",
+    "versionReserved": false,
+    "channel": "preview-direct-download",
+    "autoUpdateFeedMutationAuthorized": false,
+    "packageBuildAuthorized": false,
+    "signingAuthorized": false,
+    "notarizationAuthorized": false,
+    "uploadAuthorized": false
+  },
+  "liveRollbackTruth": {
+    "version": "1.822.2",
+    "sourceCommit": "a289ce2f077eb5c2bc7a568ab4c334f179a4c528",
+    "sourceTree": "98dd6e2fdfdeb69b9dd75f8107b899256fbdcf21",
+    "packageJsonVersion": "1.822.2",
+    "stableFeedMustRemainByteUnchanged": true,
+    "rollbackTarget": "1.822.2"
+  },
+  "alphaSourceSlice": {
+    "id": "final-native-voice-dialogue",
+    "base": "a289ce2f077eb5c2bc7a568ab4c334f179a4c528",
+    "head": "62a11e11a54da7a513197a68aaede431f3b2f0be",
+    "tree": "b8c8c34dcfe4f321642a01caca37a39ae513ce8b",
+    "commitOrder": [
+      "d3f5dc3ca6349feb54639cecf8f649d0034726fe",
+      "bde990b37dd05590eafab0cafc1ac4a75354cf3f",
+      "a2852a03de59927f93ecd4e3f5394a219a0a3cad",
+      "1e2ae14016edeeeb97fa83f53d7c7ef12bebe081",
+      "0e4c8484596bafc47ce00308a3bc160bd0baf2ef",
+      "ccf25175ee8afd528bfd9a8156a3c4e974b320d6",
+      "f2e11a361072234f930109ceb1ed9c7574fffb74",
+      "d183024ca35a62937fe7037a2eb2d9d81c56e0c5",
+      "62a11e11a54da7a513197a68aaede431f3b2f0be"
+    ],
+    "commitOrderSha256": "8a7e4a7f8171d342c3714c7ba2c29d23ae4f29c64fb8cc86054431914d49da3b",
+    "cumulativePatchSha256": "c1f3a141799cfa8de2a3a41f274f72dbeacd6be8ebec1050d10e864f399670f0",
+    "pathListSha256": "3cadf9aef7b985be9355ef2e11d361f892076c92726284705a81fd0fb1c50c1e",
+    "pathCounts": {
+      "desktopProduct": 19,
+      "packageAndHarness": 7,
+      "tests": 20,
+      "total": 46
+    },
+    "ancestry": "FAST_FORWARD_FROM_LIVE_BASE",
+    "mergeTree": "CLEAN",
+    "receipt": {
+      "repository": "Company.OS",
+      "commit": "442b73eaabdf2dc69aefcce7f86e5ff215031cfe",
+      "path": "reports/command-eve/2026-08-13/feature-closure/ttft-native-voice-source-receipt.json",
+      "blob": "ecb9e661e1de08138d83737e800caa23e66bf8b8",
+      "sha256": "ca237f1f74283e395e49074d5f712b96bae27358f2178a05e2f955dbffed536e",
+      "verdict": "VOICE_SUCCESSOR_P0P1_REVIEW_PASS",
+      "findings": { "p0": 0, "p1": 0, "p2": 0 }
+    },
+    "dependencyAudit": {
+      "newDependencyOrLockfile": false,
+      "aionCoreSourceOrPinChanged": false,
+      "hermesPayloadOrPinChanged": false,
+      "protocolSchemaChanged": false,
+      "newBackendRequirement": false,
+      "existingAionCore": {
+        "commit": "267107f369df4498ca545dea539756967311bb46",
+        "version": "v0.1.37",
+        "unchanged": true
+      },
+      "existingHermes": {
+        "version": "0.20",
+        "unchanged": true
+      },
+      "gitNexus": "UNKNOWN_NOT_INDEXED_NO_HEAVY_ANALYZE"
+    },
+    "focusedRevalidation": {
+      "ownerHeadTestFilesPassed": 5,
+      "ownerHeadTestsPassed": 86,
+      "integratedCandidateTestFilesPassed": 19,
+      "integratedCandidateTestsPassed": 255,
+      "testsFailed": 0,
+      "exactSourceHead": "62a11e11a54da7a513197a68aaede431f3b2f0be",
+      "nonGateAttempt": "Initial isolated-WT bunx invocation executed zero tests because project node_modules was absent; the passing candidate run reused the existing exact-owner dependency tree without install."
+    },
+    "lightGates": {
+      "typescriptNoEmit": "PASS",
+      "formatCheck": "PASS",
+      "lint": "PASS_0_ERRORS_7_WARNINGS",
+      "i18nTypes": "PASS_EXACT_REVIEWED_BLOB_RESTORED_AFTER_NON_SEMANTIC_ORDER_DRIFT",
+      "i18nValidation": "PASS_WITH_PREEXISTING_WARNINGS",
+      "diffCheck": "PASS",
+      "gitNexus": "UNKNOWN_STALE_OTHER_WORKTREE_INDEX_REPORTED_NO_CHANGES"
+    },
+    "integrationDecision": "INCLUDE_EXACT_SOURCE_SLICE",
+    "previewReleaseEligible": false
+  },
+  "candidate": {
+    "integrationMethod": "NO_FF_MERGE_OF_EXACT_REVIEWED_SLICE",
+    "integratedCommits": ["62a11e11a54da7a513197a68aaede431f3b2f0be"],
+    "sourceReviewStatus": "INDEPENDENT_EXACT_HEAD_REVIEW_REQUIRED",
+    "packageStatus": "NOT_RUN",
+    "runtimeStatus": "NOT_RUN",
+    "releaseStatus": "NOT_AUTHORIZED"
+  },
+  "explicitExclusions": [
+    "all non-Voice AionUI feature slices",
+    "all AionCore durable+Vision composites including cde45e61, b1e93cbf, 6482c7d7, b7a1915a and cc995 or successors lacking frozen PASS",
+    "all V16/V17 package-contract candidates and repairs",
+    "all source-only receipts requiring unproven package, provider, device or runtime dependencies outside this Voice slice"
+  ],
+  "alphaLimitations": [
+    "Source-only candidate: no packaged compatibility proof yet for unchanged AionCore 267107f3 and Hermes 0.20.",
+    "No microphone, speaker, permission, offline, stop, barge-in, wake or restart packaged smoke has run on this candidate.",
+    "No honest packaged TTFT p50/p95 cohort exists for this candidate.",
+    "The alpha version is not reserved or written; package.json remains 1.822.2 until a separate release gate authorizes a version commit.",
+    "No build, signing, notarization, upload, R2 mutation or stable auto-update feed change is authorized.",
+    "GitNexus risk is UNKNOWN because this isolated worktree is not indexed and heavy analysis was forbidden."
+  ],
+  "nextGates": [
+    "fresh independent P0/P1 review of the exact integrated source candidate",
+    "separate alpha version reservation and version-only commit",
+    "minimal unsigned alpha package against unchanged pinned Core/Hermes",
+    "packaged local Mic to STT to ACP to TTS smoke plus stop/barge/wake and permission/offline negatives",
+    "alpha-specific signing, notarization and post-sign readback",
+    "separate direct-download publication with byte proof and stable-feed non-mutation proof"
+  ]
+}

@@ -4,7 +4,7 @@ import { Form, Input, Message, Select, Tag } from '@arco-design/web-react';
 import React, { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import AionModal from '@/renderer/components/base/AionModal';
-import { LinkCloud } from '@icon-park/react';
+import { LinkCloud, Lock, Tips } from '@icon-park/react';
 import { ipcBridge } from '@/common';
 import useModeModeList from '@renderer/hooks/agent/useModeModeList';
 import { getProviderLogo } from '@/renderer/utils/model/modelPlatforms';
@@ -171,7 +171,7 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
               rules={[{ required: !isBedrock }]}
               field={'api_key'}
               extra={
-                <div className='text-11px text-t-secondary mt-2'>
+                <div className='mt-2 flex items-start gap-6px text-11px text-t-secondary'>
                   {/* The fallback MUST stay byte-identical to the one in
                       ModelModalContent and to the de-DE locale value for this key.
                       It used to read "nur im Pro-Tarif (99€/Monat)" — a plan that
@@ -179,9 +179,22 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
                       per-client-seat ladder, and contradicting the canonical
                       translation of the SAME key. Two fallbacks for one key means
                       whichever surface loads first wins the price claim. */}
-                  {props.disabled
-                    ? `🔒 ${t('settings.byokPaidSeatOnly', 'Eigene Modelle / API-Keys sind im Standard-Abo enthalten (in der Testphase nicht freigeschaltet)')}`
-                    : `💡 ${t('settings.multiApiKeyEditTip')}`}
+                  {props.disabled ? (
+                    <>
+                      <Lock className='mt-1px shrink-0' size={13} fill='currentColor' aria-hidden='true' />
+                      <span>
+                        {t(
+                          'settings.byokPaidSeatOnly',
+                          'Eigene Modelle / API-Keys sind im Standard-Abo enthalten (in der Testphase nicht freigeschaltet)'
+                        )}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Tips className='mt-1px shrink-0' size={13} fill='currentColor' aria-hidden='true' />
+                      <span>{t('settings.multiApiKeyEditTip')}</span>
+                    </>
+                  )}
                 </div>
               }
             >

@@ -385,8 +385,11 @@ const CreateTaskModal: React.FC<{
   const [body, setBody] = useState('');
   const [assignee, setAssignee] = useState('');
   const [kind, setKind] = useState<'task' | 'goal'>('task');
-  const submit = () => {
-    if (!title.trim()) return Message.warning(t('kanban.native.create.titleRequired'));
+  const submit = (): void => {
+    if (!title.trim()) {
+      Message.warning(t('kanban.native.create.titleRequired'));
+      return;
+    }
     onSubmit({
       title: title.trim(),
       body: body.trim() || undefined,
@@ -517,7 +520,9 @@ const NativeKanbanBoard: React.FC = () => {
   }, [refresh]);
 
   useEffect(() => {
-    const onApplied = () => void refresh();
+    const onApplied = (): void => {
+      void refresh();
+    };
     window.addEventListener(COMMAND_EVE_KANBAN_ACP_APPLIED_EVENT, onApplied);
     return () => window.removeEventListener(COMMAND_EVE_KANBAN_ACP_APPLIED_EVENT, onApplied);
   }, [refresh]);

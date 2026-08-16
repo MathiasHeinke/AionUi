@@ -1,0 +1,312 @@
+{
+  "version": "multi-model-execution/v2",
+  "receipt_id": "mat-1843-18230-aaa-gauntlet-20260814",
+  "task_id": "MAT-1843",
+  "execution_surface": "codex-collaboration",
+  "phase": "reported",
+  "state": "PASS",
+  "reason_codes": [],
+  "contract": {
+    "work_item": "MAT-1843",
+    "contract_hash": "sha256:e12016ad7dbf8cc3480c338493372016eb6c0d75e5bfd12b9a2a55e725ee00c1",
+    "lock_id": "local-frozen-1ae8099e",
+    "ledger": "none"
+  },
+  "snapshot": {
+    "git_sha": "fee7da7957969cf4b0761625f60f729967009030",
+    "dirty_state_hash": "sha256:6cb827b5d33718bcb087b581dd38433ab1df60524a88c63590dfeaaa066916ff",
+    "input_snapshot_hash": "sha256:c95ddafacf10c1215fc205ed39eb1746795daaef8d60f48ddb3b1655ea288a8c"
+  },
+  "artifacts": {
+    "integrated_snapshot_hash": "sha256:1ae8099e24e0dd093fbde706cfb9da9d86e869b0c06e3725fbb991af66991437"
+  },
+  "classification": {
+    "task_class": "P2",
+    "sensitivity": "S1",
+    "export_packet_sensitivity": "S1",
+    "verifiability": "V2",
+    "human_gate": "HG-2.5",
+    "security_sensitive": true
+  },
+  "routes": [
+    {
+      "id": "author-codex",
+      "run_id": "mat-1843-author-codex-1",
+      "attempt": 1,
+      "role": "author",
+      "lane": "codex",
+      "mode": "implement",
+      "runtime": "codex-app",
+      "resolved_runtime": "codex-app",
+      "provider_family": "openai",
+      "model_alias": "gpt-5",
+      "resolved_model_alias": "gpt-5",
+      "effort": "high",
+      "transport": "app-runtime",
+      "selection_reason": "shared-runtime implementation and controller-owned integration",
+      "capability_profile": "bounded-worktree-implementation",
+      "fallback_used": false,
+      "input_snapshot_hash": "sha256:c95ddafacf10c1215fc205ed39eb1746795daaef8d60f48ddb3b1655ea288a8c",
+      "review_input_hash": null,
+      "write_paths": ["/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management"],
+      "completion_sentinel": {
+        "expected": "AUTHOR_COMPLETE",
+        "observed": "AUTHOR_COMPLETE"
+      },
+      "runtime_proof": {
+        "status": "PASS",
+        "checked_at": "2026-08-14T21:17:02Z",
+        "cli_version": "Codex desktop app",
+        "proof_type": "active-controller-session",
+        "auth_lane": "codex-subscription",
+        "permission_mode": "controller-integrator",
+        "entitlement": "verified-current",
+        "billing_class": "fixed-subscription",
+        "billing_status": "verified-current",
+        "marginal_cost": "verified-current",
+        "retention_class": "approved-S1",
+        "model_smoke_sentinel": "CODEX_CONTROLLER_ACTIVE",
+        "proof_evidence_path": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management/artifacts/review/runtime/codex-controller-runtime.md",
+        "env_keys_unset": []
+      }
+    },
+    {
+      "id": "reviewer-opus5",
+      "run_id": "mat-1843-opus5-review-2",
+      "attempt": 2,
+      "role": "reviewer",
+      "lane": "opus",
+      "mode": "review",
+      "runtime": "claude-code",
+      "resolved_runtime": "claude-code",
+      "provider_family": "anthropic",
+      "model_alias": "claude-opus-5",
+      "resolved_model_alias": "claude-opus-5",
+      "effort": "high",
+      "transport": "interactive-tmux",
+      "selection_reason": "independent deep security and reliability review",
+      "capability_profile": "read-only-security-review",
+      "fallback_used": false,
+      "input_snapshot_hash": "sha256:c95ddafacf10c1215fc205ed39eb1746795daaef8d60f48ddb3b1655ea288a8c",
+      "review_input_hash": "sha256:1ae8099e24e0dd093fbde706cfb9da9d86e869b0c06e3725fbb991af66991437",
+      "write_paths": [],
+      "completion_sentinel": {
+        "expected": "OPUS5_REMEDIATION_COMPLETE",
+        "observed": "OPUS5_REMEDIATION_COMPLETE"
+      },
+      "runtime_proof": {
+        "status": "PASS",
+        "checked_at": "2026-08-14T21:17:02Z",
+        "cli_version": "Claude Code 2.1.131 interactive tmux",
+        "proof_type": "interactive-subscription-smoke",
+        "auth_lane": "claude-max",
+        "permission_mode": "plan",
+        "entitlement": "verified-current",
+        "billing_class": "fixed-subscription",
+        "billing_status": "verified-current",
+        "marginal_cost": "verified-current",
+        "retention_class": "approved-S1",
+        "model_smoke_sentinel": "OPUS5_PROBE_OK",
+        "proof_evidence_path": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management/artifacts/review/runtime/opus5-runtime.md",
+        "env_keys_unset": ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"]
+      }
+    },
+    {
+      "id": "reviewer-grok46",
+      "run_id": "mat-1843-grok46-review-2",
+      "attempt": 2,
+      "role": "reviewer",
+      "lane": "grok",
+      "mode": "review",
+      "runtime": "grok-cli",
+      "resolved_runtime": "grok-cli",
+      "provider_family": "xai",
+      "model_alias": "grok-4.6",
+      "resolved_model_alias": "grok-4.6",
+      "effort": "xhigh",
+      "transport": "local-cli",
+      "selection_reason": "different-family regression UX and security review",
+      "capability_profile": "read-only-regression-review",
+      "fallback_used": false,
+      "input_snapshot_hash": "sha256:c95ddafacf10c1215fc205ed39eb1746795daaef8d60f48ddb3b1655ea288a8c",
+      "review_input_hash": "sha256:1ae8099e24e0dd093fbde706cfb9da9d86e869b0c06e3725fbb991af66991437",
+      "write_paths": [],
+      "completion_sentinel": {
+        "expected": "GROK46_REMEDIATION_COMPLETE",
+        "observed": "GROK46_REMEDIATION_COMPLETE"
+      },
+      "runtime_proof": {
+        "status": "PASS",
+        "checked_at": "2026-08-14T21:17:02Z",
+        "cli_version": "Grok CLI 1.0.3",
+        "proof_type": "subscription-cli-smoke",
+        "auth_lane": "grok-subscription",
+        "permission_mode": "plan",
+        "entitlement": "verified-current",
+        "billing_class": "fixed-subscription",
+        "billing_status": "verified-current",
+        "marginal_cost": "verified-current",
+        "retention_class": "approved-S1",
+        "model_smoke_sentinel": "GROK46_RUNTIME_OK",
+        "proof_evidence_path": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management/artifacts/review/runtime/grok46-runtime.md",
+        "env_keys_unset": ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"]
+      }
+    },
+    {
+      "id": "cao-fable5",
+      "run_id": "mat-1843-fable5-cao-1",
+      "attempt": 1,
+      "role": "cao",
+      "lane": "fable",
+      "mode": "review",
+      "runtime": "claude-code",
+      "resolved_runtime": "claude-code",
+      "provider_family": "anthropic",
+      "model_alias": "claude-fable-5",
+      "resolved_model_alias": "claude-fable-5",
+      "effort": "high",
+      "transport": "interactive-tmux",
+      "selection_reason": "fresh audit-only CAO synthesis after independent reports",
+      "capability_profile": "cao-read-only",
+      "fallback_used": false,
+      "input_snapshot_hash": "sha256:1ae8099e24e0dd093fbde706cfb9da9d86e869b0c06e3725fbb991af66991437",
+      "review_input_hash": "sha256:1ae8099e24e0dd093fbde706cfb9da9d86e869b0c06e3725fbb991af66991437",
+      "write_paths": [],
+      "completion_sentinel": {
+        "expected": "FABLE5_CAO_COMPLETE",
+        "observed": "FABLE5_CAO_COMPLETE"
+      },
+      "runtime_proof": {
+        "status": "PASS",
+        "checked_at": "2026-08-14T21:17:02Z",
+        "cli_version": "Claude Code 2.1.131 interactive tmux",
+        "proof_type": "interactive-subscription-smoke",
+        "auth_lane": "claude-max",
+        "permission_mode": "plan",
+        "entitlement": "verified-current",
+        "billing_class": "fixed-subscription",
+        "billing_status": "verified-current",
+        "marginal_cost": "verified-current",
+        "retention_class": "approved-S1",
+        "model_smoke_sentinel": "FABLE5_TMUX_OK",
+        "proof_evidence_path": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management/artifacts/review/runtime/fable5-runtime.md",
+        "env_keys_unset": ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"]
+      }
+    },
+    {
+      "id": "controller-codex",
+      "run_id": "mat-1843-controller-codex-1",
+      "attempt": 1,
+      "role": "controller",
+      "lane": "codex",
+      "mode": "review",
+      "runtime": "codex-app",
+      "resolved_runtime": "codex-app",
+      "provider_family": "openai",
+      "model_alias": "gpt-5",
+      "resolved_model_alias": "gpt-5",
+      "effort": "high",
+      "transport": "app-runtime",
+      "selection_reason": "integration owner and HumanGate boundary decision",
+      "capability_profile": "controller-read-only-decision",
+      "fallback_used": false,
+      "input_snapshot_hash": "sha256:1ae8099e24e0dd093fbde706cfb9da9d86e869b0c06e3725fbb991af66991437",
+      "review_input_hash": "sha256:1ae8099e24e0dd093fbde706cfb9da9d86e869b0c06e3725fbb991af66991437",
+      "write_paths": [],
+      "completion_sentinel": {
+        "expected": "CONTROLLER_DECISION_COMPLETE",
+        "observed": "CONTROLLER_DECISION_COMPLETE"
+      },
+      "runtime_proof": {
+        "status": "PASS",
+        "checked_at": "2026-08-14T21:17:02Z",
+        "cli_version": "Codex desktop app",
+        "proof_type": "active-controller-session",
+        "auth_lane": "codex-subscription",
+        "permission_mode": "controller",
+        "entitlement": "verified-current",
+        "billing_class": "fixed-subscription",
+        "billing_status": "verified-current",
+        "marginal_cost": "verified-current",
+        "retention_class": "approved-S1",
+        "model_smoke_sentinel": "CODEX_CONTROLLER_ACTIVE",
+        "proof_evidence_path": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management/artifacts/review/runtime/codex-controller-runtime.md",
+        "env_keys_unset": []
+      }
+    }
+  ],
+  "concurrency": {
+    "strategy": "parallel-independent-read-only-review",
+    "spawn_owner": "controller-codex",
+    "max_active_children": 3,
+    "spawn_depth": 1,
+    "integration_order": ["author-codex"],
+    "single_writer_per_path": true
+  },
+  "review": {
+    "author_route_ids": ["author-codex"],
+    "reviewer_route_ids": ["reviewer-opus5", "reviewer-grok46"],
+    "security_reviewer_route_ids": ["reviewer-opus5", "reviewer-grok46"],
+    "independence_required": true
+  },
+  "gates": [
+    {
+      "id": "unit",
+      "owner": "author-codex",
+      "status": "PASS",
+      "required_for_phase": ["reported", "released"]
+    },
+    {
+      "id": "typecheck",
+      "owner": "author-codex",
+      "status": "PASS",
+      "required_for_phase": ["reported", "released"]
+    },
+    {
+      "id": "live-ui",
+      "owner": "author-codex",
+      "status": "PASS",
+      "required_for_phase": ["reported", "released"]
+    },
+    {
+      "id": "independent-review",
+      "owner": "reviewer-opus5",
+      "status": "PASS",
+      "required_for_phase": ["released"]
+    },
+    {
+      "id": "security-convergence",
+      "owner": "controller-codex",
+      "status": "PASS",
+      "required_for_phase": ["released"]
+    },
+    {
+      "id": "cao",
+      "owner": "cao-fable5",
+      "status": "PASS",
+      "required_for_phase": ["released"]
+    },
+    {
+      "id": "controller",
+      "owner": "controller-codex",
+      "status": "PASS",
+      "required_for_phase": ["released"]
+    }
+  ],
+  "blocked_actions": ["merge", "deploy", "sign", "notarize", "r2-publish", "feed-publish", "release", "linear-done"],
+  "cost": {
+    "basis": "fixed-subscription",
+    "currency": "EUR",
+    "amount": 0,
+    "max_spend": 0
+  },
+  "heartbeat": null,
+  "evidence": [
+    "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management/artifacts/review/opus5-remediation-pass.md",
+    "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management/artifacts/review/grok46-remediation-pass.md",
+    "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management/artifacts/review/fable5-cao.md",
+    "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management/artifacts/review/security-convergence.md",
+    "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management/artifacts/review/local-gates.md",
+    "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-seat-management/artifacts/design-qa/design-qa.md"
+  ]
+}

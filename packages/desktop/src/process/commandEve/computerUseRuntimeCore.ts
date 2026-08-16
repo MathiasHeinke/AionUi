@@ -318,7 +318,9 @@ async function inspectSignature(
 
 function driverVersionMatchesPin(version: string | null): boolean {
   if (!version) return false;
-  return (version.match(/\d+\.\d+\.\d+/g) ?? []).includes(COMMAND_EVE_CUA_DRIVER_PIN);
+  return (
+    version.match(/\d+\.\d+\.\d+/g)?.some((candidate: string) => candidate === COMMAND_EVE_CUA_DRIVER_PIN) === true
+  );
 }
 
 /** Read native permission state, doctor checks and exact resolved-binary provenance. */

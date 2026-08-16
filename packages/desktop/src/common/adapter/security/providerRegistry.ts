@@ -81,6 +81,7 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.generate-local-title',
   'command-eve.guided-auth-setup',
   'command-eve.image-capabilities',
+  'command-eve.image-generate',
   'command-eve.image-model-preference-read',
   'command-eve.image-model-preference-set',
   'command-eve.kanban-acp-apply',
@@ -300,6 +301,9 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   // MAT-1769 — no arguments: asks MAIN for the server-owned image model
   // registry (display names + credit quotes). Read-only, non-billable.
   'command-eve.image-capabilities': 'void',
+  // One explicit image turn: prompt + conversation/request identity + the
+  // server-owned tier, resolution/aspect ratio and optional local references.
+  'command-eve.image-generate': 'record',
   // 1.820.3 — the managed image artifact lane. conversationId + handle +
   // toolCallId (bind), conversationId (list), conversationId + artifactId
   // (preview), conversationId + expectedFileName (legacy import).

@@ -24,6 +24,7 @@ type GuidInputCardProps = {
   placeholder: string;
 
   // Styling
+  compact?: boolean;
   isFileDragging: boolean;
   dragHandlers: React.HTMLAttributes<HTMLDivElement>;
 
@@ -36,8 +37,9 @@ type GuidInputCardProps = {
   files: string[];
   onRemoveFile: (path: string) => void;
 
-  // Media-lane pill (MAT-1773 P3): the video-creation picker, rendered in the
-  // draft band above the input when the draft routes to a media-create intent.
+  // Shared explicit work-product header above the input.
+  prefix?: React.ReactNode;
+  /** @deprecated compatibility for non-migrated callers. */
   mediaPill?: React.ReactNode;
 
   // Action row
@@ -52,6 +54,7 @@ const GuidInputCard: React.FC<GuidInputCardProps> = ({
   onFocus,
   onBlur,
   placeholder,
+  compact = false,
   isFileDragging,
   dragHandlers,
   mentionOpen,
@@ -59,6 +62,7 @@ const GuidInputCard: React.FC<GuidInputCardProps> = ({
   mentionDropdown,
   files,
   onRemoveFile,
+  prefix,
   mediaPill,
   actionRow,
 }) => {
@@ -78,17 +82,25 @@ const GuidInputCard: React.FC<GuidInputCardProps> = ({
     <div className='eve-composer-container w-full'>
       <div
         ref={composerRef}
-        className={`${styles.guidInputCardWrap} guid-input-card-shell eve-panel eve-composer-surface relative flex flex-col ${mentionOpen ? 'overflow-visible' : 'overflow-hidden'} transition-all duration-200 ${isFileDragging ? 'guid-input-card-shell--dragging eve-composer-surface--dragging' : ''}`}
+        className={`${styles.guidInputCardWrap} guid-input-card-shell eve-panel eve-composer-surface relative flex flex-col ${mentionOpen ? 'overflow-visible' : 'overflow-hidden'} transition-all duration-300 ${isFileDragging ? 'guid-input-card-shell--dragging eve-composer-surface--dragging' : ''}`}
+        data-compact={compact ? 'true' : 'false'}
         style={{
           zIndex: 1,
-          transition: 'box-shadow 0.25s ease',
+          transition: 'box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease)',
         }}
         {...composerSpotlightHandlers}
         {...dragHandlers}
       >
         <div className={`${styles.guidInputInner} p-12px flex flex-col`}>
           {mentionSelectorBadge}
-          {mediaPill}
+          {prefix ?? mediaPill}
+          {files.length > 0 && (
+            <div className='flex flex-wrap items-center gap-8px mt-2px mb-8px' data-testid='guid-attachment-strip'>
+              {files.map((path) => (
+                <FilePreview key={path} path={path} onRemove={() => onRemoveFile(path)} />
+              ))}
+            </div>
+          )}
           <Input.TextArea
             autoSize={textareaAutoSize}
             placeholder={placeholder}
@@ -107,13 +119,6 @@ const GuidInputCard: React.FC<GuidInputCardProps> = ({
           {mentionOpen && (
             <div className='absolute z-50' style={{ left: 16, top: 44 }}>
               {mentionDropdown}
-            </div>
-          )}
-          {files.length > 0 && (
-            <div className='flex flex-wrap items-center gap-8px mt-12px mb-12px'>
-              {files.map((path) => (
-                <FilePreview key={path} path={path} onRemove={() => onRemoveFile(path)} />
-              ))}
             </div>
           )}
           <UploadProgressBar source='sendbox' />

@@ -44,9 +44,9 @@ export interface ErsteSchritteHubInput {
 export interface ErsteSchritteStep {
   /** Stable id — also the i18n key suffix (title/desc) and the data-testid suffix. */
   id: string;
-  /** Hash-route to navigate to, OR (when isWebIntent) a command-eve.com account path. */
+  /** Existing in-app route to navigate to, or an explicitly declared web intent. */
   route: string;
-  /** When true the route opens the live web account (seat purchase), not an in-app route. */
+  /** When true the route opens an external web money surface, not an in-app route. */
   isWebIntent?: boolean;
   status: ErsteSchritteStepStatus;
 }
@@ -60,8 +60,8 @@ function identityStatus(state: ErsteSchritteItemState): ErsteSchritteStepStatus 
 
 /**
  * Build the ordered Erste-Schritte step list. Order = first-value reachability.
- * The routes are all existing in-app routes (or the web account for seat-add); no
- * new destination pages are introduced by the hub.
+ * The routes are all existing in-app routes; no new destination pages are
+ * introduced by the hub.
  */
 export function buildErsteSchritteHubSteps(input: ErsteSchritteHubInput): ErsteSchritteStep[] {
   return [
@@ -70,8 +70,8 @@ export function buildErsteSchritteHubSteps(input: ErsteSchritteHubInput): ErsteS
     // unready lane, and while the status is still loading we must not claim 'not ready'.
     { id: 'ki-spur', route: '/settings/model', status: input.firstValueReady ? 'done' : 'optional' },
     { id: 'company-brain', route: '/settings/company-brain', status: 'optional' },
-    // Reseller: buy/add a client seat on the live web account (carries the desktop session).
-    { id: 'kunde', route: '/account?intent=add_seat', isWebIntent: true, status: 'optional' },
+    // Customer workspaces are free and managed directly in Account settings.
+    { id: 'kunde', route: '/settings/account', status: 'optional' },
     { id: 'connectors', route: '/settings/connectors', status: 'optional' },
     { id: 'team', route: '/settings/eve-runtime', status: 'optional' },
     { id: 'skills', route: '/settings/capabilities?tab=skills', status: 'optional' },

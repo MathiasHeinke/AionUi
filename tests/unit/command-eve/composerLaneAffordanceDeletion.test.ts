@@ -57,7 +57,7 @@ function walk(rel: string): string[] {
   return out;
 }
 
-const COMPOSER_FILES = COMPOSER_DIRS.flatMap(walk).sort();
+const COMPOSER_FILES = COMPOSER_DIRS.flatMap(walk).toSorted();
 
 /** Strip block + line comments, so CODE assertions never trip on prose. */
 const code = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -127,7 +127,7 @@ describe('the composer has ONE intelligence affordance: MAX', () => {
     ]);
     // ...and the ACP mount stays gated on the conversation actually being EVE,
     // so a non-EVE backend never gains a cloud-intelligence control.
-    expect(code(read(mounts[0]))).toMatch(/isEveConversation \? <EveMaxToggle/);
+    expect(code(read(mounts[0]))).toMatch(/maxSlot=\{<EveMaxToggle disabled=\{isBusy\} \/>\}/);
   });
 
   it('an EVE conversation gets NO model entry in the mobile sheet either', () => {

@@ -1,7 +1,6 @@
 import type { BadgeProps } from '@arco-design/web-react';
 import { Badge, Spin } from '@arco-design/web-react';
-import { IconDown, IconRight } from '@arco-design/web-react/icon';
-import { Checklist, Right } from '@icon-park/react';
+import { Checklist, Down, Right } from '@icon-park/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ipcBridge } from '@/common';
 import type { NormalizedToolCall, NormalizedToolStatus, ToolMessage } from '@/common/chat/normalizeToolCall';
@@ -73,7 +72,11 @@ const ToolItemDetail: React.FC<{ item: NormalizedToolCall }> = ({ item }) => {
                 <span className='m-l-4px opacity-80 text-13px'>{displayItem.description}</span>
               )}
             </span>
-            {expanded ? <IconDown style={{ fontSize: 12 }} /> : <IconRight style={{ fontSize: 12 }} />}
+            {expanded ? (
+              <Down theme='outline' size={12} fill='currentColor' aria-hidden='true' />
+            ) : (
+              <Right theme='outline' size={12} fill='currentColor' aria-hidden='true' />
+            )}
           </button>
         ) : (
           <span className='flex-1 min-w-0 truncate'>

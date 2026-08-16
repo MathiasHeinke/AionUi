@@ -7,7 +7,11 @@ import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
 import AcpModelSelector from '@/renderer/components/agent/AcpModelSelector';
 import EveMaxToggle from '@/renderer/components/agent/EveMaxToggle';
 import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
+import ComposerContextDeck from '@/renderer/components/chat/ComposerContextDeck';
+import ComposerReferencePreview from '@/renderer/components/chat/ComposerReferencePreview';
+import { resolveComposerAttachmentPresentation } from '@/renderer/components/chat/composerAttachmentPresentation';
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
+import WorkProductModeSelector, { WorkProductModeHeader } from '@/renderer/components/chat/WorkProductModeSelector';
 import VoiceDialogueControl from '@/renderer/components/chat/voiceDialogue/VoiceDialogueControl';
 import { useVoiceDialogue } from '@/renderer/components/chat/voiceDialogue/useVoiceDialogue';
 import { WorkspaceContextControl } from '@/renderer/components/workspace';
@@ -105,6 +109,18 @@ import {
 import { composeCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
 import { buildCommandEveAgentTurnInput } from '@/common/config/eveArtifactContextEnvelopeCore';
 import {
+  DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION,
+  consumeComposerWorkProductSelection,
+  renderComposerSelectedArtifactPreparedContext,
+  selectExplicitComposerWorkProductMode,
+  type ComposerWorkProductMode,
+  type ComposerWorkProductSelection,
+} from '@/common/config/composerWorkProductModeCore';
+import {
+  resolveComposerArtifactReference,
+  type ComposerArtifactReference,
+} from '@/common/config/composerArtifactReferenceCore';
+import {
   extractCommandEveManagedVisualTurnToken,
   resolveCommandEveManagedVisualPreferredTier,
 } from '@/common/config/eveManagedVisualTurnCore';
@@ -112,7 +128,7 @@ import {
   createCommandEveCloudVisualFlowId,
   type CommandEveCloudVisualPolicyReceipt,
 } from '@/common/config/visual/cloudVisualPolicyCore';
-import { Message, Modal, Tag } from '@arco-design/web-react';
+import { Menu, Message, Modal, Tag } from '@arco-design/web-react';
 import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -125,8 +141,6 @@ import { stripEmbeddedJsonFromSendFailureText, useAcpInitialMessage } from './us
 import type { UseAcpMessageReturn } from './useAcpMessage';
 import { useVideoCostWall } from '@/renderer/hooks/useVideoCostWall';
 import {
-  isVideoLaneRequest,
-  VIDEO_LANE_AGENT_ID,
   DEFAULT_VIDEO_DURATION_SECONDS,
   DEFAULT_VIDEO_TIER_ID,
   isVideoTierAvailable,
@@ -142,25 +156,16 @@ import {
   type VideoDraftSelection,
 } from '@/renderer/components/billing/useVideoComposerSelection';
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
+import ImageAspectRatioPill from '@/renderer/components/billing/ImageAspectRatioPill';
 import ImageModelPill from '@/renderer/components/billing/ImageModelPill';
-import {
-  DEFAULT_COMMAND_EVE_IMAGE_MODEL_TIER,
-  type CommandEveImageModelRegistry,
-  type CommandEveImageModelTierId,
-} from '@/common/config/eveImageModelRegistryCore';
+import { useImageComposerSelection } from '@/renderer/components/billing/useImageComposerSelection';
 import { isImageFile } from '@/renderer/pages/conversation/Preview/fileUtils';
-import { addressesVideoMarketer } from '@/common/config/eveTeamRoster';
 import { configService } from '@/common/config/configService';
-import {
-  resolveMediaLaneIntent,
-  isExplicitVideoEditRequest,
-  isExplicitVideoCreateRequest,
-} from '@/common/config/mediaLaneIntentCore';
-import { resolveEditAuthorization } from '@/common/config/editAuthorizationCore';
 import { estimateVideoEditCredits } from '@/common/config/videoEditRequestCore';
 import { isVideoEditEligibleTier } from '@/common/config/videoGenerationRequestCore';
 import {
-  selectLatestVisibleMediaSourceArtifact,
+  isUsableMediaEditSource,
+  isVisibleConversationArtifact,
   useConversationArtifacts,
 } from '@renderer/pages/conversation/Messages/artifacts';
 import type { ProjectWorkspaceConversationArtifactDTO } from '@/common/types/project-workspace/ui';
@@ -706,10 +711,19 @@ const AcpSendBox: React.FC<{
       preparedContext,
       managedVisualSourceCount,
       attachmentGrounding,
+      composerSelection,
+      selectedArtifactId,
       seatTicket,
     }: Pick<
       ConversationCommandQueueItem,
-      'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount' | 'attachmentGrounding'
+      | 'input'
+      | 'files'
+      | 'displayFiles'
+      | 'preparedContext'
+      | 'managedVisualSourceCount'
+      | 'attachmentGrounding'
+      | 'composerSelection'
+      | 'selectedArtifactId'
     > & { seatTicket: ConversationRuntimeSeatTicket }): Promise<Exclude<AcpDispatchResult, 'rejected'>> => {
       if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
       const sendTicket = runtimeView.issueSendAttempt();
@@ -724,6 +738,21 @@ const AcpSendBox: React.FC<{
 
       try {
         let dispatchPreparedContext = preparedContext;
+        const consumedComposerSelection = consumeComposerWorkProductSelection(composerSelection);
+        const workProductRequest = consumedComposerSelection.request;
+        if (workProductRequest) {
+          const selectedArtifactContext = renderComposerSelectedArtifactPreparedContext(
+            selectedArtifactId,
+            workProductRequest.selectedReferenceKind
+          );
+          dispatchPreparedContext = [
+            workProductRequest.preparedContext,
+            selectedArtifactContext,
+            dispatchPreparedContext,
+          ]
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+            .join('\n\n');
+        }
         if (managedVisualSourceCount !== undefined) {
           if (
             !dispatchPreparedContext ||
@@ -792,18 +821,16 @@ const AcpSendBox: React.FC<{
         // send, and a missing registry is not a failed send.
         let artifactEnvelope = '';
         try {
-          // 1.820.3 CoS fail-closed gate — the ONE spend operation this turn
-          // may carry, resolved HERE from mutation semantics + the canonical
-          // per-medium sources (the same `selectLatestVisibleMediaSourceArtifact`
-          // truth the visibility gate uses). This is SEPARATE from
-          // `mediaLaneIntent`: a contextual mutation with no medium noun shows
-          // NO pill yet still resolves its operation internally, and a turn
-          // that resolves to nothing passes NO field — Main then mints NO
-          // permit, rather than letting the model pick a medium.
-          const requestedEditOperation = resolveEditAuthorization({
-            message: input,
-            sources: { image: latestImageSource !== null, video: latestVideoSource !== null },
-          });
+          // 1.823.0: spend authority follows ONLY the explicit selected
+          // artifact, never draft wording. Main independently verifies this id
+          // against the active conversation before minting one single-use
+          // medium-specific permit.
+          const requestedEditOperation =
+            workProductRequest?.action === 'edit' && workProductRequest.mode === 'image'
+              ? 'image_edit'
+              : workProductRequest?.action === 'edit' && workProductRequest.mode === 'video'
+                ? 'video_edit'
+                : undefined;
           const envelopeResult = await ipcBridge.commandEve.artifactContextEnvelope.invoke({
             conversationId: conversation_id,
             // The raw turn, so Main can bind THIS send's single-use spend permit
@@ -824,7 +851,8 @@ const AcpSendBox: React.FC<{
             // sees exactly the files the user is looking at and there is no
             // second picker that could show something else.
             ...(referenceImagePathsForTurn.length === 0 ? {} : { referenceImagePaths: referenceImagePathsForTurn }),
-            ...(requestedEditOperation === null ? {} : { requestedEditOperation }),
+            ...(selectedArtifactId === undefined ? {} : { selectedArtifactIds: [selectedArtifactId] }),
+            ...(requestedEditOperation === undefined ? {} : { requestedEditOperation }),
           });
           if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
           if (envelopeResult?.success && typeof envelopeResult.data?.envelope === 'string') {
@@ -1073,170 +1101,188 @@ Please check your local CLI tool authentication status`,
     resetSelection: resetVideoSelection,
   } = useVideoComposerSelection();
 
-  // Show the quality selector only while the DRAFT already routes to the video
-  // lane, using the same predicate the send path uses.
-  //
-  // Same predicate, DIFFERENT input, and the asymmetry is the point: the send
-  // path classifies the enriched message (draft + reply quote + DOM snippets +
-  // send-time speech transcript), which is always a superset of the draft. So
-  // the picker can never appear for a send that will NOT be a video — but it can
-  // stay hidden for one that will. That case is handled where it matters, at the
-  // send: no visible picker means no honoured selection, and the request goes out
-  // at the cheap default. An earlier version of this comment claimed the two
-  // surfaces read the same text; CAO disproved it on 6c59706a.
-  const draftRoutesToVideo = useMemo(
-    () =>
-      isEveConversation &&
-      isVideoLaneRequest({
-        message: content,
-        resolvedAgentId: addressesVideoMarketer(content) ? VIDEO_LANE_AGENT_ID : null,
-      }),
-    [content, isEveConversation]
+  // One Main-authoritative per-seat image selection powers BOTH the start and
+  // in-session composer. Resolution + format remain draft-local and are
+  // snapshotted into the explicit one-shot work-product request.
+  const {
+    tierId: imageModelTier,
+    registry: imageModelRegistry,
+    resolution: imageResolution,
+    aspectRatio: imageAspectRatio,
+    setTierId: setImageModelTier,
+    setResolution: setImageResolution,
+    setAspectRatio: setImageAspectRatio,
+  } = useImageComposerSelection();
+
+  // 1.823.0 — explicit work-product authority. Draft prose never activates a
+  // paid/generative lane. A click in the mode dock, or a click on one exact
+  // artifact's "Bearbeiten" action, is the only constructor below.
+  const conversationArtifacts = useConversationArtifacts();
+  const [composerSelection, setComposerSelection] = useState<ComposerWorkProductSelection>(
+    DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION
+  );
+  const [selectedArtifactReference, setSelectedArtifactReference] = useState<ComposerArtifactReference | null>(null);
+  const imageGenerateRequestRef = useRef<{ requestKey: string; requestId: string } | null>(null);
+
+  useEffect(() => {
+    setComposerSelection(DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION);
+    setSelectedArtifactReference(null);
+    imageGenerateRequestRef.current = null;
+  }, [activeSeatId, conversation_id]);
+
+  useAddEventListener(
+    'commandEve.composer.reference.select',
+    ({ conversation_id: targetConversationId, artifact_id: artifactId }) => {
+      if (targetConversationId !== conversation_id || !isEveConversation) return;
+      const artifact = conversationArtifacts.find((candidate) => candidate.id === artifactId);
+      const reference = resolveComposerArtifactReference(artifact);
+      if (
+        !artifact ||
+        !reference ||
+        !isVisibleConversationArtifact(artifact) ||
+        ((reference.mode === 'image' || reference.mode === 'video') && !isUsableMediaEditSource(artifact))
+      ) {
+        Message.warning(
+          t('conversation.workProduct.referenceUnavailable', {
+            defaultValue: 'Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.',
+          })
+        );
+        return;
+      }
+      setSelectedArtifactReference(reference);
+      setComposerSelection(
+        selectExplicitComposerWorkProductMode(reference.mode, { selected: true, kind: reference.referenceKind })
+      );
+    },
+    [conversationArtifacts, conversation_id, isEveConversation, t]
   );
 
-  // 1.820.3 — THE CONTEXTUAL MEDIA GATE (Founder invariant). Media controls
-  // follow INTENT, never mere content: an ordinary draft shows nothing; an
-  // explicit image or video CREATE intent shows exactly that lane's creation
-  // options; an explicit EDIT intent (medium noun + edit semantics) shows a
-  // compact, truthful edit affordance for exactly that medium — and NOTHING
-  // else. The shared selector supplies per-medium, canonically edit-eligible
-  // source truth; the discriminated resolver turns it into a visibility-only
-  // decision: NO send routing, NO target inference, NO selectedArtifactIds,
-  // NO provider or debit. `draftRoutesToVideo` and the direct generation
-  // branch stay exactly as narrow as before — an edit NEVER widens them; the
-  // shared veto (`isExplicitVideoEditRequest`, same predicate) keeps every
-  // video edit inside a normal Hermes turn.
-  const conversationArtifacts = useConversationArtifacts();
+  const handleComposerModeChange = useCallback(
+    (mode: ComposerWorkProductMode) => {
+      if (mode === 'chat') {
+        setSelectedArtifactReference(null);
+        setComposerSelection(DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION);
+        return;
+      }
+      const keepReference =
+        selectedArtifactReference !== null &&
+        (selectedArtifactReference.mode === mode ||
+          (mode === 'video' && selectedArtifactReference.referenceKind === 'image'));
+      if (!keepReference) setSelectedArtifactReference(null);
+      setComposerSelection(
+        selectExplicitComposerWorkProductMode(
+          mode,
+          keepReference ? { selected: true, kind: selectedArtifactReference.referenceKind } : undefined,
+          mode === 'image'
+            ? { tierId: imageModelTier, aspectRatio: imageAspectRatio, resolution: imageResolution }
+            : undefined
+        )
+      );
+    },
+    [imageAspectRatio, imageModelTier, imageResolution, selectedArtifactReference]
+  );
+
+  const clearComposerReference = useCallback(() => {
+    setSelectedArtifactReference(null);
+    setComposerSelection((selection) =>
+      selectExplicitComposerWorkProductMode(
+        selection.mode,
+        undefined,
+        selection.mode === 'image'
+          ? { tierId: imageModelTier, aspectRatio: imageAspectRatio, resolution: imageResolution }
+          : undefined
+      )
+    );
+  }, [imageAspectRatio, imageModelTier, imageResolution]);
+
+  const handleImageModelTierChange = useCallback(
+    (tierId: typeof imageModelTier) => {
+      setImageModelTier(tierId);
+      setComposerSelection((selection) =>
+        selection.mode === 'image'
+          ? selectExplicitComposerWorkProductMode(
+              'image',
+              selection.hasSelectedReference ? { selected: true, kind: selection.selectedReferenceKind } : undefined,
+              { tierId, aspectRatio: imageAspectRatio, resolution: imageResolution }
+            )
+          : selection
+      );
+    },
+    [imageAspectRatio, imageResolution, setImageModelTier]
+  );
+
+  const handleImageResolutionChange = useCallback(
+    (resolution: '1K' | '2K') => {
+      setImageResolution(resolution);
+      setComposerSelection((selection) =>
+        selection.mode === 'image'
+          ? selectExplicitComposerWorkProductMode(
+              'image',
+              selection.hasSelectedReference ? { selected: true, kind: selection.selectedReferenceKind } : undefined,
+              { tierId: selection.imageOptions?.tierId ?? imageModelTier, aspectRatio: imageAspectRatio, resolution }
+            )
+          : selection
+      );
+    },
+    [imageAspectRatio, imageModelTier, setImageResolution]
+  );
+
+  const handleImageAspectRatioChange = useCallback(
+    (aspectRatio: typeof imageAspectRatio) => {
+      setImageAspectRatio(aspectRatio);
+      setComposerSelection((selection) =>
+        selection.mode === 'image'
+          ? selectExplicitComposerWorkProductMode(
+              'image',
+              selection.hasSelectedReference ? { selected: true, kind: selection.selectedReferenceKind } : undefined,
+              { tierId: selection.imageOptions?.tierId ?? imageModelTier, aspectRatio, resolution: imageResolution }
+            )
+          : selection
+      );
+    },
+    [imageModelTier, imageResolution, setImageAspectRatio]
+  );
+
+  const consumeComposerSelection = useCallback(() => {
+    setSelectedArtifactReference(null);
+    setComposerSelection(DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION);
+  }, []);
+
   // 1.820.4 (MAT-1772) — the durable project chip truth: the newest COMPLETED
   // project workspace artifact's title, path-free, ahead of hermes-temp-*.
   const durableProjectName = useNewestCompletedProjectTitle(conversation_id);
-  const latestImageSource = useMemo(
-    () => selectLatestVisibleMediaSourceArtifact(conversationArtifacts, 'image'),
-    [conversationArtifacts]
-  );
-  const latestVideoSource = useMemo(
-    () => selectLatestVisibleMediaSourceArtifact(conversationArtifacts, 'video'),
-    [conversationArtifacts]
-  );
-  const mediaLaneIntent = useMemo(
+  const selectedReferenceArtifact = useMemo(
     () =>
-      isEveConversation
-        ? resolveMediaLaneIntent({
-            message: content,
-            resolvedAgentId: addressesVideoMarketer(content) ? VIDEO_LANE_AGENT_ID : null,
-            sources: { image: latestImageSource !== null, video: latestVideoSource !== null },
-          })
-        : ({ operation: 'none' } as const),
-    [content, isEveConversation, latestImageSource, latestVideoSource]
+      selectedArtifactReference
+        ? (conversationArtifacts.find((artifact) => artifact.id === selectedArtifactReference.artifactId) ?? null)
+        : null,
+    [conversationArtifacts, selectedArtifactReference]
   );
-  const showImageCreateControls = mediaLaneIntent.operation === 'create' && mediaLaneIntent.medium === 'image';
-  const showImageEditHint = mediaLaneIntent.operation === 'edit-hint' && mediaLaneIntent.medium === 'image';
-  const showVideoCreateControls = mediaLaneIntent.operation === 'create' && mediaLaneIntent.medium === 'video';
-  const showVideoEditHint = mediaLaneIntent.operation === 'edit-hint' && mediaLaneIntent.medium === 'video';
+  const showImageCreateControls = composerSelection.mode === 'image' && selectedArtifactReference === null;
+  const showImageEditHint = composerSelection.mode === 'image' && selectedArtifactReference?.referenceKind === 'image';
+  const showVideoCreateControls =
+    composerSelection.mode === 'video' &&
+    (selectedArtifactReference === null || selectedArtifactReference.referenceKind === 'image');
+  const showVideoEditHint = composerSelection.mode === 'video' && selectedArtifactReference?.referenceKind === 'video';
   // The honest inline edit price for the VIDEO affordance: the MATCHING video
   // source's own tier and seconds (a video edit inherits source
   // quality/duration — never the overall latest media artifact's). Null when
   // the source is not edit-eligible, so the affordance never quotes a price
   // that would refuse.
   const videoEditEstimate = useMemo(() => {
-    if (!showVideoEditHint || !latestVideoSource) return null;
-    const payload = latestVideoSource.payload as { tier_id?: unknown; duration_seconds?: unknown };
+    if (!showVideoEditHint || !selectedReferenceArtifact) return null;
+    const payload = selectedReferenceArtifact.payload as { tier_id?: unknown; duration_seconds?: unknown };
     const tierId = payload.tier_id === 'sd' || payload.tier_id === 'fast' ? payload.tier_id : null;
     const seconds = typeof payload.duration_seconds === 'number' ? payload.duration_seconds : null;
     if (tierId === null || seconds === null || !isVideoEditEligibleTier(tierId)) return null;
     const credits = estimateVideoEditCredits(tierId, seconds);
     return Number.isFinite(credits) ? { credits, seconds } : null;
-  }, [showVideoEditHint, latestVideoSource]);
+  }, [showVideoEditHint, selectedReferenceArtifact]);
 
   // WHAT THE SEAT MAY OFFER (capabilities + catalog) is fetched inside the
   // shared useVideoComposerSelection hook — asked of MAIN, never decided here:
   // an absent or failed answer stays fail-closed (both flags false), and the
   // catalog falls back to the bundled snapshot marked approximate.
-
-  // IMAGE MODEL SELECTION (MAT-1769). The SELECTION is a per-seat preference
-  // owned by Main; the renderer keeps only the last proven seat id as the
-  // stale-action fence for writes. Its VISIBILITY is contextual since
-  // 1.820.3: the picker shows only for an image create/edit intent (the
-  // mediaLaneIntent gate above) — the preference itself stays persistent,
-  // so the agent-mediated image lane always applies the seat's last choice.
-  const [imageModelTier, setImageModelTier] = useState<CommandEveImageModelTierId>(
-    DEFAULT_COMMAND_EVE_IMAGE_MODEL_TIER
-  );
-  const imagePreferenceSeatRef = useRef<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void ipcBridge.commandEve.imageModelPreferenceRead
-      .invoke()
-      .then((response) => {
-        if (cancelled || !response?.success || !response.data || response.data.status !== 'resolved') return;
-        imagePreferenceSeatRef.current = response.data.seatId;
-        setImageModelTier(response.data.tier);
-      })
-      .catch(() => {
-        /* fail closed: the product default tier stands */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleImageModelTierChange = useCallback((tierId: CommandEveImageModelTierId) => {
-    setImageModelTier(tierId);
-    const expectedSeatId = imagePreferenceSeatRef.current;
-    // Without a proven seat the choice stays LOCAL — a write without the
-    // stale-action fence could land on the wrong side of a seat switch.
-    if (!expectedSeatId) return;
-    // ROLLBACK ON FAILURE: a preference write that did not land must not leave
-    // the pill quoting one model while Main bills another. Re-read what Main
-    // actually holds and adopt it — the pill is Main's mirror or it is a lie
-    // at the exact moment of choosing (Grok review 2026-08-03, MAJOR 1).
-    const rollBackToMainsValue = () => {
-      void ipcBridge.commandEve.imageModelPreferenceRead
-        .invoke()
-        .then((readback) => {
-          if (readback?.success && readback.data?.status === 'resolved') {
-            imagePreferenceSeatRef.current = readback.data.seatId;
-            setImageModelTier(readback.data.tier);
-          }
-        })
-        .catch(() => {
-          /* Main is unreachable; the next successful read reconciles */
-        });
-    };
-    void ipcBridge.commandEve.imageModelPreferenceSet
-      .invoke({ expectedSeatId, tier: tierId })
-      .then((response) => {
-        // Main re-proved the persisted value; adopt what it actually stored.
-        if (response?.success && response.data?.ok && response.data.preference.status === 'resolved') {
-          setImageModelTier(response.data.preference.tier);
-          return;
-        }
-        rollBackToMainsValue();
-      })
-      .catch(rollBackToMainsValue);
-  }, []);
-
-  // THE SERVER-OWNED PRICE BOOK. Asked of Main, never answered here: the
-  // registry (display names + credit quotes) lives behind the gateway's
-  // non-billable capabilities surface, and an absent or failed answer is
-  // `null` — the pill then shows "price unavailable" instead of a number.
-  // There is deliberately no client-side fallback table to fall back to.
-  const [imageModelRegistry, setImageModelRegistry] = useState<CommandEveImageModelRegistry | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void ipcBridge.commandEve.imageCapabilities
-      .invoke()
-      .then((response) => {
-        if (cancelled || !response?.success || !response.data?.ok) return;
-        setImageModelRegistry(response.data.registry);
-      })
-      .catch(() => {
-        /* fail closed: no registry, no prices */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // IMAGE EDIT MODEL TRUTH (Founder blocker 2): only the registry's
   // reference-capable tier may edit (today exactly `quality` = Nano Banana 2;
@@ -1267,8 +1313,15 @@ Please check your local CLI tool authentication status`,
   // It was wrong about the provider, and it is gone.
   const videoImagePaths = useMemo(() => uploadFile.filter((path) => isImageFile(path)), [uploadFile]);
   const videoModeKind: VideoModeKind = useMemo(
-    () => (videoImagePaths.length === 0 ? 'text' : videoImagePaths.length === 1 ? 'image' : 'reference'),
-    [videoImagePaths]
+    () =>
+      selectedArtifactReference?.referenceKind === 'image'
+        ? 'image'
+        : videoImagePaths.length === 0
+          ? 'text'
+          : videoImagePaths.length === 1
+            ? 'image'
+            : 'reference',
+    [selectedArtifactReference, videoImagePaths]
   );
 
   // Preset voices, when the seat is entitled and the mode can carry them. The
@@ -1420,13 +1473,16 @@ Please check your local CLI tool authentication status`,
       displayFiles: string[] = agentFiles,
       preparedContext?: string,
       managedVisualSourceCount?: number,
-      attachmentGrounding?: CommandEveAttachmentGroundingRequest
+      attachmentGrounding?: CommandEveAttachmentGroundingRequest,
+      queuedComposerSelection?: ComposerWorkProductSelection,
+      selectedArtifactId?: string
     ): Promise<AcpDispatchResult> => {
       if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
       const requestedBusyControlCommand = runtimeView.isProcessing
         ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
         : null;
-      const busyControlCommand = agentFiles.length === 0 ? requestedBusyControlCommand : null;
+      const busyControlCommand =
+        agentFiles.length === 0 && !queuedComposerSelection ? requestedBusyControlCommand : null;
 
       if (agentFiles.length > 0 && requestedBusyControlCommand?.mode === 'steer') {
         Message.warning(
@@ -1476,6 +1532,8 @@ Please check your local CLI tool authentication status`,
           preparedContext,
           managedVisualSourceCount,
           attachmentGrounding,
+          composerSelection: queuedComposerSelection,
+          selectedArtifactId,
           seatTicket,
         }) !== null
           ? 'accepted'
@@ -1489,6 +1547,8 @@ Please check your local CLI tool authentication status`,
         managedVisualSourceCount,
         attachmentGrounding,
         seatTicket,
+        composerSelection: queuedComposerSelection,
+        selectedArtifactId,
       });
     },
     [busySendMode, dispatchSteer, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing, t]
@@ -1655,6 +1715,9 @@ Please check your local CLI tool authentication status`,
          * resting state for exactly this send.
          */
         videoSelection?: VideoDraftSelection;
+        composerSelection?: ComposerWorkProductSelection;
+        selectedArtifactReference?: ComposerArtifactReference | null;
+        consumeComposerSelection?: () => void;
       }
     ): Promise<AcpDispatchResult> => {
       const isCurrent = () => runtimeView.isSeatTicketCurrent(seatTicket);
@@ -1670,8 +1733,12 @@ Please check your local CLI tool authentication status`,
         return 'rejected';
       }
 
-      // Heavy-lane routing (DUX-6, FAIL-SAFE) classifies BEFORE any document
-      // preparation runs — not after it. A video intent must never trigger
+      const activeComposerSelection = controls.composerSelection ?? DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION;
+      const workProductRequest = consumeComposerWorkProductSelection(activeComposerSelection).request;
+      const activeArtifactReference = controls.selectedArtifactReference ?? null;
+
+      // Heavy-lane routing (DUX-6, FAIL-SAFE) resolves BEFORE any document
+      // preparation runs — not after it. An explicitly selected video mode must never trigger
       // presentation/image cloud analysis: an attached image on a video send is
       // a VIDEO SOURCE, not a vision-analysis request, and running it through
       // that pipeline first would spend an unrelated cloud call and could
@@ -1680,36 +1747,93 @@ Please check your local CLI tool authentication status`,
       // image/presentation prep for every send, including a video one, before
       // this check ever ran.
       //
-      // NOTE the input. This classifies `message` — what SendBox hands to onSend,
-      // which is the draft PLUS whatever SendBox added on the way: a reply quote,
-      // DOM snippets, a speech transcript captured at send time. The quality pill
-      // classifies the raw draft. So the two are NOT the same text, and `message`
-      // is always the superset: the pill can be hidden for a send that does route
-      // to video (quote a video request, answer "ja bitte"), but never visible for
-      // one that does not. CAO proved this on 6c59706a; an earlier comment here
-      // claimed the opposite and was wrong.
       const routesToVideo =
         isEveConversation &&
-        (isVideoLaneRequest({
-          message,
-          resolvedAgentId: addressesVideoMarketer(message) ? VIDEO_LANE_AGENT_ID : null,
-        }) ||
-          // 1.820.3 — ROUTING PARITY with the draft-visibility gate: the same
-          // shared pure create-vs-edit discriminator decides BOTH surfaces.
-          // An unambiguous new-output idiom ("Gib mir ein Video von …",
-          // "Give me a video of …") shows the video creation controls — so
-          // it must also reach THIS single direct job, or the visible
-          // selection and quote would be dishonest.
-          isExplicitVideoCreateRequest(message)) &&
-        // 1.820.3 — THE SHARED EDIT VETO. An explicit video EDIT ("Schneide
-        // das Video.", "Mach das Video heller.", "Gib der Aubergine im Video
-        // ein Gesicht") satisfies the creation regex too — and must NEVER
-        // enter this direct paid generation branch. The same pure predicate
-        // drives the draft-visibility gate, so UI and send can never
-        // disagree: every video edit goes out as a normal Hermes turn, where
-        // the artifact envelope and the eve_video_edit tool resolve the
-        // source semantically. No selectedArtifactIds are inferred anywhere.
-        !isExplicitVideoEditRequest(message);
+        workProductRequest?.mode === 'video' &&
+        workProductRequest.action === 'create' &&
+        (activeArtifactReference === null || activeArtifactReference.managedImage);
+
+      const routesToImage =
+        isEveConversation &&
+        workProductRequest?.mode === 'image' &&
+        workProductRequest.action === 'create' &&
+        activeArtifactReference === null;
+
+      if (routesToImage) {
+        const imageOptions = workProductRequest.imageOptions;
+        const referenceImagePaths = allFiles.filter((filePath) => isImageFile(filePath));
+        const unsupportedFiles = allFiles.filter((filePath) => !isImageFile(filePath));
+        if (!imageOptions || unsupportedFiles.length > 0) {
+          controls.restoreDraftAndFiles();
+          Message.warning(
+            t('conversation.workProduct.image.referencesOnly', {
+              defaultValue: 'Im Bildmodus kannst du nur Bilder als Referenz anhängen.',
+            })
+          );
+          return 'rejected';
+        }
+
+        const requestKey = JSON.stringify({
+          conversationId: conversation_id,
+          prompt: message,
+          tierId: imageOptions.tierId,
+          resolution: imageOptions.resolution,
+          aspectRatio: imageOptions.aspectRatio,
+          referenceImagePaths,
+        });
+        const requestId =
+          imageGenerateRequestRef.current?.requestKey === requestKey
+            ? imageGenerateRequestRef.current.requestId
+            : `image-${uuid(32)}`;
+        imageGenerateRequestRef.current = { requestKey, requestId };
+        controls.clearSelection();
+
+        void ipcBridge.commandEve.imageGenerate
+          .invoke({
+            prompt: message,
+            conversationId: conversation_id,
+            requestId,
+            tierId: imageOptions.tierId,
+            resolution: imageOptions.resolution,
+            aspectRatio: imageOptions.aspectRatio,
+            ...(referenceImagePaths.length === 0 ? {} : { referenceImagePaths }),
+          })
+          .then((response) => {
+            if (!isCurrent()) return;
+            const outcome = response?.data;
+            if (!response?.success || !outcome) {
+              Message.error({
+                content: t('conversation.workProduct.image.generateFailed', {
+                  defaultValue: 'Das Bild konnte nicht erstellt werden. Entwurf und Auswahl bleiben erhalten.',
+                }),
+                duration: 6000,
+              });
+              controls.restoreDraftAndFiles();
+              return;
+            }
+            if (outcome.ok === false) {
+              Message.error({
+                content: scrubModelIdentifiers(outcome.message, CLOUD_MODEL_IDENTIFIERS),
+                duration: 8000,
+              });
+              controls.restoreDraftAndFiles();
+              return;
+            }
+            imageGenerateRequestRef.current = null;
+            controls.consumeComposerSelection?.();
+          })
+          .catch(() => {
+            if (!isCurrent()) return;
+            Message.error({
+              content: t('conversation.workProduct.image.generateFailed', {
+                defaultValue: 'Das Bild konnte nicht erstellt werden. Entwurf und Auswahl bleiben erhalten.',
+              }),
+              duration: 6000,
+            });
+            controls.restoreDraftAndFiles();
+          });
+        return 'accepted';
+      }
 
       if (routesToVideo) {
         // The image sources that travel with a video request — the exact files
@@ -1721,6 +1845,15 @@ Please check your local CLI tool authentication status`,
         // left untouched for MAIN — no cloud vision call, no sidecar, no
         // visual-policy receipt for a video request.
         const attachedImagePaths = allFiles.filter((filePath) => isImageFile(filePath));
+        if (activeArtifactReference?.managedImage && attachedImagePaths.length > 0) {
+          controls.restoreDraftAndFiles();
+          Message.warning(
+            t('conversation.workProduct.singleVideoSource', {
+              defaultValue: 'Entferne entweder das ausgewählte Artefakt oder die angehängten Bilder.',
+            })
+          );
+          return 'rejected';
+        }
         controls.clearSelection();
 
         // A selection only counts if the user could SEE it. On the divergence
@@ -1732,16 +1865,20 @@ Please check your local CLI tool authentication status`,
         // (below), and a tier the provider cannot PRODUCE for THIS MODE AND THIS
         // SEAT falls back to the default rather than being sent to fail.
         const sendModeKind: VideoModeKind =
-          attachedImagePaths.length === 0 ? 'text' : attachedImagePaths.length === 1 ? 'image' : 'reference';
-        const selectedTier = draftRoutesToVideo ? videoTierId : DEFAULT_VIDEO_TIER_ID;
+          activeArtifactReference?.managedImage === true
+            ? 'image'
+            : attachedImagePaths.length === 0
+              ? 'text'
+              : attachedImagePaths.length === 1
+                ? 'image'
+                : 'reference';
+        const selectedTier = videoTierId ?? DEFAULT_VIDEO_TIER_ID;
         // MAT-1773 (F8) — with the catalog dropdown, the RESTING state is a real
         // selection: Grok Imagine Video 1.5 stays the default. The price the pill
         // quotes for an untouched picker must be the price the send carries, so
         // the default resolves here too — an explicit pick always wins. A
         // carried guid selection (controls.videoSelection) wins over both.
-        const selectedModel = draftRoutesToVideo
-          ? (controls.videoSelection?.modelId ?? videoModelId ?? DEFAULT_VIDEO_CATALOG_MODEL_ID)
-          : undefined;
+        const selectedModel = controls.videoSelection?.modelId ?? videoModelId ?? DEFAULT_VIDEO_CATALOG_MODEL_ID;
         // A catalog id naming a legacy model checks against its legacy id: the
         // availability list folds the two spellings into one entry.
         const normalizedSelectedModel =
@@ -1767,9 +1904,7 @@ Please check your local CLI tool authentication status`,
         // models (the three tiers cannot name `2K`/`4K`); for the legacy xAI
         // lane the tier already names it, so nothing extra is sent.
         const selectedResolution =
-          draftRoutesToVideo &&
-          producibleModel !== undefined &&
-          legacyVideoModelIdForCatalogId(producibleModel) === null
+          producibleModel !== undefined && legacyVideoModelIdForCatalogId(producibleModel) === null
             ? (controls.videoSelection?.resolution ?? videoResolution ?? undefined)
             : undefined;
 
@@ -1777,9 +1912,7 @@ Please check your local CLI tool authentication status`,
           {
             tierId: producibleTier,
             ...(producibleModel === undefined ? {} : { modelId: producibleModel }),
-            durationSeconds: draftRoutesToVideo
-              ? (controls.videoSelection?.durationSeconds ?? videoDurationSeconds)
-              : DEFAULT_VIDEO_DURATION_SECONDS,
+            durationSeconds: controls.videoSelection?.durationSeconds ?? videoDurationSeconds,
             modeKind: sendModeKind,
             capabilities: videoCapabilities,
             catalog: videoCatalog.entries,
@@ -1807,7 +1940,12 @@ Please check your local CLI tool authentication status`,
                 // Exactly one input family travels, chosen by the mode the price
                 // was quoted for. Main rebuilds the mode from these fields and
                 // refuses `video-mode-ambiguous` if both ever arrive.
-                ...(sendModeKind === 'image' ? { imagePath: attachedImagePaths[0] } : {}),
+                ...(activeArtifactReference?.managedImage
+                  ? { imageArtifactId: activeArtifactReference.artifactId }
+                  : {}),
+                ...(sendModeKind === 'image' && attachedImagePaths.length === 1
+                  ? { imagePath: attachedImagePaths[0] }
+                  : {}),
                 ...(sendModeKind === 'reference'
                   ? {
                       referenceImagePaths: attachedImagePaths,
@@ -1859,6 +1997,7 @@ Please check your local CLI tool authentication status`,
                 // video ends its own tier here. Only here — see the failure
                 // paths above, which deliberately leave the choice standing.
                 resetVideoSelection();
+                controls.consumeComposerSelection?.();
               })
               .catch(() => {
                 if (!isCurrent()) return;
@@ -2114,9 +2253,14 @@ Please check your local CLI tool authentication status`,
           allFiles,
           preparedContext,
           visualContexts.length || undefined,
-          attachmentGrounding
+          attachmentGrounding,
+          workProductRequest ? activeComposerSelection : undefined,
+          activeArtifactReference?.artifactId
         );
         if (dispatchResult === 'rejected') controls.restoreDraftAndFiles();
+        if (dispatchResult === 'accepted' && workProductRequest) {
+          controls.consumeComposerSelection?.();
+        }
         // A stale result belongs to the seat/generation that was fenced while
         // this async send was in flight. Restoring that draft would write old
         // seat input and attachments into the newly bound seat, so stale work
@@ -2156,7 +2300,6 @@ Please check your local CLI tool authentication status`,
       videoTierId,
       videoModelId,
       videoDurationSeconds,
-      draftRoutesToVideo,
       videoCapabilities,
       videoVoiceIds,
     ]
@@ -2312,17 +2455,39 @@ Please check your local CLI tool authentication status`,
           setAtPath(selectedAtPath);
           emitter.emit('acp.selected.file', selectedAtPath);
         },
+        composerSelection,
+        selectedArtifactReference,
+        consumeComposerSelection,
       });
     },
-    [atPath, clearFiles, content, runtimeView, setAtPath, setContent, setUploadFile, submitMessage, uploadFile]
+    [
+      atPath,
+      clearFiles,
+      composerSelection,
+      consumeComposerSelection,
+      content,
+      runtimeView,
+      selectedArtifactReference,
+      setAtPath,
+      setContent,
+      setUploadFile,
+      submitMessage,
+      uploadFile,
+    ]
   );
 
   const sendInitialMessage = useCallback(
-    async (input: string, files: string[], videoSelection?: VideoDraftSelection): Promise<boolean> => {
+    async (
+      input: string,
+      files: string[],
+      videoSelection: VideoDraftSelection | undefined,
+      initialComposerSelection: ComposerWorkProductSelection = DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION
+    ): Promise<boolean> => {
       // The guid handoff carries the picker state with the first send: adopt it
       // so the pill shows what was sent, and pass it THROUGH as data — state
       // set here would not reach this send's own closure.
       if (videoSelection) applyVideoSelection(videoSelection);
+      setComposerSelection(initialComposerSelection);
       const seatTicket = runtimeView.captureSeatTicket();
       try {
         return (
@@ -2336,6 +2501,9 @@ Please check your local CLI tool authentication status`,
               emitter.emit('acp.selected.file.clear');
             },
             ...(videoSelection === undefined ? {} : { videoSelection }),
+            composerSelection: initialComposerSelection,
+            selectedArtifactReference: null,
+            consumeComposerSelection,
           })) === 'accepted'
         );
       } catch {
@@ -2344,7 +2512,16 @@ Please check your local CLI tool authentication status`,
         return false;
       }
     },
-    [applyVideoSelection, runtimeView, setAtPath, setContent, setUploadFile, submitMessage]
+    [
+      applyVideoSelection,
+      consumeComposerSelection,
+      runtimeView,
+      setAtPath,
+      setComposerSelection,
+      setContent,
+      setUploadFile,
+      submitMessage,
+    ]
   );
 
   // The Guid/startscreen handoff is only transport. All real submission work
@@ -2367,8 +2544,18 @@ Please check your local CLI tool authentication status`,
       setUploadFile(Array.from(new Set(item.displayFiles ?? item.files)));
       setAtPath([]);
       emitter.emit('acp.selected.file.clear');
+      if (item.composerSelection) {
+        setComposerSelection(item.composerSelection);
+        const artifact = item.selectedArtifactId
+          ? conversationArtifacts.find((candidate) => candidate.id === item.selectedArtifactId)
+          : undefined;
+        setSelectedArtifactReference(resolveComposerArtifactReference(artifact));
+      } else {
+        setComposerSelection(DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION);
+        setSelectedArtifactReference(null);
+      }
     },
-    [remove, setAtPath, setContent, setUploadFile]
+    [conversationArtifacts, remove, setAtPath, setContent, setUploadFile]
   );
 
   const handlePromoteQueuedCommand = useCallback(
@@ -2704,6 +2891,174 @@ Please check your local CLI tool authentication status`,
     }
   };
 
+  const workProductModes = [
+    {
+      mode: 'image' as const,
+      label: t('conversation.workProduct.image.label', { defaultValue: 'Bild erstellen' }),
+      tooltip: t('conversation.workProduct.image.tooltip', { defaultValue: 'Bild erstellen oder bearbeiten' }),
+    },
+    {
+      mode: 'video' as const,
+      label: t('conversation.workProduct.video.label', { defaultValue: 'Video erstellen' }),
+      tooltip: t('conversation.workProduct.video.tooltip', { defaultValue: 'Video erstellen oder bearbeiten' }),
+    },
+    {
+      mode: 'presentation' as const,
+      label: t('conversation.workProduct.presentation.label', { defaultValue: 'Präsentation erstellen' }),
+      tooltip: t('conversation.workProduct.presentation.tooltip', {
+        defaultValue: 'Präsentation erstellen oder bearbeiten',
+      }),
+    },
+    {
+      mode: 'pdf' as const,
+      label: t('conversation.workProduct.pdf.label', { defaultValue: 'PDF erstellen' }),
+      tooltip: t('conversation.workProduct.pdf.tooltip', { defaultValue: 'PDF erstellen oder bearbeiten' }),
+    },
+  ];
+  const workProductActions = {
+    toolbarLabel: t('conversation.workProduct.toolbarLabel', { defaultValue: 'Arbeitsprodukt auswählen' }),
+    returnToChatLabel: t('conversation.workProduct.returnToChat', { defaultValue: 'Zurück zum normalen Chat' }),
+    selectedReferenceLabel: t('conversation.workProduct.selectedReference', {
+      defaultValue: 'Ausgewähltes Artefakt',
+    }),
+    removeReferenceLabel: t('conversation.workProduct.removeReference', { defaultValue: 'Artefakt entfernen' }),
+  };
+  const { referenceImagePath: localImageReferencePath, visibleFiles: visibleUploadFiles } =
+    resolveComposerAttachmentPresentation(composerSelection.mode, uploadFile, selectedArtifactReference !== null);
+  const selectedReferenceChip = selectedArtifactReference
+    ? {
+        title: selectedArtifactReference.title,
+        kind: selectedArtifactReference.referenceKind,
+        kindLabel:
+          selectedArtifactReference.referenceKind === 'image'
+            ? t('conversation.workProduct.referenceImage', { defaultValue: 'Referenzbild' })
+            : t(`conversation.workProduct.kind.${selectedArtifactReference.referenceKind}`, {
+                defaultValue:
+                  selectedArtifactReference.referenceKind === 'video'
+                    ? 'Video'
+                    : selectedArtifactReference.referenceKind === 'presentation'
+                      ? 'PPTX'
+                      : 'PDF',
+              }),
+        preview:
+          selectedArtifactReference.referenceKind === 'image' && selectedArtifactReference.managedImage ? (
+            <ComposerReferencePreview
+              conversationId={selectedArtifactReference.conversationId}
+              artifactId={selectedArtifactReference.artifactId}
+              alt=''
+            />
+          ) : undefined,
+      }
+    : localImageReferencePath
+      ? {
+          title: localImageReferencePath.split(/[\\/]/).at(-1) || 'Referenzbild',
+          kind: 'image' as const,
+          kindLabel: t('conversation.workProduct.referenceImage', { defaultValue: 'Referenzbild' }),
+          preview: <ComposerReferencePreview path={localImageReferencePath} alt='' />,
+        }
+      : undefined;
+  const removeSelectedReference = selectedArtifactReference
+    ? clearComposerReference
+    : localImageReferencePath
+      ? () => setUploadFile(uploadFile.filter((path) => path !== localImageReferencePath))
+      : undefined;
+  const workProductCapabilityMenu = (
+    <>
+      {loadedSkills.map((name) => (
+        <Menu.Item
+          key={`work-product-skill-${name}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setContent(`/${name} `);
+          }}
+        >
+          <span className='inline-flex min-w-0 items-center gap-8px'>
+            <MagicHat theme='outline' size='15' fill='currentColor' aria-hidden='true' />
+            <span className='truncate'>/{name}</span>
+          </span>
+        </Menu.Item>
+      ))}
+      {loadedMcpStatuses.map((item) => (
+        <Menu.Item
+          key={`work-product-mcp-${item.id}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            window.location.hash = '#/connectors';
+          }}
+        >
+          <span className='inline-flex min-w-0 items-center gap-8px'>
+            <Shield theme='outline' size='15' fill='currentColor' aria-hidden='true' />
+            <span className='truncate'>{item.name}</span>
+            <span className='ml-auto text-11px text-t-secondary'>
+              {t(`conversation.mcp.status.${item.status}` as const)}
+            </span>
+          </span>
+        </Menu.Item>
+      ))}
+      <Menu.Item
+        key='work-product-capability-catalog'
+        onClick={(event) => {
+          event.stopPropagation();
+          window.location.hash = '#/connectors';
+        }}
+      >
+        <span className='text-12px text-t-secondary'>
+          {t('conversation.mcp.openSettings', { defaultValue: 'Connector Catalog öffnen' })}
+        </span>
+      </Menu.Item>
+    </>
+  );
+  const agentModeControl = showModeSelector ? (
+    <AgentModeSelector
+      backend={backend}
+      conversation_id={conversation_id}
+      compact
+      initialMode={session_mode}
+      compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
+      modeLabelFormatter={formatModeLabel}
+      compactLabelOverride={eveAuthorityLabel}
+      compactLabelPrefix={t('agentMode.permission')}
+      hideCompactLabelPrefixOnMobile
+      onModeChanged={handleDesktopModeChanged}
+      beforeRuntimeSync={prepareRuntimeSync}
+    />
+  ) : null;
+  const workProductOptionControls = (
+    <>
+      <ImageModelPill
+        visible={showImageCreateControls}
+        value={imageModelTier}
+        onChange={handleImageModelTierChange}
+        registry={imageModelRegistry}
+        resolution={imageResolution}
+        onResolutionChange={handleImageResolutionChange}
+      />
+      <ImageAspectRatioPill
+        visible={showImageCreateControls}
+        value={imageAspectRatio}
+        onChange={handleImageAspectRatioChange}
+      />
+      <VideoQualityPill
+        visible={showVideoCreateControls}
+        value={videoTierId}
+        onChange={handleVideoTierChange}
+        modelId={videoModelId}
+        onModelChange={handleVideoModelChange}
+        resolution={videoResolution}
+        onResolutionChange={handleVideoResolutionChange}
+        durationSeconds={videoDurationSeconds}
+        onDurationChange={setVideoDurationSeconds}
+        modeKind={videoModeKind}
+        capabilities={videoCapabilities}
+        catalogEntries={videoCatalog.entries}
+        catalogApproximate={videoCatalog.approximate}
+        presetVoices={VIDEO_PRESET_VOICES}
+        selectedVoiceIds={videoVoiceIds}
+        onVoiceToggle={toggleVideoVoice}
+      />
+    </>
+  );
+
   return (
     <div ref={composerRootRef} className='acp-send-box max-w-800px w-full mx-auto flex flex-col mt-auto mb-16px'>
       <AcpDocumentPreparationStatus state={documentPreparation} />
@@ -2764,9 +3119,26 @@ Please check your local CLI tool authentication status`,
               openFileSelector={openFileSelector}
               onLocalFilesAdded={handleFilesAdded}
               loadedMcpStatuses={loadedMcpStatuses}
+              icon={isEveConversation ? 'plus' : 'paperclip'}
             />
-            {!isMobile ? (
+            {isEveConversation ? (
+              <WorkProductModeSelector
+                value={composerSelection.mode}
+                onChange={handleComposerModeChange}
+                modes={workProductModes}
+                actions={workProductActions}
+                disabled={eveSendHeld}
+                capabilityLabel={t('conversation.workProduct.capabilities')}
+                capabilityCount={loadedSkills.length + loadedMcpStatuses.length}
+                capabilityMenu={workProductCapabilityMenu}
+              />
+            ) : !isMobile ? (
               <WorkspaceContextControl workspacePath={workspacePath} projectName={durableProjectName ?? undefined} />
+            ) : null}
+            {isEveConversation && agentModeControl ? (
+              <span style={{ display: 'none' }} aria-hidden='true'>
+                {agentModeControl}
+              </span>
             ) : null}
           </div>
         }
@@ -2802,24 +3174,7 @@ Please check your local CLI tool authentication status`,
             // only an EVE composer can ever wear the MAX visual state. This is
             // the composer's ONE cloud-intelligence affordance: off = EVE's
             // normal unnamed behaviour, on = the MAX state.
-            maxSlot={isEveConversation ? <EveMaxToggle disabled={isBusy} /> : null}
-            permissionSlot={
-              showModeSelector ? (
-                <AgentModeSelector
-                  backend={backend}
-                  conversation_id={conversation_id}
-                  compact
-                  initialMode={session_mode}
-                  compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
-                  modeLabelFormatter={formatModeLabel}
-                  compactLabelOverride={eveAuthorityLabel}
-                  compactLabelPrefix={t('agentMode.permission')}
-                  hideCompactLabelPrefixOnMobile
-                  onModeChanged={handleDesktopModeChanged}
-                  beforeRuntimeSync={prepareRuntimeSync}
-                />
-              ) : null
-            }
+            permissionSlot={isEveConversation ? null : agentModeControl}
             contextSlot={
               /* Consumed-context ring + credits popover (Claude-Code-style). Quiet
                  until the first acp_context_usage frame arrives (renders null with no
@@ -2831,16 +3186,6 @@ Please check your local CLI tool authentication status`,
                   modelId={indicatorModelId}
                 />
               )
-            }
-            eveControl={
-              !isMobile && isEveConversation
-                ? {
-                    tokenUsage,
-                    contextLimit: context_limit,
-                    modelId: indicatorModelId,
-                    disabled: false,
-                  }
-                : undefined
             }
             micSlot={
               <>
@@ -2880,6 +3225,29 @@ Please check your local CLI tool authentication status`,
         }
         prefix={
           <>
+            {isEveConversation ? (
+              selectedReferenceChip ? (
+                <WorkProductModeHeader
+                  value={composerSelection.mode}
+                  onChange={handleComposerModeChange}
+                  modes={workProductModes}
+                  actions={workProductActions}
+                  disabled={eveSendHeld}
+                  controls={workProductOptionControls}
+                  selectedReference={selectedReferenceChip}
+                  onRemoveReference={removeSelectedReference as () => void}
+                />
+              ) : (
+                <WorkProductModeHeader
+                  value={composerSelection.mode}
+                  onChange={handleComposerModeChange}
+                  modes={workProductModes}
+                  actions={workProductActions}
+                  disabled={eveSendHeld}
+                  controls={workProductOptionControls}
+                />
+              )
+            ) : null}
             {/* One-time Vision enablement prompt (MAT-1769). Renders in the
                 draft band like the pills — inline, keyboard-reachable, never a
                 modal — and only for a send that actually hit the disabled
@@ -2896,12 +3264,6 @@ Please check your local CLI tool authentication status`,
                 three-tier selector with generation quotes. An image EDIT
                 gets the compact truthful affordance below instead. Renders
                 in the draft band — never an overlay. */}
-            <ImageModelPill
-              visible={showImageCreateControls}
-              value={imageModelTier}
-              onChange={handleImageModelTierChange}
-              registry={imageModelRegistry}
-            />
             {/* Compact IMAGE-EDIT affordance (1.820.3, Founder blocker 2).
                 Only the registry's reference-capable tier may edit (today:
                 Nano Banana 2). Shows that tier and its edit_credits quote —
@@ -2944,29 +3306,6 @@ Please check your local CLI tool authentication status`,
                 )}
               </div>
             ) : null}
-            {/* Quality picker for the pending video — CREATION only. An edit
-                inherits the source's quality and duration, so a video edit
-                gets the compact affordance below instead of creation
-                settings it could not honour. Renders in the draft band,
-                never as an overlay. */}
-            <VideoQualityPill
-              visible={showVideoCreateControls}
-              value={videoTierId}
-              onChange={handleVideoTierChange}
-              modelId={videoModelId}
-              onModelChange={handleVideoModelChange}
-              resolution={videoResolution}
-              onResolutionChange={handleVideoResolutionChange}
-              durationSeconds={videoDurationSeconds}
-              onDurationChange={setVideoDurationSeconds}
-              modeKind={videoModeKind}
-              capabilities={videoCapabilities}
-              catalogEntries={videoCatalog.entries}
-              catalogApproximate={videoCatalog.approximate}
-              presetVoices={VIDEO_PRESET_VOICES}
-              selectedVoiceIds={videoVoiceIds}
-              onVoiceToggle={toggleVideoVoice}
-            />
             {/* Compact video-EDIT affordance (1.820.3). A mutation intent
                 over the visible source clip shows this — no resolution,
                 duration or voice selector, because the edit tool inherits
@@ -2988,9 +3327,9 @@ Please check your local CLI tool authentication status`,
                 ) : null}
               </div>
             ) : null}
-            {uploadFile.length > 0 && (
+            {visibleUploadFiles.length > 0 && (
               <HorizontalFileList>
-                {uploadFile.map((path) => (
+                {visibleUploadFiles.map((path) => (
                   <FilePreview
                     key={path}
                     path={path}
@@ -3024,6 +3363,23 @@ Please check your local CLI tool authentication status`,
               </div>
             )}
           </>
+        }
+        footerSlot={
+          isEveConversation ? (
+            <ComposerContextDeck
+              projectSlot={
+                <WorkspaceContextControl
+                  workspacePath={workspacePath}
+                  projectName={durableProjectName ?? undefined}
+                  compactLabel
+                />
+              }
+              maxSlot={<EveMaxToggle disabled={isBusy} />}
+              tokenUsage={tokenUsage}
+              contextLimit={context_limit}
+              modelId={indicatorModelId}
+            />
+          ) : undefined
         }
         onSend={onSendHandler}
         slash_commands={slashCommands}

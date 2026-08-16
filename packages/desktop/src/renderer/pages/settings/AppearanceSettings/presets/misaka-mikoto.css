@@ -404,15 +404,15 @@ button[type='secondary']:not([class*='model']) svg:hover {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--gradient-primary-hover);
+  background: var(--eve-scrollbar-thumb-hover);
 }
 
 *:hover::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.3);
+  background: var(--eve-scrollbar-thumb);
 }
 
 *:hover::-webkit-scrollbar-thumb:hover {
-  background: var(--gradient-primary-hover);
+  background: var(--eve-scrollbar-thumb-hover);
 }
 
 ::-webkit-scrollbar-track {
@@ -709,12 +709,12 @@ a:hover:not([class*='button']):not([class*='btn']) {
 
 /* 深色模式滚动条 */
 [data-theme='dark'] *:hover::-webkit-scrollbar-thumb {
-  background: rgba(96, 165, 250, 0.5);
+  background: var(--eve-scrollbar-thumb);
 }
 
 [data-theme='dark'] *:hover::-webkit-scrollbar-thumb:hover {
-  background: var(--gradient-primary-hover);
-  box-shadow: 0 0 8px rgba(96, 165, 250, 0.6);
+  background: var(--eve-scrollbar-thumb-hover);
+  box-shadow: none;
 }
 
 /* 深色模式选中文字 */

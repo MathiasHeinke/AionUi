@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Command } from '@icon-park/react';
 
 interface AppErrorBoundaryState {
   error: Error | null;
@@ -76,7 +77,12 @@ export class AppErrorBoundary extends React.Component<React.PropsWithChildren, A
           }}
         >
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>
-            <span style={{ color: '#f97316' }}>⌘</span> Etwas ist schiefgelaufen
+            <Command
+              size={20}
+              aria-hidden='true'
+              style={{ color: '#f97316', marginRight: 7, verticalAlign: '-0.12em' }}
+            />
+            Etwas ist schiefgelaufen
           </div>
           <p style={{ fontSize: 14, lineHeight: 1.5, color: '#9fb0c4', margin: '0 0 18px' }}>
             EVE konnte diese Ansicht nicht laden. Deine Daten sind sicher — geh zurück oder lade neu.

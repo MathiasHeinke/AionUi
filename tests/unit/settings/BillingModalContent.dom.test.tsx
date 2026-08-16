@@ -8,7 +8,7 @@
  * BillingModalContent (Lane 3, Gen-B money surface) DOM behavior:
  *   - FREE own seat → status line "Your own seat: 0 € — forever".
  *   - PAID seat → the paid-seat status line instead.
- *   - CLIENT-SEAT CTA deep-links to /account?intent=add_seat (LIVE Gen-B consumer).
+ *   - CUSTOMER-SEAT CTA stays inside the app and opens Account settings.
  *   - CREDIT PACKS deep-link to /account?pack_eur=<n> and show the +20% bonus badge.
  *   - NO legacy 79€ Starter / 49€ Solo "plan" copy survives.
  *
@@ -20,6 +20,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CreditMeterModel } from '@/common/config/creditsCore';
+import { MemoryRouter } from 'react-router-dom';
+
+const navigateMock = vi.hoisted(() => vi.fn());
+vi.mock('react-router-dom', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-router-dom')>()),
+  useNavigate: () => navigateMock,
+}));
+vi.mock('@/renderer/pages/settings/components/SettingsPageWrapper', async () => {
+  const react = await import('react');
+  return {
+    default: ({ children }: { children: React.ReactNode }) => react.createElement(react.Fragment, null, children),
+  };
+});
 
 // i18next: return the defaultValue with naive {{var}} interpolation so assertions
 // match the real Gen-B copy.
@@ -38,9 +51,8 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-// APP→WEB AUTH HANDOFF: the billing CTAs now open via openAccountWeb (MAIN attaches
-// the desktop session so the browser lands logged in). We assert the RELATIVE path
-// it is called with (the origin + session are pinned/attached inside openAccountWeb).
+// Money actions still use the authenticated web handoff. Free customer Seats must
+// never use it.
 const openAccountWebMock = vi.fn(() => Promise.resolve());
 vi.mock('@renderer/utils/platform', () => ({
   openAccountWeb: (path: string) => openAccountWebMock(path),
@@ -100,6 +112,7 @@ vi.mock('@process/commandEve/seatSwitchCore', () => ({
 }));
 
 import BillingModalContent from '@/renderer/components/settings/SettingsModal/contents/BillingModalContent';
+import BillingSettings from '@/renderer/pages/settings/BillingSettings';
 
 function meterFor(tier: CreditMeterModel['tier']): CreditMeterModel {
   return {
@@ -163,24 +176,40 @@ describe('BillingModalContent — Gen-B seat status', () => {
   });
 });
 
-describe('BillingModalContent — client-seat CTA + pack deep-links (Gen-B consumers)', () => {
-  it('the client-seat CTA deep-links to /account?intent=add_seat', async () => {
+describe('BillingModalContent — in-app customer Seats + pack deep-links', () => {
+  it('the customer-Seat CTA opens Account settings without a website handoff', async () => {
     stubStatus('free');
     const user = userEvent.setup();
-    render(<BillingModalContent />);
+    const openAccount = vi.fn();
+    render(<BillingModalContent onOpenAccount={openAccount} />);
     await user.click(screen.getByTestId('billing-add-seat'));
-    expect(openAccountWebMock).toHaveBeenCalledWith('/account?intent=add_seat');
+    expect(openAccount).toHaveBeenCalledTimes(1);
+    expect(openAccountWebMock).not.toHaveBeenCalled();
+  });
+
+  it('the shipped /settings/billing route wires the CTA to /settings/account', async () => {
+    stubStatus('free');
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/settings/billing']}>
+        <BillingSettings />
+      </MemoryRouter>
+    );
+    await user.click(screen.getByTestId('billing-add-seat'));
+    expect(navigateMock).toHaveBeenCalledWith('/settings/account');
+    expect(openAccountWebMock).not.toHaveBeenCalled();
   });
 
   // WAS: 'the client-seat CTA advertises the 99€ floor'. There is no seat floor any
   // more — a seat costs 0 € and is included in Standard. A "99" on this button would
   // now be a per-seat price, which is exactly the retired contract.
-  it('the add-seat CTA says a seat costs nothing and is included in Standard', () => {
+  it('the add-seat CTA says the customer Seat is free and managed in Account settings', () => {
     stubStatus('free');
     render(<BillingModalContent />);
     const text = screen.getByTestId('billing-add-seat').textContent ?? '';
-    expect(text).toContain('0 €');
-    expect(text).toContain('included in Standard');
+    expect(text).toContain('free customer Seat');
+    expect(text).toContain('Account settings');
+    expect(text).not.toContain('€');
     expect(text).not.toContain('99');
   });
 

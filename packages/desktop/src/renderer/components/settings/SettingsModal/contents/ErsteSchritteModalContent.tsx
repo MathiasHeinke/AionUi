@@ -27,7 +27,7 @@
 
 import React, { useCallback } from 'react';
 import { Button, Tag } from '@arco-design/web-react';
-import { Right } from '@icon-park/react';
+import { Attention, CheckOne, LoadingOne, Right } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { isElectronDesktop, openAccountWeb } from '@renderer/utils/platform';
@@ -41,6 +41,7 @@ import {
 } from '@/common/config/ersteSchritteHubCore';
 import { EVE_SETTINGS_TAG_COLOR } from '@/renderer/components/settings/settingsSemantics';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
+import EveIconTile from '@/renderer/components/base/EveIconTile';
 
 const STATUS_TAG_COLOR: Record<ErsteSchritteStepStatus, 'green' | 'gold' | 'gray'> = {
   done: EVE_SETTINGS_TAG_COLOR.success,
@@ -154,8 +155,16 @@ const ErsteSchritteModalContent: React.FC = () => {
         })}
       >
         {loading ? (
-          <div className='erste-schritte-settings__status' data-loading='true'>
-            {t('settings.ersteSchritteLoading', { defaultValue: 'Status wird geprüft …' })}
+          <div className='erste-schritte-settings__status' data-loading='true' role='status'>
+            <div className='erste-schritte-settings__status-header'>
+              <EveIconTile tone='action' size='large'>
+                <LoadingOne size={18} className='animate-spin' />
+              </EveIconTile>
+              <div className='erste-schritte-settings__status-copy'>
+                <strong>{t('settings.ersteSchritteLoading', { defaultValue: 'Status wird geprüft …' })}</strong>
+                <span>{t('settings.ersteSchritteStatusDescription')}</span>
+              </div>
+            </div>
           </div>
         ) : greeting ? (
           <div
@@ -163,9 +172,14 @@ const ErsteSchritteModalContent: React.FC = () => {
             data-ready={greeting.ready ? 'true' : 'false'}
             className='erste-schritte-settings__status'
           >
-            <div className='erste-schritte-settings__status-copy'>
-              <strong>{greeting.headline}</strong>
-              <span>{greeting.subline}</span>
+            <div className='erste-schritte-settings__status-header'>
+              <EveIconTile tone={greeting.ready ? 'success' : 'warning'} size='large'>
+                {greeting.ready ? <CheckOne size={18} /> : <Attention size={18} />}
+              </EveIconTile>
+              <div className='erste-schritte-settings__status-copy'>
+                <strong>{greeting.headline}</strong>
+                <span>{greeting.subline}</span>
+              </div>
             </div>
             {!greeting.ready && greeting.gaps.length > 0 ? (
               <ul className='erste-schritte-settings__gaps'>
@@ -181,7 +195,8 @@ const ErsteSchritteModalContent: React.FC = () => {
                           data-testid={`erste-schritte-link-${gap.id}`}
                           onClick={() => onNavigate(route)}
                         >
-                          {gap.link_label}
+                          <span>{gap.link_label}</span>
+                          <Right size={13} aria-hidden='true' />
                         </Button>
                       ) : null}
                     </li>
@@ -192,10 +207,20 @@ const ErsteSchritteModalContent: React.FC = () => {
           </div>
         ) : (
           <div className='erste-schritte-settings__status'>
-            {t('settings.ersteSchritteUnavailable', {
-              defaultValue:
-                'Ich konnte deinen Einrichtungs-Status gerade nicht lesen — im Chat geht es trotzdem weiter.',
-            })}
+            <div className='erste-schritte-settings__status-header'>
+              <EveIconTile tone='warning' size='large'>
+                <Attention size={18} />
+              </EveIconTile>
+              <div className='erste-schritte-settings__status-copy'>
+                <strong>{t('settings.ersteSchritteStatusTitle', { defaultValue: 'Einrichtungsstatus' })}</strong>
+                <span>
+                  {t('settings.ersteSchritteUnavailable', {
+                    defaultValue:
+                      'Ich konnte deinen Einrichtungs-Status gerade nicht lesen — im Chat geht es trotzdem weiter.',
+                  })}
+                </span>
+              </div>
+            </div>
           </div>
         )}
       </SettingsSection>

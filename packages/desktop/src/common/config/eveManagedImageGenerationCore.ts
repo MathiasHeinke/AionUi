@@ -7,6 +7,7 @@
 import type { TProviderWithModel } from './storage';
 import type { CommandEvePrivacyLane } from './eveMultimodalGatewayCore';
 import type { CommandEveImageModelTierId } from './eveImageModelRegistryCore';
+import type { CommandEveActiveImageArtifact } from './managedImageArtifactCore';
 
 export const COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID = 'command-eve-managed-image';
 export const COMMAND_EVE_MANAGED_IMAGE_PLATFORM = 'command-eve-managed-image';
@@ -36,6 +37,47 @@ export const COMMAND_EVE_MANAGED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 
 export type CommandEveManagedImageAspectRatio = (typeof COMMAND_EVE_MANAGED_IMAGE_ASPECT_RATIOS)[number];
 export type CommandEveManagedImageResolution = (typeof COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS)[number];
 export type CommandEveManagedImageMimeType = (typeof COMMAND_EVE_MANAGED_IMAGE_MIME_TYPES)[number];
+
+/**
+ * Renderer -> Main contract for one explicit composer image turn. Provider
+ * slugs, credentials and output paths are intentionally absent: Main resolves
+ * the requested tier against the live server registry and returns only the
+ * conversation-scoped artifact record.
+ */
+export type CommandEveImageGenerateRequest = {
+  prompt: string;
+  conversationId: string;
+  requestId: string;
+  tierId: CommandEveImageModelTierId;
+  resolution: CommandEveManagedImageResolution;
+  aspectRatio: CommandEveManagedImageAspectRatio;
+  /** Local paths are accepted only when Main still holds a read grant. */
+  referenceImagePaths?: string[];
+};
+
+export type CommandEveImageGenerateFailureArtifactState =
+  | 'none'
+  | 'creation_unverified'
+  | 'created_not_stored'
+  | 'stored_not_bound';
+
+export type CommandEveImageGenerateResult =
+  | {
+      ok: true;
+      requestId: string;
+      artifact: CommandEveActiveImageArtifact;
+      /** True only when Main returned a completed request-id replay. */
+      alreadyCompleted: boolean;
+    }
+  | {
+      ok: false;
+      requestId?: string;
+      reasonCode: string;
+      message: string;
+      retryable: boolean;
+      /** Distinguishes provider/store/bind failures without claiming a lost artifact never existed. */
+      artifactState: CommandEveImageGenerateFailureArtifactState;
+    };
 
 export type CommandEveManagedImageReference = {
   mime_type: CommandEveManagedImageMimeType;

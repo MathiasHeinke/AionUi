@@ -142,7 +142,9 @@ describe('MAX authority — the production wiring, not an injected copy', () => 
     expect(strip(ACP_SRC)).toMatch(/<EveMaxToggle/);
     expect(strip(GUID_SRC)).toMatch(/<EveMaxToggle/);
     // ...and the ACP mount is gated on the conversation BEING EVE, not on the shell.
-    expect(strip(ACP_SRC)).toMatch(/isEveConversation \? <EveMaxToggle/);
+    expect(strip(ACP_SRC)).toMatch(
+      /footerSlot=\{\s*isEveConversation\s*\?\s*\(\s*<ComposerContextDeck[\s\S]*?maxSlot=\{<EveMaxToggle/
+    );
 
     // A non-EVE backend: not mounted, and holding no selection state at all.
     expect(strip(AIONRS_SRC)).not.toMatch(/EveMaxToggle/);
@@ -218,7 +220,9 @@ describe('MAX authority — REAL-SEAM wiring (deleting any of these turns this f
 
   it('SEAM 4 — MAX is SCOPED to EVE conversations, never mounted shell-wide', () => {
     // AcpSendBox mounts it gated on the conversation actually being EVE.
-    expect(ACP).toMatch(/isEveConversation \? <EveMaxToggle/);
+    expect(ACP).toMatch(
+      /footerSlot=\{\s*isEveConversation\s*\?\s*\(\s*<ComposerContextDeck[\s\S]*?maxSlot=\{<EveMaxToggle/
+    );
     // Aionrs is a different backend: no MAX control, and no composer lane
     // affordance either.
     expect(AIONRS).not.toMatch(/EveMaxToggle/);

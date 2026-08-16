@@ -12,6 +12,11 @@ import {
 } from '@/common/config/eveAttachmentGroundingCore';
 import { configService } from '@/common/config/configService';
 import {
+  consumeComposerWorkProductSelection,
+  selectExplicitComposerWorkProductMode,
+  type ComposerWorkProductSelection,
+} from '@/common/config/composerWorkProductModeCore';
+import {
   captureConversationRuntimeSeatTicket,
   isConversationRuntimeSeatTicketCurrent,
   type ConversationRuntimeSeatTicket,
@@ -29,6 +34,10 @@ export type ConversationCommandQueueItem = {
   managedVisualSourceCount?: number;
   /** Exact source/sidecar hashes that AionCore must receipt before send. */
   attachmentGrounding?: CommandEveAttachmentGroundingRequest;
+  /** Explicit, one-shot composer authority retained when a turn is queued. */
+  composerSelection?: ComposerWorkProductSelection;
+  /** Exact pathless artifact target; valid only with a referenced selection. */
+  selectedArtifactId?: string;
   files: string[];
   /** Seat-generation authority captured before any async preparation. */
   seatId: string;
@@ -77,6 +86,8 @@ const summarizeQueuedCommand = (item: ConversationCommandQueueItem): Record<stri
   managedVisualSourceCount: item.managedVisualSourceCount ?? 0,
   attachmentGroundingEntries: item.attachmentGrounding?.entries.length ?? 0,
   seatId: item.seatId,
+  composerMode: item.composerSelection?.mode ?? 'chat',
+  hasSelectedArtifact: item.selectedArtifactId !== undefined,
   preview: item.input.replace(/\s+/g, ' ').trim().slice(0, 120),
 });
 
@@ -115,6 +126,27 @@ const deriveLegacyDisplayFiles = (files: string[]): string[] => {
   return files.filter((filePath) => !isGeneratedPdfSidecar(filePath));
 };
 
+const SAFE_QUEUED_ARTIFACT_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/;
+
+const normalizeQueuedComposerSelection = (
+  selection: unknown,
+  artifactId: unknown
+): Pick<ConversationCommandQueueItem, 'composerSelection' | 'selectedArtifactId'> | null => {
+  if (selection === undefined && artifactId === undefined) return {};
+  const consumed = consumeComposerWorkProductSelection(selection);
+  if (!consumed.request) return null;
+  const hasReference = consumed.request.hasSelectedReference;
+  if (hasReference !== (typeof artifactId === 'string' && SAFE_QUEUED_ARTIFACT_ID.test(artifactId))) return null;
+  return {
+    composerSelection: selectExplicitComposerWorkProductMode(
+      consumed.request.mode,
+      hasReference ? { selected: true, kind: consumed.request.selectedReferenceKind } : undefined,
+      consumed.request.imageOptions
+    ),
+    ...(hasReference ? { selectedArtifactId: artifactId as string } : {}),
+  };
+};
+
 const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null => {
   if (!item || typeof item !== 'object') {
     return null;
@@ -129,6 +161,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
     candidateAttachmentGrounding === undefined
       ? undefined
       : normalizeCommandEveAttachmentGroundingRequest(candidateAttachmentGrounding);
+  const queuedComposer = normalizeQueuedComposerSelection(candidate.composerSelection, candidate.selectedArtifactId);
   if (
     typeof candidate.id !== 'string' ||
     typeof candidate.conversationId !== 'string' ||
@@ -151,6 +184,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
     (candidateAttachmentGrounding !== undefined && attachmentGrounding === undefined) ||
     typeof candidate.seatId !== 'string' ||
     !candidate.seatId ||
+    queuedComposer === null ||
     typeof candidate.created_at !== 'number' ||
     !Number.isFinite(candidate.created_at)
   ) {
@@ -174,6 +208,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
       : {}),
     ...(attachmentGrounding ? { attachmentGrounding } : {}),
     seatId: candidate.seatId,
+    ...queuedComposer,
     created_at: candidate.created_at,
   };
 
@@ -231,10 +266,19 @@ export const createQueuedCommandItem = ({
   preparedContext,
   managedVisualSourceCount,
   attachmentGrounding,
+  composerSelection,
+  selectedArtifactId,
   seatTicket,
 }: Pick<
   ConversationCommandQueueItem,
-  'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount' | 'attachmentGrounding'
+  | 'input'
+  | 'files'
+  | 'displayFiles'
+  | 'preparedContext'
+  | 'managedVisualSourceCount'
+  | 'attachmentGrounding'
+  | 'composerSelection'
+  | 'selectedArtifactId'
 > & { seatTicket: ConversationRuntimeSeatTicket }): ConversationCommandQueueItem => ({
   id: uuid(),
   conversationId: seatTicket.conversationId,
@@ -245,6 +289,8 @@ export const createQueuedCommandItem = ({
   ...(managedVisualSourceCount ? { managedVisualSourceCount } : {}),
   ...(attachmentGrounding ? { attachmentGrounding } : {}),
   seatId: seatTicket.seatId,
+  ...(composerSelection ? { composerSelection } : {}),
+  ...(selectedArtifactId ? { selectedArtifactId } : {}),
   created_at: Date.now(),
 });
 
@@ -542,7 +588,14 @@ type UseConversationCommandQueueOptions = {
 
 type EnqueueCommandInput = Pick<
   ConversationCommandQueueItem,
-  'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount' | 'attachmentGrounding'
+  | 'input'
+  | 'files'
+  | 'displayFiles'
+  | 'preparedContext'
+  | 'managedVisualSourceCount'
+  | 'attachmentGrounding'
+  | 'composerSelection'
+  | 'selectedArtifactId'
 > & { seatTicket?: ConversationRuntimeSeatTicket };
 type UpdateCommandInput = Pick<ConversationCommandQueueItem, 'input'>;
 
@@ -743,6 +796,8 @@ export const useConversationCommandQueue = ({
       preparedContext,
       managedVisualSourceCount,
       attachmentGrounding,
+      composerSelection,
+      selectedArtifactId,
       seatTicket,
     }: EnqueueCommandInput) => {
       if (!enabled) {
@@ -765,6 +820,8 @@ export const useConversationCommandQueue = ({
         preparedContext,
         managedVisualSourceCount,
         attachmentGrounding,
+        composerSelection,
+        selectedArtifactId,
         seatTicket: effectiveSeatTicket,
       });
       const validation = validateQueuedCommandItem(item, currentState);
