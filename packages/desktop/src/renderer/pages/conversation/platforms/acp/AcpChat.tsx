@@ -195,6 +195,7 @@ const AcpChat: React.FC<{
             activity={messageState.runtimeActivity}
             running={messageState.running || runtimeView.isProcessing || isPreparingDocument}
             aiProcessing={messageState.aiProcessing}
+            conversationId={conversation_id}
             backend={backend}
             egressBoundary={egressBoundary}
           />

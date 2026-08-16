@@ -11,16 +11,24 @@ describe('acpPerformanceMarks', () => {
     window.addEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
 
     const mark = emitAcpPerformanceMark({
-      stage: 'acp_first_text',
+      stage: 'first_output_state',
       conversationId: 'conv-1',
       turnId: 'turn-1',
+      messageId: 'message-1',
+      attemptId: 7,
+      seatGeneration: 3,
+      outputKind: 'tool',
     });
 
     expect(mark).toMatchObject({
       version: 'command-eve-acp-performance-mark/v1',
-      stage: 'acp_first_text',
+      stage: 'first_output_state',
       conversationId: 'conv-1',
       turnId: 'turn-1',
+      messageId: 'message-1',
+      attemptId: 7,
+      seatGeneration: 3,
+      outputKind: 'tool',
     });
     expect(mark.atEpochMs).toBeGreaterThan(0);
     expect(listener).toHaveBeenCalledTimes(1);

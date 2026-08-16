@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import AcpRuntimeStatus from '@/renderer/pages/conversation/platforms/acp/AcpRuntimeStatus';
+import { ACP_PERFORMANCE_MARK_EVENT, type AcpPerformanceMark } from '@/renderer/utils/performance/acpPerformanceMarks';
 
 const { useIsDevModeMock, eveSelectionMock } = vi.hoisted(() => ({
   useIsDevModeMock: vi.fn(() => false),
@@ -31,6 +32,32 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('AcpRuntimeStatus operator visibility', () => {
+  it('commits a correlated submitting status without relabeling it as thinking', () => {
+    const listener = vi.fn();
+    window.addEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
+
+    render(
+      <AcpRuntimeStatus
+        conversationId='conv-1'
+        activity={{ phase: 'submitting', attemptId: 7, seatGeneration: 3, updatedAt: Date.now() }}
+        running
+        aiProcessing={false}
+      />
+    );
+
+    expect(screen.getByTestId('acp-runtime-status')).toHaveTextContent('submitting');
+    expect(screen.getByTestId('acp-runtime-status')).not.toHaveTextContent('thinking');
+    const event = listener.mock.calls[0]?.[0] as CustomEvent<AcpPerformanceMark> | undefined;
+    expect(event?.detail).toMatchObject({
+      stage: 'runtime_activity_visible',
+      conversationId: 'conv-1',
+      attemptId: 7,
+      seatGeneration: 3,
+    });
+
+    window.removeEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
+  });
+
   it('shows a redacted production phase while a model turn is active', () => {
     render(
       <AcpRuntimeStatus

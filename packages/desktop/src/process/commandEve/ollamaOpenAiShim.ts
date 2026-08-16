@@ -1544,6 +1544,46 @@ function writeStreamChunk(response: ServerResponse, model: string, content: stri
 
 type OllamaToolCallIdState = { nextOrdinal: number };
 
+export type CommandEveOllamaUsageReceipt = {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  local_prompt_evaluated_tokens?: number;
+  local_prompt_reused_tokens?: number;
+  prompt_tokens_details?: { cached_tokens: number };
+};
+
+const nonnegativeInteger = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+
+/**
+ * Preserve Ollama's content-free evaluation counters in the OpenAI-compatible
+ * response. Reuse is emitted only when Ollama explicitly reports it; absence
+ * stays unavailable and is never normalized into a synthetic zero.
+ */
+export function commandEveOllamaUsageReceipt(payload: unknown): CommandEveOllamaUsageReceipt | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const record = payload as Record<string, unknown>;
+  const evaluated = nonnegativeInteger(record.prompt_eval_count);
+  const reused = nonnegativeInteger(record.prompt_reused_count);
+  const completion = nonnegativeInteger(record.eval_count);
+  if (evaluated === null && reused === null && completion === null) return undefined;
+  const promptTokens = (evaluated ?? 0) + (reused ?? 0);
+  const completionTokens = completion ?? 0;
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+    ...(evaluated === null ? {} : { local_prompt_evaluated_tokens: evaluated }),
+    ...(reused === null
+      ? {}
+      : {
+          local_prompt_reused_tokens: reused,
+          prompt_tokens_details: { cached_tokens: reused },
+        }),
+  };
+}
+
 /**
  * Ollama's native tool-call DTO has no call id and may carry arguments as an
  * object. This route is an OpenAI-compatibility boundary, so Main mints the id
@@ -2880,8 +2920,12 @@ async function handleChatCompletions(
         message?: { content?: string; tool_calls?: unknown };
         done?: boolean;
         done_reason?: string;
+        prompt_eval_count?: number;
+        prompt_reused_count?: number;
+        eval_count?: number;
       };
       upstreamScope.markBodyChunk();
+      const usage = commandEveOllamaUsageReceipt(data);
       const normalizedToolCalls = normalizeOllamaToolCallsForOpenAI(data.message?.tool_calls, providerRequestId, {
         nextOrdinal: 0,
       });
@@ -2916,6 +2960,7 @@ async function handleChatCompletions(
             finish_reason: data.done_reason === 'length' ? 'length' : 'stop',
           },
         ],
+        ...(usage ? { usage } : {}),
       });
       return;
     }
@@ -2932,6 +2977,7 @@ async function handleChatCompletions(
     let finishReason = 'stop';
     let sawOllamaTerminal = false;
     let ollamaStreamInvalid = false;
+    let finalUsage: CommandEveOllamaUsageReceipt | undefined;
     const normalizedToolCalls: unknown[] = [];
     const toolCallIdState: OllamaToolCallIdState = { nextOrdinal: 0 };
     const processOllamaLine = (line: string): void => {
@@ -2944,6 +2990,9 @@ async function handleChatCompletions(
         message?: { content?: string; tool_calls?: unknown };
         done?: boolean;
         done_reason?: string;
+        prompt_eval_count?: number;
+        prompt_reused_count?: number;
+        eval_count?: number;
       };
       const nextToolCalls = normalizeOllamaToolCallsForOpenAI(
         chunk.message?.tool_calls,
@@ -2953,6 +3002,7 @@ async function handleChatCompletions(
       if (chunk.done) {
         sawOllamaTerminal = true;
         finishReason = chunk.done_reason === 'length' ? 'length' : 'stop';
+        finalUsage = commandEveOllamaUsageReceipt(chunk);
         if (finishReason !== 'length') {
           if (Array.isArray(nextToolCalls)) normalizedToolCalls.push(...nextToolCalls);
           if (chunk.message?.content || nextToolCalls) {
@@ -3002,6 +3052,7 @@ async function handleChatCompletions(
         created: Math.floor(Date.now() / 1000),
         model,
         choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+        ...(finalUsage ? { usage: finalUsage } : {}),
       })}\n\n`
     );
     response.write('data: [DONE]\n\n');

@@ -9,6 +9,7 @@ import {
   buildCommandEvePromptProof,
   buildEveCloudRoute,
   commandEveCacheScope,
+  commandEveOllamaUsageReceipt,
   commandEveOllamaPsHasModel,
   COMMAND_EVE_LOCAL_MODEL_KEEP_ALIVE,
   ensureCommandEveShimAuthToken,
@@ -130,6 +131,31 @@ describe('Command EVE context and cache policy', () => {
     expect(commandEveCacheScope('hermes-session-1', '')).toBeUndefined();
     expect(commandEveCacheScope('hermes-session-1', ' seat-2 ')).toBeUndefined();
     expect(commandEveCacheScope('hermes-session-1', '../seat-1')).toBeUndefined();
+  });
+
+  it('preserves local prompt evaluation without inventing a reuse bucket', () => {
+    expect(commandEveOllamaUsageReceipt({ prompt_eval_count: 480, eval_count: 20 })).toEqual({
+      prompt_tokens: 480,
+      completion_tokens: 20,
+      total_tokens: 500,
+      local_prompt_evaluated_tokens: 480,
+    });
+  });
+
+  it('keeps explicitly reported local evaluation and reuse in separate content-free buckets', () => {
+    expect(commandEveOllamaUsageReceipt({ prompt_eval_count: 300, prompt_reused_count: 200, eval_count: 10 })).toEqual({
+      prompt_tokens: 500,
+      completion_tokens: 10,
+      total_tokens: 510,
+      local_prompt_evaluated_tokens: 300,
+      local_prompt_reused_tokens: 200,
+      prompt_tokens_details: { cached_tokens: 200 },
+    });
+  });
+
+  it('fails closed for absent or invalid local usage counters', () => {
+    expect(commandEveOllamaUsageReceipt(undefined)).toBeUndefined();
+    expect(commandEveOllamaUsageReceipt({ prompt_eval_count: -1, eval_count: Number.NaN })).toBeUndefined();
   });
 });
 

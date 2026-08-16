@@ -712,6 +712,7 @@ vi.mock('@/renderer/pages/conversation/Preview', () => ({
   }),
 }));
 vi.mock('@/renderer/pages/conversation/utils/warmupConversation', () => ({
+  getWarmupConversationStatus: () => ({ phase: 'idle', attempt: 0 }),
   settleConversationWarmupForSend: settleConversationWarmupForSendMock,
   warmupConversation: warmupConversationMock,
 }));
@@ -861,6 +862,9 @@ const makeMessageState = (): UseAcpMessageReturn =>
     // UnifiedSendBar's ContextUsageIndicator, so the message-state stub must
     // provide it (was undefined → crash). quotaWall is part of the contract too.
     runtimeActivity: { phase: 'idle', updatedAt: 0 },
+    beginSubmitActivity: vi.fn(),
+    bindSubmitActivityTurn: vi.fn(),
+    clearSubmitActivity: vi.fn(),
     lastCompletedTurn: null,
     quotaWall: {
       visible: false,
@@ -1240,10 +1244,12 @@ describe('AcpSendBox', () => {
   });
 
   it('marks request acceptance only after the ACP send result is accepted', async () => {
+    const warmup = createDeferred<'ready'>();
     const send = createDeferred<unknown>();
     const marks: AcpPerformanceMark[] = [];
     const listener = (event: Event) => marks.push((event as CustomEvent<AcpPerformanceMark>).detail);
     window.addEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
+    settleConversationWarmupForSendMock.mockReturnValue(warmup.promise);
     sendMessageInvokeMock.mockReturnValue(send.promise);
 
     render(
@@ -1257,9 +1263,14 @@ describe('AcpSendBox', () => {
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
-    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
-    expect(marks).toEqual([]);
+    await waitFor(() =>
+      expect(marks).toContainEqual(expect.objectContaining({ stage: 'submit_started', conversationId: 'conv-1' }))
+    );
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(marks.filter((mark) => mark.stage === 'request_accepted' || mark.stage === 'turn_admitted')).toEqual([]);
 
+    await act(async () => warmup.resolve('ready'));
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
     await act(async () => {
       send.resolve({ turn_id: 'turn-accepted', msg_id: 'message-accepted', runtime: null });
     });
@@ -1271,6 +1282,14 @@ describe('AcpSendBox', () => {
           turnId: 'turn-accepted',
         })
       )
+    );
+    expect(marks).toContainEqual(
+      expect.objectContaining({
+        stage: 'turn_admitted',
+        conversationId: 'conv-1',
+        turnId: 'turn-accepted',
+        messageId: 'message-accepted',
+      })
     );
     window.removeEventListener(ACP_PERFORMANCE_MARK_EVENT, listener);
   });
