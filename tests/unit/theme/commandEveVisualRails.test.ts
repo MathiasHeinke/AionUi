@@ -14,6 +14,20 @@ const collectSourceFiles = (directory: string): string[] => {
   });
 };
 
+/**
+ * Declarations of the single rule that starts at `selectorHead`. Overlay
+ * surfaces share one token, so an unscoped file-wide assertion would stay green
+ * while the rule under test drifted to a fixed colour.
+ */
+const ruleDeclarations = (css: string, selectorHead: string): string => {
+  const start = css.indexOf(selectorHead);
+  if (start === -1) return '';
+  return css.slice(start, css.indexOf('\n}', start));
+};
+
+/** A literal colour or gradient here would override the token above it. */
+const FIXED_BACKGROUND = /background:\s*(?:#|rgb|hsl|[a-z-]*gradient)/;
+
 describe('Command EVE visual rails', () => {
   it('keeps public renderer consumers off the legacy AOU palette', () => {
     const allowed = new Set([
@@ -45,12 +59,14 @@ describe('Command EVE visual rails', () => {
     const aionModal = read('components/base/AionModal.tsx');
     const modalWrapper = read('components/base/ModalWrapper.tsx');
     const overrideCss = read('styles/arco-override.css');
+    const legacyModal = ruleDeclarations(overrideCss, '.arco-modal.aionui-modal--legacy {');
 
     expect(aionModal).toContain('aionui-modal--composed');
     expect(aionModal).toContain('aionui-modal-wrapper eve-dialog');
     expect(modalWrapper).toContain('aionui-modal--legacy');
     expect(overrideCss).toContain('.arco-modal.aionui-modal--legacy');
-    expect(overrideCss).toContain('background: var(--glass-overlay-bg) !important;');
+    expect(legacyModal).toContain('background: var(--eve-overlay-surface) !important;');
+    expect(legacyModal).not.toMatch(FIXED_BACKGROUND);
   });
 
   it('keeps confirm and composed dialogs on the shared glass spacing contract', () => {
@@ -101,8 +117,10 @@ describe('Command EVE visual rails', () => {
   it('skins toasts with semantic hairlines instead of fixed gradients', () => {
     const overrideCss = read('styles/arco-override.css');
     const messageBlock = overrideCss.slice(overrideCss.indexOf('/* Arco Message custom styles */'));
+    const toastSurface = ruleDeclarations(overrideCss, '.arco-message {');
 
-    expect(messageBlock).toContain('background: var(--glass-overlay-bg) !important;');
+    expect(toastSurface).toContain('background: var(--eve-overlay-surface) !important;');
+    expect(toastSurface).not.toMatch(FIXED_BACKGROUND);
     expect(messageBlock).toContain('border-left: 2px solid var(--eve-status-completed) !important;');
     expect(messageBlock).not.toContain('linear-gradient(270deg, #f9fff2');
   });
