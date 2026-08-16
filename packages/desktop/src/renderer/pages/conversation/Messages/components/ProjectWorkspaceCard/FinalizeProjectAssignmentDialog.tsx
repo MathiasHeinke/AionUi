@@ -8,7 +8,7 @@ import {
   Loading,
   Refresh,
   Search,
-} from '@icon-park/react';
+} from '@renderer/components/icons';
 import AionModal from '@renderer/components/base/AionModal';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';

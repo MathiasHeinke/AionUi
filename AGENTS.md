@@ -23,7 +23,8 @@ See [docs/contributing/file-structure.md](docs/contributing/file-structure.md) f
 ### UI Library & Icons
 
 - **Components**: `@arco-design/web-react` — no raw interactive HTML (`<button>`, `<input>`, `<select>`, etc.)
-- **Icons**: `@phosphor-icons/react` through `@renderer/components/icons`
+- **Generic/interface icons**: `@phosphor-icons/react` through `@renderer/components/icons`
+- **Content exceptions**: file-type/content renderers, brand marks, avatars, native preview assets, and Mermaid/data visualization keep their dedicated asset/rendering seams
 
 ### CSS
 

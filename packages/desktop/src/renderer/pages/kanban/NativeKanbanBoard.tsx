@@ -21,7 +21,7 @@ import { useSeatAccess } from '@/renderer/hooks/useSeatAccess';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import { bridge } from '@office-ai/platform';
 import { Button, Empty, Input, Message, Modal, Select, Spin, Tag } from '@arco-design/web-react';
-import { Computer } from '@icon-park/react';
+import { CheckCircle, Computer, Minus, XCircle } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -80,6 +80,24 @@ const RecordReference: React.FC<{ label: string; value: string | null }> = ({ la
       </code>
     </div>
   );
+};
+
+/**
+ * A permission or verification outcome is a state, not punctuation. Rendering it
+ * as a glyph keeps it legible for assistive tech and lets it inherit the row
+ * color like every other icon.
+ */
+const BooleanStatusIcon: React.FC<{ value: boolean | null }> = ({ value }) => {
+  const { t } = useTranslation();
+  const Icon = value === true ? CheckCircle : value === false ? XCircle : Minus;
+  const label =
+    value === true
+      ? t('kanban.card.detail.yes')
+      : value === false
+        ? t('kanban.card.detail.no')
+        : t('kanban.governance.unknown');
+
+  return <Icon size={12} weight={value === null ? 'regular' : 'fill'} role='img' aria-label={label} />;
 };
 
 const ComputerUsePanel: React.FC<{ locked: boolean }> = ({ locked }) => {
@@ -165,13 +183,11 @@ const ComputerUsePanel: React.FC<{ locked: boolean }> = ({ locked }) => {
             </p>
           ) : null}
           <div className='flex flex-wrap gap-x-16px gap-y-4px text-11px text-t-secondary'>
-            <span data-testid='native-computer-accessibility'>
-              {t('kanban.native.computer.accessibility')}:{' '}
-              {status.accessibility === true ? '✓' : status.accessibility === false ? '×' : '–'}
+            <span className='inline-flex items-center gap-4px' data-testid='native-computer-accessibility'>
+              {t('kanban.native.computer.accessibility')}: <BooleanStatusIcon value={status.accessibility} />
             </span>
-            <span data-testid='native-computer-screen-recording'>
-              {t('kanban.native.computer.screenRecording')}:{' '}
-              {status.screen_recording === true ? '✓' : status.screen_recording === false ? '×' : '–'}
+            <span className='inline-flex items-center gap-4px' data-testid='native-computer-screen-recording'>
+              {t('kanban.native.computer.screenRecording')}: <BooleanStatusIcon value={status.screen_recording} />
             </span>
             <span>{status.provenance.driver_version || t('kanban.native.computer.noDriverVersion')}</span>
           </div>
@@ -224,7 +240,7 @@ const ComputerUsePanel: React.FC<{ locked: boolean }> = ({ locked }) => {
               />
               <div className='flex items-center gap-6px'>
                 <Tag size='small' color={status.provenance.checksum_verified ? 'green' : 'red'}>
-                  {status.provenance.checksum_verified ? '✓' : '×'}
+                  <BooleanStatusIcon value={status.provenance.checksum_verified} />
                 </Tag>
                 <span>{t('kanban.native.computer.checksum')}</span>
               </div>
@@ -233,7 +249,7 @@ const ComputerUsePanel: React.FC<{ locked: boolean }> = ({ locked }) => {
               {status.checks.map((check, index) => (
                 <div key={`${check.label}-${index}`} className='flex gap-6px'>
                   <Tag size='small' color={check.status === 'pass' || check.status === 'ok' ? 'green' : 'orange'}>
-                    {check.status || '–'}
+                    {check.status || t('kanban.governance.unknown')}
                   </Tag>
                   <span>{`${check.label}${check.message ? ` · ${check.message}` : ''}`}</span>
                 </div>

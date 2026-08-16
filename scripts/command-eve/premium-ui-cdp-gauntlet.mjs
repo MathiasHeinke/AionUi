@@ -17,6 +17,14 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
+import {
+  OVERLAY_CANDIDATE_SELECTOR,
+  OVERLAY_EXPECTATIONS,
+  selectOwnedOverlay,
+  toPortableEvidencePath,
+  validateOverlayEvidence,
+  validateReducedMotionEvidence,
+} from './premium-ui-cdp-gauntlet-core.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((entry) => {
@@ -27,6 +35,7 @@ const args = Object.fromEntries(
 
 const cdpBase = args.cdp || 'http://127.0.0.1:9230';
 const outputDir = resolve(args.out || 'artifacts/design-qa/premium-ui/gauntlet');
+const sourceReference = args['source-ref'] || 'working-tree';
 const themes = (args.themes || 'light,dark').split(',').filter(Boolean);
 const routes = (
   args.routes ||
@@ -133,7 +142,13 @@ const screenshot = async (name) => {
   });
   const path = resolve(outputDir, `${name}.png`);
   writeFileSync(path, Buffer.from(capture.data, 'base64'));
-  return path;
+  return toPortableEvidencePath(process.cwd(), path);
+};
+
+const setReducedMotion = async (reduced) => {
+  await cdp.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }],
+  });
 };
 
 const setTheme = async (theme) => {
@@ -153,6 +168,25 @@ const setTheme = async (theme) => {
   }
   throw new Error(`Theme did not settle: ${theme}`);
 };
+
+const auditReducedMotion = async () =>
+  cdp.evaluate(`(() => {
+    const probe = document.createElement('span');
+    probe.className = 'eve-icon eve-phosphor-icon eve-icon--spin';
+    probe.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(probe);
+    const style = getComputedStyle(probe);
+    const root = getComputedStyle(document.documentElement);
+    const evidence = {
+      mediaMatches: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      animationName: style.animationName,
+      animationDuration: style.animationDuration,
+      feedbackMotion: root.getPropertyValue('--eve-motion-duration-feedback').trim(),
+      stateMotion: root.getPropertyValue('--eve-motion-duration-state').trim(),
+    };
+    probe.remove();
+    return evidence;
+  })()`);
 
 const auditSurface = async () =>
   cdp.evaluate(`(() => {
@@ -216,15 +250,54 @@ const auditSurface = async () =>
     };
   })()`);
 
-const openAndAudit = async (selector, label) => {
+const openAndAudit = async (expectation, label) => {
   const trigger = await cdp.evaluate(`(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
-    if (!(element instanceof HTMLElement)) return null;
+    const visible = (element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    const ensureGauntletId = (element) => {
+      if (!element.dataset.eveGauntletOverlayId) {
+        window.__evePremiumGauntletOverlayCounter = (window.__evePremiumGauntletOverlayCounter || 0) + 1;
+        element.dataset.eveGauntletOverlayId = 'eve-gauntlet-' + window.__evePremiumGauntletOverlayCounter;
+      }
+      return element.dataset.eveGauntletOverlayId;
+    };
+    const candidates = [...document.querySelectorAll(${JSON.stringify(OVERLAY_CANDIDATE_SELECTOR)})];
+    candidates.forEach(ensureGauntletId);
+    const element = document.querySelector(${JSON.stringify(expectation.selector)});
+    if (!(element instanceof HTMLElement)) {
+      return { found: false, beforeVisibleIds: candidates.filter(visible).map(ensureGauntletId), controlledIds: [] };
+    }
     const rect = element.getBoundingClientRect();
-    if (!rect.width || !rect.height) return null;
-    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    if (!rect.width || !rect.height) {
+      return { found: false, beforeVisibleIds: candidates.filter(visible).map(ensureGauntletId), controlledIds: [] };
+    }
+    const controlledIds = [element.getAttribute('aria-controls'), element.getAttribute('aria-owns')]
+      .filter(Boolean)
+      .flatMap((value) => value.split(/\\s+/))
+      .filter(Boolean);
+    return {
+      found: true,
+      x: rect.x + rect.width / 2,
+      y: rect.y + rect.height / 2,
+      beforeVisibleIds: candidates.filter(visible).map(ensureGauntletId),
+      controlledIds,
+    };
   })()`);
-  if (!trigger) return { label, skipped: true };
+  if (!trigger.found) {
+    return {
+      label,
+      triggerFound: false,
+      controlledIds: trigger.controlledIds,
+      selectionError: 'missing-trigger',
+      overlay: null,
+      closed: null,
+      screenshot: await screenshot(label),
+    };
+  }
+
   await cdp.send('Input.dispatchMouseEvent', {
     type: 'mousePressed',
     x: trigger.x,
@@ -241,57 +314,71 @@ const openAndAudit = async (selector, label) => {
   });
   await sleep(560);
 
-  const overlay = await cdp.evaluate(`(() => {
+  const candidates = await cdp.evaluate(`(() => {
     const visible = (element) => {
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);
       return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
     };
-    const candidates = [...document.querySelectorAll(
-      '.arco-dropdown-menu,.arco-select-popup,.arco-picker-container,.arco-menu-pop,[role="menu"],[role="listbox"],[class*="authorityMenu"],[class*="_menu_"]'
-    )].filter(visible);
-    const element = candidates
-      .toSorted((left, right) => {
-        const leftRect = left.getBoundingClientRect();
-        const rightRect = right.getBoundingClientRect();
-        return rightRect.width * rightRect.height - leftRect.width * leftRect.height;
-      })
-      .at(0);
-    if (!element) return null;
-    const style = getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-    const rows = [...element.querySelectorAll('[role="menuitem"],[role="option"],button')]
+    const ensureGauntletId = (element) => {
+      if (!element.dataset.eveGauntletOverlayId) {
+        window.__evePremiumGauntletOverlayCounter = (window.__evePremiumGauntletOverlayCounter || 0) + 1;
+        element.dataset.eveGauntletOverlayId = 'eve-gauntlet-' + window.__evePremiumGauntletOverlayCounter;
+      }
+      return element.dataset.eveGauntletOverlayId;
+    };
+    return [...document.querySelectorAll(${JSON.stringify(OVERLAY_CANDIDATE_SELECTOR)})]
       .filter(visible)
-      .slice(0, 24)
-      .map((row) => {
-        const rowRect = row.getBoundingClientRect();
-        const icon = row.querySelector('.eve-phosphor-icon,.arco-icon,svg');
-        const text = row.querySelector('span:not(.eve-phosphor-icon):not(.arco-icon)');
-        let centerDelta = null;
-        if (icon && text) {
-          const iconRect = icon.getBoundingClientRect();
-          const textRect = text.getBoundingClientRect();
-          centerDelta = Math.abs((iconRect.top + iconRect.height / 2) - (textRect.top + textRect.height / 2));
-        }
+      .map((element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        const rows = [...element.querySelectorAll('[role="menuitem"],[role="option"],button')]
+          .filter(visible)
+          .slice(0, 24)
+          .map((row) => {
+            const rowRect = row.getBoundingClientRect();
+            const icon = row.querySelector('.eve-phosphor-icon,.arco-icon,svg');
+            const text = row.querySelector('span:not(.eve-phosphor-icon):not(.arco-icon)');
+            let centerDelta = null;
+            if (icon && text) {
+              const iconRect = icon.getBoundingClientRect();
+              const textRect = text.getBoundingClientRect();
+              centerDelta = Math.abs(
+                iconRect.top + iconRect.height / 2 - (textRect.top + textRect.height / 2)
+              );
+            }
+            return {
+              x: rowRect.x + rowRect.width / 2,
+              y: rowRect.y + rowRect.height / 2,
+              label:
+                row.getAttribute('aria-label') ||
+                row.textContent?.trim().replace(/\\s+/g, ' ').slice(0, 120),
+              centerDelta,
+            };
+          });
         return {
-          x: rowRect.x + rowRect.width / 2,
-          y: rowRect.y + rowRect.height / 2,
-          label: row.getAttribute('aria-label') || row.textContent?.trim().replace(/\\s+/g, ' ').slice(0, 80),
-          centerDelta,
+          gauntletId: ensureGauntletId(element),
+          domId: element.id || null,
+          className: String(element.className || ''),
+          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+          maxHeight: style.maxHeight,
+          overflowY: style.overflowY,
+          clientHeight: element.clientHeight,
+          scrollHeight: element.scrollHeight,
+          scrollbarColor: style.scrollbarColor,
+          viewport: { width: innerWidth, height: innerHeight },
+          rows,
         };
       });
-    return {
-      className: String(element.className || ''),
-      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-      maxHeight: style.maxHeight,
-      overflowY: style.overflowY,
-      clientHeight: element.clientHeight,
-      scrollHeight: element.scrollHeight,
-      scrollbarColor: style.scrollbarColor,
-      viewport: { width: innerWidth, height: innerHeight },
-      rows,
-    };
   })()`);
+
+  const selection = selectOwnedOverlay({
+    candidates,
+    beforeVisibleIds: trigger.beforeVisibleIds,
+    controlledIds: trigger.controlledIds,
+    expectation,
+  });
+  const overlay = selection.overlay;
 
   if (overlay) {
     for (const row of overlay.rows) {
@@ -299,23 +386,111 @@ const openAndAudit = async (selector, label) => {
       await sleep(320);
     }
   }
+
   const image = await screenshot(label);
-  await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
-  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
-  await sleep(420);
-  return { label, overlay, screenshot: image };
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: trigger.x,
+    y: trigger.y,
+    button: 'left',
+    clickCount: 1,
+  });
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: trigger.x,
+    y: trigger.y,
+    button: 'left',
+    clickCount: 1,
+  });
+  await sleep(560);
+  const closed = overlay
+    ? await cdp.evaluate(`(() => {
+        const element = [...document.querySelectorAll(${JSON.stringify(OVERLAY_CANDIDATE_SELECTOR)})].find(
+          (candidate) =>
+            candidate.dataset.eveGauntletOverlayId === ${JSON.stringify(overlay.gauntletId)}
+        );
+        if (!element) return true;
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return !(rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden');
+      })()`)
+    : null;
+
+  return {
+    label,
+    triggerFound: true,
+    controlledIds: trigger.controlledIds,
+    identityStrategy: selection.identityStrategy,
+    selectionError: selection.selectionError,
+    expectedRowSignature: expectation.rowSignature.map((pattern) => pattern.source),
+    overlay,
+    dismissalStrategy: 'trigger-toggle',
+    closed,
+    screenshot: image,
+  };
 };
 
 const report = {
+  schema: 'command-eve-premium-ui-gauntlet/v2',
   generatedAt: new Date().toISOString(),
-  cdp: cdpBase,
+  sourceReference,
   sourcePage: page.url,
+  artifactRoot: toPortableEvidencePath(process.cwd(), outputDir),
   routes: [],
   overlays: [],
+  reducedMotion: [],
   failures: [],
 };
 
+const recordOverlay = async ({ theme, expectation, label, scenario = 'standard' }) => {
+  const evidence = await openAndAudit(expectation, label);
+  const entry = { theme, scenario, selector: expectation.selector, expectation: expectation.id, ...evidence };
+  report.overlays.push(entry);
+  report.failures.push(
+    ...validateOverlayEvidence(evidence, expectation).map((failure) => ({
+      theme,
+      scenario,
+      selector: expectation.selector,
+      ...failure,
+    }))
+  );
+  if (!evidence.overlay) return evidence;
+
+  const { overlay } = evidence;
+  const overflowsViewport =
+    overlay.rect.x < 0 ||
+    overlay.rect.y < 0 ||
+    overlay.rect.x + overlay.rect.width > overlay.viewport.width + 1 ||
+    overlay.rect.y + overlay.rect.height > overlay.viewport.height + 1;
+  const cannotScroll =
+    overlay.scrollHeight > overlay.clientHeight + 1 && !['auto', 'scroll'].includes(overlay.overflowY);
+  const iconDrift = overlay.rows.filter((row) => row.centerDelta !== null && row.centerDelta > 2);
+  if (overflowsViewport) {
+    report.failures.push({
+      theme,
+      scenario,
+      selector: expectation.selector,
+      kind: 'overlay-outside-viewport',
+      overlay,
+    });
+  }
+  if (cannotScroll) {
+    report.failures.push({ theme, scenario, selector: expectation.selector, kind: 'overlay-not-scrollable', overlay });
+  }
+  if (iconDrift.length) {
+    report.failures.push({
+      theme,
+      scenario,
+      selector: expectation.selector,
+      kind: 'menu-icon-misalignment',
+      items: iconDrift,
+    });
+  }
+  return evidence;
+};
+
 try {
+  await setReducedMotion(false);
   await setViewport(1440, 1000);
   for (const theme of themes) {
     await setTheme(theme);
@@ -339,8 +514,9 @@ try {
       const entry = { theme, route, screenshot: image, surface, runtimeErrors, expectedRuntimeErrors };
       report.routes.push(entry);
       if (surface.theme !== theme) report.failures.push({ theme, route, kind: 'theme-drift', actual: surface.theme });
-      if (surface.fastMotion.length)
+      if (surface.fastMotion.length) {
         report.failures.push({ theme, route, kind: 'fast-motion', items: surface.fastMotion });
+      }
       if (surface.scrollbarDrift.length) {
         report.failures.push({ theme, route, kind: 'scrollbar-drift', items: surface.scrollbarDrift });
       }
@@ -348,45 +524,60 @@ try {
     }
 
     await navigate('/guid');
-    for (const [selector, name] of [
-      ['[data-testid="work-product-tools-trigger"]', `${theme}-guid-tools`],
-      ['[data-testid="composer-authority-control"]', `${theme}-guid-authority`],
-      ['[data-testid="workspace-context-control"]', `${theme}-guid-workspace`],
+    for (const expectation of [
+      OVERLAY_EXPECTATIONS.tools,
+      OVERLAY_EXPECTATIONS.authority,
+      OVERLAY_EXPECTATIONS.workspace,
     ]) {
-      const evidence = await openAndAudit(selector, name);
-      report.overlays.push({ theme, selector, ...evidence });
-      if (!evidence.overlay) continue;
-      const { overlay } = evidence;
-      const overflowsViewport =
-        overlay.rect.x < 0 ||
-        overlay.rect.y < 0 ||
-        overlay.rect.x + overlay.rect.width > overlay.viewport.width + 1 ||
-        overlay.rect.y + overlay.rect.height > overlay.viewport.height + 1;
-      const cannotScroll =
-        overlay.scrollHeight > overlay.clientHeight + 1 && !['auto', 'scroll'].includes(overlay.overflowY);
-      const iconDrift = overlay.rows.filter((row) => row.centerDelta !== null && row.centerDelta > 2);
-      if (overflowsViewport) report.failures.push({ theme, selector, kind: 'overlay-outside-viewport', overlay });
-      if (cannotScroll) report.failures.push({ theme, selector, kind: 'overlay-not-scrollable', overlay });
-      if (iconDrift.length) report.failures.push({ theme, selector, kind: 'menu-icon-misalignment', items: iconDrift });
+      await recordOverlay({
+        theme,
+        expectation,
+        label: `${theme}-guid-${expectation.id}`,
+      });
     }
 
     await setViewport(1440, 440);
     await navigate('/guid');
-    const narrow = await openAndAudit(
-      '[data-testid="composer-authority-control"]',
-      `${theme}-guid-authority-narrow-scroll`
-    );
-    report.overlays.push({ theme, selector: 'authority-narrow', ...narrow });
+    const narrow = await recordOverlay({
+      theme,
+      expectation: OVERLAY_EXPECTATIONS.authority,
+      label: `${theme}-guid-authority-narrow-scroll`,
+      scenario: 'narrow',
+    });
     if (
       narrow.overlay?.scrollHeight > narrow.overlay?.clientHeight + 1 &&
       !['auto', 'scroll'].includes(narrow.overlay.overflowY)
     ) {
-      report.failures.push({ theme, kind: 'authority-narrow-not-scrollable', overlay: narrow.overlay });
+      report.failures.push({
+        theme,
+        scenario: 'narrow',
+        kind: 'authority-narrow-not-scrollable',
+        overlay: narrow.overlay,
+      });
     }
     if (narrow.overlay && narrow.overlay.rect.y < 56) {
-      report.failures.push({ theme, kind: 'authority-narrow-overlaps-titlebar', overlay: narrow.overlay });
+      report.failures.push({
+        theme,
+        scenario: 'narrow',
+        kind: 'authority-narrow-overlaps-titlebar',
+        overlay: narrow.overlay,
+      });
     }
+
     await setViewport(1440, 1000);
+    await setReducedMotion(true);
+    await navigate('/guid');
+    const motion = await auditReducedMotion();
+    const motionScreenshot = await screenshot(`${theme}-guid-reduced-motion`);
+    report.reducedMotion.push({ theme, route: '/guid', screenshot: motionScreenshot, ...motion });
+    report.failures.push(
+      ...validateReducedMotionEvidence(motion).map((failure) => ({
+        theme,
+        route: '/guid',
+        ...failure,
+      }))
+    );
+    await setReducedMotion(false);
   }
 } catch (error) {
   report.failures.push({
@@ -394,6 +585,7 @@ try {
     message: error instanceof Error ? error.message : String(error),
   });
 } finally {
+  await setReducedMotion(false).catch(() => undefined);
   const resultPath = resolve(outputDir, 'premium-ui-gauntlet-report.json');
   writeFileSync(resultPath, `${JSON.stringify(report, null, 2)}\n`);
   cdp.close();
@@ -403,8 +595,9 @@ try {
         status: report.failures.length ? 'FAIL' : 'PASS',
         routes: report.routes.length,
         overlays: report.overlays.length,
+        reducedMotion: report.reducedMotion.length,
         failures: report.failures.length,
-        report: resultPath,
+        report: toPortableEvidencePath(process.cwd(), resultPath),
         artifactDirectory: basename(outputDir),
       },
       null,

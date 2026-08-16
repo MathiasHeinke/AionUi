@@ -1,5 +1,5 @@
 import { Button, Message, Tooltip } from '@arco-design/web-react';
-import { Caution, CheckOne as CheckCircle, Down, FolderOpen, Info, Open } from '@icon-park/react';
+import { Caution, CheckOne as CheckCircle, Down, FolderOpen, Info, Open } from '@renderer/components/icons';
 import AionCollapse from '@renderer/components/base/AionCollapse';
 import React, { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
