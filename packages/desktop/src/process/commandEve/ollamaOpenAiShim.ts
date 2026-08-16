@@ -553,6 +553,8 @@ export type CommandEveModelWarmupOptions = {
   baseUrl?: string;
   /** Direct loopback Ollama URL. Production uses the URL bound to the running shim. */
   ollamaBaseUrl?: string;
+  /** Runtime selected by the bootstrap receipt. Only Ollama exposes `/api/ps`. */
+  provider?: 'ollama' | 'bonsai-prism' | 'colibri';
   authToken?: string;
   model: string;
   timeoutMs?: number;
@@ -3526,6 +3528,7 @@ export async function warmCommandEveLocalModel(
   const startedAt = Date.now();
   const baseUrl = warmupOptions.baseUrl || serverUrl || `http://127.0.0.1:${DEFAULT_SHIM_PORT}`;
   const ollamaBaseUrl = warmupOptions.ollamaBaseUrl || activeOllamaBaseUrl;
+  const usesOllamaResidency = warmupOptions.provider !== 'bonsai-prism' && warmupOptions.provider !== 'colibri';
   const maxTokens = warmupOptions.maxTokens ?? 1;
   if (!warmupOptions.model.trim()) {
     return {
@@ -3543,7 +3546,7 @@ export async function warmCommandEveLocalModel(
       error: 'Command EVE model warm-up is local-only and requires a loopback URL.',
     };
   }
-  if (!isLoopbackHttpUrl(ollamaBaseUrl)) {
+  if (usesOllamaResidency && !isLoopbackHttpUrl(ollamaBaseUrl)) {
     return {
       ok: false,
       elapsedMs: Date.now() - startedAt,
@@ -3554,7 +3557,7 @@ export async function warmCommandEveLocalModel(
 
   // A receipt is historical evidence, not residency truth. Ask Ollama first;
   // if the exact normalized model is still loaded, avoid a synthetic prompt.
-  if (await commandEveLocalModelIsResident(warmupOptions.model, ollamaBaseUrl)) {
+  if (usesOllamaResidency && (await commandEveLocalModelIsResident(warmupOptions.model, ollamaBaseUrl))) {
     return {
       ok: true,
       elapsedMs: Date.now() - startedAt,

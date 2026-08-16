@@ -466,6 +466,29 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     expect(chatCalls).toBe(0);
   });
 
+  it('does not treat an unrelated Ollama resident model as managed-local residency truth', async () => {
+    let managedProviderCalls = 0;
+    const model = 'command-eve-gemma4-e4b-64k:latest';
+    const ollamaBaseUrl = await startFakeOllamaWarmupServer({
+      model,
+      initiallyResident: true,
+    });
+    const managedProviderBaseUrl = await startFakeOpenAiServer(() => {
+      managedProviderCalls += 1;
+    });
+
+    const result = await warmCommandEveLocalModel({
+      baseUrl: managedProviderBaseUrl,
+      ollamaBaseUrl,
+      provider: 'bonsai-prism',
+      model: `custom:${model}`,
+      timeoutMs: 5_000,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(managedProviderCalls).toBe(1);
+  });
+
   it('pre-warms an absent model and retains it for a bounded window', async () => {
     let seenBody: Record<string, unknown> | undefined;
     const model = 'command-eve-gemma4-e4b-64k:latest';

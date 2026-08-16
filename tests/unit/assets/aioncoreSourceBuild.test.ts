@@ -45,7 +45,7 @@ describe('Command EVE AionCore source build binding', () => {
     const resolved = REQUIRED_PLATFORMS.map((platform) => resolveCommandEveAioncoreSource(packageJson, platform));
 
     expect(new Set(resolved.map((item) => item.repository))).toEqual(new Set(['MathiasHeinke/AionCore']));
-    expect(new Set(resolved.map((item) => item.commit))).toEqual(new Set(['eeb847e8cb9b8d8166a103d99a4a02acf9e93eb5']));
+    expect(new Set(resolved.map((item) => item.commit))).toEqual(new Set(['8c2e7c344f2e50493ec3427625f13715b1e6599c']));
     expect(resolveCommandEveAioncoreSource(packageJson, 'windows-x64')).toMatchObject({
       target: 'x86_64-pc-windows-msvc',
       binary: 'aioncore.exe',

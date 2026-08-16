@@ -145,7 +145,7 @@ const COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION = 'command-eve-artifact-python
 const COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT = 'command-eve-artifact-python-runtime.json';
 const COMMAND_EVE_HERMES_RUNTIME_SOURCE_LOCK_FILE = 'hermes-runtime-darwin-arm64.tsv';
 const COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE = 'command-eve-hermes-runtime.lock.tsv';
-const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 = 'ddca1ada6600b05a11268f4129fb8206fe9637b793bcf58824f8d1e984d073de';
+const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 = 'df692adb500889aa3c92e94dfa5bef17dd3a89b6ea2570e7c1e706800c62cad3';
 const NATIVE_ARCHIVE_ENTRY_PATTERN = /\.(?:so|dylib|dll|pyd|node)$/i;
 
 const MACH_O_ARCH_BY_BUILDER_ARCH = Object.freeze({

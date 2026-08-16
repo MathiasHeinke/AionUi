@@ -431,6 +431,7 @@ ipcMain.on('get-backend-startup-failure', (event) => {
 type CommandEveWarmupReceipt = {
   status?: string;
   default_model?: string;
+  provider?: 'ollama' | 'bonsai-prism' | 'colibri';
   runtime_root?: string;
   stages?: RuntimeBootstrapReceipt['stages'];
 };
@@ -518,6 +519,7 @@ const COMMAND_EVE_GATE_ACTIONS = new Set<CommandEveGateAction>([
 
 type CommandEveWarmup = (options: {
   baseUrl?: string;
+  provider?: 'ollama' | 'bonsai-prism' | 'colibri';
   model: string;
   timeoutMs?: number;
   maxTokens?: number;
@@ -1190,6 +1192,7 @@ async function runCommandEveLocalModelWarmup(
 
   const result = await warmup({
     baseUrl: shimUrl,
+    provider: receipt.provider,
     model,
     timeoutMs: 90_000,
     maxTokens: 1,

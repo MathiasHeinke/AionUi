@@ -27,6 +27,7 @@ import path from 'node:path';
 
 export const HERMES_PIN_FILE = 'packages/desktop/src/process/commandEve/runtimeBootstrapCore.ts';
 export const BUNDLED_HERMES_DIR = 'resources/bundled-hermes';
+export const HERMES_RUNTIME_LOCK_FILE = 'resources/bundled-python-artifacts/hermes-runtime-darwin-arm64.tsv';
 
 /**
  * Every file that carries the Hermes version string, with the count of
@@ -36,6 +37,7 @@ export const BUNDLED_HERMES_DIR = 'resources/bundled-hermes';
  */
 export const HERMES_VERSION_SITES = [
   { file: HERMES_PIN_FILE, count: 3 },
+  { file: HERMES_RUNTIME_LOCK_FILE, count: 2 },
   { file: 'tests/unit/command-eve/runtimeBootstrapCore.test.ts', count: 45 },
   { file: 'tests/unit/command-eve/windows/windowsRuntimeBootstrapCore.test.ts', count: 10 },
   { file: 'tests/unit/command-eve/windows/windowsPhaseALifecycleCore.test.ts', count: 3 },
@@ -52,9 +54,16 @@ export const HERMES_VERSION_SITES = [
 /** Files carrying the committed wheel SHA-256 pin. */
 export const HERMES_WHEEL_SHA_SITES = [
   { file: HERMES_PIN_FILE, count: 1 },
+  { file: HERMES_RUNTIME_LOCK_FILE, count: 1 },
   { file: 'scripts/release/verify-packaged-command-eve-resources.mjs', count: 1 },
   { file: 'tests/e2e/helpers/nativeKanbanReadiness.ts', count: 1 },
   { file: 'tests/unit/command-eve/hermesAuxiliaryCompatibility.test.ts', count: 1 },
+];
+
+/** Files carrying the SHA-256 of the complete Hermes runtime source lock. */
+export const HERMES_RUNTIME_LOCK_SHA_SITES = [
+  { file: 'packages/desktop/src/process/commandEve/presentationPythonRuntimeCore.ts', count: 1 },
+  { file: 'scripts/release/verify-packaged-command-eve-resources.mjs', count: 1 },
 ];
 
 export function wheelFileNameForVersion(version) {
@@ -91,10 +100,14 @@ export function planHermesWheelBump({
   wheelPath,
   versionSites,
   shaSites,
+  runtimeLockFile,
+  lockShaSites,
   allowSameVersionRepin = false,
 }) {
   const sites = versionSites || HERMES_VERSION_SITES;
   const shaCarrierSites = shaSites || HERMES_WHEEL_SHA_SITES;
+  const runtimeLock = runtimeLockFile || HERMES_RUNTIME_LOCK_FILE;
+  const runtimeLockShaCarrierSites = lockShaSites ?? (shaSites ? [] : HERMES_RUNTIME_LOCK_SHA_SITES);
   if (!/^\d+\.\d+\.\d+$/.test(targetVersion)) {
     throw new Error(`ABORT: target version '${targetVersion}' is not a plain X.Y.Z version`);
   }
@@ -143,6 +156,45 @@ export function planHermesWheelBump({
     }
     shaEdits.push({ file: site.file, replacements: found });
   }
+  let runtimeLockEdit;
+  if (runtimeLockShaCarrierSites.length > 0) {
+    const runtimeLockPath = path.join(repoRoot, runtimeLock);
+    if (!fs.existsSync(runtimeLockPath)) {
+      problems.push(`missing Hermes runtime lock: ${runtimeLock}`);
+    } else {
+      const lockContent = fs.readFileSync(runtimeLockPath, 'utf8');
+      const oldLockSha256 = crypto.createHash('sha256').update(lockContent).digest('hex');
+      const versionUpdatedLockContent = sameVersionRepin
+        ? lockContent
+        : lockContent.split(current.version).join(targetVersion);
+      const nextLockContent = versionUpdatedLockContent.split(current.sha256).join(newSha256);
+      const newLockSha256 = crypto.createHash('sha256').update(nextLockContent).digest('hex');
+      const lockShaEdits = [];
+      for (const site of runtimeLockShaCarrierSites) {
+        const filePath = path.join(repoRoot, site.file);
+        if (!fs.existsSync(filePath)) {
+          problems.push(`missing Hermes runtime lock sha site: ${site.file}`);
+          continue;
+        }
+        const found = countOccurrences(fs.readFileSync(filePath, 'utf8'), oldLockSha256);
+        if (found !== site.count) {
+          problems.push(
+            `Hermes runtime lock sha site drift: ${site.file} carries the current lock sha ${found}x, expected ${site.count}x`
+          );
+          continue;
+        }
+        if (oldLockSha256 !== newLockSha256) {
+          lockShaEdits.push({ file: site.file, replacements: found });
+        }
+      }
+      runtimeLockEdit = {
+        file: runtimeLock,
+        oldSha256: oldLockSha256,
+        newSha256: newLockSha256,
+        shaEdits: lockShaEdits,
+      };
+    }
+  }
   const oldWheelPath = path.join(repoRoot, BUNDLED_HERMES_DIR, wheelFileNameForVersion(current.version));
   const newWheelPath = path.join(repoRoot, BUNDLED_HERMES_DIR, expectedWheelName);
   if (!fs.existsSync(oldWheelPath)) {
@@ -162,6 +214,7 @@ export function planHermesWheelBump({
     sameVersionRepin,
     versionEdits,
     shaEdits,
+    runtimeLock: runtimeLockEdit,
     wheel: { copyFrom: wheelPath, copyTo: newWheelPath, removeOld: oldWheelPath },
   };
 }
@@ -179,6 +232,11 @@ export function applyHermesWheelBump(plan, { dryRun }) {
   }
   for (const edit of [...plan.shaEdits]) {
     actions.push(`replace ${edit.replacements}x old wheel sha -> ${plan.newSha256} in ${edit.file}`);
+  }
+  for (const edit of plan.runtimeLock?.shaEdits || []) {
+    actions.push(
+      `replace ${edit.replacements}x old Hermes runtime lock sha -> ${plan.runtimeLock.newSha256} in ${edit.file}`
+    );
   }
   actions.push(
     `${plan.sameVersionRepin ? 'replace reviewed wheel bytes at' : 'copy wheel ->'} ${path.relative(plan.repoRoot, plan.wheel.copyTo)}`
@@ -198,6 +256,11 @@ export function applyHermesWheelBump(plan, { dryRun }) {
   for (const edit of plan.shaEdits) {
     const filePath = path.join(plan.repoRoot, edit.file);
     const next = fs.readFileSync(filePath, 'utf8').split(plan.oldSha256).join(plan.newSha256);
+    fs.writeFileSync(filePath, next);
+  }
+  for (const edit of plan.runtimeLock?.shaEdits || []) {
+    const filePath = path.join(plan.repoRoot, edit.file);
+    const next = fs.readFileSync(filePath, 'utf8').split(plan.runtimeLock.oldSha256).join(plan.runtimeLock.newSha256);
     fs.writeFileSync(filePath, next);
   }
   fs.copyFileSync(plan.wheel.copyFrom, plan.wheel.copyTo);
@@ -223,6 +286,21 @@ export function verifyNoOldVersionResidue(plan) {
       findings.push(`old version still present in ${edit.file}`);
     }
     if (content.includes(plan.oldSha256)) findings.push(`old wheel sha still present in ${edit.file}`);
+  }
+  if (plan.runtimeLock) {
+    const actualLockSha256 = sha256File(path.join(plan.repoRoot, plan.runtimeLock.file));
+    if (actualLockSha256 !== plan.runtimeLock.newSha256) {
+      findings.push('Hermes runtime lock SHA-256 does not match the repinned lock bytes');
+    }
+    for (const edit of plan.runtimeLock.shaEdits) {
+      const content = fs.readFileSync(path.join(plan.repoRoot, edit.file), 'utf8');
+      if (content.includes(plan.runtimeLock.oldSha256)) {
+        findings.push(`old Hermes runtime lock sha still present in ${edit.file}`);
+      }
+      if (!content.includes(plan.runtimeLock.newSha256)) {
+        findings.push(`new Hermes runtime lock sha missing from ${edit.file}`);
+      }
+    }
   }
   const pin = readCurrentHermesPin(plan.repoRoot);
   if (pin.version !== plan.targetVersion)

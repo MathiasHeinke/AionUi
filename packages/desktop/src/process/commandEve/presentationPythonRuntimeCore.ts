@@ -17,7 +17,7 @@ export const COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR = 'artifact-site-packages';
 export const COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT = 'command-eve-artifact-python-runtime.json';
 export const COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE = 'command-eve-hermes-runtime.lock.tsv';
 export const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 =
-  'ddca1ada6600b05a11268f4129fb8206fe9637b793bcf58824f8d1e984d073de';
+  'df692adb500889aa3c92e94dfa5bef17dd3a89b6ea2570e7c1e706800c62cad3';
 export const COMMAND_EVE_HERMES_RUNTIME_PACKAGE_COUNT = 78;
 export const COMMAND_EVE_HERMES_RUNTIME_STAGED_PACKAGE_COUNT = 75;
 export const COMMAND_EVE_PYTHON_SIGNING_AUTHORITY = 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)';

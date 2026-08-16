@@ -25,6 +25,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   BUNDLED_HERMES_DIR,
   HERMES_PIN_FILE,
+  HERMES_RUNTIME_LOCK_FILE,
+  HERMES_RUNTIME_LOCK_SHA_SITES,
   HERMES_VERSION_SITES,
   HERMES_WHEEL_SHA_SITES,
   applyHermesWheelBump,
@@ -68,6 +70,14 @@ describe('manifest ↔ repo tripwire (the abort-on-drift guarantee, continuously
     for (const site of HERMES_WHEEL_SHA_SITES) {
       const found = countOccurrences(fs.readFileSync(path.join(REPO_ROOT, site.file), 'utf8'), pin.sha256);
       expect(found, `sha occurrence drift in ${site.file}`).toBe(site.count);
+    }
+  });
+
+  it('every runtime-lock sha carrier matches the current lock bytes exactly', () => {
+    const lockSha256 = sha256File(path.join(REPO_ROOT, HERMES_RUNTIME_LOCK_FILE));
+    for (const site of HERMES_RUNTIME_LOCK_SHA_SITES) {
+      const found = countOccurrences(fs.readFileSync(path.join(REPO_ROOT, site.file), 'utf8'), lockSha256);
+      expect(found, `Hermes runtime lock sha occurrence drift in ${site.file}`).toBe(site.count);
     }
   });
 
@@ -226,5 +236,34 @@ describe('applyHermesWheelBump (fixture)', () => {
     expect(sha256File(path.join(root, BUNDLED_HERMES_DIR, wheelFileNameForVersion('0.17.0')))).toBe(
       sha256File(wheelPath)
     );
+  });
+
+  it('repins the derived Hermes runtime-lock sha after updating its wheel row', () => {
+    const root = makeFixtureRepo();
+    const runtimeLockFile = 'resources/hermes-runtime.tsv';
+    const runtimeLockPinFile = 'public/hermes-runtime-lock-pin.txt';
+    const runtimeLockPath = path.join(root, runtimeLockFile);
+    fs.mkdirSync(path.dirname(runtimeLockPath), { recursive: true });
+    fs.writeFileSync(runtimeLockPath, `hermes-agent\t0.17.0\t${OLD_SHA}\trepo://wheel.whl\n`);
+    const oldRuntimeLockSha = sha256File(runtimeLockPath);
+    fs.writeFileSync(path.join(root, runtimeLockPinFile), `${oldRuntimeLockSha}\n`);
+    const wheelPath = makeTargetWheel('0.20.0', 'runtime-lock-repin-bytes');
+
+    const plan = planHermesWheelBump({
+      repoRoot: root,
+      targetVersion: '0.20.0',
+      wheelPath,
+      versionSites: [...FIXTURE_VERSION_SITES, { file: runtimeLockFile, count: 1 }],
+      shaSites: [...FIXTURE_SHA_SITES, { file: runtimeLockFile, count: 1 }],
+      runtimeLockFile,
+      lockShaSites: [{ file: runtimeLockPinFile, count: 1 }],
+    });
+    expect(plan.runtimeLock?.oldSha256).toBe(oldRuntimeLockSha);
+    expect(plan.runtimeLock?.newSha256).not.toBe(oldRuntimeLockSha);
+
+    expect(applyHermesWheelBump(plan, { dryRun: false }).verified).toBe(true);
+    expect(fs.readFileSync(runtimeLockPath, 'utf8')).toContain(plan.newSha256);
+    expect(sha256File(runtimeLockPath)).toBe(plan.runtimeLock?.newSha256);
+    expect(fs.readFileSync(path.join(root, runtimeLockPinFile), 'utf8')).toContain(plan.runtimeLock?.newSha256);
   });
 });
