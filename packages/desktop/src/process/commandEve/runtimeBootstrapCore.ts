@@ -8090,7 +8090,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '',
     '# Command EVE ACP session identity guard (1.822.2 native Desktop Use).',
     '#',
-    '# Hermes 0.20.0 answers a prompt for an unresolvable session with',
+    '# Hermes 0.20 answers a prompt for an unresolvable session with',
     '# PromptResponse(stop_reason="refusal") BEFORE any model or provider is chosen',
     '# (acp_adapter/server.py:1429-1432), and its session/load returns None instead',
     '# of an ACP SessionNotFound error (server.py:1239-1241). AionCore therefore',
