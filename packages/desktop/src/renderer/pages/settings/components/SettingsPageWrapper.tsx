@@ -79,7 +79,7 @@ const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, cla
         icon: resolvedIcon ? (
           <img src={resolvedIcon} alt='' className='w-16px h-16px object-contain' />
         ) : (
-          <Puzzle theme='outline' size='16' />
+          <Puzzle size='16' />
         ),
         path: `ext/${tab.id}`,
       };

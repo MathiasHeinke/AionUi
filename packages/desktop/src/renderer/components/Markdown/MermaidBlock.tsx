@@ -224,10 +224,9 @@ function MermaidBlock({ code, style, showOpenInPanelButton = true }: MermaidBloc
             {showOpenInPanelButton && (
               <PreviewOpen
                 data-testid='mermaid-open-in-panel'
-                theme='outline'
                 size='18'
                 style={{ cursor: 'pointer', flexShrink: 0 }}
-                fill='var(--text-secondary)'
+                color='var(--text-secondary)'
                 title={t('preview.openInPanelTooltip')}
                 onClick={() => {
                   openPreview(`\`\`\`mermaid\n${code}\n\`\`\``, 'markdown', {
@@ -239,10 +238,9 @@ function MermaidBlock({ code, style, showOpenInPanelButton = true }: MermaidBloc
             )}
             <Copy
               data-testid='mermaid-copy'
-              theme='outline'
               size='18'
               style={{ cursor: 'pointer', flexShrink: 0 }}
-              fill='var(--text-secondary)'
+              color='var(--text-secondary)'
               onClick={() => {
                 void copyText(code)
                   .then(() => {

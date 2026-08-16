@@ -54,7 +54,7 @@ const FeedbackButton: React.FC<FeedbackButtonProps> = ({ module, feedbackTags, f
         className
       )}
     >
-      <Comment theme='outline' size='14' fill='currentColor' className='flex-shrink-0 pt-4px' />
+      <Comment size='14' className='flex-shrink-0 pt-4px' />
       <span>{t('settings.oneClickFeedback')}</span>
     </button>
   );

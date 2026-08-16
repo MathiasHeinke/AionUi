@@ -7,7 +7,6 @@
 import type { Theme } from '@/common/theme/types';
 import { ipcBridge } from '@/common';
 import { useThemeContext } from '@renderer/hooks/context/ThemeContext.tsx';
-import { iconColors } from '@renderer/styles/colors';
 import { Button, Input, Radio } from '@arco-design/web-react';
 import AionModal from '@renderer/components/base/AionModal.tsx';
 import { Plus, Delete } from '@renderer/components/icons';
@@ -139,7 +138,7 @@ const CssThemeModal: React.FC<CssThemeModalProps> = ({ visible, theme, onClose, 
                 <img src={cover} alt='cover' className='w-full h-full object-cover' />
               ) : (
                 <>
-                  <Plus theme='outline' size='20' fill={iconColors.secondary} />
+                  <Plus size='20' />
                   <span className='text-12px text-t-secondary mt-4px'>{t('common.upload')}</span>
                 </>
               )}
@@ -191,7 +190,7 @@ const CssThemeModal: React.FC<CssThemeModalProps> = ({ visible, theme, onClose, 
         <div className='flex justify-between items-center pt-16px border-t border-border-2'>
           <div>
             {onDelete && (
-              <Button type='text' icon={<Delete theme='outline' size='14' />} onClick={onDelete}>
+              <Button type='text' icon={<Delete size='14' />} onClick={onDelete}>
                 {t('common.delete')}
               </Button>
             )}

@@ -45,9 +45,7 @@ const SiderToolbar: React.FC<SiderToolbarProps> = ({
             onClick={onNewChat}
           >
             <Plus
-              theme='outline'
               size='16'
-              fill='currentColor'
               className={classNames('block leading-none', styles.newChatIcon)}
               style={{ lineHeight: 0 }}
             />
@@ -71,9 +69,7 @@ const SiderToolbar: React.FC<SiderToolbarProps> = ({
         >
           <span className='size-22px rd-6px bg-aou-2 border border-solid border-[var(--color-border-2)] group-hover:bg-fill-3 group-hover:border-transparent flex items-center justify-center shrink-0 transition-colors'>
             <Plus
-              theme='outline'
               size='14'
-              fill='currentColor'
               className={classNames('block leading-none', styles.newChatIcon)}
               style={{ lineHeight: 0 }}
             />
@@ -102,7 +98,7 @@ const SiderToolbar: React.FC<SiderToolbarProps> = ({
           )}
           onClick={onToggleBatchMode}
         >
-          <ListCheckbox theme='outline' size='14' className='block leading-none shrink-0' style={{ lineHeight: 0 }} />
+          <ListCheckbox size='14' className='block leading-none shrink-0' style={{ lineHeight: 0 }} />
         </button>
       </Tooltip>
     </div>

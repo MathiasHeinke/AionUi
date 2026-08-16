@@ -10,7 +10,6 @@ import { getCommandEveLocalAcpModelInfo } from '@/common/config/commandEveShell'
 import type { AcpModelInfo } from '@/common/types/platform/acpTypes';
 import { getModelDisplayLabel } from '@/renderer/utils/model/agentLogo';
 import { DETECTED_AGENTS_SWR_KEY, fetchDetectedAgents, type AgentMetadata } from '@/renderer/utils/model/agentTypes';
-import { iconColors } from '@/renderer/styles/colors';
 import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
 import { Brain } from '@renderer/components/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -289,7 +288,7 @@ const AcpModelSelector: React.FC<{
   });
   const tooltipContent = display_label;
 
-  const renderLogo = () => <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />;
+  const renderLogo = () => <Brain size='14' className='shrink-0' />;
 
   // State 1: No model info — show disabled "Use CLI model" button
   if (!model_info) {

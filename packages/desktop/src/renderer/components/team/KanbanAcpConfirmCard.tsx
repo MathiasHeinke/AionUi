@@ -130,7 +130,7 @@ const KanbanAcpConfirmCard: React.FC = () => {
         style={{ boxShadow: 'var(--eve-overlay-shadow, var(--glass-shadow-soft))' }}
         title={
           <span className='inline-flex items-center gap-8px'>
-            <Folder theme='outline' size={18} fill='currentColor' aria-hidden='true' />
+            <Folder size={18} aria-hidden='true' />
             EVE schlägt eine Karten-Änderung vor
           </span>
         }

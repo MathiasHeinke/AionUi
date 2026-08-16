@@ -532,7 +532,7 @@ const WecomConfigForm: React.FC<WecomConfigFormProps> = ({
                       )?.name ||
                       selectedAgent.agent_type}
                   </span>
-                  <Down theme='outline' size={14} />
+                  <Down size={14} />
                 </Button>
               </Dropdown>
             </PreferenceRow>

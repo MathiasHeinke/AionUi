@@ -190,7 +190,7 @@ const QueueItemCard: React.FC<QueueItemCardProps> = ({
               onSortableDragHandlePointerDown?.(event);
             }}
           >
-            <Drag theme='outline' size='12' strokeWidth={2.5} />
+            <Drag size='12' />
           </button>
           <span
             aria-hidden='true'
@@ -200,7 +200,7 @@ const QueueItemCard: React.FC<QueueItemCardProps> = ({
               color: 'var(--color-text-3)',
             }}
           >
-            <CornerDownRight theme='outline' size='12' strokeWidth={2.3} />
+            <CornerDownRight size='12' />
           </span>
         </div>
         <div className='min-w-0 flex-1 flex items-center gap-6px'>
@@ -236,14 +236,14 @@ const QueueItemCard: React.FC<QueueItemCardProps> = ({
               ariaLabel: t('conversation.commandQueue.promote', { defaultValue: 'Push as correction now' }),
               disabled: item.files.length > 0 || promotePending,
               onClick: promotePending ? undefined : () => void onPromote(item),
-              icon: <CornerUpLeft theme='outline' size='14' strokeWidth={2.5} />,
+              icon: <CornerUpLeft size='14' />,
             })}
           </Tooltip>
         ) : null}
         {renderQueueActionIconButton({
           ariaLabel: t('conversation.commandQueue.remove', { defaultValue: 'Remove' }),
           onClick: () => onRemove(item.id),
-          icon: <Delete theme='outline' size='14' strokeWidth={2.5} />,
+          icon: <Delete size='14' />,
           danger: true,
         })}
         <Dropdown
@@ -266,7 +266,7 @@ const QueueItemCard: React.FC<QueueItemCardProps> = ({
         >
           {renderQueueActionIconButton({
             ariaLabel: t('conversation.commandQueue.moreActions', { defaultValue: 'More actions' }),
-            icon: <MoreOne theme='outline' size='14' strokeWidth={2.5} />,
+            icon: <MoreOne size='14' />,
           })}
         </Dropdown>
       </div>

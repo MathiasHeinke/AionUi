@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest';
 import {
   OVERLAY_EXPECTATIONS,
   selectOwnedOverlay,
+  summarizeDisabledRowCoverage,
   toPortableEvidencePath,
+  validateIconStateInheritance,
   validateOverlayEvidence,
   validateReducedMotionEvidence,
 } from '../../../scripts/command-eve/premium-ui-cdp-gauntlet-core.mjs';
@@ -131,5 +133,77 @@ describe('premium UI reduced-motion and evidence portability', () => {
     expect(() => toPortableEvidencePath(root, resolve('/elsewhere/report.json'))).toThrow(
       'Evidence path escapes repository root'
     );
+  });
+});
+
+describe('capabilities submenu icon state inheritance', () => {
+  const row = (overrides = {}) => ({
+    label: 'Skills',
+    hovered: false,
+    disabled: false,
+    textColor: 'rgb(17, 24, 39)',
+    iconColor: 'rgb(17, 24, 39)',
+    iconFillAttribute: 'currentColor',
+    ...overrides,
+  });
+
+  it('accepts a submenu whose glyphs carry the color of their own row at rest and on hover', () => {
+    const failures = validateIconStateInheritance({
+      rows: [
+        row(),
+        row({ hovered: true, textColor: 'rgb(37, 99, 235)', iconColor: 'rgb(37, 99, 235)' }),
+        row({ label: 'MCP' }),
+      ],
+    });
+
+    expect(failures).toEqual([]);
+  });
+
+  it('fails a hovered row that recolors its text while the icon stays behind', () => {
+    const failures = validateIconStateInheritance({
+      rows: [row(), row({ hovered: true, textColor: 'rgb(37, 99, 235)', iconColor: 'rgb(17, 24, 39)' })],
+    });
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ kind: 'icon-color-does-not-follow-text' });
+  });
+
+  it('fails a disabled row that dims its text while the icon stays bright', () => {
+    const failures = validateIconStateInheritance({
+      rows: [
+        row({ hovered: true }),
+        row({ label: 'Empty', disabled: true, textColor: 'rgba(89, 98, 115, 0.56)', iconColor: 'rgb(17, 24, 39)' }),
+      ],
+    });
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ kind: 'icon-color-does-not-follow-text', label: 'Empty' });
+  });
+
+  it('accepts the inheriting fill attribute but fails a pinned color', () => {
+    expect(validateIconStateInheritance({ rows: [row({ hovered: true })] })).toEqual([]);
+
+    const failures = validateIconStateInheritance({
+      rows: [row({ hovered: true, iconFillAttribute: 'var(--text-primary)' })],
+    });
+
+    expect(failures.map((failure) => failure.kind)).toContain('icon-carries-pinned-fill-attribute');
+  });
+
+  it('fails closed when the submenu never opened or never reached a hovered state', () => {
+    expect(validateIconStateInheritance({ rows: [] })).toEqual([{ kind: 'submenu-has-no-rows' }]);
+    expect(validateIconStateInheritance({ rows: [row()] })).toEqual([{ kind: 'submenu-missing-hovered-row' }]);
+  });
+
+  it('reports disabled-row coverage truthfully instead of implying it was exercised', () => {
+    expect(summarizeDisabledRowCoverage([row({ hovered: true })])).toEqual({
+      disabledRowsObserved: 0,
+      disabledRowsInherit: true,
+    });
+    expect(
+      summarizeDisabledRowCoverage([
+        row({ label: 'Empty', disabled: true, textColor: 'rgba(89, 98, 115, 0.56)', iconColor: 'rgb(17, 24, 39)' }),
+      ])
+    ).toEqual({ disabledRowsObserved: 1, disabledRowsInherit: false });
   });
 });

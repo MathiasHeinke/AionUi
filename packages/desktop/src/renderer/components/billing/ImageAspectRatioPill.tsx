@@ -58,7 +58,7 @@ const ImageAspectRatioPill: React.FC<ImageAspectRatioPillProps> = ({ value, onCh
               }}
             >
               <span className='video-quality-pill__model-name'>{option}</span>
-              {selected ? <CheckSmall theme='outline' size={13} className='video-quality-pill__check' /> : null}
+              {selected ? <CheckSmall size={13} className='video-quality-pill__check' /> : null}
             </button>
           );
         })}

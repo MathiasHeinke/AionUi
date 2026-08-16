@@ -140,12 +140,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   const isDesktop = isElectronDesktop();
   const hasSkills = skillCatalog.activeCount > 0;
   const hasMcpServers = mcpStatuses.length > 0;
-  const attachIcon =
-    icon === 'plus' ? (
-      <Plus theme='outline' size='19' strokeWidth={2.2} fill='currentColor' />
-    ) : (
-      <Paperclip theme='outline' size='17' strokeWidth={2} fill='currentColor' />
-    );
+  const attachIcon = icon === 'plus' ? <Plus size='19' /> : <Paperclip size='17' />;
 
   // A paperclip has one stable promise: choose files. Skills and connector
   // status live in EVE's dedicated control menu, so loaded capabilities must
@@ -203,7 +198,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
       {mcpStatuses.map((item) => (
         <MenuItem
           key={`${item.id}-${item.status}`}
-          icon={<Shield theme='outline' size={16} />}
+          icon={<Shield size={16} />}
           label={item.name}
           suffix={
             item.status === 'loaded' ? undefined : (
@@ -236,7 +231,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
             })}
           </span>
           <span className='inline-flex h-12px w-12px flex-shrink-0 items-center justify-center'>
-            <Right theme='outline' size={12} className='block' />
+            <Right size={12} className='block' />
           </span>
         </Button>
       </div>
@@ -267,9 +262,9 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
               >
                 <div>
                   <MenuItem
-                    icon={<Shield theme='outline' size={16} />}
+                    icon={<Shield size={16} />}
                     label={`${t('conversation.mcp.loaded', { defaultValue: 'Loaded MCP' })} · ${mcpStatuses.length}`}
-                    suffix={<Right theme='outline' size={13} className='text-t-tertiary' />}
+                    suffix={<Right size={13} className='text-t-tertiary' />}
                   />
                 </div>
               </Trigger>
@@ -288,9 +283,9 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
               >
                 <div>
                   <MenuItem
-                    icon={<Lightning theme='outline' size={16} />}
+                    icon={<Lightning size={16} />}
                     label={<SkillCapabilityCountLabel catalog={skillCatalog} />}
-                    suffix={<Right theme='outline' size={13} className='text-t-tertiary' />}
+                    suffix={<Right size={13} className='text-t-tertiary' />}
                   />
                 </div>
               </Trigger>
@@ -304,7 +299,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
       <div className='px-6px'>
         {!isDesktop && (
           <MenuItem
-            icon={<FolderOpen theme='outline' size={16} />}
+            icon={<FolderOpen size={16} />}
             label={t('common.fileAttach.myDevice', { defaultValue: 'Upload from device' })}
             onClick={() => {
               fileInputRef.current?.click();
@@ -313,7 +308,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
           />
         )}
         <MenuItem
-          icon={<Paperclip theme='outline' size={16} />}
+          icon={<Paperclip size={16} />}
           label={t('common.fileAttach.addFiles', { defaultValue: 'Add files' })}
           onClick={() => {
             openFileSelector();

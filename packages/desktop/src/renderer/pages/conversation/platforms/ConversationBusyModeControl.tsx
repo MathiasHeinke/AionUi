@@ -44,7 +44,7 @@ const ConversationBusyModeControl: React.FC<ConversationBusyModeControlProps> = 
         data-testid='conversation-busy-mode-queue'
       >
         <span className='conversation-busy-mode-menu__item'>
-          <Time theme='outline' size='16' aria-hidden='true' />
+          <Time size='16' aria-hidden='true' />
           <span className='conversation-busy-mode-menu__copy'>
             <strong>{queueLabel}</strong>
             <small>{queueTooltip}</small>
@@ -59,7 +59,7 @@ const ConversationBusyModeControl: React.FC<ConversationBusyModeControlProps> = 
         data-testid='conversation-busy-mode-steer'
       >
         <span className='conversation-busy-mode-menu__item'>
-          <EditOne theme='outline' size='16' aria-hidden='true' />
+          <EditOne size='16' aria-hidden='true' />
           <span className='conversation-busy-mode-menu__copy'>
             <strong>{steerLabel}</strong>
             <small>{steerTooltip}</small>
@@ -94,7 +94,7 @@ const ConversationBusyModeControl: React.FC<ConversationBusyModeControlProps> = 
           title={`${activeLabel}: ${activeTooltip}`}
           data-testid='conversation-busy-mode-trigger'
         >
-          <ActiveIcon theme='outline' size='16' aria-hidden='true' />
+          <ActiveIcon size='16' aria-hidden='true' />
         </Button>
       </Dropdown>
     </div>

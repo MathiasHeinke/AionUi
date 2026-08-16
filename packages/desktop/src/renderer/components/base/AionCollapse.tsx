@@ -71,7 +71,7 @@ const DefaultIcon: React.FC<{ active: boolean }> = ({ active }) => (
   <span
     className={classNames('inline-flex text-t-secondary transition-transform duration-300', active && 'rotate-180')}
   >
-    <Down theme='outline' size={14} fill='currentColor' aria-hidden='true' />
+    <Down size={14} aria-hidden='true' />
   </span>
 );
 

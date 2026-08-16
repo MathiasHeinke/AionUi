@@ -61,22 +61,11 @@ const TeamAgentIdentity: React.FC<Props> = ({
       return <img src={backendLogo} alt={agent_type} className={resolvedLogoClassName} />;
     }
     const initial = agent_name.charAt(0).toUpperCase();
-    return (
-      <span className={resolvedAvatarClassName}>
-        {initial || <Robot theme='outline' size={13} fill='currentColor' aria-hidden='true' />}
-      </span>
-    );
+    return <span className={resolvedAvatarClassName}>{initial || <Robot size={13} aria-hidden='true' />}</span>;
   };
 
   const crownIcon = (
-    <Crown
-      data-testid='team-leader-crown-icon'
-      theme='outline'
-      size={15}
-      fill='currentColor'
-      aria-hidden='true'
-      className='block text-warning'
-    />
+    <Crown data-testid='team-leader-crown-icon' size={15} aria-hidden='true' className='block text-warning' />
   );
 
   return (

@@ -32,7 +32,7 @@ export const AgentHubModal: React.FC<AgentHubModalProps> = ({ visible, onCancel 
           <Button
             type='primary'
             size='small'
-            icon={<Download theme='outline' size={15} fill='currentColor' aria-hidden='true' />}
+            icon={<Download size={15} aria-hidden='true' />}
             className={actionButtonClassName}
             onClick={() => install(agent.name)}
           >
@@ -58,7 +58,7 @@ export const AgentHubModal: React.FC<AgentHubModalProps> = ({ visible, onCancel 
             <Button
               status='danger'
               size='small'
-              icon={<Refresh theme='outline' size={15} fill='currentColor' aria-hidden='true' />}
+              icon={<Refresh size={15} aria-hidden='true' />}
               className={actionButtonClassName}
               onClick={() => retryInstall(agent.name)}
             >
@@ -71,7 +71,7 @@ export const AgentHubModal: React.FC<AgentHubModalProps> = ({ visible, onCancel 
           <Button
             type='primary'
             size='small'
-            icon={<Download theme='outline' size={15} fill='currentColor' aria-hidden='true' />}
+            icon={<Download size={15} aria-hidden='true' />}
             className={actionButtonClassName}
             onClick={() => update(agent.name)}
           >

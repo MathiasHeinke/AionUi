@@ -211,7 +211,7 @@ const ChatHistory: React.FC<{ onSessionClick?: () => void; collapsed?: boolean }
         >
           {isEditing ? (
             <div className='flex min-w-0 flex-1 items-center px-12px py-8px'>
-              <MessageOne theme='outline' size='20' className='mt-2px flex' />
+              <MessageOne size='20' className='mt-2px flex' />
               <FlexFullContainer className='h-24px collapsed-hidden ml-10px min-w-0'>
                 <Input
                   className='chat-history__item-editor text-14px lh-24px h-24px w-full'
@@ -232,7 +232,7 @@ const ChatHistory: React.FC<{ onSessionClick?: () => void; collapsed?: boolean }
               className='flex min-w-0 flex-1 cursor-pointer items-center border-none bg-transparent px-12px py-8px text-left'
               onClick={() => handleSelect(conversation)}
             >
-              <MessageOne theme='outline' size='20' className='mt-2px flex' />
+              <MessageOne size='20' className='mt-2px flex' />
               <FlexFullContainer className='h-24px collapsed-hidden ml-10px min-w-0'>
                 <div className='flex w-full items-center gap-4px'>
                   <div className='chat-history__item-name text-nowrap overflow-hidden text-ellipsis inline-block flex-1 text-14px lh-24px whitespace-nowrap min-w-0'>
@@ -264,7 +264,7 @@ const ChatHistory: React.FC<{ onSessionClick?: () => void; collapsed?: boolean }
                     handleEditStart(conversation);
                   }}
                 >
-                  <EditOne theme='outline' size='20' className='flex' />
+                  <EditOne size='20' className='flex' />
                 </button>
               )}
               {!isEditing && (
@@ -289,7 +289,7 @@ const ChatHistory: React.FC<{ onSessionClick?: () => void; collapsed?: boolean }
                       event.stopPropagation();
                     }}
                   >
-                    <DeleteOne theme='outline' size='20' className='flex' />
+                    <DeleteOne size='20' className='flex' />
                   </button>
                 </Popconfirm>
               )}

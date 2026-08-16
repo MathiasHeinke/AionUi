@@ -5,7 +5,6 @@
  */
 
 import type { IProvider, TProviderWithModel } from '@/common/config/storage';
-import { iconColors } from '@/renderer/styles/colors';
 import { getModelDisplayLabel } from '@/renderer/utils/model/agentLogo';
 import type { AcpModelInfo } from '../types';
 import { getAvailableModels } from '../utils/modelUtils';
@@ -107,7 +106,7 @@ const GuidModelSelector: React.FC<GuidModelSelectorProps> = ({
                     className='text-12px text-t-secondary'
                     onClick={() => navigate('/settings/model')}
                   >
-                    <Plus theme='outline' size='12' />
+                    <Plus size='12' />
                     {t('settings.addModel')}
                   </Menu.Item>,
                 ]
@@ -165,7 +164,7 @@ const GuidModelSelector: React.FC<GuidModelSelectorProps> = ({
                     className='text-12px text-t-secondary'
                     onClick={() => navigate('/settings/model')}
                   >
-                    <Plus theme='outline' size='12' />
+                    <Plus size='12' />
                     {t('settings.addModel')}
                   </Menu.Item>,
                 ]}
@@ -179,9 +178,9 @@ const GuidModelSelector: React.FC<GuidModelSelectorProps> = ({
           data-testid='guid-model-selector'
         >
           <span className='flex items-center gap-6px min-w-0'>
-            <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />
+            <Brain size='14' className='shrink-0' />
             <span>{geminiButtonLabel}</span>
-            <Down theme='outline' size='12' fill={iconColors.secondary} className='shrink-0' />
+            <Down size='12' className='shrink-0' />
           </span>
         </Button>
       </Dropdown>
@@ -232,9 +231,9 @@ const GuidModelSelector: React.FC<GuidModelSelectorProps> = ({
             data-testid='guid-model-selector'
           >
             <span className='flex items-center gap-6px min-w-0'>
-              <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />
+              <Brain size='14' className='shrink-0' />
               <span>{acpButtonLabel}</span>
-              <Down theme='outline' size='12' fill={iconColors.secondary} className='shrink-0' />
+              <Down size='12' className='shrink-0' />
             </span>
           </Button>
         </Dropdown>
@@ -251,7 +250,7 @@ const GuidModelSelector: React.FC<GuidModelSelectorProps> = ({
           data-testid='guid-model-selector'
         >
           <span className='flex items-center gap-6px min-w-0'>
-            <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />
+            <Brain size='14' className='shrink-0' />
             <span>{acpButtonLabel}</span>
           </span>
         </Button>
@@ -270,7 +269,7 @@ const GuidModelSelector: React.FC<GuidModelSelectorProps> = ({
         data-testid='guid-model-selector'
       >
         <span className='flex items-center gap-6px min-w-0'>
-          <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />
+          <Brain size='14' className='shrink-0' />
           <span>{defaultModelLabel}</span>
         </span>
       </Button>

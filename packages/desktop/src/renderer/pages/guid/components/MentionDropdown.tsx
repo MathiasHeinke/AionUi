@@ -51,7 +51,7 @@ const MentionDropdown: React.FC<MentionDropdownProps> = ({ menuRef, options, sel
                   ) : option.logo ? (
                     <img src={option.logo} alt={option.label} width={16} height={16} style={{ objectFit: 'contain' }} />
                   ) : (
-                    <Robot theme='outline' size={16} />
+                    <Robot size={16} />
                   )}
                 </span>
                 <span>{option.label}</span>
@@ -111,7 +111,7 @@ export const MentionSelectorBadge: React.FC<MentionSelectorBadgeProps> = ({
           style={{ transitionDuration: 'var(--eve-motion-duration-state)' }}
         >
           <span className='text-14px font-medium text-t-primary'>@{agentLabel}</span>
-          <Down theme='outline' size={12} />
+          <Down size={12} />
         </button>
       </Dropdown>
     </div>

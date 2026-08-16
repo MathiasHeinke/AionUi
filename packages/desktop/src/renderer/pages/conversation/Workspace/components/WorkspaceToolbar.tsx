@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { iconColors } from '@/renderer/styles/colors';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import { Dropdown, Input, Menu, Tooltip } from '@arco-design/web-react';
 import { Down, Plus, Refresh, Search } from '@renderer/components/icons';
@@ -85,7 +84,7 @@ const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = ({
               onSearch(value);
             }}
             allowClear
-            prefix={<Search theme='outline' size='14' fill={iconColors.primary} />}
+            prefix={<Search size='14' />}
           />
         </div>
       )}
@@ -103,7 +102,6 @@ const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = ({
         >
           <Down
             size={16}
-            fill={iconColors.primary}
             className={`line-height-0 transition-transform duration-400 flex-shrink-0 ${isWorkspaceCollapsed ? '-rotate-90' : 'rotate-0'}`}
           />
           <span className='workspace-title-label font-bold text-14px text-t-primary overflow-hidden text-ellipsis whitespace-nowrap'>
@@ -114,12 +112,7 @@ const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = ({
           {!isElectronDesktop() && (
             <Dropdown droplist={workspaceUploadMenu} trigger='click' position='bl'>
               <span>
-                <Plus
-                  className='workspace-toolbar-icon-btn lh-[1] flex cursor-pointer'
-                  theme='outline'
-                  size='16'
-                  fill={iconColors.secondary}
-                />
+                <Plus className='workspace-toolbar-icon-btn lh-[1] flex cursor-pointer' size='16' />
               </span>
             </Dropdown>
           )}
@@ -131,9 +124,7 @@ const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = ({
                     ? 'workspace-toolbar-icon-btn loading lh-[1] flex cursor-pointer'
                     : 'workspace-toolbar-icon-btn flex cursor-pointer'
                 }
-                theme='outline'
                 size='16'
-                fill={iconColors.secondary}
                 onClick={() => refreshWorkspace()}
               />
             </span>

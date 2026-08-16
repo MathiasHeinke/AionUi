@@ -71,7 +71,7 @@ export const useAttachEntry = ({
       return [
         {
           key: 'attach',
-          icon: <FolderUpload theme='outline' size='16' />,
+          icon: <FolderUpload size='16' />,
           label: t('common.fileAttach.addFiles', { defaultValue: 'Add files' }),
           variant: 'muted',
           dividerBefore,
@@ -83,7 +83,7 @@ export const useAttachEntry = ({
     return [
       {
         key: 'attach-host-files',
-        icon: <Paperclip theme='outline' size='16' />,
+        icon: <Paperclip size='16' />,
         label: t('common.fileAttach.addFiles', { defaultValue: 'Add files' }),
         variant: 'muted',
         dividerBefore,
@@ -91,7 +91,7 @@ export const useAttachEntry = ({
       },
       {
         key: 'attach-my-device',
-        icon: <FolderOpen theme='outline' size='16' />,
+        icon: <FolderOpen size='16' />,
         label: t('common.fileAttach.myDevice', { defaultValue: 'Upload from device' }),
         variant: 'muted',
         onClick: () => triggerLocalUpload(),

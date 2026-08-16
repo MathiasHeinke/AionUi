@@ -254,7 +254,7 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
             onClick={handleBackToChat}
             aria-label={backToChatTooltip}
           >
-            <ArrowCircleLeft theme='outline' size={iconSize} fill='currentColor' />
+            <ArrowCircleLeft size={iconSize} />
           </button>
         )}
         {showSiderToggle && (
@@ -265,13 +265,7 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
             aria-label={siderTooltip}
             data-testid='sider-toggle-btn'
           >
-            <LeftBar
-              theme='outline'
-              size={iconSize}
-              fill='currentColor'
-              strokeWidth={desktopIconStroke}
-              aria-hidden='true'
-            />
+            <LeftBar size={iconSize} aria-hidden='true' />
           </button>
         )}
         {showHistoryNav && (
@@ -284,7 +278,7 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
               aria-label={historyBackTooltip}
               title={historyBackTooltip}
             >
-              <ArrowLeft theme='outline' size={iconSize} fill='currentColor' strokeWidth={desktopIconStroke} />
+              <ArrowLeft size={iconSize} />
             </button>
             <button
               type='button'
@@ -294,7 +288,7 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
               aria-label={historyForwardTooltip}
               title={historyForwardTooltip}
             >
-              <ArrowRight theme='outline' size={iconSize} fill='currentColor' strokeWidth={desktopIconStroke} />
+              <ArrowRight size={iconSize} />
             </button>
           </>
         )}
@@ -318,7 +312,7 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
                 <span className='app-titlebar__brand-mobile'>
                   {isTeamRoute && (
                     <span className='app-titlebar__brand-icon' aria-hidden='true'>
-                      <Peoples theme='outline' size='16' fill='currentColor' />
+                      <Peoples size='16' />
                     </span>
                   )}
                   <span className='app-titlebar__brand-text'>{mobileCenterTitle}</span>
@@ -347,11 +341,11 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
             data-testid={COMMAND_EVE_SHELL_ENABLED ? 'elements-rail-toggle' : undefined}
           >
             {COMMAND_EVE_SHELL_ENABLED ? (
-              <RightBar theme='outline' size={iconSize} fill='currentColor' />
+              <RightBar size={iconSize} />
             ) : workspaceCollapsed ? (
-              <ExpandRight theme='outline' size={iconSize} fill='currentColor' />
+              <ExpandRight size={iconSize} />
             ) : (
-              <ExpandLeft theme='outline' size={iconSize} fill='currentColor' />
+              <ExpandLeft size={iconSize} />
             )}
           </button>
         )}

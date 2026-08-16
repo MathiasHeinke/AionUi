@@ -127,7 +127,7 @@ const AgentPillBar: React.FC<AgentPillBarProps> = ({
                       style={{ objectFit: 'contain', flexShrink: 0 }}
                     />
                   ) : (
-                    <Robot theme='outline' size={20} fill='currentColor' style={{ flexShrink: 0 }} />
+                    <Robot size={20} style={{ flexShrink: 0 }} />
                   )}
                   <span
                     className={`font-medium text-14px ${isSelected ? 'font-semibold ml-4px' : isMobile ? 'max-w-0 opacity-0 overflow-hidden' : 'max-w-0 opacity-0 overflow-hidden group-hover:max-w-100px group-hover:opacity-100 group-hover:ml-8px'}`}
@@ -159,7 +159,7 @@ const AgentPillBar: React.FC<AgentPillBarProps> = ({
             }}
             onClick={() => navigate('/settings/agent?tab=local')}
           >
-            <Plus theme='outline' size={20} fill='currentColor' style={{ flexShrink: 0 }} />
+            <Plus size={20} style={{ flexShrink: 0 }} />
           </button>
         </Tooltip>
       </div>

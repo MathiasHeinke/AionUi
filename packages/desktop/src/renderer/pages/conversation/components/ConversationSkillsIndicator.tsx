@@ -6,7 +6,6 @@
 
 import { ipcBridge } from '@/common';
 import type { TChatConversation } from '@/common/config/storage';
-import { iconColors } from '@/renderer/styles/colors';
 import { Popover } from '@arco-design/web-react';
 import { Lightning } from '@renderer/components/icons';
 import React from 'react';
@@ -70,7 +69,7 @@ const ConversationSkillsIndicator: React.FC<ConversationSkillsIndicatorProps> = 
         className='eve-pill inline-flex items-center gap-4px px-8px py-2px border-none cursor-pointer'
         data-testid='skills-indicator'
       >
-        <Lightning theme='filled' size={14} fill={iconColors.primary} strokeWidth={2} style={{ lineHeight: 0 }} />
+        <Lightning theme='filled' size={14} style={{ lineHeight: 0 }} />
         <span className='text-13px text-t-primary lh-[1]' data-testid='skills-indicator-count'>
           {names.length}
         </span>

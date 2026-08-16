@@ -135,7 +135,7 @@ const BackendStartupFailureScreen: React.FC<{ failure: BackendStartupFailureInfo
         </header>
 
         <div className='eve-backend-recovery__status-icon' aria-hidden='true'>
-          <Caution theme='outline' size={22} />
+          <Caution size={22} />
         </div>
 
         <div className='eve-backend-recovery__copy'>

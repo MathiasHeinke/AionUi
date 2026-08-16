@@ -311,7 +311,6 @@ export const MediaModelDropdown: React.FC<{
         )}
         {selected && (
           <CheckSmall
-            theme='outline'
             size={13}
             className='video-quality-pill__check'
             aria-label={t('credits.video.modelSelected', { defaultValue: 'Ausgewählt' })}

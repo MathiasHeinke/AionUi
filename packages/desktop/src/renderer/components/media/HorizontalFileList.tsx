@@ -147,7 +147,7 @@ const HorizontalFileList: React.FC<HorizontalFileListProps> = ({ children }) => 
             }}
             aria-label={t('common.scrollFilesLeft')}
           >
-            <Left theme='outline' size={14} fill='currentColor' aria-hidden='true' />
+            <Left size={14} aria-hidden='true' />
           </button>
         </div>
       )}
@@ -171,7 +171,7 @@ const HorizontalFileList: React.FC<HorizontalFileListProps> = ({ children }) => 
             }}
             aria-label={t('common.scrollFilesRight')}
           >
-            <Right theme='outline' size={14} fill='currentColor' aria-hidden='true' />
+            <Right size={14} aria-hidden='true' />
           </button>
         </div>
       )}

@@ -170,9 +170,9 @@ function CodeBlock(props: CodeBlockProps) {
                 onClick={toggleExpanded}
               >
                 {expanded ? (
-                  <Up theme='outline' size='14' style={{ display: 'block' }} fill={iconFill} />
+                  <Up size='14' style={{ display: 'block' }} color={iconFill} />
                 ) : (
-                  <Down theme='outline' size='14' style={{ display: 'block' }} fill={iconFill} />
+                  <Down size='14' style={{ display: 'block' }} color={iconFill} />
                 )}
               </button>
             )}
@@ -184,7 +184,7 @@ function CodeBlock(props: CodeBlockProps) {
               style={iconButtonStyle}
               onClick={handleCopy}
             >
-              <Copy theme='outline' size='14' style={{ display: 'block' }} fill={iconFill} />
+              <Copy size='14' style={{ display: 'block' }} color={iconFill} />
             </button>
           </div>
         </div>
@@ -260,11 +260,7 @@ function CodeBlock(props: CodeBlockProps) {
             <span style={{ color: footerTextColor, fontSize: '12px' }}>
               {expanded ? t('common.collapse') : t('common.viewMoreLines', { count: totalLines - PREVIEW_LINES })}
             </span>
-            {expanded ? (
-              <Up theme='outline' size='12' fill={footerTextColor} />
-            ) : (
-              <Down theme='outline' size='12' fill={footerTextColor} />
-            )}
+            {expanded ? <Up size='12' color={footerTextColor} /> : <Down size='12' color={footerTextColor} />}
           </button>
         )}
       </div>

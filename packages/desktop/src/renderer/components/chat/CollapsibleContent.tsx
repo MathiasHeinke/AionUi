@@ -219,13 +219,13 @@ export const CollapsibleContent: React.FC<CollapsibleContentProps> = ({
               <>
                 {/* 展开更多 Expand more */}
                 <span className='leading-none'>{t('common.expandMore')}</span>
-                <Down theme='outline' size='14' fill='currentColor' className='inline-block' />
+                <Down size='14' className='inline-block' />
               </>
             ) : (
               <>
                 {/* 收起 Collapse */}
                 <span className='leading-none'>{t('common.collapse')}</span>
-                <Up theme='outline' size='14' fill='currentColor' className='inline-block' />
+                <Up size='14' className='inline-block' />
               </>
             )}
           </button>

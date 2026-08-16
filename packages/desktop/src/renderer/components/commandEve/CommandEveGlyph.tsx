@@ -24,7 +24,7 @@ const CommandEveGlyph: React.FC<CommandEveGlyphProps> = ({ size = 20, className,
     role={decorative ? undefined : 'img'}
     data-testid='command-eve-glyph'
   >
-    <Command theme='outline' size={size} strokeWidth={4} aria-hidden='true' />
+    <Command size={size} aria-hidden='true' />
   </span>
 );
 

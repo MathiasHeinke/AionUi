@@ -100,12 +100,17 @@ export const cssVar = (property: string, varName: string) => ({
 });
 
 /**
- * Common icon colors as CSS variable strings for use in fill/stroke props
+ * Icon colors for the few glyphs that must state a meaning of their own.
+ *
+ * These resolve to the premium semantic register so icons and their labels
+ * cannot drift apart under a theme: an appearance preset that restyles text
+ * restyles these with it. Generic glyphs set no color at all and inherit the
+ * control state instead.
  */
 export const iconColors = {
-  primary: 'var(--text-primary)',
-  secondary: 'var(--text-secondary)',
-  disabled: 'var(--text-disabled)',
+  primary: 'var(--eve-shell-text)',
+  secondary: 'var(--eve-shell-text-secondary)',
+  disabled: 'var(--eve-control-text-disabled)',
   brand: 'var(--brand)',
   danger: 'var(--danger)',
   warning: 'var(--warning)',

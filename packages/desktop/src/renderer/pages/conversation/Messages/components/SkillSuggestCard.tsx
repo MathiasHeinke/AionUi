@@ -66,7 +66,7 @@ const SkillSuggestCard: React.FC<SkillSuggestCardProps> = ({
   return (
     <div data-testid='skill-suggest-card' className='eve-panel mt-8px p-12px rd-8px'>
       <div className='flex items-center gap-6px mb-8px'>
-        <Lightning theme='filled' size={16} fill={iconColors.warning} />
+        <Lightning theme='filled' size={16} color={iconColors.warning} />
         <span className='font-500 text-14px'>{t('cron.skill.turnIntoSkill')}</span>
       </div>
       <div className='text-t-primary text-13px mb-4px'>{suggestion.name}</div>

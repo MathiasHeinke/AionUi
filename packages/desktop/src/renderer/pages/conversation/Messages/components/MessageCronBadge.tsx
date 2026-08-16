@@ -5,7 +5,6 @@
  */
 
 import type { CronMessageMeta } from '@/common/chat/chatLib';
-import { iconColors } from '@/renderer/styles/colors';
 import { AlarmClock } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -31,7 +30,7 @@ const MessageCronBadge: React.FC<MessageCronBadgeProps> = ({ meta }) => {
       className='inline-flex items-center gap-4px mb-4px px-12px py-2px rounded-full text-2 bg-fill-2'
       style={{ color: 'var(--color-bg-6)' }}
     >
-      <AlarmClock strokeWidth={4} theme='outline' size={13} fill={iconColors.secondary} className='flex items-center' />
+      <AlarmClock size={13} className='flex items-center' />
       <span>{formatTime(meta.triggered_at, i18n.language)}</span>
     </div>
   );

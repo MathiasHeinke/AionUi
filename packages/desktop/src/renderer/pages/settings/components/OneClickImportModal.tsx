@@ -295,7 +295,7 @@ const OneClickImportModal: React.FC<OneClickImportModalProps> = ({
       ) : fetchedServers.length > 0 ? (
         <div>
           <div className='mb-3 flex items-center gap-2'>
-            <Check theme='filled' size={20} fill={iconColors.success} />
+            <Check theme='filled' size={20} color={iconColors.success} />
             <span className='text-t-primary'>{t('settings.mcpToolsLoaded', { count: fetchedServers.length })}</span>
           </div>
           <div className='mb-3 flex flex-wrap gap-2'>
@@ -334,7 +334,7 @@ const OneClickImportModal: React.FC<OneClickImportModalProps> = ({
     <div>
       <div>
         <div className='mb-3 flex items-center gap-2'>
-          <Check theme='filled' size={20} fill={iconColors.success} />
+          <Check theme='filled' size={20} color={iconColors.success} />
           <span className='text-t-primary'>{t('settings.mcpImportedSuccess', { count: importedServers.length })}</span>
         </div>
         <div className='mb-3 flex flex-wrap gap-2'>
@@ -436,11 +436,11 @@ const OneClickImportModal: React.FC<OneClickImportModalProps> = ({
           <AionSteps current={currentStep} size='small'>
             <AionSteps.Step
               title={t('settings.mcpStepSelectAgent')}
-              icon={currentStep > 1 ? <Check theme='filled' size={16} fill='currentColor' /> : undefined}
+              icon={currentStep > 1 ? <Check theme='filled' size={16} /> : undefined}
             />
             <AionSteps.Step
               title={t('settings.mcpStepFetchTools')}
-              icon={currentStep > 2 ? <Check theme='filled' size={16} fill='currentColor' /> : undefined}
+              icon={currentStep > 2 ? <Check theme='filled' size={16} /> : undefined}
             />
             <AionSteps.Step title={t('settings.mcpStepImportSuccess')} />
           </AionSteps>

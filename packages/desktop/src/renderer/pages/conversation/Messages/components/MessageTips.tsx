@@ -16,14 +16,14 @@ import FeedbackButton from '@renderer/components/base/FeedbackButton';
 import CollapsibleContent from '@renderer/components/chat/CollapsibleContent';
 
 const icon = {
-  success: <CheckOne theme='filled' size='16' fill={theme.Color.FunctionalColor.success} className='m-t-2px' />,
+  success: <CheckOne theme='filled' size='16' color={theme.Color.FunctionalColor.success} className='m-t-2px' />,
   warning: (
     <Attention
       theme='filled'
       size='16'
       strokeLinejoin='bevel'
       className='m-t-2px'
-      fill={theme.Color.FunctionalColor.warn}
+      color={theme.Color.FunctionalColor.warn}
     />
   ),
   error: (
@@ -32,7 +32,7 @@ const icon = {
       size='16'
       strokeLinejoin='bevel'
       className='m-t-2px'
-      fill={theme.Color.FunctionalColor.error}
+      color={theme.Color.FunctionalColor.error}
     />
   ),
 };

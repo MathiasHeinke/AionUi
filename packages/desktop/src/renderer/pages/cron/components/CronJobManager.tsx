@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { iconColors } from '@/renderer/styles/colors';
 import { emitter } from '@/renderer/utils/emitter';
 import { ipcBridge } from '@/common';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
@@ -122,7 +121,7 @@ const CronJobManager: React.FC<CronJobManagerProps> = ({ conversation_id, cron_j
           className='cron-job-manager-button chat-header-cron-pill !h-auto !w-auto !min-w-0 !px-0 !py-0'
         >
           <span className='inline-flex items-center gap-2px rounded-full px-8px py-2px bg-2'>
-            <AlarmClock theme='outline' size={16} fill={iconColors.disabled} />
+            <AlarmClock size={16} />
             <span className='ml-4px w-8px h-8px rounded-full bg-[#86909c]' />
           </span>
         </Button>
@@ -144,7 +143,7 @@ const CronJobManager: React.FC<CronJobManagerProps> = ({ conversation_id, cron_j
         onClick={() => navigate(`/scheduled/${job.id}`)}
       >
         <span className='inline-flex items-center gap-2px rounded-full px-8px py-2px bg-2'>
-          <AlarmClock theme='outline' size={16} fill={iconColors.primary} />
+          <AlarmClock size={16} />
           <span
             className={`ml-4px w-8px h-8px rounded-full ${hasError ? 'bg-[#f53f3f]' : isPaused ? 'bg-[#ff7d00]' : 'bg-[#00b42a]'}`}
           />

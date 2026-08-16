@@ -72,7 +72,7 @@ const AgentCard: React.FC<AgentCardProps> = (props) => {
             {logo ? (
               <img src={logo} alt={agent.name} className='h-full w-full object-contain' />
             ) : (
-              <Robot theme='outline' size={22} fill='currentColor' aria-hidden='true' />
+              <Robot size={22} aria-hidden='true' />
             )}
           </Avatar>
         </div>
@@ -103,7 +103,7 @@ const AgentCard: React.FC<AgentCardProps> = (props) => {
           shape='square'
           style={{ flexShrink: 0, backgroundColor: agent.icon ? 'var(--color-fill-2)' : 'transparent', fontSize: 18 }}
         >
-          {agent.icon || <Robot theme='outline' size='20' />}
+          {agent.icon || <Robot size='20' />}
         </Avatar>
         <div className='min-w-0 flex-1'>
           <Typography.Text className='font-medium text-14px'>{agent.name || 'Custom Agent'}</Typography.Text>
@@ -118,14 +118,8 @@ const AgentCard: React.FC<AgentCardProps> = (props) => {
         <Button size='small' type='text' onClick={onGoToChat} disabled={agent.enabled === false}>
           {t('settings.agentManagement.goToChat')}
         </Button>
-        <Button size='small' type='text' icon={<EditTwo theme='outline' size='14' />} onClick={onEdit} />
-        <Button
-          size='small'
-          type='text'
-          status='danger'
-          icon={<Delete theme='outline' size='14' />}
-          onClick={onDelete}
-        />
+        <Button size='small' type='text' icon={<EditTwo size='14' />} onClick={onEdit} />
+        <Button size='small' type='text' status='danger' icon={<Delete size='14' />} onClick={onDelete} />
       </div>
     </div>
   );

@@ -52,7 +52,6 @@ import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupCo
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
 import { allSupportedExts } from '@/renderer/services/FileService';
-import { iconColors } from '@/renderer/styles/colors';
 import { emitter, useAddEventListener } from '@/renderer/utils/emitter';
 import { mergeFileSelectionItems } from '@/renderer/utils/file/fileSelection';
 import { buildDisplayMessage, collectSelectedFiles } from '@/renderer/utils/file/messageFiles';
@@ -718,7 +717,7 @@ const AionrsSendBox: React.FC<{
     // — because aionrs is a separate backend that this release does not govern.
     const modelEntry: MobileActionSheetEntry = {
       key: 'model',
-      icon: <Brain theme='outline' size='16' />,
+      icon: <Brain size='16' />,
       label: t('common.model', { defaultValue: 'Model' }),
       meta: currentModelLabel,
       submenu: {
@@ -733,7 +732,7 @@ const AionrsSendBox: React.FC<{
       modelEntry,
       {
         key: 'permission',
-        icon: <Shield theme='outline' size='16' />,
+        icon: <Shield size='16' />,
         label: t('agentMode.permission', { defaultValue: 'Permission' }),
         meta: currentModeLabel,
         submenu: {
@@ -748,7 +747,7 @@ const AionrsSendBox: React.FC<{
     if (runtimeView.isProcessing) {
       entries.push({
         key: 'busy-send-mode',
-        icon: busySendMode === 'steer' ? <EditOne theme='outline' size='16' /> : <Time theme='outline' size='16' />,
+        icon: busySendMode === 'steer' ? <EditOne size='16' /> : <Time size='16' />,
         label: t('conversation.commandQueue.busyModeAria', { defaultValue: 'Busy send mode' }),
         meta: t(
           busySendMode === 'steer'
@@ -788,7 +787,7 @@ const AionrsSendBox: React.FC<{
       }));
       entries.push({
         key: 'skills',
-        icon: <MagicHat theme='outline' size='16' />,
+        icon: <MagicHat size='16' />,
         label: t('common.skills', { defaultValue: 'Skills' }),
         variant: 'muted',
         submenu: {
@@ -815,7 +814,7 @@ const AionrsSendBox: React.FC<{
       }));
       entries.push({
         key: 'mcp',
-        icon: <Shield theme='outline' size='16' />,
+        icon: <Shield size='16' />,
         label: t('conversation.mcp.loaded', { defaultValue: 'Loaded MCP' }),
         variant: 'muted',
         submenu: {
@@ -953,7 +952,7 @@ const AionrsSendBox: React.FC<{
               compact
               initialMode={session_mode}
               dynamicModes={dynamicModes}
-              compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
+              compactLeadingIcon={<Shield size='14' />}
               modeLabelFormatter={(mode) => t(`agentMode.${mode.value}`, { defaultValue: mode.label })}
               compactLabelPrefix={t('agentMode.permission')}
               hideCompactLabelPrefixOnMobile

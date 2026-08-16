@@ -169,7 +169,7 @@ const AboutModalContent: React.FC = () => {
             >
               <span className='eve-settings-link-row__content'>
                 <span>{item.title}</span>
-                <Right theme='outline' size='16' />
+                <Right size='16' />
               </span>
             </Button>
           ))}

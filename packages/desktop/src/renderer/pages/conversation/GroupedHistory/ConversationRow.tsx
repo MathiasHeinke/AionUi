@@ -183,7 +183,7 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
                   : 'border-[var(--glass-panel-border)] bg-transparent'
               )}
             >
-              {checked && <CheckSmall theme='outline' size={11} />}
+              {checked && <CheckSmall size={11} />}
             </span>
           )}
           <span className='size-22px flex items-center justify-center shrink-0 relative'>
@@ -202,7 +202,7 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
                 className='absolute inset-0 flex-center text-t-secondary pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity'
                 style={{ lineHeight: 0 }}
               >
-                <Pushpin theme='outline' size='14' />
+                <Pushpin size='14' />
               </span>
             )}
           </span>
@@ -282,14 +282,14 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
                 >
                   <Menu.Item key='pin'>
                     <div className='flex items-center gap-8px'>
-                      <Pushpin theme='outline' size='14' />
+                      <Pushpin size='14' />
                       <span>{isPinned ? t('conversation.history.unpin') : t('conversation.history.pin')}</span>
                     </div>
                   </Menu.Item>
                   {onToggleArchive && (
                     <Menu.Item key='archive'>
                       <div className='flex items-center gap-8px'>
-                        <Box theme='outline' size='14' />
+                        <Box size='14' />
                         <span>
                           {isArchived ? t('conversation.history.restore') : t('conversation.history.archive')}
                         </span>
@@ -299,34 +299,34 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
                   {onMoveStart && (
                     <Menu.Item key='move'>
                       <div className='flex items-center gap-8px'>
-                        <FolderOpen theme='outline' size='14' />
+                        <FolderOpen size='14' />
                         <span>{t('conversation.history.moveToFolder')}</span>
                       </div>
                     </Menu.Item>
                   )}
                   <Menu.Item key='rename'>
                     <div className='flex items-center gap-8px'>
-                      <EditOne theme='outline' size='14' />
+                      <EditOne size='14' />
                       <span>{t('conversation.history.rename')}</span>
                     </div>
                   </Menu.Item>
                   {onExport && (
                     <Menu.Item key='export'>
                       <div className='flex items-center gap-8px'>
-                        <Export theme='outline' size='14' />
+                        <Export size='14' />
                         <span>{t('conversation.history.export')}</span>
                       </div>
                     </Menu.Item>
                   )}
                   <Menu.Item key='copy-session-id'>
                     <div className='flex items-center gap-8px'>
-                      <Copy theme='outline' size='14' />
+                      <Copy size='14' />
                       <span>{t('conversation.history.copySessionId')}</span>
                     </div>
                   </Menu.Item>
                   <Menu.Item key='delete'>
                     <div className='flex items-center gap-8px text-[rgb(var(--warning-6))]'>
-                      <DeleteOne theme='outline' size='14' />
+                      <DeleteOne size='14' />
                       <span>{t('conversation.history.deleteTitle')}</span>
                     </div>
                   </Menu.Item>
@@ -356,7 +356,7 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
                   onOpenMenu(conversation);
                 }}
               >
-                <MoreOne theme='outline' size='14' fill='currentColor' className='block leading-none' />
+                <MoreOne size='14' className='block leading-none' />
               </button>
             </Dropdown>
           </div>

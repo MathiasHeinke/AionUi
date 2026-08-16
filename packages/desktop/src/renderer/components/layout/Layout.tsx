@@ -344,7 +344,7 @@ const Layout: React.FC<{
                     title='Collapse sidebar'
                     aria-label='Collapse sidebar'
                   >
-                    <LeftBar theme='outline' size={18} fill='currentColor' strokeWidth={3} aria-hidden='true' />
+                    <LeftBar size={18} aria-hidden='true' />
                   </button>
                 )}
                 {/* 侧栏折叠改由标题栏统一控制 / Sidebar folding handled by Titlebar toggle */}

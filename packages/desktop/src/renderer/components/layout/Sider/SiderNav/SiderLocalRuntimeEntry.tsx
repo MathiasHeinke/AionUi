@@ -41,7 +41,7 @@ const SiderLocalRuntimeEntry: React.FC<SiderLocalRuntimeEntryProps> = ({
           )}
           onClick={onClick}
         >
-          <Cpu theme='outline' size='20' fill='currentColor' className='block leading-none shrink-0' />
+          <Cpu size='20' className='block leading-none shrink-0' />
         </button>
       </Tooltip>
     );
@@ -60,7 +60,7 @@ const SiderLocalRuntimeEntry: React.FC<SiderLocalRuntimeEntryProps> = ({
         onClick={onClick}
       >
         <span className='size-22px flex items-center justify-center shrink-0 text-t-primary'>
-          <Cpu theme='outline' size='16' fill='currentColor' className='block leading-none' />
+          <Cpu size='16' className='block leading-none' />
         </span>
         <span className='collapsed-hidden text-t-primary text-14px font-[500] leading-24px'>
           {t('localRuntime.sider')}

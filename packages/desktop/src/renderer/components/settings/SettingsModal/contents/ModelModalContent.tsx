@@ -853,7 +853,7 @@ const ModelModalContent: React.FC = () => {
         >
           {userManagedProviders.length === 0 ? (
             <div className='eve-settings-notice eve-settings-inline-notice'>
-              <Info theme='outline' size={15} />
+              <Info size={15} />
               <span>
                 <strong className='eve-model-settings__empty-title'>{t('settings.noConfiguredModels')}</strong>
                 <span>
@@ -1035,7 +1035,7 @@ const ModelModalContent: React.FC = () => {
                                   <Button
                                     size='mini'
                                     className='!w-28px !h-28px !min-w-28px !bg-[var(--color-bg-1)] text-t-secondary hover:text-t-primary hover:!bg-[var(--fill-0)]'
-                                    icon={<Heartbeat theme='outline' size='16' />}
+                                    icon={<Heartbeat size='16' />}
                                     loading={healthCheckLoading[`${platform.id}-${model}`]}
                                     onClick={() => performHealthCheck(platform, model)}
                                   />
@@ -1072,7 +1072,7 @@ const ModelModalContent: React.FC = () => {
                                   <Button
                                     size='mini'
                                     className='!w-28px !h-28px !min-w-28px !bg-[var(--color-bg-1)] text-t-secondary hover:text-t-primary hover:!bg-[var(--fill-0)]'
-                                    icon={<DeleteFour theme='outline' size='18' strokeWidth={2} />}
+                                    icon={<DeleteFour size='18' />}
                                   />
                                 </Popconfirm>
                               </div>

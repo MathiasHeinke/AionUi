@@ -180,7 +180,7 @@ const DevSettings: React.FC = () => {
                   type='text'
                   size='small'
                   aria-label={t('settings.cdp.openInBrowser')}
-                  icon={<Link theme='outline' size='16' />}
+                  icon={<Link size='16' />}
                   onClick={openCdpUrl}
                 />
               </Tooltip>
@@ -189,7 +189,7 @@ const DevSettings: React.FC = () => {
                   type='text'
                   size='small'
                   aria-label={t('common.copy')}
-                  icon={<Copy theme='outline' size='16' />}
+                  icon={<Copy size='16' />}
                   onClick={copyCdpUrl}
                 />
               </Tooltip>
@@ -215,7 +215,7 @@ const DevSettings: React.FC = () => {
                           type='text'
                           size='small'
                           aria-label={t('settings.cdp.copyMcpConfig')}
-                          icon={<Copy theme='outline' size='16' />}
+                          icon={<Copy size='16' />}
                           onClick={(e) => {
                             e.stopPropagation();
                             copyMcpConfig();
@@ -260,7 +260,7 @@ const DevSettings: React.FC = () => {
                           type='text'
                           size='small'
                           aria-label={t('settings.cdp.copyMcpConfig')}
-                          icon={<Copy theme='outline' size='16' />}
+                          icon={<Copy size='16' />}
                           onClick={(e) => {
                             e.stopPropagation();
                             copyPlaywrightMcpConfig();
@@ -301,7 +301,7 @@ const DevSettings: React.FC = () => {
         {hasPendingChange && (
           <div className='eve-settings-notice eve-settings-notice--warning eve-settings-action-row'>
             <p className='eve-settings-inline-notice'>
-              <Caution theme='outline' size='16' />
+              <Caution size='16' />
               <span>{t('settings.cdp.restartRequired')}</span>
             </p>
             <Button size='small' type='primary' onClick={handleRestart}>

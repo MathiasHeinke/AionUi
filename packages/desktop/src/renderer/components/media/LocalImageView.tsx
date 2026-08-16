@@ -3,7 +3,6 @@ import { joinPath } from '@/common/chat/chatLib';
 import { LoadingTwo } from '@renderer/components/icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createContext } from '@renderer/utils/ui/createContext';
-import { iconColors } from '@/renderer/styles/colors';
 
 const [useLocalImage, LocalImageProvider, useUpdateLocalImage] = createContext({ root: '' });
 
@@ -55,14 +54,7 @@ const LocalImageView: React.FC<{
   if (loading)
     return (
       <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-        <LoadingTwo
-          className='loading'
-          style={{ display: 'flex' }}
-          theme='outline'
-          size='14'
-          fill={iconColors.primary}
-          strokeWidth={2}
-        />
+        <LoadingTwo className='loading' style={{ display: 'flex' }} size='14' />
         <span>{alt}</span>
       </span>
     );

@@ -742,11 +742,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
               className='!h-auto !p-0 hover:!bg-transparent'
             >
               <span className='flex items-center gap-6px text-14px font-medium text-t-primary'>
-                <Down
-                  size='14'
-                  fill='currentColor'
-                  className={`shrink-0 transition-transform ${advancedOpen ? 'rotate-180' : ''}`}
-                />
+                <Down size='14' className={`shrink-0 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
                 <span>{t('cron.page.form.advancedSettings')}</span>
               </span>
             </Button>

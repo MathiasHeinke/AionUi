@@ -26,10 +26,10 @@ interface MessagePermissionProps {
 }
 
 const actionIcons: Record<string, React.ReactNode> = {
-  exec: <Lightning theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
-  edit: <Edit theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
-  info: <Book theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
-  mcp: <Link theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
+  exec: <Lightning size={17} aria-hidden='true' />,
+  edit: <Edit size={17} aria-hidden='true' />,
+  info: <Book size={17} aria-hidden='true' />,
+  mcp: <Link size={17} aria-hidden='true' />,
 };
 
 const MessagePermission: React.FC<MessagePermissionProps> = React.memo(({ message, isCommandEve = false }) => {
@@ -69,7 +69,7 @@ const MessagePermission: React.FC<MessagePermissionProps> = React.memo(({ messag
   const [hasResponded, setHasResponded] = useState(false);
   const [responseError, setResponseError] = useState<string | null>(null);
 
-  const icon = actionIcons[action || ''] || <Lock theme='outline' size={17} fill='currentColor' aria-hidden='true' />;
+  const icon = actionIcons[action || ''] || <Lock size={17} aria-hidden='true' />;
   const displayTitle = title || description || t('messages.permissionRequest');
 
   const handleConfirm = async () => {
@@ -215,7 +215,7 @@ const MessagePermission: React.FC<MessagePermissionProps> = React.memo(({ messag
           >
             <Text className='text-sm' style={{ color: 'rgb(var(--success-6))' }}>
               <span className='inline-flex items-center gap-6px'>
-                <CheckOne theme='outline' size={15} fill='currentColor' aria-hidden='true' />
+                <CheckOne size={15} aria-hidden='true' />
                 {t('messages.responseSentSuccessfully')}
               </span>
             </Text>

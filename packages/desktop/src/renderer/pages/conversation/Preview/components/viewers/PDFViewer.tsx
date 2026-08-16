@@ -66,7 +66,7 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ file_path, content, hideToolbar
       left: (
         <div className='flex items-center gap-8px'>
           <span className='inline-flex items-center gap-6px text-13px text-t-secondary'>
-            <FilePdf theme='outline' size={15} fill='currentColor' aria-hidden='true' />
+            <FilePdf size={15} aria-hidden='true' />
             {t('preview.pdf.title')}
           </span>
           <span className='text-11px text-t-tertiary'>{t('preview.readOnlyLabel')}</span>
@@ -87,7 +87,7 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ file_path, content, hideToolbar
         {messageContextHolder}
         <div className='text-center'>
           <div className='mb-8px inline-flex items-center justify-center gap-7px text-16px text-t-error'>
-            <Caution theme='outline' size={18} fill='currentColor' aria-hidden='true' />
+            <Caution size={18} aria-hidden='true' />
             <span>{error}</span>
           </div>
           <div className='text-12px text-t-secondary'>{t('preview.pdf.unableDisplay')}</div>
@@ -103,14 +103,14 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ file_path, content, hideToolbar
         <div className='flex items-center justify-between h-40px px-12px bg-bg-2 flex-shrink-0'>
           <div className='flex items-center gap-8px'>
             <span className='inline-flex items-center gap-6px text-13px text-t-secondary'>
-              <FilePdf theme='outline' size={15} fill='currentColor' aria-hidden='true' />
+              <FilePdf size={15} aria-hidden='true' />
               <span>{t('preview.pdf.title')}</span>
             </span>
             <span className='text-11px text-t-tertiary'>{t('preview.readOnlyLabel')}</span>
           </div>
           {file_path && (
             <Button size='mini' type='text' onClick={handleOpenInSystem} title={t('preview.openInSystemApp')}>
-              <Open theme='outline' size={14} fill='currentColor' aria-hidden='true' />
+              <Open size={14} aria-hidden='true' />
               <span>{t('preview.openInSystemApp')}</span>
             </Button>
           )}

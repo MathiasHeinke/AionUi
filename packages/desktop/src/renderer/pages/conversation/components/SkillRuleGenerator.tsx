@@ -138,9 +138,9 @@ Please acknowledge receiving this rule/skill and confirm you will apply it.
                 <div className='flex items-center gap-3'>
                   <div className='bg-[var(--color-primary-light-1)] p-2 rounded'>
                     {file.name.endsWith('.py') ? (
-                      <Lightning size={18} fill='var(--color-primary-6)' />
+                      <Lightning size={18} color='var(--color-primary-6)' />
                     ) : (
-                      <FolderOpen size={18} fill='var(--color-primary-6)' />
+                      <FolderOpen size={18} color='var(--color-primary-6)' />
                     )}
                   </div>
                   <div className='flex-1'>

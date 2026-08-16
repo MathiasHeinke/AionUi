@@ -153,26 +153,18 @@ import React, { forwardRef } from 'react';
 export type PremiumIconTheme = 'outline' | 'filled' | 'two-tone' | 'multi-color';
 
 /**
- * Transitional props keep existing call sites stable while every visible glyph
- * is rendered by Phosphor. Legacy stroke widths are intentionally ignored so
- * the application has one calm optical weight instead of per-screen drift.
+ * `color` is reserved for the few glyphs that carry a meaning of their own,
+ * such as a success check. Everything else omits it and inherits the color of
+ * the control it sits in, so hover, selection and disabled reach the glyph and
+ * its label together instead of leaving the icon behind at full strength.
  */
 export type PremiumIconProps = Omit<IconProps, 'color' | 'fill'> &
   Readonly<{
     color?: string;
-    fill?: string | readonly string[];
     spin?: boolean;
     theme?: PremiumIconTheme;
     title?: string;
   }>;
-
-function resolveColor(color: string | undefined, fill: PremiumIconProps['fill']): string | undefined {
-  if (color) return color;
-  if (!fill) return undefined;
-  if (typeof fill !== 'string') return fill.find((value) => value && value !== 'none' && value !== 'transparent');
-  if (fill === 'none' || fill === 'transparent') return undefined;
-  return fill;
-}
 
 function resolveWeight(weight: IconWeight | undefined, theme: PremiumIconTheme | undefined): IconWeight {
   if (weight) return weight;
@@ -187,26 +179,14 @@ export function createPremiumIcon(
   defaults: Readonly<Pick<PremiumIconProps, 'mirrored'>> = {}
 ) {
   const PremiumIcon = forwardRef<SVGSVGElement, PremiumIconProps>((props, ref) => {
-    const {
-      className,
-      color,
-      fill,
-      spin = false,
-      strokeWidth: legacyStrokeWidth,
-      theme,
-      title,
-      weight,
-      children,
-      ...svgProps
-    } = props;
-    void legacyStrokeWidth;
+    const { className, color, spin = false, theme, title, weight, children, ...svgProps } = props;
 
     return (
       <IconComponent
         {...defaults}
         {...svgProps}
         ref={ref}
-        color={resolveColor(color, fill)}
+        color={color}
         weight={resolveWeight(weight, theme)}
         className={['eve-icon', 'eve-phosphor-icon', spin ? 'eve-icon--spin' : '', className].filter(Boolean).join(' ')}
         data-icon-family='phosphor'

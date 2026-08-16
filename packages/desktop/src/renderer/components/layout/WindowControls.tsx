@@ -62,7 +62,7 @@ const WindowControls: React.FC = () => {
   return (
     <div className='app-window-controls'>
       <button type='button' className='app-window-controls__button' onClick={handleMinimize} aria-label='Minimize'>
-        <Minus theme='outline' size='14' fill='currentColor' strokeWidth={4} />
+        <Minus size='14' />
       </button>
       <button
         type='button'
@@ -70,11 +70,7 @@ const WindowControls: React.FC = () => {
         onClick={handleToggleMaximize}
         aria-label={isMaximized ? 'Restore' : 'Maximize'}
       >
-        {isMaximized ? (
-          <OffScreen theme='outline' size={14} fill='currentColor' aria-hidden='true' />
-        ) : (
-          <FullScreen theme='outline' size={14} fill='currentColor' aria-hidden='true' />
-        )}
+        {isMaximized ? <OffScreen size={14} aria-hidden='true' /> : <FullScreen size={14} aria-hidden='true' />}
       </button>
       <button
         type='button'
@@ -82,7 +78,7 @@ const WindowControls: React.FC = () => {
         onClick={handleClose}
         aria-label='Close'
       >
-        <CloseSmall theme='outline' size='16' fill='currentColor' strokeWidth={3} />
+        <CloseSmall size='16' />
       </button>
     </div>
   );

@@ -218,10 +218,7 @@ const ProjectsPage: React.FC = () => {
           </div>
         ) : projects.length === 0 && !reason ? (
           <div className='flex min-h-260px flex-col items-center justify-center gap-14px'>
-            <Empty
-              description={t('common.projects.empty.description')}
-              icon={<FolderOpen theme='outline' size='48' fill='currentColor' />}
-            />
+            <Empty description={t('common.projects.empty.description')} icon={<FolderOpen size='48' />} />
             <Space wrap>
               <Button
                 onClick={(event) => {

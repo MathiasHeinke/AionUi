@@ -417,7 +417,7 @@ const CssThemeSettings: React.FC = () => {
           type='outline'
           size='small'
           className='rd-18px h-34px px-14px !m-0'
-          icon={<Plus theme='outline' size='14' />}
+          icon={<Plus size='14' />}
           onClick={handleAddTheme}
         >
           {t('settings.cssTheme.addManually')}
@@ -469,7 +469,7 @@ const CssThemeSettings: React.FC = () => {
 
                 {activeThemeId === theme.id && (
                   <span className='absolute top-8px right-8px'>
-                    <CheckOne theme='filled' size='20' fill='var(--color-primary)' />
+                    <CheckOne theme='filled' size='20' color='var(--color-primary)' />
                   </span>
                 )}
               </button>
@@ -481,7 +481,7 @@ const CssThemeSettings: React.FC = () => {
                   className='absolute bottom-8px right-8px p-4px rounded-6px border-none bg-white/20 cursor-pointer hover:bg-white/40 transition-colors'
                   onClick={(e) => handleEditTheme(theme, e)}
                 >
-                  <EditTwo theme='outline' size='16' fill='currentColor' />
+                  <EditTwo size='16' />
                 </button>
               )}
             </div>

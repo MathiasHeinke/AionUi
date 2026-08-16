@@ -750,7 +750,7 @@ const WebuiModalContent: React.FC = () => {
             key='webui'
             title={
               <span data-webui-tab='webui' className='inline-flex items-center gap-6px'>
-                <Earth theme='outline' size='15' />
+                <Earth size='15' />
                 <span>{t('settings.remoteBrowserTab')}</span>
               </span>
             }
@@ -759,7 +759,7 @@ const WebuiModalContent: React.FC = () => {
             key='channels'
             title={
               <span data-webui-tab='channels' className='inline-flex items-center gap-6px'>
-                <Communication theme='outline' size='15' />
+                <Communication size='15' />
                 <span>{t('settings.remoteChannelsTab')}</span>
               </span>
             }

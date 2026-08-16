@@ -109,7 +109,7 @@ const QuickActionButtons: React.FC<QuickActionButtonsProps> = ({ onOpenLink, onO
             aria-label={feedbackLabel}
             data-testid='guid-quick-action-feedback'
           >
-            <Comment theme='outline' size={20} fill='currentColor' aria-hidden='true' />
+            <Comment size={20} aria-hidden='true' />
           </button>
         </Tooltip>
         <Tooltip content={websiteLabel} position='top' trigger={['hover', 'focus']}>
@@ -122,7 +122,7 @@ const QuickActionButtons: React.FC<QuickActionButtonsProps> = ({ onOpenLink, onO
             aria-label={websiteLabel}
             data-testid='guid-quick-action-website'
           >
-            <WebPage theme='outline' size={20} fill='currentColor' aria-hidden='true' />
+            <WebPage size={20} aria-hidden='true' />
           </button>
         </Tooltip>
         <Tooltip content={webuiLabel} position='top' trigger={['hover', 'focus']}>
@@ -133,7 +133,7 @@ const QuickActionButtons: React.FC<QuickActionButtonsProps> = ({ onOpenLink, onO
             aria-label={webuiLabel}
             data-testid='guid-quick-action-webui'
           >
-            <Earth theme='outline' size={20} fill='currentColor' style={{ color: webuiIconColor }} aria-hidden='true' />
+            <Earth size={20} style={{ color: webuiIconColor }} aria-hidden='true' />
           </button>
         </Tooltip>
       </div>

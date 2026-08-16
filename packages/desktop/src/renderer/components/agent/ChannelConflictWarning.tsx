@@ -32,7 +32,7 @@ export const ChannelConflictWarning: React.FC<ChannelConflictWarningProps> = ({
   return (
     <Alert
       type='warning'
-      icon={<Attention theme='outline' size={18} fill='currentColor' />}
+      icon={<Attention size={18} />}
       title={`${platformName} Channel Conflict Detected`}
       content={
         <Space direction='vertical' size='medium' style={{ width: '100%' }}>
@@ -45,19 +45,19 @@ export const ChannelConflictWarning: React.FC<ChannelConflictWarningProps> = ({
             <ul>
               <li>
                 <Text type='error' className='inline-flex items-center gap-6px'>
-                  <CloseOne theme='outline' size={14} fill='currentColor' aria-hidden='true' />
+                  <CloseOne size={14} aria-hidden='true' />
                   Switching agents in AionUi will have no effect
                 </Text>
               </li>
               <li>
                 <Text type='error' className='inline-flex items-center gap-6px'>
-                  <CloseOne theme='outline' size={14} fill='currentColor' aria-hidden='true' />
+                  <CloseOne size={14} aria-hidden='true' />
                   Messages are processed by OpenClaw's agent
                 </Text>
               </li>
               <li>
                 <Text type='success' className='inline-flex items-center gap-6px'>
-                  <CheckOne theme='outline' size={14} fill='currentColor' aria-hidden='true' />
+                  <CheckOne size={14} aria-hidden='true' />
                   Messages still work (via OpenClaw)
                 </Text>
               </li>
@@ -124,7 +124,7 @@ export const ChannelConflictBanner: React.FC<{ platform: 'lark' | 'telegram'; on
       type='warning'
       content={
         <Space>
-          <Attention theme='outline' size={16} fill='currentColor' aria-hidden='true' />
+          <Attention size={16} aria-hidden='true' />
           <Text>OpenClaw {platformName} conflict detected - Agent switching won't work.</Text>
           <Link onClick={onLearnMore}>Learn more</Link>
         </Space>

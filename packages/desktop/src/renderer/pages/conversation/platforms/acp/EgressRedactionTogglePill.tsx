@@ -127,7 +127,7 @@ const EgressRedactionTogglePill: React.FC = () => {
         })}
         className='inline-flex items-center gap-4px rd-999px border-none bg-transparent px-6px py-3px text-11px text-warning-6 outline-none cursor-pointer hover:bg-warning-1'
       >
-        <Shield theme='outline' size='12' />
+        <Shield size='12' />
         <span>{t('conversation.runtimeStatus.egress.pillOff', { defaultValue: 'Datenschutz aus' })}</span>
       </button>
     );
@@ -145,7 +145,7 @@ const EgressRedactionTogglePill: React.FC = () => {
         })}
         className='inline-flex items-center gap-4px rd-999px border-none bg-transparent px-6px py-3px text-11px text-t-tertiary opacity-70 outline-none cursor-pointer hover:bg-fill-2 hover:opacity-100'
       >
-        <Shield theme='outline' size='12' />
+        <Shield size='12' />
         <span>{t('conversation.runtimeStatus.egress.pillOn', { defaultValue: 'Datenschutz an' })}</span>
       </button>
       {confirming && typeof document !== 'undefined'

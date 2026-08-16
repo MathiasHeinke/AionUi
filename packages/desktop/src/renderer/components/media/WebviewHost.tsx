@@ -795,7 +795,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
             title='Back'
             aria-label={t('common.historyBack')}
           >
-            <Left theme='outline' size={16} />
+            <Left size={16} />
           </button>
           <button
             type='button'
@@ -805,7 +805,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
             title='Forward'
             aria-label={t('common.forward')}
           >
-            <Right theme='outline' size={16} />
+            <Right size={16} />
           </button>
           <button
             type='button'
@@ -814,11 +814,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
             title='Refresh'
             aria-label={t('common.refresh')}
           >
-            {isLoading ? (
-              <Loading theme='outline' size={16} className='animate-spin' />
-            ) : (
-              <Refresh theme='outline' size={16} />
-            )}
+            {isLoading ? <Loading size={16} className='animate-spin' /> : <Refresh size={16} />}
           </button>
           {isStarOffice && (
             <div className='flex items-center gap-6px ml-2px'>

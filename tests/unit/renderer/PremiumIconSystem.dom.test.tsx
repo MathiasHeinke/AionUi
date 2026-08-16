@@ -60,9 +60,7 @@ describe('premium icon system', () => {
   });
 
   it('preserves legacy theme, title and spin behavior through the facade', () => {
-    const { container } = render(
-      <LoadingOne theme='two-tone' fill={['none', 'currentColor']} spin title='Loading' strokeWidth={9} />
-    );
+    const { container } = render(<LoadingOne theme='two-tone' spin title='Loading' />);
 
     const icon = container.querySelector('svg.eve-phosphor-icon');
     expect(icon).toHaveClass('eve-icon--spin');
@@ -82,16 +80,16 @@ describe('premium icon system', () => {
     expect(screen.getByTestId('facade-probe')).toHaveAttribute('data-probe-weight', 'fill');
   });
 
-  it('routes the first visible legacy fill color into the Phosphor color prop', () => {
-    render(<LegacyProbeIcon fill={['none', 'var(--probe-color)']} />);
+  it('leaves a generic glyph colorless so it inherits the state of its control', () => {
+    render(<LegacyProbeIcon />);
 
-    expect(screen.getByTestId('facade-probe')).toHaveAttribute('data-probe-color', 'var(--probe-color)');
+    expect(screen.getByTestId('facade-probe')).not.toHaveAttribute('data-probe-color');
   });
 
-  it('intentionally drops legacy stroke width before reaching Phosphor', () => {
-    render(<LegacyProbeIcon strokeWidth={9} />);
+  it('forwards an explicit color for the few glyphs that state a meaning', () => {
+    render(<LegacyProbeIcon color='var(--success)' />);
 
-    expect(screen.getByTestId('facade-probe')).toHaveAttribute('data-probe-stroke-width', 'absent');
+    expect(screen.getByTestId('facade-probe')).toHaveAttribute('data-probe-color', 'var(--success)');
   });
 
   it('renders channel states as semantic icons instead of localized text glyphs', () => {

@@ -229,9 +229,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
                     {(entry.meta || entry.submenu) && (
                       <div className={styles.meta}>
                         {entry.meta && <span className={styles.metaText}>{entry.meta}</span>}
-                        {entry.submenu && (
-                          <Right theme='outline' size='14' className={styles.chevron} aria-hidden='true' />
-                        )}
+                        {entry.submenu && <Right size='14' className={styles.chevron} aria-hidden='true' />}
                       </div>
                     )}
                   </button>
@@ -247,7 +245,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
             >
               <div className={styles.subbar}>
                 <button className={styles.back} onClick={() => setActiveSubKey(null)} type='button'>
-                  <Left theme='outline' size='16' />
+                  <Left size='16' />
                   <span>{t('common.back', { defaultValue: 'Back' })}</span>
                 </button>
                 <div className={styles.subtitle}>{renderedSub.title}</div>
@@ -282,7 +280,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
                         </div>
                         {showRadio && !option.disabled && (
                           <div className={`${styles.radio} ${option.active ? styles.checked : ''}`} aria-hidden='true'>
-                            {option.active ? <CheckSmall theme='outline' size='12' /> : null}
+                            {option.active ? <CheckSmall size='12' /> : null}
                           </div>
                         )}
                       </button>

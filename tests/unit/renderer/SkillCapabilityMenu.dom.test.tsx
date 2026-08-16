@@ -63,4 +63,28 @@ describe('SkillCapabilityMenu', () => {
     fireEvent.click(screen.getByText('active-skill'));
     expect(onInvokeSkill).toHaveBeenCalledWith(runtimeCatalog.activeItems[0]);
   });
+
+  // The live gauntlet cannot reach this row while a catalog is populated, so the
+  // disabled state is proven here instead: a dimmed row must not leave its glyph
+  // behind at full strength.
+  it('lets a disabled runtime row dim its glyph together with its label', () => {
+    const runtimeCatalog: SkillCapabilityCatalog = {
+      ...selectionCatalog,
+      mode: 'runtime',
+      selection: {},
+    };
+    const { container } = render(
+      <Menu>
+        <SkillCapabilityMenuItems catalog={runtimeCatalog} />
+      </Menu>
+    );
+
+    const row = container.querySelector('.arco-menu-disabled');
+    expect(row, 'a runtime row without an invoke handler must render disabled').toBeTruthy();
+
+    const glyph = row?.querySelector('.eve-phosphor-icon');
+    expect(glyph, 'the disabled row must still carry its glyph').toBeTruthy();
+    expect(glyph).toHaveAttribute('fill', 'currentColor');
+    expect(glyph?.getAttribute('color')).toBeNull();
+  });
 });

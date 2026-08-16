@@ -365,7 +365,7 @@ const AionModal: React.FC<AionModalProps> = ({
             onClick={onCancel}
             className={CLOSE_BUTTON_CLASS}
             aria-label={t('common.close', { defaultValue: 'Close' })}
-            icon={headerConfig.closeIcon || <Close size={18} fill='currentColor' />}
+            icon={headerConfig.closeIcon || <Close size={18} />}
           />
         )}
       </div>

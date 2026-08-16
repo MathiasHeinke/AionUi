@@ -84,7 +84,6 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
           >
             <span className='size-22px flex items-center justify-center text-t-tertiary shrink-0' aria-hidden='true'>
               <Right
-                theme='outline'
                 size={12}
                 className={classNames('transition-transform duration-400', { 'rotate-90': !isCollapsed })}
               />
@@ -322,13 +321,13 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
       >
         <Menu.Item key='rename'>
           <span className='flex items-center gap-8px'>
-            <EditOne theme='outline' size='14' />
+            <EditOne size='14' />
             {t('conversation.history.renameFolder')}
           </span>
         </Menu.Item>
         <Menu.Item key='remove' className='!text-[rgb(var(--warning-6))]'>
           <span className='flex items-center gap-8px'>
-            <Delete theme='outline' size='14' />
+            <Delete size='14' />
             {t('conversation.history.removeFolder')}
           </span>
         </Menu.Item>
@@ -360,7 +359,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                 )}
                 onClick={(event) => event.stopPropagation()}
               >
-                <MoreOne theme='outline' size='14' fill='currentColor' className='block leading-none' />
+                <MoreOne size='14' className='block leading-none' />
               </button>
             </Dropdown>
           }
@@ -490,7 +489,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                     onClick={() => void handleMoveToFolder({ id: folder.id, name: folder.display_name })}
                   >
                     <span className='flex items-center gap-8px min-w-0'>
-                      <FolderOpen theme='outline' size='16' />
+                      <FolderOpen size='16' />
                       <span className='truncate'>{folder.display_name}</span>
                     </span>
                   </Button>
@@ -570,12 +569,12 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
               >
                 {exportTargetPath || t('conversation.history.exportSelectFolder')}
               </span>
-              <FolderOpen theme='outline' size='18' fill='var(--color-text-3)' />
+              <FolderOpen size='18' color='var(--color-text-3)' />
             </button>
           </div>
 
           <div className='flex items-center gap-8px mb-20px text-14px text-t-secondary'>
-            <Info theme='outline' size='16' aria-hidden='true' />
+            <Info size='16' aria-hidden='true' />
             <span>{t('conversation.history.exportDialogHint')}</span>
           </div>
 
@@ -797,13 +796,13 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                   >
                     <Menu.Item key='rename'>
                       <span className='flex items-center gap-8px'>
-                        <EditOne theme='outline' size='14' />
+                        <EditOne size='14' />
                         {t('conversation.history.renameProject')}
                       </span>
                     </Menu.Item>
                     <Menu.Item key='remove' className='!text-[rgb(var(--danger-6))]'>
                       <span className='flex items-center gap-8px'>
-                        <Delete theme='outline' size='14' />
+                        <Delete size='14' />
                         {t('conversation.history.removeProject')}
                       </span>
                     </Menu.Item>
@@ -835,7 +834,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                                 void navigate('/guid', { state: { workspace: group.workspace } });
                               }}
                             >
-                              <Plus theme='outline' size='14' fill='currentColor' className='block leading-none' />
+                              <Plus size='14' className='block leading-none' />
                             </button>
                           </Tooltip>
                           <Dropdown
@@ -854,7 +853,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                               )}
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <MoreOne theme='outline' size='14' fill='currentColor' className='block leading-none' />
+                              <MoreOne size='14' className='block leading-none' />
                             </button>
                           </Dropdown>
                         </span>

@@ -610,7 +610,6 @@ const CompanyBrainModalContent: React.FC = () => {
                     data-testid='company-brain-section-open'
                   >
                     <Right
-                      theme='outline'
                       size={14}
                       className={
                         isOpen
@@ -770,7 +769,6 @@ const CompanyBrainModalContent: React.FC = () => {
                         data-testid='company-brain-item-open'
                       >
                         <Right
-                          theme='outline'
                           size={14}
                           className={
                             isOpen

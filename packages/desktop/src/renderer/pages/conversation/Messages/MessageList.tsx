@@ -19,7 +19,6 @@ import {
   type TypedUIEnvelope,
 } from '@/common/typedUI';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
-import { iconColors } from '@/renderer/styles/colors';
 import { CHAT_MESSAGE_JUMP_EVENT, type ChatMessageJumpDetail } from '@/renderer/utils/chat/chatMinimapEvents';
 import { Image } from '@arco-design/web-react';
 import { Down } from '@renderer/components/icons';
@@ -1014,7 +1013,7 @@ const MessageList: React.FC<{
                 WebkitBackdropFilter: 'var(--glass-overlay-filter)',
               }}
             >
-              <Down theme='filled' size='20' fill={iconColors.secondary} style={{ display: 'block' }} />
+              <Down theme='filled' size='20' style={{ display: 'block' }} />
             </button>
           </div>
         </>

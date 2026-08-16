@@ -187,7 +187,7 @@ const ApiKeyEditorModal: React.FC<ApiKeyEditorModalProps> = ({ visible, api_keys
                       <Button
                         type='text'
                         size='mini'
-                        icon={<CheckSmall theme='outline' size={16} className='flex' />}
+                        icon={<CheckSmall size={16} className='flex' />}
                         onClick={() => toggleEditing(key.id)}
                         status='success'
                       />
@@ -201,7 +201,7 @@ const ApiKeyEditorModal: React.FC<ApiKeyEditorModalProps> = ({ visible, api_keys
                         <Button
                           type='text'
                           size='mini'
-                          icon={<Shield theme='outline' size={16} className='flex' />}
+                          icon={<Shield size={16} className='flex' />}
                           onClick={() => testKey(key.id)}
                           loading={key.status === 'testing'}
                         />
@@ -210,7 +210,7 @@ const ApiKeyEditorModal: React.FC<ApiKeyEditorModalProps> = ({ visible, api_keys
                         <Button
                           type='text'
                           size='mini'
-                          icon={<Edit theme='outline' size={16} className='flex' />}
+                          icon={<Edit size={16} className='flex' />}
                           onClick={() => toggleEditing(key.id)}
                         />
                       </Tooltip>
@@ -218,7 +218,7 @@ const ApiKeyEditorModal: React.FC<ApiKeyEditorModalProps> = ({ visible, api_keys
                         <Button
                           type='text'
                           size='mini'
-                          icon={<Delete theme='outline' size={16} className='flex' />}
+                          icon={<Delete size={16} className='flex' />}
                           onClick={() => deleteKey(key.id)}
                           status='danger'
                         />
@@ -242,19 +242,14 @@ const ApiKeyEditorModal: React.FC<ApiKeyEditorModalProps> = ({ visible, api_keys
                     <Button
                       type='text'
                       size='small'
-                      icon={<DeleteFive theme='outline' size={16} className='flex' />}
+                      icon={<DeleteFive size={16} className='flex' />}
                       onClick={deleteInvalidKeys}
                       status='danger'
                     />
                   </Tooltip>
                 )}
                 <Tooltip content={t('settings.testAllKeys')}>
-                  <Button
-                    type='text'
-                    size='small'
-                    icon={<Shield theme='outline' size={16} className='flex' />}
-                    onClick={testAllKeys}
-                  />
+                  <Button type='text' size='small' icon={<Shield size={16} className='flex' />} onClick={testAllKeys} />
                 </Tooltip>
               </>
             )}
@@ -262,7 +257,7 @@ const ApiKeyEditorModal: React.FC<ApiKeyEditorModalProps> = ({ visible, api_keys
               className='flex'
               type='outline'
               size='small'
-              icon={<Plus theme='outline' size={14} className='' />}
+              icon={<Plus size={14} className='' />}
               onClick={addKey}
               style={{ minWidth: 70 }}
             >

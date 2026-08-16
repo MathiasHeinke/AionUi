@@ -391,13 +391,7 @@ const RemoteAgentFormModal: React.FC<{
             }
           </Form.Item>
 
-          <Button
-            long
-            type='outline'
-            icon={<Speed theme='outline' size='14' />}
-            loading={testing}
-            onClick={handleTestConnection}
-          >
+          <Button long type='outline' icon={<Speed size='14' />} loading={testing} onClick={handleTestConnection}>
             {t('settings.remoteAgent.testConnection')}
           </Button>
         </Form>
@@ -495,7 +489,7 @@ const RemoteAgentManagement: React.FC = () => {
                   shape='square'
                   style={{ backgroundColor: 'var(--color-fill-2)', fontSize: 24, flexShrink: 0 }}
                 >
-                  {agent.avatar || <Robot theme='outline' size='18' />}
+                  {agent.avatar || <Robot size='18' />}
                 </Avatar>
               </div>
 
@@ -527,7 +521,7 @@ const RemoteAgentManagement: React.FC = () => {
                 <Button
                   size='small'
                   type='secondary'
-                  icon={<Edit theme='outline' size='14' />}
+                  icon={<Edit size='14' />}
                   className={remoteActionButtonClassName}
                   onClick={() => handleEdit(agent)}
                 >
@@ -537,7 +531,7 @@ const RemoteAgentManagement: React.FC = () => {
                   size='small'
                   type='secondary'
                   status='danger'
-                  icon={<ReduceOne theme='outline' size='14' />}
+                  icon={<ReduceOne size='14' />}
                   className={remoteActionButtonClassName}
                   onClick={() => void handleDelete(agent)}
                 >

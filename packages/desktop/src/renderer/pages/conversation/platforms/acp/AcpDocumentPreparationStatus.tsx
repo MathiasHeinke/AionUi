@@ -72,7 +72,7 @@ const AcpDocumentPreparationStatus: React.FC<{ state: AcpDocumentPreparationStat
       role={state.phase === 'error' || state.phase.endsWith('_error') ? 'alert' : 'status'}
       aria-live={state.phase === 'error' || state.phase.endsWith('_error') ? 'assertive' : 'polite'}
     >
-      {isActive ? <Loading theme='outline' size='14' className='animate-spin shrink-0' /> : null}
+      {isActive ? <Loading size='14' className='animate-spin shrink-0' /> : null}
       <span className='acp-document-preparation__label'>{label}</span>
       {isActive ? (
         <span className='acp-document-preparation__elapsed'>{formatElapsed(now - state.startedAt)}</span>

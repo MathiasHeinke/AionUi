@@ -924,7 +924,7 @@ const GuidPage: React.FC = () => {
                       size='mini'
                       type='text'
                       shape='circle'
-                      icon={<Left theme='outline' size={18} fill='currentColor' />}
+                      icon={<Left size={18} />}
                       className={styles.heroBackButton}
                       onClick={() => {
                         agentSelection.setSelectedAgentKey(agentSelection.defaultAgentKey);
@@ -951,7 +951,7 @@ const GuidPage: React.FC = () => {
                           ) : selectedAssistantAvatar?.kind === 'emoji' ? (
                             <span className={styles.heroTitleEmoji}>{selectedAssistantAvatar.value}</span>
                           ) : (
-                            <Robot theme='outline' size={26} fill='currentColor' />
+                            <Robot size={26} />
                           )}
                         </span>
                         <span>{heroTitle}</span>
@@ -964,7 +964,7 @@ const GuidPage: React.FC = () => {
                       <Button
                         size='mini'
                         type='text'
-                        icon={<Write theme='outline' size={16} fill='currentColor' />}
+                        icon={<Write size={16} />}
                         className={styles.heroTitleEdit}
                         onClick={() => openAssistantDetailsRef.current?.()}
                         aria-label={t('settings.editAssistant', { defaultValue: 'Assistant Details' })}
@@ -1023,7 +1023,7 @@ const GuidPage: React.FC = () => {
                                         style={{ objectFit: 'contain', flexShrink: 0 }}
                                       />
                                     ) : (
-                                      <Robot theme='outline' size={16} fill='currentColor' style={{ flexShrink: 0 }} />
+                                      <Robot size={16} style={{ flexShrink: 0 }} />
                                     )}
                                     {item.label}
                                     {item.isExtension ? (
@@ -1032,9 +1032,7 @@ const GuidPage: React.FC = () => {
                                       </span>
                                     ) : null}
                                   </span>
-                                  {item.isCurrent ? (
-                                    <CheckSmall theme='outline' size={16} fill='currentColor' aria-hidden='true' />
-                                  ) : null}
+                                  {item.isCurrent ? <CheckSmall size={16} aria-hidden='true' /> : null}
                                 </div>
                               </Menu.Item>
                             ))}
@@ -1052,9 +1050,9 @@ const GuidPage: React.FC = () => {
                                 className={styles.heroAgentSwitchIcon}
                               />
                             ) : (
-                              <Robot theme='outline' size={20} fill='currentColor' />
+                              <Robot size={20} />
                             )}
-                            <Down theme='outline' size={16} fill='currentColor' />
+                            <Down size={16} />
                           </span>
                         </Button>
                       </Dropdown>
@@ -1079,7 +1077,7 @@ const GuidPage: React.FC = () => {
                     size='mini'
                     type='secondary'
                     shape='circle'
-                    icon={<Down theme='outline' size={12} fill='currentColor' />}
+                    icon={<Down size={12} />}
                     className={`${styles.heroSubtitleToggle} ${isDescriptionExpanded ? styles.heroSubtitleToggleExpanded : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();

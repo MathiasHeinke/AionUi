@@ -51,13 +51,7 @@ const ProfileAvatar: React.FC<ProfileAvatarProps> = ({ onOpenAccount }) => {
       >
         {/* Person icon BEFORE the initials — the universal "this is your account /
             open profile" affordance (founder mandate 1.2.13). */}
-        <User
-          theme='outline'
-          size={14}
-          fill='currentColor'
-          className='profile-avatar__person-icon'
-          aria-hidden='true'
-        />
+        <User size={14} className='profile-avatar__person-icon' aria-hidden='true' />
         {initials ? (
           <span className='profile-avatar__initials'>{initials}</span>
         ) : (
