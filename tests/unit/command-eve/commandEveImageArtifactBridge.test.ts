@@ -39,12 +39,14 @@ const PROMPT_SHA = crypto.createHash('sha256').update('prompt').digest('hex');
 const TURN = 'bearbeite das bild';
 const TURN_SHA = crypto.createHash('sha256').update(TURN).digest('hex');
 const CHILD_HANDLE = `img_h_${'9'.repeat(64)}`;
+const SEAT_ID = 'seat-1';
 
 let dataRoot: string;
 
 /** A REAL staged-then-bound image in the real store, grant minted for real. */
 function seedActiveImage(conversationId = 'conv-1'): CommandEveActiveImageArtifact {
   const staged = stageGeneratedImageArtifact(dataRoot, {
+    capturedSeatId: SEAT_ID,
     bytes: SOURCE_BYTES,
     mimeType: 'image/png',
     tier: 'quality',
@@ -53,9 +55,20 @@ function seedActiveImage(conversationId = 'conv-1'): CommandEveActiveImageArtifa
     aspectRatio: '16:9',
     promptSha256: PROMPT_SHA,
   })!;
-  const bound = bindStagedImageArtifact(dataRoot, { conversationId, handle: staged.handle, toolCallId: 'call-1' });
+  const bound = bindStagedImageArtifact(dataRoot, {
+    conversationId,
+    handle: staged.handle,
+    toolCallId: 'call-1',
+    expectedSeatId: SEAT_ID,
+  });
   if (bound.ok === false) throw new Error(`seed failed: ${bound.reason}`);
   return bound.record;
+}
+
+function imageEditHandleFor(conversationId: string, artifactId: string): string {
+  const key = crypto.createHash('sha256').update(`image_edit|${SEAT_ID}|${conversationId}|${artifactId}`).digest('hex');
+  const file = path.join(dataRoot, 'command-eve-artifact-capabilities', 'by-artifact', `${key}.json`);
+  return (JSON.parse(fs.readFileSync(file, 'utf8')) as { handle: string }).handle;
 }
 
 function issueImagePermit(sha = SOURCE_SHA): string {
@@ -71,7 +84,7 @@ function issueImagePermit(sha = SOURCE_SHA): string {
 function editDeps(runManagedEdit: CommandEveImageEditDeps['runManagedEdit']): CommandEveImageEditDeps {
   return {
     getDataPath: () => dataRoot,
-    getActiveSeatId: () => 'seat-1',
+    getActiveSeatId: () => SEAT_ID,
     getActiveSeatContextRevision: () => 7,
     getPaidArtifactBlockReason: () => null,
     tryBeginPaidArtifactOperation: () => vi.fn(),
@@ -98,7 +111,7 @@ function imageGenerateDeps(
 ): CommandEveImageGenerateDeps {
   return {
     getDataPath: () => dataRoot,
-    getActiveSeatId: () => 'seat-1',
+    getActiveSeatId: () => SEAT_ID,
     getActiveSeatContextRevision: () => 7,
     areFileSelectionPathsGranted: () => true,
     readImageSource: () => ({ stat: {} as fs.Stats, bytes: new Uint8Array(SOURCE_BYTES), mimeType: 'image/png' }),
@@ -129,9 +142,7 @@ describe('handleCommandEveImageEdit', () => {
     const permit = issueImagePermit();
     const grantHandle = (() => {
       // The handle the envelope would carry: the durable grant minted at bind.
-      const dir = path.join(dataRoot, 'command-eve-artifact-capabilities', 'by-artifact');
-      const key = crypto.createHash('sha256').update(`conv-1|${source.id}`).digest('hex');
-      return (JSON.parse(fs.readFileSync(path.join(dir, `${key}.json`), 'utf8')) as { handle: string }).handle;
+      return imageEditHandleFor('conv-1', source.id);
     })();
     const runManagedEdit = vi.fn(async () => ({
       status: 200,
@@ -159,10 +170,10 @@ describe('handleCommandEveImageEdit', () => {
     const decoded = Buffer.from(call.referenceDataUrl.slice('data:image/png;base64,'.length), 'base64');
     expect(decoded.equals(SOURCE_BYTES)).toBe(true);
     // The ORIGINAL artifact is untouched: record and bytes identical.
-    const after = readImageArtifactRecordById(dataRoot, source.id)!;
+    const after = readImageArtifactRecordById(dataRoot, source.id, SEAT_ID)!;
     expect(after.status).toBe('active');
     expect(after.payload.sha256).toBe(SOURCE_SHA);
-    expect(readImageArtifactBytes(dataRoot, source.id)?.equals(SOURCE_BYTES)).toBe(true);
+    expect(readImageArtifactBytes(dataRoot, source.id, SEAT_ID)?.equals(SOURCE_BYTES)).toBe(true);
   });
 
   it('a missing permit refuses BEFORE anything — no grant read, no provider', async () => {
@@ -196,11 +207,7 @@ describe('handleCommandEveImageEdit', () => {
     // A grant minted for ANOTHER conversation's artifact, presented with this
     // conversation as the caller fence.
     const other = seedActiveImage('conv-2');
-    const otherDir = path.join(dataRoot, 'command-eve-artifact-capabilities', 'by-artifact');
-    const otherKey = crypto.createHash('sha256').update(`conv-2|${other.id}`).digest('hex');
-    const otherHandle = (
-      JSON.parse(fs.readFileSync(path.join(otherDir, `${otherKey}.json`), 'utf8')) as { handle: string }
-    ).handle;
+    const otherHandle = imageEditHandleFor('conv-2', other.id);
     const cross = await handleCommandEveImageEdit(
       { handle: otherHandle, permit, instruction: 'heller', conversationId: 'conv-1' },
       editDeps(runManagedEdit)
@@ -220,7 +227,7 @@ describe('handleCommandEveImageEdit', () => {
     );
     expect(result).toMatchObject({ ok: false, reasonCode: 'image-edit-handle-unknown' });
     expect(runManagedEdit).not.toHaveBeenCalled();
-    expect(readImageArtifactRecordById(dataRoot, source.id)).toBeTruthy();
+    expect(readImageArtifactRecordById(dataRoot, source.id, SEAT_ID)).toBeTruthy();
   });
 
   it('a video_edit permit cannot buy an image edit — refused before the provider', async () => {
@@ -320,10 +327,7 @@ describe('handleCommandEveImageEdit', () => {
   it('captures Seat + revision before spend and refuses a changed Seat before provider execution', async () => {
     const source = seedActiveImage();
     const permit = issueImagePermit();
-    const dir = path.join(dataRoot, 'command-eve-artifact-capabilities', 'by-artifact');
-    const key = crypto.createHash('sha256').update(`conv-1|${source.id}`).digest('hex');
-    const grantHandle = (JSON.parse(fs.readFileSync(path.join(dir, `${key}.json`), 'utf8')) as { handle: string })
-      .handle;
+    const grantHandle = imageEditHandleFor('conv-1', source.id);
     let revisionReads = 0;
     const runManagedEdit = vi.fn();
 
@@ -342,10 +346,7 @@ describe('handleCommandEveImageEdit', () => {
   it('holds the paid-artifact Seat fence across managed execution and releases it on refusal', async () => {
     const source = seedActiveImage();
     const permit = issueImagePermit();
-    const dir = path.join(dataRoot, 'command-eve-artifact-capabilities', 'by-artifact');
-    const key = crypto.createHash('sha256').update(`conv-1|${source.id}`).digest('hex');
-    const grantHandle = (JSON.parse(fs.readFileSync(path.join(dir, `${key}.json`), 'utf8')) as { handle: string })
-      .handle;
+    const grantHandle = imageEditHandleFor('conv-1', source.id);
     const releasePaidArtifactOperation = vi.fn();
     const runManagedEdit = vi.fn(async () => ({
       status: 503,
@@ -372,13 +373,11 @@ describe('handleCommandEveImageEdit', () => {
   it('recovers an already-staged child from the completion receipt without a second provider call', async () => {
     const source = seedActiveImage();
     const permit = issueImagePermit();
-    const dir = path.join(dataRoot, 'command-eve-artifact-capabilities', 'by-artifact');
-    const key = crypto.createHash('sha256').update(`conv-1|${source.id}`).digest('hex');
-    const grantHandle = (JSON.parse(fs.readFileSync(path.join(dir, `${key}.json`), 'utf8')) as { handle: string })
-      .handle;
+    const grantHandle = imageEditHandleFor('conv-1', source.id);
     let childHandle = '';
     const runManagedEdit = vi.fn(async () => {
       const child = stageGeneratedImageArtifact(dataRoot, {
+        capturedSeatId: SEAT_ID,
         bytes: Buffer.from('edited-child-bytes'),
         mimeType: 'image/png',
         tier: 'quality',
@@ -450,6 +449,7 @@ describe('handleCommandEveImageGenerate', () => {
       conversationId: 'conv-1',
       handle: CHILD_HANDLE,
       toolCallId: 'image-generate:image-request-0001',
+      expectedSeatId: SEAT_ID,
     });
     expect(onFreshBind).toHaveBeenCalledWith('conv-1');
   });
@@ -498,7 +498,7 @@ describe('handleCommandEveImageGenerate', () => {
     expect(runManagedGeneration).not.toHaveBeenCalled();
   });
 
-  it('coalesces an identical request id, refuses a second request in the conversation, and replays completion', async () => {
+  it('coalesces an identical same-seat request into one managed generation/debit and replays completion', async () => {
     const record = seedActiveImage();
     let resolveManaged!: (result: { status: number; body: Record<string, unknown> }) => void;
     const runManagedGeneration = vi.fn(
@@ -507,7 +507,8 @@ describe('handleCommandEveImageGenerate', () => {
           resolveManaged = resolve;
         })
     );
-    const deps = imageGenerateDeps(record, { runManagedGeneration });
+    const bind = vi.fn(() => ({ ok: true as const, record, alreadyBound: false }));
+    const deps = imageGenerateDeps(record, { runManagedGeneration, bind });
     const request = imageGenerateRequest();
 
     const first = handleCommandEveImageGenerate(request, deps);
@@ -527,12 +528,96 @@ describe('handleCommandEveImageGenerate', () => {
       alreadyCompleted: true,
     });
     expect(runManagedGeneration).toHaveBeenCalledTimes(1);
+    expect(bind).toHaveBeenCalledTimes(1);
 
     await expect(handleCommandEveImageGenerate({ ...request, prompt: 'Andere Anfrage' }, deps)).resolves.toMatchObject({
       ok: false,
       reasonCode: 'image-generate-request-id-conflict',
     });
     expect(runManagedGeneration).toHaveBeenCalledTimes(1);
+  });
+
+  it('never replays a completed Seat-A artifact after the same request retries on Seat B', async () => {
+    const record = seedActiveImage();
+    const seatARecord = { ...record, id: 'img_seat_a', seat_id: 'seat-a' };
+    const seatBRecord = { ...record, id: 'img_seat_b', seat_id: 'seat-b' };
+    let activeSeatId = 'seat-a';
+    let seatContextRevision = 7;
+    const runManagedGeneration = vi.fn(async () => ({
+      status: 200,
+      body: {
+        data: [{ artifact_handle: activeSeatId === 'seat-a' ? `img_h_${'a'.repeat(64)}` : `img_h_${'b'.repeat(64)}` }],
+      },
+    }));
+    const bind = vi.fn((_dataPath: string, input: Parameters<typeof bindStagedImageArtifact>[1]) => ({
+      ok: true as const,
+      record: input.expectedSeatId === 'seat-a' ? seatARecord : seatBRecord,
+      alreadyBound: false,
+    }));
+    const deps = imageGenerateDeps(record, {
+      getActiveSeatId: () => activeSeatId,
+      getActiveSeatContextRevision: () => seatContextRevision,
+      runManagedGeneration,
+      bind,
+    });
+    const request = imageGenerateRequest();
+
+    await expect(handleCommandEveImageGenerate(request, deps)).resolves.toMatchObject({
+      ok: true,
+      artifact: { id: 'img_seat_a', seat_id: 'seat-a' },
+      alreadyCompleted: false,
+    });
+    activeSeatId = 'seat-b';
+    seatContextRevision = 8;
+    await expect(handleCommandEveImageGenerate(request, deps)).resolves.toMatchObject({
+      ok: true,
+      artifact: { id: 'img_seat_b', seat_id: 'seat-b' },
+      alreadyCompleted: false,
+    });
+    expect(runManagedGeneration).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not coalesce the same request across an in-flight Seat A to Seat B switch', async () => {
+    const record = seedActiveImage();
+    const seatBRecord = { ...record, id: 'img_seat_b', seat_id: 'seat-b' };
+    let activeSeatId = 'seat-a';
+    let seatContextRevision = 7;
+    type ManagedResult = { status: number; body: { data: Array<{ artifact_handle: string }> } };
+    const resolvers: Array<(result: ManagedResult) => void> = [];
+    const runManagedGeneration = vi.fn(
+      () =>
+        new Promise<ManagedResult>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const bind = vi.fn((_dataPath: string, input: Parameters<typeof bindStagedImageArtifact>[1]) => ({
+      ok: true as const,
+      record: seatBRecord,
+      alreadyBound: input.expectedSeatId !== 'seat-b',
+    }));
+    const deps = imageGenerateDeps(record, {
+      getActiveSeatId: () => activeSeatId,
+      getActiveSeatContextRevision: () => seatContextRevision,
+      runManagedGeneration,
+      bind,
+    });
+    const request = imageGenerateRequest();
+
+    const seatA = handleCommandEveImageGenerate(request, deps);
+    await vi.waitFor(() => expect(runManagedGeneration).toHaveBeenCalledTimes(1));
+    activeSeatId = 'seat-b';
+    seatContextRevision = 8;
+    const seatB = handleCommandEveImageGenerate(request, deps);
+    await vi.waitFor(() => expect(runManagedGeneration).toHaveBeenCalledTimes(2));
+
+    resolvers[0]({ status: 200, body: { data: [{ artifact_handle: `img_h_${'a'.repeat(64)}` }] } });
+    resolvers[1]({ status: 200, body: { data: [{ artifact_handle: `img_h_${'b'.repeat(64)}` }] } });
+    await expect(seatA).resolves.toMatchObject({ ok: false, reasonCode: 'image-generate-seat-changed' });
+    await expect(seatB).resolves.toMatchObject({
+      ok: true,
+      artifact: { id: 'img_seat_b', seat_id: 'seat-b' },
+    });
+    expect(bind).toHaveBeenCalledTimes(1);
   });
 
   it('checks the captured seat after provider completion and never binds across a revision change', async () => {
@@ -590,6 +675,7 @@ describe('handleCommandEveImageGenerate', () => {
 describe('bind / list / preview / import handlers', () => {
   it('bind handler: staged -> active through the IPC-shaped request; invalid requests refuse', async () => {
     const staged = stageGeneratedImageArtifact(dataRoot, {
+      capturedSeatId: SEAT_ID,
       bytes: SOURCE_BYTES,
       mimeType: 'image/png',
       tier: 'quality',
@@ -598,7 +684,7 @@ describe('bind / list / preview / import handlers', () => {
       aspectRatio: '16:9',
       promptSha256: PROMPT_SHA,
     })!;
-    const deps = { getDataPath: () => dataRoot };
+    const deps = { getDataPath: () => dataRoot, getActiveSeatId: () => SEAT_ID };
     const result = await handleCommandEveImageArtifactBind(
       { conversationId: 'conv-1', handle: staged.handle, toolCallId: 'call-1' },
       deps
@@ -613,9 +699,34 @@ describe('bind / list / preview / import handlers', () => {
     expect(JSON.stringify(listed)).not.toContain(dataRoot);
   });
 
+  it('list handler fails closed when the active seat changes during reconcile', async () => {
+    seedActiveImage();
+    let activeSeatId = SEAT_ID;
+    let seatContextRevision = 7;
+    const listRecords = vi.fn(() => []);
+    const listed = await handleCommandEveImageArtifactsList(
+      { conversationId: 'conv-1' },
+      {
+        getDataPath: () => dataRoot,
+        getActiveSeatId: () => activeSeatId,
+        getActiveSeatContextRevision: () => seatContextRevision,
+        listRecords,
+        reconcileBeforeList: async (_conversationId, expectedSeatId, expectedSeatRevision) => {
+          expect(expectedSeatId).toBe(SEAT_ID);
+          expect(expectedSeatRevision).toBe(7);
+          activeSeatId = 'seat-b';
+          seatContextRevision = 8;
+        },
+      }
+    );
+
+    expect(listed).toEqual([]);
+    expect(listRecords).not.toHaveBeenCalled();
+  });
+
   it('preview handler: serves the active record by id, hash-verified — and refuses other conversations and tampered blobs', async () => {
     const source = seedActiveImage();
-    const deps = { getDataPath: () => dataRoot };
+    const deps = { getDataPath: () => dataRoot, getActiveSeatId: () => SEAT_ID };
     const preview = await handleCommandEveImageArtifactPreview(
       { conversationId: 'conv-1', artifactId: source.id },
       deps
@@ -640,11 +751,39 @@ describe('bind / list / preview / import handlers', () => {
     ).toBeNull();
   });
 
+  it('legacy import handler refuses Seat B from claiming deterministic pre-Seat bytes', async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-import-ws-'));
+    try {
+      fs.writeFileSync(path.join(workspaceRoot, 'img-1785796180699.png'), SOURCE_BYTES);
+
+      await expect(
+        handleCommandEveImageArtifactImportLegacy(
+          {
+            conversationId: '3be29bae',
+            legacyWorkspaceId: 'hermes-temp-3be29bae',
+            expectedFileName: 'img-1785796180699.png',
+          },
+          {
+            getDataPath: () => dataRoot,
+            getActiveSeatId: () => 'seat-b',
+            workspaceRootForLegacyId: () => workspaceRoot,
+          }
+        )
+      ).resolves.toEqual({ ok: false, reason: 'invalid-request' });
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('import handler: canonical binding through the fence; exact-file accept; traversal and malformed requests refuse', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-import-ws-'));
     try {
       fs.writeFileSync(path.join(workspaceRoot, 'img-1785796180699.png'), SOURCE_BYTES);
-      const deps = { getDataPath: () => dataRoot, workspaceRootForLegacyId: () => workspaceRoot };
+      const deps = {
+        getDataPath: () => dataRoot,
+        getActiveSeatId: () => SEAT_ID,
+        workspaceRootForLegacyId: () => workspaceRoot,
+      };
       const accepted = await handleCommandEveImageArtifactImportLegacy(
         {
           conversationId: '3be29bae',
@@ -703,6 +842,7 @@ describe('bind / list / preview / import handlers', () => {
     const importCalls: Array<{ dataPath: string; input: Parameters<typeof importLegacyImageArtifact>[1] }> = [];
     const deps: CommandEveImageArtifactImportLegacyDeps = {
       getDataPath: () => dataRoot,
+      getActiveSeatId: () => SEAT_ID,
       importLegacy: (dataPath, input) => {
         importCalls.push({ dataPath, input });
         return { ok: true, record: source, alreadyImported: false };
@@ -721,6 +861,7 @@ describe('bind / list / preview / import handlers', () => {
           legacyWorkspaceId: 'hermes-temp-3be29bae',
           expectedFileName: 'img-1.png',
           workspaceRoot: '/tmp/ws/hermes-temp-3be29bae',
+          capturedSeatId: SEAT_ID,
         },
       },
     ]);

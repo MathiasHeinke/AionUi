@@ -21,10 +21,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ARTIFACT_CAPABILITY_TTL_MS,
   buildConversationArtifactEnvelopeEntries,
+  ensureImageEditCapabilityHandle,
   ensureVideoEditCapabilityHandle,
   mintVideoEditCapabilityHandle,
   pruneArtifactCapabilityGrants,
   readArtifactCapabilityGrant,
+  resolveImageEditCapability,
   resolveVideoEditCapability,
 } from '@/process/commandEve/artifactCapabilityHandleStore';
 import { saveVideoArtifactRecord } from '@/process/commandEve/videoArtifactStore';
@@ -79,6 +81,7 @@ describe('the grant file', () => {
     const artifact = makeArtifact();
     const handle = mintVideoEditCapabilityHandle(tmpRoot, artifact);
     expect(handle).toBeDefined();
+    expect(readArtifactCapabilityGrant(tmpRoot, handle)).not.toHaveProperty('seat_id');
 
     const directory = path.join(tmpRoot, 'command-eve-artifact-capabilities');
     const files = fs.readdirSync(directory).filter((name) => name.endsWith('.json'));
@@ -120,6 +123,49 @@ describe('reuse and expiry', () => {
     const second = ensureVideoEditCapabilityHandle(tmpRoot, changed);
     expect(second).toBeDefined();
     expect(second).not.toBe(first);
+  });
+
+  it('keeps the shared video index unchanged when an image has the same conversation and artifact ids', () => {
+    const artifact = makeArtifact({ id: 'shared-artifact', conversationId: 'conv-shared' });
+    saveVideoArtifactRecord(tmpRoot, artifact);
+    const videoHandle = ensureVideoEditCapabilityHandle(tmpRoot, artifact)!;
+    const sharedIndexKey = crypto
+      .createHash('sha256')
+      .update(`${artifact.conversation_id}|${artifact.id}`)
+      .digest('hex');
+    const sharedIndex = path.join(
+      tmpRoot,
+      'command-eve-artifact-capabilities',
+      'by-artifact',
+      `${sharedIndexKey}.json`
+    );
+    const sharedIndexBeforeImage = fs.readFileSync(sharedIndex, 'utf8');
+
+    const imageHandle = ensureImageEditCapabilityHandle(tmpRoot, {
+      conversation_id: artifact.conversation_id,
+      artifact_id: artifact.id,
+      artifact_sha256: artifact.payload.hash,
+      seat_id: 'seat-a',
+    })!;
+
+    expect(imageHandle).not.toBe(videoHandle);
+    expect(fs.readFileSync(sharedIndex, 'utf8')).toBe(sharedIndexBeforeImage);
+    expect(ensureVideoEditCapabilityHandle(tmpRoot, artifact)).toBe(videoHandle);
+    expect(readArtifactCapabilityGrant(tmpRoot, videoHandle)).not.toHaveProperty('seat_id');
+    expect(readArtifactCapabilityGrant(tmpRoot, imageHandle, Date.now(), 'seat-a')).toMatchObject({
+      operation: 'image_edit',
+      seat_id: 'seat-a',
+    });
+    expect(
+      resolveVideoEditCapability(tmpRoot, { handle: videoHandle, observedArtifactSha256: SOURCE_SHA })
+    ).toMatchObject({ ok: true });
+    expect(
+      resolveImageEditCapability(tmpRoot, {
+        handle: imageHandle,
+        observedArtifactSha256: SOURCE_SHA,
+        expectedSeatId: 'seat-a',
+      })
+    ).toMatchObject({ ok: true });
   });
 
   it('stops resolving a grant past its TTL, and sweeps it', () => {

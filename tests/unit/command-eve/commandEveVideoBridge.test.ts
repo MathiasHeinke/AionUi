@@ -354,6 +354,7 @@ describe('handleCommandEveVideoGenerate', () => {
     const sha256 = createHash('sha256').update(imageBytes).digest('hex');
     const readManagedImageRecord = vi.fn(() => ({
       id: 'img-source',
+      seat_id: 'seat-1',
       conversation_id: 'conv-1',
       kind: 'image' as const,
       status: 'active' as const,
@@ -392,8 +393,8 @@ describe('handleCommandEveVideoGenerate', () => {
       })
     );
 
-    expect(readManagedImageRecord).toHaveBeenCalledWith('/tmp/eve-data', 'img-source');
-    expect(readManagedImageBytes).toHaveBeenCalledWith('/tmp/eve-data', 'img-source');
+    expect(readManagedImageRecord).toHaveBeenCalledWith('/tmp/eve-data', 'img-source', 'seat-1');
+    expect(readManagedImageBytes).toHaveBeenCalledWith('/tmp/eve-data', 'img-source', 'seat-1');
     expect(readImageSourceMock).not.toHaveBeenCalled();
     const sentVideo = sentBody.video_generation as Record<string, unknown>;
     expect(sentVideo.mode).toBe('image');
@@ -431,6 +432,7 @@ describe('handleCommandEveVideoGenerate', () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
     const readManagedImageRecord = vi.fn(() => ({
       id: 'img-source',
+      seat_id: 'seat-1',
       conversation_id: scenario.recordConversationId,
       kind: 'image' as const,
       status: 'active' as const,

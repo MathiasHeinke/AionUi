@@ -5,11 +5,11 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { extractImageBindCandidatesFromTranscript } from '@/common/config/imageArtifactReconcileCore';
-import { reconcileConversationImageArtifactBinds } from '@/process/commandEve/imageArtifactReconcileMain';
+import { reconcileConversationImageArtifactBinds as reconcileConversationImageArtifactBindsForSeat } from '@/process/commandEve/imageArtifactReconcileMain';
 import {
-  bindStagedImageArtifact,
-  countPendingStagedImageArtifacts,
-  readImageArtifactRecordById,
+  bindStagedImageArtifact as bindStagedImageArtifactForSeat,
+  countPendingStagedImageArtifacts as countPendingStagedImageArtifactsForSeat,
+  readImageArtifactRecordById as readImageArtifactRecordByIdForSeat,
   stageGeneratedImageArtifact,
 } from '@/process/commandEve/imageArtifactStore';
 import {
@@ -22,9 +22,33 @@ const R2_ROW_PATH = 'tests/fixtures/command-eve/r2-row.json';
 const R2_HANDLE = `img_h_${'ab'.repeat(32)}`;
 const R2_TOOL_CALL_ID = 'tc-syntheticr2001';
 const CONVO = 'conv-synth-001';
+const SEAT_ID = 'seat-1';
 
 const SOURCE_BYTES = Buffer.from('reconcile-source-image-bytes');
 const PROMPT_SHA = crypto.createHash('sha256').update('reconcile-prompt').digest('hex');
+
+function bindStagedImageArtifact(
+  dataPath: string,
+  input: Omit<Parameters<typeof bindStagedImageArtifactForSeat>[1], 'expectedSeatId'>
+) {
+  return bindStagedImageArtifactForSeat(dataPath, { ...input, expectedSeatId: SEAT_ID });
+}
+
+function countPendingStagedImageArtifacts(dataPath: string, nowMs?: number): number {
+  return countPendingStagedImageArtifactsForSeat(dataPath, SEAT_ID, nowMs);
+}
+
+function readImageArtifactRecordById(dataPath: string, artifactId: string) {
+  return readImageArtifactRecordByIdForSeat(dataPath, artifactId, SEAT_ID);
+}
+
+function reconcileConversationImageArtifactBinds(
+  dataPath: string,
+  conversationId: string,
+  deps: Parameters<typeof reconcileConversationImageArtifactBindsForSeat>[3]
+) {
+  return reconcileConversationImageArtifactBindsForSeat(dataPath, conversationId, SEAT_ID, deps);
+}
 
 function r2Message(): Record<string, unknown> {
   // SYNTHETIC completed acp_tool_call row (no live token/permit/identifiers —
@@ -44,6 +68,7 @@ afterEach(() => {
 
 function stageOrphan(handle?: { randomBytes?: (size: number) => Uint8Array }) {
   const staged = stageGeneratedImageArtifact(dataRoot, {
+    capturedSeatId: SEAT_ID,
     bytes: SOURCE_BYTES,
     mimeType: 'image/png',
     tier: 'quality',
@@ -51,7 +76,6 @@ function stageOrphan(handle?: { randomBytes?: (size: number) => Uint8Array }) {
     resolution: '1K',
     aspectRatio: '16:9',
     promptSha256: PROMPT_SHA,
-    parentArtifactId: 'img_parent',
     ...handle,
   });
   expect(staged).toBeTruthy();
@@ -125,7 +149,7 @@ describe('reconcileConversationImageArtifactBinds (Main orchestration)', () => {
     };
   }
 
-  it('binds the orphan from the persisted row: active, correct conversation + parent, no other fetch', async () => {
+  it('binds the orphan from the persisted row: active, correct conversation, no other fetch', async () => {
     const staged = stageOrphan();
     const transcriptItems = [r2Message()];
     // Point the transcript's handle at OUR staged handle by rewriting the row text.
@@ -137,7 +161,7 @@ describe('reconcileConversationImageArtifactBinds (Main orchestration)', () => {
     const record = readImageArtifactRecordById(dataRoot, staged.record.id);
     expect(record?.status).toBe('active');
     expect(record?.conversation_id).toBe(CONVO);
-    expect(record?.payload.parent_artifact_id).toBe('img_parent');
+    expect(record?.payload.parent_artifact_id).toBeUndefined();
     expect(record?.bound_tool_call_id).toBe(R2_TOOL_CALL_ID);
     expect(logs).toEqual([]);
   });
@@ -201,6 +225,42 @@ describe('reconcileConversationImageArtifactBinds (Main orchestration)', () => {
       log: () => undefined,
     });
     expect(summary).toMatchObject({ candidates: 0, bound: 0, refused: [], transcriptFetched: false });
+  });
+
+  it('a different seat sees zero pending handles and never fetches or binds the transcript candidate', async () => {
+    stageOrphan();
+    let fetchCalls = 0;
+    const summary = await reconcileConversationImageArtifactBindsForSeat(dataRoot, CONVO, 'seat-b', {
+      fetchTranscript: async () => {
+        fetchCalls += 1;
+        return [r2Message()];
+      },
+      bind: bindStagedImageArtifactForSeat,
+      log: () => undefined,
+      countPendingStaged: countPendingStagedImageArtifactsForSeat,
+    });
+    expect(fetchCalls).toBe(0);
+    expect(summary).toMatchObject({ pendingStaged: 0, candidates: 0, bound: 0, transcriptFetched: false });
+  });
+
+  it('does not bind a stale-seat candidate when the seat changes across the transcript await', async () => {
+    const staged = stageOrphan();
+    const rewritten = r2Message();
+    rewritten.content = rewritten.content.split(R2_HANDLE).join(staged.handle);
+    let seatStable = true;
+    const summary = await reconcileConversationImageArtifactBindsForSeat(dataRoot, CONVO, SEAT_ID, {
+      fetchTranscript: async () => {
+        seatStable = false;
+        return [rewritten];
+      },
+      bind: bindStagedImageArtifactForSeat,
+      log: () => undefined,
+      countPendingStaged: countPendingStagedImageArtifactsForSeat,
+      seatStillMatches: () => seatStable,
+    });
+
+    expect(summary).toMatchObject({ transcriptFetched: true, candidates: 0, bound: 0 });
+    expect(readImageArtifactRecordById(dataRoot, staged.record.id)?.status).toBe('staged');
   });
 });
 
@@ -302,7 +362,7 @@ describe('list recovery + renderer race', () => {
       }
     );
     expect(listed.map((record) => record.id)).toEqual([staged.record.id]);
-    expect(listed[0]?.payload.parent_artifact_id).toBe('img_parent');
+    expect(listed[0]?.payload.parent_artifact_id).toBeUndefined();
   });
 
   it('live fast-path then durable reconcile: exactly one active record, alreadyBound is normal', async () => {
@@ -362,7 +422,7 @@ describe('the list-time win publishes exactly once (production wiring shape)', (
     expect(emitted).toEqual([CONVO]);
     expect(listed.map((record) => record.id)).toEqual([staged.record.id]);
     expect(listed[0]?.status).toBe('active');
-    expect(listed[0]?.payload.parent_artifact_id).toBe('img_parent');
+    expect(listed[0]?.payload.parent_artifact_id).toBeUndefined();
 
     // A second list (e.g. a provider reload right after): no new emission.
     const listedAgain = await handleCommandEveImageArtifactsList(

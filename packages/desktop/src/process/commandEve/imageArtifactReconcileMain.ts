@@ -25,6 +25,7 @@
  */
 
 import { extractImageBindCandidatesFromTranscript } from '@/common/config/imageArtifactReconcileCore';
+import { sanitizeSeatId } from '@/common/config/seatConfigKeyCore';
 import type { bindStagedImageArtifact, ImageArtifactBindResult } from './imageArtifactStore';
 
 export type ImageArtifactReconcileSummary = {
@@ -53,7 +54,9 @@ export interface ImageArtifactReconcileDeps {
    * load. Absent => the reconcile always fetches (unit-test convenience);
    * production always injects the store probe.
    */
-  countPendingStaged?: (dataPath: string) => number;
+  countPendingStaged?: (dataPath: string, expectedSeatId: string) => number;
+  /** Fail-closed fence when Main changes seat while the transcript await is in flight. */
+  seatStillMatches?: () => boolean;
   /**
    * Same-turn insertion: invoked ONCE with the canonical conversation id when
    * this run freshly bound at least one record — from WHICHEVER lane won the
@@ -72,6 +75,7 @@ const DEFAULT_WINDOW = 50;
 export async function reconcileConversationImageArtifactBinds(
   dataPath: string,
   conversationId: string,
+  expectedSeatId: string,
   deps: ImageArtifactReconcileDeps
 ): Promise<ImageArtifactReconcileSummary> {
   const summary: ImageArtifactReconcileSummary = {
@@ -83,13 +87,28 @@ export async function reconcileConversationImageArtifactBinds(
     transcriptFetched: false,
     pendingStaged: -1,
   };
-  if (typeof conversationId !== 'string' || conversationId.trim().length === 0) return summary;
+  if (
+    typeof conversationId !== 'string' ||
+    conversationId.trim().length === 0 ||
+    sanitizeSeatId(expectedSeatId) !== expectedSeatId
+  ) {
+    return summary;
+  }
+
+  const seatStillMatches = (): boolean => {
+    try {
+      return deps.seatStillMatches?.() !== false;
+    } catch {
+      return false;
+    }
+  };
+  if (!seatStillMatches()) return summary;
 
   // The cheap guard FIRST: nothing pending anywhere => nothing can bind here,
   // and the (full-mode, deliberately small) transcript window is never read.
   if (deps.countPendingStaged) {
     try {
-      summary.pendingStaged = deps.countPendingStaged(dataPath);
+      summary.pendingStaged = deps.countPendingStaged(dataPath, expectedSeatId);
     } catch {
       summary.pendingStaged = -1;
     }
@@ -104,16 +123,19 @@ export async function reconcileConversationImageArtifactBinds(
     // A failed fetch is a quiet no-op — transcriptFetched stays false so the
     // caller can tell "nothing to do" from "could not look".
   }
+  if (!seatStillMatches()) return summary;
   const candidates = extractImageBindCandidatesFromTranscript(items);
   summary.candidates = candidates.length;
 
   for (const candidate of candidates) {
+    if (!seatStillMatches()) break;
     let result: ImageArtifactBindResult;
     try {
       result = deps.bind(dataPath, {
         conversationId,
         handle: candidate.handle,
         toolCallId: candidate.toolCallId,
+        expectedSeatId,
       });
     } catch {
       summary.refused.push({ toolCallId: candidate.toolCallId, reason: 'bind-error' });

@@ -1005,15 +1005,21 @@ async function hydrateRemoteVideosForConversation(conversationId: string) {
   });
 }
 
-async function reconcileImageArtifactBindsForConversation(conversationId: string) {
+async function reconcileImageArtifactBindsForConversation(
+  conversationId: string,
+  expectedSeatId: string = getActiveSeatId(),
+  expectedSeatContextRevision: number = getActiveSeatContextRevision()
+) {
   const { reconcileConversationImageArtifactBinds } = await import('../commandEve/imageArtifactReconcileMain');
   const { bindStagedImageArtifact, countPendingStagedImageArtifacts } =
     await import('../commandEve/imageArtifactStore');
-  return reconcileConversationImageArtifactBinds(getDataPath(), conversationId, {
+  return reconcileConversationImageArtifactBinds(getDataPath(), conversationId, expectedSeatId, {
     fetchTranscript: (id, window) => fetchConversationTranscriptFull(id, window),
     bind: bindStagedImageArtifact,
     log: (line) => console.warn(line),
     countPendingStaged: countPendingStagedImageArtifacts,
+    seatStillMatches: () =>
+      getActiveSeatId() === expectedSeatId && getActiveSeatContextRevision() === expectedSeatContextRevision,
     onFreshBind: (id) => getImageArtifactsChangedEmitter().emit({ conversation_id: id }),
   });
 }
@@ -2729,13 +2735,17 @@ export function initCommandEveBridge(): void {
     .provider((request?: { conversationId?: string; handle?: string; toolCallId?: string }) =>
       handleCommandEveImageArtifactBindBridge(request, {
         getDataPath,
+        getActiveSeatId,
         onFreshBind: (conversationId) => getImageArtifactsChangedEmitter().emit({ conversation_id: conversationId }),
       })
     );
   bridge.buildProvider('command-eve.image-artifacts-list').provider((request?: { conversationId?: string }) =>
     handleCommandEveImageArtifactsListBridge(request, {
       getDataPath,
-      reconcileBeforeList: (conversationId) => reconcileImageArtifactBindsForConversation(conversationId),
+      getActiveSeatId,
+      getActiveSeatContextRevision,
+      reconcileBeforeList: (conversationId, expectedSeatId, expectedSeatContextRevision) =>
+        reconcileImageArtifactBindsForConversation(conversationId, expectedSeatId, expectedSeatContextRevision),
     })
   );
   // Durable re-bind authority: the turnCompleted relay invokes this at turn

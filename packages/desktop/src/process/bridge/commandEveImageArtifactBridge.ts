@@ -107,6 +107,7 @@ export interface CommandEveImageArtifactBindRequest {
 
 export interface CommandEveImageArtifactBindDeps {
   getDataPath: typeof getDataPath;
+  getActiveSeatId?: typeof getActiveSeatId;
   bind?: typeof bindStagedImageArtifact;
   /**
    * 1.820.3 same-turn insertion: invoked with the canonical conversation id
@@ -120,6 +121,7 @@ export interface CommandEveImageArtifactBindDeps {
 
 const productionBindDeps: CommandEveImageArtifactBindDeps = {
   getDataPath,
+  getActiveSeatId,
   bind: bindStagedImageArtifact,
 };
 
@@ -137,10 +139,12 @@ export async function handleCommandEveImageArtifactBind(
     return { ok: false, reason: 'handle-malformed' };
   if (typeof toolCallId !== 'string' || toolCallId.length === 0) return { ok: false, reason: 'handle-malformed' };
   try {
+    const expectedSeatId = (deps.getActiveSeatId ?? getActiveSeatId)();
     const result = (deps.bind ?? bindStagedImageArtifact)(deps.getDataPath(), {
       conversationId,
       handle: request?.handle,
       toolCallId,
+      expectedSeatId,
     });
     if (result.ok && !result.alreadyBound) {
       // Best-effort, isolated: a throwing notifier must NEVER turn a
@@ -326,38 +330,67 @@ function normalizeImageGenerateRequest(
 
 type CommandEveImageGenerateCoordinator = {
   run: (
-    input: { conversationId: string; requestId: string; requestDigest: string },
+    input: {
+      conversationId: string;
+      requestId: string;
+      requestDigest: string;
+      capturedSeatId: string;
+      seatContextRevision: number;
+    },
     work: () => Promise<CommandEveImageGenerateResult>
   ) => Promise<CommandEveImageGenerateResult>;
 };
 
-/** Process-local response replay; the gateway request id remains the durable debit dedupe after restart. */
+/**
+ * A Seat epoch is part of every replay/coalesce identity because a request id
+ * has no authority to cross a Main-owned Seat transition. The gateway request
+ * id remains the durable debit dedupe after restart.
+ */
 export function createCommandEveImageGenerateCoordinator(): CommandEveImageGenerateCoordinator {
-  const inflightByRequest = new Map<
+  const inflightByRequestIdentity = new Map<
     string,
-    { conversationId: string; requestDigest: string; promise: Promise<CommandEveImageGenerateResult> }
+    {
+      conversationId: string;
+      requestDigest: string;
+      promise: Promise<CommandEveImageGenerateResult>;
+    }
   >();
-  const inflightByConversation = new Map<string, string>();
-  const completed = new Map<
+  const inflightByConversationIdentity = new Map<string, string>();
+  const completedByRequestIdentity = new Map<
     string,
-    { conversationId: string; requestDigest: string; result: CommandEveImageGenerateResult; expiresAt: number }
+    {
+      conversationId: string;
+      requestDigest: string;
+      result: CommandEveImageGenerateResult;
+      expiresAt: number;
+    }
   >();
 
   const prune = (nowMs: number): void => {
-    for (const [requestId, entry] of completed) {
-      if (entry.expiresAt <= nowMs) completed.delete(requestId);
+    for (const [requestIdentity, entry] of completedByRequestIdentity) {
+      if (entry.expiresAt <= nowMs) completedByRequestIdentity.delete(requestIdentity);
     }
-    while (completed.size > IMAGE_GENERATE_COMPLETION_MAX) {
-      const oldest = completed.keys().next().value as string | undefined;
+    while (completedByRequestIdentity.size > IMAGE_GENERATE_COMPLETION_MAX) {
+      const oldest = completedByRequestIdentity.keys().next().value as string | undefined;
       if (oldest === undefined) break;
-      completed.delete(oldest);
+      completedByRequestIdentity.delete(oldest);
     }
   };
 
   return {
     async run(input, work) {
       prune(Date.now());
-      const completedEntry = completed.get(input.requestId);
+      const requestIdentity = JSON.stringify({
+        seatId: input.capturedSeatId,
+        seatContextRevision: input.seatContextRevision,
+        requestId: input.requestId,
+      });
+      const conversationIdentity = JSON.stringify({
+        seatId: input.capturedSeatId,
+        seatContextRevision: input.seatContextRevision,
+        conversationId: input.conversationId,
+      });
+      const completedEntry = completedByRequestIdentity.get(requestIdentity);
       if (completedEntry) {
         if (
           completedEntry.conversationId !== input.conversationId ||
@@ -372,7 +405,7 @@ export function createCommandEveImageGenerateCoordinator(): CommandEveImageGener
         return completedEntry.result.ok ? { ...completedEntry.result, alreadyCompleted: true } : completedEntry.result;
       }
 
-      const requestEntry = inflightByRequest.get(input.requestId);
+      const requestEntry = inflightByRequestIdentity.get(requestIdentity);
       if (requestEntry) {
         if (
           requestEntry.conversationId !== input.conversationId ||
@@ -387,8 +420,8 @@ export function createCommandEveImageGenerateCoordinator(): CommandEveImageGener
         return requestEntry.promise;
       }
 
-      const conversationRequestId = inflightByConversation.get(input.conversationId);
-      if (conversationRequestId) {
+      const conversationRequestIdentity = inflightByConversationIdentity.get(conversationIdentity);
+      if (conversationRequestIdentity) {
         return refuseImageGenerate(
           'image-generate-already-in-flight',
           'Für diese Unterhaltung wird bereits ein Bild erstellt.',
@@ -412,7 +445,7 @@ export function createCommandEveImageGenerateCoordinator(): CommandEveImageGener
           // accidentally buy the same visual twice.
           const shouldCache = result.ok === true ? true : result.artifactState !== 'none';
           if (shouldCache) {
-            completed.set(input.requestId, {
+            completedByRequestIdentity.set(requestIdentity, {
               conversationId: input.conversationId,
               requestDigest: input.requestDigest,
               result,
@@ -423,17 +456,17 @@ export function createCommandEveImageGenerateCoordinator(): CommandEveImageGener
           return result;
         })
         .finally(() => {
-          inflightByRequest.delete(input.requestId);
-          if (inflightByConversation.get(input.conversationId) === input.requestId) {
-            inflightByConversation.delete(input.conversationId);
+          inflightByRequestIdentity.delete(requestIdentity);
+          if (inflightByConversationIdentity.get(conversationIdentity) === requestIdentity) {
+            inflightByConversationIdentity.delete(conversationIdentity);
           }
         });
-      inflightByRequest.set(input.requestId, {
+      inflightByRequestIdentity.set(requestIdentity, {
         conversationId: input.conversationId,
         requestDigest: input.requestDigest,
         promise,
       });
-      inflightByConversation.set(input.conversationId, input.requestId);
+      inflightByConversationIdentity.set(conversationIdentity, requestIdentity);
       return promise;
     },
   };
@@ -509,6 +542,28 @@ export async function handleCommandEveImageGenerate(
   const normalized = normalizeImageGenerateRequest(rawRequest);
   if (normalized.ok === false) return normalized.result;
   const request = normalized.request;
+  let dataPath: string;
+  let capturedSeatId: string;
+  let capturedSeatContextRevision: number;
+  try {
+    dataPath = deps.getDataPath();
+    capturedSeatId = deps.getActiveSeatId();
+    capturedSeatContextRevision = deps.getActiveSeatContextRevision();
+  } catch {
+    return refuseImageGenerate('image-generate-seat-unavailable', 'Der aktive Platz ist gerade nicht verfügbar.', {
+      requestId: request.requestId,
+      retryable: true,
+    });
+  }
+  const capturedSeatEpochIsActive = (): boolean => {
+    try {
+      return (
+        deps.getActiveSeatId() === capturedSeatId && deps.getActiveSeatContextRevision() === capturedSeatContextRevision
+      );
+    } catch {
+      return false;
+    }
+  };
   const requestDigest = crypto
     .createHash('sha256')
     .update(
@@ -519,38 +574,22 @@ export async function handleCommandEveImageGenerate(
         resolution: request.resolution,
         aspectRatio: request.aspectRatio,
         referenceImagePaths: request.referenceImagePaths,
+        capturedSeatId,
+        seatContextRevision: capturedSeatContextRevision,
       })
     )
     .digest('hex');
   const coordinator = deps.coordinator ?? productionImageGenerateCoordinator;
 
-  return coordinator.run(
-    { conversationId: request.conversationId, requestId: request.requestId, requestDigest },
+  const result = await coordinator.run(
+    {
+      conversationId: request.conversationId,
+      requestId: request.requestId,
+      requestDigest,
+      capturedSeatId,
+      seatContextRevision: capturedSeatContextRevision,
+    },
     async () => {
-      let dataPath: string;
-      let capturedSeatId: string;
-      let capturedSeatContextRevision: number;
-      try {
-        dataPath = deps.getDataPath();
-        capturedSeatId = deps.getActiveSeatId();
-        capturedSeatContextRevision = deps.getActiveSeatContextRevision();
-      } catch {
-        return refuseImageGenerate('image-generate-seat-unavailable', 'Der aktive Platz ist gerade nicht verfügbar.', {
-          requestId: request.requestId,
-          retryable: true,
-        });
-      }
-      const seatStillMatches = (): boolean => {
-        try {
-          return (
-            deps.getActiveSeatId() === capturedSeatId &&
-            deps.getActiveSeatContextRevision() === capturedSeatContextRevision
-          );
-        } catch {
-          return false;
-        }
-      };
-
       let lockHeld = false;
       try {
         lockHeld = (deps.acquireInflightLock ?? acquireVideoEditInflightLock)(dataPath, request.conversationId);
@@ -566,7 +605,7 @@ export async function handleCommandEveImageGenerate(
       }
 
       try {
-        if (!seatStillMatches()) {
+        if (!capturedSeatEpochIsActive()) {
           return refuseImageGenerate(
             'image-generate-seat-changed',
             'Der aktive Platz hat gewechselt. Bitte erneut senden.',
@@ -613,7 +652,7 @@ export async function handleCommandEveImageGenerate(
           }
         }
 
-        if (!seatStillMatches()) {
+        if (!capturedSeatEpochIsActive()) {
           return refuseImageGenerate(
             'image-generate-seat-changed',
             'Der aktive Platz hat gewechselt. Bitte erneut senden.',
@@ -641,7 +680,7 @@ export async function handleCommandEveImageGenerate(
             getActiveSeatContextRevision: deps.getActiveSeatContextRevision,
           }
         );
-        if (!seatStillMatches()) {
+        if (!capturedSeatEpochIsActive()) {
           return refuseImageGenerate(
             'image-generate-seat-changed',
             'Der aktive Platz hat gewechselt. Bitte erneut senden.',
@@ -673,6 +712,7 @@ export async function handleCommandEveImageGenerate(
             conversationId: request.conversationId,
             handle: artifactHandle,
             toolCallId: `image-generate:${request.requestId}`,
+            expectedSeatId: capturedSeatId,
           });
         } catch {
           bindResult = { ok: false, reason: 'artifact-missing' };
@@ -706,6 +746,15 @@ export async function handleCommandEveImageGenerate(
       }
     }
   );
+  if (!capturedSeatEpochIsActive()) {
+    const artifactState = result.ok === false ? result.artifactState : 'stored_not_bound';
+    return refuseImageGenerate('image-generate-seat-changed', 'Der aktive Platz hat gewechselt. Bitte erneut senden.', {
+      requestId: request.requestId,
+      retryable: true,
+      artifactState,
+    });
+  }
+  return result;
 }
 
 /** IPC-facing envelope matching `ipcBridge.commandEve.imageGenerate`. */
@@ -722,6 +771,8 @@ export async function handleCommandEveImageGenerateBridge(
 
 export interface CommandEveImageArtifactsListDeps {
   getDataPath: typeof getDataPath;
+  getActiveSeatId?: typeof getActiveSeatId;
+  getActiveSeatContextRevision?: typeof getActiveSeatContextRevision;
   listRecords?: typeof listActiveImageArtifacts;
   /**
    * 1.820.3 load recovery: a best-effort durable reconcile that binds any
@@ -730,11 +781,17 @@ export interface CommandEveImageArtifactsListDeps {
    * production wires the Main transcript reconcile from commandEveBridge.
    * Never throws into the list.
    */
-  reconcileBeforeList?: (conversationId: string) => Promise<unknown>;
+  reconcileBeforeList?: (
+    conversationId: string,
+    expectedSeatId: string,
+    expectedSeatContextRevision: number
+  ) => Promise<unknown>;
 }
 
 const productionListDeps: CommandEveImageArtifactsListDeps = {
   getDataPath,
+  getActiveSeatId,
+  getActiveSeatContextRevision,
   listRecords: listActiveImageArtifacts,
 };
 
@@ -749,12 +806,21 @@ export async function handleCommandEveImageArtifactsList(
 ): Promise<CommandEveActiveImageArtifact[]> {
   if (!request || typeof request.conversationId !== 'string' || request.conversationId.length === 0) return [];
   try {
+    const readSeatId = deps.getActiveSeatId ?? getActiveSeatId;
+    const readSeatRevision = deps.getActiveSeatContextRevision ?? getActiveSeatContextRevision;
+    const expectedSeatId = readSeatId();
+    const expectedSeatContextRevision = readSeatRevision();
     // Load recovery first: an orphan staged child binds idempotently, then the
     // list below already contains it. A reconcile failure costs nothing here.
     if (deps.reconcileBeforeList) {
-      await deps.reconcileBeforeList(request.conversationId).catch((): undefined => undefined);
+      await deps
+        .reconcileBeforeList(request.conversationId, expectedSeatId, expectedSeatContextRevision)
+        .catch((): undefined => undefined);
     }
-    return (deps.listRecords ?? listActiveImageArtifacts)(deps.getDataPath(), request.conversationId);
+    if (readSeatId() !== expectedSeatId || readSeatRevision() !== expectedSeatContextRevision) {
+      return [];
+    }
+    return (deps.listRecords ?? listActiveImageArtifacts)(deps.getDataPath(), request.conversationId, expectedSeatId);
   } catch {
     return [];
   }
@@ -780,12 +846,14 @@ export type CommandEveImageArtifactPreview = {
 
 export interface CommandEveImageArtifactPreviewDeps {
   getDataPath: typeof getDataPath;
+  getActiveSeatId?: typeof getActiveSeatId;
   readRecord?: typeof readImageArtifactRecordById;
   readBytes?: typeof readImageArtifactBytes;
 }
 
 const productionPreviewDeps: CommandEveImageArtifactPreviewDeps = {
   getDataPath,
+  getActiveSeatId,
   readRecord: readImageArtifactRecordById,
   readBytes: readImageArtifactBytes,
 };
@@ -808,9 +876,10 @@ export async function handleCommandEveImageArtifactPreview(
   }
   try {
     const dataPath = deps.getDataPath();
-    const record = (deps.readRecord ?? readImageArtifactRecordById)(dataPath, artifactId);
+    const expectedSeatId = (deps.getActiveSeatId ?? getActiveSeatId)();
+    const record = (deps.readRecord ?? readImageArtifactRecordById)(dataPath, artifactId, expectedSeatId);
     if (!record || record.status !== 'active' || record.conversation_id !== conversationId) return null;
-    const bytes = (deps.readBytes ?? readImageArtifactBytes)(dataPath, artifactId);
+    const bytes = (deps.readBytes ?? readImageArtifactBytes)(dataPath, artifactId, expectedSeatId);
     if (!bytes) return null;
     const observed = crypto.createHash('sha256').update(bytes).digest('hex');
     if (observed !== record.payload.sha256) return null;
@@ -838,6 +907,7 @@ export async function handleCommandEveImageArtifactPreviewBridge(
 
 export interface CommandEveImageArtifactImportLegacyDeps {
   getDataPath: typeof getDataPath;
+  getActiveSeatId?: typeof getActiveSeatId;
   /**
    * The legacy workspace root for a WORKSPACE FOLDER id. Injectable so tests
    * point at a temp fixture; production is the pre-contract image lane's one
@@ -849,6 +919,7 @@ export interface CommandEveImageArtifactImportLegacyDeps {
 
 const productionImportDeps: CommandEveImageArtifactImportLegacyDeps = {
   getDataPath,
+  getActiveSeatId,
   workspaceRootForLegacyId: (legacyWorkspaceId) =>
     path.join(os.homedir(), 'Developer', 'conversations', legacyWorkspaceId),
   importLegacy: importLegacyImageArtifact,
@@ -878,6 +949,7 @@ export async function handleCommandEveImageArtifactImportLegacy(
     return { ok: false, reason: 'invalid-request' };
   }
   try {
+    const capturedSeatId = (deps.getActiveSeatId ?? getActiveSeatId)();
     return (deps.importLegacy ?? importLegacyImageArtifact)(deps.getDataPath(), {
       conversationId,
       legacyWorkspaceId,
@@ -885,6 +957,7 @@ export async function handleCommandEveImageArtifactImportLegacy(
       workspaceRoot: (deps.workspaceRootForLegacyId ?? productionImportDeps.workspaceRootForLegacyId!)(
         legacyWorkspaceId
       ),
+      capturedSeatId,
     });
   } catch {
     return { ok: false, reason: 'file-unreadable' };
@@ -1105,8 +1178,14 @@ export async function handleCommandEveImageEdit(
 
   // The grant is read FIRST so the artifact identity comes from OUR record,
   // never from anything the caller supplied.
-  const grant = readGrant(dataPath, request.handle);
+  const grant = readGrant(dataPath, request.handle, Date.now(), capturedSeatId);
   if (!grant) {
+    return refuseEdit('image-edit-handle-unknown', describeArtifactCapabilityRefusal('handle-unknown'));
+  }
+  if (grant.operation !== 'image_edit') {
+    return refuseEdit('image-edit-operation-mismatch', describeArtifactCapabilityRefusal('operation-mismatch'));
+  }
+  if (grant.seat_id !== capturedSeatId) {
     return refuseEdit('image-edit-handle-unknown', describeArtifactCapabilityRefusal('handle-unknown'));
   }
   if (request.conversationId !== undefined && request.conversationId !== grant.conversation_id) {
@@ -1126,12 +1205,12 @@ export async function handleCommandEveImageEdit(
     return refuseEdit('image-edit-conversation-retired', describeSpendPermitRefusal('conversation-retired'));
   }
 
-  const source = readRecord(dataPath, grant.artifact_id);
+  const source = readRecord(dataPath, grant.artifact_id, capturedSeatId);
   if (!source || source.status !== 'active' || source.conversation_id !== grant.conversation_id) {
     return refuseEdit('image-edit-source-missing', 'Das Ausgangsbild ist nicht mehr vorhanden.');
   }
 
-  const sourceBytes = readBytes(dataPath, source.id);
+  const sourceBytes = readBytes(dataPath, source.id, capturedSeatId);
   if (!sourceBytes) {
     return refuseEdit('image-edit-source-unreadable', 'Die Bilddatei konnte nicht gelesen werden.');
   }
@@ -1142,6 +1221,7 @@ export async function handleCommandEveImageEdit(
   const capability = resolveCapability(dataPath, {
     handle: request.handle,
     observedArtifactSha256,
+    expectedSeatId: capturedSeatId,
     expectedConversationId: grant.conversation_id,
   });
   if (capability.ok === false) {
@@ -1168,7 +1248,7 @@ export async function handleCommandEveImageEdit(
     artifactSha256: observedArtifactSha256,
   }) as ImageEditSpendCompletion | undefined;
   if (completion) {
-    const recovered = readStagedRecord(dataPath, completion.artifact_handle);
+    const recovered = readStagedRecord(dataPath, completion.artifact_handle, capturedSeatId);
     if (
       recovered?.id === completion.artifact_id &&
       completion.source_artifact_id === source.id &&
@@ -1303,7 +1383,7 @@ export async function handleCommandEveImageEdit(
         'Das bearbeitete Bild wurde erstellt, konnte aber nicht lokal gespeichert werden.'
       );
     }
-    const stagedChild = readStagedRecord(dataPath, artifactHandle);
+    const stagedChild = readStagedRecord(dataPath, artifactHandle, capturedSeatId);
     if (stagedChild?.payload.parent_artifact_id === source.id) {
       try {
         recordCompletion(dataPath, permit, {

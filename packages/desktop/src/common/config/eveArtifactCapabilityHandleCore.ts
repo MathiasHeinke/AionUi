@@ -41,6 +41,7 @@
  */
 
 import { constantTimeAsciiEquals, isOpaqueToken, isSha256Hex, toLowerHex } from './eveOpaqueTokenCore';
+import { sanitizeSeatId } from './seatConfigKeyCore';
 import type { CommandEveVideoConversationArtifact } from './videoGenerationRequestCore';
 import { hydrateVideoArtifactPayload, isVideoArtifactEditable } from './videoGenerationRequestCore';
 
@@ -70,15 +71,19 @@ export const ARTIFACT_CAPABILITY_HANDLE_PREFIX = 'evecap_';
 export type ArtifactCapabilityOperation = 'video_edit' | 'image_edit';
 
 /** The stored binding. This, not the model's word, is what a handle means. */
-export interface ArtifactCapabilityGrant {
+type ArtifactCapabilityGrantBase = {
   handle: string;
   conversation_id: string;
   artifact_id: string;
   /** The SHA-256 of the artifact bytes AT MINT TIME. */
   artifact_sha256: string;
-  operation: ArtifactCapabilityOperation;
   issued_at_ms: number;
-}
+};
+
+/** Video grants remain byte-compatible; only image_edit authority is Seat-owned. */
+export type ArtifactCapabilityGrant =
+  | (ArtifactCapabilityGrantBase & { operation: 'video_edit'; seat_id?: never })
+  | (ArtifactCapabilityGrantBase & { operation: 'image_edit'; seat_id: string });
 
 export type ArtifactCapabilityRefusal =
   | 'handle-malformed'
@@ -127,6 +132,8 @@ export function mintArtifactCapabilityGrant(input: {
   artifactId: string;
   artifactSha256: string;
   operation: ArtifactCapabilityOperation;
+  /** Required and canonical only for image_edit; forbidden from renderer/provider ownership. */
+  seatId?: string;
   nowMs: number;
   randomBytes: (size: number) => Uint8Array;
 }): ArtifactCapabilityGrant | undefined {
@@ -134,6 +141,12 @@ export function mintArtifactCapabilityGrant(input: {
   if (typeof input.artifactId !== 'string' || input.artifactId.length === 0) return undefined;
   if (!isSha256Hex(input.artifactSha256)) return undefined;
   if (input.operation !== 'video_edit' && input.operation !== 'image_edit') return undefined;
+  if (
+    input.operation === 'image_edit' &&
+    (typeof input.seatId !== 'string' || sanitizeSeatId(input.seatId) !== input.seatId)
+  ) {
+    return undefined;
+  }
 
   let bytes: Uint8Array;
   try {
@@ -145,7 +158,7 @@ export function mintArtifactCapabilityGrant(input: {
   // that makes a handle unguessable. Refuse rather than mint a weak one.
   if (!bytes || bytes.length !== ARTIFACT_CAPABILITY_HANDLE_ENTROPY_BYTES) return undefined;
 
-  return {
+  const grant = {
     handle: `${ARTIFACT_CAPABILITY_HANDLE_PREFIX}${toLowerHex(bytes)}`,
     conversation_id: input.conversationId,
     artifact_id: input.artifactId,
@@ -153,6 +166,10 @@ export function mintArtifactCapabilityGrant(input: {
     operation: input.operation,
     issued_at_ms: input.nowMs,
   };
+  if (input.operation === 'image_edit') {
+    return { ...grant, operation: 'image_edit', seat_id: input.seatId as string };
+  }
+  return { ...grant, operation: 'video_edit' };
 }
 
 /**
@@ -192,6 +209,7 @@ export function mintVideoEditCapabilityGrant(input: {
  * the bytes' SHA-256 at mint time — under the `image_edit` operation.
  */
 export function mintImageEditCapabilityGrant(input: {
+  seatId: string;
   conversationId: string;
   artifactId: string;
   artifactSha256: string;
@@ -203,6 +221,7 @@ export function mintImageEditCapabilityGrant(input: {
     artifactId: input.artifactId,
     artifactSha256: input.artifactSha256,
     operation: 'image_edit',
+    seatId: input.seatId,
     nowMs: input.nowMs,
     randomBytes: input.randomBytes,
   });
