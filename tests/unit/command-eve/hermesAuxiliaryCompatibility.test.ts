@@ -48,7 +48,7 @@ const WHEEL_PATH = fileURLToPath(
  * response is to re-enumerate `task=` call sites in the new wheel, classify anything
  * new, and update this constant — never to relax the assertion.
  */
-const PINNED_WHEEL_SHA256 = 'a91cd1edb383dbbab20d0af7d2b6c9d56183d3248a6ee56ae583b427dbd54bfd';
+const PINNED_WHEEL_SHA256 = '0fcd755a455743869b00c3831ec01bd71e9c392c8b3c1fedaa9da45d99d9b67e';
 
 /** Matches a task name in either form Hermes uses: `task="x"` or `"task": "x"`. */
 const WHEEL_TASK_NAME = /task\s*=\s*["']([a-z_][a-z0-9_]*)["']|["']task["']\s*:\s*["']([a-z_][a-z0-9_]*)["']/;

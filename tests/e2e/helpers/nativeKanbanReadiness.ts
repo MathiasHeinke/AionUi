@@ -19,7 +19,7 @@ export const EXPECTED_NATIVE_KANBAN_STATUSES = [
 
 export const EXPECTED_NATIVE_KANBAN_VERSION = 'command-eve-native-kanban/v1';
 export const EXPECTED_HERMES_VERSION = '0.20.0';
-export const EXPECTED_HERMES_WHEEL_SHA256 = 'a91cd1edb383dbbab20d0af7d2b6c9d56183d3248a6ee56ae583b427dbd54bfd';
+export const EXPECTED_HERMES_WHEEL_SHA256 = '0fcd755a455743869b00c3831ec01bd71e9c392c8b3c1fedaa9da45d99d9b67e';
 
 export type NativeKanbanBridgeResponse = {
   success?: boolean;

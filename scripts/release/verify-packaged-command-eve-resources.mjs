@@ -40,7 +40,7 @@ export const COMMAND_EVE_HERMES_WHEEL = Object.freeze({
   name: 'hermes-agent',
   version: '0.20.0',
   filename: 'hermes_agent-0.20.0-py3-none-any.whl',
-  sha256: 'a91cd1edb383dbbab20d0af7d2b6c9d56183d3248a6ee56ae583b427dbd54bfd',
+  sha256: '0fcd755a455743869b00c3831ec01bd71e9c392c8b3c1fedaa9da45d99d9b67e',
   required_entries: Object.freeze(['tools/browser_use_cli.py']),
 });
 
