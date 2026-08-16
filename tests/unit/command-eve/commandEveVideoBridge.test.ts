@@ -791,11 +791,69 @@ describe('handleCommandEveVideoArtifactsList', () => {
 
     const result = await handleCommandEveVideoArtifactsList(
       { conversationId: 'conv-1' },
-      { getDataPath: () => '/tmp/eve-data', listArtifactRecords: listArtifactRecordsMock }
+      {
+        getDataPath: () => '/tmp/eve-data',
+        listArtifactRecords: listArtifactRecordsMock,
+        listOfficeArtifactRecords: vi.fn(async (_dataPath, conversationId) => [
+          {
+            id: 'office-a',
+            conversation_id: conversationId,
+            kind: 'file' as const,
+            status: 'active' as const,
+            payload: { artifact_type: 'file' as const, title: 'Report.docx', path: '.command-eve/report.docx' },
+            created_at: 2,
+            updated_at: 2,
+          },
+        ]) as never,
+      }
     );
 
     expect(listArtifactRecordsMock).toHaveBeenCalledWith('/tmp/eve-data', 'conv-1');
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
     expect(result[0].conversation_id).toBe('conv-1');
+    expect(result[1]).toMatchObject({ id: 'office-a', conversation_id: 'conv-1', kind: 'file' });
+  });
+
+  it('reports native reconcile and Office list failures without hiding local videos', async () => {
+    const log = vi.fn();
+    const result = await handleCommandEveVideoArtifactsList(
+      { conversationId: 'conv-1' },
+      {
+        getDataPath: () => '/tmp/eve-data',
+        listArtifactRecords: () => [
+          {
+            id: 'video-a',
+            conversation_id: 'conv-1',
+            kind: 'video',
+            status: 'active',
+            payload: {
+              artifact_type: 'video',
+              title: 'Video 720p',
+              description: '',
+              path: '/tmp/a.mp4',
+              mime_type: 'video/mp4',
+              hash: 'x'.repeat(64),
+              size: 3,
+            },
+            created_at: 1,
+            updated_at: 1,
+          },
+        ],
+        hydrateBeforeList: async () => {
+          throw new Error('reconcile unavailable');
+        },
+        listOfficeArtifactRecords: async () => {
+          throw new Error('Office store corrupt');
+        },
+        log,
+      }
+    );
+
+    expect(result).toHaveLength(1);
+    expect(log).toHaveBeenNthCalledWith(
+      1,
+      '[command-eve-artifact-list] native-reconcile-failed: reconcile unavailable'
+    );
+    expect(log).toHaveBeenNthCalledWith(2, '[command-eve-artifact-list] office-list-failed: Office store corrupt');
   });
 });

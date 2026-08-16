@@ -27,6 +27,13 @@ const CHAR_0 = 48;
 const CHAR_9 = 57;
 const CHAR_LOWER_A = 97;
 const CHAR_LOWER_F = 102;
+const CHAR_LOWER_Z = 122;
+const CHAR_UPPER_A = 65;
+const CHAR_UPPER_Z = 90;
+const CHAR_HYPHEN = 45;
+const CHAR_DOT = 46;
+const CHAR_COLON = 58;
+const CHAR_UNDERSCORE = 95;
 const CHAR_TAB = 9;
 const CHAR_LF = 10;
 const CHAR_CR = 13;
@@ -68,6 +75,44 @@ export function isOpaqueToken(value: unknown, prefix: string): value is string {
   if (value.length !== prefix.length + 64) return false;
   if (!hasAsciiPrefix(value, prefix)) return false;
   return isLowerHexOfLength(value.slice(prefix.length), 64);
+}
+
+/**
+ * The identifier shape this app writes for conversations, turns, messages,
+ * seats, queue items and durable artifact records: an alphanumeric first
+ * character followed by up to 255 more from the same set plus `: . _ -`.
+ *
+ * It lives HERE, as one exported owner, for two independent reasons.
+ *
+ * First, the semantic gate over the paid-edit path forbids every string-matching
+ * primitive in the modules it covers, so a caller on that path cannot spell this
+ * shape as a literal at all — not even as a harmless form check, because a
+ * structural test cannot tell a form check from a keyword classifier.
+ *
+ * Second, the shape is a boundary invariant: the renderer-facing policy, the
+ * bridge and the durable Office store must accept exactly the same identifiers.
+ * A second spelling that drifted by one character class would let a value pass
+ * one fence and fail the next, which reads as data corruption rather than as
+ * the refusal it actually is.
+ *
+ * Deliberately NOT reusing the two neighbouring predicates: the managed-image
+ * record check is module-private and caps at 128 characters, and the external
+ * action id allows `/` while forbidding `.`. Either would silently narrow the
+ * identifiers this path already persists.
+ */
+export function isSafeOpaqueRecordId(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 256) return false;
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    const isDigit = code >= CHAR_0 && code <= CHAR_9;
+    const isUpper = code >= CHAR_UPPER_A && code <= CHAR_UPPER_Z;
+    const isLower = code >= CHAR_LOWER_A && code <= CHAR_LOWER_Z;
+    const isSeparator = code === CHAR_COLON || code === CHAR_DOT || code === CHAR_UNDERSCORE || code === CHAR_HYPHEN;
+    // A leading separator would make an identifier that sorts and reads like a
+    // relative path, so the first character is alphanumeric without exception.
+    if (!isDigit && !isUpper && !isLower && (i === 0 || !isSeparator)) return false;
+  }
+  return true;
 }
 
 /** Lowercase hex for a byte array, without reaching for a Buffer in `common/`. */

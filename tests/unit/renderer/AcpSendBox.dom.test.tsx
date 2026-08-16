@@ -1028,7 +1028,10 @@ describe('AcpSendBox', () => {
     // MAT-1747: the default is an EMPTY envelope, which is what a conversation
     // with no artifacts produces. Every pre-existing assertion in this file
     // therefore keeps asserting the byte-identical message it always did.
-    artifactContextEnvelopeInvokeMock.mockResolvedValue({ success: true, data: { envelope: '' } });
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({
+      success: true,
+      data: { envelope: '', officeOperation: { status: 'ready' } },
+    });
     // MAT-1753: the DEFAULT seat has neither capability, which is the fail-closed
     // production default (both env flags off). Every pre-existing assertion in
     // this file therefore keeps the tier options and prices it always had; the
@@ -4002,6 +4005,14 @@ describe('AcpSendBox', () => {
       expect(String(request.input)).not.toContain('COMMAND_EVE_ARTIFACT_FOLLOWUP_ROUTING');
       expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
       expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+      expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: 'conv-1',
+          requestedOfficeMode: mode,
+          officeOperationRequestId: expect.any(String),
+        })
+      );
+      expect(artifactContextEnvelopeInvokeMock.mock.calls.at(-1)?.[0].selectedArtifactIds).toBeUndefined();
     }
   );
 
@@ -4016,7 +4027,11 @@ describe('AcpSendBox', () => {
       sendMessageInvokeMock.mockResolvedValue({});
       artifactContextEnvelopeInvokeMock.mockResolvedValue({
         success: true,
-        data: { envelope: '', officeAttachment: { status: 'ready', path: stagedPath } },
+        data: {
+          envelope: '',
+          officeAttachment: { status: 'ready', path: stagedPath },
+          officeOperation: { status: 'ready' },
+        },
       });
 
       renderWithOfficeArtifact(mode);
@@ -4040,6 +4055,7 @@ describe('AcpSendBox', () => {
           conversationId: 'conv-1',
           selectedArtifactIds: [source.id],
           requestedOfficeMode: mode,
+          officeOperationRequestId: expect.any(String),
         })
       );
     }
@@ -4054,7 +4070,11 @@ describe('AcpSendBox', () => {
       sendMessageInvokeMock.mockResolvedValue({});
       artifactContextEnvelopeInvokeMock.mockResolvedValue({
         success: true,
-        data: { envelope: '', officeAttachment: { status: 'ready', path: stagedPath } },
+        data: {
+          envelope: '',
+          officeAttachment: { status: 'ready', path: stagedPath },
+          officeOperation: { status: 'ready' },
+        },
       });
 
       renderWithOfficeArtifact(mode);
@@ -4077,6 +4097,7 @@ describe('AcpSendBox', () => {
           userTurnText: followup,
           selectedArtifactIds: [source.id],
           requestedOfficeMode: mode,
+          officeOperationRequestId: expect.any(String),
         })
       );
     }

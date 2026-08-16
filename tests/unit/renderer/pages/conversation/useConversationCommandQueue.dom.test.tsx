@@ -310,6 +310,7 @@ describe('useConversationCommandQueue', () => {
     });
 
     expect(normalized.items[0]).toMatchObject({
+      id: `${mode}-edit`,
       selectedArtifactId: `${mode}-artifact-1`,
       composerSelection: {
         mode,
@@ -319,4 +320,36 @@ describe('useConversationCommandQueue', () => {
       },
     });
   });
+
+  it.each(['word', 'excel'] as const)(
+    'round-trips the stable %s create operation id without inventing a parent',
+    (mode) => {
+      const normalized = normalizeQueueState({
+        items: [
+          {
+            id: `${mode}-create-operation`,
+            conversationId: 'conversation-1',
+            seatId: 'seat-1',
+            input: `Create the ${mode} artifact`,
+            files: [],
+            composerSelection: selectExplicitComposerWorkProductMode(mode),
+            created_at: 1,
+          },
+        ],
+        isPaused: true,
+      });
+
+      expect(normalized.items[0]).toMatchObject({
+        id: `${mode}-create-operation`,
+        conversationId: 'conversation-1',
+        seatId: 'seat-1',
+        composerSelection: {
+          mode,
+          authority: 'explicit_user_selection',
+          hasSelectedReference: false,
+        },
+      });
+      expect(normalized.items[0]?.selectedArtifactId).toBeUndefined();
+    }
+  );
 });

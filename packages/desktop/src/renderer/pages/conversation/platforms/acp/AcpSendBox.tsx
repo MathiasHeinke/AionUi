@@ -709,6 +709,7 @@ const AcpSendBox: React.FC<{
 
   const executeCommand = useCallback(
     async ({
+      id: commandId,
       input,
       files,
       displayFiles,
@@ -720,6 +721,7 @@ const AcpSendBox: React.FC<{
       seatTicket,
     }: Pick<
       ConversationCommandQueueItem,
+      | 'id'
       | 'input'
       | 'files'
       | 'displayFiles'
@@ -829,7 +831,7 @@ const AcpSendBox: React.FC<{
         // send, and a missing registry is not a failed send.
         let artifactEnvelope = '';
         const requestedOfficeMode =
-          workProductRequest?.action === 'edit' &&
+          (workProductRequest?.action === 'create' || workProductRequest?.action === 'edit') &&
           (workProductRequest.mode === 'word' || workProductRequest.mode === 'excel')
             ? workProductRequest.mode
             : undefined;
@@ -867,27 +869,37 @@ const AcpSendBox: React.FC<{
             ...(selectedArtifactId === undefined ? {} : { selectedArtifactIds: [selectedArtifactId] }),
             ...(requestedEditOperation === undefined ? {} : { requestedEditOperation }),
             ...(requestedOfficeMode === undefined ? {} : { requestedOfficeMode }),
+            ...(requestedOfficeMode === undefined ? {} : { officeOperationRequestId: commandId }),
           });
           if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
           if (envelopeResult?.success && typeof envelopeResult.data?.envelope === 'string') {
             artifactEnvelope = envelopeResult.data.envelope;
           }
           if (requestedOfficeMode) {
-            const officeAttachment = envelopeResult?.success ? envelopeResult.data?.officeAttachment : undefined;
-            const officePath = officeAttachment?.status === 'ready' ? officeAttachment.path : '';
-            if (
-              !officePath ||
-              officePath.length > 4096 ||
-              officePath.includes('\0') ||
-              (!officePath.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(officePath))
-            ) {
+            if (envelopeResult?.success !== true || envelopeResult.data?.officeOperation?.status !== 'ready') {
               throw new Error(
                 t('conversation.workProduct.referenceUnavailable', {
                   defaultValue: 'Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.',
                 })
               );
             }
-            agentFiles = Array.from(new Set([...(files ?? []), officePath]));
+            if (workProductRequest?.action === 'edit') {
+              const officeAttachment = envelopeResult?.success ? envelopeResult.data?.officeAttachment : undefined;
+              const officePath = officeAttachment?.status === 'ready' ? officeAttachment.path : '';
+              if (
+                !officePath ||
+                officePath.length > 4096 ||
+                officePath.includes('\0') ||
+                (!officePath.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(officePath))
+              ) {
+                throw new Error(
+                  t('conversation.workProduct.referenceUnavailable', {
+                    defaultValue: 'Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.',
+                  })
+                );
+              }
+              agentFiles = Array.from(new Set([...(files ?? []), officePath]));
+            }
           }
         } catch (error) {
           if (requestedOfficeMode) throw error;
@@ -1589,6 +1601,7 @@ Please check your local CLI tool authentication status`,
           : 'rejected';
       }
       return executeCommand({
+        id: uuid(),
         input: queuedMessage,
         files: agentFiles,
         displayFiles,

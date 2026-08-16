@@ -52,6 +52,8 @@ const seatMock = vi.hoisted(() => ({
 vi.mock('@/common/config/configService', () => ({
   configService: {
     getCurrentSeatId: () => seatMock.current,
+    get: async () => undefined,
+    whenReady: async () => {},
     onSeatRebind: (listener: (seatId: string) => void) => {
       seatMock.listeners.add(listener);
       return () => seatMock.listeners.delete(listener);
@@ -83,6 +85,7 @@ vi.mock('@arco-design/web-react', () => ({
   },
   Alert: ({ title, content }: { title?: React.ReactNode; content?: React.ReactNode }) => <div>{title || content}</div>,
   Button: ({ children }: PropsWithChildren) => <button type='button'>{children}</button>,
+  Progress: () => <span>progress</span>,
   Spin: () => <span>loading</span>,
   Tag: ({ children }: PropsWithChildren) => <span>{children}</span>,
 }));
@@ -440,6 +443,40 @@ describe('MessageList', () => {
     const cards = screen.getAllByTestId('generated-artifact-card');
     expect(cards).toHaveLength(1);
     expect(screen.getByText('clip.mp4')).toBeInTheDocument();
+  });
+
+  it('keeps a Main-durable Office record authoritative over the renderer MEDIA projection with the same id', () => {
+    artifactMock.artifacts = [
+      {
+        id: 'hermes-media-message-1-0',
+        conversation_id: 'conversation-1',
+        kind: 'file',
+        status: 'active',
+        payload: {
+          artifact_type: 'file',
+          title: 'Durable.docx',
+          path: '.command-eve/conversation-artifacts/conv/durable.docx',
+          managed_office: true,
+          source_message_id: 'message-1',
+          source_directive_index: 0,
+        },
+        created_at: 3,
+        updated_at: 3,
+      } as never,
+    ];
+    const message: IMessageText = {
+      ...createTextMessage(),
+      content: { content: 'Fertig.\nMEDIA: /tmp/renderer-authored.docx' },
+    };
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[message]}>{children}</Wrapper>,
+    });
+
+    expect(screen.getAllByTestId('generated-artifact-card')).toHaveLength(1);
+    expect(screen.getByText('Durable.docx')).toBeInTheDocument();
+    expect(screen.queryByText('renderer-authored.docx')).not.toBeInTheDocument();
+    expect(artifactMock.stage).not.toHaveBeenCalled();
   });
 
   it('renders an assistant Hermes MEDIA directive as a visible file artifact', async () => {
