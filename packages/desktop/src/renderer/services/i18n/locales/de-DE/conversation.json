@@ -633,11 +633,15 @@
     "video": { "label": "Video erstellen", "tooltip": "Video erstellen oder bearbeiten" },
     "presentation": { "label": "Präsentation erstellen", "tooltip": "Präsentation erstellen oder bearbeiten" },
     "pdf": { "label": "PDF erstellen", "tooltip": "PDF erstellen oder bearbeiten" },
+    "word": { "label": "Word erstellen", "tooltip": "Word-Dokument erstellen oder bearbeiten" },
+    "excel": { "label": "Excel erstellen", "tooltip": "Excel-Datei erstellen oder bearbeiten" },
     "kind": {
       "image": "Bild",
       "video": "Video",
       "presentation": "PPTX",
       "pdf": "PDF",
+      "word": "Word",
+      "excel": "Excel",
       "document": "Dokument",
       "audio": "Audio",
       "file": "Datei"

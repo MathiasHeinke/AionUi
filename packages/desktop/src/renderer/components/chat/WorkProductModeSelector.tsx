@@ -12,7 +12,18 @@ import type {
   LocalizedComposerWorkProductModeDescriptor,
 } from '@/common/config/composerWorkProductModeCore';
 import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
-import { AllApplication, CloseSmall, FilePdf, Magic, Picture, Projector, Right, Video } from '@icon-park/react';
+import {
+  AllApplication,
+  CloseSmall,
+  FileExcel,
+  FilePdf,
+  FileWord,
+  Magic,
+  Picture,
+  Projector,
+  Right,
+  Video,
+} from '@icon-park/react';
 import React, { useMemo } from 'react';
 import { COMPOSER_MENU_TRIGGER_PROPS } from '@/renderer/utils/ui/composerMenuMotion';
 import styles from './WorkProductModeSelector.module.css';
@@ -48,7 +59,7 @@ export type WorkProductModeHeaderProps = WorkProductModeSelectorBaseProps &
     | Readonly<{ selectedReference: WorkProductReferenceChip; onRemoveReference: () => void }>
   );
 
-const MODE_ORDER: readonly ComposerWorkProductModeOption[] = ['image', 'video', 'presentation', 'pdf'];
+const MODE_ORDER: readonly ComposerWorkProductModeOption[] = ['image', 'video', 'presentation', 'pdf', 'word', 'excel'];
 const MODE_SET = new Set<ComposerWorkProductModeOption>(MODE_ORDER);
 
 function modeIcon(mode: ComposerWorkProductModeOption, size = 17): React.ReactNode {
@@ -62,6 +73,10 @@ function modeIcon(mode: ComposerWorkProductModeOption, size = 17): React.ReactNo
       return <Projector {...iconProps} />;
     case 'pdf':
       return <FilePdf {...iconProps} />;
+    case 'word':
+      return <FileWord {...iconProps} />;
+    case 'excel':
+      return <FileExcel {...iconProps} />;
   }
 }
 

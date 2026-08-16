@@ -82,6 +82,7 @@ describe('bundled-skills build content gate', () => {
     for (const id of [
       'eve-doctrine',
       'presentation-studio',
+      'office-studio',
       'lead-magnet-pdf',
       'autor-studio',
       'essay-writer',

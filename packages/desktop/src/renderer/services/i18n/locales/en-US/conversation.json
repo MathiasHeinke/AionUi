@@ -632,11 +632,15 @@
     "video": { "label": "Create video", "tooltip": "Create or edit a video" },
     "presentation": { "label": "Create presentation", "tooltip": "Create or edit a presentation" },
     "pdf": { "label": "Create PDF", "tooltip": "Create or edit a PDF" },
+    "word": { "label": "Create Word document", "tooltip": "Create or edit a Word document" },
+    "excel": { "label": "Create Excel file", "tooltip": "Create or edit an Excel file" },
     "kind": {
       "image": "Image",
       "video": "Video",
       "presentation": "PPTX",
       "pdf": "PDF",
+      "word": "Word",
+      "excel": "Excel",
       "document": "Document",
       "audio": "Audio",
       "file": "File"

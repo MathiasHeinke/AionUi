@@ -199,6 +199,13 @@ function validProviderPayload(providerKey: RendererProviderKey): string {
         preferredTier: 'high',
         sourceCount: 1,
       });
+    case 'command-eve.artifact-context-envelope':
+      return providerPayload(providerKey, {
+        conversationId: 'conversation-1',
+        selectedArtifactIds: ['artifact-1'],
+        userTurnText: 'Revise this document',
+        requestedOfficeMode: 'word',
+      });
     case 'update-system-info':
       return providerPayload(providerKey, { cacheDir: '/tmp/cache', workDir: '/tmp/work' });
     default:
@@ -607,6 +614,41 @@ describe('main adapter IPC trust boundary', () => {
     expect(() =>
       handler(event, providerPayload('update-system-info', { cacheDir: '/tmp/cache', workDir: '/tmp/work', logDir: 1 }))
     ).toThrow('logDir');
+    expect(state.emitter.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Office attachment lookup pathless and fixed to Word/Excel', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    await handler(event, validProviderPayload('command-eve.artifact-context-envelope'));
+    expect(state.emitter.emit).toHaveBeenCalledTimes(1);
+
+    for (const invalid of [
+      {
+        conversationId: 'conversation-1',
+        selectedArtifactIds: ['artifact-1'],
+        requestedOfficeMode: 'presentation',
+      },
+      {
+        conversationId: 'conversation-1',
+        selectedArtifactIds: ['artifact-1'],
+        requestedOfficeMode: 'pdf',
+      },
+      {
+        conversationId: 'conversation-1',
+        selectedArtifactIds: ['artifact-1'],
+        requestedOfficeMode: 'word',
+        sourcePath: '/private/forged.docx',
+      },
+      {
+        conversationId: 'conversation-1',
+        selectedArtifactIds: [42],
+        requestedOfficeMode: 'excel',
+      },
+    ]) {
+      expect(() => handler(event, providerPayload('command-eve.artifact-context-envelope', invalid))).toThrow();
+    }
     expect(state.emitter.emit).toHaveBeenCalledTimes(1);
   });
 

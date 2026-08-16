@@ -110,6 +110,10 @@
   "permissionUnverifiedTitle": "Nicht verifizierte Operation",
   "permissionUnverifiedDescription": "EVE konnte die Sicherheitsklasse dieser Operation nicht verifizieren und fragt deshalb bewusst nach. Prüfen Sie die exakte Operation vor der Freigabe.",
   "permissionResponseFailed": "Die Berechtigungsantwort konnte nicht angewendet werden. Die Operation bleibt nicht freigegeben.",
+  "clarify": {
+    "selected": "Ausgewählt: {{choice}}",
+    "responseFailed": "Die Auswahl konnte nicht übernommen werden. Es wurde nichts ausgeführt."
+  },
   "permissionStatus": {
     "expired": "Diese Berechtigungsanfrage ist abgelaufen.",
     "cancelled": "Diese Berechtigungsanfrage wurde abgebrochen.",

@@ -41,6 +41,7 @@ import {
   composeCommandEvePreparedContext,
   stripCommandEvePreparedContext,
 } from '@/common/config/evePreparedContextCore';
+import { renderComposerArtifactFollowupRoutingContext } from '@/common/config/composerArtifactReferenceCore';
 
 function entry(overrides: Partial<EveArtifactEnvelopeEntry> = {}): EveArtifactEnvelopeEntry {
   return {
@@ -199,6 +200,18 @@ describe('the turn the agent actually receives', () => {
     // NEGATIVE CONTROL: the prepared-evidence path still DOES carry it, so the
     // assertion above is about composition and not about a missing string.
     expect(buildCommandEvePreparedAgentInput(USER_TEXT, 'evidence')).toContain('This is a file-analysis task');
+  });
+
+  it('adds a bounded follow-up route without changing the displayed turn', () => {
+    const artifactFollowupContext = renderComposerArtifactFollowupRoutingContext(
+      ['image', 'video', 'word', 'excel'].map((mode) => ({ mode }))
+    );
+    const agentInput = buildCommandEveAgentTurnInput({ userInput: USER_TEXT, artifactFollowupContext });
+
+    expect(agentInput).toContain('available_modes=image,video,word,excel');
+    expect(agentInput).toContain('[command_eve:artifact_followup:<mode>]');
+    expect(agentInput).not.toContain('This is a file-analysis task');
+    expect(stripCommandEvePreparedContext(agentInput)).toBe(USER_TEXT);
   });
 });
 

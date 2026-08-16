@@ -286,9 +286,12 @@ export function buildCommandEveAgentTurnInput(input: {
   userInput: string;
   preparedContext?: string;
   artifactEnvelope?: string;
+  artifactFollowupContext?: string;
 }): string {
   const base = buildCommandEvePreparedAgentInput(input.userInput, input.preparedContext);
-  const envelope = input.artifactEnvelope?.trim();
-  if (!envelope) return base;
-  return [COMMAND_EVE_PREPARED_CONTEXT_START, envelope, COMMAND_EVE_PREPARED_CONTEXT_END, base].join('\n');
+  const hiddenContext = [input.artifactEnvelope?.trim(), input.artifactFollowupContext?.trim()]
+    .filter((value): value is string => Boolean(value))
+    .join('\n\n');
+  if (!hiddenContext) return base;
+  return [COMMAND_EVE_PREPARED_CONTEXT_START, hiddenContext, COMMAND_EVE_PREPARED_CONTEXT_END, base].join('\n');
 }

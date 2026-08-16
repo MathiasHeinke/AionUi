@@ -316,6 +316,13 @@
       "default_state": "active"
     },
     {
+      "id": "office-studio",
+      "name": "Word & Excel Studio",
+      "tier": "department",
+      "source": "Command EVE managed document and spreadsheet production skill",
+      "default_state": "active"
+    },
+    {
       "id": "ai-coding-delegation",
       "name": "Coding Task Delegation (explicit approval)",
       "tier": "department",

@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7806
+# entries: 7822
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -1257,6 +1257,9 @@ copy	1	de-DE/conversation.json	Erweiterte Einstellungen
 copy	1	de-DE/conversation.json	Es ist leer
 copy	1	de-DE/conversation.json	Es läuft bereits eine Zwischenfrage.
 copy	1	de-DE/conversation.json	Evidence
+copy	1	de-DE/conversation.json	Excel
+copy	1	de-DE/conversation.json	Excel erstellen
+copy	1	de-DE/conversation.json	Excel-Datei erstellen oder bearbeiten
 copy	1	de-DE/conversation.json	Export abgebrochen
 copy	1	de-DE/conversation.json	Export erfolgreich
 copy	1	de-DE/conversation.json	Export fehlgeschlagen
@@ -1574,6 +1577,9 @@ copy	1	de-DE/conversation.json	Wird bearbeitet
 copy	1	de-DE/conversation.json	Wird exportiert ...
 copy	1	de-DE/conversation.json	Wird verarbeitet ...
 copy	1	de-DE/conversation.json	Woran arbeiten wir heute?
+copy	1	de-DE/conversation.json	Word
+copy	1	de-DE/conversation.json	Word erstellen
+copy	1	de-DE/conversation.json	Word-Dokument erstellen oder bearbeiten
 copy	1	de-DE/conversation.json	Worker
 copy	1	de-DE/conversation.json	Wähle ein Modell, das für das aktuelle Konto verfügbar ist und diese Anfrage unterstützt.
 copy	1	de-DE/conversation.json	Wähle pro Nachricht höchstens sechs Bilder oder Präsentationen aus.
@@ -2367,6 +2373,7 @@ copy	1	de-DE/messages.json	Audio
 copy	1	de-DE/messages.json	Ausführung abgebrochen
 copy	1	de-DE/messages.json	Ausführung des MCP-Tools "{{toolName}}" vom Server "{{serverName}}" zulassen?
 copy	1	de-DE/messages.json	Ausführung zulassen?
+copy	1	de-DE/messages.json	Ausgewählt: {{choice}}
 copy	1	de-DE/messages.json	Bearbeiten
 copy	1	de-DE/messages.json	Befehl:
 copy	1	de-DE/messages.json	Befehle
@@ -2386,6 +2393,7 @@ copy	1	de-DE/messages.json	Dateinamen eingeben
 copy	1	de-DE/messages.json	Dateiänderungen
 copy	1	de-DE/messages.json	Der Agent fordert eine Berechtigung an.
 copy	1	de-DE/messages.json	Die Aktion wurde gestoppt, weil EVE-Authority oder die Belegspeicherung nicht verfügbar war.
+copy	1	de-DE/messages.json	Die Auswahl konnte nicht übernommen werden. Es wurde nichts ausgeführt.
 copy	1	de-DE/messages.json	Die Berechtigungsantwort konnte nicht angewendet werden. Die Operation bleibt nicht freigegeben.
 copy	1	de-DE/messages.json	Die Steuerung bleibt deaktiviert, bis der kanonische Durable-Work-Transport verfügbar ist.
 copy	1	de-DE/messages.json	Die deklarative UI hat den Sicherheitsvertrag nicht erfüllt ({{code}}). Es wurde keine Komponente oder Aktion gerendert.
@@ -4969,12 +4977,16 @@ copy	1	en-US/conversation.json	Could not access the requested resource
 copy	1	en-US/conversation.json	Could not open logs
 copy	1	en-US/conversation.json	Could not reach the model provider
 copy	1	en-US/conversation.json	Create
+copy	1	en-US/conversation.json	Create Excel file
 copy	1	en-US/conversation.json	Create PDF
+copy	1	en-US/conversation.json	Create Word document
 copy	1	en-US/conversation.json	Create image
 copy	1	en-US/conversation.json	Create new chat in current project
 copy	1	en-US/conversation.json	Create or edit a PDF
+copy	1	en-US/conversation.json	Create or edit a Word document
 copy	1	en-US/conversation.json	Create or edit a presentation
 copy	1	en-US/conversation.json	Create or edit a video
+copy	1	en-US/conversation.json	Create or edit an Excel file
 copy	1	en-US/conversation.json	Create or edit an image
 copy	1	en-US/conversation.json	Create presentation
 copy	1	en-US/conversation.json	Create video
@@ -5040,6 +5052,7 @@ copy	1	en-US/conversation.json	Enter new name
 copy	1	en-US/conversation.json	Error
 copy	1	en-US/conversation.json	Error code
 copy	1	en-US/conversation.json	Evidence
+copy	1	en-US/conversation.json	Excel
 copy	1	en-US/conversation.json	Existing folders
 copy	1	en-US/conversation.json	Exit Batch Mode
 copy	1	en-US/conversation.json	Export
@@ -5504,6 +5517,7 @@ copy	1	en-US/conversation.json	Wake receipt accepted
 copy	1	en-US/conversation.json	Watch
 copy	1	en-US/conversation.json	What are we working on today?
 copy	1	en-US/conversation.json	What can Command EVE do?
+copy	1	en-US/conversation.json	Word
 copy	1	en-US/conversation.json	Work
 copy	1	en-US/conversation.json	Workbench left, chat right
 copy	1	en-US/conversation.json	Worker
@@ -6321,6 +6335,7 @@ copy	1	en-US/messages.json	Save path
 copy	1	en-US/messages.json	Save the conversation to a file in the current project
 copy	1	en-US/messages.json	Save to file
 copy	1	en-US/messages.json	Scroll to bottom
+copy	1	en-US/messages.json	Selected: {{choice}}
 copy	1	en-US/messages.json	Sending failed.
 copy	1	en-US/messages.json	Sending failed: {{reason}}
 copy	1	en-US/messages.json	Show in folder
@@ -6328,6 +6343,7 @@ copy	1	en-US/messages.json	System
 copy	1	en-US/messages.json	The action was stopped because EVE authority or receipt persistence was unavailable.
 copy	1	en-US/messages.json	The agent is requesting permission.
 copy	1	en-US/messages.json	The permission response could not be applied. The operation remains unapproved.
+copy	1	en-US/messages.json	The selection could not be applied. Nothing was executed.
 copy	1	en-US/messages.json	This interactive artifact was blocked
 copy	1	en-US/messages.json	This interface could not be verified
 copy	1	en-US/messages.json	This operation was already allowed.

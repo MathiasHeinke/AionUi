@@ -24,6 +24,12 @@ export type CommandEveComposerArtifactReferenceEvent = {
   artifact_id: string;
 };
 
+export type CommandEveComposerFollowupConfirmedEvent = {
+  conversation_id: string;
+  artifact_id: string;
+  source_user_turn: string;
+};
+
 interface EventTypes {
   'aionrs.selected.file': [Array<string | FileOrFolderItem>];
   'aionrs.selected.file.append': [Array<string | FileOrFolderItem>];
@@ -61,6 +67,8 @@ interface EventTypes {
   'commandEve.artifacts.refresh': [{ conversation_id: string }];
   /** Explicit user action: bind this exact conversation artifact to the composer. */
   'commandEve.composer.reference.select': [CommandEveComposerArtifactReferenceEvent];
+  /** A native Hermes clarify choice re-drives one exact artifact through the normal composer authority path. */
+  'commandEve.composer.followup.confirmed': [CommandEveComposerFollowupConfirmedEvent];
   // Native Hermes Desktop `focus_pane` is routed into the canonical EVE shell
   // instead of opening the unrelated elements inspector. Conversation scope is
   // mandatory so a late frame cannot move another chat's workbench.

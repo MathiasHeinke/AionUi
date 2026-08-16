@@ -112,11 +112,13 @@ import {
   DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION,
   consumeComposerWorkProductSelection,
   renderComposerSelectedArtifactPreparedContext,
+  resolveComposerWorkProductInjectedSkills,
   selectExplicitComposerWorkProductMode,
   type ComposerWorkProductMode,
   type ComposerWorkProductSelection,
 } from '@/common/config/composerWorkProductModeCore';
 import {
+  renderComposerArtifactFollowupRoutingContext,
   resolveComposerArtifactReference,
   type ComposerArtifactReference,
 } from '@/common/config/composerArtifactReferenceCore';
@@ -703,6 +705,8 @@ const AcpSendBox: React.FC<{
     []
   );
 
+  const conversationArtifacts = useConversationArtifacts();
+
   const executeCommand = useCallback(
     async ({
       input,
@@ -737,9 +741,13 @@ const AcpSendBox: React.FC<{
       const referenceImagePathsForTurn = (files ?? []).filter((filePath) => isImageFile(filePath));
 
       try {
+        let agentFiles = files;
         let dispatchPreparedContext = preparedContext;
         const consumedComposerSelection = consumeComposerWorkProductSelection(composerSelection);
         const workProductRequest = consumedComposerSelection.request;
+        const injectedWorkProductSkills = workProductRequest
+          ? resolveComposerWorkProductInjectedSkills(workProductRequest.mode)
+          : [];
         if (workProductRequest) {
           const selectedArtifactContext = renderComposerSelectedArtifactPreparedContext(
             selectedArtifactId,
@@ -820,6 +828,11 @@ const AcpSendBox: React.FC<{
         // separate try/catch — the enclosing one turns a throw into a failed
         // send, and a missing registry is not a failed send.
         let artifactEnvelope = '';
+        const requestedOfficeMode =
+          workProductRequest?.action === 'edit' &&
+          (workProductRequest.mode === 'word' || workProductRequest.mode === 'excel')
+            ? workProductRequest.mode
+            : undefined;
         try {
           // 1.823.0: spend authority follows ONLY the explicit selected
           // artifact, never draft wording. Main independently verifies this id
@@ -853,19 +866,53 @@ const AcpSendBox: React.FC<{
             ...(referenceImagePathsForTurn.length === 0 ? {} : { referenceImagePaths: referenceImagePathsForTurn }),
             ...(selectedArtifactId === undefined ? {} : { selectedArtifactIds: [selectedArtifactId] }),
             ...(requestedEditOperation === undefined ? {} : { requestedEditOperation }),
+            ...(requestedOfficeMode === undefined ? {} : { requestedOfficeMode }),
           });
           if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
           if (envelopeResult?.success && typeof envelopeResult.data?.envelope === 'string') {
             artifactEnvelope = envelopeResult.data.envelope;
           }
-        } catch {
+          if (requestedOfficeMode) {
+            const officeAttachment = envelopeResult?.success ? envelopeResult.data?.officeAttachment : undefined;
+            const officePath = officeAttachment?.status === 'ready' ? officeAttachment.path : '';
+            if (
+              !officePath ||
+              officePath.length > 4096 ||
+              officePath.includes('\0') ||
+              (!officePath.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(officePath))
+            ) {
+              throw new Error(
+                t('conversation.workProduct.referenceUnavailable', {
+                  defaultValue: 'Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.',
+                })
+              );
+            }
+            agentFiles = Array.from(new Set([...(files ?? []), officePath]));
+          }
+        } catch (error) {
+          if (requestedOfficeMode) throw error;
           artifactEnvelope = '';
         }
+
+        const artifactFollowupContext = workProductRequest
+          ? ''
+          : renderComposerArtifactFollowupRoutingContext(
+              conversationArtifacts.flatMap((artifact) => {
+                if (!isVisibleConversationArtifact(artifact)) return [];
+                const reference = resolveComposerArtifactReference(artifact);
+                if (!reference || reference.conversationId !== conversation_id) return [];
+                if ((reference.mode === 'image' || reference.mode === 'video') && !isUsableMediaEditSource(artifact)) {
+                  return [];
+                }
+                return [reference];
+              })
+            );
 
         const agentInput = buildCommandEveAgentTurnInput({
           userInput: input,
           preparedContext: dispatchPreparedContext,
           artifactEnvelope,
+          artifactFollowupContext,
         });
         const displayMessage = buildDisplayMessage(agentInput, displayFiles ?? files, workspacePath || '');
 
@@ -899,8 +946,9 @@ const AcpSendBox: React.FC<{
         const result = await ipcBridge.acpConversation.sendMessage.invoke({
           input: displayMessage,
           conversation_id,
-          files,
+          files: agentFiles,
           ...(attachmentGrounding ? { attachment_grounding: attachmentGrounding } : {}),
+          ...(injectedWorkProductSkills.length > 0 ? { inject_skills: [...injectedWorkProductSkills] } : {}),
         });
         if (
           attachmentGrounding &&
@@ -1033,6 +1081,7 @@ Please check your local CLI tool authentication status`,
     [
       backend,
       checkAndUpdateTitle,
+      conversationArtifacts,
       conversation_id,
       eveInference.selection,
       quotaWall?.reportInferenceError,
@@ -1117,7 +1166,6 @@ Please check your local CLI tool authentication status`,
   // 1.823.0 — explicit work-product authority. Draft prose never activates a
   // paid/generative lane. A click in the mode dock, or a click on one exact
   // artifact's "Bearbeiten" action, is the only constructor below.
-  const conversationArtifacts = useConversationArtifacts();
   const [composerSelection, setComposerSelection] = useState<ComposerWorkProductSelection>(
     DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION
   );
@@ -1139,6 +1187,7 @@ Please check your local CLI tool authentication status`,
       if (
         !artifact ||
         !reference ||
+        reference.conversationId !== targetConversationId ||
         !isVisibleConversationArtifact(artifact) ||
         ((reference.mode === 'image' || reference.mode === 'video') && !isUsableMediaEditSource(artifact))
       ) {
@@ -2476,6 +2525,67 @@ Please check your local CLI tool authentication status`,
     ]
   );
 
+  useAddEventListener(
+    'commandEve.composer.followup.confirmed',
+    ({ conversation_id: targetConversationId, artifact_id: artifactId, source_user_turn: sourceUserTurn }) => {
+      if (targetConversationId !== conversation_id || !isEveConversation) return;
+      const seatTicket = runtimeView.captureSeatTicket();
+      if (!runtimeView.isSeatTicketCurrent(seatTicket)) return;
+      const confirmedTurn = sourceUserTurn.trim();
+      if (!confirmedTurn || confirmedTurn.length > 8000) return;
+      const artifact = conversationArtifacts.find((candidate) => candidate.id === artifactId);
+      const reference = resolveComposerArtifactReference(artifact);
+      if (
+        !artifact ||
+        !reference ||
+        !isVisibleConversationArtifact(artifact) ||
+        ((reference.mode === 'image' || reference.mode === 'video') && !isUsableMediaEditSource(artifact))
+      ) {
+        Message.warning(
+          t('conversation.workProduct.referenceUnavailable', {
+            defaultValue: 'Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.',
+          })
+        );
+        return;
+      }
+
+      const confirmedSelection = selectExplicitComposerWorkProductMode(reference.mode, {
+        selected: true,
+        kind: reference.referenceKind,
+      });
+      clearFiles();
+      emitter.emit('acp.selected.file.clear');
+      setContent('');
+      setSelectedArtifactReference(reference);
+      setComposerSelection(confirmedSelection);
+      void submitMessage(seatTicket, confirmedTurn, [], {
+        clearSelection: () => {
+          clearFiles();
+          emitter.emit('acp.selected.file.clear');
+        },
+        restoreDraftAndFiles: () => {
+          setContent(confirmedTurn);
+          setSelectedArtifactReference(reference);
+          setComposerSelection(confirmedSelection);
+        },
+        composerSelection: confirmedSelection,
+        selectedArtifactReference: reference,
+        consumeComposerSelection,
+      }).catch((): void => undefined);
+    },
+    [
+      clearFiles,
+      consumeComposerSelection,
+      conversationArtifacts,
+      conversation_id,
+      isEveConversation,
+      runtimeView,
+      setContent,
+      submitMessage,
+      t,
+    ]
+  );
+
   const sendInitialMessage = useCallback(
     async (
       input: string,
@@ -2914,6 +3024,16 @@ Please check your local CLI tool authentication status`,
       label: t('conversation.workProduct.pdf.label', { defaultValue: 'PDF erstellen' }),
       tooltip: t('conversation.workProduct.pdf.tooltip', { defaultValue: 'PDF erstellen oder bearbeiten' }),
     },
+    {
+      mode: 'word' as const,
+      label: t('conversation.workProduct.word.label', { defaultValue: 'Word erstellen' }),
+      tooltip: t('conversation.workProduct.word.tooltip', { defaultValue: 'Word-Dokument erstellen oder bearbeiten' }),
+    },
+    {
+      mode: 'excel' as const,
+      label: t('conversation.workProduct.excel.label', { defaultValue: 'Excel erstellen' }),
+      tooltip: t('conversation.workProduct.excel.tooltip', { defaultValue: 'Excel-Datei erstellen oder bearbeiten' }),
+    },
   ];
   const workProductActions = {
     toolbarLabel: t('conversation.workProduct.toolbarLabel', { defaultValue: 'Arbeitsprodukt auswählen' }),
@@ -2938,7 +3058,11 @@ Please check your local CLI tool authentication status`,
                     ? 'Video'
                     : selectedArtifactReference.referenceKind === 'presentation'
                       ? 'PPTX'
-                      : 'PDF',
+                      : selectedArtifactReference.referenceKind === 'pdf'
+                        ? 'PDF'
+                        : selectedArtifactReference.referenceKind === 'word'
+                          ? 'Word'
+                          : 'Excel',
               }),
         preview:
           selectedArtifactReference.referenceKind === 'image' && selectedArtifactReference.managedImage ? (

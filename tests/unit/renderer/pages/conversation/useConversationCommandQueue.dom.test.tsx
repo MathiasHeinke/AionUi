@@ -291,4 +291,32 @@ describe('useConversationCommandQueue', () => {
       imageOptions: { tierId: 'max', aspectRatio: '1:1', resolution: '2K' },
     });
   });
+
+  it.each(['word', 'excel'] as const)('round-trips explicit %s edit authority and its exact artifact id', (mode) => {
+    const normalized = normalizeQueueState({
+      items: [
+        {
+          id: `${mode}-edit`,
+          conversationId: 'conversation-1',
+          seatId: 'seat-1',
+          input: `Edit the ${mode} artifact`,
+          files: [],
+          composerSelection: selectExplicitComposerWorkProductMode(mode, { selected: true, kind: mode }),
+          selectedArtifactId: `${mode}-artifact-1`,
+          created_at: 1,
+        },
+      ],
+      isPaused: true,
+    });
+
+    expect(normalized.items[0]).toMatchObject({
+      selectedArtifactId: `${mode}-artifact-1`,
+      composerSelection: {
+        mode,
+        authority: 'explicit_user_selection',
+        hasSelectedReference: true,
+        selectedReferenceKind: mode,
+      },
+    });
+  });
 });

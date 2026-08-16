@@ -13,18 +13,15 @@ import {
   parseComposerWorkProductSelection,
   renderComposerSelectedArtifactPreparedContext,
   renderComposerWorkProductPreparedContext,
+  resolveComposerWorkProductInjectedSkills,
   selectExplicitComposerWorkProductMode,
 } from '@/common/config/composerWorkProductModeCore';
 
 describe('explicit composer work-product mode', () => {
   it('parses only the fixed mode allowlist and normalizes harmless casing', () => {
-    expect(['chat', 'image', 'video', 'presentation', 'pdf'].map(parseComposerWorkProductMode)).toEqual([
-      'chat',
-      'image',
-      'video',
-      'presentation',
-      'pdf',
-    ]);
+    expect(
+      ['chat', 'image', 'video', 'presentation', 'pdf', 'word', 'excel'].map(parseComposerWorkProductMode)
+    ).toEqual(['chat', 'image', 'video', 'presentation', 'pdf', 'word', 'excel']);
     expect(parseComposerWorkProductMode('  VIDEO  ')).toBe('video');
   });
 
@@ -51,7 +48,7 @@ describe('explicit composer work-product mode', () => {
 
   it('keeps every generative descriptor behind explicit user selection', () => {
     const productDescriptors = COMPOSER_WORK_PRODUCT_MODE_DESCRIPTORS.filter(({ mode }) => mode !== 'chat');
-    expect(productDescriptors).toHaveLength(4);
+    expect(productDescriptors).toHaveLength(6);
     expect(productDescriptors.every(({ requiresExplicitUserSelection }) => requiresExplicitUserSelection)).toBe(true);
     expect(productDescriptors.every(({ supportsReference }) => supportsReference)).toBe(true);
   });
@@ -132,6 +129,31 @@ describe('explicit composer work-product mode', () => {
       action: 'edit',
       selectedReferenceKind: 'video',
     });
+  });
+
+  it.each(['word', 'excel'] as const)(
+    'keeps explicit %s create/edit one-shot and deterministically injects office-studio',
+    (mode) => {
+      const create = consumeComposerWorkProductSelection(selectExplicitComposerWorkProductMode(mode)).request;
+      const edit = consumeComposerWorkProductSelection(
+        selectExplicitComposerWorkProductMode(mode, { selected: true, kind: mode })
+      ).request;
+
+      expect(create).toMatchObject({ mode, action: 'create', selectedReferenceKind: null });
+      expect(edit).toMatchObject({ mode, action: 'edit', selectedReferenceKind: mode });
+      expect(create?.preparedContext).toContain(`mode=${mode}`);
+      expect(edit?.preparedContext).toContain(`reference_kind=${mode}`);
+      expect(resolveComposerWorkProductInjectedSkills(mode)).toEqual(['office-studio']);
+    }
+  );
+
+  it('does not inject office-studio for chat, existing non-Office lanes or malformed input', () => {
+    expect(resolveComposerWorkProductInjectedSkills('chat')).toEqual([]);
+    expect(resolveComposerWorkProductInjectedSkills('image')).toEqual([]);
+    expect(resolveComposerWorkProductInjectedSkills('video')).toEqual([]);
+    expect(resolveComposerWorkProductInjectedSkills('presentation')).toEqual([]);
+    expect(resolveComposerWorkProductInjectedSkills('pdf')).toEqual([]);
+    expect(resolveComposerWorkProductInjectedSkills('__proto__')).toEqual([]);
   });
 
   it('refuses a mode-shaped object that lacks explicit click authority', () => {

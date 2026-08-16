@@ -233,6 +233,9 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   // visual-direction gate with EVE's app-managed Office engine and full-deck QA;
   // the operator never sees an OfficeCLI/Ollama/install prompt.
   { id: 'presentation-studio' },
+  // Deterministic DOCX/XLSX create/edit workflow for the explicit Word/Excel
+  // composer modes, backed only by EVE's signed managed document runtime.
+  { id: 'office-studio' },
   // 4 weitere EVE-authored Feld-Skills geerntet (2026-07-03, Founder-Go), jeweils
   // gehärtet vor Public (Details: docs/strategy/command-eve-eve-authored-skills-harvest-2026-07-03.md):
   // ai-coding-delegation (tmux-Subscription-Lane, composes mit delegate_task; ToS-Caveat),
@@ -423,6 +426,7 @@ export const SKILL_IDS_REQUIRING_LINKED_FILES = Object.freeze(['content-machine'
 export const SKILL_IDS_REQUIRING_RUNTIME_INVISIBILITY = Object.freeze([
   'eve-doctrine',
   'presentation-studio',
+  'office-studio',
   'lead-magnet-pdf',
   'autor-studio',
   'essay-writer',

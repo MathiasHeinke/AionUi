@@ -110,6 +110,11 @@ import {
 } from '@/common/config/videoCostCore';
 import type { VideoCatalogEntry } from '@/common/config/videoCatalogCore';
 import { readVideoCatalogWire } from '@process/commandEve/videoCatalogWireMain';
+import {
+  resolveCommandEveOfficeArtifactAttachment,
+  type CommandEveOfficeArtifactAttachment,
+  type CommandEveOfficeArtifactMode,
+} from '@process/commandEve/officeArtifactAttachmentCore';
 
 export type { CommandEveVideoGenerateRequest };
 
@@ -743,6 +748,8 @@ export interface CommandEveArtifactContextEnvelopeDeps {
    * (`agentImageEditFlag.ts`), same posture as the video flag.
    */
   isImageEditEnabled?: () => boolean;
+  /** Resolve one explicit Office edit source in Main, never from renderer metadata. */
+  resolveOfficeAttachment?: typeof resolveCommandEveOfficeArtifactAttachment;
 }
 
 const productionEnvelopeDeps: CommandEveArtifactContextEnvelopeDeps = {
@@ -817,7 +824,14 @@ export interface CommandEveArtifactContextEnvelopeRequest {
    * at all; the model choosing a medium is precisely what this field removes.
    */
   requestedEditOperation?: string;
+  /** Explicit non-billable Office edit lane; absent on create and every other mode. */
+  requestedOfficeMode?: CommandEveOfficeArtifactMode;
 }
+
+export type CommandEveArtifactContextEnvelopeResult = Readonly<{
+  envelope: string;
+  officeAttachment?: CommandEveOfficeArtifactAttachment;
+}>;
 
 /**
  * The sanitized artifact envelope for one conversation, or `''`.
@@ -839,9 +853,42 @@ export interface CommandEveArtifactContextEnvelopeRequest {
 export async function handleCommandEveArtifactContextEnvelope(
   request?: CommandEveArtifactContextEnvelopeRequest,
   deps: CommandEveArtifactContextEnvelopeDeps = productionEnvelopeDeps
-): Promise<{ envelope: string }> {
+): Promise<CommandEveArtifactContextEnvelopeResult> {
   const conversationId = request?.conversationId;
-  if (typeof conversationId !== 'string' || conversationId.length === 0) return { envelope: '' };
+  const requestedOfficeMode =
+    request?.requestedOfficeMode === 'word' || request?.requestedOfficeMode === 'excel'
+      ? request.requestedOfficeMode
+      : undefined;
+  if (typeof conversationId !== 'string' || conversationId.length === 0) {
+    return {
+      envelope: '',
+      ...(requestedOfficeMode
+        ? { officeAttachment: { status: 'refused' as const, reasonCode: 'invalid-request' as const } }
+        : {}),
+    };
+  }
+
+  let officeAttachment: CommandEveOfficeArtifactAttachment | undefined;
+  if (requestedOfficeMode) {
+    const selectedArtifactIds = Array.isArray(request?.selectedArtifactIds)
+      ? request.selectedArtifactIds.filter(
+          (value): value is string => typeof value === 'string' && value.length > 0 && value.length <= 512
+        )
+      : [];
+    if (selectedArtifactIds.length !== 1) {
+      officeAttachment = { status: 'refused', reasonCode: 'invalid-request' };
+    } else {
+      try {
+        officeAttachment = await (deps.resolveOfficeAttachment ?? resolveCommandEveOfficeArtifactAttachment)({
+          conversationId,
+          artifactId: selectedArtifactIds[0],
+          mode: requestedOfficeMode,
+        });
+      } catch {
+        officeAttachment = { status: 'refused', reasonCode: 'source-unsafe' };
+      }
+    }
+  }
   try {
     const dataPath = deps.getDataPath();
     // POLICY F: advertise the paid capability only when the paid path is really
@@ -1026,12 +1073,13 @@ export async function handleCommandEveArtifactContextEnvelope(
         allowedCapabilities,
         ...(spendPermit === undefined ? {} : { spendPermit }),
       }),
+      ...(officeAttachment ? { officeAttachment } : {}),
     };
   } catch {
     // A turn must never fail because the envelope could not be built. Sending
     // the user's message without the registry is a smaller loss than not
     // sending it at all.
-    return { envelope: '' };
+    return { envelope: '', ...(officeAttachment ? { officeAttachment } : {}) };
   }
 }
 
@@ -1366,7 +1414,7 @@ export async function handleCommandEveVideoCapabilitiesBridge(
 export async function handleCommandEveArtifactContextEnvelopeBridge(
   request?: CommandEveArtifactContextEnvelopeRequest,
   deps: CommandEveArtifactContextEnvelopeDeps = productionEnvelopeDeps
-): Promise<{ success: true; data: { envelope: string } }> {
+): Promise<{ success: true; data: CommandEveArtifactContextEnvelopeResult }> {
   return { success: true, data: await handleCommandEveArtifactContextEnvelope(request, deps) };
 }
 

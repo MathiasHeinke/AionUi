@@ -291,6 +291,8 @@
   --eve-work-product-video-accent: #0891b2;
   --eve-work-product-presentation-accent: #ea580c;
   --eve-work-product-pdf-accent: #dc2626;
+  --eve-work-product-word-accent: #2b579a;
+  --eve-work-product-excel-accent: #217346;
 }
 
 :global(:root[data-theme='dark']) {
@@ -298,6 +300,8 @@
   --eve-work-product-video-accent: #22d3ee;
   --eve-work-product-presentation-accent: #fb923c;
   --eve-work-product-pdf-accent: #f87171;
+  --eve-work-product-word-accent: #6ea8fe;
+  --eve-work-product-excel-accent: #55c987;
 }
 
 .trigger[data-mode='image'],
@@ -328,6 +332,20 @@
   --work-product-accent: var(--eve-work-product-pdf-accent);
 }
 
+.trigger[data-mode='word'],
+.menuIcon[data-mode='word'],
+.activeDot[data-mode='word'],
+.activeMode[data-mode='word'] {
+  --work-product-accent: var(--eve-work-product-word-accent);
+}
+
+.trigger[data-mode='excel'],
+.menuIcon[data-mode='excel'],
+.activeDot[data-mode='excel'],
+.activeMode[data-mode='excel'] {
+  --work-product-accent: var(--eve-work-product-excel-accent);
+}
+
 :global(.eve-composer-surface):has(.activeMode[data-mode='image']) {
   --eve-work-product-surface-accent: var(--eve-work-product-image-accent);
 }
@@ -342,6 +360,14 @@
 
 :global(.eve-composer-surface):has(.activeMode[data-mode='pdf']) {
   --eve-work-product-surface-accent: var(--eve-work-product-pdf-accent);
+}
+
+:global(.eve-composer-surface):has(.activeMode[data-mode='word']) {
+  --eve-work-product-surface-accent: var(--eve-work-product-word-accent);
+}
+
+:global(.eve-composer-surface):has(.activeMode[data-mode='excel']) {
+  --eve-work-product-surface-accent: var(--eve-work-product-excel-accent);
 }
 
 :global(.eve-composer-surface):has(.activeMode[data-mode]) {

@@ -91,6 +91,7 @@ const {
   settleConversationWarmupForSendMock,
   warmupConversationMock,
   composerReferenceSelectHandlerMock,
+  composerFollowupConfirmedHandlerMock,
   messageListState,
   readAloudTextMock,
   stopReadAloudMock,
@@ -219,6 +220,11 @@ const {
   warmupConversationMock: vi.fn().mockResolvedValue(undefined),
   composerReferenceSelectHandlerMock: {
     current: null as null | ((event: { conversation_id: string; artifact_id: string }) => void),
+  },
+  composerFollowupConfirmedHandlerMock: {
+    current: null as
+      | null
+      | ((event: { conversation_id: string; artifact_id: string; source_user_turn: string }) => void),
   },
   messageListState: { current: [] as TMessage[] },
   readAloudTextMock: vi.fn(),
@@ -726,6 +732,13 @@ vi.mock('@/renderer/utils/emitter', () => ({
         artifact_id: string;
       }) => void;
     }
+    if (event === 'commandEve.composer.followup.confirmed') {
+      composerFollowupConfirmedHandlerMock.current = handler as unknown as (event: {
+        conversation_id: string;
+        artifact_id: string;
+        source_user_turn: string;
+      }) => void;
+    }
   }),
   // The artifact provider's history-refresh subscription (1.820.3 display
   // gap). Tests fire the handler via chatHistoryRefreshHandlerMock.current.
@@ -919,6 +932,7 @@ describe('AcpSendBox', () => {
     imageArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
     chatHistoryRefreshHandlerMock.current = null;
     composerReferenceSelectHandlerMock.current = null;
+    composerFollowupConfirmedHandlerMock.current = null;
     managedVisualTurnAuthorizeInvokeMock.mockReset();
     imageGenerateInvokeMock.mockReset();
     imageGenerateInvokeMock.mockResolvedValue({
@@ -3883,6 +3897,37 @@ describe('AcpSendBox', () => {
     },
   };
 
+  const OFFICE_SOURCE_ARTIFACTS = {
+    word: {
+      id: 'word-artifact-1',
+      conversation_id: 'conv-1',
+      kind: 'file' as const,
+      status: 'active' as const,
+      created_at: 1000,
+      updated_at: 1000,
+      payload: {
+        artifact_type: 'file' as const,
+        title: 'Kundenbericht',
+        path: '/tmp/workspace/kundenbericht.docx',
+        mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      },
+    },
+    excel: {
+      id: 'excel-artifact-1',
+      conversation_id: 'conv-1',
+      kind: 'file' as const,
+      status: 'active' as const,
+      created_at: 1000,
+      updated_at: 1000,
+      payload: {
+        artifact_type: 'file' as const,
+        title: 'Finanzmodell',
+        path: '/tmp/workspace/finanzmodell.xlsx',
+        mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      },
+    },
+  };
+
   const renderWithVideoArtifact = () => {
     videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [VIDEO_SOURCE_ARTIFACT] });
     return render(
@@ -3896,6 +3941,164 @@ describe('AcpSendBox', () => {
       </ConversationArtifactProvider>
     );
   };
+
+  const renderWithOfficeArtifact = (mode: 'word' | 'excel') => {
+    listArtifactsInvokeMock.mockResolvedValue([OFFICE_SOURCE_ARTIFACTS[mode]]);
+    return render(
+      <ConversationArtifactProvider conversation_id='conv-1'>
+        <AcpSendBox
+          conversation_id='conv-1'
+          backend='hermes'
+          workspacePath='/tmp/workspace'
+          messageState={makeMessageState()}
+        />
+      </ConversationArtifactProvider>
+    );
+  };
+
+  it('1.823.0: an ordinary Office follow-up turn receives only a pathless clarify route', async () => {
+    sendMessageInvokeMock.mockResolvedValue({});
+    renderWithOfficeArtifact('word');
+    await waitFor(() => expect(listArtifactsInvokeMock).toHaveBeenCalled());
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const input = String(sendMessageInvokeMock.mock.calls[0][0].input);
+    expect(input).toContain('[COMMAND_EVE_ARTIFACT_FOLLOWUP_ROUTING]');
+    expect(input).toContain('available_modes=word');
+    expect(input).toContain('[command_eve:artifact_followup:<mode>]');
+    expect(input).not.toContain(OFFICE_SOURCE_ARTIFACTS.word.id);
+    expect(input).not.toContain(OFFICE_SOURCE_ARTIFACTS.word.payload.path);
+    expect(input).not.toContain(OFFICE_SOURCE_ARTIFACTS.word.payload.title);
+    expect(stripCommandEvePreparedContext(input)).toBe('Hello');
+  });
+
+  it.each(['word', 'excel'] as const)(
+    '1.823.0: explicit %s create stays one Hermes turn with deterministic office-studio injection',
+    async (mode) => {
+      const prompt = mode === 'word' ? 'Erstelle ein Word-Dokument.' : 'Erstelle ein Excel-Finanzmodell.';
+      draftDataMock.current = { atPath: [], uploadFile: [], content: prompt };
+      sendBoxMessageMock.current = prompt;
+      sendMessageInvokeMock.mockResolvedValue({});
+
+      render(
+        <AcpSendBox
+          conversation_id='conv-1'
+          backend='hermes'
+          workspacePath='/tmp/workspace'
+          messageState={makeMessageState()}
+        />
+      );
+      await chooseWorkProductMode(mode);
+
+      await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+      await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+      const request = sendMessageInvokeMock.mock.calls[0][0];
+      expect(request.inject_skills).toEqual(['office-studio']);
+      expect(String(request.input)).toContain(`mode=${mode}`);
+      expect(String(request.input)).toContain('action=create');
+      expect(String(request.input)).not.toContain('COMMAND_EVE_ARTIFACT_FOLLOWUP_ROUTING');
+      expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
+      expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['word', 'excel'] as const)(
+    '1.823.0: an exact %s edit attaches only the Main-staged source to Hermes',
+    async (mode) => {
+      const source = OFFICE_SOURCE_ARTIFACTS[mode];
+      const stagedPath = mode === 'word' ? '/private/staged/report.docx' : '/private/staged/model.xlsx';
+      const prompt = mode === 'word' ? 'Kürze die Einleitung.' : 'Ergänze eine Forecast-Spalte.';
+      draftDataMock.current = { atPath: [], uploadFile: [], content: prompt };
+      sendBoxMessageMock.current = prompt;
+      sendMessageInvokeMock.mockResolvedValue({});
+      artifactContextEnvelopeInvokeMock.mockResolvedValue({
+        success: true,
+        data: { envelope: '', officeAttachment: { status: 'ready', path: stagedPath } },
+      });
+
+      renderWithOfficeArtifact(mode);
+      await waitFor(() => expect(listArtifactsInvokeMock).toHaveBeenCalled());
+      await chooseArtifactReference(source.id);
+
+      await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+      await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+      const request = sendMessageInvokeMock.mock.calls[0][0];
+      expect(request.files).toEqual([stagedPath]);
+      expect(request.inject_skills).toEqual(['office-studio']);
+      expect(String(request.input)).toContain(`mode=${mode}`);
+      expect(String(request.input)).toContain('action=edit');
+      expect(String(request.input)).toContain(`artifact_id=${source.id}`);
+      expect(String(request.input)).not.toContain(source.payload.path);
+      expect(String(request.input)).not.toContain(stagedPath);
+      expect(buildDisplayMessageMock.mock.calls[0][1]).toEqual([]);
+      expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: 'conv-1',
+          selectedArtifactIds: [source.id],
+          requestedOfficeMode: mode,
+        })
+      );
+    }
+  );
+
+  it.each(['word', 'excel'] as const)(
+    '1.823.0: native clarify re-drives a confirmed %s follow-up through the same Main gate',
+    async (mode) => {
+      const source = OFFICE_SOURCE_ARTIFACTS[mode];
+      const stagedPath = mode === 'word' ? '/private/staged/report.docx' : '/private/staged/model.xlsx';
+      const followup = mode === 'word' ? 'Nee, kürze die Einleitung stärker.' : 'Mach die Forecast-Spalte blau.';
+      sendMessageInvokeMock.mockResolvedValue({});
+      artifactContextEnvelopeInvokeMock.mockResolvedValue({
+        success: true,
+        data: { envelope: '', officeAttachment: { status: 'ready', path: stagedPath } },
+      });
+
+      renderWithOfficeArtifact(mode);
+      await waitFor(() => expect(listArtifactsInvokeMock).toHaveBeenCalled());
+      await waitFor(() => expect(composerFollowupConfirmedHandlerMock.current).not.toBeNull());
+      await act(async () => {
+        composerFollowupConfirmedHandlerMock.current?.({
+          conversation_id: 'conv-1',
+          artifact_id: source.id,
+          source_user_turn: followup,
+        });
+      });
+
+      await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+      expect(sendMessageInvokeMock.mock.calls[0][0].files).toEqual([stagedPath]);
+      expect(sendMessageInvokeMock.mock.calls[0][0].inject_skills).toEqual(['office-studio']);
+      expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: 'conv-1',
+          userTurnText: followup,
+          selectedArtifactIds: [source.id],
+          requestedOfficeMode: mode,
+        })
+      );
+    }
+  );
+
+  it('1.823.0: a stale clarify artifact id fails closed before any Hermes turn', async () => {
+    renderWithOfficeArtifact('word');
+    await waitFor(() => expect(listArtifactsInvokeMock).toHaveBeenCalled());
+    await waitFor(() => expect(composerFollowupConfirmedHandlerMock.current).not.toBeNull());
+
+    await act(async () => {
+      composerFollowupConfirmedHandlerMock.current?.({
+        conversation_id: 'conv-1',
+        artifact_id: 'word-missing',
+        source_user_turn: 'Mach die Einleitung kürzer.',
+      });
+    });
+
+    expect(messageWarningMock).toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(artifactContextEnvelopeInvokeMock).not.toHaveBeenCalled();
+  });
 
   it('1.823.0: plain prose mentioning image/video creation shows ZERO media controls', async () => {
     draftDataMock.current = {

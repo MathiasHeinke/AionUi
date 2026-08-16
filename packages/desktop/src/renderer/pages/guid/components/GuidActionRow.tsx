@@ -279,6 +279,16 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
       label: t('conversation.workProduct.pdf.label'),
       tooltip: t('conversation.workProduct.pdf.tooltip'),
     },
+    {
+      mode: 'word' as const,
+      label: t('conversation.workProduct.word.label'),
+      tooltip: t('conversation.workProduct.word.tooltip'),
+    },
+    {
+      mode: 'excel' as const,
+      label: t('conversation.workProduct.excel.label'),
+      tooltip: t('conversation.workProduct.excel.tooltip'),
+    },
   ];
   const workProductActions = {
     toolbarLabel: t('conversation.workProduct.toolbarLabel'),

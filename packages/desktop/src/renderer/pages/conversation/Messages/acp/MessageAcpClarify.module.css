@@ -1,0 +1,130 @@
+.card {
+  max-width: 720px;
+  border: 1px solid color-mix(in srgb, rgb(var(--primary-6)) 16%, var(--color-border-2));
+  border-radius: 18px;
+  background: var(--color-bg-2);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-text-1) 10%, transparent);
+  color: var(--color-text-1);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.headerIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 11px;
+  background: color-mix(in srgb, rgb(var(--primary-6)) 10%, transparent);
+  color: rgb(var(--primary-6));
+}
+
+.question {
+  color: var(--color-text-1);
+  font-size: 15px;
+  font-weight: 620;
+  line-height: 1.45;
+}
+
+.artifact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, rgb(var(--primary-6)) 7%, var(--color-fill-1));
+}
+
+.artifactIcon {
+  display: inline-flex;
+  color: rgb(var(--primary-6));
+}
+
+.artifactTitle {
+  min-width: 0;
+  color: var(--color-text-1);
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifactKind {
+  margin-left: auto;
+  color: var(--color-text-3);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.sourceTurn {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, rgb(var(--primary-6)) 32%, transparent);
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.choices {
+  display: grid;
+  gap: 8px;
+}
+
+.choice.arco-btn {
+  justify-content: flex-start;
+  min-height: 42px;
+  height: auto;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border-2);
+  border-radius: 12px;
+  background: var(--color-bg-2);
+  color: var(--color-text-1);
+  box-shadow: none;
+  text-align: left;
+  transition:
+    background-color var(--eve-motion-duration-feedback, 300ms) ease,
+    border-color var(--eve-motion-duration-feedback, 300ms) ease,
+    color var(--eve-motion-duration-feedback, 300ms) ease;
+}
+
+.choice.arco-btn:hover {
+  border-color: color-mix(in srgb, rgb(var(--primary-6)) 28%, var(--color-border-2));
+  background: color-mix(in srgb, rgb(var(--primary-6)) 9%, var(--color-fill-1));
+  color: var(--color-text-1);
+}
+
+.choice.arco-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--eve-focus-ring, rgb(var(--primary-6))) 72%, transparent);
+  outline-offset: 2px;
+}
+
+.choicePrimary.arco-btn {
+  border-color: color-mix(in srgb, rgb(var(--primary-6)) 22%, var(--color-border-2));
+  background: color-mix(in srgb, rgb(var(--primary-6)) 11%, var(--color-fill-1));
+  color: var(--color-text-1);
+}
+
+.resolved {
+  color: var(--color-text-2);
+  font-size: 12px;
+}
+
+.error {
+  color: var(--color-danger-6);
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .choice.arco-btn {
+    transition: none;
+  }
+}

@@ -155,4 +155,42 @@ describe('Hermes desktop bridge', () => {
       unknown_context_fails_closed: true,
     });
   });
+
+  it('binds Hermes 0.20 clarify to exact visible ACP choices without widening authority', () => {
+    const userData = root();
+    setActiveSeatId(SEAT_ID);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(userData, SEAT_ID);
+    expect(provisionSeatRuntimeFiles({ userDataPath: userData, seatId: SEAT_ID }).ok).toBe(true);
+    const shimPath = path.join(paths.hermesHome, 'plugins', 'model-providers', 'custom', '__init__.py');
+    const shim = fs.readFileSync(shimPath, 'utf8');
+
+    expect(shim).toContain('def _command_eve_acp_clarify_callback(');
+    expect(shim).toContain('def _install_command_eve_acp_clarify_patch() -> None:');
+    expect(shim).toContain('getattr(acp_server, "HERMES_VERSION", "") or "") != "0.20.0"');
+    expect(shim).toContain('artifact_followup:(image|video|word|excel)');
+    expect(shim).toContain('"artifact_followup" if artifact_mode else "clarify"');
+    expect(shim).toContain('metadata["artifact_mode"] = artifact_mode');
+    expect(shim).toContain('"source_user_turn": source_user_turn');
+    expect(shim).toContain('artifact follow-up clarify requires exactly one action choice');
+    expect(shim).toContain('clarify_entry.schema = {');
+    expect(shim).toContain('"required": ["question", "choices"]');
+    expect(shim).toContain('"additionalProperties": False');
+    expect(shim).not.toContain('"multi_select": {');
+    expect(shim).toContain('kind="allow_once"');
+    expect(shim).toContain('kind="reject_once", name="Cancel"');
+    expect(shim).not.toContain('clarify_callback=approval_cb');
+
+    const callback = shim.slice(
+      shim.indexOf('def _command_eve_acp_clarify_callback('),
+      shim.indexOf('def _command_eve_visible_source_user_turn(')
+    );
+    expect(callback).not.toMatch(/allow_always|spend_permit|tool_authority|capability_handle/);
+    expect(callback).toContain('"interaction_kind"');
+    expect(callback).toContain('"question"');
+    expect(callback).toContain('"choices"');
+    expect(callback).toContain('"source_user_turn"');
+
+    const compiled = spawnSync('python3', ['-m', 'py_compile', shimPath], { encoding: 'utf8' });
+    expect(compiled.status, compiled.stderr).toBe(0);
+  });
 });

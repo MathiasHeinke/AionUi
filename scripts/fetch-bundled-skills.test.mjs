@@ -36,8 +36,8 @@ import {
 
 // --- allowlist shape -------------------------------------------------------
 
-test('the allowlist is exactly 41 and includes curated production skills', () => {
-  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 41);
+test('the allowlist is exactly 42 and includes curated production skills', () => {
+  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 42);
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-doctrine'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-chief-of-staff-orchestration'));
   assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('marketing-outbound'));
@@ -52,6 +52,7 @@ test('the allowlist is exactly 41 and includes curated production skills', () =>
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('local-vision-qa'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('visual-direction-gate'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('presentation-studio'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('office-studio'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('ai-coding-delegation'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('lead-magnet-pdf'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('skill-authoring'));
@@ -217,7 +218,7 @@ function makeFixtureSrc(root, { omit = [] } = {}) {
   return srcRoot;
 }
 
-test('stageBundledSkills refreshes from source and verifies all 41 including nested production assets', () => {
+test('stageBundledSkills refreshes from source and verifies all 42 including nested production assets', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-test-'));
   try {
     const srcRoot = makeFixtureSrc(root);

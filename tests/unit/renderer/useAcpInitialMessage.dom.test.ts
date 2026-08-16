@@ -149,6 +149,45 @@ describe('useAcpInitialMessage', () => {
     );
   });
 
+  it.each(['word', 'excel'] as const)('carries an explicit %s mode through the fresh-chat handoff', async (mode) => {
+    const sendInitialMessage = vi.fn().mockResolvedValue(true);
+    sessionStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        input: mode === 'word' ? 'Erstelle ein Word-Dokument.' : 'Erstelle ein Excel-Modell.',
+        composerSelection: {
+          mode,
+          authority: 'explicit_user_selection',
+          hasSelectedReference: false,
+          selectedReferenceKind: null,
+          imageOptions: null,
+        },
+      })
+    );
+
+    renderHook(() =>
+      useAcpInitialMessage({
+        conversation_id: 'conversation-1',
+        seatId,
+        sendInitialMessage,
+        resetState: vi.fn(),
+        addOrUpdateMessage: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(sendInitialMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      [],
+      undefined,
+      expect.objectContaining({ mode, authority: 'explicit_user_selection' })
+    );
+  });
+
   it('drops a malformed carried selection rather than failing the send', async () => {
     const sendInitialMessage = vi.fn().mockResolvedValue(true);
     sessionStorage.setItem(

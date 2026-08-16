@@ -76,6 +76,13 @@ import {
 } from '@/common/config/eveWorkerAssignmentCore';
 import { isCommandEveLocalVisionModel } from '@/process/commandEve/ollamaOpenAiShim';
 import { findRawKanbanLeaks } from '@/process/commandEve/kanbanAcpToolsetGateCore';
+import { COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG } from '@/process/commandEve/agentVideoGenerateFlag';
+import { AGENT_VIDEO_GENERATE_TURN_AUTHORITY_READY } from '@/common/config/agentVideoGenerateReleaseCore';
+import {
+  buildEveArtifactToolSurface,
+  EVE_ARTIFACT_TOOL_VIDEO_GENERATE,
+  isToolAdvertised,
+} from '@/process/resources/builtinMcp/eveArtifactToolSurface';
 import packageJson from '../../../package.json';
 import { registerTenant } from '@/process/commandEve/entitlementCore';
 import { sha256FileIfPresent } from '@/process/commandEve/windows/runtimeProvenanceCore';
@@ -1068,6 +1075,15 @@ describe('Command EVE runtime bootstrap core', () => {
       // guarded capability list.
       expect(lane('acp')).toEqual([...COMMAND_EVE_ACP_PLATFORM_TOOLSETS]);
       expect(lane('cli')).toEqual([...COMMAND_EVE_CLI_PLATFORM_TOOLSETS]);
+      expect(lane('acp')).not.toContain('image_generate');
+      expect(lane('acp')).not.toContain('video_generate');
+      expect(AGENT_VIDEO_GENERATE_TURN_AUTHORITY_READY).toBe(false);
+      expect(
+        isToolAdvertised(
+          buildEveArtifactToolSurface({ [COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG]: '1' }),
+          EVE_ARTIFACT_TOOL_VIDEO_GENERATE
+        )
+      ).toBe(false);
 
       // COMPA-626 applied to the SHIPPED bytes: no raw kanban toolset, no raw write
       // tool, no dispatch marker. This is the lock that stays shut — it protects the

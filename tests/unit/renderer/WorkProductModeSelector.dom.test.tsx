@@ -39,6 +39,8 @@ const modes: readonly LocalizedComposerWorkProductModeDescriptor[] = [
   { mode: 'video', label: 'Video erstellen', tooltip: 'Videomodus auswählen' },
   { mode: 'presentation', label: 'Präsentation erstellen', tooltip: 'Präsentationsmodus auswählen' },
   { mode: 'pdf', label: 'PDF erstellen', tooltip: 'PDF-Modus auswählen' },
+  { mode: 'word', label: 'Word erstellen', tooltip: 'Word-Modus auswählen' },
+  { mode: 'excel', label: 'Excel erstellen', tooltip: 'Excel-Modus auswählen' },
 ];
 
 const actions: LocalizedComposerWorkProductActionDescriptor = {

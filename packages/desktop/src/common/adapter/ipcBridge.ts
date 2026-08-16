@@ -2141,7 +2141,23 @@ export const commandEve = {
     void
   >('command-eve.video-capabilities'),
   artifactContextEnvelope: bridge.buildProvider<
-    IBridgeResponse<{ envelope: string }>,
+    IBridgeResponse<{
+      envelope: string;
+      officeAttachment?:
+        | { status: 'ready'; path: string }
+        | {
+            status: 'refused';
+            reasonCode:
+              | 'invalid-request'
+              | 'backend-unavailable'
+              | 'conversation-unavailable'
+              | 'artifact-unavailable'
+              | 'source-outside-workspace'
+              | 'source-unsafe'
+              | 'source-format-mismatch'
+              | 'seat-changed';
+          };
+    }>,
     {
       conversationId: string;
       selectedArtifactIds?: string[];
@@ -2153,6 +2169,8 @@ export const commandEve = {
        * Absent → Main mints NO permit.
        */
       requestedEditOperation?: 'video_edit' | 'image_edit';
+      /** Explicit non-billable Office edit source resolved by Main. */
+      requestedOfficeMode?: 'word' | 'excel';
     }
   >('command-eve.artifact-context-envelope'),
   // MAT-1747 — a STEER is a real user turn, and this is where it is treated as

@@ -359,6 +359,44 @@ function assertHighRiskProviderPayload(providerKey: RendererProviderKey, payload
       }
       return;
     }
+    case 'command-eve.artifact-context-envelope': {
+      const allowedKeys = new Set([
+        'conversationId',
+        'selectedArtifactIds',
+        'userTurnText',
+        'referenceImagePaths',
+        'requestedEditOperation',
+        'requestedOfficeMode',
+      ]);
+      if (!hasOnlyKeys(payload, allowedKeys) || !isNonEmptyString(payload.conversationId)) {
+        throw new Error('Invalid artifact context envelope payload.');
+      }
+      for (const key of ['selectedArtifactIds', 'referenceImagePaths'] as const) {
+        if (
+          Object.hasOwn(payload, key) &&
+          (!Array.isArray(payload[key]) ||
+            payload[key].some((value) => typeof value !== 'string' || value.length === 0 || value.length > 4096))
+        ) {
+          throw new Error(`Invalid artifact context envelope ${key}.`);
+        }
+      }
+      if (Object.hasOwn(payload, 'userTurnText') && typeof payload.userTurnText !== 'string') {
+        throw new Error('Invalid artifact context envelope turn text.');
+      }
+      if (
+        Object.hasOwn(payload, 'requestedEditOperation') &&
+        !['video_edit', 'image_edit'].includes(String(payload.requestedEditOperation))
+      ) {
+        throw new Error('Invalid artifact edit operation.');
+      }
+      if (
+        Object.hasOwn(payload, 'requestedOfficeMode') &&
+        !['word', 'excel'].includes(String(payload.requestedOfficeMode))
+      ) {
+        throw new Error('Invalid artifact Office mode.');
+      }
+      return;
+    }
     case 'command-eve.report-export': {
       const allowedKeys = new Set(['format', 'markdown', 'seatId', 'outputPath', 'title', 'brand']);
       if (!hasOnlyKeys(payload, allowedKeys)) throw new Error('Invalid report-export payload keys.');

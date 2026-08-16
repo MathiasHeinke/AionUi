@@ -413,15 +413,15 @@ describe('EVE soul-wiring: internal Operating Rule reconciled to defer to SOUL.m
 // S1 adds (a) an APP-OWNED config-awareness onboarding skill emitted into the
 // managed skills dir the agent reads, and (b) a directive SOUL posture block.
 // These tripwires break VISIBLY if the skill drifts into asking for a secret, if
-// it is wrongly added to the length-15-asserted strategy allowlist, or if the
+// it is wrongly added to the exact-length strategy allowlist, or if the
 // SOUL posture loses its honesty/cloud-default/no-secret guards.
 // =========================================================================
 
 describe('EVE onboarding S1: app-owned config-awareness skill (separate from the strategy allowlist)', () => {
   const SKILL_MD = commandEveOnboardingSkillMarkdown();
 
-  it('is its own app-owned skill, NOT in the 41-skill strategy allowlist', () => {
-    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(41);
+  it('is its own app-owned skill, NOT in the 42-skill strategy allowlist', () => {
+    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(42);
     expect(EVE_STRATEGY_SKILL_IDS as readonly string[]).not.toContain('eve-onboarding-awareness');
   });
 

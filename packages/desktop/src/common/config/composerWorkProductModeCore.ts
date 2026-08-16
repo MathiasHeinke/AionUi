@@ -22,7 +22,7 @@ import {
  * existing artifact envelope; this contract carries only safe mode metadata.
  */
 
-export const COMPOSER_WORK_PRODUCT_MODES = ['chat', 'image', 'video', 'presentation', 'pdf'] as const;
+export const COMPOSER_WORK_PRODUCT_MODES = ['chat', 'image', 'video', 'presentation', 'pdf', 'word', 'excel'] as const;
 
 export type ComposerWorkProductMode = (typeof COMPOSER_WORK_PRODUCT_MODES)[number];
 export type ComposerWorkProductModeOption = Exclude<ComposerWorkProductMode, 'chat'>;
@@ -34,6 +34,8 @@ export const COMPOSER_WORK_PRODUCT_REFERENCE_KINDS = [
   'video',
   'presentation',
   'pdf',
+  'word',
+  'excel',
   'document',
   'audio',
   'file',
@@ -130,6 +132,18 @@ export const COMPOSER_WORK_PRODUCT_MODE_DESCRIPTORS: readonly ComposerWorkProduc
     supportsReference: true,
     requiresExplicitUserSelection: true,
   },
+  {
+    mode: 'word',
+    defaultAction: 'create',
+    supportsReference: true,
+    requiresExplicitUserSelection: true,
+  },
+  {
+    mode: 'excel',
+    defaultAction: 'create',
+    supportsReference: true,
+    requiresExplicitUserSelection: true,
+  },
 ] as const;
 
 export const COMPOSER_WORK_PRODUCT_ACTION_DESCRIPTORS: readonly ComposerWorkProductActionDescriptor[] = [
@@ -142,6 +156,14 @@ const MODE_SET = new Set<string>(COMPOSER_WORK_PRODUCT_MODES);
 const REFERENCE_KIND_SET = new Set<string>(COMPOSER_WORK_PRODUCT_REFERENCE_KINDS);
 const IMAGE_ASPECT_RATIO_SET = new Set<string>(COMPOSER_IMAGE_ASPECT_RATIOS);
 const IMAGE_RESOLUTION_SET = new Set<string>(COMPOSER_IMAGE_RESOLUTIONS);
+
+export const COMPOSER_OFFICE_STUDIO_SKILL_ID = 'office-studio';
+
+/** Explicit Word/Excel selections bind the app-owned Office workflow to this turn. */
+export function resolveComposerWorkProductInjectedSkills(value: unknown): readonly string[] {
+  const mode = parseComposerWorkProductMode(value);
+  return mode === 'word' || mode === 'excel' ? [COMPOSER_OFFICE_STUDIO_SKILL_ID] : [];
+}
 
 /**
  * Parses persisted/IPC input fail-closed. Objects, boxed strings, oversized
