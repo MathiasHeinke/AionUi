@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   bindStagedImageArtifact,
@@ -11,17 +11,26 @@ import {
   purgeExpiredStagedImageArtifacts,
   readImageArtifactBytes,
   readImageArtifactRecordById,
+  readImageArtifactRecordByStagedHandle,
   stageGeneratedImageArtifact,
 } from '@/process/commandEve/imageArtifactStore';
 import { IMAGE_STAGED_HANDLE_TTL_MS } from '@/common/config/managedImageArtifactCore';
 
 const BYTES = Buffer.from('png-bytes-here');
 const PROMPT_SHA = crypto.createHash('sha256').update('a prompt').digest('hex');
+const SEAT_A = 'seat-a';
+const SEAT_B = 'seat-b';
+const LEGACY_SEAT = 'seat-1';
 
 let dataRoot: string;
 
-function stage(nowMs = Date.now()) {
+function stage(
+  nowMs = Date.now(),
+  capturedSeatId = SEAT_A,
+  extra: { parentArtifactId?: string; newArtifactId?: () => string } = {}
+) {
   const staged = stageGeneratedImageArtifact(dataRoot, {
+    capturedSeatId,
     bytes: BYTES,
     mimeType: 'image/png',
     tier: 'quality',
@@ -30,6 +39,7 @@ function stage(nowMs = Date.now()) {
     aspectRatio: '16:9',
     promptSha256: PROMPT_SHA,
     nowMs,
+    ...extra,
   });
   expect(staged).toBeTruthy();
   return staged!;
@@ -48,6 +58,7 @@ describe('STAGE', () => {
     const { record, handle } = stage();
     expect(handle).toMatch(/^img_h_[0-9a-f]{64}$/);
     expect(record.status).toBe('staged');
+    expect(record.seat_id).toBe(SEAT_A);
     expect(record.conversation_id).toBeNull();
     expect(record.payload.sha256).toBe(crypto.createHash('sha256').update(BYTES).digest('hex'));
     // No path anywhere in the record — the payload is sha/size/mime only.
@@ -55,25 +66,88 @@ describe('STAGE', () => {
     const blob = path.join(dataRoot, 'command-eve-managed-image-artifacts', 'blobs', record.id);
     expect(fs.readFileSync(blob).equals(BYTES)).toBe(true);
     expect(fs.statSync(blob).mode & 0o777).toBe(0o600);
-    expect(readImageArtifactBytes(dataRoot, record.id)?.equals(BYTES)).toBe(true);
+    expect(readImageArtifactBytes(dataRoot, record.id, SEAT_A)?.equals(BYTES)).toBe(true);
   });
 
   it('an unbound staged record is listed for NO conversation', () => {
     stage();
-    expect(listActiveImageArtifacts(dataRoot, 'conv-1')).toEqual([]);
+    expect(listActiveImageArtifacts(dataRoot, 'conv-1', SEAT_A)).toEqual([]);
+  });
+});
+
+describe('LEGACY SEAT MIGRATION', () => {
+  function recordPath(artifactId: string): string {
+    return path.join(dataRoot, 'command-eve-managed-image-artifacts', 'records', `${artifactId}.json`);
+  }
+
+  function stagedPath(handle: string): string {
+    const key = crypto.createHash('sha256').update(handle).digest('hex');
+    return path.join(dataRoot, 'command-eve-managed-image-artifacts', 'staged', `${key}.json`);
+  }
+
+  function readJson(file: string): Record<string, unknown> {
+    return JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+  }
+
+  it('migrates only completely missing record and staged seat_id values to seat-1, once', () => {
+    const { record, handle } = stage();
+    const recordFile = recordPath(record.id);
+    const stagedFile = stagedPath(handle);
+    const legacyRecord = readJson(recordFile);
+    const legacyStaged = readJson(stagedFile);
+    delete legacyRecord.seat_id;
+    delete legacyStaged.seat_id;
+    fs.writeFileSync(recordFile, `${JSON.stringify(legacyRecord, null, 2)}\n`);
+    fs.writeFileSync(stagedFile, `${JSON.stringify(legacyStaged, null, 2)}\n`);
+
+    expect(readImageArtifactRecordByStagedHandle(dataRoot, handle, LEGACY_SEAT)?.seat_id).toBe(LEGACY_SEAT);
+    expect(readJson(recordFile).seat_id).toBe(LEGACY_SEAT);
+    expect(readJson(stagedFile).seat_id).toBe(LEGACY_SEAT);
+    expect(readImageArtifactRecordById(dataRoot, record.id, SEAT_A)).toBeUndefined();
+
+    const recordAfterFirstRead = fs.readFileSync(recordFile, 'utf8');
+    const stagedAfterFirstRead = fs.readFileSync(stagedFile, 'utf8');
+    expect(readImageArtifactRecordByStagedHandle(dataRoot, handle, LEGACY_SEAT)?.seat_id).toBe(LEGACY_SEAT);
+    expect(fs.readFileSync(recordFile, 'utf8')).toBe(recordAfterFirstRead);
+    expect(fs.readFileSync(stagedFile, 'utf8')).toBe(stagedAfterFirstRead);
+  });
+
+  it.each([null, '', '../seat', 7])('fails closed for an explicit malformed record seat_id: %j', (seatId) => {
+    const { record } = stage();
+    const file = recordPath(record.id);
+    const malformed = { ...readJson(file), seat_id: seatId };
+    fs.writeFileSync(file, `${JSON.stringify(malformed, null, 2)}\n`);
+
+    expect(readImageArtifactRecordById(dataRoot, record.id, LEGACY_SEAT)).toBeUndefined();
+    expect(readJson(file).seat_id).toEqual(seatId);
+  });
+
+  it('fails closed without rewriting an explicitly malformed staged seat_id', () => {
+    const { handle } = stage();
+    const file = stagedPath(handle);
+    const malformed = { ...readJson(file), seat_id: null };
+    fs.writeFileSync(file, `${JSON.stringify(malformed, null, 2)}\n`);
+
+    expect(readImageArtifactRecordByStagedHandle(dataRoot, handle, LEGACY_SEAT)).toBeUndefined();
+    expect(readJson(file).seat_id).toBeNull();
   });
 });
 
 describe('BIND', () => {
   it('flips staged -> active with the conversation, records the tool call id, and mints the durable image_edit grant', () => {
     const { record, handle } = stage();
-    const result = bindStagedImageArtifact(dataRoot, { conversationId: 'conv-1', handle, toolCallId: 'call-1' });
+    const result = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-1',
+      expectedSeatId: SEAT_A,
+    });
     expect(result).toMatchObject({ ok: true, alreadyBound: false });
     if (result.ok === false) return;
     expect(result.record.status).toBe('active');
     expect(result.record.conversation_id).toBe('conv-1');
     expect(result.record.bound_tool_call_id).toBe('call-1');
-    expect(listActiveImageArtifacts(dataRoot, 'conv-1').map((r) => r.id)).toEqual([record.id]);
+    expect(listActiveImageArtifacts(dataRoot, 'conv-1', SEAT_A).map((r) => r.id)).toEqual([record.id]);
     // The durable capability grant exists and binds operation + bytes.
     const grants = fs.readdirSync(path.join(dataRoot, 'command-eve-artifact-capabilities'));
     expect(grants.filter((name) => name.length === 69).length).toBe(1);
@@ -81,27 +155,52 @@ describe('BIND', () => {
 
   it('a duplicate terminal bind (same toolCallId re-seen) is a no-op: one artifact, no replay', () => {
     const { record, handle } = stage();
-    const first = bindStagedImageArtifact(dataRoot, { conversationId: 'conv-1', handle, toolCallId: 'call-1' });
-    const second = bindStagedImageArtifact(dataRoot, { conversationId: 'conv-1', handle, toolCallId: 'call-1' });
+    const first = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-1',
+      expectedSeatId: SEAT_A,
+    });
+    const second = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-1',
+      expectedSeatId: SEAT_A,
+    });
     expect(first).toMatchObject({ ok: true, alreadyBound: false });
     expect(second).toMatchObject({ ok: true, alreadyBound: true });
-    expect(listActiveImageArtifacts(dataRoot, 'conv-1').length).toBe(1);
-    expect(readImageArtifactRecordById(dataRoot, record.id)?.status).toBe('active');
+    expect(listActiveImageArtifacts(dataRoot, 'conv-1', SEAT_A).length).toBe(1);
+    expect(readImageArtifactRecordById(dataRoot, record.id, SEAT_A)?.status).toBe('active');
   });
 
   it('the same handle presented for a DIFFERENT conversation is refused conversation-mismatch', () => {
     const { handle } = stage();
-    bindStagedImageArtifact(dataRoot, { conversationId: 'conv-1', handle, toolCallId: 'call-1' });
-    const stolen = bindStagedImageArtifact(dataRoot, { conversationId: 'conv-2', handle, toolCallId: 'call-9' });
+    bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-1',
+      expectedSeatId: SEAT_A,
+    });
+    const stolen = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-2',
+      handle,
+      toolCallId: 'call-9',
+      expectedSeatId: SEAT_A,
+    });
     expect(stolen).toEqual({ ok: false, reason: 'conversation-mismatch' });
-    expect(listActiveImageArtifacts(dataRoot, 'conv-2')).toEqual([]);
+    expect(listActiveImageArtifacts(dataRoot, 'conv-2', SEAT_A)).toEqual([]);
   });
 
   it('malformed, unknown and expired handles are refused; the expired staged record is purged with its bytes', () => {
     const now = 1_754_000_000_000;
     const { record, handle } = stage(now);
     expect(
-      bindStagedImageArtifact(dataRoot, { conversationId: 'conv-1', handle: 'img_h_nope', toolCallId: 'c' })
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle: 'img_h_nope',
+        toolCallId: 'c',
+        expectedSeatId: SEAT_A,
+      })
     ).toEqual({
       ok: false,
       reason: 'handle-malformed',
@@ -111,6 +210,7 @@ describe('BIND', () => {
         conversationId: 'conv-1',
         handle: `img_h_${'1'.repeat(64)}`,
         toolCallId: 'c',
+        expectedSeatId: SEAT_A,
       })
     ).toEqual({ ok: false, reason: 'handle-unknown' });
     expect(
@@ -118,24 +218,100 @@ describe('BIND', () => {
         conversationId: 'conv-1',
         handle,
         toolCallId: 'c',
+        expectedSeatId: SEAT_A,
         nowMs: now + IMAGE_STAGED_HANDLE_TTL_MS + 1,
       })
     ).toEqual({ ok: false, reason: 'handle-expired' });
 
     const purged = purgeExpiredStagedImageArtifacts(dataRoot, now + IMAGE_STAGED_HANDLE_TTL_MS + 1);
     expect(purged).toBe(1);
-    expect(readImageArtifactRecordById(dataRoot, record.id)).toBeUndefined();
-    expect(readImageArtifactBytes(dataRoot, record.id)).toBeUndefined();
+    expect(readImageArtifactRecordById(dataRoot, record.id, SEAT_A)).toBeUndefined();
+    expect(readImageArtifactBytes(dataRoot, record.id, SEAT_A)).toBeUndefined();
   });
 
   it('a mint failure of the edit grant never fails the bind itself', () => {
     const { handle } = stage();
     const result = bindStagedImageArtifact(
       dataRoot,
-      { conversationId: 'conv-1', handle, toolCallId: 'call-1' },
+      { conversationId: 'conv-1', handle, toolCallId: 'call-1', expectedSeatId: SEAT_A },
       { ensureEditHandle: () => undefined }
     );
     expect(result).toMatchObject({ ok: true });
+  });
+
+  it('refuses every cross-seat surface before bind, read, bytes, or list can expose the staged artifact', () => {
+    const { record, handle } = stage();
+    expect(readImageArtifactRecordByStagedHandle(dataRoot, handle, SEAT_B)).toBeUndefined();
+    expect(readImageArtifactRecordById(dataRoot, record.id, SEAT_B)).toBeUndefined();
+    expect(readImageArtifactBytes(dataRoot, record.id, SEAT_B)).toBeUndefined();
+    expect(listActiveImageArtifacts(dataRoot, 'conv-1', SEAT_B)).toEqual([]);
+    expect(
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle,
+        toolCallId: 'call-cross-seat',
+        expectedSeatId: SEAT_B,
+      })
+    ).toEqual({ ok: false, reason: 'seat-mismatch' });
+  });
+
+  it('first bind accepts an edit child only with an active parent in the same seat and conversation', () => {
+    const parent = stage(Date.now(), SEAT_A, { newArtifactId: () => 'img_parent' });
+    expect(
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle: parent.handle,
+        toolCallId: 'call-parent',
+        expectedSeatId: SEAT_A,
+      }).ok
+    ).toBe(true);
+
+    const good = stage(Date.now() + 1, SEAT_A, { parentArtifactId: parent.record.id });
+    expect(
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle: good.handle,
+        toolCallId: 'call-child',
+        expectedSeatId: SEAT_A,
+      })
+    ).toMatchObject({ ok: true, alreadyBound: false });
+
+    const wrongConversation = stage(Date.now() + 2, SEAT_A, { parentArtifactId: parent.record.id });
+    expect(
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-2',
+        handle: wrongConversation.handle,
+        toolCallId: 'call-wrong-conversation',
+        expectedSeatId: SEAT_A,
+      })
+    ).toEqual({ ok: false, reason: 'parent-mismatch' });
+
+    const wrongSeatParent = stage(Date.now() + 3, SEAT_B, { newArtifactId: () => 'img_parent_b' });
+    bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle: wrongSeatParent.handle,
+      toolCallId: 'call-parent-b',
+      expectedSeatId: SEAT_B,
+    });
+    const wrongSeatChild = stage(Date.now() + 4, SEAT_A, { parentArtifactId: wrongSeatParent.record.id });
+    expect(
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle: wrongSeatChild.handle,
+        toolCallId: 'call-wrong-seat',
+        expectedSeatId: SEAT_A,
+      })
+    ).toEqual({ ok: false, reason: 'parent-mismatch' });
+
+    const missingParent = stage(Date.now() + 5, SEAT_A, { parentArtifactId: 'img_missing_parent' });
+    expect(
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle: missingParent.handle,
+        toolCallId: 'call-missing-parent',
+        expectedSeatId: SEAT_A,
+      })
+    ).toEqual({ ok: false, reason: 'parent-mismatch' });
   });
 });
 
@@ -156,12 +332,13 @@ describe('LEGACY IMPORT', () => {
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
-  it('adopts the exact expected workspace file as an ACTIVE record bound to the CANONICAL conversation — and is idempotent', () => {
+  it('adopts the exact expected workspace file only for seat-1 and remains idempotent', () => {
     const result = importLegacyImageArtifact(dataRoot, {
       conversationId: CANONICAL,
       legacyWorkspaceId: LEGACY_ID,
       expectedFileName: FILE_NAME,
       workspaceRoot,
+      capturedSeatId: LEGACY_SEAT,
     });
     expect(result).toMatchObject({ ok: true, alreadyImported: false });
     if (result.ok === false) return;
@@ -172,18 +349,38 @@ describe('LEGACY IMPORT', () => {
     expect(result.record.payload.sha256).toBe(crypto.createHash('sha256').update(fileBytes).digest('hex'));
     // No path stored: sha/size/mime only.
     expect(JSON.stringify(result.record)).not.toContain(workspaceRoot);
-    expect(listActiveImageArtifacts(dataRoot, CANONICAL).length).toBe(1);
-    expect(listActiveImageArtifacts(dataRoot, LEGACY_ID)).toEqual([]);
+    expect(listActiveImageArtifacts(dataRoot, CANONICAL, LEGACY_SEAT).length).toBe(1);
+    expect(listActiveImageArtifacts(dataRoot, LEGACY_ID, LEGACY_SEAT)).toEqual([]);
 
     const again = importLegacyImageArtifact(dataRoot, {
       conversationId: CANONICAL,
       legacyWorkspaceId: LEGACY_ID,
       expectedFileName: FILE_NAME,
       workspaceRoot,
+      capturedSeatId: LEGACY_SEAT,
     });
     expect(again).toMatchObject({ ok: true, alreadyImported: true });
     if (again.ok) expect(again.record.id).toBe(result.record.id);
-    expect(listActiveImageArtifacts(dataRoot, CANONICAL).length).toBe(1);
+    expect(listActiveImageArtifacts(dataRoot, CANONICAL, LEGACY_SEAT).length).toBe(1);
+  });
+
+  it('refuses Seat B before deterministic legacy bytes can be claimed', () => {
+    const ensureEditHandle = vi.fn();
+    const result = importLegacyImageArtifact(
+      dataRoot,
+      {
+        conversationId: CANONICAL,
+        legacyWorkspaceId: LEGACY_ID,
+        expectedFileName: FILE_NAME,
+        workspaceRoot,
+        capturedSeatId: SEAT_B,
+      },
+      { ensureEditHandle }
+    );
+
+    expect(result).toEqual({ ok: false, reason: 'invalid-request' });
+    expect(ensureEditHandle).not.toHaveBeenCalled();
+    expect(listActiveImageArtifacts(dataRoot, CANONICAL, SEAT_B)).toEqual([]);
   });
 
   it('the workspace-id fence: only hermes-temp-<canonical> exactly is accepted', () => {
@@ -193,6 +390,7 @@ describe('LEGACY IMPORT', () => {
         legacyWorkspaceId,
         expectedFileName: FILE_NAME,
         workspaceRoot,
+        capturedSeatId: LEGACY_SEAT,
       });
     // Positive control first: the exact shape IS accepted.
     expect(attempt(LEGACY_ID).ok).toBe(true);
@@ -213,6 +411,7 @@ describe('LEGACY IMPORT', () => {
         legacyWorkspaceId: LEGACY_ID,
         expectedFileName,
         workspaceRoot,
+        capturedSeatId: LEGACY_SEAT,
       });
     expect(attempt('../outside.png')).toEqual({ ok: false, reason: 'invalid-request' });
     expect(attempt('../../etc/passwd.png')).toEqual({ ok: false, reason: 'invalid-request' });
@@ -224,7 +423,7 @@ describe('LEGACY IMPORT', () => {
     // A safe name with an unsupported extension is not an image.
     fs.writeFileSync(path.join(workspaceRoot, 'notes.txt'), 'text');
     expect(attempt('notes.txt')).toEqual({ ok: false, reason: 'unsupported-file' });
-    expect(listActiveImageArtifacts(dataRoot, CANONICAL)).toEqual([]);
+    expect(listActiveImageArtifacts(dataRoot, CANONICAL, SEAT_A)).toEqual([]);
   });
 
   it('refuses a file outside the root reached through a symlinked parent', () => {
@@ -241,6 +440,7 @@ describe('LEGACY IMPORT', () => {
         legacyWorkspaceId: LEGACY_ID,
         expectedFileName: FILE_NAME,
         workspaceRoot: linkRoot,
+        capturedSeatId: LEGACY_SEAT,
       });
       expect(viaLink.ok).toBe(true);
       // …but a symlinked FILE inside the real root is refused.
@@ -251,6 +451,7 @@ describe('LEGACY IMPORT', () => {
           legacyWorkspaceId: LEGACY_ID,
           expectedFileName: 'img-link.png',
           workspaceRoot,
+          capturedSeatId: LEGACY_SEAT,
         })
       ).toEqual({ ok: false, reason: 'file-unreadable' });
       fs.rmSync(linkRoot, { recursive: true, force: true });

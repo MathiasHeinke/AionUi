@@ -41,6 +41,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isSha256Hex } from '@/common/config/eveOpaqueTokenCore';
+import { LEGACY_SEAT_ID, sanitizeSeatId } from '@/common/config/seatConfigKeyCore';
 import {
   IMAGE_STAGED_HANDLE_TTL_MS,
   isWellFormedImageStagedHandle,
@@ -107,6 +108,7 @@ function writeJsonAtomic(file: string, value: unknown): void {
 type StagedHandleEntry = {
   handle: string;
   artifact_id: string;
+  seat_id: string;
   issued_at_ms: number;
   expires_at_ms: number;
   /** Set at bind. The file outlives the bind so a re-delivered bind resolves. */
@@ -117,22 +119,55 @@ type StagedHandleEntry = {
 function parseStagedHandleEntry(value: unknown): StagedHandleEntry | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
+  const seatId = Object.prototype.hasOwnProperty.call(record, 'seat_id') ? record.seat_id : 'seat-1';
   if (
     !isWellFormedImageStagedHandle(record.handle) ||
     typeof record.artifact_id !== 'string' ||
     !SAFE_ID.test(record.artifact_id) ||
+    typeof seatId !== 'string' ||
+    sanitizeSeatId(seatId) !== seatId ||
     typeof record.issued_at_ms !== 'number' ||
     typeof record.expires_at_ms !== 'number'
   ) {
     return undefined;
   }
-  return record as unknown as StagedHandleEntry;
+  return { ...record, seat_id: seatId } as unknown as StagedHandleEntry;
+}
+
+function readStagedHandleFile(file: string): StagedHandleEntry | undefined {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+    const seatMissing =
+      Boolean(raw) &&
+      typeof raw === 'object' &&
+      !Array.isArray(raw) &&
+      !Object.prototype.hasOwnProperty.call(raw, 'seat_id');
+    const staged = parseStagedHandleEntry(raw);
+    if (!staged) return undefined;
+    if (seatMissing) writeJsonAtomic(file, staged);
+    return staged;
+  } catch {
+    return undefined;
+  }
 }
 
 function readStagedHandleEntry(dataPath: string, handle: unknown): StagedHandleEntry | undefined {
   if (!isWellFormedImageStagedHandle(handle)) return undefined;
+  return readStagedHandleFile(stagedHandleFile(dataPath, handle));
+}
+
+function readManagedImageRecordFile(file: string): CommandEveManagedImageArtifact | undefined {
   try {
-    return parseStagedHandleEntry(JSON.parse(fs.readFileSync(stagedHandleFile(dataPath, handle), 'utf8')));
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+    const seatMissing =
+      Boolean(raw) &&
+      typeof raw === 'object' &&
+      !Array.isArray(raw) &&
+      !Object.prototype.hasOwnProperty.call(raw, 'seat_id');
+    const record = parseManagedImageArtifactRecord(raw);
+    if (!record) return undefined;
+    if (seatMissing) writeJsonAtomic(file, record);
+    return record;
   } catch {
     return undefined;
   }
@@ -149,25 +184,25 @@ function readStagedHandleEntry(dataPath: string, handle: unknown): StagedHandleE
 export function readImageArtifactRecordByStagedHandle(
   dataPath: string,
   handle: unknown,
+  expectedSeatId: string,
   nowMs: number = Date.now()
 ): CommandEveManagedImageArtifact | undefined {
+  if (sanitizeSeatId(expectedSeatId) !== expectedSeatId) return undefined;
   const staged = readStagedHandleEntry(dataPath, handle);
-  if (!staged || nowMs > staged.expires_at_ms) return undefined;
-  const record = readImageArtifactRecordById(dataPath, staged.artifact_id);
-  return record?.id === staged.artifact_id ? record : undefined;
+  if (!staged || staged.seat_id !== expectedSeatId || nowMs > staged.expires_at_ms) return undefined;
+  const record = readImageArtifactRecordById(dataPath, staged.artifact_id, expectedSeatId);
+  return record?.id === staged.artifact_id && record.seat_id === staged.seat_id ? record : undefined;
 }
 
 /** A record by id, or `undefined`. Unreadable and malformed both read as absent. */
 export function readImageArtifactRecordById(
   dataPath: string,
-  artifactId: string
+  artifactId: string,
+  expectedSeatId: string
 ): CommandEveManagedImageArtifact | undefined {
-  if (!SAFE_ID.test(artifactId)) return undefined;
-  try {
-    return parseManagedImageArtifactRecord(JSON.parse(fs.readFileSync(recordFile(dataPath, artifactId), 'utf8')));
-  } catch {
-    return undefined;
-  }
+  if (!SAFE_ID.test(artifactId) || sanitizeSeatId(expectedSeatId) !== expectedSeatId) return undefined;
+  const record = readManagedImageRecordFile(recordFile(dataPath, artifactId));
+  return record?.seat_id === expectedSeatId ? record : undefined;
 }
 
 /**
@@ -179,8 +214,12 @@ export function readImageArtifactRecordById(
  * record is the CALLER's job — the edit handler hashes what it actually read
  * and judges the capability grant against that, closing the check/use window.
  */
-export function readImageArtifactBytes(dataPath: string, artifactId: string): Buffer | undefined {
-  if (!SAFE_ID.test(artifactId)) return undefined;
+export function readImageArtifactBytes(
+  dataPath: string,
+  artifactId: string,
+  expectedSeatId: string
+): Buffer | undefined {
+  if (!readImageArtifactRecordById(dataPath, artifactId, expectedSeatId)) return undefined;
   try {
     const file = blobFile(dataPath, artifactId);
     const stat = fs.lstatSync(file);
@@ -214,7 +253,7 @@ export function purgeExpiredStagedImageArtifacts(dataPath: string, nowMs: number
     const file = path.join(directory, entry.name);
     let staged: StagedHandleEntry | undefined;
     try {
-      staged = parseStagedHandleEntry(JSON.parse(fs.readFileSync(file, 'utf8')));
+      staged = readStagedHandleFile(file);
     } catch {
       staged = undefined;
     }
@@ -255,7 +294,12 @@ export function purgeExpiredStagedImageArtifacts(dataPath: string, nowMs: number
  * is a clean 0; an unreadable directory answers "unknown" (1) so recovery
  * work is never skipped on a scan error.
  */
-export function countPendingStagedImageArtifacts(dataPath: string, nowMs: number = Date.now()): number {
+export function countPendingStagedImageArtifacts(
+  dataPath: string,
+  expectedSeatId: string,
+  nowMs: number = Date.now()
+): number {
+  if (sanitizeSeatId(expectedSeatId) !== expectedSeatId) return 0;
   purgeExpiredStagedImageArtifacts(dataPath, nowMs);
   const directory = path.join(storeRoot(dataPath), STAGED_SUBDIR);
   let entries: fs.Dirent[];
@@ -268,8 +312,8 @@ export function countPendingStagedImageArtifacts(dataPath: string, nowMs: number
   for (const entry of entries) {
     if (!entry.isFile() || entry.name.length !== 69 || !isSha256Hex(entry.name.slice(0, 64))) continue;
     try {
-      const staged = parseStagedHandleEntry(JSON.parse(fs.readFileSync(path.join(directory, entry.name), 'utf8')));
-      if (staged && staged.bound !== true) pending += 1;
+      const staged = readStagedHandleFile(path.join(directory, entry.name));
+      if (staged && staged.seat_id === expectedSeatId && staged.bound !== true) pending += 1;
     } catch {
       /* an unreadable entry is not bindable authority — it does not count */
     }
@@ -278,6 +322,7 @@ export function countPendingStagedImageArtifacts(dataPath: string, nowMs: number
 }
 
 export interface StageGeneratedImageArtifactInput {
+  capturedSeatId: string;
   bytes: Uint8Array;
   mimeType: string;
   tier: string;
@@ -306,6 +351,7 @@ export function stageGeneratedImageArtifact(
 ): { record: CommandEveManagedImageArtifact; handle: string } | undefined {
   if (!input.bytes || input.bytes.length < 8 || input.bytes.length > MANAGED_IMAGE_ARTIFACT_MAX_BYTES) return undefined;
   if (!isSha256Hex(input.promptSha256)) return undefined;
+  if (sanitizeSeatId(input.capturedSeatId) !== input.capturedSeatId) return undefined;
   const nowMs = input.nowMs ?? Date.now();
   const randomBytes = input.randomBytes ?? ((size: number) => new Uint8Array(crypto.randomBytes(size)));
   const handle = mintImageStagedHandle({ randomBytes });
@@ -314,11 +360,13 @@ export function stageGeneratedImageArtifact(
     // Housekeeping first, like the capability store's mint: expired staged
     // authority is swept on the same path that creates new authority.
     purgeExpiredStagedImageArtifacts(dataPath, nowMs);
-    const artifactId = `img_${crypto.randomUUID().replace(/-/g, '')}`;
+    const artifactId = input.newArtifactId?.() ?? `img_${crypto.randomUUID().replace(/-/g, '')}`;
+    if (!SAFE_ID.test(artifactId) || fs.existsSync(recordFile(dataPath, artifactId))) return undefined;
     const bytes = Buffer.from(input.bytes);
     const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
     const record: CommandEveManagedImageArtifact = {
       id: artifactId,
+      seat_id: input.capturedSeatId,
       conversation_id: null,
       kind: 'image',
       status: 'staged',
@@ -347,6 +395,7 @@ export function stageGeneratedImageArtifact(
     writeJsonAtomic(stagedHandleFile(dataPath, handle), {
       handle,
       artifact_id: artifactId,
+      seat_id: input.capturedSeatId,
       issued_at_ms: nowMs,
       expires_at_ms: nowMs + IMAGE_STAGED_HANDLE_TTL_MS,
     } satisfies StagedHandleEntry);
@@ -360,7 +409,14 @@ export type ImageArtifactBindResult =
   | { ok: true; record: CommandEveActiveImageArtifact; alreadyBound: boolean }
   | {
       ok: false;
-      reason: 'handle-malformed' | 'handle-unknown' | 'handle-expired' | 'artifact-missing' | 'conversation-mismatch';
+      reason:
+        | 'handle-malformed'
+        | 'handle-unknown'
+        | 'handle-expired'
+        | 'artifact-missing'
+        | 'seat-mismatch'
+        | 'conversation-mismatch'
+        | 'parent-mismatch';
     };
 
 export interface ImageArtifactBindDeps {
@@ -385,7 +441,7 @@ export interface ImageArtifactBindDeps {
  */
 export function bindStagedImageArtifact(
   dataPath: string,
-  input: { conversationId: string; handle: unknown; toolCallId: string; nowMs?: number },
+  input: { conversationId: string; handle: unknown; toolCallId: string; expectedSeatId: string; nowMs?: number },
   deps: ImageArtifactBindDeps = {}
 ): ImageArtifactBindResult {
   if (!isWellFormedImageStagedHandle(input.handle)) return { ok: false, reason: 'handle-malformed' };
@@ -395,16 +451,27 @@ export function bindStagedImageArtifact(
   if (typeof input.toolCallId !== 'string' || input.toolCallId.length === 0) {
     return { ok: false, reason: 'handle-malformed' };
   }
+  if (sanitizeSeatId(input.expectedSeatId) !== input.expectedSeatId) {
+    return { ok: false, reason: 'seat-mismatch' };
+  }
   const nowMs = input.nowMs ?? Date.now();
   const staged = readStagedHandleEntry(dataPath, input.handle);
   if (!staged) return { ok: false, reason: 'handle-unknown' };
+  if (staged.seat_id !== input.expectedSeatId) return { ok: false, reason: 'seat-mismatch' };
   if (nowMs > staged.expires_at_ms) return { ok: false, reason: 'handle-expired' };
-  const record = readImageArtifactRecordById(dataPath, staged.artifact_id);
+  const record = readImageArtifactRecordById(dataPath, staged.artifact_id, input.expectedSeatId);
   if (!record) return { ok: false, reason: 'artifact-missing' };
 
   if (record.status === 'active') {
     if (record.conversation_id !== input.conversationId) return { ok: false, reason: 'conversation-mismatch' };
     return { ok: true, record: record as CommandEveActiveImageArtifact, alreadyBound: true };
+  }
+
+  if (record.payload.parent_artifact_id !== undefined) {
+    const parent = readImageArtifactRecordById(dataPath, record.payload.parent_artifact_id, input.expectedSeatId);
+    if (!parent || parent.status !== 'active' || parent.conversation_id !== input.conversationId) {
+      return { ok: false, reason: 'parent-mismatch' };
+    }
   }
 
   const bound: CommandEveActiveImageArtifact = {
@@ -434,6 +501,7 @@ export function bindStagedImageArtifact(
         conversation_id: input.conversationId,
         artifact_id: bound.id,
         artifact_sha256: bound.payload.sha256,
+        seat_id: input.expectedSeatId,
       },
       { nowMs }
     );
@@ -444,8 +512,12 @@ export function bindStagedImageArtifact(
 }
 
 /** Every ACTIVE managed image for this conversation, oldest first. */
-export function listActiveImageArtifacts(dataPath: string, conversationId: string): CommandEveActiveImageArtifact[] {
-  if (!SAFE_ID.test(conversationId)) return [];
+export function listActiveImageArtifacts(
+  dataPath: string,
+  conversationId: string,
+  expectedSeatId: string
+): CommandEveActiveImageArtifact[] {
+  if (!SAFE_ID.test(conversationId) || sanitizeSeatId(expectedSeatId) !== expectedSeatId) return [];
   const directory = path.join(storeRoot(dataPath), RECORDS_SUBDIR);
   let entries: fs.Dirent[];
   try {
@@ -457,10 +529,13 @@ export function listActiveImageArtifacts(dataPath: string, conversationId: strin
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
     try {
-      const record = parseManagedImageArtifactRecord(
-        JSON.parse(fs.readFileSync(path.join(directory, entry.name), 'utf8'))
-      );
-      if (record && record.status === 'active' && record.conversation_id === conversationId) {
+      const record = readManagedImageRecordFile(path.join(directory, entry.name));
+      if (
+        record &&
+        record.seat_id === expectedSeatId &&
+        record.status === 'active' &&
+        record.conversation_id === conversationId
+      ) {
         records.push(record as CommandEveActiveImageArtifact);
       }
     } catch {
@@ -486,7 +561,8 @@ export type ImageArtifactImportResult =
 /**
  * LEGACY IMPORT (1.820.3, bounded): adopt ONE pre-contract workspace image —
  * the P1 proof file that was saved before this lane existed — as an ACTIVE
- * record bound to the CANONICAL conversation.
+ * record bound to the CANONICAL conversation. Pre-Seat bytes have no durable
+ * owner proof, so only the exact legacy owner `seat-1` may adopt them.
  *
  * TWO identifiers, kept deliberately distinct (the wrong-scoping defect this
  * fixes): `conversationId` is the CANONICAL conversation the record belongs to
@@ -514,6 +590,7 @@ export function importLegacyImageArtifact(
     legacyWorkspaceId: string;
     expectedFileName: string;
     workspaceRoot: string;
+    capturedSeatId: string;
     nowMs?: number;
   },
   deps: ImageArtifactBindDeps = {}
@@ -528,7 +605,9 @@ export function importLegacyImageArtifact(
     !SAFE_FILE_NAME.test(expectedFileName) ||
     expectedFileName === '..' ||
     typeof workspaceRoot !== 'string' ||
-    workspaceRoot.length === 0
+    workspaceRoot.length === 0 ||
+    sanitizeSeatId(input.capturedSeatId) !== input.capturedSeatId ||
+    input.capturedSeatId !== LEGACY_SEAT_ID
   ) {
     return { ok: false, reason: 'invalid-request' };
   }
@@ -579,7 +658,7 @@ export function importLegacyImageArtifact(
 
   // Idempotent: the same file imported twice (a retried migration) yields the
   // existing record, not a second artifact.
-  const existing = listActiveImageArtifacts(dataPath, conversationId).find(
+  const existing = listActiveImageArtifacts(dataPath, conversationId, input.capturedSeatId).find(
     (record) => record.payload.sha256 === sha256
   );
   if (existing) return { ok: true, record: existing, alreadyImported: true };
@@ -588,6 +667,7 @@ export function importLegacyImageArtifact(
     const artifactId = `img_${crypto.randomUUID().replace(/-/g, '')}`;
     const record: CommandEveActiveImageArtifact = {
       id: artifactId,
+      seat_id: input.capturedSeatId,
       conversation_id: conversationId,
       kind: 'image',
       status: 'active',
@@ -617,7 +697,12 @@ export function importLegacyImageArtifact(
     try {
       (deps.ensureEditHandle ?? ensureImageEditCapabilityHandle)(
         dataPath,
-        { conversation_id: conversationId, artifact_id: artifactId, artifact_sha256: sha256 },
+        {
+          conversation_id: conversationId,
+          artifact_id: artifactId,
+          artifact_sha256: sha256,
+          seat_id: input.capturedSeatId,
+        },
         { nowMs }
       );
     } catch {

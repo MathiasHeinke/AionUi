@@ -559,6 +559,7 @@ describe('managed image generation main-process service', () => {
     // the base64 string, not a re-encode.
     expect(Buffer.from(staged.bytes as Uint8Array).equals(outputBytes)).toBe(true);
     expect(staged).toMatchObject({
+      capturedSeatId: 'seat-1',
       mimeType: 'image/png',
       tier: 'quality',
       model: 'google/gemini-3-pro-image',

@@ -37,6 +37,7 @@
  */
 
 import { isOpaqueToken, isSha256Hex, toLowerHex } from './eveOpaqueTokenCore';
+import { LEGACY_SEAT_ID, sanitizeSeatId } from './seatConfigKeyCore';
 
 /**
  * A visible prefix so a staged reference is recognisable in a transcript as a
@@ -118,6 +119,8 @@ export type CommandEveManagedImageArtifactPayload = {
  */
 export type CommandEveManagedImageArtifact = {
   id: string;
+  /** Main-captured durable owner. Never accepted from renderer or provider input. */
+  seat_id: string;
   conversation_id: string | null;
   kind: 'image';
   status: 'staged' | 'active';
@@ -248,8 +251,11 @@ function isFiniteTimestamp(value: unknown): value is number {
 export function parseManagedImageArtifactRecord(value: unknown): CommandEveManagedImageArtifact | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
+  const seatId = Object.prototype.hasOwnProperty.call(record, 'seat_id') ? record.seat_id : LEGACY_SEAT_ID;
   if (
     !isSafeRecordId(record.id) ||
+    typeof seatId !== 'string' ||
+    sanitizeSeatId(seatId) !== seatId ||
     (record.conversation_id !== null && !isSafeRecordId(record.conversation_id)) ||
     record.kind !== 'image' ||
     (record.status !== 'staged' && record.status !== 'active') ||
@@ -285,5 +291,5 @@ export function parseManagedImageArtifactRecord(value: unknown): CommandEveManag
   // is a state this lane never writes, so it is refused rather than repaired.
   if (record.status === 'staged' && record.conversation_id !== null) return undefined;
   if (record.status === 'active' && typeof record.conversation_id !== 'string') return undefined;
-  return record as unknown as CommandEveManagedImageArtifact;
+  return { ...record, seat_id: seatId } as unknown as CommandEveManagedImageArtifact;
 }

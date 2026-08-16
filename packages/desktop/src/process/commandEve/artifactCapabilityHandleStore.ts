@@ -32,6 +32,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isSha256Hex } from '@/common/config/eveOpaqueTokenCore';
+import { sanitizeSeatId } from '@/common/config/seatConfigKeyCore';
 import {
   isWellFormedArtifactCapabilityHandle,
   mintImageEditCapabilityGrant,
@@ -92,7 +93,31 @@ function parseGrant(value: unknown): ArtifactCapabilityGrant | undefined {
   ) {
     return undefined;
   }
+  if (record.operation === 'image_edit') {
+    const seatId = Object.prototype.hasOwnProperty.call(record, 'seat_id') ? record.seat_id : 'seat-1';
+    if (typeof seatId !== 'string' || sanitizeSeatId(seatId) !== seatId) return undefined;
+    return { ...record, operation: 'image_edit', seat_id: seatId } as unknown as ArtifactCapabilityGrant;
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'seat_id')) return undefined;
   return record as unknown as ArtifactCapabilityGrant;
+}
+
+function readGrantFile(file: string): ArtifactCapabilityGrant | undefined {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+    const legacyImageGrant =
+      Boolean(raw) &&
+      typeof raw === 'object' &&
+      !Array.isArray(raw) &&
+      (raw as Record<string, unknown>).operation === 'image_edit' &&
+      !Object.prototype.hasOwnProperty.call(raw, 'seat_id');
+    const grant = parseGrant(raw);
+    if (!grant) return undefined;
+    if (legacyImageGrant) writeGrantAtomic(file, grant);
+    return grant;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Delete every grant past its TTL. Cheap, bounded, and never throws upward. */
@@ -115,7 +140,7 @@ export function pruneArtifactCapabilityGrants(dataPath: string, nowMs: number): 
     if (!isSha256Hex(entry.name.slice(0, 64))) continue;
     const file = path.join(directory, entry.name);
     try {
-      const grant = parseGrant(JSON.parse(fs.readFileSync(file, 'utf8')));
+      const grant = readGrantFile(file);
       if (grant && nowMs - grant.issued_at_ms <= ARTIFACT_CAPABILITY_TTL_MS) continue;
     } catch {
       // An unreadable grant is not a grant. Removing it is the fail-closed move.
@@ -166,6 +191,11 @@ function indexFile(dataPath: string, conversationId: string, artifactId: string)
   return path.join(capabilityDirectory(dataPath), CAPABILITY_INDEX_DIR, `${key}.json`);
 }
 
+function imageIndexFile(dataPath: string, seatId: string, conversationId: string, artifactId: string): string {
+  const key = crypto.createHash('sha256').update(`image_edit|${seatId}|${conversationId}|${artifactId}`).digest('hex');
+  return path.join(capabilityDirectory(dataPath), CAPABILITY_INDEX_DIR, `${key}.json`);
+}
+
 /**
  * The handle for this artifact — reused if we already minted one that is still
  * valid, freshly minted otherwise.
@@ -194,7 +224,8 @@ export function ensureVideoEditCapabilityHandle(
       existing &&
       existing.conversation_id === artifact.conversation_id &&
       existing.artifact_id === artifact.id &&
-      existing.artifact_sha256 === artifact.payload.hash
+      existing.artifact_sha256 === artifact.payload.hash &&
+      existing.operation === 'video_edit'
     ) {
       return existing.handle;
     }
@@ -219,14 +250,19 @@ export function ensureVideoEditCapabilityHandle(
 export function readArtifactCapabilityGrant(
   dataPath: string,
   handle: unknown,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  expectedSeatId?: string
 ): ArtifactCapabilityGrant | undefined {
   if (!isWellFormedArtifactCapabilityHandle(handle)) return undefined;
+  if (expectedSeatId !== undefined && sanitizeSeatId(expectedSeatId) !== expectedSeatId) return undefined;
   try {
     const file = path.join(capabilityDirectory(dataPath), grantFileName(handle));
-    const grant = parseGrant(JSON.parse(fs.readFileSync(file, 'utf8')));
+    const grant = readGrantFile(file);
     if (!grant) return undefined;
     if (nowMs - grant.issued_at_ms > ARTIFACT_CAPABILITY_TTL_MS) return undefined;
+    if (grant.operation === 'image_edit' && expectedSeatId !== undefined && grant.seat_id !== expectedSeatId) {
+      return undefined;
+    }
     return grant;
   } catch {
     return undefined;
@@ -236,37 +272,55 @@ export function readArtifactCapabilityGrant(
 /**
  * The `image_edit` half of `ensureVideoEditCapabilityHandle` (1.820.3).
  *
- * Same store, same index, same one-handle-per-(conversation, artifact, bytes)
- * rule — the managed image record carries no hydration debt, so the reference
- * is a plain (conversation, artifact, sha256) triple rather than a video
- * artifact record. The existing grant is re-validated against the CURRENT hash
- * AND the `image_edit` operation before reuse: a grant minted for a different
- * operation names a different authority and gets replaced, not reused.
+ * Same grant store, but a seat-specific IMAGE-ONLY index and one handle per
+ * (seat, conversation, artifact, bytes). The video index remains byte-compatible.
+ * The managed image record carries no hydration debt, so the existing grant is
+ * re-validated against the CURRENT hash, seat and `image_edit` operation before
+ * reuse: a grant minted for a different authority gets replaced, not reused.
  */
 export function ensureImageEditCapabilityHandle(
   dataPath: string,
-  artifact: { conversation_id: string; artifact_id: string; artifact_sha256: string },
+  artifact: { conversation_id: string; artifact_id: string; artifact_sha256: string; seat_id: string },
   options: { nowMs?: number; randomBytes?: (size: number) => Uint8Array } = {}
 ): string | undefined {
+  if (sanitizeSeatId(artifact.seat_id) !== artifact.seat_id) return undefined;
   const nowMs = options.nowMs ?? Date.now();
-  const file = indexFile(dataPath, artifact.conversation_id, artifact.artifact_id);
-  try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
-    const existing = readArtifactCapabilityGrant(dataPath, raw.handle, nowMs);
-    if (
-      existing &&
-      existing.conversation_id === artifact.conversation_id &&
-      existing.artifact_id === artifact.artifact_id &&
-      existing.artifact_sha256 === artifact.artifact_sha256 &&
-      existing.operation === 'image_edit'
-    ) {
-      return existing.handle;
+  const file = imageIndexFile(dataPath, artifact.seat_id, artifact.conversation_id, artifact.artifact_id);
+  const candidateIndexes = [file];
+  if (artifact.seat_id === 'seat-1') {
+    candidateIndexes.push(indexFile(dataPath, artifact.conversation_id, artifact.artifact_id));
+  }
+  for (const candidate of candidateIndexes) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(candidate, 'utf8')) as Record<string, unknown>;
+      const existing = readArtifactCapabilityGrant(dataPath, raw.handle, nowMs, artifact.seat_id);
+      if (
+        existing &&
+        existing.conversation_id === artifact.conversation_id &&
+        existing.artifact_id === artifact.artifact_id &&
+        existing.artifact_sha256 === artifact.artifact_sha256 &&
+        existing.operation === 'image_edit'
+      ) {
+        if (candidate !== file) {
+          fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+          fs.writeFileSync(
+            file,
+            `${JSON.stringify({ handle: existing.handle, seat_id: artifact.seat_id }, null, 2)}\n`,
+            {
+              mode: 0o600,
+            }
+          );
+          fs.chmodSync(file, 0o600);
+        }
+        return existing.handle;
+      }
+    } catch {
+      /* no usable index entry — try the next migration candidate */
     }
-  } catch {
-    /* no usable index entry — fall through and mint */
   }
 
   const grant = mintImageEditCapabilityGrant({
+    seatId: artifact.seat_id,
     conversationId: artifact.conversation_id,
     artifactId: artifact.artifact_id,
     artifactSha256: artifact.artifact_sha256,
@@ -282,7 +336,9 @@ export function ensureImageEditCapabilityHandle(
   }
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(file, `${JSON.stringify({ handle: grant.handle }, null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(file, `${JSON.stringify({ handle: grant.handle, seat_id: artifact.seat_id }, null, 2)}\n`, {
+      mode: 0o600,
+    });
     fs.chmodSync(file, 0o600);
   } catch {
     // The index is a cache. Losing it costs a re-mint next turn; it never costs
@@ -307,13 +363,18 @@ export type ImageEditCapabilityResolution =
  */
 export function resolveImageEditCapability(
   dataPath: string,
-  input: { handle: unknown; observedArtifactSha256: string; expectedConversationId?: string },
+  input: {
+    handle: unknown;
+    observedArtifactSha256: string;
+    expectedSeatId: string;
+    expectedConversationId?: string;
+  },
   deps: { readGrant: typeof readArtifactCapabilityGrant; nowMs: () => number } = {
     readGrant: readArtifactCapabilityGrant,
     nowMs: () => Date.now(),
   }
 ): ImageEditCapabilityResolution {
-  const grant = deps.readGrant(dataPath, input.handle, deps.nowMs());
+  const grant = deps.readGrant(dataPath, input.handle, deps.nowMs(), input.expectedSeatId);
   if (!grant) {
     return {
       ok: false,

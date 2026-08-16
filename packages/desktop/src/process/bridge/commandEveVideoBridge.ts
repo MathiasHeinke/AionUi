@@ -450,8 +450,8 @@ export async function handleCommandEveVideoGenerate(
     try {
       const readRecord = deps.readManagedImageRecord ?? readImageArtifactRecordById;
       const readBytes = deps.readManagedImageBytes ?? readImageArtifactBytes;
-      const record = readRecord(originDataPath, pathMode.image.artifactId);
-      const bytes = readBytes(originDataPath, pathMode.image.artifactId);
+      const record = readRecord(originDataPath, pathMode.image.artifactId, capturedSeatId);
+      const bytes = readBytes(originDataPath, pathMode.image.artifactId, capturedSeatId);
       if (
         !record ||
         record.status !== 'active' ||
@@ -738,8 +738,8 @@ export interface CommandEveArtifactContextEnvelopeDeps {
   /**
    * 1.820.3 — the MANAGED GENERATED image store: active records ride the
    * envelope as EDITABLE kind=image entries with an `evecap_` handle, minted
-   * through the same one-handle-per-(conversation, artifact, bytes) rule as
-   * the video lane.
+   * through the image-only one-handle-per-(seat, conversation, artifact, bytes)
+   * rule. The video lane's seatless index remains unchanged.
    */
   listManagedImageRecords?: typeof listActiveImageArtifacts;
   ensureImageEditHandle?: typeof ensureImageEditCapabilityHandle;
@@ -891,6 +891,7 @@ export async function handleCommandEveArtifactContextEnvelope(
   }
   try {
     const dataPath = deps.getDataPath();
+    const expectedSeatId = (deps.getActiveSeatId ?? getActiveSeatId)();
     // POLICY F: advertise the paid capability only when the paid path is really
     // enabled. The previous build advertised `eve_video_edit` whenever anything
     // was editable — including while the spending flag was off — which put an
@@ -972,7 +973,13 @@ export async function handleCommandEveArtifactContextEnvelope(
     const imageEntries = buildStoredImageEnvelopeEntries(dataPath, conversationId, selectedArtifactIdSet, deps);
     // 1.820.3 — the MANAGED GENERATED images. EDITABLE kind=image entries with
     // an `evecap_` handle, between the read-only sent images and the clips.
-    const managedImageEntries = buildManagedImageEnvelopeEntries(dataPath, conversationId, selectedArtifactIdSet, deps);
+    const managedImageEntries = buildManagedImageEnvelopeEntries(
+      dataPath,
+      conversationId,
+      expectedSeatId,
+      selectedArtifactIdSet,
+      deps
+    );
     const entries = [...referenceEntries, ...imageEntries, ...managedImageEntries, ...storedEntries];
     // And THIS turn's attached images become next turns' durable records. The
     // write happens after the listing so the current envelope never shows the
@@ -1284,6 +1291,7 @@ function buildStoredImageEnvelopeEntries(
 function buildManagedImageEnvelopeEntries(
   dataPath: string,
   conversationId: string,
+  expectedSeatId: string,
   selectedArtifactIds: ReadonlySet<string>,
   deps: CommandEveArtifactContextEnvelopeDeps
 ): EveArtifactEnvelopeEntry[] {
@@ -1291,7 +1299,7 @@ function buildManagedImageEnvelopeEntries(
   if (!list) return [];
   const nowMs = Date.now();
   try {
-    const ordered = list(dataPath, conversationId).toSorted((a, b) => b.created_at - a.created_at);
+    const ordered = list(dataPath, conversationId, expectedSeatId).toSorted((a, b) => b.created_at - a.created_at);
     const selected = ordered.filter((record) => selectedArtifactIds.has(record.id));
     const remaining = ordered.filter((record) => !selectedArtifactIds.has(record.id));
     return [...selected, ...remaining].slice(0, IMAGE_ARTIFACT_ENVELOPE_MAX_ENTRIES).map((record) => {
@@ -1303,6 +1311,7 @@ function buildManagedImageEnvelopeEntries(
             conversation_id: record.conversation_id,
             artifact_id: record.id,
             artifact_sha256: record.payload.sha256,
+            seat_id: expectedSeatId,
           },
           { nowMs }
         );

@@ -6,6 +6,7 @@ import type { CommandEveActiveImageArtifact } from '@/common/config/managedImage
 
 const IMAGE_SHA = 'b'.repeat(64);
 const HANDLE = `evecap_${'e'.repeat(64)}`;
+const SEAT_ID = 'seat-a';
 
 function managedImageRecord(
   overrides: { id?: string; sha256?: string; createdAt?: number } = {}
@@ -15,6 +16,7 @@ function managedImageRecord(
   const createdAt = overrides.createdAt ?? 1_754_000_000_000;
   return {
     id,
+    seat_id: SEAT_ID,
     conversation_id: 'conv-1',
     kind: 'image',
     status: 'active',
@@ -41,6 +43,7 @@ function managedImageRecord(
 function deps(overrides: Record<string, unknown> = {}) {
   return {
     getDataPath: () => '/tmp/unused',
+    getActiveSeatId: () => SEAT_ID,
     buildEntries: () => [],
     recordActiveTurn: () => true,
     isVideoEditEnabled: () => false,

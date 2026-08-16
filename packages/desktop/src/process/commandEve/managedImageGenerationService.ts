@@ -190,6 +190,7 @@ export type CommandEveManagedImageGenerationOptions = {
    * artifact store under `dataPath`.
    */
   stageArtifact?: (input: {
+    capturedSeatId: string;
     bytes: Uint8Array;
     mimeType: string;
     tier: string;
@@ -430,6 +431,7 @@ export async function executeCommandEveManagedImageGeneration(
     const stage =
       options.stageArtifact ??
       ((stageInput: {
+        capturedSeatId: string;
         bytes: Uint8Array;
         mimeType: string;
         tier: string;
@@ -443,6 +445,7 @@ export async function executeCommandEveManagedImageGeneration(
         return staged ? { artifactHandle: staged.handle } : undefined;
       });
     const staged = stage({
+      capturedSeatId,
       bytes: artifactBytes,
       mimeType: parsed.data.artifact.mime_type,
       tier: effectiveTierSpec.id,
