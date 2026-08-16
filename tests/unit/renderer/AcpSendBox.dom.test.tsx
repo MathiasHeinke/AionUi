@@ -3956,7 +3956,7 @@ describe('AcpSendBox', () => {
     );
   };
 
-  it('1.823.0: an ordinary Office follow-up turn receives only a pathless clarify route', async () => {
+  it('1.823.0: an ordinary Office follow-up turn receives an exact pathless registry candidate', async () => {
     sendMessageInvokeMock.mockResolvedValue({});
     renderWithOfficeArtifact('word');
     await waitFor(() => expect(listArtifactsInvokeMock).toHaveBeenCalled());
@@ -3966,9 +3966,9 @@ describe('AcpSendBox', () => {
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
     const input = String(sendMessageInvokeMock.mock.calls[0][0].input);
     expect(input).toContain('[COMMAND_EVE_ARTIFACT_FOLLOWUP_ROUTING]');
-    expect(input).toContain('available_modes=word');
-    expect(input).toContain('[command_eve:artifact_followup:<mode>]');
-    expect(input).not.toContain(OFFICE_SOURCE_ARTIFACTS.word.id);
+    expect(input).toContain(`candidate=artifact_id:${OFFICE_SOURCE_ARTIFACTS.word.id};mode:word`);
+    expect(input).toContain('[command_eve:artifact_followup:<mode>][command_eve:artifact_target:<artifact_id>]');
+    expect(input).toContain('Never infer a target from keywords');
     expect(input).not.toContain(OFFICE_SOURCE_ARTIFACTS.word.payload.path);
     expect(input).not.toContain(OFFICE_SOURCE_ARTIFACTS.word.payload.title);
     expect(stripCommandEvePreparedContext(input)).toBe('Hello');
@@ -4081,6 +4081,61 @@ describe('AcpSendBox', () => {
       );
     }
   );
+
+  it('1.823.0: a no-keyword video follow-up re-enters the canonical Hermes tool loop once', async () => {
+    const followup = 'Nee, gib der Aubergine lieber ein freundliches Gesicht.';
+    sendMessageInvokeMock.mockResolvedValue({});
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({
+      success: true,
+      data: { envelope: '- artifact_id=video-artifact-1 kind=video editable=true edit_handle=evecap_exact' },
+    });
+
+    renderWithVideoArtifact();
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
+    await waitFor(() => expect(composerFollowupConfirmedHandlerMock.current).not.toBeNull());
+    await act(async () => {
+      composerFollowupConfirmedHandlerMock.current?.({
+        conversation_id: 'conv-1',
+        artifact_id: VIDEO_SOURCE_ARTIFACT.id,
+        source_user_turn: followup,
+      });
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(stripCommandEvePreparedContext(String(sendMessageInvokeMock.mock.calls[0][0].input))).toBe(followup);
+    expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledTimes(1);
+    expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        userTurnText: followup,
+        selectedArtifactIds: [VIDEO_SOURCE_ARTIFACT.id],
+        requestedEditOperation: 'video_edit',
+      })
+    );
+    // The renderer contributes only the canonical user turn. Hermes owns the
+    // assistant tool_call -> MCP result -> final assistant continuation.
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+    expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
+    expect(modalConfirmMock).not.toHaveBeenCalled();
+  });
+
+  it('1.823.0: a confirmed follow-up from another conversation is ignored before permit minting', async () => {
+    renderWithVideoArtifact();
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
+    await waitFor(() => expect(composerFollowupConfirmedHandlerMock.current).not.toBeNull());
+
+    await act(async () => {
+      composerFollowupConfirmedHandlerMock.current?.({
+        conversation_id: 'conv-elsewhere',
+        artifact_id: VIDEO_SOURCE_ARTIFACT.id,
+        source_user_turn: 'Mach sie freundlicher.',
+      });
+    });
+
+    expect(artifactContextEnvelopeInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+  });
 
   it('1.823.0: a stale clarify artifact id fails closed before any Hermes turn', async () => {
     renderWithOfficeArtifact('word');

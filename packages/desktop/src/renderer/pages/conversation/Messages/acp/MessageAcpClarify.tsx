@@ -7,9 +7,17 @@
 import { conversation } from '@/common/adapter/ipcBridge';
 import type { IMessageAcpPermission } from '@/common/chat/chatLib';
 import {
+  parseComposerArtifactFollowupTarget,
   resolveComposerArtifactReference,
   type ComposerArtifactReference,
 } from '@/common/config/composerArtifactReferenceCore';
+import { estimateVideoEditCredits } from '@/common/config/videoEditRequestCore';
+import {
+  hydrateVideoArtifactPayload,
+  isVideoEditEligibleTier,
+  resolveVideoArtifactTier,
+  type CommandEveVideoConversationArtifactPayload,
+} from '@/common/config/videoGenerationRequestCore';
 import {
   isUsableMediaEditSource,
   isVisibleConversationArtifact,
@@ -54,13 +62,21 @@ const MessageAcpClarify: React.FC<{ message: IMessageAcpPermission }> = React.me
   const toolCall = recordOf(content.tool_call) ?? {};
   const rawInput = recordOf(toolCall.raw_input) ?? {};
   const metadata = recordOf(rawInput.metadata) ?? {};
-  const question = typeof metadata.question === 'string' ? metadata.question : String(toolCall.title ?? '');
+  const rawQuestion = typeof metadata.question === 'string' ? metadata.question : String(toolCall.title ?? '');
   const sourceUserTurn =
     typeof metadata.source_user_turn === 'string' && metadata.source_user_turn.length <= 8000
       ? metadata.source_user_turn.trim()
       : '';
   const followupMode =
     metadata.interaction_kind === 'artifact_followup' ? safeFollowupMode(metadata.artifact_mode) : null;
+  const followupTarget = useMemo(
+    () => (followupMode ? parseComposerArtifactFollowupTarget(rawQuestion) : null),
+    [followupMode, rawQuestion]
+  );
+  const referenceUnavailable = t('conversation.workProduct.referenceUnavailable', {
+    defaultValue: 'Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.',
+  });
+  const question = followupMode ? (followupTarget?.question ?? referenceUnavailable) : rawQuestion;
   const options = Array.isArray(content.options) ? content.options : [];
   const cardStatus = content.status ?? content.lifecycle_status ?? toolCall.status;
   const inactive = isPermissionCardInactive(cardStatus);
@@ -70,37 +86,45 @@ const MessageAcpClarify: React.FC<{ message: IMessageAcpPermission }> = React.me
   const respondingRef = useRef(false);
   const respondedRef = useRef(false);
 
-  const followupReferenceCandidate = useMemo(() => {
-    if (!followupMode) return null;
-    let newest: { reference: ComposerArtifactReference; createdAt: number } | null = null;
-    for (const artifact of artifacts) {
-      if (!isVisibleConversationArtifact(artifact)) continue;
-      const reference = resolveComposerArtifactReference(artifact);
-      if (!reference || reference.mode !== followupMode || reference.conversationId !== message.conversation_id)
-        continue;
-      if ((reference.mode === 'image' || reference.mode === 'video') && !isUsableMediaEditSource(artifact)) continue;
-      const createdAt =
-        typeof artifact.created_at === 'number' && Number.isFinite(artifact.created_at) ? artifact.created_at : 0;
-      if (!newest || createdAt > newest.createdAt) newest = { reference, createdAt };
+  const followupCandidate = useMemo(() => {
+    if (!followupMode || !followupTarget) return null;
+    const artifact = artifacts.find((candidate) => candidate.id === followupTarget.artifactId);
+    if (!artifact || !isVisibleConversationArtifact(artifact)) return null;
+    const reference = resolveComposerArtifactReference(artifact);
+    if (
+      !reference ||
+      reference.mode !== followupMode ||
+      reference.conversationId !== message.conversation_id ||
+      reference.artifactId !== followupTarget.artifactId
+    ) {
+      return null;
     }
-    return newest?.reference ?? null;
-  }, [artifacts, followupMode, message.conversation_id]);
+    if ((reference.mode === 'image' || reference.mode === 'video') && !isUsableMediaEditSource(artifact)) return null;
+    return { artifact, reference };
+  }, [artifacts, followupMode, followupTarget, message.conversation_id]);
+  const followupReference = followupCandidate?.reference ?? null;
 
-  // Bind the exact artifact the first time this permission card can resolve it.
-  // A newer artifact arriving while the operator is reading the question must
-  // never silently change what the already-visible "Ja" button will edit.
-  const followupReferenceLock = useRef<{ messageId: string; reference: ComposerArtifactReference } | null>(null);
-  if (followupReferenceLock.current?.messageId !== message.id) followupReferenceLock.current = null;
-  if (!followupReferenceLock.current && followupReferenceCandidate) {
-    followupReferenceLock.current = { messageId: message.id, reference: followupReferenceCandidate };
-  }
-  const followupReference = followupReferenceLock.current?.reference ?? null;
+  const videoEditEstimate = useMemo(() => {
+    if (followupCandidate?.reference.mode !== 'video') return null;
+    try {
+      const payload = hydrateVideoArtifactPayload(
+        followupCandidate.artifact.payload as CommandEveVideoConversationArtifactPayload
+      );
+      const tierId = resolveVideoArtifactTier(payload);
+      if (!isVideoEditEligibleTier(tierId)) return null;
+      const credits = estimateVideoEditCredits(tierId, payload.duration_seconds);
+      return Number.isFinite(credits) ? { credits, seconds: payload.duration_seconds } : null;
+    } catch {
+      return null;
+    }
+  }, [followupCandidate]);
 
   const answer = async (option: Record<string, unknown>) => {
     if (respondingRef.current || respondedRef.current || inactive) return;
     const optionId = typeof option.option_id === 'string' ? option.option_id : '';
     const optionLabel = typeof option.name === 'string' ? option.name : '';
     if (!optionId || !optionLabel) return;
+    if (optionId === 'clarify_choice_0' && followupMode && !followupReference) return;
     respondingRef.current = true;
     setResponding(true);
     setResponseError(null);
@@ -151,6 +175,21 @@ const MessageAcpClarify: React.FC<{ message: IMessageAcpPermission }> = React.me
             <span className={styles.artifactKind}>
               {t(`conversation.workProduct.kind.${followupReference.referenceKind}` as const)}
             </span>
+            {videoEditEstimate && (
+              <span className={styles.artifactKind} data-testid='message-acp-clarify-video-cost'>
+                {t('credits.video.costPreview', {
+                  defaultValue: 'Dieses ~{{sec}}s-Video kostet ca. {{credits}} Credits — fortfahren?',
+                  credits: videoEditEstimate.credits,
+                  sec: videoEditEstimate.seconds,
+                })}
+              </span>
+            )}
+          </div>
+        )}
+
+        {followupMode && followupTarget && !followupReference && (
+          <div className={styles.error} data-testid='message-acp-clarify-reference-unavailable'>
+            {referenceUnavailable}
           </div>
         )}
 
@@ -167,7 +206,7 @@ const MessageAcpClarify: React.FC<{ message: IMessageAcpPermission }> = React.me
                   type='secondary'
                   className={`${styles.choice} ${index === 0 ? styles.choicePrimary : ''}`}
                   loading={responding}
-                  disabled={responding || inactive}
+                  disabled={responding || inactive || (index === 0 && Boolean(followupMode) && !followupReference)}
                   onClick={() => void answer(option)}
                   data-testid={`message-acp-clarify-option-${index}`}
                 >

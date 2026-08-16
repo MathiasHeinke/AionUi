@@ -204,12 +204,13 @@ describe('the turn the agent actually receives', () => {
 
   it('adds a bounded follow-up route without changing the displayed turn', () => {
     const artifactFollowupContext = renderComposerArtifactFollowupRoutingContext(
-      ['image', 'video', 'word', 'excel'].map((mode) => ({ mode }))
+      ['image', 'video', 'word', 'excel'].map((mode, index) => ({ artifactId: `artifact-${index}`, mode }))
     );
     const agentInput = buildCommandEveAgentTurnInput({ userInput: USER_TEXT, artifactFollowupContext });
 
-    expect(agentInput).toContain('available_modes=image,video,word,excel');
-    expect(agentInput).toContain('[command_eve:artifact_followup:<mode>]');
+    expect(agentInput).toContain('candidate=artifact_id:artifact-1;mode:video');
+    expect(agentInput).toContain('[command_eve:artifact_followup:<mode>][command_eve:artifact_target:<artifact_id>]');
+    expect(agentInput).toContain('Never infer a target from keywords');
     expect(agentInput).not.toContain('This is a file-analysis task');
     expect(stripCommandEvePreparedContext(agentInput)).toBe(USER_TEXT);
   });
