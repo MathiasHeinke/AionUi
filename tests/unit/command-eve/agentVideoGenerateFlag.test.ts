@@ -24,9 +24,9 @@
  *     silence — the silently-dead-control failure the store-split lineage exists
  *     to prevent — and a client seat could inherit a founder's process env.
  *
- * `isAgentVideoGenerateEnabled` (exact `'1'`) survives unchanged because it has a
- * different audience: it is what the MCP CHILD reads out of the env Main gave it,
- * where the `'1'` IS Main's already-composed decision rather than a request.
+ * 1.823.0 adds one stronger fence: until a confirmed turn can mint a single-use
+ * generate permit, even Main's `'1'` carrier is inert. That keeps the unsafe MCP
+ * tool unadvertised while the explicit composer lane remains available.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -45,11 +45,13 @@ const {
   isAgentVideoGenerateLicenseEligible,
 } = await import('@/process/commandEve/agentVideoGenerateFlag');
 const { DEFAULT_VIDEO_TIER_ID } = await import('@/common/config/videoCostCore');
+const { AGENT_VIDEO_GENERATE_TURN_AUTHORITY_READY } = await import('@/common/config/agentVideoGenerateReleaseCore');
 
-describe('the child-side carrier read is exactly "1"', () => {
-  it('opens on "1", including with surrounding whitespace', () => {
-    expect(isAgentVideoGenerateEnabled({ [FLAG]: '1' })).toBe(true);
-    expect(isAgentVideoGenerateEnabled({ [FLAG]: ' 1 ' })).toBe(true);
+describe('the child-side carrier is fenced until turn authority exists', () => {
+  it('keeps even Main\'s exact "1" carrier inert in 1.823.0', () => {
+    expect(AGENT_VIDEO_GENERATE_TURN_AUTHORITY_READY).toBe(false);
+    expect(isAgentVideoGenerateEnabled({ [FLAG]: '1' })).toBe(false);
+    expect(isAgentVideoGenerateEnabled({ [FLAG]: ' 1 ' })).toBe(false);
   });
 
   it('stays closed for every other spelling, and for absence', () => {

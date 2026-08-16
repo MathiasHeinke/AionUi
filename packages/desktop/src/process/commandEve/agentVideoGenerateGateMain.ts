@@ -24,6 +24,7 @@
  */
 
 import { readCommandEveSettingsFromBackend } from './commandEveBackendSettingsRead';
+import { AGENT_VIDEO_GENERATE_TURN_AUTHORITY_READY } from '@/common/config/agentVideoGenerateReleaseCore';
 import { getDataPath } from '@process/utils/utils';
 import { isAgentVideoGenerateKillSwitched, isAgentVideoGenerateLicenseEligible } from './agentVideoGenerateFlag';
 import { createAgentVideoGenerateGate, createAgentVideoGenerateSeatResolver } from './agentVideoGenerateSeatResolver';
@@ -37,8 +38,13 @@ import { createAgentVideoGenerateGate, createAgentVideoGenerateSeatResolver } fr
  * seat that happened to be active at import time would answer for the wrong one
  * after a switch.
  */
-export const productionAgentVideoGenerateGate: () => Promise<boolean> = createAgentVideoGenerateGate({
+const resolveReleasedAgentVideoGenerate = createAgentVideoGenerateGate({
   readSeatRelease: createAgentVideoGenerateSeatResolver(readCommandEveSettingsFromBackend),
   isKillSwitched: () => isAgentVideoGenerateKillSwitched(),
   isLicenseEligible: () => isAgentVideoGenerateLicenseEligible(getDataPath()),
 });
+
+export const productionAgentVideoGenerateGate: () => Promise<boolean> = async () => {
+  if (!AGENT_VIDEO_GENERATE_TURN_AUTHORITY_READY) return false;
+  return resolveReleasedAgentVideoGenerate();
+};

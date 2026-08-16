@@ -53,13 +53,13 @@ describe('the child tool surface', () => {
     expect(isToolAdvertised(surface, EVE_ARTIFACT_TOOL_ARTIFACT_GET)).toBe(true);
   });
 
-  it('advertises generate when — and only when — the carrier is exactly "1"', () => {
+  it('does not advertise generate even with the carrier until turn authority is ready', () => {
     expect(
       isToolAdvertised(
         buildEveArtifactToolSurface({ [COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG]: '1' }),
         EVE_ARTIFACT_TOOL_VIDEO_GENERATE
       )
-    ).toBe(true);
+    ).toBe(false);
     for (const value of ['0', 'true', 'yes', '']) {
       expect(
         isToolAdvertised(
@@ -84,15 +84,9 @@ describe('the child tool surface', () => {
     expect(isToolAdvertised(editsOnly, EVE_ARTIFACT_TOOL_VIDEO_EDIT)).toBe(true);
   });
 
-  it('tells the model the generate tool spends, and that it may not choose the expensive axes', () => {
+  it('keeps the paid generate descriptor unreachable in the 1.823.0 child surface', () => {
     const surface = buildEveArtifactToolSurface({ [COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG]: '1' });
-    let descriptor = surface[0];
-    for (const tool of surface) if (tool.name === EVE_ARTIFACT_TOOL_VIDEO_GENERATE) descriptor = tool;
-    expect(descriptor.spends).toBe(true);
-    // The description carries the two things that bound behaviour in the absence
-    // of a spend permit: "only when asked" and "no retrying".
-    expect(descriptor.description).toContain('spends');
-    expect(descriptor.description).toContain('cannot be requested');
+    expect(surface.find((tool) => tool.name === EVE_ARTIFACT_TOOL_VIDEO_GENERATE)).toBeUndefined();
   });
 });
 

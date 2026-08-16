@@ -5,6 +5,7 @@
  */
 
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
+import { AGENT_VIDEO_GENERATE_TURN_AUTHORITY_READY } from '@/common/config/agentVideoGenerateReleaseCore';
 
 /**
  * CEVE-18205 — the one place that answers "may this seat spend on an
@@ -39,9 +40,11 @@ import { readLicenseWire } from '@/common/config/licenseWireAtRest';
  * idempotency and the tenant cap on every request — but those bound the BLAST,
  * not the INTENT.
  *
- * Default-off is therefore the honest posture. It must NOT be flipped default-on
- * by analogy with the edit flag until generate has a turn-bound permit of its
- * own. That work is named and not done; this comment is the marker.
+ * Default-off is therefore the honest posture. In 1.823.0 the shared
+ * `AGENT_VIDEO_GENERATE_TURN_AUTHORITY_READY` release fence also keeps the MCP
+ * child unadvertised even if an older per-Seat setting or a manually supplied
+ * carrier says true. It must NOT be flipped until a confirmed turn can mint and
+ * activate a single-use generate permit; the explicit composer lane is separate.
  *
  * THE SECOND OPEN MONEY ITEM: THERE IS NO DAILY COUNTER. Named here for the same
  * reason as the permit above — so it stays a tracked gap instead of becoming a
@@ -109,7 +112,8 @@ import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 export const COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG = 'COMMAND_EVE_ENABLE_AGENT_VIDEO_GENERATE';
 
 /**
- * Exactly `'1'`. Not "truthy", not `'true'`, not `'yes'`.
+ * Exactly `'1'`, AND only after the shared turn-authority readiness fence opens.
+ * Not "truthy", not `'true'`, not `'yes'`.
  *
  * A spending flag that accepts several spellings is a spending flag that gets
  * turned on by accident — by a stray `=true` in a shell profile, or by a value
@@ -119,12 +123,13 @@ export const COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG = 'COMMAND_EVE_ENABLE_AGENT_V
  * WHO READS THIS: the MCP CHILD, and only the child. Main composes the real
  * decision itself (kill-switch + licence + per-seat config, see
  * `agentVideoGenerateGateMain.ts`) and emits exactly `'1'` into the child
- * environment when — and only when — the seat may be told about the paid tool,
- * so for the child this exact-`'1'` read IS the whole decision. The child never
- * reads the config store: it has no seat context and no business holding one.
+ * environment when — and only when — the seat may be told about the paid tool.
+ * The child then applies the shared readiness fence as a final fail-closed
+ * product boundary. It never reads the config store: it has no seat context and
+ * no business holding one.
  */
 export function isAgentVideoGenerateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return (env[COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG] || '').trim() === '1';
+  return AGENT_VIDEO_GENERATE_TURN_AUTHORITY_READY && (env[COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG] || '').trim() === '1';
 }
 
 /**
