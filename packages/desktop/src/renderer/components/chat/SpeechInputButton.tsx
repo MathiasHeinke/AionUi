@@ -32,13 +32,13 @@ export type SpeechInputButtonHandle = {
   transcribePendingAudio: (options?: SpeechTranscriptionRequestOptions) => Promise<string | null>;
 };
 
-const SpeechMicIcon = () => <Microphone theme='outline' size={18} fill='currentColor' aria-hidden='true' />;
+const SpeechMicIcon = () => <Microphone size={18} aria-hidden='true' />;
 
-const SpeechStopIcon = () => <Square theme='filled' size={17} fill='currentColor' aria-hidden='true' />;
+const SpeechStopIcon = () => <Square theme='filled' size={17} aria-hidden='true' />;
 
 const SpeechLoaderIcon = () => <span className='speech-loader-spinner' aria-hidden='true' />;
 
-const SpeechRetryIcon = () => <Refresh theme='outline' size={18} fill='currentColor' aria-hidden='true' />;
+const SpeechRetryIcon = () => <Refresh size={18} aria-hidden='true' />;
 
 const SPEECH_TO_TEXT_CONFIG_CHANGED_EVENT = 'aionui:speech-to-text-config-changed';
 

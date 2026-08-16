@@ -5,7 +5,6 @@
  */
 
 import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
-import { iconColors } from '@/renderer/styles/colors';
 import { Robot } from '@renderer/components/icons';
 import React, { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -40,7 +39,7 @@ export const AgentLogoIcon: React.FC<
     if (logo) {
       return <img src={logo} alt={`${backend} logo`} className='block w-16px h-16px object-contain' />;
     }
-    return <Robot theme='outline' size={16} fill={iconColors.primary} />;
+    return <Robot size={16} />;
   })();
 
   return (

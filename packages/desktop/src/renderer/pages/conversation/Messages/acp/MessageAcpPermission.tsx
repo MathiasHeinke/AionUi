@@ -128,7 +128,7 @@ const MessageAcpSecurityPermission: React.FC<MessageAcpPermissionProps> = React.
         return {
           title: t('messages.permissionRequest'),
           description: t('messages.agentRequestingPermission'),
-          icon: <Lock theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
+          icon: <Lock size={17} aria-hidden='true' />,
         };
       }
 
@@ -136,17 +136,15 @@ const MessageAcpSecurityPermission: React.FC<MessageAcpPermissionProps> = React.
 
       // 简单的图标映射
       const kindIcons: Record<string, React.ReactNode> = {
-        edit: <Edit theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
-        read: <Book theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
-        fetch: <Link theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
-        execute: <Lightning theme='outline' size={17} fill='currentColor' aria-hidden='true' />,
+        edit: <Edit size={17} aria-hidden='true' />,
+        read: <Book size={17} aria-hidden='true' />,
+        fetch: <Link size={17} aria-hidden='true' />,
+        execute: <Lightning size={17} aria-hidden='true' />,
       };
 
       return {
         title: displayTitle,
-        icon: kindIcons[tool_call.kind || 'execute'] || (
-          <Lightning theme='outline' size={17} fill='currentColor' aria-hidden='true' />
-        ),
+        icon: kindIcons[tool_call.kind || 'execute'] || <Lightning size={17} aria-hidden='true' />,
       };
     };
     const { title, icon } = getToolInfo();
@@ -339,7 +337,7 @@ const MessageAcpSecurityPermission: React.FC<MessageAcpPermissionProps> = React.
             >
               <Text className='text-sm' style={{ color: 'rgb(var(--success-6))' }}>
                 <span className='inline-flex items-center gap-6px'>
-                  <CheckOne theme='outline' size={15} fill='currentColor' aria-hidden='true' />
+                  <CheckOne size={15} aria-hidden='true' />
                   {t('messages.responseSentSuccessfully')}
                 </span>
               </Text>

@@ -208,7 +208,7 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
                   }}
                 >
                   <span className='video-quality-pill__model-name'>{tierLabelFor(tierId)}</span>
-                  {selected ? <CheckSmall theme='outline' size={13} className='video-quality-pill__check' /> : null}
+                  {selected ? <CheckSmall size={13} className='video-quality-pill__check' /> : null}
                 </button>
               );
             })}
@@ -259,7 +259,7 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
                       })}
                     </span>
                   ) : null}
-                  {selected ? <CheckSmall theme='outline' size={13} className='video-quality-pill__check' /> : null}
+                  {selected ? <CheckSmall size={13} className='video-quality-pill__check' /> : null}
                 </button>
               );
             })}

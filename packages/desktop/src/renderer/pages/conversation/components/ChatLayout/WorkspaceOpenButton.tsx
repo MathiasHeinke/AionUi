@@ -138,7 +138,7 @@ const WorkspaceOpenButton: React.FC<WorkspaceOpenButtonProps> = ({ workspacePath
           <span className='flex items-center justify-center w-20px h-20px'>{option.icon}</span>
           <span className='text-14px'>{option.label}</span>
           {currentTool === option.key && (
-            <CheckSmall className='ml-auto text-t-secondary' size={15} fill='currentColor' aria-hidden='true' />
+            <CheckSmall className='ml-auto text-t-secondary' size={15} aria-hidden='true' />
           )}
         </button>
       ))}

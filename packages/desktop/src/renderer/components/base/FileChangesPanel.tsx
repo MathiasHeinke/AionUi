@@ -7,7 +7,7 @@
 import classNames from 'classnames';
 import React, { useState } from 'react';
 import { Down, PreviewOpen } from '@renderer/components/icons';
-import { diffColors, iconColors } from '@/renderer/styles/colors';
+import { diffColors } from '@/renderer/styles/colors';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -87,12 +87,7 @@ const FileChangesPanel: React.FC<FileChangesPanelProps> = ({
           <span className='text-14px text-t-primary font-medium'>{title}</span>
         </div>
         {/* 展开/收起箭头 / Expand/collapse arrow */}
-        <Down
-          theme='outline'
-          size='16'
-          fill={iconColors.secondary}
-          className={classNames('transition-transform duration-400', expanded && 'rotate-180')}
-        />
+        <Down size='16' className={classNames('transition-transform duration-400', expanded && 'rotate-180')} />
       </button>
 
       {/* 文件列表 / File list */}
@@ -147,7 +142,7 @@ const FileChangesPanel: React.FC<FileChangesPanelProps> = ({
                     onFileClick?.(file);
                   }}
                 >
-                  <PreviewOpen className='line-height-8px' theme='outline' size='14' fill={iconColors.secondary} />
+                  <PreviewOpen className='line-height-8px' size='14' />
                   {t('preview.preview')}
                 </button>
               </div>

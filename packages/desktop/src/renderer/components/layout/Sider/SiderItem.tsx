@@ -85,7 +85,7 @@ const SiderItem: React.FC<SiderItemProps> = ({
                 className='absolute inset-0 flex-center text-t-secondary pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity'
                 style={{ lineHeight: 0 }}
               >
-                <Pushpin theme='outline' size='14' />
+                <Pushpin size='14' />
               </span>
             )}
           </span>
@@ -153,7 +153,7 @@ const SiderItem: React.FC<SiderItemProps> = ({
                   setMenuVisible(true);
                 }}
               >
-                <MoreOne theme='outline' size='14' fill='currentColor' className='block leading-none' />
+                <MoreOne size='14' className='block leading-none' />
               </button>
             </Dropdown>
           </div>

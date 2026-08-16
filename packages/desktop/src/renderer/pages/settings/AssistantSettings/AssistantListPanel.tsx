@@ -215,7 +215,7 @@ const AssistantListPanel: React.FC<AssistantListPanelProps> = ({
                 type='primary'
                 size='small'
                 className={`!rounded-[100px] ${isMobile ? '!w-full !h-36px' : '!px-16px !h-32px'}`}
-                icon={<Plus size={14} fill='currentColor' />}
+                icon={<Plus size={14} />}
                 onClick={onCreate}
                 data-testid='btn-create-assistant'
               >
@@ -239,13 +239,7 @@ const AssistantListPanel: React.FC<AssistantListPanelProps> = ({
                 size='small'
                 data-testid='btn-search-toggle'
                 className='!rounded-10px !h-34px !w-34px !p-0 flex items-center justify-center !text-t-secondary hover:!bg-fill-1 hover:!text-t-primary'
-                icon={
-                  isSearchVisible ? (
-                    <CloseSmall size={16} fill='currentColor' />
-                  ) : (
-                    <Search size={16} fill='currentColor' />
-                  )
-                }
+                icon={isSearchVisible ? <CloseSmall size={16} /> : <Search size={16} />}
                 onClick={() => {
                   if (isSearchVisible) {
                     setSearchExpanded(false);
@@ -268,7 +262,7 @@ const AssistantListPanel: React.FC<AssistantListPanelProps> = ({
               placeholder={t('settings.searchAssistants', {
                 defaultValue: 'Search assistants by name or description',
               })}
-              prefix={<Search size={14} fill='currentColor' />}
+              prefix={<Search size={14} />}
             />
           )}
           <Tabs

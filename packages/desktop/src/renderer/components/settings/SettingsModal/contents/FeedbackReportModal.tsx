@@ -396,7 +396,7 @@ const FeedbackReportModal: React.FC<FeedbackReportModalProps> = ({
               data-testid='feedback-report-auto-info'
               className='inline-flex max-w-full items-start gap-6px px-10px py-8px bg-fill-1 rd-8px text-12px leading-18px text-t-tertiary'
             >
-              <Info theme='outline' size='14' className='mt-2px flex-shrink-0' />
+              <Info size='14' className='mt-2px flex-shrink-0' />
               <span>{t('settings.bugReportAutoInfo')}</span>
             </div>
           </div>

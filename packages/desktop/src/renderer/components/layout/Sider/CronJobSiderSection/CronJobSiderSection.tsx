@@ -77,11 +77,7 @@ const CronJobSiderSection: React.FC<CronJobSiderSectionProps> = ({ jobs, pathnam
         aria-expanded={expanded}
       >
         <span className='size-22px flex items-center justify-center text-t-tertiary shrink-0' aria-hidden='true'>
-          <Right
-            theme='outline'
-            size={12}
-            className={classNames('transition-transform duration-400', { 'rotate-90': expanded })}
-          />
+          <Right size={12} className={classNames('transition-transform duration-400', { 'rotate-90': expanded })} />
         </span>
         <span className='text-14px text-t-tertiary sider-section-title group-hover/label:text-t-primary transition-colors font-[500] leading-none'>
           {t('cron.scheduledTasks')}

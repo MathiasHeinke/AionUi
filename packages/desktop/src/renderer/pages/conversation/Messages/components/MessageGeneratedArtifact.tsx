@@ -775,7 +775,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
     <div data-testid='generated-artifact-card' className='max-w-780px w-full mx-auto'>
       <div className='eve-artifact-card overflow-hidden rd-8px'>
         <div className='flex items-start gap-10px px-14px py-12px'>
-          <Paperclip theme='outline' size={18} fill={iconColors.secondary} className='shrink-0 mt-1px' />
+          <Paperclip size={18} className='shrink-0 mt-1px' />
           <div className='min-w-0 flex-1'>
             <div className='flex items-center gap-8px min-w-0'>
               <span className='font-500 text-14px text-t-primary truncate'>{title}</span>
@@ -875,7 +875,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
                 className='eve-artifact-action flex items-center gap-6px px-10px text-12px'
                 onClick={handleUseInComposer}
               >
-                <EditOne theme='outline' size={14} fill={iconColors.secondary} />
+                <EditOne size={14} />
                 <span>{t('messages.artifact.continueEditing', { defaultValue: 'Bearbeiten' })}</span>
               </button>
             )}
@@ -886,7 +886,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
                 className='eve-artifact-action flex items-center gap-6px px-10px text-12px'
                 onClick={() => void handleOpen()}
               >
-                <PreviewOpen theme='outline' size={14} fill={iconColors.secondary} />
+                <PreviewOpen size={14} />
                 <span>{t('messages.artifact.open')}</span>
               </button>
             )}
@@ -897,7 +897,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
                 className='eve-artifact-action flex items-center gap-6px px-10px text-12px'
                 onClick={() => void handleReveal()}
               >
-                <FolderOpen theme='outline' size={14} fill={iconColors.secondary} />
+                <FolderOpen size={14} />
                 <span>{t('messages.artifact.reveal')}</span>
               </button>
             )}

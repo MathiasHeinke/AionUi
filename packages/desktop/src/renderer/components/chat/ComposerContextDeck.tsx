@@ -97,9 +97,9 @@ export const ComposerAuthorityControl: React.FC<{ disabled?: boolean }> = ({ dis
         data-testid='composer-authority-control'
         data-rung={grant.ladder}
       >
-        <Shield theme='outline' size={15} fill='currentColor' strokeWidth={3} aria-hidden='true' />
+        <Shield size={15} aria-hidden='true' />
         <span>{label}</span>
-        <Down theme='outline' size={11} fill='currentColor' strokeWidth={3} aria-hidden='true' />
+        <Down size={11} aria-hidden='true' />
       </Button>
     </Dropdown>
   );

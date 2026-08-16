@@ -1,5 +1,4 @@
 import type { SkillCapabilityCatalog, SkillCapabilityItem } from '@/renderer/hooks/capabilities';
-import { iconColors } from '@/renderer/styles/colors';
 import { Checkbox, Menu } from '@arco-design/web-react';
 import { Lightning } from '@renderer/components/icons';
 import React from 'react';
@@ -66,7 +65,7 @@ export const SkillCapabilityMenuItems: React.FC<SkillCapabilityMenuItemsProps> =
             }}
           >
             <span className='flex items-center gap-8px'>
-              <Lightning theme='outline' size='15' strokeWidth={2.5} fill={iconColors.primary} />
+              <Lightning size='15' />
               <span className='text-13px' title={skill.description || undefined}>
                 {skill.name}
               </span>

@@ -88,7 +88,6 @@ import {
 } from '@/renderer/pages/conversation/utils/warmupConversation';
 import { useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
 import { allSupportedExts } from '@/renderer/services/FileService';
-import { iconColors } from '@/renderer/styles/colors';
 import { emitter, useAddEventListener } from '@/renderer/utils/emitter';
 import { mergeFileSelectionItems } from '@/renderer/utils/file/fileSelection';
 import { buildDisplayMessage } from '@/renderer/utils/file/messageFiles';
@@ -2794,7 +2793,7 @@ Please check your local CLI tool authentication status`,
       // (Codex with no list, no info) skip — exposing a no-op row would be noise.
       entries.push({
         key: 'model',
-        icon: <Brain theme='outline' size='16' />,
+        icon: <Brain size='16' />,
         label: t('common.model', { defaultValue: 'Model' }),
         meta: currentModelLabel,
         submenu: {
@@ -2808,7 +2807,7 @@ Please check your local CLI tool authentication status`,
     if (modeOptions.length > 0) {
       entries.push({
         key: 'permission',
-        icon: <Shield theme='outline' size='16' />,
+        icon: <Shield size='16' />,
         label: t('agentMode.permission', { defaultValue: 'Permission' }),
         meta: currentPermissionLabel,
         submenu: {
@@ -2822,7 +2821,7 @@ Please check your local CLI tool authentication status`,
     if (runtimeView.isProcessing) {
       entries.push({
         key: 'busy-send-mode',
-        icon: busySendMode === 'steer' ? <EditOne theme='outline' size='16' /> : <Time theme='outline' size='16' />,
+        icon: busySendMode === 'steer' ? <EditOne size='16' /> : <Time size='16' />,
         label: t('conversation.commandQueue.busyModeAria', { defaultValue: 'Busy send mode' }),
         meta: t(
           busySendMode === 'steer'
@@ -2869,7 +2868,7 @@ Please check your local CLI tool authentication status`,
       }));
       entries.push({
         key: 'skills',
-        icon: <MagicHat theme='outline' size='16' />,
+        icon: <MagicHat size='16' />,
         label: t('common.skills', { defaultValue: 'Skills' }),
         variant: 'muted',
         submenu: {
@@ -2896,7 +2895,7 @@ Please check your local CLI tool authentication status`,
       }));
       entries.push({
         key: 'mcp',
-        icon: <Shield theme='outline' size='16' />,
+        icon: <Shield size='16' />,
         label: t('conversation.mcp.loaded', { defaultValue: 'Loaded MCP' }),
         variant: 'muted',
         submenu: {
@@ -3097,7 +3096,7 @@ Please check your local CLI tool authentication status`,
           }}
         >
           <span className='inline-flex min-w-0 items-center gap-8px'>
-            <MagicHat theme='outline' size='15' fill='currentColor' aria-hidden='true' />
+            <MagicHat size='15' aria-hidden='true' />
             <span className='truncate'>/{name}</span>
           </span>
         </Menu.Item>
@@ -3111,7 +3110,7 @@ Please check your local CLI tool authentication status`,
           }}
         >
           <span className='inline-flex min-w-0 items-center gap-8px'>
-            <Shield theme='outline' size='15' fill='currentColor' aria-hidden='true' />
+            <Shield size='15' aria-hidden='true' />
             <span className='truncate'>{item.name}</span>
             <span className='ml-auto text-11px text-t-secondary'>
               {t(`conversation.mcp.status.${item.status}` as const)}
@@ -3138,7 +3137,7 @@ Please check your local CLI tool authentication status`,
       conversation_id={conversation_id}
       compact
       initialMode={session_mode}
-      compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
+      compactLeadingIcon={<Shield size='14' />}
       modeLabelFormatter={formatModeLabel}
       compactLabelOverride={eveAuthorityLabel}
       compactLabelPrefix={t('agentMode.permission')}

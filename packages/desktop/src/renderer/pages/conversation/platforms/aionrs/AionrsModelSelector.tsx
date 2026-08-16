@@ -8,7 +8,6 @@ import type { AionrsModelSelection } from './useAionrsModelSelection';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { getModelDisplayLabel } from '@/renderer/utils/model/agentLogo';
-import { iconColors } from '@/renderer/styles/colors';
 import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
 import { Brain, Down } from '@renderer/components/icons';
 import React from 'react';
@@ -28,7 +27,7 @@ const AionrsModelSelector: React.FC<{
 
   const current_model = selection?.current_model;
 
-  const renderLogo = () => <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />;
+  const renderLogo = () => <Brain size='14' className='shrink-0' />;
 
   if (disabled || !selection) {
     return (
@@ -114,7 +113,7 @@ const AionrsModelSelector: React.FC<{
         <span className='flex items-center gap-6px min-w-0'>
           {renderLogo()}
           <span className={compact ? 'block truncate' : undefined}>{label}</span>
-          <Down theme='outline' size={12} fill={iconColors.secondary} className='shrink-0' />
+          <Down size={12} className='shrink-0' />
         </span>
       </Button>
     </Dropdown>

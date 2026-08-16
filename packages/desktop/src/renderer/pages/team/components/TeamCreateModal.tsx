@@ -237,7 +237,7 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
             </h3>
             <Button
               type='text'
-              icon={<Close size='18' fill='currentColor' className='text-t-secondary' />}
+              icon={<Close size='18' className='text-t-secondary' />}
               onClick={handleClose}
               aria-label={t('common.close', { defaultValue: 'Close' })}
               className='!h-28px !w-28px !min-w-28px !p-0 !rd-8px hover:!bg-fill-2'

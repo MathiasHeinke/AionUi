@@ -41,13 +41,7 @@ const SiderConnectorCatalogEntry: React.FC<SiderConnectorCatalogEntryProps> = ({
           )}
           onClick={onClick}
         >
-          <LinkCloud
-            theme='outline'
-            size='20'
-            fill='currentColor'
-            className='block leading-none shrink-0'
-            style={{ lineHeight: 0 }}
-          />
+          <LinkCloud size='20' className='block leading-none shrink-0' style={{ lineHeight: 0 }} />
         </button>
       </Tooltip>
     );
@@ -66,13 +60,7 @@ const SiderConnectorCatalogEntry: React.FC<SiderConnectorCatalogEntryProps> = ({
         onClick={onClick}
       >
         <span className='size-22px flex items-center justify-center shrink-0 text-t-primary'>
-          <LinkCloud
-            theme='outline'
-            size='16'
-            fill='currentColor'
-            className='block leading-none'
-            style={{ lineHeight: 0 }}
-          />
+          <LinkCloud size='16' className='block leading-none' style={{ lineHeight: 0 }} />
         </span>
         <span className='collapsed-hidden text-t-primary text-14px font-[500] leading-24px'>
           {t('connectorCatalog.sider')}

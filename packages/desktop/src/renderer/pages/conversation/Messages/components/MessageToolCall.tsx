@@ -87,11 +87,7 @@ const MessageToolCall: React.FC<{ message: IMessageToolCall }> = ({ message }) =
               <span className='font-medium text-13px'>{normalized.name}</span>
               {normalized.description && <span className='m-l-4px opacity-80 text-13px'>{normalized.description}</span>}
             </span>
-            {expanded ? (
-              <Down theme='outline' size={12} fill='currentColor' aria-hidden='true' />
-            ) : (
-              <Right theme='outline' size={12} fill='currentColor' aria-hidden='true' />
-            )}
+            {expanded ? <Down size={12} aria-hidden='true' /> : <Right size={12} aria-hidden='true' />}
           </button>
         ) : (
           <span className='flex-1 min-w-0 truncate'>

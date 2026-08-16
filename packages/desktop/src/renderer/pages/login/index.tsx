@@ -564,13 +564,7 @@ const LoginPage: React.FC = () => {
               {t('login.username')}
             </label>
             <div className='login-page__input-wrapper'>
-              <User
-                className='login-page__input-icon'
-                theme='outline'
-                size={17}
-                fill='currentColor'
-                aria-hidden='true'
-              />
+              <User className='login-page__input-icon' size={17} aria-hidden='true' />
               <input
                 ref={usernameRef}
                 id='username'
@@ -590,13 +584,7 @@ const LoginPage: React.FC = () => {
               {t('login.password')}
             </label>
             <div className='login-page__input-wrapper'>
-              <Lock
-                className='login-page__input-icon'
-                theme='outline'
-                size={17}
-                fill='currentColor'
-                aria-hidden='true'
-              />
+              <Lock className='login-page__input-icon' size={17} aria-hidden='true' />
               <input
                 ref={passwordRef}
                 id='password'
@@ -616,9 +604,9 @@ const LoginPage: React.FC = () => {
                 aria-label={passwordVisible ? t('login.hidePassword') : t('login.showPassword')}
               >
                 {passwordVisible ? (
-                  <PreviewCloseOne theme='outline' size={18} fill='currentColor' aria-hidden='true' />
+                  <PreviewCloseOne size={18} aria-hidden='true' />
                 ) : (
-                  <PreviewOpen theme='outline' size={18} fill='currentColor' aria-hidden='true' />
+                  <PreviewOpen size={18} aria-hidden='true' />
                 )}
               </button>
             </div>
@@ -635,16 +623,7 @@ const LoginPage: React.FC = () => {
           </div>
 
           <button type='submit' className='login-page__submit' disabled={loading}>
-            {loading && (
-              <Loading
-                className='login-page__spinner'
-                theme='outline'
-                size={18}
-                fill='currentColor'
-                spin
-                aria-hidden='true'
-              />
-            )}
+            {loading && <Loading className='login-page__spinner' size={18} spin aria-hidden='true' />}
             <span>{loading ? t('login.submitting') : t('login.submit')}</span>
           </button>
 

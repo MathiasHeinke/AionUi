@@ -176,7 +176,7 @@ const AcpRuntimeStatus: React.FC<{
         {isDevMode ? <span className='truncate'>EVE · {laneLabel}</span> : null}
         {elapsedMs !== undefined ? (
           <span className='inline-flex items-center gap-4px text-t-tertiary'>
-            <Time theme='outline' size='12' />
+            <Time size='12' />
             {formatDuration(elapsedMs)}
           </span>
         ) : null}
@@ -223,7 +223,7 @@ const AcpRuntimeStatus: React.FC<{
               className={`acp-runtime-status__privacy ${egressDecision === 'block' ? 'text-danger-6' : ''}`}
               data-testid='acp-runtime-egress-receipt'
             >
-              <Shield theme='outline' size='12' />
+              <Shield size='12' />
               <span>{egressLabel}</span>
               <span aria-label={t('conversation.runtimeStatus.egress.findings', { defaultValue: 'Treffer' })}>
                 {egressBoundary?.finding_count ?? 0}

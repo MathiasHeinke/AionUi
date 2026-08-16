@@ -621,7 +621,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
               <Button
                 data-testid='btn-refresh-my-skills'
                 type='text'
-                icon={<Refresh theme='outline' size={16} className={loading ? 'animate-spin' : ''} />}
+                icon={<Refresh size={16} className={loading ? 'animate-spin' : ''} />}
                 aria-label={t('common.refresh', { defaultValue: 'Refresh' })}
                 onClick={async () => {
                   await fetchData();
@@ -686,7 +686,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
                 >
                   <Button type='text' long className='eve-skill-row__open' onClick={() => void openReader(skill)}>
                     <span className='eve-skill-row__content'>
-                      <Puzzle theme='outline' size={19} className='eve-skill-row__icon' />
+                      <Puzzle size={19} className='eve-skill-row__icon' />
                       <span className='eve-skill-row__copy'>
                         <span className='eve-skill-row__title-line'>
                           <strong>{skill.name}</strong>
@@ -773,7 +773,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
               }}
               className={`eve-skill-row eve-skill-row--static ${highlightedSkill === skill.name ? 'eve-skill-row--highlighted' : ''}`}
             >
-              <Lightning theme='outline' size={19} className='eve-skill-row__icon' />
+              <Lightning size={19} className='eve-skill-row__icon' />
               <span className='eve-skill-row__copy'>
                 <span className='eve-skill-row__title-line'>
                   <strong>{skill.name}</strong>

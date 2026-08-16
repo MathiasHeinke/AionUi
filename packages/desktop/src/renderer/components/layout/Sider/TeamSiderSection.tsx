@@ -11,7 +11,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useSWRConfig } from 'swr';
-import { iconColors } from '@renderer/styles/colors';
 import { cleanupSiderTooltips } from '@renderer/utils/ui/siderTooltip';
 import { blurActiveElement } from '@renderer/utils/ui/focus';
 import { useTeamList } from '@renderer/pages/team/hooks/useTeamList';
@@ -126,14 +125,7 @@ const TeamSiderSection: React.FC<TeamSiderSectionProps> = ({
                     )}
                     onClick={() => handleTeamClick(team.id)}
                   >
-                    <Peoples
-                      data-testid={`collapsed-team-icon-${team.id}`}
-                      data-icon-fill={iconColors.primary}
-                      theme='outline'
-                      size='16'
-                      fill={iconColors.primary}
-                      style={{ lineHeight: 0 }}
-                    />
+                    <Peoples data-testid={`collapsed-team-icon-${team.id}`} size='16' style={{ lineHeight: 0 }} />
                     {(teamBadgeCounts.get(team.id) ?? 0) > 0 && (
                       <span
                         className='absolute top-4px right-4px w-18px h-18px rounded-full text-10px font-bold flex items-center justify-center leading-none bg-danger-6 text-white'
@@ -162,7 +154,6 @@ const TeamSiderSection: React.FC<TeamSiderSectionProps> = ({
             >
               <span className='size-22px flex items-center justify-center text-t-tertiary shrink-0' aria-hidden='true'>
                 <Right
-                  theme='outline'
                   size={12}
                   className={classNames('transition-transform duration-400', { 'rotate-90': expanded })}
                 />
@@ -181,13 +172,7 @@ const TeamSiderSection: React.FC<TeamSiderSectionProps> = ({
                 onClick={() => setCreateTeamVisible(true)}
                 aria-label={t('team.sider.createTeam')}
               >
-                <Plus
-                  theme='outline'
-                  size='14'
-                  fill='currentColor'
-                  className='block leading-none'
-                  style={{ lineHeight: 0 }}
-                />
+                <Plus size='14' className='block leading-none' style={{ lineHeight: 0 }} />
               </button>
             </Tooltip>
           </div>
@@ -198,17 +183,17 @@ const TeamSiderSection: React.FC<TeamSiderSectionProps> = ({
               const menuItems: SiderMenuItem[] = [
                 {
                   key: 'pin',
-                  icon: <Pushpin theme='outline' size='14' />,
+                  icon: <Pushpin size='14' />,
                   label: isPinned ? t('team.sider.unpin') : t('team.sider.pin'),
                 },
                 {
                   key: 'rename',
-                  icon: <EditOne theme='outline' size='14' />,
+                  icon: <EditOne size='14' />,
                   label: t('team.sider.rename'),
                 },
                 {
                   key: 'delete',
-                  icon: <DeleteOne theme='outline' size='14' />,
+                  icon: <DeleteOne size='14' />,
                   label: t('team.sider.delete'),
                   danger: true,
                 },
@@ -217,7 +202,7 @@ const TeamSiderSection: React.FC<TeamSiderSectionProps> = ({
               return (
                 <div key={team.id} className='relative group'>
                   <SiderItem
-                    icon={<Peoples theme='outline' size='16' fill='currentColor' style={{ lineHeight: 0 }} />}
+                    icon={<Peoples size='16' style={{ lineHeight: 0 }} />}
                     name={team.name}
                     selected={pathname.startsWith(`/team/${team.id}`)}
                     pinned={isPinned}

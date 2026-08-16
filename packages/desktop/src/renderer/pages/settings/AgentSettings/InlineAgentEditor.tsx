@@ -379,7 +379,7 @@ const InlineAgentEditor: React.FC<InlineAgentEditorProps> = ({ agent, onSave, on
               <Button
                 type='text'
                 size='small'
-                icon={<Delete theme='outline' size={16} />}
+                icon={<Delete size={16} />}
                 onClick={() => removeEnvVar(envVar.id)}
                 className='!h-36px !w-36px !rounded-10px !px-0 text-t-tertiary hover:text-danger'
               />
@@ -389,7 +389,7 @@ const InlineAgentEditor: React.FC<InlineAgentEditorProps> = ({ agent, onSave, on
         <Button
           type='text'
           size='small'
-          icon={<Plus theme='outline' size={14} />}
+          icon={<Plus size={14} />}
           onClick={addEnvVar}
           className='mt-8px !px-0 text-t-secondary hover:!text-primary-6'
         >

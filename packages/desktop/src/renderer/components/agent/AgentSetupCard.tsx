@@ -192,14 +192,14 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
             onClick={() => setExpanded(true)}
           >
             <div className='flex items-center gap-8px'>
-              <Loading theme='outline' size={16} className='animate-spin text-t-secondary' />
+              <Loading size={16} className='animate-spin text-t-secondary' />
               <span className='text-13px text-t-primary'>
                 {t('guid.scanning.initialMessage', {
                   defaultValue: 'Current Agent is unavailable, detecting other available agents...',
                 })}
               </span>
             </div>
-            <Down theme='outline' size={16} className='text-t-tertiary hover:text-t-secondary transition-colors' />
+            <Down size={16} className='text-t-tertiary hover:text-t-secondary transition-colors' />
           </button>
         )}
 
@@ -212,14 +212,14 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
                 <div className='flex items-center gap-8px'>
                   {isChecking ? (
                     <>
-                      <Loading theme='outline' size={16} className='animate-spin text-t-secondary' />
+                      <Loading size={16} className='animate-spin text-t-secondary' />
                       <span className='text-13px text-t-primary'>
                         {t('guid.scanning.scanningMessage', { defaultValue: 'Scanning local available agents...' })}
                       </span>
                     </>
                   ) : (
                     <>
-                      <Loading theme='outline' size={16} className='animate-spin text-t-secondary' />
+                      <Loading size={16} className='animate-spin text-t-secondary' />
                       <span className='text-13px text-t-primary'>
                         {t('guid.scanning.initialMessage', {
                           defaultValue: 'Current Agent is unavailable, detecting other available agents...',
@@ -234,7 +234,7 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
                   className='p-4px rounded-4px hover:bg-fill-3 transition-colors cursor-pointer border-none bg-transparent'
                   aria-label={t('common.collapse', { defaultValue: 'Collapse' })}
                 >
-                  <Up theme='outline' size={16} className='text-t-tertiary' />
+                  <Up size={16} className='text-t-tertiary' />
                 </button>
               </div>
             )}
@@ -287,7 +287,7 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
                       let statusClass: string;
 
                       if (result.checking) {
-                        statusIcon = <Loading theme='outline' size={12} className='animate-spin text-warning-6' />;
+                        statusIcon = <Loading size={12} className='animate-spin text-warning-6' />;
                         statusText = t('guid.scanning.statusTesting', { defaultValue: 'Testing latency...' });
                         statusClass = 'text-warning-6';
                       } else if (result.available) {
@@ -364,13 +364,7 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
             {/* No alternatives found */}
             {!isChecking && availableCount === 0 && availableAgents.length > 0 && (
               <div className='text-center py-12px'>
-                <EmotionUnhappy
-                  className='mb-4px text-t-tertiary'
-                  theme='outline'
-                  size={24}
-                  fill='currentColor'
-                  aria-hidden='true'
-                />
+                <EmotionUnhappy className='mb-4px text-t-tertiary' size={24} aria-hidden='true' />
                 <div className='text-13px font-medium mb-4px text-t-primary'>
                   {t('agent.setup.noAlternatives', { defaultValue: 'No available agents found' })}
                 </div>

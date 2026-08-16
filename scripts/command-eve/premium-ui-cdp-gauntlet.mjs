@@ -21,7 +21,9 @@ import {
   OVERLAY_CANDIDATE_SELECTOR,
   OVERLAY_EXPECTATIONS,
   selectOwnedOverlay,
+  summarizeDisabledRowCoverage,
   toPortableEvidencePath,
+  validateIconStateInheritance,
   validateOverlayEvidence,
   validateReducedMotionEvidence,
 } from './premium-ui-cdp-gauntlet-core.mjs';
@@ -120,6 +122,38 @@ const setViewport = async (width, height) => {
   });
 };
 
+// Row auditing leaves the real pointer on the last hovered row. A menu opened
+// afterwards inherits that hover, which makes a synthetic hover indistinguish-
+// able from an already-open panel. Park the pointer so hover state has exactly
+// one source.
+const parkPointer = async () => {
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 4, y: 4 });
+  await sleep(200);
+};
+
+const VISIBLE_PANEL_COUNT_EXPRESSION = `[...document.querySelectorAll('.arco-menu-pop, .arco-dropdown-menu')].filter((panel) => {
+  const rect = panel.getBoundingClientRect();
+  const style = getComputedStyle(panel);
+  return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+}).length`;
+
+// Menus are portaled to the body, so a hash change does not unmount them and a
+// single dismissal only closes the innermost panel. Each scenario therefore has
+// to hand a closed shell to the next one, and report it when it cannot.
+const dismissOpenPanels = async (attempts = 4) => {
+  // Parking comes first: a panel held open by hover reopens immediately after a
+  // dismissal click, so the pointer has to leave before anything is counted.
+  await parkPointer();
+  let remaining = await cdp.evaluate(VISIBLE_PANEL_COUNT_EXPRESSION);
+  for (let attempt = 0; attempt < attempts && remaining > 0; attempt += 1) {
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 4, y: 4, button: 'left', clickCount: 1 });
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 4, y: 4, button: 'left', clickCount: 1 });
+    await sleep(560);
+    remaining = await cdp.evaluate(VISIBLE_PANEL_COUNT_EXPRESSION);
+  }
+  return remaining;
+};
+
 const navigate = async (route) => {
   await cdp.evaluate(`location.hash = ${JSON.stringify(`#${route}`)}`);
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -151,6 +185,8 @@ const setReducedMotion = async (reduced) => {
   });
 };
 
+const THEME_TRANSITION_SETTLE_MS = 900;
+
 const setTheme = async (theme) => {
   await navigate('/settings/appearance');
   const selector = `[data-testid="eve-appearance-mode-${theme}"]`;
@@ -164,7 +200,13 @@ const setTheme = async (theme) => {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     await sleep(100);
     const applied = await cdp.evaluate(`document.documentElement.dataset.theme === ${JSON.stringify(theme)}`);
-    if (applied) return;
+    if (applied) {
+      // The theme attribute flips before the token transition has repainted.
+      // Auditing during that window reads interpolated colors instead of the
+      // settled token, so wait for the transition to finish.
+      await sleep(THEME_TRANSITION_SETTLE_MS);
+      return;
+    }
   }
   throw new Error(`Theme did not settle: ${theme}`);
 };
@@ -222,6 +264,10 @@ const auditSurface = async () =>
     const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     const scrollables = [...document.querySelectorAll('*')].filter((element) => {
       if (!visible(element)) return false;
+      // Arco appends a hidden textarea clone to the body to measure autosize
+      // height. It sits behind the page and keeps the token of the theme it was
+      // created under, so auditing it reports drift the user can never see.
+      if (Number.parseInt(getComputedStyle(element).zIndex, 10) < 0) return false;
       const style = getComputedStyle(element);
       return element.scrollHeight > element.clientHeight + 1 && ['auto', 'scroll'].includes(style.overflowY);
     });
@@ -249,6 +295,27 @@ const auditSurface = async () =>
       },
     };
   })()`);
+
+const OVERLAY_DISMISSAL_TIMEOUT_MS = 4000;
+const OVERLAY_DISMISSAL_POLL_MS = 200;
+
+const waitForOverlayDismissal = async (gauntletId) => {
+  const deadline = Date.now() + OVERLAY_DISMISSAL_TIMEOUT_MS;
+  let dismissed = false;
+  do {
+    await sleep(OVERLAY_DISMISSAL_POLL_MS);
+    dismissed = await cdp.evaluate(`(() => {
+      const element = [...document.querySelectorAll(${JSON.stringify(OVERLAY_CANDIDATE_SELECTOR)})].find(
+        (candidate) => candidate.dataset.eveGauntletOverlayId === ${JSON.stringify(gauntletId)}
+      );
+      if (!element) return true;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return !(rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden');
+    })()`);
+  } while (!dismissed && Date.now() < deadline);
+  return dismissed;
+};
 
 const openAndAudit = async (expectation, label) => {
   const trigger = await cdp.evaluate(`(() => {
@@ -402,19 +469,11 @@ const openAndAudit = async (expectation, label) => {
     button: 'left',
     clickCount: 1,
   });
-  await sleep(560);
-  const closed = overlay
-    ? await cdp.evaluate(`(() => {
-        const element = [...document.querySelectorAll(${JSON.stringify(OVERLAY_CANDIDATE_SELECTOR)})].find(
-          (candidate) =>
-            candidate.dataset.eveGauntletOverlayId === ${JSON.stringify(overlay.gauntletId)}
-        );
-        if (!element) return true;
-        const rect = element.getBoundingClientRect();
-        const style = getComputedStyle(element);
-        return !(rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden');
-      })()`)
-    : null;
+  // The dismissal animation is longer than a single feedback step on a loaded
+  // renderer, so a fixed wait reports a still-animating overlay as "did not
+  // close". Poll to the deadline and keep the last observation authoritative,
+  // so a genuinely stuck overlay still fails.
+  const closed = overlay ? await waitForOverlayDismissal(overlay.gauntletId) : null;
 
   return {
     label,
@@ -439,6 +498,7 @@ const report = {
   routes: [],
   overlays: [],
   reducedMotion: [],
+  capabilitySubmenu: [],
   failures: [],
 };
 
@@ -489,6 +549,149 @@ const recordOverlay = async ({ theme, expectation, label, scenario = 'standard' 
   return evidence;
 };
 
+/**
+ * Opens the tools menu, walks into the capabilities submenu and reads each row
+ * as the user sees it: the resolved color of the label next to the resolved
+ * color of its glyph. A row that dims its text while the icon stays bright is
+ * the exact regression this step exists to catch, so it is captured in both
+ * themes and includes a disabled row.
+ */
+const recordCapabilitySubmenu = async ({ theme }) => {
+  const label = `${theme}-guid-capabilities-submenu`;
+  const stalePanels = await dismissOpenPanels();
+  if (stalePanels > 0) {
+    report.failures.push({ theme, scenario: 'capabilities-submenu', kind: 'stale-panel-before-submenu', stalePanels });
+  }
+  const opened = await cdp.evaluate(`(async () => {
+    const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+    const visible = (element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+
+    const PANEL_SELECTOR = '.arco-menu-pop, .arco-dropdown-menu';
+    const panelKey = (element) => {
+      if (!element.dataset.eveGauntletPanelId) {
+        window.__evePremiumGauntletPanelCounter = (window.__evePremiumGauntletPanelCounter || 0) + 1;
+        element.dataset.eveGauntletPanelId = 'eve-panel-' + window.__evePremiumGauntletPanelCounter;
+      }
+      return element.dataset.eveGauntletPanelId;
+    };
+
+    const trigger = document.querySelector('[data-testid="work-product-tools-trigger"]');
+    if (!(trigger instanceof HTMLElement)) return { reason: 'missing-tools-trigger' };
+    trigger.click();
+    await sleep(700);
+
+    const headers = [...document.querySelectorAll('.arco-dropdown-menu-pop-header')].filter(visible);
+    const header = headers.at(-1);
+    if (!header) return { reason: 'missing-capabilities-submenu-header' };
+
+    // The tools menu is already open, so its own panel must not be mistaken for
+    // the submenu. Only a panel that appears through this hover counts.
+    const panelsBefore = new Set([...document.querySelectorAll(PANEL_SELECTOR)].filter(visible).map(panelKey));
+    header.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+    header.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    await sleep(900);
+
+    const opened = [...document.querySelectorAll(PANEL_SELECTOR)]
+      .filter(visible)
+      .filter((candidate) => !panelsBefore.has(panelKey(candidate)));
+    if (opened.length === 0) return { reason: 'submenu-did-not-open' };
+    if (opened.length > 1) return { reason: 'ambiguous-capabilities-submenu' };
+    const panel = opened[0];
+
+    // Capability entries are themselves submenu headers, so the pop-header is a
+    // row here just like an ordinary item.
+    const rows = [
+      ...panel.querySelectorAll(
+        '[role="menuitem"], .arco-menu-item, .arco-dropdown-menu-item, .arco-dropdown-menu-pop-header, .arco-menu-inline-header'
+      ),
+    ]
+      .filter(visible)
+      .slice(0, 24)
+      .filter((row) => row.querySelector('.eve-phosphor-icon'));
+
+    const read = (row, hovered) => {
+      const icon = row.querySelector('.eve-phosphor-icon');
+      const textNode = [...row.querySelectorAll('span')].find(
+        (node) => !node.classList.contains('eve-phosphor-icon') && node.textContent?.trim()
+      );
+      return {
+        label: (row.getAttribute('aria-label') || row.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 120),
+        hovered,
+        disabled:
+          row.classList.contains('arco-menu-item-disabled') ||
+          row.classList.contains('arco-dropdown-menu-item-disabled') ||
+          row.getAttribute('aria-disabled') === 'true',
+        textColor: getComputedStyle(textNode ?? row).color,
+        iconColor: icon ? getComputedStyle(icon).color : null,
+        iconFillAttribute: icon ? icon.getAttribute('fill') : null,
+      };
+    };
+
+    // Each row is read twice: at rest and while hovered. Both readings must
+    // agree between glyph and label, which is what makes the state change and
+    // not just the idle paint part of the evidence.
+    const measured = [];
+    for (const row of rows) {
+      measured.push(read(row, false));
+      row.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      await sleep(420);
+      measured.push(read(row, true));
+      row.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+      await sleep(180);
+    }
+
+    return { reason: null, panelClass: String(panel.className || ''), rows: measured };
+  })()`);
+
+  const screenshotPath = await screenshot(label);
+  const evidence = {
+    theme,
+    label,
+    screenshot: screenshotPath,
+    ...opened,
+    ...summarizeDisabledRowCoverage(opened.rows),
+  };
+  report.capabilitySubmenu.push(evidence);
+
+  if (opened.reason) {
+    report.failures.push({ theme, scenario: 'capabilities-submenu', kind: opened.reason });
+  } else {
+    report.failures.push(
+      ...validateIconStateInheritance(evidence).map((failure) => ({
+        theme,
+        scenario: 'capabilities-submenu',
+        ...failure,
+      }))
+    );
+  }
+
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+    nativeVirtualKeyCode: 27,
+  });
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+    nativeVirtualKeyCode: 27,
+  });
+  await sleep(420);
+  const leftoverPanels = await dismissOpenPanels();
+  if (leftoverPanels > 0) {
+    report.failures.push({ theme, scenario: 'capabilities-submenu', kind: 'submenu-did-not-dismiss', leftoverPanels });
+  }
+  return evidence;
+};
+
 try {
   await setReducedMotion(false);
   await setViewport(1440, 1000);
@@ -535,6 +738,8 @@ try {
         label: `${theme}-guid-${expectation.id}`,
       });
     }
+
+    await recordCapabilitySubmenu({ theme });
 
     await setViewport(1440, 440);
     await navigate('/guid');
@@ -596,6 +801,7 @@ try {
         routes: report.routes.length,
         overlays: report.overlays.length,
         reducedMotion: report.reducedMotion.length,
+        capabilitySubmenu: report.capabilitySubmenu.length,
         failures: report.failures.length,
         report: toPortableEvidencePath(process.cwd(), resultPath),
         artifactDirectory: basename(outputDir),

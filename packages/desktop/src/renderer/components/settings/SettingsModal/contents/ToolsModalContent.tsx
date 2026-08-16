@@ -885,7 +885,7 @@ const ToolsModalContent: React.FC = () => {
                           className='ml-8px text-[rgb(var(--primary-6))] hover:text-[rgb(var(--primary-5))] cursor-pointer'
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <Help theme='outline' size='14' />
+                          <Help size='14' />
                         </a>
                       </Tooltip>
                     </>

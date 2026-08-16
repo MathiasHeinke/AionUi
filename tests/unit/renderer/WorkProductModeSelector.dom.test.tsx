@@ -43,6 +43,24 @@ const modes: readonly LocalizedComposerWorkProductModeDescriptor[] = [
   { mode: 'excel', label: 'Excel erstellen', tooltip: 'Excel-Modus auswählen' },
 ];
 
+const readSelectorCss = (): string =>
+  cssWithoutComments(
+    fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../../packages/desktop/src/renderer/components/chat/WorkProductModeSelector.module.css'
+      ),
+      'utf8'
+    )
+  );
+
+const readModeAccents = (rootAnchor: string): readonly (string | undefined)[] => {
+  const root = readCssBlock(readSelectorCss(), rootAnchor);
+  return modes.map(({ mode }) =>
+    root.match(new RegExp(`--eve-work-product-${mode}-accent:\\s*(#[0-9a-f]{6});`, 'i'))?.[1].toLowerCase()
+  );
+};
+
 const actions: LocalizedComposerWorkProductActionDescriptor = {
   toolbarLabel: 'Werkzeuge und Arbeitsprodukte',
   returnToChatLabel: 'Zurück zum Chat',
@@ -173,16 +191,8 @@ describe('WorkProductModeSelector', () => {
     }
   });
 
-  it('keeps flat tool affordances and distinct semantic identities in light and dark mode', () => {
-    const css = cssWithoutComments(
-      fs.readFileSync(
-        path.resolve(
-          __dirname,
-          '../../../packages/desktop/src/renderer/components/chat/WorkProductModeSelector.module.css'
-        ),
-        'utf8'
-      )
-    );
+  it('keeps tool affordances flat and bound to the semantic accent of each mode', () => {
+    const css = readSelectorCss();
 
     for (const anchor of [
       ".trigger:global(.arco-btn)[data-active='true'] {",
@@ -191,21 +201,6 @@ describe('WorkProductModeSelector', () => {
     ]) {
       expect(readCssBlock(css, anchor), `${anchor} must stay flat`).not.toMatch(/gradient\(/i);
     }
-
-    const lightRoot = readCssBlock(css, ':global(:root) {');
-    const darkRoot = readCssBlock(css, ":global(:root[data-theme='dark']) {");
-    const lightAccents = modes.map(({ mode }) =>
-      lightRoot.match(new RegExp(`--eve-work-product-${mode}-accent:\\s*(#[0-9a-f]{6});`, 'i'))?.[1].toLowerCase()
-    );
-    const darkAccents = modes.map(({ mode }) =>
-      darkRoot.match(new RegExp(`--eve-work-product-${mode}-accent:\\s*(#[0-9a-f]{6});`, 'i'))?.[1].toLowerCase()
-    );
-
-    expect(lightAccents.every(Boolean)).toBe(true);
-    expect(darkAccents.every(Boolean)).toBe(true);
-    expect(new Set(lightAccents)).toHaveLength(modes.length);
-    expect(new Set(darkAccents)).toHaveLength(modes.length);
-    expect(darkAccents).not.toEqual(lightAccents);
 
     for (const { mode } of modes) {
       const identityDeclarations = readCssBlock(css, `.trigger[data-mode='${mode}'],`);
@@ -216,6 +211,24 @@ describe('WorkProductModeSelector', () => {
       expect(identityDeclarations).toContain(`var(--eve-work-product-${mode}-accent)`);
       expect(surfaceDeclarations).toContain(`var(--eve-work-product-${mode}-accent)`);
     }
+  });
+
+  // Light and dark are asserted separately: a theme that loses its accents must
+  // fail on its own instead of hiding behind the other one.
+  it('gives every tool mode a distinct accent in light mode', () => {
+    const accents = readModeAccents(':global(:root) {');
+
+    expect(accents.every(Boolean)).toBe(true);
+    expect(new Set(accents)).toHaveLength(modes.length);
+  });
+
+  it('gives every tool mode a distinct accent in dark mode, retuned away from light', () => {
+    const lightAccents = readModeAccents(':global(:root) {');
+    const darkAccents = readModeAccents(":global(:root[data-theme='dark']) {");
+
+    expect(darkAccents.every(Boolean)).toBe(true);
+    expect(new Set(darkAccents)).toHaveLength(modes.length);
+    expect(darkAccents).not.toEqual(lightAccents);
   });
 
   it('tints only the existing composer hairline for the selected tool', () => {

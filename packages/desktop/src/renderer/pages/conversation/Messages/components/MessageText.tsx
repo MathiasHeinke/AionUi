@@ -15,7 +15,6 @@ import {
   stopReadAloud,
   type ReadAloudCloudArtifact,
 } from '@/renderer/services/ReadAloudService';
-import { iconColors } from '@/renderer/styles/colors';
 import { Alert, Button, Message, Tooltip } from '@arco-design/web-react';
 import { Copy, PauseOne, VolumeNotice } from '@renderer/components/icons';
 import classNames from 'classnames';
@@ -239,7 +238,7 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
         aria-label={t('common.copy', { defaultValue: 'Copy' })}
         style={{ lineHeight: 0 }}
       >
-        <Copy theme='outline' size='16' fill={iconColors.secondary} />
+        <Copy size='16' />
       </button>
     </Tooltip>
   );
@@ -256,13 +255,7 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
         aria-label={
           isReadingAloud ? t('conversation.chat.stopReadAloudTooltip') : t('conversation.chat.readAloudTooltip')
         }
-        icon={
-          isReadingAloud ? (
-            <PauseOne theme='outline' size='16' fill={iconColors.secondary} />
-          ) : (
-            <VolumeNotice theme='outline' size='16' fill={iconColors.secondary} />
-          )
-        }
+        icon={isReadingAloud ? <PauseOne size='16' /> : <VolumeNotice size='16' />}
       />
     </Tooltip>
   ) : null;

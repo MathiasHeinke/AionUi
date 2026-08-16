@@ -256,11 +256,11 @@ const AssistantSelectionArea: React.FC<AssistantSelectionAreaProps> = ({
                           }}
                         >
                           <span className={styles.assistantPromptRowIcon} aria-hidden='true'>
-                            <PromptIcon theme='outline' size={17} />
+                            <PromptIcon size={17} />
                           </span>
                           <span className={styles.assistantPromptRowText}>{prompt}</span>
                           <span className={styles.assistantPromptRowChevron} aria-hidden='true'>
-                            <Right theme='outline' size={16} />
+                            <Right size={16} />
                           </span>
                         </Button>
                       );
@@ -323,7 +323,7 @@ const AssistantSelectionArea: React.FC<AssistantSelectionAreaProps> = ({
                     ) : avatarValue ? (
                       <span className={styles.assistantCardEmoji}>{avatarValue}</span>
                     ) : (
-                      <Robot theme='outline' size={18} />
+                      <Robot size={18} />
                     )}
                   </div>
                   <div className={styles.assistantCardMeta}>
@@ -342,7 +342,7 @@ const AssistantSelectionArea: React.FC<AssistantSelectionAreaProps> = ({
             // redirect whose CRUD tab is founder-gated in the public build.
             onClick={() => navigate('/settings/eve-runtime')}
           >
-            <Plus theme='outline' size={20} />
+            <Plus size={20} />
           </button>
         </div>
       </div>

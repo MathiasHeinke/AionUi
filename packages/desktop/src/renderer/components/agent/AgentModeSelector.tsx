@@ -597,7 +597,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
               data-testid={`aionrs-mode-option-${mode.value}`}
             >
               {current_mode === mode.value && (
-                <CheckSmall className='shrink-0 text-primary' size={16} fill='currentColor' aria-hidden='true' />
+                <CheckSmall className='shrink-0 text-primary' size={16} aria-hidden='true' />
               )}
               <span className={`flex min-w-0 flex-col ${current_mode !== mode.value ? 'ml-16px' : ''}`}>
                 <span>{getDisplayModeLabel(mode)}</span>

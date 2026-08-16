@@ -216,7 +216,7 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
             );
           }}
         >
-          <FolderOpen theme='outline' size='16' fill='currentColor' className='block shrink-0 text-t-secondary' />
+          <FolderOpen size='16' className='block shrink-0 text-t-secondary' />
           {value ? (
             <span className='flex min-w-0 flex-1 flex-col justify-center'>
               <span className='text-sm leading-20px text-t-primary'>{folderName}</span>
@@ -227,7 +227,7 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
           )}
           {!value && (
             <span className='flex h-20px w-20px shrink-0 items-center justify-center text-t-secondary'>
-              <Down size='14' fill='currentColor' />
+              <Down size='14' />
             </span>
           )}
         </button>
@@ -238,7 +238,7 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
             className='flex h-20px w-20px shrink-0 cursor-pointer items-center justify-center text-t-secondary transition-colors hover:text-t-primary'
             onClick={handleClear}
           >
-            <Close theme='outline' size='14' fill='currentColor' />
+            <Close size='14' />
           </button>
         ) : null}
       </div>
@@ -303,9 +303,7 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
                     style={{ transitionDuration: 'var(--eve-motion-duration-state)' }}
                   >
                     <FolderClose
-                      theme='outline'
                       size='16'
-                      fill='currentColor'
                       className={`eve-menu-icon ${isSelected ? 'text-[var(--eve-focus-ring)]' : ''}`}
                     />
                     <div className='min-w-0 flex-1'>
@@ -314,7 +312,7 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
                     </div>
                     {isSelected && (
                       <span className='flex h-20px w-20px shrink-0 items-center justify-center text-aou-6'>
-                        <Check size='14' fill='currentColor' />
+                        <Check size='14' />
                       </span>
                     )}
                   </button>
@@ -332,7 +330,7 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
             className='eve-menu-item w-full flex cursor-pointer items-center gap-10px border-none bg-transparent text-left px-10px py-7px'
             style={{ transitionDuration: 'var(--eve-motion-duration-state)' }}
           >
-            <FolderOpen theme='outline' size='16' fill='currentColor' className='eve-menu-icon' />
+            <FolderOpen size='16' className='eve-menu-icon' />
             <span className='text-13px text-t-primary'>{chooseDifferentLabel}</span>
           </button>
         </div>

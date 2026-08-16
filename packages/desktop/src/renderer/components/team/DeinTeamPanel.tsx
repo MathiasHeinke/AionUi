@@ -147,17 +147,15 @@ const RoleControls: React.FC<RoleControlsProps> = ({ role, status, statuses, onA
     return (
       <div className='flex items-center gap-1 flex-wrap'>
         {status === 'active'
-          ? renderDeactivate('pause', t('deinTeam.controls.throttle'), <Pause theme='outline' size='12' />)
+          ? renderDeactivate('pause', t('deinTeam.controls.throttle'), <Pause size='12' />)
           : renderActivate(
               'resume',
               t('deinTeam.controls.resume'),
-              <Button size='mini' type='outline' icon={<PlayOne theme='outline' size='12' />}>
+              <Button size='mini' type='outline' icon={<PlayOne size='12' />}>
                 {t('deinTeam.controls.resume')}
               </Button>
             )}
-        {status !== 'off'
-          ? renderDeactivate('stop', t('deinTeam.controls.pause'), <Power theme='outline' size='12' />)
-          : null}
+        {status !== 'off' ? renderDeactivate('stop', t('deinTeam.controls.pause'), <Power size='12' />) : null}
       </div>
     );
   }
@@ -166,11 +164,11 @@ const RoleControls: React.FC<RoleControlsProps> = ({ role, status, statuses, onA
   return (
     <div className='flex items-center gap-1 flex-wrap'>
       {status === 'active'
-        ? renderDeactivate('release', t('deinTeam.controls.release'), <Power theme='outline' size='12' />)
+        ? renderDeactivate('release', t('deinTeam.controls.release'), <Power size='12' />)
         : renderActivate(
             'hire',
             t('deinTeam.controls.hireForSprint'),
-            <Button size='mini' type='primary' icon={<UserPositioning theme='outline' size='12' />}>
+            <Button size='mini' type='primary' icon={<UserPositioning size='12' />}>
               {t('deinTeam.controls.hireForSprint')}
             </Button>
           )}

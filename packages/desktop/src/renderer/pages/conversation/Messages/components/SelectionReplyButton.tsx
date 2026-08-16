@@ -173,7 +173,7 @@ const SelectionReplyButton: React.FC<{ messages: TMessage[] }> = ({ messages }) 
         window.getSelection()?.removeAllRanges();
       }}
     >
-      <Quote theme='outline' size='14' fill='currentColor' />
+      <Quote size='14' />
       <span className='text-12px font-medium whitespace-nowrap'>{t('common.reply', { defaultValue: 'Reply' })}</span>
     </button>
   );

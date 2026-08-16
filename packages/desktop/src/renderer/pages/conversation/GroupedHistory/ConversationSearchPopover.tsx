@@ -419,22 +419,10 @@ const ConversationSearchPopover: React.FC<ConversationSearchPopoverProps> = ({
         >
           {fullWidth ? (
             <span className='size-22px flex items-center justify-center shrink-0 text-t-primary'>
-              <Search
-                theme='outline'
-                size='16'
-                fill='currentColor'
-                className='block leading-none'
-                style={{ lineHeight: 0 }}
-              />
+              <Search size='16' className='block leading-none' style={{ lineHeight: 0 }} />
             </span>
           ) : (
-            <Search
-              theme='outline'
-              size='16'
-              fill='currentColor'
-              className='block leading-none shrink-0'
-              style={{ lineHeight: 0 }}
-            />
+            <Search size='16' className='block leading-none shrink-0' style={{ lineHeight: 0 }} />
           )}
           {fullWidth && label ? (
             <span className='collapsed-hidden text-t-primary text-14px font-[500] leading-24px'>{label}</span>
@@ -492,7 +480,7 @@ const ConversationSearchPopover: React.FC<ConversationSearchPopoverProps> = ({
 
           <div className='mb-14px conversation-search-modal__input-wrap'>
             <div className='conversation-search-modal__searchbar'>
-              <Search theme='outline' size='16' className='conversation-search-modal__search-icon' />
+              <Search size='16' className='conversation-search-modal__search-icon' />
               <input
                 autoFocus={visible}
                 value={keyword}
@@ -507,7 +495,7 @@ const ConversationSearchPopover: React.FC<ConversationSearchPopoverProps> = ({
                   onClick={handleClearKeyword}
                   aria-label='Clear search'
                 >
-                  <CloseSmall theme='outline' size='14' />
+                  <CloseSmall size='14' />
                 </button>
               ) : null}
             </div>

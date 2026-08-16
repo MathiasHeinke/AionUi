@@ -148,7 +148,7 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
       <section className='context-credits-popover__section'>
         <div className='flex items-center justify-between mb-6px'>
           <span className='text-13px font-medium text-t-primary flex items-center gap-4px'>
-            <Lightning theme='outline' size='13' fill='currentColor' />
+            <Lightning size='13' />
             {t('credits.context.creditsTitle', { defaultValue: 'Credits' })}
           </span>
           {credits ? (
@@ -188,7 +188,7 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
             className='context-credits-popover__warning flex items-center gap-6px mt-8px'
             data-testid='context-credits-low'
           >
-            <Caution theme='outline' size='14' fill='rgb(var(--warning-6))' />
+            <Caution size='14' color='rgb(var(--warning-6))' />
             <span className='text-12px' style={{ color: 'rgb(var(--warning-6))' }}>
               {t('credits.context.tankLow', { defaultValue: 'Tank fast leer' })}
             </span>

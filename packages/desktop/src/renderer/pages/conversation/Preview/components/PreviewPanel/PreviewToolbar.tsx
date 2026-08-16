@@ -259,7 +259,7 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
         aria-label={t('preview.export.title', { defaultValue: 'Export report' })}
         aria-haspopup='menu'
       >
-        <FileText theme='outline' size={16} aria-hidden='true' />
+        <FileText size={16} aria-hidden='true' />
       </button>
     </Dropdown>
   ) : null;
@@ -267,14 +267,14 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
   const openInSystemEntry = showOpenInSystemButton
     ? renderIconButton({
         label: t('preview.openInSystemApp'),
-        icon: <Open theme='outline' size={16} aria-hidden='true' />,
+        icon: <Open size={16} aria-hidden='true' />,
         onClick: onOpenInSystem,
       })
     : null;
   const downloadEntry = showDownload
     ? renderIconButton({
         label: t('preview.downloadFile'),
-        icon: <Download theme='outline' size={16} aria-hidden='true' />,
+        icon: <Download size={16} aria-hidden='true' />,
         onClick: () => void onDownload(),
       })
     : null;
@@ -321,7 +321,7 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
               {!isDiff &&
                 renderIconButton({
                   label: isSplitScreenEnabled ? t('preview.closeSplitScreen') : t('preview.openSplitScreen'),
-                  icon: <Split theme='outline' size={16} aria-hidden='true' />,
+                  icon: <Split size={16} aria-hidden='true' />,
                   active: isSplitScreenEnabled,
                   onClick: () => {
                     try {
@@ -350,7 +350,7 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
               <>
                 {renderIconButton({
                   label: historyTarget ? t('preview.saveSnapshot') : t('preview.snapshotNotSupported'),
-                  icon: <Camera theme='outline' size={16} aria-hidden='true' />,
+                  icon: <Camera size={16} aria-hidden='true' />,
                   onClick: historyTarget && !snapshotSaving ? onSaveSnapshot : undefined,
                   disabled: !historyTarget || snapshotSaving,
                 })}
@@ -366,13 +366,13 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
                       className='preview-toolbar__icon-button'
                       aria-label={t('preview.historyVersions')}
                     >
-                      <History theme='outline' size={16} aria-hidden='true' />
+                      <History size={16} aria-hidden='true' />
                     </button>
                   </Dropdown>
                 ) : (
                   renderIconButton({
                     label: t('preview.historyNotSupported'),
-                    icon: <History theme='outline' size={16} aria-hidden='true' />,
+                    icon: <History size={16} aria-hidden='true' />,
                     disabled: true,
                   })
                 )}
@@ -389,14 +389,14 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
             onInspectModeToggle &&
             renderIconButton({
               label: inspectMode ? t('preview.html.inspectElementDisable') : t('preview.html.inspectElementEnable'),
-              icon: <Inspection theme='outline' size={16} aria-hidden='true' />,
+              icon: <Inspection size={16} aria-hidden='true' />,
               active: inspectMode,
               onClick: onInspectModeToggle,
             })}
 
           {renderIconButton({
             label: t('common.close'),
-            icon: <Close theme='outline' size={16} aria-hidden='true' />,
+            icon: <Close size={16} aria-hidden='true' />,
             onClick: onClose,
           })}
         </div>

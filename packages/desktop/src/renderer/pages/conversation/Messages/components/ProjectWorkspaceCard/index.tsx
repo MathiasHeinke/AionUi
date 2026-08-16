@@ -127,7 +127,7 @@ const ProjectWorkspaceCard: React.FC<ProjectWorkspaceCardProps> = ({ artifact })
           <div className={styles.actions}>
             {payload.state === 'completed' && (
               <Button ref={reviewButtonRef} className={styles.reviewButton} onClick={() => setDialogVisible(true)}>
-                <CheckCircle theme='outline' size={16} fill='currentColor' aria-hidden='true' />
+                <CheckCircle size={16} aria-hidden='true' />
                 {isFinalized
                   ? t('common.projects.artifact.changeAssignment', { defaultValue: 'Zuordnung ändern' })
                   : t('common.projects.artifact.review', { defaultValue: 'Zuordnung prüfen' })}
@@ -141,7 +141,7 @@ const ProjectWorkspaceCard: React.FC<ProjectWorkspaceCardProps> = ({ artifact })
                   aria-label={t('common.projects.actions.reveal')}
                   onClick={() => void reveal()}
                 >
-                  <Open theme='outline' size={17} fill='currentColor' aria-hidden='true' />
+                  <Open size={17} aria-hidden='true' />
                 </Button>
               </Tooltip>
             )}
@@ -150,13 +150,13 @@ const ProjectWorkspaceCard: React.FC<ProjectWorkspaceCardProps> = ({ artifact })
 
         {question ? (
           <div className={styles.notice} data-tone='info' role='status'>
-            <Info theme='outline' size={16} fill='currentColor' aria-hidden='true' />
+            <Info size={16} aria-hidden='true' />
             <span>{question}</span>
           </div>
         ) : null}
         {reason ? (
           <div className={styles.notice} data-tone='danger' role='alert'>
-            <Caution theme='outline' size={16} fill='currentColor' aria-hidden='true' />
+            <Caution size={16} aria-hidden='true' />
             <span>
               <strong>{t(reason.titleKey)}</strong>
               <span>{t(reason.descriptionKey)}</span>
@@ -171,9 +171,7 @@ const ProjectWorkspaceCard: React.FC<ProjectWorkspaceCardProps> = ({ artifact })
             expandIconPosition='right'
             expandIcon={(active) => (
               <Down
-                theme='outline'
                 size={14}
-                fill='currentColor'
                 aria-hidden='true'
                 className={active ? styles.detailsChevronActive : styles.detailsChevron}
               />
@@ -183,7 +181,7 @@ const ProjectWorkspaceCard: React.FC<ProjectWorkspaceCardProps> = ({ artifact })
               name='technical-details'
               header={
                 <span className={styles.detailsTitle}>
-                  <Info theme='outline' size={15} fill='currentColor' aria-hidden='true' />
+                  <Info size={15} aria-hidden='true' />
                   {t('common.projects.artifact.technicalDetails', { defaultValue: 'Technische Details' })}
                 </span>
               }

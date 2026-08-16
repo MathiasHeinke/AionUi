@@ -122,6 +122,58 @@ export function validateReducedMotionEvidence(evidence) {
   return failures;
 }
 
+/**
+ * A generic glyph must take the color of the row it sits in. When a row dims to
+ * its disabled color and the icon stays behind at full strength, the founder
+ * sees exactly the break this gate exists to catch.
+ */
+export function validateIconStateInheritance(evidence) {
+  const failures = [];
+  const rows = evidence?.rows ?? [];
+  if (rows.length === 0) return [{ kind: 'submenu-has-no-rows' }];
+
+  for (const row of rows) {
+    if (!row.iconColor) {
+      failures.push({ kind: 'submenu-row-without-icon', label: row.label });
+      continue;
+    }
+    if (row.iconColor !== row.textColor) {
+      failures.push({
+        kind: 'icon-color-does-not-follow-text',
+        label: row.label,
+        iconColor: row.iconColor,
+        textColor: row.textColor,
+      });
+    }
+    // Phosphor always emits a fill attribute; `currentColor` is the inheriting
+    // value. Any concrete color pins the glyph and is the regression.
+    if (row.iconFillAttribute && row.iconFillAttribute !== 'currentColor') {
+      failures.push({
+        kind: 'icon-carries-pinned-fill-attribute',
+        label: row.label,
+        fill: row.iconFillAttribute,
+      });
+    }
+  }
+
+  // Hover is the state change that is always reachable here, so it is required.
+  // A disabled row only exists when a capability catalog is empty or read-only;
+  // when the run reaches one it must inherit like any other row, and when it
+  // does not the run has to say so instead of implying it was checked.
+  if (!rows.some((row) => row.hovered === true)) {
+    failures.push({ kind: 'submenu-missing-hovered-row' });
+  }
+  return failures;
+}
+
+export function summarizeDisabledRowCoverage(rows) {
+  const disabled = (rows ?? []).filter((row) => row.disabled === true);
+  return {
+    disabledRowsObserved: disabled.length,
+    disabledRowsInherit: disabled.every((row) => row.iconColor === row.textColor),
+  };
+}
+
 export function toPortableEvidencePath(repoRoot, absolutePath) {
   if (!isAbsolute(absolutePath))
     throw new Error(`Evidence path must be absolute before normalization: ${absolutePath}`);

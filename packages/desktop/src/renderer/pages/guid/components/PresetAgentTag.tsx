@@ -60,7 +60,7 @@ const PresetAgentTag: React.FC<PresetAgentTagProps> = ({
         <Menu.Item key={item.key}>
           <div className='flex items-center justify-between gap-12px min-w-120px'>
             <span>{item.label}</span>
-            {item.isCurrent ? <CheckSmall theme='outline' size={14} fill='currentColor' aria-hidden='true' /> : null}
+            {item.isCurrent ? <CheckSmall size={14} aria-hidden='true' /> : null}
           </div>
         </Menu.Item>
       ))}
@@ -74,14 +74,14 @@ const PresetAgentTag: React.FC<PresetAgentTagProps> = ({
           <img src={agentLogo} alt='' width={15} height={15} className={styles.presetAgentTagAgentLogo} />
           {hasSwitcher ? (
             <span className={styles.presetAgentTagChevron} aria-hidden='true'>
-              <Down theme='outline' size={12} fill='currentColor' />
+              <Down size={12} />
             </span>
           ) : null}
           <span className={styles.presetAgentTagInnerDivider} aria-hidden='true' />
         </>
       ) : hasSwitcher ? (
         <span className={styles.presetAgentTagChevron} aria-hidden='true'>
-          <Down theme='outline' size={12} fill='currentColor' />
+          <Down size={12} />
         </span>
       ) : null}
       {isImageAvatar ? (
@@ -89,7 +89,7 @@ const PresetAgentTag: React.FC<PresetAgentTagProps> = ({
       ) : avatarValue ? (
         <span style={{ fontSize: 14, lineHeight: '15px', flexShrink: 0 }}>{avatarValue}</span>
       ) : (
-        <Robot theme='outline' size={15} style={{ flexShrink: 0 }} />
+        <Robot size={15} style={{ flexShrink: 0 }} />
       )}
       <span className={styles.presetAgentTagName}>{name}</span>
     </div>
@@ -119,7 +119,7 @@ const PresetAgentTag: React.FC<PresetAgentTagProps> = ({
           onClose();
         }}
       >
-        <CloseSmall theme='outline' size={13} fill='currentColor' aria-hidden='true' />
+        <CloseSmall size={13} aria-hidden='true' />
       </button>
     </div>
   );

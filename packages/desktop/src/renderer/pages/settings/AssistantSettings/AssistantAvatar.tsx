@@ -28,7 +28,7 @@ const AssistantAvatar: React.FC<AssistantAvatarProps> = ({ assistant, size = 32,
         ) : hasEmojiAvatar ? (
           <span style={{ fontSize: emojiSize }}>{resolvedAvatar}</span>
         ) : (
-          <Robot theme='outline' size={iconSize} />
+          <Robot size={iconSize} />
         )}
       </Avatar>
     </Avatar.Group>

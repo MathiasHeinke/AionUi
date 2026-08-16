@@ -45,7 +45,7 @@ const DirInputItem: React.FC<{
           <Tooltip content={actionTooltip} position='top'>
             <Button type='secondary' long className='eve-dir-input' aria-label={actionTooltip} onClick={handlePick}>
               <span className='eve-dir-input__value'>{current_value || t('settings.dirNotConfigured')}</span>
-              <FolderOpen theme='outline' size='17' />
+              <FolderOpen size='17' />
             </Button>
           </Tooltip>
         );

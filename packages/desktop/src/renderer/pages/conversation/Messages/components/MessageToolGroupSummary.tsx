@@ -72,11 +72,7 @@ const ToolItemDetail: React.FC<{ item: NormalizedToolCall }> = ({ item }) => {
                 <span className='m-l-4px opacity-80 text-13px'>{displayItem.description}</span>
               )}
             </span>
-            {expanded ? (
-              <Down theme='outline' size={12} fill='currentColor' aria-hidden='true' />
-            ) : (
-              <Right theme='outline' size={12} fill='currentColor' aria-hidden='true' />
-            )}
+            {expanded ? <Down size={12} aria-hidden='true' /> : <Right size={12} aria-hidden='true' />}
           </button>
         ) : (
           <span className='flex-1 min-w-0 truncate'>
@@ -127,12 +123,10 @@ const MessageToolGroupSummary: React.FC<{ messages: ToolMessage[] }> = ({ messag
         onClick={() => setShowMore(!showMore)}
         aria-expanded={showMore}
       >
-        <span className='tool-group-summary__icon'>
-          {hasRunning ? <Spin size={12} /> : <Checklist theme='outline' size='14' />}
-        </span>
+        <span className='tool-group-summary__icon'>{hasRunning ? <Spin size={12} /> : <Checklist size='14' />}</span>
         <span className='tool-group-summary__label'>View Steps {tools.length > 0 ? `· ${tools.length}` : ''}</span>
         <span className={`tool-group-summary__arrow${showMore ? ' tool-group-summary__arrow--open' : ''}`}>
-          <Right theme='outline' size='12' />
+          <Right size='12' />
         </span>
       </button>
       {showMore && (

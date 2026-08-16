@@ -27,7 +27,6 @@ import {
 } from '@/common/config/commandEveShell';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { getCleanFileNames, FileService } from '@/renderer/services/FileService';
-import { iconColors } from '@/renderer/styles/colors';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import type { AvailableAgent } from '../types';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
@@ -183,7 +182,7 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
           key='skills'
           title={
             <div className='flex items-center gap-8px'>
-              <Lightning theme='filled' size='16' fill={iconColors.primary} style={{ lineHeight: 0 }} />
+              <Lightning theme='filled' size='16' style={{ lineHeight: 0 }} />
               <SkillCapabilityCountLabel catalog={skillCatalog} />
             </div>
           }
@@ -202,7 +201,7 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
           key='mcp'
           title={
             <div className='flex items-center gap-8px'>
-              <Shield theme='outline' size='16' fill={iconColors.primary} style={{ lineHeight: 0 }} />
+              <Shield size='16' style={{ lineHeight: 0 }} />
               <span>
                 {t('mcp.label')} ({activeMcpCount}/{mcpServers.length})
               </span>
@@ -306,7 +305,7 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
           type='secondary'
           shape='circle'
           className='eve-composer-icon-button eve-composer-attach-button'
-          icon={<Plus theme='outline' size='19' strokeWidth={2.2} fill='currentColor' />}
+          icon={<Plus size='19' />}
           loading={uploading}
           disabled={uploading}
           data-testid='file-upload-btn'
@@ -359,7 +358,7 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
         compact
         initialMode={selectedMode}
         onModeSelect={onModeSelect}
-        compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
+        compactLeadingIcon={<Shield size='14' />}
         modeLabelFormatter={getModeDisplayLabel}
         compactLabelPrefix={isCommandEveAcpConversation(modeBackend) ? t('agentMode.permission') : undefined}
         hideCompactLabelPrefixOnMobile
@@ -391,7 +390,7 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
       loading={loading}
       disabled={isButtonDisabled}
       className='send-button-custom'
-      icon={<ArrowUp theme='filled' size='14' fill='currentColor' strokeWidth={5} />}
+      icon={<ArrowUp theme='filled' size='14' />}
       onClick={onSend}
       data-testid='guid-send-btn'
       aria-label={t('common.send')}

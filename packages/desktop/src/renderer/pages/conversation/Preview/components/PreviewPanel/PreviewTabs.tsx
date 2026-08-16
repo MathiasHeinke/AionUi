@@ -142,7 +142,7 @@ const PreviewTabs: React.FC<PreviewTabsProps> = ({
                     onCloseTab(tab.id);
                   }}
                 >
-                  <Close theme='outline' size='14' aria-hidden='true' />
+                  <Close size='14' aria-hidden='true' />
                 </button>
               </div>
             ))
@@ -161,7 +161,7 @@ const PreviewTabs: React.FC<PreviewTabsProps> = ({
               title={t('preview.collapsePanel')}
               aria-label={t('preview.collapsePanel')}
             >
-              <OffScreen theme='outline' size={14} fill='currentColor' aria-hidden='true' />
+              <OffScreen size={14} aria-hidden='true' />
             </button>
           </div>
         )}

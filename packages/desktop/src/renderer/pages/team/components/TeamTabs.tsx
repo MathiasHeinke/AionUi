@@ -171,7 +171,7 @@ const TeamTabView: React.FC<TeamTabViewProps> = ({
           className='opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity duration-300 shrink-0 flex items-center border-none bg-transparent p-0'
           onClick={startEditing}
         >
-          <Edit theme='outline' size='12' fill='currentColor' />
+          <Edit size='12' />
         </button>
       )}
       {!editing && !isLeader && onRemove && (
@@ -184,7 +184,7 @@ const TeamTabView: React.FC<TeamTabViewProps> = ({
             onRemove(slot_id);
           }}
         >
-          <CloseSmall theme='outline' size='14' fill='currentColor' />
+          <CloseSmall size='14' />
         </button>
       )}
     </div>

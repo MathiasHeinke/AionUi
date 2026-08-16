@@ -5,7 +5,6 @@
  */
 
 import { useThemeContext } from '@/renderer/hooks/context/ThemeContext';
-import { iconColors } from '@/renderer/styles/colors';
 import { extractContentFromDiff, parseFilePathFromDiff } from '@/renderer/utils/file/diffUtils';
 import { getFileTypeInfo } from '@/renderer/utils/file/fileType';
 import { Button, Checkbox, Tooltip } from '@arco-design/web-react';
@@ -180,7 +179,7 @@ const Diff2Html = ({
                   size='mini'
                   onClick={handlePreviewClick as any}
                   disabled={previewLoading}
-                  icon={<PreviewOpen theme='outline' size='14' fill={iconColors.secondary} />}
+                  icon={<PreviewOpen size='14' />}
                 >
                   {t('preview.preview')}
                 </Button>
@@ -188,21 +187,9 @@ const Diff2Html = ({
 
               {/* 折叠按钮 / Collapse button */}
               {collapse ? (
-                <ExpandDownOne
-                  theme='outline'
-                  size='14'
-                  fill={iconColors.secondary}
-                  className='flex items-center'
-                  onClick={() => setCollapse(false)}
-                />
+                <ExpandDownOne size='14' className='flex items-center' onClick={() => setCollapse(false)} />
               ) : (
-                <FoldUpOne
-                  theme='outline'
-                  size='14'
-                  fill={iconColors.secondary}
-                  className='flex items-center'
-                  onClick={() => setCollapse(true)}
-                />
+                <FoldUpOne size='14' className='flex items-center' onClick={() => setCollapse(true)} />
               )}
             </>,
             operatorRef.current

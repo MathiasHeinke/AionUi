@@ -1426,7 +1426,7 @@ const SendBox: React.FC<{
       type='primary'
       disabled={isButtonDisabled}
       className='send-button-custom'
-      icon={<ArrowUp theme='filled' size='14' fill='currentColor' strokeWidth={5} />}
+      icon={<ArrowUp theme='filled' size='14' />}
       onClick={() => {
         void sendMessageHandler({ includePendingSpeech: true });
       }}
@@ -1470,7 +1470,7 @@ const SendBox: React.FC<{
       shape='circle'
       type='secondary'
       className='sendbox-mobile-plus-btn'
-      icon={<Plus theme='outline' size='16' />}
+      icon={<Plus size='16' />}
       onClick={onMobilePlusClick}
       data-testid='sendbox-mobile-plus-btn'
       aria-label={t('common.more', { defaultValue: 'More' })}
@@ -1541,7 +1541,7 @@ const SendBox: React.FC<{
         createPortal(
           <div className='eve-chat-file-drop-overlay' data-testid='chat-file-drop-overlay' role='status'>
             <div className='eve-chat-file-drop-overlay__pill'>
-              <UploadOne theme='outline' size={18} strokeWidth={2.4} />
+              <UploadOne size={18} />
               <span>{t('conversation.workspace.dragOverlayTitle', { defaultValue: 'Drop to import' })}</span>
             </div>
           </div>,
@@ -1632,7 +1632,7 @@ const SendBox: React.FC<{
             {replyQuote && (
               <div className='flex items-start gap-10px mb-8px px-12px py-10px rd-8px b-1 b-solid border-[var(--glass-panel-border)] bg-[var(--glass-panel-bg-solid)]'>
                 <div className='flex-shrink-0 mt-2px' style={{ lineHeight: 0 }}>
-                  <Quote theme='filled' size='16' fill='rgb(var(--primary-6))' />
+                  <Quote theme='filled' size='16' color='rgb(var(--primary-6))' />
                 </div>
                 <div className='flex-1 min-w-0 text-13px text-t-primary line-clamp-3 lh-20px whitespace-pre-wrap break-all'>
                   {replyQuote.content}
@@ -1644,7 +1644,7 @@ const SendBox: React.FC<{
                   onClick={() => setReplyQuote(null)}
                   style={{ lineHeight: 0 }}
                 >
-                  <CloseSmall theme='outline' size='14' />
+                  <CloseSmall size='14' />
                 </button>
               </div>
             )}
@@ -1655,7 +1655,7 @@ const SendBox: React.FC<{
                   <Tag
                     key={snippet.id}
                     closable
-                    closeIcon={<CloseSmall theme='outline' size='12' />}
+                    closeIcon={<CloseSmall size='12' />}
                     onClose={() => removeDomSnippet(snippet.id)}
                     className='text-12px bg-fill-2 b-1 b-solid b-border-2 rd-4px'
                   >
@@ -1670,7 +1670,7 @@ const SendBox: React.FC<{
                   <Tag
                     key={typeof item === 'string' ? item : item.path}
                     closable
-                    closeIcon={<CloseSmall theme='outline' size='12' />}
+                    closeIcon={<CloseSmall size='12' />}
                     onClose={() => {
                       const path = getSelectedItemPath(item);
                       if (!path) {

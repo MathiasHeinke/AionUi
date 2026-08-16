@@ -694,7 +694,7 @@ const SystemModalContent: React.FC = () => {
             <DirInputItem label={t('settings.logDir')} field='logDir' />
             {error && (
               <div className='eve-settings-inline-notice eve-settings-inline-notice--error' role='alert'>
-                <Caution theme='outline' size='16' />
+                <Caution size='16' />
                 <span>
                   {typeof error === 'string' ? error : JSON.stringify(error)}
                   <FeedbackButton module='system-settings' className='ml-6px' />

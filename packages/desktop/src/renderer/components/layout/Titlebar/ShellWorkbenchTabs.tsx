@@ -73,28 +73,28 @@ const dockTargetForPoint = (bounds: DockState['bounds'], clientX: number, client
 const iconForTab = (tab: PreviewTab) => {
   switch (tab.content_type) {
     case 'url':
-      return <Earth theme='outline' size={16} fill='currentColor' />;
+      return <Earth size={16} />;
     case 'terminal':
-      return <Terminal theme='outline' size={16} fill='currentColor' />;
+      return <Terminal size={16} />;
     case 'kanban':
-      return <ListCheckbox theme='outline' size={16} fill='currentColor' />;
+      return <ListCheckbox size={16} />;
     case 'durable-work':
-      return <Robot theme='outline' size={16} fill='currentColor' />;
+      return <Robot size={16} />;
     case 'workspace-files':
-      return <FolderOpen theme='outline' size={16} fill='currentColor' />;
+      return <FolderOpen size={16} />;
     case 'workspace-review':
-      return <CheckOne theme='outline' size={16} fill='currentColor' />;
+      return <CheckOne size={16} />;
     case 'image':
-      return <ImageFiles theme='outline' size={16} fill='currentColor' />;
+      return <ImageFiles size={16} />;
     case 'video':
-      return <Video theme='outline' size={16} fill='currentColor' />;
+      return <Video size={16} />;
     case 'audio':
-      return <Music theme='outline' size={16} fill='currentColor' />;
+      return <Music size={16} />;
     case 'code':
     case 'diff':
-      return <Code theme='outline' size={16} fill='currentColor' />;
+      return <Code size={16} />;
     default:
-      return <FileText theme='outline' size={16} fill='currentColor' />;
+      return <FileText size={16} />;
   }
 };
 
@@ -443,30 +443,30 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
     {
       target: 'browser',
       label: t('conversation.workbench.browser'),
-      icon: <Earth theme='outline' size={16} fill='currentColor' />,
+      icon: <Earth size={16} />,
     },
     {
       target: 'terminal',
       label: t('conversation.workbench.terminal'),
-      icon: <Terminal theme='outline' size={16} fill='currentColor' />,
+      icon: <Terminal size={16} />,
     },
     {
       target: 'kanban',
       label: t('kanban.title', { defaultValue: 'Aufgaben' }),
-      icon: <ListCheckbox theme='outline' size={16} fill='currentColor' />,
+      icon: <ListCheckbox size={16} />,
     },
     {
       target: 'files',
       label: t('conversation.workbench.files'),
       detail: workspacePath ? undefined : t('conversation.workbench.notConnected'),
-      icon: <FolderOpen theme='outline' size={16} fill='currentColor' />,
+      icon: <FolderOpen size={16} />,
       disabled: !workspacePath,
     },
     {
       target: 'review',
       label: t('conversation.workbench.review'),
       detail: workspacePath ? undefined : t('conversation.workbench.notConnected'),
-      icon: <CheckOne theme='outline' size={16} fill='currentColor' />,
+      icon: <CheckOne size={16} />,
       disabled: !workspacePath,
     },
   ];
@@ -514,7 +514,7 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
                   aria-label={t('conversation.workbench.closeTab', { title: tab.title })}
                   title={t('conversation.workbench.closeTab', { title: tab.title })}
                 >
-                  <CloseSmall theme='outline' size={14} fill='currentColor' />
+                  <CloseSmall size={14} />
                 </button>
               </div>
             );
@@ -532,7 +532,7 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
           aria-expanded={launcherOpen}
           onClick={() => setLauncherOpen((open) => !open)}
         >
-          <Plus theme='outline' size={18} fill='currentColor' />
+          <Plus size={18} />
         </button>
         {launcherOpen && (
           <div
@@ -581,17 +581,17 @@ const ShellWorkbenchTabs: React.FC<ShellWorkbenchTabsProps> = ({
                 {
                   target: 'split-left' as const,
                   label: t('conversation.workbench.splitLeft'),
-                  icon: <LeftBar theme='outline' size={20} />,
+                  icon: <LeftBar size={20} />,
                 },
                 {
                   target: 'split-right' as const,
                   label: t('conversation.workbench.splitRight'),
-                  icon: <RightBar theme='outline' size={20} />,
+                  icon: <RightBar size={20} />,
                 },
                 {
                   target: 'split-bottom' as const,
                   label: t('conversation.workbench.splitBottom'),
-                  icon: <BottomBar theme='outline' size={20} />,
+                  icon: <BottomBar size={20} />,
                 },
               ] satisfies Array<{ target: DockTarget; label: string; icon: React.ReactNode }>
             ).map((item) => (

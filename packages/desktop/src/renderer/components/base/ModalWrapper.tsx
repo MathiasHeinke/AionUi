@@ -37,7 +37,7 @@ const ModalWrapper: React.FC<ModalWrapperProps> = ({
               onClick={onCancel}
               className='aionui-modal-close-btn eve-focus-ring'
               aria-label={t('common.close', { defaultValue: 'Close' })}
-              icon={<Close size={18} fill='currentColor' />}
+              icon={<Close size={18} />}
             />
           </div>
         )}

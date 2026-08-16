@@ -2,7 +2,6 @@ import { Button, Tooltip } from '@arco-design/web-react';
 import { VolumeNotice } from '@renderer/components/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { iconColors } from '@/renderer/styles/colors';
 import type { VoiceDialoguePhase } from './voiceDialogueCore';
 
 const ACTIVE_PHASES = new Set<VoiceDialoguePhase>(['listening', 'transcribing', 'thinking', 'speaking']);
@@ -35,11 +34,7 @@ const VoiceDialogueControl: React.FC<{
         onClick={onToggle}
       >
         <span className='relative inline-flex h-18px w-18px items-center justify-center' aria-hidden='true'>
-          <VolumeNotice
-            theme={enabled ? 'filled' : 'outline'}
-            size='17'
-            fill={enabled ? iconColors.primary : iconColors.secondary}
-          />
+          <VolumeNotice theme={enabled ? 'filled' : 'outline'} size='17' />
           {enabled ? (
             <span
               className={`absolute -right-2px -top-2px h-6px w-6px rd-full ${phase === 'error' ? 'bg-danger-6' : active ? 'bg-success-6 animate-pulse' : 'bg-primary-6'}`}

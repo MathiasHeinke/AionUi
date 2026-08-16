@@ -19,22 +19,22 @@ const WorkbenchLayoutControls: React.FC<{ effectiveMode?: WorkbenchLayoutMode }>
     {
       mode: 'focus' as const,
       label: t('conversation.workbench.focus'),
-      icon: <FullScreenOne theme='outline' size={15} fill='currentColor' />,
+      icon: <FullScreenOne size={15} />,
     },
     {
       mode: 'split-left' as const,
       label: t('conversation.workbench.splitLeft'),
-      icon: <LeftBar theme='outline' size={15} fill='currentColor' />,
+      icon: <LeftBar size={15} />,
     },
     {
       mode: 'split-right' as const,
       label: t('conversation.workbench.splitRight'),
-      icon: <RightBar theme='outline' size={15} fill='currentColor' />,
+      icon: <RightBar size={15} />,
     },
     {
       mode: 'split-bottom' as const,
       label: t('conversation.workbench.splitBottom'),
-      icon: <BottomBar theme='outline' size={15} fill='currentColor' />,
+      icon: <BottomBar size={15} />,
     },
   ];
 
@@ -54,7 +54,7 @@ const WorkbenchLayoutControls: React.FC<{ effectiveMode?: WorkbenchLayoutMode }>
           });
         }}
       >
-        <MessageOne theme='outline' size={15} fill='currentColor' />
+        <MessageOne size={15} />
       </button>
       <span className={styles.separator} aria-hidden='true' />
       {modes.map((item) => (

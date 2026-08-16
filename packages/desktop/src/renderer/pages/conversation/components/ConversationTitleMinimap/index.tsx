@@ -106,7 +106,7 @@ const ConversationTitleMinimap: React.FC<ConversationTitleMinimapProps> = ({
             onBlur={handleSearchInputBlur}
             onCompositionStartCapture={handleSearchInputCompositionStart}
             onCompositionEndCapture={handleSearchInputCompositionEnd}
-            prefix={<Search className='text-14px text-t-secondary' theme='outline' size={14} fill='currentColor' />}
+            prefix={<Search className='text-14px text-t-secondary' size={14} />}
             placeholder={isSearchMode ? '' : t('conversation.minimap.searchHint')}
           />
           {countNode}
@@ -253,9 +253,7 @@ const ConversationTitleMinimap: React.FC<ConversationTitleMinimapProps> = ({
           }}
         >
           <Search
-            theme='outline'
             size={15}
-            fill='currentColor'
             className={classNames(
               'transition-all duration-300',
               visible

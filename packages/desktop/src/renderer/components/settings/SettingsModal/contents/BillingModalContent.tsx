@@ -228,7 +228,7 @@ const BillingModalContent: React.FC<BillingModalContentProps> = ({ onOpenAccount
           </div>
         ) : (
           <div className='eve-settings-notice eve-settings-inline-notice'>
-            <Info theme='outline' size={15} />
+            <Info size={15} />
             <span>
               {t('credits.settings.noStatus', {
                 defaultValue: 'Credit status will appear once you are signed in.',
@@ -267,7 +267,7 @@ const BillingModalContent: React.FC<BillingModalContentProps> = ({ onOpenAccount
         </p>
         {mySeatsDegraded ? (
           <div className='eve-settings-notice eve-settings-inline-notice' data-testid='billing-seats-degraded'>
-            <Info theme='outline' size={15} />
+            <Info size={15} />
             <span>
               {t('credits.settings.seatListDegraded', {
                 defaultValue:
@@ -301,7 +301,7 @@ const BillingModalContent: React.FC<BillingModalContentProps> = ({ onOpenAccount
           </div>
         ) : (
           <div className='eve-settings-notice eve-settings-inline-notice' data-testid='billing-usage-empty'>
-            <Info theme='outline' size={15} />
+            <Info size={15} />
             <span>
               {usageAvailable
                 ? t('credits.settings.usageEmpty', { defaultValue: 'Noch keine Verbrauchsdaten (ab v1.5 erfasst).' })
@@ -459,7 +459,7 @@ const BillingModalContent: React.FC<BillingModalContentProps> = ({ onOpenAccount
                 return false;
               }}
             >
-              <Button icon={<UploadOne theme='outline' size={15} />}>
+              <Button icon={<UploadOne size={15} />}>
                 {brand.logoDataUri
                   ? t('credits.settings.brandLogoChange', { defaultValue: 'Change logo' })
                   : t('credits.settings.brandLogoPick', { defaultValue: 'Upload logo' })}

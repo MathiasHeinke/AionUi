@@ -565,7 +565,7 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
                       )?.name ||
                       selectedAgent.agent_type}
                   </span>
-                  <Down theme='outline' size={14} />
+                  <Down size={14} />
                 </Button>
               </Dropdown>
             </PreferenceRow>

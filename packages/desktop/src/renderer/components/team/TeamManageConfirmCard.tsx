@@ -125,7 +125,7 @@ const TeamManageConfirmCard: React.FC = () => {
         style={{ boxShadow: 'var(--eve-overlay-shadow, var(--glass-shadow-soft))' }}
         title={
           <span className='inline-flex items-center gap-8px'>
-            <People theme='outline' size={18} fill='currentColor' aria-hidden='true' />
+            <People size={18} aria-hidden='true' />
             EVE schlägt eine Team-Änderung vor
           </span>
         }

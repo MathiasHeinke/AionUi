@@ -124,11 +124,7 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
       visible={visible}
       header={
         <span className='inline-flex items-center gap-8px'>
-          {isFileMode ? (
-            <FileText theme='outline' size={17} fill='currentColor' aria-hidden='true' />
-          ) : (
-            <FolderOpen theme='outline' size={17} fill='currentColor' aria-hidden='true' />
-          )}
+          {isFileMode ? <FileText size={17} aria-hidden='true' /> : <FolderOpen size={17} aria-hidden='true' />}
           <span>{isFileMode ? t('fileSelection.selectFile') : t('fileSelection.selectDirectory')}</span>
         </span>
       }
@@ -175,7 +171,7 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
                 onClick={handleGoUp}
               >
                 <span className='eve-menu-icon'>
-                  <Up theme='outline' size={16} fill='currentColor' />
+                  <Up size={16} />
                 </span>
                 <span>{t('common.historyBack')}</span>
               </button>
@@ -204,11 +200,11 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
                 >
                   {item.isDirectory ? (
                     <span className='eve-menu-icon'>
-                      <FolderOpen theme='outline' size={17} fill='currentColor' />
+                      <FolderOpen size={17} />
                     </span>
                   ) : (
                     <span className='eve-menu-icon'>
-                      <FileText theme='outline' size={17} fill='currentColor' />
+                      <FileText size={17} />
                     </span>
                   )}
                   <span className='overflow-hidden text-ellipsis whitespace-nowrap'>{item.name}</span>

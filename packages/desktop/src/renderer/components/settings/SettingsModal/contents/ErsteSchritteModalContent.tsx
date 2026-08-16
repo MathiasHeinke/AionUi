@@ -275,7 +275,7 @@ const ErsteSchritteModalContent: React.FC = () => {
               <Tag color={STATUS_TAG_COLOR[step.status]} size='small'>
                 {t(`settings.ersteSchritteStatus.${step.status}`, { defaultValue: STATUS_LABEL[step.status] })}
               </Tag>
-              <Right theme='outline' size={14} />
+              <Right size={14} />
             </span>
           </Button>
         ))}

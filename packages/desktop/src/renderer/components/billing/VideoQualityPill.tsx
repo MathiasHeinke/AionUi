@@ -414,7 +414,7 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
                         })}
                       </span>
                     )}
-                    {selected && <CheckSmall theme='outline' size={13} className='video-quality-pill__check' />}
+                    {selected && <CheckSmall size={13} className='video-quality-pill__check' />}
                   </button>
                 );
               })}
@@ -511,7 +511,7 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
                             })}
                           </span>
                         )}
-                        {selected && <CheckSmall theme='outline' size={13} className='video-quality-pill__check' />}
+                        {selected && <CheckSmall size={13} className='video-quality-pill__check' />}
                       </button>
                     );
                   })}

@@ -121,7 +121,7 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
           aria-label={t('guid.workspace.workInProject')}
         >
           <div className={styles.wsDropdownSearch}>
-            <Search theme='outline' size={13} aria-hidden='true' />
+            <Search size={13} aria-hidden='true' />
             <input
               ref={searchRef}
               className={styles.wsDropdownSearchInput}
@@ -143,11 +143,9 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
                 onClick={() => handleSelectPath(path)}
                 aria-current={isActive ? 'true' : undefined}
               >
-                <FolderOpen theme='outline' size={14} aria-hidden='true' />
+                <FolderOpen size={14} aria-hidden='true' />
                 <span className={styles.wsDropdownItemName}>{name}</span>
-                {isActive && (
-                  <Check theme='outline' size={13} className={styles.wsDropdownItemCheck} aria-hidden='true' />
-                )}
+                {isActive && <Check size={13} className={styles.wsDropdownItemCheck} aria-hidden='true' />}
               </button>
             );
           })}
@@ -159,7 +157,7 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
             className={`${styles.wsDropdownItem} ${styles.wsDropdownItemAccent}`}
             onClick={handleBrowseWorkspace}
           >
-            <FolderPlus theme='outline' size={14} aria-hidden='true' />
+            <FolderPlus size={14} aria-hidden='true' />
             <span>{t('team.create.chooseDifferentFolder')}</span>
           </button>
 
@@ -174,7 +172,7 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
                 closeDropdown();
               }}
             >
-              <FolderBlock theme='outline' size={14} aria-hidden='true' />
+              <FolderBlock size={14} aria-hidden='true' />
               <span>{t('guid.workspace.noProject')}</span>
             </button>
           </>
@@ -197,14 +195,9 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
                 aria-haspopup='dialog'
                 aria-expanded={open}
               >
-                <FolderOpen theme='outline' size={15} aria-hidden='true' />
+                <FolderOpen size={15} aria-hidden='true' />
                 <span className={styles.workspacePillName}>{workspaceName}</span>
-                <Down
-                  theme='outline'
-                  size='12'
-                  fill='currentColor'
-                  style={{ flexShrink: 0, transform: 'translateY(1px)' }}
-                />
+                <Down size='12' style={{ flexShrink: 0, transform: 'translateY(1px)' }} />
               </button>
               <button
                 type='button'
@@ -215,7 +208,7 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
                   onClearWorkspace();
                 }}
               >
-                <Close theme='outline' size='11' fill='currentColor' aria-hidden='true' />
+                <Close size='11' aria-hidden='true' />
               </button>
             </div>
           </Tooltip>
@@ -232,16 +225,9 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
             aria-haspopup={recentWorkspaces.length > 0 ? 'dialog' : undefined}
             aria-expanded={recentWorkspaces.length > 0 ? open : undefined}
           >
-            <FolderOpen theme='outline' size={15} aria-hidden='true' />
+            <FolderOpen size={15} aria-hidden='true' />
             <span>{t('guid.workspace.workInProject')}</span>
-            {recentWorkspaces.length > 0 && (
-              <Down
-                theme='outline'
-                size='12'
-                fill='currentColor'
-                style={{ flexShrink: 0, transform: 'translateY(1px)' }}
-              />
-            )}
+            {recentWorkspaces.length > 0 && <Down size='12' style={{ flexShrink: 0, transform: 'translateY(1px)' }} />}
           </button>
           {dropdownEl}
         </>

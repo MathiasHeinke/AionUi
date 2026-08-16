@@ -269,7 +269,7 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
               className='flex items-start gap-8px p-12px rd-8px bg-[rgba(var(--primary-6),0.06)] border border-solid border-[rgba(var(--primary-6),0.18)]'
               data-testid='assistant-builtin-readonly-banner'
             >
-              <Info theme='outline' size={16} className='mt-2px text-primary-6 flex-shrink-0' />
+              <Info size={16} className='mt-2px text-primary-6 flex-shrink-0' />
               <div className='text-13px leading-20px text-t-primary'>
                 <span>
                   {t('settings.assistantBuiltinReadonlyTip', {
@@ -306,7 +306,7 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
                   ) : editAvatar ? (
                     <span className='text-24px'>{editAvatar}</span>
                   ) : (
-                    <Robot theme='outline' size={20} />
+                    <Robot size={20} />
                   )}
                 </Avatar>
               ) : (
@@ -318,7 +318,7 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
                       ) : editAvatar ? (
                         <span className='text-24px'>{editAvatar}</span>
                       ) : (
-                        <Robot theme='outline' size={20} />
+                        <Robot size={20} />
                       )}
                     </Avatar>
                   </div>
@@ -571,7 +571,7 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
                           title={t('settings.removeFromAssistant', { defaultValue: 'Remove from assistant' })}
                           aria-label={t('settings.removeFromAssistant', { defaultValue: 'Remove from assistant' })}
                         >
-                          <Delete size={16} fill='var(--color-text-3)' />
+                          <Delete size={16} color='var(--color-text-3)' />
                         </button>
                       </div>
                     ))}
@@ -614,7 +614,7 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
                           title={t('settings.removeFromAssistant', { defaultValue: 'Remove from assistant' })}
                           aria-label={t('settings.removeFromAssistant', { defaultValue: 'Remove from assistant' })}
                         >
-                          <Delete size={16} fill='var(--color-text-3)' />
+                          <Delete size={16} color='var(--color-text-3)' />
                         </button>
                       </div>
                     ))}

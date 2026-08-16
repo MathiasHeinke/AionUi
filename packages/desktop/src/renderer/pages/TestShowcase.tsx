@@ -101,14 +101,8 @@ const ComponentsShowcase: React.FC = () => {
       <section className='space-y-4'>
         <h2 className='text-xl font-semibold'>Steps - 步骤条</h2>
         <StepsWrapper current={currentStep} size='small'>
-          <StepsWrapper.Step
-            title='步骤一'
-            icon={currentStep > 1 ? <Check theme='filled' size={16} fill='currentColor' /> : undefined}
-          />
-          <StepsWrapper.Step
-            title='步骤二'
-            icon={currentStep > 2 ? <Check theme='filled' size={16} fill='currentColor' /> : undefined}
-          />
+          <StepsWrapper.Step title='步骤一' icon={currentStep > 1 ? <Check theme='filled' size={16} /> : undefined} />
+          <StepsWrapper.Step title='步骤二' icon={currentStep > 2 ? <Check theme='filled' size={16} /> : undefined} />
           <StepsWrapper.Step title='步骤三' />
         </StepsWrapper>
         <div className='flex gap-2 mt-4'>

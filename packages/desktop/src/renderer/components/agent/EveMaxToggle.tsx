@@ -281,7 +281,7 @@ const EveMaxToggle: React.FC<{
                 While the entitlement is unverified the control asserts neither,
                 so it shows the plain outline mark. */}
             {maxLocked && !entitlementPending ? (
-              <Lock theme='outline' size='13' aria-hidden='true' />
+              <Lock size='13' aria-hidden='true' />
             ) : (
               <Lightning theme={effectivelyOn ? 'filled' : 'outline'} size='13' aria-hidden='true' />
             )}

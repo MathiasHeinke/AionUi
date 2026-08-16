@@ -19,7 +19,7 @@ const ProviderLogo: React.FC<{ logo: string | null; name: string; size?: number 
   if (logo) {
     return <img src={logo} alt={name} className='object-contain shrink-0' style={{ width: size, height: size }} />;
   }
-  return <LinkCloud theme='outline' size={size} className='text-t-secondary flex shrink-0' />;
+  return <LinkCloud size={size} className='text-t-secondary flex shrink-0' />;
 };
 
 const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): void; disabled?: boolean }>(
@@ -181,7 +181,7 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
                       whichever surface loads first wins the price claim. */}
                   {props.disabled ? (
                     <>
-                      <Lock className='mt-1px shrink-0' size={13} fill='currentColor' aria-hidden='true' />
+                      <Lock className='mt-1px shrink-0' size={13} aria-hidden='true' />
                       <span>
                         {t(
                           'settings.byokPaidSeatOnly',
@@ -191,7 +191,7 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
                     </>
                   ) : (
                     <>
-                      <Tips className='mt-1px shrink-0' size={13} fill='currentColor' aria-hidden='true' />
+                      <Tips className='mt-1px shrink-0' size={13} aria-hidden='true' />
                       <span>{t('settings.multiApiKeyEditTip')}</span>
                     </>
                   )}

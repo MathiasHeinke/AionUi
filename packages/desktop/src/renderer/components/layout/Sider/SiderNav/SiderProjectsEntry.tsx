@@ -42,7 +42,7 @@ const SiderProjectsEntry: React.FC<SiderProjectsEntryProps> = ({
         onClick={onClick}
       >
         <span className='size-22px flex items-center justify-center shrink-0 line-height-0'>
-          <FolderFocus theme='outline' size={collapsed ? '20' : '16'} fill='currentColor' />
+          <FolderFocus size={collapsed ? '20' : '16'} />
         </span>
         {collapsed ? null : <span className='text-14px font-[500] leading-24px'>{label}</span>}
       </Button>

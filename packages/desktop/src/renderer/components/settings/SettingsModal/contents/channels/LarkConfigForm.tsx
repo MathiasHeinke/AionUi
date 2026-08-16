@@ -490,7 +490,6 @@ const LarkConfigForm: React.FC<LarkConfigFormProps> = ({ pluginStatus, modelSele
         onClick={() => setShowOptional((prev) => !prev)}
       >
         <Down
-          theme='outline'
           size={12}
           style={{
             transform: showOptional ? 'rotate(180deg)' : 'rotate(0deg)',
@@ -689,7 +688,7 @@ const LarkConfigForm: React.FC<LarkConfigFormProps> = ({ pluginStatus, modelSele
                       )?.name ||
                       selectedAgent.agent_type}
                   </span>
-                  <Down theme='outline' size={14} />
+                  <Down size={14} />
                 </Button>
               </Dropdown>
             </PreferenceRow>

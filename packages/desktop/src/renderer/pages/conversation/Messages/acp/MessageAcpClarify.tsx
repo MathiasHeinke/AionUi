@@ -139,7 +139,7 @@ const MessageAcpClarify: React.FC<{ message: IMessageAcpPermission }> = React.me
       <div className='flex flex-col gap-14px'>
         <div className={styles.header}>
           <span className={styles.headerIcon}>
-            <Comment theme='outline' size={17} fill='currentColor' aria-hidden='true' />
+            <Comment size={17} aria-hidden='true' />
           </span>
           <div className={styles.question}>{question}</div>
         </div>

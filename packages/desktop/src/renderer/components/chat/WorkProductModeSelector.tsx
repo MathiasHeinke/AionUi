@@ -139,7 +139,7 @@ const WorkProductModeSelector: React.FC<WorkProductModeSelectorProps> = ({
           title={
             <span className={styles.menuItem}>
               <span className={styles.menuIcon} aria-hidden='true'>
-                <AllApplication theme='outline' size={16} fill='currentColor' strokeWidth={3} />
+                <AllApplication size={16} />
               </span>
               <span className={styles.menuLabel}>{capabilityLabel}</span>
               {typeof capabilityCount === 'number' ? <span className={styles.count}>{capabilityCount}</span> : null}
@@ -152,11 +152,11 @@ const WorkProductModeSelector: React.FC<WorkProductModeSelectorProps> = ({
         <Menu.Item key='capabilities'>
           <span className={styles.menuItem}>
             <span className={styles.menuIcon} aria-hidden='true'>
-              <AllApplication theme='outline' size={16} fill='currentColor' strokeWidth={3} />
+              <AllApplication size={16} />
             </span>
             <span className={styles.menuLabel}>{capabilityLabel}</span>
             {typeof capabilityCount === 'number' ? <span className={styles.count}>{capabilityCount}</span> : null}
-            <Right className={styles.chevron} theme='outline' size={13} fill='currentColor' strokeWidth={3} />
+            <Right className={styles.chevron} size={13} />
           </span>
         </Menu.Item>
       ) : null}
@@ -183,7 +183,7 @@ const WorkProductModeSelector: React.FC<WorkProductModeSelectorProps> = ({
           data-mode={value}
           data-testid='work-product-tools-trigger'
         >
-          <Magic theme='outline' size={18} fill='currentColor' strokeWidth={3} />
+          <Magic size={18} />
         </Button>
       </Tooltip>
     </Dropdown>
@@ -252,7 +252,7 @@ export const WorkProductModeHeader: React.FC<WorkProductModeHeaderProps> = ({
               data-testid='work-product-reference-remove'
               onClick={onRemoveReference}
             >
-              <CloseSmall theme='outline' size={14} fill='currentColor' strokeWidth={3} />
+              <CloseSmall size={14} />
             </Button>
           </Tooltip>
         </div>
