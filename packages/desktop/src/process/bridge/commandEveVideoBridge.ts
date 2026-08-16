@@ -18,6 +18,7 @@
 
 import crypto, { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
 import { commandEveMediaSeedAttribution, EVE_MULTIMODAL_FUNCTION_URL } from '@/common/config/eveMultimodalGatewayCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { getDataPath } from '@process/utils/utils';
@@ -69,7 +70,7 @@ import {
   revokeVideoEditSpendOnUserSteer,
 } from '@process/commandEve/videoEditSpendPermitStore';
 import { emitCommandEveArtifactsChanged } from '@process/commandEve/artifactsChangedEmitter';
-import { hasVisibleCharacters } from '@/common/config/eveOpaqueTokenCore';
+import { hasVisibleCharacters, isSafeOpaqueRecordId } from '@/common/config/eveOpaqueTokenCore';
 import { isAgentVideoEditAdvertisingEnabled, readVideoSeatCapabilities } from '@process/commandEve/agentVideoEditFlag';
 import {
   ARTIFACT_ENVELOPE_MAX_ARTIFACTS,
@@ -113,8 +114,14 @@ import { readVideoCatalogWire } from '@process/commandEve/videoCatalogWireMain';
 import {
   resolveCommandEveOfficeArtifactAttachment,
   type CommandEveOfficeArtifactAttachment,
+  type CommandEveOfficeArtifactRefusalReason,
+  type CommandEveOfficeArtifactResolution,
   type CommandEveOfficeArtifactMode,
 } from '@process/commandEve/officeArtifactAttachmentCore';
+import {
+  beginCommandEveOfficeArtifactOperation,
+  listCommandEveOfficeArtifactRecords,
+} from '@process/commandEve/document/officeArtifactLineageMain';
 
 export type { CommandEveVideoGenerateRequest };
 
@@ -640,6 +647,9 @@ export async function handleCommandEveVideoGenerateBridge(
 export interface CommandEveVideoArtifactsListDeps {
   getDataPath: typeof getDataPath;
   listArtifactRecords: typeof listVideoArtifactRecords;
+  /** Reuse the native list channel so Office does not create a second artifact provider. */
+  listOfficeArtifactRecords?: typeof listCommandEveOfficeArtifactRecords;
+  log?: (line: string) => void;
   /**
    * MAT-1773 (Package B): run the remote-video hydration reconcile before the
    * list is served, so a clip the agent lane only ever had as a CDN URL is
@@ -652,6 +662,8 @@ export interface CommandEveVideoArtifactsListDeps {
 const productionListDeps: CommandEveVideoArtifactsListDeps = {
   getDataPath,
   listArtifactRecords: listVideoArtifactRecords,
+  listOfficeArtifactRecords: listCommandEveOfficeArtifactRecords,
+  log: (line) => console.warn(line),
 };
 
 /**
@@ -664,23 +676,39 @@ const productionListDeps: CommandEveVideoArtifactsListDeps = {
 export async function handleCommandEveVideoArtifactsList(
   request?: { conversationId?: string },
   deps: CommandEveVideoArtifactsListDeps = productionListDeps
-): Promise<CommandEveVideoConversationArtifact[]> {
+): Promise<IConversationArtifact[]> {
   if (!request || typeof request.conversationId !== 'string' || request.conversationId.length === 0) return [];
   if (deps.hydrateBeforeList) {
     try {
       await deps.hydrateBeforeList(request.conversationId);
-    } catch {
-      // Best-effort: a failed download must never block the artifact list.
+    } catch (error) {
+      deps.log?.(
+        '[command-eve-artifact-list] native-reconcile-failed: ' +
+          (error instanceof Error ? error.message : 'unknown-error')
+      );
     }
   }
-  return deps.listArtifactRecords(deps.getDataPath(), request.conversationId);
+  const dataPath = deps.getDataPath();
+  const videos = deps.listArtifactRecords(dataPath, request.conversationId);
+  let office: IConversationArtifact[] = [];
+  try {
+    office = await (deps.listOfficeArtifactRecords ?? listCommandEveOfficeArtifactRecords)(
+      dataPath,
+      request.conversationId
+    );
+  } catch (error) {
+    deps.log?.(
+      '[command-eve-artifact-list] office-list-failed: ' + (error instanceof Error ? error.message : 'unknown-error')
+    );
+  }
+  return [...videos, ...office];
 }
 
 /** IPC-facing envelope matching `ipcBridge.commandEve.videoArtifactsList`. */
 export async function handleCommandEveVideoArtifactsListBridge(
   request?: { conversationId?: string },
   deps: CommandEveVideoArtifactsListDeps = productionListDeps
-): Promise<{ success: true; data: CommandEveVideoConversationArtifact[] }> {
+): Promise<{ success: true; data: IConversationArtifact[] }> {
   return { success: true, data: await handleCommandEveVideoArtifactsList(request, deps) };
 }
 
@@ -750,6 +778,8 @@ export interface CommandEveArtifactContextEnvelopeDeps {
   isImageEditEnabled?: () => boolean;
   /** Resolve one explicit Office edit source in Main, never from renderer metadata. */
   resolveOfficeAttachment?: typeof resolveCommandEveOfficeArtifactAttachment;
+  /** Record before dispatch so a result can never exist without its immutable operation. */
+  beginOfficeOperation?: typeof beginCommandEveOfficeArtifactOperation;
 }
 
 const productionEnvelopeDeps: CommandEveArtifactContextEnvelopeDeps = {
@@ -824,13 +854,17 @@ export interface CommandEveArtifactContextEnvelopeRequest {
    * at all; the model choosing a medium is precisely what this field removes.
    */
   requestedEditOperation?: string;
-  /** Explicit non-billable Office edit lane; absent on create and every other mode. */
   requestedOfficeMode?: CommandEveOfficeArtifactMode;
+  /** Reusing queue identity prevents retries from minting another operation. */
+  officeOperationRequestId?: string;
 }
 
 export type CommandEveArtifactContextEnvelopeResult = Readonly<{
   envelope: string;
   officeAttachment?: CommandEveOfficeArtifactAttachment;
+  officeOperation?:
+    | Readonly<{ status: 'ready' }>
+    | Readonly<{ status: 'refused'; reasonCode: CommandEveOfficeArtifactRefusalReason }>;
 }>;
 
 /**
@@ -863,29 +897,68 @@ export async function handleCommandEveArtifactContextEnvelope(
     return {
       envelope: '',
       ...(requestedOfficeMode
-        ? { officeAttachment: { status: 'refused' as const, reasonCode: 'invalid-request' as const } }
+        ? {
+            officeOperation: { status: 'refused' as const, reasonCode: 'invalid-request' as const },
+            officeAttachment: { status: 'refused' as const, reasonCode: 'invalid-request' as const },
+          }
         : {}),
     };
   }
 
   let officeAttachment: CommandEveOfficeArtifactAttachment | undefined;
+  let officeOperation: CommandEveArtifactContextEnvelopeResult['officeOperation'];
+  let officeOperationMarker = '';
   if (requestedOfficeMode) {
-    const selectedArtifactIds = Array.isArray(request?.selectedArtifactIds)
-      ? request.selectedArtifactIds.filter(
-          (value): value is string => typeof value === 'string' && value.length > 0 && value.length <= 512
-        )
-      : [];
-    if (selectedArtifactIds.length !== 1) {
+    const selectedArtifactIds = request?.selectedArtifactIds ?? [];
+    const operationRequestId = request?.officeOperationRequestId;
+    const validSelection =
+      Array.isArray(selectedArtifactIds) &&
+      selectedArtifactIds.length <= 1 &&
+      selectedArtifactIds.every((value) => isSafeOpaqueRecordId(value));
+    const validOperationRequestId = isSafeOpaqueRecordId(operationRequestId);
+    if (!validSelection || !validOperationRequestId) {
       officeAttachment = { status: 'refused', reasonCode: 'invalid-request' };
+      officeOperation = { status: 'refused', reasonCode: 'invalid-request' };
     } else {
       try {
-        officeAttachment = await (deps.resolveOfficeAttachment ?? resolveCommandEveOfficeArtifactAttachment)({
-          conversationId,
-          artifactId: selectedArtifactIds[0],
-          mode: requestedOfficeMode,
-        });
+        const action = selectedArtifactIds.length === 1 ? 'edit' : 'create';
+        let officeResolution: CommandEveOfficeArtifactResolution | undefined;
+        if (action === 'edit') {
+          officeResolution = await (deps.resolveOfficeAttachment ?? resolveCommandEveOfficeArtifactAttachment)({
+            conversationId,
+            artifactId: selectedArtifactIds[0],
+            mode: requestedOfficeMode,
+          });
+          if (officeResolution.status !== 'ready') {
+            officeAttachment = officeResolution;
+            officeOperation = officeResolution;
+          }
+        }
+        if (!officeOperation) {
+          const begun = await (deps.beginOfficeOperation ?? beginCommandEveOfficeArtifactOperation)(
+            deps.getDataPath(),
+            {
+              conversationId,
+              requestId: operationRequestId,
+              action,
+              mode: requestedOfficeMode,
+              ...(officeResolution?.status === 'ready' ? { parent: officeResolution } : {}),
+            }
+          );
+          if (begun.status === 'ready') {
+            officeOperation = { status: 'ready' };
+            officeOperationMarker = begun.marker;
+            if (officeResolution?.status === 'ready') {
+              officeAttachment = { status: 'ready', path: officeResolution.path };
+            }
+          } else {
+            officeOperation = begun;
+            if (action === 'edit') officeAttachment = begun;
+          }
+        }
       } catch {
         officeAttachment = { status: 'refused', reasonCode: 'source-unsafe' };
+        officeOperation = { status: 'refused', reasonCode: 'source-unsafe' };
       }
     }
   }
@@ -1074,19 +1147,25 @@ export async function handleCommandEveArtifactContextEnvelope(
       }
     }
 
+    const artifactEnvelope = buildEveArtifactContextEnvelope({
+      entries,
+      allowedCapabilities,
+      ...(spendPermit === undefined ? {} : { spendPermit }),
+    });
     return {
-      envelope: buildEveArtifactContextEnvelope({
-        entries,
-        allowedCapabilities,
-        ...(spendPermit === undefined ? {} : { spendPermit }),
-      }),
+      envelope: [officeOperationMarker, artifactEnvelope].filter(Boolean).join('\n'),
       ...(officeAttachment ? { officeAttachment } : {}),
+      ...(officeOperation ? { officeOperation } : {}),
     };
   } catch {
     // A turn must never fail because the envelope could not be built. Sending
     // the user's message without the registry is a smaller loss than not
     // sending it at all.
-    return { envelope: '', ...(officeAttachment ? { officeAttachment } : {}) };
+    return {
+      envelope: officeOperationMarker,
+      ...(officeAttachment ? { officeAttachment } : {}),
+      ...(officeOperation ? { officeOperation } : {}),
+    };
   }
 }
 

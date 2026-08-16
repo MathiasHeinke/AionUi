@@ -12,6 +12,7 @@ import {
 } from '@/common/config/eveExternalActionExecutionCore';
 import { validateEveExternalActionPolicyMutation } from '@/common/config/eveExternalActionPolicyCore';
 import { isCommandEveImageModelTierId } from '@/common/config/eveImageModelRegistryCore';
+import { isSafeOpaqueRecordId } from '@/common/config/eveOpaqueTokenCore';
 import {
   COMMAND_EVE_MANAGED_IMAGE_ASPECT_RATIOS,
   COMMAND_EVE_MANAGED_IMAGE_MAX_PROMPT_CHARS,
@@ -367,6 +368,7 @@ function assertHighRiskProviderPayload(providerKey: RendererProviderKey, payload
         'referenceImagePaths',
         'requestedEditOperation',
         'requestedOfficeMode',
+        'officeOperationRequestId',
       ]);
       if (!hasOnlyKeys(payload, allowedKeys) || !isNonEmptyString(payload.conversationId)) {
         throw new Error('Invalid artifact context envelope payload.');
@@ -394,6 +396,12 @@ function assertHighRiskProviderPayload(providerKey: RendererProviderKey, payload
         !['word', 'excel'].includes(String(payload.requestedOfficeMode))
       ) {
         throw new Error('Invalid artifact Office mode.');
+      }
+      if (
+        Object.hasOwn(payload, 'officeOperationRequestId') &&
+        !isSafeOpaqueRecordId(payload.officeOperationRequestId)
+      ) {
+        throw new Error('Invalid artifact Office operation request id.');
       }
       return;
     }

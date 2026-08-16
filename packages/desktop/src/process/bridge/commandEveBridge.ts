@@ -1005,6 +1005,23 @@ async function hydrateRemoteVideosForConversation(conversationId: string) {
   });
 }
 
+async function reconcileOfficeArtifactsForConversation(conversationId: string) {
+  const { reconcileConversationOfficeArtifacts } = await import('../commandEve/document/officeArtifactLineageMain');
+  return reconcileConversationOfficeArtifacts(getDataPath(), conversationId, {
+    fetchTranscript: (id, window) => fetchConversationTranscriptFull(id, window),
+    log: (line) => console.warn(line),
+    onFreshArtifact: (id) => getImageArtifactsChangedEmitter().emit({ conversation_id: id }),
+  });
+}
+
+async function reconcileConversationNativeArtifacts(conversationId: string) {
+  const [video, office] = await Promise.all([
+    hydrateRemoteVideosForConversation(conversationId),
+    reconcileOfficeArtifactsForConversation(conversationId),
+  ]);
+  return { video, office };
+}
+
 async function reconcileImageArtifactBindsForConversation(
   conversationId: string,
   expectedSeatId: string = getActiveSeatId(),
@@ -2691,7 +2708,7 @@ export function initCommandEveBridge(): void {
     handleCommandEveVideoArtifactsListBridge(request, {
       getDataPath,
       listArtifactRecords: listVideoArtifactRecords,
-      hydrateBeforeList: (conversationId) => hydrateRemoteVideosForConversation(conversationId),
+      hydrateBeforeList: (conversationId) => reconcileConversationNativeArtifacts(conversationId),
     })
   );
   // Turn-end hydration authority (MAT-1773 Package B): the reconcile relay
@@ -2700,8 +2717,8 @@ export function initCommandEveBridge(): void {
   bridge.buildProvider('command-eve.video-artifact-hydrate').provider(async (request?: { conversationId?: string }) => {
     const conversationId = typeof request?.conversationId === 'string' ? request.conversationId : '';
     if (!conversationId) return { success: false, data: { ok: false, reason: 'invalid-request' } };
-    const summary = await hydrateRemoteVideosForConversation(conversationId);
-    return { success: true, data: { ok: true, summary } };
+    const summary = await reconcileConversationNativeArtifacts(conversationId);
+    return { success: true, data: { ok: true, summary: summary.video } };
   });
   // MAT-1753. The renderer asks what the seat may offer; it never decides.
   bridge.buildProvider('command-eve.video-capabilities').provider(handleCommandEveVideoCapabilitiesBridge);

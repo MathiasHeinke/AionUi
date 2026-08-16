@@ -205,6 +205,7 @@ function validProviderPayload(providerKey: RendererProviderKey): string {
         selectedArtifactIds: ['artifact-1'],
         userTurnText: 'Revise this document',
         requestedOfficeMode: 'word',
+        officeOperationRequestId: 'queue-item-1',
       });
     case 'update-system-info':
       return providerPayload(providerKey, { cacheDir: '/tmp/cache', workDir: '/tmp/work' });
@@ -645,6 +646,11 @@ describe('main adapter IPC trust boundary', () => {
         conversationId: 'conversation-1',
         selectedArtifactIds: [42],
         requestedOfficeMode: 'excel',
+      },
+      {
+        conversationId: 'conversation-1',
+        requestedOfficeMode: 'word',
+        officeOperationRequestId: '../forged',
       },
     ]) {
       expect(() => handler(event, providerPayload('command-eve.artifact-context-envelope', invalid))).toThrow();

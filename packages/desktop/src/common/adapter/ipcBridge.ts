@@ -85,7 +85,6 @@ import type {
 } from '../config/evePresentationIntelligenceCore';
 import type { CommandEveImagePrepareRequest, CommandEveImagePrepareResult } from '../config/eveImageIntelligenceCore';
 import type {
-  CommandEveVideoConversationArtifact,
   CommandEveVideoGenerateRequest,
   CommandEveVideoGenerateResult,
 } from '../config/videoGenerationRequestCore';
@@ -2109,10 +2108,9 @@ export const commandEve = {
   // through the direct call above, so it cannot return it from its own
   // listArtifacts. The renderer merges this list in on load so a generated
   // video survives switching away from the conversation and back.
-  videoArtifactsList: bridge.buildProvider<
-    IBridgeResponse<CommandEveVideoConversationArtifact[]>,
-    { conversationId: string }
-  >('command-eve.video-artifacts-list'),
+  videoArtifactsList: bridge.buildProvider<IBridgeResponse<IConversationArtifact[]>, { conversationId: string }>(
+    'command-eve.video-artifacts-list'
+  ),
   // MAT-1747 — the sanitized artifact registry the send-path folds into the
   // prepared-context envelope of the turn the user was already sending. No extra
   // inference turn is created; the displayed message stays byte-identical to
@@ -2155,7 +2153,23 @@ export const commandEve = {
               | 'source-outside-workspace'
               | 'source-unsafe'
               | 'source-format-mismatch'
-              | 'seat-changed';
+              | 'seat-changed'
+              | 'operation-conflict';
+          };
+      officeOperation?:
+        | { status: 'ready' }
+        | {
+            status: 'refused';
+            reasonCode:
+              | 'invalid-request'
+              | 'backend-unavailable'
+              | 'conversation-unavailable'
+              | 'artifact-unavailable'
+              | 'source-outside-workspace'
+              | 'source-unsafe'
+              | 'source-format-mismatch'
+              | 'seat-changed'
+              | 'operation-conflict';
           };
     }>,
     {
@@ -2169,8 +2183,10 @@ export const commandEve = {
        * Absent → Main mints NO permit.
        */
       requestedEditOperation?: 'video_edit' | 'image_edit';
-      /** Explicit non-billable Office edit source resolved by Main. */
+      /** Main resolves this so the renderer cannot mint document authority. */
       requestedOfficeMode?: 'word' | 'excel';
+      /** Reusing queue identity prevents retries from minting another operation. */
+      officeOperationRequestId?: string;
     }
   >('command-eve.artifact-context-envelope'),
   // MAT-1747 — a STEER is a real user turn, and this is where it is treated as

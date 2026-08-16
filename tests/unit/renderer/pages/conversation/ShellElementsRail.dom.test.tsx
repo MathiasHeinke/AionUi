@@ -520,6 +520,44 @@ describe('ShellElementsRail', () => {
     );
   });
 
+  it('reloads a Main-durable Office artifact from the existing local list and opens only its workspace-relative copy', async () => {
+    const officeArtifact: IConversationArtifact = {
+      ...managedImageArtifact,
+      id: 'hermes-media-msg-result-0',
+      kind: 'file',
+      payload: {
+        artifact_type: 'file',
+        title: 'Lineage.docx',
+        path: '.command-eve/conversation-artifacts/conv/lineage.docx',
+        managed_office: true,
+        source_message_id: 'msg-result',
+      },
+    };
+    videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [officeArtifact] });
+
+    const first = render(<ShellElementsRail conversationId='conv-1' workspacePath='/tmp/workspace' />);
+    fireEvent.click(screen.getByTestId('elements-rail-tab-artifacts'));
+    expect(await screen.findByRole('button', { name: 'Lineage.docx' })).toBeTruthy();
+    first.unmount();
+
+    render(<ShellElementsRail conversationId='conv-1' workspacePath='/tmp/workspace' />);
+    fireEvent.click(screen.getByTestId('elements-rail-tab-artifacts'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Lineage.docx' }));
+
+    await waitFor(() =>
+      expect(openPreviewMock).toHaveBeenCalledWith(
+        '',
+        'word',
+        expect.objectContaining({
+          conversation_id: 'conv-1',
+          artifact_id: 'hermes-media-msg-result-0',
+          file_path: '/tmp/workspace/.command-eve/conversation-artifacts/conv/lineage.docx',
+        })
+      )
+    );
+    expect(shellOpenFileInvokeMock).not.toHaveBeenCalled();
+  });
+
   it('switches to project context when the composer requests it', () => {
     render(
       <ShellElementsRail

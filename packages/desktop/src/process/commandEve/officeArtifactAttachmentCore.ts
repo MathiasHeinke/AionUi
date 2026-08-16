@@ -10,34 +10,76 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import { parseHermesMediaDirectives } from '@/common/config/hermesMediaDirectiveCore';
+import {
+  COMMAND_EVE_OFFICE_ORIGIN_CAPABILITY,
+  commandEveOfficeExtension,
+  commandEveOfficeFingerprint,
+  commandEveOfficeMimeType,
+  isCommandEveOfficeArtifactMode,
+  type CommandEveOfficeArtifactMode,
+  type CommandEveOfficeConversationArtifact,
+  type CommandEveOfficeConversationArtifactPayload,
+} from '@/common/types/office/artifactLineage';
 import { getDataPath } from '@process/utils/utils';
 import {
   getActiveSeatContextRevision,
   getActiveSeatId,
   resolveSeatHermesHome,
 } from '@process/commandEve/seatContextCore';
+import { isSafeOpaqueRecordId } from '@/common/config/eveOpaqueTokenCore';
 import {
   ensurePrivateDocumentDirectory,
   writePrivateDocumentAtomic,
+  writePrivateDocumentImmutable,
 } from '@process/commandEve/document/privateDocumentCache';
+import {
+  commandEveOfficeArtifactRelativePath,
+  commandEveOfficeSourceOperationId,
+  ProjectWorkspaceConversationArtifactStore,
+} from '@process/services/project-workspace/storage/conversationArtifactStore';
 
-/** Editable Office formats owned by this isolated integration slice. */
-export type CommandEveOfficeArtifactMode = 'word' | 'excel';
+export type { CommandEveOfficeArtifactMode };
+
+export type CommandEveOfficeArtifactRefusalReason =
+  | 'invalid-request'
+  | 'backend-unavailable'
+  | 'conversation-unavailable'
+  | 'artifact-unavailable'
+  | 'source-outside-workspace'
+  | 'source-unsafe'
+  | 'source-format-mismatch'
+  | 'seat-changed'
+  | 'operation-conflict';
 
 export type CommandEveOfficeArtifactAttachment =
   | Readonly<{ status: 'ready'; path: string }>
   | Readonly<{
       status: 'refused';
-      reasonCode:
-        | 'invalid-request'
-        | 'backend-unavailable'
-        | 'conversation-unavailable'
-        | 'artifact-unavailable'
-        | 'source-outside-workspace'
-        | 'source-unsafe'
-        | 'source-format-mismatch'
-        | 'seat-changed';
+      reasonCode: CommandEveOfficeArtifactRefusalReason;
     }>;
+
+export type CommandEveOfficeArtifactResolution =
+  | Readonly<{
+      status: 'ready';
+      path: string;
+      parentArtifactId: string;
+      sourceSha256: string;
+      sourceSize: number;
+      sourceFingerprint: string;
+      seatId: string;
+      seatContextRevision: number;
+    }>
+  | Extract<CommandEveOfficeArtifactAttachment, { status: 'refused' }>;
+
+export type CommandEveOfficeConversationAuthority =
+  | Readonly<{
+      status: 'ready';
+      backendPort: number;
+      workspace: string;
+      seatId: string;
+      seatContextRevision: number;
+    }>
+  | Readonly<{ status: 'refused'; reasonCode: CommandEveOfficeArtifactRefusalReason }>;
 
 export interface CommandEveOfficeArtifactAttachmentRequest {
   conversationId: string;
@@ -59,6 +101,26 @@ const OFFICE_SOURCE_MAX_BYTES = 64 * 1024 * 1024;
 const OFFICE_PACKAGE_MAX_ENTRIES = 10_000;
 const OFFICE_PACKAGE_MAX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024;
 const OFFICE_LOOKUP_TIMEOUT_MS = 5_000;
+const TERMINAL_MESSAGE_STATUSES = new Set(['finish', 'finished', 'completed', 'complete', 'done']);
+
+type ImportedOfficeSourceProvenance =
+  | {
+      sourceTool: 'office_transcript_import';
+      messageId: string;
+      turnId: string;
+      directiveIndex: number;
+    }
+  | {
+      sourceTool: 'aioncore_artifact_import';
+      messageId: null;
+      turnId: null;
+      directiveIndex: null;
+    };
+
+type ResolvedImportedOfficeSource = {
+  path: string;
+  provenance: ImportedOfficeSourceProvenance;
+};
 
 const productionDeps: CommandEveOfficeArtifactAttachmentDeps = {
   fetch,
@@ -90,11 +152,11 @@ function validOpaqueId(value: unknown): value is string {
 }
 
 function extensionForMode(mode: CommandEveOfficeArtifactMode): string {
-  return mode === 'word' ? '.docx' : '.xlsx';
+  return commandEveOfficeExtension(mode);
 }
 
 function isDocumentArtifactMode(value: unknown): value is CommandEveOfficeArtifactMode {
-  return value === 'word' || value === 'excel';
+  return isCommandEveOfficeArtifactMode(value);
 }
 
 function isContainedPath(root: string, candidate: string): boolean {
@@ -209,7 +271,7 @@ async function resolveTranscriptArtifactSource(
   deps: CommandEveOfficeArtifactAttachmentDeps,
   port: number,
   request: CommandEveOfficeArtifactAttachmentRequest
-): Promise<string | null> {
+): Promise<ResolvedImportedOfficeSource | null> {
   const identity = mediaArtifactIdentity(request.artifactId);
   if (!identity) return null;
   const data = await fetchApiData(
@@ -225,6 +287,10 @@ async function resolveTranscriptArtifactSource(
     message?.position !== 'left' ||
     message?.type !== 'text' ||
     message?.hidden === true ||
+    typeof message?.status !== 'string' ||
+    !TERMINAL_MESSAGE_STATUSES.has(message.status.trim().toLowerCase()) ||
+    typeof message?.turn_id !== 'string' ||
+    !isSafeOpaqueRecordId(message.turn_id) ||
     typeof content?.content !== 'string'
   ) {
     return null;
@@ -232,14 +298,24 @@ async function resolveTranscriptArtifactSource(
 
   const directive = parseHermesMediaDirectives(content.content).directives[identity.index];
   if (!directive || directive.artifactType !== 'file') return null;
-  return `hermes-media-${identity.messageId}-${identity.index}` === request.artifactId ? directive.source : null;
+  return `hermes-media-${identity.messageId}-${identity.index}` === request.artifactId
+    ? {
+        path: directive.source,
+        provenance: {
+          sourceTool: 'office_transcript_import',
+          messageId: identity.messageId,
+          turnId: message.turn_id,
+          directiveIndex: identity.index,
+        },
+      }
+    : null;
 }
 
 async function resolveStoredArtifactSource(
   deps: CommandEveOfficeArtifactAttachmentDeps,
   port: number,
   request: CommandEveOfficeArtifactAttachmentRequest
-): Promise<string | null> {
+): Promise<ResolvedImportedOfficeSource | null> {
   const data = await fetchApiData(
     deps,
     port,
@@ -256,10 +332,21 @@ async function resolveStoredArtifactSource(
   ) {
     return null;
   }
-  return readString(payload, ['path', 'file_path', 'absolute_path']);
+  const sourcePath = readString(payload, ['path', 'file_path', 'absolute_path']);
+  return sourcePath
+    ? {
+        path: sourcePath,
+        provenance: {
+          sourceTool: 'aioncore_artifact_import',
+          messageId: null,
+          turnId: null,
+          directiveIndex: null,
+        },
+      }
+    : null;
 }
 
-async function readBoundedOfficeSource(
+export async function readBoundedOfficeSource(
   workspaceRoot: string,
   sourcePath: string,
   mode: CommandEveOfficeArtifactMode
@@ -324,6 +411,112 @@ async function readBoundedOfficeSource(
   }
 }
 
+export async function resolveCommandEveOfficeConversationAuthority(
+  conversationId: string,
+  deps: CommandEveOfficeArtifactAttachmentDeps = productionDeps
+): Promise<CommandEveOfficeConversationAuthority> {
+  if (!validOpaqueId(conversationId)) return { status: 'refused', reasonCode: 'invalid-request' };
+  const backendPort = deps.getBackendPort();
+  if (!backendPort) return { status: 'refused', reasonCode: 'backend-unavailable' };
+  const seatId = deps.getActiveSeatId();
+  const seatContextRevision = deps.getActiveSeatContextRevision();
+  const conversationData = recordOf(
+    await fetchApiData(deps, backendPort, '/api/conversations/' + encodeURIComponent(conversationId))
+  );
+  const workspace = readString(recordOf(conversationData?.extra), ['workspace']);
+  if (conversationData?.id !== conversationId || !workspace || !path.isAbsolute(workspace)) {
+    return { status: 'refused', reasonCode: 'conversation-unavailable' };
+  }
+  if (deps.getActiveSeatId() !== seatId || deps.getActiveSeatContextRevision() !== seatContextRevision) {
+    return { status: 'refused', reasonCode: 'seat-changed' };
+  }
+  return { status: 'ready', backendPort, workspace, seatId, seatContextRevision };
+}
+
+function cleanOfficeFileName(sourcePath: string, mode: CommandEveOfficeArtifactMode): string {
+  const fallback = mode === 'word' ? 'document.docx' : 'workbook.xlsx';
+  const candidate = path
+    .basename(sourcePath)
+    .replace(/\p{Cc}/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180);
+  return candidate.toLowerCase().endsWith(commandEveOfficeExtension(mode)) ? candidate : fallback;
+}
+
+function persistImportedOfficeParent(input: {
+  dataPath: string;
+  workspace: string;
+  seatId: string;
+  seatContextRevision: number;
+  conversationId: string;
+  artifactId: string;
+  mode: CommandEveOfficeArtifactMode;
+  sourcePath: string;
+  source: { buffer: Buffer; sha256: string };
+  provenance: ImportedOfficeSourceProvenance;
+}): CommandEveOfficeConversationArtifact {
+  const store = new ProjectWorkspaceConversationArtifactStore({
+    state_root: path.join(input.dataPath, 'project-workspace'),
+  });
+  const relativePath = commandEveOfficeArtifactRelativePath(
+    input.conversationId,
+    input.artifactId,
+    input.source.sha256,
+    input.mode
+  );
+  const immutablePath = path.resolve(input.workspace, ...relativePath.split('/'));
+  writePrivateDocumentImmutable(input.workspace, immutablePath, input.source.buffer);
+  const operationId = commandEveOfficeSourceOperationId({
+    seatId: input.seatId,
+    seatContextRevision: input.seatContextRevision,
+    conversationId: input.conversationId,
+    artifactId: input.artifactId,
+    mode: input.mode,
+    resultSha256: input.source.sha256,
+    resultSize: input.source.buffer.length,
+    sourceTool: input.provenance.sourceTool,
+    sourceMessageId: input.provenance.messageId,
+    sourceTurnId: input.provenance.turnId,
+    sourceDirectiveIndex: input.provenance.directiveIndex,
+  });
+  const fileName = cleanOfficeFileName(input.sourcePath, input.mode);
+  const fingerprint = commandEveOfficeFingerprint(input.mode, input.source.sha256, input.source.buffer.length);
+  const payload: CommandEveOfficeConversationArtifactPayload = {
+    artifact_type: 'file',
+    artifact_id: input.artifactId,
+    title: fileName,
+    file_name: fileName,
+    mime_type: commandEveOfficeMimeType(input.mode),
+    path: relativePath,
+    size: input.source.buffer.length,
+    hash: input.source.sha256,
+    managed_office: true,
+    office_mode: input.mode,
+    origin_capability: COMMAND_EVE_OFFICE_ORIGIN_CAPABILITY,
+    origin_action: 'source',
+    parent_artifact_id: null,
+    source_sha256: input.source.sha256,
+    source_size: input.source.buffer.length,
+    source_fingerprint: fingerprint,
+    result_sha256: input.source.sha256,
+    result_fingerprint: fingerprint,
+    operation_id: operationId,
+    seat_id: input.seatId,
+    seat_context_revision: input.seatContextRevision,
+    source_message_id: input.provenance.messageId,
+    source_turn_id: input.provenance.turnId,
+    source_directive_index: input.provenance.directiveIndex,
+    source_tool: input.provenance.sourceTool,
+  };
+  return store.createOfficeArtifact({
+    seat_id: input.seatId,
+    conversation_id: input.conversationId,
+    artifact_id: input.artifactId,
+    payload,
+  });
+}
+
 /**
  * Resolve an explicit document edit target entirely in Main. The renderer passes
  * only conversation/artifact identity and a mode; Main re-reads the persisted
@@ -333,7 +526,7 @@ async function readBoundedOfficeSource(
 export async function resolveCommandEveOfficeArtifactAttachment(
   request: CommandEveOfficeArtifactAttachmentRequest,
   deps: CommandEveOfficeArtifactAttachmentDeps = productionDeps
-): Promise<CommandEveOfficeArtifactAttachment> {
+): Promise<CommandEveOfficeArtifactResolution> {
   if (
     !validOpaqueId(request?.conversationId) ||
     !validOpaqueId(request?.artifactId) ||
@@ -342,42 +535,92 @@ export async function resolveCommandEveOfficeArtifactAttachment(
     return { status: 'refused', reasonCode: 'invalid-request' };
   }
 
-  const port = deps.getBackendPort();
-  if (!port) return { status: 'refused', reasonCode: 'backend-unavailable' };
-  const capturedSeatId = deps.getActiveSeatId();
-  const capturedSeatRevision = deps.getActiveSeatContextRevision();
+  const authority = await resolveCommandEveOfficeConversationAuthority(request.conversationId, deps);
+  if (authority.status !== 'ready') return authority;
+  const { backendPort: port, workspace, seatId: capturedSeatId, seatContextRevision: capturedSeatRevision } = authority;
   const seatStillMatches = () =>
     deps.getActiveSeatId() === capturedSeatId && deps.getActiveSeatContextRevision() === capturedSeatRevision;
 
-  const conversationData = recordOf(
-    await fetchApiData(deps, port, `/api/conversations/${encodeURIComponent(request.conversationId)}`)
-  );
-  const workspace = readString(recordOf(conversationData?.extra), ['workspace']);
-  if (conversationData?.id !== request.conversationId || !workspace || !path.isAbsolute(workspace)) {
-    return { status: 'refused', reasonCode: 'conversation-unavailable' };
-  }
-  if (!seatStillMatches()) return { status: 'refused', reasonCode: 'seat-changed' };
-
-  const sourcePath =
-    (await resolveTranscriptArtifactSource(deps, port, request)) ??
-    (await resolveStoredArtifactSource(deps, port, request));
-  if (!sourcePath) return { status: 'refused', reasonCode: 'artifact-unavailable' };
-  if (!path.isAbsolute(sourcePath) || path.extname(sourcePath).toLowerCase() !== extensionForMode(request.mode)) {
-    return { status: 'refused', reasonCode: 'source-format-mismatch' };
-  }
-
-  const source = await readBoundedOfficeSource(workspace, sourcePath, request.mode);
-  if (!source) return { status: 'refused', reasonCode: 'source-unsafe' };
-  if (!seatStillMatches()) return { status: 'refused', reasonCode: 'seat-changed' };
-
   try {
+    const dataPath = deps.getDataPath();
+    const store = new ProjectWorkspaceConversationArtifactStore({
+      state_root: path.join(dataPath, 'project-workspace'),
+    });
+    let parent = store.readOfficeArtifactWithVerifiedRecordLineage(
+      capturedSeatId,
+      request.conversationId,
+      request.artifactId
+    );
+    let sourcePath: string;
+    let source: { buffer: Buffer; sha256: string };
+    if (parent) {
+      if (
+        parent.conversation_id !== request.conversationId ||
+        parent.payload.seat_id !== capturedSeatId ||
+        parent.payload.office_mode !== request.mode
+      ) {
+        return { status: 'refused', reasonCode: 'artifact-unavailable' };
+      }
+      sourcePath = path.resolve(workspace, ...parent.payload.path.split('/'));
+      const verified = await readBoundedOfficeSource(workspace, sourcePath, request.mode);
+      if (
+        !verified ||
+        verified.sha256 !== parent.payload.result_sha256 ||
+        verified.buffer.length !== parent.payload.size ||
+        commandEveOfficeFingerprint(request.mode, verified.sha256, verified.buffer.length) !==
+          parent.payload.result_fingerprint
+      ) {
+        return { status: 'refused', reasonCode: 'source-unsafe' };
+      }
+      source = verified;
+    } else {
+      const resolvedSource =
+        (await resolveTranscriptArtifactSource(deps, port, request)) ??
+        (await resolveStoredArtifactSource(deps, port, request));
+      if (!resolvedSource) return { status: 'refused', reasonCode: 'artifact-unavailable' };
+      const resolvedSourcePath = resolvedSource.path;
+      if (
+        !path.isAbsolute(resolvedSourcePath) ||
+        path.extname(resolvedSourcePath).toLowerCase() !== extensionForMode(request.mode)
+      ) {
+        return { status: 'refused', reasonCode: 'source-format-mismatch' };
+      }
+      const verified = await readBoundedOfficeSource(workspace, resolvedSourcePath, request.mode);
+      if (!verified) return { status: 'refused', reasonCode: 'source-unsafe' };
+      if (!seatStillMatches()) return { status: 'refused', reasonCode: 'seat-changed' };
+      sourcePath = resolvedSourcePath;
+      source = verified;
+      parent = persistImportedOfficeParent({
+        dataPath,
+        workspace,
+        seatId: capturedSeatId,
+        seatContextRevision: capturedSeatRevision,
+        conversationId: request.conversationId,
+        artifactId: request.artifactId,
+        mode: request.mode,
+        sourcePath,
+        source,
+        provenance: resolvedSource.provenance,
+      });
+    }
+    if (!seatStillMatches()) return { status: 'refused', reasonCode: 'seat-changed' };
+
     const hermesHome = deps.resolveSeatHermesHome(deps.getDataPath(), capturedSeatId);
     const stageDirectory = path.join(hermesHome, 'office-edit-sources', source.sha256.slice(0, 2));
     ensurePrivateDocumentDirectory(hermesHome, stageDirectory);
-    const stagedPath = path.join(stageDirectory, `${source.sha256}-${deps.newId()}${extensionForMode(request.mode)}`);
+    const stagedPath = path.join(stageDirectory, source.sha256 + '-' + deps.newId() + extensionForMode(request.mode));
     writePrivateDocumentAtomic(hermesHome, stagedPath, source.buffer);
     if (!seatStillMatches()) return { status: 'refused', reasonCode: 'seat-changed' };
-    return { status: 'ready', path: stagedPath };
+    return {
+      status: 'ready',
+      path: stagedPath,
+      parentArtifactId: parent.id,
+      sourceSha256: source.sha256,
+      sourceSize: source.buffer.length,
+      sourceFingerprint: commandEveOfficeFingerprint(request.mode, source.sha256, source.buffer.length),
+      seatId: capturedSeatId,
+      seatContextRevision: capturedSeatRevision,
+    };
   } catch {
     return { status: 'refused', reasonCode: 'source-unsafe' };
   }

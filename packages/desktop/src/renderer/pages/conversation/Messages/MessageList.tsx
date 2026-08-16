@@ -530,6 +530,7 @@ const MessageList: React.FC<{
   }, [list]);
 
   useEffect(() => {
+    const existingArtifactIds = new Set(artifacts.map((artifact) => artifact.id));
     const existingSourceKeys = new Set(
       artifacts
         .filter(isVisibleConversationArtifact)
@@ -538,8 +539,10 @@ const MessageList: React.FC<{
     );
     for (const { artifacts: projectedArtifacts } of hermesMediaByMessage.values()) {
       for (const artifact of projectedArtifacts) {
+        if (existingArtifactIds.has(artifact.id)) continue;
         const sourceKeys = getGeneratedArtifactSourceKeys(artifact);
         if (sourceKeys.some((key) => existingSourceKeys.has(key))) continue;
+        existingArtifactIds.add(artifact.id);
         sourceKeys.forEach((key) => existingSourceKeys.add(key));
         stageConversationArtifact(artifact.conversation_id, artifact);
       }
@@ -550,6 +553,7 @@ const MessageList: React.FC<{
   const processedList = useMemo(() => {
     const result: IProcessedItem[] = [];
     const visibleArtifacts = artifacts.filter(isVisibleConversationArtifact);
+    const generatedArtifactIds = new Set(visibleArtifacts.map((artifact) => artifact.id));
     const generatedArtifactSourceKeys = new Set(
       visibleArtifacts.flatMap(getGeneratedArtifactSourceKeys).filter((key): key is string => Boolean(key))
     );
@@ -668,8 +672,10 @@ const MessageList: React.FC<{
             },
           });
           projectedMedia.artifacts.forEach((artifact) => {
+            if (generatedArtifactIds.has(artifact.id)) return;
             const sourceKeys = getGeneratedArtifactSourceKeys(artifact);
             if (sourceKeys.some((key) => generatedArtifactSourceKeys.has(key))) return;
+            generatedArtifactIds.add(artifact.id);
             sourceKeys.forEach((key) => generatedArtifactSourceKeys.add(key));
             result.push({
               type: 'artifact',
