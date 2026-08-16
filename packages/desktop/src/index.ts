@@ -1112,13 +1112,6 @@ function writeCommandEveModelWarmupReceipt(runtimeRoot: string, receipt: Command
   }
 }
 
-function commandEveWarmupReceiptReadyForModel(
-  receipt: CommandEveModelWarmupReceipt | undefined,
-  model: string
-): boolean {
-  return Boolean(receipt?.status === 'ready' && receipt.model === model);
-}
-
 async function runCommandEveLocalModelWarmup(
   receipt: CommandEveWarmupReceipt,
   shimUrl: string,
@@ -1434,11 +1427,11 @@ function registerCommandEveRuntimeBridge(): void {
         // delegate so Desktop binds transport and bootstrap emits the role hint.
         ...(await resolveCommandEveWorkerRuntimeInputs()),
         afterBootstrapExclusive: async (terminalReceipt) => {
-          const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
-          const shouldWarm = !commandEveWarmupReceiptReadyForModel(existingWarmup, terminalReceipt.default_model || '');
-          warmupReceipt = shouldWarm
-            ? await ensureCommandEveLocalModelWarmup(terminalReceipt, shimUrl, warmCommandEveLocalModel)
-            : existingWarmup;
+          // A warm-up receipt is historical evidence, not current residency.
+          // `warmCommandEveLocalModel` performs the bounded live `/api/ps`
+          // check and skips the synthetic ping when the exact model is still
+          // resident.
+          warmupReceipt = await ensureCommandEveLocalModelWarmup(terminalReceipt, shimUrl, warmCommandEveLocalModel);
           status = await getCommandEveRuntimeStatusPayload();
         },
       });
@@ -1528,10 +1521,7 @@ function registerCommandEveRuntimeBridge(): void {
         // delegate so Desktop binds transport and bootstrap emits the role hint.
         ...(await resolveCommandEveWorkerRuntimeInputs()),
         afterBootstrapExclusive: async (terminalReceipt) => {
-          const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
-          warmupReceipt = commandEveWarmupReceiptReadyForModel(existingWarmup, terminalReceipt.default_model || '')
-            ? existingWarmup
-            : await ensureCommandEveLocalModelWarmup(terminalReceipt, shimUrl, warmCommandEveLocalModel);
+          warmupReceipt = await ensureCommandEveLocalModelWarmup(terminalReceipt, shimUrl, warmCommandEveLocalModel);
           status = await getCommandEveRuntimeStatusPayload();
         },
       });

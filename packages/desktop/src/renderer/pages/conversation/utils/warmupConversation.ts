@@ -17,6 +17,14 @@ export const MAX_CONCURRENT_CONVERSATION_WARMUPS = 1;
 export const MAX_ACTIVE_CONVERSATION_RUNTIMES = 5;
 export const MAX_CONVERSATION_WARMUP_FAILURES = 3;
 export const CONVERSATION_WARMUP_RETRY_COOLDOWN_MS = 30_000;
+export const CONVERSATION_SEND_WARMUP_TIMEOUT_MS = 30_000;
+
+type WarmupConversationOptions = {
+  revalidate?: boolean;
+  purpose?: 'proactive' | 'send';
+};
+
+export type ConversationSendWarmupOutcome = 'ready' | 'failed' | 'timeout';
 
 type WarmupFailureBudget = {
   failures: number;
@@ -103,7 +111,7 @@ async function runWarmupWithBackpressure(conversation_id: string, allowAtCapacit
   await ipcBridge.conversation.warmup.invoke({ conversation_id });
 }
 
-export function warmupConversation(conversation_id: string, options: { revalidate?: boolean } = {}): Promise<void> {
+export function warmupConversation(conversation_id: string, options: WarmupConversationOptions = {}): Promise<void> {
   const existing = warmupByConversation.get(conversation_id);
   if (existing) {
     return existing;
@@ -134,9 +142,13 @@ export function warmupConversation(conversation_id: string, options: { revalidat
   // process and MCP fleet. Serializing different conversations prevents rapid
   // navigation or remounts from spawning an unbounded burst.
   const revalidatingReadyRuntime = previous.phase === 'ready' && options.revalidate === true;
+  // The active-runtime cap protects speculative navigation warmups. An
+  // explicit user send is not speculative: blocking it at the renderer would
+  // strand the draft even though Core can reuse or promote an existing task.
+  const userSend = options.purpose === 'send';
   const queuedWarmup = warmupQueueTail
     .catch(() => {})
-    .then(() => runWarmupWithBackpressure(conversation_id, revalidatingReadyRuntime));
+    .then(() => runWarmupWithBackpressure(conversation_id, revalidatingReadyRuntime || userSend));
   warmupQueueTail = queuedWarmup.catch(() => {});
 
   const promise = queuedWarmup
@@ -169,6 +181,33 @@ export function warmupConversation(conversation_id: string, options: { revalidat
 
   warmupByConversation.set(conversation_id, promise);
   return promise;
+}
+
+/**
+ * Join the coalesced native warmup before an ordinary user send, but never
+ * turn warmup availability into message availability. A timeout or warmup
+ * error is fail-open: the real send remains the authority and Core will join
+ * the same task factory if it is still starting.
+ */
+export async function settleConversationWarmupForSend(
+  conversation_id: string,
+  timeoutMs = CONVERSATION_SEND_WARMUP_TIMEOUT_MS
+): Promise<ConversationSendWarmupOutcome> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      warmupConversation(conversation_id, { revalidate: true, purpose: 'send' }).then(
+        (): ConversationSendWarmupOutcome => 'ready'
+      ),
+      new Promise<ConversationSendWarmupOutcome>((resolve) => {
+        timeout = setTimeout(() => resolve('timeout'), Math.max(0, timeoutMs));
+      }),
+    ]);
+  } catch {
+    return 'failed';
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 export function resetWarmupConversationStateForTests(): void {

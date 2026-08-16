@@ -83,6 +83,7 @@ const {
   videoArtifactsListInvokeMock,
   imageArtifactsListInvokeMock,
   chatHistoryRefreshHandlerMock,
+  settleConversationWarmupForSendMock,
   warmupConversationMock,
   messageListState,
   readAloudTextMock,
@@ -198,6 +199,7 @@ const {
   videoArtifactsListInvokeMock: vi.fn(),
   imageArtifactsListInvokeMock: vi.fn(),
   chatHistoryRefreshHandlerMock: { current: null as null | (() => void) },
+  settleConversationWarmupForSendMock: vi.fn().mockResolvedValue('ready'),
   warmupConversationMock: vi.fn().mockResolvedValue(undefined),
   messageListState: { current: [] as TMessage[] },
   readAloudTextMock: vi.fn(),
@@ -646,6 +648,7 @@ vi.mock('@/renderer/pages/conversation/Preview', () => ({
   }),
 }));
 vi.mock('@/renderer/pages/conversation/utils/warmupConversation', () => ({
+  settleConversationWarmupForSend: settleConversationWarmupForSendMock,
   warmupConversation: warmupConversationMock,
 }));
 vi.mock('@/renderer/pages/team/hooks/TeamPermissionContext', () => ({
@@ -913,6 +916,7 @@ describe('AcpSendBox', () => {
     buildDisplayMessageMock.mockImplementation((input: string) => input);
     queueRemoveMock.mockResolvedValue(undefined);
     queueRestoreMock.mockResolvedValue(undefined);
+    settleConversationWarmupForSendMock.mockResolvedValue('ready');
     warmupConversationMock.mockResolvedValue(undefined);
   });
 
@@ -1024,6 +1028,54 @@ describe('AcpSendBox', () => {
       readiness.resolve();
     });
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(settleConversationWarmupForSendMock).not.toHaveBeenCalled();
+  });
+
+  it('joins the coalesced native warmup before dispatching an ordinary prompt', async () => {
+    const readiness = createDeferred<'ready' | 'failed' | 'timeout'>();
+    settleConversationWarmupForSendMock.mockReturnValue(readiness.promise);
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    act(() => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(settleConversationWarmupForSendMock).toHaveBeenCalledWith('conv-1'));
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      readiness.resolve('ready');
+    });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('keeps ordinary prompt admission fail-open when native warmup fails', async () => {
+    settleConversationWarmupForSendMock.mockResolvedValue('failed');
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    act(() => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(settleConversationWarmupForSendMock).toHaveBeenCalledWith('conv-1');
   });
 
   it('marks request acceptance only after the ACP send result is accepted', async () => {

@@ -4,6 +4,7 @@ import {
   CONVERSATION_WARMUP_RETRY_COOLDOWN_MS,
   MAX_ACTIVE_CONVERSATION_RUNTIMES,
   resetWarmupConversationStateForTests,
+  settleConversationWarmupForSend,
   warmupConversation,
 } from '@/renderer/pages/conversation/utils/warmupConversation';
 
@@ -110,6 +111,37 @@ describe('warmupConversation', () => {
       code: 'WARMUP_ACTIVE_RUNTIME_CAP',
     });
     expect(warmupInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('lets an explicit user send bypass the speculative active-runtime cap', async () => {
+    activeCountInvokeMock.mockResolvedValue({ count: MAX_ACTIVE_CONVERSATION_RUNTIMES });
+    warmupInvokeMock.mockResolvedValue(undefined);
+
+    await expect(settleConversationWarmupForSend('conv-send')).resolves.toBe('ready');
+
+    expect(warmupInvokeMock).toHaveBeenCalledWith({ conversation_id: 'conv-send' });
+  });
+
+  it('fails open for a warmup error while preserving the real send path', async () => {
+    warmupInvokeMock.mockRejectedValue(new Error('runtime unavailable'));
+
+    await expect(settleConversationWarmupForSend('conv-send')).resolves.toBe('failed');
+  });
+
+  it('returns a bounded timeout without cancelling the coalesced warmup', async () => {
+    let resolveWarmup: (() => void) | undefined;
+    warmupInvokeMock.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveWarmup = resolve;
+      })
+    );
+
+    await expect(settleConversationWarmupForSend('conv-send', 0)).resolves.toBe('timeout');
+    expect(warmupInvokeMock).toHaveBeenCalledTimes(1);
+
+    resolveWarmup?.();
+    await expect(warmupConversation('conv-send')).resolves.toBeUndefined();
+    expect(warmupInvokeMock).toHaveBeenCalledTimes(1);
   });
 
   it('applies a cooldown after three failed materializations', async () => {

@@ -77,6 +77,11 @@ const DEFAULT_SHIM_PORT = 25811;
 const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 const DEFAULT_NUM_CTX = 32_768;
 const DEFAULT_MAX_TOKENS = 512;
+// Keep the selected local model resident through normal chat pauses, while
+// still releasing its memory after a bounded idle window. `-1` would retain
+// it indefinitely and is deliberately not used.
+export const COMMAND_EVE_LOCAL_MODEL_KEEP_ALIVE = '30m';
+const COMMAND_EVE_OLLAMA_RESIDENCY_PROBE_TIMEOUT_MS = 2_000;
 const DEFAULT_UPSTREAM_FIRST_BYTE_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS = 5 * 60_000;
 let bootShimAuthToken = '';
@@ -546,6 +551,8 @@ export function commandEveCacheScope(sessionId: unknown, seatId: unknown): strin
 
 export type CommandEveModelWarmupOptions = {
   baseUrl?: string;
+  /** Direct loopback Ollama URL. Production uses the URL bound to the running shim. */
+  ollamaBaseUrl?: string;
   authToken?: string;
   model: string;
   timeoutMs?: number;
@@ -714,6 +721,36 @@ export function buildEveCloudRoute(args: {
 let server: http.Server | undefined;
 let serverUrl = '';
 let serverStartInFlight: Promise<string> | undefined;
+let activeOllamaBaseUrl = DEFAULT_OLLAMA_BASE_URL;
+
+export function commandEveOllamaPsHasModel(payload: unknown, requestedModel: string): boolean {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+  const models = (payload as { models?: unknown }).models;
+  if (!Array.isArray(models)) return false;
+  const expected = normalizeCommandEveLocalRuntimeModelId(requestedModel);
+  if (!expected) return false;
+  return models.some((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+    const record = entry as { name?: unknown; model?: unknown };
+    return [record.name, record.model].some(
+      (value) => typeof value === 'string' && normalizeCommandEveLocalRuntimeModelId(value) === expected
+    );
+  });
+}
+
+async function commandEveLocalModelIsResident(model: string, ollamaBaseUrl: string): Promise<boolean> {
+  if (!isLoopbackHttpUrl(ollamaBaseUrl)) return false;
+  try {
+    const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/ps`, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(COMMAND_EVE_OLLAMA_RESIDENCY_PROBE_TIMEOUT_MS),
+    });
+    if (!response.ok) return false;
+    return commandEveOllamaPsHasModel(await response.json(), model);
+  } catch {
+    return false;
+  }
+}
 
 function isLoopbackHttpUrl(value: string): boolean {
   try {
@@ -1454,6 +1491,7 @@ function nativeChatPayload(body: Record<string, unknown>, options: Required<Comm
     messages: normalizeOpenAiMessagesForNativeOllama(asMessages(body.messages)),
     stream: Boolean(body.stream),
     think: false,
+    keep_alive: COMMAND_EVE_LOCAL_MODEL_KEEP_ALIVE,
     ...(Array.isArray(body.tools) ? { tools: body.tools } : {}),
     options: {
       num_ctx: contextLengthFromModel(model, options.numCtx),
@@ -3462,6 +3500,7 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
   });
   const address = nextServer.address();
   const port = address && typeof address !== 'string' ? address.port : options.port;
+  activeOllamaBaseUrl = options.ollamaBaseUrl;
   server = nextServer;
   serverUrl = `http://127.0.0.1:${port}`;
   return serverUrl;
@@ -3477,6 +3516,7 @@ export async function stopCommandEveOllamaOpenAiShimForTest(): Promise<void> {
   if (server === activeServer) {
     server = undefined;
     serverUrl = '';
+    activeOllamaBaseUrl = DEFAULT_OLLAMA_BASE_URL;
   }
 }
 
@@ -3485,6 +3525,7 @@ export async function warmCommandEveLocalModel(
 ): Promise<CommandEveModelWarmupResult> {
   const startedAt = Date.now();
   const baseUrl = warmupOptions.baseUrl || serverUrl || `http://127.0.0.1:${DEFAULT_SHIM_PORT}`;
+  const ollamaBaseUrl = warmupOptions.ollamaBaseUrl || activeOllamaBaseUrl;
   const maxTokens = warmupOptions.maxTokens ?? 1;
   if (!warmupOptions.model.trim()) {
     return {
@@ -3500,6 +3541,24 @@ export async function warmCommandEveLocalModel(
       elapsedMs: Date.now() - startedAt,
       model: warmupOptions.model,
       error: 'Command EVE model warm-up is local-only and requires a loopback URL.',
+    };
+  }
+  if (!isLoopbackHttpUrl(ollamaBaseUrl)) {
+    return {
+      ok: false,
+      elapsedMs: Date.now() - startedAt,
+      model: warmupOptions.model,
+      error: 'Command EVE model residency probe is local-only and requires a loopback Ollama URL.',
+    };
+  }
+
+  // A receipt is historical evidence, not residency truth. Ask Ollama first;
+  // if the exact normalized model is still loaded, avoid a synthetic prompt.
+  if (await commandEveLocalModelIsResident(warmupOptions.model, ollamaBaseUrl)) {
+    return {
+      ok: true,
+      elapsedMs: Date.now() - startedAt,
+      model: warmupOptions.model,
     };
   }
 
@@ -3531,6 +3590,10 @@ export async function warmCommandEveLocalModel(
       };
     }
     await response.arrayBuffer().catch((): undefined => undefined);
+    // The completed native chat response is already authoritative proof that
+    // Ollama loaded and served this exact model. `/api/ps` is only the cheap
+    // preflight that lets us skip this ping; a delayed or older inventory API
+    // must not turn a successful warmup into a blocked user send.
     return {
       ok: true,
       elapsedMs: Date.now() - startedAt,

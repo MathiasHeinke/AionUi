@@ -78,7 +78,10 @@ import {
   useConversationDocumentPreparation,
 } from '@/renderer/pages/conversation/runtime/conversationDocumentPreparationStore';
 import { getConversationRuntimeWorkspaceErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
-import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
+import {
+  settleConversationWarmupForSend,
+  warmupConversation,
+} from '@/renderer/pages/conversation/utils/warmupConversation';
 import { useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
 import { allSupportedExts } from '@/renderer/services/FileService';
 import { iconColors } from '@/renderer/styles/colors';
@@ -844,6 +847,13 @@ const AcpSendBox: React.FC<{
         // failed warmup still leaves the draft retryable and unsent.
         if (attachmentGrounding) {
           await warmupConversation(conversation_id, { revalidate: true });
+          if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
+        } else {
+          // Join any proactive warmup before prompt admission. This is
+          // deliberately fail-open: a failed or slow optimization may not
+          // discard an ordinary user message, and the real Core send remains
+          // the authoritative task admission path.
+          await settleConversationWarmupForSend(conversation_id);
           if (!runtimeView.isSeatTicketCurrent(seatTicket)) return 'stale';
         }
 

@@ -24,6 +24,7 @@ import { isCommandEveManagedImageMcp } from '@/common/config/eveManagedMcpCore';
 import type { IMcpServer, TProviderWithModel } from '@/common/config/storage';
 import { buildAgentConversationParams } from '@/common/utils/buildAgentConversationParams';
 import { getConversationCreateErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
+import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
 import type { SkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
 import { useEveMaxAuthority } from '@/renderer/hooks/agent/useEveMaxAuthority';
 import { toSessionMcpServer } from '@/renderer/hooks/mcp/catalog';
@@ -296,34 +297,43 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
           currentStatus?.success &&
           currentStatus.data?.status === 'ready' &&
           currentStatus.data.default_model === expectedRuntimeModel;
-        const isWarm = commandEveWarmupReadyForModel(currentStatus?.data?.model_warmup, expectedRuntimeModel);
-        if (!isRuntimeReady || !isWarm) {
+        const hasReadyWarmupReceipt = commandEveWarmupReadyForModel(
+          currentStatus?.data?.model_warmup,
+          expectedRuntimeModel
+        );
+        if (!isRuntimeReady || !hasReadyWarmupReceipt) {
           Message.info(t('conversation.commandEveRuntimePreparing'));
-          const ensureResult = await ipcBridge.commandEve.warmLocalModel.invoke({ tierId });
-          const warmedStatus = ensureResult.data;
-          const warmedReady =
-            ensureResult.success &&
-            warmedStatus?.status === 'ready' &&
-            warmedStatus.default_model === expectedRuntimeModel &&
-            commandEveWarmupReadyForModel(warmedStatus.model_warmup, expectedRuntimeModel);
-          if (!warmedReady) {
-            Message.error(
-              t('conversation.commandEveRuntimeNotReady', {
-                // `msg` / `model_warmup.error` / `next_action` are RAW BACKEND
-                // text interpolated straight into a toast. A warm-up failure is
-                // one of the likeliest places for a provider/model slug to appear,
-                // and i18n interpolation does not launder it.
-                reason: scrubModelIdentifiers(
-                  ensureResult?.msg ||
-                    warmedStatus?.model_warmup?.error ||
-                    warmedStatus?.next_action ||
-                    'runtime not ready',
-                  CLOUD_MODEL_IDENTIFIERS
-                ),
-              })
-            );
-            return false;
-          }
+        }
+        // The receipt above records a past warmup; it cannot prove the model is
+        // still resident. Main performs the bounded live Ollama `/api/ps`
+        // check on every new local conversation and avoids a synthetic prompt
+        // when the exact normalized model is already loaded.
+        const ensureResult = await ipcBridge.commandEve.warmLocalModel.invoke({ tierId });
+        const warmedStatus = ensureResult.data;
+        const warmupExplicitlySkipped =
+          warmedStatus?.model_warmup?.status === 'skipped' && warmedStatus.model_warmup.model === expectedRuntimeModel;
+        const warmedReady =
+          ensureResult.success &&
+          warmedStatus?.status === 'ready' &&
+          warmedStatus.default_model === expectedRuntimeModel &&
+          (commandEveWarmupReadyForModel(warmedStatus.model_warmup, expectedRuntimeModel) || warmupExplicitlySkipped);
+        if (!warmedReady) {
+          Message.error(
+            t('conversation.commandEveRuntimeNotReady', {
+              // `msg` / `model_warmup.error` / `next_action` are RAW BACKEND
+              // text interpolated straight into a toast. A warm-up failure is
+              // one of the likeliest places for a provider/model slug to appear,
+              // and i18n interpolation does not launder it.
+              reason: scrubModelIdentifiers(
+                ensureResult?.msg ||
+                  warmedStatus?.model_warmup?.error ||
+                  warmedStatus?.next_action ||
+                  'runtime not ready',
+                CLOUD_MODEL_IDENTIFIERS
+              ),
+            })
+          );
+          return false;
         }
 
         // Re-prove the security-owned provider row immediately before every
@@ -629,6 +639,14 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
           console.error('Failed to create ACP conversation - conversation object is null or missing id');
           Message.error(t('conversation.createFailed', { defaultValue: 'Failed to create conversation' }));
           return false;
+        }
+
+        // Start the native ACP/Hermes task at the first moment a real
+        // conversation id exists. The destination SendBox joins this same
+        // single-flight warmup before dispatch, so navigation and initial
+        // message handoff no longer race process/session readiness.
+        if (isCommandEveAssistant) {
+          void warmupConversation(conversation.id).catch((): undefined => undefined);
         }
 
         if (isCustomWorkspace) {

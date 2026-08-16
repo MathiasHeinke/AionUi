@@ -9,6 +9,8 @@ import {
   buildCommandEvePromptProof,
   buildEveCloudRoute,
   commandEveCacheScope,
+  commandEveOllamaPsHasModel,
+  COMMAND_EVE_LOCAL_MODEL_KEEP_ALIVE,
   ensureCommandEveShimAuthToken,
   getCommandEveOllamaOpenAiShimBaseUrl,
   isCommandEveWarmupRequest,
@@ -300,6 +302,54 @@ async function startFakeOpenAiServer(
   return `http://127.0.0.1:${address.port}`;
 }
 
+async function startFakeOllamaWarmupServer(options: {
+  model: string;
+  initiallyResident?: boolean;
+  becomeResidentAfterChat?: boolean;
+  malformedPs?: boolean;
+  onChat?: (body: Record<string, unknown>) => void;
+}): Promise<string> {
+  let resident = options.initiallyResident ?? false;
+  testServer = http.createServer((request, response) => {
+    void (async () => {
+      const requestPath = new URL(request.url || '/', 'http://127.0.0.1').pathname;
+      if (request.method === 'GET' && requestPath === '/api/ps') {
+        writeJson(
+          response,
+          200,
+          options.malformedPs
+            ? { models: 'not-an-array' }
+            : { models: resident ? [{ name: options.model, model: options.model }] : [] }
+        );
+        return;
+      }
+      if (request.method === 'POST' && requestPath === '/api/chat') {
+        const body = await readRequestBody(request);
+        options.onChat?.(body);
+        if (options.becomeResidentAfterChat ?? true) resident = true;
+        writeJson(response, 200, {
+          model: options.model,
+          message: { role: 'assistant', content: 'ok' },
+          done: true,
+          done_reason: 'stop',
+        });
+        return;
+      }
+      writeJson(response, 404, { error: 'not found' });
+    })().catch((error) => {
+      writeJson(response, 500, { error: error instanceof Error ? error.message : String(error) });
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    testServer?.once('error', reject);
+    testServer?.listen(0, '127.0.0.1', resolve);
+  });
+  const address = testServer.address();
+  if (!address || typeof address === 'string') throw new Error('fake Ollama did not expose a port');
+  return `http://127.0.0.1:${address.port}`;
+}
+
 async function startHangingOllamaServer(
   onRequest: (request: IncomingMessage, response: ServerResponse) => void
 ): Promise<string> {
@@ -335,6 +385,15 @@ afterEach(async () => {
 });
 
 describe('Command EVE Ollama OpenAI shim warm-up', () => {
+  it('matches only the exact normalized model in Ollama residency truth', () => {
+    const model = 'command-eve-gemma4-e4b-64k:latest';
+    expect(commandEveOllamaPsHasModel({ models: [{ name: model }] }, `custom:${model}`)).toBe(true);
+    expect(commandEveOllamaPsHasModel({ models: [{ model: 'command-eve-gemma4-e4b-64k' }] }, model)).toBe(true);
+    expect(commandEveOllamaPsHasModel({ models: [{ name: `${model}-other` }] }, model)).toBe(false);
+    expect(commandEveOllamaPsHasModel({ models: 'invalid' }, model)).toBe(false);
+    expect(commandEveOllamaPsHasModel(null, model)).toBe(false);
+  });
+
   it('reports the actual ephemeral OpenAI base URL selected by the active shim', async () => {
     shimServerUrl = await startCommandEveOllamaOpenAiShim({ port: 0, ollamaBaseUrl: 'http://127.0.0.1:1' });
     expect(getCommandEveOllamaOpenAiShimBaseUrl()).toBe(`${shimServerUrl}/v1`);
@@ -384,26 +443,70 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     ).toBe(true);
   });
 
-  it('pre-warms the selected local model through the OpenAI-compatible chat endpoint', async () => {
-    let seenBody: Record<string, unknown> | undefined;
-    let seenPath = '';
-    const baseUrl = await startFakeOpenAiServer((body, path) => {
-      seenBody = body;
-      seenPath = path;
+  it('skips the synthetic ping when the exact local model is already resident', async () => {
+    let chatCalls = 0;
+    const model = 'command-eve-gemma4-e4b-64k:latest';
+    const ollamaBaseUrl = await startFakeOllamaWarmupServer({
+      model,
+      initiallyResident: true,
+      onChat: () => {
+        chatCalls += 1;
+      },
     });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({ port: 0, ollamaBaseUrl });
 
     const result = await warmCommandEveLocalModel({
-      baseUrl,
-      model: 'custom:command-eve-gemma4-e4b-64k:latest',
+      baseUrl: shimServerUrl,
+      ollamaBaseUrl,
+      model: `custom:${model}`,
       timeoutMs: 5_000,
     });
 
     expect(result.ok).toBe(true);
-    expect(result.model).toBe('custom:command-eve-gemma4-e4b-64k:latest');
-    expect(seenPath).toBe('/v1/chat/completions');
-    expect(seenBody?.model).toBe('custom:command-eve-gemma4-e4b-64k:latest');
+    expect(chatCalls).toBe(0);
+  });
+
+  it('pre-warms an absent model and retains it for a bounded window', async () => {
+    let seenBody: Record<string, unknown> | undefined;
+    const model = 'command-eve-gemma4-e4b-64k:latest';
+    const ollamaBaseUrl = await startFakeOllamaWarmupServer({
+      model: 'command-eve-gemma4-e4b-64k',
+      onChat: (body) => {
+        seenBody = body;
+      },
+    });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({ port: 0, ollamaBaseUrl });
+
+    const result = await warmCommandEveLocalModel({
+      baseUrl: shimServerUrl,
+      ollamaBaseUrl,
+      model: `custom:${model}`,
+      timeoutMs: 5_000,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.model).toBe(`custom:${model}`);
+    expect(seenBody?.model).toBe('command-eve-gemma4-e4b-64k');
     expect(seenBody?.stream).toBe(false);
-    expect(seenBody?.max_tokens).toBe(1);
+    expect(seenBody?.keep_alive).toBe(COMMAND_EVE_LOCAL_MODEL_KEEP_ALIVE);
+  });
+
+  it('accepts a successful native warmup even when the residency inventory lags behind', async () => {
+    const model = 'command-eve-gemma4-e4b-64k:latest';
+    const ollamaBaseUrl = await startFakeOllamaWarmupServer({
+      model,
+      becomeResidentAfterChat: false,
+    });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({ port: 0, ollamaBaseUrl });
+
+    const result = await warmCommandEveLocalModel({
+      baseUrl: shimServerUrl,
+      ollamaBaseUrl,
+      model,
+      timeoutMs: 5_000,
+    });
+
+    expect(result.ok).toBe(true);
   });
 
   it('refuses to warm non-loopback providers', async () => {
@@ -415,6 +518,18 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('local-only');
+  });
+
+  it('refuses a non-loopback residency probe even when the shim URL is local', async () => {
+    const result = await warmCommandEveLocalModel({
+      baseUrl: 'http://127.0.0.1:25811',
+      ollamaBaseUrl: 'https://api.example.com',
+      model: 'external-model',
+      timeoutMs: 1_000,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('residency probe is local-only');
   });
 
   it('rejects unauthenticated inference without touching the upstream model', async () => {
@@ -1480,6 +1595,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     expect(fnSeen.body).not.toHaveProperty('tools');
     expect(fnSeen.body).not.toHaveProperty('tool_choice');
+    expect(fnSeen.body).not.toHaveProperty('keep_alive');
   });
 
   it('keeps a local-selection chat on Ollama (EVE route inactive)', async () => {
@@ -1513,6 +1629,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(response.headers.get('x-command-eve-inference-lane')).toBe('ollama_local');
     expect(ollamaSeen).toBe(true);
     expect(ollamaBody?.model).toBe('command-eve-gemma4-e4b-64k');
+    expect(ollamaBody?.keep_alive).toBe(COMMAND_EVE_LOCAL_MODEL_KEEP_ALIVE);
     // The EVE function was never touched.
     expect(fnSeen.body).toBeUndefined();
   });

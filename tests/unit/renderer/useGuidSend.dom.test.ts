@@ -15,6 +15,10 @@ const { configGetMock, messageErrorMock } = vi.hoisted(() => ({
   messageErrorMock: vi.fn(),
 }));
 
+const { warmupConversationMock } = vi.hoisted(() => ({
+  warmupConversationMock: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@/common', () => ({
   ipcBridge: {
     commandEve: {
@@ -49,6 +53,10 @@ vi.mock('@arco-design/web-react', () => ({
     info: vi.fn(),
     warning: vi.fn(),
   },
+}));
+
+vi.mock('@/renderer/pages/conversation/utils/warmupConversation', () => ({
+  warmupConversation: warmupConversationMock,
 }));
 
 import { COMMAND_EVE_ASSISTANT_KEY } from '@/common/config/commandEveShell';
@@ -142,7 +150,16 @@ describe('useGuidSend blocked cloud lane', () => {
         },
       },
     });
+    bridgeMocks.warmLocalModel.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: { status: 'ready', model: 'command-eve-gemma4-e4b-64k:latest' },
+      },
+    });
     bridgeMocks.conversationCreate.mockReset();
+    warmupConversationMock.mockReset().mockResolvedValue(undefined);
     configGetMock.mockReturnValue(undefined);
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
   });
@@ -240,6 +257,55 @@ describe('useGuidSend blocked cloud lane', () => {
     );
     expect(sessionStorage.getItem('aionrs_initial_message_seat-1_conversation-hermes')).toBeNull();
     expect(sessionStorage.getItem('acp_initial_message_seat-1_conversation-hermes')).toBeTruthy();
+    expect(bridgeMocks.warmLocalModel).toHaveBeenCalledWith({ tierId: 'gemma-4-e4b-local-default' });
+    expect(warmupConversationMock).toHaveBeenCalledWith('conversation-hermes');
+  });
+
+  it('keeps local sends available when the user explicitly disabled proactive model warmup', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+    );
+    bridgeMocks.ensureAssistant.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agent_id: 'hermes-runtime',
+        agent_name: 'EVE',
+        cli_path: '/runtime/hermes',
+        enabled_skills: [],
+      },
+    });
+    bridgeMocks.runtimeStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: { status: 'ready', model: 'command-eve-gemma4-e4b-64k:latest' },
+      },
+    });
+    bridgeMocks.warmLocalModel.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: {
+          status: 'skipped',
+          model: 'command-eve-gemma4-e4b-64k:latest',
+          error: 'disabled by user preference',
+        },
+      },
+    });
+    bridgeMocks.conversationCreate.mockResolvedValue({ id: 'conversation-no-prewarm' });
+
+    const deps = createDeps();
+    const { result } = renderHook(() => useGuidSend(deps));
+
+    await act(async () => {
+      await result.current.handleSend();
+    });
+
+    expect(bridgeMocks.warmLocalModel).toHaveBeenCalledTimes(1);
+    expect(bridgeMocks.conversationCreate).toHaveBeenCalledTimes(1);
   });
 
   it('shows a neutral error and preserves the draft when the EVE ACP conversation cannot be created', async () => {
