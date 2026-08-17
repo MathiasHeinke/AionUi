@@ -25,7 +25,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-function runMiddlewareHarness(): Record<string, Record<string, string>> {
+function runMiddlewareHarness(): Record<string, unknown> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-provider-call-wire-'));
   roots.push(root);
   setActiveSeatId(REAL_UUID);
@@ -38,7 +38,7 @@ function runMiddlewareHarness(): Record<string, Record<string, string>> {
     { encoding: 'utf8', timeout: 15_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
   );
   expect(harness.status, harness.stderr || harness.stdout).toBe(0);
-  return JSON.parse(harness.stdout) as Record<string, Record<string, string>>;
+  return JSON.parse(harness.stdout) as Record<string, unknown>;
 }
 
 describe('Command EVE provider-call correlation wire', () => {
@@ -54,6 +54,34 @@ describe('Command EVE provider-call correlation wire', () => {
       'x-command-eve-turn-id': 'turn-local-2',
       'x-command-eve-call-index': '1',
     });
+    expect(result.bindings).toEqual([
+      {
+        session_id: 'acp-session-1',
+        session_update: 'session_info_update',
+        field_meta: {
+          commandEveProviderTurnBinding: {
+            version: 'command-eve-provider-turn-binding/v1',
+            hermesTurnId: 'turn-local-1',
+            requestId: 'turn-local-1:api:1',
+            callIndex: 1,
+            sessionId: 'acp-session-1',
+          },
+        },
+      },
+      {
+        session_id: 'acp-session-1',
+        session_update: 'session_info_update',
+        field_meta: {
+          commandEveProviderTurnBinding: {
+            version: 'command-eve-provider-turn-binding/v1',
+            hermesTurnId: 'turn-local-2',
+            requestId: 'turn-local-2:api:1',
+            callIndex: 1,
+            sessionId: 'acp-session-1',
+          },
+        },
+      },
+    ]);
   });
 
   it('does not stamp malformed identities or public/non-custom targets', () => {

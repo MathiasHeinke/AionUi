@@ -61,6 +61,7 @@ const {
   openPreviewMock,
   launchPreviewMock,
   imageArtifactBindInvokeMock,
+  providerTurnBindingRecordInvokeMock,
   previewContextState,
   realtimeConnectedHandlers,
 } = vi.hoisted(() => ({
@@ -79,6 +80,7 @@ const {
   openPreviewMock: vi.fn(),
   launchPreviewMock: vi.fn(async () => undefined),
   imageArtifactBindInvokeMock: vi.fn(async () => undefined),
+  providerTurnBindingRecordInvokeMock: vi.fn(async () => ({ success: true, data: { persisted: true } })),
   realtimeConnectedHandlers: new Set<(event: { reconnected?: boolean }) => void>(),
   previewContextState: {
     activeTabId: 'browser-tab' as string | null,
@@ -208,6 +210,9 @@ vi.mock('@/common', () => ({
       },
       imageArtifactBind: {
         invoke: imageArtifactBindInvokeMock,
+      },
+      providerTurnBindingRecord: {
+        invoke: providerTurnBindingRecordInvokeMock,
       },
     },
     projectWorkspace: {
@@ -2241,6 +2246,59 @@ describe('useAcpMessage', () => {
     });
     expect(emitSpy.mock.calls.filter(([event]) => event === 'commandEve.workbench.reveal')).toEqual([]);
     emitSpy.mockRestore();
+  });
+
+  it('persists only the exact active-session provider turn binding', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    renderHook(() => useAcpMessage('conv-1'));
+    await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+
+    const sendBinding = (turnId: string, sessionId = 'session-b') =>
+      responseStreamHandlerRef.current?.({
+        type: 'acp_session_info',
+        data: {
+          title: null,
+          updated_at: null,
+          session_id: sessionId,
+          _meta: {
+            commandEveProviderTurnBinding: {
+              version: 'command-eve-provider-turn-binding/v1',
+              sessionId,
+              hermesTurnId: 'session:task:8hex',
+              requestId: 'session:task:8hex:api:1',
+              callIndex: 1,
+            },
+          },
+        },
+        msg_id: `provider-binding-${turnId}`,
+        turn_id: turnId,
+        conversation_id: 'conv-1',
+      });
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: { session_id: 'session-b' },
+        msg_id: 'start-session-b',
+        turn_id: 'turn-b',
+        conversation_id: 'conv-1',
+      });
+      sendBinding('turn-a');
+      sendBinding('turn-b', 'foreign-session');
+      sendBinding('turn-b');
+    });
+
+    await waitFor(() =>
+      expect(providerTurnBindingRecordInvokeMock).toHaveBeenCalledWith({
+        conversationId: 'conv-1',
+        sessionId: 'session-b',
+        aionCoreTurnId: 'turn-b',
+        hermesTurnId: 'session:task:8hex',
+        requestId: 'session:task:8hex:api:1',
+        callIndex: 1,
+      })
+    );
+    expect(providerTurnBindingRecordInvokeMock).toHaveBeenCalledTimes(1);
   });
 
   it('blocks unscoped tool frames before browser, HTML, image, typed-artifact, activity, or transcript effects', async () => {

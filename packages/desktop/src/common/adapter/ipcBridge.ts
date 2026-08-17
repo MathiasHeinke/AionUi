@@ -16,6 +16,7 @@ import type { IConfirmation } from '@/common/chat/chatLib';
 import type { EveMaxAuthorityReceipt } from '@/common/config/eveMaxAuthorityCore';
 import type { CommandEveModelWarmupSkipReason } from '@/common/config/eveModelWarmupCore';
 import type { CommandEveBrowserWorkbenchState } from '@/common/config/browserWorkbenchStateCore';
+import type { CommandEveProviderTurnBindingPersistenceRequest } from '@/common/config/hermesDesktopEventCore';
 import type { BrowserControlLease, CommandEveBrowserControlContext } from '@/common/config/browserWorkbenchControlCore';
 import type {
   EveExternalActionPolicyMutation,
@@ -2047,6 +2048,10 @@ export interface ICommandEveSwitchSeatResult {
 
 export const commandEve = {
   runtimeStatus: bridge.buildProvider<IBridgeResponse<ICommandEveRuntimeStatus>, void>('command-eve.runtime-status'),
+  providerTurnBindingRecord: bridge.buildProvider<
+    IBridgeResponse<{ persisted: true }>,
+    CommandEveProviderTurnBindingPersistenceRequest
+  >('command-eve.provider-turn-binding-record'),
   // On-device speech-to-text via the bundled venv (keyless, DSGVO-clean). Distinct
   // from speechToText.transcribe (aioncore /api/stt, cloud openai/deepgram).
   speechToTextLocal: bridge.buildProvider<IBridgeResponse<SpeechToTextResult>, CommandEveLocalSttRequest>(

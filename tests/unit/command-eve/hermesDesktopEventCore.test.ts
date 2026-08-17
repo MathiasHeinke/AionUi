@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   COMMAND_EVE_DESKTOP_EVENT_VERSION,
+  COMMAND_EVE_PROVIDER_TURN_BINDING_VERSION,
   COMMAND_EVE_RUNTIME_STATUS_VERSION,
   parseCommandEveDesktopEvent,
   parseCommandEveDesktopToolCall,
+  parseCommandEveProviderTurnBinding,
   parseCommandEveRuntimeStatus,
 } from '../../../packages/desktop/src/common/config/hermesDesktopEventCore';
 
@@ -40,6 +42,50 @@ const runtimeWire = (payload: Record<string, unknown>, sessionId = 'acp-session-
       ...payload,
     },
   },
+});
+
+const providerBindingWire = (payload: Record<string, unknown>, sessionId = 'acp-session-1') => ({
+  session_id: sessionId,
+  title: null,
+  updated_at: null,
+  _meta: {
+    commandEveProviderTurnBinding: {
+      version: COMMAND_EVE_PROVIDER_TURN_BINDING_VERSION,
+      sessionId,
+      hermesTurnId: 'session:task:8hex',
+      requestId: 'session:task:8hex:api:1',
+      callIndex: 1,
+      ...payload,
+    },
+  },
+});
+
+describe('parseCommandEveProviderTurnBinding', () => {
+  it('binds the exact Hermes provider identity to the active AionCore turn', () => {
+    expect(
+      parseCommandEveProviderTurnBinding(providerBindingWire({}), 'acp-session-1', 'turn-outer-1', 'turn-outer-1')
+    ).toEqual({
+      sessionId: 'acp-session-1',
+      aionCoreTurnId: 'turn-outer-1',
+      hermesTurnId: 'session:task:8hex',
+      requestId: 'session:task:8hex:api:1',
+      callIndex: 1,
+    });
+  });
+
+  it.each([
+    ['foreign active session', providerBindingWire({}, 'foreign'), 'acp-session-1', 'turn-outer-1'],
+    ['foreign outer turn', providerBindingWire({}), 'acp-session-1', 'turn-outer-old'],
+    [
+      'forged request id',
+      providerBindingWire({ requestId: 'session:task:8hex:api:2' }),
+      'acp-session-1',
+      'turn-outer-1',
+    ],
+    ['extra field', providerBindingWire({ prompt: 'forbidden' }), 'acp-session-1', 'turn-outer-1'],
+  ])('rejects %s fail-closed', (_label, input, expectedSessionId, expectedTurnId) => {
+    expect(parseCommandEveProviderTurnBinding(input, expectedSessionId, 'turn-outer-1', expectedTurnId)).toBeNull();
+  });
 });
 
 describe('parseCommandEveRuntimeStatus', () => {

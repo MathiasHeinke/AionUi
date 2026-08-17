@@ -7,6 +7,7 @@
 import { bridge } from '@office-ai/platform';
 import { getCommandEveArtifactsChangedEmitter } from '@process/commandEve/artifactsChangedEmitter';
 import { app } from 'electron';
+import nodeFs from 'node:fs';
 import { buildCommandCenterReadModel } from '@process/commandEve/commandCenterReadModelCore';
 import {
   buildLocalTitlePrompt,
@@ -231,6 +232,11 @@ import {
 import { ProcessConfig, getSkillsDir, getCronSkillsDir } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
 import {
+  commandEveProviderCallRequestId,
+  isContentFreeCallIdentity,
+} from '@/common/config/commandEveProviderCallIdentity';
+import type { CommandEveProviderTurnBindingPersistenceRequest } from '@/common/config/hermesDesktopEventCore';
+import {
   getActiveSeatContextRevision,
   getActiveSeatId,
   getActiveSeatKind,
@@ -323,12 +329,71 @@ function finiteCreditNumber(value: unknown, fallback = 0): number {
 
 type CommandEveStatusSurfaceRequest = { maxRuns?: number; companyOsRoot?: string; eventLedgerPath?: string };
 type CommandEveBridgeEnvelope<T> = { data?: T };
+const COMMAND_EVE_PROVIDER_TURN_BINDING_HISTORY_FILE = 'provider-turn-binding-history.jsonl';
 
 function unwrapBridgeRequest<T>(request?: T | CommandEveBridgeEnvelope<T>): T | undefined {
   if (request && typeof request === 'object' && 'data' in request) {
     return (request as CommandEveBridgeEnvelope<T>).data;
   }
   return request as T | undefined;
+}
+
+function persistCommandEveProviderTurnBinding(input: CommandEveProviderTurnBindingPersistenceRequest): void {
+  if (
+    !isContentFreeCallIdentity(input.conversationId) ||
+    !isContentFreeCallIdentity(input.sessionId) ||
+    !isContentFreeCallIdentity(input.aionCoreTurnId) ||
+    !isContentFreeCallIdentity(input.hermesTurnId) ||
+    !isContentFreeCallIdentity(input.requestId) ||
+    !Number.isSafeInteger(input.callIndex) ||
+    input.callIndex < 1 ||
+    input.callIndex > 100 ||
+    input.requestId !== commandEveProviderCallRequestId(input.hermesTurnId, input.callIndex)
+  ) {
+    throw new Error('COMMAND_EVE_PROVIDER_TURN_BINDING_INVALID');
+  }
+  const receipt = {
+    version: 'command-eve-provider-turn-binding/v1' as const,
+    boundary: 'desktop_acp_session_info' as const,
+    contentIncluded: false as const,
+    conversationId: input.conversationId,
+    sessionId: input.sessionId,
+    aionCoreTurnId: input.aionCoreTurnId,
+    hermesTurnId: input.hermesTurnId,
+    requestId: input.requestId,
+    callIndex: input.callIndex,
+    observedAt: new Date().toISOString(),
+  };
+  const runtimeRoot = nodePath.join(nodePath.resolve(getDataPath()), 'command-eve-runtime');
+  const historyPath = nodePath.join(runtimeRoot, COMMAND_EVE_PROVIDER_TURN_BINDING_HISTORY_FILE);
+  nodeFs.mkdirSync(runtimeRoot, { recursive: true });
+  const priorLines = nodeFs.existsSync(historyPath)
+    ? nodeFs.readFileSync(historyPath, 'utf8').split(/\r?\n/).filter(Boolean)
+    : [];
+  const duplicate = priorLines.some((line) => {
+    try {
+      const prior = JSON.parse(line) as Record<string, unknown>;
+      return (
+        prior.version === receipt.version &&
+        prior.conversationId === receipt.conversationId &&
+        prior.sessionId === receipt.sessionId &&
+        prior.aionCoreTurnId === receipt.aionCoreTurnId &&
+        prior.hermesTurnId === receipt.hermesTurnId &&
+        prior.requestId === receipt.requestId &&
+        prior.callIndex === receipt.callIndex
+      );
+    } catch {
+      return false;
+    }
+  });
+  if (duplicate) return;
+  nodeFs.appendFileSync(historyPath, `${JSON.stringify(receipt)}\n`, { encoding: 'utf8', mode: 0o600 });
+  nodeFs.chmodSync(historyPath, 0o600);
+  if (nodeFs.statSync(historyPath).size <= 256 * 1024) return;
+  const retained = [...priorLines, JSON.stringify(receipt)].slice(-128);
+  const temporary = `${historyPath}.${process.pid}.tmp`;
+  nodeFs.writeFileSync(temporary, `${retained.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
+  nodeFs.renameSync(temporary, historyPath);
 }
 
 async function refreshBrowserWorkbenchContextBestEffort(): Promise<void> {
@@ -1073,6 +1138,28 @@ async function fetchConversationTitle(conversationId: string): Promise<string | 
 }
 
 export function initCommandEveBridge(): void {
+  bridge
+    .buildProvider('command-eve.provider-turn-binding-record')
+    .provider(
+      async (
+        request?:
+          | CommandEveProviderTurnBindingPersistenceRequest
+          | CommandEveBridgeEnvelope<CommandEveProviderTurnBindingPersistenceRequest>
+      ) => {
+        try {
+          const payload = unwrapBridgeRequest<CommandEveProviderTurnBindingPersistenceRequest>(request);
+          if (!payload) throw new Error('COMMAND_EVE_PROVIDER_TURN_BINDING_MISSING');
+          persistCommandEveProviderTurnBinding(payload);
+          return { success: true, data: { persisted: true as const } };
+        } catch (error) {
+          return {
+            success: false,
+            msg: error instanceof Error ? error.message : 'COMMAND_EVE_PROVIDER_TURN_BINDING_FAILED',
+          };
+        }
+      }
+    );
+
   bridge.buildProvider('command-eve.native-kanban-board').provider(async () => {
     try {
       const scope = captureNativeKanbanSeatScope(getDataPath());

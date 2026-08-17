@@ -1,7 +1,11 @@
+import { commandEveProviderCallRequestId, isContentFreeCallIdentity } from './commandEveProviderCallIdentity';
+
 export const COMMAND_EVE_DESKTOP_EVENT_META_KEY = 'commandEveDesktop' as const;
 export const COMMAND_EVE_DESKTOP_EVENT_VERSION = 'command-eve-desktop-event/v1' as const;
 export const COMMAND_EVE_RUNTIME_STATUS_META_KEY = 'commandEveRuntimeStatus' as const;
 export const COMMAND_EVE_RUNTIME_STATUS_VERSION = 'command-eve-runtime-status/v1' as const;
+export const COMMAND_EVE_PROVIDER_TURN_BINDING_META_KEY = 'commandEveProviderTurnBinding' as const;
+export const COMMAND_EVE_PROVIDER_TURN_BINDING_VERSION = 'command-eve-provider-turn-binding/v1' as const;
 
 export type CommandEvePane = 'chat' | 'files' | 'terminal' | 'review' | 'sessions';
 
@@ -20,6 +24,18 @@ export type CommandEveRuntimeStatus = {
   attempt?: number;
   maxAttempts?: number;
   retryAfterMs?: number;
+};
+
+export type CommandEveProviderTurnBinding = {
+  sessionId: string;
+  aionCoreTurnId: string;
+  hermesTurnId: string;
+  requestId: string;
+  callIndex: number;
+};
+
+export type CommandEveProviderTurnBindingPersistenceRequest = CommandEveProviderTurnBinding & {
+  conversationId: string;
 };
 
 const hasOnlyKeys = (value: Record<string, unknown>, allowed: readonly string[]): boolean => {
@@ -146,6 +162,53 @@ export function parseCommandEveRuntimeStatus(
     attempt: envelope.attempt,
     maxAttempts: envelope.maxAttempts,
     retryAfterMs: envelope.retryAfterMs,
+  };
+}
+
+/** Parse Hermes' exact provider-call identity and bind it to AionCore's outer turn. */
+export function parseCommandEveProviderTurnBinding(
+  update: unknown,
+  expectedSessionId: string | undefined,
+  canonicalTurnId: string | undefined,
+  expectedTurnId: string | null | undefined
+): CommandEveProviderTurnBinding | null {
+  const info = asRecord(update);
+  if (!info || !hasOnlyKeys(info, ['_meta', 'title', 'updated_at', 'session_id'])) return null;
+  const sessionId = info.session_id;
+  if (
+    typeof sessionId !== 'string' ||
+    !sessionId.trim() ||
+    sessionId.length > 256 ||
+    !expectedSessionId ||
+    sessionId !== expectedSessionId
+  ) {
+    return null;
+  }
+  if (info.title !== undefined && info.title !== null && typeof info.title !== 'string') return null;
+  if (info.updated_at !== undefined && info.updated_at !== null && typeof info.updated_at !== 'string') return null;
+  if (!canonicalTurnId || !expectedTurnId || canonicalTurnId !== expectedTurnId) return null;
+
+  const meta = asRecord(info._meta);
+  if (!meta || !hasOnlyKeys(meta, [COMMAND_EVE_PROVIDER_TURN_BINDING_META_KEY])) return null;
+  const envelope = asRecord(meta[COMMAND_EVE_PROVIDER_TURN_BINDING_META_KEY]);
+  const keys = ['version', 'hermesTurnId', 'requestId', 'callIndex', 'sessionId'] as const;
+  if (!envelope || !hasOnlyKeys(envelope, keys) || !keys.every((key) => Object.hasOwn(envelope, key))) return null;
+  if (
+    envelope.version !== COMMAND_EVE_PROVIDER_TURN_BINDING_VERSION ||
+    envelope.sessionId !== sessionId ||
+    !isContentFreeCallIdentity(envelope.hermesTurnId) ||
+    !isContentFreeCallIdentity(envelope.requestId) ||
+    !isBoundedInteger(envelope.callIndex, 1, 100) ||
+    envelope.requestId !== commandEveProviderCallRequestId(envelope.hermesTurnId, envelope.callIndex)
+  ) {
+    return null;
+  }
+  return {
+    sessionId,
+    aionCoreTurnId: canonicalTurnId,
+    hermesTurnId: envelope.hermesTurnId,
+    requestId: envelope.requestId,
+    callIndex: envelope.callIndex,
   };
 }
 

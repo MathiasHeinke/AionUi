@@ -21,6 +21,7 @@ import { collectImageBindFromToolCallUpdate } from '@/common/config/imageArtifac
 import {
   parseCommandEveDesktopEvent,
   parseCommandEveDesktopToolCall,
+  parseCommandEveProviderTurnBinding,
   parseCommandEveRuntimeStatus,
 } from '@/common/config/hermesDesktopEventCore';
 import { classifyAcpExternalWriteBlock } from '@/renderer/pages/conversation/Messages/acp/externalWriteRecoveryPolicy';
@@ -873,6 +874,20 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
               maxAttempts: runtimeStatus.maxAttempts,
               retryAfterMs: runtimeStatus.retryAfterMs,
             }));
+            break;
+          }
+          const providerTurnBinding = parseCommandEveProviderTurnBinding(
+            message.data,
+            expectedSessionId,
+            sessionInfoTurnId,
+            runtimeActiveTurnId ?? acceptedTurnIdRef.current
+          );
+          if (providerTurnBinding) {
+            void ipcBridge.commandEve.providerTurnBindingRecord
+              .invoke({ conversationId: conversation_id, ...providerTurnBinding })
+              .catch((error: unknown) => {
+                console.warn('[useAcpMessage] provider turn binding persistence failed:', error);
+              });
             break;
           }
           const desktopEvent = parseCommandEveDesktopEvent(message.data, expectedSessionId);

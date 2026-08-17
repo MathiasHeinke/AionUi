@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import importlib.util
+import asyncio
 import json
 import sys
+import threading
 import types
 from pathlib import Path
 from typing import Any
@@ -57,9 +59,27 @@ plugins.get_plugin_manager = lambda: MANAGER
 middleware = types.ModuleType("hermes_cli.middleware")
 middleware.LLM_REQUEST_MIDDLEWARE = "llm_request"
 hermes_cli = types.ModuleType("hermes_cli")
+acp = types.ModuleType("acp")
+acp_schema = types.ModuleType("acp.schema")
+gateway = types.ModuleType("gateway")
+gateway_session_context = types.ModuleType("gateway.session_context")
+
+
+class SessionInfoUpdate:
+    def __init__(self, **kwargs: Any):
+        self.session_update = kwargs["session_update"]
+        self.field_meta = kwargs["field_meta"]
+
+
+acp_schema.SessionInfoUpdate = SessionInfoUpdate
+gateway_session_context.get_session_env = lambda key, fallback="": "acp-session-1" if key == "HERMES_SESSION_KEY" else fallback
 
 install_module("providers", providers)
 install_module("providers.base", providers_base)
+install_module("acp", acp)
+install_module("acp.schema", acp_schema)
+install_module("gateway", gateway)
+install_module("gateway.session_context", gateway_session_context)
 install_module("hermes_cli", hermes_cli)
 install_module("hermes_cli.plugins", plugins)
 install_module("hermes_cli.middleware", middleware)
@@ -69,6 +89,32 @@ if spec is None or spec.loader is None:
     raise RuntimeError("could not load emitted provider")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+
+bindings: list[dict[str, Any]] = []
+
+
+class Connection:
+    async def session_update(self, session_id: str, update: SessionInfoUpdate) -> None:
+        bindings.append(
+            {
+                "session_id": session_id,
+                "session_update": update.session_update,
+                "field_meta": update.field_meta,
+            }
+        )
+
+
+class Loop:
+    def create_task(self, delivery: Any) -> None:
+        asyncio.run(delivery)
+
+
+module._COMMAND_EVE_DESKTOP_CONNECTIONS["acp-session-1"] = (
+    Connection(),
+    Loop(),
+    threading.get_ident(),
+    object(),
+)
 
 # The emitted provider installs this native middleware at import and retries it
 # from the model-call hot seam. Importing is sufficient to execute the same
@@ -106,6 +152,7 @@ print(
             "malformed": apply(**{**local, "api_request_id": "turn-local-1:api:2"}),
             "public_provider": apply(**{**local, "base_url": "https://api.example.com/v1"}),
             "non_custom": apply(**{**local, "provider": "openai"}),
+            "bindings": bindings,
         },
         sort_keys=True,
     )
