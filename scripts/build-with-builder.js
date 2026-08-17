@@ -839,16 +839,21 @@ try {
   const isWindowsBuild = builderArgs.includes('--win') || builderArgs.includes('--all');
   const isUnsignedWindowsPhaseA = isWindowsBuild && process.env.COMMAND_EVE_PHASE_A_UNSIGNED_BUILD === '1';
   const isPackagedE2E = process.env.COMMAND_EVE_E2E_PACKAGED_BUILD === '1';
+  const isSignedQa = process.env.COMMAND_EVE_QA_SIGNED_BUILD === '1';
   if (isWindowsBuild) {
     cleanupWindowsPackOutput();
   }
 
-  const builderPolicy = resolveBuilderExecutionPolicy({ isUnsignedWindowsPhaseA, isPackagedE2E });
+  const builderPolicy = resolveBuilderExecutionPolicy({ isUnsignedWindowsPhaseA, isPackagedE2E, isSignedQa });
   const builderConfig = builderPolicy.builderConfig;
   if (isUnsignedWindowsPhaseA) {
     console.log('🧪 Building an unsigned Phase A proof with an isolated non-production update feed.');
   }
-  if (isPackagedE2E) {
+  if (isPackagedE2E && isSignedQa) {
+    console.log(
+      '🧪 Building the Developer-ID-signed, non-distributable Playwright measurement package (no feed, no publish, not notarized).'
+    );
+  } else if (isPackagedE2E) {
     console.log('🧪 Building the baked, non-distributable Playwright attachment package (no DMG retry/feed).');
   }
   const builderCommand = `bunx electron-builder --config ${builderConfig} ${builderArgs} ${archFlag} ${nsisInclude} ${publishArg}`;

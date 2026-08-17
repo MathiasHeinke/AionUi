@@ -1,0 +1,31 @@
+# Non-distributable, Developer-ID-signed Playwright measurement package.
+#
+# The plain e2e lane cannot measure the packaged runtime: it sets identity null
+# and afterSign null, so the bundled Python tree stays tree_phase 'staged' and
+# the runtime rejects it fail-closed (artifact_tree_not_signed). Playwright, in
+# turn, cannot attach to the production package because it launches Electron
+# through --inspect, which the production fuse policy disables inside the
+# binary before any app code runs. This lane is the only overlap: real signing
+# plus the inspect fuse.
+#
+# It deliberately does NOT override `afterSign` or `mac.identity`, so both are
+# inherited from the production config and the bundled Python tree is
+# deep-signed exactly like a release. Notarization is skipped on its own branch
+# in scripts/afterSign.js whenever no notary credentials are configured, so the
+# artifact stays blocked by Gatekeeper on any other machine.
+#
+# `mac.target` is intentionally absent: electron-builder merges arrays by
+# union, so declaring `- dir` here would yield [dmg, zip, dir]. The build
+# script passes --dir on the command line instead.
+extends: packages/desktop/electron-builder.yml
+
+directories:
+  output: out/qa-signed-packaged
+
+electronFuses:
+  enableNodeCliInspectArguments: true
+
+afterPack: scripts/afterPackE2E.js
+afterAllArtifactBuild: null
+
+publish: null
