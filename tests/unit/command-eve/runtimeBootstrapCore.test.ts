@@ -18,6 +18,7 @@ import {
   commandEveDelegationConcurrency,
   commandEveOnboardingSkillMarkdown,
   ensureCommandEveRuntimeBootstrap as ensureCommandEveRuntimeBootstrapCore,
+  commandEveWarmupFastPathReceipt,
   loadCommandEveCapabilityPack,
   loadCommandEveRuntimeBootstrapManifest,
   COMMAND_EVE_ACP_PLATFORM_TOOLSETS,
@@ -841,6 +842,45 @@ describe('Command EVE runtime bootstrap core', () => {
         )
       ).toBe(true);
     }
+  });
+
+  it('offers a warm-up fast path only for a receipt that proves this release, tier and provisioning', () => {
+    const receipt = {
+      app_release: '1.823.0',
+      status: 'ready',
+      provider: 'ollama',
+      default_model: 'command-eve-gemma4-e4b-64k:latest',
+      stages: [
+        { id: 'ollama', status: 'pass' },
+        { id: 'model', status: 'pass' },
+      ],
+    } as unknown as Parameters<typeof commandEveWarmupFastPathReceipt>[0];
+
+    expect(commandEveWarmupFastPathReceipt(receipt, '1.823.0', 'custom:command-eve-gemma4-e4b-64k')).toBe(receipt);
+    // A previous release's receipt describes a runtime this build never provisioned.
+    expect(commandEveWarmupFastPathReceipt(receipt, '1.822.0', 'custom:command-eve-gemma4-e4b-64k')).toBeUndefined();
+    // A different tier was requested than the one the receipt provisioned.
+    expect(commandEveWarmupFastPathReceipt(receipt, '1.823.0', 'custom:command-eve-gemma4-12b-64k')).toBeUndefined();
+    expect(commandEveWarmupFastPathReceipt(undefined, '1.823.0', 'custom:command-eve-gemma4-e4b-64k')).toBeUndefined();
+  });
+
+  it('refuses the warm-up fast path when the local model was never provisioned', () => {
+    // The RAM/disk-constrained receipt is 'ready' because the CLOUD lane is
+    // genuinely provisioned; only ollama/model are skips. Reusing it as a fast
+    // path would skip straight to warming a model that does not exist.
+    const cloudOnly = {
+      app_release: '1.823.0',
+      status: 'ready',
+      provider: 'ollama',
+      default_model: 'command-eve-gemma4-e4b-64k:latest',
+      stages: [
+        { id: 'capacity', status: 'skip', code: 'BLOCKED_RAM' },
+        { id: 'ollama', status: 'skip', code: 'BLOCKED_RAM' },
+        { id: 'model', status: 'skip', code: 'BLOCKED_RAM' },
+      ],
+    } as unknown as Parameters<typeof commandEveWarmupFastPathReceipt>[0];
+
+    expect(commandEveWarmupFastPathReceipt(cloudOnly, '1.823.0', 'custom:command-eve-gemma4-e4b-64k')).toBeUndefined();
   });
 
   it('maps Colibrì to its managed runtime alias and warm-up contract', () => {

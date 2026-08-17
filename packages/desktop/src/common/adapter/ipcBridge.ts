@@ -14,6 +14,7 @@
 
 import type { IConfirmation } from '@/common/chat/chatLib';
 import type { EveMaxAuthorityReceipt } from '@/common/config/eveMaxAuthorityCore';
+import type { CommandEveModelWarmupSkipReason } from '@/common/config/eveModelWarmupCore';
 import type { CommandEveBrowserWorkbenchState } from '@/common/config/browserWorkbenchStateCore';
 import type { BrowserControlLease, CommandEveBrowserControlContext } from '@/common/config/browserWorkbenchControlCore';
 import type {
@@ -754,6 +755,11 @@ export interface ICommandEveRuntimeStatus {
     completed_at?: string;
     elapsed_ms?: number;
     error?: string;
+    /**
+     * Why a `skipped` warm-up was skipped. Absent on receipts written before
+     * 1.823; readers must treat that absence as "not proven deliberate".
+     */
+    skip_reason?: CommandEveModelWarmupSkipReason;
   };
   stages?: ICommandEveRuntimeStage[];
 }
