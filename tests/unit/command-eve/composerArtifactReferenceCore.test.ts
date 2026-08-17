@@ -88,18 +88,52 @@ describe('renderComposerArtifactFollowupRoutingContext', () => {
     expect(context).not.toContain('Secret title');
   });
 
-  it('deduplicates ids, keeps registry order and bounds the candidate set', () => {
+  it('keeps chronological order and bounds the set to the newest artifacts', () => {
     const values = Array.from({ length: 20 }, (_, index) => ({
       artifactId: `artifact-${index}`,
       mode: ['excel', 'pdf', 'image', 'presentation', 'word', 'video'][index % 6],
     }));
-    values.splice(1, 0, { artifactId: 'artifact-0', mode: 'video' });
+    const context = renderComposerArtifactFollowupRoutingContext(values);
+    const candidates = context.match(/^candidate=\S+$/gm) ?? [];
+
+    expect(candidates).toHaveLength(12);
+    // Thirteen of the twenty carry a follow-up mode; the oldest one falls out.
+    expect(candidates.at(0)).toBe('candidate=artifact_id:artifact-2;mode:image');
+    expect(candidates.at(-1)).toBe('candidate=artifact_id:artifact-18;mode:excel');
+    expect(context).not.toContain('candidate=artifact_id:artifact-0;');
+    expect(context.length).toBeLessThan(5000);
+  });
+
+  it('offers a re-emitted artifact once, at its newest position', () => {
+    const context = renderComposerArtifactFollowupRoutingContext([
+      { artifactId: 'artifact-1', mode: 'image' },
+      { artifactId: 'artifact-2', mode: 'video' },
+      { artifactId: 'artifact-1', mode: 'word' },
+    ]);
+
+    expect(context.match(/^candidate=\S+$/gm)).toEqual([
+      'candidate=artifact_id:artifact-2;mode:video',
+      'candidate=artifact_id:artifact-1;mode:word',
+    ]);
+  });
+
+  /**
+   * A follow-up addresses what was just produced. Filling the bound from the
+   * oldest end dropped exactly that artifact once a conversation outgrew the
+   * bound, so "make it shorter" on a freshly paid video either failed closed or
+   * had only stale clips to bind to.
+   */
+  it('offers the newest artifact once a conversation exceeds the candidate bound', () => {
+    const values = Array.from({ length: 13 }, (_, index) => ({
+      artifactId: `artifact-${index}`,
+      mode: 'video',
+    }));
+
     const context = renderComposerArtifactFollowupRoutingContext(values);
 
-    expect(context.match(/^candidate=/gm)).toHaveLength(12);
-    expect(context.match(/artifact_id:artifact-0/g)).toHaveLength(1);
-    expect(context).toContain('candidate=artifact_id:artifact-5;mode:video');
-    expect(context.length).toBeLessThan(5000);
+    expect(context).toContain('candidate=artifact_id:artifact-12;mode:video');
+    expect(context).not.toContain('candidate=artifact_id:artifact-0;');
+    expect(context.match(/^candidate=\S+$/gm)).toHaveLength(12);
   });
 
   it('is absent for empty, malformed and unsupported candidates', () => {

@@ -161,16 +161,28 @@ export function parseComposerArtifactFollowupTarget(value: unknown): ComposerArt
   return { artifactId, question };
 }
 
+type ArtifactFollowupCandidate = Readonly<{
+  artifactId: string;
+  mode: (typeof ARTIFACT_FOLLOWUP_MODES)[number];
+}>;
+
 /**
- * Adds bounded, pathless source candidates from the canonical conversation
- * artifact registry. Candidate ids are routing coordinates only: they are not
- * capability handles, permits, tool choices or spend authority.
+ * Selects the bounded candidate set, keeping the most recently created artifacts.
+ *
+ * The registry hands its artifacts over oldest-first, and a follow-up addresses
+ * what was just produced ("make it shorter"). Filling the bound from the start
+ * therefore dropped the one artifact the turn is about as soon as a conversation
+ * held more artifacts than the bound, leaving the follow-up to fail closed.
+ * Selection walks from the newest end for that reason; the returned order stays
+ * chronological so this changes WHICH artifacts are offered, never how the
+ * rendered block reads. Order carries no meaning for the reader either way — the
+ * routing rule below forbids resolving a target from position or age.
  */
-export function renderComposerArtifactFollowupRoutingContext(values: readonly unknown[]): string {
-  const candidates: Array<{ artifactId: string; mode: (typeof ARTIFACT_FOLLOWUP_MODES)[number] }> = [];
+function selectNewestArtifactFollowupCandidates(values: readonly unknown[]): ArtifactFollowupCandidate[] {
+  const candidates: ArtifactFollowupCandidate[] = [];
   const seen = new Set<string>();
-  for (const value of values) {
-    const record = recordOf(value);
+  for (let index = values.length - 1; index >= 0 && candidates.length < MAX_ARTIFACT_FOLLOWUP_CANDIDATES; index -= 1) {
+    const record = recordOf(values[index]);
     const mode = record?.mode;
     const artifactId = safeId(record?.artifactId);
     if (typeof mode !== 'string' || !ARTIFACT_FOLLOWUP_MODE_SET.has(mode) || !artifactId || seen.has(artifactId)) {
@@ -178,8 +190,17 @@ export function renderComposerArtifactFollowupRoutingContext(values: readonly un
     }
     seen.add(artifactId);
     candidates.push({ artifactId, mode: mode as (typeof ARTIFACT_FOLLOWUP_MODES)[number] });
-    if (candidates.length >= MAX_ARTIFACT_FOLLOWUP_CANDIDATES) break;
   }
+  return candidates.toReversed();
+}
+
+/**
+ * Adds bounded, pathless source candidates from the canonical conversation
+ * artifact registry. Candidate ids are routing coordinates only: they are not
+ * capability handles, permits, tool choices or spend authority.
+ */
+export function renderComposerArtifactFollowupRoutingContext(values: readonly unknown[]): string {
+  const candidates = selectNewestArtifactFollowupCandidates(values);
   if (candidates.length === 0) return '';
 
   return [
