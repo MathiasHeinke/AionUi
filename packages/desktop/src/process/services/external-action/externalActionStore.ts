@@ -565,9 +565,7 @@ function sha256(value: string): string {
 
 /** Closed persisted vocabularies. Internal diagnostics never cross this line. */
 const TERMINAL_REASON_CODES: ReadonlySet<string> = new Set(EVE_EXTERNAL_ACTION_REASON_CODES);
-const NEEDS_USER_INSTRUCTION_CODE_SET: ReadonlySet<string> = new Set(
-  EVE_EXTERNAL_ACTION_NEEDS_USER_INSTRUCTION_CODES
-);
+const NEEDS_USER_INSTRUCTION_CODE_SET: ReadonlySet<string> = new Set(EVE_EXTERNAL_ACTION_NEEDS_USER_INSTRUCTION_CODES);
 
 export function externalActionClaimDigest(preimage: ExternalActionClaimDigestPreimage): string {
   return sha256(canonical(preimage));
@@ -694,7 +692,10 @@ function executionOrigins(identity: ExternalActionExecutionContractIdentity): Ev
   return providerOrigin ? [providerOrigin] : null;
 }
 
-function challengeOriginForExecution(identity: ExternalActionExecutionContractIdentity, kind: EveExternalActionChallenge['kind']): string {
+function challengeOriginForExecution(
+  identity: ExternalActionExecutionContractIdentity,
+  kind: EveExternalActionChallenge['kind']
+): string {
   return kind === 'oauth_consent' && identity.authOrigin ? identity.authOrigin : identity.targetOrigin;
 }
 
@@ -877,17 +878,17 @@ function ledgerFromRow(row: LedgerRow | undefined): ExternalActionLedgerRecord |
     ...(row.claim_id ? { claimId: row.claim_id } : {}),
     ...(row.claim_digest ? { claimDigest: row.claim_digest } : {}),
     actionKind: row.action_kind,
-     targetOrigin: row.domain,
-     timezone: row.timezone,
-     dayId: row.day_id,
-     monthId: row.month_id,
-     dayStartAt: row.day_start_at,
-     dayEndAt: row.day_end_at,
-     monthStartAt: row.month_start_at,
-     monthEndAt: row.month_end_at,
-     createdAt: row.created_at,
-     expiresAt: row.expires_at,
-   };
+    targetOrigin: row.domain,
+    timezone: row.timezone,
+    dayId: row.day_id,
+    monthId: row.month_id,
+    dayStartAt: row.day_start_at,
+    dayEndAt: row.day_end_at,
+    monthStartAt: row.month_start_at,
+    monthEndAt: row.month_end_at,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  };
 }
 
 function receiptFromRow(row: ReceiptRow | undefined): EveExternalActionReceiptV0 | null {
@@ -1151,8 +1152,9 @@ function validExecutionIdentity(value: ExternalActionExecutionContractIdentity, 
         Array.isArray(authOrigins) &&
         authOrigins.length >= 1 &&
         authOrigins.length <= 2 &&
-        authOrigins.every((candidate, index) =>
-          normalizeEveExternalOrigin(candidate) === candidate && authOrigins.indexOf(candidate) === index
+        authOrigins.every(
+          (candidate, index) =>
+            normalizeEveExternalOrigin(candidate) === candidate && authOrigins.indexOf(candidate) === index
         ) &&
         authOrigin === authOrigins[0] &&
         isEveSha256Digest(value.authOriginsDigest) &&
@@ -1237,7 +1239,14 @@ function validChallenge(value: unknown, nowMs: number): value is EveExternalActi
 function zonedPeriodKeys(
   now: Date,
   timezone: string
-): { dayId: string; monthId: string; dayStartAt: string; dayEndAt: string; monthStartAt: string; monthEndAt: string } | null {
+): {
+  dayId: string;
+  monthId: string;
+  dayStartAt: string;
+  dayEndAt: string;
+  monthStartAt: string;
+  monthEndAt: string;
+} | null {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,
@@ -1620,9 +1629,9 @@ export class ExternalActionStore {
 
     // v6 migration: add immutable policy timezone + exact day/month period
     // boundaries so a later policy timezone change cannot reclassify history.
-    const cols = this.db
-      .prepare('PRAGMA table_info(external_action_reservations)')
-      .all() as unknown as Array<{ name: string }>;
+    const cols = this.db.prepare('PRAGMA table_info(external_action_reservations)').all() as unknown as Array<{
+      name: string;
+    }>;
     const has = (name: string) => cols.some((col) => col.name === name);
     if (!has('timezone')) {
       this.db.exec('ALTER TABLE external_action_reservations ADD COLUMN timezone TEXT');
@@ -2362,16 +2371,18 @@ export class ExternalActionStore {
       if (!Number.isSafeInteger(row.amount_minor) || (row.amount_minor as number) < 0) return null;
       if (typeof row.created_at !== 'string' || !Number.isFinite(Date.parse(row.created_at))) return null;
       if (typeof row.day_id !== 'string' || typeof row.month_id !== 'string') return null;
-      if (!zonedPeriodKeysConsistent({
-        timezone: row.timezone as string,
-        created_at: row.created_at,
-        day_id: row.day_id,
-        month_id: row.month_id,
-        day_start_at: row.day_start_at as string,
-        day_end_at: row.day_end_at as string,
-        month_start_at: row.month_start_at as string,
-        month_end_at: row.month_end_at as string,
-      })) {
+      if (
+        !zonedPeriodKeysConsistent({
+          timezone: row.timezone as string,
+          created_at: row.created_at,
+          day_id: row.day_id,
+          month_id: row.month_id,
+          day_start_at: row.day_start_at as string,
+          day_end_at: row.day_end_at as string,
+          month_start_at: row.month_start_at as string,
+          month_end_at: row.month_end_at as string,
+        })
+      ) {
         return null;
       }
       if (!ACTIVE_BUDGET_STATES.has(row.state as EveExternalActionLedgerState)) continue;

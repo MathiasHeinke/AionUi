@@ -286,10 +286,7 @@ describe('managed visual turn authorization', () => {
     }));
     const body = {
       session_id: 'hermes-session-a',
-      messages: [
-        ...olderMessages,
-        { role: 'user', content: `${authorization.marker}\nAnalyze the image.` },
-      ],
+      messages: [...olderMessages, { role: 'user', content: `${authorization.marker}\nAnalyze the image.` }],
     };
     expect(body.messages).toHaveLength(438);
     expect(JSON.stringify(body).length).toBeLessThan(25_000_000);

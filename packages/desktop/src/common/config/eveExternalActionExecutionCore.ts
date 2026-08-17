@@ -83,8 +83,7 @@ export const EVE_EXTERNAL_ACTION_PROVIDER_LABEL_CODES = [
   'fixture_oauth',
   'fixture_3ds',
 ] as const;
-export type EveExternalActionProviderMerchantLabelCode =
-  (typeof EVE_EXTERNAL_ACTION_PROVIDER_LABEL_CODES)[number];
+export type EveExternalActionProviderMerchantLabelCode = (typeof EVE_EXTERNAL_ACTION_PROVIDER_LABEL_CODES)[number];
 export type EveExternalActionOrigins =
   | readonly [providerOrigin: string]
   | readonly [merchantOrigin: string, checkoutOrigin: string];
@@ -606,8 +605,7 @@ export function validateEveExternalActionProposal(input: unknown): EveExternalAc
         }
       })());
   const refValid =
-    !hasPayloadRef ||
-    (isEveOpaqueId(action.adapterPayloadRef) && isEveSha256Digest(action.adapterPayloadDigest));
+    !hasPayloadRef || (isEveOpaqueId(action.adapterPayloadRef) && isEveSha256Digest(action.adapterPayloadDigest));
   if (!inlineValid || !refValid) {
     return { ok: false, reasonCode: 'EXTERNAL_PROPOSAL_ADAPTER_PAYLOAD_INVALID' };
   }

@@ -683,7 +683,10 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
     expect(pending?.snapshot.challenge.origin).toBe(AUTH_ORIGIN);
     expect(pending?.executionContract).toMatchObject({ authOrigin: AUTH_ORIGIN, authOrigins: [AUTH_ORIGIN] });
     expect(pending?.executionContract.authOriginsDigest).toBe(
-      `sha256:${crypto.createHash('sha256').update(JSON.stringify([AUTH_ORIGIN])).digest('hex')}`
+      `sha256:${crypto
+        .createHash('sha256')
+        .update(JSON.stringify([AUTH_ORIGIN]))
+        .digest('hex')}`
     );
     expect(JSON.stringify(store.readAuditEvents(binding))).not.toContain(OAUTH_REF);
     expect(JSON.stringify(suspended)).not.toContain(OAUTH_REF);
@@ -780,7 +783,10 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
     const first = await runner.execute(oauthMailProposal());
     activeBinding = { ...binding, accountId: 'account-b' };
     expect(
-      await runner.resume({ version: 'command-eve-external-action-resume/v1', resumeRef: first.eventReceipt!.resumeRef })
+      await runner.resume({
+        version: 'command-eve-external-action-resume/v1',
+        resumeRef: first.eventReceipt!.resumeRef,
+      })
     ).toMatchObject({ status: 'denied', reasonCode: 'EXTERNAL_RESUME_NOT_ACTIVE' });
     expect(execute).not.toHaveBeenCalled();
 
@@ -972,7 +978,11 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
   });
 
   it.each([
-    ['missing risk classification', adapter({ classifyRisk: undefined as unknown as ExternalActionAdapter['classifyRisk'] }), undefined],
+    [
+      'missing risk classification',
+      adapter({ classifyRisk: undefined as unknown as ExternalActionAdapter['classifyRisk'] }),
+      undefined,
+    ],
     ['high risk classification', adapter({ classifyRisk: () => 'high_risk_finance' }), undefined],
     [
       'authority confirmation',
@@ -981,37 +991,40 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
     ],
     [
       'auth probe failure',
-      adapter({ probeOAuth: async () => { throw new Error('synthetic-inline-auth-probe'); } }),
+      adapter({
+        probeOAuth: async () => {
+          throw new Error('synthetic-inline-auth-probe');
+        },
+      }),
       undefined,
     ],
-    [
-      'non-resumable auth',
-      adapter({ probeOAuth: async () => 'needs_user' }),
-      undefined,
-    ],
-  ])('returns terminal reconfirmation before reserve for inline payload on %s', async (_name, inlineAdapter, resolveAuthority) => {
-    const { store, binding } = fixture();
-    const inline = Buffer.from('inline-early-needs-user-canary').toString('base64');
-    const outcome = await service({
-      store,
-      binding,
-      adapter: {
-        ...inlineAdapter,
-        validatePayload: payloadValidator({ authMode: 'none' }),
-      },
-      ...(resolveAuthority ? { resolveAuthority } : {}),
-    }).execute(
-      proposal({
-        action: { ...proposal().action, adapterPayload: inline },
-        oauthHandleId: undefined,
-        passwordHandleId: undefined,
-      })
-    );
-    expect(outcome).toMatchObject({ status: 'needs_user', reasonCode: 'RECONFIRM_REQUIRED' });
-    expect(outcome.reservationId).toBeUndefined();
-    expect(outcome.eventReceipt).toBeUndefined();
-    expect(store.readAuditEvents(binding).some((event) => event.event_type === 'ledger.reserved')).toBe(false);
-  });
+    ['non-resumable auth', adapter({ probeOAuth: async () => 'needs_user' }), undefined],
+  ])(
+    'returns terminal reconfirmation before reserve for inline payload on %s',
+    async (_name, inlineAdapter, resolveAuthority) => {
+      const { store, binding } = fixture();
+      const inline = Buffer.from('inline-early-needs-user-canary').toString('base64');
+      const outcome = await service({
+        store,
+        binding,
+        adapter: {
+          ...inlineAdapter,
+          validatePayload: payloadValidator({ authMode: 'none' }),
+        },
+        ...(resolveAuthority ? { resolveAuthority } : {}),
+      }).execute(
+        proposal({
+          action: { ...proposal().action, adapterPayload: inline },
+          oauthHandleId: undefined,
+          passwordHandleId: undefined,
+        })
+      );
+      expect(outcome).toMatchObject({ status: 'needs_user', reasonCode: 'RECONFIRM_REQUIRED' });
+      expect(outcome.reservationId).toBeUndefined();
+      expect(outcome.eventReceipt).toBeUndefined();
+      expect(store.readAuditEvents(binding).some((event) => event.event_type === 'ledger.reserved')).toBe(false);
+    }
+  );
 
   it('binds a non-resumable inline payload by digest while exposing bytes only to the Main adapter call', async () => {
     const { store, binding, file } = fixture();
@@ -1556,22 +1569,32 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
     const payloadDigest = `sha256:${crypto.createHash('sha256').update(payload).digest('hex')}`;
     const reader = vi.fn(async () => payload.slice());
     let manifest: readonly EveExternalActionSlotBinding[] = [];
-    const validatePayload = vi.fn((bytes: Uint8Array, context: { domain: 'generic' | 'email_identity' | 'phone_identity' | 'commerce'; action: string; counterpartyId: string; origins: readonly string[] }) => ({
-      version: EXTERNAL_ACTION_ADAPTER_PAYLOAD_VALIDATION_VERSION,
-      canonicalPayloadDigest: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
-      authMode: 'payment_fields' as const,
-      domain: context.domain,
-      action: context.action,
-      counterpartyId: context.counterpartyId,
-      origins: context.origins,
-      slotManifest: manifest,
-      commerce: {
-        productCount: 1,
-        cartDigest: digest('a'),
-        quoteDigest: digest('b'),
-        amount: { currency: 'EUR', minorUnits: 500 },
-      },
-    }));
+    const validatePayload = vi.fn(
+      (
+        bytes: Uint8Array,
+        context: {
+          domain: 'generic' | 'email_identity' | 'phone_identity' | 'commerce';
+          action: string;
+          counterpartyId: string;
+          origins: readonly string[];
+        }
+      ) => ({
+        version: EXTERNAL_ACTION_ADAPTER_PAYLOAD_VALIDATION_VERSION,
+        canonicalPayloadDigest: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
+        authMode: 'payment_fields' as const,
+        domain: context.domain,
+        action: context.action,
+        counterpartyId: context.counterpartyId,
+        origins: context.origins,
+        slotManifest: manifest,
+        commerce: {
+          productCount: 1,
+          cartDigest: digest('a'),
+          quoteDigest: digest('b'),
+          amount: { currency: 'EUR', minorUnits: 500 },
+        },
+      })
+    );
     const execute = vi.fn(async () => ({ status: 'allowed' as const }));
     const runner = service({
       store,
@@ -1645,7 +1668,9 @@ describe('ExternalActionExecutionService Main-owned seam', () => {
           action: context.action,
           counterpartyId: 'attacker-fixture',
           origins: context.origins,
-          slotManifest: [{ slot: 'oauth_token' as const, handleId: 'oauth-handle', handleType: 'oauth_token' as const }],
+          slotManifest: [
+            { slot: 'oauth_token' as const, handleId: 'oauth-handle', handleType: 'oauth_token' as const },
+          ],
         }),
         execute,
       }),

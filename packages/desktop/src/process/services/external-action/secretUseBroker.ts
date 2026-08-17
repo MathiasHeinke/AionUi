@@ -109,14 +109,14 @@ export class ExternalSecretUseBroker {
             outcomeDigest: BROKER_UNKNOWN_DIGEST,
           })
         : this.store.reverse({
-          binding: request.binding,
-          reservationId: request.reservationId,
-          claimId: request.claimId,
-          authMode: request.executionContract.authMode,
-          terminalState: 'denied',
-          reasonCode: externalActionTerminalReason(consumed.reasonCode),
-          outcomeDigest: BROKER_REVERSED_DIGEST,
-        });
+            binding: request.binding,
+            reservationId: request.reservationId,
+            claimId: request.claimId,
+            authMode: request.executionContract.authMode,
+            terminalState: 'denied',
+            reasonCode: externalActionTerminalReason(consumed.reasonCode),
+            outcomeDigest: BROKER_REVERSED_DIGEST,
+          });
       const unknown = replayUnsafe || transition.state === 'unknown' || transition.state === 'resuming';
       return {
         ok: false,

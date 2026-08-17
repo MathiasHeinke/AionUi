@@ -56,13 +56,15 @@ describe('native credential and browser profile seams', () => {
     const read = vi.fn(async () => new TextEncoder().encode('synthetic-source-secret'));
     const port: HermesSecretSourceReadPort = { read };
     const resolver = new NativeSecretMaterialResolver('/tmp/eve-test', () => port);
-    const material = await resolver.resolve(resolveContext({
-      source: 'hermes_onepassword',
-      sourceRef: 'secret-source:v1:onepassword:GOOGLE_API_TOKEN',
-      handleType: 'oauth_token',
-      slot: 'oauth_token',
-      authMode: 'oauth',
-    }));
+    const material = await resolver.resolve(
+      resolveContext({
+        source: 'hermes_onepassword',
+        sourceRef: 'secret-source:v1:onepassword:GOOGLE_API_TOKEN',
+        handleType: 'oauth_token',
+        slot: 'oauth_token',
+        authMode: 'oauth',
+      })
+    );
     expect(new TextDecoder().decode(material)).toBe('synthetic-source-secret');
     expect(read).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -78,11 +80,13 @@ describe('native credential and browser profile seams', () => {
       })
     );
     await expect(
-      resolver.resolve(resolveContext({
-        source: 'hermes_bitwarden',
-        sourceRef: 'secret-source:v1:bitwarden:ACCOUNT_PASSWORD',
-        handleType: 'account_credential',
-      }))
+      resolver.resolve(
+        resolveContext({
+          source: 'hermes_bitwarden',
+          sourceRef: 'secret-source:v1:bitwarden:ACCOUNT_PASSWORD',
+          handleType: 'account_credential',
+        })
+      )
     ).rejects.toThrow('EXTERNAL_HERMES_SOURCE_TYPE_BLOCKED');
     expect(read).toHaveBeenCalledTimes(1);
   });

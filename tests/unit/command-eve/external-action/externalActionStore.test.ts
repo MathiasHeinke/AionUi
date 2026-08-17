@@ -122,7 +122,7 @@ function executionContract(
     : binding(store);
   const reservationId = overrides.reservationId ?? 'reservation:test';
   const claimId = overrides.claimId ?? 'claim-a';
- const executionContractDigest = overrides.executionContractDigest ?? digest('d');
+  const executionContractDigest = overrides.executionContractDigest ?? digest('d');
   const claimDigest = overrides.claimDigest ?? claimDigestFor(executionContractDigest, reservationId, claimId);
   return {
     installationId: scoped.installationId,

@@ -12,9 +12,7 @@ import type { CommandEveManagedVisualAuthorizationFailureReason } from './manage
  * revalidation revokes the same one-time managed-visual capability as an
  * invalid marker, so it shares the public boundary but not the public code.
  */
-export type CommandEveManagedVisualRefusalReason =
-  | CommandEveManagedVisualAuthorizationFailureReason
-  | 'POLICY_STALE';
+export type CommandEveManagedVisualRefusalReason = CommandEveManagedVisualAuthorizationFailureReason | 'POLICY_STALE';
 
 /**
  * F-14 (Kimi 1.819 audit): the shim's top-level catch must never echo raw

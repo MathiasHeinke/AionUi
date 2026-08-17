@@ -887,7 +887,12 @@ function validateAdapterPayloadValidation(
       handleType: slot.handleType,
     });
   }
-  const normalizedSlots = selectedSlotManifest(slots, candidate.authMode as ExternalActionAuthMode, expected.domain, expected.action);
+  const normalizedSlots = selectedSlotManifest(
+    slots,
+    candidate.authMode as ExternalActionAuthMode,
+    expected.domain,
+    expected.action
+  );
   if (!normalizedSlots || canonical(normalizedSlots) !== canonical(slots)) return null;
   let commerceContract: ExternalActionAdapterPayloadValidation['commerce'];
   if (commerce) {
@@ -953,9 +958,7 @@ function unknownOutcomeReason(internal: string): 'UNKNOWN_EXTERNAL_EFFECT' | 'SA
 }
 
 /** Main-owned challenges carry only the closed user-instruction enum. */
-function instructionForChallengeKind(
-  kind: EveExternalActionChallengeKind
-): EveExternalActionNeedsUserInstructionCode {
+function instructionForChallengeKind(kind: EveExternalActionChallengeKind): EveExternalActionNeedsUserInstructionCode {
   switch (kind) {
     case 'oauth_consent':
       return 'COMPLETE_OAUTH_CONSENT';
@@ -976,8 +979,7 @@ function adapterOutcome(
   value: unknown,
   expected: Pick<ExternalActionExecutionContractIdentity, 'domain' | 'domainAction' | 'amountMinor' | 'currency'>
 ): ExternalActionAdapterOutcome {
-  if (!value || typeof value !== 'object')
-    return { status: 'unknown_outcome', reasonCode: 'UNKNOWN_EXTERNAL_EFFECT' };
+  if (!value || typeof value !== 'object') return { status: 'unknown_outcome', reasonCode: 'UNKNOWN_EXTERNAL_EFFECT' };
   const candidate = value as Partial<ExternalActionAdapterOutcome>;
   if (!['allowed', 'needs_user', 'denied', 'unknown_outcome'].includes(String(candidate.status))) {
     return { status: 'unknown_outcome', reasonCode: 'UNKNOWN_EXTERNAL_EFFECT' };
@@ -1032,14 +1034,12 @@ function adapterOutcome(
   ) {
     return { status: 'unknown_outcome', reasonCode: 'UNKNOWN_EXTERNAL_EFFECT' };
   }
-  return {
-    ...(candidate.status === 'denied'
-      ? { status: 'denied' as const, reasonCode: candidate.reasonCode as EveExternalActionReasonCode }
-      : {
-          status: 'unknown_outcome' as const,
-          reasonCode: candidate.reasonCode as 'UNKNOWN_EXTERNAL_EFFECT' | 'SANITIZATION_FAILED',
-        }),
-  };
+  return candidate.status === 'denied'
+    ? { status: 'denied' as const, reasonCode: candidate.reasonCode as EveExternalActionReasonCode }
+    : {
+        status: 'unknown_outcome' as const,
+        reasonCode: candidate.reasonCode as 'UNKNOWN_EXTERNAL_EFFECT' | 'SANITIZATION_FAILED',
+      };
 }
 
 function workbenchCard(input: {
@@ -1304,19 +1304,19 @@ export class ExternalActionExecutionService {
         readerPayload = input.inlineBytes;
       } else {
         readerPayload = await this.deps.adapterPayloadReader!.read({
-        payloadRef: input.payloadRef,
-        expectedPayloadDigest: input.payloadDigest,
-        binding: input.binding,
-        conversationId: input.conversationId,
-        conversationSessionId: input.conversationSessionId,
-        adapterId: input.adapterId,
-        actionKind: input.actionKind,
-        targetOrigin: input.targetOrigin,
-        domain: input.domain,
-        action: input.action,
-        counterpartyId: input.counterpartyId,
-        origins: input.origins,
-      });
+          payloadRef: input.payloadRef,
+          expectedPayloadDigest: input.payloadDigest,
+          binding: input.binding,
+          conversationId: input.conversationId,
+          conversationSessionId: input.conversationSessionId,
+          adapterId: input.adapterId,
+          actionKind: input.actionKind,
+          targetOrigin: input.targetOrigin,
+          domain: input.domain,
+          action: input.action,
+          counterpartyId: input.counterpartyId,
+          origins: input.origins,
+        });
       }
       if (
         !(readerPayload instanceof Uint8Array) ||
@@ -1418,7 +1418,10 @@ export class ExternalActionExecutionService {
           outcome: result('denied', { reasonCode: 'EXTERNAL_PAYLOAD_HANDLE_INGRESS_AMBIGUOUS' }),
         };
       }
-      if (proposal.action.adapterPayload || (proposal.action.adapterPayloadRef && proposal.action.adapterPayloadDigest)) {
+      if (
+        proposal.action.adapterPayload ||
+        (proposal.action.adapterPayloadRef && proposal.action.adapterPayloadDigest)
+      ) {
         const inlinePayloadText = proposal.action.adapterPayload;
         const inlineBytes = inlinePayloadText ? Uint8Array.from(Buffer.from(inlinePayloadText, 'base64')) : undefined;
         if (inlineBytes) inlinePayload = Uint8Array.from(inlineBytes);
@@ -1459,259 +1462,264 @@ export class ExternalActionExecutionService {
         }
       }
 
-    const riskClass = classifyTrustedRisk(adapter, binding, proposal);
-    if (!riskClass) {
-      return {
-        ok: false,
-        outcome: inlinePayload ? inlineNeedsUser() : result('needs_user', { reasonCode: 'EXTERNAL_RISK_CLASSIFICATION_REQUIRED' }),
-      };
-    }
-    if (riskClass !== 'ordinary') {
-      return {
-        ok: false,
-        outcome: inlinePayload ? inlineNeedsUser() : result('needs_user', { reasonCode: 'EXTERNAL_ACTION_HUMAN_GATE_REQUIRED' }),
-      };
-    }
+      const riskClass = classifyTrustedRisk(adapter, binding, proposal);
+      if (!riskClass) {
+        return {
+          ok: false,
+          outcome: inlinePayload
+            ? inlineNeedsUser()
+            : result('needs_user', { reasonCode: 'EXTERNAL_RISK_CLASSIFICATION_REQUIRED' }),
+        };
+      }
+      if (riskClass !== 'ordinary') {
+        return {
+          ok: false,
+          outcome: inlinePayload
+            ? inlineNeedsUser()
+            : result('needs_user', { reasonCode: 'EXTERNAL_ACTION_HUMAN_GATE_REQUIRED' }),
+        };
+      }
 
-    let authority: ExternalActionAuthorityResolution;
-    try {
-      const budgetUsed = this.store.getBudgetUsedToday(binding, proposal.action.amount.currency);
-      authority = await this.deps.resolveAuthority({
+      let authority: ExternalActionAuthorityResolution;
+      try {
+        const budgetUsed = this.store.getBudgetUsedToday(binding, proposal.action.amount.currency);
+        authority = await this.deps.resolveAuthority({
+          binding,
+          proposal,
+          spentTodayMinor: budgetIncludesCurrentReservation
+            ? Math.max(0, budgetUsed - proposal.action.amount.minorUnits)
+            : budgetUsed,
+          riskClass,
+        });
+      } catch {
+        return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTHORITY_UNAVAILABLE' }) };
+      }
+      const stableAfterAuthority = this.recheckBinding(binding);
+      if ('reasonCode' in stableAfterAuthority) {
+        return { ok: false, outcome: result('denied', stableAfterAuthority) };
+      }
+      if (!isEveOpaqueId(authority.authorityGrantId)) {
+        return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTHORITY_INVALID' }) };
+      }
+      if (authority.decision === 'ask') {
+        return {
+          ok: false,
+          outcome: inlinePayload
+            ? inlineNeedsUser()
+            : result('needs_user', { reasonCode: 'EXTERNAL_AUTHORITY_CONFIRMATION_REQUIRED' }),
+        };
+      }
+      if (authority.decision !== 'allow') {
+        return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTHORITY_BLOCKED' }) };
+      }
+      if (authority.riskClass !== riskClass) {
+        return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_RISK_CLASSIFICATION_CHANGED' }) };
+      }
+      const stableConversationAfterAuthority = this.recheckConversation(conversationContext);
+      if ('reasonCode' in stableConversationAfterAuthority) {
+        return { ok: false, outcome: result('denied', stableConversationAfterAuthority) };
+      }
+
+      if (operation.domain !== 'generic' && !payloadValidation) {
+        return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_REQUIRED' }) };
+      }
+      if (operation.domain === 'commerce' && !payloadValidation?.commerce) {
+        return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_COMMERCE_PAYLOAD_REQUIRED' }) };
+      }
+
+      let auth: SelectedAuthResult;
+      try {
+        auth = await this.selectAuth(adapter, binding, proposal, payloadValidation?.slotManifest ?? [], authOrigins);
+      } catch {
+        return {
+          ok: false,
+          outcome: inlinePayload
+            ? inlineNeedsUser()
+            : result('needs_user', { reasonCode: 'EXTERNAL_AUTH_PROBE_UNAVAILABLE' }),
+        };
+      }
+      if (auth.status === 'denied') {
+        return { ok: false, outcome: result('denied', { reasonCode: auth.reasonCode }) };
+      }
+      if (auth.status === 'needs_user' && !auth.resumable) {
+        return {
+          ok: false,
+          outcome: inlinePayload
+            ? inlineNeedsUser(auth.authMode)
+            : result('needs_user', { reasonCode: auth.reasonCode, authMode: auth.authMode }),
+        };
+      }
+      if (payloadValidation && payloadValidation.authMode !== auth.authMode) {
+        return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTH_SLOT_CONTRACT_STALE' }) };
+      }
+      const fallbackSlots = [
+        ...(auth.authMode === 'oauth' && proposal.oauthHandleId
+          ? [{ slot: 'oauth_token' as const, handleId: proposal.oauthHandleId, handleType: 'oauth_token' as const }]
+          : []),
+        ...(auth.authMode === 'password' && proposal.passwordHandleId
+          ? [
+              {
+                slot: 'account_password' as const,
+                handleId: proposal.passwordHandleId,
+                handleType: 'account_credential' as const,
+              },
+            ]
+          : []),
+      ].toSorted((left, right) => left.slot.localeCompare(right.slot));
+      const candidateSlots = payloadValidation?.slotManifest ?? fallbackSlots;
+      const slotManifest = selectedSlotManifest(candidateSlots, auth.authMode, operation.domain, operation.action);
+      if (!slotManifest) {
+        return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTH_SLOT_CONTRACT_INVALID' }) };
+      }
+      if (auth.status === 'ready' && auth.handleId && !slotManifest.some((entry) => entry.handleId === auth.handleId)) {
+        return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTH_SLOT_CONTRACT_STALE' }) };
+      }
+      const classificationDigest = sha256(canonical({ actionKind: proposal.action.kind, riskClass }));
+      const authorityReceiptDigest = sha256(
+        canonical({
+          authorityGrantId: authority.authorityGrantId,
+          classificationDigest,
+          policyRevision: policy.revision,
+          sessionEpoch: policy.sessionEpoch,
+        })
+      );
+      const operationPreimage: ExternalActionOperationDigestPreimage = {
         binding,
-        proposal,
-        spentTodayMinor: budgetIncludesCurrentReservation
-          ? Math.max(0, budgetUsed - proposal.action.amount.minorUnits)
-          : budgetUsed,
-        riskClass,
-      });
-    } catch {
-      return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTHORITY_UNAVAILABLE' }) };
-    }
-    const stableAfterAuthority = this.recheckBinding(binding);
-    if ('reasonCode' in stableAfterAuthority) {
-      return { ok: false, outcome: result('denied', stableAfterAuthority) };
-    }
-    if (!isEveOpaqueId(authority.authorityGrantId)) {
-      return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTHORITY_INVALID' }) };
-    }
-    if (authority.decision === 'ask') {
-      return {
-        ok: false,
-        outcome: inlinePayload ? inlineNeedsUser() : result('needs_user', { reasonCode: 'EXTERNAL_AUTHORITY_CONFIRMATION_REQUIRED' }),
+        conversationContext,
+        adapterId: adapter.id,
+        authMode: auth.authMode,
+        authOrigin: auth.authOrigin ?? null,
+        authOrigins: auth.authOrigins ?? null,
+        authOriginsDigest: auth.authOriginsDigest ?? null,
+        slotManifest,
+        action: proposal.action,
       };
-    }
-    if (authority.decision !== 'allow') {
-      return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTHORITY_BLOCKED' }) };
-    }
-    if (authority.riskClass !== riskClass) {
-      return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_RISK_CLASSIFICATION_CHANGED' }) };
-    }
-    const stableConversationAfterAuthority = this.recheckConversation(conversationContext);
-    if ('reasonCode' in stableConversationAfterAuthority) {
-      return { ok: false, outcome: result('denied', stableConversationAfterAuthority) };
-    }
-
-    if (operation.domain !== 'generic' && !payloadValidation) {
-      return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_REQUIRED' }) };
-    }
-    if (operation.domain === 'commerce' && !payloadValidation?.commerce) {
-      return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_COMMERCE_PAYLOAD_REQUIRED' }) };
-    }
-
-    let auth: SelectedAuthResult;
-    try {
-      auth = await this.selectAuth(adapter, binding, proposal, payloadValidation?.slotManifest ?? [], authOrigins);
-    } catch {
-      return {
-        ok: false,
-        outcome: inlinePayload ? inlineNeedsUser() : result('needs_user', { reasonCode: 'EXTERNAL_AUTH_PROBE_UNAVAILABLE' }),
+      const operationDigest = sha256(canonical(operationPreimage));
+      const intentPreimage: ExternalActionIntentDigestPreimage = {
+        installationId: binding.installationId,
+        accountId: binding.accountId,
+        seedId: binding.seedId,
+        domain: operation.domain,
+        domainAction: operation.action,
+        counterpartyId: operation.counterpartyId,
+        origins,
+        actionKind: proposal.action.kind,
+        targetOrigin: proposal.action.targetOrigin,
+        argumentsDigest: proposal.action.argumentsDigest,
+        quoteDigest: proposal.action.quoteDigest ?? null,
+        amount: proposal.action.amount,
+        adapterPayloadDigest: proposal.action.adapterPayloadDigest ?? null,
+        cartDigest: payloadValidation?.commerce?.cartDigest ?? null,
+        productCount: payloadValidation?.commerce?.productCount ?? null,
       };
-    }
-    if (auth.status === 'denied') {
-      return { ok: false, outcome: result('denied', { reasonCode: auth.reasonCode }) };
-    }
-    if (auth.status === 'needs_user' && !auth.resumable) {
-      return {
-        ok: false,
-        outcome: inlinePayload ? inlineNeedsUser(auth.authMode) : result('needs_user', { reasonCode: auth.reasonCode, authMode: auth.authMode }),
-      };
-    }
-    if (payloadValidation && payloadValidation.authMode !== auth.authMode) {
-      return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTH_SLOT_CONTRACT_STALE' }) };
-    }
-    const fallbackSlots = [
-      ...(auth.authMode === 'oauth' && proposal.oauthHandleId
-        ? [{ slot: 'oauth_token' as const, handleId: proposal.oauthHandleId, handleType: 'oauth_token' as const }]
-        : []),
-      ...(auth.authMode === 'password' && proposal.passwordHandleId
-        ? [
-            {
-              slot: 'account_password' as const,
-              handleId: proposal.passwordHandleId,
-              handleType: 'account_credential' as const,
-            },
-          ]
-        : []),
-    ].toSorted((left, right) => left.slot.localeCompare(right.slot));
-    const candidateSlots = payloadValidation?.slotManifest ?? fallbackSlots;
-    const slotManifest = selectedSlotManifest(
-      candidateSlots,
-      auth.authMode,
-      operation.domain,
-      operation.action
-    );
-    if (!slotManifest) {
-      return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTH_SLOT_CONTRACT_INVALID' }) };
-    }
-    if (auth.status === 'ready' && auth.handleId && !slotManifest.some((entry) => entry.handleId === auth.handleId)) {
-      return { ok: false, outcome: result('denied', { reasonCode: 'EXTERNAL_AUTH_SLOT_CONTRACT_STALE' }) };
-    }
-    const classificationDigest = sha256(canonical({ actionKind: proposal.action.kind, riskClass }));
-    const authorityReceiptDigest = sha256(
-      canonical({
+      const intentDigest = sha256(canonical(intentPreimage));
+      const executionPreimage: ExternalActionExecutionDigestPreimage = {
+        operationDigest,
+        policyRevision: policy.revision,
+        sessionEpoch: policy.sessionEpoch,
         authorityGrantId: authority.authorityGrantId,
+        riskClass,
+        adapterId: adapter.id,
+        installationId: binding.installationId,
+        accountId: binding.accountId,
+        seedId: binding.seedId,
+        conversationId: conversationContext.conversationId,
+        conversationSessionId: conversationContext.conversationSessionId,
+        authMode: auth.authMode,
+        authOrigin: auth.authOrigin ?? null,
+        authOrigins: auth.authOrigins ?? null,
+        authOriginsDigest: auth.authOriginsDigest ?? null,
+        domain: operation.domain,
+        domainAction: operation.action,
+        counterpartyId: operation.counterpartyId,
+        providerOrMerchantLabelCode: adapter.providerOrMerchantLabelCode,
+        origins,
+        slotManifest,
+        actionKind: proposal.action.kind,
+        targetOrigin: proposal.action.targetOrigin,
+        argumentsDigest: proposal.action.argumentsDigest,
+        quoteDigest: proposal.action.quoteDigest ?? null,
+        amount: proposal.action.amount,
+        oauthHandleId: proposal.oauthHandleId ?? null,
+        passwordHandleId: proposal.passwordHandleId ?? null,
+        adapterPayloadRef: proposal.action.adapterPayloadRef ?? null,
+        adapterPayloadDigest: proposal.action.adapterPayloadDigest ?? null,
+        adapterPayloadProductCount: payloadValidation?.commerce?.productCount ?? null,
+        cartDigest: payloadValidation?.commerce?.cartDigest ?? null,
+        registeredOperation: operation,
+      };
+      const executionContractDigest = sha256(canonical(executionPreimage));
+      const executionContract: ExternalActionExecutionContractIdentity = {
+        installationId: binding.installationId,
+        accountId: binding.accountId,
+        seedId: binding.seedId,
+        conversationId: conversationContext.conversationId,
+        conversationSessionId: conversationContext.conversationSessionId,
+        adapterId: adapter.id,
+        authMode: auth.authMode,
+        ...(auth.authOrigin && auth.authOrigins && auth.authOriginsDigest
+          ? { authOrigin: auth.authOrigin, authOrigins: auth.authOrigins, authOriginsDigest: auth.authOriginsDigest }
+          : {}),
+        domain: operation.domain,
+        domainAction: operation.action,
+        counterpartyId: operation.counterpartyId,
+        providerOrMerchantLabelCode: adapter.providerOrMerchantLabelCode,
+        ...(proposal.action.adapterPayloadDigest
+          ? {
+              ...(proposal.action.adapterPayloadRef ? { adapterPayloadRef: proposal.action.adapterPayloadRef } : {}),
+              adapterPayloadDigest: proposal.action.adapterPayloadDigest!,
+              ...(payloadValidation?.commerce
+                ? {
+                    adapterPayloadProductCount: payloadValidation.commerce.productCount,
+                    cartDigest: payloadValidation.commerce.cartDigest,
+                  }
+                : {}),
+            }
+          : {}),
+        ...(operation.domain === 'commerce'
+          ? { merchantOrigin: operation.merchantOrigin, checkoutOrigin: operation.checkoutOrigin }
+          : { providerOrigin: operation.providerOrigin }),
+        slotManifest,
+        intentId: `intent:${intentDigest.slice('sha256:'.length, 'sha256:'.length + 48)}`,
+        requestId: `request:${sha256(proposal.clientRequestId).slice('sha256:'.length, 'sha256:'.length + 48)}`,
+        operationDigest,
+        idempotencyKeyDigest: sha256(proposal.idempotencyKey),
+        executionContractDigest,
+        authorityGrantId: authority.authorityGrantId,
+        authorityReceiptDigest,
         classificationDigest,
         policyRevision: policy.revision,
         sessionEpoch: policy.sessionEpoch,
-      })
-    );
-    const operationPreimage: ExternalActionOperationDigestPreimage = {
-      binding,
-      conversationContext,
-      adapterId: adapter.id,
-      authMode: auth.authMode,
-      authOrigin: auth.authOrigin ?? null,
-      authOrigins: auth.authOrigins ?? null,
-      authOriginsDigest: auth.authOriginsDigest ?? null,
-      slotManifest,
-      action: proposal.action,
-    };
-    const operationDigest = sha256(canonical(operationPreimage));
-    const intentPreimage: ExternalActionIntentDigestPreimage = {
-      installationId: binding.installationId,
-      accountId: binding.accountId,
-      seedId: binding.seedId,
-      domain: operation.domain,
-      domainAction: operation.action,
-      counterpartyId: operation.counterpartyId,
-      origins,
-      actionKind: proposal.action.kind,
-      targetOrigin: proposal.action.targetOrigin,
-      argumentsDigest: proposal.action.argumentsDigest,
-      quoteDigest: proposal.action.quoteDigest ?? null,
-      amount: proposal.action.amount,
-      adapterPayloadDigest: proposal.action.adapterPayloadDigest ?? null,
-      cartDigest: payloadValidation?.commerce?.cartDigest ?? null,
-      productCount: payloadValidation?.commerce?.productCount ?? null,
-    };
-    const intentDigest = sha256(canonical(intentPreimage));
-    const executionPreimage: ExternalActionExecutionDigestPreimage = {
-      operationDigest,
-      policyRevision: policy.revision,
-      sessionEpoch: policy.sessionEpoch,
-      authorityGrantId: authority.authorityGrantId,
-      riskClass,
-      adapterId: adapter.id,
-      installationId: binding.installationId,
-      accountId: binding.accountId,
-      seedId: binding.seedId,
-      conversationId: conversationContext.conversationId,
-      conversationSessionId: conversationContext.conversationSessionId,
-      authMode: auth.authMode,
-      authOrigin: auth.authOrigin ?? null,
-      authOrigins: auth.authOrigins ?? null,
-      authOriginsDigest: auth.authOriginsDigest ?? null,
-      domain: operation.domain,
-      domainAction: operation.action,
-      counterpartyId: operation.counterpartyId,
-      providerOrMerchantLabelCode: adapter.providerOrMerchantLabelCode,
-      origins,
-      slotManifest,
-      actionKind: proposal.action.kind,
-      targetOrigin: proposal.action.targetOrigin,
-      argumentsDigest: proposal.action.argumentsDigest,
-      quoteDigest: proposal.action.quoteDigest ?? null,
-      amount: proposal.action.amount,
-      oauthHandleId: proposal.oauthHandleId ?? null,
-      passwordHandleId: proposal.passwordHandleId ?? null,
-      adapterPayloadRef: proposal.action.adapterPayloadRef ?? null,
-      adapterPayloadDigest: proposal.action.adapterPayloadDigest ?? null,
-      adapterPayloadProductCount: payloadValidation?.commerce?.productCount ?? null,
-      cartDigest: payloadValidation?.commerce?.cartDigest ?? null,
-      registeredOperation: operation,
-    };
-    const executionContractDigest = sha256(canonical(executionPreimage));
-    const executionContract: ExternalActionExecutionContractIdentity = {
-      installationId: binding.installationId,
-      accountId: binding.accountId,
-      seedId: binding.seedId,
-      conversationId: conversationContext.conversationId,
-      conversationSessionId: conversationContext.conversationSessionId,
-      adapterId: adapter.id,
-      authMode: auth.authMode,
-      ...(auth.authOrigin && auth.authOrigins && auth.authOriginsDigest
-        ? { authOrigin: auth.authOrigin, authOrigins: auth.authOrigins, authOriginsDigest: auth.authOriginsDigest }
-        : {}),
-      domain: operation.domain,
-      domainAction: operation.action,
-      counterpartyId: operation.counterpartyId,
-      providerOrMerchantLabelCode: adapter.providerOrMerchantLabelCode,
-      ...(proposal.action.adapterPayloadDigest
-        ? {
-            ...(proposal.action.adapterPayloadRef ? { adapterPayloadRef: proposal.action.adapterPayloadRef } : {}),
-            adapterPayloadDigest: proposal.action.adapterPayloadDigest!,
-            ...(payloadValidation?.commerce
-              ? {
-                  adapterPayloadProductCount: payloadValidation.commerce.productCount,
-                  cartDigest: payloadValidation.commerce.cartDigest,
-                }
-              : {}),
-          }
-        : {}),
-      ...(operation.domain === 'commerce'
-        ? { merchantOrigin: operation.merchantOrigin, checkoutOrigin: operation.checkoutOrigin }
-        : { providerOrigin: operation.providerOrigin }),
-      slotManifest,
-      intentId: `intent:${intentDigest.slice('sha256:'.length, 'sha256:'.length + 48)}`,
-      requestId: `request:${sha256(proposal.clientRequestId).slice('sha256:'.length, 'sha256:'.length + 48)}`,
-      operationDigest,
-      idempotencyKeyDigest: sha256(proposal.idempotencyKey),
-      executionContractDigest,
-      authorityGrantId: authority.authorityGrantId,
-      authorityReceiptDigest,
-      classificationDigest,
-      policyRevision: policy.revision,
-      sessionEpoch: policy.sessionEpoch,
-      ...(proposal.action.quoteDigest ? { quoteDigest: proposal.action.quoteDigest } : {}),
-      actionKind: proposal.action.kind,
-      targetOrigin: proposal.action.targetOrigin,
-      amountMinor: proposal.action.amount.minorUnits,
-      currency: proposal.action.amount.currency,
-    };
-    if (inlinePayload && sha256Bytes(inlinePayload) !== proposal.action.adapterPayloadDigest) {
-      inlinePayload.fill(0);
-      return {
-        ok: false,
-        outcome: result('denied', { reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_CONTRACT_STALE' }),
+        ...(proposal.action.quoteDigest ? { quoteDigest: proposal.action.quoteDigest } : {}),
+        actionKind: proposal.action.kind,
+        targetOrigin: proposal.action.targetOrigin,
+        amountMinor: proposal.action.amount.minorUnits,
+        currency: proposal.action.amount.currency,
       };
-    }
-    const preparedInlinePayload = inlinePayload;
-    inlinePayload = undefined;
-    return {
-      ok: true,
-      value: {
-        proposal,
-        ...(preparedInlinePayload ? { inlinePayload: preparedInlinePayload } : {}),
-        binding,
-        conversationContext,
-        policy,
-        adapter,
-        riskClass,
-        authority,
-        auth,
-        executionContract,
-      },
-    };
+      if (inlinePayload && sha256Bytes(inlinePayload) !== proposal.action.adapterPayloadDigest) {
+        inlinePayload.fill(0);
+        return {
+          ok: false,
+          outcome: result('denied', { reasonCode: 'EXTERNAL_ADAPTER_PAYLOAD_CONTRACT_STALE' }),
+        };
+      }
+      const preparedInlinePayload = inlinePayload;
+      inlinePayload = undefined;
+      return {
+        ok: true,
+        value: {
+          proposal,
+          ...(preparedInlinePayload ? { inlinePayload: preparedInlinePayload } : {}),
+          binding,
+          conversationContext,
+          policy,
+          adapter,
+          riskClass,
+          authority,
+          auth,
+          executionContract,
+        },
+      };
     } finally {
       inlinePayload?.fill(0);
     }
@@ -1735,227 +1743,227 @@ export class ExternalActionExecutionService {
       executionContract,
     } = prepared.value;
     try {
-    const expiryMs = Math.min(Date.parse(policy.expiresAt), this.now().getTime() + CLAIM_TTL_MS);
-    const reserved = this.store.reserve({
-      binding,
-      conversationId: conversationContext.conversationId,
-      conversationSessionId: conversationContext.conversationSessionId,
-      adapterId: adapter.id,
-      authMode: executionContract.authMode,
-      adapterDomain: executionContract.domain,
-      adapterAction: executionContract.domainAction,
-      counterpartyId: executionContract.counterpartyId,
-      providerOrMerchantLabelCode: executionContract.providerOrMerchantLabelCode,
-      adapterOrigins:
-        executionContract.domain === 'commerce'
-          ? [executionContract.merchantOrigin!, executionContract.checkoutOrigin!]
-          : [executionContract.providerOrigin!],
-      slotManifest: executionContract.slotManifest,
-      ...(executionContract.adapterPayloadDigest
-        ? {
-            ...(executionContract.adapterPayloadRef
-              ? { adapterPayloadRef: executionContract.adapterPayloadRef }
-              : {}),
-            adapterPayloadDigest: executionContract.adapterPayloadDigest!,
-            ...(executionContract.adapterPayloadProductCount !== undefined
-              ? { adapterPayloadProductCount: executionContract.adapterPayloadProductCount }
-              : {}),
-            ...(executionContract.cartDigest ? { cartDigest: executionContract.cartDigest } : {}),
-          }
-        : {}),
-      policyRevision: policy.revision,
-      sessionEpoch: policy.sessionEpoch,
-      authorityDecision: authority.decision,
-      authorityGrantId: authority.authorityGrantId,
-      authorityReceiptDigest: executionContract.authorityReceiptDigest,
-      classificationDigest: executionContract.classificationDigest,
-      riskClass,
-      actionKind: proposal.action.kind,
-      targetOrigin: proposal.action.targetOrigin,
-      intentId: executionContract.intentId,
-      requestId: executionContract.requestId,
-      operationDigest: executionContract.operationDigest,
-      idempotencyKeyDigest: executionContract.idempotencyKeyDigest,
-      executionContractDigest: executionContract.executionContractDigest,
-      ...(proposal.action.quoteDigest ? { quoteDigest: proposal.action.quoteDigest } : {}),
-      amountMinor: proposal.action.amount.minorUnits,
-      currency: proposal.action.amount.currency,
-      expiresAt: new Date(expiryMs).toISOString(),
-    });
-    if (!reserved.ok || !reserved.reservationId) {
-      const reasonCode = reserved.reasonCode ?? 'EXTERNAL_LEDGER_RESERVE_FAILED';
-      return result(statusForReason(reasonCode), {
-        reasonCode,
-        ...(reserved.reservationId ? { reservationId: reserved.reservationId } : {}),
+      const expiryMs = Math.min(Date.parse(policy.expiresAt), this.now().getTime() + CLAIM_TTL_MS);
+      const reserved = this.store.reserve({
+        binding,
+        conversationId: conversationContext.conversationId,
+        conversationSessionId: conversationContext.conversationSessionId,
+        adapterId: adapter.id,
+        authMode: executionContract.authMode,
+        adapterDomain: executionContract.domain,
+        adapterAction: executionContract.domainAction,
+        counterpartyId: executionContract.counterpartyId,
+        providerOrMerchantLabelCode: executionContract.providerOrMerchantLabelCode,
+        adapterOrigins:
+          executionContract.domain === 'commerce'
+            ? [executionContract.merchantOrigin!, executionContract.checkoutOrigin!]
+            : [executionContract.providerOrigin!],
+        slotManifest: executionContract.slotManifest,
+        ...(executionContract.adapterPayloadDigest
+          ? {
+              ...(executionContract.adapterPayloadRef
+                ? { adapterPayloadRef: executionContract.adapterPayloadRef }
+                : {}),
+              adapterPayloadDigest: executionContract.adapterPayloadDigest!,
+              ...(executionContract.adapterPayloadProductCount !== undefined
+                ? { adapterPayloadProductCount: executionContract.adapterPayloadProductCount }
+                : {}),
+              ...(executionContract.cartDigest ? { cartDigest: executionContract.cartDigest } : {}),
+            }
+          : {}),
+        policyRevision: policy.revision,
+        sessionEpoch: policy.sessionEpoch,
+        authorityDecision: authority.decision,
+        authorityGrantId: authority.authorityGrantId,
+        authorityReceiptDigest: executionContract.authorityReceiptDigest,
+        classificationDigest: executionContract.classificationDigest,
+        riskClass,
+        actionKind: proposal.action.kind,
+        targetOrigin: proposal.action.targetOrigin,
+        intentId: executionContract.intentId,
+        requestId: executionContract.requestId,
+        operationDigest: executionContract.operationDigest,
+        idempotencyKeyDigest: executionContract.idempotencyKeyDigest,
+        executionContractDigest: executionContract.executionContractDigest,
+        ...(proposal.action.quoteDigest ? { quoteDigest: proposal.action.quoteDigest } : {}),
+        amountMinor: proposal.action.amount.minorUnits,
+        currency: proposal.action.amount.currency,
+        expiresAt: new Date(expiryMs).toISOString(),
       });
-    }
-    if (reserved.replay && reserved.state !== 'reserved') {
-      if (reserved.state === 'allowed')
-        return result('allowed', {
-          reservationId: reserved.reservationId,
-          replay: true,
-          ...this.presentation({
-            status: 'allowed',
-            binding,
-            proposal,
-            executionContract,
-            reservationId: reserved.reservationId,
-          }),
-        });
-      if (reserved.state === 'suspended') {
-        const challenge = this.store.getPendingChallenge(binding, reserved.reservationId);
-        return result('needs_user', {
-          reasonCode: challenge?.snapshot.challenge.userInstructionCode ?? 'EXTERNAL_CHALLENGE_PENDING',
-          reservationId: reserved.reservationId,
-          replay: true,
-          ...(challenge ? { eventReceipt: challenge.eventReceipt, authMode: challenge.snapshot.authMode } : {}),
-          ...this.presentation({
-            status: 'needs_user',
-            binding,
-            proposal,
-            executionContract,
-            reservationId: reserved.reservationId,
-            ...(challenge ? { eventReceipt: challenge.eventReceipt } : {}),
-          }),
-        });
-      }
-      if (reserved.state === 'unknown' || reserved.state === 'claimed' || reserved.state === 'resuming') {
-        return result('unknown_outcome', {
-          reasonCode: 'EXTERNAL_REPLAY_OUTCOME_UNKNOWN',
-          reservationId: reserved.reservationId,
-          replay: true,
-          retryAllowed: false,
-          ...this.presentation({
-            status: 'unknown_outcome',
-            binding,
-            proposal,
-            executionContract,
-            reservationId: reserved.reservationId,
-          }),
-        });
-      }
-      if (reserved.state === 'reconciled_committed' || reserved.state === 'reconciled_no_effect') {
-        const receipt = this.store.getReceipt(binding, reserved.reservationId);
-        return receipt
-          ? result(reserved.state, {
-              reservationId: reserved.reservationId,
-              replay: true,
-              retryAllowed: false,
-              receipt,
-              ...this.workbenchProjectionFromReceipt(
-                receipt,
-                {
-                  version: EXTERNAL_ACTION_CONVERSATION_CONTEXT_VERSION,
-                  conversationId: executionContract.conversationId,
-                  conversationSessionId: executionContract.conversationSessionId,
-                },
-                executionContract.providerOrMerchantLabelCode,
-                executionContract.adapterPayloadProductCount
-              ),
-            })
-          : result('unknown_outcome', {
-              reasonCode: 'EXTERNAL_RECONCILIATION_RECEIPT_MISSING',
-              reservationId: reserved.reservationId,
-              replay: true,
-              retryAllowed: false,
-            });
-      }
-      if (['reversed', 'denied', 'revoked', 'expired'].includes(reserved.state)) {
-        const receipt = this.store.getReceipt(binding, reserved.reservationId);
-        const status = reserved.state === 'revoked' ? 'revoked' : reserved.state === 'expired' ? 'expired' : 'denied';
-        return receipt
-          ? result(status, {
-              reasonCode: receipt.reasonCode ?? 'EXTERNAL_REPLAY_NOT_EXECUTABLE',
-              reservationId: reserved.reservationId,
-              replay: true,
-              receipt,
-              ...this.workbenchProjectionFromReceipt(
-                receipt,
-                {
-                  version: EXTERNAL_ACTION_CONVERSATION_CONTEXT_VERSION,
-                  conversationId: executionContract.conversationId,
-                  conversationSessionId: executionContract.conversationSessionId,
-                },
-                executionContract.providerOrMerchantLabelCode,
-                executionContract.adapterPayloadProductCount
-              ),
-            })
-          : result('unknown_outcome', {
-              reasonCode: 'EXTERNAL_TERMINAL_RECEIPT_MISSING',
-              reservationId: reserved.reservationId,
-              replay: true,
-              retryAllowed: false,
-            });
-      }
-      return result('denied', {
-        reasonCode: 'EXTERNAL_REPLAY_NOT_EXECUTABLE',
-        reservationId: reserved.reservationId,
-        replay: true,
-        ...this.presentation({
-          status: 'denied',
-          binding,
-          proposal,
-          executionContract,
-          reservationId: reserved.reservationId,
-        }),
-      });
-    }
-
-    const claimId = `claim:${this.randomUUID()}`;
-    const claimDigest = externalActionClaimDigest({
-      executionContractDigest: executionContract.executionContractDigest,
-      reservationId: reserved.reservationId,
-      claimId,
-    });
-    const claimed = this.store.claim({
-      binding,
-      reservationId: reserved.reservationId,
-      claimId,
-      claimDigest,
-      policyRevision: policy.revision,
-      sessionEpoch: policy.sessionEpoch,
-    });
-    if (!claimed.execute) {
-      const reasonCode = claimed.reasonCode ?? 'EXTERNAL_CLAIM_NOT_EXECUTABLE';
-      return result(
-        claimed.state === 'unknown' || claimed.state === 'claimed' ? 'unknown_outcome' : statusForReason(reasonCode),
-        {
+      if (!reserved.ok || !reserved.reservationId) {
+        const reasonCode = reserved.reasonCode ?? 'EXTERNAL_LEDGER_RESERVE_FAILED';
+        return result(statusForReason(reasonCode), {
           reasonCode,
-          reservationId: reserved.reservationId,
-          replay: claimed.replay,
-          ...(claimed.state === 'unknown' || claimed.state === 'claimed' || claimed.state === 'resuming'
-            ? { retryAllowed: false as const }
-            : {}),
+          ...(reserved.reservationId ? { reservationId: reserved.reservationId } : {}),
+        });
+      }
+      if (reserved.replay && reserved.state !== 'reserved') {
+        if (reserved.state === 'allowed')
+          return result('allowed', {
+            reservationId: reserved.reservationId,
+            replay: true,
+            ...this.presentation({
+              status: 'allowed',
+              binding,
+              proposal,
+              executionContract,
+              reservationId: reserved.reservationId,
+            }),
+          });
+        if (reserved.state === 'suspended') {
+          const challenge = this.store.getPendingChallenge(binding, reserved.reservationId);
+          return result('needs_user', {
+            reasonCode: challenge?.snapshot.challenge.userInstructionCode ?? 'EXTERNAL_CHALLENGE_PENDING',
+            reservationId: reserved.reservationId,
+            replay: true,
+            ...(challenge ? { eventReceipt: challenge.eventReceipt, authMode: challenge.snapshot.authMode } : {}),
+            ...this.presentation({
+              status: 'needs_user',
+              binding,
+              proposal,
+              executionContract,
+              reservationId: reserved.reservationId,
+              ...(challenge ? { eventReceipt: challenge.eventReceipt } : {}),
+            }),
+          });
         }
-      );
-    }
+        if (reserved.state === 'unknown' || reserved.state === 'claimed' || reserved.state === 'resuming') {
+          return result('unknown_outcome', {
+            reasonCode: 'EXTERNAL_REPLAY_OUTCOME_UNKNOWN',
+            reservationId: reserved.reservationId,
+            replay: true,
+            retryAllowed: false,
+            ...this.presentation({
+              status: 'unknown_outcome',
+              binding,
+              proposal,
+              executionContract,
+              reservationId: reserved.reservationId,
+            }),
+          });
+        }
+        if (reserved.state === 'reconciled_committed' || reserved.state === 'reconciled_no_effect') {
+          const receipt = this.store.getReceipt(binding, reserved.reservationId);
+          return receipt
+            ? result(reserved.state, {
+                reservationId: reserved.reservationId,
+                replay: true,
+                retryAllowed: false,
+                receipt,
+                ...this.workbenchProjectionFromReceipt(
+                  receipt,
+                  {
+                    version: EXTERNAL_ACTION_CONVERSATION_CONTEXT_VERSION,
+                    conversationId: executionContract.conversationId,
+                    conversationSessionId: executionContract.conversationSessionId,
+                  },
+                  executionContract.providerOrMerchantLabelCode,
+                  executionContract.adapterPayloadProductCount
+                ),
+              })
+            : result('unknown_outcome', {
+                reasonCode: 'EXTERNAL_RECONCILIATION_RECEIPT_MISSING',
+                reservationId: reserved.reservationId,
+                replay: true,
+                retryAllowed: false,
+              });
+        }
+        if (['reversed', 'denied', 'revoked', 'expired'].includes(reserved.state)) {
+          const receipt = this.store.getReceipt(binding, reserved.reservationId);
+          const status = reserved.state === 'revoked' ? 'revoked' : reserved.state === 'expired' ? 'expired' : 'denied';
+          return receipt
+            ? result(status, {
+                reasonCode: receipt.reasonCode ?? 'EXTERNAL_REPLAY_NOT_EXECUTABLE',
+                reservationId: reserved.reservationId,
+                replay: true,
+                receipt,
+                ...this.workbenchProjectionFromReceipt(
+                  receipt,
+                  {
+                    version: EXTERNAL_ACTION_CONVERSATION_CONTEXT_VERSION,
+                    conversationId: executionContract.conversationId,
+                    conversationSessionId: executionContract.conversationSessionId,
+                  },
+                  executionContract.providerOrMerchantLabelCode,
+                  executionContract.adapterPayloadProductCount
+                ),
+              })
+            : result('unknown_outcome', {
+                reasonCode: 'EXTERNAL_TERMINAL_RECEIPT_MISSING',
+                reservationId: reserved.reservationId,
+                replay: true,
+                retryAllowed: false,
+              });
+        }
+        return result('denied', {
+          reasonCode: 'EXTERNAL_REPLAY_NOT_EXECUTABLE',
+          reservationId: reserved.reservationId,
+          replay: true,
+          ...this.presentation({
+            status: 'denied',
+            binding,
+            proposal,
+            executionContract,
+            reservationId: reserved.reservationId,
+          }),
+        });
+      }
 
-    const claimedContract: ExternalActionExecutionContractExpectation = {
-      ...executionContract,
-      reservationId: reserved.reservationId,
-      claimId,
-      claimDigest,
-      expectationDigest: externalActionExpectationDigest({
+      const claimId = `claim:${this.randomUUID()}`;
+      const claimDigest = externalActionClaimDigest({
         executionContractDigest: executionContract.executionContractDigest,
         reservationId: reserved.reservationId,
         claimId,
+      });
+      const claimed = this.store.claim({
+        binding,
+        reservationId: reserved.reservationId,
+        claimId,
         claimDigest,
-      }),
-    };
+        policyRevision: policy.revision,
+        sessionEpoch: policy.sessionEpoch,
+      });
+      if (!claimed.execute) {
+        const reasonCode = claimed.reasonCode ?? 'EXTERNAL_CLAIM_NOT_EXECUTABLE';
+        return result(
+          claimed.state === 'unknown' || claimed.state === 'claimed' ? 'unknown_outcome' : statusForReason(reasonCode),
+          {
+            reasonCode,
+            reservationId: reserved.reservationId,
+            replay: claimed.replay,
+            ...(claimed.state === 'unknown' || claimed.state === 'claimed' || claimed.state === 'resuming'
+              ? { retryAllowed: false as const }
+              : {}),
+          }
+        );
+      }
 
-    return this.continueClaimed({
-      binding,
-      policy,
-      adapter,
-      riskClass,
-      authority,
-      auth,
-      proposal,
-      ...(inlinePayload ? { inlinePayload } : {}),
-      reservationId: reserved.reservationId,
-      claimId,
-      executionContract: claimedContract,
-    });
+      const claimedContract: ExternalActionExecutionContractExpectation = {
+        ...executionContract,
+        reservationId: reserved.reservationId,
+        claimId,
+        claimDigest,
+        expectationDigest: externalActionExpectationDigest({
+          executionContractDigest: executionContract.executionContractDigest,
+          reservationId: reserved.reservationId,
+          claimId,
+          claimDigest,
+        }),
+      };
+
+      return this.continueClaimed({
+        binding,
+        policy,
+        adapter,
+        riskClass,
+        authority,
+        auth,
+        proposal,
+        ...(inlinePayload ? { inlinePayload } : {}),
+        reservationId: reserved.reservationId,
+        claimId,
+        executionContract: claimedContract,
+      });
     } finally {
       inlinePayload?.fill(0);
     }
@@ -2254,71 +2262,312 @@ export class ExternalActionExecutionService {
   }): Promise<EveExternalActionExecutionResult> {
     const { binding, adapter, proposal, reservationId, claimId, executionContract, auth } = input;
     try {
-    if (input.resume?.continuation === 'adapter_resume') {
-      const preflight = await this.recheckTrustedExecution(
-        binding,
-        proposal,
-        adapter,
-        input.authority.authorityGrantId,
-        input.riskClass,
-        {
-          version: EXTERNAL_ACTION_CONVERSATION_CONTEXT_VERSION,
-          conversationId: executionContract.conversationId,
-          conversationSessionId: executionContract.conversationSessionId,
+      if (input.resume?.continuation === 'adapter_resume') {
+        const preflight = await this.recheckTrustedExecution(
+          binding,
+          proposal,
+          adapter,
+          input.authority.authorityGrantId,
+          input.riskClass,
+          {
+            version: EXTERNAL_ACTION_CONVERSATION_CONTEXT_VERSION,
+            conversationId: executionContract.conversationId,
+            conversationSessionId: executionContract.conversationSessionId,
+          }
+        );
+        if ('reasonCode' in preflight) {
+          this.store.markUnknown({
+            binding,
+            reservationId,
+            claimId,
+            authMode: executionContract.authMode,
+            reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+            outcomeDigest: sha256(preflight.reasonCode),
+          });
+          return result('unknown_outcome', {
+            reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+            reservationId,
+            authMode: input.resume.authMode,
+            retryAllowed: false,
+            ...this.presentation({ status: 'unknown_outcome', binding, proposal, executionContract, reservationId }),
+          });
         }
-      );
-      if ('reasonCode' in preflight) {
-        this.store.markUnknown({
+        const claim = this.store.recheckClaimForExecution(binding, reservationId, claimId, executionContract);
+        if ('reasonCode' in claim || !adapter.resume) {
+          const reasonCode = 'reasonCode' in claim ? claim.reasonCode : 'EXTERNAL_ADAPTER_RESUME_UNAVAILABLE';
+          this.store.markUnknown({
+            binding,
+            reservationId,
+            claimId,
+            authMode: executionContract.authMode,
+            reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+            outcomeDigest: sha256(reasonCode),
+          });
+          return result('unknown_outcome', {
+            reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+            reservationId,
+            authMode: input.resume.authMode,
+            retryAllowed: false,
+            ...this.presentation({ status: 'unknown_outcome', binding, proposal, executionContract, reservationId }),
+          });
+        }
+        const activated = this.store.activateResumedClaim(binding, reservationId, claimId, executionContract);
+        if ('reasonCode' in activated) {
+          this.store.markUnknown({
+            binding,
+            reservationId,
+            claimId,
+            authMode: executionContract.authMode,
+            reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+            outcomeDigest: sha256(activated.reasonCode),
+          });
+          return result('unknown_outcome', {
+            reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+            reservationId,
+            authMode: input.resume.authMode,
+            retryAllowed: false,
+            ...this.presentation({ status: 'unknown_outcome', binding, proposal, executionContract, reservationId }),
+          });
+        }
+        const dispatched = await this.invokeWithVerifiedPayload(
+          {
+            binding,
+            proposal,
+            ...(input.inlinePayload ? { inlinePayload: input.inlinePayload } : {}),
+            adapter,
+            authorityGrantId: input.authority.authorityGrantId,
+            riskClass: input.riskClass,
+            reservationId,
+            claimId,
+            executionContract,
+            effectful: true,
+          },
+          (adapterPayload) =>
+            adapter.resume!({
+              binding,
+              proposal,
+              authMode: input.resume!.authMode,
+              ...(auth.status === 'ready' && auth.browserPartition ? { browserPartition: auth.browserPartition } : {}),
+              ...(adapterPayload ? { adapterPayload } : {}),
+              challenge: input.resume!.challenge,
+              completionAttestationDigest: input.resume!.completionAttestationDigest,
+              completionAttestationPresent: input.resume!.completionAttestationPresent,
+            })
+        );
+        if ('reasonCode' in dispatched) {
+          if (dispatched.beforeEffect) {
+            const status = statusForBrokerReason(dispatched.reasonCode);
+            const terminalReason = externalActionTerminalReason(dispatched.reasonCode);
+            this.store.reverse({
+              binding,
+              reservationId,
+              claimId,
+              authMode: executionContract.authMode,
+              terminalState: terminalStateForStatus(status),
+              reasonCode: terminalReason,
+              outcomeDigest: sha256(dispatched.reasonCode),
+            });
+            return result(status, {
+              reasonCode: terminalReason,
+              reservationId,
+              authMode: executionContract.authMode,
+              ...this.presentation({ status, binding, proposal, executionContract, reservationId }),
+            });
+          }
+          return this.persistAdapterOutcome(
+            input,
+            { status: 'unknown_outcome', reasonCode: unknownOutcomeReason(dispatched.reasonCode) },
+            executionContract.authMode,
+            true
+          );
+        }
+        const terminal = adapterOutcome(dispatched.value, executionContract);
+        return this.persistAdapterOutcome(input, terminal, input.resume.authMode, true);
+      }
+
+      if (adapter.probeChallenge) {
+        const probed = await this.invokeWithVerifiedPayload(
+          {
+            binding,
+            proposal,
+            ...(input.inlinePayload ? { inlinePayload: input.inlinePayload } : {}),
+            adapter,
+            authorityGrantId: input.authority.authorityGrantId,
+            riskClass: input.riskClass,
+            reservationId,
+            claimId,
+            executionContract,
+            effectful: false,
+          },
+          (adapterPayload) =>
+            adapter.probeChallenge!({ binding, proposal, ...(adapterPayload ? { adapterPayload } : {}) })
+        );
+        if (!probed.ok || !isChallengeProbe(probed.value)) {
+          this.store.reverse({
+            binding,
+            reservationId,
+            claimId,
+            authMode: executionContract.authMode,
+            terminalState: 'denied',
+            reasonCode: externalActionTerminalReason('EXTERNAL_CHALLENGE_PROBE_INVALID'),
+            outcomeDigest: sha256('EXTERNAL_CHALLENGE_PROBE_INVALID'),
+          });
+          return result('denied', {
+            reasonCode: externalActionTerminalReason('EXTERNAL_CHALLENGE_PROBE_INVALID'),
+            reservationId,
+            ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
+          });
+        }
+        const probe = probed.value;
+        if (probe.status === 'needs_user') {
+          return this.suspendChallenge(
+            input,
+            probe.challenge,
+            executionContract.authMode,
+            'pre_execute_probe',
+            `continuation:${sha256(canonical(probe.challenge)).slice('sha256:'.length, 'sha256:'.length + 48)}`,
+            false
+          );
+        }
+      }
+
+      if (auth.status === 'needs_user') {
+        const challenge = this.authChallenge(input, auth.authMode, auth.reasonCode, auth.challengeKind);
+        if (challenge) {
+          return this.suspendChallenge(
+            input,
+            challenge,
+            auth.authMode,
+            'pre_execute_probe',
+            `continuation:${sha256(canonical({ authMode: auth.authMode, challenge })).slice(
+              'sha256:'.length,
+              'sha256:'.length + 48
+            )}`,
+            false
+          );
+        }
+        this.store.reverse({
           binding,
           reservationId,
           claimId,
           authMode: executionContract.authMode,
-          reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
-          outcomeDigest: sha256(preflight.reasonCode),
+          terminalState: 'denied',
+          reasonCode: externalActionTerminalReason(auth.reasonCode),
+          outcomeDigest: sha256(auth.reasonCode),
         });
-        return result('unknown_outcome', {
-          reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+        return result('denied', {
+          reasonCode: externalActionTerminalReason(auth.reasonCode),
           reservationId,
-          authMode: input.resume.authMode,
-          retryAllowed: false,
-          ...this.presentation({ status: 'unknown_outcome', binding, proposal, executionContract, reservationId }),
+          authMode: auth.authMode,
+          ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
         });
       }
-      const claim = this.store.recheckClaimForExecution(binding, reservationId, claimId, executionContract);
-      if ('reasonCode' in claim || !adapter.resume) {
-        const reasonCode = 'reasonCode' in claim ? claim.reasonCode : 'EXTERNAL_ADAPTER_RESUME_UNAVAILABLE';
-        this.store.markUnknown({
+
+      let outcome: ExternalActionAdapterOutcome | undefined;
+      const authSlot = auth.handleId ? (auth.authMode === 'oauth' ? 'oauth_token' : 'account_password') : undefined;
+      const authSlotBinding = authSlot
+        ? executionContract.slotManifest.find((entry) => entry.slot === authSlot)
+        : undefined;
+      if (
+        auth.handleId &&
+        (!authSlotBinding ||
+          authSlotBinding.handleId !== auth.handleId ||
+          authSlotBinding.handleType !== (auth.authMode === 'oauth' ? 'oauth_token' : 'account_credential'))
+      ) {
+        this.store.reverse({
           binding,
           reservationId,
           claimId,
           authMode: executionContract.authMode,
-          reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+          terminalState: 'denied',
+          reasonCode: externalActionTerminalReason('EXTERNAL_AUTH_SLOT_CONTRACT_STALE'),
+          outcomeDigest: sha256('EXTERNAL_AUTH_SLOT_CONTRACT_STALE'),
+        });
+        return result('denied', {
+          reasonCode: externalActionTerminalReason('EXTERNAL_AUTH_SLOT_CONTRACT_STALE'),
+          reservationId,
+          authMode: auth.authMode,
+          ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
+        });
+      }
+
+      const slotsToUse = executionContract.slotManifest;
+
+      if (input.resume) {
+        const activated = this.store.activateResumedClaim(binding, reservationId, claimId, executionContract);
+        if ('reasonCode' in activated) {
+          this.store.markUnknown({
+            binding,
+            reservationId,
+            claimId,
+            authMode: executionContract.authMode,
+            reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+            outcomeDigest: sha256(activated.reasonCode),
+          });
+          return result('unknown_outcome', {
+            reasonCode: activated.reasonCode,
+            reservationId,
+            authMode: auth.authMode,
+            retryAllowed: false,
+            ...this.presentation({ status: 'unknown_outcome', binding, proposal, executionContract, reservationId }),
+          });
+        }
+      }
+
+      for (const slotBinding of slotsToUse) {
+        const permit = this.store.registerSecretSlotPermit({
+          binding,
+          reservationId,
+          claimId,
+          slot: slotBinding.slot,
+          handleId: slotBinding.handleId,
+          expectedHandleType: slotBinding.handleType,
+          executionContract,
+        });
+        if ('reasonCode' in permit) {
+          const status = statusForBrokerReason(permit.reasonCode);
+          const terminalReason = externalActionTerminalReason(permit.reasonCode);
+          this.store.reverse({
+            binding,
+            reservationId,
+            claimId,
+            authMode: executionContract.authMode,
+            terminalState: terminalStateForStatus(status),
+            reasonCode: terminalReason,
+            outcomeDigest: sha256(permit.reasonCode),
+          });
+          return result(statusForBrokerReason(permit.reasonCode), {
+            reasonCode: terminalReason,
+            reservationId,
+            authMode: auth.authMode,
+            ...this.presentation({
+              status: statusForBrokerReason(permit.reasonCode),
+              binding,
+              proposal,
+              executionContract,
+              reservationId,
+            }),
+          });
+        }
+      }
+
+      if (slotsToUse.length > 0 && !this.deps.secretSink) {
+        const reasonCode = 'EXTERNAL_SECRET_SINK_UNAVAILABLE';
+        const terminalReason = externalActionTerminalReason(reasonCode);
+        this.store.reverse({
+          binding,
+          reservationId,
+          claimId,
+          authMode: executionContract.authMode,
+          terminalState: 'denied',
+          reasonCode: terminalReason,
           outcomeDigest: sha256(reasonCode),
         });
-        return result('unknown_outcome', {
-          reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
+        return result('denied', {
+          reasonCode: terminalReason,
           reservationId,
-          authMode: input.resume.authMode,
-          retryAllowed: false,
-          ...this.presentation({ status: 'unknown_outcome', binding, proposal, executionContract, reservationId }),
-        });
-      }
-      const activated = this.store.activateResumedClaim(binding, reservationId, claimId, executionContract);
-      if ('reasonCode' in activated) {
-        this.store.markUnknown({
-          binding,
-          reservationId,
-          claimId,
-          authMode: executionContract.authMode,
-          reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
-          outcomeDigest: sha256(activated.reasonCode),
-        });
-        return result('unknown_outcome', {
-          reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
-          reservationId,
-          authMode: input.resume.authMode,
-          retryAllowed: false,
-          ...this.presentation({ status: 'unknown_outcome', binding, proposal, executionContract, reservationId }),
+          authMode: auth.authMode,
+          ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
         });
       }
       const dispatched = await this.invokeWithVerifiedPayload(
@@ -2334,17 +2583,75 @@ export class ExternalActionExecutionService {
           executionContract,
           effectful: true,
         },
-        (adapterPayload) =>
-          adapter.resume!({
-            binding,
-            proposal,
-            authMode: input.resume!.authMode,
-            ...(auth.status === 'ready' && auth.browserPartition ? { browserPartition: auth.browserPartition } : {}),
-            ...(adapterPayload ? { adapterPayload } : {}),
-            challenge: input.resume!.challenge,
-            completionAttestationDigest: input.resume!.completionAttestationDigest,
-            completionAttestationPresent: input.resume!.completionAttestationPresent,
-          })
+        async (adapterPayload) => {
+          const secretUseRefs: Array<{ slot: EveSecretFieldSlot; deliveryRef: string }> = [];
+          for (const slotBinding of slotsToUse) {
+            // Slot permits and globally one-use OTP consumption are order-sensitive
+            // durable CAS operations; parallel resolution would violate that contract.
+            // eslint-disable-next-line no-await-in-loop
+            const brokerResult = await this.broker.use(
+              { binding, reservationId, claimId, slot: slotBinding.slot, executionContract },
+              this.deps.secretResolver,
+              {
+                preflight: () =>
+                  this.recheckTrustedExecution(
+                    binding,
+                    proposal,
+                    adapter,
+                    input.authority.authorityGrantId,
+                    input.riskClass,
+                    {
+                      version: EXTERNAL_ACTION_CONVERSATION_CONTEXT_VERSION,
+                      conversationId: executionContract.conversationId,
+                      conversationSessionId: executionContract.conversationSessionId,
+                    }
+                  ),
+                inject: async (material) => {
+                  const sinkResult = await this.deps.secretSink!.inject({
+                    binding,
+                    conversationId: executionContract.conversationId,
+                    conversationSessionId: executionContract.conversationSessionId,
+                    reservationId,
+                    claimId,
+                    adapterId: adapter.id,
+                    authMode: auth.authMode,
+                    domain: executionContract.domain,
+                    action: executionContract.domainAction,
+                    origins:
+                      executionContract.domain === 'commerce'
+                        ? [executionContract.merchantOrigin!, executionContract.checkoutOrigin!]
+                        : [executionContract.providerOrigin!],
+                    exactOrigin: executionContract.targetOrigin,
+                    slot: slotBinding.slot,
+                    executionContractDigest: executionContract.executionContractDigest,
+                    ...(auth.browserPartition ? { browserPartition: auth.browserPartition } : {}),
+                    material,
+                  });
+                  if (
+                    !hasExactKeys(sinkResult, ['status', 'deliveryRef']) ||
+                    sinkResult.status !== 'applied' ||
+                    !isEveOpaqueId(sinkResult.deliveryRef)
+                  ) {
+                    throw new Error('EXTERNAL_SECRET_SINK_UNKNOWN');
+                  }
+                  secretUseRefs.push({ slot: slotBinding.slot, deliveryRef: sinkResult.deliveryRef });
+                },
+              }
+            );
+            if ('reasonCode' in brokerResult) return { kind: 'broker' as const, brokerResult };
+          }
+          return {
+            kind: 'adapter' as const,
+            adapterOutcome: await adapter.execute({
+              binding,
+              proposal,
+              authMode: auth.authMode,
+              ...(secretUseRefs.length > 0 ? { secretUseRefs: Object.freeze([...secretUseRefs]) } : {}),
+              ...(auth.browserPartition ? { browserPartition: auth.browserPartition } : {}),
+              ...(adapterPayload ? { adapterPayload } : {}),
+            }),
+          };
+        }
       );
       if ('reasonCode' in dispatched) {
         if (dispatched.beforeEffect) {
@@ -2362,333 +2669,34 @@ export class ExternalActionExecutionService {
           return result(status, {
             reasonCode: terminalReason,
             reservationId,
-            authMode: executionContract.authMode,
+            authMode: auth.authMode,
             ...this.presentation({ status, binding, proposal, executionContract, reservationId }),
           });
         }
-        return this.persistAdapterOutcome(
-          input,
-          { status: 'unknown_outcome', reasonCode: unknownOutcomeReason(dispatched.reasonCode) },
-          executionContract.authMode,
-          true
-        );
-      }
-      const terminal = adapterOutcome(dispatched.value, executionContract);
-      return this.persistAdapterOutcome(input, terminal, input.resume.authMode, true);
-    }
-
-    if (adapter.probeChallenge) {
-      const probed = await this.invokeWithVerifiedPayload(
-        {
-          binding,
-          proposal,
-          ...(input.inlinePayload ? { inlinePayload: input.inlinePayload } : {}),
-          adapter,
-          authorityGrantId: input.authority.authorityGrantId,
-          riskClass: input.riskClass,
-          reservationId,
-          claimId,
-          executionContract,
-          effectful: false,
-        },
-        (adapterPayload) =>
-          adapter.probeChallenge!({ binding, proposal, ...(adapterPayload ? { adapterPayload } : {}) })
-      );
-      if (!probed.ok || !isChallengeProbe(probed.value)) {
-        this.store.reverse({
-          binding,
-          reservationId,
-          claimId,
-          authMode: executionContract.authMode,
-          terminalState: 'denied',
-          reasonCode: externalActionTerminalReason('EXTERNAL_CHALLENGE_PROBE_INVALID'),
-          outcomeDigest: sha256('EXTERNAL_CHALLENGE_PROBE_INVALID'),
-        });
-        return result('denied', {
-          reasonCode: externalActionTerminalReason('EXTERNAL_CHALLENGE_PROBE_INVALID'),
-          reservationId,
-          ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
-        });
-      }
-      const probe = probed.value;
-      if (probe.status === 'needs_user') {
-        return this.suspendChallenge(
-          input,
-          probe.challenge,
-          executionContract.authMode,
-          'pre_execute_probe',
-          `continuation:${sha256(canonical(probe.challenge)).slice('sha256:'.length, 'sha256:'.length + 48)}`,
-          false
-        );
-      }
-    }
-
-    if (auth.status === 'needs_user') {
-      const challenge = this.authChallenge(input, auth.authMode, auth.reasonCode, auth.challengeKind);
-      if (challenge) {
-        return this.suspendChallenge(
-          input,
-          challenge,
-          auth.authMode,
-          'pre_execute_probe',
-          `continuation:${sha256(canonical({ authMode: auth.authMode, challenge })).slice(
-            'sha256:'.length,
-            'sha256:'.length + 48
-          )}`,
-          false
-        );
-      }
-      this.store.reverse({
-        binding,
-        reservationId,
-        claimId,
-        authMode: executionContract.authMode,
-        terminalState: 'denied',
-        reasonCode: externalActionTerminalReason(auth.reasonCode),
-        outcomeDigest: sha256(auth.reasonCode),
-      });
-      return result('denied', {
-        reasonCode: externalActionTerminalReason(auth.reasonCode),
-        reservationId,
-        authMode: auth.authMode,
-        ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
-      });
-    }
-
-    let outcome: ExternalActionAdapterOutcome | undefined;
-    const authSlot = auth.handleId ? (auth.authMode === 'oauth' ? 'oauth_token' : 'account_password') : undefined;
-    const authSlotBinding = authSlot
-      ? executionContract.slotManifest.find((entry) => entry.slot === authSlot)
-      : undefined;
-    if (
-      auth.handleId &&
-      (!authSlotBinding ||
-        authSlotBinding.handleId !== auth.handleId ||
-        authSlotBinding.handleType !== (auth.authMode === 'oauth' ? 'oauth_token' : 'account_credential'))
-    ) {
-      this.store.reverse({
-        binding,
-        reservationId,
-        claimId,
-        authMode: executionContract.authMode,
-        terminalState: 'denied',
-        reasonCode: externalActionTerminalReason('EXTERNAL_AUTH_SLOT_CONTRACT_STALE'),
-        outcomeDigest: sha256('EXTERNAL_AUTH_SLOT_CONTRACT_STALE'),
-      });
-      return result('denied', {
-        reasonCode: externalActionTerminalReason('EXTERNAL_AUTH_SLOT_CONTRACT_STALE'),
-        reservationId,
-        authMode: auth.authMode,
-        ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
-      });
-    }
-
-    const slotsToUse = executionContract.slotManifest;
-
-    if (input.resume) {
-      const activated = this.store.activateResumedClaim(binding, reservationId, claimId, executionContract);
-      if ('reasonCode' in activated) {
-        this.store.markUnknown({
-          binding,
-          reservationId,
-          claimId,
-          authMode: executionContract.authMode,
-          reasonCode: 'UNKNOWN_EXTERNAL_EFFECT',
-          outcomeDigest: sha256(activated.reasonCode),
-        });
-        return result('unknown_outcome', {
-          reasonCode: activated.reasonCode,
-          reservationId,
-          authMode: auth.authMode,
-          retryAllowed: false,
-          ...this.presentation({ status: 'unknown_outcome', binding, proposal, executionContract, reservationId }),
-        });
-      }
-    }
-
-    for (const slotBinding of slotsToUse) {
-      const permit = this.store.registerSecretSlotPermit({
-        binding,
-        reservationId,
-        claimId,
-        slot: slotBinding.slot,
-        handleId: slotBinding.handleId,
-        expectedHandleType: slotBinding.handleType,
-        executionContract,
-      });
-      if ('reasonCode' in permit) {
-        const status = statusForBrokerReason(permit.reasonCode);
-        const terminalReason = externalActionTerminalReason(permit.reasonCode);
-        this.store.reverse({
-          binding,
-          reservationId,
-          claimId,
-          authMode: executionContract.authMode,
-          terminalState: terminalStateForStatus(status),
-          reasonCode: terminalReason,
-          outcomeDigest: sha256(permit.reasonCode),
-        });
-        return result(statusForBrokerReason(permit.reasonCode), {
-          reasonCode: terminalReason,
-          reservationId,
-          authMode: auth.authMode,
-          ...this.presentation({
-            status: statusForBrokerReason(permit.reasonCode),
-            binding,
-            proposal,
-            executionContract,
-            reservationId,
-          }),
-        });
-      }
-    }
-
-    if (slotsToUse.length > 0 && !this.deps.secretSink) {
-      const reasonCode = 'EXTERNAL_SECRET_SINK_UNAVAILABLE';
-      const terminalReason = externalActionTerminalReason(reasonCode);
-      this.store.reverse({
-        binding,
-        reservationId,
-        claimId,
-        authMode: executionContract.authMode,
-        terminalState: 'denied',
-        reasonCode: terminalReason,
-        outcomeDigest: sha256(reasonCode),
-      });
-      return result('denied', {
-        reasonCode: terminalReason,
-        reservationId,
-        authMode: auth.authMode,
-        ...this.presentation({ status: 'denied', binding, proposal, executionContract, reservationId }),
-      });
-    }
-    const dispatched = await this.invokeWithVerifiedPayload(
-      {
-        binding,
-        proposal,
-        ...(input.inlinePayload ? { inlinePayload: input.inlinePayload } : {}),
-        adapter,
-        authorityGrantId: input.authority.authorityGrantId,
-        riskClass: input.riskClass,
-        reservationId,
-        claimId,
-        executionContract,
-        effectful: true,
-      },
-      async (adapterPayload) => {
-        const secretUseRefs: Array<{ slot: EveSecretFieldSlot; deliveryRef: string }> = [];
-        for (const slotBinding of slotsToUse) {
-          // Slot permits and globally one-use OTP consumption are order-sensitive
-          // durable CAS operations; parallel resolution would violate that contract.
-          // eslint-disable-next-line no-await-in-loop
-          const brokerResult = await this.broker.use(
-            { binding, reservationId, claimId, slot: slotBinding.slot, executionContract },
-            this.deps.secretResolver,
-            {
-              preflight: () =>
-                this.recheckTrustedExecution(
-                  binding,
-                  proposal,
-                  adapter,
-                  input.authority.authorityGrantId,
-                  input.riskClass,
-                  {
-                    version: EXTERNAL_ACTION_CONVERSATION_CONTEXT_VERSION,
-                    conversationId: executionContract.conversationId,
-                    conversationSessionId: executionContract.conversationSessionId,
-                  }
-                ),
-              inject: async (material) => {
-                const sinkResult = await this.deps.secretSink!.inject({
-                  binding,
-                  conversationId: executionContract.conversationId,
-                  conversationSessionId: executionContract.conversationSessionId,
-                  reservationId,
-                  claimId,
-                  adapterId: adapter.id,
-                  authMode: auth.authMode,
-                  domain: executionContract.domain,
-                  action: executionContract.domainAction,
-                  origins:
-                    executionContract.domain === 'commerce'
-                      ? [executionContract.merchantOrigin!, executionContract.checkoutOrigin!]
-                      : [executionContract.providerOrigin!],
-                  exactOrigin: executionContract.targetOrigin,
-                  slot: slotBinding.slot,
-                  executionContractDigest: executionContract.executionContractDigest,
-                  ...(auth.browserPartition ? { browserPartition: auth.browserPartition } : {}),
-                  material,
-                });
-                if (
-                  !hasExactKeys(sinkResult, ['status', 'deliveryRef']) ||
-                  sinkResult.status !== 'applied' ||
-                  !isEveOpaqueId(sinkResult.deliveryRef)
-                ) {
-                  throw new Error('EXTERNAL_SECRET_SINK_UNKNOWN');
-                }
-                secretUseRefs.push({ slot: slotBinding.slot, deliveryRef: sinkResult.deliveryRef });
-              },
-            }
-          );
-          if ('reasonCode' in brokerResult) return { kind: 'broker' as const, brokerResult };
-        }
-        return {
-          kind: 'adapter' as const,
-          adapterOutcome: await adapter.execute({
-            binding,
-            proposal,
-            authMode: auth.authMode,
-            ...(secretUseRefs.length > 0 ? { secretUseRefs: Object.freeze([...secretUseRefs]) } : {}),
-            ...(auth.browserPartition ? { browserPartition: auth.browserPartition } : {}),
-            ...(adapterPayload ? { adapterPayload } : {}),
-          }),
-        };
-      }
-    );
-    if ('reasonCode' in dispatched) {
-      if (dispatched.beforeEffect) {
-        const status = statusForBrokerReason(dispatched.reasonCode);
-        const terminalReason = externalActionTerminalReason(dispatched.reasonCode);
-        this.store.reverse({
-          binding,
-          reservationId,
-          claimId,
-          authMode: executionContract.authMode,
-          terminalState: terminalStateForStatus(status),
-          reasonCode: terminalReason,
-          outcomeDigest: sha256(dispatched.reasonCode),
-        });
+        outcome = { status: 'unknown_outcome', reasonCode: unknownOutcomeReason(dispatched.reasonCode) };
+      } else if (dispatched.value.kind === 'broker') {
+        const brokerResult = dispatched.value.brokerResult;
+        const status =
+          brokerResult.status === 'unknown' ? 'unknown_outcome' : statusForBrokerReason(brokerResult.reasonCode);
         return result(status, {
-          reasonCode: terminalReason,
+          reasonCode:
+            status === 'unknown_outcome'
+              ? unknownOutcomeReason(brokerResult.reasonCode)
+              : externalActionTerminalReason(brokerResult.reasonCode),
           reservationId,
           authMode: auth.authMode,
+          ...(status === 'unknown_outcome' ? { retryAllowed: false } : {}),
           ...this.presentation({ status, binding, proposal, executionContract, reservationId }),
         });
+      } else {
+        outcome = adapterOutcome(dispatched.value.adapterOutcome, executionContract);
       }
-      outcome = { status: 'unknown_outcome', reasonCode: unknownOutcomeReason(dispatched.reasonCode) };
-    } else if (dispatched.value.kind === 'broker') {
-      const brokerResult = dispatched.value.brokerResult;
-      const status =
-        brokerResult.status === 'unknown' ? 'unknown_outcome' : statusForBrokerReason(brokerResult.reasonCode);
-      return result(status, {
-        reasonCode:
-          status === 'unknown_outcome'
-            ? unknownOutcomeReason(brokerResult.reasonCode)
-            : externalActionTerminalReason(brokerResult.reasonCode),
-        reservationId,
-        authMode: auth.authMode,
-        ...(status === 'unknown_outcome' ? { retryAllowed: false } : {}),
-        ...this.presentation({ status, binding, proposal, executionContract, reservationId }),
-      });
-    } else {
-      outcome = adapterOutcome(dispatched.value.adapterOutcome, executionContract);
-    }
-    return this.persistAdapterOutcome(
-      input,
-      outcome ?? { status: 'unknown_outcome', reasonCode: 'UNKNOWN_EXTERNAL_EFFECT' },
-      auth.authMode,
-      true
-    );
+      return this.persistAdapterOutcome(
+        input,
+        outcome ?? { status: 'unknown_outcome', reasonCode: 'UNKNOWN_EXTERNAL_EFFECT' },
+        auth.authMode,
+        true
+      );
     } finally {
       input.inlinePayload?.fill(0);
     }
@@ -2946,9 +2954,10 @@ export class ExternalActionExecutionService {
       // Only the Main-selected OAuth consent step may leave the action target.
       // Generic pre-execute and post-effect challenges remain action-origin
       // bound, including 3DS and payment challenges.
-      origin: kind === 'oauth_consent' && input.executionContract.authOrigin
-        ? input.executionContract.authOrigin
-        : input.proposal.action.targetOrigin,
+      origin:
+        kind === 'oauth_consent' && input.executionContract.authOrigin
+          ? input.executionContract.authOrigin
+          : input.proposal.action.targetOrigin,
       expiresAt,
       userInstructionCode: instructionForChallengeKind(kind),
     };
@@ -3195,7 +3204,9 @@ export class ExternalActionExecutionService {
     const base = { binding, proposal };
     const authOrigin = authOrigins[0];
     const authOriginsDigest = authOrigins.length > 0 ? sha256(canonical(authOrigins)) : undefined;
-    const authBrowserPartition = authOrigin ? externalActionBrowserPartition(binding, authOrigin) ?? undefined : undefined;
+    const authBrowserPartition = authOrigin
+      ? (externalActionBrowserPartition(binding, authOrigin) ?? undefined)
+      : undefined;
     const oauthHandleId =
       slotManifest.find((entry) => entry.slot === 'oauth_token')?.handleId ?? proposal.oauthHandleId;
     const passwordHandleId =
